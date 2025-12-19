@@ -1,0 +1,11 @@
+name = "nemu-service"
+main = "service.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+RATE_LIMIT_REQUESTS = "100"
+RATE_LIMIT_WINDOW_MS = "60000"
+CACHE_TTL_MS = "300000"
+MAX_CACHE_SIZE = "1000"
+# ALLOWED_DOMAINS = ""  # Uncomment and set to restrict domains
+

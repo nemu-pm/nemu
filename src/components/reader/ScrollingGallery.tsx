@@ -1,0 +1,421 @@
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
+import { List, type ListImperativeAPI } from 'react-window'
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
+import type { ScrollingGalleryProps, PagePairingMode } from './types'
+
+interface RowProps {
+  pageCount: number
+  renderImage: (index: number) => React.ReactNode
+  onBackgroundClick?: () => void
+  isTwoPageMode: boolean
+  pagePairingMode: PagePairingMode
+  readingMode: 'rtl' | 'ltr' | 'scrolling'
+  spreads: number[][]
+}
+
+// Helper functions
+const calculateSpreads = (
+  pageCount: number,
+  pagePairingMode: PagePairingMode
+): number[][] => {
+  const result: number[][] = []
+
+  if (pagePairingMode === 'manga') {
+    // Manga mode: page 0 alone, then 1+2, 3+4, 5+6, etc.
+    result.push([0])
+    for (let i = 1; i < pageCount; i += 2) {
+      if (i + 1 < pageCount) {
+        result.push([i, i + 1])
+      } else {
+        result.push([i])
+      }
+    }
+  } else {
+    // Book mode: 0+1, 2+3, 4+5, etc.
+    for (let i = 0; i < pageCount; i += 2) {
+      if (i + 1 < pageCount) {
+        result.push([i, i + 1])
+      } else {
+        result.push([i])
+      }
+    }
+  }
+
+  return result
+}
+
+const findSpreadIndex = (spreads: number[][], pageIndex: number): number => {
+  for (let i = 0; i < spreads.length; i++) {
+    if (spreads[i].includes(pageIndex)) {
+      return i
+    }
+  }
+  return 0
+}
+
+// Row component for react-window v2
+function ScrollingRow({
+  index,
+  style,
+  renderImage,
+  onBackgroundClick,
+  isTwoPageMode,
+  readingMode,
+  spreads,
+}: { index: number; style: React.CSSProperties } & RowProps) {
+  if (isTwoPageMode) {
+    const spreadPages = spreads[index]
+
+    return (
+      <div style={style} className="flex items-center justify-center bg-black">
+        <div
+          className="relative w-full h-full flex items-center justify-center"
+          onClick={onBackgroundClick}
+        >
+          {spreadPages.length === 1 ? (
+            <div className="relative h-full flex items-center justify-center max-w-full">
+              {renderImage(spreadPages[0])}
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              {/* Left page */}
+              <div className="relative h-full flex items-center justify-end">
+                {renderImage(readingMode === 'rtl' ? spreadPages[0] : spreadPages[1])}
+              </div>
+
+              {/* Right page */}
+              <div className="relative h-full flex items-center justify-start">
+                {renderImage(readingMode === 'rtl' ? spreadPages[1] : spreadPages[0])}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Single page mode
+  return (
+    <div style={style} className="flex items-center justify-center bg-black" onClick={onBackgroundClick}>
+      <div className="h-full w-full [&>img]:h-full [&>img]:w-full [&>img]:object-contain">
+        {renderImage(index)}
+      </div>
+    </div>
+  )
+}
+
+export function ScrollingGallery({
+  pageCount,
+  currentPageIndex,
+  onPageChange,
+  renderImage,
+  onBackgroundClick,
+  isTwoPageMode = false,
+  pagePairingMode = 'manga',
+  readingMode = 'scrolling',
+}: ScrollingGalleryProps) {
+  const listRef = useRef<ListImperativeAPI>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [currentScale, setCurrentScale] = useState(1)
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
+  const isScrollingInternally = useRef(false)
+
+  // Drag-to-scroll state
+  const isDragging = useRef(false)
+  const dragStartY = useRef(0)
+  const dragStartScrollTop = useRef(0)
+  const currentScrollOffset = useRef(0)
+
+  // Velocity tracking for inertia
+  const velocityTracker = useRef<Array<{ time: number; position: number }>>([])
+  const inertiaAnimation = useRef<number | null>(null)
+  const isInertiaScrolling = useRef(false)
+
+  // Memoized calculations
+  const spreads = useMemo(
+    () => (isTwoPageMode ? calculateSpreads(pageCount, pagePairingMode) : []),
+    [pageCount, isTwoPageMode, pagePairingMode]
+  )
+
+  const currentSpreadIndex = useMemo(
+    () => (isTwoPageMode ? findSpreadIndex(spreads, currentPageIndex) : currentPageIndex),
+    [currentPageIndex, isTwoPageMode, spreads]
+  )
+
+  const rowCount = isTwoPageMode ? spreads.length : pageCount
+
+  // Track container size
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    const updateSize = () => {
+      if (containerRef.current) {
+        setContainerSize({
+          width: containerRef.current.offsetWidth,
+          height: containerRef.current.offsetHeight,
+        })
+      }
+    }
+
+    updateSize()
+
+    const resizeObserver = new ResizeObserver(updateSize)
+    resizeObserver.observe(containerRef.current)
+
+    return () => resizeObserver.disconnect()
+  }, [])
+
+  const stopInertia = useCallback(() => {
+    if (inertiaAnimation.current) {
+      cancelAnimationFrame(inertiaAnimation.current)
+      inertiaAnimation.current = null
+      isInertiaScrolling.current = false
+    }
+  }, [])
+
+  const getRowHeight = useCallback(() => {
+    if (isTwoPageMode) {
+      return containerSize.height || window.innerHeight
+    }
+    // For single-page scrolling: use the smaller of viewport height or width-based height
+    // This ensures images fill height on wide screens, fill width on narrow screens
+    const width = containerSize.width || window.innerWidth
+    const height = containerSize.height || window.innerHeight
+    const widthBasedHeight = Math.round(width * 1.4)
+    return Math.min(height, widthBasedHeight)
+  }, [containerSize.height, containerSize.width, isTwoPageMode])
+
+  // Handle scroll via native scroll event on the list's element
+  const handleNativeScroll = useCallback(
+    (e: Event) => {
+      const target = e.target as HTMLElement
+      const scrollOffset = target.scrollTop
+      currentScrollOffset.current = scrollOffset
+
+      if (!isDragging.current && !isInertiaScrolling.current && inertiaAnimation.current) {
+        stopInertia()
+      }
+
+      isScrollingInternally.current = true
+
+      // Find the most visible item
+      let accumulated = 0
+      const targetCount = isTwoPageMode ? spreads.length : pageCount
+      const itemHeight = getRowHeight()
+
+      for (let i = 0; i < targetCount; i++) {
+        if (scrollOffset < accumulated + itemHeight * 0.5) {
+          let newPageIndex: number
+
+          if (isTwoPageMode) {
+            newPageIndex = spreads[i][0]
+          } else {
+            newPageIndex = i
+          }
+
+          if (newPageIndex !== currentPageIndex) {
+            requestAnimationFrame(() => {
+              onPageChange(newPageIndex)
+            })
+          }
+          break
+        }
+        accumulated += itemHeight
+      }
+
+      setTimeout(() => {
+        isScrollingInternally.current = false
+      }, 150)
+    },
+    [currentPageIndex, onPageChange, getRowHeight, stopInertia, isTwoPageMode, spreads, pageCount]
+  )
+
+  // Attach scroll listener to list element
+  useEffect(() => {
+    const listElement = listRef.current?.element
+    if (!listElement) return
+
+    listElement.addEventListener('scroll', handleNativeScroll)
+    return () => listElement.removeEventListener('scroll', handleNativeScroll)
+  }, [handleNativeScroll, containerSize])
+
+  // Mouse interaction handlers
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0 || currentScale > 1) return
+
+      isDragging.current = true
+      dragStartY.current = e.clientY
+      dragStartScrollTop.current = currentScrollOffset.current
+      velocityTracker.current = [{ time: Date.now(), position: e.clientY }]
+
+      stopInertia()
+
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+      e.preventDefault()
+    },
+    [stopInertia, currentScale]
+  )
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging.current || !listRef.current?.element) return
+
+    const scrollDeltaY = dragStartY.current - e.clientY
+    const newScrollTop = dragStartScrollTop.current + scrollDeltaY
+
+    listRef.current.element.scrollTop = Math.max(0, newScrollTop)
+
+    const now = Date.now()
+    velocityTracker.current.push({ time: now, position: e.clientY })
+    velocityTracker.current = velocityTracker.current.filter((point) => now - point.time < 100)
+
+    e.preventDefault()
+  }, [])
+
+  const calculateVelocity = useCallback(() => {
+    if (velocityTracker.current.length < 2) return 0
+
+    const recent = velocityTracker.current.slice(-3)
+    const first = recent[0]
+    const last = recent[recent.length - 1]
+
+    const deltaTime = last.time - first.time
+    const deltaPosition = last.position - first.position
+
+    if (deltaTime === 0) return 0
+
+    return (deltaPosition / deltaTime) * -12
+  }, [])
+
+  const animateInertia = useCallback((initialVelocity: number) => {
+    if (!listRef.current?.element) return
+
+    let velocity = initialVelocity
+    const friction = 0.96
+    const minVelocity = 0.1
+
+    isInertiaScrolling.current = true
+
+    const animate = () => {
+      if (!listRef.current?.element || Math.abs(velocity) < minVelocity) {
+        inertiaAnimation.current = null
+        isInertiaScrolling.current = false
+        return
+      }
+
+      const currentScroll = currentScrollOffset.current
+      const newScroll = Math.max(0, currentScroll + velocity)
+
+      listRef.current.element.scrollTop = newScroll
+      currentScrollOffset.current = newScroll
+      velocity *= friction
+
+      inertiaAnimation.current = requestAnimationFrame(animate)
+    }
+
+    inertiaAnimation.current = requestAnimationFrame(animate)
+  }, [])
+
+  const handleMouseUp = useCallback(() => {
+    if (!isDragging.current) return
+
+    isDragging.current = false
+
+    const velocity = calculateVelocity()
+    if (Math.abs(velocity) > 0.01) {
+      animateInertia(velocity)
+    }
+
+    document.removeEventListener('mousemove', handleMouseMove)
+    document.removeEventListener('mouseup', handleMouseUp)
+  }, [handleMouseMove, calculateVelocity, animateInertia])
+
+  // Effects
+  useEffect(() => {
+    if (listRef.current && currentPageIndex >= 0 && !isScrollingInternally.current) {
+      const targetIndex = isTwoPageMode ? currentSpreadIndex : currentPageIndex
+      listRef.current.scrollToRow({ index: targetIndex, align: 'center' })
+    }
+  }, [currentPageIndex, currentSpreadIndex, isTwoPageMode])
+
+  useEffect(() => {
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      stopInertia()
+    }
+  }, [handleMouseMove, handleMouseUp, stopInertia])
+
+  const rowProps: RowProps = useMemo(
+    () => ({
+      pageCount,
+      renderImage,
+      onBackgroundClick,
+      isTwoPageMode,
+      pagePairingMode,
+      readingMode: readingMode as 'rtl' | 'ltr' | 'scrolling',
+      spreads,
+    }),
+    [pageCount, renderImage, onBackgroundClick, isTwoPageMode, pagePairingMode, readingMode, spreads]
+  )
+
+  return (
+    <div ref={containerRef} className="w-full h-full bg-black">
+      <TransformWrapper
+        initialScale={1}
+        minScale={1}
+        maxScale={3}
+        doubleClick={{
+          disabled: false,
+          mode: 'toggle',
+          step: 0.5,
+        }}
+        wheel={{
+          wheelDisabled: currentScale <= 1,
+          touchPadDisabled: currentScale <= 1,
+          step: 0.1,
+        }}
+        onTransformed={(_ref, state) => {
+          setCurrentScale(state.scale)
+        }}
+        pinch={{
+          disabled: false,
+          step: 5,
+        }}
+        panning={{
+          disabled: currentScale <= 1,
+          velocityDisabled: true,
+        }}
+        limitToBounds={true}
+        centerOnInit={true}
+      >
+        <TransformComponent wrapperClass="w-full h-full" contentClass="w-full h-full">
+          <div
+            onMouseDown={handleMouseDown}
+            style={{ cursor: currentScale <= 1 ? 'grab' : 'default' }}
+            className="w-full h-full"
+          >
+            {containerSize.height > 0 && (
+              <List<RowProps>
+                listRef={listRef}
+                rowComponent={ScrollingRow}
+                rowCount={rowCount}
+                rowHeight={getRowHeight()}
+                rowProps={rowProps}
+                overscanCount={1}
+                style={{
+                  height: containerSize.height,
+                  width: containerSize.width,
+                  scrollbarWidth: 'none',
+                  msOverflowStyle: 'none',
+                }}
+                className="[&::-webkit-scrollbar]:hidden"
+              />
+            )}
+          </div>
+        </TransformComponent>
+      </TransformWrapper>
+    </div>
+  )
+}
