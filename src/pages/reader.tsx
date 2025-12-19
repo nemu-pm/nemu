@@ -1,26 +1,26 @@
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSourcesStore } from "@/stores/sources";
-import { useHistoryStore } from "@/stores/history";
-import type { Page, Chapter } from "@/providers";
-import { Reader } from "@/components/reader";
+import { DirectionProvider } from "@base-ui/react/direction-provider";
+import { useStores } from "@/data/context";
+import { Keys } from "@/data/keys";
+import type { Page, Chapter } from "@/lib/sources";
+import { Reader, type ReadingMode } from "@/components/reader";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { Spinner } from "@/components/ui/spinner";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft01Icon,
-  ArrowRight01Icon,
-  Cancel01Icon,
-  ViewIcon,
+  PreviousIcon,
+  NextIcon,
+  Settings02Icon,
 } from "@hugeicons/core-free-icons";
-import type { ReadingMode } from "@/components/reader";
 
 export function ReaderPage() {
   const { registryId, sourceId, mangaId, chapterId } = useParams({
@@ -32,8 +32,14 @@ export function ReaderPage() {
     chapterId: string;
   };
   const navigate = useNavigate();
-  const { getSource } = useSourcesStore();
+  const { useSettingsStore, useLibraryStore, useHistoryStore } = useStores();
+  const { getSource, readingMode, setReadingMode } = useSettingsStore();
+  const { isInLibrary } = useLibraryStore();
   const { getProgress, saveProgress, markCompleted } = useHistoryStore();
+
+  // Library manga ID for progress tracking (only works if in library)
+  const libraryMangaId = Keys.manga(registryId, sourceId, mangaId);
+  const inLibrary = isInLibrary(registryId, sourceId, mangaId);
 
   const [pages, setPages] = useState<Page[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
@@ -41,13 +47,22 @@ export function ReaderPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showUI, setShowUI] = useState(true);
-  const [readingMode, setReadingMode] = useState<ReadingMode>("rtl");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [imageUrls, setImageUrls] = useState<Map<number, string>>(new Map());
 
   // Debounce save timer
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track imageUrls for unmount cleanup only
   const imageUrlsRef = useRef<Map<number, string>>(new Map());
+  // Track which pages are currently being loaded to avoid duplicate loads
+  const loadingPagesRef = useRef<Set<number>>(new Set());
+
+  // Auto-close settings when toolbar/UI is hidden
+  useEffect(() => {
+    if (!showUI && settingsOpen) {
+      setSettingsOpen(false);
+    }
+  }, [showUI, settingsOpen]);
 
   // Load pages and restore progress
   useEffect(() => {
@@ -63,6 +78,8 @@ export function ReaderPage() {
       prev.forEach((url) => URL.revokeObjectURL(url));
       return new Map<number, string>();
     });
+    imageUrlsRef.current = new Map();
+    loadingPagesRef.current.clear();
 
     (async () => {
       try {
@@ -82,10 +99,12 @@ export function ReaderPage() {
         setPages(pagesData);
         setChapters(chaptersData);
 
-        // Restore reading progress
-        const history = await getProgress(registryId, sourceId, mangaId, chapterId);
-        if (history && history.progress < pagesData.length) {
-          setCurrentPage(history.progress);
+        // Restore reading progress (only if in library)
+        if (inLibrary) {
+          const progress = await getProgress(libraryMangaId, chapterId);
+          if (progress && progress.progress < pagesData.length) {
+            setCurrentPage(progress.progress);
+          }
         }
       } catch (e) {
         if (cancelled) return;
@@ -98,11 +117,11 @@ export function ReaderPage() {
     return () => {
       cancelled = true;
     };
-  }, [registryId, sourceId, mangaId, chapterId, getSource, getProgress]);
+  }, [registryId, sourceId, mangaId, chapterId, getSource, getProgress, inLibrary, libraryMangaId]);
 
-  // Auto-save progress (debounced)
+  // Auto-save progress (debounced, only if in library)
   useEffect(() => {
-    if (pages.length === 0) return;
+    if (pages.length === 0 || !inLibrary) return;
 
     // Clear previous timer
     if (saveTimerRef.current) {
@@ -111,11 +130,11 @@ export function ReaderPage() {
 
     // Debounce save by 500ms
     saveTimerRef.current = setTimeout(() => {
-      saveProgress(registryId, sourceId, mangaId, chapterId, currentPage, pages.length);
+      saveProgress(libraryMangaId, chapterId, currentPage, pages.length);
 
       // Mark as completed if on last page
       if (currentPage >= pages.length - 1) {
-        markCompleted(registryId, sourceId, mangaId, chapterId);
+        markCompleted(libraryMangaId, chapterId);
       }
     }, 500);
 
@@ -127,40 +146,43 @@ export function ReaderPage() {
   }, [
     currentPage,
     pages.length,
-    registryId,
-    sourceId,
-    mangaId,
+    inLibrary,
+    libraryMangaId,
     chapterId,
     saveProgress,
     markCompleted,
   ]);
 
-  // Preload images
+  // Preload images with eviction for memory pressure
   useEffect(() => {
     if (pages.length === 0) return;
 
-    let cancelled = false;
+    // Keep pages within this range from current position
+    const KEEP_RANGE = 20;
 
     const loadImage = async (index: number) => {
-      if (imageUrls.has(index)) return;
-      if (cancelled) return;
+      // Check if already loaded or currently loading
+      if (imageUrlsRef.current.has(index)) return;
+      if (loadingPagesRef.current.has(index)) return;
+
+      loadingPagesRef.current.add(index);
       try {
         const blob = await pages[index].getImage();
-        if (cancelled) return;
         const url = URL.createObjectURL(blob);
-        if (cancelled) {
-          URL.revokeObjectURL(url);
-          return;
-        }
         setImageUrls((prev) => {
+          // Double-check in case it was loaded while we were fetching
+          if (prev.has(index)) {
+            URL.revokeObjectURL(url);
+            return prev;
+          }
           const next = new Map(prev).set(index, url);
           imageUrlsRef.current = next;
           return next;
         });
       } catch (e) {
-        if (!cancelled) {
-          console.error(`Failed to load page ${index}:`, e);
-        }
+        console.error(`Failed to load page ${index}:`, e);
+      } finally {
+        loadingPagesRef.current.delete(index);
       }
     };
 
@@ -174,10 +196,25 @@ export function ReaderPage() {
 
     toLoad.forEach(loadImage);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [pages, currentPage, imageUrls]);
+    // Evict pages far from current position to reduce memory pressure
+    setImageUrls((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const [index, url] of prev) {
+        if (Math.abs(index - currentPage) > KEEP_RANGE) {
+          URL.revokeObjectURL(url);
+          next.delete(index);
+          loadingPagesRef.current.delete(index);
+          changed = true;
+        }
+      }
+      if (changed) {
+        imageUrlsRef.current = next;
+        return next;
+      }
+      return prev;
+    });
+  }, [pages, currentPage]);
 
   // Cleanup blob URLs on unmount (only runs when component unmounts)
   useEffect(() => {
@@ -205,13 +242,21 @@ export function ReaderPage() {
     setShowUI((prev) => !prev);
   }, []);
 
+  const handleSliderChange = useCallback(
+    (value: number | readonly number[]) => {
+      const newPage = Array.isArray(value) ? value[0] : value;
+      setCurrentPage(newPage);
+    },
+    []
+  );
+
   const renderImage = useCallback(
     (index: number) => {
       const url = imageUrls.get(index);
       if (!url) {
         return (
-          <div className="flex h-full w-full items-center justify-center bg-muted">
-            <Spinner className="size-8" />
+          <div className="flex h-full w-full items-center justify-center bg-black">
+            <Spinner className="size-8 text-white" />
           </div>
         );
       }
@@ -229,21 +274,18 @@ export function ReaderPage() {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="text-center">
-          <Spinner className="mx-auto mb-4 size-8" />
-          <p className="text-muted-foreground">Loading chapter...</p>
-        </div>
+      <div className="flex h-screen items-center justify-center bg-black">
+        <div className="animate-spin h-8 w-8 border-4 border-white border-t-transparent rounded-full" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-screen items-center justify-center bg-black">
         <div className="text-center">
-          <p className="text-xl text-destructive">Failed to load chapter</p>
-          <p className="mt-2 text-muted-foreground">{error}</p>
+          <p className="text-xl text-red-400">Failed to load chapter</p>
+          <p className="mt-2 text-white/60">{error}</p>
           <Link
             to="/sources/$registryId/$sourceId/$mangaId"
             params={{ registryId, sourceId, mangaId }}
@@ -257,38 +299,53 @@ export function ReaderPage() {
     );
   }
 
+  const sliderValue = currentPage;
+
+  // For RTL mode, swap chapter navigation (left button = next, right button = prev)
+  const leftChapter = readingMode === "rtl" ? nextChapter : prevChapter;
+  const rightChapter = readingMode === "rtl" ? prevChapter : nextChapter;
+
   return (
-    <div className="h-screen w-screen bg-black">
-      {/* Top bar */}
+    <div className="h-screen w-screen bg-black relative overflow-hidden">
+      {/* Top Gradient Header */}
       <header
-        className={`fixed inset-x-0 top-0 z-50 bg-black/80 backdrop-blur transition-transform ${
-          showUI ? "translate-y-0" : "-translate-y-full"
+        className={`absolute left-0 right-0 z-10 reader-gradient-toolbar reader-toolbar-height transition-all duration-300 ${
+          showUI ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-8 pointer-events-none"
         }`}
       >
-        <div className="flex h-14 items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-            <Link
-              to="/sources/$registryId/$sourceId/$mangaId"
-              params={{ registryId, sourceId, mangaId }}
-            >
-              <Button variant="ghost" size="icon-sm">
-                <HugeiconsIcon icon={Cancel01Icon} className="size-5" />
-              </Button>
-            </Link>
-            <div className="text-sm text-white">
-              <span className="font-medium">
-                Ch. {currentChapter?.chapterNumber ?? "?"}
-              </span>
-              {currentChapter?.title && (
-                <span className="ml-2 text-white/60">{currentChapter.title}</span>
-              )}
+        <div
+          className="py-4"
+          style={{
+            paddingLeft: "max(24px, env(safe-area-inset-left, 24px))",
+            paddingRight: "max(24px, env(safe-area-inset-right, 24px))",
+            paddingTop: "calc(16px + env(safe-area-inset-top, 0px))",
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <Link
+                to="/sources/$registryId/$sourceId/$mangaId"
+                params={{ registryId, sourceId, mangaId }}
+              >
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-white/90 hover:text-white hover:bg-white/20 rounded-xl transition-all duration-200"
+                >
+                  <HugeiconsIcon icon={ArrowLeft01Icon} className="size-5" />
+                </Button>
+              </Link>
+              <div className="min-w-0 flex-1">
+                <h1 className="text-white font-semibold truncate text-base">
+                  Ch. {currentChapter?.chapterNumber ?? "?"}
+                </h1>
+                {currentChapter?.title && (
+                  <p className="text-white/70 text-sm mt-0.5 truncate">
+                    {currentChapter.title}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-white/60">
-              {currentPage + 1} / {pages.length}
-            </span>
           </div>
         </div>
       </header>
@@ -304,53 +361,111 @@ export function ReaderPage() {
         onBackgroundClick={handleBackgroundClick}
       />
 
-      {/* Bottom bar */}
-      <footer
-        className={`fixed inset-x-0 bottom-0 z-50 bg-black/80 backdrop-blur transition-transform ${
-          showUI ? "translate-y-0" : "translate-y-full"
+      {/* Bottom Blur Overlay */}
+      <div
+        className={`absolute left-0 right-0 reader-gradient-bottom reader-bottom-blur-height transition-all duration-300 ${
+          showUI ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8 pointer-events-none"
         }`}
+        style={{ zIndex: 5 }}
+      />
+
+      {/* Floating Bottom Panel */}
+      <div
+        className={`absolute z-10 reader-bottom-panel transition-all duration-300 ${
+          showUI
+            ? "opacity-100 translate-y-0 scale-100"
+            : "opacity-0 translate-y-12 scale-95 pointer-events-none"
+        }`}
+        style={{
+          bottom: "max(24px, env(safe-area-inset-bottom, 24px))",
+          left: "16px",
+          right: "16px",
+        }}
       >
-        <div className="flex h-16 items-center justify-between px-4">
-          {/* Chapter navigation */}
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={!prevChapter}
-            onClick={() => prevChapter && goToChapter(prevChapter)}
-            className="text-white"
-          >
-            <HugeiconsIcon icon={ArrowLeft01Icon} />
-            Prev
-          </Button>
+        <div className="px-5 py-4">
+          <div className="flex items-center gap-4">
+            {/* Chapter Navigation - Left (Previous in LTR, Next in RTL) */}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={!leftChapter}
+              onClick={() => leftChapter && goToChapter(leftChapter)}
+              className="text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all duration-200 disabled:opacity-30"
+            >
+              <HugeiconsIcon icon={PreviousIcon} className="size-4" />
+            </Button>
 
-          {/* Reading mode */}
-          <Select
-            value={readingMode}
-            onValueChange={(v) => setReadingMode(v as ReadingMode)}
-          >
-            <SelectTrigger className="w-36 border-white/20 bg-transparent text-white">
-              <HugeiconsIcon icon={ViewIcon} className="mr-2 size-4" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="rtl">Right to Left</SelectItem>
-              <SelectItem value="ltr">Left to Right</SelectItem>
-              <SelectItem value="scrolling">Vertical Scroll</SelectItem>
-            </SelectContent>
-          </Select>
+            {/* Page Counter */}
+            <div className="text-white text-xs font-medium min-w-fit">
+              <span className="bg-white/10 px-3 py-1.5 rounded-full">
+                {currentPage + 1} / {pages.length}
+              </span>
+            </div>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={!nextChapter}
-            onClick={() => nextChapter && goToChapter(nextChapter)}
-            className="text-white"
-          >
-            Next
-            <HugeiconsIcon icon={ArrowRight01Icon} />
-          </Button>
+            {/* Progress Slider */}
+            <div
+              className="flex-1 reader-slider-container"
+              dir={readingMode === "rtl" ? "rtl" : "ltr"}
+            >
+              <DirectionProvider direction={readingMode === "rtl" ? "rtl" : "ltr"}>
+                <Slider
+                  value={[sliderValue]}
+                  min={0}
+                  max={pages.length - 1}
+                  step={1}
+                  onValueChange={handleSliderChange}
+                />
+              </DirectionProvider>
+            </div>
+
+            {/* Settings Popover */}
+            <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <PopoverTrigger
+                render={<Button variant="ghost" size="icon-sm" />}
+                className={`text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all duration-200 ${
+                  settingsOpen ? "bg-white/10 text-white" : ""
+                }`}
+              >
+                <HugeiconsIcon icon={Settings02Icon} className="size-4" />
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="end"
+                sideOffset={12}
+                className="w-auto p-3 reader-settings-popup border-white/10"
+              >
+                <Tabs
+                  value={readingMode}
+                  onValueChange={(v) => setReadingMode(v as ReadingMode)}
+                >
+                  <TabsList className="w-full">
+                    <TabsTrigger value="rtl" className="flex-1">
+                      RTL
+                    </TabsTrigger>
+                    <TabsTrigger value="ltr" className="flex-1">
+                      LTR
+                    </TabsTrigger>
+                    <TabsTrigger value="scrolling" className="flex-1">
+                      Scroll
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </PopoverContent>
+            </Popover>
+
+            {/* Chapter Navigation - Right (Next in LTR, Previous in RTL) */}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={!rightChapter}
+              onClick={() => rightChapter && goToChapter(rightChapter)}
+              className="text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all duration-200 disabled:opacity-30"
+            >
+              <HugeiconsIcon icon={NextIcon} className="size-4" />
+            </Button>
+          </div>
         </div>
-      </footer>
+      </div>
     </div>
   );
 }

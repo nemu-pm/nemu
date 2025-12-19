@@ -118,7 +118,11 @@ export function ScrollingGallery({
   const containerRef = useRef<HTMLDivElement>(null)
   const [currentScale, setCurrentScale] = useState(1)
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
-  const isScrollingInternally = useRef(false)
+  
+  // Track the last page index we reported to prevent scroll-to-row feedback loop
+  const lastReportedPageIndex = useRef(currentPageIndex)
+  // Track if we're in the middle of user-initiated scrolling (drag or inertia)
+  const isUserScrolling = useRef(false)
 
   // Drag-to-scroll state
   const isDragging = useRef(false)
@@ -129,7 +133,6 @@ export function ScrollingGallery({
   // Velocity tracking for inertia
   const velocityTracker = useRef<Array<{ time: number; position: number }>>([])
   const inertiaAnimation = useRef<number | null>(null)
-  const isInertiaScrolling = useRef(false)
 
   // Memoized calculations
   const spreads = useMemo(
@@ -169,7 +172,6 @@ export function ScrollingGallery({
     if (inertiaAnimation.current) {
       cancelAnimationFrame(inertiaAnimation.current)
       inertiaAnimation.current = null
-      isInertiaScrolling.current = false
     }
   }, [])
 
@@ -192,12 +194,6 @@ export function ScrollingGallery({
       const scrollOffset = target.scrollTop
       currentScrollOffset.current = scrollOffset
 
-      if (!isDragging.current && !isInertiaScrolling.current && inertiaAnimation.current) {
-        stopInertia()
-      }
-
-      isScrollingInternally.current = true
-
       // Find the most visible item
       let accumulated = 0
       const targetCount = isTwoPageMode ? spreads.length : pageCount
@@ -213,21 +209,16 @@ export function ScrollingGallery({
             newPageIndex = i
           }
 
-          if (newPageIndex !== currentPageIndex) {
-            requestAnimationFrame(() => {
-              onPageChange(newPageIndex)
-            })
+          if (newPageIndex !== lastReportedPageIndex.current) {
+            lastReportedPageIndex.current = newPageIndex
+            onPageChange(newPageIndex)
           }
           break
         }
         accumulated += itemHeight
       }
-
-      setTimeout(() => {
-        isScrollingInternally.current = false
-      }, 150)
     },
-    [currentPageIndex, onPageChange, getRowHeight, stopInertia, isTwoPageMode, spreads, pageCount]
+    [onPageChange, getRowHeight, isTwoPageMode, spreads, pageCount]
   )
 
   // Attach scroll listener to list element
@@ -245,6 +236,7 @@ export function ScrollingGallery({
       if (e.button !== 0 || currentScale > 1) return
 
       isDragging.current = true
+      isUserScrolling.current = true
       dragStartY.current = e.clientY
       dragStartScrollTop.current = currentScrollOffset.current
       velocityTracker.current = [{ time: Date.now(), position: e.clientY }]
@@ -295,12 +287,10 @@ export function ScrollingGallery({
     const friction = 0.96
     const minVelocity = 0.1
 
-    isInertiaScrolling.current = true
-
     const animate = () => {
       if (!listRef.current?.element || Math.abs(velocity) < minVelocity) {
         inertiaAnimation.current = null
-        isInertiaScrolling.current = false
+        isUserScrolling.current = false
         return
       }
 
@@ -325,15 +315,27 @@ export function ScrollingGallery({
     const velocity = calculateVelocity()
     if (Math.abs(velocity) > 0.01) {
       animateInertia(velocity)
+    } else {
+      // No inertia, user scrolling ends immediately
+      isUserScrolling.current = false
     }
 
     document.removeEventListener('mousemove', handleMouseMove)
     document.removeEventListener('mouseup', handleMouseUp)
   }, [handleMouseMove, calculateVelocity, animateInertia])
 
-  // Effects
+  // Scroll to page when currentPageIndex changes from external source (slider, buttons, etc.)
   useEffect(() => {
-    if (listRef.current && currentPageIndex >= 0 && !isScrollingInternally.current) {
+    // Only scroll programmatically if:
+    // 1. The page index changed from an external source (not from our scroll handler)
+    // 2. User is not currently scrolling (dragging or inertia)
+    if (
+      listRef.current &&
+      currentPageIndex >= 0 &&
+      currentPageIndex !== lastReportedPageIndex.current &&
+      !isUserScrolling.current
+    ) {
+      lastReportedPageIndex.current = currentPageIndex
       const targetIndex = isTwoPageMode ? currentSpreadIndex : currentPageIndex
       listRef.current.scrollToRow({ index: targetIndex, align: 'center' })
     }

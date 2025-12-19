@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearch, useNavigate } from "@tanstack/react-router";
-import { useSourcesStore } from "@/stores/sources";
-import type { Manga } from "@/providers";
+import { useStores } from "@/data/context";
+import type { Manga } from "@/lib/sources";
 import { CoverImage } from "@/components/cover-image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +29,8 @@ interface SourceResults {
 export function SearchPage() {
   const { q } = useSearch({ strict: false }) as { q: string };
   const navigate = useNavigate();
-  const { installedSources, availableSources, getSource } = useSourcesStore();
+  const { useSettingsStore } = useStores();
+  const { installedSources, availableSources, getSource } = useSettingsStore();
 
   const [query, setQuery] = useState(q);
   const [results, setResults] = useState<SourceResults[]>([]);

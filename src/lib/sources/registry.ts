@@ -2,8 +2,9 @@
  * Registry system for managing manga source providers
  */
 import type { MangaSource } from "./types";
-import type { SourceRegistry } from "../data/schema";
-import { getUserDataStore } from "../data/indexeddb";
+import type { SourceRegistry } from "../../data/schema";
+import type { UserDataStore } from "../../data/store";
+import type { CacheStore } from "../../data/cache";
 import { AidokuUrlRegistry, AIDOKU_REGISTRIES } from "./aidoku/url-registry";
 
 // ============ TYPES ============
@@ -33,24 +34,57 @@ export interface SourceRegistryProvider {
 export class RegistryManager {
   private registries: Map<string, SourceRegistryProvider> = new Map();
 
-  constructor() {
+  constructor(
+    private registryStore: UserDataStore, // For registry metadata (always local)
+    private installedSourceStore: UserDataStore, // For installed sources (can be Convex)
+    private cacheStore: CacheStore
+  ) {
     // Add default Aidoku registries
     for (const def of AIDOKU_REGISTRIES) {
-      const registry = new AidokuUrlRegistry(def.id, def.name, def.indexUrl);
+      const registry = new AidokuUrlRegistry(
+        def.id,
+        def.name,
+        def.indexUrl,
+        this.installedSourceStore,
+        this.cacheStore
+      );
+      this.registries.set(def.id, registry);
+    }
+  }
+
+  /**
+   * Update the store used for installed sources (called when auth state changes)
+   */
+  setInstalledSourceStore(store: UserDataStore): void {
+    this.installedSourceStore = store;
+    // Recreate registries with new store
+    for (const def of AIDOKU_REGISTRIES) {
+      const registry = new AidokuUrlRegistry(
+        def.id,
+        def.name,
+        def.indexUrl,
+        this.installedSourceStore,
+        this.cacheStore
+      );
       this.registries.set(def.id, registry);
     }
   }
 
   async initialize(): Promise<void> {
-    // Load user-added registries from storage
-    const userStore = getUserDataStore();
-    const savedRegistries = await userStore.getRegistries();
+    // Load user-added registries from storage (always local)
+    const savedRegistries = await this.registryStore.getRegistries();
 
     for (const registry of savedRegistries) {
       if (registry.type === "url" && !this.registries.has(registry.id)) {
         this.registries.set(
           registry.id,
-          new AidokuUrlRegistry(registry.id, registry.name, registry.url)
+          new AidokuUrlRegistry(
+            registry.id,
+            registry.name,
+            registry.url,
+            this.installedSourceStore,
+            this.cacheStore
+          )
         );
       }
     }
@@ -69,13 +103,18 @@ export class RegistryManager {
       return;
     }
 
-    const userStore = getUserDataStore();
-    await userStore.saveRegistry(registry);
+    await this.registryStore.saveRegistry(registry);
 
     if (registry.type === "url") {
       this.registries.set(
         registry.id,
-        new AidokuUrlRegistry(registry.id, registry.name, registry.url)
+        new AidokuUrlRegistry(
+          registry.id,
+          registry.name,
+          registry.url,
+          this.installedSourceStore,
+          this.cacheStore
+        )
       );
     }
   }
@@ -93,16 +132,14 @@ export class RegistryManager {
 
     this.registries.delete(id);
 
-    const userStore = getUserDataStore();
-    await userStore.removeRegistry(id);
+    await this.registryStore.removeRegistry(id);
   }
 
   /**
    * Get a source by ID, searching all registries
    */
   async getSource(sourceId: string): Promise<MangaSource | null> {
-    const userStore = getUserDataStore();
-    const installed = await userStore.getInstalledSource(sourceId);
+    const installed = await this.installedSourceStore.getInstalledSource(sourceId);
 
     if (installed) {
       const registry = this.registries.get(installed.registryId);
@@ -152,14 +189,4 @@ export class RegistryManager {
     }
     this.registries.clear();
   }
-}
-
-// Singleton instance
-let registryManagerInstance: RegistryManager | null = null;
-
-export function getRegistryManager(): RegistryManager {
-  if (!registryManagerInstance) {
-    registryManagerInstance = new RegistryManager();
-  }
-  return registryManagerInstance;
 }

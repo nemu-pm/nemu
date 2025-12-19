@@ -3,10 +3,10 @@
  * Fetches sources from remote Aidoku registry URLs (.aix packages)
  */
 import type { MangaSource } from "../types";
-import type { SourceRegistry } from "../../data/schema";
-import { getUserDataStore } from "../../data/indexeddb";
-import { getCacheStore } from "../../data/cache";
-import { Keys, CacheKeys } from "../../data/keys";
+import type { SourceRegistry } from "../../../data/schema";
+import type { UserDataStore } from "../../../data/store";
+import type { CacheStore } from "../../../data/cache";
+import { Keys, CacheKeys } from "../../../data/keys";
 import { createAidokuMangaSource } from "./adapter";
 import type { SourceManifest } from "./types";
 import type { SourceRegistryProvider, RegistrySourceInfo } from "../registry";
@@ -49,7 +49,13 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
   private loadedSources: Map<string, MangaSource> = new Map();
   private fetchPromise: Promise<void> | null = null;
 
-  constructor(id: string, name: string, indexUrl: string) {
+  constructor(
+    id: string,
+    name: string,
+    indexUrl: string,
+    private userStore: UserDataStore,
+    private cacheStore: CacheStore
+  ) {
     this.info = { id, name, type: "url", url: indexUrl };
     this.baseUrl = indexUrl.replace(/\/[^/]+$/, "");
   }
@@ -147,19 +153,17 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     const aixUrl = `${this.baseUrl}/${entry.downloadPath}`;
     const { wasmBytes, manifest } = await this.downloadAndExtractAix(aixUrl);
 
-    const cacheStore = getCacheStore();
     const registryId = this.info.id;
-    await cacheStore.set(CacheKeys.wasm(registryId, sourceId), wasmBytes);
+    await this.cacheStore.set(CacheKeys.wasm(registryId, sourceId), wasmBytes);
 
     const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
-    await cacheStore.set(
+    await this.cacheStore.set(
       CacheKeys.manifest(registryId, sourceId),
       manifestBytes.buffer as ArrayBuffer
     );
 
     // Save installed source with composite id for storage uniqueness
-    const userStore = getUserDataStore();
-    await userStore.saveInstalledSource({
+    await this.userStore.saveInstalledSource({
       id: Keys.source(registryId, sourceId),
       registryId,
       version: entry.version,
@@ -195,10 +199,9 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     const cached = this.loadedSources.get(sourceId);
     if (cached) return cached;
 
-    const cacheStore = getCacheStore();
     const registryId = this.info.id;
-    const wasmBytes = await cacheStore.get(CacheKeys.wasm(registryId, sourceId));
-    const manifestBytes = await cacheStore.get(CacheKeys.manifest(registryId, sourceId));
+    const wasmBytes = await this.cacheStore.get(CacheKeys.wasm(registryId, sourceId));
+    const manifestBytes = await this.cacheStore.get(CacheKeys.manifest(registryId, sourceId));
 
     if (!wasmBytes || !manifestBytes) {
       await this.ensureFetched();
@@ -219,9 +222,8 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
   }
 
   async isInstalled(sourceId: string): Promise<boolean> {
-    const cacheStore = getCacheStore();
     const registryId = this.info.id;
-    const wasmBytes = await cacheStore.get(CacheKeys.wasm(registryId, sourceId));
+    const wasmBytes = await this.cacheStore.get(CacheKeys.wasm(registryId, sourceId));
     return wasmBytes !== null;
   }
 

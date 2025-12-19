@@ -1,22 +1,31 @@
 import { useState } from "react";
-import { useSourcesStore } from "@/stores/sources";
+import { useConvexAuth } from "convex/react";
+import { authClient } from "@/lib/auth-client";
+import { useStores } from "@/data/context";
 import { parseSourceKey } from "@/data/keys";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { AddSourceDialog } from "@/components/add-source-dialog";
+import { SignInDialog } from "@/components/sign-in-dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Delete02Icon, CloudIcon } from "@hugeicons/core-free-icons";
 
 export function SettingsPage() {
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const { data: session } = authClient.useSession();
+  const { useSettingsStore } = useStores();
   const {
     availableSources,
     installedSources,
     loading,
     uninstallSource,
-  } = useSourcesStore();
+  } = useSettingsStore();
   const [addSourceOpen, setAddSourceOpen] = useState(false);
+  const [signInOpen, setSignInOpen] = useState(false);
   const [uninstalling, setUninstalling] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
 
   const installedSourcesInfo = installedSources.map((installed) => {
     // installed.id is composite key (registryId:sourceId)
@@ -52,11 +61,78 @@ export function SettingsPage() {
     );
   }
 
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await authClient.signOut();
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
+  const user = session?.user;
+  const initials = user?.name
+    ? user.name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : user?.email?.[0]?.toUpperCase() ?? "?";
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Settings</h1>
       </div>
+
+      {/* Account / Cloud Sync */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <HugeiconsIcon icon={CloudIcon} className="size-5" />
+            Cloud Sync
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {authLoading ? (
+            <div className="flex items-center gap-3">
+              <Spinner className="size-4" />
+              <span className="text-sm text-muted-foreground">Loading...</span>
+            </div>
+          ) : isAuthenticated && user ? (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Avatar>
+                  {user.image && <AvatarImage src={user.image} alt={user.name ?? "User"} />}
+                  <AvatarFallback>{initials}</AvatarFallback>
+                </Avatar>
+                <div>
+                  {user.name && <p className="font-medium">{user.name}</p>}
+                  <p className="text-sm text-muted-foreground">{user.email}</p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSignOut}
+                disabled={signingOut}
+              >
+                {signingOut ? <Spinner className="size-4" /> : "Sign Out"}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-muted-foreground">
+                Sign in to sync your library and reading progress across devices.
+              </p>
+              <Button size="sm" className="w-fit" onClick={() => setSignInOpen(true)}>
+                Sign In
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Installed Sources */}
       <Card>
@@ -116,6 +192,7 @@ export function SettingsPage() {
       </Card>
 
       <AddSourceDialog open={addSourceOpen} onOpenChange={setAddSourceOpen} />
+      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
     </div>
   );
 }

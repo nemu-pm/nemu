@@ -1,10 +1,8 @@
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { useSourcesStore } from "@/stores/sources";
-import { useLibraryStore } from "@/stores/library";
-import { useHistoryStore } from "@/stores/history";
-import type { Manga, Chapter } from "@/providers";
-import type { ReadingHistory } from "@/data/schema";
+import { useStores } from "@/data/context";
+import type { Manga, Chapter } from "@/lib/sources";
+import type { ChapterProgress } from "@/data/schema";
 import { Keys } from "@/data/keys";
 import { CoverImage } from "@/components/cover-image";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +25,8 @@ export function MangaPage() {
     mangaId: string;
   };
   const navigate = useNavigate();
-  const { getSource } = useSourcesStore();
+  const { useSettingsStore, useLibraryStore, useHistoryStore } = useStores();
+  const { getSource } = useSettingsStore();
   const {
     mangas,
     add: addToLibrary,
@@ -38,7 +37,7 @@ export function MangaPage() {
 
   const [manga, setManga] = useState<Manga | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
-  const [progress, setProgress] = useState<Map<string, ReadingHistory>>(new Map());
+  const [progress, setProgress] = useState<Record<string, ChapterProgress>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,13 +75,11 @@ export function MangaPage() {
         setManga(mangaData);
         setChapters(chaptersData);
 
-        // Load reading progress
-        const histories = await getMangaProgress(registryId, sourceId, mangaId);
-        const progressMap = new Map<string, ReadingHistory>();
-        for (const h of histories) {
-          progressMap.set(h.chapterId, h);
+        // Load reading progress (only if in library)
+        if (libraryManga) {
+          const historyRecord = await getMangaProgress(libraryManga.id);
+          setProgress(historyRecord);
         }
-        setProgress(progressMap);
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : String(e));
@@ -94,7 +91,7 @@ export function MangaPage() {
     return () => {
       cancelled = true;
     };
-  }, [registryId, sourceId, mangaId, getSource, getMangaProgress]);
+  }, [registryId, sourceId, mangaId, getSource, getMangaProgress, libraryManga]);
 
   const handleLibraryToggle = useCallback(async () => {
     if (!manga) return;
@@ -110,6 +107,7 @@ export function MangaPage() {
         sources: [{ registryId, sourceId, mangaId }],
         activeRegistryId: registryId,
         activeSourceId: sourceId,
+        history: {},
       });
     }
   }, [
@@ -154,7 +152,7 @@ export function MangaPage() {
 
   const firstChapter = chapters[chapters.length - 1];
   const lastReadChapter = chapters.find((ch) => {
-    const p = progress.get(ch.id);
+    const p = progress[ch.id];
     return p && !p.completed;
   });
   const continueChapter = lastReadChapter ?? firstChapter;
@@ -251,7 +249,7 @@ export function MangaPage() {
 
         <div className="space-y-1">
           {chapters.map((chapter) => {
-            const chapterProgress = progress.get(chapter.id);
+            const chapterProgress = progress[chapter.id];
             const isRead = chapterProgress?.completed;
             const isInProgress = chapterProgress && !chapterProgress.completed;
 

@@ -87,15 +87,5 @@ export class IndexedDBCacheStore implements CacheStore {
   }
 }
 
-// Singleton instance
-let cacheStoreInstance: CacheStore | null = null;
-
-export function getCacheStore(): CacheStore {
-  if (!cacheStoreInstance) {
-    cacheStoreInstance = new IndexedDBCacheStore();
-  }
-  return cacheStoreInstance;
-}
-
 // Re-export CacheKeys from centralized keys module
 export { CacheKeys } from "./keys";

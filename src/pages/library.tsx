@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useLibraryStore } from "@/stores/library";
-import { useSourcesStore } from "@/stores/sources";
+import { useStores } from "@/data/context";
 import { CoverImage } from "@/components/cover-image";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -10,11 +9,12 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Book01Icon } from "@hugeicons/core-free-icons";
 
 export function LibraryPage() {
+  const { useLibraryStore, useSettingsStore } = useStores();
   const { mangas, loading: libraryLoading } = useLibraryStore();
-  const { installedSources, loading: sourcesLoading } = useSourcesStore();
+  const { installedSources, loading: settingsLoading } = useSettingsStore();
   const [addSourceOpen, setAddSourceOpen] = useState(false);
 
-  const loading = libraryLoading || sourcesLoading;
+  const loading = libraryLoading || settingsLoading;
   const hasNoSources = installedSources.length === 0;
   const hasNoMangas = mangas.length === 0;
 

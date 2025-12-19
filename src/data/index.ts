@@ -1,7 +1,9 @@
 // Data layer exports
 export * from "./schema";
 export type { UserDataStore } from "./store";
-export { IndexedDBUserDataStore, getUserDataStore } from "./indexeddb";
+export { IndexedDBUserDataStore } from "./indexeddb";
+export { ConvexUserDataStore } from "./convex";
 export type { CacheStore } from "./cache";
-export { IndexedDBCacheStore, getCacheStore, CacheKeys } from "./cache";
+export { IndexedDBCacheStore, CacheKeys } from "./cache";
+export { DataProvider, useDataServices, useStores, useAuth } from "./context";
 

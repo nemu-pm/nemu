@@ -6,9 +6,6 @@ import {
   Link,
   useRouterState,
 } from "@tanstack/react-router";
-import { useEffect } from "react";
-import { useSourcesStore } from "@/stores/sources";
-import { useLibraryStore } from "@/stores/library";
 import { cn } from "@/lib/utils";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -16,6 +13,7 @@ import {
   Search01Icon,
   Settings02Icon,
 } from "@hugeicons/core-free-icons";
+import { AuthButton } from "@/components/auth-button";
 
 // Pages
 import { LibraryPage } from "./pages/library";
@@ -37,14 +35,6 @@ const shellRoute = createRoute({
 });
 
 function ShellLayout() {
-  const { initialize: initSources } = useSourcesStore();
-  const { load: loadLibrary } = useLibraryStore();
-
-  useEffect(() => {
-    initSources();
-    loadLibrary();
-  }, [initSources, loadLibrary]);
-
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Navbar */}
@@ -62,6 +52,9 @@ function ShellLayout() {
             <NavLink to="/" icon={Home01Icon} label="Library" />
             <NavLink to="/search" icon={Search01Icon} label="Search" />
             <NavLink to="/settings" icon={Settings02Icon} label="Settings" />
+            <div className="ml-2 border-l border-border pl-2">
+              <AuthButton />
+            </div>
           </nav>
         </div>
       </header>

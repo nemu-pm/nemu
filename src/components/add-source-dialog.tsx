@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
-import { useSourcesStore, type SourceInfo } from "@/stores/sources";
+import { useStores } from "@/data/context";
+import { type SourceInfo } from "@/stores/settings";
 import { Keys } from "@/data/keys";
 import {
   Dialog,
@@ -123,7 +124,8 @@ function RegistrySourceList({
   onBack: () => void;
   onDone: () => void;
 }) {
-  const { availableSources, installSource } = useSourcesStore();
+  const { useSettingsStore } = useStores();
+  const { availableSources, installSource } = useSettingsStore();
 
   // Group sources by registry
   const grouped = availableSources.reduce(
@@ -246,7 +248,8 @@ function CustomSourceUpload({
   onBack: () => void;
   onDone: () => void;
 }) {
-  const { installFromAix } = useSourcesStore();
+  const { useSettingsStore } = useStores();
+  const { installFromAix } = useSettingsStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { GlobalStore, isCheerioNode, isArray, isObject } from "./global-store";
+import { GlobalStore, DescriptorScope, isCheerioNode, isArray, isObject } from "./global-store";
 
 describe("GlobalStore", () => {
   let store: GlobalStore;
@@ -172,6 +172,171 @@ describe("GlobalStore", () => {
       const stats = store.getStats();
       expect(stats.totalDescriptorsCreated).toBe(2);
       expect(stats.totalDescriptorsDestroyed).toBe(1);
+    });
+  });
+
+  describe("scoped cleanup", () => {
+    it("should create a scope via createScope()", () => {
+      const scope = store.createScope();
+      expect(scope).toBeInstanceOf(DescriptorScope);
+      expect(scope.size).toBe(0);
+      expect(scope.isDisposed).toBe(false);
+    });
+
+    it("should track descriptors and clean them up", () => {
+      const scope = store.createScope();
+      
+      const d1 = scope.track(store.storeStdValue("value1"));
+      const d2 = scope.track(store.storeStdValue("value2"));
+      const d3 = scope.track(store.storeStdValue("value3"));
+
+      expect(scope.size).toBe(3);
+      expect(store.readStdValue(d1)).toBe("value1");
+      expect(store.readStdValue(d2)).toBe("value2");
+      expect(store.readStdValue(d3)).toBe("value3");
+
+      scope.cleanup();
+
+      expect(scope.isDisposed).toBe(true);
+      expect(scope.size).toBe(0);
+      expect(store.readStdValue(d1)).toBeUndefined();
+      expect(store.readStdValue(d2)).toBeUndefined();
+      expect(store.readStdValue(d3)).toBeUndefined();
+    });
+
+    it("should provide storeValue() convenience method", () => {
+      const scope = store.createScope();
+      
+      const d1 = scope.storeValue("convenience1");
+      const d2 = scope.storeValue(new Uint8Array([1, 2, 3]));
+
+      expect(scope.size).toBe(2);
+      expect(store.readStdValue(d1)).toBe("convenience1");
+      expect(store.readStdValue(d2)).toEqual(new Uint8Array([1, 2, 3]));
+
+      scope.cleanup();
+
+      expect(store.readStdValue(d1)).toBeUndefined();
+      expect(store.readStdValue(d2)).toBeUndefined();
+    });
+
+    it("should be safe to call cleanup() multiple times", () => {
+      const scope = store.createScope();
+      const d1 = scope.storeValue("test");
+
+      scope.cleanup();
+      scope.cleanup();
+      scope.cleanup();
+
+      expect(store.readStdValue(d1)).toBeUndefined();
+      expect(scope.isDisposed).toBe(true);
+    });
+
+    it("should throw when tracking on disposed scope", () => {
+      const scope = store.createScope();
+      scope.cleanup();
+
+      expect(() => scope.track(store.storeStdValue("test"))).toThrow(
+        "Cannot track descriptor on disposed scope"
+      );
+    });
+
+    it("should ignore invalid descriptors (<=0)", () => {
+      const scope = store.createScope();
+      
+      scope.track(-1);
+      scope.track(0);
+
+      expect(scope.size).toBe(0);
+    });
+
+    it("should work with try/finally pattern", () => {
+      const descriptors: number[] = [];
+      
+      const doWork = () => {
+        const scope = store.createScope();
+        try {
+          descriptors.push(scope.storeValue("a"));
+          descriptors.push(scope.storeValue("b"));
+          return "result";
+        } finally {
+          scope.cleanup();
+        }
+      };
+
+      const result = doWork();
+      expect(result).toBe("result");
+      expect(store.readStdValue(descriptors[0])).toBeUndefined();
+      expect(store.readStdValue(descriptors[1])).toBeUndefined();
+    });
+
+    it("should clean up even when exception is thrown", () => {
+      const scope = store.createScope();
+      let descriptor: number | undefined;
+
+      try {
+        descriptor = scope.storeValue("will be cleaned");
+        throw new Error("test error");
+      } catch {
+        // Expected
+      } finally {
+        scope.cleanup();
+      }
+
+      expect(descriptor).toBeDefined();
+      expect(store.readStdValue(descriptor!)).toBeUndefined();
+    });
+
+    it("should force remove regardless of refCount", () => {
+      const scope = store.createScope();
+      const d1 = store.storeStdValue("retained");
+      
+      // Manually retain multiple times
+      store.retainStdValue(d1);
+      store.retainStdValue(d1);
+      
+      scope.track(d1);
+      scope.cleanup();
+
+      // Should be removed even though refCount was 3
+      expect(store.readStdValue(d1)).toBeUndefined();
+    });
+
+    it("should track stats correctly with scoped cleanup", () => {
+      const initialStats = store.getStats();
+      const scope = store.createScope();
+
+      scope.storeValue("a");
+      scope.storeValue("b");
+      scope.storeValue("c");
+
+      const afterCreate = store.getStats();
+      expect(afterCreate.totalDescriptorsCreated).toBe(initialStats.totalDescriptorsCreated + 3);
+
+      scope.cleanup();
+
+      const afterCleanup = store.getStats();
+      expect(afterCleanup.totalDescriptorsDestroyed).toBe(initialStats.totalDescriptorsDestroyed + 3);
+    });
+
+    it("should handle multiple independent scopes", () => {
+      const scope1 = store.createScope();
+      const scope2 = store.createScope();
+
+      const d1 = scope1.storeValue("scope1-value");
+      const d2 = scope2.storeValue("scope2-value");
+
+      expect(store.readStdValue(d1)).toBe("scope1-value");
+      expect(store.readStdValue(d2)).toBe("scope2-value");
+
+      scope1.cleanup();
+
+      expect(store.readStdValue(d1)).toBeUndefined();
+      expect(store.readStdValue(d2)).toBe("scope2-value");
+
+      scope2.cleanup();
+
+      expect(store.readStdValue(d2)).toBeUndefined();
     });
   });
 });

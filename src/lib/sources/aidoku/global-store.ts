@@ -227,6 +227,24 @@ export class GlobalStore {
   }
 
   /**
+   * Create a scoped descriptor tracker for automatic cleanup.
+   * Use this to ensure all descriptors created during a WASM call are cleaned up.
+   *
+   * @example
+   * const scope = store.createScope();
+   * try {
+   *   const d1 = scope.track(store.storeStdValue(value1));
+   *   const d2 = scope.track(store.storeStdValue(value2));
+   *   return wasmCall(d1, d2);
+   * } finally {
+   *   scope.cleanup();
+   * }
+   */
+  createScope(): DescriptorScope {
+    return new DescriptorScope(this);
+  }
+
+  /**
    * Create a new request
    */
   createRequest(method: number): number {
@@ -364,6 +382,68 @@ export class GlobalStore {
     this.reset();
     this.settings.clear();
     this.memory = null;
+  }
+}
+
+/**
+ * Scoped descriptor tracker for automatic cleanup.
+ * Tracks descriptors created during a WASM call and cleans them up on dispose.
+ */
+export class DescriptorScope {
+  private tracked: number[] = [];
+  private globalStore: GlobalStore;
+  private disposed = false;
+
+  constructor(globalStore: GlobalStore) {
+    this.globalStore = globalStore;
+  }
+
+  /**
+   * Track a descriptor for cleanup. Returns the descriptor for chaining.
+   */
+  track(descriptor: number): number {
+    if (this.disposed) {
+      throw new Error("Cannot track descriptor on disposed scope");
+    }
+    if (descriptor > 0) {
+      this.tracked.push(descriptor);
+    }
+    return descriptor;
+  }
+
+  /**
+   * Store a value and track it for cleanup.
+   * Convenience method combining storeStdValue + track.
+   */
+  storeValue(value: unknown): number {
+    return this.track(this.globalStore.storeStdValue(value));
+  }
+
+  /**
+   * Clean up all tracked descriptors.
+   * Safe to call multiple times.
+   */
+  cleanup(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const descriptor of this.tracked) {
+      this.globalStore.forceRemoveStdValue(descriptor);
+    }
+    this.tracked = [];
+  }
+
+  /**
+   * Get the count of tracked descriptors.
+   */
+  get size(): number {
+    return this.tracked.length;
+  }
+
+  /**
+   * Check if the scope has been disposed.
+   */
+  get isDisposed(): boolean {
+    return this.disposed;
   }
 }
 

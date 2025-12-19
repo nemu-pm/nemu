@@ -1,118 +1,99 @@
-import { create } from "zustand";
-import type { ReadingHistory } from "@/data/schema";
-import { getUserDataStore } from "@/data/indexeddb";
-import { Keys } from "@/data/keys";
+import { create, type StoreApi, type UseBoundStore } from "zustand";
+import type { ChapterProgress } from "@/data/schema";
+import type { UserDataStore } from "@/data/store";
 
 interface HistoryState {
-  // Cache of loaded history entries (keyed by registryId:sourceId:mangaId:chapterId)
-  entries: Map<string, ReadingHistory>;
+  // Cache of loaded progress entries (keyed by mangaId:chapterId)
+  entries: Map<string, ChapterProgress>;
 
   // Actions
   getProgress: (
-    registryId: string,
-    sourceId: string,
     mangaId: string,
     chapterId: string
-  ) => Promise<ReadingHistory | null>;
-  getMangaProgress: (
-    registryId: string,
-    sourceId: string,
-    mangaId: string
-  ) => Promise<ReadingHistory[]>;
+  ) => Promise<ChapterProgress | null>;
+  getMangaProgress: (mangaId: string) => Promise<Record<string, ChapterProgress>>;
   saveProgress: (
-    registryId: string,
-    sourceId: string,
     mangaId: string,
     chapterId: string,
     progress: number,
     total: number
   ) => Promise<void>;
-  markCompleted: (
-    registryId: string,
-    sourceId: string,
-    mangaId: string,
-    chapterId: string
-  ) => Promise<void>;
+  markCompleted: (mangaId: string, chapterId: string) => Promise<void>;
 }
 
-export const useHistoryStore = create<HistoryState>((set, get) => ({
-  entries: new Map(),
+const makeKey = (mangaId: string, chapterId: string) => `${mangaId}:${chapterId}`;
 
-  getProgress: async (registryId, sourceId, mangaId, chapterId) => {
-    const key = Keys.chapter(registryId, sourceId, mangaId, chapterId);
-    const cached = get().entries.get(key);
-    if (cached) return cached;
+export type HistoryStore = UseBoundStore<StoreApi<HistoryState>>;
 
-    const store = getUserDataStore();
-    const history = await store.getHistory(registryId, sourceId, mangaId, chapterId);
-    if (history) {
-      set((state) => ({
-        entries: new Map(state.entries).set(key, history),
-      }));
-    }
-    return history;
-  },
+export function createHistoryStore(userStore: UserDataStore): HistoryStore {
+  return create<HistoryState>((set, get) => ({
+    entries: new Map(),
 
-  getMangaProgress: async (registryId, sourceId, mangaId) => {
-    const store = getUserDataStore();
-    const histories = await store.getHistoryForManga(registryId, sourceId, mangaId);
+    getProgress: async (mangaId, chapterId) => {
+      const key = makeKey(mangaId, chapterId);
+      const cached = get().entries.get(key);
+      if (cached) return cached;
 
-    // Update cache
-    set((state) => {
-      const newEntries = new Map(state.entries);
-      for (const h of histories) {
-        newEntries.set(Keys.chapter(h.registryId, h.sourceId, h.mangaId, h.chapterId), h);
+      const progress = await userStore.getChapterProgress(mangaId, chapterId);
+      if (progress) {
+        set((state) => ({
+          entries: new Map(state.entries).set(key, progress),
+        }));
       }
-      return { entries: newEntries };
-    });
+      return progress;
+    },
 
-    return histories;
-  },
+    getMangaProgress: async (mangaId) => {
+      const manga = await userStore.getLibraryManga(mangaId);
+      if (!manga) return {};
 
-  saveProgress: async (registryId, sourceId, mangaId, chapterId, progress, total) => {
-    const key = Keys.chapter(registryId, sourceId, mangaId, chapterId);
-    const existing = get().entries.get(key);
-    const completed = existing?.completed ?? false;
+      // Update cache
+      set((state) => {
+        const newEntries = new Map(state.entries);
+        for (const [chapterId, progress] of Object.entries(manga.history)) {
+          newEntries.set(makeKey(mangaId, chapterId), progress);
+        }
+        return { entries: newEntries };
+      });
 
-    const history: ReadingHistory = {
-      registryId,
-      sourceId,
-      mangaId,
-      chapterId,
-      progress,
-      total,
-      completed,
-      dateRead: Date.now(),
-    };
+      return manga.history;
+    },
 
-    const store = getUserDataStore();
-    await store.saveHistory(history);
+    saveProgress: async (mangaId, chapterId, progress, total) => {
+      const key = makeKey(mangaId, chapterId);
+      const existing = get().entries.get(key);
+      const completed = existing?.completed ?? false;
 
-    set((state) => ({
-      entries: new Map(state.entries).set(key, history),
-    }));
-  },
+      const chapterProgress: ChapterProgress = {
+        progress,
+        total,
+        completed,
+        dateRead: Date.now(),
+      };
 
-  markCompleted: async (registryId, sourceId, mangaId, chapterId) => {
-    const key = Keys.chapter(registryId, sourceId, mangaId, chapterId);
-    const existing = get().entries.get(key);
+      await userStore.saveChapterProgress(mangaId, chapterId, chapterProgress);
 
-    const history: ReadingHistory = {
-      registryId,
-      sourceId,
-      mangaId,
-      chapterId,
-      progress: existing?.progress ?? 0,
-      total: existing?.total ?? 0,
-      completed: true,
-      dateRead: Date.now(),
-    };
+      set((state) => ({
+        entries: new Map(state.entries).set(key, chapterProgress),
+      }));
+    },
 
-    const store = getUserDataStore();
-    await store.saveHistory(history);
+    markCompleted: async (mangaId, chapterId) => {
+      const key = makeKey(mangaId, chapterId);
+      const existing = get().entries.get(key);
 
-    set((state) => ({
-      entries: new Map(state.entries).set(key, history),
-    }));
-  },
-}));
+      const chapterProgress: ChapterProgress = {
+        progress: existing?.progress ?? 0,
+        total: existing?.total ?? 0,
+        completed: true,
+        dateRead: Date.now(),
+      };
+
+      await userStore.saveChapterProgress(mangaId, chapterId, chapterProgress);
+
+      set((state) => ({
+        entries: new Map(state.entries).set(key, chapterProgress),
+      }));
+    },
+  }));
+}

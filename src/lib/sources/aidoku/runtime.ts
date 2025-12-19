@@ -178,6 +178,7 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
         return { entries: [], hasNextPage: false };
       }
 
+      const scope = store.createScope();
       try {
         console.log("[Aidoku] getSearchMangaList query=", query, "page=", page);
         
@@ -186,13 +187,13 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
         let queryDescriptor = -1;
         if (query !== null && query !== "") {
           const queryBytes = new TextEncoder().encode(query); // RAW UTF-8!
-          queryDescriptor = store.storeStdValue(queryBytes);
+          queryDescriptor = scope.storeValue(queryBytes);
           console.log("[Aidoku] Query descriptor=", queryDescriptor, "bytes=", Array.from(queryBytes));
         }
 
         // Filters are postcard-encoded empty Vec
         const filtersBytes = encodeEmptyVec();
-        const filtersDescriptor = store.storeStdValue(filtersBytes);
+        const filtersDescriptor = scope.storeValue(filtersBytes);
         console.log("[Aidoku] Filters descriptor=", filtersDescriptor);
 
         // Call WASM function
@@ -241,18 +242,21 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
       } catch (e) {
         console.error("[Aidoku] getSearchMangaList error:", e);
         return { entries: [], hasNextPage: false };
+      } finally {
+        scope.cleanup();
       }
     },
 
     getMangaDetails(manga: Manga): Manga {
       if (!getMangaUpdate) return manga;
 
+      const scope = store.createScope();
       try {
         console.log("[Aidoku] getMangaDetails for", manga.key);
         
         // Encode manga and store
         const mangaBytes = encodeManga(manga);
-        const mangaDescriptor = store.storeStdValue(mangaBytes);
+        const mangaDescriptor = scope.storeValue(mangaBytes);
         
         // Call WASM (needsDetails=1, needsChapters=0)
         const resultPtr = getMangaUpdate(mangaDescriptor, 1, 0);
@@ -283,18 +287,21 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
       } catch (e) {
         console.error("[Aidoku] getMangaDetails error:", e);
         return manga;
+      } finally {
+        scope.cleanup();
       }
     },
 
     getChapterList(manga: Manga): Chapter[] {
       if (!getMangaUpdate) return [];
 
+      const scope = store.createScope();
       try {
         console.log("[Aidoku] getChapterList for", manga.key);
         
         // Encode manga and store
         const mangaBytes = encodeManga(manga);
-        const mangaDescriptor = store.storeStdValue(mangaBytes);
+        const mangaDescriptor = scope.storeValue(mangaBytes);
         
         // Call WASM (needsDetails=0, needsChapters=1)
         const resultPtr = getMangaUpdate(mangaDescriptor, 0, 1);
@@ -329,24 +336,27 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
       } catch (e) {
         console.error("[Aidoku] getChapterList error:", e);
         return [];
+      } finally {
+        scope.cleanup();
       }
     },
 
     getPageList(manga: Manga, chapter: Chapter): Page[] {
       if (!wasmGetPageList) return [];
 
+      const scope = store.createScope();
       try {
         console.log("[Aidoku] getPageList for chapter", chapter.key);
         console.log("[Aidoku] Chapter data:", JSON.stringify(chapter, null, 2));
         
         // Encode manga and chapter
         const mangaBytes = encodeManga(manga);
-        const mangaDescriptor = store.storeStdValue(mangaBytes);
+        const mangaDescriptor = scope.storeValue(mangaBytes);
         
         const chapterBytes = encodeChapter(chapter);
         console.log("[Aidoku] Chapter encoded:", chapterBytes.length, "bytes");
         console.log("[Aidoku] Chapter hex:", Array.from(chapterBytes.slice(0, 100)).map(b => b.toString(16).padStart(2, '0')).join(' '));
-        const chapterDescriptor = store.storeStdValue(chapterBytes);
+        const chapterDescriptor = scope.storeValue(chapterBytes);
         
         // Call WASM
         const resultPtr = wasmGetPageList(mangaDescriptor, chapterDescriptor);
@@ -374,6 +384,8 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
       } catch (e) {
         console.error("[Aidoku] getPageList error:", e);
         return [];
+      } finally {
+        scope.cleanup();
       }
     },
 
@@ -409,10 +421,11 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
         return { url, headers: {} };
       }
 
+      const scope = store.createScope();
       try {
         // Encode URL and store
         const urlBytes = encodeString(url);
-        const urlDescriptor = store.storeStdValue(urlBytes);
+        const urlDescriptor = scope.storeValue(urlBytes);
         
         // No context
         const contextDescriptor = -1;
@@ -458,7 +471,7 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
           freeResult(resultPtr);
         }
         
-        // Now look up the request by its ID
+        // Now look up the request by its ID and clean it up after use
         const request = store.requests.get(requestId);
         console.log("[Aidoku] modifyImageRequest request:", request);
         
@@ -467,6 +480,8 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
             url: request.url || url,
             headers: request.headers || {},
           };
+          // Clean up the request after extracting data
+          store.removeRequest(requestId);
           console.log("[Aidoku] modifyImageRequest returning:", result);
           return result;
         }
@@ -475,6 +490,8 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
       } catch (e) {
         console.error("[Aidoku] modifyImageRequest error:", e);
         return { url, headers: {} };
+      } finally {
+        scope.cleanup();
       }
     },
   };

@@ -26,6 +26,7 @@ bun-debug.log*
 .env.test.local
 .env.production.local
 .env*.local
+*.p8
 
 # Testing
 coverage
