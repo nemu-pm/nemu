@@ -14,7 +14,10 @@ import { api } from "../../convex/_generated/api";
  * Used when user is signed in
  */
 export class ConvexUserDataStore implements UserDataStore {
-  constructor(private client: ConvexReactClient) {}
+  private client: ConvexReactClient;
+  constructor(client: ConvexReactClient) {
+    this.client = client;
+  }
 
   // ============ LIBRARY ============
 
@@ -134,21 +137,21 @@ export class ConvexUserDataStore implements UserDataStore {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async getRegistry(id: string): Promise<SourceRegistry | null> {
+  async getRegistry(_id: string): Promise<SourceRegistry | null> {
     throw new Error(
       "Registries are local-only. Use IndexedDBUserDataStore for registries."
     );
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async saveRegistry(registry: SourceRegistry): Promise<void> {
+  async saveRegistry(_registry: SourceRegistry): Promise<void> {
     throw new Error(
       "Registries are local-only. Use IndexedDBUserDataStore for registries."
     );
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async removeRegistry(id: string): Promise<void> {
+  async removeRegistry(_id: string): Promise<void> {
     throw new Error(
       "Registries are local-only. Use IndexedDBUserDataStore for registries."
     );

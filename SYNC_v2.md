@@ -4,12 +4,10 @@
 
 1. **Bidirectional real-time sync** - changes propagate both ways instantly
 2. **Offline-first** - app works offline, syncs when online
-3. **Conflict resolution** - user chooses when data conflicts
+3. **Auto-merge** - smart rules handle conflicts, no user intervention
 4. **Clean sign-out** - clear option for what happens to local data
 
 ## Architecture
-
-### Data Layers
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -27,244 +25,217 @@
 └──────────────────────┴──────────────────────────────┘
 ```
 
-### SyncEngine Responsibilities
+## Auto-Merge Rules (No Conflict UI)
 
-1. **Write-through**: All writes go to local first, then cloud (if auth'd)
-2. **Cloud subscription**: Listen to Convex queries, merge into local
-3. **Conflict detection**: Compare timestamps/versions on merge
-4. **Queue offline changes**: Track pending uploads for when online
+| Data | Strategy | Rationale |
+|------|----------|-----------|
+| Library manga | Union | Adding is additive, keep all |
+| Reading progress | MAX(progress) | Want furthest read position |
+| Chapter completion | OR(completed) | Once complete, stays complete |
+| Settings | Last-write-wins | Minor, easy to re-configure |
+| Installed sources | Union | Additive, WASM cached locally anyway |
 
-## Data Model Changes
+### Deletions
 
-### Add sync metadata to all synced entities:
+- **Soft delete** with `deletedAt` timestamp
+- 7-day grace period before permanent removal
+- If re-added within grace period, restore
+
+## Data Model
+
+### Sync metadata on local entities:
 
 ```typescript
-interface SyncMetadata {
-  localUpdatedAt: number;      // Local modification timestamp
-  cloudUpdatedAt?: number;     // Last known cloud timestamp
-  syncStatus: 'synced' | 'pending' | 'conflict';
-  conflictData?: unknown;      // Cloud version when conflict detected
-}
-
-interface LibraryManga {
-  // ... existing fields
-  _sync: SyncMetadata;
+interface SyncMeta {
+  updatedAt: number;           // Local modification time
+  syncedAt?: number;           // Last successful sync time
+  pendingSync: boolean;        // Needs upload to cloud
 }
 ```
 
-### Convex schema additions:
+### Convex schema:
 
 ```typescript
-// convex/schema.ts
 library: defineTable({
+  userId: v.string(),
+  mangaId: v.string(),
   // ... existing fields
-  updatedAt: v.number(),  // Server timestamp for conflict detection
+  updatedAt: v.number(),       // Server timestamp
+  deletedAt: v.optional(v.number()),  // Soft delete
 })
 ```
 
 ## Sync Flows
 
-### 1. Write Flow (Local → Cloud)
+### Write Flow (User Action)
 
 ```
-User action
+User action (add manga, update progress, etc.)
     ↓
-Write to IndexedDB (immediate)
+1. Write to IndexedDB immediately
+2. Update Zustand store immediately  
+3. Mark pendingSync: true
     ↓
-Update Zustand store (immediate)
-    ↓
-If authenticated & online:
-    ├─→ Push to Convex
-    │       ↓
-    │   Success → Update syncStatus: 'synced'
-    │       ↓
-    │   Conflict (409) → Mark syncStatus: 'conflict', store cloud version
-    │       ↓
-    │   Offline/Error → Keep syncStatus: 'pending'
+If online & authenticated:
+    → Push to Convex
+    → On success: pendingSync: false, update syncedAt
+    → On failure: Keep pendingSync: true, retry later
 ```
 
-### 2. Cloud → Local Sync
+### Cloud → Local Sync
 
 ```
-Convex subscription fires
+Convex subscription update received
     ↓
-Compare cloud.updatedAt vs local.cloudUpdatedAt
+For each cloud item:
     ↓
-If cloud is newer AND local is 'synced':
-    → Update local with cloud data
+Compare with local using merge rules:
+    - Library: Add if missing locally
+    - Progress: local = MAX(local.progress, cloud.progress)
+    - Completed: local = local.completed || cloud.completed
     ↓
-If cloud is newer AND local is 'pending':
-    → Mark as 'conflict', store both versions
-    ↓
-If local is newer (pending upload):
-    → Keep local, it will push on next sync
+Update IndexedDB + Zustand
 ```
 
-### 3. Conflict Resolution
-
-When `syncStatus === 'conflict'`:
-
-```tsx
-<ConflictDialog
-  localData={manga}
-  cloudData={manga._sync.conflictData}
-  onResolve={(choice: 'local' | 'cloud' | 'merge') => {
-    if (choice === 'local') {
-      // Force push local to cloud
-      syncEngine.forceUpload(manga.id);
-    } else if (choice === 'cloud') {
-      // Accept cloud version
-      syncEngine.acceptCloud(manga.id);
-    } else {
-      // Manual merge (open editor)
-      syncEngine.manualMerge(manga.id, mergedData);
-    }
-  }}
-/>
-```
-
-## Sign-In Flow
+### Sign-In Flow
 
 ```
 User signs in
     ↓
-Fetch cloud data
+1. Fetch all cloud data
+2. Merge with local data (using auto-merge rules)
+3. Push local-only items to cloud
+4. Subscribe to real-time updates
     ↓
-For each cloud item:
-    ├─→ Not in local → Add to local (synced)
-    ├─→ In local, same data → Mark synced
-    └─→ In local, different data → Mark conflict
-    ↓
-For each local-only item:
-    → Push to cloud (or mark pending if offline)
-    ↓
-Show conflict resolution UI if any conflicts
+Done - no user interaction needed
 ```
 
-## Sign-Out Flow
+### Sign-Out Flow
 
 ```
 User clicks sign out
     ↓
-Show dialog:
 ┌────────────────────────────────────────┐
 │  Sign Out                              │
 │                                        │
-│  What should happen to your local      │
-│  data?                                 │
+│  ○ Keep data on this device            │
+│    (You can sign back in anytime)      │
 │                                        │
-│  ○ Keep local data                     │
-│    (Stay signed in on this device      │
-│     with cached data)                  │
-│                                        │
-│  ○ Clear local data                    │
-│    (Remove all data from this device)  │
+│  ○ Remove data from this device        │
+│    (Cloud data stays safe)             │
 │                                        │
 │  [Cancel]              [Sign Out]      │
 └────────────────────────────────────────┘
     ↓
-If "Keep": Just sign out, local data remains
-If "Clear": Delete IndexedDB, clear caches, sign out
+Execute choice, then sign out
 ```
 
-## Pending Changes Indicator
+## Sync Status UI
 
-Show sync status in UI:
+Simple indicator, no conflict resolution:
 
 ```tsx
-<SyncStatus>
-  {pendingCount > 0 && (
-    <Badge variant="warning">
-      {pendingCount} pending
-    </Badge>
-  )}
-  {conflictCount > 0 && (
-    <Badge variant="destructive" onClick={showConflicts}>
-      {conflictCount} conflicts
-    </Badge>
-  )}
-  {isOnline && pendingCount === 0 && conflictCount === 0 && (
-    <Badge variant="success">Synced</Badge>
-  )}
-</SyncStatus>
+function SyncIndicator() {
+  const { pendingCount, isOnline, isSyncing } = useSyncStatus();
+  
+  if (!isOnline) return <CloudOff />;
+  if (isSyncing) return <Spinner />;
+  if (pendingCount > 0) return <CloudPending count={pendingCount} />;
+  return <CloudCheck />; // All synced
+}
 ```
 
-## Implementation Plan
+## Implementation
 
-### Phase 1: Core Infrastructure
-- [ ] Add `_sync` metadata to schema
-- [ ] Create `SyncEngine` class
-- [ ] Add `updatedAt` to Convex tables
-- [ ] Implement write-through to local + cloud
-
-### Phase 2: Conflict Detection
-- [ ] Track local vs cloud timestamps
-- [ ] Detect conflicts on cloud subscription
-- [ ] Store conflict data
-
-### Phase 3: UI
-- [ ] Conflict resolution dialog
-- [ ] Sign-out options dialog
-- [ ] Sync status indicator
-- [ ] Pending changes list
-
-### Phase 4: Offline Support
-- [ ] Queue pending changes
-- [ ] Retry on reconnect
-- [ ] Handle offline reads gracefully
-
-## API Design
+### SyncEngine API
 
 ```typescript
-interface SyncEngine {
+class SyncEngine {
   // Lifecycle
   initialize(): Promise<void>;
   dispose(): void;
   
-  // Auth
-  onSignIn(userId: string): Promise<SyncResult>;
+  // Auth events
+  onSignIn(): Promise<void>;   // Merge + subscribe
   onSignOut(clearLocal: boolean): Promise<void>;
   
-  // Sync operations
-  push(entity: SyncableEntity): Promise<void>;
-  pull(): Promise<void>;
+  // Write operations (called by stores)
+  trackChange(table: string, id: string, data: unknown): void;
   
-  // Conflict resolution
-  getConflicts(): Conflict[];
-  resolveConflict(id: string, resolution: 'local' | 'cloud'): Promise<void>;
+  // Sync control
+  syncNow(): Promise<void>;    // Force immediate sync
   
   // Status
-  getPendingCount(): number;
-  getStatus(): 'synced' | 'syncing' | 'offline' | 'conflicts';
-  
-  // Events
-  onStatusChange(callback: (status: SyncStatus) => void): () => void;
-  onConflict(callback: (conflict: Conflict) => void): () => void;
+  readonly status: 'offline' | 'syncing' | 'synced' | 'pending';
+  readonly pendingCount: number;
+  onStatusChange(cb: (status: SyncStatus) => void): () => void;
 }
 ```
 
+### Store Integration
+
+Stores call `syncEngine.trackChange()` after local writes:
+
+```typescript
+// In library store
+addManga: async (manga) => {
+  await localStore.saveLibraryManga(manga);
+  set(state => ({ mangas: [...state.mangas, manga] }));
+  syncEngine.trackChange('library', manga.id, manga);
+}
+```
+
+### Pending Changes Queue
+
+```typescript
+interface PendingChange {
+  table: string;
+  id: string;
+  data: unknown;
+  timestamp: number;
+  retries: number;
+}
+
+// Stored in IndexedDB, survives refresh
+// Processed on reconnect or periodic retry
+```
+
+## Implementation Plan
+
+### Phase 1: Write-through + Basic Sync
+- [ ] Add `updatedAt` to Convex tables
+- [ ] Create SyncEngine class
+- [ ] Implement write-through (local + cloud)
+- [ ] Add pending changes queue
+
+### Phase 2: Cloud → Local Sync  
+- [ ] Subscribe to Convex queries
+- [ ] Implement auto-merge rules
+- [ ] Update local on cloud changes
+
+### Phase 3: Sign-in/out
+- [ ] Initial merge on sign-in
+- [ ] Sign-out dialog with options
+- [ ] Clear local data option
+
+### Phase 4: UI + Polish
+- [ ] Sync status indicator
+- [ ] Offline indicator
+- [ ] Retry failed syncs on reconnect
+
 ## Edge Cases
 
-1. **User signs in on two devices simultaneously**
-   - Both push local data → server accepts both (no conflicts if different manga)
-   - Same manga edited → last-write-wins with conflict flag
+| Scenario | Behavior |
+|----------|----------|
+| Edit offline, come online | Queue processes, uploads changes |
+| Same manga added on 2 devices | Both exist in cloud (same ID = merge) |
+| Delete on A, read on B offline | Soft delete, B's sync restores it |
+| Progress 5 on A, progress 10 on B | Merge keeps 10 (MAX) |
+| Sign out, sign in different account | "Clear local data" recommended |
 
-2. **User goes offline mid-sync**
-   - Pending changes stay queued
-   - Resume on reconnect
+## Not Implementing
 
-3. **Cloud data deleted while offline**
-   - On reconnect, local item marked as conflict
-   - User chooses: re-upload or accept deletion
-
-4. **Large initial sync**
-   - Paginate cloud data fetch
-   - Show progress indicator
-   - Allow cancel (partial sync state)
-
-## Migration from v1
-
-1. Mark all existing local data as `syncStatus: 'pending'`
-2. On next sign-in, merge runs and resolves status
-3. No data loss, just re-sync everything
-
+- ❌ Conflict resolution UI (auto-merge handles it)
+- ❌ Manual merge editor
+- ❌ Sync history/audit log
+- ❌ Selective sync (all or nothing)

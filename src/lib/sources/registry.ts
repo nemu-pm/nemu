@@ -33,12 +33,18 @@ export interface SourceRegistryProvider {
  */
 export class RegistryManager {
   private registries: Map<string, SourceRegistryProvider> = new Map();
+  private registryStore: UserDataStore; // For registry metadata (always local)
+  private installedSourceStore: UserDataStore; // For installed sources (can be Convex)
+  private cacheStore: CacheStore;
 
   constructor(
-    private registryStore: UserDataStore, // For registry metadata (always local)
-    private installedSourceStore: UserDataStore, // For installed sources (can be Convex)
-    private cacheStore: CacheStore
+    registryStore: UserDataStore,
+    installedSourceStore: UserDataStore,
+    cacheStore: CacheStore
   ) {
+    this.registryStore = registryStore;
+    this.installedSourceStore = installedSourceStore;
+    this.cacheStore = cacheStore;
     // Add default Aidoku registries
     for (const def of AIDOKU_REGISTRIES) {
       const registry = new AidokuUrlRegistry(

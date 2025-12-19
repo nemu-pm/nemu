@@ -49,13 +49,18 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
   private loadedSources: Map<string, MangaSource> = new Map();
   private fetchPromise: Promise<void> | null = null;
 
+  private userStore: UserDataStore;
+  private cacheStore: CacheStore;
+
   constructor(
     id: string,
     name: string,
     indexUrl: string,
-    private userStore: UserDataStore,
-    private cacheStore: CacheStore
+    userStore: UserDataStore,
+    cacheStore: CacheStore
   ) {
+    this.userStore = userStore;
+    this.cacheStore = cacheStore;
     this.info = { id, name, type: "url", url: indexUrl };
     this.baseUrl = indexUrl.replace(/\/[^/]+$/, "");
   }
