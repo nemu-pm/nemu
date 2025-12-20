@@ -326,6 +326,11 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
       initialSettings.languages = [manifest.info.languages[0]];
     }
     
+    // Add default URL from manifest if allowsBaseUrlSelect and urls provided
+    if (!initialSettings.url && manifest.info.urls?.length) {
+      initialSettings.url = manifest.info.urls[0];
+    }
+    
     console.log(`[AidokuRegistry] Loading source ${sourceId} with settings:`, initialSettings);
 
     return createAidokuMangaSource(wasmBytes, manifest, { initialSettings });

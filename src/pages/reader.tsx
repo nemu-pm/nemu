@@ -4,10 +4,11 @@ import { DirectionProvider } from "@base-ui/react/direction-provider";
 import { useStores } from "@/data/context";
 import { Keys } from "@/data/keys";
 import type { Page, Chapter } from "@/lib/sources";
-import { Reader, type ReadingMode } from "@/components/reader";
+import { Reader, type ReadingMode, type PagePairingMode } from "@/components/reader";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import {
   Popover,
   PopoverContent,
@@ -23,6 +24,8 @@ import {
 } from "@hugeicons/core-free-icons";
 
 const SCROLL_WIDTH_KEY = "nemu:reader:scrollWidthPct";
+const TWO_PAGE_MODE_KEY = "nemu:reader:twoPageMode";
+const PAGE_PAIRING_MODE_KEY = "nemu:reader:pagePairingMode";
 
 type VirtualItem =
   | {
@@ -68,9 +71,39 @@ export function ReaderPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [imageUrls, setImageUrls] = useState<Map<string, string>>(new Map());
 
-  // Not wired in settings yet; keeping as explicit toggles for future.
-  const isTwoPageMode = false;
-  const pagePairingMode = "manga" as const;
+  const [isWideScreen, setIsWideScreen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const h = window.innerHeight;
+    if (!h) return false;
+    return window.innerWidth / h > 1;
+  });
+
+  const [twoPagePref, setTwoPagePref] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const raw = window.localStorage.getItem(TWO_PAGE_MODE_KEY);
+      if (raw == null) return true; // default enabled on wide screens
+      if (raw === "1" || raw === "true") return true;
+      if (raw === "0" || raw === "false") return false;
+      return true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [pagePairingMode, setPagePairingMode] = useState<PagePairingMode>(() => {
+    if (typeof window === "undefined") return "manga";
+    try {
+      const raw = window.localStorage.getItem(PAGE_PAIRING_MODE_KEY);
+      if (raw === "book" || raw === "manga") return raw;
+      return "manga";
+    } catch {
+      return "manga";
+    }
+  });
+
+  const isTwoPageSupported = isWideScreen && readingMode !== "scrolling";
+  const isTwoPageMode = isTwoPageSupported && twoPagePref;
 
   // Scrolling mode "zoom": width scale persisted to localStorage only.
   // 100% = full viewport width, smaller shows black side gaps.
@@ -88,6 +121,7 @@ export function ReaderPage() {
   const loadRunIdRef = useRef(0);
   const pendingInternalUrlChaptersRef = useRef<Set<string>>(new Set());
   const lastRouteChapterIdRef = useRef<string | null>(null);
+  const lastPageKeyRef = useRef<string | null>(null);
 
   // Auto-close settings when toolbar/UI is hidden
   useEffect(() => {
@@ -95,6 +129,45 @@ export function ReaderPage() {
       setSettingsOpen(false);
     }
   }, [showUI, settingsOpen]);
+
+  // Track aspect ratio to gate two-page mode (forced off at <= 1:1)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const update = () => {
+      const h = window.innerHeight;
+      if (!h) return;
+      setIsWideScreen(window.innerWidth / h > 1);
+    };
+
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, []);
+
+  // Persist two-page preference (local-only, no sync)
+  useEffect(() => {
+    try {
+      if (typeof window === "undefined") return;
+      window.localStorage.setItem(TWO_PAGE_MODE_KEY, twoPagePref ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [twoPagePref]);
+
+  // Persist pairing mode preference (local-only, no sync)
+  useEffect(() => {
+    try {
+      if (typeof window === "undefined") return;
+      window.localStorage.setItem(PAGE_PAIRING_MODE_KEY, pagePairingMode);
+    } catch {
+      // ignore
+    }
+  }, [pagePairingMode]);
 
   // Load scroll width from localStorage (local-only, no sync)
   useEffect(() => {
@@ -177,6 +250,22 @@ export function ReaderPage() {
   }, [windowChapterIds, chapterPages, isTwoPageMode]);
 
   const currentItem = virtualItems[currentIndex];
+  // Keep a stable pointer to the last non-spacer page key so we can remap indices when
+  // toggling two-page mode (spacer insertion shifts indices).
+  useEffect(() => {
+    if (currentItem?.kind === "page") {
+      lastPageKeyRef.current = currentItem.key;
+    }
+  }, [currentItem]);
+
+  useEffect(() => {
+    const key = lastPageKeyRef.current;
+    if (!key) return;
+    const idx = keyToIndex.get(key);
+    if (idx == null) return;
+    if (idx !== currentIndex) setCurrentIndex(idx);
+  }, [isTwoPageMode, keyToIndex, currentIndex]);
+
   const effectiveChapterId =
     currentItem?.kind === "page"
       ? currentItem.chapterId
@@ -506,7 +595,7 @@ export function ReaderPage() {
     if (virtualItems.length === 0) return;
 
     // Keep pages within this range from current position
-    const KEEP_RANGE = 20;
+    const KEEP_RANGE = isTwoPageMode ? 30 : 20;
 
     const loadImage = async (index: number) => {
       const item = virtualItems[index];
@@ -537,13 +626,21 @@ export function ReaderPage() {
       }
     };
 
-    // Load current page and nearby pages
-    const toLoad = [
-      currentIndex,
-      currentIndex + 1,
-      currentIndex + 2,
-      currentIndex - 1,
-    ].filter((i) => i >= 0 && i < virtualItems.length);
+    // Load current page(s) and nearby pages.
+    // In two-page mode, also preload the *second* page of the next spread so it is ready
+    // before swipe completes (fixes "paired page spinner" on fast paging).
+    const toLoad = (
+      isTwoPageMode
+        ? [
+            currentIndex - 2,
+            currentIndex - 1,
+            currentIndex,
+            currentIndex + 1,
+            currentIndex + 2,
+            currentIndex + 3,
+          ]
+        : [currentIndex, currentIndex + 1, currentIndex + 2, currentIndex - 1]
+    ).filter((i) => i >= 0 && i < virtualItems.length);
 
     toLoad.forEach(loadImage);
 
@@ -568,7 +665,7 @@ export function ReaderPage() {
       }
       return prev;
     });
-  }, [virtualItems, currentIndex, keyToIndex]);
+  }, [virtualItems, currentIndex, keyToIndex, isTwoPageMode]);
 
   // Cleanup blob URLs on unmount (only runs when component unmounts)
   useEffect(() => {
@@ -859,6 +956,43 @@ export function ReaderPage() {
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
+
+                {readingMode !== "scrolling" && isWideScreen && (
+                  <div className="mt-3 border-t border-white/10 pt-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="text-xs text-white/80">Two-page view</div>
+                        <div className="mt-0.5 text-[11px] text-white/50">
+                          Wide screens only
+                        </div>
+                      </div>
+                      <Switch
+                        size="sm"
+                        checked={twoPagePref}
+                        onCheckedChange={(checked) => setTwoPagePref(checked)}
+                      />
+                    </div>
+
+                    {twoPagePref && (
+                      <div className="mt-3 space-y-2">
+                        <div className="text-[11px] text-white/50">Pairing</div>
+                        <Tabs
+                          value={pagePairingMode}
+                          onValueChange={(v) => setPagePairingMode(v as PagePairingMode)}
+                        >
+                          <TabsList className="w-full">
+                            <TabsTrigger value="book" className="flex-1">
+                              1-2
+                            </TabsTrigger>
+                            <TabsTrigger value="manga" className="flex-1">
+                              1,2-3
+                            </TabsTrigger>
+                          </TabsList>
+                        </Tabs>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {readingMode === "scrolling" && (
                   <div className="mt-3 space-y-2">

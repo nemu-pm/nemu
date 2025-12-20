@@ -313,7 +313,9 @@ export function createStdImports(store: GlobalStore) {
       const obj = store.readStdValue(descriptor);
       if (obj && typeof obj === "object" && !Array.isArray(obj)) {
         const typedObj = obj as Record<string, unknown>;
-        if (key in typedObj) {
+        // Check property exists AND value is not undefined/null
+        // (matches Swift behavior where nil properties return -1)
+        if (key in typedObj && typedObj[key] !== undefined && typedObj[key] !== null) {
           return store.storeStdValue(typedObj[key]);
         }
       }

@@ -298,7 +298,8 @@ async function handleRequest(req: Request, env: Env): Promise<Response> {
       if (
         lowerKey !== "content-encoding" &&
         lowerKey !== "transfer-encoding" &&
-        lowerKey !== "content-length"
+        lowerKey !== "content-length" &&
+        !lowerKey.startsWith("access-control-")
       ) {
         responseHeaders[key] = value;
         headersToForward[key] = value;

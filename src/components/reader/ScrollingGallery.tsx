@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from 'react'
-import { List, type ListImperativeAPI } from 'react-window'
+import { List, type ListImperativeAPI, useDynamicRowHeight } from 'react-window'
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
 import type { ScrollingGalleryProps, PagePairingMode } from './types'
 
@@ -114,7 +114,7 @@ function ScrollingRow({
   const kind = getItemKind?.(index) ?? 'page'
   const widthPct = kind === 'page' ? pageWidthScale * 100 : 100
   return (
-    <div style={style} className="flex items-center justify-center bg-black" onClick={onBackgroundClick}>
+    <div style={style} className="flex items-start justify-center bg-black" onClick={onBackgroundClick}>
       <div className="mx-auto" style={{ width: `${Math.max(1, Math.min(100, widthPct))}%`, maxWidth: '100%' }}>
         {renderImage(index)}
       </div>
@@ -209,9 +209,15 @@ export function ScrollingGallery({
   }, [containerSize.height, containerSize.width, isTwoPageMode, pageWidthScale])
 
   const rowHeightPx = useMemo(() => getRowHeight(), [getRowHeight])
+  const dynamicRowHeight = useDynamicRowHeight({
+    // Good initial estimate so first render doesn't jump too much.
+    defaultRowHeight: rowHeightPx,
+  })
 
   // Keep the current page anchored when row height changes (e.g., pageWidthScale slider).
   useLayoutEffect(() => {
+    // Only meaningful for fixed-height rows.
+    if (!isTwoPageMode) return
     const el = listRef.current?.element
     const prev = prevRowHeightRef.current
     prevRowHeightRef.current = rowHeightPx
@@ -236,23 +242,19 @@ export function ScrollingGallery({
       const scrollOffset = target.scrollTop
       currentScrollOffset.current = scrollOffset
 
-      // Find the most visible item
-      const targetCount = isTwoPageMode ? spreads.length : pageCount
+      // For fixed-height rows (two-page mode), we can compute the visible item directly.
+      if (!isTwoPageMode) return
+      const targetCount = spreads.length
       const itemHeight = rowHeightPx
       if (targetCount <= 0 || itemHeight <= 0) return
 
-      const i = Math.max(
-        0,
-        Math.min(targetCount - 1, Math.floor((scrollOffset + itemHeight * 0.5) / itemHeight))
-      )
-
-      const newPageIndex = isTwoPageMode ? spreads[i]?.[0] ?? 0 : i
-      if (newPageIndex !== lastReportedPageIndex.current) {
-        lastReportedPageIndex.current = newPageIndex
-        onPageChange(newPageIndex)
-      }
+      const i = Math.max(0, Math.min(targetCount - 1, Math.floor((scrollOffset + itemHeight * 0.5) / itemHeight)))
+      const newPageIndex = spreads[i]?.[0] ?? 0
+      if (newPageIndex === lastReportedPageIndex.current) return
+      lastReportedPageIndex.current = newPageIndex
+      onPageChange(newPageIndex)
     },
-    [onPageChange, isTwoPageMode, spreads, pageCount, rowHeightPx]
+    [onPageChange, isTwoPageMode, spreads, rowHeightPx]
   )
 
   // Attach scroll listener to list element
@@ -267,6 +269,25 @@ export function ScrollingGallery({
       listElement.removeEventListener('scroll', handleNativeScroll)
     }
   }, [handleNativeScroll, containerSize])
+
+  // For variable-height single-page scrolling, use react-window's visibility reporting
+  // to update the current page index (no height math required).
+  const handleRowsRendered = useCallback(
+    (visibleRows: { startIndex: number; stopIndex: number }) => {
+      if (isTwoPageMode) return
+      // Don't let the initial (row 0) render override the desired starting page.
+      if (!didInitialScrollRef.current) return
+      const { startIndex, stopIndex } = visibleRows
+      if (startIndex < 0 || stopIndex < 0) return
+
+      const mid = Math.floor((startIndex + stopIndex) / 2)
+      const newPageIndex = Math.max(0, Math.min(pageCount - 1, mid))
+      if (newPageIndex === lastReportedPageIndex.current) return
+      lastReportedPageIndex.current = newPageIndex
+      onPageChange(newPageIndex)
+    },
+    [isTwoPageMode, onPageChange, pageCount]
+  )
 
   // Initial scroll so switching into scrolling mode lands on the current page, not row 0.
   useEffect(() => {
@@ -466,9 +487,12 @@ export function ScrollingGallery({
                 listRef={listRef}
                 rowComponent={ScrollingRow}
                 rowCount={rowCount}
-                rowHeight={rowHeightPx}
+                rowHeight={isTwoPageMode ? rowHeightPx : dynamicRowHeight}
                 rowProps={rowProps}
                 overscanCount={1}
+                onRowsRendered={(visibleRows) => {
+                  handleRowsRendered(visibleRows)
+                }}
                 style={{
                   height: containerSize.height,
                   width: containerSize.width,

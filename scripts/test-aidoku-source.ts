@@ -1,6 +1,35 @@
 #!/usr/bin/env bun
 /**
  * Test script for Aidoku sources
+ * 
+ * ============================================================================
+ * QUICK DEBUG COMMANDS
+ * ============================================================================
+ * 
+ * # Registry JSON URLs (to find available sources):
+ * #   aidoku-zh:    https://raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public/index.min.json
+ * #   aidoku-community: https://aidoku.github.io/aidoku-community-sources/index.min.json
+ * 
+ * # Download a source (.aix file):
+ * curl -sL "https://raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public/sources/zh.manhuaren-v2.aix" -o /tmp/source.aix
+ * 
+ * # Quick search test:
+ * bun scripts/test-aidoku-source.ts /tmp/source.aix search "test"
+ * 
+ * # Full end-to-end image fetch test:
+ * bun scripts/test-aidoku-source.ts /tmp/source.aix read <manga-key> <chapter-key>
+ * 
+ * # Interactive mode for rapid debugging:
+ * bun scripts/test-aidoku-source.ts /tmp/source.aix interactive
+ * 
+ * # Example full workflow:
+ * curl -sL "https://raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public/sources/zh.manhuaren-v2.aix" -o /tmp/manhuaren.aix
+ * bun scripts/test-aidoku-source.ts /tmp/manhuaren.aix search "午夜"
+ * bun scripts/test-aidoku-source.ts /tmp/manhuaren.aix chapters 84746
+ * bun scripts/test-aidoku-source.ts /tmp/manhuaren.aix read 84746 1463938
+ * 
+ * ============================================================================
+ * 
  * Usage: bun scripts/test-aidoku-source.ts <aix-url-or-path> [command]
  * 
  * Commands:
@@ -8,11 +37,21 @@
  *   details <key>       - Get manga details
  *   chapters <key>      - Get chapter list
  *   pages <manga> <ch>  - Get page list
+ *   read <manga> <ch>   - Full end-to-end test (fetch first image)
+ *   image <url>         - Test modifyImageRequest headers
+ *   filters             - List available filters
+ *   interactive         - Interactive REPL mode
+ * 
+ * Environment:
+ *   PROXY_URL           - Override proxy server URL (default: https://service.nemu.pm)
+ *   DEBUG=1             - Enable verbose logging
  */
 
 import { unzipSync } from "fflate";
 import { loadSource, type AidokuSource } from "../src/lib/sources/aidoku/runtime";
 import type { SourceManifest, Manga, Chapter } from "../src/lib/sources/aidoku/types";
+
+const DEBUG = process.env.DEBUG === "1";
 
 // Settings item types from settings.json
 interface SettingsItem {
@@ -23,8 +62,8 @@ interface SettingsItem {
   items?: SettingsItem[];
 }
 
-// Configuration
-const PROXY_URL = process.env.PROXY_URL || "http://localhost:3001";
+// Configuration - use production proxy by default
+const PROXY_URL = process.env.PROXY_URL || "https://service.nemu.pm";
 
 // Override proxyUrl to use local proxy
 const originalFetch = globalThis.fetch;
@@ -77,8 +116,15 @@ class ProxiedXMLHttpRequest {
   }
 
   send(body?: Document | XMLHttpRequestBodyInit | null) {
+    // Extract original URL if already proxied (e.g., from service.nemu.pm/proxy)
+    let targetUrl = this._url;
+    const proxyMatch = this._url.match(/\/proxy\?url=(.+)/);
+    if (proxyMatch) {
+      targetUrl = decodeURIComponent(proxyMatch[1]);
+    }
+    
     // Build proxy URL
-    const proxyTarget = `${PROXY_URL}/proxy?url=${encodeURIComponent(this._url)}`;
+    const proxyTarget = `${PROXY_URL}/proxy?url=${encodeURIComponent(targetUrl)}`;
     
     // Build headers - convert x-proxy-* to actual headers for the proxy
     const headers: Record<string, string> = {};
@@ -90,7 +136,7 @@ class ProxiedXMLHttpRequest {
       }
     }
 
-    console.log(`[HTTP] ${this._method} ${this._url}`);
+    console.log(`[HTTP] ${this._method} ${targetUrl}`);
 
     try {
       // Use Bun's synchronous fetch equivalent
@@ -259,46 +305,27 @@ async function loadAix(urlOrPath: string): Promise<AixContents> {
     defaultSettings.languages = [manifest.info.languages[0]];
   }
   
+  // Add base URL from manifest if allowsBaseUrlSelect and urls provided
+  if (!defaultSettings.url && manifest.info.urls?.length) {
+    defaultSettings.url = manifest.info.urls[0];
+    console.log(`Setting default URL: ${defaultSettings.url}`);
+  }
+  
   return { wasmBytes: wasmData.buffer.slice(0) as ArrayBuffer, manifest, defaultSettings };
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  
-  if (args.length === 0) {
-    console.log(`Usage: bun scripts/test-aidoku-source.ts <aix-url-or-path> [command] [args...]
-
-Commands:
-  search [query]           Search for manga (empty = browse)
-  details <key>            Get manga details
-  chapters <key>           Get chapter list for manga
-  pages <manga-key> <ch>   Get page list
-
-Environment:
-  PROXY_URL                Proxy server URL (default: http://localhost:3001)
-
-Examples:
-  bun scripts/test-aidoku-source.ts https://example.com/source.aix search "one piece"
-  bun scripts/test-aidoku-source.ts ./local.aix chapters some-manga-key
-`);
-    process.exit(1);
-  }
-  
-  const aixPath = args[0];
-  const command = args[1] || "search";
-  
-  // Load source
-  const { wasmBytes, manifest, defaultSettings } = await loadAix(aixPath);
-  console.log(`\nSource: ${manifest.info.id} - ${manifest.info.name}`);
-  console.log(`Default settings:`, defaultSettings);
-  
-  const source = await loadSource(wasmBytes, manifest, { initialSettings: defaultSettings });
-  source.initialize();
-  console.log("Source initialized\n");
-  
+/**
+ * Run a command against a loaded source
+ */
+async function runCommand(
+  source: AidokuSource,
+  manifest: SourceManifest,
+  command: string,
+  cmdArgs: string[]
+): Promise<void> {
   switch (command) {
     case "search": {
-      const query = args[2] || null;
+      const query = cmdArgs[0] || null;
       console.log(`=== Search: ${query || "(browse)"} ===\n`);
       
       const result = source.getSearchMangaList(query, 1, []);
@@ -318,10 +345,10 @@ Examples:
     }
     
     case "details": {
-      const key = args[2];
+      const key = cmdArgs[0];
       if (!key) {
         console.error("Error: manga key required");
-        process.exit(1);
+        return;
       }
       
       console.log(`=== Details for: ${key} ===\n`);
@@ -340,10 +367,10 @@ Examples:
     }
     
     case "chapters": {
-      const key = args[2];
+      const key = cmdArgs[0];
       if (!key) {
         console.error("Error: manga key required");
-        process.exit(1);
+        return;
       }
       
       console.log(`=== Chapters for: ${key} ===\n`);
@@ -375,18 +402,17 @@ Examples:
     }
     
     case "pages": {
-      const mangaKey = args[2];
-      const chapterKey = args[3];
+      const mangaKey = cmdArgs[0];
+      const chapterKey = cmdArgs[1];
       if (!mangaKey || !chapterKey) {
         console.error("Error: manga key and chapter key required");
-        process.exit(1);
+        return;
       }
       
       console.log(`=== Pages for: ${mangaKey} / ${chapterKey} ===\n`);
       
       const manga: Manga = { sourceId: manifest.info.id, id: mangaKey, key: mangaKey };
       
-      // First get chapters to find the full chapter data with URL
       console.log("Fetching chapter list to get full chapter data...");
       const chapters = source.getChapterList(manga);
       const chapter = chapters.find(c => c.key === chapterKey);
@@ -394,7 +420,7 @@ Examples:
       if (!chapter) {
         console.error(`Chapter not found: ${chapterKey}`);
         console.log("Available chapters:", chapters.slice(0, 5).map(c => c.key).join(", "));
-        process.exit(1);
+        return;
       }
       
       console.log(`Found chapter: ${chapter.title || chapter.key}`);
@@ -414,11 +440,224 @@ Examples:
       break;
     }
     
+    case "image": {
+      const imageUrl = cmdArgs[0];
+      if (!imageUrl) {
+        console.error("Error: image URL required");
+        console.error("Tip: Use 'read' command for end-to-end test");
+        return;
+      }
+      
+      console.log(`=== Testing image request: ${imageUrl.slice(0, 60)}... ===\n`);
+      
+      const modified = source.modifyImageRequest(imageUrl);
+      console.log("Modified URL:", modified.url);
+      console.log("Headers:", JSON.stringify(modified.headers, null, 2));
+      
+      console.log("\n--- Testing fetch through proxy ---");
+      const proxyTarget = `${PROXY_URL}/proxy?url=${encodeURIComponent(modified.url)}`;
+      const headers = Object.entries(modified.headers)
+        .flatMap(([k, v]) => ["-H", `x-proxy-${k}: ${v}`]);
+      
+      const result = Bun.spawnSync([
+        "curl", "-s", "-o", "/dev/null", "-w", 
+        "HTTP %{http_code} | Size: %{size_download} bytes | Time: %{time_total}s",
+        ...headers,
+        proxyTarget,
+      ]);
+      
+      console.log(result.stdout.toString());
+      break;
+    }
+    
+    case "read": {
+      // End-to-end test: manga key, chapter key -> fetch first image
+      const mangaKey = cmdArgs[0];
+      const chapterKey = cmdArgs[1];
+      if (!mangaKey || !chapterKey) {
+        console.error("Error: manga key and chapter key required");
+        console.error("Usage: read <manga-key> <chapter-key>");
+        return;
+      }
+      
+      console.log(`=== End-to-end read test: ${mangaKey} / ${chapterKey} ===\n`);
+      
+      const manga: Manga = { sourceId: manifest.info.id, id: mangaKey, key: mangaKey };
+      
+      // Step 1: Get chapters
+      console.log("1. Fetching chapter list...");
+      const chapters = source.getChapterList(manga);
+      const chapter = chapters.find(c => c.key === chapterKey);
+      
+      if (!chapter) {
+        console.error(`   Chapter not found: ${chapterKey}`);
+        console.log("   Available:", chapters.slice(0, 5).map(c => c.key).join(", "));
+        return;
+      }
+      console.log(`   Found: ${chapter.title || chapter.key}`);
+      
+      // Step 2: Get pages
+      console.log("\n2. Fetching page list...");
+      const pages = source.getPageList(manga, chapter);
+      console.log(`   Found ${pages.length} pages`);
+      
+      if (pages.length === 0) {
+        console.error("   No pages found!");
+        return;
+      }
+      
+      // Step 3: Get image headers for first page
+      const firstPage = pages[0];
+      const imageUrl = firstPage.url || firstPage.imageUrl || "";
+      console.log(`\n3. First page URL: ${imageUrl.slice(0, 80)}...`);
+      
+      const modified = source.modifyImageRequest(imageUrl);
+      console.log("   Headers:", Object.keys(modified.headers).join(", "));
+      
+      // Step 4: Fetch the image
+      console.log("\n4. Fetching image through proxy...");
+      const proxyTarget = `${PROXY_URL}/proxy?url=${encodeURIComponent(modified.url)}`;
+      const curlHeaders = Object.entries(modified.headers)
+        .flatMap(([k, v]) => ["-H", `x-proxy-${k}: ${v}`]);
+      
+      const result = Bun.spawnSync([
+        "curl", "-s", "-w", "\nHTTP %{http_code} | %{size_download} bytes | %{time_total}s",
+        "-o", "/tmp/test-image.jpg",
+        ...curlHeaders,
+        proxyTarget,
+      ]);
+      
+      const output = result.stdout.toString().trim();
+      const statusMatch = output.match(/HTTP (\d+)/);
+      const status = statusMatch ? parseInt(statusMatch[1]) : 0;
+      
+      console.log(`   ${output}`);
+      
+      if (status === 200) {
+        // Check file size
+        const file = Bun.file("/tmp/test-image.jpg");
+        const size = file.size;
+        console.log(`\n✅ SUCCESS! Image saved to /tmp/test-image.jpg (${size} bytes)`);
+        
+        // Try to detect if it's a valid image
+        const header = await file.slice(0, 3).arrayBuffer();
+        const headerBytes = new Uint8Array(header);
+        const isJpeg = headerBytes[0] === 0xFF && headerBytes[1] === 0xD8;
+        const isPng = headerBytes[0] === 0x89 && headerBytes[1] === 0x50;
+        
+        if (isJpeg) console.log("   Format: JPEG");
+        else if (isPng) console.log("   Format: PNG");
+        else console.log("   Format: Unknown (might be error page)");
+      } else {
+        console.log(`\n❌ FAILED with status ${status}`);
+      }
+      break;
+    }
+    
+    case "filters": {
+      console.log(`=== Available filters ===\n`);
+      
+      const filters = source.getFilters();
+      console.log(`Found ${filters.length} filters\n`);
+      
+      for (const filter of filters) {
+        console.log(`- ${filter.name} (type: ${filter.type})`);
+        if ("options" in filter && Array.isArray(filter.options)) {
+          console.log(`  Options: ${filter.options.slice(0, 5).join(", ")}${filter.options.length > 5 ? "..." : ""}`);
+        }
+        if ("filters" in filter && Array.isArray(filter.filters)) {
+          console.log(`  Sub-filters: ${filter.filters.length}`);
+        }
+      }
+      break;
+    }
+    
     default:
       console.error(`Unknown command: ${command}`);
-      process.exit(1);
+      console.log("Available: search, details, chapters, pages, read, image, filters");
+  }
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  
+  if (args.length === 0) {
+    console.log(`Usage: bun scripts/test-aidoku-source.ts <aix-url-or-path> [command] [args...]
+
+Commands:
+  search [query]           Search for manga (empty = browse)
+  details <key>            Get manga details
+  chapters <key>           Get chapter list for manga
+  pages <manga-key> <ch>   Get page list
+  read <manga-key> <ch>    Full end-to-end test (fetch first image)
+  image <url>              Test modifyImageRequest headers
+  filters                  List available filters
+  interactive              Interactive REPL mode
+
+Environment:
+  PROXY_URL                Proxy server URL (default: https://service.nemu.pm)
+  DEBUG=1                  Enable verbose logging
+
+Examples:
+  bun scripts/test-aidoku-source.ts https://example.com/source.aix search "one piece"
+  bun scripts/test-aidoku-source.ts ./local.aix chapters some-manga-key
+  bun scripts/test-aidoku-source.ts ./local.aix image "https://cdn.example.com/image.jpg"
+`);
+    process.exit(1);
   }
   
+  const aixPath = args[0];
+  const command = args[1] || "search";
+  
+  // Load source
+  const { wasmBytes, manifest, defaultSettings } = await loadAix(aixPath);
+  console.log(`\nSource: ${manifest.info.id} - ${manifest.info.name}`);
+  if (DEBUG) console.log(`Default settings:`, defaultSettings);
+  
+  const source = await loadSource(wasmBytes, manifest, { initialSettings: defaultSettings });
+  source.initialize();
+  console.log("Source initialized\n");
+  
+  // Handle interactive mode separately
+  if (command === "interactive") {
+    console.log(`=== Interactive mode ===`);
+    console.log(`Commands: search, details, chapters, pages, read, image, filters, quit\n`);
+    
+    const readline = await import("readline");
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    
+    const prompt = () => {
+      rl.question(`[${manifest.info.id}]> `, async (line) => {
+        const parts = line.trim().split(/\s+/);
+        const cmd = parts[0];
+        
+        if (!cmd || cmd === "quit" || cmd === "exit" || cmd === "q") {
+          rl.close();
+          if (typeof source.dispose === "function") source.dispose();
+          return;
+        }
+        
+        try {
+          await runCommand(source, manifest, cmd, parts.slice(1));
+        } catch (e) {
+          console.error("Error:", e);
+        }
+        
+        console.log();
+        prompt();
+      });
+    };
+    
+    prompt();
+    return;
+  }
+  
+  // Run single command
+  await runCommand(source, manifest, command, args.slice(2));
+
   if (typeof source.dispose === "function") {
     source.dispose();
   }

@@ -9,6 +9,7 @@ import { createDefaultsImports } from "./imports/defaults";
 import { createEnvImports } from "./imports/env";
 import { createAidokuImports } from "./imports/aidoku";
 import { createCanvasImports, createHostImage, getHostImageData } from "./imports/canvas";
+import { createJsImports } from "./imports/js";
 import {
   encodeString,
   encodeEmptyVec,
@@ -94,6 +95,7 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
     defaults: createDefaultsImports(store),
     aidoku: createAidokuImports(store),
     canvas: createCanvasImports(store),
+    js: createJsImports(store),
   };
 
   // Compile and instantiate WASM module
@@ -126,9 +128,10 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
 
   // OLD ABI exports
   const oldGetMangaList = exports.get_manga_list as ((filterDescriptor: number, page: number) => number) | undefined;
-  const oldGetMangaDetails = exports.get_manga_details as ((mangaDescriptor: number) => void) | undefined;
+  const oldGetMangaDetails = exports.get_manga_details as ((mangaDescriptor: number) => number) | undefined;
   const oldGetChapterList = exports.get_chapter_list as ((mangaDescriptor: number) => number) | undefined;
   const oldGetPageList = exports.get_page_list as ((chapterDescriptor: number) => number) | undefined;
+  const oldModifyImageRequest = exports.modify_image_request as ((requestDescriptor: number) => void) | undefined;
 
   // get_page_list exists in both ABIs but with different signatures
   const wasmGetPageList = isNewAbi
@@ -231,21 +234,51 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
       }
     },
 
-    getSearchMangaList(query: string | null, page: number, _filters: FilterValue[]): MangaPageResult {
+    getSearchMangaList(query: string | null, page: number, filters: FilterValue[]): MangaPageResult {
       // OLD ABI
       if (!isNewAbi && oldGetMangaList) {
         const scope = store.createScope();
         try {
           console.log("[Aidoku] OLD ABI getSearchMangaList query=", query, "page=", page);
           
-          // Create filter array with title filter if query provided
-          const filters: unknown[] = [];
-          if (query !== null && query !== "") {
-            // Title filter object: { type: "title", value: query }
-            const titleFilter = { type: "title", value: query };
-            filters.push(titleFilter);
+          // Swift FilterType enum values (different from TypeScript FilterType!)
+          // See: vendor/Aidoku/Aidoku/Shared/Old Models/Filter.swift
+          const SwiftFilterType = {
+            base: 0, group: 1, text: 2, check: 3, select: 4,
+            sort: 5, sortSelection: 6, title: 7, author: 8, genre: 9,
+          };
+          
+          // Convert FilterValue[] to Swift filter format
+          const swiftFilters: unknown[] = filters.map((f) => {
+            // Map TypeScript FilterType to Swift FilterType
+            switch (f.type) {
+              case FilterType.Title:
+                return { type: SwiftFilterType.title, name: f.name || "Title", value: f.value };
+              case FilterType.Author:
+                return { type: SwiftFilterType.author, name: f.name || "Author", value: f.value };
+              case FilterType.Select:
+                return { type: SwiftFilterType.select, name: f.name, value: f.value };
+              case FilterType.Sort:
+                // SortFilter has value as SortSelection { index, ascending }
+                return { type: SwiftFilterType.sort, name: f.name, value: f.value };
+              case FilterType.Check:
+                return { type: SwiftFilterType.check, name: f.name, value: f.value };
+              case FilterType.Group:
+                return { type: SwiftFilterType.group, name: f.name, filters: [] }; // TODO: recursive
+              case FilterType.Genre:
+                // GenreFilter has value as GenreSelection[] - each with { index, state }
+                return { type: SwiftFilterType.genre, name: f.name, value: f.value };
+              default:
+                return { type: SwiftFilterType.base, name: f.name, value: f.value };
+            }
+          });
+          
+          // Add TitleFilter if query provided and not already in filters
+          if (query !== null && query !== "" && !filters.some(f => f.type === FilterType.Title)) {
+            swiftFilters.unshift({ type: SwiftFilterType.title, name: "Title", value: query });
           }
-          const filtersDescriptor = scope.storeValue(filters);
+          
+          const filtersDescriptor = scope.storeValue(swiftFilters);
           
           // Call WASM - returns descriptor to MangaPageResult object
           const resultDescriptor = oldGetMangaList(filtersDescriptor, page);
@@ -376,9 +409,10 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
           console.log("[Aidoku] OLD ABI getMangaDetails for", manga.key);
           
           // Create manga object for OLD ABI
+          // Note: Swift sources read "id" for manga identification, fallback to "key"
           const mangaObj = {
             key: manga.key,
-            id: manga.id,
+            id: manga.id ?? manga.key, // Use key as id fallback
             title: manga.title,
             cover: manga.cover,
             author: manga.authors?.[0],
@@ -392,11 +426,15 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
           };
           const mangaDescriptor = scope.storeValue(mangaObj);
           
-          // Call WASM - modifies manga in place
-          oldGetMangaDetails(mangaDescriptor);
+          // Call WASM - returns new manga descriptor
+          const resultDescriptor = oldGetMangaDetails(mangaDescriptor);
+          console.log("[Aidoku] OLD ABI get_manga_details returned descriptor=", resultDescriptor);
           
-          // Read modified manga from store
-          const result = store.readStdValue(mangaDescriptor) as Record<string, unknown> | null;
+          if (resultDescriptor < 0) return manga;
+          
+          // Read the new manga object from store
+          const result = store.readStdValue(resultDescriptor) as Record<string, unknown> | null;
+          store.removeStdValue(resultDescriptor);
           
           if (!result) return manga;
           
@@ -476,9 +514,10 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
           console.log("[Aidoku] OLD ABI getChapterList for", manga.key);
           
           // Create manga object for OLD ABI
+          // Note: Swift sources read "id" for manga identification, fallback to "key"
           const mangaObj = {
             key: manga.key,
-            id: manga.id,
+            id: manga.id ?? manga.key,
             title: manga.title,
             cover: manga.cover,
           };
@@ -577,10 +616,11 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
           console.log("[Aidoku] OLD ABI getPageList for chapter", chapter.key);
           
           // Create chapter object for OLD ABI
+          // Note: Swift sources read "id" for identification, fallback to "key"
           const chapterObj = {
             key: chapter.key,
-            id: chapter.id,
-            mangaId: manga.key,
+            id: chapter.id ?? chapter.key,
+            mangaId: manga.id ?? manga.key,
             title: chapter.title,
             chapter: chapter.chapterNumber,
             volume: chapter.volumeNumber,
@@ -683,10 +723,50 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
     },
 
     modifyImageRequest(url: string): { url: string; headers: Record<string, string> } {
-      console.log("[Aidoku] modifyImageRequest called with:", url);
+      // OLD ABI: modify_image_request(requestDescriptor) -> void
+      // Creates a request, passes descriptor, WASM modifies in place
+      if (oldModifyImageRequest) {
+        // Create request object with URL and default headers
+        const requestId = store.createRequest();
+        const request = store.requests.get(requestId);
+        if (!request) {
+          return { url, headers: {} };
+        }
+        
+        request.url = url;
+        // Add default User-Agent like Swift does
+        request.headers["User-Agent"] = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+        
+        // Add stored cookies like Swift does (HTTPCookieStorage)
+        const storedCookies = store.getCookiesForUrl(url);
+        if (storedCookies) {
+          request.headers["Cookie"] = storedCookies;
+        }
+        
+        try {
+          // Call WASM - modifies request in place
+          oldModifyImageRequest(requestId);
+          
+          // Read the modified request
+          const modifiedRequest = store.requests.get(requestId);
+          if (modifiedRequest) {
+            const result = {
+              url: modifiedRequest.url || url,
+              headers: modifiedRequest.headers || {},
+            };
+            store.removeRequest(requestId);
+            return result;
+          }
+        } catch (e) {
+          console.error("[Aidoku] OLD ABI modifyImageRequest error:", e);
+        }
+        
+        store.removeRequest(requestId);
+        return { url, headers: {} };
+      }
       
+      // NEW ABI: get_image_request(urlDescriptor, contextDescriptor) -> resultPtr
       if (!getImageRequest) {
-        console.log("[Aidoku] modifyImageRequest: no getImageRequest export");
         return { url, headers: {} };
       }
 
@@ -701,10 +781,8 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
         
         // Call WASM - returns a pointer to serialized result
         const resultPtr = getImageRequest(urlDescriptor, contextDescriptor);
-        console.log("[Aidoku] modifyImageRequest resultPtr:", resultPtr);
         
         if (resultPtr < 0) {
-          console.log("[Aidoku] modifyImageRequest: error code", resultPtr);
           return { url, headers: {} };
         }
         
@@ -712,7 +790,6 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
         // Format: [len: i32 LE][cap: i32 LE][postcard data...]
         const view = new DataView(memory.buffer);
         const len = view.getInt32(resultPtr, true);
-        console.log("[Aidoku] modifyImageRequest result len:", len);
         
         if (len <= 8) {
           return { url, headers: {} };
@@ -733,7 +810,6 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
         }
         // Decode zigzag: (n >>> 1) ^ -(n & 1)
         requestId = (requestId >>> 1) ^ -(requestId & 1);
-        console.log("[Aidoku] modifyImageRequest requestId:", requestId);
         
         // Free the result memory
         if (freeResult) {
@@ -742,7 +818,6 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
         
         // Now look up the request by its ID and clean it up after use
         const request = store.requests.get(requestId);
-        console.log("[Aidoku] modifyImageRequest request:", request);
         
         if (request) {
           const result = {
@@ -751,7 +826,6 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
           };
           // Clean up the request after extracting data
           store.removeRequest(requestId);
-          console.log("[Aidoku] modifyImageRequest returning:", result);
           return result;
         }
         

@@ -64,7 +64,10 @@ export interface DeepLink {
   chapter?: Chapter;
 }
 
-// Filter types matching aidoku-rs Filter enum
+// Filter types for UI/internal use
+// NOTE: These are NOT the same as Swift's OLD ABI FilterType values!
+// Swift OLD ABI uses: base=0, group=1, text=2, check=3, select=4, sort=5, sortSelection=6, title=7, author=8, genre=9
+// The runtime.ts converts these to the appropriate format for each ABI
 export const FilterType = {
   Title: 0,
   Author: 1,

@@ -1,6 +1,5 @@
 // defaults namespace - User settings storage with localStorage persistence
 import { GlobalStore } from "../global-store";
-import { encodeValue } from "../postcard";
 
 const STORAGE_PREFIX = "aidoku_defaults_";
 
@@ -95,9 +94,8 @@ export function createDefaultsImports(store: GlobalStore) {
       const value = store.getSetting(key);
       if (value !== undefined) {
         console.debug(`[defaults.get] ${key} = ${JSON.stringify(value)}`);
-        // Encode the value as postcard bytes - WASM expects to read it as a buffer
-        const encoded = encodeValue(value);
-        return store.storeStdValue(encoded);
+        // Store raw value - source will use std.string_len/read_string to access it
+        return store.storeStdValue(value);
       }
       console.debug(`[defaults.get] ${key} = (not found)`);
       return -1;

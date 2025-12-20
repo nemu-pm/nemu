@@ -58,6 +58,9 @@ export class GlobalStore {
   // Settings storage (simulating UserDefaults)
   private settings = new Map<string, unknown>();
 
+  // Cookie storage (simulating HTTPCookieStorage)
+  private cookies = new Map<string, string>();
+
   // Cleanup timer
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -247,7 +250,7 @@ export class GlobalStore {
   /**
    * Create a new request
    */
-  createRequest(method: number): number {
+  createRequest(method: number = 0): number {
     this.requestsPointer += 1;
     const methodStr = [
       "GET",
@@ -289,7 +292,10 @@ export class GlobalStore {
     if (!this.memory || length <= 0) return null;
     try {
       const bytes = new Uint8Array(this.memory.buffer, offset, length);
-      return new TextDecoder().decode(bytes);
+      // Find null terminator
+      let end = bytes.indexOf(0);
+      if (end === -1) end = length;
+      return new TextDecoder().decode(bytes.subarray(0, end));
     } catch {
       return null;
     }
@@ -357,6 +363,77 @@ export class GlobalStore {
       }
     }
     return result;
+  }
+
+  // Cookie management (simulating HTTPCookieStorage)
+  /**
+   * Store cookies from a Set-Cookie header for a given domain
+   */
+  storeCookiesFromHeader(domain: string, setCookieHeader: string): void {
+    // Parse Set-Cookie header and store cookies
+    // Format: name=value; Path=/; Domain=.example.com; ...
+    const cookieParts = setCookieHeader.split(";");
+    if (cookieParts.length > 0) {
+      const nameValue = cookieParts[0].trim();
+      const eqIdx = nameValue.indexOf("=");
+      if (eqIdx > 0) {
+        const name = nameValue.slice(0, eqIdx);
+        const value = nameValue.slice(eqIdx + 1);
+        // Store with domain prefix for scoping
+        this.cookies.set(`${domain}:${name}`, value);
+      }
+    }
+  }
+
+  /**
+   * Store multiple cookies from response headers
+   */
+  storeCookiesFromResponse(url: string, headers: Record<string, string>): void {
+    try {
+      const urlObj = new URL(url);
+      const domain = urlObj.hostname;
+      
+      // Check both Set-Cookie and set-cookie (case-insensitive)
+      for (const [key, value] of Object.entries(headers)) {
+        if (key.toLowerCase() === "set-cookie") {
+          // Could be multiple cookies separated by comma (though this is rare)
+          this.storeCookiesFromHeader(domain, value);
+        }
+      }
+    } catch {
+      // Invalid URL, ignore
+    }
+  }
+
+  /**
+   * Get cookies as a Cookie header value for a given URL
+   */
+  getCookiesForUrl(url: string): string | null {
+    try {
+      const urlObj = new URL(url);
+      const domain = urlObj.hostname;
+      
+      // Collect matching cookies
+      const matchingCookies: string[] = [];
+      for (const [key, value] of this.cookies) {
+        const [cookieDomain, cookieName] = key.split(":", 2);
+        // Simple domain matching (exact match or subdomain)
+        if (domain === cookieDomain || domain.endsWith(`.${cookieDomain}`)) {
+          matchingCookies.push(`${cookieName}=${value}`);
+        }
+      }
+      
+      return matchingCookies.length > 0 ? matchingCookies.join("; ") : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Clear all cookies
+   */
+  clearCookies(): void {
+    this.cookies.clear();
   }
 
   /**

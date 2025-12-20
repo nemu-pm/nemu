@@ -16,10 +16,10 @@ export function createNetImports(store: GlobalStore) {
       return id;
     },
 
-    send: (descriptor: number): number => {
+    send: (descriptor: number): void => {
       const req = store.requests.get(descriptor);
       if (!req || !req.url) {
-        return -9; // MissingUrl
+        return; // MissingUrl
       }
 
       // Use synchronous XMLHttpRequest (required for WASM sync calls)
@@ -29,6 +29,16 @@ export function createNetImports(store: GlobalStore) {
       // For synchronous XHR on main thread, we can't use responseType = arraybuffer
       // Instead, override mime type to get raw bytes as string
       xhr.overrideMimeType("text/plain; charset=x-user-defined");
+
+      // Add stored cookies for this URL (like Swift's HTTPCookieStorage)
+      const storedCookies = store.getCookiesForUrl(req.url);
+      if (storedCookies) {
+        // Merge with existing cookies if any
+        const existingCookie = req.headers["Cookie"];
+        req.headers["Cookie"] = existingCookie
+          ? `${existingCookie}; ${storedCookies}`
+          : storedCookies;
+      }
 
       // Set headers via x-proxy-* prefix
       for (const [key, value] of Object.entries(req.headers)) {
@@ -53,6 +63,9 @@ export function createNetImports(store: GlobalStore) {
             }
           });
 
+        // Store cookies from response (like Swift's HTTPCookieStorage)
+        store.storeCookiesFromResponse(req.url, responseHeaders);
+
         // Convert raw string to bytes (x-user-defined charset gives us raw bytes)
         const rawText = xhr.responseText || "";
         const data = new Uint8Array(rawText.length);
@@ -66,8 +79,6 @@ export function createNetImports(store: GlobalStore) {
           headers: responseHeaders,
           bytesRead: 0,
         };
-
-        return 0; // Success
       } catch (error) {
         console.error("[net.send] Request failed:", error);
         req.response = {
@@ -76,7 +87,6 @@ export function createNetImports(store: GlobalStore) {
           headers: {},
           bytesRead: 0,
         };
-        return -10; // RequestError
       }
     },
 
@@ -105,14 +115,12 @@ export function createNetImports(store: GlobalStore) {
       return hasError ? -1 : 0;
     },
 
-    set_url: (descriptor: number, urlPtr: number, urlLen: number): number => {
-      if (descriptor < 0 || urlLen <= 0) return -2;
+    set_url: (descriptor: number, urlPtr: number, urlLen: number): void => {
+      if (descriptor < 0 || urlLen <= 0) return;
       const req = store.requests.get(descriptor);
       const url = store.readString(urlPtr, urlLen);
-      if (!req) return -1;
-      if (!url) return -4; // InvalidUrl
+      if (!req || !url) return;
       req.url = url;
-      return 0;
     },
 
     set_header: (
@@ -121,15 +129,14 @@ export function createNetImports(store: GlobalStore) {
       keyLen: number,
       valuePtr: number,
       valueLen: number
-    ): number => {
-      if (descriptor < 0 || keyLen <= 0) return -1;
+    ): void => {
+      if (descriptor < 0 || keyLen <= 0) return;
       const req = store.requests.get(descriptor);
       const key = store.readString(keyPtr, keyLen);
-      if (!req || !key) return -1;
+      if (!req || !key) return;
 
       const value = valueLen > 0 ? store.readString(valuePtr, valueLen) : "";
       req.headers[key] = value || "";
-      return 0;
     },
 
     set_body: (descriptor: number, bodyPtr: number, bodyLen: number): number => {
