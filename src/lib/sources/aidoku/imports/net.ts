@@ -16,10 +16,10 @@ export function createNetImports(store: GlobalStore) {
       return id;
     },
 
-    send: (descriptor: number): void => {
+    send: (descriptor: number): number => {
       const req = store.requests.get(descriptor);
       if (!req || !req.url) {
-        return; // MissingUrl
+        return -1; // MissingUrl
       }
 
       // Use synchronous XMLHttpRequest (required for WASM sync calls)
@@ -79,6 +79,7 @@ export function createNetImports(store: GlobalStore) {
           headers: responseHeaders,
           bytesRead: 0,
         };
+        return 0;
       } catch (error) {
         console.error("[net.send] Request failed:", error);
         req.response = {
@@ -87,6 +88,7 @@ export function createNetImports(store: GlobalStore) {
           headers: {},
           bytesRead: 0,
         };
+        return -1;
       }
     },
 
