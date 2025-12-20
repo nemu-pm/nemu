@@ -15,6 +15,7 @@ export function SwiperGallery({
   currentPageIndex,
   onPageChange,
   renderImage,
+  getPageKey,
   onBackgroundClick,
   readingMode = 'rtl',
   disableKeyboard = false,
@@ -111,7 +112,7 @@ export function SwiperGallery({
         className="w-full h-full"
       >
         {Array.from({ length: pageCount }, (_, index) => (
-          <SwiperSlide key={index} virtualIndex={index}>
+          <SwiperSlide key={getPageKey?.(index) ?? index} virtualIndex={index}>
             <div className="swiper-zoom-container">
               <div
                 className="swiper-zoom-target relative w-full h-full flex items-center justify-center"

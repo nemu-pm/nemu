@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useMemo } from 'react'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Keyboard, Zoom, Virtual, Navigation } from 'swiper/modules'
 import type { Swiper as SwiperType } from 'swiper'
@@ -14,6 +14,7 @@ export function TwoPageGallery({
   currentPageIndex,
   onPageChange,
   renderImage,
+  getItemKind,
   onBackgroundClick,
   readingMode = 'rtl',
   disableKeyboard = false,
@@ -28,50 +29,54 @@ export function TwoPageGallery({
       maxZoomRatio: 1.5,
     })
 
-  // Calculate which spread contains the current page
-  const getCurrentSpreadIndex = useCallback(() => {
-    if (pagePairingMode === 'manga') {
-      if (currentPageIndex === 0) return 0
-      return Math.floor((currentPageIndex - 1) / 2) + 1
-    } else {
-      return Math.floor(currentPageIndex / 2)
-    }
-  }, [currentPageIndex, pagePairingMode])
-
-  // Calculate total number of spreads
-  const getTotalSpreads = useCallback(() => {
-    if (pagePairingMode === 'manga') {
-      return Math.ceil((pageCount - 1) / 2) + 1
-    } else {
-      return Math.ceil(pageCount / 2)
-    }
-  }, [pageCount, pagePairingMode])
-
-  // Get page indices for a given spread
-  const getSpreadPages = useCallback(
-    (spreadIndex: number) => {
-      if (pagePairingMode === 'manga') {
-        if (spreadIndex === 0) {
-          return [0]
-        } else {
-          const firstPageIndex = (spreadIndex - 1) * 2 + 1
-          const secondPageIndex = firstPageIndex + 1
-          return secondPageIndex < pageCount
-            ? [firstPageIndex, secondPageIndex]
-            : [firstPageIndex]
-        }
-      } else {
-        const firstPageIndex = spreadIndex * 2
-        const secondPageIndex = firstPageIndex + 1
-        return secondPageIndex < pageCount
-          ? [firstPageIndex, secondPageIndex]
-          : [firstPageIndex]
-      }
-    },
-    [pageCount, pagePairingMode]
+  const isSpacer = useCallback(
+    (index: number) => getItemKind?.(index) === 'spacer',
+    [getItemKind]
   )
 
-  const currentSpreadIndex = getCurrentSpreadIndex()
+  const spreads = useMemo(() => {
+    const result: number[][] = []
+
+    let i = 0
+    let segmentStart = true // resets after spacer
+
+    while (i < pageCount) {
+      if (isSpacer(i)) {
+        result.push([i])
+        i += 1
+        segmentStart = true
+        continue
+      }
+
+      if (pagePairingMode === 'manga' && segmentStart) {
+        // First page of each segment alone (segment == chapter when spacer inserted at breaks)
+        result.push([i])
+        i += 1
+        segmentStart = false
+        continue
+      }
+
+      const next = i + 1
+      if (next < pageCount && !isSpacer(next)) {
+        result.push([i, next])
+        i += 2
+      } else {
+        result.push([i])
+        i += 1
+      }
+
+      segmentStart = false
+    }
+
+    return result
+  }, [pageCount, pagePairingMode, isSpacer])
+
+  const currentSpreadIndex = useMemo(() => {
+    for (let i = 0; i < spreads.length; i++) {
+      if (spreads[i].includes(currentPageIndex)) return i
+    }
+    return 0
+  }, [spreads, currentPageIndex])
 
   useEffect(() => {
     if (swiperRef.current && swiperRef.current.activeIndex !== currentSpreadIndex) {
@@ -97,10 +102,10 @@ export function TwoPageGallery({
 
   const handleSpreadChange = useCallback(
     (newSpreadIndex: number) => {
-      const spreadPages = getSpreadPages(newSpreadIndex)
-      onPageChange(spreadPages[0])
+      const spreadPages = spreads[newSpreadIndex] ?? [0]
+      onPageChange(spreadPages[0] ?? 0)
     },
-    [getSpreadPages, onPageChange]
+    [spreads, onPageChange]
   )
 
   return (
@@ -161,9 +166,8 @@ export function TwoPageGallery({
         }}
         className="w-full h-full"
       >
-        {Array.from({ length: getTotalSpreads() }, (_, spreadIndex) => {
-          const spreadPages = getSpreadPages(spreadIndex)
-
+        {Array.from({ length: spreads.length }, (_, spreadIndex) => {
+          const spreadPages = spreads[spreadIndex] ?? []
           return (
             <SwiperSlide key={`spread-${spreadIndex}`} virtualIndex={spreadIndex}>
               <div className="swiper-zoom-container">

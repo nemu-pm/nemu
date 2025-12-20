@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
+import { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { List, type ListImperativeAPI } from 'react-window'
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
 import type { ScrollingGalleryProps, PagePairingMode } from './types'
@@ -6,39 +6,52 @@ import type { ScrollingGalleryProps, PagePairingMode } from './types'
 interface RowProps {
   pageCount: number
   renderImage: (index: number) => React.ReactNode
+  getItemKind?: (index: number) => 'page' | 'spacer'
   onBackgroundClick?: () => void
   isTwoPageMode: boolean
   pagePairingMode: PagePairingMode
   readingMode: 'rtl' | 'ltr' | 'scrolling'
   spreads: number[][]
+  pageWidthScale: number
 }
 
 // Helper functions
 const calculateSpreads = (
   pageCount: number,
-  pagePairingMode: PagePairingMode
+  pagePairingMode: PagePairingMode,
+  getItemKind?: (index: number) => 'page' | 'spacer'
 ): number[][] => {
   const result: number[][] = []
 
-  if (pagePairingMode === 'manga') {
-    // Manga mode: page 0 alone, then 1+2, 3+4, 5+6, etc.
-    result.push([0])
-    for (let i = 1; i < pageCount; i += 2) {
-      if (i + 1 < pageCount) {
-        result.push([i, i + 1])
-      } else {
-        result.push([i])
-      }
+  const isSpacer = (index: number) => getItemKind?.(index) === 'spacer'
+
+  let i = 0
+  let segmentStart = true
+  while (i < pageCount) {
+    if (isSpacer(i)) {
+      result.push([i])
+      i += 1
+      segmentStart = true
+      continue
     }
-  } else {
-    // Book mode: 0+1, 2+3, 4+5, etc.
-    for (let i = 0; i < pageCount; i += 2) {
-      if (i + 1 < pageCount) {
-        result.push([i, i + 1])
-      } else {
-        result.push([i])
-      }
+
+    if (pagePairingMode === 'manga' && segmentStart) {
+      result.push([i])
+      i += 1
+      segmentStart = false
+      continue
     }
+
+    const next = i + 1
+    if (next < pageCount && !isSpacer(next)) {
+      result.push([i, next])
+      i += 2
+    } else {
+      result.push([i])
+      i += 1
+    }
+
+    segmentStart = false
   }
 
   return result
@@ -58,10 +71,12 @@ function ScrollingRow({
   index,
   style,
   renderImage,
+  getItemKind,
   onBackgroundClick,
   isTwoPageMode,
   readingMode,
   spreads,
+  pageWidthScale,
 }: { index: number; style: React.CSSProperties } & RowProps) {
   if (isTwoPageMode) {
     const spreadPages = spreads[index]
@@ -69,7 +84,8 @@ function ScrollingRow({
     return (
       <div style={style} className="flex items-center justify-center bg-black">
         <div
-          className="relative w-full h-full flex items-center justify-center"
+          className="relative h-full flex items-center justify-center mx-auto"
+          style={{ width: `${Math.max(1, Math.min(100, pageWidthScale * 100))}%` }}
           onClick={onBackgroundClick}
         >
           {spreadPages.length === 1 ? (
@@ -95,9 +111,11 @@ function ScrollingRow({
   }
 
   // Single page mode
+  const kind = getItemKind?.(index) ?? 'page'
+  const widthPct = kind === 'page' ? pageWidthScale * 100 : 100
   return (
     <div style={style} className="flex items-center justify-center bg-black" onClick={onBackgroundClick}>
-      <div className="h-full w-full [&>img]:h-full [&>img]:w-full [&>img]:object-contain">
+      <div className="mx-auto" style={{ width: `${Math.max(1, Math.min(100, widthPct))}%`, maxWidth: '100%' }}>
         {renderImage(index)}
       </div>
     </div>
@@ -109,18 +127,23 @@ export function ScrollingGallery({
   currentPageIndex,
   onPageChange,
   renderImage,
+  getItemKind,
   onBackgroundClick,
   isTwoPageMode = false,
   pagePairingMode = 'manga',
   readingMode = 'scrolling',
+  pageWidthScale = 1,
 }: ScrollingGalleryProps) {
   const listRef = useRef<ListImperativeAPI>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [currentScale, setCurrentScale] = useState(1)
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
+  const [listReady, setListReady] = useState(false)
+  const prevRowHeightRef = useRef<number | null>(null)
   
   // Track the last page index we reported to prevent scroll-to-row feedback loop
   const lastReportedPageIndex = useRef(currentPageIndex)
+  const didInitialScrollRef = useRef(false)
   // Track if we're in the middle of user-initiated scrolling (drag or inertia)
   const isUserScrolling = useRef(false)
 
@@ -136,8 +159,8 @@ export function ScrollingGallery({
 
   // Memoized calculations
   const spreads = useMemo(
-    () => (isTwoPageMode ? calculateSpreads(pageCount, pagePairingMode) : []),
-    [pageCount, isTwoPageMode, pagePairingMode]
+    () => (isTwoPageMode ? calculateSpreads(pageCount, pagePairingMode, getItemKind) : []),
+    [pageCount, isTwoPageMode, pagePairingMode, getItemKind]
   )
 
   const currentSpreadIndex = useMemo(
@@ -179,13 +202,32 @@ export function ScrollingGallery({
     if (isTwoPageMode) {
       return containerSize.height || window.innerHeight
     }
-    // For single-page scrolling: use the smaller of viewport height or width-based height
-    // This ensures images fill height on wide screens, fill width on narrow screens
-    const width = containerSize.width || window.innerWidth
-    const height = containerSize.height || window.innerHeight
-    const widthBasedHeight = Math.round(width * 1.4)
-    return Math.min(height, widthBasedHeight)
-  }, [containerSize.height, containerSize.width, isTwoPageMode])
+    // For single-page scrolling: be width-driven so pages fill width by default.
+    // The 1.4 factor is a heuristic for typical manga page aspect ratio.
+    const width = (containerSize.width || window.innerWidth) * pageWidthScale
+    return Math.max(1, Math.round(width * 1.4))
+  }, [containerSize.height, containerSize.width, isTwoPageMode, pageWidthScale])
+
+  const rowHeightPx = useMemo(() => getRowHeight(), [getRowHeight])
+
+  // Keep the current page anchored when row height changes (e.g., pageWidthScale slider).
+  useLayoutEffect(() => {
+    const el = listRef.current?.element
+    const prev = prevRowHeightRef.current
+    prevRowHeightRef.current = rowHeightPx
+
+    if (!el || !prev || prev === rowHeightPx) return
+
+    // Anchor at the page/spread that the rest of the app considers "current".
+    const anchorRowIndex = isTwoPageMode ? currentSpreadIndex : currentPageIndex
+    const scrollTopOld = el.scrollTop
+    const withinRowOffsetOld = scrollTopOld - anchorRowIndex * prev
+    const withinRowFrac = prev > 0 ? withinRowOffsetOld / prev : 0
+
+    const scrollTopNew = (anchorRowIndex + withinRowFrac) * rowHeightPx
+    el.scrollTop = Math.max(0, scrollTopNew)
+    currentScrollOffset.current = el.scrollTop
+  }, [rowHeightPx, currentPageIndex, currentSpreadIndex, isTwoPageMode])
 
   // Handle scroll via native scroll event on the list's element
   const handleNativeScroll = useCallback(
@@ -195,30 +237,22 @@ export function ScrollingGallery({
       currentScrollOffset.current = scrollOffset
 
       // Find the most visible item
-      let accumulated = 0
       const targetCount = isTwoPageMode ? spreads.length : pageCount
-      const itemHeight = getRowHeight()
+      const itemHeight = rowHeightPx
+      if (targetCount <= 0 || itemHeight <= 0) return
 
-      for (let i = 0; i < targetCount; i++) {
-        if (scrollOffset < accumulated + itemHeight * 0.5) {
-          let newPageIndex: number
+      const i = Math.max(
+        0,
+        Math.min(targetCount - 1, Math.floor((scrollOffset + itemHeight * 0.5) / itemHeight))
+      )
 
-          if (isTwoPageMode) {
-            newPageIndex = spreads[i][0]
-          } else {
-            newPageIndex = i
-          }
-
-          if (newPageIndex !== lastReportedPageIndex.current) {
-            lastReportedPageIndex.current = newPageIndex
-            onPageChange(newPageIndex)
-          }
-          break
-        }
-        accumulated += itemHeight
+      const newPageIndex = isTwoPageMode ? spreads[i]?.[0] ?? 0 : i
+      if (newPageIndex !== lastReportedPageIndex.current) {
+        lastReportedPageIndex.current = newPageIndex
+        onPageChange(newPageIndex)
       }
     },
-    [onPageChange, getRowHeight, isTwoPageMode, spreads, pageCount]
+    [onPageChange, isTwoPageMode, spreads, pageCount, rowHeightPx]
   )
 
   // Attach scroll listener to list element
@@ -227,8 +261,25 @@ export function ScrollingGallery({
     if (!listElement) return
 
     listElement.addEventListener('scroll', handleNativeScroll)
-    return () => listElement.removeEventListener('scroll', handleNativeScroll)
+    setListReady(true)
+    return () => {
+      setListReady(false)
+      listElement.removeEventListener('scroll', handleNativeScroll)
+    }
   }, [handleNativeScroll, containerSize])
+
+  // Initial scroll so switching into scrolling mode lands on the current page, not row 0.
+  useEffect(() => {
+    if (didInitialScrollRef.current) return
+    if (!listReady) return
+    if (!listRef.current) return
+    if (currentPageIndex < 0) return
+
+    const targetIndex = isTwoPageMode ? currentSpreadIndex : currentPageIndex
+    lastReportedPageIndex.current = currentPageIndex
+    listRef.current.scrollToRow({ index: targetIndex, align: isTwoPageMode ? 'center' : 'start' })
+    didInitialScrollRef.current = true
+  }, [listReady, currentPageIndex, currentSpreadIndex, isTwoPageMode, pageCount, containerSize.height])
 
   // Mouse interaction handlers
   const handleMouseDown = useCallback(
@@ -337,7 +388,7 @@ export function ScrollingGallery({
     ) {
       lastReportedPageIndex.current = currentPageIndex
       const targetIndex = isTwoPageMode ? currentSpreadIndex : currentPageIndex
-      listRef.current.scrollToRow({ index: targetIndex, align: 'center' })
+      listRef.current.scrollToRow({ index: targetIndex, align: isTwoPageMode ? 'center' : 'start' })
     }
   }, [currentPageIndex, currentSpreadIndex, isTwoPageMode])
 
@@ -353,13 +404,25 @@ export function ScrollingGallery({
     () => ({
       pageCount,
       renderImage,
+      getItemKind,
       onBackgroundClick,
       isTwoPageMode,
       pagePairingMode,
       readingMode: readingMode as 'rtl' | 'ltr' | 'scrolling',
       spreads,
+      pageWidthScale,
     }),
-    [pageCount, renderImage, onBackgroundClick, isTwoPageMode, pagePairingMode, readingMode, spreads]
+    [
+      pageCount,
+      renderImage,
+      getItemKind,
+      onBackgroundClick,
+      isTwoPageMode,
+      pagePairingMode,
+      readingMode,
+      spreads,
+      pageWidthScale,
+    ]
   )
 
   return (
@@ -403,7 +466,7 @@ export function ScrollingGallery({
                 listRef={listRef}
                 rowComponent={ScrollingRow}
                 rowCount={rowCount}
-                rowHeight={getRowHeight()}
+                rowHeight={rowHeightPx}
                 rowProps={rowProps}
                 overscanCount={1}
                 style={{

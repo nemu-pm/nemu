@@ -5,6 +5,7 @@ import type { RegistryManager } from "@/lib/sources/registry";
 import type { LibraryStore } from "@/stores/library";
 import type { HistoryStore } from "@/stores/history";
 import type { SettingsStore } from "@/stores/settings";
+import type { SyncStatus } from "./engine";
 
 export interface DataServices {
   userStore: UserDataStore;
@@ -24,5 +25,8 @@ export interface SyncContextValue {
   stores: StoreHooks;
   isAuthenticated: boolean;
   isLoading: boolean;
+  // Sync v2 additions
+  syncStatus: SyncStatus;
+  pendingCount: number;
+  signOut: (clearLocal: boolean) => Promise<void>;
 }
-

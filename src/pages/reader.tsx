@@ -1,5 +1,5 @@
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DirectionProvider } from "@base-ui/react/direction-provider";
 import { useStores } from "@/data/context";
 import { Keys } from "@/data/keys";
@@ -22,6 +22,23 @@ import {
   Settings02Icon,
 } from "@hugeicons/core-free-icons";
 
+const SCROLL_WIDTH_KEY = "nemu:reader:scrollWidthPct";
+
+type VirtualItem =
+  | {
+      kind: "page";
+      key: string;
+      chapterId: string;
+      localIndex: number;
+      page: Page;
+    }
+  | {
+      kind: "spacer";
+      key: string;
+      fromChapterId: string;
+      toChapterId: string;
+    };
+
 export function ReaderPage() {
   const { registryId, sourceId, mangaId, chapterId } = useParams({
     strict: false,
@@ -41,21 +58,36 @@ export function ReaderPage() {
   const libraryMangaId = Keys.manga(registryId, sourceId, mangaId);
   const inLibrary = isInLibrary(registryId, sourceId, mangaId);
 
-  const [pages, setPages] = useState<Page[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
-  const [currentPage, setCurrentPage] = useState(0);
+  const [chapterPages, setChapterPages] = useState<Record<string, Page[]>>({});
+  const [windowChapterIds, setWindowChapterIds] = useState<string[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showUI, setShowUI] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [imageUrls, setImageUrls] = useState<Map<number, string>>(new Map());
+  const [imageUrls, setImageUrls] = useState<Map<string, string>>(new Map());
+
+  // Not wired in settings yet; keeping as explicit toggles for future.
+  const isTwoPageMode = false;
+  const pagePairingMode = "manga" as const;
+
+  // Scrolling mode "zoom": width scale persisted to localStorage only.
+  // 100% = full viewport width, smaller shows black side gaps.
+  const [scrollWidthPct, setScrollWidthPct] = useState(100);
 
   // Debounce save timer
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track imageUrls for unmount cleanup only
-  const imageUrlsRef = useRef<Map<number, string>>(new Map());
-  // Track which pages are currently being loaded to avoid duplicate loads
-  const loadingPagesRef = useRef<Set<number>>(new Set());
+  const imageUrlsRef = useRef<Map<string, string>>(new Map());
+  // Track which virtual items are currently being loaded to avoid duplicate loads
+  const loadingImageKeysRef = useRef<Set<string>>(new Set());
+
+  const chapterPagesRef = useRef<Record<string, Page[]>>({});
+  const loadingChaptersRef = useRef<Set<string>>(new Set());
+  const loadRunIdRef = useRef(0);
+  const pendingInternalUrlChaptersRef = useRef<Set<string>>(new Set());
+  const lastRouteChapterIdRef = useRef<string | null>(null);
 
   // Auto-close settings when toolbar/UI is hidden
   useEffect(() => {
@@ -64,64 +96,255 @@ export function ReaderPage() {
     }
   }, [showUI, settingsOpen]);
 
-  // Load pages and restore progress
+  // Load scroll width from localStorage (local-only, no sync)
+  useEffect(() => {
+    try {
+      const raw =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem(SCROLL_WIDTH_KEY)
+          : null;
+      if (!raw) return;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return;
+      setScrollWidthPct(Math.max(50, Math.min(100, Math.round(n))));
+    } catch {
+      // ignore (private mode / blocked storage)
+    }
+  }, []);
+
+  // Persist scroll width to localStorage
+  useEffect(() => {
+    try {
+      if (typeof window === "undefined") return;
+      window.localStorage.setItem(SCROLL_WIDTH_KEY, String(scrollWidthPct));
+    } catch {
+      // ignore
+    }
+  }, [scrollWidthPct]);
+
+  const chaptersReadOrder = useMemo(() => chapters.slice().reverse(), [chapters]);
+  const chapterById = useMemo(() => {
+    return new Map(chapters.map((c) => [c.id, c]));
+  }, [chapters]);
+  const chapterReadIndexById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (let i = 0; i < chaptersReadOrder.length; i++) {
+      m.set(chaptersReadOrder[i].id, i);
+    }
+    return m;
+  }, [chaptersReadOrder]);
+
+  const { items: virtualItems, chapterFirstIndex, keyToIndex } = useMemo(() => {
+    const items: VirtualItem[] = [];
+    const chapterFirstIndex = new Map<string, number>();
+    const keyToIndex = new Map<string, number>();
+
+    for (let i = 0; i < windowChapterIds.length; i++) {
+      const chapId = windowChapterIds[i];
+      const pages = chapterPages[chapId];
+      if (!pages) continue;
+
+      if (!chapterFirstIndex.has(chapId)) {
+        chapterFirstIndex.set(chapId, items.length);
+      }
+
+      for (let local = 0; local < pages.length; local++) {
+        const key = `${chapId}:${local}`;
+        keyToIndex.set(key, items.length);
+        items.push({
+          kind: "page",
+          key,
+          chapterId: chapId,
+          localIndex: local,
+          page: pages[local],
+        });
+      }
+
+      if (isTwoPageMode && i < windowChapterIds.length - 1) {
+        const nextId = windowChapterIds[i + 1];
+        const key = `spacer:${chapId}->${nextId}`;
+        keyToIndex.set(key, items.length);
+        items.push({
+          kind: "spacer",
+          key,
+          fromChapterId: chapId,
+          toChapterId: nextId,
+        });
+      }
+    }
+
+    return { items, chapterFirstIndex, keyToIndex };
+  }, [windowChapterIds, chapterPages, isTwoPageMode]);
+
+  const currentItem = virtualItems[currentIndex];
+  const effectiveChapterId =
+    currentItem?.kind === "page"
+      ? currentItem.chapterId
+      : currentItem?.kind === "spacer"
+        ? currentItem.toChapterId
+        : chapterId;
+  const effectiveLocalIndex =
+    currentItem?.kind === "page" ? currentItem.localIndex : 0;
+  const effectiveChapter = chapterById.get(effectiveChapterId);
+  const effectiveChapterPages = chapterPages[effectiveChapterId] ?? [];
+
+  // Load initial chapter/pages for this manga (do NOT depend on chapterId: we sync URL internally)
   useEffect(() => {
     let cancelled = false;
+    const runId = ++loadRunIdRef.current;
+    const initialChapterId = chapterId;
+
     setLoading(true);
     setError(null);
-    setCurrentPage(0);
-    // Clear pages immediately to prevent stale renders
-    setPages([]);
+    setCurrentIndex(0);
 
     // Revoke old blob URLs before clearing
     setImageUrls((prev) => {
       prev.forEach((url) => URL.revokeObjectURL(url));
-      return new Map<number, string>();
+      return new Map<string, string>();
     });
     imageUrlsRef.current = new Map();
-    loadingPagesRef.current.clear();
+    loadingImageKeysRef.current.clear();
+    loadingChaptersRef.current.clear();
+
+    // Reset chapter window/pages
+    setChapters([]);
+    setChapterPages({});
+    chapterPagesRef.current = {};
+    setWindowChapterIds([]);
+
+    const ensureChapterPages = async (targetChapterId: string) => {
+      if (chapterPagesRef.current[targetChapterId]) {
+        return chapterPagesRef.current[targetChapterId];
+      }
+      if (loadingChaptersRef.current.has(targetChapterId)) return null;
+
+      loadingChaptersRef.current.add(targetChapterId);
+      try {
+        const source = await getSource(registryId, sourceId);
+        if (!source) throw new Error("Source not found");
+
+        const pagesData = await source.getPages(mangaId, targetChapterId);
+
+        if (cancelled || loadRunIdRef.current !== runId) return null;
+
+        setChapterPages((prev) => {
+          const next = { ...prev, [targetChapterId]: pagesData };
+          chapterPagesRef.current = next;
+          return next;
+        });
+
+        return pagesData;
+      } catch (e) {
+        if (!cancelled && loadRunIdRef.current === runId) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+        return null;
+      } finally {
+        loadingChaptersRef.current.delete(targetChapterId);
+      }
+    };
 
     (async () => {
       try {
         const source = await getSource(registryId, sourceId);
-        if (!source) {
-          setError("Source not found");
-          setLoading(false);
-          return;
-        }
+        if (!source) throw new Error("Source not found");
 
-        const [pagesData, chaptersData] = await Promise.all([
-          source.getPages(mangaId, chapterId),
-          source.getChapters(mangaId),
-        ]);
-
-        if (cancelled) return;
-        setPages(pagesData);
+        const chaptersData = await source.getChapters(mangaId);
+        if (cancelled || loadRunIdRef.current !== runId) return;
         setChapters(chaptersData);
 
+        const pagesData = await ensureChapterPages(initialChapterId);
+        if (!pagesData || cancelled || loadRunIdRef.current !== runId) return;
+
         // Restore reading progress (only if in library)
+        let startIndex = 0;
         if (inLibrary) {
-          const progress = await getProgress(libraryMangaId, chapterId);
-          if (progress && progress.progress < pagesData.length) {
-            setCurrentPage(progress.progress);
+          const progress = await getProgress(libraryMangaId, initialChapterId);
+          if (
+            progress &&
+            progress.progress >= 0 &&
+            progress.progress < pagesData.length
+          ) {
+            startIndex = progress.progress;
           }
         }
+
+        // If we're near the start, eagerly load previous chapter so swipe-back works immediately
+        const readOrder = chaptersData.slice().reverse();
+        const currentReadIdx = readOrder.findIndex((c) => c.id === initialChapterId);
+        const prev = currentReadIdx > 0 ? readOrder[currentReadIdx - 1] : undefined;
+
+        if (prev && startIndex <= 1) {
+          const prevPages = await ensureChapterPages(prev.id);
+          if (prevPages && !cancelled && loadRunIdRef.current === runId) {
+            setWindowChapterIds([prev.id, initialChapterId]);
+            const inserted = prevPages.length + (isTwoPageMode ? 1 : 0);
+            setCurrentIndex(startIndex + inserted);
+            return;
+          }
+        }
+
+        setWindowChapterIds([initialChapterId]);
+        setCurrentIndex(startIndex);
       } catch (e) {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled && loadRunIdRef.current === runId) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && loadRunIdRef.current === runId) setLoading(false);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [registryId, sourceId, mangaId, chapterId, getSource, getProgress, inLibrary, libraryMangaId]);
+  }, [registryId, sourceId, mangaId, getSource, getProgress, inLibrary, libraryMangaId]);
+
+  // Keep a ref copy of chapterPages for async helpers
+  useEffect(() => {
+    chapterPagesRef.current = chapterPages;
+  }, [chapterPages]);
+
+  const ensureChapterPages = useCallback(
+    async (targetChapterId: string, opts?: { fatal?: boolean }) => {
+      if (chapterPagesRef.current[targetChapterId]) {
+        return chapterPagesRef.current[targetChapterId];
+      }
+      if (loadingChaptersRef.current.has(targetChapterId)) return null;
+
+      loadingChaptersRef.current.add(targetChapterId);
+      try {
+        const source = await getSource(registryId, sourceId);
+        if (!source) throw new Error("Source not found");
+        const pagesData = await source.getPages(mangaId, targetChapterId);
+
+        setChapterPages((prev) => {
+          const next = { ...prev, [targetChapterId]: pagesData };
+          chapterPagesRef.current = next;
+          return next;
+        });
+
+        return pagesData;
+      } catch (e) {
+        if (opts?.fatal) {
+          setError(e instanceof Error ? e.message : String(e));
+        } else {
+          console.error("[Reader] Failed to load chapter pages:", e);
+        }
+        return null;
+      } finally {
+        loadingChaptersRef.current.delete(targetChapterId);
+      }
+    },
+    [getSource, registryId, sourceId, mangaId]
+  );
 
   // Auto-save progress (debounced, only if in library)
   useEffect(() => {
-    if (pages.length === 0 || !inLibrary) return;
+    if (!inLibrary) return;
+    if (currentItem?.kind !== "page") return;
+    if (effectiveChapterPages.length === 0) return;
 
     // Clear previous timer
     if (saveTimerRef.current) {
@@ -130,11 +353,16 @@ export function ReaderPage() {
 
     // Debounce save by 500ms
     saveTimerRef.current = setTimeout(() => {
-      saveProgress(libraryMangaId, chapterId, currentPage, pages.length);
+      saveProgress(
+        libraryMangaId,
+        currentItem.chapterId,
+        currentItem.localIndex,
+        effectiveChapterPages.length
+      );
 
       // Mark as completed if on last page
-      if (currentPage >= pages.length - 1) {
-        markCompleted(libraryMangaId, chapterId);
+      if (currentItem.localIndex >= effectiveChapterPages.length - 1) {
+        markCompleted(libraryMangaId, currentItem.chapterId);
       }
     }, 500);
 
@@ -144,55 +372,178 @@ export function ReaderPage() {
       }
     };
   }, [
-    currentPage,
-    pages.length,
+    currentItem,
+    effectiveChapterPages.length,
     inLibrary,
     libraryMangaId,
-    chapterId,
     saveProgress,
     markCompleted,
   ]);
 
+  // Expand chapter window (append/prepend) so chapter boundaries feel like normal paging
+  useEffect(() => {
+    if (loading) return;
+    if (chaptersReadOrder.length === 0) return;
+    if (windowChapterIds.length === 0) return;
+    if (virtualItems.length === 0) return;
+
+    const PREFETCH_PAGES = 4;
+    const firstWindowId = windowChapterIds[0];
+    const lastWindowId = windowChapterIds[windowChapterIds.length - 1];
+
+    const maybeAppend = async () => {
+      if (currentIndex < virtualItems.length - PREFETCH_PAGES) return;
+
+      const lastPos = chapterReadIndexById.get(lastWindowId);
+      if (lastPos === undefined) return;
+      const next = chaptersReadOrder[lastPos + 1];
+      if (!next) return;
+      if (windowChapterIds.includes(next.id)) return;
+
+      const pages = await ensureChapterPages(next.id);
+      if (!pages) return;
+      setWindowChapterIds((ids) => (ids.includes(next.id) ? ids : [...ids, next.id]));
+    };
+
+    const maybePrepend = async () => {
+      if (currentIndex > PREFETCH_PAGES) return;
+
+      const firstPos = chapterReadIndexById.get(firstWindowId);
+      if (firstPos === undefined) return;
+      const prev = chaptersReadOrder[firstPos - 1];
+      if (!prev) return;
+      if (windowChapterIds.includes(prev.id)) return;
+
+      const pages = await ensureChapterPages(prev.id);
+      if (!pages) return;
+
+      const insertedCount = pages.length + (isTwoPageMode ? 1 : 0);
+      setWindowChapterIds((ids) => (ids.includes(prev.id) ? ids : [prev.id, ...ids]));
+      setCurrentIndex((i) => i + insertedCount);
+    };
+
+    void maybeAppend();
+    void maybePrepend();
+  }, [
+    loading,
+    currentIndex,
+    virtualItems.length,
+    windowChapterIds,
+    chaptersReadOrder,
+    chapterReadIndexById,
+    ensureChapterPages,
+    isTwoPageMode,
+  ]);
+
+  // Sync URL to the currently visible chapter (replace: keep history clean while paging)
+  useEffect(() => {
+    if (!effectiveChapterId) return;
+    if (effectiveChapterId === chapterId) return;
+
+    pendingInternalUrlChaptersRef.current.add(effectiveChapterId);
+    navigate({
+      to: "/sources/$registryId/$sourceId/$mangaId/$chapterId",
+      params: { registryId, sourceId, mangaId, chapterId: effectiveChapterId },
+      replace: true,
+    });
+  }, [effectiveChapterId, chapterId, navigate, registryId, sourceId, mangaId]);
+
+  // If user navigates to a different chapter via URL/back button, jump reader without nuking session.
+  // IMPORTANT: only react to actual route param changes, not to `effectiveChapterId` changes while reading.
+  useEffect(() => {
+    const prevRoute = lastRouteChapterIdRef.current;
+    lastRouteChapterIdRef.current = chapterId;
+
+    // Initial mount: let init loader own it.
+    if (prevRoute === null) return;
+    if (prevRoute === chapterId) return;
+
+    // Treat any route updates to chapters we initiated as internal.
+    if (pendingInternalUrlChaptersRef.current.has(chapterId)) {
+      pendingInternalUrlChaptersRef.current.delete(chapterId);
+      return;
+    }
+
+    if (loading) return;
+
+    // If the chapter is already in our window, just jump within it (avoid resetting state).
+    const existingStart = chapterFirstIndex.get(chapterId);
+    if (windowChapterIds.includes(chapterId) && existingStart !== undefined) {
+      setCurrentIndex(existingStart);
+      return;
+    }
+
+    (async () => {
+      const pages = await ensureChapterPages(chapterId, { fatal: true });
+      if (!pages) return;
+      setWindowChapterIds([chapterId]);
+
+      let start = 0;
+      if (inLibrary) {
+        const progress = await getProgress(libraryMangaId, chapterId);
+        if (progress && progress.progress >= 0 && progress.progress < pages.length) {
+          start = progress.progress;
+        }
+      }
+      setCurrentIndex(start);
+    })();
+  }, [
+    chapterId,
+    loading,
+    ensureChapterPages,
+    inLibrary,
+    getProgress,
+    libraryMangaId,
+    chapterFirstIndex,
+    windowChapterIds,
+    currentIndex,
+    virtualItems.length,
+    effectiveChapterId,
+  ]);
+
   // Preload images with eviction for memory pressure
   useEffect(() => {
-    if (pages.length === 0) return;
+    if (virtualItems.length === 0) return;
 
     // Keep pages within this range from current position
     const KEEP_RANGE = 20;
 
     const loadImage = async (index: number) => {
-      // Check if already loaded or currently loading
-      if (imageUrlsRef.current.has(index)) return;
-      if (loadingPagesRef.current.has(index)) return;
+      const item = virtualItems[index];
+      if (!item || item.kind !== "page") return;
 
-      loadingPagesRef.current.add(index);
+      // Check if already loaded or currently loading
+      if (imageUrlsRef.current.has(item.key)) return;
+      if (loadingImageKeysRef.current.has(item.key)) return;
+
+      loadingImageKeysRef.current.add(item.key);
       try {
-        const blob = await pages[index].getImage();
+        const blob = await item.page.getImage();
         const url = URL.createObjectURL(blob);
         setImageUrls((prev) => {
           // Double-check in case it was loaded while we were fetching
-          if (prev.has(index)) {
+          if (prev.has(item.key)) {
             URL.revokeObjectURL(url);
             return prev;
           }
-          const next = new Map(prev).set(index, url);
+          const next = new Map(prev).set(item.key, url);
           imageUrlsRef.current = next;
           return next;
         });
       } catch (e) {
-        console.error(`Failed to load page ${index}:`, e);
+        console.error(`Failed to load page ${item.key}:`, e);
       } finally {
-        loadingPagesRef.current.delete(index);
+        loadingImageKeysRef.current.delete(item.key);
       }
     };
 
     // Load current page and nearby pages
     const toLoad = [
-      currentPage,
-      currentPage + 1,
-      currentPage + 2,
-      currentPage - 1,
-    ].filter((i) => i >= 0 && i < pages.length);
+      currentIndex,
+      currentIndex + 1,
+      currentIndex + 2,
+      currentIndex - 1,
+    ].filter((i) => i >= 0 && i < virtualItems.length);
 
     toLoad.forEach(loadImage);
 
@@ -200,11 +551,14 @@ export function ReaderPage() {
     setImageUrls((prev) => {
       let changed = false;
       const next = new Map(prev);
-      for (const [index, url] of prev) {
-        if (Math.abs(index - currentPage) > KEEP_RANGE) {
+      for (const [key, url] of prev) {
+        const idx = keyToIndex.get(key);
+        if (idx === undefined) continue;
+
+        if (Math.abs(idx - currentIndex) > KEEP_RANGE) {
           URL.revokeObjectURL(url);
-          next.delete(index);
-          loadingPagesRef.current.delete(index);
+          next.delete(key);
+          loadingImageKeysRef.current.delete(key);
           changed = true;
         }
       }
@@ -214,7 +568,7 @@ export function ReaderPage() {
       }
       return prev;
     });
-  }, [pages, currentPage]);
+  }, [virtualItems, currentIndex, keyToIndex]);
 
   // Cleanup blob URLs on unmount (only runs when component unmounts)
   useEffect(() => {
@@ -223,10 +577,13 @@ export function ReaderPage() {
     };
   }, []);
 
-  const currentChapterIndex = chapters.findIndex((c) => c.id === chapterId);
-  const prevChapter = chapters[currentChapterIndex + 1];
-  const nextChapter = chapters[currentChapterIndex - 1];
-  const currentChapter = chapters[currentChapterIndex];
+  const effectiveReadIndex = chapterReadIndexById.get(effectiveChapterId) ?? -1;
+  const prevChapter =
+    effectiveReadIndex > 0 ? chaptersReadOrder[effectiveReadIndex - 1] : undefined;
+  const nextChapter =
+    effectiveReadIndex >= 0 && effectiveReadIndex < chaptersReadOrder.length - 1
+      ? chaptersReadOrder[effectiveReadIndex + 1]
+      : undefined;
 
   const goToChapter = useCallback(
     (chapter: Chapter) => {
@@ -245,31 +602,79 @@ export function ReaderPage() {
   const handleSliderChange = useCallback(
     (value: number | readonly number[]) => {
       const newPage = Array.isArray(value) ? value[0] : value;
-      setCurrentPage(newPage);
+      const start = chapterFirstIndex.get(effectiveChapterId);
+      if (start === undefined) return;
+      setCurrentIndex(start + newPage);
     },
-    []
+    [chapterFirstIndex, effectiveChapterId]
   );
 
   const renderImage = useCallback(
     (index: number) => {
-      const url = imageUrls.get(index);
+      const isScrolling = readingMode === "scrolling";
+      const item = virtualItems[index];
+      if (!item) {
+        return (
+          <div
+            className="flex w-full items-center justify-center bg-black"
+            style={isScrolling ? { aspectRatio: "1 / 1.4" } : { height: "100%" }}
+          >
+            <Spinner className="size-8 text-white" />
+          </div>
+        );
+      }
+      if (item.kind === "spacer") {
+        const from = chapterById.get(item.fromChapterId);
+        const to = chapterById.get(item.toChapterId);
+        return (
+          <div
+            className="flex w-full items-center justify-center bg-black"
+            style={isScrolling ? { minHeight: "20vh" } : { height: "100%" }}
+          >
+            <div className="text-center text-white/80">
+              <div className="text-xs uppercase tracking-widest text-white/50">
+                Chapter break
+              </div>
+              <div className="mt-2 text-sm">
+                {from?.chapterNumber != null && (
+                  <span className="text-white/60">Ch. {from.chapterNumber}</span>
+                )}
+                {from?.chapterNumber != null && to?.chapterNumber != null && (
+                  <span className="mx-2 text-white/30">→</span>
+                )}
+                {to?.chapterNumber != null && (
+                  <span className="text-white/90">Ch. {to.chapterNumber}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      const url = imageUrls.get(item.key);
       if (!url) {
         return (
-          <div className="flex h-full w-full items-center justify-center bg-black">
+          <div
+            className="flex w-full items-center justify-center bg-black"
+            style={isScrolling ? { aspectRatio: "1 / 1.4" } : { height: "100%" }}
+          >
             <Spinner className="size-8 text-white" />
           </div>
         );
       }
       return (
         <img
-          key={`${chapterId}-${index}`}
           src={url}
-          alt={`Page ${index + 1}`}
-          className="h-full w-full object-contain"
+          alt={`Page ${item.localIndex + 1}`}
+          className={
+            readingMode === "scrolling"
+              ? "block w-full h-auto object-contain"
+              : "h-full w-full object-contain"
+          }
         />
       );
     },
-    [imageUrls, chapterId]
+    [virtualItems, imageUrls, chapterById, readingMode]
   );
 
   if (loading) {
@@ -299,7 +704,7 @@ export function ReaderPage() {
     );
   }
 
-  const sliderValue = currentPage;
+  const sliderValue = effectiveLocalIndex;
 
   // For RTL mode, swap chapter navigation (left button = next, right button = prev)
   const leftChapter = readingMode === "rtl" ? nextChapter : prevChapter;
@@ -337,11 +742,11 @@ export function ReaderPage() {
               </Link>
               <div className="min-w-0 flex-1">
                 <h1 className="text-white font-semibold truncate text-base">
-                  Ch. {currentChapter?.chapterNumber ?? "?"}
+                  Ch. {effectiveChapter?.chapterNumber ?? "?"}
                 </h1>
-                {currentChapter?.title && (
+                {effectiveChapter?.title && (
                   <p className="text-white/70 text-sm mt-0.5 truncate">
-                    {currentChapter.title}
+                    {effectiveChapter.title}
                   </p>
                 )}
               </div>
@@ -352,12 +757,16 @@ export function ReaderPage() {
 
       {/* Reader */}
       <Reader
-        key={`${chapterId}-${pages.length}`}
-        pageCount={pages.length}
-        currentPage={currentPage}
-        onPageChange={setCurrentPage}
+        pageCount={virtualItems.length}
+        currentPage={currentIndex}
+        onPageChange={setCurrentIndex}
         renderImage={renderImage}
+        getPageKey={(i) => virtualItems[i]?.key ?? `missing:${i}`}
+        getItemKind={(i) => virtualItems[i]?.kind ?? "page"}
         readingMode={readingMode}
+        isTwoPageMode={isTwoPageMode}
+        pagePairingMode={pagePairingMode}
+        scrollPageWidthScale={scrollWidthPct / 100}
         onBackgroundClick={handleBackgroundClick}
       />
 
@@ -398,7 +807,7 @@ export function ReaderPage() {
             {/* Page Counter */}
             <div className="text-white text-xs font-medium min-w-fit">
               <span className="bg-white/10 px-3 py-1.5 rounded-full">
-                {currentPage + 1} / {pages.length}
+                {effectiveLocalIndex + 1} / {Math.max(1, effectiveChapterPages.length)}
               </span>
             </div>
 
@@ -409,9 +818,9 @@ export function ReaderPage() {
             >
               <DirectionProvider direction={readingMode === "rtl" ? "rtl" : "ltr"}>
                 <Slider
-                  value={[sliderValue]}
+                  value={[Math.min(sliderValue, Math.max(0, effectiveChapterPages.length - 1))]}
                   min={0}
-                  max={pages.length - 1}
+                  max={Math.max(0, effectiveChapterPages.length - 1)}
                   step={1}
                   onValueChange={handleSliderChange}
                 />
@@ -450,6 +859,28 @@ export function ReaderPage() {
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
+
+                {readingMode === "scrolling" && (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center justify-between text-xs text-white/70">
+                      <span>Page width</span>
+                      <span>{scrollWidthPct}%</span>
+                    </div>
+                    <Slider
+                      value={[scrollWidthPct]}
+                      min={50}
+                      max={100}
+                      step={1}
+                      onValueChange={(v) =>
+                        setScrollWidthPct((prev) => {
+                          const raw = Array.isArray(v) ? v[0] : v;
+                          if (typeof raw !== "number" || !Number.isFinite(raw)) return prev;
+                          return Math.max(50, Math.min(100, Math.round(raw)));
+                        })
+                      }
+                    />
+                  </div>
+                )}
               </PopoverContent>
             </Popover>
 

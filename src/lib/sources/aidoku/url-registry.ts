@@ -11,6 +11,36 @@ import { createAidokuMangaSource } from "./adapter";
 import type { SourceManifest } from "./types";
 import type { SourceRegistryProvider, RegistrySourceInfo } from "../registry";
 
+// ============ SETTINGS HELPERS ============
+
+interface SettingsItem {
+  type: string;
+  key?: string;
+  default?: unknown;
+  items?: SettingsItem[];
+}
+
+/**
+ * Extract default settings values from settings.json format
+ */
+function extractDefaultSettings(settingsJson: SettingsItem[]): Record<string, unknown> {
+  const defaults: Record<string, unknown> = {};
+
+  function processItems(items: SettingsItem[]) {
+    for (const item of items) {
+      if (item.key && item.default !== undefined) {
+        defaults[item.key] = item.default;
+      }
+      if (item.items) {
+        processItems(item.items);
+      }
+    }
+  }
+
+  processItems(settingsJson);
+  return defaults;
+}
+
 // ============ DEFAULT AIDOKU REGISTRIES ============
 
 export const AIDOKU_REGISTRIES = [
@@ -48,6 +78,8 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
   private sourceIndex: Map<string, NormalizedSourceEntry> = new Map();
   private loadedSources: Map<string, MangaSource> = new Map();
   private fetchPromise: Promise<void> | null = null;
+  // Prevent race condition when loading same source concurrently
+  private loadingPromises: Map<string, Promise<MangaSource | null>> = new Map();
 
   private userStore: UserDataStore;
   private cacheStore: CacheStore;
@@ -156,7 +188,7 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     }
 
     const aixUrl = `${this.baseUrl}/${entry.downloadPath}`;
-    const { wasmBytes, manifest } = await this.downloadAndExtractAix(aixUrl);
+    const { wasmBytes, manifest, settingsBytes } = await this.downloadAndExtractAix(aixUrl);
 
     const registryId = this.info.id;
     await this.cacheStore.set(CacheKeys.wasm(registryId, sourceId), wasmBytes);
@@ -166,6 +198,14 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
       CacheKeys.manifest(registryId, sourceId),
       manifestBytes.buffer as ArrayBuffer
     );
+
+    // Cache settings.json if present
+    if (settingsBytes) {
+      await this.cacheStore.set(
+        CacheKeys.settings(registryId, sourceId),
+        settingsBytes
+      );
+    }
 
     // Save installed source with composite id for storage uniqueness
     await this.userStore.saveInstalledSource({
@@ -177,7 +217,7 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
 
   private async downloadAndExtractAix(
     url: string
-  ): Promise<{ wasmBytes: ArrayBuffer; manifest: SourceManifest }> {
+  ): Promise<{ wasmBytes: ArrayBuffer; manifest: SourceManifest; settingsBytes?: ArrayBuffer }> {
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`Failed to download .aix: ${res.status}`);
@@ -189,6 +229,7 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
 
     const manifestData = files["Payload/source.json"];
     const wasmData = files["Payload/main.wasm"];
+    const settingsData = files["Payload/settings.json"];
 
     if (!manifestData || !wasmData) {
       throw new Error("Invalid .aix package: missing source.json or main.wasm");
@@ -197,13 +238,38 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     const manifest: SourceManifest = JSON.parse(
       new TextDecoder().decode(manifestData)
     );
-    return { wasmBytes: wasmData.buffer.slice(0) as ArrayBuffer, manifest };
+    return {
+      wasmBytes: wasmData.buffer.slice(0) as ArrayBuffer,
+      manifest,
+      settingsBytes: settingsData ? settingsData.buffer.slice(0) as ArrayBuffer : undefined,
+    };
   }
 
   async getSource(sourceId: string): Promise<MangaSource | null> {
+    // Check if already loaded
     const cached = this.loadedSources.get(sourceId);
     if (cached) return cached;
-
+    
+    // Check if currently loading (prevent race condition)
+    const loadingPromise = this.loadingPromises.get(sourceId);
+    if (loadingPromise) return loadingPromise;
+    
+    // Start loading and store the promise
+    const promise = this.loadSourceInternal(sourceId);
+    this.loadingPromises.set(sourceId, promise);
+    
+    try {
+      const source = await promise;
+      if (source) {
+        this.loadedSources.set(sourceId, source);
+      }
+      return source;
+    } finally {
+      this.loadingPromises.delete(sourceId);
+    }
+  }
+  
+  private async loadSourceInternal(sourceId: string): Promise<MangaSource | null> {
     const registryId = this.info.id;
     const wasmBytes = await this.cacheStore.get(CacheKeys.wasm(registryId, sourceId));
     const manifestBytes = await this.cacheStore.get(CacheKeys.manifest(registryId, sourceId));
@@ -214,16 +280,55 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
         return null;
       }
       await this.installSource(sourceId);
-      return this.getSource(sourceId);
+      return this.loadSourceInternal(sourceId);
     }
 
     const manifest: SourceManifest = JSON.parse(
       new TextDecoder().decode(manifestBytes)
     );
 
-    const source = await createAidokuMangaSource(wasmBytes, manifest);
-    this.loadedSources.set(sourceId, source);
-    return source;
+    // Load default settings from cached settings.json
+    let settingsBytes = await this.cacheStore.get(CacheKeys.settings(registryId, sourceId));
+    
+    // If settings not cached, try to fetch and cache them
+    if (!settingsBytes) {
+      await this.ensureFetched();
+      const entry = this.sourceIndex.get(sourceId);
+      if (entry) {
+        try {
+          const aixUrl = `${this.baseUrl}/${entry.downloadPath}`;
+          const { settingsBytes: newSettingsBytes } = await this.downloadAndExtractAix(aixUrl);
+          if (newSettingsBytes) {
+            await this.cacheStore.set(CacheKeys.settings(registryId, sourceId), newSettingsBytes);
+            settingsBytes = newSettingsBytes;
+          }
+        } catch {
+          // Ignore fetch errors for settings
+        }
+      }
+    }
+    
+    let initialSettings: Record<string, unknown> | undefined;
+    if (settingsBytes) {
+      try {
+        const settingsJson = JSON.parse(new TextDecoder().decode(settingsBytes));
+        initialSettings = extractDefaultSettings(settingsJson);
+      } catch {
+        // Ignore settings parsing errors
+      }
+    }
+    
+    // Add default language from manifest if not in settings
+    if (!initialSettings) {
+      initialSettings = {};
+    }
+    if (!initialSettings.languages && manifest.info.languages?.length) {
+      initialSettings.languages = [manifest.info.languages[0]];
+    }
+    
+    console.log(`[AidokuRegistry] Loading source ${sourceId} with settings:`, initialSettings);
+
+    return createAidokuMangaSource(wasmBytes, manifest, { initialSettings });
   }
 
   async isInstalled(sourceId: string): Promise<boolean> {

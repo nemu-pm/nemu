@@ -1,5 +1,6 @@
 // defaults namespace - User settings storage with localStorage persistence
 import { GlobalStore } from "../global-store";
+import { encodeValue } from "../postcard";
 
 const STORAGE_PREFIX = "aidoku_defaults_";
 
@@ -69,11 +70,18 @@ function createDebouncedPersist(sourceId: string, store: GlobalStore, delayMs = 
 
 export function createDefaultsImports(store: GlobalStore) {
   // Load persisted settings on initialization
+  // Persisted settings override initial/default settings
   const persistedSettings = loadPersistedSettings(store.id);
   if (Object.keys(persistedSettings).length > 0) {
-    store.importSettings(persistedSettings);
-    console.debug(`[defaults] Loaded ${Object.keys(persistedSettings).length} settings for ${store.id}`);
+    // Merge with existing settings (don't overwrite defaults)
+    for (const [key, value] of Object.entries(persistedSettings)) {
+      store.setSetting(key, value);
+    }
+    console.debug(`[defaults] Loaded ${Object.keys(persistedSettings).length} persisted settings for ${store.id}`);
   }
+  
+  // Log current settings for debugging
+  console.debug(`[defaults] Store has settings:`, store.exportSettings());
 
   // Create debounced persist function
   const debouncedPersist = createDebouncedPersist(store.id, store);
@@ -87,7 +95,9 @@ export function createDefaultsImports(store: GlobalStore) {
       const value = store.getSetting(key);
       if (value !== undefined) {
         console.debug(`[defaults.get] ${key} = ${JSON.stringify(value)}`);
-        return store.storeStdValue(value);
+        // Encode the value as postcard bytes - WASM expects to read it as a buffer
+        const encoded = encodeValue(value);
+        return store.storeStdValue(encoded);
       }
       console.debug(`[defaults.get] ${key} = (not found)`);
       return -1;

@@ -4,11 +4,9 @@ import { authComponent, createAuth } from "./auth";
 
 const http = httpRouter();
 
-const allowedOrigins = [
-  process.env.SITE_URL,
-  process.env.DEV_URL,
-  "http://localhost:5662",
-].filter(Boolean) as string[];
+const allowedOrigins = [process.env.SITE_URL, process.env.DEV_URL].filter(
+  Boolean
+) as string[];
 
 function getCorsHeaders(origin: string | null): HeadersInit {
   const allowedOrigin =
@@ -22,7 +20,6 @@ function getCorsHeaders(origin: string | null): HeadersInit {
   };
 }
 
-// Global OPTIONS handler for all /api/auth routes
 http.route({
   pathPrefix: "/api/auth/",
   method: "OPTIONS",
@@ -35,7 +32,6 @@ http.route({
   }),
 });
 
-// Register Better Auth routes with CORS wrapper
 authComponent.registerRoutes(http, createAuth, {
   cors: {
     allowedOrigins,

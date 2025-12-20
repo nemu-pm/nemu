@@ -1,8 +1,10 @@
 // Postcard serialization using @variegated-coffee/serde-postcard-ts
 import {
   tryEncodeString,
+  tryEncodeVarintI64,
   tryDecodeString,
   tryDecodeVarintU32,
+  tryDecodeVarintI64,
   tryDecodeF32,
   tryDecodeU8,
 } from "@variegated-coffee/serde-postcard-ts";
@@ -67,12 +69,14 @@ export function decodeI32(bytes: Uint8Array, offset: number): [number, number] {
   return [view.getInt32(0, true), offset + 4];
 }
 
-// Decode i64 (little-endian fixed size, as number - may lose precision)
+// Decode i64 (zigzag varint, as number - may lose precision for very large values)
 export function decodeI64(bytes: Uint8Array, offset: number): [number, number] {
-  const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 8);
-  const low = view.getUint32(0, true);
-  const high = view.getInt32(4, true);
-  return [high * 0x100000000 + low, offset + 8];
+  const result = tryDecodeVarintI64(bytes, offset);
+  if (!result.ok) {
+    throw new Error(`Failed to decode i64: ${result.error}`);
+  }
+  // Convert BigInt to number (may lose precision for values > Number.MAX_SAFE_INTEGER)
+  return [Number(result.value.value), result.value.bytesRead + offset];
 }
 
 // Decode f32
@@ -492,6 +496,65 @@ export function encodeVarint(val: number): Uint8Array {
   return new Uint8Array(bytes);
 }
 
+// Encode Vec<String>
+export function encodeVecString(arr: string[]): Uint8Array {
+  const parts: Uint8Array[] = [];
+  parts.push(encodeVarint(arr.length));
+  for (const s of arr) {
+    parts.push(encodeString(s));
+  }
+  return concatBytes(parts);
+}
+
+// Encode bool
+export function encodeBool(val: boolean): Uint8Array {
+  return new Uint8Array([val ? 1 : 0]);
+}
+
+// Encode i32 (zigzag varint)
+export function encodeI32(val: number): Uint8Array {
+  // zigzag encoding
+  const zigzag = (val << 1) ^ (val >> 31);
+  return encodeVarint(zigzag >>> 0);
+}
+
+// Encode f32 (little-endian)
+export function encodeF32(val: number): Uint8Array {
+  const buf = new ArrayBuffer(4);
+  const view = new DataView(buf);
+  view.setFloat32(0, val, true);
+  return new Uint8Array(buf);
+}
+
+/**
+ * Encode any JS value to postcard format.
+ * Supports: string, number, boolean, string[], and plain objects with string values.
+ */
+export function encodeValue(value: unknown): Uint8Array {
+  if (value === null || value === undefined) {
+    return new Uint8Array([0]); // Null/None
+  }
+  if (typeof value === "boolean") {
+    return encodeBool(value);
+  }
+  if (typeof value === "number") {
+    if (Number.isInteger(value)) {
+      return encodeI32(value);
+    }
+    return encodeF32(value);
+  }
+  if (typeof value === "string") {
+    return encodeString(value);
+  }
+  if (Array.isArray(value)) {
+    // Assume string array (Vec<String>)
+    return encodeVecString(value.map(String));
+  }
+  // For objects, we don't have a standard encoding - return empty
+  console.warn("[postcard] Cannot encode object type:", typeof value);
+  return new Uint8Array([0]);
+}
+
 // Encode Option<String> as raw bytes (alias for encodeOptionString)
 export function encodeOptionBytes(str: string | null): Uint8Array {
   if (str === null) return new Uint8Array([0]);
@@ -523,14 +586,18 @@ export function encodeOptionF32(val: number | null): Uint8Array {
   return new Uint8Array(buf);
 }
 
-// Encode Option<i64>
+// Encode Option<i64> (zigzag varint)
 export function encodeOptionI64(val: number | null): Uint8Array {
   if (val === null) return new Uint8Array([0]);
-  const buf = new ArrayBuffer(9);
-  const view = new DataView(buf);
-  view.setUint8(0, 1);
-  view.setBigInt64(1, BigInt(val), true);
-  return new Uint8Array(buf);
+  const result = tryEncodeVarintI64(BigInt(val));
+  if (!result.ok) {
+    throw new Error(`Failed to encode i64: ${result.error}`);
+  }
+  const varintBytes = result.value.bytes;
+  const combined = new Uint8Array(1 + varintBytes.length);
+  combined[0] = 1; // Some
+  combined.set(varintBytes, 1);
+  return combined;
 }
 
 // ============================================================================
@@ -572,6 +639,65 @@ export function encodeManga(manga: Manga): Uint8Array {
   // chapters (Option<Vec<Chapter>>)
   parts.push(new Uint8Array([0])); // None
 
+  return concatBytes(parts);
+}
+
+// Encode HashMap<String, String>
+export function encodeHashMap(map: Record<string, string>): Uint8Array {
+  const entries = Object.entries(map);
+  const parts: Uint8Array[] = [];
+  parts.push(encodeVarint(entries.length));
+  for (const [key, value] of entries) {
+    parts.push(encodeString(key));
+    parts.push(encodeString(value));
+  }
+  return concatBytes(parts);
+}
+
+// Encode PageContext (HashMap<String, String>)
+export function encodePageContext(context: Record<string, string> | null): Uint8Array {
+  if (context === null) return new Uint8Array([0]); // None
+  const mapBytes = encodeHashMap(context);
+  const result = new Uint8Array(1 + mapBytes.length);
+  result[0] = 1; // Some
+  result.set(mapBytes, 1);
+  return result;
+}
+
+// Encode u16 (little-endian)
+export function encodeU16(val: number): Uint8Array {
+  const buf = new ArrayBuffer(2);
+  const view = new DataView(buf);
+  view.setUint16(0, val, true);
+  return new Uint8Array(buf);
+}
+
+// Encode ImageResponse for process_page_image
+// Struct: { code: u16, headers: HashMap, request: ImageRequest, image: ImageRef }
+// ImageRequest: { url: Option<String>, headers: HashMap }
+// ImageRef is serialized as i32 (rid)
+export function encodeImageResponse(
+  code: number,
+  headers: Record<string, string>,
+  requestUrl: string | null,
+  requestHeaders: Record<string, string>,
+  imageRid: number
+): Uint8Array {
+  const parts: Uint8Array[] = [];
+  
+  // code: u16
+  parts.push(encodeU16(code));
+  
+  // headers: HashMap<String, String>
+  parts.push(encodeHashMap(headers));
+  
+  // request: ImageRequest { url: Option<String>, headers: HashMap }
+  parts.push(encodeOptionBytes(requestUrl));
+  parts.push(encodeHashMap(requestHeaders));
+  
+  // image: ImageRef (serialized as i32 zigzag varint)
+  parts.push(encodeI32(imageRid));
+  
   return concatBytes(parts);
 }
 

@@ -168,6 +168,7 @@ export function createSettingsStore(
 
       const manifestData = files["Payload/source.json"];
       const wasmData = files["Payload/main.wasm"];
+      const settingsData = files["Payload/settings.json"];
 
       if (!manifestData || !wasmData) {
         throw new Error("Invalid .aix package: missing source.json or main.wasm");
@@ -188,6 +189,14 @@ export function createSettingsStore(
         CacheKeys.manifest(registryId, sourceId),
         manifestData.buffer.slice(0) as ArrayBuffer
       );
+      
+      // Cache settings.json if present
+      if (settingsData) {
+        await cacheStore.set(
+          CacheKeys.settings(registryId, sourceId),
+          settingsData.buffer.slice(0) as ArrayBuffer
+        );
+      }
 
       // Save to installed sources (id is composite key)
       await userStore.saveInstalledSource({

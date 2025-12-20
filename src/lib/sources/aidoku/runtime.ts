@@ -7,11 +7,15 @@ import { createHtmlImports } from "./imports/html";
 import { createJsonImports } from "./imports/json";
 import { createDefaultsImports } from "./imports/defaults";
 import { createEnvImports } from "./imports/env";
+import { createAidokuImports } from "./imports/aidoku";
+import { createCanvasImports, createHostImage, getHostImageData } from "./imports/canvas";
 import {
   encodeString,
   encodeEmptyVec,
   encodeManga,
   encodeChapter,
+  encodeImageResponse,
+  encodePageContext,
   decodeMangaPageResult,
   decodeManga,
   decodePageList,
@@ -24,6 +28,8 @@ import { FilterType } from "./types";
 export interface AidokuSource {
   id: string;
   manifest: SourceManifest;
+  /** Whether this source has a page image processor (for descrambling) */
+  hasImageProcessor: boolean;
   initialize(): void;
   getSearchMangaList(query: string | null, page: number, filters: FilterValue[]): MangaPageResult;
   getMangaDetails(manga: Manga): Manga;
@@ -31,10 +37,43 @@ export interface AidokuSource {
   getPageList(manga: Manga, chapter: Chapter): Page[];
   getFilters(): Filter[];
   modifyImageRequest(url: string): { url: string; headers: Record<string, string> };
+  /**
+   * Process a page image (e.g., descramble).
+   * Only works if hasImageProcessor is true.
+   * @param imageData Raw image bytes
+   * @param context Page context (e.g., width/height for descrambling)
+   * @param requestUrl The URL the image was fetched from
+   * @param requestHeaders Headers used in the request
+   * @param responseCode HTTP response code
+   * @param responseHeaders HTTP response headers
+   * @returns Processed image bytes, or null if processing failed
+   */
+  processPageImage(
+    imageData: Uint8Array,
+    context: Record<string, string> | null,
+    requestUrl: string,
+    requestHeaders: Record<string, string>,
+    responseCode: number,
+    responseHeaders: Record<string, string>
+  ): Promise<Uint8Array | null>;
 }
 
-export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest: SourceManifest): Promise<AidokuSource> {
+export interface LoadSourceOptions {
+  /** Initial settings to apply before source initialization */
+  initialSettings?: Record<string, unknown>;
+}
+
+export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest: SourceManifest, options?: LoadSourceOptions): Promise<AidokuSource> {
   const store = new GlobalStore(manifest.info.id);
+
+  // Apply initial settings if provided
+  console.log(`[Aidoku] loadSource options:`, options);
+  if (options?.initialSettings && Object.keys(options.initialSettings).length > 0) {
+    store.importSettings(options.initialSettings);
+    console.log(`[Aidoku] Applied ${Object.keys(options.initialSettings).length} initial settings:`, options.initialSettings);
+  } else {
+    console.log(`[Aidoku] No initial settings provided`);
+  }
 
   // Get WASM binary - either from URL or directly from ArrayBuffer
   let wasmBytes: ArrayBuffer;
@@ -53,6 +92,8 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
     html: createHtmlImports(store),
     json: createJsonImports(store),
     defaults: createDefaultsImports(store),
+    aidoku: createAidokuImports(store),
+    canvas: createCanvasImports(store),
   };
 
   // Compile and instantiate WASM module
@@ -63,19 +104,36 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
   const memory = instance.exports.memory as WebAssembly.Memory;
   store.setMemory(memory);
 
-  // Get exported functions (new ABI uses different names)
+  // Get exported functions
   const exports = instance.exports as Record<string, WebAssembly.ExportValue>;
   
   console.log("[Aidoku] Available WASM exports:", Object.keys(exports));
 
-  // The new aidoku-rs exports these functions
+  // Detect ABI version based on available exports
+  // NEW ABI (aidoku-rs): get_search_manga_list, get_manga_update
+  // OLD ABI (legacy): get_manga_list, get_manga_details, get_chapter_list
+  const isNewAbi = "get_search_manga_list" in exports || "get_manga_update" in exports;
+  console.log("[Aidoku] Using ABI:", isNewAbi ? "NEW (aidoku-rs)" : "OLD (legacy)");
+
+  // NEW ABI exports
   const start = exports.start as (() => void) | undefined;
   const getSearchMangaList = exports.get_search_manga_list as ((queryDescriptor: number, page: number, filtersDescriptor: number) => number) | undefined;
   const getMangaUpdate = exports.get_manga_update as ((mangaDescriptor: number, needsDetails: number, needsChapters: number) => number) | undefined;
-  const wasmGetPageList = exports.get_page_list as ((mangaDescriptor: number, chapterDescriptor: number) => number) | undefined;
   const getImageRequest = exports.get_image_request as ((urlDescriptor: number, contextDescriptor: number) => number) | undefined;
+  const processPageImageExport = exports.process_page_image as ((responseDescriptor: number, contextDescriptor: number) => number) | undefined;
   const getFilterList = exports.get_filters as (() => number) | undefined;
   const freeResult = exports.free_result as ((ptr: number) => void) | undefined;
+
+  // OLD ABI exports
+  const oldGetMangaList = exports.get_manga_list as ((filterDescriptor: number, page: number) => number) | undefined;
+  const oldGetMangaDetails = exports.get_manga_details as ((mangaDescriptor: number) => void) | undefined;
+  const oldGetChapterList = exports.get_chapter_list as ((mangaDescriptor: number) => number) | undefined;
+  const oldGetPageList = exports.get_page_list as ((chapterDescriptor: number) => number) | undefined;
+
+  // get_page_list exists in both ABIs but with different signatures
+  const wasmGetPageList = isNewAbi
+    ? (exports.get_page_list as ((mangaDescriptor: number, chapterDescriptor: number) => number) | undefined)
+    : undefined;
 
   // Helper to read postcard result from WASM memory
   function readResult(ptr: number): Uint8Array | null {
@@ -157,6 +215,7 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
   return {
     id: manifest.info.id,
     manifest,
+    hasImageProcessor: !!processPageImageExport,
 
     initialize() {
       if (start) {
@@ -173,6 +232,68 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
     },
 
     getSearchMangaList(query: string | null, page: number, _filters: FilterValue[]): MangaPageResult {
+      // OLD ABI
+      if (!isNewAbi && oldGetMangaList) {
+        const scope = store.createScope();
+        try {
+          console.log("[Aidoku] OLD ABI getSearchMangaList query=", query, "page=", page);
+          
+          // Create filter array with title filter if query provided
+          const filters: unknown[] = [];
+          if (query !== null && query !== "") {
+            // Title filter object: { type: "title", value: query }
+            const titleFilter = { type: "title", value: query };
+            filters.push(titleFilter);
+          }
+          const filtersDescriptor = scope.storeValue(filters);
+          
+          // Call WASM - returns descriptor to MangaPageResult object
+          const resultDescriptor = oldGetMangaList(filtersDescriptor, page);
+          console.log("[Aidoku] OLD ABI result descriptor=", resultDescriptor);
+          
+          if (resultDescriptor < 0) {
+            return { entries: [], hasNextPage: false };
+          }
+          
+          // Read result as MangaPageResult object from store
+          const result = store.readStdValue(resultDescriptor) as { entries?: unknown[]; hasNextPage?: boolean } | null;
+          store.removeStdValue(resultDescriptor);
+          
+          if (!result) {
+            return { entries: [], hasNextPage: false };
+          }
+          
+          // Extract manga array from result
+          const mangaArray = result.entries || [];
+          const entries: Manga[] = mangaArray.map((m: unknown) => {
+            const manga = m as Record<string, unknown>;
+            return {
+              sourceId: manifest.info.id,
+              id: String(manga.key || manga.id || ""),
+              key: String(manga.key || manga.id || ""),
+              title: manga.title as string | undefined,
+              authors: manga.author ? [manga.author as string] : (manga.authors as string[] | undefined),
+              artists: manga.artist ? [manga.artist as string] : (manga.artists as string[] | undefined),
+              description: manga.description as string | undefined,
+              tags: manga.tags as string[] | undefined,
+              cover: manga.cover as string | undefined,
+              url: manga.url as string | undefined,
+              status: manga.status as MangaStatus | undefined,
+              nsfw: (manga.nsfw ?? manga.contentRating) as ContentRating | undefined,
+              viewer: manga.viewer as Viewer | undefined,
+            };
+          });
+          
+          return { entries, hasNextPage: result.hasNextPage ?? false };
+        } catch (e) {
+          console.error("[Aidoku] OLD ABI getSearchMangaList error:", e);
+          return { entries: [], hasNextPage: false };
+        } finally {
+          scope.cleanup();
+        }
+      }
+
+      // NEW ABI
       if (!getSearchMangaList) {
         console.log("[Aidoku] No get_search_manga_list export found");
         return { entries: [], hasNextPage: false };
@@ -248,6 +369,61 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
     },
 
     getMangaDetails(manga: Manga): Manga {
+      // OLD ABI
+      if (!isNewAbi && oldGetMangaDetails) {
+        const scope = store.createScope();
+        try {
+          console.log("[Aidoku] OLD ABI getMangaDetails for", manga.key);
+          
+          // Create manga object for OLD ABI
+          const mangaObj = {
+            key: manga.key,
+            id: manga.id,
+            title: manga.title,
+            cover: manga.cover,
+            author: manga.authors?.[0],
+            artist: manga.artists?.[0],
+            description: manga.description,
+            url: manga.url,
+            status: manga.status,
+            nsfw: manga.nsfw,
+            viewer: manga.viewer,
+            tags: manga.tags,
+          };
+          const mangaDescriptor = scope.storeValue(mangaObj);
+          
+          // Call WASM - modifies manga in place
+          oldGetMangaDetails(mangaDescriptor);
+          
+          // Read modified manga from store
+          const result = store.readStdValue(mangaDescriptor) as Record<string, unknown> | null;
+          
+          if (!result) return manga;
+          
+          return {
+            sourceId: manifest.info.id,
+            id: String(result.key || result.id || manga.id),
+            key: String(result.key || result.id || manga.key),
+            title: (result.title as string) || manga.title,
+            authors: result.author ? [result.author as string] : (result.authors as string[]) || manga.authors,
+            artists: result.artist ? [result.artist as string] : (result.artists as string[]) || manga.artists,
+            description: (result.description as string) || manga.description,
+            tags: (result.tags as string[]) || manga.tags,
+            cover: (result.cover as string) || manga.cover,
+            url: (result.url as string) || manga.url,
+            status: (result.status as MangaStatus) ?? manga.status,
+            nsfw: ((result.nsfw ?? result.contentRating) as ContentRating) ?? manga.nsfw,
+            viewer: (result.viewer as Viewer) ?? manga.viewer,
+          };
+        } catch (e) {
+          console.error("[Aidoku] OLD ABI getMangaDetails error:", e);
+          return manga;
+        } finally {
+          scope.cleanup();
+        }
+      }
+
+      // NEW ABI
       if (!getMangaUpdate) return manga;
 
       const scope = store.createScope();
@@ -293,6 +469,58 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
     },
 
     getChapterList(manga: Manga): Chapter[] {
+      // OLD ABI
+      if (!isNewAbi && oldGetChapterList) {
+        const scope = store.createScope();
+        try {
+          console.log("[Aidoku] OLD ABI getChapterList for", manga.key);
+          
+          // Create manga object for OLD ABI
+          const mangaObj = {
+            key: manga.key,
+            id: manga.id,
+            title: manga.title,
+            cover: manga.cover,
+          };
+          const mangaDescriptor = scope.storeValue(mangaObj);
+          
+          // Call WASM - returns array descriptor
+          const resultDescriptor = oldGetChapterList(mangaDescriptor);
+          
+          if (resultDescriptor < 0) return [];
+          
+          // Read chapter array from store
+          const chapters = store.readStdValue(resultDescriptor) as unknown[] | null;
+          store.removeStdValue(resultDescriptor);
+          
+          if (!chapters || !Array.isArray(chapters)) return [];
+          
+          return chapters.map((c, index) => {
+            const chapter = c as Record<string, unknown>;
+            return {
+              sourceId: manifest.info.id,
+              id: String(chapter.key || chapter.id || ""),
+              key: String(chapter.key || chapter.id || ""),
+              mangaId: manga.key,
+              title: chapter.title as string | undefined,
+              chapterNumber: chapter.chapter as number | undefined,
+              volumeNumber: chapter.volume as number | undefined,
+              dateUploaded: chapter.dateUploaded ? (chapter.dateUploaded as number) * 1000 : undefined,
+              scanlator: chapter.scanlator as string | undefined,
+              url: chapter.url as string | undefined,
+              lang: (chapter.lang as string) || "zh",
+              sourceOrder: index,
+            };
+          });
+        } catch (e) {
+          console.error("[Aidoku] OLD ABI getChapterList error:", e);
+          return [];
+        } finally {
+          scope.cleanup();
+        }
+      }
+
+      // NEW ABI
       if (!getMangaUpdate) return [];
 
       const scope = store.createScope();
@@ -342,20 +570,63 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
     },
 
     getPageList(manga: Manga, chapter: Chapter): Page[] {
+      // OLD ABI
+      if (!isNewAbi && oldGetPageList) {
+        const scope = store.createScope();
+        try {
+          console.log("[Aidoku] OLD ABI getPageList for chapter", chapter.key);
+          
+          // Create chapter object for OLD ABI
+          const chapterObj = {
+            key: chapter.key,
+            id: chapter.id,
+            mangaId: manga.key,
+            title: chapter.title,
+            chapter: chapter.chapterNumber,
+            volume: chapter.volumeNumber,
+          };
+          const chapterDescriptor = scope.storeValue(chapterObj);
+          
+          // Call WASM - returns array descriptor
+          const resultDescriptor = oldGetPageList(chapterDescriptor);
+          
+          if (resultDescriptor < 0) return [];
+          
+          // Read page array from store
+          const pages = store.readStdValue(resultDescriptor) as unknown[] | null;
+          store.removeStdValue(resultDescriptor);
+          
+          if (!pages || !Array.isArray(pages)) return [];
+          
+          return pages.map((p, index) => {
+            const page = p as Record<string, unknown>;
+            return {
+              index: (page.index as number) ?? index,
+              url: page.imageUrl as string | undefined ?? page.url as string | undefined,
+              base64: page.base64 as string | undefined,
+              text: page.text as string | undefined,
+            };
+          });
+        } catch (e) {
+          console.error("[Aidoku] OLD ABI getPageList error:", e);
+          return [];
+        } finally {
+          scope.cleanup();
+        }
+      }
+
+      // NEW ABI
       if (!wasmGetPageList) return [];
 
       const scope = store.createScope();
       try {
         console.log("[Aidoku] getPageList for chapter", chapter.key);
-        console.log("[Aidoku] Chapter data:", JSON.stringify(chapter, null, 2));
         
         // Encode manga and chapter
         const mangaBytes = encodeManga(manga);
         const mangaDescriptor = scope.storeValue(mangaBytes);
         
         const chapterBytes = encodeChapter(chapter);
-        console.log("[Aidoku] Chapter encoded:", chapterBytes.length, "bytes");
-        console.log("[Aidoku] Chapter hex:", Array.from(chapterBytes.slice(0, 100)).map(b => b.toString(16).padStart(2, '0')).join(' '));
         const chapterDescriptor = scope.storeValue(chapterBytes);
         
         // Call WASM
@@ -367,12 +638,9 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
         }
 
         if (!resultBytes) return [];
-
-        console.log("[Aidoku] Page list bytes:", resultBytes.length);
         
         // Decode Vec<Page>
         const decodedPages = decodePageList(resultBytes);
-        console.log("[Aidoku] Decoded pages:", decodedPages.length);
         
         // Convert to our Page type
         return decodedPages.map((p, index) => ({
@@ -380,6 +648,7 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
           url: p.url || undefined,
           base64: undefined,
           text: p.text || undefined,
+          context: p.context || undefined,
         }));
       } catch (e) {
         console.error("[Aidoku] getPageList error:", e);
@@ -490,6 +759,84 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
       } catch (e) {
         console.error("[Aidoku] modifyImageRequest error:", e);
         return { url, headers: {} };
+      } finally {
+        scope.cleanup();
+      }
+    },
+
+    async processPageImage(
+      imageData: Uint8Array,
+      context: Record<string, string> | null,
+      requestUrl: string,
+      requestHeaders: Record<string, string>,
+      responseCode: number,
+      responseHeaders: Record<string, string>
+    ): Promise<Uint8Array | null> {
+      if (!processPageImageExport) {
+        return null;
+      }
+
+      const scope = store.createScope();
+      try {
+        // Create image resource directly (with async decode)
+        const imageResult = await createHostImage(store, imageData);
+        if (!imageResult) {
+          return null;
+        }
+        const { rid: imageRid } = imageResult;
+        
+        // Encode ImageResponse and store it
+        const responseBytes = encodeImageResponse(
+          responseCode,
+          responseHeaders,
+          requestUrl,
+          requestHeaders,
+          imageRid
+        );
+        const responseDescriptor = scope.storeValue(responseBytes);
+        
+        // Encode context and store it (or -1 for None)
+        let contextDescriptor = -1;
+        if (context !== null) {
+          const contextHashMapBytes = encodePageContext(context).slice(1);
+          contextDescriptor = scope.storeValue(contextHashMapBytes);
+        }
+        
+        // Call WASM process_page_image
+        const resultPtr = processPageImageExport(responseDescriptor, contextDescriptor);
+        
+        if (resultPtr < 0) {
+          return null;
+        }
+        
+        // Read the result - it's an ImageRef rid (zigzag varint encoded)
+        const resultBytes = readResult(resultPtr);
+        
+        if (freeResult && resultPtr > 0) {
+          freeResult(resultPtr);
+        }
+        
+        if (!resultBytes || resultBytes.length === 0) {
+          return null;
+        }
+        
+        // Decode the result ImageRef rid (zigzag varint)
+        let resultRid = 0;
+        let shift = 0;
+        let pos = 0;
+        while (pos < resultBytes.length) {
+          const byte = resultBytes[pos];
+          resultRid |= (byte & 0x7f) << shift;
+          pos++;
+          if ((byte & 0x80) === 0) break;
+          shift += 7;
+        }
+        resultRid = (resultRid >>> 1) ^ -(resultRid & 1);
+        
+        // Get processed image data
+        return getHostImageData(store, resultRid);
+      } catch {
+        return null;
       } finally {
         scope.cleanup();
       }

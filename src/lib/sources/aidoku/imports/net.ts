@@ -235,5 +235,30 @@ export function createNetImports(store: GlobalStore) {
     set_rate_limit_period: (_permits: number, _period: number): void => {
       // Rate limiting is not strictly enforced in the browser prototype
     },
+
+    // ============ OLD ABI (legacy sources like aidoku-zh) ============
+    
+    // Close/cleanup a request
+    close: (descriptor: number): void => {
+      store.requests.delete(descriptor);
+    },
+
+    // Get size of response data (OLD ABI name for data_len)
+    get_data_size: (descriptor: number): number => {
+      if (descriptor < 0) return -1;
+      const req = store.requests.get(descriptor);
+      if (!req?.response?.data) return -7; // MissingData
+      return req.response.data.length;
+    },
+
+    // Read response data (OLD ABI name for read_data)
+    get_data: (descriptor: number, bufferPtr: number, size: number): void => {
+      if (descriptor < 0 || size <= 0) return;
+      const req = store.requests.get(descriptor);
+      if (!req?.response?.data) return;
+
+      const data = req.response.data;
+      store.writeBytes(data.slice(0, size), bufferPtr);
+    },
   };
 }

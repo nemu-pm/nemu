@@ -419,5 +419,27 @@ export function createHtmlImports(store: GlobalStore) {
       if (!node) return 0;
       return node.length;
     },
+
+    // ============ OLD ABI (legacy sources like aidoku-zh) ============
+    
+    // Convert a Cheerio selection to an array of elements (returns std array descriptor)
+    array: (descriptor: number): number => {
+      const node = getNode(store, descriptor);
+      if (!node) return -1;
+
+      // Convert each element in the selection to a separate descriptor
+      const elements: CheerioWithApi[] = [];
+      node.each((_, el) => {
+        const $ = node._cheerioApi;
+        if ($) {
+          const wrapped = $(el) as CheerioWithApi;
+          wrapped._cheerioApi = $;
+          elements.push(wrapped);
+        }
+      });
+
+      // Store the array and return its descriptor
+      return store.storeStdValue(elements);
+    },
   };
 }

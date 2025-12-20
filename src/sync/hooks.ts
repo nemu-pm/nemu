@@ -1,8 +1,8 @@
 import { useContext } from "react";
 import { SyncContext } from "./context";
-import type { DataServices, StoreHooks } from "./types";
+import type { DataServices, StoreHooks, SyncContextValue } from "./types";
 
-export function useSyncContext() {
+export function useSyncContext(): SyncContextValue {
   const ctx = useContext(SyncContext);
   if (!ctx) {
     throw new Error("useSyncContext must be used within SyncProvider");
@@ -23,3 +23,20 @@ export function useAuth() {
   return { isAuthenticated, isLoading };
 }
 
+export function useSyncStatus() {
+  const { syncStatus, pendingCount, isAuthenticated } = useSyncContext();
+  return {
+    status: syncStatus,
+    pendingCount,
+    isOnline: syncStatus !== "offline",
+    isSyncing: syncStatus === "syncing",
+    isSynced: syncStatus === "synced",
+    isPending: syncStatus === "pending",
+    isAuthenticated,
+  };
+}
+
+export function useSignOut() {
+  const { signOut } = useSyncContext();
+  return signOut;
+}

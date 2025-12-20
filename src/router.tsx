@@ -14,6 +14,7 @@ import {
   Settings02Icon,
 } from "@hugeicons/core-free-icons";
 import { AuthButton } from "@/components/auth-button";
+import { useAuth } from "@/sync/hooks";
 
 // Pages
 import { LibraryPage } from "./pages/library";
@@ -35,6 +36,8 @@ const shellRoute = createRoute({
 });
 
 function ShellLayout() {
+  const { isAuthenticated } = useAuth();
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Navbar */}
@@ -52,9 +55,11 @@ function ShellLayout() {
             <NavLink to="/" icon={Home01Icon} label="Library" />
             <NavLink to="/search" icon={Search01Icon} label="Search" />
             <NavLink to="/settings" icon={Settings02Icon} label="Settings" />
-            <div className="ml-2 border-l border-border pl-2">
-              <AuthButton />
-            </div>
+            {!isAuthenticated && (
+              <div className="ml-2 border-l border-border pl-2">
+                <AuthButton />
+              </div>
+            )}
           </nav>
         </div>
       </header>

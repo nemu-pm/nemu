@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { Link, useSearch, useNavigate } from "@tanstack/react-router";
 import { useStores } from "@/data/context";
+import { parseSourceKey } from "@/data/keys";
 import type { Manga } from "@/lib/sources";
 import { CoverImage } from "@/components/cover-image";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -14,12 +16,15 @@ import {
   EmptyDescription,
 } from "@/components/ui/empty";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Search01Icon, Add01Icon } from "@hugeicons/core-free-icons";
+import { Search01Icon, Add01Icon, FilterIcon } from "@hugeicons/core-free-icons";
 import { AddSourceDialog } from "@/components/add-source-dialog";
+
+const SELECTED_SOURCES_KEY = "search-selected-sources";
 
 interface SourceResults {
   registryId: string;
-  sourceId: string;
+  sourceId: string; // composite key for matching
+  rawSourceId: string; // raw source ID for URL params
   sourceName: string;
   items: Manga[];
   loading: boolean;
@@ -35,6 +40,68 @@ export function SearchPage() {
   const [query, setQuery] = useState(q);
   const [results, setResults] = useState<SourceResults[]>([]);
   const [addSourceOpen, setAddSourceOpen] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Selected sources from localStorage (null = all selected)
+  const [selectedSources, setSelectedSources] = useState<Set<string> | null>(
+    () => {
+      try {
+        const stored = localStorage.getItem(SELECTED_SOURCES_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as string[];
+          return new Set(parsed);
+        }
+      } catch {
+        // ignore
+      }
+      return null; // null means all selected
+    }
+  );
+
+  // Save to localStorage when selection changes
+  useEffect(() => {
+    if (selectedSources === null) {
+      localStorage.removeItem(SELECTED_SOURCES_KEY);
+    } else {
+      localStorage.setItem(
+        SELECTED_SOURCES_KEY,
+        JSON.stringify([...selectedSources])
+      );
+    }
+  }, [selectedSources]);
+
+  // Filter installed sources by selection
+  const filteredSources = useMemo(() => {
+    if (selectedSources === null) return installedSources;
+    return installedSources.filter((s) => selectedSources.has(s.id));
+  }, [installedSources, selectedSources]);
+
+  const toggleSource = (sourceId: string) => {
+    setSelectedSources((prev) => {
+      if (prev === null) {
+        // First toggle: select all except this one
+        const allIds = new Set(installedSources.map((s) => s.id));
+        allIds.delete(sourceId);
+        return allIds;
+      }
+      const next = new Set(prev);
+      if (next.has(sourceId)) {
+        next.delete(sourceId);
+      } else {
+        next.add(sourceId);
+      }
+      // If all selected, reset to null
+      if (next.size === installedSources.length) {
+        return null;
+      }
+      return next;
+    });
+  };
+
+  const selectAll = () => setSelectedSources(null);
+
+  const isSourceSelected = (sourceId: string) =>
+    selectedSources === null || selectedSources.has(sourceId);
 
   // Sync URL query to local state
   useEffect(() => {
@@ -43,20 +110,22 @@ export function SearchPage() {
 
   // Perform aggregated search when query changes
   useEffect(() => {
-    if (!q.trim() || installedSources.length === 0) {
+    if (!q.trim() || filteredSources.length === 0) {
       setResults([]);
       return;
     }
 
-    // Initialize results for each installed source
-    const initial: SourceResults[] = installedSources.map((s) => {
+    // Initialize results for each filtered source
+    const initial: SourceResults[] = filteredSources.map((s) => {
+      const { registryId, sourceId: rawSourceId } = parseSourceKey(s.id);
       const info = availableSources.find(
-        (a) => a.id === s.id && a.registryId === s.registryId
+        (a) => a.id === rawSourceId && a.registryId === registryId
       );
       return {
         registryId: s.registryId,
-        sourceId: s.id,
-        sourceName: info?.name ?? s.id,
+        sourceId: s.id, // composite key
+        rawSourceId,
+        sourceName: info?.name ?? rawSourceId,
         items: [],
         loading: true,
         error: null,
@@ -65,14 +134,15 @@ export function SearchPage() {
     setResults(initial);
 
     // Search each source in parallel
-    installedSources.forEach(async (installed) => {
-      const key = `${installed.registryId}:${installed.id}`;
+    filteredSources.forEach(async (installed) => {
+      const { sourceId: rawSourceId } = parseSourceKey(installed.id);
+      const key = installed.id; // composite key
       try {
-        const source = await getSource(installed.registryId, installed.id);
+        const source = await getSource(installed.registryId, rawSourceId);
         if (!source) {
           setResults((prev) =>
             prev.map((r) =>
-              `${r.registryId}:${r.sourceId}` === key
+              r.sourceId === key
                 ? { ...r, loading: false, error: "Source not found" }
                 : r
             )
@@ -83,7 +153,7 @@ export function SearchPage() {
         const result = await source.search(q);
         setResults((prev) =>
           prev.map((r) =>
-            `${r.registryId}:${r.sourceId}` === key
+            r.sourceId === key
               ? { ...r, items: result.items, loading: false }
               : r
           )
@@ -91,7 +161,7 @@ export function SearchPage() {
       } catch (e) {
         setResults((prev) =>
           prev.map((r) =>
-            `${r.registryId}:${r.sourceId}` === key
+            r.sourceId === key
               ? {
                   ...r,
                   loading: false,
@@ -102,7 +172,7 @@ export function SearchPage() {
         );
       }
     });
-  }, [q, installedSources, availableSources, getSource]);
+  }, [q, filteredSources, availableSources, getSource]);
 
   const handleSearch = useCallback(
     (e: React.FormEvent) => {
@@ -161,10 +231,63 @@ export function SearchPage() {
             className="pl-10"
           />
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setShowFilters((v) => !v)}
+          className="relative"
+        >
+          <HugeiconsIcon icon={FilterIcon} />
+          {selectedSources !== null && (
+            <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+              {selectedSources.size}
+            </span>
+          )}
+        </Button>
         <Button type="submit" disabled={!query.trim()}>
           Search
         </Button>
       </form>
+
+      {/* Source filters */}
+      {showFilters && (
+        <div className="rounded-lg border bg-card p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-medium">Sources to search</h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={selectAll}
+              disabled={selectedSources === null}
+            >
+              Select all
+            </Button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
+            {installedSources.map((source) => {
+              const { registryId, sourceId: rawSourceId } = parseSourceKey(
+                source.id
+              );
+              const info = availableSources.find(
+                (a) => a.id === rawSourceId && a.registryId === registryId
+              );
+              const name = info?.name ?? rawSourceId;
+              return (
+                <label
+                  key={source.id}
+                  className="flex cursor-pointer items-center gap-2 rounded-md p-2 hover:bg-muted"
+                >
+                  <Checkbox
+                    checked={isSourceSelected(source.id)}
+                    onCheckedChange={() => toggleSource(source.id)}
+                  />
+                  <span className="text-sm">{name}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* No query */}
       {!q.trim() && (
@@ -184,18 +307,8 @@ export function SearchPage() {
         </Empty>
       )}
 
-      {/* Searching */}
-      {q.trim() && isSearching && totalResults === 0 && (
-        <div className="flex h-[40vh] items-center justify-center">
-          <div className="text-center">
-            <Spinner className="mx-auto mb-4 size-8" />
-            <p className="text-muted-foreground">Searching for "{q}"...</p>
-          </div>
-        </div>
-      )}
-
       {/* Results grouped by source */}
-      {q.trim() && (totalResults > 0 || !isSearching) && (
+      {q.trim() && results.length > 0 && (
         <div className="space-y-8">
           {results.map((sourceResult) => (
             <SourceResultSection
@@ -273,7 +386,7 @@ function SourceResultSection({ result }: { result: SourceResults }) {
             to="/sources/$registryId/$sourceId/$mangaId"
             params={{
               registryId: result.registryId,
-              sourceId: result.sourceId,
+              sourceId: result.rawSourceId,
               mangaId: manga.id,
             }}
             className="group"

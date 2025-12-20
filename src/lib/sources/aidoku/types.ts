@@ -38,6 +38,20 @@ export interface Page {
   url?: string;
   base64?: string;
   text?: string;
+  /** Context for image processing (e.g., width/height for descrambling) */
+  context?: Record<string, string>;
+}
+
+/** Response data for image processing */
+export interface ImageResponse {
+  code: number;
+  headers: Record<string, string>;
+  request: {
+    url: string | null;
+    headers: Record<string, string>;
+  };
+  /** Resource ID of the image in the store */
+  imageRid: number;
 }
 
 export interface MangaPageResult {

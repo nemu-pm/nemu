@@ -35,7 +35,21 @@ export interface AsyncAidokuSource {
   modifyImageRequest(
     url: string
   ): Promise<{ url: string; headers: Record<string, string> }>;
+  hasImageProcessor(): Promise<boolean>;
+  processPageImage(
+    imageData: Uint8Array,
+    context: Record<string, string> | null,
+    requestUrl: string,
+    requestHeaders: Record<string, string>,
+    responseCode: number,
+    responseHeaders: Record<string, string>
+  ): Promise<Uint8Array | null>;
   terminate(): void;
+}
+
+export interface CreateAsyncSourceOptions {
+  /** Initial settings to apply before source initialization */
+  initialSettings?: Record<string, unknown>;
 }
 
 /**
@@ -44,7 +58,8 @@ export interface AsyncAidokuSource {
  */
 export async function createAsyncSource(
   wasmUrlOrBytes: string | ArrayBuffer,
-  manifest: SourceManifest
+  manifest: SourceManifest,
+  options?: CreateAsyncSourceOptions
 ): Promise<AsyncAidokuSource> {
   // Create a new worker for this source
   const worker = new Worker(
@@ -59,10 +74,11 @@ export async function createAsyncSource(
   // If ArrayBuffer, transfer it for efficiency
   const loaded =
     typeof wasmUrlOrBytes === "string"
-      ? await workerSource.load(wasmUrlOrBytes, manifest)
+      ? await workerSource.load(wasmUrlOrBytes, manifest, options?.initialSettings)
       : await workerSource.load(
           Comlink.transfer(wasmUrlOrBytes, [wasmUrlOrBytes]),
-          manifest
+          manifest,
+          options?.initialSettings
         );
   if (!loaded) {
     worker.terminate();
@@ -112,6 +128,28 @@ export async function createAsyncSource(
       url: string
     ): Promise<{ url: string; headers: Record<string, string> }> {
       return workerSource.modifyImageRequest(url);
+    },
+
+    async hasImageProcessor(): Promise<boolean> {
+      return workerSource.hasImageProcessor();
+    },
+
+    async processPageImage(
+      imageData: Uint8Array,
+      context: Record<string, string> | null,
+      requestUrl: string,
+      requestHeaders: Record<string, string>,
+      responseCode: number,
+      responseHeaders: Record<string, string>
+    ): Promise<Uint8Array | null> {
+      return workerSource.processPageImage(
+        imageData,
+        context,
+        requestUrl,
+        requestHeaders,
+        responseCode,
+        responseHeaders
+      );
     },
 
     terminate(): void {
@@ -199,5 +237,6 @@ function deserializePage(page: SerializablePage): Page {
     url: page.url,
     base64: page.base64,
     text: page.text,
+    context: page.context,
   };
 }

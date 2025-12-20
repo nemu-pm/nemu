@@ -17,6 +17,10 @@ import {
   decodeMangaPageResult,
   decodePageList,
   decodeFilterList,
+  encodeHashMap,
+  encodePageContext,
+  encodeU16,
+  encodeImageResponse,
 } from "./postcard";
 
 describe("postcard encoding/decoding", () => {
@@ -100,11 +104,20 @@ describe("postcard encoding/decoding", () => {
       expect(value).toBe(-1);
     });
 
-    it("should decode i64", () => {
-      const bytes = new Uint8Array([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    it("should decode i64 (zigzag varint)", () => {
+      // Zigzag encoding: positive 1 -> 2 (0x02)
+      const bytes = new Uint8Array([0x02]);
       const [value, offset] = decodeI64(bytes, 0);
       expect(value).toBe(1);
-      expect(offset).toBe(8);
+      expect(offset).toBe(1);
+    });
+
+    it("should decode negative i64 (zigzag varint)", () => {
+      // Zigzag encoding: -1 -> 1 (0x01)
+      const bytes = new Uint8Array([0x01]);
+      const [value, offset] = decodeI64(bytes, 0);
+      expect(value).toBe(-1);
+      expect(offset).toBe(1);
     });
   });
 
@@ -226,6 +239,98 @@ describe("complex structure decoding", () => {
       const result = decodeMangaPageResult(new Uint8Array([0, 1]));
       expect(result.entries).toEqual([]);
       expect(result.hasNextPage).toBe(true);
+    });
+  });
+
+  describe("ImageResponse encoding (for processPageImage)", () => {
+    describe("encodeHashMap", () => {
+      it("should encode empty map", () => {
+        const encoded = encodeHashMap({});
+        expect(encoded).toEqual(new Uint8Array([0])); // length 0
+      });
+
+      it("should encode map with entries", () => {
+        const encoded = encodeHashMap({ key: "value" });
+        // len(1) + "key" + "value"
+        expect(encoded[0]).toBe(1); // 1 entry
+        // Rest is key-value pair encoded as strings
+        const [key, keyEnd] = decodeString(encoded, 1);
+        const [value] = decodeString(encoded, keyEnd);
+        expect(key).toBe("key");
+        expect(value).toBe("value");
+      });
+
+      it("should encode map with multiple entries", () => {
+        const encoded = encodeHashMap({ a: "1", b: "2" });
+        expect(encoded[0]).toBe(2); // 2 entries
+      });
+    });
+
+    describe("encodePageContext", () => {
+      it("should encode null as None", () => {
+        const encoded = encodePageContext(null);
+        expect(encoded).toEqual(new Uint8Array([0]));
+      });
+
+      it("should encode context as Some(HashMap)", () => {
+        const encoded = encodePageContext({ width: "100", height: "200" });
+        expect(encoded[0]).toBe(1); // Some
+        expect(encoded[1]).toBe(2); // 2 entries in map
+      });
+    });
+
+    describe("encodeU16", () => {
+      it("should encode 0", () => {
+        const encoded = encodeU16(0);
+        expect(encoded).toEqual(new Uint8Array([0, 0]));
+      });
+
+      it("should encode 200 (HTTP OK)", () => {
+        const encoded = encodeU16(200);
+        // 200 in little-endian: 0xC8 0x00
+        expect(encoded).toEqual(new Uint8Array([200, 0]));
+      });
+
+      it("should encode 404", () => {
+        const encoded = encodeU16(404);
+        // 404 = 0x0194 in little-endian: 0x94 0x01
+        expect(encoded).toEqual(new Uint8Array([0x94, 0x01]));
+      });
+    });
+
+    describe("encodeImageResponse", () => {
+      it("should encode complete ImageResponse", () => {
+        const encoded = encodeImageResponse(
+          200,                          // code
+          { "Content-Type": "image/png" }, // headers
+          "https://example.com/image.png", // requestUrl
+          { "Referer": "https://example.com" }, // requestHeaders
+          42                            // imageRid
+        );
+        
+        // Verify structure:
+        // [u16 code][HashMap headers][Option<String> url][HashMap reqHeaders][i32 imageRid]
+        expect(encoded.length).toBeGreaterThan(0);
+        
+        // First 2 bytes should be code (200 = 0xC8 0x00)
+        expect(encoded[0]).toBe(200);
+        expect(encoded[1]).toBe(0);
+      });
+
+      it("should encode ImageResponse with null requestUrl", () => {
+        const encoded = encodeImageResponse(
+          404,
+          {},
+          null,
+          {},
+          0
+        );
+        
+        expect(encoded.length).toBeGreaterThan(0);
+        // First 2 bytes: 404 = 0x94 0x01
+        expect(encoded[0]).toBe(0x94);
+        expect(encoded[1]).toBe(0x01);
+      });
     });
   });
 });

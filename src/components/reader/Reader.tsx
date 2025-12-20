@@ -8,9 +8,12 @@ export function Reader({
   currentPage,
   onPageChange,
   renderImage,
+  getPageKey,
+  getItemKind,
   readingMode = 'rtl',
   isTwoPageMode = false,
   pagePairingMode = 'manga',
+  scrollPageWidthScale,
   onBackgroundClick,
   disableKeyboard = false,
 }: ReaderProps) {
@@ -21,10 +24,13 @@ export function Reader({
         currentPageIndex={currentPage}
         onPageChange={onPageChange}
         renderImage={renderImage}
+        getPageKey={getPageKey}
+        getItemKind={getItemKind}
         onBackgroundClick={onBackgroundClick}
         readingMode={readingMode}
         isTwoPageMode={isTwoPageMode}
         pagePairingMode={pagePairingMode}
+        pageWidthScale={scrollPageWidthScale}
       />
     )
   }
@@ -36,6 +42,8 @@ export function Reader({
         currentPageIndex={currentPage}
         onPageChange={onPageChange}
         renderImage={renderImage}
+        getPageKey={getPageKey}
+        getItemKind={getItemKind}
         onBackgroundClick={onBackgroundClick}
         readingMode={readingMode}
         disableKeyboard={disableKeyboard}
@@ -50,6 +58,8 @@ export function Reader({
       currentPageIndex={currentPage}
       onPageChange={onPageChange}
       renderImage={renderImage}
+      getPageKey={getPageKey}
+      getItemKind={getItemKind}
       onBackgroundClick={onBackgroundClick}
       readingMode={readingMode}
       disableKeyboard={disableKeyboard}

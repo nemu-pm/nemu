@@ -1,5 +1,62 @@
 # Cloud Sync v2
 
+## Current Implementation Issues (v1)
+
+### When NOT authenticated:
+```
+Zustand store.load() 
+    → userStore.getLibrary() 
+    → IndexedDBUserDataStore reads IndexedDB
+    → Store updates with local data
+```
+This works fine.
+
+### When authenticated:
+```
+Two parallel paths (race condition):
+
+1. Zustand store.load()
+    → userStore.getLibrary()
+    → ConvexUserDataStore.getLibrary()
+    → client.query(api.library.list)  // One-time fetch
+    → Store updates
+
+2. SyncProvider's useQuery subscription
+    → useQuery(api.library.list)  // Real-time subscription
+    → useEffect updates Zustand store directly
+```
+
+### Problems:
+| Issue | Description |
+|-------|-------------|
+| **Duplication** | Both store AND provider fetch/update data |
+| **Race conditions** | Store loads once, subscription updates later |
+| **No offline when auth'd** | ConvexUserDataStore doesn't read IndexedDB |
+| **Write divergence** | Writes go to either local OR cloud, not both |
+| **No merge on sign-in** | Just overwrites, doesn't intelligently merge |
+
+### Current Convex Code Locations:
+| File | Usage |
+|------|-------|
+| `src/main.tsx` | `ConvexProvider` setup |
+| `src/data/convex.ts` | `ConvexUserDataStore` (API calls) |
+| `src/sync/provider.tsx` | `useQuery`, `useConvex`, `useConvexAuth` |
+| `src/pages/settings.tsx` | `useConvexAuth` (auth state) |
+| `src/components/auth-button.tsx` | `useConvexAuth` (auth state) |
+
+**Cleanup needed:**
+- Move `data/convex.ts` → `sync/convex-store.ts`
+- Replace `useConvexAuth` in components with `useAuth` from `sync/hooks`
+- After cleanup: only `main.tsx` and `sync/*` touch Convex
+
+### What v2 fixes:
+- **Single source**: Local store is always read first, cloud syncs INTO it
+- **Write-through**: All writes go local → cloud (not either/or)
+- **Subscription merges**: Cloud changes merge into local using auto-merge rules
+- **Offline support**: Always read from local, sync when online
+
+---
+
 ## Goals
 
 1. **Bidirectional real-time sync** - changes propagate both ways instantly
@@ -239,3 +296,24 @@ interface PendingChange {
 - ❌ Manual merge editor
 - ❌ Sync history/audit log
 - ❌ Selective sync (all or nothing)
+- ❌ Backend abstraction layer (see below)
+
+## Backend Choice: Convex
+
+We're coupling to Convex directly rather than abstracting the cloud layer.
+
+**Why:**
+- Convex's `useQuery` reactivity is powerful and hard to abstract cleanly
+- Abstracting loses the instant reactivity or adds complex indirection
+- Convex free tier is generous (enough for personal use)
+- YAGNI - self-hosted is a hypothetical future need
+
+**What this means:**
+- `sync/provider.tsx` uses Convex hooks directly
+- To use a different backend → fork and replace the provider
+- Not plug-and-play swappable, but documented and isolated
+
+**If self-hosted is needed later:**
+- Create `sync/providers/convex.tsx` and `sync/providers/selfhosted.tsx`
+- Self-hosted would use react-query + WebSocket for reactivity
+- Provider interface: `useLibrary()`, `useSettings()`, `save*()`, `delete*()`

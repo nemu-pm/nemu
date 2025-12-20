@@ -50,6 +50,7 @@ export interface SerializablePage {
   url?: string;
   base64?: string;
   text?: string;
+  context?: Record<string, string>;
 }
 
 export interface SerializableMangaPageResult {
@@ -69,10 +70,15 @@ class WorkerSource {
   private source: AidokuSource | null = null;
   private sourceId: string = "";
 
-  async load(wasmUrlOrBytes: string | ArrayBuffer, manifest: SourceManifest): Promise<boolean> {
+  async load(
+    wasmUrlOrBytes: string | ArrayBuffer,
+    manifest: SourceManifest,
+    initialSettings?: Record<string, unknown>
+  ): Promise<boolean> {
     try {
       console.log("[Worker] Loading source:", manifest.info.id);
-      this.source = await loadSource(wasmUrlOrBytes, manifest);
+      console.log("[Worker] Initial settings received:", initialSettings);
+      this.source = await loadSource(wasmUrlOrBytes, manifest, { initialSettings });
       this.source.initialize();
       this.sourceId = manifest.info.id;
       console.log("[Worker] Source loaded successfully");
@@ -157,6 +163,32 @@ class WorkerSource {
     return this.source.modifyImageRequest(url);
   }
 
+  hasImageProcessor(): boolean {
+    return this.source?.hasImageProcessor ?? false;
+  }
+
+  async processPageImage(
+    imageData: Uint8Array,
+    context: Record<string, string> | null,
+    requestUrl: string,
+    requestHeaders: Record<string, string>,
+    responseCode: number,
+    responseHeaders: Record<string, string>
+  ): Promise<Uint8Array | null> {
+    if (!this.source) {
+      return null;
+    }
+
+    return this.source.processPageImage(
+      imageData,
+      context,
+      requestUrl,
+      requestHeaders,
+      responseCode,
+      responseHeaders
+    );
+  }
+
   // Serialization helpers
   private serializeManga(manga: Manga): SerializableManga {
     return {
@@ -209,6 +241,7 @@ class WorkerSource {
       url: page.url,
       base64: page.base64,
       text: page.text,
+      context: page.context,
     };
   }
 

@@ -8,11 +8,12 @@ export function createEnvImports(store: GlobalStore) {
       console.log(`[${store.id}]`, str);
     },
 
-    abort: (msgPtr: number, filePtr: number, line: number, col: number): void => {
+    abort: (msgPtr: number, filePtr: number, line: number, col: number): never => {
       const msg = store.readString(msgPtr, 256) || "Unknown error";
       const file = store.readString(filePtr, 256) || "Unknown file";
-      console.error(`[${store.id}] Abort: ${msg} at ${file}:${line}:${col}`);
-      // In browser we can't actually abort, but we log the error
+      const error = `[${store.id}] Abort: ${msg} at ${file}:${line}:${col}`;
+      console.error(error);
+      throw new Error(error);
     },
 
     sleep: (seconds: number): void => {
