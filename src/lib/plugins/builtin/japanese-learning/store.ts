@@ -24,10 +24,17 @@ let currentDetectionAbortController: AbortController | null = null
 
 function getWorker(): Worker {
   if (!worker) {
-    worker = new Worker(
-      new URL('./text-detector.worker.ts', import.meta.url),
-      { type: 'module' }
-    )
+    try {
+      worker = new Worker(
+        new URL('./text-detector.worker.ts', import.meta.url),
+        { type: 'module' }
+      )
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.error('[TextDetector] Failed to create worker:', errMsg)
+      alert(`[OCR Debug] Failed to create worker: ${errMsg}`)
+      throw err
+    }
   }
   return worker
 }
@@ -383,6 +390,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
         } else if (e.data.type === 'error') {
           w.removeEventListener('message', handler)
           console.error('[TextDetector] Detection error:', e.data.message)
+          alert(`[OCR Debug] Detection error: ${e.data.message}`)
           set({ modelLoadingStage: null })
           get().setLoadingPage(pageIndex, false)
           onComplete?.()
@@ -390,6 +398,12 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
       }
 
       w.addEventListener('message', handler)
+      w.addEventListener('error', (e) => {
+        console.error('[TextDetector] Worker error:', e)
+        alert(`[OCR Debug] Worker error: ${e.message || 'Unknown error'}`)
+        set({ modelLoadingStage: null })
+        get().setLoadingPage(pageIndex, false)
+      })
       w.postMessage({
         type: 'detect',
         requestId,

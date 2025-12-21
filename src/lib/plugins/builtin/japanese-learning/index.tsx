@@ -106,50 +106,61 @@ export const japaneseLearningPlugin: ReaderPlugin = {
         return loadingPages.size > 0 || modelLoadingStage !== null
       },
       onClick: async (ctx: ReaderPluginContext) => {
-        const store = useTextDetectorStore.getState()
-        const { settings, loadingPages, detections, runDetection } = store
+        try {
+          const store = useTextDetectorStore.getState()
+          const { settings, loadingPages, detections, runDetection } = store
 
-        // Don't run if autoDetect is on
-        if (settings.autoDetect) return
+          // Don't run if autoDetect is on
+          if (settings.autoDetect) return
 
-        // Get visible pages that haven't been detected yet
-        const pagesToDetect = ctx.visiblePageIndices.filter(
-          (idx) => !detections.has(idx) && !loadingPages.has(idx)
-        )
+          // Get visible pages that haven't been detected yet
+          const pagesToDetect = ctx.visiblePageIndices.filter(
+            (idx) => !detections.has(idx) && !loadingPages.has(idx)
+          )
 
-        if (pagesToDetect.length === 0) {
-          return // All visible pages already detected
-        }
-
-        // Run detection on all visible pages
-        let totalDetected = 0
-        for (const pageIndex of pagesToDetect) {
-          const imageUrl = ctx.getPageImageUrl(pageIndex)
-          if (!imageUrl) continue
-
-          try {
-            const imageData = await loadImageData(imageUrl)
-            const cacheKey = {
-              registryId: ctx.registryId,
-              sourceId: ctx.sourceId,
-              mangaId: ctx.mangaId,
-              chapterId: ctx.chapterId,
-              pageIndex,
-            }
-            runDetection(pageIndex, imageData, cacheKey, () => {
-              const dets = useTextDetectorStore.getState().detections.get(pageIndex)
-              totalDetected += dets?.length ?? 0
-            })
-          } catch (err) {
-            console.error(`[TextDetector] Failed to load image for page ${pageIndex}:`, err)
+          if (pagesToDetect.length === 0) {
+            return // All visible pages already detected
           }
-        }
 
-        // Show toast after all pages are queued
-        if (pagesToDetect.length === 1) {
-          // Single page - show toast after detection completes (handled in callback)
-        } else {
-          ctx.showToast(i18n.t('plugin.japaneseLearning.runningDetection', { count: pagesToDetect.length }))
+          // Run detection on all visible pages
+          let totalDetected = 0
+          for (const pageIndex of pagesToDetect) {
+            const imageUrl = ctx.getPageImageUrl(pageIndex)
+            if (!imageUrl) {
+              console.warn(`[TextDetector] No image URL for page ${pageIndex}`)
+              continue
+            }
+
+            try {
+              const imageData = await loadImageData(imageUrl)
+              const cacheKey = {
+                registryId: ctx.registryId,
+                sourceId: ctx.sourceId,
+                mangaId: ctx.mangaId,
+                chapterId: ctx.chapterId,
+                pageIndex,
+              }
+              runDetection(pageIndex, imageData, cacheKey, () => {
+                const dets = useTextDetectorStore.getState().detections.get(pageIndex)
+                totalDetected += dets?.length ?? 0
+              })
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : String(err)
+              console.error(`[TextDetector] Failed to load image for page ${pageIndex}:`, errMsg)
+              alert(`[OCR Debug] Failed to load image: ${errMsg}`)
+            }
+          }
+
+          // Show toast after all pages are queued
+          if (pagesToDetect.length === 1) {
+            // Single page - show toast after detection completes (handled in callback)
+          } else {
+            ctx.showToast(i18n.t('plugin.japaneseLearning.runningDetection', { count: pagesToDetect.length }))
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error('[TextDetector] onClick error:', errMsg)
+          alert(`[OCR Debug] Initialization error: ${errMsg}`)
         }
       },
       // Disable if all visible pages are already detected (or loading)

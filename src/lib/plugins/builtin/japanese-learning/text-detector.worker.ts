@@ -284,7 +284,12 @@ async function runDetection(
       ctx.postMessage({ type: 'model-loading', requestId, stage: 'downloading' } satisfies ModelLoadingResponse)
       
       await releaseSession()
-      ort = await getOrtModule(actualBackend)
+      
+      try {
+        ort = await getOrtModule(actualBackend)
+      } catch (err) {
+        throw new Error(`Failed to load ORT module (${actualBackend}): ${err instanceof Error ? err.message : String(err)}`)
+      }
 
       if (IS_IOS) {
         ort.env.wasm.numThreads = 1
@@ -298,19 +303,24 @@ async function runDetection(
           executionProviders: [actualBackend],
         })
       } catch (err) {
-        console.warn(`Failed to load with ${actualBackend}, falling back to wasm:`, err)
+        const errMsg = err instanceof Error ? err.message : String(err)
+        console.warn(`Failed to load with ${actualBackend}, falling back to wasm:`, errMsg)
         if (actualBackend !== 'wasm') {
-          const ortWasm = await getOrtModule('wasm')
-          if (IS_IOS) {
-            ortWasm.env.wasm.numThreads = 1
-            ortWasm.env.wasm.proxy = false
+          try {
+            const ortWasm = await getOrtModule('wasm')
+            if (IS_IOS) {
+              ortWasm.env.wasm.numThreads = 1
+              ortWasm.env.wasm.proxy = false
+            }
+            session = await ortWasm.InferenceSession.create(MODEL_PATH, {
+              executionProviders: ['wasm'],
+            })
+            ort = ortWasm
+          } catch (fallbackErr) {
+            throw new Error(`Failed to create session: primary=${errMsg}, fallback=${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`)
           }
-          session = await ortWasm.InferenceSession.create(MODEL_PATH, {
-            executionProviders: ['wasm'],
-          })
-          ort = ortWasm
         } else {
-          throw err
+          throw new Error(`Failed to create WASM session: ${errMsg}`)
         }
       }
 
@@ -446,10 +456,12 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       ctx.postMessage({ type: 'webgpu-result', available } satisfies WebGPUResponse)
     }
   } catch (err) {
+    const errorMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    console.error('[TextDetector Worker] Error:', errorMsg, err)
     ctx.postMessage({
       type: 'error',
       requestId,
-      message: err instanceof Error ? err.message : String(err),
+      message: errorMsg,
     } satisfies ErrorResponse)
   }
 }
