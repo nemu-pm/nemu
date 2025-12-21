@@ -5,12 +5,15 @@ interface UseCustomZoomProps {
   swiperRef: React.MutableRefObject<SwiperType | undefined>
   onBackgroundClick?: () => void
   maxZoomRatio?: number
+  /** When true, double-click/tap zoom is disabled */
+  disableZoom?: boolean
 }
 
 export function useCustomZoom({
   swiperRef,
   onBackgroundClick,
   maxZoomRatio = 1.5,
+  disableZoom = false,
 }: UseCustomZoomProps) {
   const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isZoomedRef = useRef(false)
@@ -115,6 +118,12 @@ export function useCustomZoom({
           clickTimeoutRef.current = null
         }
 
+        // Skip zoom if disabled
+        if (disableZoom) {
+          lastClickTimeRef.current = 0
+          return
+        }
+
         // Handle double-click zoom
         const slideElement = e.currentTarget as HTMLElement
         handleDoubleClickZoom(e, slideElement)
@@ -138,7 +147,7 @@ export function useCustomZoom({
         onBackgroundClick?.()
       }, 250) // 250ms delay to detect double-click
     },
-    [onBackgroundClick, handleDoubleClickZoom]
+    [onBackgroundClick, handleDoubleClickZoom, disableZoom]
   )
 
   // Touch event handlers
@@ -166,4 +175,3 @@ export function useCustomZoom({
     isZoomedRef,
   }
 }
-

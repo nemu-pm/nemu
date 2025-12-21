@@ -5,6 +5,7 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { GlobalStore } from "../global-store";
+import { encodeVecString, decodeString, decodeI64, decodeBool, decodeF32 } from "../postcard";
 
 // Initialize dayjs plugins
 dayjs.extend(customParseFormat);
@@ -28,27 +29,49 @@ const ObjectType = {
 
 type ObjectType = (typeof ObjectType)[keyof typeof ObjectType];
 
+// StdError codes matching aidoku-rs
+const StdError = {
+  InvalidDescriptor: -1,
+  InvalidBufferSize: -2,
+  FailedMemoryWrite: -3,
+  InvalidString: -4,
+  InvalidDateString: -5,
+} as const;
+
 export function createStdImports(store: GlobalStore) {
   return {
     // ============ NEW ABI (aidoku-rs) ============
     
-    // Destroy a descriptor (free resources)
+    // Destroy a descriptor (free resources) - unified for all resource types
     destroy: (descriptor: number): void => {
-      store.removeStdValue(descriptor);
+      // aidoku-rs expects std.destroy to free any RID (requests, html, js, canvas, etc.)
+      store.destroyResource(descriptor);
     },
 
     // Get the length of a buffer stored at a descriptor
     buffer_len: (descriptor: number): number => {
-      if (descriptor < 0) return -1;
+      if (descriptor < 0) return StdError.InvalidDescriptor;
       const value = store.readStdValue(descriptor);
+      if (value === undefined) return StdError.InvalidDescriptor;
 
       if (value instanceof Uint8Array) {
         return value.length;
       }
       if (typeof value === "string") {
-        return new TextEncoder().encode(value).length;
+        // Raw UTF-8 for html.attr, html.text, etc (which call read_string_and_destroy)
+        const encoded = new TextEncoder().encode(value);
+        // Cache the encoded bytes for read_buffer
+        store.updateStdValue(descriptor, encoded);
+        return encoded.length;
       }
-      return -1;
+      // Handle string arrays by postcard-encoding them
+      if (Array.isArray(value) && value.every((v) => typeof v === "string")) {
+        const encoded = encodeVecString(value as string[]);
+        // Cache the encoded bytes for read_buffer
+        store.updateStdValue(descriptor, encoded);
+        return encoded.length;
+      }
+      return StdError.InvalidDescriptor;
     },
 
     // Read buffer data into WASM memory
@@ -57,24 +80,33 @@ export function createStdImports(store: GlobalStore) {
       bufferPtr: number,
       size: number
     ): number => {
-      if (descriptor < 0 || size <= 0) return -1;
+      if (descriptor < 0) return StdError.InvalidDescriptor;
       const value = store.readStdValue(descriptor);
+      if (value === undefined) return StdError.InvalidDescriptor;
 
       let bytes: Uint8Array;
       if (value instanceof Uint8Array) {
         bytes = value;
       } else if (typeof value === "string") {
+        // Raw UTF-8 for html.attr, html.text, etc (which call read_string_and_destroy)
         bytes = new TextEncoder().encode(value);
+      } else if (Array.isArray(value) && value.every((v) => typeof v === "string")) {
+        // Handle string arrays by postcard-encoding them
+        bytes = encodeVecString(value as string[]);
       } else {
-        return -1;
+        return StdError.InvalidDescriptor;
       }
 
       if (size > bytes.length) {
-        return -2; // InvalidBufferSize
+        return StdError.InvalidBufferSize;
       }
 
-      store.writeBytes(bytes.slice(0, size), bufferPtr);
-      return 0;
+      try {
+        store.writeBytes(bytes.slice(0, size), bufferPtr);
+        return 0;
+      } catch {
+        return StdError.FailedMemoryWrite;
+      }
     },
 
     // Get current date as Unix timestamp
@@ -88,7 +120,8 @@ export function createStdImports(store: GlobalStore) {
       return BigInt(-new Date().getTimezoneOffset() * 60);
     },
 
-    // Parse a date string into a Unix timestamp
+    // Parse a date string into a Unix timestamp (f64 seconds since epoch)
+    // aidoku-rs uses "UTC" and "current" as special timezone values
     parse_date: (
       stringPtr: number,
       stringLen: number,
@@ -99,22 +132,30 @@ export function createStdImports(store: GlobalStore) {
       timezonePtr: number,
       timezoneLen: number
     ): number => {
-      if (stringLen <= 0 || formatLen <= 0) return -5;
+      if (stringLen <= 0) return StdError.InvalidDateString;
+      if (formatLen <= 0) return StdError.InvalidDateString;
 
       const dateStr = store.readString(stringPtr, stringLen);
       const format = store.readString(formatPtr, formatLen);
       const locale =
         localeLen > 0 ? store.readString(localePtr, localeLen) : null;
-      const tz =
+      let tz =
         timezoneLen > 0 ? store.readString(timezonePtr, timezoneLen) : null;
 
-      if (!dateStr || !format) return -5;
+      if (!dateStr || !format) return StdError.InvalidDateString;
+
+      // Handle aidoku-rs special timezone values
+      // "UTC" means parse as UTC
+      // "current" means parse in local timezone
+      if (tz === "current") {
+        tz = null; // null = local timezone
+      }
 
       const date = parseDateWithFormat(dateStr, format, locale, tz);
       if (date) {
         return Math.floor(date.getTime() / 1000);
       }
-      return -5;
+      return StdError.InvalidDateString;
     },
 
     // ============ OLD ABI (legacy sources like aidoku-zh) ============
@@ -151,6 +192,19 @@ export function createStdImports(store: GlobalStore) {
       }
       if (value instanceof Date) {
         return ObjectType.Date;
+      }
+      // Handle postcard-encoded Uint8Array from defaults.get (legacy ABI compatibility)
+      // Try to detect the type by attempting to decode as string first
+      if (value instanceof Uint8Array) {
+        try {
+          const [str] = decodeString(value, 0);
+          // Successfully decoded as string
+          return ObjectType.String;
+        } catch {
+          // Not a string, could be int/float/bool/array
+          // For now, treat as unknown since we can't easily determine the type
+          return ObjectType.Unknown;
+        }
       }
       // Check for Cheerio node
       if (value !== null && typeof value === "object" && "cheerio" in value) {
@@ -206,6 +260,15 @@ export function createStdImports(store: GlobalStore) {
       if (typeof value === "string") {
         return new TextEncoder().encode(value).length;
       }
+      // Handle postcard-encoded Uint8Array from defaults.get (legacy ABI compatibility)
+      if (value instanceof Uint8Array) {
+        try {
+          const [str] = decodeString(value, 0);
+          return new TextEncoder().encode(str).length;
+        } catch {
+          return -1;
+        }
+      }
       return -1;
     },
 
@@ -215,6 +278,17 @@ export function createStdImports(store: GlobalStore) {
       if (typeof value === "string") {
         const bytes = new TextEncoder().encode(value);
         store.writeBytes(bytes.slice(0, size), buffer);
+        return;
+      }
+      // Handle postcard-encoded Uint8Array from defaults.get (legacy ABI compatibility)
+      if (value instanceof Uint8Array) {
+        try {
+          const [str] = decodeString(value, 0);
+          const bytes = new TextEncoder().encode(str);
+          store.writeBytes(bytes.slice(0, size), buffer);
+        } catch {
+          // Ignore decode errors
+        }
       }
     },
 
@@ -232,6 +306,24 @@ export function createStdImports(store: GlobalStore) {
         const num = parseInt(value, 10);
         return isNaN(num) ? BigInt(-1) : BigInt(num);
       }
+      // Handle postcard-encoded Uint8Array from defaults.get (legacy ABI compatibility)
+      // Try string first (most common case), then i64
+      if (value instanceof Uint8Array) {
+        try {
+          // Try decoding as string first (e.g., "486922991" stored as postcard string)
+          const [str] = decodeString(value, 0);
+          const num = parseInt(str, 10);
+          if (!isNaN(num)) return BigInt(num);
+        } catch {
+          // Not a string, try as i64
+        }
+        try {
+          const [num] = decodeI64(value, 0);
+          return BigInt(num);
+        } catch {
+          return BigInt(-1);
+        }
+      }
       return BigInt(-1);
     },
 
@@ -245,6 +337,23 @@ export function createStdImports(store: GlobalStore) {
         const num = parseFloat(value);
         return isNaN(num) ? -1 : num;
       }
+      // Handle postcard-encoded Uint8Array from defaults.get (legacy ABI compatibility)
+      if (value instanceof Uint8Array) {
+        try {
+          // Try decoding as string first (e.g., "123.45" stored as postcard string)
+          const [str] = decodeString(value, 0);
+          const num = parseFloat(str);
+          if (!isNaN(num)) return num;
+        } catch {
+          // Not a string, try as f32
+        }
+        try {
+          const [num] = decodeF32(value, 0);
+          return num;
+        } catch {
+          return -1;
+        }
+      }
       return -1;
     },
 
@@ -256,6 +365,15 @@ export function createStdImports(store: GlobalStore) {
       }
       if (typeof value === "number") {
         return value !== 0 ? 1 : 0;
+      }
+      // Handle postcard-encoded Uint8Array from defaults.get (legacy ABI compatibility)
+      if (value instanceof Uint8Array) {
+        try {
+          const [bool] = decodeBool(value, 0);
+          return bool ? 1 : 0;
+        } catch {
+          return 0;
+        }
       }
       return 0;
     },

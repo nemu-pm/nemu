@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react"
+import i18n from "@/lib/i18n"
 
 interface Props {
   children: ReactNode
@@ -61,17 +62,17 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       const { error, errorInfo } = this.state
+      const t = (key: string) => i18n.t(key)
 
       return (
         <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-6">
           <div className="max-w-3xl w-full space-y-6">
             <div className="space-y-2">
               <h1 className="text-2xl font-semibold text-destructive">
-                Something went wrong
+                {t("error.title")}
               </h1>
               <p className="text-muted-foreground">
-                The application encountered an unexpected error. This might be
-                caused by a WASM crash or other runtime issue.
+                {t("error.description")}
               </p>
             </div>
 
@@ -86,7 +87,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
             <details className="group">
               <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground transition-colors">
-                Show full error details
+                {t("error.showDetails")}
               </summary>
               <pre className="mt-3 p-4 rounded-lg bg-muted/50 border text-xs font-mono overflow-auto max-h-80 whitespace-pre-wrap break-words">
                 {this.formatError(error, errorInfo)}
@@ -98,13 +99,13 @@ export class ErrorBoundary extends Component<Props, State> {
                 onClick={this.handleCopy}
                 className="px-4 py-2 text-sm font-medium rounded-md border bg-background hover:bg-muted transition-colors"
               >
-                Copy Error Log
+                {t("error.copyLog")}
               </button>
               <button
                 onClick={this.handleRefresh}
                 className="px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
               >
-                Refresh Page
+                {t("error.refreshPage")}
               </button>
             </div>
           </div>

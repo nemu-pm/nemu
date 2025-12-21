@@ -1,14 +1,14 @@
 import type { ConvexReactClient } from "convex/react";
-import type { LibraryManga, ChapterProgress, UserSettings } from "@/data/schema";
-import { IndexedDBUserDataStore } from "@/data/indexeddb";
+import type { LibraryManga, HistoryEntry, UserSettings } from "@/data/schema";
+import { IndexedDBUserDataStore, makeHistoryKey } from "@/data/indexeddb";
 import { api } from "../../convex/_generated/api";
 
 export type SyncStatus = "offline" | "syncing" | "synced" | "pending";
 
 export interface PendingChange {
   id: string;
-  table: "library" | "settings";
-  operation: "save" | "remove" | "progress";
+  table: "library" | "history" | "settings";
+  operation: "save" | "remove";
   data: unknown;
   timestamp: number;
   retries: number;
@@ -257,25 +257,24 @@ export class SyncEngine {
   }
 
   /**
-   * Save chapter progress (local first, then queue for cloud)
+   * Save history entry (local first, then queue for cloud)
    */
-  async saveChapterProgress(
-    mangaId: string,
-    chapterId: string,
-    progress: ChapterProgress
-  ): Promise<void> {
+  async saveHistoryEntry(entry: HistoryEntry): Promise<void> {
     // 1. Write to local
-    await this.localStore.saveChapterProgress(mangaId, chapterId, progress);
+    await this.localStore.saveHistoryEntry(entry);
 
     // 2. Queue for cloud sync
     if (this.convex) {
       await this.addPendingChange({
-        table: "library",
-        operation: "progress",
-        data: { mangaId, chapterId, progress },
+        table: "history",
+        operation: "save",
+        data: entry,
         timestamp: Date.now(),
         retries: 0,
       });
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/06d791ef-68a2-446c-b54d-218ff0f0deda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'engine.ts:saveHistoryEntry:afterPending',message:'after addPendingChange',data:{chapterId:entry.chapterId,pendingCount:this._pendingCount},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+      // #endregion
 
       if (this.online) {
         this.syncNow();
@@ -378,18 +377,30 @@ export class SyncEngine {
             sources: manga.sources,
             activeRegistryId: manga.activeRegistryId,
             activeSourceId: manga.activeSourceId,
-            history: manga.history,
+            lastReadChapter: manga.lastReadChapter,
+            lastReadAt: manga.lastReadAt,
+            latestChapter: manga.latestChapter,
+            seenLatestChapter: manga.seenLatestChapter,
           });
         } else if (change.operation === "remove") {
           const data = change.data as { mangaId: string };
           await this.convex.mutation(api.library.remove, data);
-        } else if (change.operation === "progress") {
-          const data = change.data as {
-            mangaId: string;
-            chapterId: string;
-            progress: ChapterProgress;
-          };
-          await this.convex.mutation(api.library.saveChapterProgress, data);
+        }
+        break;
+      }
+      case "history": {
+        if (change.operation === "save") {
+          const entry = change.data as HistoryEntry;
+          await this.convex.mutation(api.history.save, {
+            registryId: entry.registryId,
+            sourceId: entry.sourceId,
+            mangaId: entry.mangaId,
+            chapterId: entry.chapterId,
+            progress: entry.progress,
+            total: entry.total,
+            completed: entry.completed,
+            dateRead: entry.dateRead,
+          });
         }
         break;
       }
@@ -424,7 +435,7 @@ export class SyncEngine {
         this.localStore.getSettings(),
       ]);
 
-      // 3. Merge cloud into local
+      // 3. Merge cloud library into local
       const cloudMangaIds = new Set(cloudLibrary.map((m) => m.mangaId));
 
       // Add cloud-only manga to local
@@ -441,31 +452,61 @@ export class SyncEngine {
             sources: cloudManga.sources,
             activeRegistryId: cloudManga.activeRegistryId,
             activeSourceId: cloudManga.activeSourceId,
-            history: cloudManga.history as Record<string, ChapterProgress>,
           });
         } else {
-          // Both exist: merge history
-          const mergedHistory = { ...localManga.history };
-          for (const [chapterId, cloudProgress] of Object.entries(
-            cloudManga.history as Record<string, ChapterProgress>
-          )) {
-            const localProgress = mergedHistory[chapterId];
-            if (!localProgress) {
-              mergedHistory[chapterId] = cloudProgress;
-            } else {
-              mergedHistory[chapterId] = {
-                progress: Math.max(localProgress.progress, cloudProgress.progress),
-                total: Math.max(localProgress.total, cloudProgress.total),
-                completed: localProgress.completed || cloudProgress.completed,
-                dateRead: Math.max(localProgress.dateRead, cloudProgress.dateRead),
-              };
-            }
-          }
-
+          // Both exist: update metadata
           await this.localStore.saveLibraryManga({
             ...localManga,
-            history: mergedHistory,
+            title: cloudManga.title,
+            cover: cloudManga.cover,
           });
+        }
+
+        // Fetch and merge history for this manga
+        const cloudHistory = await this.convex.query(api.history.getMangaHistory, {
+          registryId: cloudManga.activeRegistryId,
+          sourceId: cloudManga.activeSourceId,
+          mangaId: cloudManga.sources[0]?.mangaId ?? "",
+        });
+
+        for (const cloudEntry of cloudHistory) {
+          const localEntry = await this.localStore.getHistoryEntry(
+            cloudEntry.registryId,
+            cloudEntry.sourceId,
+            cloudEntry.mangaId,
+            cloudEntry.chapterId
+          );
+
+          if (!localEntry) {
+            // Cloud-only: add to local
+            await this.localStore.saveHistoryEntry({
+              id: makeHistoryKey(
+                cloudEntry.registryId,
+                cloudEntry.sourceId,
+                cloudEntry.mangaId,
+                cloudEntry.chapterId
+              ),
+              registryId: cloudEntry.registryId,
+              sourceId: cloudEntry.sourceId,
+              mangaId: cloudEntry.mangaId,
+              chapterId: cloudEntry.chapterId,
+              progress: cloudEntry.progress,
+              total: cloudEntry.total,
+              completed: cloudEntry.completed,
+              dateRead: cloudEntry.dateRead,
+            });
+          } else {
+            // Merge: use most recent (by dateRead), not highest progress
+            const useCloud = cloudEntry.dateRead > localEntry.dateRead;
+            const merged: HistoryEntry = {
+              ...localEntry,
+              progress: useCloud ? cloudEntry.progress : localEntry.progress,
+              total: Math.max(localEntry.total, cloudEntry.total),
+              completed: localEntry.completed || cloudEntry.completed,
+              dateRead: Math.max(localEntry.dateRead, cloudEntry.dateRead),
+            };
+            await this.localStore.saveHistoryEntry(merged);
+          }
         }
       }
 
@@ -479,6 +520,25 @@ export class SyncEngine {
             timestamp: Date.now(),
             retries: 0,
           });
+
+          // Also push history for this manga
+          const activeSource = localManga.sources[0];
+          if (activeSource) {
+            const localHistory = await this.localStore.getMangaHistory(
+              activeSource.registryId,
+              activeSource.sourceId,
+              activeSource.mangaId
+            );
+            for (const entry of Object.values(localHistory)) {
+              await this.addPendingChange({
+                table: "history",
+                operation: "save",
+                data: entry,
+                timestamp: Date.now(),
+                retries: 0,
+              });
+            }
+          }
         }
       }
 
@@ -498,7 +558,6 @@ export class SyncEngine {
       });
 
       await this.localStore.saveSettings({
-        readingMode: cloudSettings.readingMode,
         installedSources: mergedSources,
       });
 
@@ -508,7 +567,6 @@ export class SyncEngine {
           table: "settings",
           operation: "save",
           data: {
-            readingMode: cloudSettings.readingMode,
             installedSources: mergedSources,
           },
           timestamp: Date.now(),
@@ -549,7 +607,6 @@ export class SyncEngine {
         await this.localStore.removeLibraryManga(manga.id);
       }
       await this.localStore.saveSettings({
-        readingMode: "rtl",
         installedSources: [],
       });
     }
@@ -571,7 +628,12 @@ export class SyncEngine {
       sources: Array<{ registryId: string; sourceId: string; mangaId: string }>;
       activeRegistryId: string;
       activeSourceId: string;
-      history: Record<string, ChapterProgress>;
+      // Reading progress
+      lastReadChapter?: { id: string; title?: string; chapterNumber?: number; volumeNumber?: number };
+      lastReadAt?: number;
+      // Chapter availability
+      latestChapter?: { id: string; title?: string; chapterNumber?: number; volumeNumber?: number };
+      seenLatestChapter?: { id: string; title?: string; chapterNumber?: number; volumeNumber?: number };
     }>
   ): Promise<LibraryManga[]> {
     const localLibrary = await this.localStore.getLibrary();
@@ -591,36 +653,23 @@ export class SyncEngine {
           sources: cloudManga.sources,
           activeRegistryId: cloudManga.activeRegistryId,
           activeSourceId: cloudManga.activeSourceId,
-          history: cloudManga.history,
+          lastReadChapter: cloudManga.lastReadChapter,
+          lastReadAt: cloudManga.lastReadAt,
+          latestChapter: cloudManga.latestChapter,
+          seenLatestChapter: cloudManga.seenLatestChapter,
         };
         await this.localStore.saveLibraryManga(manga);
         result.push(manga);
       } else {
-        // Merge history
-        const mergedHistory = { ...localManga.history };
-        let changed = false;
-
-        for (const [chapterId, cloudProgress] of Object.entries(cloudManga.history)) {
-          const localProgress = mergedHistory[chapterId];
-          if (!localProgress) {
-            mergedHistory[chapterId] = cloudProgress;
-            changed = true;
-          } else {
-            const merged = {
-              progress: Math.max(localProgress.progress, cloudProgress.progress),
-              total: Math.max(localProgress.total, cloudProgress.total),
-              completed: localProgress.completed || cloudProgress.completed,
-              dateRead: Math.max(localProgress.dateRead, cloudProgress.dateRead),
-            };
-            if (
-              merged.progress !== localProgress.progress ||
-              merged.completed !== localProgress.completed
-            ) {
-              mergedHistory[chapterId] = merged;
-              changed = true;
-            }
-          }
-        }
+        // Merge: keep the most recent lastReadAt
+        const lastReadAt =
+          cloudManga.lastReadAt && localManga.lastReadAt
+            ? Math.max(cloudManga.lastReadAt, localManga.lastReadAt)
+            : cloudManga.lastReadAt ?? localManga.lastReadAt;
+        const lastReadChapter =
+          lastReadAt === cloudManga.lastReadAt
+            ? cloudManga.lastReadChapter ?? localManga.lastReadChapter
+            : localManga.lastReadChapter ?? cloudManga.lastReadChapter;
 
         const manga: LibraryManga = {
           ...localManga,
@@ -629,13 +678,13 @@ export class SyncEngine {
           sources: cloudManga.sources,
           activeRegistryId: cloudManga.activeRegistryId,
           activeSourceId: cloudManga.activeSourceId,
-          history: mergedHistory,
+          lastReadChapter,
+          lastReadAt,
+          latestChapter: cloudManga.latestChapter ?? localManga.latestChapter,
+          seenLatestChapter: cloudManga.seenLatestChapter ?? localManga.seenLatestChapter,
         };
 
-        if (changed) {
-          await this.localStore.saveLibraryManga(manga);
-        }
-
+        await this.localStore.saveLibraryManga(manga);
         result.push(manga);
         localById.delete(cloudManga.mangaId);
       }
@@ -648,5 +697,60 @@ export class SyncEngine {
 
     return result;
   }
-}
 
+  /**
+   * Merge cloud history data into local (called from subscription)
+   */
+  async mergeCloudHistory(
+    cloudHistory: Array<{
+      registryId: string;
+      sourceId: string;
+      mangaId: string;
+      chapterId: string;
+      progress: number;
+      total: number;
+      completed: boolean;
+      dateRead: number;
+    }>
+  ): Promise<void> {
+    for (const cloudEntry of cloudHistory) {
+      const localEntry = await this.localStore.getHistoryEntry(
+        cloudEntry.registryId,
+        cloudEntry.sourceId,
+        cloudEntry.mangaId,
+        cloudEntry.chapterId
+      );
+
+      if (!localEntry) {
+        // Cloud-only: add to local
+        await this.localStore.saveHistoryEntry({
+          id: makeHistoryKey(
+            cloudEntry.registryId,
+            cloudEntry.sourceId,
+            cloudEntry.mangaId,
+            cloudEntry.chapterId
+          ),
+          registryId: cloudEntry.registryId,
+          sourceId: cloudEntry.sourceId,
+          mangaId: cloudEntry.mangaId,
+          chapterId: cloudEntry.chapterId,
+          progress: cloudEntry.progress,
+          total: cloudEntry.total,
+          completed: cloudEntry.completed,
+          dateRead: cloudEntry.dateRead,
+        });
+      } else {
+        // Merge: use most recent (by dateRead), not highest progress
+        const useCloud = cloudEntry.dateRead > localEntry.dateRead;
+        const merged: HistoryEntry = {
+          ...localEntry,
+          progress: useCloud ? cloudEntry.progress : localEntry.progress,
+          total: Math.max(localEntry.total, cloudEntry.total),
+          completed: localEntry.completed || cloudEntry.completed,
+          dateRead: Math.max(localEntry.dateRead, cloudEntry.dateRead),
+        };
+        await this.localStore.saveHistoryEntry(merged);
+      }
+    }
+  }
+}

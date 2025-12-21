@@ -9,34 +9,58 @@ interface CheerioWithApi extends Cheerio<AnyNode> {
   _cheerioApi?: CheerioAPI;
 }
 
+// RequestError codes matching aidoku-rs
+const RequestError = {
+  InvalidDescriptor: -1,
+  InvalidString: -2,
+  InvalidMethod: -3,
+  InvalidUrl: -4,
+  InvalidHtml: -5,
+  InvalidBufferSize: -6,
+  MissingData: -7,
+  MissingResponse: -8,
+  MissingUrl: -9,
+  RequestError: -10,
+  FailedMemoryWrite: -11,
+  NotAnImage: -12,
+} as const;
+
+// Default User-Agent for requests
+const DEFAULT_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+
 export function createNetImports(store: GlobalStore) {
   return {
     init: (method: number): number => {
       const id = store.createRequest(method);
+      // Add default User-Agent like reference runner
+      const req = store.requests.get(id);
+      if (req) {
+        req.headers["User-Agent"] = DEFAULT_USER_AGENT;
+      }
       return id;
     },
 
     send: (descriptor: number): number => {
+      if (descriptor < 0) return RequestError.InvalidDescriptor;
       const req = store.requests.get(descriptor);
-      if (!req || !req.url) {
-        return -1; // MissingUrl
-      }
+      if (!req) return RequestError.InvalidDescriptor;
+      if (!req.url) return RequestError.MissingUrl;
 
       // Use synchronous XMLHttpRequest (required for WASM sync calls)
       const xhr = new XMLHttpRequest();
       xhr.open(req.method || "GET", proxyUrl(req.url), false); // false = synchronous
 
-      // For synchronous XHR on main thread, we can't use responseType = arraybuffer
-      // Instead, override mime type to get raw bytes as string
-      xhr.overrideMimeType("text/plain; charset=x-user-defined");
+      // In Web Workers, we CAN use responseType = 'arraybuffer' for sync XHR
+      // This gives us raw bytes without any charset interpretation
+      xhr.responseType = "arraybuffer";
 
       // Add stored cookies for this URL (like Swift's HTTPCookieStorage)
       const storedCookies = store.getCookiesForUrl(req.url);
       if (storedCookies) {
-        // Merge with existing cookies if any
+        // Merge with existing cookies if any (stored cookies first, then request's existing)
         const existingCookie = req.headers["Cookie"];
         req.headers["Cookie"] = existingCookie
-          ? `${existingCookie}; ${storedCookies}`
+          ? `${storedCookies}; ${existingCookie}`
           : storedCookies;
       }
 
@@ -57,21 +81,22 @@ export function createNetImports(store: GlobalStore) {
           .forEach((line) => {
             const idx = line.indexOf(": ");
             if (idx > 0) {
-              responseHeaders[line.slice(0, idx).toLowerCase()] = line.slice(
-                idx + 2
-              );
+              const headerKey = line.slice(0, idx).toLowerCase();
+              const headerValue = line.slice(idx + 2);
+              // Join multiple values with comma (like reference runner)
+              if (responseHeaders[headerKey]) {
+                responseHeaders[headerKey] += ", " + headerValue;
+              } else {
+                responseHeaders[headerKey] = headerValue;
+              }
             }
           });
 
         // Store cookies from response (like Swift's HTTPCookieStorage)
         store.storeCookiesFromResponse(req.url, responseHeaders);
 
-        // Convert raw string to bytes (x-user-defined charset gives us raw bytes)
-        const rawText = xhr.responseText || "";
-        const data = new Uint8Array(rawText.length);
-        for (let i = 0; i < rawText.length; i++) {
-          data[i] = rawText.charCodeAt(i) & 0xff;
-        }
+        // Get raw bytes directly from arraybuffer response
+        const data = new Uint8Array(xhr.response as ArrayBuffer);
 
         req.response = {
           data,
@@ -88,7 +113,7 @@ export function createNetImports(store: GlobalStore) {
           headers: {},
           bytesRead: 0,
         };
-        return -1;
+        return RequestError.RequestError;
       }
     },
 
@@ -117,89 +142,124 @@ export function createNetImports(store: GlobalStore) {
       return hasError ? -1 : 0;
     },
 
-    set_url: (descriptor: number, urlPtr: number, urlLen: number): void => {
-      if (descriptor < 0 || urlLen <= 0) return;
+    // aidoku-rs: set_url(rid, ptr, len) -> FFIResult
+    set_url: (descriptor: number, urlPtr: number, urlLen: number): number => {
+      if (descriptor < 0) return RequestError.InvalidDescriptor;
       const req = store.requests.get(descriptor);
+      if (!req) return RequestError.InvalidDescriptor;
+      if (urlLen <= 0) return RequestError.InvalidString;
+
       const url = store.readString(urlPtr, urlLen);
-      if (!req || !url) return;
+      if (!url) return RequestError.InvalidString;
+
+      // Validate URL
+      try {
+        new URL(url);
+      } catch {
+        return RequestError.InvalidUrl;
+      }
+
       req.url = url;
+      return 0;
     },
 
+    // aidoku-rs: set_header(rid, key_ptr, key_len, val_ptr, val_len) -> FFIResult
     set_header: (
       descriptor: number,
       keyPtr: number,
       keyLen: number,
       valuePtr: number,
       valueLen: number
-    ): void => {
-      if (descriptor < 0 || keyLen <= 0) return;
+    ): number => {
+      if (descriptor < 0) return RequestError.InvalidDescriptor;
       const req = store.requests.get(descriptor);
+      if (!req) return RequestError.InvalidDescriptor;
+      if (keyLen <= 0) return RequestError.InvalidString;
+
       const key = store.readString(keyPtr, keyLen);
-      if (!req || !key) return;
+      if (!key) return RequestError.InvalidString;
 
       const value = valueLen > 0 ? store.readString(valuePtr, valueLen) : "";
       req.headers[key] = value || "";
+      return 0;
     },
 
+    // aidoku-rs: set_body(rid, ptr, len) -> FFIResult
     set_body: (descriptor: number, bodyPtr: number, bodyLen: number): number => {
-      if (descriptor < 0) return -1;
+      if (descriptor < 0) return RequestError.InvalidDescriptor;
       const req = store.requests.get(descriptor);
-      if (!req) return -1;
+      if (!req) return RequestError.InvalidDescriptor;
 
       if (bodyLen > 0) {
         const body = store.readBytes(bodyPtr, bodyLen);
-        if (body) {
-          req.body = body;
-        }
+        if (!body) return RequestError.FailedMemoryWrite;
+        req.body = body;
       }
       return 0;
     },
 
     // Get the length of response data
     data_len: (descriptor: number): number => {
-      if (descriptor < 0) return -1;
+      if (descriptor < 0) return RequestError.InvalidDescriptor;
       const req = store.requests.get(descriptor);
-      if (!req?.response?.data) return -7; // MissingData
+      if (!req) return RequestError.InvalidDescriptor;
+      if (!req.response) return RequestError.MissingResponse;
+      if (!req.response.data) return RequestError.MissingData;
       return req.response.data.length;
     },
 
     // Read response data into WASM memory
     read_data: (descriptor: number, bufferPtr: number, size: number): number => {
-      if (descriptor < 0 || size <= 0) return -1;
+      if (descriptor < 0) return RequestError.InvalidDescriptor;
       const req = store.requests.get(descriptor);
-      if (!req?.response?.data) return -7; // MissingData
+      if (!req) return RequestError.InvalidDescriptor;
+      if (!req.response) return RequestError.MissingResponse;
+      if (!req.response.data) return RequestError.MissingData;
 
       const data = req.response.data;
-      if (size > data.length) return -6; // InvalidBufferSize
+      if (size > data.length) return RequestError.InvalidBufferSize;
 
-      store.writeBytes(data.slice(0, size), bufferPtr);
-      return 0;
+      try {
+        store.writeBytes(data.slice(0, size), bufferPtr);
+        return 0;
+      } catch {
+        return RequestError.FailedMemoryWrite;
+      }
     },
 
-    // Get image from response (simplified - just returns descriptor)
+    // Get image from response
     get_image: (descriptor: number): number => {
-      if (descriptor < 0) return -1;
+      if (descriptor < 0) return RequestError.InvalidDescriptor;
       const req = store.requests.get(descriptor);
-      if (!req?.response?.data) return -7;
-      // For now, just return the descriptor - image handling would need more work
-      return -12; // NotAnImage - images need special handling
+      if (!req) return RequestError.InvalidDescriptor;
+      if (!req.response) return RequestError.MissingResponse;
+      if (!req.response.data) return RequestError.MissingData;
+      // TODO: Implement proper image handling
+      return RequestError.NotAnImage;
     },
 
+    // Get response header value (returns RID to string, joined with comma for multi-value)
     get_header: (descriptor: number, keyPtr: number, keyLen: number): number => {
-      if (descriptor < 0 || keyLen <= 0) return -1;
+      if (descriptor < 0) return RequestError.InvalidDescriptor;
       const req = store.requests.get(descriptor);
+      if (!req) return RequestError.InvalidDescriptor;
+      if (keyLen <= 0) return RequestError.InvalidString;
+
       const key = store.readString(keyPtr, keyLen);
-      if (!req?.response?.headers || !key) return -1;
+      if (!key) return RequestError.InvalidString;
+      if (!req.response?.headers) return RequestError.MissingResponse;
 
       const value = req.response.headers[key.toLowerCase()];
-      if (!value) return -1;
+      if (!value) return RequestError.MissingData;
       return store.storeStdValue(value);
     },
 
     get_status_code: (descriptor: number): number => {
-      if (descriptor < 0) return -1;
+      if (descriptor < 0) return RequestError.InvalidDescriptor;
       const req = store.requests.get(descriptor);
-      return req?.response?.statusCode ?? -8; // MissingResponse
+      if (!req) return RequestError.InvalidDescriptor;
+      if (!req.response) return RequestError.MissingResponse;
+      return req.response.statusCode ?? 0;
     },
 
     html: (descriptor: number): number => {
@@ -252,22 +312,36 @@ export function createNetImports(store: GlobalStore) {
       store.requests.delete(descriptor);
     },
 
-    // Get size of response data (OLD ABI name for data_len)
+    // Get size of response data (OLD ABI - returns REMAINING bytes, uses bytesRead)
+    // Swift reference: return data.length - bytesRead
     get_data_size: (descriptor: number): number => {
       if (descriptor < 0) return -1;
       const req = store.requests.get(descriptor);
-      if (!req?.response?.data) return -7; // MissingData
-      return req.response.data.length;
+      if (!req?.response?.data) return RequestError.MissingData;
+      // Return remaining bytes (total - already read)
+      return req.response.data.length - req.response.bytesRead;
     },
 
-    // Read response data (OLD ABI name for read_data)
+    // Read response data (OLD ABI - streaming compatible, advances bytesRead)
+    // Swift reference: copy from bytesRead position, increment bytesRead
     get_data: (descriptor: number, bufferPtr: number, size: number): void => {
       if (descriptor < 0 || size <= 0) return;
       const req = store.requests.get(descriptor);
       if (!req?.response?.data) return;
 
       const data = req.response.data;
-      store.writeBytes(data.slice(0, size), bufferPtr);
+      const bytesRead = req.response.bytesRead;
+      
+      // Guard bounds like Swift: only read if bytesRead + size <= data.length
+      if (bytesRead + size > data.length) {
+        return;
+      }
+
+      // Copy bytes starting at bytesRead (not from 0)
+      store.writeBytes(data.slice(bytesRead, bytesRead + size), bufferPtr);
+      
+      // Increment bytesRead
+      req.response.bytesRead += size;
     },
   };
 }

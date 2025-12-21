@@ -6,11 +6,87 @@
  * - System dependencies: bunx playwright install-deps chromium (requires sudo)
  *
  * These tests require a real browser environment with OffscreenCanvas support.
- * They are skipped in happy-dom (unit test) environment.
+ * Skipped entirely in Node environment.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GlobalStore } from "../global-store";
 import { createCanvasImports } from "./canvas";
+import { encodeVarint, encodeF32, concatBytes } from "../postcard";
+
+// Skip entire file in Node environment (no OffscreenCanvas)
+const isBrowser = typeof window !== "undefined" && typeof OffscreenCanvas !== "undefined";
+
+// Path/Style encoding helpers (must match aidoku-rs postcard format)
+function encodePoint(x: number, y: number): Uint8Array {
+  return concatBytes([encodeF32(x), encodeF32(y)]);
+}
+
+function encodePathOp(
+  type: "moveTo" | "lineTo" | "rect" | "close",
+  ...args: number[]
+): Uint8Array {
+  const variants = { moveTo: 0, lineTo: 1, quadTo: 2, cubicTo: 3, arc: 4, close: 5, rect: 6 };
+  const variant = encodeVarint(variants[type]);
+  switch (type) {
+    case "moveTo":
+    case "lineTo":
+      return concatBytes([variant, encodePoint(args[0], args[1])]);
+    case "rect":
+      // Rect encoded as MoveTo + 4 LineTo + Close
+      const [x, y, w, h] = args;
+      return concatBytes([
+        encodePathOp("moveTo", x, y),
+        encodePathOp("lineTo", x + w, y),
+        encodePathOp("lineTo", x + w, y + h),
+        encodePathOp("lineTo", x, y + h),
+        encodePathOp("close"),
+      ]);
+    case "close":
+      return variant;
+    default:
+      throw new Error(`Unknown path op: ${type}`);
+  }
+}
+
+function encodePath(ops: Uint8Array[]): Uint8Array {
+  return concatBytes([encodeVarint(ops.length), ...ops]);
+}
+
+function encodeColor(r: number, g: number, b: number, a: number): Uint8Array {
+  return concatBytes([encodeF32(r), encodeF32(g), encodeF32(b), encodeF32(a)]);
+}
+
+function encodeStrokeStyle(
+  color: { r: number; g: number; b: number; a: number },
+  width: number,
+  cap: number = 0,
+  join: number = 0,
+  miterLimit: number = 4,
+  dashArray: number[] = [],
+  dashOffset: number = 0
+): Uint8Array {
+  return concatBytes([
+    encodeColor(color.r, color.g, color.b, color.a),
+    encodeF32(width),
+    encodeVarint(cap),
+    encodeVarint(join),
+    encodeF32(miterLimit),
+    encodeVarint(dashArray.length),
+    ...dashArray.map(d => encodeF32(d)),
+    encodeF32(dashOffset),
+  ]);
+}
+
+// Helper to encode a rectangle path
+function encodeRectPath(x: number, y: number, w: number, h: number): Uint8Array {
+  return encodePath([
+    encodePathOp("moveTo", x, y),
+    encodePathOp("lineTo", x + w, y),
+    encodePathOp("lineTo", x + w, y + h),
+    encodePathOp("lineTo", x, y + h),
+    encodePathOp("close"),
+  ]);
+}
 
 const CanvasError = {
   InvalidContext: -1,
@@ -26,7 +102,7 @@ const CanvasError = {
   FontLoadFailed: -11,
 } as const;
 
-describe("canvas imports (browser)", () => {
+describe.skipIf(!isBrowser)("canvas imports (browser)", () => {
   let store: GlobalStore;
   let canvas: ReturnType<typeof createCanvasImports>;
 
@@ -45,6 +121,16 @@ describe("canvas imports (browser)", () => {
     const bytes = new TextEncoder().encode(str);
     store.writeBytes(bytes, 0);
     return [0, bytes.length];
+  }
+
+  // Write bytes to memory with the [len][cap][data] format expected by readItemBytes
+  function writeItemBytes(data: Uint8Array, offset: number = 0): number {
+    const totalLen = 8 + data.length;
+    const view = new DataView(store.memory!.buffer);
+    view.setUint32(offset, totalLen, true);     // len (total including header)
+    view.setUint32(offset + 4, totalLen, true); // cap (same as len)
+    store.writeBytes(data, offset + 8);
+    return offset; // return pointer to start
   }
 
   function writeBytes(data: Uint8Array, offset: number = 0): [number, number] {
@@ -134,21 +220,32 @@ describe("canvas imports (browser)", () => {
       expect(result).toBe(CanvasError.InvalidPath);
     });
 
-    it("should fill with Path2D", () => {
+    it("should fill with postcard-encoded path", () => {
       const ctxId = canvas.new_context(100, 100);
-      const path = new Path2D();
-      path.rect(10, 10, 80, 80);
-      const pathId = store.storeStdValue(path);
+      // Encode a rect path: moveTo(10,10) -> lineTo(90,10) -> lineTo(90,90) -> lineTo(10,90) -> close
+      const pathBytes = encodePath([
+        encodePathOp("moveTo", 10, 10),
+        encodePathOp("lineTo", 90, 10),
+        encodePathOp("lineTo", 90, 90),
+        encodePathOp("lineTo", 10, 90),
+        encodePathOp("close"),
+      ]);
+      const pathPtr = writeItemBytes(pathBytes, 16); // offset > 0 required by readItemBytes
 
-      const result = canvas.fill(ctxId, pathId, 1, 0, 0, 1);
+      const result = canvas.fill(ctxId, pathPtr, 255, 0, 0, 1); // red fill
       expect(result).toBe(0);
     });
 
-    it("should fallback to fillRect when path is not Path2D", () => {
+    it("should fill simple rect path", () => {
       const ctxId = canvas.new_context(100, 100);
-      const pathId = store.storeStdValue({ type: "custom-path" });
+      // Simple 2-op path
+      const pathBytes = encodePath([
+        encodePathOp("moveTo", 0, 0),
+        encodePathOp("lineTo", 50, 50),
+      ]);
+      const pathPtr = writeItemBytes(pathBytes, 16); // offset > 0 required by readItemBytes
 
-      const result = canvas.fill(ctxId, pathId, 0, 1, 0, 1);
+      const result = canvas.fill(ctxId, pathPtr, 0, 255, 0, 1); // green fill
       expect(result).toBe(0);
     });
   });
@@ -156,34 +253,34 @@ describe("canvas imports (browser)", () => {
   describe("stroke", () => {
     it("should return InvalidPath for invalid path", () => {
       const ctxId = canvas.new_context(100, 100);
-      const styleId = store.storeStdValue({});
-      const result = canvas.stroke(ctxId, -1, styleId);
+      const styleBytes = encodeStrokeStyle({ r: 0, g: 0, b: 0, a: 1 }, 1);
+      const stylePtr = writeItemBytes(styleBytes, 16);
+      const result = canvas.stroke(ctxId, -1, stylePtr);
       expect(result).toBe(CanvasError.InvalidPath);
     });
 
     it("should return InvalidStyle for invalid style", () => {
       const ctxId = canvas.new_context(100, 100);
-      const pathId = store.storeStdValue(new Path2D());
-      const result = canvas.stroke(ctxId, pathId, -1);
+      const pathBytes = encodePath([encodePathOp("moveTo", 0, 0)]);
+      const pathPtr = writeItemBytes(pathBytes, 16);
+      const result = canvas.stroke(ctxId, pathPtr, -1);
       expect(result).toBe(CanvasError.InvalidStyle);
     });
 
-    it("should stroke path with style", () => {
+    it("should stroke path with postcard-encoded style", () => {
       const ctxId = canvas.new_context(100, 100);
-      const path = new Path2D();
-      path.moveTo(10, 10);
-      path.lineTo(90, 90);
-      const pathId = store.storeStdValue(path);
+      // Encode path: moveTo(10,10) -> lineTo(90,90)
+      const pathBytes = encodePath([
+        encodePathOp("moveTo", 10, 10),
+        encodePathOp("lineTo", 90, 90),
+      ]);
+      const pathPtr = writeItemBytes(pathBytes, 16);
 
-      const style = {
-        color: { red: 0, green: 0, blue: 1, alpha: 1 },
-        width: 2,
-        cap: "round",
-        join: "round",
-      };
-      const styleId = store.storeStdValue(style);
+      // Encode stroke style: blue, 2px width (write after path data)
+      const styleBytes = encodeStrokeStyle({ r: 0, g: 0, b: 255, a: 1 }, 2);
+      const stylePtr = writeItemBytes(styleBytes, 200); // offset to avoid overlap
 
-      const result = canvas.stroke(ctxId, pathId, styleId);
+      const result = canvas.stroke(ctxId, pathPtr, stylePtr);
       expect(result).toBe(0);
     });
   });
@@ -197,11 +294,16 @@ describe("canvas imports (browser)", () => {
     it("should create image from canvas content", () => {
       const ctxId = canvas.new_context(50, 50);
 
-      // Draw something on the canvas first
-      const path = new Path2D();
-      path.rect(0, 0, 50, 50);
-      const pathId = store.storeStdValue(path);
-      canvas.fill(ctxId, pathId, 1, 0, 0, 1);
+      // Draw something on the canvas first (postcard-encoded path)
+      const pathBytes = encodePath([
+        encodePathOp("moveTo", 0, 0),
+        encodePathOp("lineTo", 50, 0),
+        encodePathOp("lineTo", 50, 50),
+        encodePathOp("lineTo", 0, 50),
+        encodePathOp("close"),
+      ]);
+      const pathPtr = writeItemBytes(pathBytes, 16);
+      canvas.fill(ctxId, pathPtr, 255, 0, 0, 1);
 
       const imageId = canvas.get_image(ctxId);
       expect(imageId).toBeGreaterThan(0);
@@ -229,7 +331,7 @@ describe("canvas imports (browser)", () => {
   });
 
   describe("get_image_data", () => {
-    it("should return image data buffer", () => {
+    it("should return PNG-encoded image data (B6)", () => {
       const ctxId = canvas.new_context(10, 10);
       const imageId = canvas.get_image(ctxId);
 
@@ -238,7 +340,12 @@ describe("canvas imports (browser)", () => {
 
       const data = store.readStdValue(dataId) as Uint8Array;
       expect(data).toBeInstanceOf(Uint8Array);
-      expect(data.length).toBe(10 * 10 * 4); // RGBA
+      // B6: get_image_data returns PNG bytes like aidoku-rs test runner
+      // PNG header: 0x89 0x50 0x4E 0x47
+      expect(data[0]).toBe(0x89);
+      expect(data[1]).toBe(0x50);
+      expect(data[2]).toBe(0x4E);
+      expect(data[3]).toBe(0x47);
     });
   });
 
@@ -251,9 +358,8 @@ describe("canvas imports (browser)", () => {
 
     it("should draw canvas-generated image", () => {
       const srcCtxId = canvas.new_context(50, 50);
-      const path = new Path2D();
-      path.rect(0, 0, 50, 50);
-      canvas.fill(srcCtxId, store.storeStdValue(path), 1, 0, 0, 1);
+      const pathBytes = encodeRectPath(0, 0, 50, 50);
+      canvas.fill(srcCtxId, writeItemBytes(pathBytes, 16), 255, 0, 0, 1);
       const srcImageId = canvas.get_image(srcCtxId);
 
       const dstCtxId = canvas.new_context(100, 100);
@@ -271,9 +377,8 @@ describe("canvas imports (browser)", () => {
 
     it("should copy portion of image", () => {
       const srcCtxId = canvas.new_context(100, 100);
-      const path = new Path2D();
-      path.rect(0, 0, 100, 100);
-      canvas.fill(srcCtxId, store.storeStdValue(path), 0, 0, 1, 1);
+      const pathBytes = encodeRectPath(0, 0, 100, 100);
+      canvas.fill(srcCtxId, writeItemBytes(pathBytes, 16), 0, 0, 255, 1);
       const srcImageId = canvas.get_image(srcCtxId);
 
       const dstCtxId = canvas.new_context(200, 200);
@@ -320,21 +425,14 @@ describe("canvas imports (browser)", () => {
       // Create source with 4 colored quadrants
       const srcCtxId = canvas.new_context(srcWidth, srcHeight);
 
-      const redPath = new Path2D();
-      redPath.rect(0, 0, 50, 50);
-      canvas.fill(srcCtxId, store.storeStdValue(redPath), 1, 0, 0, 1);
-
-      const greenPath = new Path2D();
-      greenPath.rect(50, 0, 50, 50);
-      canvas.fill(srcCtxId, store.storeStdValue(greenPath), 0, 1, 0, 1);
-
-      const bluePath = new Path2D();
-      bluePath.rect(0, 50, 50, 50);
-      canvas.fill(srcCtxId, store.storeStdValue(bluePath), 0, 0, 1, 1);
-
-      const yellowPath = new Path2D();
-      yellowPath.rect(50, 50, 50, 50);
-      canvas.fill(srcCtxId, store.storeStdValue(yellowPath), 1, 1, 0, 1);
+      // Red quadrant (top-left)
+      canvas.fill(srcCtxId, writeItemBytes(encodeRectPath(0, 0, 50, 50), 16), 255, 0, 0, 1);
+      // Green quadrant (top-right)
+      canvas.fill(srcCtxId, writeItemBytes(encodeRectPath(50, 0, 50, 50), 16), 0, 255, 0, 1);
+      // Blue quadrant (bottom-left)
+      canvas.fill(srcCtxId, writeItemBytes(encodeRectPath(0, 50, 50, 50), 16), 0, 0, 255, 1);
+      // Yellow quadrant (bottom-right)
+      canvas.fill(srcCtxId, writeItemBytes(encodeRectPath(50, 50, 50, 50), 16), 255, 255, 0, 1);
 
       const srcImageId = canvas.get_image(srcCtxId);
       expect(srcImageId).toBeGreaterThan(0);

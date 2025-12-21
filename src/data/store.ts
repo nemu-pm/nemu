@@ -1,6 +1,6 @@
 import type {
   LibraryManga,
-  ChapterProgress,
+  HistoryEntry,
   InstalledSource,
   SourceRegistry,
   UserSettings,
@@ -11,15 +11,26 @@ import type {
  * Abstraction over storage - IndexedDB locally, Convex when signed in
  */
 export interface UserDataStore {
-  // Library (with embedded history)
+  // Library
   getLibrary(): Promise<LibraryManga[]>;
   getLibraryManga(id: string): Promise<LibraryManga | null>;
   saveLibraryManga(manga: LibraryManga): Promise<void>;
   removeLibraryManga(id: string): Promise<void>;
 
-  // Chapter progress (convenience methods for embedded history)
-  getChapterProgress(mangaId: string, chapterId: string): Promise<ChapterProgress | null>;
-  saveChapterProgress(mangaId: string, chapterId: string, progress: ChapterProgress): Promise<void>;
+  // History (separate from library)
+  getHistoryEntry(
+    registryId: string,
+    sourceId: string,
+    mangaId: string,
+    chapterId: string
+  ): Promise<HistoryEntry | null>;
+  saveHistoryEntry(entry: HistoryEntry): Promise<void>;
+  getMangaHistory(
+    registryId: string,
+    sourceId: string,
+    mangaId: string
+  ): Promise<Record<string, HistoryEntry>>;
+  getRecentHistory(limit: number): Promise<HistoryEntry[]>;
 
   // Settings (reading mode + installed sources)
   getSettings(): Promise<UserSettings>;

@@ -12,9 +12,15 @@ export const SourceLinkSchema = z.object({
 });
 
 /**
- * Reading progress for a chapter (embedded in LibraryManga)
+ * Reading history entry (separate from library)
+ * Keyed by composite: registryId:sourceId:mangaId:chapterId
  */
-export const ChapterProgressSchema = z.object({
+export const HistoryEntrySchema = z.object({
+  id: z.string(),
+  registryId: z.string(),
+  sourceId: z.string(),
+  mangaId: z.string(),
+  chapterId: z.string(),
   progress: z.number().int(),
   total: z.number().int(),
   completed: z.boolean(),
@@ -22,7 +28,18 @@ export const ChapterProgressSchema = z.object({
 });
 
 /**
- * A manga saved in the user's library (with embedded history)
+ * Minimal chapter metadata for library display.
+ * Stored as raw data (not pre-formatted) to support i18n.
+ */
+export const ChapterSummarySchema = z.object({
+  id: z.string(),
+  title: z.string().optional(),
+  chapterNumber: z.number().optional(),
+  volumeNumber: z.number().optional(),
+});
+
+/**
+ * A manga saved in the user's library
  */
 export const LibraryMangaSchema = z.object({
   id: z.string(),
@@ -32,8 +49,12 @@ export const LibraryMangaSchema = z.object({
   sources: z.array(SourceLinkSchema).min(1),
   activeRegistryId: z.string(),
   activeSourceId: z.string(),
-  // Reading history per chapter (keyed by chapterId)
-  history: z.record(z.string(), ChapterProgressSchema).default({}),
+  // Reading progress
+  lastReadChapter: ChapterSummarySchema.optional(),
+  lastReadAt: z.number().optional(),
+  // Chapter availability tracking
+  latestChapter: ChapterSummarySchema.optional(),
+  seenLatestChapter: ChapterSummarySchema.optional(),
 });
 
 /**
@@ -54,7 +75,6 @@ export const ReadingModeSchema = z.enum(["rtl", "ltr", "scrolling"]);
  * User settings (synced)
  */
 export const UserSettingsSchema = z.object({
-  readingMode: ReadingModeSchema.default("rtl"),
   installedSources: z.array(InstalledSourceSchema).default([]),
 });
 
@@ -78,7 +98,8 @@ export const SourceRegistrySchema = z.discriminatedUnion("type", [
 // ============ INFERRED TYPES ============
 
 export type SourceLink = z.infer<typeof SourceLinkSchema>;
-export type ChapterProgress = z.infer<typeof ChapterProgressSchema>;
+export type HistoryEntry = z.infer<typeof HistoryEntrySchema>;
+export type ChapterSummary = z.infer<typeof ChapterSummarySchema>;
 export type LibraryManga = z.infer<typeof LibraryMangaSchema>;
 export type InstalledSource = z.infer<typeof InstalledSourceSchema>;
 export type ReadingMode = z.infer<typeof ReadingModeSchema>;

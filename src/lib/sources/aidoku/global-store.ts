@@ -25,6 +25,22 @@ interface DescriptorEntry {
   createdAt: number;
 }
 
+// Resource types for unified store tracking
+export enum ResourceType {
+  StdValue = 0,
+  Request = 1,
+  JsContext = 2,
+  Canvas = 3,
+  Image = 4,
+  Font = 5,
+}
+
+// Resource tracking for unified std.destroy
+interface ResourceEntry {
+  type: ResourceType;
+  rid: number;
+}
+
 // Configuration for memory management
 const MEMORY_CONFIG = {
   // Maximum age for descriptors before cleanup (5 minutes)
@@ -43,20 +59,29 @@ export class GlobalStore {
   id: string;
   memory: WebAssembly.Memory | null = null;
 
+  // Unified RID counter for all resources (aidoku-rs style)
+  private ridCounter = 0;
+
   // Descriptor management with reference counting
-  private descriptorPointer = 0;
   private descriptors = new Map<number, DescriptorEntry>();
 
-  // Request management
-  private requestsPointer = 0;
+  // Request management - uses unified RID
   requests = new Map<number, WasmRequest>();
+
+  // Unified resource tracking - maps RID to resource type for std.destroy
+  private resources = new Map<number, ResourceType>();
 
   // Chapter counter for source ordering
   chapterCounter = 0;
   currentManga = "";
 
-  // Settings storage (simulating UserDefaults)
-  private settings = new Map<string, unknown>();
+  // Partial home results storage (for streaming home layouts via send_partial_result)
+  // Stores raw bytes that are copied before the WASM frees them
+  partialHomeResultBytes: Uint8Array[] = [];
+
+  // Callback for streaming partial home results to UI
+  // Set by runtime before calling getHome, cleared after
+  onPartialHomeBytes: ((bytes: Uint8Array) => void) | null = null;
 
   // Cookie storage (simulating HTTPCookieStorage)
   private cookies = new Map<string, string>();
@@ -174,17 +199,26 @@ export class GlobalStore {
   }
 
   /**
+   * Allocate a new unified RID
+   */
+  private allocateRid(): number {
+    this.ridCounter += 1;
+    return this.ridCounter;
+  }
+
+  /**
    * Store a value and return its descriptor
    */
   storeStdValue(value: unknown): number {
-    this.descriptorPointer += 1;
-    this.descriptors.set(this.descriptorPointer, {
+    const rid = this.allocateRid();
+    this.descriptors.set(rid, {
       value,
       refCount: 1,
       createdAt: Date.now(),
     });
+    this.resources.set(rid, ResourceType.StdValue);
     this.stats.totalDescriptorsCreated++;
-    return this.descriptorPointer;
+    return rid;
   }
 
   /**
@@ -193,6 +227,16 @@ export class GlobalStore {
   readStdValue(descriptor: number): unknown {
     const entry = this.descriptors.get(descriptor);
     return entry?.value;
+  }
+
+  /**
+   * Update the value stored at a descriptor (used for caching encoded values)
+   */
+  updateStdValue(descriptor: number, value: unknown): void {
+    const entry = this.descriptors.get(descriptor);
+    if (entry) {
+      entry.value = value;
+    }
   }
 
   /**
@@ -215,6 +259,7 @@ export class GlobalStore {
       // Only delete if refCount is 0 or negative
       if (entry.refCount <= 0) {
         this.descriptors.delete(descriptor);
+        this.resources.delete(descriptor);
         this.stats.totalDescriptorsDestroyed++;
       }
     }
@@ -225,8 +270,55 @@ export class GlobalStore {
    */
   forceRemoveStdValue(descriptor: number): void {
     if (this.descriptors.delete(descriptor)) {
+      this.resources.delete(descriptor);
       this.stats.totalDescriptorsDestroyed++;
     }
+  }
+
+  /**
+   * Unified destroy - removes any resource by RID (aidoku-rs std.destroy semantics)
+   * This is called by std.destroy and should free any type of resource.
+   */
+  destroyResource(rid: number): boolean {
+    const resourceType = this.resources.get(rid);
+    if (resourceType === undefined) {
+      return false;
+    }
+
+    switch (resourceType) {
+      case ResourceType.StdValue:
+        this.forceRemoveStdValue(rid);
+        return true;
+      case ResourceType.Request:
+        this.requests.delete(rid);
+        this.resources.delete(rid);
+        this.stats.totalRequestsCleaned++;
+        return true;
+      case ResourceType.JsContext:
+      case ResourceType.Canvas:
+      case ResourceType.Image:
+      case ResourceType.Font:
+        // These are stored as StdValue with type markers
+        this.forceRemoveStdValue(rid);
+        return true;
+      default:
+        this.resources.delete(rid);
+        return false;
+    }
+  }
+
+  /**
+   * Register a resource type for a RID (used by imports that create typed resources)
+   */
+  registerResource(rid: number, type: ResourceType): void {
+    this.resources.set(rid, type);
+  }
+
+  /**
+   * Get resource type for a RID
+   */
+  getResourceType(rid: number): ResourceType | undefined {
+    return this.resources.get(rid);
   }
 
   /**
@@ -251,26 +343,28 @@ export class GlobalStore {
    * Create a new request
    */
   createRequest(method: number = 0): number {
-    this.requestsPointer += 1;
+    const rid = this.allocateRid();
+    // aidoku-rs HttpMethod enum order: Get=0, Post=1, Put=2, Head=3, Delete=4, Patch=5, Options=6, Connect=7, Trace=8
     const methodStr = [
-      "GET",
-      "POST",
-      "HEAD",
-      "PUT",
-      "DELETE",
-      "PATCH",
-      "OPTIONS",
-      "CONNECT",
-      "TRACE",
+      "GET",     // 0
+      "POST",    // 1
+      "PUT",     // 2
+      "HEAD",    // 3
+      "DELETE",  // 4
+      "PATCH",   // 5
+      "OPTIONS", // 6
+      "CONNECT", // 7
+      "TRACE",   // 8
     ][method] || "GET";
-    this.requests.set(this.requestsPointer, {
-      id: this.requestsPointer,
+    this.requests.set(rid, {
+      id: rid,
       method: methodStr,
       headers: {},
       createdAt: Date.now(),
     });
+    this.resources.set(rid, ResourceType.Request);
     this.stats.totalRequestsCreated++;
-    return this.requestsPointer;
+    return rid;
   }
 
   /**
@@ -320,49 +414,6 @@ export class GlobalStore {
   writeString(str: string, offset: number): void {
     const bytes = new TextEncoder().encode(str);
     this.writeBytes(bytes, offset);
-  }
-
-  // Settings management
-  getSetting(key: string): unknown {
-    return this.settings.get(`${this.id}.${key}`);
-  }
-
-  setSetting(key: string, value: unknown): void {
-    this.settings.set(`${this.id}.${key}`, value);
-  }
-
-  getAllSettings(): Map<string, unknown> {
-    const result = new Map<string, unknown>();
-    const prefix = `${this.id}.`;
-    for (const [key, value] of this.settings) {
-      if (key.startsWith(prefix)) {
-        result.set(key.slice(prefix.length), value);
-      }
-    }
-    return result;
-  }
-
-  /**
-   * Import settings from an external source (e.g., localStorage)
-   */
-  importSettings(settings: Record<string, unknown>): void {
-    for (const [key, value] of Object.entries(settings)) {
-      this.settings.set(`${this.id}.${key}`, value);
-    }
-  }
-
-  /**
-   * Export settings for persistence
-   */
-  exportSettings(): Record<string, unknown> {
-    const result: Record<string, unknown> = {};
-    const prefix = `${this.id}.`;
-    for (const [key, value] of this.settings) {
-      if (key.startsWith(prefix)) {
-        result[key.slice(prefix.length)] = value;
-      }
-    }
-    return result;
   }
 
   // Cookie management (simulating HTTPCookieStorage)
@@ -441,9 +492,9 @@ export class GlobalStore {
    */
   reset(): void {
     this.descriptors.clear();
-    this.descriptorPointer = 0;
     this.requests.clear();
-    this.requestsPointer = 0;
+    this.resources.clear();
+    this.ridCounter = 0;
     this.chapterCounter = 0;
     this.currentManga = "";
   }
@@ -457,7 +508,6 @@ export class GlobalStore {
       this.cleanupTimer = null;
     }
     this.reset();
-    this.settings.clear();
     this.memory = null;
   }
 }

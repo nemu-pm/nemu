@@ -1,23 +1,20 @@
-import { useCallback, useEffect, useState, useMemo } from "react";
-import { Link, useSearch, useNavigate } from "@tanstack/react-router";
+import { useCallback, useEffect, useState, useMemo, useRef } from "react";
+import { useSearch, useNavigate } from "@tanstack/react-router";
+import { useQueries } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { useStores } from "@/data/context";
 import { parseSourceKey } from "@/data/keys";
 import type { Manga } from "@/lib/sources";
-import { CoverImage } from "@/components/cover-image";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { MangaCard } from "@/components/manga-card";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Empty,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-  EmptyDescription,
-} from "@/components/ui/empty";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Search01Icon, Add01Icon, FilterIcon } from "@hugeicons/core-free-icons";
-import { AddSourceDialog } from "@/components/add-source-dialog";
+import { Search01Icon, Globe02Icon } from "@hugeicons/core-free-icons";
+import { NoSourcesEmpty } from "@/components/no-sources-empty";
+import { PageEmpty } from "@/components/page-empty";
+import { PageHeader } from "@/components/page-header";
+import { cn } from "@/lib/utils";
+import { SourceImageProvider } from "@/hooks/use-source-image";
 
 const SELECTED_SOURCES_KEY = "search-selected-sources";
 
@@ -26,21 +23,29 @@ interface SourceResults {
   sourceId: string; // composite key for matching
   rawSourceId: string; // raw source ID for URL params
   sourceName: string;
+  sourceIcon?: string;
   items: Manga[];
   loading: boolean;
   error: string | null;
 }
 
+interface SourceDisplayInfo {
+  id: string; // composite key
+  rawId: string;
+  registryId: string;
+  name: string;
+  icon?: string;
+}
+
 export function SearchPage() {
+  const { t } = useTranslation();
   const { q } = useSearch({ strict: false }) as { q: string };
   const navigate = useNavigate();
   const { useSettingsStore } = useStores();
   const { installedSources, availableSources, getSource } = useSettingsStore();
 
-  const [query, setQuery] = useState(q);
-  const [results, setResults] = useState<SourceResults[]>([]);
-  const [addSourceOpen, setAddSourceOpen] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
+  const [query, setQuery] = useState(q ?? "");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Selected sources from localStorage (null = all selected)
   const [selectedSources, setSelectedSources] = useState<Set<string> | null>(
@@ -57,6 +62,23 @@ export function SearchPage() {
       return null; // null means all selected
     }
   );
+
+  // Build display info for all installed sources
+  const sourceDisplayInfo = useMemo<SourceDisplayInfo[]>(() => {
+    return installedSources.map((source) => {
+      const { registryId, sourceId: rawSourceId } = parseSourceKey(source.id);
+      const info = availableSources.find(
+        (a) => a.id === rawSourceId && a.registryId === registryId
+      );
+      return {
+        id: source.id,
+        rawId: rawSourceId,
+        registryId,
+        name: info?.name ?? rawSourceId,
+        icon: info?.icon,
+      };
+    });
+  }, [installedSources, availableSources]);
 
   // Save to localStorage when selection changes
   useEffect(() => {
@@ -76,239 +98,201 @@ export function SearchPage() {
     return installedSources.filter((s) => selectedSources.has(s.id));
   }, [installedSources, selectedSources]);
 
-  const toggleSource = (sourceId: string) => {
-    setSelectedSources((prev) => {
-      if (prev === null) {
-        // First toggle: select all except this one
-        const allIds = new Set(installedSources.map((s) => s.id));
-        allIds.delete(sourceId);
-        return allIds;
-      }
-      const next = new Set(prev);
-      if (next.has(sourceId)) {
-        next.delete(sourceId);
-      } else {
-        next.add(sourceId);
-      }
-      // If all selected, reset to null
-      if (next.size === installedSources.length) {
-        return null;
-      }
-      return next;
-    });
-  };
+  const toggleSource = useCallback(
+    (sourceId: string) => {
+      setSelectedSources((prev) => {
+        if (prev === null) {
+          // First toggle: select all except this one
+          const allIds = new Set(installedSources.map((s) => s.id));
+          allIds.delete(sourceId);
+          return allIds;
+        }
+        const next = new Set(prev);
+        if (next.has(sourceId)) {
+          next.delete(sourceId);
+        } else {
+          next.add(sourceId);
+        }
+        // If all selected, reset to null
+        if (next.size === installedSources.length) {
+          return null;
+        }
+        return next;
+      });
+    },
+    [installedSources]
+  );
 
-  const selectAll = () => setSelectedSources(null);
+  // Select only this source (for double-click)
+  const selectOnlySource = useCallback((sourceId: string) => {
+    setSelectedSources(new Set([sourceId]));
+  }, []);
 
-  const isSourceSelected = (sourceId: string) =>
-    selectedSources === null || selectedSources.has(sourceId);
+  // Toggle all: if all selected, deselect all; otherwise select all
+  const toggleAll = useCallback(() => {
+    setSelectedSources((prev) => (prev === null ? new Set() : null));
+  }, []);
+
+  const isAllSelected = selectedSources === null;
+
+  const isSourceSelected = useCallback(
+    (sourceId: string) => selectedSources === null || selectedSources.has(sourceId),
+    [selectedSources]
+  );
 
   // Sync URL query to local state
   useEffect(() => {
-    setQuery(q);
+    setQuery(q ?? "");
   }, [q]);
 
-  // Perform aggregated search when query changes
-  useEffect(() => {
-    if (!q.trim() || filteredSources.length === 0) {
-      setResults([]);
-      return;
-    }
-
-    // Initialize results for each filtered source
-    const initial: SourceResults[] = filteredSources.map((s) => {
-      const { registryId, sourceId: rawSourceId } = parseSourceKey(s.id);
+  // Search all sources in parallel with TanStack Query (cached!)
+  const searchQueries = useQueries({
+    queries: filteredSources.map((installed) => {
+      const { registryId, sourceId: rawSourceId } = parseSourceKey(installed.id);
       const info = availableSources.find(
         (a) => a.id === rawSourceId && a.registryId === registryId
       );
       return {
-        registryId: s.registryId,
-        sourceId: s.id, // composite key
+        queryKey: ["search", installed.id, q] as const,
+        queryFn: async () => {
+          if (!q?.trim()) return { items: [] as Manga[] };
+          const source = await getSource(installed.registryId, rawSourceId);
+          if (!source) throw new Error(t("search.sourceNotFound"));
+          return source.search(q);
+        },
+        enabled: !!q?.trim(),
+        staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+        meta: {
+          registryId: installed.registryId,
+          sourceId: installed.id,
+          rawSourceId,
+          sourceName: info?.name ?? rawSourceId,
+          sourceIcon: info?.icon,
+        },
+      };
+    }),
+  });
+
+  // Transform query results into SourceResults format
+  const results = useMemo<SourceResults[]>(() => {
+    return searchQueries.map((query, index) => {
+      const meta = filteredSources[index];
+      const { registryId, sourceId: rawSourceId } = parseSourceKey(meta.id);
+      const info = availableSources.find(
+        (a) => a.id === rawSourceId && a.registryId === registryId
+      );
+      return {
+        registryId: meta.registryId,
+        sourceId: meta.id,
         rawSourceId,
         sourceName: info?.name ?? rawSourceId,
-        items: [],
-        loading: true,
-        error: null,
+        sourceIcon: info?.icon,
+        items: query.data?.items ?? [],
+        loading: query.isLoading,
+        error: query.error ? (query.error as Error).message : null,
       };
     });
-    setResults(initial);
+  }, [searchQueries, filteredSources, availableSources]);
 
-    // Search each source in parallel
-    filteredSources.forEach(async (installed) => {
-      const { sourceId: rawSourceId } = parseSourceKey(installed.id);
-      const key = installed.id; // composite key
-      try {
-        const source = await getSource(installed.registryId, rawSourceId);
-        if (!source) {
-          setResults((prev) =>
-            prev.map((r) =>
-              r.sourceId === key
-                ? { ...r, loading: false, error: "Source not found" }
-                : r
-            )
-          );
-          return;
-        }
 
-        const result = await source.search(q);
-        setResults((prev) =>
-          prev.map((r) =>
-            r.sourceId === key
-              ? { ...r, items: result.items, loading: false }
-              : r
-          )
-        );
-      } catch (e) {
-        setResults((prev) =>
-          prev.map((r) =>
-            r.sourceId === key
-              ? {
-                  ...r,
-                  loading: false,
-                  error: e instanceof Error ? e.message : String(e),
-                }
-              : r
-          )
-        );
-      }
-    });
-  }, [q, filteredSources, availableSources, getSource]);
+  // Execute search - navigate to update URL
+  const executeSearch = useCallback(() => {
+    const trimmed = query.trim();
+    if (trimmed && trimmed !== q) {
+      navigate({ to: "/search", search: { q: trimmed } });
+    }
+  }, [query, q, navigate]);
 
-  const handleSearch = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      if (query.trim()) {
-        navigate({ to: "/search", search: { q: query.trim() } });
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        executeSearch();
+        inputRef.current?.blur();
       }
     },
-    [query, navigate]
+    [executeSearch]
   );
+
+  const handleBlur = useCallback(() => {
+    executeSearch();
+  }, [executeSearch]);
 
   const totalResults = results.reduce((sum, r) => sum + r.items.length, 0);
   const isSearching = results.some((r) => r.loading);
 
+  // Count of selected sources (for badge)
+  const selectedCount = selectedSources?.size ?? installedSources.length;
+  const showBadge = selectedSources !== null && selectedCount < installedSources.length;
+
   // No sources installed
   if (installedSources.length === 0) {
     return (
-      <>
-        <Empty className="h-[60vh]">
-          <EmptyHeader>
-            <EmptyMedia>
-              <HugeiconsIcon
-                icon={Search01Icon}
-                className="size-12 text-muted-foreground"
-              />
-            </EmptyMedia>
-            <EmptyTitle>No sources installed</EmptyTitle>
-            <EmptyDescription>
-              Add a source to start searching for manga
-            </EmptyDescription>
-          </EmptyHeader>
-          <Button onClick={() => setAddSourceOpen(true)}>
-            <HugeiconsIcon icon={Add01Icon} />
-            Add Source
-          </Button>
-        </Empty>
-        <AddSourceDialog open={addSourceOpen} onOpenChange={setAddSourceOpen} />
-      </>
+      <NoSourcesEmpty
+        icon={Search01Icon}
+        titleKey="search.noSources"
+        descriptionKey="search.noSourcesDescription"
+        buttonKey="search.addSource"
+      />
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <PageHeader title={t("nav.search")} />
       {/* Search input */}
-      <form onSubmit={handleSearch} className="flex gap-2">
-        <div className="relative flex-1">
-          <HugeiconsIcon
-            icon={Search01Icon}
-            className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            type="search"
-            placeholder="Search across all sources..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => setShowFilters((v) => !v)}
-          className="relative"
-        >
-          <HugeiconsIcon icon={FilterIcon} />
-          {selectedSources !== null && (
-            <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
-              {selectedSources.size}
-            </span>
-          )}
-        </Button>
-        <Button type="submit" disabled={!query.trim()}>
-          Search
-        </Button>
-      </form>
+      <div className="relative">
+        <HugeiconsIcon
+          icon={Search01Icon}
+          className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <Input
+          ref={inputRef}
+          type="search"
+          placeholder={t("search.placeholder")}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={handleBlur}
+          className="pl-10"
+        />
+      </div>
 
-      {/* Source filters */}
-      {showFilters && (
-        <div className="rounded-lg border bg-card p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-medium">Sources to search</h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={selectAll}
-              disabled={selectedSources === null}
-            >
-              Select all
-            </Button>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
-            {installedSources.map((source) => {
-              const { registryId, sourceId: rawSourceId } = parseSourceKey(
-                source.id
-              );
-              const info = availableSources.find(
-                (a) => a.id === rawSourceId && a.registryId === registryId
-              );
-              const name = info?.name ?? rawSourceId;
-              return (
-                <label
-                  key={source.id}
-                  className="flex cursor-pointer items-center gap-2 rounded-md p-2 hover:bg-muted"
-                >
-                  <Checkbox
-                    checked={isSourceSelected(source.id)}
-                    onCheckedChange={() => toggleSource(source.id)}
-                  />
-                  <span className="text-sm">{name}</span>
-                </label>
-              );
-            })}
-          </div>
-        </div>
+      {/* Inline source filter bar */}
+      <SourceFilterBar
+        sources={sourceDisplayInfo}
+        isAllSelected={isAllSelected}
+        isSourceSelected={isSourceSelected}
+        onToggleAll={toggleAll}
+        onToggleSource={toggleSource}
+        onSelectOnly={selectOnlySource}
+        showBadge={showBadge}
+        selectedCount={selectedCount}
+        totalCount={installedSources.length}
+      />
+
+      {/* No sources selected */}
+      {filteredSources.length === 0 && (
+        <PageEmpty
+          icon={Globe02Icon}
+          title={t("search.noSourcesSelected")}
+          description={t("search.noSourcesSelectedDescription")}
+          variant="inline"
+        />
       )}
 
       {/* No query */}
-      {!q.trim() && (
-        <Empty className="h-[50vh]">
-          <EmptyHeader>
-            <EmptyMedia>
-              <HugeiconsIcon
-                icon={Search01Icon}
-                className="size-12 text-muted-foreground"
-              />
-            </EmptyMedia>
-            <EmptyTitle>Search for manga</EmptyTitle>
-            <EmptyDescription>
-              Enter a search term to find manga across all installed sources
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+      {filteredSources.length > 0 && !q?.trim() && (
+        <PageEmpty
+          icon={Search01Icon}
+          title={t("search.searchForManga")}
+          description={t("search.enterSearchTerm")}
+          variant="inline"
+        />
       )}
 
       {/* Results grouped by source */}
-      {q.trim() && results.length > 0 && (
+      {q?.trim() && results.length > 0 && (
         <div className="space-y-8">
           {results.map((sourceResult) => (
             <SourceResultSection
@@ -327,9 +311,9 @@ export function SearchPage() {
                     className="size-12 text-muted-foreground"
                   />
                 </EmptyMedia>
-                <EmptyTitle>No results</EmptyTitle>
+                <EmptyTitle>{t("search.noResults")}</EmptyTitle>
                 <EmptyDescription>
-                  No manga found for "{q}" in any source
+                  {t("search.noResultsForQuery", { query: q })}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
@@ -340,14 +324,133 @@ export function SearchPage() {
   );
 }
 
+// ============================================================================
+// Source Filter Bar
+// ============================================================================
+
+interface SourceFilterBarProps {
+  sources: SourceDisplayInfo[];
+  isAllSelected: boolean;
+  isSourceSelected: (id: string) => boolean;
+  onToggleAll: () => void;
+  onToggleSource: (id: string) => void;
+  onSelectOnly: (id: string) => void;
+  showBadge: boolean;
+  selectedCount: number;
+  totalCount: number;
+}
+
+function SourceFilterBar({
+  sources,
+  isAllSelected,
+  isSourceSelected,
+  onToggleAll,
+  onToggleSource,
+  onSelectOnly,
+}: SourceFilterBarProps) {
+  const { t } = useTranslation();
+  // Double-click timer for "select only" behavior
+  const lastClickRef = useRef<{ id: string; time: number } | null>(null);
+
+  const handleSourceClick = useCallback(
+    (id: string) => {
+      const now = Date.now();
+      const last = lastClickRef.current;
+
+      // Check for double-click (within 300ms on same source)
+      if (last && last.id === id && now - last.time < 300) {
+        onSelectOnly(id);
+        lastClickRef.current = null;
+      } else {
+        onToggleSource(id);
+        lastClickRef.current = { id, time: now };
+      }
+    },
+    [onToggleSource, onSelectOnly]
+  );
+
+  return (
+    <div className="scrollbar-none -mx-4 flex gap-1.5 overflow-x-auto px-4 py-1 sm:-mx-6 sm:px-6">
+      {/* "All" pill - toggles between all selected and none selected */}
+      <button
+        onClick={onToggleAll}
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
+          isAllSelected
+            ? "border-primary/50 bg-primary text-primary-foreground shadow-sm"
+            : "border-border bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+        )}
+        title={isAllSelected ? t("search.deselectAll") : t("search.selectAll")}
+      >
+        {t("search.all")}
+      </button>
+
+      {/* Divider */}
+      <div className="mx-1 h-6 w-px shrink-0 self-center bg-border/50" />
+
+      {/* Source pills */}
+      {sources.map((source) => {
+        const selected = isSourceSelected(source.id);
+        return (
+          <button
+            key={source.id}
+            onClick={() => handleSourceClick(source.id)}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-all",
+              selected
+                ? "border-primary/50 bg-primary text-primary-foreground shadow-sm"
+                : "border-border bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+            )}
+            title={t("search.toggleHint")}
+          >
+            {/* Source icon */}
+            {source.icon ? (
+              <img
+                src={source.icon}
+                alt=""
+                className="size-4 shrink-0 rounded-sm object-cover"
+              />
+            ) : (
+              <HugeiconsIcon
+                icon={Globe02Icon}
+                className="size-4 shrink-0 opacity-60"
+              />
+            )}
+            <span className="max-w-24 truncate">{source.name}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================================
+// Source Result Section
+// ============================================================================
+
 function SourceResultSection({ result }: { result: SourceResults }) {
+  const { t } = useTranslation();
   if (result.loading) {
     return (
       <section>
-        <h2 className="mb-4 text-lg font-semibold">{result.sourceName}</h2>
+        <div className="mb-4 flex items-center gap-2">
+          {result.sourceIcon ? (
+            <img
+              src={result.sourceIcon}
+              alt=""
+              className="size-5 rounded-sm object-cover"
+            />
+          ) : (
+            <HugeiconsIcon
+              icon={Globe02Icon}
+              className="size-5 text-muted-foreground"
+            />
+          )}
+          <h2 className="text-lg font-semibold">{result.sourceName}</h2>
+        </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Searching...
+          {t("search.searching")}
         </div>
       </section>
     );
@@ -356,8 +459,22 @@ function SourceResultSection({ result }: { result: SourceResults }) {
   if (result.error) {
     return (
       <section>
-        <h2 className="mb-4 text-lg font-semibold">{result.sourceName}</h2>
-        <p className="text-sm text-destructive">Error: {result.error}</p>
+        <div className="mb-4 flex items-center gap-2">
+          {result.sourceIcon ? (
+            <img
+              src={result.sourceIcon}
+              alt=""
+              className="size-5 rounded-sm object-cover"
+            />
+          ) : (
+            <HugeiconsIcon
+              icon={Globe02Icon}
+              className="size-5 text-muted-foreground"
+            />
+          )}
+          <h2 className="text-lg font-semibold">{result.sourceName}</h2>
+        </div>
+        <p className="text-sm text-destructive">{t("search.error")}: {result.error}</p>
       </section>
     );
   }
@@ -365,47 +482,68 @@ function SourceResultSection({ result }: { result: SourceResults }) {
   if (result.items.length === 0) {
     return (
       <section>
-        <h2 className="mb-4 text-lg font-semibold">{result.sourceName}</h2>
-        <p className="text-sm text-muted-foreground">No results</p>
+        <div className="mb-4 flex items-center gap-2">
+          {result.sourceIcon ? (
+            <img
+              src={result.sourceIcon}
+              alt=""
+              className="size-5 rounded-sm object-cover"
+            />
+          ) : (
+            <HugeiconsIcon
+              icon={Globe02Icon}
+              className="size-5 text-muted-foreground"
+            />
+          )}
+          <h2 className="text-lg font-semibold">{result.sourceName}</h2>
+        </div>
+        <p className="text-sm text-muted-foreground">{t("search.noResults")}</p>
       </section>
     );
   }
 
+  const sourceKey = `${result.registryId}:${result.rawSourceId}`;
+  
   return (
-    <section>
-      <h2 className="mb-4 text-lg font-semibold">
-        {result.sourceName}
-        <span className="ml-2 text-sm font-normal text-muted-foreground">
-          ({result.items.length})
-        </span>
-      </h2>
-      <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-        {result.items.map((manga) => (
-          <Link
-            key={manga.id}
-            to="/sources/$registryId/$sourceId/$mangaId"
-            params={{
-              registryId: result.registryId,
-              sourceId: result.rawSourceId,
-              mangaId: manga.id,
-            }}
-            className="group"
-          >
-            <div className="space-y-2">
-              <div className="relative aspect-[3/4] overflow-hidden rounded-lg bg-muted">
-                <CoverImage
-                  src={manga.cover}
-                  alt={manga.title}
-                  className="size-full object-cover transition-transform group-hover:scale-105"
-                />
-              </div>
-              <p className="line-clamp-2 text-sm font-medium leading-tight">
-                {manga.title}
-              </p>
-            </div>
-          </Link>
-        ))}
-      </div>
-    </section>
+    <SourceImageProvider sourceKey={sourceKey}>
+      <section>
+        <div className="mb-4 flex items-center gap-2">
+          {result.sourceIcon ? (
+            <img
+              src={result.sourceIcon}
+              alt=""
+              className="size-5 rounded-sm object-cover"
+            />
+          ) : (
+            <HugeiconsIcon
+              icon={Globe02Icon}
+              className="size-5 text-muted-foreground"
+            />
+          )}
+          <h2 className="text-lg font-semibold">
+            {result.sourceName}
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              ({result.items.length})
+            </span>
+          </h2>
+        </div>
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 sm:gap-4 md:grid-cols-5 lg:grid-cols-6">
+          {result.items.map((manga) => (
+            <MangaCard
+              key={manga.id}
+              to="/sources/$registryId/$sourceId/$mangaId"
+              params={{
+                registryId: result.registryId,
+                sourceId: result.rawSourceId,
+                mangaId: manga.id,
+              }}
+              cover={manga.cover}
+              title={manga.title}
+            />
+          ))}
+        </div>
+      </section>
+    </SourceImageProvider>
   );
 }
+

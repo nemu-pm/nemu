@@ -32,9 +32,9 @@ describe("html imports", () => {
       expect(descriptor).toBeGreaterThan(0);
     });
 
-    it("should return -1 for empty content", () => {
+    it("should return HtmlError.InvalidString for empty content", () => {
       const descriptor = html.parse(0, 0, 0, 0);
-      expect(descriptor).toBe(-1);
+      expect(descriptor).toBe(-2); // HtmlError.InvalidString
     });
 
     it("should handle base URL", () => {
@@ -127,6 +127,71 @@ describe("html imports", () => {
       const result = html.select(-1, 1000, 1);
       expect(result).toBe(-1);
     });
+
+    // Regression test: select should include the element itself when it matches the selector
+    it("should include element itself when it matches selector (SwiftSoup compat)", () => {
+      const htmlContent = '<div><a href="/link"><span>Text</span></a></div>';
+      const [contentPtr, contentLen] = writeString(htmlContent);
+      const docDescriptor = html.parse(contentPtr, contentLen, 0, 0);
+
+      // Select the <a> element
+      store.writeBytes(new TextEncoder().encode("a"), 1000);
+      const aDescriptor = html.select_first(docDescriptor, 1000, 1);
+      expect(aDescriptor).toBeGreaterThan(0);
+
+      // Now call select("a") on the <a> element
+      // Should include the element itself in results (SwiftSoup behavior)
+      store.writeBytes(new TextEncoder().encode("a"), 2000);
+      const result = html.select(aDescriptor, 2000, 1);
+      expect(result).toBeGreaterThan(0);
+
+      // Should have 1 result (the element itself, no nested <a>)
+      expect(html.size(result)).toBe(1);
+    });
+
+    // SwiftSoup compatibility: script:not([*]) selects scripts with no attributes
+    it("should handle script:not([*]) selector (SwiftSoup compat)", () => {
+      const htmlContent = `
+        <html>
+          <script>var x = 1;</script>
+          <script src="test.js"></script>
+          <script type="text/javascript">var y = 2;</script>
+          <script>var z = 3;</script>
+        </html>
+      `;
+      const [contentPtr, contentLen] = writeString(htmlContent);
+      const docDescriptor = html.parse(contentPtr, contentLen, 0, 0);
+
+      const selector = "script:not([*])";
+      store.writeBytes(new TextEncoder().encode(selector), 1000);
+
+      const result = html.select(docDescriptor, 1000, selector.length);
+      expect(result).toBeGreaterThan(0);
+
+      // Should find only the 2 scripts without any attributes
+      expect(html.size(result)).toBe(2);
+    });
+
+    it("should handle script[*] selector (SwiftSoup compat)", () => {
+      const htmlContent = `
+        <html>
+          <script>var x = 1;</script>
+          <script src="test.js"></script>
+          <script type="text/javascript">var y = 2;</script>
+        </html>
+      `;
+      const [contentPtr, contentLen] = writeString(htmlContent);
+      const docDescriptor = html.parse(contentPtr, contentLen, 0, 0);
+
+      const selector = "script[*]";
+      store.writeBytes(new TextEncoder().encode(selector), 1000);
+
+      const result = html.select(docDescriptor, 1000, selector.length);
+      expect(result).toBeGreaterThan(0);
+
+      // Should find only the 2 scripts WITH attributes
+      expect(html.size(result)).toBe(2);
+    });
   });
 
   describe("select_first", () => {
@@ -150,6 +215,43 @@ describe("html imports", () => {
 
       const result = html.select_first(docDescriptor, 1000, 1);
       expect(result).toBe(-5); // NoResult
+    });
+
+    // Regression test: select_first should match the element itself if it matches the selector
+    // This is the SwiftSoup behavior that sources like Shonen Jump+ rely on
+    it("should match element itself when it matches selector (SwiftSoup compat)", () => {
+      // HTML structure similar to Shonen Jump+ home page
+      const htmlContent = `
+        <ol class="ranking-list">
+          <li><a href="/manga/1"><h3>Title 1</h3></a></li>
+          <li><a href="/manga/2"><h3>Title 2</h3></a></li>
+        </ol>
+      `;
+      const [contentPtr, contentLen] = writeString(htmlContent);
+      const docDescriptor = html.parse(contentPtr, contentLen, 0, 0);
+
+      // Select the <a> elements directly (like ".ranking-list a")
+      store.writeBytes(new TextEncoder().encode(".ranking-list a"), 1000);
+      const aListDescriptor = html.select(docDescriptor, 1000, 15);
+      expect(html.size(aListDescriptor)).toBe(2);
+
+      // Get the first <a> element
+      const firstA = html.first(aListDescriptor);
+      expect(firstA).toBeGreaterThan(0);
+
+      // Now call select_first("a") on the <a> element
+      // This should return the element itself (SwiftSoup behavior), not search only children
+      store.writeBytes(new TextEncoder().encode("a"), 2000);
+      const innerA = html.select_first(firstA, 2000, 1);
+
+      // Should find itself, not return NoResult
+      expect(innerA).toBeGreaterThan(0);
+
+      // Verify we can get the href attribute
+      store.writeBytes(new TextEncoder().encode("href"), 3000);
+      const hrefDescriptor = html.attr(innerA, 3000, 4);
+      const href = store.readStdValue(hrefDescriptor);
+      expect(href).toBe("/manga/1");
     });
   });
 

@@ -1,14 +1,15 @@
 import { useState, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useStores } from "@/data/context";
 import { type SourceInfo } from "@/stores/settings";
 import { Keys } from "@/data/keys";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+  ResponsiveDialogDescription,
+} from "@/components/ui/responsive-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ interface AddSourceDialogProps {
 }
 
 export function AddSourceDialog({ open, onOpenChange }: AddSourceDialogProps) {
+  const { t } = useTranslation();
   const [mode, setMode] = useState<Mode>("select");
   const [installing, setInstalling] = useState<string | null>(null);
 
@@ -37,16 +39,16 @@ export function AddSourceDialog({ open, onOpenChange }: AddSourceDialogProps) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Add Source</DialogTitle>
-          <DialogDescription>
-            {mode === "select" && "Choose how to add a manga source"}
-            {mode === "registry" && "Select a source from available registries"}
-            {mode === "custom" && "Upload a custom .aix source file"}
-          </DialogDescription>
-        </DialogHeader>
+    <ResponsiveDialog open={open} onOpenChange={handleClose}>
+      <ResponsiveDialogContent className="sm:max-w-lg">
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle>{t("addSource.title")}</ResponsiveDialogTitle>
+          <ResponsiveDialogDescription>
+            {mode === "select" && t("addSource.selectMethod")}
+            {mode === "registry" && t("addSource.fromRegistry")}
+            {mode === "custom" && t("addSource.customFile")}
+          </ResponsiveDialogDescription>
+        </ResponsiveDialogHeader>
 
         {mode === "select" && <ModeSelection onSelectMode={setMode} />}
 
@@ -67,8 +69,8 @@ export function AddSourceDialog({ open, onOpenChange }: AddSourceDialogProps) {
             onDone={handleClose}
           />
         )}
-      </DialogContent>
-    </Dialog>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   );
 }
 
@@ -77,6 +79,7 @@ function ModeSelection({
 }: {
   onSelectMode: (mode: Mode) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <button
@@ -90,9 +93,9 @@ function ModeSelection({
           />
         </div>
         <div>
-          <p className="font-medium">From Registry</p>
+          <p className="font-medium">{t("addSource.fromRegistryTitle")}</p>
           <p className="text-sm text-muted-foreground">
-            Browse available sources
+            {t("addSource.fromRegistryDescription")}
           </p>
         </div>
       </button>
@@ -105,8 +108,8 @@ function ModeSelection({
           <HugeiconsIcon icon={File02Icon} className="size-6 text-primary" />
         </div>
         <div>
-          <p className="font-medium">Custom .aix File</p>
-          <p className="text-sm text-muted-foreground">Upload your own source</p>
+          <p className="font-medium">{t("addSource.customTitle")}</p>
+          <p className="text-sm text-muted-foreground">{t("addSource.customDescription")}</p>
         </div>
       </button>
     </div>
@@ -124,6 +127,7 @@ function RegistrySourceList({
   onBack: () => void;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const { useSettingsStore } = useStores();
   const { availableSources, installSource } = useSettingsStore();
 
@@ -137,6 +141,11 @@ function RegistrySourceList({
     },
     {} as Record<string, SourceInfo[]>
   );
+
+  // Sort sources within each registry by name
+  Object.keys(grouped).forEach((key) => {
+    grouped[key].sort((a, b) => a.name.localeCompare(b.name));
+  });
 
   const handleInstall = async (registryId: string, sourceId: string) => {
     const key = Keys.source(registryId, sourceId);
@@ -175,9 +184,9 @@ function RegistrySourceList({
 
       <div className="flex justify-between border-t pt-4">
         <Button variant="ghost" onClick={onBack}>
-          Back
+          {t("common.back")}
         </Button>
-        <Button onClick={onDone}>Done</Button>
+        <Button onClick={onDone}>{t("common.done")}</Button>
       </div>
     </div>
   );
@@ -192,6 +201,7 @@ function SourceItem({
   installing: boolean;
   onInstall: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       className={cn(
@@ -221,7 +231,7 @@ function SourceItem({
             icon={CheckmarkCircle02Icon}
             className="size-4 text-green-500"
           />
-          Installed
+          {t("common.installed")}
         </div>
       ) : (
         <Button
@@ -230,7 +240,7 @@ function SourceItem({
           onClick={onInstall}
           disabled={installing}
         >
-          {installing ? <Spinner className="size-4" /> : "Install"}
+          {installing ? <Spinner className="size-4" /> : t("common.install")}
         </Button>
       )}
     </div>
@@ -248,6 +258,7 @@ function CustomSourceUpload({
   onBack: () => void;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const { useSettingsStore } = useStores();
   const { installFromAix } = useSettingsStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -259,7 +270,7 @@ function CustomSourceUpload({
     if (!file) return;
 
     if (!file.name.endsWith(".aix")) {
-      setError("Please select a .aix file");
+      setError(t("addSource.invalidFile"));
       return;
     }
 
@@ -270,7 +281,7 @@ function CustomSourceUpload({
       await installFromAix(file);
       setSuccess(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to install source");
+      setError(err instanceof Error ? err.message : t("addSource.installFailed"));
     } finally {
       onInstall(null);
     }
@@ -292,7 +303,7 @@ function CustomSourceUpload({
             icon={CheckmarkCircle02Icon}
             className="size-10 text-green-500"
           />
-          <p className="font-medium">Source installed successfully!</p>
+          <p className="font-medium">{t("addSource.installSuccess")}</p>
         </div>
       ) : (
         <button
@@ -310,10 +321,10 @@ function CustomSourceUpload({
           )}
           <div>
             <p className="font-medium">
-              {installing ? "Installing..." : "Click to select .aix file"}
+              {installing ? t("addSource.installing") : t("addSource.selectFile")}
             </p>
             <p className="text-sm text-muted-foreground">
-              Or drag and drop here
+              {t("addSource.dragDropHint")}
             </p>
           </div>
         </button>
@@ -325,9 +336,9 @@ function CustomSourceUpload({
 
       <div className="flex justify-between border-t pt-4">
         <Button variant="ghost" onClick={onBack}>
-          Back
+          {t("common.back")}
         </Button>
-        <Button onClick={onDone}>{success ? "Done" : "Cancel"}</Button>
+        <Button onClick={onDone}>{success ? t("common.done") : t("common.cancel")}</Button>
       </div>
     </div>
   );

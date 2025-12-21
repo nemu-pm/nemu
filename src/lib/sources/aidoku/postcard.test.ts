@@ -21,7 +21,14 @@ import {
   encodePageContext,
   encodeU16,
   encodeImageResponse,
+  encodeFilterValue,
+  encodeFilterValues,
+  encodeVarint,
+  encodeManga,
+  encodeChapter,
+  concatBytes,
 } from "./postcard";
+import { FilterType } from "./types";
 
 describe("postcard encoding/decoding", () => {
   describe("string encoding", () => {
@@ -331,6 +338,262 @@ describe("complex structure decoding", () => {
         expect(encoded[0]).toBe(0x94);
         expect(encoded[1]).toBe(0x01);
       });
+    });
+  });
+});
+
+// B11: Listing/HomeLayout encoding tests
+describe("Listing encoding (B11)", () => {
+  it("should encode basic listing structure", () => {
+    // Listing has: id (String), name (String), kind (u8 enum)
+    const parts: Uint8Array[] = [];
+    parts.push(encodeString("popular"));
+    parts.push(encodeString("Popular"));
+    parts.push(new Uint8Array([0])); // kind = Default = 0
+    
+    const encoded = concatBytes(parts);
+    
+    // Verify we can decode it back
+    let pos = 0;
+    let id: string, name: string;
+    [id, pos] = decodeString(encoded, pos);
+    [name, pos] = decodeString(encoded, pos);
+    const kind = encoded[pos];
+    
+    expect(id).toBe("popular");
+    expect(name).toBe("Popular");
+    expect(kind).toBe(0);
+  });
+});
+
+describe("Manga encoding for WASM (B11)", () => {
+  it("should encode manga with all fields", () => {
+    const manga = {
+      key: "manga-123",
+      title: "Test Manga",
+      cover: "https://example.com/cover.jpg",
+      authors: ["Author 1"],
+      artists: ["Artist 1"],
+      description: "A test manga",
+      url: "https://example.com/manga/123",
+      tags: ["action", "comedy"],
+      status: 1, // Ongoing
+      nsfw: 0, // Safe
+      viewer: 0, // Default
+    };
+    
+    const encoded = encodeManga(manga);
+    expect(encoded.length).toBeGreaterThan(0);
+    
+    // Verify first field (key) can be decoded
+    const [key] = decodeString(encoded, 0);
+    expect(key).toBe("manga-123");
+  });
+
+  it("should encode minimal manga", () => {
+    const manga = {
+      key: "minimal",
+    };
+    
+    const encoded = encodeManga(manga);
+    expect(encoded.length).toBeGreaterThan(0);
+    
+    // First field is key
+    const [key] = decodeString(encoded, 0);
+    expect(key).toBe("minimal");
+  });
+});
+
+describe("Chapter encoding for WASM (B11)", () => {
+  it("should encode chapter with all fields", () => {
+    const chapter = {
+      key: "ch-1",
+      id: "ch-1",
+      title: "Chapter 1",
+      chapterNumber: 1.0,
+      volumeNumber: 1.0,
+      dateUploaded: Date.now(),
+      scanlator: "Test Group",
+      url: "https://example.com/ch/1",
+      lang: "en",
+    };
+    
+    const encoded = encodeChapter(chapter);
+    expect(encoded.length).toBeGreaterThan(0);
+    
+    // First field is key
+    const [key] = decodeString(encoded, 0);
+    expect(key).toBe("ch-1");
+  });
+});
+
+// B12: HTML error codes
+describe("HTML error codes (B12)", () => {
+  const HtmlError = {
+    InvalidDescriptor: -1,
+    InvalidString: -2,
+    InvalidHtml: -3,
+    InvalidQuery: -4,
+    NoResult: -5,
+    SwiftSoupError: -6,
+  };
+
+  it("should match aidoku-rs HtmlError values", () => {
+    expect(HtmlError.InvalidDescriptor).toBe(-1);
+    expect(HtmlError.InvalidString).toBe(-2);
+    expect(HtmlError.InvalidHtml).toBe(-3);
+    expect(HtmlError.InvalidQuery).toBe(-4);
+    expect(HtmlError.NoResult).toBe(-5);
+    expect(HtmlError.SwiftSoupError).toBe(-6);
+  });
+});
+
+// B10: PageContext encoding tests
+describe("PageContext encoding (B10)", () => {
+  describe("encodeHashMap", () => {
+    it("should encode empty map correctly", () => {
+      const encoded = encodeHashMap({});
+      // Empty map is just length 0
+      expect(encoded).toEqual(new Uint8Array([0]));
+    });
+
+    it("should encode single entry map", () => {
+      const encoded = encodeHashMap({ width: "100" });
+      expect(encoded[0]).toBe(1); // 1 entry
+      // Verify we can decode the key-value pair
+      let pos = 1;
+      const [key, keyEnd] = decodeString(encoded, pos);
+      const [value] = decodeString(encoded, keyEnd);
+      expect(key).toBe("width");
+      expect(value).toBe("100");
+    });
+
+    it("should encode multiple entries", () => {
+      const encoded = encodeHashMap({ width: "100", height: "200" });
+      expect(encoded[0]).toBe(2); // 2 entries
+    });
+  });
+
+  describe("encodePageContext for process_page_image", () => {
+    it("should encode null as None (0x00)", () => {
+      const encoded = encodePageContext(null);
+      expect(encoded).toEqual(new Uint8Array([0]));
+    });
+
+    it("should encode context as Some(HashMap)", () => {
+      const encoded = encodePageContext({ key: "value" });
+      expect(encoded[0]).toBe(1); // Some tag
+      expect(encoded[1]).toBe(1); // 1 entry in map
+    });
+  });
+
+  describe("raw HashMap encoding for aidoku-rs context_descriptor >= 0", () => {
+    // B10: When context_descriptor >= 0, aidoku-rs reads T (HashMap) directly, not Option<T>
+    it("should encode raw HashMap without Option wrapper", () => {
+      const rawMap = encodeHashMap({ width: "100" });
+      // Should not have Option tag
+      expect(rawMap[0]).toBe(1); // 1 entry (not Option::Some tag)
+    });
+  });
+});
+
+// B8: Filter encoding tests
+describe("FilterValue encoding (B8)", () => {
+  describe("encodeFilterValue", () => {
+    it("should encode Title filter as Text variant (0)", () => {
+      const encoded = encodeFilterValue({
+        type: FilterType.Title,
+        name: "Title",
+        value: "search query",
+      });
+      
+      // First byte should be variant 0 (Text)
+      expect(encoded[0]).toBe(0);
+      expect(encoded.length).toBeGreaterThan(1);
+    });
+
+    it("should encode Author filter as Text variant (0)", () => {
+      const encoded = encodeFilterValue({
+        type: FilterType.Author,
+        name: "Author",
+        value: "John Doe",
+      });
+      
+      expect(encoded[0]).toBe(0);
+    });
+
+    it("should encode Sort filter as variant 1", () => {
+      const encoded = encodeFilterValue({
+        type: FilterType.Sort,
+        name: "Sort",
+        value: { index: 2, ascending: true },
+      });
+      
+      expect(encoded[0]).toBe(1);
+    });
+
+    it("should encode Check filter as variant 2", () => {
+      const encoded = encodeFilterValue({
+        type: FilterType.Check,
+        name: "Completed Only",
+        value: true,
+      });
+      
+      expect(encoded[0]).toBe(2);
+    });
+
+    it("should encode Select filter as variant 3", () => {
+      const encoded = encodeFilterValue({
+        type: FilterType.Select,
+        name: "Status",
+        value: "ongoing",
+      });
+      
+      expect(encoded[0]).toBe(3);
+    });
+
+    it("should encode Genre filter as MultiSelect variant (4)", () => {
+      const encoded = encodeFilterValue({
+        type: FilterType.Genre,
+        name: "Genres",
+        value: [
+          { index: 0, state: 1 },  // Included
+          { index: 2, state: -1 }, // Excluded
+        ],
+      });
+      
+      expect(encoded[0]).toBe(4);
+    });
+  });
+
+  describe("encodeFilterValues", () => {
+    it("should encode empty filter array", () => {
+      const encoded = encodeFilterValues([]);
+      
+      // Empty vec is just [0] (length 0)
+      expect(encoded).toEqual(new Uint8Array([0]));
+    });
+
+    it("should encode multiple filters", () => {
+      const encoded = encodeFilterValues([
+        { type: FilterType.Title, name: "Title", value: "test" },
+        { type: FilterType.Check, name: "Check", value: true },
+      ]);
+      
+      // First byte is vec length (2)
+      expect(encoded[0]).toBe(2);
+      expect(encoded.length).toBeGreaterThan(1);
+    });
+
+    it("should skip Group type filters", () => {
+      const encoded = encodeFilterValues([
+        { type: FilterType.Title, name: "Title", value: "test" },
+        { type: FilterType.Group, name: "Group", filters: [] },
+        { type: FilterType.Check, name: "Check", value: true },
+      ]);
+      
+      // Should only have 2 filters (Group skipped)
+      expect(encoded[0]).toBe(2);
     });
   });
 });

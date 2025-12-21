@@ -8,38 +8,9 @@ import type { UserDataStore } from "../../../data/store";
 import type { CacheStore } from "../../../data/cache";
 import { Keys, CacheKeys } from "../../../data/keys";
 import { createAidokuMangaSource } from "./adapter";
-import type { SourceManifest } from "./types";
 import type { SourceRegistryProvider, RegistrySourceInfo } from "../registry";
-
-// ============ SETTINGS HELPERS ============
-
-interface SettingsItem {
-  type: string;
-  key?: string;
-  default?: unknown;
-  items?: SettingsItem[];
-}
-
-/**
- * Extract default settings values from settings.json format
- */
-function extractDefaultSettings(settingsJson: SettingsItem[]): Record<string, unknown> {
-  const defaults: Record<string, unknown> = {};
-
-  function processItems(items: SettingsItem[]) {
-    for (const item of items) {
-      if (item.key && item.default !== undefined) {
-        defaults[item.key] = item.default;
-      }
-      if (item.items) {
-        processItems(item.items);
-      }
-    }
-  }
-
-  processItems(settingsJson);
-  return defaults;
-}
+import { getSourceSettingsStore } from "../../../stores/source-settings";
+import { extractAix } from "./aix";
 
 // ============ DEFAULT AIDOKU REGISTRIES ============
 
@@ -188,24 +159,22 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     }
 
     const aixUrl = `${this.baseUrl}/${entry.downloadPath}`;
-    const { wasmBytes, manifest, settingsBytes } = await this.downloadAndExtractAix(aixUrl);
-
-    const registryId = this.info.id;
-    await this.cacheStore.set(CacheKeys.wasm(registryId, sourceId), wasmBytes);
-
-    const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
-    await this.cacheStore.set(
-      CacheKeys.manifest(registryId, sourceId),
-      manifestBytes.buffer as ArrayBuffer
-    );
-
-    // Cache settings.json if present
-    if (settingsBytes) {
-      await this.cacheStore.set(
-        CacheKeys.settings(registryId, sourceId),
-        settingsBytes
-      );
+    const res = await fetch(aixUrl);
+    if (!res.ok) {
+      throw new Error(`Failed to download .aix: ${res.status}`);
     }
+    const aixData = await res.arrayBuffer();
+
+    // Cache the entire AIX package
+    const registryId = this.info.id;
+    await this.cacheStore.set(CacheKeys.aix(registryId, sourceId), aixData);
+
+    // Clean up old cache keys if they exist (migration)
+    await Promise.all([
+      this.cacheStore.delete(CacheKeys.wasm(registryId, sourceId)),
+      this.cacheStore.delete(CacheKeys.manifest(registryId, sourceId)),
+      this.cacheStore.delete(CacheKeys.settings(registryId, sourceId)),
+    ]);
 
     // Save installed source with composite id for storage uniqueness
     await this.userStore.saveInstalledSource({
@@ -213,36 +182,6 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
       registryId,
       version: entry.version,
     });
-  }
-
-  private async downloadAndExtractAix(
-    url: string
-  ): Promise<{ wasmBytes: ArrayBuffer; manifest: SourceManifest; settingsBytes?: ArrayBuffer }> {
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`Failed to download .aix: ${res.status}`);
-    }
-    const zipData = await res.arrayBuffer();
-
-    const { unzipSync } = await import("fflate");
-    const files = unzipSync(new Uint8Array(zipData));
-
-    const manifestData = files["Payload/source.json"];
-    const wasmData = files["Payload/main.wasm"];
-    const settingsData = files["Payload/settings.json"];
-
-    if (!manifestData || !wasmData) {
-      throw new Error("Invalid .aix package: missing source.json or main.wasm");
-    }
-
-    const manifest: SourceManifest = JSON.parse(
-      new TextDecoder().decode(manifestData)
-    );
-    return {
-      wasmBytes: wasmData.buffer.slice(0) as ArrayBuffer,
-      manifest,
-      settingsBytes: settingsData ? settingsData.buffer.slice(0) as ArrayBuffer : undefined,
-    };
   }
 
   async getSource(sourceId: string): Promise<MangaSource | null> {
@@ -271,73 +210,65 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
   
   private async loadSourceInternal(sourceId: string): Promise<MangaSource | null> {
     const registryId = this.info.id;
-    const wasmBytes = await this.cacheStore.get(CacheKeys.wasm(registryId, sourceId));
-    const manifestBytes = await this.cacheStore.get(CacheKeys.manifest(registryId, sourceId));
-
-    if (!wasmBytes || !manifestBytes) {
+    const sourceKey = Keys.source(registryId, sourceId);
+    
+    // Try to load from cached AIX
+    let aixData = await this.cacheStore.get(CacheKeys.aix(registryId, sourceId));
+    
+    // Migration: if no AIX cached but old wasm exists, re-download
+    if (!aixData) {
+      const oldWasm = await this.cacheStore.get(CacheKeys.wasm(registryId, sourceId));
+      if (oldWasm) {
+        // Old format - trigger re-install to cache AIX
+        await this.ensureFetched();
+        if (this.sourceIndex.has(sourceId)) {
+          await this.installSource(sourceId);
+          aixData = await this.cacheStore.get(CacheKeys.aix(registryId, sourceId));
+        }
+      }
+    }
+    
+    if (!aixData) {
+      // Not installed at all - try to install
       await this.ensureFetched();
       if (!this.sourceIndex.has(sourceId)) {
         return null;
       }
       await this.installSource(sourceId);
-      return this.loadSourceInternal(sourceId);
+      aixData = await this.cacheStore.get(CacheKeys.aix(registryId, sourceId));
+      if (!aixData) return null;
     }
 
-    const manifest: SourceManifest = JSON.parse(
-      new TextDecoder().decode(manifestBytes)
-    );
-
-    // Load default settings from cached settings.json
-    let settingsBytes = await this.cacheStore.get(CacheKeys.settings(registryId, sourceId));
+    const { wasmBytes, manifest, settings } = await extractAix(aixData);
     
-    // If settings not cached, try to fetch and cache them
-    if (!settingsBytes) {
-      await this.ensureFetched();
-      const entry = this.sourceIndex.get(sourceId);
-      if (entry) {
-        try {
-          const aixUrl = `${this.baseUrl}/${entry.downloadPath}`;
-          const { settingsBytes: newSettingsBytes } = await this.downloadAndExtractAix(aixUrl);
-          if (newSettingsBytes) {
-            await this.cacheStore.set(CacheKeys.settings(registryId, sourceId), newSettingsBytes);
-            settingsBytes = newSettingsBytes;
-          }
-        } catch {
-          // Ignore fetch errors for settings
-        }
-      }
+    const settingsStore = getSourceSettingsStore();
+    
+    // Load settings schema from AIX if not already in store
+    if (settings && !settingsStore.getState().schemas.get(sourceKey)) {
+      await settingsStore.getState().setSchema(sourceKey, settings);
     }
     
-    let initialSettings: Record<string, unknown> | undefined;
-    if (settingsBytes) {
-      try {
-        const settingsJson = JSON.parse(new TextDecoder().decode(settingsBytes));
-        initialSettings = extractDefaultSettings(settingsJson);
-      } catch {
-        // Ignore settings parsing errors
-      }
+    // Set manifest-based defaults if not already set by user
+    const userValues = settingsStore.getState().values.get(sourceKey) ?? {};
+    if (!userValues.languages && manifest.info.languages?.length) {
+      settingsStore.getState().setSetting(sourceKey, "languages", [manifest.info.languages[0]]);
+    }
+    if (!userValues.url && manifest.info.urls?.length) {
+      settingsStore.getState().setSetting(sourceKey, "url", manifest.info.urls[0]);
     }
     
-    // Add default language from manifest if not in settings
-    if (!initialSettings) {
-      initialSettings = {};
-    }
-    if (!initialSettings.languages && manifest.info.languages?.length) {
-      initialSettings.languages = [manifest.info.languages[0]];
-    }
+    // Get icon URL from source index (always available after ensureFetched)
+    const entry = this.sourceIndex.get(sourceId);
+    const icon = entry?.iconPath ? `${this.baseUrl}/${entry.iconPath}` : undefined;
     
-    // Add default URL from manifest if allowsBaseUrlSelect and urls provided
-    if (!initialSettings.url && manifest.info.urls?.length) {
-      initialSettings.url = manifest.info.urls[0];
-    }
-    
-    console.log(`[AidokuRegistry] Loading source ${sourceId} with settings:`, initialSettings);
-
-    return createAidokuMangaSource(wasmBytes, manifest, { initialSettings });
+    return createAidokuMangaSource(wasmBytes, manifest, sourceKey, this.cacheStore, icon);
   }
 
   async isInstalled(sourceId: string): Promise<boolean> {
     const registryId = this.info.id;
+    // Check new AIX cache or old wasm cache (for migration)
+    const aixData = await this.cacheStore.get(CacheKeys.aix(registryId, sourceId));
+    if (aixData) return true;
     const wasmBytes = await this.cacheStore.get(CacheKeys.wasm(registryId, sourceId));
     return wasmBytes !== null;
   }

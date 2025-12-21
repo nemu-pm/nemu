@@ -1,30 +1,50 @@
 import type { UserDataStore } from "./store";
 import type {
   LibraryManga,
-  ChapterProgress,
+  HistoryEntry,
   InstalledSource,
   SourceRegistry,
   UserSettings,
 } from "./schema";
 import {
   LibraryMangaSchema,
+  HistoryEntrySchema,
   SourceRegistrySchema,
   UserSettingsSchema,
 } from "./schema";
 
 const DB_NAME = "nemu-user";
-const DB_VERSION = 3; // Bumped for embedded history + settings
+const DB_VERSION = 4; // Bumped for separate history store
 
 const STORES = {
   library: "library",
+  history: "history",
   settings: "settings",
   registries: "registries",
 } as const;
 
 const DEFAULT_SETTINGS: UserSettings = {
-  readingMode: "rtl",
   installedSources: [],
 };
+
+/** Create composite key for history entry */
+export function makeHistoryKey(
+  registryId: string,
+  sourceId: string,
+  mangaId: string,
+  chapterId: string
+): string {
+  return `${registryId}:${sourceId}:${mangaId}:${chapterId}`;
+}
+
+/** Create prefix for manga history queries */
+function makeMangaHistoryPrefix(
+  registryId: string,
+  sourceId: string,
+  mangaId: string
+): string {
+  return `${registryId}:${sourceId}:${mangaId}:`;
+}
 
 /**
  * IndexedDB implementation of UserDataStore
@@ -42,20 +62,18 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
         request.onupgradeneeded = (event) => {
           const db = (event.target as IDBOpenDBRequest).result;
+          const tx = (event.target as IDBOpenDBRequest).transaction!;
+          const oldVersion = event.oldVersion;
 
-          // Library store - keyed by id (history embedded)
+          // Library store - keyed by id
           if (!db.objectStoreNames.contains(STORES.library)) {
             db.createObjectStore(STORES.library, { keyPath: "id" });
           }
 
-          // Remove old history store if exists
-          if (db.objectStoreNames.contains("history")) {
-            db.deleteObjectStore("history");
-          }
-
-          // Remove old sources store if exists (now in settings)
-          if (db.objectStoreNames.contains("sources")) {
-            db.deleteObjectStore("sources");
+          // History store - keyed by composite id, indexed by dateRead
+          if (!db.objectStoreNames.contains(STORES.history)) {
+            const historyStore = db.createObjectStore(STORES.history, { keyPath: "id" });
+            historyStore.createIndex("by_dateRead", "dateRead", { unique: false });
           }
 
           // Settings store - single record with id="default"
@@ -66,6 +84,52 @@ export class IndexedDBUserDataStore implements UserDataStore {
           // Registries store - keyed by id (local only)
           if (!db.objectStoreNames.contains(STORES.registries)) {
             db.createObjectStore(STORES.registries, { keyPath: "id" });
+          }
+
+          // Remove old sources store if exists (now in settings)
+          if (db.objectStoreNames.contains("sources")) {
+            db.deleteObjectStore("sources");
+          }
+
+          // Migration: Extract embedded history from library items (v3 -> v4)
+          if (oldVersion >= 3 && oldVersion < 4) {
+            const libraryStore = tx.objectStore(STORES.library);
+            const historyStore = tx.objectStore(STORES.history);
+            
+            const cursorReq = libraryStore.openCursor();
+            cursorReq.onsuccess = () => {
+              const cursor = cursorReq.result;
+              if (cursor) {
+                const item = cursor.value;
+                // Migrate embedded history to separate store
+                if (item.history && typeof item.history === "object") {
+                  // Parse id to extract registryId, sourceId, mangaId
+                  // Format: registryId:sourceId:mangaId
+                  const parts = (item.id as string).split(":");
+                  if (parts.length >= 3) {
+                    const [registryId, sourceId, mangaId] = parts;
+                    for (const [chapterId, progress] of Object.entries(item.history)) {
+                      const historyEntry: HistoryEntry = {
+                        id: makeHistoryKey(registryId, sourceId, mangaId, chapterId),
+                        registryId,
+                        sourceId,
+                        mangaId,
+                        chapterId,
+                        progress: (progress as any).progress ?? 0,
+                        total: (progress as any).total ?? 0,
+                        completed: (progress as any).completed ?? false,
+                        dateRead: (progress as any).dateRead ?? Date.now(),
+                      };
+                      historyStore.put(historyEntry);
+                    }
+                  }
+                  // Remove history from library item
+                  delete item.history;
+                  cursor.update(item);
+                }
+                cursor.continue();
+              }
+            };
           }
         };
       });
@@ -138,24 +202,97 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
-  // ============ CHAPTER PROGRESS (embedded in library) ============
+  // ============ HISTORY (separate from library) ============
 
-  async getChapterProgress(mangaId: string, chapterId: string): Promise<ChapterProgress | null> {
-    const manga = await this.getLibraryManga(mangaId);
-    if (!manga) return null;
-    return manga.history[chapterId] ?? null;
+  async getHistoryEntry(
+    registryId: string,
+    sourceId: string,
+    mangaId: string,
+    chapterId: string
+  ): Promise<HistoryEntry | null> {
+    const db = await this.getDB();
+    const key = makeHistoryKey(registryId, sourceId, mangaId, chapterId);
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORES.history, "readonly");
+      const store = tx.objectStore(STORES.history);
+      const request = store.get(key);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        if (!request.result) {
+          resolve(null);
+          return;
+        }
+        const parsed = HistoryEntrySchema.safeParse(request.result);
+        resolve(parsed.success ? parsed.data : null);
+      };
+    });
   }
 
-  async saveChapterProgress(
-    mangaId: string,
-    chapterId: string,
-    progress: ChapterProgress
-  ): Promise<void> {
-    const manga = await this.getLibraryManga(mangaId);
-    if (!manga) return; // Can't save progress for non-library manga
+  async saveHistoryEntry(entry: HistoryEntry): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORES.history, "readwrite");
+      const store = tx.objectStore(STORES.history);
+      const request = store.put(entry);
 
-    manga.history[chapterId] = progress;
-    await this.saveLibraryManga(manga);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  async getMangaHistory(
+    registryId: string,
+    sourceId: string,
+    mangaId: string
+  ): Promise<Record<string, HistoryEntry>> {
+    const db = await this.getDB();
+    const prefix = makeMangaHistoryPrefix(registryId, sourceId, mangaId);
+    
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORES.history, "readonly");
+      const store = tx.objectStore(STORES.history);
+      const request = store.getAll();
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const result: Record<string, HistoryEntry> = {};
+        for (const item of request.result) {
+          if ((item.id as string).startsWith(prefix)) {
+            const parsed = HistoryEntrySchema.safeParse(item);
+            if (parsed.success) {
+              result[parsed.data.chapterId] = parsed.data;
+            }
+          }
+        }
+        resolve(result);
+      };
+    });
+  }
+
+  async getRecentHistory(limit: number): Promise<HistoryEntry[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORES.history, "readonly");
+      const store = tx.objectStore(STORES.history);
+      const index = store.index("by_dateRead");
+      const request = index.openCursor(null, "prev"); // Descending order
+
+      const results: HistoryEntry[] = [];
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor && results.length < limit) {
+          const parsed = HistoryEntrySchema.safeParse(cursor.value);
+          if (parsed.success) {
+            results.push(parsed.data);
+          }
+          cursor.continue();
+        } else {
+          resolve(results);
+        }
+      };
+    });
   }
 
   // ============ SETTINGS ============

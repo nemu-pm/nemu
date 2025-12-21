@@ -8,7 +8,7 @@
  * 
  * # Registry JSON URLs (to find available sources):
  * #   aidoku-zh:    https://raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public/index.min.json
- * #   aidoku-community: https://aidoku.github.io/aidoku-community-sources/index.min.json
+ * #   aidoku-community: https://aidoku-community.github.io/sources/index.min.json
  * 
  * # Download a source (.aix file):
  * curl -sL "https://raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public/sources/zh.manhuaren-v2.aix" -o /tmp/source.aix
@@ -40,6 +40,8 @@
  *   read <manga> <ch>   - Full end-to-end test (fetch first image)
  *   image <url>         - Test modifyImageRequest headers
  *   filters             - List available filters
+ *   home                - Get home layout
+ *   settings            - Show source settings schema
  *   interactive         - Interactive REPL mode
  * 
  * Environment:
@@ -50,6 +52,7 @@
 import { unzipSync } from "fflate";
 import { loadSource, type AidokuSource } from "../src/lib/sources/aidoku/runtime";
 import type { SourceManifest, Manga, Chapter } from "../src/lib/sources/aidoku/types";
+import { getSourceSettingsStore } from "../src/stores/source-settings";
 
 const DEBUG = process.env.DEBUG === "1";
 
@@ -431,7 +434,7 @@ async function runCommand(
       console.log(`Found ${pages.length} pages\n`);
       
       for (const page of pages.slice(0, 10)) {
-        console.log(`- Page ${page.index}: ${page.url?.slice(0, 80)}...`);
+        console.log(`- Page ${page.index}: ${page.url}`);
       }
       
       if (pages.length > 10) {
@@ -571,10 +574,112 @@ async function runCommand(
       }
       break;
     }
+
+    case "home": {
+      console.log(`=== Home Layout ===\n`);
+      console.log(`hasHome: ${source.hasHome}`);
+      
+      if (!source.hasHome) {
+        console.log("Source does not provide home layout");
+        break;
+      }
+      
+      const home = source.getHome();
+      if (!home) {
+        console.log("getHome returned null");
+        break;
+      }
+      
+      console.log(`Found ${home.components.length} components\n`);
+      
+      for (const component of home.components) {
+        console.log(`- ${component.title ?? "(untitled)"}`);
+        console.log(`  Type: ${component.value.type}`);
+        
+        // Show entry counts for different types
+        if ("entries" in component.value && Array.isArray(component.value.entries)) {
+          console.log(`  Entries: ${component.value.entries.length}`);
+          // Show first entry title if available
+          const firstEntry = component.value.entries[0];
+          if (firstEntry) {
+            const title = "title" in firstEntry ? firstEntry.title : 
+                          "manga" in firstEntry && firstEntry.manga ? firstEntry.manga.title : null;
+            if (title) {
+              console.log(`  First: "${title}"`);
+            }
+          }
+        }
+        if ("links" in component.value && Array.isArray(component.value.links)) {
+          console.log(`  Links: ${component.value.links.length}`);
+          const firstLink = component.value.links[0];
+          if (firstLink?.title) {
+            console.log(`  First: "${firstLink.title}"`);
+          }
+        }
+        // Show listing info if present
+        if ("listing" in component.value && component.value.listing) {
+          const listing = component.value.listing;
+          console.log(`  Listing: id="${listing.id}" name="${listing.name}"`);
+        }
+        console.log();
+      }
+      break;
+    }
+
+    case "settings": {
+      console.log(`=== Source Settings ===\n`);
+      
+      // Get settings from the store
+      const store = getSourceSettingsStore();
+      const sourceKey = `test:${manifest.info.id}`;
+      
+      const schema = store.getState().schemas.get(sourceKey);
+      if (!schema) {
+        console.log("No settings schema found in store.");
+        console.log("This may mean:");
+        console.log("1. The source doesn't have settings.json");
+        console.log("2. The schema wasn't loaded during this session");
+        console.log("\nChecking AIX directly for settings.json...\n");
+        
+        // AIX settings are already extracted in loadAix
+        const settingsData = defaultSettings;
+        if (Object.keys(settingsData).length > 0) {
+          console.log("Found default settings from AIX:");
+          for (const [key, val] of Object.entries(settingsData)) {
+            console.log(`  ${key}: ${JSON.stringify(val)}`);
+          }
+        }
+        break;
+      }
+      
+      console.log(`Schema loaded with ${schema.length} top-level items\n`);
+      
+      function printSchema(items: SettingsItem[], indent = 0) {
+        const prefix = "  ".repeat(indent);
+        for (const item of items) {
+          console.log(`${prefix}[${item.type}] ${item.title || item.key || "(no title)"}`);
+          if (item.items) {
+            printSchema(item.items, indent + 1);
+          }
+        }
+      }
+      
+      printSchema(schema as SettingsItem[]);
+      
+      // Show current values
+      const values = store.getState().values.get(sourceKey);
+      if (values && Object.keys(values).length > 0) {
+        console.log("\n=== Current Values ===");
+        for (const [key, val] of Object.entries(values)) {
+          console.log(`  ${key}: ${JSON.stringify(val)}`);
+        }
+      }
+      break;
+    }
     
     default:
       console.error(`Unknown command: ${command}`);
-      console.log("Available: search, details, chapters, pages, read, image, filters");
+      console.log("Available: search, details, chapters, pages, read, image, filters, home, settings");
   }
 }
 
@@ -614,7 +719,23 @@ Examples:
   console.log(`\nSource: ${manifest.info.id} - ${manifest.info.name}`);
   if (DEBUG) console.log(`Default settings:`, defaultSettings);
   
-  const source = await loadSource(wasmBytes, manifest, { initialSettings: defaultSettings });
+  // Use a test sourceKey for the script
+  const sourceKey = `test:${manifest.info.id}`;
+  
+  // Set up settings store with defaults before loading source
+  const settingsStore = getSourceSettingsStore();
+  for (const [key, value] of Object.entries(defaultSettings)) {
+    settingsStore.getState().setSetting(sourceKey, key, value);
+  }
+  console.log(`Set ${Object.keys(defaultSettings).length} default settings`);
+  
+  // Create settings getter that reads from our local store
+  const settingsGetter = (key: string) => {
+    const values = settingsStore.getState().values.get(sourceKey) ?? {};
+    return values[key];
+  };
+  
+  const source = await loadSource(wasmBytes, manifest, sourceKey, settingsGetter);
   source.initialize();
   console.log("Source initialized\n");
   

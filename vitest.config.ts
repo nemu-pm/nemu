@@ -14,6 +14,9 @@ export default defineConfig({
     environment: "happy-dom",
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"],
+    // Browser-only tests are run via `vitest.config.browser.ts` (Playwright).
+    // Exclude them from the default (happy-dom) run.
+    exclude: ["src/**/*.browser.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],

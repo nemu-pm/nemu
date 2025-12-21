@@ -20,7 +20,11 @@ export interface ReaderProps {
    */
   scrollPageWidthScale?: number
   onBackgroundClick?: () => void
+  /** Called when keyboard navigation occurs (arrow keys) */
+  onKeyboardNavigation?: () => void
   disableKeyboard?: boolean
+  /** When true, double-click/tap zoom is disabled */
+  disableZoom?: boolean
 }
 
 export interface GalleryProps {
@@ -31,8 +35,11 @@ export interface GalleryProps {
   getPageKey?: (index: number) => string
   getItemKind?: (index: number) => ReaderItemKind
   onBackgroundClick?: () => void
+  onKeyboardNavigation?: () => void
   readingMode?: 'rtl' | 'ltr'
   disableKeyboard?: boolean
+  /** When true, double-click/tap zoom is disabled */
+  disableZoom?: boolean
 }
 
 export interface ScrollingGalleryProps extends Omit<GalleryProps, 'readingMode'> {

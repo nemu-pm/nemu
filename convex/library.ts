@@ -1,12 +1,13 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import {
-  requireAuth,
-  sourceRefValidator,
-  chapterProgressValidator,
-  mergeChapterProgress,
-  SEVEN_DAYS_MS,
-} from "./_lib";
+import { requireAuth, sourceRefValidator, SEVEN_DAYS_MS } from "./_lib";
+
+const chapterSummaryValidator = v.object({
+  id: v.string(),
+  title: v.optional(v.string()),
+  chapterNumber: v.optional(v.number()),
+  volumeNumber: v.optional(v.number()),
+});
 
 export const list = query({
   args: {},
@@ -48,7 +49,12 @@ export const save = mutation({
     sources: v.array(sourceRefValidator),
     activeRegistryId: v.string(),
     activeSourceId: v.string(),
-    history: v.record(v.string(), chapterProgressValidator),
+    // Reading progress
+    lastReadChapter: v.optional(chapterSummaryValidator),
+    lastReadAt: v.optional(v.number()),
+    // Chapter availability
+    latestChapter: v.optional(chapterSummaryValidator),
+    seenLatestChapter: v.optional(chapterSummaryValidator),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuth(ctx);
@@ -62,13 +68,15 @@ export const save = mutation({
       .first();
 
     if (existing) {
-      const mergedHistory = { ...existing.history };
-      for (const [chapterId, progress] of Object.entries(args.history)) {
-        mergedHistory[chapterId] = mergeChapterProgress(
-          mergedHistory[chapterId],
-          progress
-        );
-      }
+      // Merge: keep the most recent lastReadAt
+      const lastReadAt =
+        args.lastReadAt && existing.lastReadAt
+          ? Math.max(args.lastReadAt, existing.lastReadAt)
+          : args.lastReadAt ?? existing.lastReadAt;
+      const lastReadChapter =
+        lastReadAt === args.lastReadAt
+          ? args.lastReadChapter ?? existing.lastReadChapter
+          : existing.lastReadChapter ?? args.lastReadChapter;
 
       await ctx.db.patch(existing._id, {
         title: args.title,
@@ -77,7 +85,10 @@ export const save = mutation({
         sources: args.sources,
         activeRegistryId: args.activeRegistryId,
         activeSourceId: args.activeSourceId,
-        history: mergedHistory,
+        lastReadChapter,
+        lastReadAt,
+        latestChapter: args.latestChapter ?? existing.latestChapter,
+        seenLatestChapter: args.seenLatestChapter ?? existing.seenLatestChapter,
         updatedAt: now,
         deletedAt: undefined,
       });
@@ -91,7 +102,10 @@ export const save = mutation({
         sources: args.sources,
         activeRegistryId: args.activeRegistryId,
         activeSourceId: args.activeSourceId,
-        history: args.history,
+        lastReadChapter: args.lastReadChapter,
+        lastReadAt: args.lastReadAt,
+        latestChapter: args.latestChapter,
+        seenLatestChapter: args.seenLatestChapter,
         updatedAt: now,
       });
     }
@@ -120,37 +134,6 @@ export const remove = mutation({
   },
 });
 
-export const saveChapterProgress = mutation({
-  args: {
-    mangaId: v.string(),
-    chapterId: v.string(),
-    progress: chapterProgressValidator,
-  },
-  handler: async (ctx, args) => {
-    const userId = await requireAuth(ctx);
-
-    const manga = await ctx.db
-      .query("library")
-      .withIndex("by_user_manga", (q) =>
-        q.eq("userId", userId).eq("mangaId", args.mangaId)
-      )
-      .first();
-
-    if (manga) {
-      await ctx.db.patch(manga._id, {
-        history: {
-          ...manga.history,
-          [args.chapterId]: mergeChapterProgress(
-            manga.history[args.chapterId],
-            args.progress
-          ),
-        },
-        updatedAt: Date.now(),
-      });
-    }
-  },
-});
-
 export const cleanupDeleted = mutation({
   args: {},
   handler: async (ctx) => {
@@ -166,6 +149,33 @@ export const cleanupDeleted = mutation({
       if (item.deletedAt && item.deletedAt < cutoff) {
         await ctx.db.delete(item._id);
       }
+    }
+  },
+});
+
+export const clearAll = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuth(ctx);
+
+    // Delete all library items
+    const libraryItems = await ctx.db
+      .query("library")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    for (const item of libraryItems) {
+      await ctx.db.delete(item._id);
+    }
+
+    // Delete settings
+    const settings = await ctx.db
+      .query("settings")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+
+    if (settings) {
+      await ctx.db.delete(settings._id);
     }
   },
 });

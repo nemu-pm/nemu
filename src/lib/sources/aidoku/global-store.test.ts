@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { GlobalStore, DescriptorScope, isCheerioNode, isArray, isObject } from "./global-store";
+import { GlobalStore, DescriptorScope, isCheerioNode, isArray, isObject, ResourceType } from "./global-store";
 
 describe("GlobalStore", () => {
   let store: GlobalStore;
@@ -80,6 +80,92 @@ describe("GlobalStore", () => {
       store.removeRequest(id);
       expect(store.getRequest(id)).toBeUndefined();
     });
+
+    // B1: HttpMethod enum order must match aidoku-rs
+    it("should map HttpMethod enum correctly (aidoku-rs order)", () => {
+      // aidoku-rs HttpMethod enum: Get=0, Post=1, Put=2, Head=3, Delete=4, Patch=5, Options=6, Connect=7, Trace=8
+      const methods = [
+        { index: 0, expected: "GET" },
+        { index: 1, expected: "POST" },
+        { index: 2, expected: "PUT" },
+        { index: 3, expected: "HEAD" },
+        { index: 4, expected: "DELETE" },
+        { index: 5, expected: "PATCH" },
+        { index: 6, expected: "OPTIONS" },
+        { index: 7, expected: "CONNECT" },
+        { index: 8, expected: "TRACE" },
+      ];
+
+      for (const { index, expected } of methods) {
+        const id = store.createRequest(index);
+        const request = store.getRequest(id);
+        expect(request?.method).toBe(expected);
+      }
+    });
+
+    it("should default to GET for unknown method index", () => {
+      const id = store.createRequest(99);
+      const request = store.getRequest(id);
+      expect(request?.method).toBe("GET");
+    });
+  });
+
+  // B3: std.destroy must free all resource types (unified store)
+  describe("unified resource destruction (std.destroy)", () => {
+    it("should destroy std values via destroyResource", () => {
+      const rid = store.storeStdValue("test value");
+      expect(store.readStdValue(rid)).toBe("test value");
+      
+      const destroyed = store.destroyResource(rid);
+      
+      expect(destroyed).toBe(true);
+      expect(store.readStdValue(rid)).toBeUndefined();
+    });
+
+    it("should destroy requests via destroyResource", () => {
+      const rid = store.createRequest(0);
+      expect(store.getRequest(rid)).toBeDefined();
+      
+      const destroyed = store.destroyResource(rid);
+      
+      expect(destroyed).toBe(true);
+      expect(store.getRequest(rid)).toBeUndefined();
+    });
+
+    it("should return false for unknown RID", () => {
+      const destroyed = store.destroyResource(99999);
+      expect(destroyed).toBe(false);
+    });
+
+    it("should track resource types correctly", () => {
+      const stdRid = store.storeStdValue("std value");
+      const reqRid = store.createRequest(0);
+      
+      expect(store.getResourceType(stdRid)).toBe(ResourceType.StdValue);
+      expect(store.getResourceType(reqRid)).toBe(ResourceType.Request);
+    });
+
+    it("should use unified RID counter across resource types", () => {
+      const rid1 = store.storeStdValue("value1");
+      const rid2 = store.createRequest(0);
+      const rid3 = store.storeStdValue("value2");
+      
+      // RIDs should be sequential regardless of resource type
+      expect(rid2).toBe(rid1 + 1);
+      expect(rid3).toBe(rid2 + 1);
+    });
+
+    it("should register custom resource types", () => {
+      const rid = store.storeStdValue({ type: "canvas", data: "test" });
+      store.registerResource(rid, ResourceType.Canvas);
+      
+      expect(store.getResourceType(rid)).toBe(ResourceType.Canvas);
+      
+      // Should still be destroyable
+      const destroyed = store.destroyResource(rid);
+      expect(destroyed).toBe(true);
+      expect(store.readStdValue(rid)).toBeUndefined();
+    });
   });
 
   describe("memory operations", () => {
@@ -108,31 +194,6 @@ describe("GlobalStore", () => {
     it("should return null for invalid reads", () => {
       expect(store.readString(0, 10)).toBeNull();
       expect(store.readBytes(0, 10)).toBeNull();
-    });
-  });
-
-  describe("settings management", () => {
-    it("should set and get settings", () => {
-      store.setSetting("key1", "value1");
-      store.setSetting("key2", 42);
-
-      expect(store.getSetting("key1")).toBe("value1");
-      expect(store.getSetting("key2")).toBe(42);
-    });
-
-    it("should export settings", () => {
-      store.setSetting("a", 1);
-      store.setSetting("b", 2);
-
-      const exported = store.exportSettings();
-      expect(exported).toEqual({ a: 1, b: 2 });
-    });
-
-    it("should import settings", () => {
-      store.importSettings({ x: "hello", y: "world" });
-
-      expect(store.getSetting("x")).toBe("hello");
-      expect(store.getSetting("y")).toBe("world");
     });
   });
 

@@ -1,6 +1,6 @@
 // Aidoku WASM Runtime - loads and executes Aidoku source modules (new aidoku-rs ABI)
 import { GlobalStore } from "./global-store";
-import type { Manga, Chapter, Page, MangaPageResult, Filter, FilterValue, SourceManifest, MangaStatus, ContentRating, Viewer, GenreState } from "./types";
+import type { Manga, Chapter, Page, MangaPageResult, Filter, FilterValue, SourceManifest, MangaStatus, ContentRating, Viewer, GenreState, Listing, HomeLayout, HomeComponent, HomeComponentValue, HomeLink, HomeLinkValue, HomeFilterItem, MangaWithChapter } from "./types";
 import { createStdImports } from "./imports/std";
 import { createNetImports } from "./imports/net";
 import { createHtmlImports } from "./imports/html";
@@ -17,27 +17,56 @@ import {
   encodeChapter,
   encodeImageResponse,
   encodePageContext,
+  encodeHashMap,
+  encodeFilterValues,
   decodeMangaPageResult,
   decodeManga,
   decodePageList,
   decodeFilterList,
+  decodeString,
+  decodeVec,
+  decodeVarint,
   type DecodedManga,
   type DecodedFilter,
 } from "./postcard";
 import { FilterType } from "./types";
+import {
+  readResultPayload,
+  decodeRidFromPayload,
+  RuntimeMode,
+  detectRuntimeMode,
+} from "./result-decoder";
 
 export interface AidokuSource {
   id: string;
   manifest: SourceManifest;
+  /** Runtime mode: legacy (Swift-era) or aidoku-rs (modern) */
+  mode: RuntimeMode;
   /** Whether this source has a page image processor (for descrambling) */
   hasImageProcessor: boolean;
+  /** Whether this source provides custom image requests */
+  hasImageRequestProvider: boolean;
+  /** Whether this source provides a home layout */
+  hasHome: boolean;
+  /** Whether this source provides listing-based browsing */
+  hasListingProvider: boolean;
+  /** Whether this source provides dynamic listings */
+  hasDynamicListings: boolean;
   initialize(): void;
   getSearchMangaList(query: string | null, page: number, filters: FilterValue[]): MangaPageResult;
   getMangaDetails(manga: Manga): Manga;
   getChapterList(manga: Manga): Chapter[];
   getPageList(manga: Manga, chapter: Chapter): Page[];
   getFilters(): Filter[];
-  modifyImageRequest(url: string): { url: string; headers: Record<string, string> };
+  /** Get manga list for a specific listing (for ListingProvider sources) */
+  getMangaListForListing(listing: Listing, page: number): MangaPageResult;
+  /** Get home layout (for Home sources) */
+  getHome(): HomeLayout | null;
+  /** Get home layout with progressive partial updates (for Home sources) */
+  getHomeWithPartials(onPartial: (layout: HomeLayout) => void): HomeLayout | null;
+  /** Get dynamic listings (for DynamicListings sources) */
+  getListings(): Listing[];
+  modifyImageRequest(url: string, context?: Record<string, string> | null): { url: string; headers: Record<string, string> };
   /**
    * Process a page image (e.g., descramble).
    * Only works if hasImageProcessor is true.
@@ -59,22 +88,23 @@ export interface AidokuSource {
   ): Promise<Uint8Array | null>;
 }
 
-export interface LoadSourceOptions {
-  /** Initial settings to apply before source initialization */
-  initialSettings?: Record<string, unknown>;
-}
+// HomeLayout is now imported from types.ts
 
-export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest: SourceManifest, options?: LoadSourceOptions): Promise<AidokuSource> {
-  const store = new GlobalStore(manifest.info.id);
+/** Function to get a setting value from main thread's store */
+export type SettingsGetter = (key: string) => unknown;
 
-  // Apply initial settings if provided
-  console.log(`[Aidoku] loadSource options:`, options);
-  if (options?.initialSettings && Object.keys(options.initialSettings).length > 0) {
-    store.importSettings(options.initialSettings);
-    console.log(`[Aidoku] Applied ${Object.keys(options.initialSettings).length} initial settings:`, options.initialSettings);
-  } else {
-    console.log(`[Aidoku] No initial settings provided`);
-  }
+/**
+ * Load an Aidoku WASM source
+ * @param sourceKey - Unique identifier in format "registryId:sourceId" for settings/storage
+ * @param settingsGetter - Function to get settings (reads from main thread via worker)
+ */
+export async function loadSource(
+  wasmUrlOrBytes: string | ArrayBuffer,
+  manifest: SourceManifest,
+  sourceKey: string,
+  settingsGetter: SettingsGetter
+): Promise<AidokuSource> {
+  const store = new GlobalStore(sourceKey);
 
   // Get WASM binary - either from URL or directly from ArrayBuffer
   let wasmBytes: ArrayBuffer;
@@ -92,7 +122,7 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
     net: createNetImports(store),
     html: createHtmlImports(store),
     json: createJsonImports(store),
-    defaults: createDefaultsImports(store),
+    defaults: createDefaultsImports(store, settingsGetter),
     aidoku: createAidokuImports(store),
     canvas: createCanvasImports(store),
     js: createJsImports(store),
@@ -111,11 +141,10 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
   
   console.log("[Aidoku] Available WASM exports:", Object.keys(exports));
 
-  // Detect ABI version based on available exports
-  // NEW ABI (aidoku-rs): get_search_manga_list, get_manga_update
-  // OLD ABI (legacy): get_manga_list, get_manga_details, get_chapter_list
-  const isNewAbi = "get_search_manga_list" in exports || "get_manga_update" in exports;
-  console.log("[Aidoku] Using ABI:", isNewAbi ? "NEW (aidoku-rs)" : "OLD (legacy)");
+  // Detect runtime mode (B0: explicit mode flag)
+  const mode = detectRuntimeMode(exports);
+  const isNewAbi = mode === RuntimeMode.AidokuRs;
+  console.log("[Aidoku] Runtime mode:", mode);
 
   // NEW ABI exports
   const start = exports.start as (() => void) | undefined;
@@ -125,6 +154,15 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
   const processPageImageExport = exports.process_page_image as ((responseDescriptor: number, contextDescriptor: number) => number) | undefined;
   const getFilterList = exports.get_filters as (() => number) | undefined;
   const freeResult = exports.free_result as ((ptr: number) => void) | undefined;
+  
+  // B11: Additional aidoku-rs exports
+  const getHome = exports.get_home as (() => number) | undefined;
+  const getMangaList = exports.get_manga_list as ((listingDescriptor: number, page: number) => number) | undefined;
+  const getListings = exports.get_listings as (() => number) | undefined;
+  const getSettings = exports.get_settings as (() => number) | undefined;
+  const getBaseUrl = exports.get_base_url as (() => number) | undefined;
+  const handleNotification = exports.handle_notification as ((stringDescriptor: number) => number) | undefined;
+  const handleDeepLink = exports.handle_deep_link as ((urlDescriptor: number) => number) | undefined;
 
   // OLD ABI exports
   const oldGetMangaList = exports.get_manga_list as ((filterDescriptor: number, page: number) => number) | undefined;
@@ -215,10 +253,101 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
     }
   }
 
+  // Implementation of getHome with optional partial streaming callback
+  function getHomeImpl(onPartial: (layout: HomeLayout) => void): HomeLayout | null {
+    if (!getHome) {
+      return null;
+    }
+
+    try {
+      // Clear any previous partial results
+      store.partialHomeResultBytes = [];
+      
+      // Accumulated components map (keyed by title for deduplication)
+      const partialComponentsMap = new Map<string, HomeComponent>();
+      
+      // Set up callback to stream partials to caller
+      store.onPartialHomeBytes = (partialBytes: Uint8Array) => {
+        try {
+          if (partialBytes && partialBytes.length > 0) {
+            // HomePartialResult is an enum: Layout=0, Component=1
+            const variant = partialBytes[0];
+            if (variant === 0) {
+              // Layout - decode full layout (skip the variant byte)
+              const layout = decodeHomeLayout(partialBytes.slice(1), manifest.info.id);
+              for (const component of layout.components) {
+                const key = component.title ?? `_idx_${partialComponentsMap.size}`;
+                partialComponentsMap.set(key, component);
+              }
+              console.log(`[Aidoku] Partial layout with ${layout.components.length} components`);
+            } else if (variant === 1) {
+              // Component - decode single component (skip the variant byte)
+              const [component] = decodeHomeComponent(partialBytes, 1, manifest.info.id);
+              const key = component.title ?? `_idx_${partialComponentsMap.size}`;
+              partialComponentsMap.set(key, component);
+              console.log(`[Aidoku] Partial component: ${component.title}`);
+            }
+            
+            // Emit accumulated layout to caller (Swift behavior: each partial contains all so far)
+            const accumulatedComponents = Array.from(partialComponentsMap.values());
+            if (accumulatedComponents.length > 0) {
+              onPartial({ components: accumulatedComponents });
+            }
+          }
+        } catch (e) {
+          console.warn("[Aidoku] Failed to decode partial result:", e);
+        }
+      };
+      
+      // Call WASM getHome - this will trigger onPartialHomeBytes callbacks synchronously
+      const resultPtr = getHome();
+      const resultBytes = readResult(resultPtr);
+
+      if (freeResult && resultPtr > 0) {
+        freeResult(resultPtr);
+      }
+      
+      // Clean up callback
+      store.onPartialHomeBytes = null;
+      
+      // Clear partial results after processing
+      store.partialHomeResultBytes = [];
+
+      // Convert map to array (order preserved as insertion order)
+      const partialComponents = Array.from(partialComponentsMap.values());
+
+      // Decode final result
+      let finalLayout: HomeLayout = { components: [] };
+      if (resultBytes && resultBytes.length > 0) {
+        finalLayout = decodeHomeLayout(resultBytes, manifest.info.id);
+      }
+
+      // Merge: partial components have priority (they're the actual content)
+      // If partial components exist and final is empty, use partials
+      // If both exist, partials are the actual content
+      if (partialComponents.length > 0) {
+        // Use partial components, they're the real data
+        return { components: partialComponents };
+      }
+
+      // Fall back to final result if no partials
+      return finalLayout.components.length > 0 ? finalLayout : null;
+    } catch (e) {
+      console.error("[Aidoku] getHome error:", e);
+      store.onPartialHomeBytes = null;
+      return null;
+    }
+  }
+
   return {
     id: manifest.info.id,
     manifest,
+    mode,
     hasImageProcessor: !!processPageImageExport,
+    hasImageRequestProvider: !!getImageRequest,
+    hasHome: !!getHome,
+    hasListingProvider: !!getMangaList && isNewAbi,
+    hasDynamicListings: !!getListings,
 
     initialize() {
       if (start) {
@@ -248,9 +377,8 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
             sort: 5, sortSelection: 6, title: 7, author: 8, genre: 9,
           };
           
-          // Convert FilterValue[] to Swift filter format
-          const swiftFilters: unknown[] = filters.map((f) => {
-            // Map TypeScript FilterType to Swift FilterType
+          // Recursive helper to convert FilterValue[] to Swift filter format
+          const convertToSwiftFilter = (f: FilterValue): unknown => {
             switch (f.type) {
               case FilterType.Title:
                 return { type: SwiftFilterType.title, name: f.name || "Title", value: f.value };
@@ -263,15 +391,24 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
                 return { type: SwiftFilterType.sort, name: f.name, value: f.value };
               case FilterType.Check:
                 return { type: SwiftFilterType.check, name: f.name, value: f.value };
-              case FilterType.Group:
-                return { type: SwiftFilterType.group, name: f.name, filters: [] }; // TODO: recursive
+              case FilterType.Group: {
+                // Recursive conversion of group filters
+                return { 
+                  type: SwiftFilterType.group, 
+                  name: f.name, 
+                  filters: f.filters ? f.filters.map(convertToSwiftFilter) : []
+                };
+              }
               case FilterType.Genre:
                 // GenreFilter has value as GenreSelection[] - each with { index, state }
                 return { type: SwiftFilterType.genre, name: f.name, value: f.value };
               default:
                 return { type: SwiftFilterType.base, name: f.name, value: f.value };
             }
-          });
+          };
+          
+          // Convert all filters
+          const swiftFilters: unknown[] = filters.map(convertToSwiftFilter);
           
           // Add TitleFilter if query provided and not already in filters
           if (query !== null && query !== "" && !filters.some(f => f.type === FilterType.Title)) {
@@ -334,7 +471,7 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
 
       const scope = store.createScope();
       try {
-        console.log("[Aidoku] getSearchMangaList query=", query, "page=", page);
+        console.log("[Aidoku] getSearchMangaList query=", query, "page=", page, "filters=", filters);
         
         // Query should be RAW UTF-8 bytes (not postcard-encoded!)
         // aidoku-rs uses read_string() which expects raw UTF-8
@@ -345,10 +482,12 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
           console.log("[Aidoku] Query descriptor=", queryDescriptor, "bytes=", Array.from(queryBytes));
         }
 
-        // Filters are postcard-encoded empty Vec
-        const filtersBytes = encodeEmptyVec();
+        // Encode filters as Vec<FilterValue>
+        const filtersBytes = filters.length > 0 
+          ? encodeFilterValues(filters)
+          : encodeEmptyVec();
         const filtersDescriptor = scope.storeValue(filtersBytes);
-        console.log("[Aidoku] Filters descriptor=", filtersDescriptor);
+        console.log("[Aidoku] Filters descriptor=", filtersDescriptor, "count=", filters.length);
 
         // Call WASM function
         console.log("[Aidoku] Calling get_search_manga_list(", queryDescriptor, ",", page, ",", filtersDescriptor, ")");
@@ -549,6 +688,7 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
               url: chapter.url as string | undefined,
               lang: (chapter.lang as string) || "zh",
               sourceOrder: index,
+              locked: chapter.locked as boolean | undefined,
             };
           });
         } catch (e) {
@@ -599,6 +739,7 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
           url: c.url || undefined,
           lang: c.language || "zh",
           sourceOrder: index,
+          locked: c.locked || undefined,
         }));
       } catch (e) {
         console.error("[Aidoku] getChapterList error:", e);
@@ -699,11 +840,14 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
     },
 
     getFilters(): Filter[] {
+      console.log("[Runtime] getFilters called, hasExport:", !!getFilterList);
       if (!getFilterList) return [];
 
       try {
         const resultPtr = getFilterList();
+        console.log("[Runtime] getFilterList returned ptr:", resultPtr);
         const resultBytes = readResult(resultPtr);
+        console.log("[Runtime] readResult bytes:", resultBytes?.length);
 
         if (freeResult && resultPtr > 0) {
           freeResult(resultPtr);
@@ -713,6 +857,7 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
 
         // Decode filters from postcard
         const decodedFilters = decodeFilterList(resultBytes);
+        console.log("[Runtime] decoded filters:", decodedFilters.length);
 
         // Convert decoded filters to Filter type
         return decodedFilters.map(convertDecodedFilter);
@@ -722,7 +867,7 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
       }
     },
 
-    modifyImageRequest(url: string): { url: string; headers: Record<string, string> } {
+    modifyImageRequest(url: string, context?: Record<string, string> | null): { url: string; headers: Record<string, string> } {
       // OLD ABI: modify_image_request(requestDescriptor) -> void
       // Creates a request, passes descriptor, WASM modifies in place
       if (oldModifyImageRequest) {
@@ -766,18 +911,33 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
       }
       
       // NEW ABI: get_image_request(urlDescriptor, contextDescriptor) -> resultPtr
+      // B9: Uses shared decodeRidFromPayload helper
       if (!getImageRequest) {
-        return { url, headers: {} };
+        // No custom image request handler - add default headers like Swift does
+        const defaultHeaders: Record<string, string> = {
+          "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        };
+        const storedCookies = store.getCookiesForUrl(url);
+        if (storedCookies) {
+          defaultHeaders["Cookie"] = storedCookies;
+        }
+        return { url, headers: defaultHeaders };
       }
 
       const scope = store.createScope();
       try {
-        // Encode URL and store
+        // Encode URL as postcard string for aidoku-rs
         const urlBytes = encodeString(url);
         const urlDescriptor = scope.storeValue(urlBytes);
         
-        // No context
-        const contextDescriptor = -1;
+        // Encode context if provided (B10: correct PageContext encoding)
+        // aidoku-rs expects PageContext = HashMap<String, String> when descriptor >= 0
+        let contextDescriptor = -1;
+        if (context !== null && context !== undefined) {
+          // Store raw HashMap bytes (not Option<HashMap>), as aidoku-rs reads T when descriptor >= 0
+          const contextBytes = encodeHashMap(context);
+          contextDescriptor = scope.storeValue(contextBytes);
+        }
         
         // Call WASM - returns a pointer to serialized result
         const resultPtr = getImageRequest(urlDescriptor, contextDescriptor);
@@ -786,37 +946,26 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
           return { url, headers: {} };
         }
         
-        // Read the serialized result from WASM memory
-        // Format: [len: i32 LE][cap: i32 LE][postcard data...]
-        const view = new DataView(memory.buffer);
-        const len = view.getInt32(resultPtr, true);
-        
-        if (len <= 8) {
-          return { url, headers: {} };
-        }
-        
-        // The data after header is the postcard-encoded request ID (i32 as zigzag varint)
-        // Read varint from position 8
-        const dataStart = resultPtr + 8;
-        let requestId = 0;
-        let shift = 0;
-        let pos = 0;
-        while (true) {
-          const byte = view.getUint8(dataStart + pos);
-          requestId |= (byte & 0x7f) << shift;
-          pos++;
-          if ((byte & 0x80) === 0) break;
-          shift += 7;
-        }
-        // Decode zigzag: (n >>> 1) ^ -(n & 1)
-        requestId = (requestId >>> 1) ^ -(requestId & 1);
+        // B9: Use shared helper to read result payload
+        const payload = readResultPayload(memory, resultPtr);
         
         // Free the result memory
         if (freeResult) {
           freeResult(resultPtr);
         }
         
-        // Now look up the request by its ID and clean it up after use
+        if (!payload) {
+          return { url, headers: {} };
+        }
+        
+        // Decode the request RID from payload
+        const requestId = decodeRidFromPayload(payload);
+        
+        if (requestId === null) {
+          return { url, headers: {} };
+        }
+        
+        // Look up the request by its RID and clean it up after use
         const request = store.requests.get(requestId);
         
         if (request) {
@@ -869,10 +1018,13 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
         );
         const responseDescriptor = scope.storeValue(responseBytes);
         
-        // Encode context and store it (or -1 for None)
+        // B10: Encode context correctly
+        // aidoku-rs reads PageContext (HashMap<String,String>) when context_descriptor >= 0
+        // It does NOT expect Option<T>, just T directly
         let contextDescriptor = -1;
         if (context !== null) {
-          const contextHashMapBytes = encodePageContext(context).slice(1);
+          // Store raw HashMap bytes, not Option<HashMap>
+          const contextHashMapBytes = encodeHashMap(context);
           contextDescriptor = scope.storeValue(contextHashMapBytes);
         }
         
@@ -883,29 +1035,23 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
           return null;
         }
         
-        // Read the result - it's an ImageRef rid (zigzag varint encoded)
-        const resultBytes = readResult(resultPtr);
+        // B9: Use shared helper to read result payload
+        const payload = readResultPayload(memory, resultPtr);
         
         if (freeResult && resultPtr > 0) {
           freeResult(resultPtr);
         }
         
-        if (!resultBytes || resultBytes.length === 0) {
+        if (!payload || payload.length === 0) {
           return null;
         }
         
-        // Decode the result ImageRef rid (zigzag varint)
-        let resultRid = 0;
-        let shift = 0;
-        let pos = 0;
-        while (pos < resultBytes.length) {
-          const byte = resultBytes[pos];
-          resultRid |= (byte & 0x7f) << shift;
-          pos++;
-          if ((byte & 0x80) === 0) break;
-          shift += 7;
+        // Decode the result ImageRef rid using shared helper
+        const resultRid = decodeRidFromPayload(payload);
+        
+        if (resultRid === null) {
+          return null;
         }
-        resultRid = (resultRid >>> 1) ^ -(resultRid & 1);
         
         // Get processed image data
         return getHostImageData(store, resultRid);
@@ -915,5 +1061,554 @@ export async function loadSource(wasmUrlOrBytes: string | ArrayBuffer, manifest:
         scope.cleanup();
       }
     },
+
+    // B11: getMangaListForListing - for ListingProvider sources
+    getMangaListForListing(listing: Listing, page: number): MangaPageResult {
+      if (!getMangaList || !isNewAbi) {
+        return { entries: [], hasNextPage: false };
+      }
+
+      const scope = store.createScope();
+      try {
+        // Encode listing as postcard (id, name, kind)
+        const listingBytes = encodeListing(listing);
+        const listingDescriptor = scope.storeValue(listingBytes);
+        
+        const resultPtr = getMangaList(listingDescriptor, page);
+        const resultBytes = readResult(resultPtr);
+
+        if (freeResult && resultPtr > 0) {
+          freeResult(resultPtr);
+        }
+
+        if (!resultBytes) {
+          return { entries: [], hasNextPage: false };
+        }
+
+        const decoded = decodeMangaPageResult(resultBytes);
+        const entries: Manga[] = decoded.entries.map((m: DecodedManga) => ({
+          sourceId: manifest.info.id,
+          id: m.key,
+          key: m.key,
+          title: m.title || undefined,
+          authors: m.authors || undefined,
+          artists: m.artists || undefined,
+          description: m.description || undefined,
+          tags: m.tags || undefined,
+          cover: m.cover || undefined,
+          url: m.url || undefined,
+          status: m.status as MangaStatus | undefined,
+          nsfw: m.contentRating as ContentRating | undefined,
+          viewer: m.viewer as Viewer | undefined,
+        }));
+
+        return { entries, hasNextPage: decoded.hasNextPage };
+      } catch (e) {
+        console.error("[Aidoku] getMangaListForListing error:", e);
+        return { entries: [], hasNextPage: false };
+      } finally {
+        scope.cleanup();
+      }
+    },
+
+    // B11: getHome - for Home sources (non-streaming version)
+    getHome(): HomeLayout | null {
+      // Call the implementation with an empty callback
+      return getHomeImpl(() => {});
+    },
+
+    // B11b: getHomeWithPartials - for Home sources with progressive streaming
+    getHomeWithPartials(onPartial: (layout: HomeLayout) => void): HomeLayout | null {
+      return getHomeImpl(onPartial);
+    },
+
+    // B11: getListings - for DynamicListings sources
+    getListings(): Listing[] {
+      if (!getListings) {
+        return [];
+      }
+
+      try {
+        const resultPtr = getListings();
+        const resultBytes = readResult(resultPtr);
+
+        if (freeResult && resultPtr > 0) {
+          freeResult(resultPtr);
+        }
+
+        if (!resultBytes) {
+          return [];
+        }
+
+        // Decode Vec<Listing> from postcard
+        return decodeListings(resultBytes);
+      } catch (e) {
+        console.error("[Aidoku] getListings error:", e);
+        return [];
+      }
+    },
   };
 }
+
+// Helper to encode Listing for aidoku-rs
+function encodeListing(listing: Listing): Uint8Array {
+  const parts: Uint8Array[] = [];
+  parts.push(encodeString(listing.id));
+  parts.push(encodeString(listing.name));
+  parts.push(new Uint8Array([0])); // kind: Default = 0
+  return concatBytes(parts);
+}
+
+// Helper to decode Vec<Listing> from postcard
+function decodeListings(bytes: Uint8Array): Listing[] {
+  try {
+    const [listings] = decodeVec(bytes, 0, decodeListingForVec);
+    return listings;
+  } catch {
+    return [];
+  }
+}
+
+// Simple listing decoder for decodeVec (used for getListings)
+function decodeListingForVec(bytes: Uint8Array, offset: number): [Listing, number] {
+  let pos = offset;
+  let id: string;
+  let name: string;
+  
+  [id, pos] = decodeString(bytes, pos);
+  [name, pos] = decodeString(bytes, pos);
+  const kind = bytes[pos] as 0 | 1;
+  pos += 1;
+  
+  return [{ id, name, kind }, pos];
+}
+
+// Helper to decode Option<f32> from postcard
+function decodeOptionFloat(bytes: Uint8Array, pos: number): [number | undefined, number] {
+  const tag = bytes[pos];
+  if (tag === 0) {
+    return [undefined, pos + 1];
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset + pos + 1, 4);
+  return [view.getFloat32(0, true), pos + 5];
+}
+
+// Helper to decode Option<i32> from postcard
+function decodeOptionInt(bytes: Uint8Array, pos: number): [number | undefined, number] {
+  const tag = bytes[pos];
+  if (tag === 0) {
+    return [undefined, pos + 1];
+  }
+  const [val, newPos] = decodeVarint(bytes, pos + 1);
+  return [val, newPos];
+}
+
+// Helper to decode Option<String> from postcard
+function decodeOptionString(bytes: Uint8Array, pos: number): [string | undefined, number] {
+  const tag = bytes[pos];
+  if (tag === 0) {
+    return [undefined, pos + 1];
+  }
+  return decodeString(bytes, pos + 1);
+}
+
+// Helper to decode Listing from postcard
+function decodeListing(bytes: Uint8Array, pos: number): [Listing, number] {
+  let id: string;
+  let name: string;
+  
+  [id, pos] = decodeString(bytes, pos);
+  [name, pos] = decodeString(bytes, pos);
+  const kind = bytes[pos] as 0 | 1;
+  pos += 1;
+  
+  return [{ id, name, kind }, pos];
+}
+
+// Helper to decode Option<Listing>
+function decodeOptionListing(bytes: Uint8Array, pos: number): [Listing | undefined, number] {
+  const tag = bytes[pos];
+  if (tag === 0) {
+    return [undefined, pos + 1];
+  }
+  return decodeListing(bytes, pos + 1);
+}
+
+// Helper to decode HomeLink from postcard
+function decodeHomeLink(bytes: Uint8Array, pos: number, sourceId: string): [HomeLink, number] {
+  let title: string;
+  let subtitle: string | undefined;
+  let imageUrl: string | undefined;
+  let value: HomeLinkValue | undefined;
+  
+  [title, pos] = decodeString(bytes, pos);
+  [subtitle, pos] = decodeOptionString(bytes, pos);
+  [imageUrl, pos] = decodeOptionString(bytes, pos);
+  
+  // Option<LinkValue>
+  const hasValue = bytes[pos];
+  pos += 1;
+  
+  if (hasValue === 1) {
+    // LinkValue is an enum: Url(String)=0, Listing(Listing)=1, Manga(Manga)=2
+    const valueType = bytes[pos];
+    pos += 1;
+    
+    if (valueType === 0) {
+      let url: string;
+      [url, pos] = decodeString(bytes, pos);
+      value = { type: "url", url };
+    } else if (valueType === 1) {
+      let listing: Listing;
+      [listing, pos] = decodeListing(bytes, pos);
+      value = { type: "listing", listing };
+    } else if (valueType === 2) {
+      const [decoded, newPos] = decodeManga(bytes, pos);
+      pos = newPos;
+      const manga: Manga = {
+        sourceId,
+        id: decoded.key,
+        key: decoded.key,
+        title: decoded.title || undefined,
+        cover: decoded.cover || undefined,
+        authors: decoded.authors || undefined,
+        artists: decoded.artists || undefined,
+        description: decoded.description || undefined,
+        tags: decoded.tags || undefined,
+        status: decoded.status as MangaStatus | undefined,
+        nsfw: decoded.contentRating as ContentRating | undefined,
+      };
+      value = { type: "manga", manga };
+    }
+  }
+  
+  return [{ title, subtitle, imageUrl, value }, pos];
+}
+
+// Helper to decode HomeFilterItem from postcard
+function decodeHomeFilterItem(bytes: Uint8Array, pos: number): [HomeFilterItem, number] {
+  let title: string;
+  [title, pos] = decodeString(bytes, pos);
+  
+  // Option<Vec<FilterValue>> - simplified, skip for now
+  const hasValues = bytes[pos];
+  pos += 1;
+  
+  const values: FilterValue[] | undefined = hasValues === 1 ? [] : undefined;
+  if (hasValues === 1) {
+    const [count, countEnd] = decodeVarint(bytes, pos);
+    pos = countEnd;
+    // Skip filter values for now - complex nested structure
+    // In practice, this is rarely used
+    for (let i = 0; i < count; i++) {
+      // FilterValue has type (u8), name (String), value (varies), filters (Option<Vec>)
+      // For simplicity, we skip the actual decoding
+      // Most home pages don't use filter links
+    }
+  }
+  
+  return [{ title, values }, pos];
+}
+
+// Helper to decode MangaWithChapter from postcard
+function decodeMangaWithChapter(bytes: Uint8Array, pos: number, sourceId: string): [MangaWithChapter, number] {
+  // Manga
+  const [decodedManga, mangaEnd] = decodeManga(bytes, pos);
+  pos = mangaEnd;
+  
+  const manga: Manga = {
+    sourceId,
+    id: decodedManga.key,
+    key: decodedManga.key,
+    title: decodedManga.title || undefined,
+    cover: decodedManga.cover || undefined,
+    authors: decodedManga.authors || undefined,
+    description: decodedManga.description || undefined,
+    tags: decodedManga.tags || undefined,
+    status: decodedManga.status as MangaStatus | undefined,
+  };
+  
+  // Chapter - decode inline following Rust struct order:
+  // key: String, title: Option<String>, chapter_number: Option<f32>, volume_number: Option<f32>,
+  // date_uploaded: Option<i64>, scanlators: Option<Vec<String>>, url: Option<String>,
+  // language: Option<String>, thumbnail: Option<String>, locked: bool
+  
+  let chapterKey: string;
+  let chapterTitle: string | undefined;
+  let chapterNumber: number | undefined;
+  let volumeNumber: number | undefined;
+  let dateUploaded: number | undefined;
+  let chapterScanlators: string[] | undefined;
+  let chapterUrl: string | undefined;
+  let chapterLang: string | undefined;
+  let chapterThumbnail: string | undefined;
+  let chapterLocked: boolean;
+  
+  // key: String
+  [chapterKey, pos] = decodeString(bytes, pos);
+  
+  // title: Option<String>
+  [chapterTitle, pos] = decodeOptionString(bytes, pos);
+  
+  // chapter_number: Option<f32>
+  const hasChapterNum = bytes[pos];
+  pos += 1;
+  if (hasChapterNum === 1) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset + pos, 4);
+    chapterNumber = view.getFloat32(0, true);
+    pos += 4;
+  }
+  
+  // volume_number: Option<f32>
+  const hasVolNum = bytes[pos];
+  pos += 1;
+  if (hasVolNum === 1) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset + pos, 4);
+    volumeNumber = view.getFloat32(0, true);
+    pos += 4;
+  }
+  
+  // date_uploaded: Option<i64>
+  const hasDate = bytes[pos];
+  pos += 1;
+  if (hasDate === 1) {
+    // i64 as varint
+    const [date, dateEnd] = decodeVarint(bytes, pos);
+    dateUploaded = date * 1000; // Convert to ms
+    pos = dateEnd;
+  }
+  
+  // scanlators: Option<Vec<String>>
+  const hasScanlators = bytes[pos];
+  pos += 1;
+  if (hasScanlators === 1) {
+    const [scanCount, scanEnd] = decodeVarint(bytes, pos);
+    pos = scanEnd;
+    chapterScanlators = [];
+    for (let i = 0; i < scanCount; i++) {
+      const [s, sEnd] = decodeString(bytes, pos);
+      chapterScanlators.push(s);
+      pos = sEnd;
+    }
+  }
+  
+  // url: Option<String>
+  [chapterUrl, pos] = decodeOptionString(bytes, pos);
+  
+  // language: Option<String>
+  [chapterLang, pos] = decodeOptionString(bytes, pos);
+  
+  // thumbnail: Option<String>
+  [chapterThumbnail, pos] = decodeOptionString(bytes, pos);
+  
+  // locked: bool
+  chapterLocked = bytes[pos] === 1;
+  pos += 1;
+  
+  const chapter: Chapter = {
+    key: chapterKey,
+    title: chapterTitle,
+    scanlator: chapterScanlators?.join(", "),
+    url: chapterUrl,
+    lang: chapterLang,
+    chapterNumber,
+    volumeNumber,
+    dateUploaded,
+  };
+  
+  return [{ manga, chapter }, pos];
+}
+
+// Helper to decode HomeComponentValue from postcard
+function decodeHomeComponentValue(bytes: Uint8Array, pos: number, sourceId: string): [HomeComponentValue, number] {
+  // HomeComponentValue is an enum with variants:
+  // 0 = ImageScroller, 1 = BigScroller, 2 = Scroller, 3 = MangaList, 4 = MangaChapterList, 5 = Filters, 6 = Links
+  const variant = bytes[pos];
+  pos += 1;
+  
+  switch (variant) {
+    case 0: { // ImageScroller
+      let links: HomeLink[] = [];
+      let autoScrollInterval: number | undefined;
+      let width: number | undefined;
+      let height: number | undefined;
+      
+      // Vec<Link>
+      const [linkCount, linkEnd] = decodeVarint(bytes, pos);
+      pos = linkEnd;
+      for (let i = 0; i < linkCount; i++) {
+        const [link, newPos] = decodeHomeLink(bytes, pos, sourceId);
+        links.push(link);
+        pos = newPos;
+      }
+      
+      [autoScrollInterval, pos] = decodeOptionFloat(bytes, pos);
+      [width, pos] = decodeOptionInt(bytes, pos);
+      [height, pos] = decodeOptionInt(bytes, pos);
+      
+      return [{ type: "imageScroller", links, autoScrollInterval, width, height }, pos];
+    }
+    
+    case 1: { // BigScroller
+      let entries: Manga[] = [];
+      let autoScrollInterval: number | undefined;
+      
+      // Vec<Manga>
+      const [entryCount, entryEnd] = decodeVarint(bytes, pos);
+      pos = entryEnd;
+      for (let i = 0; i < entryCount; i++) {
+        const [decoded, newPos] = decodeManga(bytes, pos);
+        pos = newPos;
+        entries.push({
+          sourceId,
+          id: decoded.key,
+          key: decoded.key,
+          title: decoded.title || undefined,
+          cover: decoded.cover || undefined,
+          authors: decoded.authors || undefined,
+          artists: decoded.artists || undefined,
+          description: decoded.description || undefined,
+          tags: decoded.tags || undefined,
+          status: decoded.status as MangaStatus | undefined,
+          nsfw: decoded.contentRating as ContentRating | undefined,
+        });
+      }
+      
+      [autoScrollInterval, pos] = decodeOptionFloat(bytes, pos);
+      
+      return [{ type: "bigScroller", entries, autoScrollInterval }, pos];
+    }
+    
+    case 2: { // Scroller
+      let entries: HomeLink[] = [];
+      let listing: Listing | undefined;
+      
+      // Vec<Link>
+      const [entryCount, entryEnd] = decodeVarint(bytes, pos);
+      pos = entryEnd;
+      for (let i = 0; i < entryCount; i++) {
+        const [link, newPos] = decodeHomeLink(bytes, pos, sourceId);
+        entries.push(link);
+        pos = newPos;
+      }
+      
+      [listing, pos] = decodeOptionListing(bytes, pos);
+      
+      return [{ type: "scroller", entries, listing }, pos];
+    }
+    
+    case 3: { // MangaList
+      let ranking: boolean;
+      let pageSize: number | undefined;
+      let entries: HomeLink[] = [];
+      let listing: Listing | undefined;
+      
+      ranking = bytes[pos] === 1;
+      pos += 1;
+      
+      [pageSize, pos] = decodeOptionInt(bytes, pos);
+      
+      // Vec<Link>
+      const [entryCount, entryEnd] = decodeVarint(bytes, pos);
+      pos = entryEnd;
+      for (let i = 0; i < entryCount; i++) {
+        const [link, newPos] = decodeHomeLink(bytes, pos, sourceId);
+        entries.push(link);
+        pos = newPos;
+      }
+      
+      [listing, pos] = decodeOptionListing(bytes, pos);
+      
+      return [{ type: "mangaList", ranking, pageSize, entries, listing }, pos];
+    }
+    
+    case 4: { // MangaChapterList
+      let pageSize: number | undefined;
+      let entries: MangaWithChapter[] = [];
+      let listing: Listing | undefined;
+      
+      [pageSize, pos] = decodeOptionInt(bytes, pos);
+      
+      // Vec<MangaWithChapter>
+      const [entryCount, entryEnd] = decodeVarint(bytes, pos);
+      pos = entryEnd;
+      for (let i = 0; i < entryCount; i++) {
+        const [entry, newPos] = decodeMangaWithChapter(bytes, pos, sourceId);
+        entries.push(entry);
+        pos = newPos;
+      }
+      
+      [listing, pos] = decodeOptionListing(bytes, pos);
+      
+      return [{ type: "mangaChapterList", pageSize, entries, listing }, pos];
+    }
+    
+    case 5: { // Filters
+      let items: HomeFilterItem[] = [];
+      
+      // Vec<FilterItem>
+      const [itemCount, itemEnd] = decodeVarint(bytes, pos);
+      pos = itemEnd;
+      for (let i = 0; i < itemCount; i++) {
+        const [item, newPos] = decodeHomeFilterItem(bytes, pos);
+        items.push(item);
+        pos = newPos;
+      }
+      
+      return [{ type: "filters", items }, pos];
+    }
+    
+    case 6: { // Links
+      let links: HomeLink[] = [];
+      
+      // Vec<Link>
+      const [linkCount, linkEnd] = decodeVarint(bytes, pos);
+      pos = linkEnd;
+      for (let i = 0; i < linkCount; i++) {
+        const [link, newPos] = decodeHomeLink(bytes, pos, sourceId);
+        links.push(link);
+        pos = newPos;
+      }
+      
+      return [{ type: "links", links }, pos];
+    }
+    
+    default:
+      throw new Error(`Unknown HomeComponentValue variant: ${variant}`);
+  }
+}
+
+// Helper to decode HomeComponent from postcard
+function decodeHomeComponent(bytes: Uint8Array, pos: number, sourceId: string): [HomeComponent, number] {
+  let title: string | undefined;
+  let subtitle: string | undefined;
+  let value: HomeComponentValue;
+  
+  [title, pos] = decodeOptionString(bytes, pos);
+  [subtitle, pos] = decodeOptionString(bytes, pos);
+  [value, pos] = decodeHomeComponentValue(bytes, pos, sourceId);
+  
+  return [{ title, subtitle, value }, pos];
+}
+
+// Helper to decode HomeLayout from postcard
+function decodeHomeLayout(bytes: Uint8Array, sourceId: string): HomeLayout {
+  // HomeLayout has: components: Vec<HomeComponent>
+  let pos = 0;
+  
+  const [componentCount, countEnd] = decodeVarint(bytes, pos);
+  pos = countEnd;
+  
+  const components: HomeComponent[] = [];
+  
+  for (let i = 0; i < componentCount; i++) {
+    const [component, newPos] = decodeHomeComponent(bytes, pos, sourceId);
+    components.push(component);
+    pos = newPos;
+  }
+  
+  return { components };
+}
+
+// Import concatBytes helper
+import { concatBytes } from "./postcard";

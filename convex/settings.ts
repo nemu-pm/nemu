@@ -1,9 +1,8 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { requireAuth, readingModeValidator, installedSourceValidator } from "./_lib";
+import { requireAuth, installedSourceValidator } from "./_lib";
 
 const DEFAULT_SETTINGS = {
-  readingMode: "rtl" as const,
   installedSources: [] as [],
 };
 
@@ -22,7 +21,6 @@ export const get = query({
     }
 
     return {
-      readingMode: settings.readingMode,
       installedSources: settings.installedSources,
       updatedAt: settings.updatedAt ?? 0,
     };
@@ -31,7 +29,6 @@ export const get = query({
 
 export const save = mutation({
   args: {
-    readingMode: readingModeValidator,
     installedSources: v.array(installedSourceValidator),
   },
   handler: async (ctx, args) => {
@@ -45,14 +42,12 @@ export const save = mutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        readingMode: args.readingMode,
         installedSources: args.installedSources,
         updatedAt: now,
       });
     } else {
       await ctx.db.insert("settings", {
         userId,
-        readingMode: args.readingMode,
         installedSources: args.installedSources,
         updatedAt: now,
       });

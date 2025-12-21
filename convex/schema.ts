@@ -17,13 +17,31 @@ export default defineSchema({
     ),
     activeRegistryId: v.string(),
     activeSourceId: v.string(),
-    history: v.record(
-      v.string(),
+    // Reading progress
+    lastReadChapter: v.optional(
       v.object({
-        progress: v.number(),
-        total: v.number(),
-        completed: v.boolean(),
-        dateRead: v.number(),
+        id: v.string(),
+        title: v.optional(v.string()),
+        chapterNumber: v.optional(v.number()),
+        volumeNumber: v.optional(v.number()),
+      })
+    ),
+    lastReadAt: v.optional(v.number()),
+    // Chapter availability tracking
+    latestChapter: v.optional(
+      v.object({
+        id: v.string(),
+        title: v.optional(v.string()),
+        chapterNumber: v.optional(v.number()),
+        volumeNumber: v.optional(v.number()),
+      })
+    ),
+    seenLatestChapter: v.optional(
+      v.object({
+        id: v.string(),
+        title: v.optional(v.string()),
+        chapterNumber: v.optional(v.number()),
+        volumeNumber: v.optional(v.number()),
       })
     ),
     updatedAt: v.optional(v.number()),
@@ -32,13 +50,25 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_manga", ["userId", "mangaId"]),
 
+  history: defineTable({
+    userId: v.string(),
+    registryId: v.string(),
+    sourceId: v.string(),
+    mangaId: v.string(),
+    chapterId: v.string(),
+    progress: v.number(),
+    total: v.number(),
+    completed: v.boolean(),
+    dateRead: v.number(),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_manga", ["userId", "registryId", "sourceId", "mangaId"])
+    .index("by_user_chapter", ["userId", "registryId", "sourceId", "mangaId", "chapterId"])
+    .index("by_user_recent", ["userId", "dateRead"]),
+
   settings: defineTable({
     userId: v.string(),
-    readingMode: v.union(
-      v.literal("rtl"),
-      v.literal("ltr"),
-      v.literal("scrolling")
-    ),
     installedSources: v.array(
       v.object({
         id: v.string(),
@@ -48,4 +78,6 @@ export default defineSchema({
     ),
     updatedAt: v.optional(v.number()),
   }).index("by_user", ["userId"]),
+}, {
+  schemaValidation: false,
 });

@@ -1,5 +1,5 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
-import type { LibraryManga } from "@/data/schema";
+import type { ChapterSummary, LibraryManga } from "@/data/schema";
 import type { UserDataStore } from "@/data/store";
 
 interface LibraryState {
@@ -12,7 +12,29 @@ interface LibraryState {
   add: (manga: LibraryManga) => Promise<void>;
   remove: (id: string) => Promise<void>;
   get: (id: string) => LibraryManga | undefined;
+  getBySource: (registryId: string, sourceId: string, mangaId: string) => LibraryManga | undefined;
   isInLibrary: (registryId: string, sourceId: string, mangaId: string) => boolean;
+  /** Update last read chapter (called from reader) */
+  updateLastRead: (
+    registryId: string,
+    sourceId: string,
+    mangaId: string,
+    chapter: ChapterSummary
+  ) => Promise<void>;
+  /** Update latest/seen chapter info (called from manga detail page) */
+  updateChapterInfo: (
+    registryId: string,
+    sourceId: string,
+    mangaId: string,
+    latestChapter: ChapterSummary
+  ) => Promise<void>;
+  /** Update only latestChapter (called from background refresh - triggers "Updated" badge) */
+  updateLatestChapter: (
+    registryId: string,
+    sourceId: string,
+    mangaId: string,
+    latestChapter: ChapterSummary
+  ) => Promise<void>;
 }
 
 export type LibraryStore = UseBoundStore<StoreApi<LibraryState>>;
@@ -65,6 +87,17 @@ export function createLibraryStore(userStore: UserDataStore): LibraryStore {
       return get().mangas.find((m) => m.id === id);
     },
 
+    getBySource: (registryId: string, sourceId: string, mangaId: string) => {
+      return get().mangas.find((m) =>
+        m.sources.some(
+          (s) =>
+            s.registryId === registryId &&
+            s.sourceId === sourceId &&
+            s.mangaId === mangaId
+        )
+      );
+    },
+
     isInLibrary: (registryId: string, sourceId: string, mangaId: string) => {
       return get().mangas.some((m) =>
         m.sources.some(
@@ -74,6 +107,69 @@ export function createLibraryStore(userStore: UserDataStore): LibraryStore {
             s.mangaId === mangaId
         )
       );
+    },
+
+    updateLastRead: async (registryId, sourceId, mangaId, chapter) => {
+      const manga = get().getBySource(registryId, sourceId, mangaId);
+      if (!manga) return; // Not in library, skip
+
+      const updated: LibraryManga = {
+        ...manga,
+        lastReadChapter: chapter,
+        lastReadAt: Date.now(),
+      };
+
+      try {
+        await userStore.saveLibraryManga(updated);
+        set((state) => ({
+          mangas: state.mangas.map((m) => (m.id === manga.id ? updated : m)),
+        }));
+      } catch (e) {
+        console.error("[LibraryStore] updateLastRead error:", e);
+      }
+    },
+
+    updateChapterInfo: async (registryId, sourceId, mangaId, latestChapter) => {
+      const manga = get().getBySource(registryId, sourceId, mangaId);
+      if (!manga) return; // Not in library, skip
+
+      const updated: LibraryManga = {
+        ...manga,
+        latestChapter,
+        seenLatestChapter: latestChapter, // User is viewing the page, so they've "seen" it
+      };
+
+      try {
+        await userStore.saveLibraryManga(updated);
+        set((state) => ({
+          mangas: state.mangas.map((m) => (m.id === manga.id ? updated : m)),
+        }));
+      } catch (e) {
+        console.error("[LibraryStore] updateChapterInfo error:", e);
+      }
+    },
+
+    updateLatestChapter: async (registryId, sourceId, mangaId, latestChapter) => {
+      const manga = get().getBySource(registryId, sourceId, mangaId);
+      if (!manga) return; // Not in library, skip
+
+      // Only update latestChapter, NOT seenLatestChapter
+      // This triggers the "Updated" badge if latestChapter > seenLatestChapter
+      const updated: LibraryManga = {
+        ...manga,
+        latestChapter,
+        // Initialize seenLatestChapter if not set (first refresh)
+        seenLatestChapter: manga.seenLatestChapter ?? latestChapter,
+      };
+
+      try {
+        await userStore.saveLibraryManga(updated);
+        set((state) => ({
+          mangas: state.mangas.map((m) => (m.id === manga.id ? updated : m)),
+        }));
+      } catch (e) {
+        console.error("[LibraryStore] updateLatestChapter error:", e);
+      }
     },
   }));
 }

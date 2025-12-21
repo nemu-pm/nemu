@@ -7,13 +7,28 @@
 export interface MangaSource {
   readonly id: string;
   readonly name: string;
+  readonly icon?: string;
 
   search(query: string): Promise<SearchResult<Manga>>;
   getManga(mangaId: string): Promise<Manga>;
   getChapters(mangaId: string): Promise<Chapter[]>;
   getPages(mangaId: string, chapterId: string): Promise<Page[]>;
+  
+  /** Fetch an image with source-specific headers (e.g., Referer, User-Agent) */
+  fetchImage(url: string): Promise<Blob>;
 
   dispose(): void;
+}
+
+/** Extension for sources that support stale-while-revalidate caching */
+export interface MangaSourceSWR {
+  getCachedManga(mangaId: string): Promise<Manga | null>;
+  getCachedChapters(mangaId: string): Promise<Chapter[] | null>;
+}
+
+/** Type guard for SWR-capable sources */
+export function hasSWR(source: MangaSource): source is MangaSource & MangaSourceSWR {
+  return "getCachedManga" in source && "getCachedChapters" in source;
 }
 
 // ============ SEARCH RESULT WITH PAGINATION ============
@@ -56,6 +71,8 @@ export interface Chapter {
   dateUploaded?: number;
   scanlator?: string;
   url?: string;
+  /** Whether chapter is locked (paywall/login required) */
+  locked?: boolean;
 }
 
 export interface Page {

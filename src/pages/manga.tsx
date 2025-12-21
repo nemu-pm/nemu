@@ -1,45 +1,66 @@
-import { Link, useParams, useNavigate } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useStores } from "@/data/context";
 import type { Manga, Chapter } from "@/lib/sources";
-import type { ChapterProgress } from "@/data/schema";
+import { hasSWR } from "@/lib/sources";
+import type { HistoryEntry } from "@/data/schema";
 import { Keys } from "@/data/keys";
 import { CoverImage } from "@/components/cover-image";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import { MangaPageSkeleton } from "@/components/page-skeletons";
+import { PageHeader } from "@/components/page-header";
+import { PageEmpty } from "@/components/page-empty";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArrowLeft01Icon,
   PlayIcon,
   Add01Icon,
-  CheckmarkCircle02Icon,
   Bookmark02Icon,
+  Alert02Icon,
 } from "@hugeicons/core-free-icons";
-import { cn } from "@/lib/utils";
+import { formatChapterTitle } from "@/lib/format-chapter";
+import { ChapterGrid } from "@/components/chapter-grid";
+import { SourceImageProvider } from "@/hooks/use-source-image";
+import {
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogHeader,
+  ResponsiveDialogFooter,
+  ResponsiveDialogTitle,
+  ResponsiveDialogDescription,
+} from "@/components/ui/responsive-dialog";
 
 export function MangaPage() {
+  const { t } = useTranslation();
   const { registryId, sourceId, mangaId } = useParams({ strict: false }) as {
     registryId: string;
     sourceId: string;
     mangaId: string;
   };
-  const navigate = useNavigate();
   const { useSettingsStore, useLibraryStore, useHistoryStore } = useStores();
-  const { getSource } = useSettingsStore();
+  const { getSource, availableSources } = useSettingsStore();
+  
+  const sourceInfo = availableSources.find(
+    (s) => s.id === sourceId && s.registryId === registryId
+  );
+  const sourceName = sourceInfo?.name ?? sourceId;
+  const sourceIcon = sourceInfo?.icon;
   const {
     mangas,
     add: addToLibrary,
     remove: removeFromLibrary,
     isInLibrary,
+    updateChapterInfo,
   } = useLibraryStore();
   const { getMangaProgress } = useHistoryStore();
 
   const [manga, setManga] = useState<Manga | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
-  const [progress, setProgress] = useState<Record<string, ChapterProgress>>({});
+  const [progress, setProgress] = useState<Record<string, HistoryEntry>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
 
   const inLibrary = isInLibrary(registryId, sourceId, mangaId);
   const libraryManga = mangas.find((m) =>
@@ -51,53 +72,86 @@ export function MangaPage() {
     )
   );
 
-  // Load manga data
+  // Load manga data with SWR pattern
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     setError(null);
 
     (async () => {
       try {
         const source = await getSource(registryId, sourceId);
         if (!source) {
-          setError("Source not found");
+          setError(t("manga.sourceNotFound"));
           setLoading(false);
           return;
         }
 
-        const [mangaData, chaptersData] = await Promise.all([
+        // SWR: Try to show cached data immediately
+        if (hasSWR(source)) {
+          const [cachedManga, cachedChapters, cachedProgress] = await Promise.all([
+            source.getCachedManga(mangaId),
+            source.getCachedChapters(mangaId),
+            getMangaProgress(registryId, sourceId, mangaId),
+          ]);
+          if (cancelled) return;
+          if (cachedManga) {
+            setManga(cachedManga);
+            setProgress(cachedProgress);
+            setLoading(false); // Stop showing loading spinner
+          }
+          if (cachedChapters) {
+            setChapters(cachedChapters);
+          }
+        }
+
+        // Fetch fresh data (revalidate) + load progress in parallel
+        const [mangaData, chaptersData, historyRecord] = await Promise.all([
           source.getManga(mangaId),
           source.getChapters(mangaId),
+          getMangaProgress(registryId, sourceId, mangaId),
         ]);
 
         if (cancelled) return;
         setManga(mangaData);
         setChapters(chaptersData);
+        setProgress(historyRecord);
+        setLoading(false);
 
-        // Load reading progress (only if in library)
-        if (libraryManga) {
-          const historyRecord = await getMangaProgress(libraryManga.id);
-          setProgress(historyRecord);
+        // Update library manga with latest chapter info (if in library)
+        // Find the chapter with the highest chapter number (don't assume sort order)
+        if (chaptersData.length > 0) {
+          const latestChapter = chaptersData.reduce((latest, ch) => {
+            const latestNum = latest.chapterNumber ?? -Infinity;
+            const chNum = ch.chapterNumber ?? -Infinity;
+            return chNum > latestNum ? ch : latest;
+          }, chaptersData[0]);
+          updateChapterInfo(registryId, sourceId, mangaId, {
+            id: latestChapter.id,
+            title: latestChapter.title,
+            chapterNumber: latestChapter.chapterNumber,
+            volumeNumber: latestChapter.volumeNumber,
+          });
         }
       } catch (e) {
         if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
+        // Only show error if we have no cached data
+        if (!manga) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+        setLoading(false);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [registryId, sourceId, mangaId, getSource, getMangaProgress, libraryManga]);
+  }, [registryId, sourceId, mangaId, getSource, getMangaProgress, updateChapterInfo]);
 
   const handleLibraryToggle = useCallback(async () => {
     if (!manga) return;
 
     if (inLibrary && libraryManga) {
-      await removeFromLibrary(libraryManga.id);
+      setRemoveConfirmOpen(true);
     } else {
       await addToLibrary({
         id: Keys.manga(registryId, sourceId, mangaId),
@@ -107,7 +161,6 @@ export function MangaPage() {
         sources: [{ registryId, sourceId, mangaId }],
         activeRegistryId: registryId,
         activeSourceId: sourceId,
-        history: {},
       });
     }
   }, [
@@ -118,35 +171,28 @@ export function MangaPage() {
     sourceId,
     mangaId,
     addToLibrary,
-    removeFromLibrary,
   ]);
 
+  const handleRemoveConfirm = useCallback(async () => {
+    if (libraryManga) {
+      await removeFromLibrary(libraryManga.id);
+      setRemoveConfirmOpen(false);
+    }
+  }, [libraryManga, removeFromLibrary]);
+
+  const sourceKey = `${registryId}:${sourceId}`;
+
   if (loading) {
-    return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <Spinner className="mx-auto mb-4 size-8" />
-          <p className="text-muted-foreground">Loading manga details...</p>
-        </div>
-      </div>
-    );
+    return <MangaPageSkeleton />;
   }
 
   if (error || !manga) {
     return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <p className="text-xl text-destructive">Failed to load manga</p>
-          <p className="mt-2 text-muted-foreground">{error}</p>
-          <Button
-            variant="outline"
-            className="mt-4"
-            onClick={() => navigate({ to: "/search", search: { q: "" } })}
-          >
-            Go Back
-          </Button>
-        </div>
-      </div>
+      <PageEmpty
+        icon={Alert02Icon}
+        title={t("manga.failedToLoad")}
+        description={error ?? undefined}
+      />
     );
   }
 
@@ -158,34 +204,26 @@ export function MangaPage() {
   const continueChapter = lastReadChapter ?? firstChapter;
 
   return (
-    <div className="space-y-8">
-      {/* Back button */}
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => navigate({ to: "/search", search: { q: "" } })}
-      >
-        <HugeiconsIcon icon={ArrowLeft01Icon} />
-        Back to Search
-      </Button>
-
-      {/* Hero section */}
-      <div className="flex flex-col gap-6 md:flex-row">
-        {/* Cover */}
-        <div className="shrink-0">
-          <CoverImage
-            src={manga.cover}
-            alt={manga.title}
-            className="mx-auto aspect-[3/4] w-48 rounded-lg object-cover shadow-xl md:w-56"
-          />
-        </div>
+    <SourceImageProvider sourceKey={sourceKey}>
+      <div className="space-y-8">
+        <PageHeader title={sourceName} icon={sourceIcon} />
+        {/* Hero section */}
+        <div className="flex flex-col gap-6 md:flex-row">
+          {/* Cover */}
+          <div className="shrink-0">
+            <CoverImage
+              src={manga.cover}
+              alt={manga.title}
+              className="mx-auto aspect-[3/4] w-48 rounded-lg object-cover shadow-xl md:w-56"
+            />
+          </div>
 
         {/* Info */}
         <div className="flex-1 space-y-4">
-          <h1 className="text-3xl font-bold tracking-tight">{manga.title}</h1>
+          <h2 className="text-2xl font-bold selectable">{manga.title}</h2>
 
           {manga.authors && manga.authors.length > 0 && (
-            <p className="text-muted-foreground">by {manga.authors.join(", ")}</p>
+            <p className="text-muted-foreground selectable">{manga.authors.join(", ")}</p>
           )}
 
           {manga.tags && manga.tags.length > 0 && (
@@ -202,7 +240,7 @@ export function MangaPage() {
           )}
 
           {manga.description && (
-            <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground selectable">
               {manga.description}
             </p>
           )}
@@ -221,7 +259,9 @@ export function MangaPage() {
               >
                 <Button size="lg">
                   <HugeiconsIcon icon={PlayIcon} />
-                  {lastReadChapter ? "Continue Reading" : "Start Reading"}
+                  {lastReadChapter
+                    ? t("manga.continueReading", { chapter: formatChapterTitle(lastReadChapter) })
+                    : t("manga.startReading")}
                 </Button>
               </Link>
             )}
@@ -232,7 +272,7 @@ export function MangaPage() {
               onClick={handleLibraryToggle}
             >
               <HugeiconsIcon icon={inLibrary ? Bookmark02Icon : Add01Icon} />
-              {inLibrary ? "In Library" : "Add to Library"}
+              {inLibrary ? t("manga.inLibrary") : t("manga.addToLibrary")}
             </Button>
           </div>
         </div>
@@ -241,67 +281,49 @@ export function MangaPage() {
       {/* Chapters */}
       <section>
         <h2 className="mb-4 text-xl font-semibold">
-          Chapters
+          {t("manga.chapters")}
           <span className="ml-2 text-sm font-normal text-muted-foreground">
             ({chapters.length})
           </span>
         </h2>
 
-        <div className="space-y-1">
-          {chapters.map((chapter) => {
-            const chapterProgress = progress[chapter.id];
-            const isRead = chapterProgress?.completed;
-            const isInProgress = chapterProgress && !chapterProgress.completed;
-
-            return (
-              <Link
-                key={chapter.id}
-                to="/sources/$registryId/$sourceId/$mangaId/$chapterId"
-                params={{
-                  registryId,
-                  sourceId,
-                  mangaId: manga.id,
-                  chapterId: chapter.id,
-                }}
-                className={cn(
-                  "flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted",
-                  isRead && "opacity-60"
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  {isRead && (
-                    <HugeiconsIcon
-                      icon={CheckmarkCircle02Icon}
-                      className="size-5 text-green-500"
-                    />
-                  )}
-                  <div>
-                    <p className="font-medium">
-                      Ch. {chapter.chapterNumber ?? "?"}
-                      {chapter.title && (
-                        <span className="ml-2 font-normal text-muted-foreground">
-                          {chapter.title}
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {chapter.scanlator && `${chapter.scanlator} • `}
-                      {chapter.dateUploaded &&
-                        new Date(chapter.dateUploaded).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-
-                {isInProgress && (
-                  <span className="text-xs text-muted-foreground">
-                    Page {chapterProgress.progress + 1}/{chapterProgress.total}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </div>
+        <ChapterGrid
+          chapters={chapters}
+          progress={progress}
+          registryId={registryId}
+          sourceId={sourceId}
+          mangaId={manga.id}
+        />
       </section>
+
+      <ResponsiveDialog
+        open={removeConfirmOpen}
+        onOpenChange={setRemoveConfirmOpen}
+      >
+        <ResponsiveDialogContent>
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle>{t("manga.removeFromLibrary")}</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>
+              {t("manga.removeFromLibraryDescription", { name: manga.title })}
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          <ResponsiveDialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRemoveConfirmOpen(false)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRemoveConfirm}
+            >
+              {t("manga.remove")}
+            </Button>
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
     </div>
+    </SourceImageProvider>
   );
 }

@@ -1,19 +1,41 @@
-import { useState } from "react";
-import { useQuery } from "convex/react";
-import { authClient } from "@/lib/auth-client";
-import { useStores, useAuth } from "@/data/context";
+import { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { useStores, useAuth, useSyncStore } from "@/data/context";
 import { parseSourceKey } from "@/data/keys";
+import type { SyncStore } from "@/stores/sync";
+import { languageStore } from "@/stores/language";
+import { themeStore } from "@/stores/theme";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
+import { SettingsPageSkeleton } from "@/components/page-skeletons";
+import { PageHeader } from "@/components/page-header";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { AddSourceDialog } from "@/components/add-source-dialog";
 import { SignInDialog } from "@/components/sign-in-dialog";
 import { SignOutDialog } from "@/components/sign-out-dialog";
+import { SourceSettings } from "@/components/source-settings";
+import { PluginSettings } from "@/components/plugin-settings";
+import { ClearDataDialog } from "@/components/clear-data-dialog";
+import {
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogHeader,
+  ResponsiveDialogFooter,
+  ResponsiveDialogTitle,
+  ResponsiveDialogDescription,
+} from "@/components/ui/responsive-dialog";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Delete02Icon, CloudIcon } from "@hugeicons/core-free-icons";
-import { api } from "../../convex/_generated/api";
+import { Add01Icon, Delete02Icon, CloudIcon, Settings02Icon, Recycle03Icon } from "@hugeicons/core-free-icons";
+import { usePluginRegistry } from "@/lib/plugins";
 
-type OAuthProvider = "github" | "google" | "apple";
+type OAuthProvider = "google" | "apple";
 
 const providerIcons: Record<OAuthProvider, React.ReactNode> = {
   google: (
@@ -36,11 +58,6 @@ const providerIcons: Record<OAuthProvider, React.ReactNode> = {
       />
     </svg>
   ),
-  github: (
-    <svg className="size-4" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-    </svg>
-  ),
   apple: (
     <svg className="size-4" viewBox="0 0 24 24" fill="currentColor">
       <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
@@ -49,9 +66,11 @@ const providerIcons: Record<OAuthProvider, React.ReactNode> = {
 };
 
 export function SettingsPage() {
+  const { t } = useTranslation();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
-  const { data: session } = authClient.useSession();
-  const oauthProvider = useQuery(api.auth.getOAuthProvider, isAuthenticated ? {} : "skip");
+  const syncStore = useSyncStore() as SyncStore;
+  const user = syncStore((state) => state.user);
+  const oauthProvider = syncStore((state) => state.oauthProvider);
   const { useSettingsStore } = useStores();
   const {
     availableSources,
@@ -59,10 +78,31 @@ export function SettingsPage() {
     loading,
     uninstallSource,
   } = useSettingsStore();
+  const currentLanguage = languageStore ? languageStore((state) => state.language) : "en";
+  const currentTheme = themeStore ? themeStore((state) => state.theme) : "system";
   const [addSourceOpen, setAddSourceOpen] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [uninstalling, setUninstalling] = useState<string | null>(null);
+  const [settingsSource, setSettingsSource] = useState<{
+    key: string;
+    name: string;
+    icon?: string;
+    version?: number;
+  } | null>(null);
+  const [clearMode, setClearMode] = useState<"cache" | "all" | null>(null);
+  const [settingsPluginId, setSettingsPluginId] = useState<string | null>(null);
+  const [uninstallConfirm, setUninstallConfirm] = useState<{
+    registryId: string;
+    sourceId: string;
+    name: string;
+  } | null>(null);
+
+  // Plugins
+  const pluginsMap = usePluginRegistry((s) => s.plugins);
+  const enabledState = usePluginRegistry((s) => s.enabledState);
+  const setPluginEnabled = usePluginRegistry((s) => s.setEnabled);
+  const plugins = useMemo(() => Array.from(pluginsMap.values()), [pluginsMap]);
 
   const installedSourcesInfo = installedSources.map((installed) => {
     // installed.id is composite key (registryId:sourceId)
@@ -78,49 +118,41 @@ export function SettingsPage() {
     };
   });
 
-  const handleUninstall = async (registryId: string, sourceId: string) => {
+  const handleUninstallConfirm = async () => {
+    if (!uninstallConfirm) return;
+    const { registryId, sourceId } = uninstallConfirm;
     setUninstalling(`${registryId}:${sourceId}`);
     try {
       await uninstallSource(registryId, sourceId);
     } finally {
       setUninstalling(null);
+      setUninstallConfirm(null);
     }
   };
 
   if (loading) {
-    return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <Spinner className="mx-auto mb-4 size-8" />
-          <p className="text-muted-foreground">Loading settings...</p>
-        </div>
-      </div>
-    );
+    return <SettingsPageSkeleton />;
   }
 
-  const user = session?.user;
-  const provider = oauthProvider as OAuthProvider | null;
+  const provider = oauthProvider;
   const displayName = user?.name && user.name !== user.email ? user.name : null;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Settings</h1>
-      </div>
-
+      <PageHeader title={t("nav.settings")} />
       {/* Account / Cloud Sync */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <HugeiconsIcon icon={CloudIcon} className="size-5" />
-            Cloud Sync
+            {t("settings.cloudSync")}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {authLoading ? (
             <div className="flex items-center gap-3">
               <Spinner className="size-4" />
-              <span className="text-sm text-muted-foreground">Loading...</span>
+              <span className="text-sm text-muted-foreground">{t("settings.loadingAuth")}</span>
             </div>
           ) : isAuthenticated && user ? (
             <div className="flex items-center justify-between">
@@ -142,16 +174,16 @@ export function SettingsPage() {
                 size="sm"
                 onClick={() => setSignOutOpen(true)}
               >
-                Sign Out
+                {t("settings.signOut")}
               </Button>
             </div>
           ) : (
             <div className="flex flex-col gap-3">
               <p className="text-sm text-muted-foreground">
-                Sign in to sync your library and reading progress across devices.
+                {t("settings.signInDescription")}
               </p>
               <Button size="sm" className="w-fit" onClick={() => setSignInOpen(true)}>
-                Sign In
+                {t("settings.signIn")}
               </Button>
             </div>
           )}
@@ -161,16 +193,16 @@ export function SettingsPage() {
       {/* Installed Sources */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle>Installed Sources</CardTitle>
+          <CardTitle>{t("settings.installedSources")}</CardTitle>
           <Button size="sm" onClick={() => setAddSourceOpen(true)}>
             <HugeiconsIcon icon={Add01Icon} className="size-4" />
-            Add Source
+            {t("settings.addSource")}
           </Button>
         </CardHeader>
         <CardContent>
           {installedSourcesInfo.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No sources installed. Add a source to start reading manga.
+              {t("settings.noSources")}
             </p>
           ) : (
             <div className="space-y-2">
@@ -190,24 +222,42 @@ export function SettingsPage() {
                       <div className="size-10 rounded-md bg-muted" />
                     )}
                     <div>
-                      <p className="font-medium">{source.name}</p>
+                      <div className="flex items-center gap-1">
+                        <p className="font-medium">{source.name}</p>
+                        <Badge variant="secondary">v{source.version}</Badge>
+                      </div>
                       <p className="text-sm text-muted-foreground">
-                        v{source.version} • {source.registryId}
+                        {source.registryId}
                       </p>
                     </div>
                   </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() =>
+                        setSettingsSource({
+                          key: source.id,
+                          name: source.name,
+                          icon: source.icon,
+                          version: source.version,
+                        })
+                      }
+                    >
+                      <HugeiconsIcon icon={Settings02Icon} className="size-4" />
+                    </Button>
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    onClick={() => handleUninstall(source.registryId, source.sourceId)}
-                    disabled={uninstalling === source.id}
+                    onClick={() => setUninstallConfirm({
+                      registryId: source.registryId,
+                      sourceId: source.sourceId,
+                      name: source.name,
+                    })}
                   >
-                    {uninstalling === source.id ? (
-                      <Spinner className="size-4" />
-                    ) : (
-                      <HugeiconsIcon icon={Delete02Icon} className="size-4" />
-                    )}
+                    <HugeiconsIcon icon={Delete02Icon} className="size-4" />
                   </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -215,9 +265,209 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Reader Plugins */}
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            {t("settings.plugins")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {plugins.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {t("settings.noPlugins")}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {plugins.map((plugin) => {
+                const isEnabled = enabledState[plugin.manifest.id] ?? plugin.manifest.defaultEnabled ?? true;
+                const hasSettings = plugin.settingsSchema && plugin.settingsSchema.length > 0;
+                return (
+                  <div
+                    key={plugin.manifest.id}
+                    className="flex items-center justify-between rounded-lg border p-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      {plugin.manifest.icon ? (
+                        plugin.manifest.icon
+                      ) : (
+                        <div className="size-10 rounded-md bg-muted" />
+                      )}
+                      <div>
+                        <p className="font-medium">{plugin.manifest.name}</p>
+                        {plugin.manifest.description && (
+                          <p className="text-sm text-muted-foreground">
+                            {plugin.manifest.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {hasSettings && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => setSettingsPluginId(plugin.manifest.id)}
+                          disabled={!isEnabled}
+                        >
+                          <HugeiconsIcon icon={Settings02Icon} className="size-4" />
+                        </Button>
+                      )}
+                      <Switch
+                        checked={isEnabled}
+                        onCheckedChange={(checked) => setPluginEnabled(plugin.manifest.id, checked)}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Appearance */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.appearance")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <div>
+              <p className="font-medium">{t("settings.language")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("settings.languageDescription")}
+              </p>
+            </div>
+            <Tabs
+              value={currentLanguage}
+              onValueChange={(value) => {
+                if (value === "en" || value === "zh") {
+                  languageStore?.getState().setLanguage(value);
+                }
+              }}
+            >
+              <TabsList>
+                <TabsTrigger value="en">{t("settings.languageEnglish")}</TabsTrigger>
+                <TabsTrigger value="zh">{t("settings.languageChinese")}</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+          <div className="space-y-2">
+            <div>
+              <p className="font-medium">{t("settings.theme")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("settings.themeDescription")}
+              </p>
+            </div>
+            <Tabs
+              value={currentTheme}
+              onValueChange={(value) => {
+                if (value === "system" || value === "light" || value === "dark") {
+                  themeStore?.getState().setTheme(value);
+                }
+              }}
+            >
+              <TabsList>
+                <TabsTrigger value="system">{t("settings.themeSystem")}</TabsTrigger>
+                <TabsTrigger value="light">{t("settings.themeLight")}</TabsTrigger>
+                <TabsTrigger value="dark">{t("settings.themeDark")}</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Data Management */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.dataManagement")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium">{t("settings.clearCache")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("settings.clearCacheDescription")}
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setClearMode("cache")}>
+              <HugeiconsIcon icon={Recycle03Icon} className="size-4" />
+              {t("settings.clear")}
+            </Button>
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium">{t("settings.clearAllData")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("settings.clearAllDataDescription")}
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setClearMode("all")}>
+              <HugeiconsIcon icon={Delete02Icon} className="size-4" />
+              {t("settings.clear")}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <AddSourceDialog open={addSourceOpen} onOpenChange={setAddSourceOpen} />
       <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
       <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
+      
+      {settingsSource && (
+        <SourceSettings
+          open={!!settingsSource}
+          onOpenChange={(open) => !open && setSettingsSource(null)}
+          sourceKey={settingsSource.key}
+          sourceName={settingsSource.name}
+          sourceIcon={settingsSource.icon}
+          sourceVersion={settingsSource.version}
+        />
+      )}
+
+      <ClearDataDialog
+        open={clearMode !== null}
+        onOpenChange={(open) => !open && setClearMode(null)}
+        mode={clearMode ?? "cache"}
+      />
+
+      {settingsPluginId && (
+        <PluginSettings
+          open={!!settingsPluginId}
+          onOpenChange={(open) => !open && setSettingsPluginId(null)}
+          pluginId={settingsPluginId}
+        />
+      )}
+
+      <ResponsiveDialog
+        open={!!uninstallConfirm}
+        onOpenChange={(open) => !open && setUninstallConfirm(null)}
+      >
+        <ResponsiveDialogContent>
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle>{t("settings.uninstallSource")}</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>
+              {t("settings.uninstallSourceDescription", { name: uninstallConfirm?.name })}
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          <ResponsiveDialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setUninstallConfirm(null)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleUninstallConfirm}
+              disabled={uninstalling !== null}
+            >
+              {uninstalling ? <Spinner className="size-4" /> : t("settings.uninstall")}
+            </Button>
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
     </div>
   );
 }

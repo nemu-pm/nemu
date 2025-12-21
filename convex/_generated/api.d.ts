@@ -10,8 +10,11 @@
 
 import type * as _lib from "../_lib.js";
 import type * as auth from "../auth.js";
+import type * as history from "../history.js";
 import type * as http from "../http.js";
 import type * as library from "../library.js";
+import type * as migrations from "../migrations.js";
+import type * as ocr from "../ocr.js";
 import type * as settings from "../settings.js";
 
 import type {
@@ -23,8 +26,11 @@ import type {
 declare const fullApi: ApiFromModules<{
   _lib: typeof _lib;
   auth: typeof auth;
+  history: typeof history;
   http: typeof http;
   library: typeof library;
+  migrations: typeof migrations;
+  ocr: typeof ocr;
   settings: typeof settings;
 }>;
 

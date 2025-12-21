@@ -1,12 +1,13 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogDescription,
+  ResponsiveDialogFooter,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+} from "@/components/ui/responsive-dialog";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -19,30 +20,40 @@ interface SignOutDialogProps {
 }
 
 export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
+  const { t } = useTranslation();
   const signOutSync = useSignOut();
   const [clearLocal, setClearLocal] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Reset state when dialog closes
+  const handleOpenChange = (newOpen: boolean) => {
+    if (loading) return;
+    if (!newOpen) {
+      setClearLocal(false);
+    }
+    onOpenChange(newOpen);
+  };
+
   const handleSignOut = async () => {
     setLoading(true);
-    try {
-      await signOutSync(clearLocal);
-      await authClient.signOut();
-      onOpenChange(false);
-    } finally {
-      setLoading(false);
-    }
+    const shouldClearLocal = clearLocal;
+    // Close dialog FIRST to avoid race condition where auth state changes
+    // while dialog is still mounted (causing queries to fire without auth)
+    handleOpenChange(false);
+    // Then sign out asynchronously
+    await signOutSync(shouldClearLocal);
+    await authClient.signOut();
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Sign Out</DialogTitle>
-          <DialogDescription>
-            Choose what happens to your data on this device.
-          </DialogDescription>
-        </DialogHeader>
+    <ResponsiveDialog open={open} onOpenChange={handleOpenChange}>
+      <ResponsiveDialogContent showCloseButton={!loading}>
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle>{t("signOut.title")}</ResponsiveDialogTitle>
+          <ResponsiveDialogDescription>
+            {t("signOut.description")}
+          </ResponsiveDialogDescription>
+        </ResponsiveDialogHeader>
 
         <RadioGroup
           value={clearLocal ? "clear" : "keep"}
@@ -52,10 +63,10 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
             <RadioGroupItem value="keep" id="keep" className="mt-0.5" />
             <div className="flex flex-col gap-1">
               <Label htmlFor="keep" className="font-medium cursor-pointer">
-                Keep data on this device
+                {t("signOut.keepData")}
               </Label>
               <p className="text-sm text-muted-foreground">
-                You can sign back in anytime to sync again.
+                {t("signOut.keepDataDescription")}
               </p>
             </div>
           </div>
@@ -63,25 +74,25 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
             <RadioGroupItem value="clear" id="clear" className="mt-0.5" />
             <div className="flex flex-col gap-1">
               <Label htmlFor="clear" className="font-medium cursor-pointer">
-                Remove data from this device
+                {t("signOut.removeData")}
               </Label>
               <p className="text-sm text-muted-foreground">
-                Your cloud data will stay safe.
+                {t("signOut.removeDataDescription")}
               </p>
             </div>
           </div>
         </RadioGroup>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-            Cancel
+        <ResponsiveDialogFooter>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={loading}>
+            {t("common.cancel")}
           </Button>
           <Button variant="destructive" onClick={handleSignOut} disabled={loading}>
-            {loading ? "Signing out..." : "Sign Out"}
+            {loading ? t("signOut.signingOut") : t("signOut.title")}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ResponsiveDialogFooter>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   );
 }
 

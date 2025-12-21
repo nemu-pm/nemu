@@ -1,9 +1,9 @@
-import { Link, useParams, useNavigate } from "@tanstack/react-router";
+import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { DirectionProvider } from "@base-ui/react/direction-provider";
 import { useStores } from "@/data/context";
-import { Keys } from "@/data/keys";
-import type { Page, Chapter } from "@/lib/sources";
+import type { Page, Chapter, Manga } from "@/lib/sources";
 import { Reader, type ReadingMode, type PagePairingMode } from "@/components/reader";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -22,6 +22,57 @@ import {
   NextIcon,
   Settings02Icon,
 } from "@hugeicons/core-free-icons";
+import { formatChapterTitle } from "@/lib/format-chapter";
+import {
+  ReaderPluginProvider,
+  usePluginPageOverlays,
+  usePluginCtx,
+  PluginNavbarActions,
+  PluginSettingsSections,
+  PluginDialog,
+  useIsInteractionLocked,
+} from "@/lib/plugins";
+
+// Wrapper for Reader that has access to plugin context for interaction lock
+function InteractionAwareReader(props: Parameters<typeof Reader>[0]) {
+  const isLocked = useIsInteractionLocked();
+  
+  const onBackgroundClick = useCallback(() => {
+    if (isLocked) return;
+    props.onBackgroundClick?.();
+  }, [isLocked, props.onBackgroundClick]);
+  
+  return <Reader {...props} onBackgroundClick={onBackgroundClick} disableZoom={isLocked} />;
+}
+
+// Inner component that has access to plugin context for overlay rendering
+function PluginAwareImage({
+  index,
+  children,
+}: {
+  index: number;
+  children: React.ReactNode;
+}) {
+  const overlays = usePluginPageOverlays();
+  const ctx = usePluginCtx();
+
+  if (overlays.length === 0) return <>{children}</>;
+
+  return (
+    <div className="relative w-full h-full">
+      {children}
+      {overlays.map((overlay) => (
+        <div
+          key={overlay.id}
+          className="absolute inset-0 pointer-events-none [&>*]:pointer-events-auto"
+          style={{ zIndex: overlay.zIndex ?? 10 }}
+        >
+          {overlay.render(index, ctx)}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const SCROLL_WIDTH_KEY = "nemu:reader:scrollWidthPct";
 const TWO_PAGE_MODE_KEY = "nemu:reader:twoPageMode";
@@ -43,6 +94,7 @@ type VirtualItem =
     };
 
 export function ReaderPage() {
+  const { t } = useTranslation();
   const { registryId, sourceId, mangaId, chapterId } = useParams({
     strict: false,
   }) as {
@@ -51,16 +103,14 @@ export function ReaderPage() {
     mangaId: string;
     chapterId: string;
   };
+  const { page: routePage } = useSearch({ strict: false }) as { page?: number };
   const navigate = useNavigate();
-  const { useSettingsStore, useLibraryStore, useHistoryStore } = useStores();
-  const { getSource, readingMode, setReadingMode } = useSettingsStore();
-  const { isInLibrary } = useLibraryStore();
+  const { useSettingsStore, useHistoryStore, useLibraryStore } = useStores();
+  const { getSource, readingMode, setReadingMode, availableSources } = useSettingsStore();
   const { getProgress, saveProgress, markCompleted } = useHistoryStore();
+  const { updateLastRead } = useLibraryStore();
 
-  // Library manga ID for progress tracking (only works if in library)
-  const libraryMangaId = Keys.manga(registryId, sourceId, mangaId);
-  const inLibrary = isInLibrary(registryId, sourceId, mangaId);
-
+  const [manga, setManga] = useState<Manga | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [chapterPages, setChapterPages] = useState<Record<string, Page[]>>({});
   const [windowChapterIds, setWindowChapterIds] = useState<string[]>([]);
@@ -120,8 +170,24 @@ export function ReaderPage() {
   const loadingChaptersRef = useRef<Set<string>>(new Set());
   const loadRunIdRef = useRef(0);
   const pendingInternalUrlChaptersRef = useRef<Set<string>>(new Set());
+  // Track internal URL sync (chapterId + page) so we don't treat our own `navigate(replace)`
+  // updates as user navigation.
+  const pendingInternalUrlLocationsRef = useRef<Set<string>>(new Set());
   const lastRouteChapterIdRef = useRef<string | null>(null);
+  const lastRoutePageRef = useRef<number | undefined>(undefined);
   const lastPageKeyRef = useRef<string | null>(null);
+  const urlSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialRoutePageRef = useRef<number | undefined>(routePage);
+
+  const makeLocationKey = useCallback((chapId: string, page?: number) => {
+    return `${chapId}|${page ?? ""}`;
+  }, []);
+
+  const clampPage = useCallback((p: number, total: number) => {
+    if (!Number.isFinite(p)) return 1;
+    if (total <= 0) return 1;
+    return Math.max(1, Math.min(total, Math.trunc(p)));
+  }, []);
 
   // Auto-close settings when toolbar/UI is hidden
   useEffect(() => {
@@ -250,6 +316,63 @@ export function ReaderPage() {
   }, [windowChapterIds, chapterPages, isTwoPageMode]);
 
   const currentItem = virtualItems[currentIndex];
+
+  // Compute visible page indices (for two-page mode, this includes both pages in the spread)
+  const visiblePageIndices = useMemo(() => {
+    if (!isTwoPageMode || currentItem?.kind !== "page") {
+      // Single page mode or spacer: just return current index if it's a page
+      return currentItem?.kind === "page" ? [currentIndex] : [];
+    }
+
+    // Two-page mode: compute spread like TwoPageGallery does
+    const isSpacer = (i: number) => virtualItems[i]?.kind === "spacer";
+    const pageCount = virtualItems.length;
+
+    // Find the current spread containing currentIndex
+    let i = 0;
+    let segmentStart = true;
+    while (i < pageCount) {
+      if (isSpacer(i)) {
+        i += 1;
+        segmentStart = true;
+        continue;
+      }
+
+      let spread: number[];
+      if (pagePairingMode === "manga" && segmentStart) {
+        // First page of each segment alone
+        spread = [i];
+        i += 1;
+        segmentStart = false;
+      } else {
+        const next = i + 1;
+        if (next < pageCount && !isSpacer(next)) {
+          spread = [i, next];
+          i += 2;
+        } else {
+          spread = [i];
+          i += 1;
+        }
+        segmentStart = false;
+      }
+
+      // Check if this spread contains our current index
+      if (spread.includes(currentIndex)) {
+        return spread;
+      }
+    }
+
+    return [currentIndex];
+  }, [virtualItems, currentIndex, isTwoPageMode, pagePairingMode, currentItem?.kind]);
+
+  // Derive source languages for plugins
+  const sourceLanguages = useMemo(() => {
+    const source = availableSources.find(
+      (s) => s.registryId === registryId && s.id === sourceId
+    );
+    return source?.languages ?? [];
+  }, [availableSources, registryId, sourceId]);
+
   // Keep a stable pointer to the last non-spacer page key so we can remap indices when
   // toggling two-page mode (spacer insertion shifts indices).
   useEffect(() => {
@@ -282,6 +405,7 @@ export function ReaderPage() {
     let cancelled = false;
     const runId = ++loadRunIdRef.current;
     const initialChapterId = chapterId;
+    const initialPage = initialRoutePageRef.current;
 
     setLoading(true);
     setError(null);
@@ -296,7 +420,8 @@ export function ReaderPage() {
     loadingImageKeysRef.current.clear();
     loadingChaptersRef.current.clear();
 
-    // Reset chapter window/pages
+    // Reset manga/chapter window/pages
+    setManga(null);
     setChapters([]);
     setChapterPages({});
     chapterPagesRef.current = {};
@@ -339,17 +464,25 @@ export function ReaderPage() {
         const source = await getSource(registryId, sourceId);
         if (!source) throw new Error("Source not found");
 
-        const chaptersData = await source.getChapters(mangaId);
+        // Fetch manga and chapters in parallel
+        const [mangaData, chaptersData] = await Promise.all([
+          source.getManga(mangaId),
+          source.getChapters(mangaId),
+        ]);
         if (cancelled || loadRunIdRef.current !== runId) return;
+        setManga(mangaData);
         setChapters(chaptersData);
 
         const pagesData = await ensureChapterPages(initialChapterId);
         if (!pagesData || cancelled || loadRunIdRef.current !== runId) return;
 
-        // Restore reading progress (only if in library)
+        // Restore reading progress
         let startIndex = 0;
-        if (inLibrary) {
-          const progress = await getProgress(libraryMangaId, initialChapterId);
+        if (typeof initialPage === "number") {
+          // URL deep-link: 1-based, clamp to bounds
+          startIndex = clampPage(initialPage, pagesData.length) - 1;
+        } else {
+          const progress = await getProgress(registryId, sourceId, mangaId, initialChapterId);
           if (
             progress &&
             progress.progress >= 0 &&
@@ -359,10 +492,15 @@ export function ReaderPage() {
           }
         }
 
-        // If we're near the start, eagerly load previous chapter so swipe-back works immediately
+        // If we're near the start, eagerly load previous chapter so swipe-back works immediately.
+        // In scrolling mode we avoid implicitly prepending the previous chapter, since that can
+        // cause confusing jumps when re-entering the reader (window indices shift upwards).
         const readOrder = chaptersData.slice().reverse();
         const currentReadIdx = readOrder.findIndex((c) => c.id === initialChapterId);
-        const prev = currentReadIdx > 0 ? readOrder[currentReadIdx - 1] : undefined;
+        const prev =
+          readingMode !== "scrolling" && currentReadIdx > 0
+            ? readOrder[currentReadIdx - 1]
+            : undefined;
 
         if (prev && startIndex <= 1) {
           const prevPages = await ensureChapterPages(prev.id);
@@ -388,7 +526,7 @@ export function ReaderPage() {
     return () => {
       cancelled = true;
     };
-  }, [registryId, sourceId, mangaId, getSource, getProgress, inLibrary, libraryMangaId]);
+  }, [registryId, sourceId, mangaId, getSource, getProgress, chapterId, clampPage]);
 
   // Keep a ref copy of chapterPages for async helpers
   useEffect(() => {
@@ -429,9 +567,8 @@ export function ReaderPage() {
     [getSource, registryId, sourceId, mangaId]
   );
 
-  // Auto-save progress (debounced, only if in library)
+  // Auto-save progress (debounced)
   useEffect(() => {
-    if (!inLibrary) return;
     if (currentItem?.kind !== "page") return;
     if (effectiveChapterPages.length === 0) return;
 
@@ -443,15 +580,28 @@ export function ReaderPage() {
     // Debounce save by 500ms
     saveTimerRef.current = setTimeout(() => {
       saveProgress(
-        libraryMangaId,
+        registryId,
+        sourceId,
+        mangaId,
         currentItem.chapterId,
         currentItem.localIndex,
         effectiveChapterPages.length
       );
 
+      // Update library manga's lastReadChapter
+      const chapter = chapters.find((c) => c.id === currentItem.chapterId);
+      if (chapter) {
+        updateLastRead(registryId, sourceId, mangaId, {
+          id: chapter.id,
+          title: chapter.title,
+          chapterNumber: chapter.chapterNumber,
+          volumeNumber: chapter.volumeNumber,
+        });
+      }
+
       // Mark as completed if on last page
       if (currentItem.localIndex >= effectiveChapterPages.length - 1) {
-        markCompleted(libraryMangaId, currentItem.chapterId);
+        markCompleted(registryId, sourceId, mangaId, currentItem.chapterId);
       }
     }, 500);
 
@@ -463,10 +613,13 @@ export function ReaderPage() {
   }, [
     currentItem,
     effectiveChapterPages.length,
-    inLibrary,
-    libraryMangaId,
+    registryId,
+    sourceId,
+    mangaId,
+    chapters,
     saveProgress,
     markCompleted,
+    updateLastRead,
   ]);
 
   // Expand chapter window (append/prepend) so chapter boundaries feel like normal paging
@@ -495,6 +648,10 @@ export function ReaderPage() {
     };
 
     const maybePrepend = async () => {
+      // In scrolling mode, don't auto-expand backwards into previous chapters.
+      // This keeps the scroll position stable when the reader is reopened and
+      // avoids the "snap to previous chapter" glitch caused by index shifts.
+      if (readingMode === "scrolling") return;
       if (currentIndex > PREFETCH_PAGES) return;
 
       const firstPos = chapterReadIndexById.get(firstWindowId);
@@ -522,33 +679,67 @@ export function ReaderPage() {
     chapterReadIndexById,
     ensureChapterPages,
     isTwoPageMode,
+    readingMode,
   ]);
 
   // Sync URL to the currently visible chapter (replace: keep history clean while paging)
   useEffect(() => {
     if (!effectiveChapterId) return;
-    if (effectiveChapterId === chapterId) return;
+    if (currentItem?.kind !== "page") return;
 
-    pendingInternalUrlChaptersRef.current.add(effectiveChapterId);
-    navigate({
-      to: "/sources/$registryId/$sourceId/$mangaId/$chapterId",
-      params: { registryId, sourceId, mangaId, chapterId: effectiveChapterId },
-      replace: true,
-    });
-  }, [effectiveChapterId, chapterId, navigate, registryId, sourceId, mangaId]);
+    const desiredPage = effectiveLocalIndex + 1;
+    const needsUpdate = effectiveChapterId !== chapterId || desiredPage !== routePage;
+    if (!needsUpdate) return;
+
+    // Debounce URL updates so scroll mode doesn't spam router updates.
+    if (urlSyncTimerRef.current) clearTimeout(urlSyncTimerRef.current);
+    urlSyncTimerRef.current = setTimeout(() => {
+      const key = makeLocationKey(effectiveChapterId, desiredPage);
+      pendingInternalUrlLocationsRef.current.add(key);
+      pendingInternalUrlChaptersRef.current.add(effectiveChapterId);
+      navigate({
+        to: "/sources/$registryId/$sourceId/$mangaId/$chapterId",
+        params: { registryId, sourceId, mangaId, chapterId: effectiveChapterId },
+        search: { page: desiredPage },
+        replace: true,
+      });
+    }, 300);
+  }, [
+    effectiveChapterId,
+    chapterId,
+    routePage,
+    effectiveLocalIndex,
+    currentItem?.kind,
+    navigate,
+    registryId,
+    sourceId,
+    mangaId,
+    makeLocationKey,
+  ]);
+
+  // Cleanup URL debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (urlSyncTimerRef.current) clearTimeout(urlSyncTimerRef.current);
+    };
+  }, []);
 
   // If user navigates to a different chapter via URL/back button, jump reader without nuking session.
   // IMPORTANT: only react to actual route param changes, not to `effectiveChapterId` changes while reading.
   useEffect(() => {
     const prevRoute = lastRouteChapterIdRef.current;
     lastRouteChapterIdRef.current = chapterId;
+    const prevPage = lastRoutePageRef.current;
+    lastRoutePageRef.current = routePage;
 
     // Initial mount: let init loader own it.
     if (prevRoute === null) return;
-    if (prevRoute === chapterId) return;
+    if (prevRoute === chapterId && prevPage === routePage) return;
 
     // Treat any route updates to chapters we initiated as internal.
-    if (pendingInternalUrlChaptersRef.current.has(chapterId)) {
+    const locKey = makeLocationKey(chapterId, routePage);
+    if (pendingInternalUrlLocationsRef.current.has(locKey)) {
+      pendingInternalUrlLocationsRef.current.delete(locKey);
       pendingInternalUrlChaptersRef.current.delete(chapterId);
       return;
     }
@@ -558,7 +749,24 @@ export function ReaderPage() {
     // If the chapter is already in our window, just jump within it (avoid resetting state).
     const existingStart = chapterFirstIndex.get(chapterId);
     if (windowChapterIds.includes(chapterId) && existingStart !== undefined) {
-      setCurrentIndex(existingStart);
+      const pages = chapterPagesRef.current[chapterId] ?? [];
+      if (typeof routePage === "number" && pages.length > 0) {
+        const clamped = clampPage(routePage, pages.length);
+        setCurrentIndex(existingStart + (clamped - 1));
+        // If URL was out of bounds, normalize it.
+        if (clamped !== routePage) {
+          const key = makeLocationKey(chapterId, clamped);
+          pendingInternalUrlLocationsRef.current.add(key);
+          navigate({
+            to: "/sources/$registryId/$sourceId/$mangaId/$chapterId",
+            params: { registryId, sourceId, mangaId, chapterId },
+            search: { page: clamped },
+            replace: true,
+          });
+        }
+      } else {
+        setCurrentIndex(existingStart);
+      }
       return;
     }
 
@@ -568,8 +776,21 @@ export function ReaderPage() {
       setWindowChapterIds([chapterId]);
 
       let start = 0;
-      if (inLibrary) {
-        const progress = await getProgress(libraryMangaId, chapterId);
+      if (typeof routePage === "number") {
+        const clamped = clampPage(routePage, pages.length);
+        start = clamped - 1;
+        if (clamped !== routePage) {
+          const key = makeLocationKey(chapterId, clamped);
+          pendingInternalUrlLocationsRef.current.add(key);
+          navigate({
+            to: "/sources/$registryId/$sourceId/$mangaId/$chapterId",
+            params: { registryId, sourceId, mangaId, chapterId },
+            search: { page: clamped },
+            replace: true,
+          });
+        }
+      } else {
+        const progress = await getProgress(registryId, sourceId, mangaId, chapterId);
         if (progress && progress.progress >= 0 && progress.progress < pages.length) {
           start = progress.progress;
         }
@@ -578,16 +799,18 @@ export function ReaderPage() {
     })();
   }, [
     chapterId,
+    routePage,
     loading,
     ensureChapterPages,
-    inLibrary,
     getProgress,
-    libraryMangaId,
+    registryId,
+    sourceId,
+    mangaId,
     chapterFirstIndex,
     windowChapterIds,
-    currentIndex,
-    virtualItems.length,
-    effectiveChapterId,
+    navigate,
+    makeLocationKey,
+    clampPage,
   ]);
 
   // Preload images with eviction for memory pressure
@@ -687,13 +910,29 @@ export function ReaderPage() {
       navigate({
         to: "/sources/$registryId/$sourceId/$mangaId/$chapterId",
         params: { registryId, sourceId, mangaId, chapterId: chapter.id },
+        // If you navigate without `page`, we restore from history for that chapter.
+        search: {},
+        replace: true, // Stay in reader context, don't pollute history
       });
     },
     [navigate, registryId, sourceId, mangaId]
   );
 
+  // Explicit back destination - always goes to manga details
+  const handleBack = useCallback(() => {
+    navigate({
+      to: "/sources/$registryId/$sourceId/$mangaId",
+      params: { registryId, sourceId, mangaId },
+      replace: true, // Replace reader entry, clean exit
+    });
+  }, [navigate, registryId, sourceId, mangaId]);
+
   const handleBackgroundClick = useCallback(() => {
     setShowUI((prev) => !prev);
+  }, []);
+
+  const handleKeyboardNavigation = useCallback(() => {
+    setShowUI(false);
   }, []);
 
   const handleSliderChange = useCallback(
@@ -709,12 +948,16 @@ export function ReaderPage() {
   const renderImage = useCallback(
     (index: number) => {
       const isScrolling = readingMode === "scrolling";
+      // Manga page placeholder: ~0.7:1 aspect ratio (width:height)
+      const placeholderStyle = isScrolling
+        ? { aspectRatio: "5 / 7" }
+        : { aspectRatio: "5 / 7", height: "100%", maxWidth: "100%" };
       const item = virtualItems[index];
       if (!item) {
         return (
           <div
             className="flex w-full items-center justify-center bg-black"
-            style={isScrolling ? { aspectRatio: "1 / 1.4" } : { height: "100%" }}
+            style={placeholderStyle}
           >
             <Spinner className="size-8 text-white" />
           </div>
@@ -730,17 +973,17 @@ export function ReaderPage() {
           >
             <div className="text-center text-white/80">
               <div className="text-xs uppercase tracking-widest text-white/50">
-                Chapter break
+                {t("reader.chapterBreak")}
               </div>
               <div className="mt-2 text-sm">
-                {from?.chapterNumber != null && (
-                  <span className="text-white/60">Ch. {from.chapterNumber}</span>
+                {from && (
+                  <span className="text-white/60">{formatChapterTitle(from)}</span>
                 )}
-                {from?.chapterNumber != null && to?.chapterNumber != null && (
+                {from && to && (
                   <span className="mx-2 text-white/30">→</span>
                 )}
-                {to?.chapterNumber != null && (
-                  <span className="text-white/90">Ch. {to.chapterNumber}</span>
+                {to && (
+                  <span className="text-white/90">{formatChapterTitle(to)}</span>
                 )}
               </div>
             </div>
@@ -753,49 +996,75 @@ export function ReaderPage() {
         return (
           <div
             className="flex w-full items-center justify-center bg-black"
-            style={isScrolling ? { aspectRatio: "1 / 1.4" } : { height: "100%" }}
+            style={placeholderStyle}
           >
             <Spinner className="size-8 text-white" />
           </div>
         );
       }
       return (
-        <img
-          src={url}
-          alt={`Page ${item.localIndex + 1}`}
-          className={
-            readingMode === "scrolling"
-              ? "block w-full h-auto object-contain"
-              : "h-full w-full object-contain"
-          }
-        />
+        <PluginAwareImage index={index}>
+          <img
+            src={url}
+            alt={`Page ${item.localIndex + 1}`}
+            className={
+              readingMode === "scrolling"
+                ? "block w-full h-auto object-contain"
+                : "h-full w-full object-contain"
+            }
+          />
+        </PluginAwareImage>
       );
     },
     [virtualItems, imageUrls, chapterById, readingMode]
   );
 
+  // Plugin context helpers (must be before early returns to maintain hook order)
+  const getPageImageUrl = useCallback(
+    (pageIndex: number) => {
+      const item = virtualItems[pageIndex];
+      if (!item || item.kind !== "page") return undefined;
+      return imageUrls.get(item.key);
+    },
+    [virtualItems, imageUrls]
+  );
+
+  const getLoadedPageUrls = useCallback(() => {
+    const result = new Map<number, string>();
+    virtualItems.forEach((item, index) => {
+      if (item.kind === "page") {
+        const url = imageUrls.get(item.key);
+        if (url) result.set(index, url);
+      }
+    });
+    return result;
+  }, [virtualItems, imageUrls]);
+
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-black">
-        <div className="animate-spin h-8 w-8 border-4 border-white border-t-transparent rounded-full" />
+      <div className="flex h-dvh items-center justify-center bg-black reader-lock-scroll">
+        <Spinner className="size-8 text-white" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex h-screen items-center justify-center bg-black">
+      <div className="flex h-dvh items-center justify-center bg-black reader-lock-scroll">
         <div className="text-center">
-          <p className="text-xl text-red-400">Failed to load chapter</p>
-          <p className="mt-2 text-white/60">{error}</p>
-          <Link
-            to="/sources/$registryId/$sourceId/$mangaId"
-            params={{ registryId, sourceId, mangaId }}
+          <p className="text-xl text-red-400">{t("reader.failedToLoad")}</p>
+          <p className="mt-2 text-neutral-400 selectable">{error}</p>
+          <Button
+            variant="outline"
+            className="mt-4 text-white border-white/20 hover:bg-white/10"
+            onClick={() => navigate({
+              to: "/sources/$registryId/$sourceId/$mangaId",
+              params: { registryId, sourceId, mangaId },
+              replace: true,
+            })}
           >
-            <Button variant="outline" className="mt-4">
-              Go Back
-            </Button>
-          </Link>
+            {t("common.goBack")}
+          </Button>
         </div>
       </div>
     );
@@ -808,52 +1077,58 @@ export function ReaderPage() {
   const rightChapter = readingMode === "rtl" ? prevChapter : nextChapter;
 
   return (
-    <div className="h-screen w-screen bg-black relative overflow-hidden">
-      {/* Top Gradient Header */}
+    <ReaderPluginProvider
+      currentPageIndex={currentIndex}
+      visiblePageIndices={visiblePageIndices}
+      pageCount={virtualItems.length}
+      chapterId={effectiveChapterId}
+      mangaId={mangaId}
+      sourceId={sourceId}
+      registryId={registryId}
+      readingMode={readingMode}
+      sourceLanguages={sourceLanguages}
+      getPageImageUrl={getPageImageUrl}
+      getLoadedPageUrls={getLoadedPageUrls}
+    >
+    <div className="h-dvh w-screen bg-black relative overflow-hidden reader-lock-scroll">
+      {/* Floating Top Bar */}
       <header
-        className={`absolute left-0 right-0 z-10 reader-gradient-toolbar reader-toolbar-height transition-all duration-300 ${
-          showUI ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-8 pointer-events-none"
-        }`}
+        className="absolute left-0 right-0 z-10 flex justify-center"
+        style={{
+          top: "max(16px, env(safe-area-inset-top, 16px))",
+          paddingLeft: "16px",
+          paddingRight: "16px",
+        }}
       >
         <div
-          className="py-4"
-          style={{
-            paddingLeft: "max(24px, env(safe-area-inset-left, 24px))",
-            paddingRight: "max(24px, env(safe-area-inset-right, 24px))",
-            paddingTop: "calc(16px + env(safe-area-inset-top, 0px))",
-          }}
+          className="reader-ui-panel flex items-center gap-3 rounded-2xl px-3 py-2 max-w-lg w-full"
+          data-visible={showUI}
+          data-position="top"
         >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <Link
-                to="/sources/$registryId/$sourceId/$mangaId"
-                params={{ registryId, sourceId, mangaId }}
-              >
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-white/90 hover:text-white hover:bg-white/20 rounded-xl transition-all duration-200"
-                >
-                  <HugeiconsIcon icon={ArrowLeft01Icon} className="size-5" />
-                </Button>
-              </Link>
-              <div className="min-w-0 flex-1">
-                <h1 className="text-white font-semibold truncate text-base">
-                  Ch. {effectiveChapter?.chapterNumber ?? "?"}
-                </h1>
-                {effectiveChapter?.title && (
-                  <p className="text-white/70 text-sm mt-0.5 truncate">
-                    {effectiveChapter.title}
-                  </p>
-                )}
-              </div>
-            </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleBack}
+            className="reader-ui-text-secondary hover:reader-ui-text-primary hover:reader-ui-bg-hover rounded-xl transition-all duration-200 shrink-0"
+          >
+            <HugeiconsIcon icon={ArrowLeft01Icon} className="size-5" />
+          </Button>
+          <div className="min-w-0 flex-1">
+            <h1 className="reader-ui-text-primary font-semibold truncate text-sm">
+              {manga?.title ?? "..."}
+            </h1>
+            <p className="reader-ui-text-secondary text-xs truncate">
+              {effectiveChapter ? formatChapterTitle(effectiveChapter) : "..."}
+            </p>
+          </div>
+          <div className="reader-ui-text-secondary text-xs font-medium shrink-0">
+            {effectiveLocalIndex + 1} / {Math.max(1, effectiveChapterPages.length)}
           </div>
         </div>
       </header>
 
       {/* Reader */}
-      <Reader
+      <InteractionAwareReader
         pageCount={virtualItems.length}
         currentPage={currentIndex}
         onPageChange={setCurrentIndex}
@@ -865,48 +1140,34 @@ export function ReaderPage() {
         pagePairingMode={pagePairingMode}
         scrollPageWidthScale={scrollWidthPct / 100}
         onBackgroundClick={handleBackgroundClick}
-      />
-
-      {/* Bottom Blur Overlay */}
-      <div
-        className={`absolute left-0 right-0 reader-gradient-bottom reader-bottom-blur-height transition-all duration-300 ${
-          showUI ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8 pointer-events-none"
-        }`}
-        style={{ zIndex: 5 }}
+        onKeyboardNavigation={handleKeyboardNavigation}
       />
 
       {/* Floating Bottom Panel */}
       <div
-        className={`absolute z-10 reader-bottom-panel transition-all duration-300 ${
-          showUI
-            ? "opacity-100 translate-y-0 scale-100"
-            : "opacity-0 translate-y-12 scale-95 pointer-events-none"
-        }`}
+        className="absolute z-10 left-0 right-0 flex justify-center"
         style={{
-          bottom: "max(24px, env(safe-area-inset-bottom, 24px))",
-          left: "16px",
-          right: "16px",
+          bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
+          paddingLeft: "16px",
+          paddingRight: "16px",
         }}
       >
-        <div className="px-5 py-4">
-          <div className="flex items-center gap-4">
+        <div
+          className="reader-ui-panel rounded-2xl px-4 py-3 max-w-lg w-full"
+          data-visible={showUI}
+          data-position="bottom"
+        >
+          <div className="flex items-center gap-3">
             {/* Chapter Navigation - Left (Previous in LTR, Next in RTL) */}
             <Button
               variant="ghost"
               size="icon-sm"
               disabled={!leftChapter}
               onClick={() => leftChapter && goToChapter(leftChapter)}
-              className="text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all duration-200 disabled:opacity-30"
+              className="reader-ui-text-secondary hover:reader-ui-text-primary hover:reader-ui-bg-hover rounded-xl transition-all duration-200 disabled:opacity-30 shrink-0"
             >
               <HugeiconsIcon icon={PreviousIcon} className="size-4" />
             </Button>
-
-            {/* Page Counter */}
-            <div className="text-white text-xs font-medium min-w-fit">
-              <span className="bg-white/10 px-3 py-1.5 rounded-full">
-                {effectiveLocalIndex + 1} / {Math.max(1, effectiveChapterPages.length)}
-              </span>
-            </div>
 
             {/* Progress Slider */}
             <div
@@ -924,12 +1185,26 @@ export function ReaderPage() {
               </DirectionProvider>
             </div>
 
+            {/* Chapter Navigation - Right (Next in LTR, Previous in RTL) */}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={!rightChapter}
+              onClick={() => rightChapter && goToChapter(rightChapter)}
+              className="reader-ui-text-secondary hover:reader-ui-text-primary hover:reader-ui-bg-hover rounded-xl transition-all duration-200 disabled:opacity-30 shrink-0"
+            >
+              <HugeiconsIcon icon={NextIcon} className="size-4" />
+            </Button>
+
+            {/* Plugin Navbar Actions */}
+            <PluginNavbarActions />
+
             {/* Settings Popover */}
             <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
               <PopoverTrigger
                 render={<Button variant="ghost" size="icon-sm" />}
-                className={`text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all duration-200 ${
-                  settingsOpen ? "bg-white/10 text-white" : ""
+                className={`reader-ui-text-secondary hover:reader-ui-text-primary hover:reader-ui-bg-hover rounded-xl transition-all duration-200 shrink-0 ${
+                  settingsOpen ? "reader-ui-bg-hover reader-ui-text-primary" : ""
                 }`}
               >
                 <HugeiconsIcon icon={Settings02Icon} className="size-4" />
@@ -938,32 +1213,32 @@ export function ReaderPage() {
                 side="top"
                 align="end"
                 sideOffset={12}
-                className="w-auto p-3 reader-settings-popup border-white/10"
+                className="w-auto p-3 reader-settings-popup"
               >
                 <Tabs
                   value={readingMode}
                   onValueChange={(v) => setReadingMode(v as ReadingMode)}
                 >
-                  <TabsList className="w-full">
-                    <TabsTrigger value="rtl" className="flex-1">
-                      RTL
+                  <TabsList className="w-full reader-ui-tabs-list">
+                    <TabsTrigger value="rtl" className="flex-1 reader-ui-tab">
+                      {t("reader.rtl")}
                     </TabsTrigger>
-                    <TabsTrigger value="ltr" className="flex-1">
-                      LTR
+                    <TabsTrigger value="ltr" className="flex-1 reader-ui-tab">
+                      {t("reader.ltr")}
                     </TabsTrigger>
-                    <TabsTrigger value="scrolling" className="flex-1">
-                      Scroll
+                    <TabsTrigger value="scrolling" className="flex-1 reader-ui-tab">
+                      {t("reader.scroll")}
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
 
                 {readingMode !== "scrolling" && isWideScreen && (
-                  <div className="mt-3 border-t border-white/10 pt-3">
+                  <div className="mt-3 border-t reader-ui-border pt-3">
                     <div className="flex items-center justify-between gap-4">
                       <div className="min-w-0">
-                        <div className="text-xs text-white/80">Two-page view</div>
-                        <div className="mt-0.5 text-[11px] text-white/50">
-                          Wide screens only
+                        <div className="text-xs reader-ui-text-primary">{t("reader.twoPageView")}</div>
+                        <div className="mt-0.5 text-[11px] reader-ui-text-muted">
+                          {t("reader.wideScreensOnly")}
                         </div>
                       </div>
                       <Switch
@@ -975,16 +1250,16 @@ export function ReaderPage() {
 
                     {twoPagePref && (
                       <div className="mt-3 space-y-2">
-                        <div className="text-[11px] text-white/50">Pairing</div>
+                        <div className="text-[11px] reader-ui-text-muted">{t("reader.pairing")}</div>
                         <Tabs
                           value={pagePairingMode}
                           onValueChange={(v) => setPagePairingMode(v as PagePairingMode)}
                         >
-                          <TabsList className="w-full">
-                            <TabsTrigger value="book" className="flex-1">
+                          <TabsList className="w-full reader-ui-tabs-list">
+                            <TabsTrigger value="book" className="flex-1 reader-ui-tab">
                               1-2
                             </TabsTrigger>
-                            <TabsTrigger value="manga" className="flex-1">
+                            <TabsTrigger value="manga" className="flex-1 reader-ui-tab">
                               1,2-3
                             </TabsTrigger>
                           </TabsList>
@@ -996,8 +1271,8 @@ export function ReaderPage() {
 
                 {readingMode === "scrolling" && (
                   <div className="mt-3 space-y-2">
-                    <div className="flex items-center justify-between text-xs text-white/70">
-                      <span>Page width</span>
+                    <div className="flex items-center justify-between text-xs reader-ui-text-secondary">
+                      <span>{t("reader.pageWidth")}</span>
                       <span>{scrollWidthPct}%</span>
                     </div>
                     <Slider
@@ -1015,22 +1290,18 @@ export function ReaderPage() {
                     />
                   </div>
                 )}
+
+                {/* Plugin Settings Sections */}
+                <PluginSettingsSections />
               </PopoverContent>
             </Popover>
-
-            {/* Chapter Navigation - Right (Next in LTR, Previous in RTL) */}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              disabled={!rightChapter}
-              onClick={() => rightChapter && goToChapter(rightChapter)}
-              className="text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all duration-200 disabled:opacity-30"
-            >
-              <HugeiconsIcon icon={NextIcon} className="size-4" />
-            </Button>
           </div>
         </div>
       </div>
+
+      {/* Plugin Dialog */}
+      <PluginDialog />
     </div>
+    </ReaderPluginProvider>
   );
 }

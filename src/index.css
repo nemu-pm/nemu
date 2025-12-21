@@ -2,76 +2,77 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/inter";
+@import "@fontsource-variable/noto-serif-jp";
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.60 0.13 163);
-    --primary-foreground: oklch(0.98 0.02 166);
-    --secondary: oklch(0.967 0.001 286.375);
-    --secondary-foreground: oklch(0.21 0.006 285.885);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.58 0.22 27);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.85 0.13 165);
-    --chart-2: oklch(0.77 0.15 163);
-    --chart-3: oklch(0.70 0.15 162);
-    --chart-4: oklch(0.60 0.13 163);
-    --chart-5: oklch(0.51 0.10 166);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.60 0.13 163);
-    --sidebar-primary-foreground: oklch(0.98 0.02 166);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+  --radius: 0.65rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --primary: oklch(0.488 0.243 264.376);
+  --primary-foreground: oklch(0.97 0.014 254.604);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.809 0.105 251.813);
+  --chart-2: oklch(0.623 0.214 259.815);
+  --chart-3: oklch(0.546 0.245 262.881);
+  --chart-4: oklch(0.488 0.243 264.376);
+  --chart-5: oklch(0.424 0.199 265.638);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-primary: oklch(0.546 0.245 262.881);
+  --sidebar-primary-foreground: oklch(0.97 0.014 254.604);
+  --sidebar-accent: oklch(0.967 0.001 286.375);
+  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.70 0.15 162);
-    --primary-foreground: oklch(0.26 0.05 173);
-    --secondary: oklch(0.274 0.006 286.033);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.371 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.85 0.13 165);
-    --chart-2: oklch(0.77 0.15 163);
-    --chart-3: oklch(0.70 0.15 162);
-    --chart-4: oklch(0.60 0.13 163);
-    --chart-5: oklch(0.51 0.10 166);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.77 0.15 163);
-    --sidebar-primary-foreground: oklch(0.26 0.05 173);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.488 0.243 264.376);
+  --primary-foreground: oklch(0.97 0.014 254.604);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.809 0.105 251.813);
+  --chart-2: oklch(0.623 0.214 259.815);
+  --chart-3: oklch(0.546 0.245 262.881);
+  --chart-4: oklch(0.488 0.243 264.376);
+  --chart-5: oklch(0.424 0.199 265.638);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.623 0.214 259.815);
+  --sidebar-primary-foreground: oklch(0.97 0.014 254.604);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.439 0 0);
 }
 
 @theme inline {
@@ -121,155 +122,246 @@
     @apply border-border outline-ring/50;
     }
   body {
-    @apply font-sans bg-background text-foreground;
+    @apply font-sans bg-background text-foreground select-none;
     }
   html {
     @apply font-sans;
     }
 }
 
-/* Reader gradient toolbar */
-.reader-gradient-toolbar {
-  background: linear-gradient(
-    to bottom,
-    rgba(0, 0, 0, 0.95) 0%,
-    rgba(0, 0, 0, 0.95) 30%,
-    rgba(0, 0, 0, 0.8) 45%,
-    rgba(0, 0, 0, 0.6) 60%,
-    rgba(0, 0, 0, 0.4) 75%,
-    rgba(0, 0, 0, 0.2) 85%,
-    transparent 100%
-  );
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  mask-image: linear-gradient(
-    to bottom,
-    black 0%,
-    black 50%,
-    rgba(0, 0, 0, 0.95) 65%,
-    rgba(0, 0, 0, 0.8) 75%,
-    rgba(0, 0, 0, 0.5) 85%,
-    rgba(0, 0, 0, 0.2) 92%,
-    transparent 100%
-  );
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    black 0%,
-    black 50%,
-    rgba(0, 0, 0, 0.95) 65%,
-    rgba(0, 0, 0, 0.8) 75%,
-    rgba(0, 0, 0, 0.5) 85%,
-    rgba(0, 0, 0, 0.2) 92%,
-    transparent 100%
-  );
+/* Selectable text - for content users may want to copy */
+.selectable {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
-.reader-toolbar-height {
-  top: -60px;
-  height: 180px;
-  padding-top: 60px;
+/* Prevent long-press callout and drag on interactive elements (iOS/mobile) */
+button,
+[role="button"],
+[data-slot="button"],
+a,
+nav,
+nav *,
+.mobile-tab-bar,
+.mobile-tab-bar *,
+.desktop-dock,
+.desktop-dock *,
+.reader-ui-panel,
+.reader-ui-panel *,
+.source-card,
+.chapter-cell {
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  user-drag: none;
 }
 
-@media (display-mode: standalone) {
-  .reader-toolbar-height {
-    top: -90px;
-    height: 270px;
-    padding-top: 90px;
-  }
+/* Prevent image/link dragging and context menu */
+img,
+a img {
+  -webkit-user-drag: none;
+  user-drag: none;
+  pointer-events: inherit;
 }
 
-/* Reader bottom panel - floating card style */
-.reader-bottom-panel {
-  border-radius: 20px;
-  background: rgba(28, 28, 30, 0.98);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 0.5px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 
-    0 8px 32px rgba(0, 0, 0, 0.3),
-    0 2px 8px rgba(0, 0, 0, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+/* iOS Safari full-height fix - prevents rubber band scrolling */
+.h-dvh {
+  height: 100vh;
+  height: 100dvh;
 }
 
-/* Reader bottom gradient blur overlay */
-.reader-gradient-bottom {
-  background: linear-gradient(
-    to top,
-    rgba(0, 0, 0, 0.95) 0%,
-    rgba(0, 0, 0, 0.95) 30%,
-    rgba(0, 0, 0, 0.8) 45%,
-    rgba(0, 0, 0, 0.6) 60%,
-    rgba(0, 0, 0, 0.4) 75%,
-    rgba(0, 0, 0, 0.2) 85%,
-    transparent 100%
-  );
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  mask-image: linear-gradient(
-    to top,
-    black 0%,
-    black 50%,
-    rgba(0, 0, 0, 0.95) 65%,
-    rgba(0, 0, 0, 0.8) 75%,
-    rgba(0, 0, 0, 0.5) 85%,
-    rgba(0, 0, 0, 0.2) 92%,
-    transparent 100%
-  );
-  -webkit-mask-image: linear-gradient(
-    to top,
-    black 0%,
-    black 50%,
-    rgba(0, 0, 0, 0.95) 65%,
-    rgba(0, 0, 0, 0.8) 75%,
-    rgba(0, 0, 0, 0.5) 85%,
-    rgba(0, 0, 0, 0.2) 92%,
-    transparent 100%
-  );
+/* Lock body scroll when in reader mode */
+html:has(.reader-lock-scroll),
+body:has(.reader-lock-scroll) {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  overscroll-behavior: none;
 }
 
-.reader-bottom-blur-height {
-  bottom: -60px;
-  height: 180px;
-  padding-bottom: 60px;
+/* Reader floating UI - adaptive glassmorphism for light/dark modes */
+/* Uses separate animation for backdrop-filter compatibility */
+/* Enhanced shadows for visibility against black reader background */
+.reader-ui-panel {
+  background: oklch(0.98 0 0 / 0.88);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 0.5px solid oklch(0 0 0 / 0.12);
+  box-shadow:
+    0 8px 32px oklch(0 0 0 / 0.25),
+    0 2px 8px oklch(0 0 0 / 0.15),
+    0 0 1px oklch(0 0 0 / 0.1),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.7);
+  transition: opacity 300ms ease, transform 300ms ease;
 }
 
-@media (display-mode: standalone) {
-  .reader-bottom-blur-height {
-    bottom: -90px;
-    height: 270px;
-    padding-bottom: 90px;
-  }
+.dark .reader-ui-panel {
+  background: oklch(0.14 0 0 / 0.85);
+  border: 0.5px solid oklch(1 0 0 / 0.12);
+  box-shadow:
+    0 8px 40px oklch(0 0 0 / 0.6),
+    0 2px 12px oklch(0 0 0 / 0.4),
+    0 0 1px oklch(0 0 0 / 0.4),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.1);
+}
+
+/* Panel visibility states - controlled via data attribute */
+.reader-ui-panel[data-visible="false"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reader-ui-panel[data-visible="true"] {
+  opacity: 1;
+}
+
+/* Top panel slide animation */
+.reader-ui-panel[data-position="top"][data-visible="false"] {
+  transform: translateY(-8px);
+}
+
+.reader-ui-panel[data-position="top"][data-visible="true"] {
+  transform: translateY(0);
+}
+
+/* Bottom panel slide animation */
+.reader-ui-panel[data-position="bottom"][data-visible="false"] {
+  transform: translateY(8px);
+}
+
+.reader-ui-panel[data-position="bottom"][data-visible="true"] {
+  transform: translateY(0);
 }
 
 /* Reader settings popup */
 .reader-settings-popup {
   border-radius: 16px;
-  background: rgba(28, 28, 30, 0.98);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 0.5px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 
-    0 8px 32px rgba(0, 0, 0, 0.3),
-    0 2px 8px rgba(0, 0, 0, 0.15);
+  background: oklch(0.98 0 0 / 0.92);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 0.5px solid oklch(0 0 0 / 0.12);
+  box-shadow:
+    0 8px 32px oklch(0 0 0 / 0.25),
+    0 2px 8px oklch(0 0 0 / 0.15),
+    0 0 1px oklch(0 0 0 / 0.08),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.8);
 }
 
-/* Reader slider container styling */
+.dark .reader-settings-popup {
+  background: oklch(0.14 0 0 / 0.92);
+  border: 0.5px solid oklch(1 0 0 / 0.12);
+  box-shadow:
+    0 8px 40px oklch(0 0 0 / 0.6),
+    0 2px 12px oklch(0 0 0 / 0.4),
+    0 0 1px oklch(0 0 0 / 0.35);
+}
+
+/* Reader slider container styling - adaptive for light/dark */
 .reader-slider-container [data-slot="slider"] {
   width: 100%;
 }
 
 .reader-slider-container [data-slot="slider-track"] {
-  background: rgba(255, 255, 255, 0.2);
+  background: oklch(0 0 0 / 0.12);
+}
+
+.dark .reader-slider-container [data-slot="slider-track"] {
+  background: oklch(1 0 0 / 0.2);
 }
 
 .reader-slider-container [data-slot="slider-range"] {
-  background: oklch(0.70 0.15 162);
+  background: var(--primary);
 }
 
 .reader-slider-container [data-slot="slider-thumb"] {
-  background: white;
-  border-color: oklch(0.70 0.15 162);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  background: oklch(1 0 0);
+  border-color: var(--primary);
+  box-shadow: 0 2px 6px oklch(0 0 0 / 0.15);
+}
+
+.dark .reader-slider-container [data-slot="slider-thumb"] {
+  box-shadow: 0 2px 6px oklch(0 0 0 / 0.3);
+}
+
+/* Reader UI utility classes - adaptive text colors */
+.reader-ui-text-primary {
+  color: oklch(0.15 0 0);
+}
+
+.dark .reader-ui-text-primary {
+  color: oklch(0.98 0 0);
+}
+
+.reader-ui-text-secondary {
+  color: oklch(0.15 0 0 / 0.65);
+}
+
+.dark .reader-ui-text-secondary {
+  color: oklch(0.98 0 0 / 0.65);
+}
+
+.reader-ui-text-muted {
+  color: oklch(0.15 0 0 / 0.45);
+}
+
+.dark .reader-ui-text-muted {
+  color: oklch(0.98 0 0 / 0.45);
+}
+
+.reader-ui-bg-hover {
+  background: oklch(0 0 0 / 0.06);
+}
+
+.dark .reader-ui-bg-hover {
+  background: oklch(1 0 0 / 0.1);
+}
+
+.reader-ui-border {
+  border-color: oklch(0 0 0 / 0.1);
+}
+
+.dark .reader-ui-border {
+  border-color: oklch(1 0 0 / 0.1);
+}
+
+/* Reader UI tabs - adaptive styling */
+.reader-ui-tabs-list {
+  background: oklch(0 0 0 / 0.06) !important;
+}
+
+.dark .reader-ui-tabs-list {
+  background: oklch(1 0 0 / 0.08) !important;
+}
+
+.reader-ui-tab {
+  color: oklch(0.15 0 0 / 0.6) !important;
+}
+
+.reader-ui-tab:hover {
+  color: oklch(0.15 0 0 / 0.85) !important;
+}
+
+.reader-ui-tab[data-active] {
+  color: oklch(0.15 0 0) !important;
+  background: oklch(1 0 0) !important;
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.1);
+}
+
+.dark .reader-ui-tab {
+  color: oklch(0.98 0 0 / 0.5) !important;
+}
+
+.dark .reader-ui-tab:hover {
+  color: oklch(0.98 0 0 / 0.8) !important;
+}
+
+.dark .reader-ui-tab[data-active] {
+  color: oklch(0.98 0 0) !important;
+  background: oklch(1 0 0 / 0.12) !important;
+  box-shadow: none;
 }
 
 /* Swiper button overrides */
@@ -277,3 +369,1213 @@
 .swiper-button-prev {
   display: none !important;
 }
+
+/* Mobile floating tab bar - iOS style */
+.mobile-tab-bar {
+  background: oklch(0.98 0 0 / 0.72);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 0.5px solid oklch(0 0 0 / 0.08);
+  box-shadow:
+    0 2px 20px oklch(0 0 0 / 0.08),
+    0 0 1px oklch(0 0 0 / 0.12),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.5);
+}
+
+.dark .mobile-tab-bar {
+  background: oklch(0.18 0 0 / 0.75);
+  border: 0.5px solid oklch(1 0 0 / 0.1);
+  box-shadow:
+    0 4px 24px oklch(0 0 0 / 0.4),
+    0 0 1px oklch(0 0 0 / 0.3),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+}
+
+/* Desktop floating dock - left sidebar */
+.desktop-dock {
+  background: oklch(0.98 0 0 / 0.72);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 0.5px solid oklch(0 0 0 / 0.08);
+  box-shadow:
+    0 4px 24px oklch(0 0 0 / 0.06),
+    0 0 1px oklch(0 0 0 / 0.1),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.6);
+}
+
+.dark .desktop-dock {
+  background: oklch(0.18 0 0 / 0.75);
+  border: 0.5px solid oklch(1 0 0 / 0.1);
+  box-shadow:
+    0 4px 24px oklch(0 0 0 / 0.35),
+    0 0 1px oklch(0 0 0 / 0.25),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+}
+
+/* Button Styles - Nemu: True Glassmorphism */
+/* Matching navbar/dock aesthetic: flat semi-transparent, thin borders, layered shadows */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   PRIMARY - Solid glass with primary tint
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.btn-nemu-primary {
+  background: var(--primary);
+  border: 0.5px solid oklch(from var(--primary) calc(l + 0.1) c h / 0.3);
+  box-shadow:
+    0 1px 3px oklch(from var(--primary) calc(l - 0.2) c h / 0.25),
+    0 0 1px oklch(from var(--primary) calc(l - 0.1) c h / 0.2),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.2);
+  transition: all 180ms ease;
+}
+
+.btn-nemu-primary:hover {
+  background: oklch(from var(--primary) calc(l + 0.05) c h);
+  box-shadow:
+    0 2px 8px oklch(from var(--primary) calc(l - 0.15) c h / 0.3),
+    0 0 1px oklch(from var(--primary) calc(l - 0.1) c h / 0.25),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.25);
+}
+
+.btn-nemu-primary:focus-visible {
+  outline: none;
+  box-shadow:
+    0 2px 8px oklch(from var(--primary) calc(l - 0.15) c h / 0.3),
+    0 0 0 2px oklch(from var(--primary) calc(l + 0.2) c h / 0.35),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.25);
+}
+
+.dark .btn-nemu-primary {
+  border-color: oklch(from var(--primary) calc(l + 0.15) c h / 0.25);
+  box-shadow:
+    0 2px 8px oklch(0 0 0 / 0.35),
+    0 0 1px oklch(0 0 0 / 0.3),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.12);
+}
+
+.dark .btn-nemu-primary:hover {
+  background: oklch(from var(--primary) calc(l + 0.08) c h);
+  box-shadow:
+    0 4px 12px oklch(0 0 0 / 0.4),
+    0 0 1px oklch(0 0 0 / 0.35),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.15);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   OUTLINE - True glass panel (like navbar)
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.btn-nemu-outline {
+  background: oklch(0.98 0 0 / 0.65);
+  border: 0.5px solid oklch(0 0 0 / 0.1);
+  box-shadow:
+    0 1px 4px oklch(0 0 0 / 0.06),
+    0 0 1px oklch(0 0 0 / 0.08),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.5);
+  transition: all 180ms ease;
+}
+
+.btn-nemu-outline:hover {
+  background: oklch(0.98 0 0 / 0.8);
+  border-color: oklch(0 0 0 / 0.14);
+  box-shadow:
+    0 2px 8px oklch(0 0 0 / 0.08),
+    0 0 1px oklch(0 0 0 / 0.1),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.6);
+}
+
+.btn-nemu-outline:focus-visible {
+  outline: none;
+  border-color: oklch(from var(--primary) calc(l + 0.15) c h / 0.45);
+  box-shadow:
+    0 0 8px oklch(from var(--primary) calc(l + 0.2) c h / 0.2),
+    0 1px 4px oklch(0 0 0 / 0.06),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.5);
+}
+
+.dark .btn-nemu-outline {
+  background: oklch(0.2 0 0 / 0.6);
+  border: 0.5px solid oklch(1 0 0 / 0.1);
+  box-shadow:
+    0 2px 8px oklch(0 0 0 / 0.3),
+    0 0 1px oklch(0 0 0 / 0.25),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+}
+
+.dark .btn-nemu-outline:hover {
+  background: oklch(0.25 0 0 / 0.7);
+  border-color: oklch(1 0 0 / 0.15);
+  box-shadow:
+    0 4px 12px oklch(0 0 0 / 0.35),
+    0 0 1px oklch(0 0 0 / 0.3),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.1);
+}
+
+.dark .btn-nemu-outline:focus-visible {
+  border-color: oklch(from var(--primary) calc(l + 0.15) c h / 0.5);
+  box-shadow:
+    0 0 10px oklch(from var(--primary) calc(l + 0.15) c h / 0.25),
+    0 2px 8px oklch(0 0 0 / 0.3);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SECONDARY - Muted glass surface
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.btn-nemu-secondary {
+  background: oklch(0.94 0.003 280 / 0.85);
+  border: 0.5px solid oklch(0 0 0 / 0.07);
+  box-shadow:
+    0 1px 3px oklch(0 0 0 / 0.05),
+    0 0 1px oklch(0 0 0 / 0.06),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.6);
+  transition: all 180ms ease;
+}
+
+.btn-nemu-secondary:hover {
+  background: oklch(0.91 0.003 280 / 0.9);
+  box-shadow:
+    0 2px 6px oklch(0 0 0 / 0.07),
+    0 0 1px oklch(0 0 0 / 0.08),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.7);
+}
+
+.btn-nemu-secondary:focus-visible {
+  outline: none;
+  border-color: oklch(from var(--primary) calc(l + 0.2) c h / 0.35);
+  box-shadow:
+    0 0 6px oklch(from var(--primary) calc(l + 0.2) c h / 0.15),
+    0 1px 3px oklch(0 0 0 / 0.05),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.6);
+}
+
+.dark .btn-nemu-secondary {
+  background: oklch(0.26 0.003 280 / 0.7);
+  border: 0.5px solid oklch(1 0 0 / 0.08);
+  box-shadow:
+    0 2px 6px oklch(0 0 0 / 0.25),
+    0 0 1px oklch(0 0 0 / 0.2),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.06);
+}
+
+.dark .btn-nemu-secondary:hover {
+  background: oklch(0.3 0.003 280 / 0.75);
+  box-shadow:
+    0 3px 10px oklch(0 0 0 / 0.3),
+    0 0 1px oklch(0 0 0 / 0.25),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+}
+
+.dark .btn-nemu-secondary:focus-visible {
+  border-color: oklch(from var(--primary) calc(l + 0.1) c h / 0.4);
+  box-shadow:
+    0 0 8px oklch(from var(--primary) calc(l + 0.15) c h / 0.2),
+    0 2px 6px oklch(0 0 0 / 0.25);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   GHOST - Invisible until interaction
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.btn-nemu-ghost {
+  background: transparent;
+  border: 0.5px solid transparent;
+  transition: all 150ms ease;
+}
+
+.btn-nemu-ghost:hover {
+  background: oklch(0 0 0 / 0.05);
+  border-color: oklch(0 0 0 / 0.06);
+  box-shadow: inset 0 0.5px 0 oklch(1 0 0 / 0.3);
+}
+
+.btn-nemu-ghost:focus-visible {
+  outline: none;
+  background: oklch(0 0 0 / 0.04);
+  border-color: oklch(from var(--primary) calc(l + 0.2) c h / 0.3);
+  box-shadow: inset 0 0.5px 0 oklch(1 0 0 / 0.2);
+}
+
+.dark .btn-nemu-ghost:hover {
+  background: oklch(1 0 0 / 0.08);
+  border-color: oklch(1 0 0 / 0.06);
+  box-shadow: inset 0 0.5px 0 oklch(1 0 0 / 0.05);
+}
+
+.dark .btn-nemu-ghost:focus-visible {
+  background: oklch(1 0 0 / 0.06);
+  border-color: oklch(from var(--primary) calc(l + 0.15) c h / 0.35);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   DESTRUCTIVE - Tinted glass with warning color
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.btn-nemu-destructive {
+  background: oklch(from var(--destructive) calc(l + 0.42) calc(c * 0.3) h / 0.9);
+  border: 0.5px solid oklch(from var(--destructive) l calc(c * 0.5) h / 0.2);
+  box-shadow:
+    0 1px 3px oklch(from var(--destructive) calc(l - 0.1) c h / 0.1),
+    0 0 1px oklch(from var(--destructive) l c h / 0.08),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.45);
+  transition: all 180ms ease;
+}
+
+.btn-nemu-destructive:hover {
+  background: oklch(from var(--destructive) calc(l + 0.38) calc(c * 0.38) h / 0.92);
+  border-color: oklch(from var(--destructive) l calc(c * 0.6) h / 0.28);
+  box-shadow:
+    0 2px 8px oklch(from var(--destructive) calc(l - 0.1) c h / 0.15),
+    0 0 1px oklch(from var(--destructive) l c h / 0.12),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.5);
+}
+
+.btn-nemu-destructive:focus-visible {
+  outline: none;
+  border-color: oklch(from var(--destructive) l c h / 0.4);
+  box-shadow:
+    0 0 8px oklch(from var(--destructive) l c h / 0.25),
+    0 1px 3px oklch(from var(--destructive) calc(l - 0.1) c h / 0.1),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.45);
+}
+
+.dark .btn-nemu-destructive {
+  background: oklch(from var(--destructive) calc(l - 0.12) calc(c * 0.5) h / 0.35);
+  border: 0.5px solid oklch(from var(--destructive) l calc(c * 0.7) h / 0.3);
+  box-shadow:
+    0 2px 6px oklch(0 0 0 / 0.3),
+    0 0 1px oklch(0 0 0 / 0.25),
+    inset 0 0.5px 0 oklch(from var(--destructive) calc(l + 0.2) c h / 0.15);
+}
+
+.dark .btn-nemu-destructive:hover {
+  background: oklch(from var(--destructive) calc(l - 0.08) calc(c * 0.6) h / 0.4);
+  border-color: oklch(from var(--destructive) l calc(c * 0.8) h / 0.4);
+  box-shadow:
+    0 4px 12px oklch(0 0 0 / 0.35),
+    0 0 8px oklch(from var(--destructive) l c h / 0.15),
+    inset 0 0.5px 0 oklch(from var(--destructive) calc(l + 0.2) c h / 0.2);
+}
+
+.dark .btn-nemu-destructive:focus-visible {
+  border-color: oklch(from var(--destructive) calc(l + 0.1) c h / 0.5);
+  box-shadow:
+    0 0 10px oklch(from var(--destructive) l c h / 0.35),
+    0 2px 6px oklch(0 0 0 / 0.3);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Tabs Styles - Nemu: True Glassmorphism
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+/* TabsList container - subtle glass tray */
+.tabs-nemu-list {
+  background: oklch(0 0 0 / 0.04);
+  border: 0.5px solid oklch(0 0 0 / 0.06);
+  box-shadow:
+    inset 0 1px 2px oklch(0 0 0 / 0.03),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.3);
+}
+
+.dark .tabs-nemu-list {
+  background: oklch(1 0 0 / 0.05);
+  border: 0.5px solid oklch(1 0 0 / 0.06);
+  box-shadow:
+    inset 0 1px 3px oklch(0 0 0 / 0.2),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.04);
+}
+
+/* TabsTrigger - glass panel that elevates when active */
+.tabs-nemu-trigger {
+  background: transparent;
+  border: 0.5px solid transparent;
+  transition: all 180ms ease;
+}
+
+.tabs-nemu-trigger:hover:not([data-active]) {
+  background: oklch(0 0 0 / 0.03);
+}
+
+.dark .tabs-nemu-trigger:hover:not([data-active]) {
+  background: oklch(1 0 0 / 0.05);
+}
+
+/* Active tab - elevated glass panel (default variant only) */
+[data-variant="default"] .tabs-nemu-trigger[data-active] {
+  background: oklch(0.99 0 0 / 0.9);
+  border: 0.5px solid oklch(0 0 0 / 0.08);
+  box-shadow:
+    0 1px 3px oklch(0 0 0 / 0.06),
+    0 0 1px oklch(0 0 0 / 0.04),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.7);
+}
+
+.dark [data-variant="default"] .tabs-nemu-trigger[data-active] {
+  background: oklch(0.24 0 0 / 0.8);
+  border: 0.5px solid oklch(1 0 0 / 0.1);
+  box-shadow:
+    0 2px 6px oklch(0 0 0 / 0.25),
+    0 0 1px oklch(0 0 0 / 0.2),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+}
+
+/* Line variant - no glass panel on active, just text color change */
+[data-variant="line"] .tabs-nemu-trigger[data-active] {
+  background: transparent;
+  border-color: transparent;
+}
+
+/* Focus state - luminous edge */
+.tabs-nemu-trigger:focus-visible {
+  outline: none;
+  border-color: oklch(from var(--primary) calc(l + 0.15) c h / 0.4);
+  box-shadow:
+    0 0 6px oklch(from var(--primary) calc(l + 0.2) c h / 0.15),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.5);
+}
+
+.dark .tabs-nemu-trigger:focus-visible {
+  border-color: oklch(from var(--primary) calc(l + 0.15) c h / 0.45);
+  box-shadow:
+    0 0 8px oklch(from var(--primary) calc(l + 0.15) c h / 0.2),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.06);
+}
+
+/* Line variant list - no container styling */
+.tabs-nemu-list-line {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+/* Input Styles - Nemu: Luminous glass aesthetic */
+/* Focus uses "luminous edge" effect - light catching frosted glass */
+
+.input-nemu {
+  background: oklch(0.97 0.002 280 / 0.85);
+  border: 1px solid oklch(0 0 0 / 0.08);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.03),
+    inset 0 1px 0 oklch(1 0 0 / 0.6),
+    inset 0 -1px 0 oklch(0 0 0 / 0.02);
+  transition:
+    border-color 250ms ease,
+    box-shadow 250ms ease,
+    background-color 250ms ease;
+}
+
+.input-nemu::placeholder {
+  color: oklch(0.45 0 0 / 0.55);
+}
+
+.input-nemu:hover:not(:disabled):not(:focus) {
+  background: oklch(0.98 0 0 / 0.9);
+  border-color: oklch(0 0 0 / 0.12);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.04),
+    inset 0 1px 0 oklch(1 0 0 / 0.7),
+    inset 0 -1px 0 oklch(0 0 0 / 0.02);
+}
+
+/* Focus: Luminous edge - border brightens, inner light catches the edge */
+.input-nemu:focus,
+.input-nemu:focus-visible {
+  outline: none;
+  background: oklch(0.99 0 0 / 0.95);
+  border-color: oklch(from var(--primary) calc(l + 0.15) calc(c * 0.6) h / 0.5);
+  box-shadow:
+    /* Outer: very subtle spread, not a ring */
+    0 0 8px -2px oklch(from var(--primary) calc(l + 0.2) c h / 0.2),
+    /* Depth shadow */
+    0 1px 2px oklch(0 0 0 / 0.03),
+    /* Top edge catches light - enhanced on focus */
+    inset 0 1px 0 oklch(1 0 0 / 0.9),
+    /* Inner luminosity - soft glow from within */
+    inset 0 0 12px oklch(from var(--primary) calc(l + 0.3) calc(c * 0.4) h / 0.06);
+}
+
+.input-nemu[aria-invalid="true"] {
+  border-color: oklch(from var(--destructive) l c h / 0.4);
+  box-shadow:
+    0 0 8px -2px oklch(from var(--destructive) l c h / 0.15),
+    0 1px 2px oklch(0 0 0 / 0.03),
+    inset 0 1px 0 oklch(1 0 0 / 0.7),
+    inset 0 0 12px oklch(from var(--destructive) calc(l + 0.2) calc(c * 0.3) h / 0.05);
+}
+
+.input-nemu:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Dark mode: glass effect with luminous focus */
+.dark .input-nemu {
+  background: oklch(1 0 0 / 0.05);
+  border: 1px solid oklch(1 0 0 / 0.1);
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.25);
+}
+
+.dark .input-nemu::placeholder {
+  color: oklch(1 0 0 / 0.35);
+}
+
+.dark .input-nemu:hover:not(:disabled):not(:focus) {
+  background: oklch(1 0 0 / 0.07);
+  border-color: oklch(1 0 0 / 0.14);
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.3);
+}
+
+/* Dark focus: luminous edge with inner glow */
+.dark .input-nemu:focus,
+.dark .input-nemu:focus-visible {
+  background: oklch(1 0 0 / 0.09);
+  border-color: oklch(from var(--primary) calc(l + 0.15) c h / 0.55);
+  box-shadow:
+    /* Soft outer luminosity */
+    0 0 12px -3px oklch(from var(--primary) calc(l + 0.15) c h / 0.35),
+    /* Depth */
+    0 1px 4px oklch(0 0 0 / 0.3),
+    /* Inner luminosity */
+    inset 0 0 20px oklch(from var(--primary) calc(l + 0.2) calc(c * 0.5) h / 0.07);
+}
+
+.dark .input-nemu[aria-invalid="true"] {
+  border-color: oklch(from var(--destructive) calc(l + 0.1) c h / 0.5);
+  box-shadow:
+    0 0 12px -3px oklch(from var(--destructive) l c h / 0.3),
+    0 1px 4px oklch(0 0 0 / 0.3),
+    inset 0 0 20px oklch(from var(--destructive) calc(l + 0.15) calc(c * 0.4) h / 0.06);
+}
+
+/* Input Group - container with luminous focus */
+.input-nemu-group {
+  background: oklch(0.97 0.002 280 / 0.85);
+  border: 1px solid oklch(0 0 0 / 0.08);
+  border-radius: 0.5rem;
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.03),
+    inset 0 1px 0 oklch(1 0 0 / 0.6),
+    inset 0 -1px 0 oklch(0 0 0 / 0.02);
+  transition:
+    border-color 250ms ease,
+    box-shadow 250ms ease,
+    background-color 250ms ease;
+}
+
+.input-nemu-group:hover:not(:focus-within) {
+  background: oklch(0.98 0 0 / 0.9);
+  border-color: oklch(0 0 0 / 0.12);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.04),
+    inset 0 1px 0 oklch(1 0 0 / 0.7),
+    inset 0 -1px 0 oklch(0 0 0 / 0.02);
+}
+
+.input-nemu-group:focus-within {
+  background: oklch(0.99 0 0 / 0.95);
+  border-color: oklch(from var(--primary) calc(l + 0.15) calc(c * 0.6) h / 0.5);
+  box-shadow:
+    0 0 8px -2px oklch(from var(--primary) calc(l + 0.2) c h / 0.2),
+    0 1px 2px oklch(0 0 0 / 0.03),
+    inset 0 1px 0 oklch(1 0 0 / 0.9),
+    inset 0 0 12px oklch(from var(--primary) calc(l + 0.3) calc(c * 0.4) h / 0.06);
+}
+
+.input-nemu-group:has([aria-invalid="true"]) {
+  border-color: oklch(from var(--destructive) l c h / 0.4);
+  box-shadow:
+    0 0 8px -2px oklch(from var(--destructive) l c h / 0.15),
+    0 1px 2px oklch(0 0 0 / 0.03),
+    inset 0 1px 0 oklch(1 0 0 / 0.7),
+    inset 0 0 12px oklch(from var(--destructive) calc(l + 0.2) calc(c * 0.3) h / 0.05);
+}
+
+.input-nemu-group[data-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Dark mode: input group with luminous focus */
+.dark .input-nemu-group {
+  background: oklch(1 0 0 / 0.05);
+  border: 1px solid oklch(1 0 0 / 0.1);
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.25);
+}
+
+.dark .input-nemu-group:hover:not(:focus-within) {
+  background: oklch(1 0 0 / 0.07);
+  border-color: oklch(1 0 0 / 0.14);
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.3);
+}
+
+.dark .input-nemu-group:focus-within {
+  background: oklch(1 0 0 / 0.09);
+  border-color: oklch(from var(--primary) calc(l + 0.15) c h / 0.55);
+  box-shadow:
+    0 0 12px -3px oklch(from var(--primary) calc(l + 0.15) c h / 0.35),
+    0 1px 4px oklch(0 0 0 / 0.3),
+    inset 0 0 20px oklch(from var(--primary) calc(l + 0.2) calc(c * 0.5) h / 0.07);
+}
+
+.dark .input-nemu-group:has([aria-invalid="true"]) {
+  border-color: oklch(from var(--destructive) calc(l + 0.1) c h / 0.5);
+  box-shadow:
+    0 0 12px -3px oklch(from var(--destructive) l c h / 0.3),
+    0 1px 4px oklch(0 0 0 / 0.3),
+    inset 0 0 20px oklch(from var(--destructive) calc(l + 0.15) calc(c * 0.4) h / 0.06);
+}
+
+/* Nested inputs within group - reset their styling */
+.input-nemu-group .input-nemu,
+.input-nemu-group .input-nemu:focus,
+.input-nemu-group .input-nemu:focus-visible,
+.input-nemu-group .input-nemu:hover {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Chapter Grid - Subtle glassmorphism cells
+   Matching btn-nemu aesthetic: semi-transparent, thin borders, layered shadows
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .chapter-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .chapter-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Base chapter cell - true glass panel (like btn-nemu-outline)
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.chapter-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.625rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: inherit;
+  height: 3.25rem;
+  min-width: 0; /* Allow flex children to shrink below content size */
+
+  /* Glass surface */
+  background: oklch(0.98 0 0 / 0.6);
+  border: 0.5px solid oklch(0 0 0 / 0.08);
+  box-shadow:
+    0 1px 3px oklch(0 0 0 / 0.04),
+    0 0 1px oklch(0 0 0 / 0.06),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.5);
+
+  transition: all 150ms ease;
+}
+
+.chapter-cell:hover {
+  background: oklch(0.99 0 0 / 0.75);
+  border-color: oklch(0 0 0 / 0.12);
+  box-shadow:
+    0 2px 8px oklch(0 0 0 / 0.06),
+    0 0 1px oklch(0 0 0 / 0.08),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.7);
+}
+
+.chapter-cell:active {
+  transform: scale(0.985);
+  transition: transform 80ms ease;
+}
+
+.dark .chapter-cell {
+  background: oklch(1 0 0 / 0.04);
+  border: 0.5px solid oklch(1 0 0 / 0.08);
+  box-shadow:
+    0 1px 4px oklch(0 0 0 / 0.2),
+    0 0 1px oklch(0 0 0 / 0.15),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.06);
+}
+
+.dark .chapter-cell:hover {
+  background: oklch(1 0 0 / 0.07);
+  border-color: oklch(1 0 0 / 0.12);
+  box-shadow:
+    0 3px 12px oklch(0 0 0 / 0.25),
+    0 0 1px oklch(0 0 0 / 0.2),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Read state - subtle completion indicator, not washed out
+   Uses a soft green-tinted glass to echo the checkmark
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.chapter-cell-read {
+  background: oklch(0.97 0.01 145 / 0.5);
+  border-color: oklch(0.6 0.1 145 / 0.1);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.03),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.4);
+}
+
+.chapter-cell-read:hover {
+  background: oklch(0.97 0.015 145 / 0.6);
+  border-color: oklch(0.6 0.1 145 / 0.15);
+  box-shadow:
+    0 2px 6px oklch(0 0 0 / 0.05),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.5);
+}
+
+.chapter-cell-read .chapter-cell-title {
+  color: var(--muted-foreground);
+}
+
+.dark .chapter-cell-read {
+  background: oklch(0.35 0.03 145 / 0.15);
+  border-color: oklch(0.6 0.12 145 / 0.15);
+  box-shadow:
+    0 1px 3px oklch(0 0 0 / 0.15),
+    inset 0 0.5px 0 oklch(0.6 0.1 145 / 0.08);
+}
+
+.dark .chapter-cell-read:hover {
+  background: oklch(0.38 0.04 145 / 0.2);
+  border-color: oklch(0.6 0.12 145 / 0.2);
+  box-shadow:
+    0 2px 8px oklch(0 0 0 / 0.2),
+    inset 0 0.5px 0 oklch(0.6 0.1 145 / 0.1);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   In-progress state - subtle primary glow
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.chapter-cell-progress {
+  background: oklch(from var(--primary) 0.97 calc(c * 0.15) h / 0.7);
+  border-color: oklch(from var(--primary) calc(l + 0.15) calc(c * 0.5) h / 0.2);
+  box-shadow:
+    0 1px 4px oklch(from var(--primary) l c h / 0.08),
+    0 0 1px oklch(from var(--primary) l c h / 0.1),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.6),
+    inset 0 0 0 0.5px oklch(from var(--primary) calc(l + 0.2) c h / 0.1);
+}
+
+.chapter-cell-progress:hover {
+  background: oklch(from var(--primary) 0.96 calc(c * 0.2) h / 0.8);
+  border-color: oklch(from var(--primary) calc(l + 0.1) calc(c * 0.6) h / 0.25);
+  box-shadow:
+    0 2px 10px oklch(from var(--primary) l c h / 0.12),
+    0 0 1px oklch(from var(--primary) l c h / 0.15),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.7),
+    inset 0 0 0 0.5px oklch(from var(--primary) calc(l + 0.15) c h / 0.15);
+}
+
+.dark .chapter-cell-progress {
+  background: oklch(from var(--primary) calc(l + 0.15) calc(c * 0.25) h / 0.18);
+  border-color: oklch(from var(--primary) calc(l + 0.1) calc(c * 0.6) h / 0.3);
+  box-shadow:
+    0 1px 6px oklch(from var(--primary) l c h / 0.12),
+    0 0 1px oklch(0 0 0 / 0.15),
+    inset 0 0.5px 0 oklch(from var(--primary) calc(l + 0.35) c h / 0.15),
+    inset 0 0 12px oklch(from var(--primary) calc(l + 0.2) c h / 0.06);
+}
+
+.dark .chapter-cell-progress:hover {
+  background: oklch(from var(--primary) calc(l + 0.2) calc(c * 0.3) h / 0.22);
+  border-color: oklch(from var(--primary) calc(l + 0.15) calc(c * 0.7) h / 0.35);
+  box-shadow:
+    0 2px 12px oklch(from var(--primary) l c h / 0.18),
+    0 0 1px oklch(0 0 0 / 0.2),
+    inset 0 0.5px 0 oklch(from var(--primary) calc(l + 0.4) c h / 0.18),
+    inset 0 0 16px oklch(from var(--primary) calc(l + 0.25) c h / 0.08);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Locked state - frosted, non-interactive
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.chapter-cell-locked {
+  cursor: not-allowed;
+  background: oklch(0.95 0 0 / 0.35);
+  border-color: oklch(0 0 0 / 0.03);
+  box-shadow: inset 0 0.5px 0 oklch(1 0 0 / 0.2);
+}
+
+.chapter-cell-locked .chapter-cell-title,
+.chapter-cell-locked .chapter-cell-subtitle {
+  opacity: 0.5;
+}
+
+.dark .chapter-cell-locked {
+  background: oklch(1 0 0 / 0.015);
+  border-color: oklch(1 0 0 / 0.03);
+  box-shadow: inset 0 0.5px 0 oklch(1 0 0 / 0.02);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   New state - subtle indicator for chapters updated within 7 days
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.chapter-cell-new {
+  background: oklch(0.98 0.01 85 / 0.65);
+  border-color: oklch(0.75 0.12 85 / 0.2);
+  box-shadow:
+    0 1px 4px oklch(0.7 0.15 85 / 0.08),
+    0 0 1px oklch(0.7 0.15 85 / 0.1),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.6);
+}
+
+.chapter-cell-new:hover {
+  background: oklch(0.98 0.015 85 / 0.75);
+  border-color: oklch(0.7 0.15 85 / 0.25);
+  box-shadow:
+    0 2px 8px oklch(0.7 0.15 85 / 0.1),
+    0 0 1px oklch(0.7 0.15 85 / 0.12),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.7);
+}
+
+.dark .chapter-cell-new {
+  background: oklch(0.4 0.06 85 / 0.12);
+  border-color: oklch(0.7 0.12 85 / 0.2);
+  box-shadow:
+    0 1px 6px oklch(0.7 0.15 85 / 0.1),
+    0 0 1px oklch(0 0 0 / 0.15),
+    inset 0 0.5px 0 oklch(0.8 0.1 85 / 0.1);
+}
+
+.dark .chapter-cell-new:hover {
+  background: oklch(0.45 0.08 85 / 0.15);
+  border-color: oklch(0.7 0.15 85 / 0.25);
+  box-shadow:
+    0 2px 10px oklch(0.7 0.15 85 / 0.15),
+    0 0 1px oklch(0 0 0 / 0.2),
+    inset 0 0.5px 0 oklch(0.8 0.1 85 / 0.12);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Chapter cell typography
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.chapter-cell-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chapter-cell-subtitle {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 0.125rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Source Card - Glassmorphism with depth and luminous hover
+   Elevated glass panel with icon glow and smooth transitions
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.source-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: calc(var(--radius) + 4px);
+  text-decoration: none;
+  color: inherit;
+  overflow: hidden;
+
+  /* Glass surface - more transparent for depth */
+  background: oklch(0.99 0 0 / 0.65);
+  border: 0.5px solid oklch(0 0 0 / 0.06);
+  box-shadow:
+    0 1px 3px oklch(0 0 0 / 0.04),
+    0 4px 12px oklch(0 0 0 / 0.03),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.7);
+
+  transition:
+    transform 250ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 250ms ease,
+    border-color 250ms ease,
+    background 250ms ease;
+}
+
+.source-card:hover {
+  background: oklch(1 0 0 / 0.8);
+  border-color: oklch(0 0 0 / 0.1);
+  box-shadow:
+    0 2px 8px oklch(0 0 0 / 0.05),
+    0 4px 12px oklch(0 0 0 / 0.03),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.8);
+}
+
+.source-card:active {
+  transform: translateY(-1px) scale(0.995);
+  transition: transform 100ms ease;
+}
+
+/* Dark mode - deeper glass with luminous edges */
+.dark .source-card {
+  background: oklch(1 0 0 / 0.04);
+  border: 0.5px solid oklch(1 0 0 / 0.08);
+  box-shadow:
+    0 2px 8px oklch(0 0 0 / 0.25),
+    0 4px 16px oklch(0 0 0 / 0.15),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.06);
+}
+
+.dark .source-card:hover {
+  background: oklch(1 0 0 / 0.07);
+  border-color: oklch(1 0 0 / 0.12);
+  box-shadow:
+    0 4px 16px oklch(0 0 0 / 0.3),
+    0 6px 20px oklch(0 0 0 / 0.15),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.1);
+}
+
+/* Source icon container - glass with subtle glow */
+.source-card-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  flex-shrink: 0;
+  border-radius: calc(var(--radius) + 2px);
+  overflow: hidden;
+
+  /* Glass frame */
+  background: oklch(0 0 0 / 0.03);
+  border: 0.5px solid oklch(0 0 0 / 0.06);
+  box-shadow:
+    inset 0 1px 2px oklch(0 0 0 / 0.04),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.3);
+}
+
+.source-card-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dark .source-card-icon {
+  background: oklch(1 0 0 / 0.06);
+  border: 0.5px solid oklch(1 0 0 / 0.08);
+  box-shadow:
+    inset 0 1px 3px oklch(0 0 0 / 0.15),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.04);
+}
+
+/* Source card text styling */
+.source-card-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Empty State - Glass container with centered content
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.empty-state-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 5rem;
+  height: 5rem;
+  border-radius: 50%;
+
+  /* Frosted glass circle */
+  background: oklch(0 0 0 / 0.04);
+  border: 0.5px solid oklch(0 0 0 / 0.06);
+  box-shadow:
+    0 2px 8px oklch(0 0 0 / 0.04),
+    inset 0 1px 2px oklch(0 0 0 / 0.02),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.5);
+}
+
+.dark .empty-state-icon {
+  background: oklch(1 0 0 / 0.05);
+  border: 0.5px solid oklch(1 0 0 / 0.08);
+  box-shadow:
+    0 2px 12px oklch(0 0 0 / 0.25),
+    inset 0 1px 3px oklch(0 0 0 / 0.15),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.04);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Token Details Card - Glassmorphism for OCR sentence analysis
+   Elevated glass panel with refined typography and smooth transitions
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.token-details-card {
+  /* Warm glass surface with depth */
+  background: oklch(0.995 0.002 75 / 0.85);
+  border: 0.5px solid oklch(0 0 0 / 0.06);
+  box-shadow:
+    0 2px 8px oklch(0 0 0 / 0.04),
+    0 8px 24px oklch(0 0 0 / 0.06),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.8),
+    inset 0 -0.5px 0 oklch(0 0 0 / 0.02);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.dark .token-details-card {
+  background: oklch(0.16 0.005 280 / 0.75);
+  border: 0.5px solid oklch(1 0 0 / 0.08);
+  box-shadow:
+    0 2px 12px oklch(0 0 0 / 0.25),
+    0 8px 32px oklch(0 0 0 / 0.2),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.06),
+    inset 0 -0.5px 0 oklch(0 0 0 / 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Japanese Textbook Sentence Display
+   Scholarly aesthetic with visual grammar parsing
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+/* Base font for Japanese textbook feel */
+.ja-textbook {
+  font-family: 'Noto Serif JP Variable', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+  font-feature-settings: 'palt' 1;
+  font-optical-sizing: auto;
+}
+
+/* Part of Speech color system - Textbook palette */
+/* Nouns: Scholarly blue */
+.pos-noun {
+  --pos-bg: oklch(0.94 0.03 240);
+  --pos-border: oklch(0.75 0.08 240);
+  --pos-text: oklch(0.35 0.12 240);
+}
+.dark .pos-noun {
+  --pos-bg: oklch(0.25 0.04 240 / 0.5);
+  --pos-border: oklch(0.55 0.1 240);
+  --pos-text: oklch(0.8 0.08 240);
+}
+
+/* Verbs: Forest green - action words */
+.pos-verb {
+  --pos-bg: oklch(0.94 0.04 155);
+  --pos-border: oklch(0.65 0.12 155);
+  --pos-text: oklch(0.32 0.1 155);
+}
+.dark .pos-verb {
+  --pos-bg: oklch(0.25 0.05 155 / 0.5);
+  --pos-border: oklch(0.55 0.12 155);
+  --pos-text: oklch(0.78 0.1 155);
+}
+
+/* Adjectives: Gentle purple */
+.pos-adjective {
+  --pos-bg: oklch(0.94 0.035 300);
+  --pos-border: oklch(0.7 0.1 300);
+  --pos-text: oklch(0.4 0.12 300);
+}
+.dark .pos-adjective {
+  --pos-bg: oklch(0.25 0.05 300 / 0.5);
+  --pos-border: oklch(0.6 0.12 300);
+  --pos-text: oklch(0.82 0.08 300);
+}
+
+/* Particles: Warm amber - structural connectors */
+.pos-particle {
+  --pos-bg: oklch(0.92 0.06 70);
+  --pos-border: oklch(0.7 0.14 70);
+  --pos-text: oklch(0.4 0.12 55);
+}
+.dark .pos-particle {
+  --pos-bg: oklch(0.32 0.08 70 / 0.6);
+  --pos-border: oklch(0.65 0.14 70);
+  --pos-text: oklch(0.88 0.1 70);
+}
+
+/* Adverbs: Warm ochre */
+.pos-adverb {
+  --pos-bg: oklch(0.95 0.04 85);
+  --pos-border: oklch(0.72 0.1 85);
+  --pos-text: oklch(0.42 0.1 85);
+}
+.dark .pos-adverb {
+  --pos-bg: oklch(0.28 0.05 85 / 0.5);
+  --pos-border: oklch(0.6 0.1 85);
+  --pos-text: oklch(0.85 0.08 85);
+}
+
+/* Auxiliary: Subtle teal */
+.pos-auxiliary {
+  --pos-bg: oklch(0.94 0.025 195);
+  --pos-border: oklch(0.7 0.08 195);
+  --pos-text: oklch(0.4 0.08 195);
+}
+.dark .pos-auxiliary {
+  --pos-bg: oklch(0.24 0.04 195 / 0.5);
+  --pos-border: oklch(0.55 0.08 195);
+  --pos-text: oklch(0.8 0.06 195);
+}
+
+/* Copula: Soft pink */
+.pos-copula {
+  --pos-bg: oklch(0.95 0.025 350);
+  --pos-border: oklch(0.75 0.08 350);
+  --pos-text: oklch(0.45 0.1 350);
+}
+.dark .pos-copula {
+  --pos-bg: oklch(0.26 0.04 350 / 0.5);
+  --pos-border: oklch(0.6 0.1 350);
+  --pos-text: oklch(0.82 0.06 350);
+}
+
+/* Pronoun: Deep indigo */
+.pos-pronoun {
+  --pos-bg: oklch(0.93 0.03 270);
+  --pos-border: oklch(0.68 0.1 270);
+  --pos-text: oklch(0.38 0.1 270);
+}
+.dark .pos-pronoun {
+  --pos-bg: oklch(0.24 0.04 270 / 0.5);
+  --pos-border: oklch(0.55 0.1 270);
+  --pos-text: oklch(0.8 0.08 270);
+}
+
+/* Expression/Interjection: Coral */
+.pos-expression {
+  --pos-bg: oklch(0.95 0.04 30);
+  --pos-border: oklch(0.72 0.12 30);
+  --pos-text: oklch(0.42 0.12 30);
+}
+.dark .pos-expression {
+  --pos-bg: oklch(0.28 0.05 30 / 0.5);
+  --pos-border: oklch(0.6 0.12 30);
+  --pos-text: oklch(0.85 0.08 30);
+}
+
+/* Counter/Numeric: Steel cyan */
+.pos-numeric {
+  --pos-bg: oklch(0.94 0.02 210);
+  --pos-border: oklch(0.7 0.06 210);
+  --pos-text: oklch(0.4 0.08 210);
+}
+.dark .pos-numeric {
+  --pos-bg: oklch(0.25 0.03 210 / 0.5);
+  --pos-border: oklch(0.55 0.06 210);
+  --pos-text: oklch(0.8 0.05 210);
+}
+
+/* Conjunction: Rose */
+.pos-conjunction {
+  --pos-bg: oklch(0.95 0.03 10);
+  --pos-border: oklch(0.72 0.1 10);
+  --pos-text: oklch(0.45 0.1 10);
+}
+.dark .pos-conjunction {
+  --pos-bg: oklch(0.26 0.04 10 / 0.5);
+  --pos-border: oklch(0.58 0.1 10);
+  --pos-text: oklch(0.82 0.07 10);
+}
+
+/* Prefix/Suffix: Muted violet */
+.pos-prefix-suffix {
+  --pos-bg: oklch(0.94 0.02 280);
+  --pos-border: oklch(0.7 0.06 280);
+  --pos-text: oklch(0.42 0.08 280);
+}
+.dark .pos-prefix-suffix {
+  --pos-bg: oklch(0.25 0.03 280 / 0.5);
+  --pos-border: oklch(0.55 0.06 280);
+  --pos-text: oklch(0.8 0.05 280);
+}
+
+/* Unknown/Other: Neutral gray */
+.pos-unknown, .pos-other {
+  --pos-bg: oklch(0.95 0 0);
+  --pos-border: oklch(0.8 0 0);
+  --pos-text: oklch(0.45 0 0);
+}
+.dark .pos-unknown, .dark .pos-other {
+  --pos-bg: oklch(0.25 0 0 / 0.5);
+  --pos-border: oklch(0.5 0 0);
+  --pos-text: oklch(0.75 0 0);
+}
+
+/* Token base styling with POS colors */
+.textbook-token {
+  background: var(--pos-bg);
+  border-bottom: 2px solid var(--pos-border);
+  transition: all 0.2s ease;
+}
+
+.textbook-token:hover {
+  filter: brightness(0.97);
+}
+
+.dark .textbook-token:hover {
+  filter: brightness(1.1);
+}
+
+.textbook-token[data-selected="true"] {
+  box-shadow: 0 2px 0 0 var(--pos-border);
+}
+
+/* Particle special styling - small pills */
+.textbook-particle {
+  background: var(--pos-bg);
+  border: 1.5px solid var(--pos-border);
+  border-radius: 4px;
+  padding: 0.1em 0.25em;
+  margin: 0 0.1em;
+  font-size: 0.9em;
+  vertical-align: baseline;
+}
+
+/* POS Legend styling */
+.pos-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+
+.pos-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  border: 1px solid var(--pos-border);
+  background: var(--pos-bg);
+}
+

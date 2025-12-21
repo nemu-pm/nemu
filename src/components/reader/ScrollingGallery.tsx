@@ -144,6 +144,14 @@ export function ScrollingGallery({
   // Track the last page index we reported to prevent scroll-to-row feedback loop
   const lastReportedPageIndex = useRef(currentPageIndex)
   const didInitialScrollRef = useRef(false)
+  // Track which row we intend to land on during initial positioning.
+  // We only start reporting visible rows after this target is actually visible,
+  // otherwise react-window's initial render (row 0) can override the restored page.
+  const initialTargetRowRef = useRef<number | null>(null)
+  // When parent requests a jump (e.g. progress slider), we programmatically scrollToRow.
+  // While that scroll is in-flight, ignore onRowsRendered updates to avoid feedback loops
+  // that can trigger "Maximum update depth exceeded" under rapid slider movement.
+  const pendingProgrammaticTargetRowRef = useRef<number | null>(null)
   // Track if we're in the middle of user-initiated scrolling (drag or inertia)
   const isUserScrolling = useRef(false)
 
@@ -275,8 +283,33 @@ export function ScrollingGallery({
   const handleRowsRendered = useCallback(
     (visibleRows: { startIndex: number; stopIndex: number }) => {
       if (isTwoPageMode) return
-      // Don't let the initial (row 0) render override the desired starting page.
-      if (!didInitialScrollRef.current) return
+      // Don't let react-window's initial (row 0) render override the desired starting page.
+      // Wait until our initial target row is actually visible, then start reporting.
+      if (!didInitialScrollRef.current) {
+        const target = initialTargetRowRef.current
+        if (
+          target != null &&
+          visibleRows.startIndex <= target &&
+          visibleRows.stopIndex >= target
+        ) {
+          didInitialScrollRef.current = true
+          lastReportedPageIndex.current = currentPageIndex
+        }
+        return
+      }
+
+      // If we're mid-programmatic scroll to a specific target row, don't report mid-page changes
+      // until that target is actually visible. This prevents state update ping-pong.
+      const pendingTarget = pendingProgrammaticTargetRowRef.current
+      if (pendingTarget != null) {
+        if (
+          visibleRows.startIndex <= pendingTarget &&
+          visibleRows.stopIndex >= pendingTarget
+        ) {
+          pendingProgrammaticTargetRowRef.current = null
+        }
+        return
+      }
       const { startIndex, stopIndex } = visibleRows
       if (startIndex < 0 || stopIndex < 0) return
 
@@ -286,7 +319,7 @@ export function ScrollingGallery({
       lastReportedPageIndex.current = newPageIndex
       onPageChange(newPageIndex)
     },
-    [isTwoPageMode, onPageChange, pageCount]
+    [isTwoPageMode, onPageChange, pageCount, currentPageIndex]
   )
 
   // Initial scroll so switching into scrolling mode lands on the current page, not row 0.
@@ -297,9 +330,9 @@ export function ScrollingGallery({
     if (currentPageIndex < 0) return
 
     const targetIndex = isTwoPageMode ? currentSpreadIndex : currentPageIndex
+    initialTargetRowRef.current = targetIndex
     lastReportedPageIndex.current = currentPageIndex
     listRef.current.scrollToRow({ index: targetIndex, align: isTwoPageMode ? 'center' : 'start' })
-    didInitialScrollRef.current = true
   }, [listReady, currentPageIndex, currentSpreadIndex, isTwoPageMode, pageCount, containerSize.height])
 
   // Mouse interaction handlers
@@ -409,6 +442,9 @@ export function ScrollingGallery({
     ) {
       lastReportedPageIndex.current = currentPageIndex
       const targetIndex = isTwoPageMode ? currentSpreadIndex : currentPageIndex
+      if (!isTwoPageMode) {
+        pendingProgrammaticTargetRowRef.current = targetIndex
+      }
       listRef.current.scrollToRow({ index: targetIndex, align: isTwoPageMode ? 'center' : 'start' })
     }
   }, [currentPageIndex, currentSpreadIndex, isTwoPageMode])

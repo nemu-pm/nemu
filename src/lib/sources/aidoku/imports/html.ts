@@ -7,9 +7,63 @@ import {
 import type { AnyNode, Element, Text } from "domhandler";
 import { GlobalStore, isCheerioNode } from "../global-store";
 
+// B12: HTML error codes matching aidoku-rs HtmlError
+const HtmlError = {
+  InvalidDescriptor: -1,
+  InvalidString: -2,
+  InvalidHtml: -3,
+  InvalidQuery: -4,
+  NoResult: -5,
+  SwiftSoupError: -6,
+} as const;
+
 // Extended Cheerio type with API reference
 interface CheerioWithApi extends Cheerio<AnyNode> {
   _cheerioApi?: CheerioAPI;
+}
+
+/**
+ * Preprocess selector for SwiftSoup compatibility.
+ * Handles patterns that Cheerio doesn't support natively:
+ * - [*] matches elements with any attribute (SwiftSoup extension)
+ * - :not([*]) matches elements with no attributes
+ *
+ * Returns { selector, postFilter } where postFilter is a function to apply after select.
+ */
+function preprocessSelector(
+  selector: string
+): { selector: string; postFilter: ((el: Cheerio<AnyNode>) => boolean) | null } {
+  // Handle :not([*]) - elements with no attributes
+  const notAnyAttrMatch = selector.match(/^(.+?):not\(\[\*\]\)$/);
+  if (notAnyAttrMatch) {
+    return {
+      selector: notAnyAttrMatch[1],
+      postFilter: (el) => {
+        const first = el[0];
+        if (first && "attribs" in first) {
+          return Object.keys((first as Element).attribs || {}).length === 0;
+        }
+        return true;
+      },
+    };
+  }
+
+  // Handle [*] - elements with any attribute
+  const anyAttrMatch = selector.match(/^(.+?)\[\*\]$/);
+  if (anyAttrMatch) {
+    return {
+      selector: anyAttrMatch[1],
+      postFilter: (el) => {
+        const first = el[0];
+        if (first && "attribs" in first) {
+          return Object.keys((first as Element).attribs || {}).length > 0;
+        }
+        return false;
+      },
+    };
+  }
+
+  return { selector, postFilter: null };
 }
 
 // Helper to get Cheerio element from descriptor
@@ -38,9 +92,9 @@ export function createHtmlImports(store: GlobalStore) {
       baseUrlPtr: number,
       baseUrlLen: number
     ): number => {
-      if (dataLen <= 0) return -1;
+      if (dataLen <= 0) return HtmlError.InvalidString;
       const content = store.readString(dataPtr, dataLen);
-      if (!content) return -1;
+      if (!content) return HtmlError.InvalidString;
 
       const baseUrl =
         baseUrlLen > 0 ? store.readString(baseUrlPtr, baseUrlLen) : undefined;
@@ -51,7 +105,7 @@ export function createHtmlImports(store: GlobalStore) {
         root._cheerioApi = $;
         return store.storeStdValue(root);
       } catch {
-        return -1;
+        return HtmlError.InvalidHtml;
       }
     },
 
@@ -61,9 +115,9 @@ export function createHtmlImports(store: GlobalStore) {
       baseUrlPtr: number,
       baseUrlLen: number
     ): number => {
-      if (dataLen <= 0) return -1;
+      if (dataLen <= 0) return HtmlError.InvalidString;
       const content = store.readString(dataPtr, dataLen);
-      if (!content) return -1;
+      if (!content) return HtmlError.InvalidString;
 
       const baseUrl =
         baseUrlLen > 0 ? store.readString(baseUrlPtr, baseUrlLen) : undefined;
@@ -76,15 +130,16 @@ export function createHtmlImports(store: GlobalStore) {
         body._cheerioApi = $;
         return store.storeStdValue(body);
       } catch {
-        return -1;
+        return HtmlError.InvalidHtml;
       }
     },
 
     escape: (textPtr: number, textLen: number): number => {
-      if (textLen <= 0) return -1;
+      if (textLen <= 0) return HtmlError.InvalidString;
       const text = store.readString(textPtr, textLen);
-      if (!text) return -1;
+      if (!text) return HtmlError.InvalidString;
 
+      // Escape special HTML characters (comprehensive list)
       const escaped = text
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
@@ -95,22 +150,78 @@ export function createHtmlImports(store: GlobalStore) {
     },
 
     unescape: (textPtr: number, textLen: number): number => {
-      if (textLen <= 0) return -1;
+      if (textLen <= 0) return HtmlError.InvalidString;
       const text = store.readString(textPtr, textLen);
-      if (!text) return -1;
+      if (!text) return HtmlError.InvalidString;
+
+      // Common named HTML entities (extended from basic 5 to match SwiftSoup behavior)
+      const namedEntities: Record<string, string> = {
+        // Basic entities
+        amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+        // Whitespace and special
+        nbsp: "\u00A0", ensp: "\u2002", emsp: "\u2003", thinsp: "\u2009",
+        // Common punctuation
+        ndash: "\u2013", mdash: "\u2014", lsquo: "\u2018", rsquo: "\u2019",
+        ldquo: "\u201C", rdquo: "\u201D", sbquo: "\u201A", bdquo: "\u201E",
+        laquo: "\u00AB", raquo: "\u00BB", lsaquo: "\u2039", rsaquo: "\u203A",
+        hellip: "\u2026", bull: "\u2022", middot: "\u00B7", prime: "\u2032", Prime: "\u2033",
+        // Currency and symbols
+        cent: "\u00A2", pound: "\u00A3", yen: "\u00A5", euro: "\u20AC", copy: "\u00A9",
+        reg: "\u00AE", trade: "\u2122", deg: "\u00B0", plusmn: "\u00B1", para: "\u00B6",
+        sect: "\u00A7", times: "\u00D7", divide: "\u00F7",
+        // Arrows
+        larr: "\u2190", uarr: "\u2191", rarr: "\u2192", darr: "\u2193",
+        harr: "\u2194", crarr: "\u21B5",
+        // Math
+        forall: "\u2200", part: "\u2202", exist: "\u2203", empty: "\u2205",
+        nabla: "\u2207", isin: "\u2208", notin: "\u2209", ni: "\u220B",
+        prod: "\u220F", sum: "\u2211", minus: "\u2212", lowast: "\u2217",
+        radic: "\u221A", prop: "\u221D", infin: "\u221E", ang: "\u2220",
+        and: "\u2227", or: "\u2228", cap: "\u2229", cup: "\u222A",
+        int: "\u222B", there4: "\u2234", sim: "\u223C", cong: "\u2245",
+        asymp: "\u2248", ne: "\u2260", equiv: "\u2261", le: "\u2264",
+        ge: "\u2265", sub: "\u2282", sup: "\u2283", nsub: "\u2284",
+        sube: "\u2286", supe: "\u2287", oplus: "\u2295", otimes: "\u2297",
+        perp: "\u22A5", sdot: "\u22C5",
+        // Greek letters (lowercase)
+        alpha: "\u03B1", beta: "\u03B2", gamma: "\u03B3", delta: "\u03B4",
+        epsilon: "\u03B5", zeta: "\u03B6", eta: "\u03B7", theta: "\u03B8",
+        iota: "\u03B9", kappa: "\u03BA", lambda: "\u03BB", mu: "\u03BC",
+        nu: "\u03BD", xi: "\u03BE", omicron: "\u03BF", pi: "\u03C0",
+        rho: "\u03C1", sigmaf: "\u03C2", sigma: "\u03C3", tau: "\u03C4",
+        upsilon: "\u03C5", phi: "\u03C6", chi: "\u03C7", psi: "\u03C8", omega: "\u03C9",
+        // Greek letters (uppercase)
+        Alpha: "\u0391", Beta: "\u0392", Gamma: "\u0393", Delta: "\u0394",
+        Epsilon: "\u0395", Zeta: "\u0396", Eta: "\u0397", Theta: "\u0398",
+        Iota: "\u0399", Kappa: "\u039A", Lambda: "\u039B", Mu: "\u039C",
+        Nu: "\u039D", Xi: "\u039E", Omicron: "\u039F", Pi: "\u03A0",
+        Rho: "\u03A1", Sigma: "\u03A3", Tau: "\u03A4", Upsilon: "\u03A5",
+        Phi: "\u03A6", Chi: "\u03A7", Psi: "\u03A8", Omega: "\u03A9",
+      };
 
       const unescaped = text
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&#x([0-9a-f]+);/gi, (_, code: string) =>
-          String.fromCharCode(parseInt(code, 16))
-        )
-        .replace(/&#(\d+);/g, (_, code: string) =>
-          String.fromCharCode(parseInt(code, 10))
-        );
+        // Named entities
+        .replace(/&([a-zA-Z]+);/g, (match, name: string) => {
+          return namedEntities[name] ?? match; // Keep unrecognized as-is
+        })
+        // Numeric hex entities (&#x1F600; or &#X1F600;)
+        .replace(/&#[xX]([0-9a-fA-F]+);/g, (_, code: string) => {
+          try {
+            const codePoint = parseInt(code, 16);
+            return String.fromCodePoint(codePoint);
+          } catch {
+            return _; // Keep invalid as-is
+          }
+        })
+        // Numeric decimal entities (&#123;)
+        .replace(/&#(\d+);/g, (_, code: string) => {
+          try {
+            const codePoint = parseInt(code, 10);
+            return String.fromCodePoint(codePoint);
+          } catch {
+            return _; // Keep invalid as-is
+          }
+        });
       return store.storeStdValue(unescaped);
     },
 
@@ -119,16 +230,43 @@ export function createHtmlImports(store: GlobalStore) {
       selectorPtr: number,
       selectorLen: number
     ): number => {
-      if (descriptor < 0 || selectorLen <= 0) return -1;
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
+      if (selectorLen <= 0) return HtmlError.InvalidString;
       const node = getNode(store, descriptor);
-      const selector = store.readString(selectorPtr, selectorLen);
-      if (!node || !selector) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
+      const rawSelector = store.readString(selectorPtr, selectorLen);
+      if (!rawSelector) return HtmlError.InvalidString;
 
       try {
-        const result = attachApi(node.find(selector), node);
-        return store.storeStdValue(result);
+        const { selector, postFilter } = preprocessSelector(rawSelector);
+        const $ = node._cheerioApi;
+
+        // Search descendants
+        let result = node.find(selector);
+        // Also include the element itself if it matches (SwiftSoup behavior)
+        try {
+          if (node.is(selector)) {
+            result = node.first().add(result);
+          }
+        } catch {
+          // is() can throw for complex selectors, ignore
+        }
+
+        // Apply post-filter if present (for SwiftSoup-specific patterns)
+        if (postFilter && $) {
+          const filtered: AnyNode[] = [];
+          result.each((_, el) => {
+            const wrapped = $(el);
+            if (postFilter(wrapped)) {
+              filtered.push(el);
+            }
+          });
+          result = $(filtered) as Cheerio<AnyNode>;
+        }
+
+        return store.storeStdValue(attachApi(result, node));
       } catch {
-        return -1;
+        return HtmlError.InvalidQuery;
       }
     },
 
@@ -137,25 +275,64 @@ export function createHtmlImports(store: GlobalStore) {
       selectorPtr: number,
       selectorLen: number
     ): number => {
-      if (descriptor < 0 || selectorLen <= 0) return -1;
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
+      if (selectorLen <= 0) return HtmlError.InvalidString;
       const node = getNode(store, descriptor);
-      const selector = store.readString(selectorPtr, selectorLen);
-      if (!node || !selector) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
+      const rawSelector = store.readString(selectorPtr, selectorLen);
+      if (!rawSelector) return HtmlError.InvalidString;
 
       try {
-        const result = node.find(selector).first();
-        if (result.length === 0) return -5; // NoResult error
+        const { selector, postFilter } = preprocessSelector(rawSelector);
+        const $ = node._cheerioApi;
+
+        // First check if the element itself matches the selector
+        // This matches SwiftSoup behavior where select on an element
+        // can return the element itself if it matches
+        try {
+          if (node.is(selector)) {
+            const first = node.first();
+            if (!postFilter || postFilter(first)) {
+              return store.storeStdValue(attachApi(first, node));
+            }
+          }
+        } catch {
+          // is() can throw for complex selectors, ignore
+        }
+
+        // Then search descendants
+        const found = node.find(selector);
+
+        // Apply post-filter if present (for SwiftSoup-specific patterns)
+        if (postFilter && $) {
+          let result: Cheerio<AnyNode> | null = null;
+          found.each((_, el) => {
+            if (result) return false; // Already found one
+            const wrapped = $(el);
+            if (postFilter(wrapped)) {
+              result = wrapped as Cheerio<AnyNode>;
+              return false;
+            }
+          });
+          if (!result) return HtmlError.NoResult;
+          return store.storeStdValue(attachApi(result, node));
+        }
+
+        const result = found.first();
+        if (result.length === 0) return HtmlError.NoResult;
         return store.storeStdValue(attachApi(result, node));
       } catch {
-        return -1;
+        return HtmlError.InvalidQuery;
       }
     },
 
     attr: (descriptor: number, attrPtr: number, attrLen: number): number => {
-      if (descriptor < 0 || attrLen <= 0) return -1;
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
+      if (attrLen <= 0) return HtmlError.InvalidString;
       const node = getNode(store, descriptor);
+      if (!node) return HtmlError.InvalidDescriptor;
       const attrName = store.readString(attrPtr, attrLen);
-      if (!node || !attrName) return -1;
+      if (!attrName) return HtmlError.InvalidString;
 
       try {
         // Handle abs: prefix for absolute URLs
@@ -167,7 +344,7 @@ export function createHtmlImports(store: GlobalStore) {
         }
 
         let value = node.first().attr(attr);
-        if (value === undefined) return -5; // NoResult
+        if (value === undefined) return HtmlError.NoResult;
 
         if (makeAbsolute && value) {
           // Try to get base URI from the cheerio API
@@ -192,37 +369,39 @@ export function createHtmlImports(store: GlobalStore) {
 
         return store.storeStdValue(value);
       } catch {
-        return -1;
+        return HtmlError.SwiftSoupError;
       }
     },
 
     text: (descriptor: number): number => {
-      if (descriptor < 0) return -1;
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
 
       const text = node.text().trim().replace(/\s+/g, " ");
       return store.storeStdValue(text);
     },
 
     untrimmed_text: (descriptor: number): number => {
-      if (descriptor < 0) return -1;
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
 
       return store.storeStdValue(node.text());
     },
 
     html: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
       const html = node.html() || "";
       return store.storeStdValue(html);
     },
 
     outer_html: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
       const $ = node._cheerioApi;
       const outer = $ ? $.html(node) : node.toString();
       return store.storeStdValue(outer || "");
@@ -233,9 +412,11 @@ export function createHtmlImports(store: GlobalStore) {
       textPtr: number,
       textLen: number
     ): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
+      if (!node) return HtmlError.InvalidDescriptor;
       const text = store.readString(textPtr, textLen);
-      if (!node || text === null) return -1;
+      if (text === null) return HtmlError.InvalidString;
       node.text(text);
       return 0;
     },
@@ -245,9 +426,11 @@ export function createHtmlImports(store: GlobalStore) {
       htmlPtr: number,
       htmlLen: number
     ): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
+      if (!node) return HtmlError.InvalidDescriptor;
       const html = store.readString(htmlPtr, htmlLen);
-      if (!node || html === null) return -1;
+      if (html === null) return HtmlError.InvalidString;
       node.html(html);
       return 0;
     },
@@ -257,70 +440,81 @@ export function createHtmlImports(store: GlobalStore) {
       htmlPtr: number,
       htmlLen: number
     ): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
+      if (!node) return HtmlError.InvalidDescriptor;
       const html = store.readString(htmlPtr, htmlLen);
-      if (!node || html === null) return -1;
+      if (html === null) return HtmlError.InvalidString;
       node.prepend(html);
       return 0;
     },
 
     append: (descriptor: number, htmlPtr: number, htmlLen: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
+      if (!node) return HtmlError.InvalidDescriptor;
       const html = store.readString(htmlPtr, htmlLen);
-      if (!node || html === null) return -1;
+      if (html === null) return HtmlError.InvalidString;
       node.append(html);
       return 0;
     },
 
     parent: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
       const parent = node.parent();
-      if (parent.length === 0) return -5;
+      if (parent.length === 0) return HtmlError.NoResult;
       return store.storeStdValue(attachApi(parent, node));
     },
 
     children: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
       const children = node.children();
       return store.storeStdValue(attachApi(children, node));
     },
 
     siblings: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
       const siblings = node.siblings();
       return store.storeStdValue(attachApi(siblings, node));
     },
 
     next: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
       const next = node.next();
-      if (next.length === 0) return -5;
+      if (next.length === 0) return HtmlError.NoResult;
       return store.storeStdValue(attachApi(next, node));
     },
 
     previous: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
       const prev = node.prev();
-      if (prev.length === 0) return -5;
+      if (prev.length === 0) return HtmlError.NoResult;
       return store.storeStdValue(attachApi(prev, node));
     },
 
     base_uri: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
       const $ = node._cheerioApi;
       const baseUri = $?.root().attr("baseURI") || "";
       return store.storeStdValue(baseUri);
     },
 
     own_text: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
 
       // Get only direct text nodes, not from children
       const el = node.first();
@@ -335,24 +529,27 @@ export function createHtmlImports(store: GlobalStore) {
     },
 
     data: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
       // For script tags and similar
       const data = node.first().html() || "";
       return store.storeStdValue(data);
     },
 
     id: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
       const id = node.first().attr("id");
-      if (!id) return -5;
+      if (!id) return HtmlError.NoResult;
       return store.storeStdValue(id);
     },
 
     tag_name: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
       const first = node.first();
       const el = first[0];
       let name = "";
@@ -363,8 +560,9 @@ export function createHtmlImports(store: GlobalStore) {
     },
 
     class_name: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
       const className = node.first().attr("class") || "";
       return store.storeStdValue(className);
     },
@@ -393,24 +591,30 @@ export function createHtmlImports(store: GlobalStore) {
 
     // ElementList methods
     first: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node || node.length === 0) return -5;
+      if (!node) return HtmlError.InvalidDescriptor;
+      if (node.length === 0) return HtmlError.NoResult;
       const first = node.first();
       return store.storeStdValue(attachApi(first, node));
     },
 
     last: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node || node.length === 0) return -5;
+      if (!node) return HtmlError.InvalidDescriptor;
+      if (node.length === 0) return HtmlError.NoResult;
       const last = node.last();
       return store.storeStdValue(attachApi(last, node));
     },
 
     get: (descriptor: number, index: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node || index < 0 || index >= node.length) return -5;
+      if (!node) return HtmlError.InvalidDescriptor;
+      if (index < 0 || index >= node.length) return HtmlError.NoResult;
       const el = node.eq(index);
-      if (el.length === 0) return -5;
+      if (el.length === 0) return HtmlError.NoResult;
       return store.storeStdValue(attachApi(el, node));
     },
 
@@ -424,8 +628,9 @@ export function createHtmlImports(store: GlobalStore) {
     
     // Convert a Cheerio selection to an array of elements (returns std array descriptor)
     array: (descriptor: number): number => {
+      if (descriptor < 0) return HtmlError.InvalidDescriptor;
       const node = getNode(store, descriptor);
-      if (!node) return -1;
+      if (!node) return HtmlError.InvalidDescriptor;
 
       // Convert each element in the selection to a separate descriptor
       const elements: CheerioWithApi[] = [];

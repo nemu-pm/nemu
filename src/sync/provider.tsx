@@ -7,15 +7,18 @@ import { RegistryManager } from "@/lib/sources/registry";
 import { createLibraryStore } from "@/stores/library";
 import { createHistoryStore } from "@/stores/history";
 import { createSettingsStore } from "@/stores/settings";
+import { getSourceSettingsStore } from "@/stores/source-settings";
+import { getSyncStore } from "@/stores/sync";
+import { authClient } from "@/lib/auth-client";
 import { api } from "../../convex/_generated/api";
 import { SyncContext } from "./context";
-import { SyncEngine, type SyncStatus } from "./engine";
+import { SyncEngine } from "./engine";
 import type { DataServices, StoreHooks, SyncContextValue } from "./types";
 
 // Re-export types and hooks
 export type { DataServices, StoreHooks } from "./types";
 // eslint-disable-next-line react-refresh/only-export-components
-export { useDataServices, useStores, useAuth, useSyncContext, useSyncStatus, useSignOut } from "./hooks";
+export { useDataServices, useStores, useAuth, useSyncContext, useSyncStatus, useSignOut, useSyncStore } from "./hooks";
 
 // Track if initial merge has been done
 const MERGED_KEY = "nemu:cloud-merged";
@@ -23,6 +26,8 @@ const MERGED_KEY = "nemu:cloud-merged";
 export function SyncProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const convex = useConvex();
+  const syncStore = getSyncStore();
+  const { data: session } = authClient.useSession();
 
   // Local stores (always available) - stable references
   const [localStore] = useState(() => new IndexedDBUserDataStore());
@@ -31,26 +36,31 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // Sync engine (stable reference)
   const [syncEngine] = useState(() => new SyncEngine(localStore));
 
-  // Sync status
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>("offline");
-  const [pendingCount, setPendingCount] = useState(0);
+  // Get sync status from store
+  const syncStatus = syncStore((state) => state.syncStatus);
+  const pendingCount = syncStore((state) => state.pendingCount);
 
   // Track auth state for store switching
   const [authKey, setAuthKey] = useState(0);
   const prevAuthRef = useRef<boolean | null>(null);
   const hasMerged = useRef(false);
+  // Track signing out to skip queries before isAuthenticated updates
+  const [signingOut, setSigningOut] = useState(false);
 
-  // Subscribe to cloud data when authenticated
-  const cloudLibrary = useQuery(api.library.list, isAuthenticated ? {} : "skip");
-  const cloudSettings = useQuery(api.settings.get, isAuthenticated ? {} : "skip");
+  // Subscribe to cloud data when authenticated (skip during sign-out to avoid race)
+  const shouldQuery = isAuthenticated && !signingOut;
+  const cloudLibrary = useQuery(api.library.list, shouldQuery ? {} : "skip");
+  const cloudHistory = useQuery(api.history.getRecent, shouldQuery ? { limit: 1000 } : "skip");
+  const cloudSettings = useQuery(api.settings.get, shouldQuery ? {} : "skip");
+  const oauthProvider = useQuery(api.auth.getOAuthProvider, shouldQuery ? {} : "skip");
 
   // Initialize sync engine
   useEffect(() => {
     syncEngine.initialize(isAuthenticated ? (convex as ConvexReactClient) : undefined);
 
     const unsubStatus = syncEngine.onStatusChange((status) => {
-      setSyncStatus(status);
-      setPendingCount(syncEngine.pendingCount);
+      syncStore.getState().setSyncStatus(status);
+      syncStore.getState().setPendingCount(syncEngine.pendingCount);
     });
 
     return () => {
@@ -69,6 +79,34 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       syncEngine.initialize(convex as ConvexReactClient);
     }
   }, [isAuthenticated, isLoading, convex, syncEngine]);
+
+  // Update auth state in sync store
+  useEffect(() => {
+    syncStore.getState().setAuthState(isAuthenticated, isLoading);
+  }, [isAuthenticated, isLoading, syncStore]);
+
+  // Update user info in sync store
+  useEffect(() => {
+    if (session?.user) {
+      syncStore.getState().setUser({
+        id: session.user.id,
+        name: session.user.name ?? null,
+        email: session.user.email ?? "",
+        image: session.user.image ?? null,
+      });
+    } else {
+      syncStore.getState().setUser(null);
+    }
+  }, [session, syncStore]);
+
+  // Update OAuth provider in sync store
+  useEffect(() => {
+    if (oauthProvider && typeof oauthProvider === "string") {
+      syncStore.getState().setOAuthProvider(oauthProvider as "google" | "apple");
+    } else {
+      syncStore.getState().setOAuthProvider(null);
+    }
+  }, [oauthProvider, syncStore]);
 
   // Update auth key when auth state changes (after loading)
   useEffect(() => {
@@ -92,13 +130,19 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       saveLibraryManga: (manga: Parameters<typeof localStore.saveLibraryManga>[0]) =>
         syncEngine.saveLibraryManga(manga),
       removeLibraryManga: (id: string) => syncEngine.removeLibraryManga(id),
-      getChapterProgress: (mangaId: string, chapterId: string) =>
-        localStore.getChapterProgress(mangaId, chapterId),
-      saveChapterProgress: (
+      // History methods (separate from library)
+      getHistoryEntry: (
+        registryId: string,
+        sourceId: string,
         mangaId: string,
-        chapterId: string,
-        progress: Parameters<typeof localStore.saveChapterProgress>[2]
-      ) => syncEngine.saveChapterProgress(mangaId, chapterId, progress),
+        chapterId: string
+      ) => localStore.getHistoryEntry(registryId, sourceId, mangaId, chapterId),
+      saveHistoryEntry: (entry: Parameters<typeof localStore.saveHistoryEntry>[0]) =>
+        syncEngine.saveHistoryEntry(entry),
+      getMangaHistory: (registryId: string, sourceId: string, mangaId: string) =>
+        localStore.getMangaHistory(registryId, sourceId, mangaId),
+      getRecentHistory: (limit: number) => localStore.getRecentHistory(limit),
+      // Settings
       getSettings: () => localStore.getSettings(),
       saveSettings: (settings: Parameters<typeof localStore.saveSettings>[0]) =>
         syncEngine.saveSettings(settings),
@@ -176,10 +220,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           sources: item.sources,
           activeRegistryId: item.activeRegistryId,
           activeSourceId: item.activeSourceId,
-          history: item.history as Record<
-            string,
-            { progress: number; total: number; completed: boolean; dateRead: number }
-          >,
+          lastReadChapter: item.lastReadChapter,
+          lastReadAt: item.lastReadAt,
+          latestChapter: item.latestChapter,
+          seenLatestChapter: item.seenLatestChapter,
         }))
       )
       .then((mergedMangas) => {
@@ -187,17 +231,35 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       });
   }, [cloudLibrary, isAuthenticated, stores, syncEngine]);
 
+  // Track if we've done initial history merge (only merge once per session)
+  const historyMergedRef = useRef(false);
+
+  // Sync cloud history data to local - ONLY on initial load
+  // Subsequent subscription updates are echoes of our own writes - ignore them
+  useEffect(() => {
+    if (!isAuthenticated || !cloudHistory) return;
+    if (historyMergedRef.current) return;
+    
+    historyMergedRef.current = true;
+    syncEngine.mergeCloudHistory(
+      cloudHistory.map((entry) => ({
+        registryId: entry.registryId,
+        sourceId: entry.sourceId,
+        mangaId: entry.mangaId,
+        chapterId: entry.chapterId,
+        progress: entry.progress,
+        total: entry.total,
+        completed: entry.completed,
+        dateRead: entry.dateRead,
+      }))
+    );
+  }, [cloudHistory, isAuthenticated, syncEngine]);
+
   // Sync settings from cloud
   useEffect(() => {
     if (!isAuthenticated || !cloudSettings) return;
 
     const { useSettingsStore } = stores;
-
-    // Settings use last-write-wins for readingMode
-    // Installed sources already merged by SyncEngine
-    useSettingsStore.setState({
-      readingMode: cloudSettings.readingMode,
-    });
 
     // Merge installed sources
     localStore.getSettings().then((localSettings) => {
@@ -223,17 +285,29 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     stores.useSettingsStore.getState().initialize();
     stores.useLibraryStore.getState().load();
+    // Initialize source settings store (for per-source settings persistence)
+    getSourceSettingsStore().getState().initialize();
   }, [stores]);
 
   // Sign out handler
   const signOut = useCallback(
     async (clearLocal: boolean) => {
+      // Set signing out immediately to skip queries before auth state updates
+      setSigningOut(true);
       await syncEngine.onSignOut(clearLocal);
       sessionStorage.removeItem(MERGED_KEY);
       hasMerged.current = false;
+      syncStore.getState().reset();
     },
-    [syncEngine]
+    [syncEngine, syncStore]
   );
+
+  // Reset signingOut when auth state changes to not-authenticated
+  useEffect(() => {
+    if (!isAuthenticated && signingOut) {
+      setSigningOut(false);
+    }
+  }, [isAuthenticated, signingOut]);
 
   const value: SyncContextValue = useMemo(
     () => ({

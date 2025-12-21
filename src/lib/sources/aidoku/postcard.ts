@@ -734,3 +734,98 @@ export function encodeChapter(chapter: Chapter): Uint8Array {
 
   return concatBytes(parts);
 }
+
+// ============================================================================
+// FilterValue encoding for aidoku-rs
+// ============================================================================
+
+import type { FilterValue, FilterType, GenreState } from "./types";
+
+/**
+ * Encode a FilterValue for aidoku-rs get_search_manga_list.
+ * aidoku-rs FilterValue enum variants:
+ * 0 = Text { id: String, value: String }
+ * 1 = Sort { id: String, index: i32, ascending: bool }
+ * 2 = Check { id: String, value: i32 }
+ * 3 = Select { id: String, value: String }
+ * 4 = MultiSelect { id: String, included: Vec<String>, excluded: Vec<String> }
+ * 5 = Range { id: String, from: Option<f32>, to: Option<f32> }
+ */
+export function encodeFilterValue(filter: FilterValue): Uint8Array {
+  const parts: Uint8Array[] = [];
+  const id = filter.name || "";
+
+  // Note: TypeScript FilterType enum values:
+  // Title = 0, Author = 1, Select = 2, Sort = 3, Check = 4, Group = 5, Genre = 6
+
+  switch (filter.type) {
+    case 0: // Title -> Text
+    case 1: // Author -> Text
+      parts.push(encodeVarint(0)); // Text variant
+      parts.push(encodeString(id));
+      parts.push(encodeString(String(filter.value || "")));
+      break;
+
+    case 3: { // Sort
+      parts.push(encodeVarint(1)); // Sort variant
+      parts.push(encodeString(id));
+      // value is { index: number, ascending: boolean }
+      const sortVal = filter.value as { index: number; ascending: boolean } | undefined;
+      parts.push(encodeI32(sortVal?.index ?? 0));
+      parts.push(encodeBool(sortVal?.ascending ?? false));
+      break;
+    }
+
+    case 4: // Check
+      parts.push(encodeVarint(2)); // Check variant
+      parts.push(encodeString(id));
+      // value is boolean, encode as i32 (0 = unchecked, 1 = checked)
+      parts.push(encodeI32(filter.value ? 1 : 0));
+      break;
+
+    case 2: // Select
+      parts.push(encodeVarint(3)); // Select variant
+      parts.push(encodeString(id));
+      // value is string or index - encode as string
+      parts.push(encodeString(String(filter.value ?? "")));
+      break;
+
+    case 6: { // Genre -> MultiSelect
+      parts.push(encodeVarint(4)); // MultiSelect variant
+      parts.push(encodeString(id));
+      // value is MultiSelectValue { included: string[], excluded: string[] }
+      // These are string IDs, NOT indices!
+      const multiVal = filter.value as { included?: string[]; excluded?: string[] } | undefined;
+      parts.push(encodeVecString(multiVal?.included ?? []));
+      parts.push(encodeVecString(multiVal?.excluded ?? []));
+      break;
+    }
+
+    case 5: // Group - skip, groups are containers not values
+    default:
+      // Unknown type, encode as empty Text
+      parts.push(encodeVarint(0)); // Text variant
+      parts.push(encodeString(id));
+      parts.push(encodeString(""));
+      break;
+  }
+
+  return concatBytes(parts);
+}
+
+/**
+ * Encode Vec<FilterValue> for aidoku-rs
+ */
+export function encodeFilterValues(filters: FilterValue[]): Uint8Array {
+  const parts: Uint8Array[] = [];
+  
+  // Filter out Group type and encode each
+  const validFilters = filters.filter(f => f.type !== 5);
+  
+  parts.push(encodeVarint(validFilters.length));
+  for (const filter of validFilters) {
+    parts.push(encodeFilterValue(filter));
+  }
+  
+  return concatBytes(parts);
+}

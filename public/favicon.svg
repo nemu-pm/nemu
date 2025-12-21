@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Hand-drawn Z shapes, smallest bottom-left to largest top-right -->
+  
+  <!-- Small z (bottom-left) -->
+  <path d="M12 82 L20 82 L12 92 L20 92" 
+        stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  
+  <!-- Medium z (middle) -->
+  <path d="M32 56 L46 56 L32 72 L46 72" 
+        stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  
+  <!-- Large Z (top-right) -->
+  <path d="M56 18 L82 18 L56 44 L82 44" 
+        stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

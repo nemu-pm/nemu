@@ -444,7 +444,9 @@ describe("canvas imports", () => {
       expect(result).toBeNull();
     });
 
-    it("getHostImageData should retrieve image data by rid", async () => {
+    it("getHostImageData should return PNG bytes, not raw RGBA (regression)", async () => {
+      // This is a regression test for a bug where adapter.ts assumed getHostImageData
+      // returned raw RGBA and tried to convert it, causing "ImageData length not multiple of 4*width"
       const result = await createHostImage(store, minimalPng);
       expect(result).not.toBeNull();
       
@@ -452,8 +454,16 @@ describe("canvas imports", () => {
       
       expect(data).not.toBeNull();
       expect(data).toBeInstanceOf(Uint8Array);
-      // 1x1 RGBA = 4 bytes
-      expect(data!.length).toBe(4);
+      
+      // Must be PNG format (starts with PNG signature), NOT raw RGBA
+      // PNG header: 0x89 0x50 0x4E 0x47 (137 80 78 71)
+      expect(data![0]).toBe(0x89); // PNG signature byte 1
+      expect(data![1]).toBe(0x50); // 'P'
+      expect(data![2]).toBe(0x4E); // 'N'
+      expect(data![3]).toBe(0x47); // 'G'
+      
+      // PNG is much larger than raw RGBA (4 bytes for 1x1)
+      expect(data!.length).toBeGreaterThan(4);
     });
 
     it("getHostImageData should return null for invalid rid", () => {
@@ -472,7 +482,12 @@ describe("canvas imports", () => {
       const data = getHostImageData(store, imageId);
       
       expect(data).not.toBeNull();
-      expect(data!.length).toBe(10 * 10 * 4); // 10x10 RGBA
+      // B6: getHostImageData returns PNG-encoded bytes, not raw RGBA
+      // PNG header: 0x89 0x50 0x4E 0x47 (137 80 78 71)
+      expect(data![0]).toBe(0x89);
+      expect(data![1]).toBe(0x50);
+      expect(data![2]).toBe(0x4E);
+      expect(data![3]).toBe(0x47);
     });
   });
 });

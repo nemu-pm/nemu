@@ -8,14 +8,15 @@ import type {
   MangaPageResult,
   Filter,
   FilterValue,
+  Listing,
   SourceManifest,
+  HomeLayout,
 } from "./types";
 import type {
   WorkerSourceApi,
-  SerializableManga,
-  SerializableChapter,
-  SerializablePage,
 } from "./source.worker";
+import { getSourceSettingsStore } from "../../../stores/source-settings";
+import { extractDefaults } from "./settings-types";
 
 /**
  * Async source interface - mirrors AidokuSource but with async methods
@@ -32,6 +33,13 @@ export interface AsyncAidokuSource {
   getChapterList(manga: Manga): Promise<Chapter[]>;
   getPageList(manga: Manga, chapter: Chapter): Promise<Page[]>;
   getFilters(): Promise<Filter[]>;
+  getListings(): Promise<Listing[]>;
+  getMangaListForListing(listing: Listing, page: number): Promise<MangaPageResult>;
+  hasListingProvider(): Promise<boolean>;
+  hasHomeProvider(): Promise<boolean>;
+  getHome(): Promise<HomeLayout | null>;
+  /** Get home with progressive partial updates streamed via callback */
+  getHomeWithPartials(onPartial: (layout: HomeLayout) => void): Promise<HomeLayout | null>;
   modifyImageRequest(
     url: string
   ): Promise<{ url: string; headers: Record<string, string> }>;
@@ -47,19 +55,26 @@ export interface AsyncAidokuSource {
   terminate(): void;
 }
 
-export interface CreateAsyncSourceOptions {
-  /** Initial settings to apply before source initialization */
-  initialSettings?: Record<string, unknown>;
+/**
+ * Get merged settings (defaults + user values) for a source
+ */
+function getMergedSettings(sourceKey: string): Record<string, unknown> {
+  const state = getSourceSettingsStore().getState();
+  const schema = state.schemas.get(sourceKey);
+  const defaults = schema ? extractDefaults(schema) : {};
+  const userValues = state.values.get(sourceKey) ?? {};
+  return { ...defaults, ...userValues };
 }
 
 /**
  * Create an async source that runs in a Web Worker
  * @param wasmUrlOrBytes - URL to fetch WASM from, or ArrayBuffer of WASM bytes
+ * @param sourceKey - Unique identifier (registryId:sourceId) for settings/storage
  */
 export async function createAsyncSource(
   wasmUrlOrBytes: string | ArrayBuffer,
   manifest: SourceManifest,
-  options?: CreateAsyncSourceOptions
+  sourceKey: string
 ): Promise<AsyncAidokuSource> {
   // Create a new worker for this source
   const worker = new Worker(
@@ -70,20 +85,34 @@ export async function createAsyncSource(
   // Wrap with Comlink
   const workerSource = Comlink.wrap<WorkerSourceApi>(worker);
 
-  // Load the source in the worker
-  // If ArrayBuffer, transfer it for efficiency
+  // Get initial settings from main thread's store
+  const initialSettings = getMergedSettings(sourceKey);
+
+  // Load the source in the worker with initial settings
   const loaded =
     typeof wasmUrlOrBytes === "string"
-      ? await workerSource.load(wasmUrlOrBytes, manifest, options?.initialSettings)
+      ? await workerSource.load(wasmUrlOrBytes, manifest, sourceKey, initialSettings)
       : await workerSource.load(
           Comlink.transfer(wasmUrlOrBytes, [wasmUrlOrBytes]),
           manifest,
-          options?.initialSettings
+          sourceKey,
+          initialSettings
         );
   if (!loaded) {
     worker.terminate();
-    throw new Error(`Failed to load source: ${manifest.info.id}`);
+    throw new Error(`Failed to load source: ${sourceKey}`);
   }
+
+  // Subscribe to settings changes and push to worker
+  const unsubscribe = getSourceSettingsStore().subscribe((state, prevState) => {
+    const newValues = state.values.get(sourceKey);
+    const oldValues = prevState.values.get(sourceKey);
+    // Only push if this source's values changed
+    if (newValues !== oldValues) {
+      const merged = getMergedSettings(sourceKey);
+      workerSource.updateSettings(merged);
+    }
+  });
 
   // Return async wrapper
   return {
@@ -95,33 +124,51 @@ export async function createAsyncSource(
       page: number,
       filters: FilterValue[]
     ): Promise<MangaPageResult> {
-      const result = await workerSource.getSearchMangaList(query, page, filters);
-      return {
-        entries: result.entries.map(deserializeManga),
-        hasNextPage: result.hasNextPage,
-      };
+      return workerSource.getSearchMangaList(query, page, filters);
     },
 
     async getMangaDetails(manga: Manga): Promise<Manga> {
-      const result = await workerSource.getMangaDetails(serializeManga(manga));
-      return deserializeManga(result);
+      return workerSource.getMangaDetails(manga);
     },
 
     async getChapterList(manga: Manga): Promise<Chapter[]> {
-      const chapters = await workerSource.getChapterList(serializeManga(manga));
-      return chapters.map(deserializeChapter);
+      return workerSource.getChapterList(manga);
     },
 
     async getPageList(manga: Manga, chapter: Chapter): Promise<Page[]> {
-      const pages = await workerSource.getPageList(
-        serializeManga(manga),
-        serializeChapter(chapter)
-      );
-      return pages.map(deserializePage);
+      return workerSource.getPageList(manga, chapter);
     },
 
     async getFilters(): Promise<Filter[]> {
-      return workerSource.getFilters();
+      console.log("[AsyncSource] getFilters called");
+      const result = await workerSource.getFilters();
+      console.log("[AsyncSource] getFilters result:", result);
+      return result;
+    },
+
+    async getListings(): Promise<Listing[]> {
+      return workerSource.getListings();
+    },
+
+    async getMangaListForListing(listing: Listing, page: number): Promise<MangaPageResult> {
+      return workerSource.getMangaListForListing(listing, page);
+    },
+
+    async hasListingProvider(): Promise<boolean> {
+      return workerSource.hasListingProvider();
+    },
+
+    async hasHomeProvider(): Promise<boolean> {
+      return workerSource.hasHomeProvider();
+    },
+
+    async getHome(): Promise<HomeLayout | null> {
+      return workerSource.getHome();
+    },
+
+    async getHomeWithPartials(onPartial: (layout: HomeLayout) => void): Promise<HomeLayout | null> {
+      // Wrap callback with Comlink.proxy so it can be invoked from the worker
+      return workerSource.getHomeWithPartials(Comlink.proxy(onPartial));
     },
 
     async modifyImageRequest(
@@ -142,8 +189,10 @@ export async function createAsyncSource(
       responseCode: number,
       responseHeaders: Record<string, string>
     ): Promise<Uint8Array | null> {
+      // Transfer underlying buffer to avoid an extra copy across the worker boundary.
+      // Note: this detaches `imageData.buffer` in the caller.
       return workerSource.processPageImage(
-        imageData,
+        Comlink.transfer(imageData, [imageData.buffer]),
         context,
         requestUrl,
         requestHeaders,
@@ -153,90 +202,8 @@ export async function createAsyncSource(
     },
 
     terminate(): void {
+      unsubscribe();
       worker.terminate();
     },
-  };
-}
-
-// Serialization helpers for transferring data to/from worker
-function serializeManga(manga: Manga): SerializableManga {
-  return {
-    sourceId: manga.sourceId,
-    id: manga.id,
-    key: manga.key,
-    title: manga.title,
-    authors: manga.authors,
-    artists: manga.artists,
-    description: manga.description,
-    tags: manga.tags,
-    cover: manga.cover,
-    url: manga.url,
-    // Cast enum types to numbers for serialization
-    status: manga.status as number | undefined,
-    nsfw: manga.nsfw as number | undefined,
-    viewer: manga.viewer as number | undefined,
-  };
-}
-
-function deserializeManga(manga: SerializableManga): Manga {
-  return {
-    sourceId: manga.sourceId,
-    id: manga.id,
-    key: manga.key,
-    title: manga.title,
-    authors: manga.authors,
-    artists: manga.artists,
-    description: manga.description,
-    tags: manga.tags,
-    cover: manga.cover,
-    url: manga.url,
-    // Cast numbers back to enum types
-    status: manga.status as Manga["status"],
-    nsfw: manga.nsfw as Manga["nsfw"],
-    viewer: manga.viewer as Manga["viewer"],
-  };
-}
-
-function serializeChapter(chapter: Chapter): SerializableChapter {
-  return {
-    sourceId: chapter.sourceId,
-    id: chapter.id,
-    key: chapter.key,
-    mangaId: chapter.mangaId,
-    title: chapter.title,
-    chapterNumber: chapter.chapterNumber,
-    volumeNumber: chapter.volumeNumber,
-    dateUploaded: chapter.dateUploaded,
-    scanlator: chapter.scanlator,
-    url: chapter.url,
-    lang: chapter.lang,
-    sourceOrder: chapter.sourceOrder,
-  };
-}
-
-function deserializeChapter(chapter: SerializableChapter): Chapter {
-  return {
-    sourceId: chapter.sourceId,
-    id: chapter.id,
-    key: chapter.key,
-    mangaId: chapter.mangaId,
-    title: chapter.title,
-    chapterNumber: chapter.chapterNumber,
-    volumeNumber: chapter.volumeNumber,
-    dateUploaded: chapter.dateUploaded,
-    scanlator: chapter.scanlator,
-    url: chapter.url,
-    lang: chapter.lang,
-    sourceOrder: chapter.sourceOrder,
-  };
-}
-
-function deserializePage(page: SerializablePage): Page {
-  return {
-    index: page.index,
-    url: page.url,
-    base64: page.base64,
-    text: page.text,
-    context: page.context,
   };
 }

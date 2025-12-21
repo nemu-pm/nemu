@@ -15,7 +15,9 @@ export function Reader({
   pagePairingMode = 'manga',
   scrollPageWidthScale,
   onBackgroundClick,
+  onKeyboardNavigation,
   disableKeyboard = false,
+  disableZoom = false,
 }: ReaderProps) {
   if (readingMode === 'scrolling') {
     return (
@@ -45,8 +47,10 @@ export function Reader({
         getPageKey={getPageKey}
         getItemKind={getItemKind}
         onBackgroundClick={onBackgroundClick}
+        onKeyboardNavigation={onKeyboardNavigation}
         readingMode={readingMode}
         disableKeyboard={disableKeyboard}
+        disableZoom={disableZoom}
         pagePairingMode={pagePairingMode}
       />
     )
@@ -61,8 +65,10 @@ export function Reader({
       getPageKey={getPageKey}
       getItemKind={getItemKind}
       onBackgroundClick={onBackgroundClick}
+      onKeyboardNavigation={onKeyboardNavigation}
       readingMode={readingMode}
       disableKeyboard={disableKeyboard}
+      disableZoom={disableZoom}
     />
   )
 }

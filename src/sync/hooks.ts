@@ -1,6 +1,7 @@
 import { useContext } from "react";
 import { SyncContext } from "./context";
 import type { DataServices, StoreHooks, SyncContextValue } from "./types";
+import { getSyncStore } from "@/stores/sync";
 
 export function useSyncContext(): SyncContextValue {
   const ctx = useContext(SyncContext);
@@ -39,4 +40,8 @@ export function useSyncStatus() {
 export function useSignOut() {
   const { signOut } = useSyncContext();
   return signOut;
+}
+
+export function useSyncStore() {
+  return getSyncStore();
 }

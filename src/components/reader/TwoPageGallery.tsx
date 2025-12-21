@@ -16,8 +16,10 @@ export function TwoPageGallery({
   renderImage,
   getItemKind,
   onBackgroundClick,
+  onKeyboardNavigation,
   readingMode = 'rtl',
   disableKeyboard = false,
+  disableZoom = false,
   pagePairingMode = 'manga',
 }: TwoPageGalleryProps) {
   const swiperRef = useRef<SwiperType>(undefined)
@@ -27,12 +29,26 @@ export function TwoPageGallery({
       swiperRef,
       onBackgroundClick,
       maxZoomRatio: 1.5,
+      disableZoom,
     })
 
   const isSpacer = useCallback(
     (index: number) => getItemKind?.(index) === 'spacer',
     [getItemKind]
   )
+
+  const safeUnderlyingIndex = useMemo(() => {
+    if (pageCount <= 0) return 0
+    if (!isSpacer(currentPageIndex)) return currentPageIndex
+
+    for (let i = currentPageIndex + 1; i < pageCount; i++) {
+      if (!isSpacer(i)) return i
+    }
+    for (let i = currentPageIndex - 1; i >= 0; i--) {
+      if (!isSpacer(i)) return i
+    }
+    return 0
+  }, [currentPageIndex, isSpacer, pageCount])
 
   const spreads = useMemo(() => {
     const result: number[][] = []
@@ -42,7 +58,6 @@ export function TwoPageGallery({
 
     while (i < pageCount) {
       if (isSpacer(i)) {
-        result.push([i])
         i += 1
         segmentStart = true
         continue
@@ -73,10 +88,17 @@ export function TwoPageGallery({
 
   const currentSpreadIndex = useMemo(() => {
     for (let i = 0; i < spreads.length; i++) {
-      if (spreads[i].includes(currentPageIndex)) return i
+      if (spreads[i].includes(safeUnderlyingIndex)) return i
     }
     return 0
-  }, [spreads, currentPageIndex])
+  }, [spreads, safeUnderlyingIndex])
+
+  useEffect(() => {
+    // If parent ever points at a spacer (chapter break), immediately remap out of it.
+    if (safeUnderlyingIndex !== currentPageIndex) {
+      onPageChange(safeUnderlyingIndex)
+    }
+  }, [currentPageIndex, onPageChange, safeUnderlyingIndex])
 
   useEffect(() => {
     if (swiperRef.current && swiperRef.current.activeIndex !== currentSpreadIndex) {
@@ -99,6 +121,18 @@ export function TwoPageGallery({
       cleanup()
     }
   }, [cleanup])
+
+  // Handle keyboard navigation to auto-hide UI
+  useEffect(() => {
+    if (disableKeyboard) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        onKeyboardNavigation?.()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [disableKeyboard, onKeyboardNavigation])
 
   const handleSpreadChange = useCallback(
     (newSpreadIndex: number) => {

@@ -9,6 +9,15 @@ export const LOCAL_REGISTRY_ID = "aidoku-local";
 /** Key separator used in composite keys */
 const SEP = ":";
 
+/** Simple hash for cache keys (djb2) */
+function hashString(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) ^ str.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 /**
  * Generate composite keys for various entities
  */
@@ -19,10 +28,6 @@ export const Keys = {
   /** Manga key: registryId:sourceId:mangaId */
   manga: (registryId: string, sourceId: string, mangaId: string) =>
     `${registryId}${SEP}${sourceId}${SEP}${mangaId}`,
-
-  /** History/chapter key: registryId:sourceId:mangaId:chapterId */
-  chapter: (registryId: string, sourceId: string, mangaId: string, chapterId: string) =>
-    `${registryId}${SEP}${sourceId}${SEP}${mangaId}${SEP}${chapterId}`,
 } as const;
 
 /**
@@ -41,13 +46,20 @@ export function parseSourceKey(key: string): { registryId: string; sourceId: str
  * Cache key helpers - for IndexedDB cache store
  */
 export const CacheKeys = {
+  /** The whole .aix package blob */
+  aix: (registryId: string, sourceId: string) => `aix${SEP}${registryId}${SEP}${sourceId}`,
+  /** @deprecated Use aix() instead - kept for migration */
   wasm: (registryId: string, sourceId: string) => `wasm${SEP}${registryId}${SEP}${sourceId}`,
+  /** @deprecated Use aix() instead - kept for migration */
   manifest: (registryId: string, sourceId: string) => `manifest${SEP}${registryId}${SEP}${sourceId}`,
+  /** @deprecated Use aix() instead - kept for migration */
   settings: (registryId: string, sourceId: string) => `settings${SEP}${registryId}${SEP}${sourceId}`,
   manga: (registryId: string, sourceId: string, mangaId: string) =>
     `manga${SEP}${registryId}${SEP}${sourceId}${SEP}${mangaId}`,
   chapters: (registryId: string, sourceId: string, mangaId: string) =>
     `chapters${SEP}${registryId}${SEP}${sourceId}${SEP}${mangaId}`,
-  image: (url: string) => `image${SEP}${btoa(url).slice(0, 100)}`,
+  image: (url: string) => `image${SEP}${hashString(url)}`,
+  /** Home layout cache for sources */
+  home: (registryId: string, sourceId: string) => `home${SEP}${registryId}${SEP}${sourceId}`,
 };
 

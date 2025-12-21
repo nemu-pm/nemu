@@ -31,6 +31,8 @@ export interface Chapter {
   volumeNumber?: number;
   dateUploaded?: number; // timestamp in ms
   sourceOrder?: number;
+  /** Whether chapter is locked (paywall/login required) */
+  locked?: boolean;
 }
 
 export interface Page {
@@ -76,6 +78,7 @@ export const FilterType = {
   Check: 4,
   Group: 5,
   Genre: 6,
+  Text: 7,
 } as const;
 
 export type FilterType = (typeof FilterType)[keyof typeof FilterType];
@@ -93,9 +96,16 @@ export interface AuthorFilter extends BaseFilter {
   type: typeof FilterType.Author;
 }
 
+export interface TextFilter extends BaseFilter {
+  type: typeof FilterType.Text;
+  placeholder?: string;
+}
+
 export interface SelectFilter extends BaseFilter {
   type: typeof FilterType.Select;
   options: string[];
+  /** IDs corresponding to options (use ids[index] for actual value, fallback to options[index]) */
+  ids?: string[];
   default: number;
 }
 
@@ -113,6 +123,7 @@ export interface SortSelection {
 
 export interface CheckFilter extends BaseFilter {
   type: typeof FilterType.Check;
+  canExclude?: boolean;
   default: boolean;
 }
 
@@ -124,6 +135,8 @@ export interface GroupFilter extends BaseFilter {
 export interface GenreFilter extends BaseFilter {
   type: typeof FilterType.Genre;
   options: string[];
+  /** IDs corresponding to options (use ids[index] for actual value, fallback to options[index]) */
+  ids?: string[];
   canExclude: boolean;
   default: GenreSelection[];
 }
@@ -144,6 +157,7 @@ export type GenreState = (typeof GenreState)[keyof typeof GenreState];
 export type Filter =
   | TitleFilter
   | AuthorFilter
+  | TextFilter
   | SelectFilter
   | SortFilter
   | CheckFilter
@@ -151,15 +165,121 @@ export type Filter =
   | GenreFilter;
 
 // Filter value for search queries
+// NOTE: For Select and Genre filters, value should be string ID(s), NOT indices!
+// Swift uses string IDs from filter.ids[index] ?? filter.options[index]
 export interface FilterValue {
   type: FilterType;
   name: string;
-  value?: string | number | boolean | SortSelection | GenreSelection[];
+  value?: string | number | boolean | SortSelection | MultiSelectValue;
+  /** Child filters for Group type */
+  filters?: FilterValue[];
+}
+
+/** Value for Genre/MultiSelect filters - string arrays of included/excluded option IDs */
+export interface MultiSelectValue {
+  included: string[];
+  excluded: string[];
 }
 
 export interface Listing {
   id: string;
   name: string;
+  kind?: ListingKind;
+}
+
+export const ListingKind = {
+  Default: 0,
+  List: 1,
+} as const;
+
+export type ListingKind = (typeof ListingKind)[keyof typeof ListingKind];
+
+// Home layout types matching aidoku-rs home.rs
+
+export interface HomeLayout {
+  components: HomeComponent[];
+}
+
+export interface HomeComponent {
+  title?: string;
+  subtitle?: string;
+  value: HomeComponentValue;
+}
+
+export type HomeComponentValue =
+  | HomeImageScroller
+  | HomeBigScroller
+  | HomeScroller
+  | HomeMangaList
+  | HomeMangaChapterList
+  | HomeFilters
+  | HomeLinks;
+
+export interface HomeImageScroller {
+  type: "imageScroller";
+  links: HomeLink[];
+  autoScrollInterval?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface HomeBigScroller {
+  type: "bigScroller";
+  entries: Manga[];
+  autoScrollInterval?: number;
+}
+
+export interface HomeScroller {
+  type: "scroller";
+  entries: HomeLink[];
+  listing?: Listing;
+}
+
+export interface HomeMangaList {
+  type: "mangaList";
+  ranking: boolean;
+  pageSize?: number;
+  entries: HomeLink[];
+  listing?: Listing;
+}
+
+export interface HomeMangaChapterList {
+  type: "mangaChapterList";
+  pageSize?: number;
+  entries: MangaWithChapter[];
+  listing?: Listing;
+}
+
+export interface HomeFilters {
+  type: "filters";
+  items: HomeFilterItem[];
+}
+
+export interface HomeLinks {
+  type: "links";
+  links: HomeLink[];
+}
+
+export interface HomeLink {
+  title: string;
+  subtitle?: string;
+  imageUrl?: string;
+  value?: HomeLinkValue;
+}
+
+export type HomeLinkValue =
+  | { type: "url"; url: string }
+  | { type: "listing"; listing: Listing }
+  | { type: "manga"; manga: Manga };
+
+export interface HomeFilterItem {
+  title: string;
+  values?: FilterValue[];
+}
+
+export interface MangaWithChapter {
+  manga: Manga;
+  chapter: Chapter;
 }
 
 export interface SourceInfo {
@@ -173,9 +293,35 @@ export interface SourceInfo {
   languages?: string[];
 }
 
+/** Raw filter info from manifest JSON (matches Swift FilterInfo) */
+export interface FilterInfo {
+  type: string;
+  /** Display name for the filter */
+  title?: string;
+  /** Secondary name (used for check filter labels) */
+  name?: string;
+  /** Placeholder text for text inputs */
+  placeholder?: string;
+  default?: unknown;
+  id?: unknown;
+  filters?: FilterInfo[];
+  options?: string[];
+  /** IDs corresponding to options (for multi-select) */
+  ids?: string[];
+  canExclude?: boolean;
+  canAscend?: boolean;
+  /** Whether to hide from header (Swift-specific) */
+  hideFromHeader?: boolean;
+  /** Whether to use tag/pill style (for multiselect) */
+  usesTagStyle?: boolean;
+  /** Whether this is a genre filter */
+  isGenre?: boolean;
+}
+
 export interface SourceManifest {
   info: SourceInfo;
   listings?: Listing[];
+  filters?: FilterInfo[];
   config?: {
     hidesFiltersWhileSearching?: boolean;
     supportsAuthorSearch?: boolean;

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Skeleton } from "@/components/ui/skeleton"
-import { proxyUrl } from "@/config"
+import { useSourceImage, defaultFetch } from "@/hooks/use-source-image"
 
 interface CoverImageProps {
   src?: string
@@ -10,6 +11,11 @@ interface CoverImageProps {
 }
 
 export function CoverImage({ src, alt = "Cover", className }: CoverImageProps) {
+  const { t } = useTranslation();
+  // Use source-aware fetcher from context, fall back to default
+  const contextFetcher = useSourceImage();
+  const fetchImage = contextFetcher ?? defaultFetch;
+  
   const [imgSrc, setImgSrc] = useState<string>("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -24,11 +30,7 @@ export function CoverImage({ src, alt = "Cover", className }: CoverImageProps) {
     let blobUrl: string | null = null
     let aborted = false
 
-    fetch(proxyUrl(src))
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.blob()
-      })
+    fetchImage(src)
       .then((blob) => {
         if (aborted) return
         blobUrl = URL.createObjectURL(blob)
@@ -48,7 +50,7 @@ export function CoverImage({ src, alt = "Cover", className }: CoverImageProps) {
         URL.revokeObjectURL(blobUrl)
       }
     }
-  }, [src])
+  }, [src, contextFetcher])
 
   if (loading) {
     return <Skeleton className={cn("bg-muted", className)} />
@@ -62,7 +64,7 @@ export function CoverImage({ src, alt = "Cover", className }: CoverImageProps) {
           className
         )}
       >
-        <span className="text-xs">No Image</span>
+        <span className="text-xs">{t("common.noImage")}</span>
       </div>
     )
   }

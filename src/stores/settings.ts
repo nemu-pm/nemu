@@ -4,7 +4,12 @@ import type { RegistrySourceInfo, RegistryManager } from "@/lib/sources/registry
 import type { UserDataStore } from "@/data/store";
 import type { CacheStore } from "@/data/cache";
 import { Keys, CacheKeys, LOCAL_REGISTRY_ID } from "@/data/keys";
-import type { InstalledSource, ReadingMode } from "@/data/schema";
+import type { InstalledSource } from "@/data/schema";
+import type { ReadingMode } from "@/data/schema";
+import type { Setting } from "@/lib/sources/aidoku/settings-types";
+import { getSourceSettingsStore } from "./source-settings";
+
+const READING_MODE_KEY = "nemu:reader:readingMode";
 
 export interface SourceInfo extends RegistrySourceInfo {
   registryId: string;
@@ -30,7 +35,7 @@ interface SettingsState {
   uninstallSource: (registryId: string, sourceId: string) => Promise<void>;
   getSource: (registryId: string, sourceId: string) => Promise<MangaSource | null>;
   installFromAix: (file: File) => Promise<void>;
-  setReadingMode: (mode: ReadingMode) => Promise<void>;
+  setReadingMode: (mode: ReadingMode) => void;
 }
 
 export type SettingsStore = UseBoundStore<StoreApi<SettingsState>>;
@@ -55,11 +60,19 @@ export function createSettingsStore(
         set({ loading: true, error: null });
         await manager.initialize();
 
-        // Load settings and installed sources from storage
-        const [settings, installedSources] = await Promise.all([
-          userStore.getSettings(),
-          userStore.getInstalledSources(),
-        ]);
+        // Load installed sources from storage
+        const installedSources = await userStore.getInstalledSources();
+
+        // Load reading mode from localStorage
+        let readingMode: ReadingMode = "rtl";
+        try {
+          const stored = localStorage.getItem(READING_MODE_KEY);
+          if (stored === "rtl" || stored === "ltr" || stored === "scrolling") {
+            readingMode = stored;
+          }
+        } catch {
+          // Ignore localStorage errors
+        }
 
         // Get all available sources from registries
         const allSources = await manager.listAllSources();
@@ -74,7 +87,7 @@ export function createSettingsStore(
         set({
           availableSources,
           installedSources,
-          readingMode: settings.readingMode,
+          readingMode,
           loading: false,
         });
       } catch (e) {
@@ -190,12 +203,19 @@ export function createSettingsStore(
         manifestData.buffer.slice(0) as ArrayBuffer
       );
       
-      // Cache settings.json if present
+      // Cache settings.json if present and save schema
       if (settingsData) {
-        await cacheStore.set(
-          CacheKeys.settings(registryId, sourceId),
-          settingsData.buffer.slice(0) as ArrayBuffer
-        );
+        const settingsBuffer = settingsData.buffer.slice(0) as ArrayBuffer;
+        await cacheStore.set(CacheKeys.settings(registryId, sourceId), settingsBuffer);
+        
+        // Parse and save schema to source settings store
+        try {
+          const schema = JSON.parse(new TextDecoder().decode(settingsData)) as Setting[];
+          const sourceKey = Keys.source(registryId, sourceId);
+          await getSourceSettingsStore().getState().setSchema(sourceKey, schema);
+        } catch {
+          // Ignore schema parsing errors
+        }
       }
 
       // Save to installed sources (id is composite key)
@@ -210,10 +230,13 @@ export function createSettingsStore(
       set({ installedSources });
     },
 
-    setReadingMode: async (mode: ReadingMode) => {
+    setReadingMode: (mode: ReadingMode) => {
       set({ readingMode: mode });
-      const settings = await userStore.getSettings();
-      await userStore.saveSettings({ ...settings, readingMode: mode });
+      try {
+        localStorage.setItem(READING_MODE_KEY, mode);
+      } catch {
+        // Ignore localStorage errors
+      }
     },
   }));
 }
