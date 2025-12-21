@@ -61,13 +61,15 @@ const getSettingsSchema = (): PluginSetting[] => [
  * Japanese Learning Plugin
  */
 export const japaneseLearningPlugin: ReaderPlugin = {
-  manifest: {
-    id: 'japanese-learning',
-    name: t('name'),
-    description: t('description'),
-    icon: JapaneseLearningIcon,
-    defaultEnabled: true,
-    builtin: true,
+  get manifest() {
+    return {
+      id: 'japanese-learning',
+      name: t('name'),
+      description: t('description'),
+      icon: JapaneseLearningIcon,
+      defaultEnabled: true,
+      builtin: true,
+    }
   },
 
   get settingsSchema() {
