@@ -321,6 +321,9 @@
         "Negative Stem": "Negative Stem",
         "Causative (~su)": "Causative (~su)",
         "Old/literary form": "Old/literary form"
+      },
+      "errors": {
+        "outOfMemory": "Out of memory. Text detection requires more memory than available in this app mode. Please open nemu in Safari instead."
       }
     }
   },

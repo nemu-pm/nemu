@@ -651,10 +651,28 @@ async function runCommand(
       console.log("Tip: inspect defaults extracted from AIX via DEBUG=1 output.");
       break;
     }
+
+    case "listings": {
+      console.log(`=== Dynamic Listings ===\n`);
+      console.log(`hasDynamicListings: ${source.hasDynamicListings}`);
+      
+      if (!source.hasDynamicListings) {
+        console.log("Source does not provide dynamic listings");
+        break;
+      }
+      
+      const listings = source.getListings();
+      console.log(`Found ${listings.length} listings\n`);
+      
+      for (const listing of listings) {
+        console.log(`- id="${listing.id}" name="${listing.name}" kind=${listing.kind ?? 0}`);
+      }
+      break;
+    }
     
     default:
       console.error(`Unknown command: ${command}`);
-      console.log("Available: search, details, chapters, pages, read, image, filters, home, settings");
+      console.log("Available: search, details, chapters, pages, read, image, filters, home, settings, listings");
   }
 }
 

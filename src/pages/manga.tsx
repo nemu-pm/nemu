@@ -197,11 +197,11 @@ export function MangaPage() {
   }
 
   const firstChapter = chapters[chapters.length - 1];
-  const lastReadChapter = chapters.find((ch) => {
-    const p = progress[ch.id];
-    return p && !p.completed;
-  });
-  const continueChapter = lastReadChapter ?? firstChapter;
+  const lastReadChapter = libraryManga?.lastReadChapter;
+  // Find actual chapter object for navigation (lastReadChapter is just a summary)
+  const continueChapter = lastReadChapter
+    ? chapters.find((ch) => ch.id === lastReadChapter.id) ?? firstChapter
+    : firstChapter;
 
   return (
     <SourceImageProvider sourceKey={sourceKey}>

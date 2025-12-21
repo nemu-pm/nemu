@@ -321,6 +321,9 @@
         "Negative Stem": "否定词干",
         "Causative (~su)": "使役式（~す）",
         "Old/literary form": "古语 / 文语形"
+      },
+      "errors": {
+        "outOfMemory": "内存不足。文字检测功能需要更多内存。请使用 Safari 浏览器打开 nemu。"
       }
     }
   },

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import i18n from '@/lib/i18n'
 import type { TextDetection, TextDetectorSettings, GrammarBreakdown, OcrSelection, OcrResult } from './types'
 import type { GrammarToken, GrammarData } from './ichiran-types'
 import { DEFAULT_SETTINGS } from './types'
@@ -390,7 +391,15 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
         } else if (e.data.type === 'error') {
           w.removeEventListener('message', handler)
           console.error('[TextDetector] Detection error:', e.data.message)
-          alert(`[OCR Debug] Detection error: ${e.data.message}`)
+          
+          // Check for memory errors (iOS PWA has very limited memory)
+          const msg = e.data.message?.toLowerCase() || ''
+          if (msg.includes('out of memory') || msg.includes('memory')) {
+            alert(i18n.t('plugin.japaneseLearning.errors.outOfMemory'))
+          } else {
+            alert(`[OCR Debug] Detection error: ${e.data.message}`)
+          }
+          
           set({ modelLoadingStage: null })
           get().setLoadingPage(pageIndex, false)
           onComplete?.()

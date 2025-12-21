@@ -341,7 +341,8 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
 
   async getListings(): Promise<Listing[]> {
     // First check manifest for static listings
-    const manifestListings = this.manifest.listings ?? [];
+    // Note: Manifest listings may have only 'id' or only 'name' depending on source version
+    const manifestListings = (this.manifest.listings ?? []).map(l => normalizeManifestListing(l));
     
     // Then try dynamic listings from WASM
     const dynamicListings = await this.asyncSource.getListings();
@@ -554,5 +555,20 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
     url: chapter.url,
     locked: chapter.locked,
   });
+}
+
+/**
+ * Normalize a listing from manifest which may have only 'id' or only 'name'.
+ * Old sources used only 'name', new aidoku-rs uses both 'id' and 'name'.
+ * Some sources may only provide 'id' without 'name'.
+ */
+function normalizeManifestListing(listing: Partial<Listing> & { id?: string; name?: string }): Listing {
+  const id = listing.id ?? listing.name ?? "";
+  const name = listing.name ?? listing.id ?? "";
+  return {
+    id,
+    name,
+    kind: listing.kind,
+  };
 }
 
