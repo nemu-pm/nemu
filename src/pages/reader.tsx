@@ -1,4 +1,4 @@
-import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
+import { useParams, useNavigate, useSearch, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DirectionProvider } from "@base-ui/react/direction-provider";
@@ -105,6 +105,7 @@ export function ReaderPage() {
   };
   const { page: routePage } = useSearch({ strict: false }) as { page?: number };
   const navigate = useNavigate();
+  const router = useRouter();
   const { useSettingsStore, useHistoryStore, useLibraryStore } = useStores();
   const { getSource, readingMode, setReadingMode, availableSources } = useSettingsStore();
   const { getProgress, saveProgress, markCompleted } = useHistoryStore();
@@ -936,14 +937,10 @@ export function ReaderPage() {
     [navigate, registryId, sourceId, mangaId]
   );
 
-  // Explicit back destination - always goes to manga details
+  // Go back in history - properly pops the reader entry instead of creating duplicates
   const handleBack = useCallback(() => {
-    navigate({
-      to: "/sources/$registryId/$sourceId/$mangaId",
-      params: { registryId, sourceId, mangaId },
-      replace: true, // Replace reader entry, clean exit
-    });
-  }, [navigate, registryId, sourceId, mangaId]);
+    router.history.back();
+  }, [router]);
 
   const handleBackgroundClick = useCallback(() => {
     setShowUI((prev) => !prev);
@@ -1075,11 +1072,7 @@ export function ReaderPage() {
           <Button
             variant="outline"
             className="mt-4 text-white border-white/20 hover:bg-white/10"
-            onClick={() => navigate({
-              to: "/sources/$registryId/$sourceId/$mangaId",
-              params: { registryId, sourceId, mangaId },
-              replace: true,
-            })}
+            onClick={() => router.history.back()}
           >
             {t("common.goBack")}
           </Button>
