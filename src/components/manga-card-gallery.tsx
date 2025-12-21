@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useSyncExternalStore, forwardRef } from "react";
-import { VirtuosoGrid, type GridComponents } from "react-virtuoso";
+import { useCallback } from "react";
+import { VirtuosoGrid } from "react-virtuoso";
 import { MangaCard } from "@/components/manga-card";
 import { Spinner } from "@/components/ui/spinner";
 import type { Manga } from "@/lib/sources/types";
+import { cn } from "@/lib/utils";
 
 interface MangaCardGalleryProps {
   /** List of manga to display */
@@ -23,43 +24,19 @@ interface MangaCardGalleryProps {
   className?: string;
 }
 
-// Responsive breakpoints matching Tailwind defaults
-// cols: 3 (default) -> 4 (sm:640px) -> 5 (md:768px) -> 6 (lg:1024px)
-function getColumnCount(width: number): number {
-  if (width >= 1024) return 6;
-  if (width >= 768) return 5;
-  if (width >= 640) return 4;
-  return 3;
-}
+const listClassName = cn(
+  // Drive columns purely via CSS variables to avoid resize/scroll feedback loops.
+  // VirtuosoGrid infers columns from measured itemWidth; keep that consistent with the DOM layout.
+  "flex w-full flex-wrap box-border",
+  "[--cols:3] sm:[--cols:4] md:[--cols:5] lg:[--cols:6]",
+  "[--gap:12px] sm:[--gap:16px]",
+  "gap-[var(--gap)]"
+);
 
-function subscribeToResize(callback: () => void) {
-  window.addEventListener("resize", callback);
-  return () => window.removeEventListener("resize", callback);
-}
-
-function getWindowWidth() {
-  return window.innerWidth;
-}
-
-// Context type for passing dynamic styles to grid components
-interface GridContext {
-  listStyle: React.CSSProperties;
-  itemStyle: React.CSSProperties;
-}
-
-// Define stable component references outside render
-const gridComponents: GridComponents<GridContext> = {
-  List: forwardRef(({ style, children, context, ...props }, ref) => (
-    <div ref={ref} {...props} style={{ ...style, ...context?.listStyle }}>
-      {children}
-    </div>
-  )),
-  Item: ({ children, context, ...props }) => (
-    <div {...props} style={context?.itemStyle}>
-      {children}
-    </div>
-  ),
-};
+const itemClassName = cn(
+  "shrink-0 box-border",
+  "w-[calc((100%-(var(--gap)*(var(--cols)-1)))/var(--cols))]"
+);
 
 /**
  * A responsive grid gallery for displaying manga cards with infinite scroll support.
@@ -75,30 +52,6 @@ export function MangaCardGallery({
   emptyState,
   className,
 }: MangaCardGalleryProps) {
-  // Track window width for responsive columns
-  const windowWidth = useSyncExternalStore(subscribeToResize, getWindowWidth, () => 1024);
-  const columns = getColumnCount(windowWidth);
-
-  // Calculate item width percentage based on column count
-  // Gap is 12px (gap-3) on mobile, 16px (gap-4) on sm+
-  const gap = windowWidth >= 640 ? 16 : 12;
-  const itemWidthPercent = 100 / columns;
-
-  // Memoized context with dynamic styles
-  const context = useMemo<GridContext>(
-    () => ({
-      listStyle: {
-        display: "flex",
-        flexWrap: "wrap" as const,
-        gap: `${gap}px`,
-      },
-      itemStyle: {
-        width: `calc(${itemWidthPercent}% - ${(gap * (columns - 1)) / columns}px)`,
-      },
-    }),
-    [gap, itemWidthPercent, columns]
-  );
-
   // Load more when reaching end
   const handleEndReached = useCallback(() => {
     if (hasMore && !loading && onLoadMore) {
@@ -125,8 +78,8 @@ export function MangaCardGallery({
 
   // Stable key computation
   const computeItemKey = useCallback(
-    (index: number) => manga[index]?.id ?? index,
-    [manga]
+    (index: number, m: Manga) => m?.id ?? index,
+    []
   );
 
   // Empty state
@@ -139,10 +92,10 @@ export function MangaCardGallery({
       <VirtuosoGrid
         useWindowScroll
         data={manga}
-        context={context}
         endReached={handleEndReached}
         overscan={{ main: 400, reverse: 400 }}
-        components={gridComponents}
+        listClassName={listClassName}
+        itemClassName={itemClassName}
         computeItemKey={computeItemKey}
         itemContent={itemContent}
       />

@@ -13,7 +13,40 @@ import { getCachedDetections, setCachedDetections, type DetectionCacheKey } from
 
 const storage = createPluginStorage('japanese-learning')
 
-const initialSettings = storage.get<TextDetectorSettings>('settings') ?? DEFAULT_SETTINGS
+// Lightweight WebGPU check (doesn't start worker)
+async function checkWebGPUAvailability(): Promise<boolean> {
+  if (typeof navigator === 'undefined' || !('gpu' in navigator)) return false
+  try {
+    const adapter = await (navigator as unknown as { gpu: { requestAdapter(): Promise<unknown> } }).gpu.requestAdapter()
+    return !!adapter
+  } catch {
+    return false
+  }
+}
+
+// Get initial settings, sanitizing autoDetect if WebGPU unavailable
+function getInitialSettings(): TextDetectorSettings {
+  const saved = storage.get<TextDetectorSettings>('settings') ?? DEFAULT_SETTINGS
+  // Eager sanitization runs async after store creation
+  return saved
+}
+
+const initialSettings = getInitialSettings()
+
+// Run eager WebGPU check to sanitize settings on module load
+checkWebGPUAvailability().then((available) => {
+  webgpuAvailable = available
+  if (!available && initialSettings.autoDetect) {
+    const sanitized = { ...initialSettings, autoDetect: false }
+    storage.set('settings', sanitized)
+    // Update store if already created
+    if (useTextDetectorStore) {
+      useTextDetectorStore.setState({ settings: sanitized, webgpuAvailable: available })
+    }
+  } else if (useTextDetectorStore) {
+    useTextDetectorStore.setState({ webgpuAvailable: available })
+  }
+})
 
 // ============================================================================
 // Worker Management
@@ -178,7 +211,11 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
   selectedTokenIndex: null,
 
   setSettings: (partial) => {
-    const settings = { ...get().settings, ...partial }
+    let settings = { ...get().settings, ...partial }
+    // Guard: never persist autoDetect=true if WebGPU unavailable
+    if (settings.autoDetect && get().webgpuAvailable === false) {
+      settings = { ...settings, autoDetect: false }
+    }
     storage.set('settings', settings)
     set({ settings })
   },
@@ -232,6 +269,12 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
   checkWebGPU: async () => {
     const available = await checkWebGPU()
     set({ webgpuAvailable: available })
+    // Sanitize: force autoDetect off if WebGPU unavailable
+    if (!available && get().settings.autoDetect) {
+      const sanitized = { ...get().settings, autoDetect: false }
+      storage.set('settings', sanitized)
+      set({ settings: sanitized })
+    }
     return available
   },
 

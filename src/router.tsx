@@ -107,12 +107,12 @@ function ShellLayout() {
 
       {/* Mobile: Bottom Tab Bar */}
       <nav className="fixed inset-x-0 bottom-0 z-50 flex justify-center pb-[max(env(safe-area-inset-bottom),12px)] md:hidden">
-        <div className="mobile-tab-bar flex items-center gap-2 rounded-[22px] px-3 py-2">
+        <div className="mobile-tab-bar flex items-center rounded-[22px] px-3 py-2">
           {/* Back button - animated expand/collapse */}
           <div
             className={cn(
-              "grid overflow-hidden transition-[grid-template-columns] duration-200",
-              isSubPage ? "grid-cols-[1fr]" : "grid-cols-[0fr]"
+              "grid overflow-hidden transition-all duration-200",
+              isSubPage ? "grid-cols-[1fr] mr-2" : "grid-cols-[0fr]"
             )}
           >
             <div className="min-w-0">
@@ -124,9 +124,11 @@ function ShellLayout() {
               </button>
             </div>
           </div>
-          {navItems.map((item) => (
-            <MobileNavLink key={item.to} to={item.to} icon={item.icon} labelKey={item.labelKey} />
-          ))}
+          <div className="flex items-center gap-2">
+            {navItems.map((item) => (
+              <MobileNavLink key={item.to} to={item.to} icon={item.icon} labelKey={item.labelKey} />
+            ))}
+          </div>
         </div>
       </nav>
     </div>

@@ -35,6 +35,14 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
         },
       }),
     },
+    advanced: {
+      cookiePrefix: "nemu",
+      useSecureCookies: true,
+      crossSubDomainCookies: {
+        enabled: true,
+        domain: ".nemu.pm",
+      },
+    },
     plugins: [crossDomain({ siteUrl }), convex({ authConfig })],
   });
 };
