@@ -83,6 +83,7 @@ const ChapterCell = memo(function ChapterCell({
         mangaId,
         chapterId: chapter.id,
       }}
+      search={{ page: undefined }}
       className={cn(
         "chapter-cell",
         isNew && !isRead && "chapter-cell-new",

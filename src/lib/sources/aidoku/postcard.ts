@@ -739,7 +739,7 @@ export function encodeChapter(chapter: Chapter): Uint8Array {
 // FilterValue encoding for aidoku-rs
 // ============================================================================
 
-import type { FilterValue, FilterType, GenreState } from "./types";
+import type { FilterValue } from "./types";
 
 /**
  * Encode a FilterValue for aidoku-rs get_search_manga_list.

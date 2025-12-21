@@ -23,7 +23,6 @@ import {
   encodeImageResponse,
   encodeFilterValue,
   encodeFilterValues,
-  encodeVarint,
   encodeManga,
   encodeChapter,
   concatBytes,
@@ -377,9 +376,9 @@ describe("Manga encoding for WASM (B11)", () => {
       description: "A test manga",
       url: "https://example.com/manga/123",
       tags: ["action", "comedy"],
-      status: 1, // Ongoing
-      nsfw: 0, // Safe
-      viewer: 0, // Default
+      status: 1 as const, // Ongoing
+      nsfw: 0 as const, // Safe
+      viewer: 0 as const, // Default
     };
     
     const encoded = encodeManga(manga);
@@ -556,10 +555,10 @@ describe("FilterValue encoding (B8)", () => {
       const encoded = encodeFilterValue({
         type: FilterType.Genre,
         name: "Genres",
-        value: [
-          { index: 0, state: 1 },  // Included
-          { index: 2, state: -1 }, // Excluded
-        ],
+        value: {
+          included: ["action"],
+          excluded: ["romance"],
+        },
       });
       
       expect(encoded[0]).toBe(4);

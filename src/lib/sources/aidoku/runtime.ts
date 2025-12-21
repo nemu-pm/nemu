@@ -16,7 +16,6 @@ import {
   encodeManga,
   encodeChapter,
   encodeImageResponse,
-  encodePageContext,
   encodeHashMap,
   encodeFilterValues,
   decodeMangaPageResult,
@@ -159,10 +158,11 @@ export async function loadSource(
   const getHome = exports.get_home as (() => number) | undefined;
   const getMangaList = exports.get_manga_list as ((listingDescriptor: number, page: number) => number) | undefined;
   const getListings = exports.get_listings as (() => number) | undefined;
-  const getSettings = exports.get_settings as (() => number) | undefined;
-  const getBaseUrl = exports.get_base_url as (() => number) | undefined;
-  const handleNotification = exports.handle_notification as ((stringDescriptor: number) => number) | undefined;
-  const handleDeepLink = exports.handle_deep_link as ((urlDescriptor: number) => number) | undefined;
+  // These exports exist but are not used in the current implementation
+  void (exports.get_settings as (() => number) | undefined);
+  void (exports.get_base_url as (() => number) | undefined);
+  void (exports.handle_notification as ((stringDescriptor: number) => number) | undefined);
+  void (exports.handle_deep_link as ((urlDescriptor: number) => number) | undefined);
 
   // OLD ABI exports
   const oldGetMangaList = exports.get_manga_list as ((filterDescriptor: number, page: number) => number) | undefined;
@@ -1341,8 +1341,8 @@ function decodeMangaWithChapter(bytes: Uint8Array, pos: number, sourceId: string
   let chapterScanlators: string[] | undefined;
   let chapterUrl: string | undefined;
   let chapterLang: string | undefined;
-  let chapterThumbnail: string | undefined;
-  let chapterLocked: boolean;
+  let chapterThumbnail_: string | undefined;
+  let chapterLocked_: boolean;
   
   // key: String
   [chapterKey, pos] = decodeString(bytes, pos);
@@ -1399,10 +1399,12 @@ function decodeMangaWithChapter(bytes: Uint8Array, pos: number, sourceId: string
   [chapterLang, pos] = decodeOptionString(bytes, pos);
   
   // thumbnail: Option<String>
-  [chapterThumbnail, pos] = decodeOptionString(bytes, pos);
+  [chapterThumbnail_, pos] = decodeOptionString(bytes, pos);
+  void chapterThumbnail_; // Not used yet
   
   // locked: bool
-  chapterLocked = bytes[pos] === 1;
+  chapterLocked_ = bytes[pos] === 1;
+  void chapterLocked_; // Not used yet
   pos += 1;
   
   const chapter: Chapter = {

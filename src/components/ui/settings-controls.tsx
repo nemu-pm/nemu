@@ -71,18 +71,24 @@ export function SettingsPageLink({ title, onClick }: SettingsPageLinkProps) {
  */
 interface SettingsSelectProps {
   label: string
+  subtitle?: string
   value: string
   options: { value: string; label: string }[]
   onChange: (value: string) => void
 }
 
-export function SettingsSelect({ label, value, options, onChange }: SettingsSelectProps) {
+export function SettingsSelect({ label, subtitle, value, options, onChange }: SettingsSelectProps) {
   if (options.length === 0) return null
 
   return (
     <div className="flex items-center justify-between px-3 py-2.5">
-      <Label className="text-sm font-normal">{label}</Label>
-      <Select value={value} onValueChange={onChange}>
+      <div className="space-y-0.5">
+        <Label className="text-sm font-normal">{label}</Label>
+        {subtitle && (
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
+        )}
+      </div>
+      <Select value={value} onValueChange={(v) => v && onChange(v)}>
         <SelectTrigger className="w-auto min-w-[100px]" size="sm">
           <SelectValue />
         </SelectTrigger>
@@ -210,6 +216,7 @@ export function SettingsSwitch({ label, subtitle, checked, onCheckedChange }: Se
  */
 interface SettingsStepperProps {
   label: string
+  subtitle?: string
   value: number
   min: number
   max: number
@@ -217,7 +224,7 @@ interface SettingsStepperProps {
   onChange: (value: number) => void
 }
 
-export function SettingsStepper({ label, value, min, max, step = 1, onChange }: SettingsStepperProps) {
+export function SettingsStepper({ label, subtitle, value, min, max, step = 1, onChange }: SettingsStepperProps) {
   const decrement = () => {
     onChange(Math.max(min, value - step))
   }
@@ -228,7 +235,12 @@ export function SettingsStepper({ label, value, min, max, step = 1, onChange }: 
 
   return (
     <div className="flex items-center justify-between px-3 py-2.5">
-      <Label className="text-sm font-normal">{label}</Label>
+      <div className="space-y-0.5">
+        <Label className="text-sm font-normal">{label}</Label>
+        {subtitle && (
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
+        )}
+      </div>
       <div className="flex items-center gap-2">
         <Button
           variant="outline"
@@ -257,16 +269,22 @@ export function SettingsStepper({ label, value, min, max, step = 1, onChange }: 
  */
 interface SettingsTextProps {
   label: string
+  subtitle?: string
   value: string
   placeholder?: string
   secure?: boolean
   onChange: (value: string) => void
 }
 
-export function SettingsText({ label, value, placeholder, secure, onChange }: SettingsTextProps) {
+export function SettingsText({ label, subtitle, value, placeholder, secure, onChange }: SettingsTextProps) {
   return (
     <div className="px-3 py-2.5 space-y-1.5">
-      <Label className="text-sm font-normal">{label}</Label>
+      <div className="space-y-0.5">
+        <Label className="text-sm font-normal">{label}</Label>
+        {subtitle && (
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
+        )}
+      </div>
       <Input
         type={secure ? "password" : "text"}
         value={value}
@@ -365,14 +383,13 @@ export function SettingsRow({ children, className }: SettingsRowProps) {
  */
 interface SettingsSliderProps {
   label: string
+  subtitle?: string
   value: number
   min: number
   max: number
   step?: number
   /** Format function for displaying value (default: just the number) */
   formatValue?: (value: number) => string
-  /** Description text shown below the slider */
-  description?: string
   onChange: (value: number) => void
 }
 
@@ -381,18 +398,23 @@ import { Slider } from "@/components/ui/slider"
 
 export function SettingsSlider({
   label,
+  subtitle,
   value,
   min,
   max,
   step = 1,
   formatValue = (v) => String(v),
-  description,
   onChange,
 }: SettingsSliderProps) {
   return (
     <div className="px-3 py-2.5 space-y-2">
       <div className="flex items-center justify-between">
-        <Label className="text-sm font-normal">{label}</Label>
+        <div className="space-y-0.5">
+          <Label className="text-sm font-normal">{label}</Label>
+          {subtitle && (
+            <p className="text-xs text-muted-foreground">{subtitle}</p>
+          )}
+        </div>
         <span className="text-sm text-muted-foreground">{formatValue(value)}</span>
       </div>
       <Slider
@@ -407,9 +429,6 @@ export function SettingsSlider({
           }
         }}
       />
-      {description && (
-        <p className="text-xs text-muted-foreground">{description}</p>
-      )}
     </div>
   )
 }

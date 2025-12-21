@@ -108,7 +108,7 @@ export function MangaCardGallery({
 
   // Stable itemContent callback
   const itemContent = useCallback(
-    (index: number, m: Manga) => (
+    (_index: number, m: Manga) => (
       <MangaCard
         to="/sources/$registryId/$sourceId/$mangaId"
         params={{

@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   type ReactNode,
 } from 'react'
 import type { ReaderPluginContext, DialogOptions, NavbarAction, PageOverlay, SettingsSection } from './types'
@@ -55,6 +56,8 @@ interface ReaderPluginProviderProps {
   readingMode: 'rtl' | 'ltr' | 'scrolling'
   /** Languages supported by the source */
   sourceLanguages: string[]
+  /** Language code for the current chapter */
+  chapterLanguage: string | null
   // Page access
   getPageImageUrl: (pageIndex: number) => string | undefined
   getLoadedPageUrls: () => Map<number, string>
@@ -75,6 +78,7 @@ export function ReaderPluginProvider({
   registryId,
   readingMode,
   sourceLanguages,
+  chapterLanguage,
   getPageImageUrl,
   getLoadedPageUrls,
 }: ReaderPluginProviderProps) {
@@ -126,6 +130,7 @@ export function ReaderPluginProvider({
       registryId,
       readingMode,
       sourceLanguages,
+      chapterLanguage,
       getPageImageUrl,
       getLoadedPageUrls,
       showDialog,
@@ -144,6 +149,7 @@ export function ReaderPluginProvider({
       registryId,
       readingMode,
       sourceLanguages,
+      chapterLanguage,
       getPageImageUrl,
       getLoadedPageUrls,
       showDialog,
@@ -168,14 +174,72 @@ export function ReaderPluginProvider({
     [plugins]
   )
 
-  // Call lifecycle hooks
+  // ----------------------------------------------------------------------------
+  // Lifecycle hooks
+  //
+  // IMPORTANT: In TanStack Router, changing route params (e.g. mangaId) often
+  // does not unmount the component tree. We treat (registryId, sourceId, mangaId)
+  // changes as a new "reader session" and remount plugins accordingly.
+  // ----------------------------------------------------------------------------
+
+  const sessionKey = useMemo(
+    () => `${registryId}:${sourceId}:${mangaId}`,
+    [registryId, sourceId, mangaId]
+  )
+  const ctxRef = useRef(ctx)
   useEffect(() => {
-    plugins.forEach((p) => p.hooks?.onMount?.(ctx))
+    ctxRef.current = ctx
+  }, [ctx])
+
+  const mountedPluginsRef = useRef<Map<string, (typeof plugins)[number]>>(new Map())
+  const prevSessionKeyRef = useRef<string | null>(null)
+
+  // Ensure final cleanup always runs on component unmount
+  useEffect(() => {
     return () => {
-      plugins.forEach((p) => p.hooks?.onUnmount?.())
+      mountedPluginsRef.current.forEach((p) => p.hooks?.onUnmount?.())
+      mountedPluginsRef.current = new Map()
+      prevSessionKeyRef.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Only on mount/unmount
+  }, [])
+
+  // Mount/unmount plugins on session/plugin changes
+  useEffect(() => {
+    const prevSessionKey = prevSessionKeyRef.current
+    const prevMounted = mountedPluginsRef.current
+    const nextPlugins = new Map(plugins.map((p) => [p.manifest.id, p] as const))
+
+    const mount = (p: (typeof plugins)[number]) => p.hooks?.onMount?.(ctxRef.current)
+    const unmount = (p: (typeof plugins)[number]) => p.hooks?.onUnmount?.()
+
+    // Initial mount
+    if (prevSessionKey === null) {
+      nextPlugins.forEach(mount)
+      mountedPluginsRef.current = nextPlugins
+      prevSessionKeyRef.current = sessionKey
+      return
+    }
+
+    // New reader session: unmount everything, then mount fresh
+    if (prevSessionKey !== sessionKey) {
+      prevMounted.forEach(unmount)
+      nextPlugins.forEach(mount)
+      mountedPluginsRef.current = nextPlugins
+      prevSessionKeyRef.current = sessionKey
+      return
+    }
+
+    // Same session: diff plugins (enable/disable)
+    prevMounted.forEach((p, id) => {
+      if (!nextPlugins.has(id)) unmount(p)
+    })
+    nextPlugins.forEach((p, id) => {
+      if (!prevMounted.has(id)) mount(p)
+    })
+
+    mountedPluginsRef.current = nextPlugins
+    prevSessionKeyRef.current = sessionKey
+  }, [plugins, sessionKey])
 
   // Page change hook
   const prevPageRef = useMemo(() => ({ current: currentPageIndex }), [])
@@ -245,6 +309,7 @@ const FALLBACK_CTX: ReaderPluginContext = {
   registryId: '',
   readingMode: 'rtl',
   sourceLanguages: [],
+  chapterLanguage: null,
   getPageImageUrl: () => undefined,
   getLoadedPageUrls: EMPTY_MAP,
   showDialog: NOOP,

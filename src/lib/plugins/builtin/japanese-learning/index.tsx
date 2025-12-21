@@ -5,6 +5,7 @@ import type { ReaderPlugin, ReaderPluginContext } from '../../types'
 import type { PluginSetting } from '../../settings-schema'
 import { useTextDetectorStore, disposeWorker } from './store'
 import { DetectionOverlay, ModelLoadingContent, JapaneseLearningGlobalUI } from './components'
+import { isJapaneseEnabled, isJapaneseChapter as isJapaneseChapterLang } from './language'
 import iconImage from './icon.png'
 
 const t = (key: string) => i18n.t(`plugin.japaneseLearning.${key}`)
@@ -160,8 +161,11 @@ export const japaneseLearningPlugin: ReaderPlugin = {
         )
       },
       // Only show when autoDetect is off AND source is Japanese (or enableForAllLanguages)
-      isVisible: (ctx: ReaderPluginContext) =>
-        !useTextDetectorStore.getState().settings.autoDetect && isJapaneseSource(ctx),
+      isVisible: (ctx: ReaderPluginContext) => {
+        const s = useTextDetectorStore.getState().settings
+        const visible = !s.autoDetect && isJapaneseSource(ctx)
+        return visible
+      },
       // Show popover when model is loading (hook for reactivity)
       usePopoverOpen: () => useTextDetectorStore((s) => s.modelLoadingStage) !== null,
       popoverContent: () => <ModelLoadingContent />,
@@ -201,6 +205,20 @@ export const japaneseLearningPlugin: ReaderPlugin = {
       loadCachedForVisiblePages(ctx)
     },
 
+    onChapterChange: (_chapterId: string, ctx: ReaderPluginContext) => {
+      // If we moved into a non-JP chapter (and not enabled for all languages),
+      // ensure we stop any in-flight detection and drop stale results.
+      if (!isJapaneseSource(ctx)) {
+        const { clearDetections } = useTextDetectorStore.getState()
+        clearDetections()
+        disposeWorker()
+        return
+      }
+
+      // JP chapter: load cache / maybe auto-detect for visible pages
+      loadCachedForVisiblePages(ctx)
+    },
+
     onUnmount: () => {
       // Clear detection results and dispose worker on reader close
       const { clearDetections } = useTextDetectorStore.getState()
@@ -210,8 +228,9 @@ export const japaneseLearningPlugin: ReaderPlugin = {
   },
 
   setup: () => {
-    // Check WebGPU availability on setup
-    useTextDetectorStore.getState().checkWebGPU()
+    // No eager WebGPU check here.
+    // We only spin up the detector worker when we actually need to run detection
+    // (JP chapter + autoDetect/manual detection).
   },
 
   teardown: () => {
@@ -228,20 +247,30 @@ export const japaneseLearningPlugin: ReaderPlugin = {
 
 /**
  * Check if plugin features should be enabled for the given context.
- * Returns true if enableForAllLanguages is true OR source languages include Japanese.
+ * Returns true if enableForAllLanguages is true OR current chapter language is Japanese.
  */
 export function isJapaneseSource(ctx: ReaderPluginContext): boolean {
   const { settings } = useTextDetectorStore.getState()
-  if (settings.enableForAllLanguages) return true
-  return ctx.sourceLanguages.some((l) => l === 'ja' || l === 'multi')
+  return isJapaneseEnabled(ctx, settings.enableForAllLanguages)
+}
+
+/** True only when the current chapter language is Japanese (ignores enableForAllLanguages). */
+function isJapaneseChapter(ctx: ReaderPluginContext): boolean {
+  return isJapaneseChapterLang(ctx)
 }
 
 /**
  * Load cached detections for all visible pages, and optionally run model detection
  */
 async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
+  // Hard guard: never load/run detections when plugin isn't enabled for this chapter.
+  // (Prevents any accidental calls from starting auto-detect on non-JP sessions.)
+  const enabled = isJapaneseSource(ctx)
+  if (!enabled) return
+
   const store = useTextDetectorStore.getState()
   const { settings, detections, loadingPages, runDetection, loadFromCache, checkWebGPU } = store
+  const autoDetectAllowed = settings.autoDetect && isJapaneseChapter(ctx)
 
   for (const pageIndex of ctx.visiblePageIndices) {
     // Skip if already have results or currently loading
@@ -259,8 +288,9 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
     const fromCache = await loadFromCache(pageIndex, cacheKey)
     if (fromCache) continue
 
-    // Only run model detection if autoDetect is enabled
-    if (!settings.autoDetect) continue
+    // Only auto-run model detection for Japanese chapters.
+    // (Even if enableForAllLanguages is true, we don't want background inference on non-JP.)
+    if (!autoDetectAllowed) continue
 
     // Check WebGPU on first use
     await checkWebGPU()

@@ -52,7 +52,6 @@
 import { unzipSync } from "fflate";
 import { loadSource, type AidokuSource } from "../src/lib/sources/aidoku/runtime";
 import type { SourceManifest, Manga, Chapter } from "../src/lib/sources/aidoku/types";
-import { getSourceSettingsStore } from "../src/stores/source-settings";
 
 const DEBUG = process.env.DEBUG === "1";
 
@@ -375,6 +374,7 @@ async function runCommand(
         console.error("Error: manga key required");
         return;
       }
+      const highlightChapterKey = cmdArgs[1] || null;
       
       console.log(`=== Chapters for: ${key} ===\n`);
       
@@ -382,6 +382,21 @@ async function runCommand(
       const chapters = source.getChapterList(manga);
       
       console.log(`Found ${chapters.length} chapters\n`);
+
+      if (highlightChapterKey) {
+        const hit = chapters.find((c) => c.key === highlightChapterKey);
+        if (!hit) {
+          console.log(`Highlight chapter not found: ${highlightChapterKey}`);
+        } else {
+          console.log(`=== Highlight chapter ===`);
+          console.log(`key: ${hit.key}`);
+          console.log(`title: ${hit.title ?? "(none)"}`);
+          console.log(`lang: ${(hit as any).lang ?? "(none)"}`);
+          console.log(`url: ${hit.url ?? "(none)"}`);
+          if (hit.dateUploaded) console.log(`date: ${new Date(hit.dateUploaded).toISOString()}`);
+          console.log();
+        }
+      }
       
       for (const ch of chapters.slice(0, 20)) {
         const parts = [];
@@ -391,6 +406,7 @@ async function runCommand(
         
         console.log(`- ${parts.join(" ") || ch.key}`);
         console.log(`  key: ${ch.key}`);
+        console.log(`  lang: ${(ch as any).lang ?? "(none)"}`);
         if (ch.url) console.log(`  url: ${ch.url}`);
         if (ch.dateUploaded) {
           console.log(`  date: ${new Date(ch.dateUploaded).toISOString()}`);
@@ -427,6 +443,7 @@ async function runCommand(
       }
       
       console.log(`Found chapter: ${chapter.title || chapter.key}`);
+      console.log(`Lang: ${(chapter as any).lang ?? "(none)"}`);
       console.log(`URL: ${chapter.url}\n`);
       
       const pages = source.getPageList(manga, chapter);
@@ -498,6 +515,7 @@ async function runCommand(
         return;
       }
       console.log(`   Found: ${chapter.title || chapter.key}`);
+      console.log(`   Lang: ${(chapter as any).lang ?? "(none)"}`);
       
       // Step 2: Get pages
       console.log("\n2. Fetching page list...");
@@ -628,52 +646,9 @@ async function runCommand(
 
     case "settings": {
       console.log(`=== Source Settings ===\n`);
-      
-      // Get settings from the store
-      const store = getSourceSettingsStore();
-      const sourceKey = `test:${manifest.info.id}`;
-      
-      const schema = store.getState().schemas.get(sourceKey);
-      if (!schema) {
-        console.log("No settings schema found in store.");
-        console.log("This may mean:");
-        console.log("1. The source doesn't have settings.json");
-        console.log("2. The schema wasn't loaded during this session");
-        console.log("\nChecking AIX directly for settings.json...\n");
-        
-        // AIX settings are already extracted in loadAix
-        const settingsData = defaultSettings;
-        if (Object.keys(settingsData).length > 0) {
-          console.log("Found default settings from AIX:");
-          for (const [key, val] of Object.entries(settingsData)) {
-            console.log(`  ${key}: ${JSON.stringify(val)}`);
-          }
-        }
-        break;
-      }
-      
-      console.log(`Schema loaded with ${schema.length} top-level items\n`);
-      
-      function printSchema(items: SettingsItem[], indent = 0) {
-        const prefix = "  ".repeat(indent);
-        for (const item of items) {
-          console.log(`${prefix}[${item.type}] ${item.title || item.key || "(no title)"}`);
-          if (item.items) {
-            printSchema(item.items, indent + 1);
-          }
-        }
-      }
-      
-      printSchema(schema as SettingsItem[]);
-      
-      // Show current values
-      const values = store.getState().values.get(sourceKey);
-      if (values && Object.keys(values).length > 0) {
-        console.log("\n=== Current Values ===");
-        for (const [key, val] of Object.entries(values)) {
-          console.log(`  ${key}: ${JSON.stringify(val)}`);
-        }
-      }
+
+      console.log("This command is not supported in Bun/Node (requires IndexedDB-backed app store).");
+      console.log("Tip: inspect defaults extracted from AIX via DEBUG=1 output.");
       break;
     }
     
@@ -722,17 +697,14 @@ Examples:
   // Use a test sourceKey for the script
   const sourceKey = `test:${manifest.info.id}`;
   
-  // Set up settings store with defaults before loading source
-  const settingsStore = getSourceSettingsStore();
-  for (const [key, value] of Object.entries(defaultSettings)) {
-    settingsStore.getState().setSetting(sourceKey, key, value);
-  }
+  // In-memory settings store (Bun/Node doesn't have IndexedDB).
+  const settingsMap = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(defaultSettings)) settingsMap.set(k, v);
   console.log(`Set ${Object.keys(defaultSettings).length} default settings`);
   
   // Create settings getter that reads from our local store
   const settingsGetter = (key: string) => {
-    const values = settingsStore.getState().values.get(sourceKey) ?? {};
-    return values[key];
+    return settingsMap.get(key);
   };
   
   const source = await loadSource(wasmBytes, manifest, sourceKey, settingsGetter);

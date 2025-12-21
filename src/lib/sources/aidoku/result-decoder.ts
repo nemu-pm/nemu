@@ -95,7 +95,7 @@ export function isResultError(ptr: number): boolean {
  * [error_code: i32 LE][-1][0,0,0,0][len: i32 LE][cap: i32 LE][message bytes...]
  */
 export function getResultErrorMessage(
-  memory: WebAssembly.Memory,
+  _memory: WebAssembly.Memory,
   ptr: number
 ): string | null {
   if (ptr >= 0) {
@@ -115,12 +115,13 @@ export function getResultErrorMessage(
 /**
  * Runtime mode for ABI detection
  */
-export enum RuntimeMode {
+export const RuntimeMode = {
   /** Legacy Swift-era ABI with descriptors and object model */
-  Legacy = "legacy",
+  Legacy: "legacy",
   /** Modern aidoku-rs ABI with postcard encoding */
-  AidokuRs = "aidoku-rs",
-}
+  AidokuRs: "aidoku-rs",
+} as const;
+export type RuntimeMode = (typeof RuntimeMode)[keyof typeof RuntimeMode];
 
 /**
  * Detect runtime mode based on available WASM exports.

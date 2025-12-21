@@ -1,7 +1,7 @@
 // Canvas namespace - for bitmap operations
 // Used by sources for image manipulation/descrambling
 import { GlobalStore } from "../global-store";
-import { decodeF32, decodeVarint, decodeVec, decodeBool } from "../postcard";
+import { decodeF32, decodeVarint, decodeVec } from "../postcard";
 
 // Canvas error codes matching Rust CanvasError
 const CanvasError = {

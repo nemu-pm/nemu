@@ -1,13 +1,11 @@
 // Ichiran service - API calls to ichiran.komi.to
 
 import type {
-  IchiranRawResult,
   IchiranToken,
   TokenizeResponse,
   IchiranTokenTuple,
-  WordInfoWithGloss,
-  AnalyzeResponse,
-  GrammarData,
+  SegmentResponse,
+  Segment,
 } from './ichiran-types'
 
 const API_BASE_URL = 'https://ichiran.komi.to'
@@ -29,17 +27,50 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export async function tokenize(text: string, limit = 5, signal?: AbortSignal): Promise<TokenizeResponse> {
-  const analyzeResponse = await fetchJSON<AnalyzeResponse>(
-    `${API_BASE_URL}/api/analyze`,
+interface Entity {
+  start: number
+  end: number
+  boost: number
+}
+
+function buildEntities(text: string, properNouns: string[]): Entity[] {
+  const entities: Entity[] = []
+  for (const noun of properNouns) {
+    if (!noun) continue
+    let startIndex = 0
+    // Find all occurrences of this proper noun in the text
+    while ((startIndex = text.indexOf(noun, startIndex)) !== -1) {
+      entities.push({
+        start: startIndex,
+        end: startIndex + noun.length,
+        boost: 100
+      })
+      startIndex += noun.length
+    }
+  }
+  return entities
+}
+
+export async function tokenize(text: string, limit = 5, signal?: AbortSignal, properNouns: string[] = []): Promise<TokenizeResponse> {
+  const entities = buildEntities(text, properNouns)
+  const requestBody = { text, limit, ...(entities.length > 0 && { entities }) }
+  const url = `${API_BASE_URL}/api/segment`
+  console.log('[ichiran] POST', url, JSON.stringify(requestBody, null, 2))
+  const segmentResponse = await fetchJSON<SegmentResponse>(
+    url,
     {
       method: 'POST',
-      body: JSON.stringify({ text, limit }),
+      body: JSON.stringify(requestBody),
       signal,
     }
   )
 
-  const tokens = parseTokens(analyzeResponse.segments)
+  // Parse segments - strings are punctuation, arrays are alternatives (use best)
+  const tokens = parseTokens(segmentResponse.segments)
+  const totalScore = segmentResponse.segments.reduce((sum, seg) => {
+    if (typeof seg === 'string') return sum
+    return sum + (seg[0]?.[1] ?? 0)
+  }, 0)
 
   let romanized = ''
   try {
@@ -61,39 +92,43 @@ export async function tokenize(text: string, limit = 5, signal?: AbortSignal): P
     original: text,
     romanized,
     tokens,
-    totalScore: calculateTotalScore(analyzeResponse.segments),
-    raw: analyzeResponse.segments,
-    grammars: analyzeResponse.grammars,
+    totalScore,
+    grammars: {},
   }
 }
 
-function parseTokens(rawResult: IchiranRawResult): IchiranToken[] {
+function parseTokens(segments: Segment[]): IchiranToken[] {
   const tokens: IchiranToken[] = []
 
-  for (const outerSegmentation of rawResult) {
-    if (Array.isArray(outerSegmentation)) {
-      for (const segmentation of outerSegmentation) {
-        if (!Array.isArray(segmentation)) continue
-        const tupleContainer = segmentation[0]
-        if (!Array.isArray(tupleContainer)) continue
-
-        for (const tuple of tupleContainer) {
-          if (Array.isArray(tuple) && tuple.length >= 2) {
-            tokens.push(convertTupleToToken(tuple as IchiranTokenTuple))
-          }
-        }
-      }
-    } else if (typeof outerSegmentation === 'string' && outerSegmentation.trim()) {
+  for (const segment of segments) {
+    // String segments are punctuation/non-Japanese text
+    if (typeof segment === 'string') {
       tokens.push({
-        word: outerSegmentation,
-        romanized: outerSegmentation,
-        info: {
-          text: outerSegmentation,
-          kana: outerSegmentation,
-          type: 'GAP',
-        } as WordInfoWithGloss,
+        word: segment,
+        romanized: segment,
+        info: { text: segment, kana: segment, type: 'GAP' },
         alternatives: [],
       })
+      continue
+    }
+
+    // Array segments are alternatives - use the first (best) one
+    const bestAlternative = segment[0]
+    if (!bestAlternative) continue
+    const [tokenTuples] = bestAlternative // [tokens, score]
+    
+    for (const tuple of tokenTuples) {
+      if (Array.isArray(tuple) && tuple.length >= 2) {
+        tokens.push(convertTupleToToken(tuple as IchiranTokenTuple))
+      } else if (typeof tuple === 'string') {
+        // Fallback for any strings within token tuples
+        tokens.push({
+          word: tuple,
+          romanized: tuple,
+          info: { text: tuple, kana: tuple, type: 'GAP' },
+          alternatives: [],
+        })
+      }
     }
   }
 
@@ -116,24 +151,4 @@ function convertTupleToToken(tuple: IchiranTokenTuple): IchiranToken {
   }
 }
 
-function calculateTotalScore(rawResult: IchiranRawResult): number {
-  let total = 0
-
-  for (const outerSegmentation of rawResult) {
-    if (!Array.isArray(outerSegmentation)) continue
-
-    for (const segmentation of outerSegmentation) {
-      if (!Array.isArray(segmentation)) continue
-      const tokensWithScore = segmentation[0]
-      if (Array.isArray(tokensWithScore) && tokensWithScore.length >= 2) {
-        const score = tokensWithScore[1]
-        if (typeof score === 'number') {
-          total += score
-        }
-      }
-    }
-  }
-
-  return total
-}
 

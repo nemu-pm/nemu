@@ -13,19 +13,19 @@ import {
 } from '@/components/ui/drawer'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Copy01Icon } from '@hugeicons/core-free-icons'
-import { useTextDetectorStore } from './store'
+import { useTextDetectorStore } from '../japanese-learning/store'
 import { useConvex } from 'convex/react'
 import { api } from '../../../../../convex/_generated/api'
-import type { TextDetection } from './types'
-import type { GrammarToken } from './ichiran-types'
+import type { TextDetection } from '../japanese-learning/types'
+import type { GrammarToken } from '../japanese-learning/ichiran-types'
 import type { ReaderPluginContext } from '../../types'
 import { usePluginCtx } from '../../context'
 import { cn, copyToClipboard } from '@/lib/utils'
 import { motion, AnimatePresence } from 'motion/react'
-import { getPOSStyles } from './pos-styles'
-import { getPOSCategory, PartOfSpeechCategory } from './grammar-analysis'
-import { tokenize } from './ichiran-service'
-import { convertIchiranToGrammarTokens } from './grammar-analysis'
+import { getPOSStyles } from '../japanese-learning/pos-styles'
+import { getPOSCategory, PartOfSpeechCategory } from '../japanese-learning/grammar-analysis'
+import { tokenize } from '../japanese-learning/ichiran-service'
+import { convertIchiranToGrammarTokens } from '../japanese-learning/grammar-analysis'
 
 // ============================================================================
 // Scroll Fading Overlay - for drawer scrollable areas
@@ -229,7 +229,7 @@ export function DetectionOverlay({ pageIndex, ctx }: DetectionOverlayProps) {
     return () => resizeObserver.disconnect()
   }, [ctx, pageIndex, calculateBounds, blocks.length])
 
-  const shouldShowBoxes = settings.showOverlay && blocks.length > 0 && bounds
+  const shouldShowBoxes = blocks.length > 0 && bounds
 
   return (
     <div ref={containerRef} className="absolute inset-0 pointer-events-none">
@@ -243,12 +243,12 @@ export function DetectionOverlay({ pageIndex, ctx }: DetectionOverlayProps) {
             height: bounds.renderHeight,
           }}
         >
-          {blocks.map((det, i) => (
+          {blocks.map((det: TextDetection, i: number) => (
             <DetectionBox
               key={`${pageIndex}-${i}`}
               detection={det}
               imageDims={{ width: bounds.naturalWidth, height: bounds.naturalHeight }}
-              opacity={settings.overlayOpacity}
+              opacity={0.5}
               pageIndex={pageIndex}
               imageUrl={ctx.getPageImageUrl(pageIndex)}
               isFlashing={isFlashing}
@@ -361,7 +361,7 @@ function DetectionBox({ detection, imageDims, opacity, pageIndex, imageUrl, isFl
           setGrammarAnalysis({ loading: true, error: null })
           
           try {
-            const response = await tokenize(ocrResult.text)
+            const response = await tokenize(ocrResult.text, 5, undefined, ocrResult.proper_nouns)
             const grammarTokens = convertIchiranToGrammarTokens(response.tokens)
             setGrammarAnalysis({ 
               tokens: grammarTokens, 
@@ -1046,7 +1046,7 @@ export function OcrResultSheet() {
 // ============================================================================
 
 
-const PLUGIN_ID = 'japanese-ocr'
+const PLUGIN_ID = 'japanese-learning'
 
 export function OcrGlobalUI() {
   const ctx = usePluginCtx()

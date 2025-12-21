@@ -13,6 +13,13 @@ import { Search01Icon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { NoSourcesEmpty } from "@/components/no-sources-empty";
 import { PageEmpty } from "@/components/page-empty";
 import { PageHeader } from "@/components/page-header";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  EmptyDescription,
+} from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import { SourceImageProvider } from "@/hooks/use-source-image";
 

@@ -242,11 +242,11 @@ export function createHtmlImports(store: GlobalStore) {
         const $ = node._cheerioApi;
 
         // Search descendants
-        let result = node.find(selector);
+        let result = node.find(selector) as Cheerio<Element>;
         // Also include the element itself if it matches (SwiftSoup behavior)
         try {
           if (node.is(selector)) {
-            result = node.first().add(result);
+            result = node.first().add(result) as Cheerio<Element>;
           }
         } catch {
           // is() can throw for complex selectors, ignore
@@ -261,7 +261,7 @@ export function createHtmlImports(store: GlobalStore) {
               filtered.push(el);
             }
           });
-          result = $(filtered) as Cheerio<AnyNode>;
+          result = $(filtered) as Cheerio<Element>;
         }
 
         return store.storeStdValue(attachApi(result, node));

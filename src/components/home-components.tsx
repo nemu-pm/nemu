@@ -26,7 +26,6 @@ import type {
   HomeImageScroller,
   HomeLink,
   Listing,
-  Manga,
 } from "@/lib/sources/aidoku/types";
 
 // ============================================================================
@@ -440,7 +439,6 @@ interface MangaListItemProps {
 }
 
 function MangaListItem({ link, registryId, sourceId, rank }: MangaListItemProps) {
-  const navigate = useNavigate();
   const manga = link.value?.type === "manga" ? link.value.manga : null;
 
   const handleClick = useCallback(() => {

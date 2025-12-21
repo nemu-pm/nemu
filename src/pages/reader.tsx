@@ -1,5 +1,5 @@
 import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DirectionProvider } from "@base-ui/react/direction-provider";
 import { useStores } from "@/data/context";
@@ -400,13 +400,15 @@ export function ReaderPage() {
   const effectiveChapter = chapterById.get(effectiveChapterId);
   const effectiveChapterPages = chapterPages[effectiveChapterId] ?? [];
 
-  // Load initial chapter/pages for this manga (do NOT depend on chapterId: we sync URL internally)
-  useEffect(() => {
-    let cancelled = false;
-    const runId = ++loadRunIdRef.current;
-    const initialChapterId = chapterId;
-    const initialPage = initialRoutePageRef.current;
+  // Derive current chapter language for plugins (more precise than source-supported languages)
+  const chapterLanguage = effectiveChapter?.lang ?? null;
 
+  // Synchronously clear previous session state on manga switches so plugins can't
+  // see stale pages/chapters and accidentally start background work (auto-detect).
+  useLayoutEffect(() => {
+    // This effect intentionally only keys on the "reader session", not chapterId/page.
+    let cancelled = false;
+    // Mark loading early so the UI doesn't try to render old session data.
     setLoading(true);
     setError(null);
     setCurrentIndex(0);
@@ -426,6 +428,19 @@ export function ReaderPage() {
     setChapterPages({});
     chapterPagesRef.current = {};
     setWindowChapterIds([]);
+
+    return () => {
+      cancelled = true;
+      void cancelled;
+    };
+  }, [registryId, sourceId, mangaId]);
+
+  // Load initial chapter/pages for this manga (do NOT depend on chapterId: we sync URL internally)
+  useEffect(() => {
+    let cancelled = false;
+    const runId = ++loadRunIdRef.current;
+    const initialChapterId = chapterId;
+    const initialPage = initialRoutePageRef.current;
 
     const ensureChapterPages = async (targetChapterId: string) => {
       if (chapterPagesRef.current[targetChapterId]) {
@@ -526,7 +541,7 @@ export function ReaderPage() {
     return () => {
       cancelled = true;
     };
-  }, [registryId, sourceId, mangaId, getSource, getProgress, chapterId, clampPage]);
+  }, [registryId, sourceId, mangaId, getSource, getProgress, clampPage]);
 
   // Keep a ref copy of chapterPages for async helpers
   useEffect(() => {
@@ -906,12 +921,15 @@ export function ReaderPage() {
       : undefined;
 
   const goToChapter = useCallback(
-    (chapter: Chapter) => {
+    (chapter: Chapter, opts?: { startAt?: "start" | "end" }) => {
+      const startAt = opts?.startAt ?? "start";
+      // In-reader chapter navigation should be sequential and must not consult history.
+      // Use explicit `page` (1-based). For `end`, use a large value that will be clamped.
+      const page = startAt === "end" ? Number.MAX_SAFE_INTEGER : 1;
       navigate({
         to: "/sources/$registryId/$sourceId/$mangaId/$chapterId",
         params: { registryId, sourceId, mangaId, chapterId: chapter.id },
-        // If you navigate without `page`, we restore from history for that chapter.
-        search: {},
+        search: { page },
         replace: true, // Stay in reader context, don't pollute history
       });
     },
@@ -1087,13 +1105,16 @@ export function ReaderPage() {
       registryId={registryId}
       readingMode={readingMode}
       sourceLanguages={sourceLanguages}
+      chapterLanguage={chapterLanguage}
       getPageImageUrl={getPageImageUrl}
       getLoadedPageUrls={getLoadedPageUrls}
     >
     <div className="h-dvh w-screen bg-black relative overflow-hidden reader-lock-scroll">
       {/* Floating Top Bar */}
       <header
-        className="absolute left-0 right-0 z-10 flex justify-center"
+        className={`absolute left-0 right-0 z-10 flex justify-center ${
+          showUI ? "pointer-events-auto" : "pointer-events-none"
+        }`}
         style={{
           top: "max(16px, env(safe-area-inset-top, 16px))",
           paddingLeft: "16px",
@@ -1145,7 +1166,9 @@ export function ReaderPage() {
 
       {/* Floating Bottom Panel */}
       <div
-        className="absolute z-10 left-0 right-0 flex justify-center"
+        className={`absolute z-10 left-0 right-0 flex justify-center ${
+          showUI ? "pointer-events-auto" : "pointer-events-none"
+        }`}
         style={{
           bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
           paddingLeft: "16px",
@@ -1158,12 +1181,17 @@ export function ReaderPage() {
           data-position="bottom"
         >
           <div className="flex items-center gap-3">
-            {/* Chapter Navigation - Left (Previous in LTR, Next in RTL) */}
+            {/* Chapter Navigation - Left (Previous in LTR/scrolling, Next in RTL) */}
             <Button
               variant="ghost"
               size="icon-sm"
               disabled={!leftChapter}
-              onClick={() => leftChapter && goToChapter(leftChapter)}
+              onClick={() =>
+                leftChapter &&
+                goToChapter(leftChapter, {
+                  startAt: readingMode === "rtl" ? "start" : "end",
+                })
+              }
               className="reader-ui-text-secondary hover:reader-ui-text-primary hover:reader-ui-bg-hover rounded-xl transition-all duration-200 disabled:opacity-30 shrink-0"
             >
               <HugeiconsIcon icon={PreviousIcon} className="size-4" />
@@ -1185,12 +1213,17 @@ export function ReaderPage() {
               </DirectionProvider>
             </div>
 
-            {/* Chapter Navigation - Right (Next in LTR, Previous in RTL) */}
+            {/* Chapter Navigation - Right (Next in LTR/scrolling, Previous in RTL) */}
             <Button
               variant="ghost"
               size="icon-sm"
               disabled={!rightChapter}
-              onClick={() => rightChapter && goToChapter(rightChapter)}
+              onClick={() =>
+                rightChapter &&
+                goToChapter(rightChapter, {
+                  startAt: readingMode === "rtl" ? "end" : "start",
+                })
+              }
               className="reader-ui-text-secondary hover:reader-ui-text-primary hover:reader-ui-bg-hover rounded-xl transition-all duration-200 disabled:opacity-30 shrink-0"
             >
               <HugeiconsIcon icon={NextIcon} className="size-4" />

@@ -14,8 +14,6 @@ import {
   decodeF32,
   decodeBool,
   decodeVec,
-  concatBytes,
-  encodeVarint,
 } from "../postcard";
 
 // DefaultValue kind enum matching aidoku-rs

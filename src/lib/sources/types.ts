@@ -71,6 +71,8 @@ export interface Chapter {
   dateUploaded?: number;
   scanlator?: string;
   url?: string;
+  /** Language code for this chapter (BCP-47-ish, e.g. "ja", "en", "zh"). */
+  lang?: string;
   /** Whether chapter is locked (paywall/login required) */
   locked?: boolean;
 }

@@ -40,7 +40,8 @@ export function PluginSettings({ open, onOpenChange, pluginId }: PluginSettingsP
   // Load settings when dialog opens or plugin changes
   useEffect(() => {
     if (open && plugin?.getSettings) {
-      setSettings(plugin.getSettings())
+      const loaded = plugin.getSettings()
+      setSettings(loaded)
     }
   }, [open, plugin])
 

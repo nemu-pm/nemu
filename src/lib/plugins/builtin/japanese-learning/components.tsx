@@ -26,19 +26,15 @@ import { getPOSStyles } from './pos-styles'
 import { getPOSCategory, PartOfSpeechCategory } from './grammar-analysis'
 import { tokenize } from './ichiran-service'
 import { convertIchiranToGrammarTokens } from './grammar-analysis'
+import { isJapaneseEnabled } from './language'
 
 // ============================================================================
 // Language Check Helper
 // ============================================================================
 
-/**
- * Check if plugin features should be enabled for the given context.
- * Returns true if enableForAllLanguages is true OR source languages include Japanese.
- */
 function isJapaneseSource(ctx: ReaderPluginContext): boolean {
   const { settings } = useTextDetectorStore.getState()
-  if (settings.enableForAllLanguages) return true
-  return ctx.sourceLanguages.some((l) => l === 'ja' || l === 'multi')
+  return isJapaneseEnabled(ctx, settings.enableForAllLanguages)
 }
 
 // ============================================================================
@@ -378,7 +374,7 @@ function DetectionBox({ detection, imageDims, opacity, pageIndex, imageUrl, isFl
           setGrammarAnalysis({ loading: true, error: null })
           
           try {
-            const response = await tokenize(ocrResult.text)
+            const response = await tokenize(ocrResult.text, 5, undefined, ocrResult.proper_nouns)
             const grammarTokens = convertIchiranToGrammarTokens(response.tokens)
             setGrammarAnalysis({ 
               tokens: grammarTokens, 

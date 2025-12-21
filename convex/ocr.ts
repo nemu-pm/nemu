@@ -1,7 +1,8 @@
 import { v } from "convex/values"
 import { action } from "./_generated/server"
 import { createOpenRouter } from "@openrouter/ai-sdk-provider"
-import { generateText } from "ai"
+import { generateObject } from "ai"
+import { z } from "zod"
 
 function getOpenRouter() {
   const apiKey = process.env.OPENROUTER_API_KEY
@@ -36,37 +37,68 @@ export const extractText = action({
     // Strip data URL prefix if present
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "")
     
-    const { text } = await generateText({
+    const { object } = await generateObject({
       model: openrouter(MODEL),
+      schema: z.object({
+        text: z
+          .string()
+          .describe(`
+    All visible text from the image (any language).
+    - FINAL OUTPUT: no newlines (replace all \\n with spaces).
+    - Ignore furigana/ruby (small kana above/beside kanji); never output it.
+    - Empty string if no text found.
+          `.trim()),
+        proper_nouns: z
+          .array(z.string())
+          .describe(`
+    Proper nouns (people, places, orgs, titles, etc.) from ANY language.
+    - Must appear in \`text\`.
+    - Keep exact surface form (same spelling/case).
+    - Do NOT include furigana-only strings.
+          `.trim()),
+      }),
       messages: [
         {
           role: "user",
           content: [
-            {
-              type: "image",
-              image: base64ToUint8Array(base64Data),
-            },
+            { type: "image", image: base64ToUint8Array(base64Data) },
             {
               type: "text",
-              text: `Extract Japanese text from the manga panel image and normalize it for NLP.
-
-Return ONLY the final Japanese text (no commentary/translation). If none, return "".
-If multiple bubbles/boxes: output one line per bubble in reading order (top→bottom, right→left).
-Within a bubble: remove extra spaces/line breaks; keep punctuation (。、！？「」『』〜…).
-
-STRICT normalization:
-- Do NOT add any words or endings not present in the image (especially no 「だ／です／だよ」 etc).
-- Remove stutters/fillers: 「ぼ、ぼく」→「ぼく」, 「あ、あの」→「あの」, drop 「えっと／あのー／うーん」.
-- Normalize emphasis inside words: collapse ー/〜 and repeated っ/kana: 「すごーーい／すご〜い／すごっっっ」→「すごい」.
-- Reduce excessive repeats but keep type: 「！！！」→「！」, 「？？？」→「？」, 「！？！？？」→「！？」, 「…………」→「……」.
-- Dialect → standard Japanese (use common dictionary forms), but never append copulas/endings.
-- Don’t paraphrase; keep sentence structure as close as possible.`,
+              text: `
+    Extract ALL visible text from the image (Japanese + non-Japanese).
+    
+    OUTPUT:
+    - Determine text per bubble/box in reading order (top→bottom, right→left).
+    - Clean intra-box whitespace; keep punctuation/symbols.
+    - FINAL OUTPUT MUST BE SINGLE-LINE: replace all \\n with spaces.
+    
+    FURIGANA / RUBY:
+    - Ignore furigana (small kana above/beside kanji).
+    - Use furigana only to interpret kanji; NEVER output it.
+    - Example: 「鳩野」 with 「はとの」 → output 「鳩野」 only.
+    
+    JAPANESE NORMALIZATION:
+    - Do NOT add words or endings (no だ／です／だよ).
+    - Remove stutters/fillers (ぼ、ぼく→ぼく; あ、あの→あの; drop えっと／あのー／うーん).
+    - Collapse emphasis (ー/〜/repeated っ・kana).
+    - Reduce repeats (!!!→! ???→? ……→……).
+    - Dialect → standard Japanese (no appended copulas).
+    - No paraphrasing.
+    
+    PROPER NOUNS:
+    - Extract all named entities appearing in the final \`text\` (any language).
+    - Return exact surface forms; exclude furigana-only.
+              `.trim(),
             },
           ],
         },
       ],
-    })
+    });
     
-    return { text: text.trim() }
+    
+    return {
+      text: object.text.trim(),
+      proper_nouns: object.proper_nouns,
+    }
   },
 })

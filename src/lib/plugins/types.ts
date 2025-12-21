@@ -36,6 +36,8 @@ export interface ReaderPluginContext {
   readingMode: 'rtl' | 'ltr' | 'scrolling'
   /** Languages supported by the source (e.g., ['ja'], ['en', 'ja'], ['multi']) */
   sourceLanguages: string[]
+  /** Language code for the current chapter (e.g., "ja", "en"). */
+  chapterLanguage: string | null
 
   // Page access
   /** Get blob URL for a page image (if loaded) */

@@ -73,16 +73,21 @@ function convertFilterInfo(info: FilterInfo, index?: number): Filter {
         ids: info.ids,
         default: typeof info.default === "number" ? info.default : 0,
       };
-    case "sort":
+    case "sort": {
+      const sortDefault = typeof info.default === "object" && info.default !== null
+        ? (info.default as { index?: number; ascending?: boolean })
+        : null;
       return {
         type: FilterType.Sort,
         name: displayName,
         options: info.options ?? [],
         canAscend: info.canAscend ?? true,
-        default: typeof info.default === "object" && info.default !== null
-          ? (info.default as { index?: number; ascending?: boolean })
-          : { index: 0, ascending: false },
+        default: {
+          index: sortDefault?.index ?? 0,
+          ascending: sortDefault?.ascending ?? false,
+        },
       };
+    }
     case "check":
       return {
         type: FilterType.Check,
@@ -105,6 +110,7 @@ function convertFilterInfo(info: FilterInfo, index?: number): Filter {
         options: info.options ?? [],
         ids: info.ids,
         canExclude: info.canExclude ?? false,
+        default: [],
       };
     default:
       // Unknown type, treat as select with no options
@@ -264,9 +270,9 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
           
           if (processed) {
             // Processed data is PNG bytes
-            blob = new Blob([processed], { type: "image/png" });
+            blob = new Blob([new Uint8Array(processed)], { type: "image/png" });
           } else {
-            blob = new Blob([imageBytes]);
+            blob = new Blob([new Uint8Array(imageBytes)]);
           }
         } else {
           blob = await response.blob();
@@ -540,6 +546,7 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
   private convertChapter = (chapter: AidokuChapter): Chapter => ({
     id: chapter.key,
     title: chapter.title,
+    lang: chapter.lang,
     chapterNumber: chapter.chapterNumber,
     volumeNumber: chapter.volumeNumber,
     dateUploaded: chapter.dateUploaded,

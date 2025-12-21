@@ -256,6 +256,7 @@ export function MangaPage() {
                   mangaId: manga.id,
                   chapterId: continueChapter.id,
                 }}
+                search={{ page: undefined }}
               >
                 <Button size="lg">
                   <HugeiconsIcon icon={PlayIcon} />

@@ -2,7 +2,6 @@
  * Plugin settings schema types and renderer
  * Plugins define settings declaratively, UI is auto-generated
  */
-import * as React from 'react'
 import {
   SettingsGroup,
   SettingsSwitch,
@@ -207,7 +206,9 @@ function SettingItem({ setting, values, onChange, features }: SettingItemProps) 
           label={setting.title}
           subtitle={setting.subtitle}
           checked={Boolean(values[setting.key] ?? setting.default ?? false)}
-          onCheckedChange={(checked) => onChange(setting.key, checked)}
+          onCheckedChange={(checked) => {
+            onChange(setting.key, checked)
+          }}
         />
       )
 

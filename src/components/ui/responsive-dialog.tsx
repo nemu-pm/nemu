@@ -50,8 +50,7 @@ function ResponsiveDialog({ open, onOpenChange, children, dismissible = true }: 
     <ResponsiveDialogContext.Provider value={{ open, onOpenChange, isMobile: false, dismissible }}>
       <DialogPrimitive.Root 
         open={open} 
-        onOpenChange={onOpenChange}
-        dismissible={dismissible}
+        onOpenChange={dismissible ? onOpenChange : undefined}
       >
         {children}
       </DialogPrimitive.Root>

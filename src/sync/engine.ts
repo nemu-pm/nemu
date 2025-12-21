@@ -272,9 +272,6 @@ export class SyncEngine {
         timestamp: Date.now(),
         retries: 0,
       });
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/06d791ef-68a2-446c-b54d-218ff0f0deda',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'engine.ts:saveHistoryEntry:afterPending',message:'after addPendingChange',data:{chapterId:entry.chapterId,pendingCount:this._pendingCount},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
-      // #endregion
 
       if (this.online) {
         this.syncNow();

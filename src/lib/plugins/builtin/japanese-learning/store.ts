@@ -12,6 +12,8 @@ import { getCachedDetections, setCachedDetections, type DetectionCacheKey } from
 
 const storage = createPluginStorage('japanese-learning')
 
+const initialSettings = storage.get<TextDetectorSettings>('settings') ?? DEFAULT_SETTINGS
+
 // ============================================================================
 // Worker Management
 // ============================================================================
@@ -34,9 +36,15 @@ export function disposeWorker() {
   if (worker) {
     const w = worker
     worker = null
-    w.postMessage({ type: 'dispose' } satisfies WorkerRequest)
-    // Give it a moment to cleanup, then terminate
-    setTimeout(() => w.terminate(), 100)
+    // Best-effort cleanup, then terminate immediately.
+    // If a detection is in-flight, aborting result handling is not enough; we
+    // must terminate the worker to stop ONNX runtime from continuing to run.
+    try {
+      w.postMessage({ type: 'dispose' } satisfies WorkerRequest)
+    } catch {
+      // ignore
+    }
+    w.terminate()
   }
   currentDetectionAbortController = null
 }
@@ -145,7 +153,7 @@ interface TextDetectorState {
 }
 
 export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
-  settings: storage.get<TextDetectorSettings>('settings') ?? DEFAULT_SETTINGS,
+  settings: initialSettings,
   detections: new Map(),
   loadingPages: new Set(),
   freshlyDetectedPages: new Set(),

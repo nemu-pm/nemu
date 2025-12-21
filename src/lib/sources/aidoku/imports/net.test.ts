@@ -1,16 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { GlobalStore } from "../global-store";
+import { GlobalStore, type WasmRequest } from "../global-store";
 import { createNetImports } from "./net";
 
 describe("net imports", () => {
   let store: GlobalStore;
   let net: ReturnType<typeof createNetImports>;
+  let nextId = 1;
 
   beforeEach(() => {
     store = new GlobalStore("test-source");
     const memory = new WebAssembly.Memory({ initial: 1 });
     store.setMemory(memory);
     net = createNetImports(store);
+    nextId = 1;
   });
 
   afterEach(() => {
@@ -21,6 +23,14 @@ describe("net imports", () => {
     const bytes = new TextEncoder().encode(str);
     store.writeBytes(bytes, offset);
     return [offset, bytes.length];
+  }
+
+  function createMockRequest(partial: Partial<WasmRequest> & { method: string; url: string; headers: Record<string, string>; response?: WasmRequest["response"] }): WasmRequest {
+    return {
+      id: nextId++,
+      createdAt: Date.now(),
+      ...partial,
+    };
   }
 
   describe("init", () => {
@@ -80,7 +90,7 @@ describe("net imports", () => {
       const utf8Bytes = new TextEncoder().encode(htmlWithChinese);
       
       // Store the response data directly (simulating what XHR responseType='arraybuffer' gives us)
-      store.requests.set(rid, {
+      store.requests.set(rid, createMockRequest({
         method: "GET",
         url: "https://example.com",
         headers: {},
@@ -90,14 +100,14 @@ describe("net imports", () => {
           headers: {},
           bytesRead: 0,
         },
-      });
+      }));
 
       // Call net.html to parse the response
       const htmlDescriptor = net.html(rid);
       expect(htmlDescriptor).toBeGreaterThan(0);
 
       // Verify the HTML was parsed correctly by checking we can select Chinese text
-      const node = store.readStdValue(htmlDescriptor);
+      const node = store.readStdValue(htmlDescriptor) as { text(): string };
       expect(node).toBeDefined();
       
       // The text should contain the Chinese characters
@@ -117,7 +127,7 @@ describe("net imports", () => {
       `;
       const utf8Bytes = new TextEncoder().encode(htmlWithJapanese);
       
-      store.requests.set(rid, {
+      store.requests.set(rid, createMockRequest({
         method: "GET",
         url: "https://example.com",
         headers: {},
@@ -127,12 +137,12 @@ describe("net imports", () => {
           headers: {},
           bytesRead: 0,
         },
-      });
+      }));
 
       const htmlDescriptor = net.html(rid);
       expect(htmlDescriptor).toBeGreaterThan(0);
 
-      const node = store.readStdValue(htmlDescriptor);
+      const node = store.readStdValue(htmlDescriptor) as { text(): string };
       const text = node.text();
       expect(text).toContain("タイトル");
       expect(text).toContain("みかんばこ");
@@ -153,7 +163,7 @@ describe("net imports", () => {
       `;
       const utf8Bytes = new TextEncoder().encode(mixedContent);
       
-      store.requests.set(rid, {
+      store.requests.set(rid, createMockRequest({
         method: "GET",
         url: "https://example.com",
         headers: {},
@@ -163,12 +173,12 @@ describe("net imports", () => {
           headers: {},
           bytesRead: 0,
         },
-      });
+      }));
 
       const htmlDescriptor = net.html(rid);
       expect(htmlDescriptor).toBeGreaterThan(0);
 
-      const node = store.readStdValue(htmlDescriptor);
+      const node = store.readStdValue(htmlDescriptor) as { text(): string };
       const text = node.text();
       expect(text).toContain("Welcome");
       expect(text).toContain("歡迎");
@@ -178,7 +188,7 @@ describe("net imports", () => {
 
     // Test the raw byte handling
     it("should preserve all bytes in UTF-8 sequence", () => {
-      const rid = net.init(0);
+      void net.init(0);
       
       // 狀 in UTF-8: E7 8B 80
       // 態 in UTF-8: E6 85 8B (wait, let me verify)
@@ -203,7 +213,7 @@ describe("net imports", () => {
       const jsonData = JSON.stringify({ title: "Test", count: 42 });
       const utf8Bytes = new TextEncoder().encode(jsonData);
       
-      store.requests.set(rid, {
+      store.requests.set(rid, createMockRequest({
         method: "GET",
         url: "https://example.com/api",
         headers: {},
@@ -213,7 +223,7 @@ describe("net imports", () => {
           headers: {},
           bytesRead: 0,
         },
-      });
+      }));
 
       const jsonDescriptor = net.json(rid);
       expect(jsonDescriptor).toBeGreaterThan(0);
@@ -232,7 +242,7 @@ describe("net imports", () => {
       });
       const utf8Bytes = new TextEncoder().encode(jsonData);
       
-      store.requests.set(rid, {
+      store.requests.set(rid, createMockRequest({
         method: "GET",
         url: "https://example.com/api",
         headers: {},
@@ -242,12 +252,12 @@ describe("net imports", () => {
           headers: {},
           bytesRead: 0,
         },
-      });
+      }));
 
       const jsonDescriptor = net.json(rid);
       expect(jsonDescriptor).toBeGreaterThan(0);
 
-      const parsed = store.readStdValue(jsonDescriptor);
+      const parsed = store.readStdValue(jsonDescriptor) as { title: string; author: string; status: string };
       expect(parsed.title).toBe("搖曳怪談！");
       expect(parsed.author).toBe("みかんばこ");
       expect(parsed.status).toBe("連載中");
@@ -258,7 +268,7 @@ describe("net imports", () => {
     it("should return response status code", () => {
       const rid = net.init(0);
       
-      store.requests.set(rid, {
+      store.requests.set(rid, createMockRequest({
         method: "GET",
         url: "https://example.com",
         headers: {},
@@ -268,7 +278,7 @@ describe("net imports", () => {
           headers: {},
           bytesRead: 0,
         },
-      });
+      }));
 
       expect(net.get_status_code(rid)).toBe(404);
     });
@@ -279,7 +289,7 @@ describe("net imports", () => {
       const rid = net.init(0);
       const data = new Uint8Array([1, 2, 3, 4, 5]);
       
-      store.requests.set(rid, {
+      store.requests.set(rid, createMockRequest({
         method: "GET",
         url: "https://example.com",
         headers: {},
@@ -289,7 +299,7 @@ describe("net imports", () => {
           headers: {},
           bytesRead: 0,
         },
-      });
+      }));
 
       expect(net.data_len(rid)).toBe(5);
     });
@@ -298,7 +308,7 @@ describe("net imports", () => {
       const rid = net.init(0);
       const data = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]);
       
-      store.requests.set(rid, {
+      store.requests.set(rid, createMockRequest({
         method: "GET",
         url: "https://example.com",
         headers: {},
@@ -308,7 +318,7 @@ describe("net imports", () => {
           headers: {},
           bytesRead: 0,
         },
-      });
+      }));
 
       const result = net.read_data(rid, 100, 4);
       expect(result).toBe(0);

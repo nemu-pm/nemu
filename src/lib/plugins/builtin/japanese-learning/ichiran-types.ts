@@ -122,6 +122,16 @@ export interface AnalyzeResponse {
   grammars: Record<string, GrammarData>
 }
 
+// /api/segment response - returns array of alternative segmentations
+export type SegmentAlternative = [IchiranTokenTuple[], number] // [tokens, score]
+// Segment can be either alternatives array (for Japanese) or plain string (for punctuation/non-Japanese)
+export type Segment = SegmentAlternative[] | string
+export interface SegmentResponse {
+  text: string
+  segments: Segment[]
+  limit: number
+}
+
 // Grammar token - flattened representation for display
 export interface GrammarToken {
   isConjugation: boolean

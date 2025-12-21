@@ -26,20 +26,15 @@ interface DescriptorEntry {
 }
 
 // Resource types for unified store tracking
-export enum ResourceType {
-  StdValue = 0,
-  Request = 1,
-  JsContext = 2,
-  Canvas = 3,
-  Image = 4,
-  Font = 5,
-}
-
-// Resource tracking for unified std.destroy
-interface ResourceEntry {
-  type: ResourceType;
-  rid: number;
-}
+export const ResourceType = {
+  StdValue: 0,
+  Request: 1,
+  JsContext: 2,
+  Canvas: 3,
+  Image: 4,
+  Font: 5,
+} as const;
+export type ResourceType = (typeof ResourceType)[keyof typeof ResourceType];
 
 // Configuration for memory management
 const MEMORY_CONFIG = {

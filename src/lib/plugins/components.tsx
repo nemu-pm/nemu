@@ -31,9 +31,7 @@ export function PluginNavbarActions() {
   const ctx = usePluginCtx()
 
   // Filter out hidden actions
-  const visibleActions = actions.filter((action) => 
-    action.isVisible?.(ctx) ?? true
-  )
+  const visibleActions = actions.filter((action) => action.isVisible?.(ctx) ?? true)
 
   if (visibleActions.length === 0) return null
 

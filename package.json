@@ -7,7 +7,7 @@
     "dev": "npx concurrently \"vite --host\" \"convex dev\"",
     "build": "tsx scripts/generate-apple-secret.ts && tsc -b && vite build",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b --noEmit",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",

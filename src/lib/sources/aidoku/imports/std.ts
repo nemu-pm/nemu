@@ -197,7 +197,7 @@ export function createStdImports(store: GlobalStore) {
       // Try to detect the type by attempting to decode as string first
       if (value instanceof Uint8Array) {
         try {
-          const [str] = decodeString(value, 0);
+          const [_str] = decodeString(value, 0);
           // Successfully decoded as string
           return ObjectType.String;
         } catch {
