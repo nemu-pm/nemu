@@ -147,6 +147,9 @@ jobs:
       - name: Install dependencies
         run: bun install
       
+      - name: Make gradlew executable
+        run: chmod +x packages/tachiyomi-js/gradlew
+      
       - name: Build extensions (chunk ${{ matrix.chunk }})
         run: |
           EXTENSIONS="${{ needs.tachiyomi-detect.outputs.extensions }}"
