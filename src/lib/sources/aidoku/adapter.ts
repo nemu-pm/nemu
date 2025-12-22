@@ -258,7 +258,11 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
         
         let blob: Blob;
         if (this._hasImageProcessor && context !== null) {
-          const imageBytes = new Uint8Array(await response.arrayBuffer());
+          const responseBuffer = await response.arrayBuffer();
+          // Clone buffer before processPageImage - Comlink.transfer detaches the original
+          const imageBytesForFallback = new Uint8Array(responseBuffer.slice(0));
+          const imageBytes = new Uint8Array(responseBuffer);
+          
           const processed = await asyncSource.processPageImage(
             imageBytes,
             context,
@@ -270,9 +274,10 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
           
           if (processed) {
             // Processed data is PNG bytes
-            blob = new Blob([new Uint8Array(processed)], { type: "image/png" });
+            blob = new Blob([processed as BlobPart], { type: "image/png" });
           } else {
-            blob = new Blob([new Uint8Array(imageBytes)]);
+            // Use the cloned bytes since imageBytes.buffer was detached by transfer
+            blob = new Blob([imageBytesForFallback as BlobPart]);
           }
         } else {
           blob = await response.blob();

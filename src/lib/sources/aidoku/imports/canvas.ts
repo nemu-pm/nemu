@@ -380,10 +380,10 @@ const pendingDecodes = new Map<number, Promise<ImageBitmap>>();
  * Returns the image rid and a promise that resolves when decoding completes.
  */
 export async function createHostImage(store: GlobalStore, imageData: Uint8Array): Promise<{ rid: number; width: number; height: number } | null> {
+  const dataCopy = new Uint8Array(imageData);
+  
   try {
-    const dataCopy = new Uint8Array(imageData);
-    
-    // Decode the image first
+    // Try to decode the image first
     const blob = new Blob([dataCopy.buffer]);
     const bitmap = await createImageBitmap(blob);
     
@@ -399,8 +399,20 @@ export async function createHostImage(store: GlobalStore, imageData: Uint8Array)
     
     return { rid, width: bitmap.width, height: bitmap.height };
   } catch (e) {
-    console.error("[Canvas] createHostImage error:", e);
-    return null;
+    // Image decode failed (e.g., scrambled/encrypted data)
+    // Store raw bytes with bitmap=null - WASM code will process them
+    // This matches Swift behavior: source.store(value: data)
+    console.warn("[Canvas] createHostImage: decode failed, storing raw bytes");
+    const resource: ImageResource = {
+      type: "image",
+      bitmap: null,
+      data: dataCopy,
+      width: 0,
+      height: 0,
+    };
+    const rid = store.storeStdValue(resource);
+    
+    return { rid, width: 0, height: 0 };
   }
 }
 

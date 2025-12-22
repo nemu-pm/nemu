@@ -234,10 +234,26 @@ export class IndexedDBUserDataStore implements UserDataStore {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORES.history, "readwrite");
       const store = tx.objectStore(STORES.history);
-      const request = store.put(entry);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
+      
+      // High-water mark protection: read existing entry first and merge
+      const getRequest = store.get(entry.id);
+      getRequest.onerror = () => reject(getRequest.error);
+      getRequest.onsuccess = () => {
+        const existing = getRequest.result;
+        const merged: HistoryEntry = existing
+          ? {
+              ...entry,
+              progress: Math.max(existing.progress ?? 0, entry.progress),
+              total: Math.max(existing.total ?? 0, entry.total),
+              completed: existing.completed || entry.completed,
+              dateRead: Math.max(existing.dateRead ?? 0, entry.dateRead),
+            }
+          : entry;
+        
+        const putRequest = store.put(merged);
+        putRequest.onerror = () => reject(putRequest.error);
+        putRequest.onsuccess = () => resolve();
+      };
     });
   }
 

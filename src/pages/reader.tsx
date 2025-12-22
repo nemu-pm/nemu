@@ -162,6 +162,11 @@ export function ReaderPage() {
 
   // Debounce save timer
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track max page seen per chapter for high-water mark completion detection
+  // Key: chapterId, Value: max page index seen
+  const maxPageSeenRef = useRef<Map<string, number>>(new Map());
+  // Track which chapters we've already marked as completed this session (avoid duplicate calls)
+  const completedChaptersRef = useRef<Set<string>>(new Set());
   // Track imageUrls for unmount cleanup only
   const imageUrlsRef = useRef<Map<string, string>>(new Map());
   // Track which virtual items are currently being loaded to avoid duplicate loads
@@ -583,7 +588,35 @@ export function ReaderPage() {
     [getSource, registryId, sourceId, mangaId]
   );
 
-  // Auto-save progress (debounced)
+  // CRITICAL: Immediately track max page seen and mark completed (not debounced)
+  // This high-water mark pattern ensures completion is never lost due to fast scrolling
+  useEffect(() => {
+    if (currentItem?.kind !== "page") return;
+    if (effectiveChapterPages.length === 0) return;
+
+    const chapterId = currentItem.chapterId;
+    const pageIndex = currentItem.localIndex;
+    const total = effectiveChapterPages.length;
+
+    // Update high-water mark
+    const prevMax = maxPageSeenRef.current.get(chapterId) ?? -1;
+    if (pageIndex > prevMax) {
+      maxPageSeenRef.current.set(chapterId, pageIndex);
+    }
+
+    // Check if chapter should be marked completed (max page reached end)
+    const maxSeen = maxPageSeenRef.current.get(chapterId) ?? pageIndex;
+    const shouldComplete = maxSeen >= total - 1;
+    const alreadyCompleted = completedChaptersRef.current.has(chapterId);
+
+    if (shouldComplete && !alreadyCompleted) {
+      // Mark completed IMMEDIATELY (not debounced) - this is critical
+      completedChaptersRef.current.add(chapterId);
+      markCompleted(registryId, sourceId, mangaId, chapterId, total);
+    }
+  }, [currentItem, effectiveChapterPages.length, registryId, sourceId, mangaId, markCompleted]);
+
+  // Auto-save progress (debounced) - position tracking, non-critical
   useEffect(() => {
     if (currentItem?.kind !== "page") return;
     if (effectiveChapterPages.length === 0) return;
@@ -614,11 +647,6 @@ export function ReaderPage() {
           volumeNumber: chapter.volumeNumber,
         });
       }
-
-      // Mark as completed if on last page
-      if (currentItem.localIndex >= effectiveChapterPages.length - 1) {
-        markCompleted(registryId, sourceId, mangaId, currentItem.chapterId);
-      }
     }, 500);
 
     return () => {
@@ -634,7 +662,6 @@ export function ReaderPage() {
     mangaId,
     chapters,
     saveProgress,
-    markCompleted,
     updateLastRead,
   ]);
 

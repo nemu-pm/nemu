@@ -31,7 +31,8 @@ interface HistoryState {
     registryId: string,
     sourceId: string,
     mangaId: string,
-    chapterId: string
+    chapterId: string,
+    total?: number
   ) => Promise<void>;
   getRecentHistory: (limit?: number) => Promise<HistoryEntry[]>;
 }
@@ -74,17 +75,17 @@ export function createHistoryStore(userStore: UserDataStore): HistoryStore {
     saveProgress: async (registryId, sourceId, mangaId, chapterId, progress, total) => {
       const key = makeHistoryKey(registryId, sourceId, mangaId, chapterId);
       const existing = get().entries.get(key);
-      const completed = existing?.completed ?? false;
-
+      
+      // High-water mark: keep highest progress seen, preserve completed state
       const entry: HistoryEntry = {
         id: key,
         registryId,
         sourceId,
         mangaId,
         chapterId,
-        progress,
-        total,
-        completed,
+        progress: existing ? Math.max(existing.progress, progress) : progress,
+        total: existing ? Math.max(existing.total, total) : total,
+        completed: existing?.completed ?? false,
         dateRead: Date.now(),
       };
 
@@ -95,9 +96,12 @@ export function createHistoryStore(userStore: UserDataStore): HistoryStore {
       }));
     },
 
-    markCompleted: async (registryId, sourceId, mangaId, chapterId) => {
+    markCompleted: async (registryId, sourceId, mangaId, chapterId, total?: number) => {
       const key = makeHistoryKey(registryId, sourceId, mangaId, chapterId);
       const existing = get().entries.get(key);
+      
+      // Use provided total, or existing, or 0
+      const finalTotal = total ?? existing?.total ?? 0;
 
       const entry: HistoryEntry = {
         id: key,
@@ -105,8 +109,9 @@ export function createHistoryStore(userStore: UserDataStore): HistoryStore {
         sourceId,
         mangaId,
         chapterId,
-        progress: existing?.progress ?? 0,
-        total: existing?.total ?? 0,
+        // When marking completed, progress should be last page (total - 1)
+        progress: finalTotal > 0 ? finalTotal - 1 : (existing?.progress ?? 0),
+        total: finalTotal,
         completed: true,
         dateRead: Date.now(),
       };
