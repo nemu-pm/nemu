@@ -1,6 +1,6 @@
 /**
  * Dev registry for locally built Tachiyomi extensions.
- * Reads from /dev/extensions/ served by Vite dev server.
+ * Reads from /dev/tachiyomi-extensions/ served by Vite dev server.
  * 
  * The Vite plugin automatically scans for extensions - no manual index generation needed.
  * 
@@ -15,9 +15,10 @@ import type { CacheStore } from "@/data/cache";
 import type { SourceRegistryProvider, RegistrySourceInfo } from "../registry";
 import type { MangaSource } from "../types";
 import type { TachiyomiManifest } from "./types";
-import { createAsyncTachiyomiSourceWithDefaults } from "./async-source";
-import { createTachiyomiBrowsableSource } from "./adapter";
+import { createAsyncTachiyomiSource } from "./async-source";
+import { createTachiyomiBrowsableSource, SOURCE_SELECTION_KEY } from "./adapter";
 import { Keys } from "@/data/keys";
+import { getSourceSettingsStore } from "@/stores/source-settings";
 import { normalizeSourceLangs } from "../language";
 
 export const TACHIYOMI_DEV_REGISTRY_ID = "tachiyomi-dev";
@@ -66,7 +67,7 @@ export class TachiyomiDevRegistry implements SourceRegistryProvider {
   }
 
   /**
-   * Scan dev/extensions/ for built extensions
+   * Scan dev/tachiyomi-extensions/ for built extensions
    */
   async listSources(): Promise<RegistrySourceInfo[]> {
     await this.ensureInitialized();
@@ -94,7 +95,7 @@ export class TachiyomiDevRegistry implements SourceRegistryProvider {
     
     try {
       // Fetch the index of available extensions
-      const response = await fetch("/dev/extensions/index.json");
+      const response = await fetch("/dev/tachiyomi-extensions/index.json");
       if (!response.ok) {
         console.log("[TachiyomiDev] No index.json found - no dev extensions available");
         this.initialized = true;
@@ -106,12 +107,12 @@ export class TachiyomiDevRegistry implements SourceRegistryProvider {
       
       for (const dir of extensionDirs) {
         try {
-          const manifestRes = await fetch(`/dev/extensions/${dir}/manifest.json`);
+          const manifestRes = await fetch(`/dev/tachiyomi-extensions/${dir}/manifest.json`);
           if (!manifestRes.ok) continue;
           
           const manifest: TachiyomiManifest = await manifestRes.json();
-          const jsUrl = `/dev/extensions/${dir}/${manifest.jsPath}`;
-          const iconUrl = manifest.icon ? `/dev/extensions/${dir}/${manifest.icon}` : undefined;
+          const jsUrl = `/dev/tachiyomi-extensions/${dir}/${manifest.jsPath}`;
+          const iconUrl = manifest.icon ? `/dev/tachiyomi-extensions/${dir}/${manifest.icon}` : undefined;
           
           // Store extension info (sources loaded lazily via getSource)
           this.extensions.set(dir, { dirName: dir, manifest, jsUrl, iconUrl });
@@ -165,20 +166,46 @@ export class TachiyomiDevRegistry implements SourceRegistryProvider {
     try {
       const sourceKey = Keys.source(TACHIYOMI_DEV_REGISTRY_ID, sourceId);
       
-      // Create async source with automatic source selection (English preferred)
-      const asyncSource = await createAsyncTachiyomiSourceWithDefaults(
-        ext.jsUrl,
-        ext.manifest
-      );
+      // Get sources from manifest (should be populated at build time)
+      const sources = ext.manifest.sources ?? [];
+      if (sources.length === 0) {
+        throw new Error(`No sources in manifest. Rebuild extension: ${ext.manifest.name}`);
+      }
       
+      // Determine which source to load
+      const settingsStore = getSourceSettingsStore();
+      await settingsStore.getState().initialize();
+      const savedSettings = settingsStore.getState().values.get(sourceKey) ?? {};
+      const savedSourceId = savedSettings[SOURCE_SELECTION_KEY] as string | undefined;
+      
+      let selectedSourceId: string;
+      if (savedSourceId && sources.some(s => s.id === savedSourceId)) {
+        selectedSourceId = savedSourceId;
+      } else {
+        const englishSource = sources.find(s => s.lang === "en");
+        selectedSourceId = englishSource?.id ?? sources[0].id;
+      }
+      
+      const asyncSource = await createAsyncTachiyomiSource(ext.jsUrl, ext.manifest, selectedSourceId);
       const source = await createTachiyomiBrowsableSource(asyncSource, sourceKey, this.cacheStore);
       this.loadedSources.set(sourceId, source);
       
-      console.log(`[TachiyomiDev] Loaded source: ${source.name}`);
+      console.log(`[TachiyomiDev] Loaded source: ${source.name} (${selectedSourceId})`);
       return source;
     } catch (e) {
       console.error(`[TachiyomiDev] Failed to load source ${sourceId}:`, e);
       return null;
+    }
+  }
+
+  /**
+   * Unload a source from the registry (disposes and clears cache)
+   */
+  unloadSource(sourceId: string): void {
+    const source = this.loadedSources.get(sourceId);
+    if (source) {
+      source.dispose();
+      this.loadedSources.delete(sourceId);
     }
   }
 

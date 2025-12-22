@@ -246,7 +246,10 @@
   "sourceSettings": {
     "loadingSettings": "加载设置中...",
     "noSettings": "此源没有可配置的设置。",
-    "resetToDefaults": "恢复默认设置"
+    "resetToDefaults": "恢复默认设置",
+    "reloadingSource": "重新加载源...",
+    "sourceReloaded": "源已重新加载",
+    "reloadFailed": "重新加载源失败"
   },
   "pluginSettings": {
     "noSettings": "此插件没有可配置的设置。"

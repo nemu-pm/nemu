@@ -13,3 +13,9 @@
 [submodule "vendor/mihonapp/mihon"]
 	path = vendor/mihonapp/mihon
 	url = https://github.com/mihonapp/mihon.git
+[submodule "vendor/yuzono/tachiyomi-extensions"]
+	path = vendor/yuzono/tachiyomi-extensions
+	url = https://github.com/yuzono/tachiyomi-extensions
+[submodule "vendor/Skittyblock/aidoku-community-sources"]
+	path = vendor/Skittyblock/aidoku-community-sources
+	url = https://github.com/Skittyblock/aidoku-community-sources

@@ -22,7 +22,7 @@ cd packages/tachiyomi-js
 bun scripts/test-tachiyomi-source.ts all-mangadex popular
 ```
 
-Output: `dev/extensions/<lang>-<name>/` with `extension.js`, `manifest.json`, `icon.png`
+Output: `dev/tachiyomi-extensions/<lang>-<name>/` with `extension.js`, `manifest.json`, `icon.png`
 
 ---
 
@@ -64,7 +64,7 @@ Output: `dev/extensions/<lang>-<name>/` with `extension.js`, `manifest.json`, `i
 │  - Loads Kotlin/JS as ES module                             │
 │  - Sync XHR allowed here                                    │
 ├─────────────────────────────────────────────────────────────┤
-│  Kotlin/JS Module (dev/extensions/<ext>/extension.js)       │
+│  Kotlin/JS Module (dev/tachiyomi-extensions/<ext>/extension.js)       │
 │  - Extension code + shim library                            │
 │  - @JsExport entry points return JSON                       │
 ├─────────────────────────────────────────────────────────────┤
@@ -181,7 +181,7 @@ Supports:
 ### Output Structure
 
 ```
-dev/extensions/
+dev/tachiyomi-extensions/
 ├── ja-shonenjumpplus/
 │   ├── extension.js       # Compiled Kotlin/JS
 │   ├── extension.js.map   # Source map
@@ -346,7 +346,7 @@ src/lib/
     ├── renderer.tsx          # SettingsRenderer component
     └── index.ts              # Public exports
 
-dev/extensions/               # Built extensions (gitignored)
+dev/tachiyomi-extensions/               # Built extensions (gitignored)
 └── <lang>-<name>/
     ├── extension.js
     ├── manifest.json

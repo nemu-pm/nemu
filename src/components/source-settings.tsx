@@ -1,17 +1,19 @@
 /**
  * Source settings - displays and edits source-specific settings
  * 
- * Schema is loaded when source is created (not here).
- * This component just reads from the source-settings store.
+ * Schema is populated when source is created (on first use).
+ * reloadSource is called when source selector changes.
  */
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { parseSourceKey } from "@/data/keys";
 import { SettingsDialogWithPages } from "@/components/ui/settings-dialog";
 import { Button } from "@/components/ui/button";
 import type { PageSetting } from "@/lib/settings";
 import { extractDefaults, SettingsRenderer } from "@/lib/settings";
 import { getSourceSettingsStore } from "@/stores/source-settings";
+import { SOURCE_SELECTION_KEY } from "@/lib/sources/tachiyomi/adapter";
 
 interface SourceSettingsProps {
   open: boolean;
@@ -20,6 +22,8 @@ interface SourceSettingsProps {
   sourceName: string;
   sourceIcon?: string;
   sourceVersion?: number;
+  /** Called when source needs to be reloaded (e.g., source selector change) */
+  reloadSource?: () => Promise<void>;
 }
 
 interface PageStackItem {
@@ -34,11 +38,12 @@ export function SourceSettings({
   sourceName,
   sourceIcon,
   sourceVersion,
+  reloadSource,
 }: SourceSettingsProps) {
   const { t } = useTranslation();
   const store = getSourceSettingsStore();
 
-  // Read directly from store - schema is already loaded when source was created
+  // Read directly from store
   const schema = store((s) => s.schemas.get(sourceKey) ?? null);
   const userValues = store((s) => s.values.get(sourceKey));
   const setSetting = store((s) => s.setSetting);
@@ -84,11 +89,27 @@ export function SourceSettings({
     setPageStack([]);
   }, [resetSettings, sourceKey]);
 
+  // Track if we're reloading to show feedback
+  const reloadingRef = useRef(false);
+
   const updateSetting = useCallback(
-    (key: string, value: unknown) => {
+    async (key: string, value: unknown) => {
       setSetting(sourceKey, key, value);
+      
+      // Source selector change requires reload to switch to new source
+      if (key === SOURCE_SELECTION_KEY && reloadSource && !reloadingRef.current) {
+        reloadingRef.current = true;
+        toast.promise(
+          reloadSource().finally(() => { reloadingRef.current = false; }),
+          {
+            loading: t("sourceSettings.reloadingSource"),
+            success: t("sourceSettings.sourceReloaded"),
+            error: t("sourceSettings.reloadFailed"),
+          }
+        );
+      }
     },
-    [setSetting, sourceKey]
+    [setSetting, sourceKey, reloadSource, t]
   );
 
   const isEmpty = !schema || schema.length === 0;

@@ -1,0 +1,1400 @@
+{
+  "generated": "2025-12-22T20:27:24.375Z",
+  "cutoffDate": "2025-06-12",
+  "sources": {
+    "mmrcms": [
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 1,
+        "firstCommit": "2022-08-17"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 7,
+        "firstCommit": "2022-11-16"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "65874572+Moomooo95@users.noreply.github.com",
+        "name": "Mohamed-Ali",
+        "commits": 1,
+        "firstCommit": "2023-08-07"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 1,
+        "firstCommit": "2025-01-30"
+      }
+    ],
+    "fr.bluesolo": [
+      {
+        "email": "apixon@outlook.com",
+        "name": "apix",
+        "commits": 1,
+        "firstCommit": "2025-05-27"
+      }
+    ],
+    "zh.manhuagui": [
+      {
+        "email": "johntyty912@gmail.com",
+        "name": "johntyty912",
+        "commits": 1,
+        "firstCommit": "2022-11-30"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      },
+      {
+        "email": "aphronyx.su@gmail.com",
+        "name": "Aphronyx",
+        "commits": 1,
+        "firstCommit": "2023-07-16"
+      },
+      {
+        "email": "61936050+dyphire@users.noreply.github.com",
+        "name": "dyphire",
+        "commits": 1,
+        "firstCommit": "2024-11-09"
+      }
+    ],
+    "multi.xkcd": [
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 1,
+        "firstCommit": "2022-09-11"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 6,
+        "firstCommit": "2022-11-16"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      }
+    ],
+    "zh.mangabz": [
+      {
+        "email": "aphronyx.su@gmail.com",
+        "name": "Aphronyx",
+        "commits": 2,
+        "firstCommit": "2023-05-19"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 4,
+        "firstCommit": "2023-05-21"
+      }
+    ],
+    "zh.baozimanhua": [
+      {
+        "email": "aphronyx.su@gmail.com",
+        "name": "Aphronyx",
+        "commits": 3,
+        "firstCommit": "2023-05-13"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 4,
+        "firstCommit": "2023-05-21"
+      }
+    ],
+    "madara": [
+      {
+        "email": "namanpandey23@gmail.com",
+        "name": "NMN",
+        "commits": 6,
+        "firstCommit": "2022-05-28"
+      },
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 1,
+        "firstCommit": "2022-06-11"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 10,
+        "firstCommit": "2022-10-06"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 24,
+        "firstCommit": "2022-11-14"
+      },
+      {
+        "email": "naufaljct48@gmail.com",
+        "name": "Naufal",
+        "commits": 13,
+        "firstCommit": "2022-11-17"
+      },
+      {
+        "email": "65874572+Moomooo95@users.noreply.github.com",
+        "name": "Moomooo95",
+        "commits": 3,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "me@jackli.dev",
+        "name": "lina",
+        "commits": 3,
+        "firstCommit": "2023-02-12"
+      },
+      {
+        "email": "56101163+pandeynmn@users.noreply.github.com",
+        "name": "NMN",
+        "commits": 3,
+        "firstCommit": "2023-02-18"
+      },
+      {
+        "email": "43102748+MozkaGit@users.noreply.github.com",
+        "name": "MozkaGit",
+        "commits": 3,
+        "firstCommit": "2023-09-06"
+      },
+      {
+        "email": "37590629+DthRazak@users.noreply.github.com",
+        "name": "Volodymyr Milchanovskyi",
+        "commits": 3,
+        "firstCommit": "2023-09-10"
+      },
+      {
+        "email": "paginasbr@gmail.com",
+        "name": "Julio Reigen",
+        "commits": 2,
+        "firstCommit": "2023-10-04"
+      },
+      {
+        "email": "juliobrito.tec@gmail.com",
+        "name": "Julio Reigen",
+        "commits": 11,
+        "firstCommit": "2023-10-05"
+      },
+      {
+        "email": "l2e4v6789@gmail.com",
+        "name": "AGoodNub",
+        "commits": 2,
+        "firstCommit": "2024-02-10"
+      },
+      {
+        "email": "30298077+Aeonss@users.noreply.github.com",
+        "name": "Aeon",
+        "commits": 6,
+        "firstCommit": "2024-03-02"
+      },
+      {
+        "email": "dspatil11599@gmail.com",
+        "name": "Deepak Patil",
+        "commits": 1,
+        "firstCommit": "2024-03-23"
+      },
+      {
+        "email": "104892860+yamaijia7@users.noreply.github.com",
+        "name": "phcukt",
+        "commits": 1,
+        "firstCommit": "2024-08-18"
+      },
+      {
+        "email": "corentin.naze@gmail.com",
+        "name": "C. N.",
+        "commits": 1,
+        "firstCommit": "2024-10-20"
+      },
+      {
+        "email": "notjackhli@gmail.com",
+        "name": "jckli",
+        "commits": 1,
+        "firstCommit": "2025-01-09"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 9,
+        "firstCommit": "2025-01-29"
+      },
+      {
+        "email": "crsstm.9@gmail.com",
+        "name": "Rose",
+        "commits": 1,
+        "firstCommit": "2025-05-28"
+      }
+    ],
+    "otaku-sanctuary": [
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 1,
+        "firstCommit": "2022-06-11"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 6,
+        "firstCommit": "2023-03-31"
+      }
+    ],
+    "mymanga": [
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 1,
+        "firstCommit": "2022-06-11"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 6,
+        "firstCommit": "2023-03-31"
+      }
+    ],
+    "en.dynastyscans": [
+      {
+        "email": "71832633+phiefferj24@users.noreply.github.com",
+        "name": "JimIsWayTooEpic",
+        "commits": 2,
+        "firstCommit": "2022-05-24"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 7,
+        "firstCommit": "2022-11-16"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      }
+    ],
+    "multi.mangadex": [
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 12,
+        "firstCommit": "2022-04-14"
+      },
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 2,
+        "firstCommit": "2022-07-26"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 4,
+        "firstCommit": "2022-12-28"
+      },
+      {
+        "email": "hanatsumi@proton.me",
+        "name": "hanatsumi",
+        "commits": 1,
+        "firstCommit": "2024-05-25"
+      }
+    ],
+    "uk.mangainua": [
+      {
+        "email": "32496284+AndrewNaumovskiy@users.noreply.github.com",
+        "name": "Andrew Naumovskiy",
+        "commits": 1,
+        "firstCommit": "2023-02-23"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      },
+      {
+        "email": "143286922+9783e6@users.noreply.github.com",
+        "name": "Noah",
+        "commits": 1,
+        "firstCommit": "2025-05-04"
+      }
+    ],
+    "guya": [
+      {
+        "email": "me@jackli.dev",
+        "name": "lina",
+        "commits": 1,
+        "firstCommit": "2023-02-14"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      }
+    ],
+    "vi.truyentranh8": [
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 1,
+        "firstCommit": "2022-06-11"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 6,
+        "firstCommit": "2023-03-31"
+      }
+    ],
+    "multi.simplyhentai": [
+      {
+        "email": "itss0n1cdev@gmail.com",
+        "name": "S0n1c",
+        "commits": 2,
+        "firstCommit": "2023-04-20"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 3,
+        "firstCommit": "2023-05-21"
+      }
+    ],
+    "pt-br.modescanlator": [
+      {
+        "email": "juliobrito.tec@gmail.com",
+        "name": "Julio Reigen",
+        "commits": 1,
+        "firstCommit": "2024-07-31"
+      }
+    ],
+    "zh.manhuaren": [
+      {
+        "email": "Trzeth@Outlook.com",
+        "name": "Trzeth",
+        "commits": 1,
+        "firstCommit": "2023-02-18"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      }
+    ],
+    "en.hentaifox": [
+      {
+        "email": "itss0n1cdev@gmail.com",
+        "name": "S0n1c",
+        "commits": 3,
+        "firstCommit": "2022-05-31"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2022-11-16"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 2,
+        "firstCommit": "2025-01-29"
+      }
+    ],
+    "en.asurascans": [
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBanks",
+        "commits": 6,
+        "firstCommit": "2024-07-30"
+      },
+      {
+        "email": "swaminathanalok@gmail.com",
+        "name": "Alok Swaminathan",
+        "commits": 2,
+        "firstCommit": "2024-11-24"
+      }
+    ],
+    "en.mangakatana": [
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 3,
+        "firstCommit": "2023-01-27"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      }
+    ],
+    "en.tcbscans": [
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 6,
+        "firstCommit": "2022-11-20"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "87280154+kulaid@users.noreply.github.com",
+        "name": "kulaid",
+        "commits": 1,
+        "firstCommit": "2024-05-02"
+      },
+      {
+        "email": "arlind@sulej.ch",
+        "name": "Arlind",
+        "commits": 1,
+        "firstCommit": "2024-08-07"
+      },
+      {
+        "email": "sulejmaniarlind5@gmail.com",
+        "name": "Arlind",
+        "commits": 1,
+        "firstCommit": "2025-02-06"
+      }
+    ],
+    "mangadventure": [
+      {
+        "email": "chronobserver@disroot.org",
+        "name": "ObserverOfTime",
+        "commits": 4,
+        "firstCommit": "2022-11-17"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      }
+    ],
+    "mangaworld": [
+      {
+        "email": "dspatil11599@gmail.com",
+        "name": "Deepak Patil",
+        "commits": 1,
+        "firstCommit": "2023-02-23"
+      },
+      {
+        "email": "56101163+pandeynmn@users.noreply.github.com",
+        "name": "NMN",
+        "commits": 1,
+        "firstCommit": "2023-03-04"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      },
+      {
+        "email": "40018163+FrancescoGrazioso@users.noreply.github.com",
+        "name": "Francesco Grazioso",
+        "commits": 2,
+        "firstCommit": "2025-01-11"
+      }
+    ],
+    "ru.remanga": [
+      {
+        "email": "47759467+MemesPwr@users.noreply.github.com",
+        "name": "itsreallyroot",
+        "commits": 1,
+        "firstCommit": "2025-05-12"
+      }
+    ],
+    "en.mangairo": [
+      {
+        "email": "getboolean@gmail.com",
+        "name": "getBoolean",
+        "commits": 1,
+        "firstCommit": "2023-10-01"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 2,
+        "firstCommit": "2024-07-04"
+      }
+    ],
+    "en.zeroscans": [
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 4,
+        "firstCommit": "2022-12-26"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      },
+      {
+        "email": "l2e4v6789@gmail.com",
+        "name": "AGoodNub",
+        "commits": 1,
+        "firstCommit": "2024-01-07"
+      }
+    ],
+    "vi.hentaivn": [
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 2,
+        "firstCommit": "2023-01-09"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      },
+      {
+        "email": "124429153+Hyminem@users.noreply.github.com",
+        "name": "Hyminem",
+        "commits": 2,
+        "firstCommit": "2024-05-28"
+      }
+    ],
+    "mangastream": [
+      {
+        "email": "dspatil11599@gmail.com",
+        "name": "Deepak Patil",
+        "commits": 6,
+        "firstCommit": "2022-05-14"
+      },
+      {
+        "email": "naufaljct48@gmail.com",
+        "name": "Naufal",
+        "commits": 15,
+        "firstCommit": "2022-07-29"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 26,
+        "firstCommit": "2022-11-14"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 12,
+        "firstCommit": "2022-11-16"
+      },
+      {
+        "email": "86895685+swaggy-p-jp@users.noreply.github.com",
+        "name": "swaggy-p-jp",
+        "commits": 1,
+        "firstCommit": "2023-04-01"
+      },
+      {
+        "email": "44194056+tdac2806@users.noreply.github.com",
+        "name": "tdac2806",
+        "commits": 1,
+        "firstCommit": "2023-07-16"
+      },
+      {
+        "email": "70287641+W1llDu@users.noreply.github.com",
+        "name": "William Du",
+        "commits": 1,
+        "firstCommit": "2023-08-16"
+      },
+      {
+        "email": "70416146+General-Mudkip@users.noreply.github.com",
+        "name": "Bence R",
+        "commits": 3,
+        "firstCommit": "2023-08-30"
+      },
+      {
+        "email": "43102748+MozkaGit@users.noreply.github.com",
+        "name": "MozkaGit",
+        "commits": 1,
+        "firstCommit": "2023-09-10"
+      },
+      {
+        "email": "na-ji@users.noreply.github.com",
+        "name": "Naji Astier",
+        "commits": 1,
+        "firstCommit": "2023-12-07"
+      },
+      {
+        "email": "iliasasqiriba@gmail.Com",
+        "name": "SuperLanceur",
+        "commits": 1,
+        "firstCommit": "2023-12-17"
+      },
+      {
+        "email": "55886589+KNN-07@users.noreply.github.com",
+        "name": "Nguyen Khac Trung Kien",
+        "commits": 1,
+        "firstCommit": "2024-01-18"
+      },
+      {
+        "email": "corentin.naze@gmail.com",
+        "name": "C. N",
+        "commits": 4,
+        "firstCommit": "2024-01-29"
+      },
+      {
+        "email": "30298077+Aeonss@users.noreply.github.com",
+        "name": "Aeon",
+        "commits": 3,
+        "firstCommit": "2024-03-27"
+      },
+      {
+        "email": "mubinansari910@gmail.com",
+        "name": "Mubin Ansari",
+        "commits": 1,
+        "firstCommit": "2024-08-18"
+      },
+      {
+        "email": "gunkilleryoudie@gmail.com",
+        "name": "Jeeihn Son",
+        "commits": 1,
+        "firstCommit": "2024-09-28"
+      },
+      {
+        "email": "juliobrito.tec@gmail.com",
+        "name": "Julio Reigen",
+        "commits": 1,
+        "firstCommit": "2024-09-28"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 8,
+        "firstCommit": "2025-01-29"
+      }
+    ],
+    "en.weebcentral": [
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 3,
+        "firstCommit": "2025-01-04"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 1,
+        "firstCommit": "2025-02-23"
+      },
+      {
+        "email": "mubinansari910@gmail.com",
+        "name": "Mubin Ansari",
+        "commits": 1,
+        "firstCommit": "2025-03-12"
+      }
+    ],
+    "zh.boylove": [
+      {
+        "email": "aphronyx.su@gmail.com",
+        "name": "Aphronyx",
+        "commits": 9,
+        "firstCommit": "2023-05-28"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 2,
+        "firstCommit": "2024-07-04"
+      },
+      {
+        "email": "aphronyx@icloud.com",
+        "name": "Aphronyx",
+        "commits": 1,
+        "firstCommit": "2025-05-13"
+      }
+    ],
+    "vi.yurineko": [
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 2,
+        "firstCommit": "2022-05-16"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 6,
+        "firstCommit": "2023-03-31"
+      }
+    ],
+    "multi.webtoon": [
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 2,
+        "firstCommit": "2023-01-27"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      }
+    ],
+    "ja.senmanga": [
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 6,
+        "firstCommit": "2023-03-03"
+      }
+    ],
+    "multi.batoto": [
+      {
+        "email": "namanpandey23@gmail.com",
+        "name": "NMN",
+        "commits": 1,
+        "firstCommit": "2022-12-28"
+      },
+      {
+        "email": "56101163+pandeynmn@users.noreply.github.com",
+        "name": "NMN",
+        "commits": 2,
+        "firstCommit": "2023-02-19"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 6,
+        "firstCommit": "2023-03-31"
+      },
+      {
+        "email": "30298077+Aeonss@users.noreply.github.com",
+        "name": "Aeon",
+        "commits": 1,
+        "firstCommit": "2024-03-02"
+      },
+      {
+        "email": "7695591+anoaky@users.noreply.github.com",
+        "name": "Anokhi S.",
+        "commits": 1,
+        "firstCommit": "2025-02-07"
+      }
+    ],
+    "en.mangademon": [
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBanks",
+        "commits": 2,
+        "firstCommit": "2024-04-27"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 2,
+        "firstCommit": "2024-07-04"
+      },
+      {
+        "email": "alokswami2007@gmail.com",
+        "name": "Alok Swaminathan",
+        "commits": 1,
+        "firstCommit": "2024-07-13"
+      },
+      {
+        "email": "swaminathanalok@gmail.com",
+        "name": "Alok Swaminathan",
+        "commits": 1,
+        "firstCommit": "2024-11-17"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 1,
+        "firstCommit": "2025-01-29"
+      }
+    ],
+    "multi.ninemanga": [
+      {
+        "email": "feserr@users.noreply.github.com",
+        "name": "feserr",
+        "commits": 1,
+        "firstCommit": "2023-07-23"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 2,
+        "firstCommit": "2024-07-04"
+      }
+    ],
+    "zh.copymanga": [
+      {
+        "email": "aphronyx.su@gmail.com",
+        "name": "Aphronyx",
+        "commits": 11,
+        "firstCommit": "2023-09-07"
+      },
+      {
+        "email": "fdkevinzero@gmail.com",
+        "name": "FDKevin",
+        "commits": 1,
+        "firstCommit": "2023-12-18"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 2,
+        "firstCommit": "2024-07-04"
+      }
+    ],
+    "id.shinigami": [
+      {
+        "email": "naufaljct48@gmail.com",
+        "name": "Naufal",
+        "commits": 1,
+        "firstCommit": "2025-03-29"
+      }
+    ],
+    "multi.myreadingmanga": [
+      {
+        "email": "aphronyx.su@gmail.com",
+        "name": "Aphronyx",
+        "commits": 11,
+        "firstCommit": "2023-05-22"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 2,
+        "firstCommit": "2024-07-04"
+      }
+    ],
+    "ja.rawdevart": [
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 3,
+        "firstCommit": "2024-02-15"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 1,
+        "firstCommit": "2025-01-31"
+      }
+    ],
+    "en.mangafox": [
+      {
+        "email": "56101163+pandeynmn@users.noreply.github.com",
+        "name": "NMN",
+        "commits": 2,
+        "firstCommit": "2023-02-14"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 1,
+        "firstCommit": "2025-01-30"
+      }
+    ],
+    "vi.blogtruyen": [
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 1,
+        "firstCommit": "2022-05-25"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 6,
+        "firstCommit": "2023-03-31"
+      },
+      {
+        "email": "55886589+KNN-07@users.noreply.github.com",
+        "name": "Nguyen Khac Trung Kien",
+        "commits": 1,
+        "firstCommit": "2023-07-24"
+      },
+      {
+        "email": "haivp3010@users.noreply.github.com",
+        "name": "Hai",
+        "commits": 1,
+        "firstCommit": "2023-12-07"
+      }
+    ],
+    "ru.readmanga": [
+      {
+        "email": "leugenea@gmail.com",
+        "name": "Luckyanets Eugene",
+        "commits": 1,
+        "firstCommit": "2023-06-21"
+      },
+      {
+        "email": "rodion44342@gmail.com",
+        "name": "Rodion Minkin",
+        "commits": 1,
+        "firstCommit": "2024-04-28"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 2,
+        "firstCommit": "2024-07-04"
+      }
+    ],
+    "ru.desu": [
+      {
+        "email": "47759467+MemesPwr@users.noreply.github.com",
+        "name": "itsreallyroot",
+        "commits": 2,
+        "firstCommit": "2025-04-07"
+      }
+    ],
+    "en.tsumino": [
+      {
+        "email": "notjackhli@gmail.com",
+        "name": "lina",
+        "commits": 1,
+        "firstCommit": "2023-01-02"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      }
+    ],
+    "multi.komga": [
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 1,
+        "firstCommit": "2023-02-12"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-03-31"
+      },
+      {
+        "email": "43005236+JBLOGNON@users.noreply.github.com",
+        "name": "Jean Baptiste",
+        "commits": 1,
+        "firstCommit": "2023-10-28"
+      },
+      {
+        "email": "61936050+dyphire@users.noreply.github.com",
+        "name": "dyphire",
+        "commits": 1,
+        "firstCommit": "2024-11-09"
+      }
+    ],
+    "mangabox": [
+      {
+        "email": "71832633+phiefferj24@users.noreply.github.com",
+        "name": "JimIsWayTooEpic",
+        "commits": 1,
+        "firstCommit": "2022-05-01"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 7,
+        "firstCommit": "2022-11-16"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "30298077+Aeonss@users.noreply.github.com",
+        "name": "Aeon",
+        "commits": 1,
+        "firstCommit": "2024-03-26"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 2,
+        "firstCommit": "2025-03-02"
+      }
+    ],
+    "en.questionablecontent": [
+      {
+        "email": "Shirk@users.noreply.github.com",
+        "name": "Renée Köcher",
+        "commits": 1,
+        "firstCommit": "2023-11-27"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 2,
+        "firstCommit": "2024-07-04"
+      }
+    ],
+    "multi.nhentai": [
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 7,
+        "firstCommit": "2022-04-20"
+      },
+      {
+        "email": "71832633+phiefferj24@users.noreply.github.com",
+        "name": "JimIsWayTooEpic",
+        "commits": 1,
+        "firstCommit": "2022-07-21"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "121152242+choboro@users.noreply.github.com",
+        "name": "choboro",
+        "commits": 1,
+        "firstCommit": "2023-02-11"
+      },
+      {
+        "email": "renginald.bagel@gmail.com",
+        "name": "Omer Shamai",
+        "commits": 1,
+        "firstCommit": "2023-03-23"
+      },
+      {
+        "email": "30298077+Aeonss@users.noreply.github.com",
+        "name": "Aeon",
+        "commits": 1,
+        "firstCommit": "2024-03-16"
+      },
+      {
+        "email": "axiel7lopez@gmail.com",
+        "name": "Axel",
+        "commits": 2,
+        "firstCommit": "2024-04-07"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 1,
+        "firstCommit": "2025-01-29"
+      }
+    ],
+    "en.mangapill": [
+      {
+        "email": "namanpandey23@gmail.com",
+        "name": "NMN",
+        "commits": 1,
+        "firstCommit": "2022-05-17"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 7,
+        "firstCommit": "2022-11-16"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "naufaljct48@gmail.com",
+        "name": "Naufal",
+        "commits": 1,
+        "firstCommit": "2023-05-22"
+      }
+    ],
+    "es.tumangaonline": [
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 6,
+        "firstCommit": "2023-02-14"
+      },
+      {
+        "email": "feserr@users.noreply.github.com",
+        "name": "feserr",
+        "commits": 2,
+        "firstCommit": "2023-09-14"
+      },
+      {
+        "email": "jsagredo.ing@gmail.com",
+        "name": "Scott",
+        "commits": 1,
+        "firstCommit": "2023-11-24"
+      },
+      {
+        "email": "corentin.naze@gmail.com",
+        "name": "C. N.",
+        "commits": 1,
+        "firstCommit": "2024-10-20"
+      }
+    ],
+    "wpcomics": [
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 10,
+        "firstCommit": "2022-05-15"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 8,
+        "firstCommit": "2022-11-16"
+      },
+      {
+        "email": "trieuq4@outlook.com",
+        "name": "QuanTrieuPCYT",
+        "commits": 1,
+        "firstCommit": "2022-12-20"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "me@jackli.dev",
+        "name": "lina",
+        "commits": 1,
+        "firstCommit": "2023-04-14"
+      },
+      {
+        "email": "55886589+KNN-07@users.noreply.github.com",
+        "name": "Nguyen Khac Trung Kien",
+        "commits": 7,
+        "firstCommit": "2023-06-19"
+      },
+      {
+        "email": "124429153+Hyminem@users.noreply.github.com",
+        "name": "Hyminem",
+        "commits": 3,
+        "firstCommit": "2024-01-29"
+      },
+      {
+        "email": "104892860+yamaijia7@users.noreply.github.com",
+        "name": "phcukt",
+        "commits": 1,
+        "firstCommit": "2024-08-19"
+      },
+      {
+        "email": "43413989+Kediny@users.noreply.github.com",
+        "name": "Kediny",
+        "commits": 1,
+        "firstCommit": "2024-12-20"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 3,
+        "firstCommit": "2025-01-31"
+      }
+    ],
+    "multi.libgroup": [
+      {
+        "email": "vlapskiy@yandex.ru",
+        "name": "Vova Lapskiy",
+        "commits": 3,
+        "firstCommit": "2024-05-03"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 2,
+        "firstCommit": "2024-07-04"
+      },
+      {
+        "email": "98518005+ktp0li@users.noreply.github.com",
+        "name": "Polina Katunina",
+        "commits": 1,
+        "firstCommit": "2025-03-25"
+      }
+    ],
+    "multichan": [
+      {
+        "email": "92439990+beerpiss@users.noreply.github.com",
+        "name": "beerpsi",
+        "commits": 2,
+        "firstCommit": "2022-06-12"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 7,
+        "firstCommit": "2022-11-16"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      },
+      {
+        "email": "124429153+Hyminem@users.noreply.github.com",
+        "name": "Hyminem",
+        "commits": 1,
+        "firstCommit": "2024-02-10"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 1,
+        "firstCommit": "2025-01-31"
+      }
+    ],
+    "en.hentai2read": [
+      {
+        "email": "itss0n1cdev@gmail.com",
+        "name": "S0n1c",
+        "commits": 1,
+        "firstCommit": "2023-04-01"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 5,
+        "firstCommit": "2023-04-01"
+      },
+      {
+        "email": "31490942+kkantan@users.noreply.github.com",
+        "name": "kantan",
+        "commits": 1,
+        "firstCommit": "2025-01-30"
+      }
+    ],
+    "zh.dmzj": [
+      {
+        "email": "Trzeth@Outlook.com",
+        "name": "Trzeth",
+        "commits": 4,
+        "firstCommit": "2022-06-19"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 6,
+        "firstCommit": "2022-11-16"
+      },
+      {
+        "email": "20971850+KaBankz@users.noreply.github.com",
+        "name": "KaBankz",
+        "commits": 1,
+        "firstCommit": "2023-02-10"
+      }
+    ],
+    "ru.mangaonelove": [
+      {
+        "email": "leugenea@gmail.com",
+        "name": "Luckyanets Eugene",
+        "commits": 1,
+        "firstCommit": "2023-07-13"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 2,
+        "firstCommit": "2024-07-04"
+      }
+    ],
+    "en.omegascans": [
+      {
+        "email": "30298077+Aeonss@users.noreply.github.com",
+        "name": "Aeon",
+        "commits": 3,
+        "firstCommit": "2024-03-07"
+      },
+      {
+        "email": "mrskittyblock@gmail.com",
+        "name": "Skitty",
+        "commits": 2,
+        "firstCommit": "2024-07-04"
+      }
+    ]
+  }
+}

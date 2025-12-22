@@ -246,7 +246,10 @@
   "sourceSettings": {
     "loadingSettings": "Loading settings...",
     "noSettings": "No settings available for this source.",
-    "resetToDefaults": "Reset to Defaults"
+    "resetToDefaults": "Reset to Defaults",
+    "reloadingSource": "Reloading source...",
+    "sourceReloaded": "Source reloaded",
+    "reloadFailed": "Failed to reload source"
   },
   "pluginSettings": {
     "noSettings": "This plugin has no configurable settings."

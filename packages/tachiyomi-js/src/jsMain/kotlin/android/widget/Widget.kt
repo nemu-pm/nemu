@@ -1,11 +1,52 @@
 package android.widget
 
+import android.content.Context
 import android.text.Editable
 import android.text.TextWatcher
 
 /**
  * Stub widget classes - UI widgets are not used in JS.
  */
+
+/**
+ * External function provided by host environment for showing toasts.
+ * Host must provide: globalThis.tachiyomiShowToast(message, durationMs)
+ */
+@JsName("tachiyomiShowToast")
+private external fun externalShowToast(message: String, durationMs: Int): Unit
+
+/**
+ * Toast implementation that delegates to host environment (e.g., sonner in frontend).
+ */
+class Toast private constructor(context: Context?) {
+    private var text: CharSequence = ""
+    private var duration: Int = LENGTH_SHORT
+    
+    fun setText(text: CharSequence) { this.text = text }
+    fun setDuration(duration: Int) { this.duration = duration }
+    
+    fun show() {
+        val durationMs = if (duration == LENGTH_LONG) 5000 else 2000
+        try {
+            externalShowToast(text.toString(), durationMs)
+        } catch (e: dynamic) {
+            // Host didn't provide toast implementation - silent fallback
+            console.log("Toast: $text")
+        }
+    }
+    
+    companion object {
+        const val LENGTH_SHORT = 0
+        const val LENGTH_LONG = 1
+        
+        fun makeText(context: Context?, text: CharSequence, duration: Int): Toast {
+            return Toast(context).apply {
+                setText(text)
+                setDuration(duration)
+            }
+        }
+    }
+}
 
 open class View {
     var rootView: View = this

@@ -33,13 +33,8 @@ export interface AsyncTachiyomiSource {
   getMangaDetails(mangaUrl: string): Promise<MangaDto | null>;
   getChapterList(mangaUrl: string): Promise<ChapterDto[]>;
   getPageList(chapterUrl: string): Promise<PageDto[]>;
-  
-  /**
-   * Fetch image through source's OkHttp client (with interceptors).
-   * Returns base64-encoded image bytes.
-   * Required for sources with image descrambling/processing.
-   */
   fetchImage(pageUrl: string, pageImageUrl: string): Promise<string>;
+  getHeaders(): Promise<Record<string, string>>;
   
   // Preferences methods
   initPreferences(prefsName: string, values: Record<string, unknown>): Promise<void>;
@@ -94,7 +89,8 @@ async function getOrLoadExtension(
 }
 
 /**
- * Create an async Tachiyomi source for a specific sourceId
+ * Create an async Tachiyomi source for a specific sourceId.
+ * sourceId is required - caller must select which source to use.
  */
 export async function createAsyncTachiyomiSource(
   jsUrl: string,
@@ -103,21 +99,19 @@ export async function createAsyncTachiyomiSource(
 ): Promise<AsyncTachiyomiSource> {
   const ext = await getOrLoadExtension(jsUrl, manifest);
   
-  const sourceInfo = ext.manifest.sources?.find(s => s.id === sourceId);
+  const sources = ext.manifest.sources ?? [];
+  const sourceInfo = sources.find(s => s.id === sourceId);
   if (!sourceInfo) {
     throw new Error(`Source not found: ${sourceId} in ${manifest.name}`);
   }
 
-  // Set source context for this instance
-  await ext.workerApi.setSourceId(sourceId);
-
+  // All methods pass sourceId explicitly to worker - no state management needed
   return {
     sourceId,
     sourceInfo,
     manifest: ext.manifest,
 
-    // ============ Filter Methods ============
-
+    // Filter methods
     async getFilterList(): Promise<TachiyomiFilter[]> {
       return ext.workerApi.getFilterList(sourceId);
     },
@@ -130,54 +124,46 @@ export async function createAsyncTachiyomiSource(
       return ext.workerApi.applyFilterState(sourceId, filterStateJson);
     },
 
-    // ============ Browse Methods ============
-
+    // Browse methods
     async getPopularManga(page: number): Promise<MangasPageDto> {
-      await ext.workerApi.setSourceId(sourceId); // Ensure correct source
-      return ext.workerApi.getPopularManga(page);
+      return ext.workerApi.getPopularManga(sourceId, page);
     },
 
     async getLatestUpdates(page: number): Promise<MangasPageDto> {
-      await ext.workerApi.setSourceId(sourceId);
-      return ext.workerApi.getLatestUpdates(page);
+      return ext.workerApi.getLatestUpdates(sourceId, page);
     },
 
-    // ============ Search Methods ============
-
+    // Search methods
     async searchManga(page: number, query: string): Promise<MangasPageDto> {
-      await ext.workerApi.setSourceId(sourceId);
-      return ext.workerApi.searchManga(page, query);
+      return ext.workerApi.searchManga(sourceId, page, query);
     },
 
     async searchMangaWithFilters(page: number, query: string, filterStateJson: string): Promise<MangasPageDto> {
-      await ext.workerApi.setSourceId(sourceId);
-      return ext.workerApi.searchMangaWithFilters(page, query, filterStateJson);
+      return ext.workerApi.searchMangaWithFilters(sourceId, page, query, filterStateJson);
     },
 
-    // ============ Content Methods ============
-
+    // Content methods
     async getMangaDetails(mangaUrl: string): Promise<MangaDto | null> {
-      await ext.workerApi.setSourceId(sourceId);
-      return ext.workerApi.getMangaDetails(mangaUrl);
+      return ext.workerApi.getMangaDetails(sourceId, mangaUrl);
     },
 
     async getChapterList(mangaUrl: string): Promise<ChapterDto[]> {
-      await ext.workerApi.setSourceId(sourceId);
-      return ext.workerApi.getChapterList(mangaUrl);
+      return ext.workerApi.getChapterList(sourceId, mangaUrl);
     },
 
     async getPageList(chapterUrl: string): Promise<PageDto[]> {
-      await ext.workerApi.setSourceId(sourceId);
-      return ext.workerApi.getPageList(chapterUrl);
+      return ext.workerApi.getPageList(sourceId, chapterUrl);
     },
 
     async fetchImage(pageUrl: string, pageImageUrl: string): Promise<string> {
-      await ext.workerApi.setSourceId(sourceId);
-      return ext.workerApi.fetchImage(pageUrl, pageImageUrl);
+      return ext.workerApi.fetchImage(sourceId, pageUrl, pageImageUrl);
     },
 
-    // ============ Preferences Methods ============
+    async getHeaders(): Promise<Record<string, string>> {
+      return ext.workerApi.getHeaders(sourceId);
+    },
 
+    // Preferences methods
     async initPreferences(prefsName: string, values: Record<string, unknown>): Promise<void> {
       await ext.workerApi.initPreferences(prefsName, values);
     },
@@ -191,42 +177,8 @@ export async function createAsyncTachiyomiSource(
     },
 
     terminate(): void {
-      // Only terminate if no other sources using this worker
-      // For now, just remove from cache
       loadedExtensions.delete(jsUrl);
       ext.worker.terminate();
     },
   };
-}
-
-/**
- * Get all available sources from a loaded extension
- */
-export async function getExtensionSources(
-  jsUrl: string,
-  manifest: TachiyomiManifest
-): Promise<TachiyomiSourceInfo[]> {
-  const ext = await getOrLoadExtension(jsUrl, manifest);
-  return ext.manifest.sources ?? [];
-}
-
-/**
- * Create an async Tachiyomi source with automatic source selection.
- * Loads the extension and picks the best source (English preferred, then first available).
- */
-export async function createAsyncTachiyomiSourceWithDefaults(
-  jsUrl: string,
-  manifest: TachiyomiManifest
-): Promise<AsyncTachiyomiSource> {
-  const ext = await getOrLoadExtension(jsUrl, manifest);
-  const sources = ext.manifest.sources ?? [];
-  
-  if (sources.length === 0) {
-    throw new Error(`No sources found in extension: ${manifest.name}`);
-  }
-  
-  // Pick English source if available, otherwise first
-  const selectedSource = sources.find(s => s.lang === "en") ?? sources[0];
-  
-  return createAsyncTachiyomiSource(jsUrl, ext.manifest, selectedSource.id);
 }

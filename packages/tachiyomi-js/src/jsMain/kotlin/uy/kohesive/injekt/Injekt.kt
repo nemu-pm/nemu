@@ -2,6 +2,7 @@ package uy.kohesive.injekt
 
 import android.content.SharedPreferences
 import android.content.BridgedSharedPreferences
+import eu.kanade.tachiyomi.network.NetworkHelper
 import kotlinx.serialization.json.Json
 import kotlin.reflect.KClass
 
@@ -15,6 +16,7 @@ object Injekt {
     init {
         // Register default instances
         registry[android.app.Application::class] = ApplicationStub()
+        registry[NetworkHelper::class] = NetworkHelper
         registry[Json::class] = Json { 
             ignoreUnknownKeys = true 
             isLenient = true

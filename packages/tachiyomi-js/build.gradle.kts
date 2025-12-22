@@ -33,7 +33,7 @@ val isNsfw = Regex("""isNsfw\s*=\s*true""").containsMatchIn(extBuildContent)
 val themePkg = Regex("""themePkg\s*=\s*['"]([^'"]+)['"]""").find(extBuildContent)?.groupValues?.get(1)
 
 // Detect lib/ dependencies from build.gradle (e.g., project(":lib:randomua"))
-val libDeps = Regex("""project\s*\(\s*['"]?:lib:(\w+)['"]?\s*\)""")
+val extLibDeps = Regex("""project\s*\(\s*['"]?:lib:(\w+)['"]?\s*\)""")
     .findAll(extBuildContent)
     .map { it.groupValues[1] }
     .toList()
@@ -42,6 +42,19 @@ val libDeps = Regex("""project\s*\(\s*['"]?:lib:(\w+)['"]?\s*\)""")
 val multisrcPath = themePkg?.let {
     rootProject.file("../../vendor/keiyoushi/extensions-source/lib-multisrc/$it/src")
 }
+
+// Detect lib/ dependencies from multisrc build.gradle (if multisrc is used)
+val multisrcBuildGradle = themePkg?.let {
+    rootProject.file("../../vendor/keiyoushi/extensions-source/lib-multisrc/$it/build.gradle.kts")
+}
+val multisrcBuildContent = multisrcBuildGradle?.takeIf { it.exists() }?.readText() ?: ""
+val multisrcLibDeps = Regex("""project\s*\(\s*['"]?:lib:(\w+)['"]?\s*\)""")
+    .findAll(multisrcBuildContent)
+    .map { it.groupValues[1] }
+    .toList()
+
+// Combine extension + multisrc lib dependencies
+val libDeps = (extLibDeps + multisrcLibDeps).distinct()
 
 // Lib paths (utility libraries like randomua, unpacker, cryptoaes, etc.)
 val libPaths = libDeps.map { libName ->
@@ -61,6 +74,10 @@ val jsImports = listOf(
     "import java.lang.Integer", 
     "import java.lang.Class",
     "import java.lang.Character",
+    "import java.nio.charset.Charsets",
+    "import java.nio.charset.toString",
+    "import java.nio.charset.toByteArray",
+    "import java.util.Arrays",
     "import tachiyomi.shim.compat.*"
 )
 
@@ -69,12 +86,30 @@ val codeTransformations = listOf<Pair<Regex, String>>(
     // [^] in regex is invalid in JS unicode mode - transform to [^\\]
     Regex("\\[\\^]") to "[^\\\\\\\\]",
     // Replace okhttp3.ResponseBody.Companion.asResponseBody import with okio.asResponseBody
-    Regex("import okhttp3\\.ResponseBody\\.Companion\\.asResponseBody") to "import okio.asResponseBody"
+    Regex("import okhttp3\\.ResponseBody\\.Companion\\.asResponseBody") to "import okio.asResponseBody",
+    // CSS attribute selectors with escaped = (e.g., [href*=type\\=]) cause ksoup regex issues in Unicode mode
+    // Transform: a[href*=type\\=] -> a[href*=\"type=\"]
+    // This matches [attr*=value\\=] patterns and quotes the value to avoid the problematic escape
+    // In regex replacement: \\\\ -> one backslash in output, \" -> quote
+    Regex("""(\[[\w-]+\*=)([^\]"]*?)\\\\=]""") to "$1\\\\\"$2=\\\\\"]",
+    // Regex with unescaped ] after escaped [ causes "Lone quantifier brackets" error in Unicode mode
+    // Transform: (\\[.*?]) -> (\\[.*?\\]) to escape the closing bracket
+    // Match pattern ending with ]) followed by closing paren and .toRegex
+    // Need 4 backslashes in replacement to get 2 in output (regex replacement needs \\\\ for one literal \)
+    Regex("""(\\\\\[.*?)\](\)"\.toRegex)""") to "$1\\\\\\\\]$2",
+    // Fix JS name clashes: property and function have same name
+    // Rename the FUNCTIONS (internal helpers) to avoid clash with the config properties
+    // useLoadMoreRequest() -> shouldUseLoadMore()
+    Regex("""fun useLoadMoreRequest\(\)""") to "fun shouldUseLoadMore()",
+    Regex("""\buseLoadMoreRequest\(\)""") to "shouldUseLoadMore()",
+    // fetchGenres() -> doFetchGenres()
+    Regex("""fun fetchGenres\(\)""") to "fun doFetchGenres()",
+    Regex("""(?<!\.)fetchGenres\(\)""") to "doFetchGenres()"
 )
 
-// Feature detection flags (set during preprocessSource, used in manifest)
-var usesWebView = false
-var usesCloudflare = false
+// Feature detection flags
+// Note: Detection is done in devBuild task since cross-task variable sharing
+// doesn't work reliably with Gradle's configuration cache
 
 // =============================================================================
 // Kotlin Multiplatform Configuration
@@ -217,21 +252,7 @@ if (isExtensionBuild) {
             // Then process extension source (highest priority - may override)
             processSourceDir(extensionSourcePath)
             
-            // Detect WebView and Cloudflare usage by scanning source files
-            usesWebView = false
-            usesCloudflare = false
-            outDir.walk().filter { it.extension == "kt" }.forEach { file ->
-                val content = file.readText()
-                if (content.contains("WebView") || content.contains("evaluateJavascript") || content.contains("localStorage")) {
-                    usesWebView = true
-                }
-                if (content.contains("cloudflareClient")) {
-                    usesCloudflare = true
-                }
-            }
-            
-            if (usesWebView) println("  ⚠️  Uses WebView (may require auth)")
-            if (usesCloudflare) println("  ⚠️  Uses Cloudflare client (may have challenges)")
+            // Feature detection moved to devBuild task for reliable cross-task access
         }
     }
 
@@ -658,6 +679,22 @@ if (isExtensionBuild) {
                 |    success(base64)
                 |} catch (e: Throwable) { error(e) }
                 |
+                |/**
+                | * Get the source's default headers (includes Referer from headersBuilder).
+                | * Returns JSON object with header name-value pairs.
+                | */
+                |@JsExport
+                |fun getHeaders(sourceId: String): String = try {
+                |    val src = sourcesById[sourceId] as? HttpSource
+                |        ?: throw Exception("Source not found: ${"$"}sourceId")
+                |    
+                |    val headersMap = mutableMapOf<String, String>()
+                |    for (name in src.headers.names()) {
+                |        headersMap[name] = src.headers.get(name) ?: ""
+                |    }
+                |    success(headersMap)
+                |} catch (e: Throwable) { error(e) }
+                |
                 |// ============================================================================
                 |// Preferences API
                 |// ============================================================================
@@ -712,8 +749,8 @@ if (isExtensionBuild) {
         dependsOn(preprocessSource)
     }
 
-    // Output to dev/extensions/ at project root
-    val outputDir = rootProject.file("../../dev/extensions/$extensionLang-$extensionName")
+    // Output to dev/tachiyomi-extensions/ at project root
+    val outputDir = rootProject.file("../../dev/tachiyomi-extensions/$extensionLang-$extensionName")
 
     // Find extension icon (prefer xxhdpi, fallback to hdpi, then any available)
     val extensionResPath = rootProject.file("../../vendor/keiyoushi/extensions-source/src/$extensionLang/$extensionName/res")
@@ -742,7 +779,43 @@ if (isExtensionBuild) {
                 iconFile!!.copyTo(File(outputDir, "icon.png"), overwrite = true)
             }
             
-            // Generate manifest.json
+            // Detect WebView and Cloudflare usage by scanning preprocessed source files
+            val preprocessedDir = preprocessedSrcDir.get().asFile
+            var usesWebView = false
+            var usesCloudflare = false
+            preprocessedDir.walk().filter { it.extension == "kt" }.forEach { file ->
+                val content = file.readText()
+                if (content.contains("WebView") || content.contains("evaluateJavascript") || content.contains("localStorage")) {
+                    usesWebView = true
+                }
+                if (content.contains("cloudflareClient")) {
+                    usesCloudflare = true
+                }
+            }
+            
+            if (usesWebView) println("  ⚠️  Uses WebView (may require auth)")
+            if (usesCloudflare) println("  ⚠️  Uses Cloudflare client (may have challenges)")
+            
+            // Extract sources from compiled JS using bun
+            val extractScript = """const ext = require('./extension.js').tachiyomi.generated; const r = JSON.parse(ext.getManifest()); if (r.ok) console.log(JSON.stringify(r.data));"""
+            val extractResult = providers.exec {
+                workingDir(outputDir)
+                commandLine("bun", "-e", extractScript)
+                isIgnoreExitValue = true
+            }.standardOutput.asText.get().trim()
+            
+            // Parse sources JSON
+            val sourcesJson = if (extractResult.isNotEmpty() && extractResult.startsWith("[")) extractResult else "[]"
+            
+            // Get extension authors from git history
+            val authorsResult = providers.exec {
+                workingDir(rootProject.projectDir.resolve("../.."))
+                commandLine("bun", "dev/get-tachiyomi-extension-authors.ts", "$extensionLang/$extensionName")
+                isIgnoreExitValue = true
+            }.standardOutput.asText.get().trim()
+            val authorsJson = if (authorsResult.isNotEmpty() && authorsResult.startsWith("[")) authorsResult else "[]"
+            
+            // Generate manifest.json with sources
             val manifestFile = File(outputDir, "manifest.json")
             val iconPath = if (hasIcon) "icon.png" else null
             val manifestContent = buildString {
@@ -757,14 +830,17 @@ if (isExtensionBuild) {
                 if (iconPath != null) {
                     appendLine("  \"icon\": \"$iconPath\",")
                 }
-                appendLine("  \"jsPath\": \"extension.js\"")
+                appendLine("  \"jsPath\": \"extension.js\",")
+                appendLine("  \"authors\": $authorsJson,")
+                appendLine("  \"sources\": $sourcesJson")
                 append("}")
             }
             manifestFile.writeText(manifestContent)
             
-            println("\n✓ Built to: dev/extensions/$extensionLang-$extensionName/")
+            val sourceCount = sourcesJson.count { it == '{' }
+            println("\n✓ Built to: dev/tachiyomi-extensions/$extensionLang-$extensionName/")
             println("  - extension.js")
-            println("  - manifest.json")
+            println("  - manifest.json ($sourceCount sources)")
             if (hasIcon) println("  - icon.png")
             println("\n  Test: bun scripts/test-tachiyomi-source.ts $extensionLang-$extensionName\n")
         }

@@ -5,26 +5,26 @@ import react from "@vitejs/plugin-react"
 import { defineConfig, type Plugin } from "vite"
 
 /**
- * Plugin to serve dev/extensions/ as static files in development.
+ * Plugin to serve dev/tachiyomi-extensions/ as static files in development.
  * This allows TachiyomiDevRegistry to load locally built extensions.
  * 
- * Special handling for /dev/extensions/index.json - dynamically scans
+ * Special handling for /dev/tachiyomi-extensions/index.json - dynamically scans
  * the directory and returns the list of available extensions.
  */
 function devExtensionsPlugin(): Plugin {
-  const devExtensionsDir = path.resolve(__dirname, "dev/extensions")
+  const devExtensionsDir = path.resolve(__dirname, "dev/tachiyomi-extensions")
   
   return {
     name: "dev-extensions",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (!req.url?.startsWith("/dev/extensions/")) {
+        if (!req.url?.startsWith("/dev/tachiyomi-extensions/")) {
           return next()
         }
         
         // Strip query string (Vite adds ?import for dynamic imports)
         const urlWithoutQuery = req.url.split("?")[0]
-        const relativePath = urlWithoutQuery.slice("/dev/extensions/".length)
+        const relativePath = urlWithoutQuery.slice("/dev/tachiyomi-extensions/".length)
         
         // Special case: dynamically generate index.json by scanning directory
         if (relativePath === "index.json" || relativePath === "") {

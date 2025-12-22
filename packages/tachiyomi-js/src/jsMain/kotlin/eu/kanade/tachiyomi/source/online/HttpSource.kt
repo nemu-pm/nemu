@@ -269,8 +269,11 @@ abstract class HttpSource : CatalogueSource {
     private fun getUrlWithoutDomain(orig: String): String {
         return try {
             val url = orig.replace(" ", "%20")
-            val pathStart = url.indexOf("/", url.indexOf("://") + 3)
-            if (pathStart >= 0) url.substring(pathStart) else orig
+            val schemeIdx = url.indexOf("://")
+            // If no scheme found, URL is already relative - return as-is
+            if (schemeIdx < 0) return url
+            val pathStart = url.indexOf("/", schemeIdx + 3)
+            if (pathStart >= 0) url.substring(pathStart) else url
         } catch (e: Exception) {
             orig
         }

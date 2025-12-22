@@ -77,6 +77,7 @@ export function SettingsPage() {
     installedSources,
     loading,
     uninstallSource,
+    reloadSource,
   } = useSettingsStore();
   const currentLanguage = languageStore ? languageStore((state) => state.language) : "en";
   const currentTheme = themeStore ? themeStore((state) => state.theme) : "system";
@@ -86,6 +87,8 @@ export function SettingsPage() {
   const [uninstalling, setUninstalling] = useState<string | null>(null);
   const [settingsSource, setSettingsSource] = useState<{
     key: string;
+    registryId: string;
+    sourceId: string;
     name: string;
     icon?: string;
     version?: number;
@@ -238,6 +241,8 @@ export function SettingsPage() {
                       onClick={() =>
                         setSettingsSource({
                           key: source.id,
+                          registryId: source.registryId,
+                          sourceId: source.sourceId,
                           name: source.name,
                           icon: source.icon,
                           version: source.version,
@@ -424,6 +429,9 @@ export function SettingsPage() {
           sourceName={settingsSource.name}
           sourceIcon={settingsSource.icon}
           sourceVersion={settingsSource.version}
+          reloadSource={async () => {
+            await reloadSource(settingsSource.registryId, settingsSource.sourceId);
+          }}
         />
       )}
 

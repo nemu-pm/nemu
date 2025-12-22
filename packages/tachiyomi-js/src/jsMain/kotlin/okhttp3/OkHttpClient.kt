@@ -32,25 +32,31 @@ class OkHttpClient private constructor(
     fun newBuilder(): Builder = Builder(interceptors.toMutableList(), networkInterceptors.toMutableList())
     
     class Builder(
-        private val interceptors: MutableList<Interceptor> = mutableListOf(),
-        private val networkInterceptors: MutableList<Interceptor> = mutableListOf()
+        private val _interceptors: MutableList<Interceptor> = mutableListOf(),
+        private val _networkInterceptors: MutableList<Interceptor> = mutableListOf()
     ) {
         constructor() : this(mutableListOf(), mutableListOf())
         
+        /** Access interceptors list for direct manipulation (e.g., add at index 0) */
+        fun interceptors(): MutableList<Interceptor> = _interceptors
+        
+        /** Access network interceptors list for direct manipulation */
+        fun networkInterceptors(): MutableList<Interceptor> = _networkInterceptors
+        
         fun addInterceptor(interceptor: Interceptor): Builder {
-            interceptors.add(interceptor)
+            _interceptors.add(interceptor)
             return this
         }
         
         fun addInterceptor(interceptor: (Interceptor.Chain) -> Response): Builder {
-            interceptors.add(object : Interceptor {
+            _interceptors.add(object : Interceptor {
                 override fun intercept(chain: Interceptor.Chain): Response = interceptor(chain)
             })
             return this
         }
         
         fun addNetworkInterceptor(interceptor: Interceptor): Builder {
-            networkInterceptors.add(interceptor)
+            _networkInterceptors.add(interceptor)
             return this
         }
         
@@ -59,7 +65,7 @@ class OkHttpClient private constructor(
         fun writeTimeout(timeout: Long, unit: java.util.concurrent.TimeUnit): Builder = this
         fun callTimeout(timeout: Long, unit: java.util.concurrent.TimeUnit): Builder = this
         
-        fun build(): OkHttpClient = OkHttpClient(interceptors.toList(), networkInterceptors.toList())
+        fun build(): OkHttpClient = OkHttpClient(_interceptors.toList(), _networkInterceptors.toList())
     }
     
     class Call(
@@ -90,6 +96,22 @@ class OkHttpClient private constructor(
                 makeNetworkCall(currentRequest)
             } else {
                 chain.proceed(currentRequest)
+            }
+        }
+        
+        /**
+         * Execute the request asynchronously with a callback.
+         * In JS single-threaded environment, this executes synchronously
+         * and invokes the callback immediately.
+         */
+        fun enqueue(callback: Callback) {
+            try {
+                val response = execute()
+                callback.onResponse(this, response)
+            } catch (e: java.io.IOException) {
+                callback.onFailure(this, e)
+            } catch (e: Exception) {
+                callback.onFailure(this, java.io.IOException(e.message ?: "Unknown error", e))
             }
         }
     }
@@ -127,13 +149,22 @@ internal fun makeNetworkCall(request: Request): Response {
     request.headers.names().forEach { name ->
         headersMap[name] = request.headers.get(name) ?: ""
     }
+    
+    // Add Content-Type from body if present and not already set
+    val requestBody = request.body
+    if (requestBody != null && !headersMap.containsKey("Content-Type")) {
+        requestBody.contentType?.let { mediaType ->
+            headersMap["Content-Type"] = mediaType.toString()
+        }
+    }
+    
     val headersJson = Json.encodeToString(
         kotlinx.serialization.serializer<Map<String, String>>(),
         headersMap
     )
     
     // Get body if present
-    val body = request.body?.writeTo()?.decodeToString()
+    val body = requestBody?.writeTo()?.decodeToString()
     
     // Make synchronous XHR call - always use bytes mode to handle binary properly
     val result: SyncHttpResult = syncHttpRequestBytes(url, method, headersJson, body)

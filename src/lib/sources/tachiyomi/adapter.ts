@@ -21,7 +21,10 @@ import { parseSourceKey } from "@/data/keys";
 import pMemoize, { pMemoizeClear } from "p-memoize";
 import { normalizeSourceLang } from "../language";
 import { getSourceSettingsStore } from "@/stores/source-settings";
-import type { Setting } from "@/lib/settings";
+import type { Setting, SelectSetting } from "@/lib/settings";
+
+/** Settings key for source selection (synthetic, not from extension) */
+export const SOURCE_SELECTION_KEY = "__selected_source_id__";
 
 /** Validate image magic bytes */
 function isValidImageHeader(header: Uint8Array): boolean {
@@ -292,7 +295,22 @@ export async function createTachiyomiBrowsableSource(
 
   // Load settings schema ONCE at creation time (not lazily)
   const schemaJson = await source.getSettingsSchema();
-  const schema = parseSettingsSchema(schemaJson);
+  let schema = parseSettingsSchema(schemaJson);
+  
+  // Add source selector if extension has multiple sources
+  const allSources = source.manifest.sources ?? [];
+  if (allSources.length > 1) {
+    const sourceSelector: SelectSetting = {
+      type: "select",
+      key: SOURCE_SELECTION_KEY,
+      title: "Source",
+      values: allSources.map(s => s.id),
+      titles: allSources.map(s => `${s.name} (${s.lang})`),
+      default: sourceId, // Current source is the default
+      refreshes: ["content", "listings", "filters"],
+    };
+    schema = schema ? [sourceSelector, ...schema] : [sourceSelector];
+  }
   
   // Cache schema in store for persistence
   if (schema) {
@@ -319,8 +337,17 @@ export async function createTachiyomiBrowsableSource(
     (chapterId: string) => source.getPageList(chapterId)
   );
 
+  // Cache source headers (lazy loaded once)
+  let sourceHeaders: Record<string, string> | null = null;
+  const getSourceHeaders = async (): Promise<Record<string, string>> => {
+    if (!sourceHeaders) {
+      sourceHeaders = await source.getHeaders();
+    }
+    return sourceHeaders;
+  };
+
   const fetchImageBlob = pMemoize(
-    async (url: string, referer: string): Promise<Blob> => {
+    async (url: string): Promise<Blob> => {
       const cacheKey = CacheKeys.image(`tachi:${url}`);
 
       // Check IndexedDB cache first
@@ -338,10 +365,15 @@ export async function createTachiyomiBrowsableSource(
         // Cache miss or error, continue to fetch
       }
 
-      // Fetch through proxy
-      const response = await fetch(proxyUrl(url), {
-        headers: { "x-proxy-Referer": referer },
-      });
+      // Get source headers (includes Referer from headersBuilder)
+      const headers = await getSourceHeaders();
+      const proxyHeaders: Record<string, string> = {};
+      for (const [key, value] of Object.entries(headers)) {
+        proxyHeaders[`x-proxy-${key}`] = value;
+      }
+
+      // Fetch through proxy with source headers
+      const response = await fetch(proxyUrl(url), { headers: proxyHeaders });
       if (!response.ok) {
         throw new Error(`Failed to fetch image: ${response.status}`);
       }
@@ -527,8 +559,8 @@ export async function createTachiyomiBrowsableSource(
     },
 
     async fetchImage(url: string): Promise<Blob> {
-      // Generic image fetch using memoized fetcher
-      return fetchImageBlob(url, url);
+      // Use source headers (Referer etc) via proxy
+      return fetchImageBlob(url);
     },
 
     // ============ SWR Methods ============

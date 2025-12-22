@@ -269,6 +269,7 @@ interface TachiyomiJsExports {
   getChapterList(sourceId: string, mangaUrl: string): string;
   getPageList(sourceId: string, chapterUrl: string): string;
   fetchImage(sourceId: string, pageUrl: string, pageImageUrl: string): string;
+  getHeaders(sourceId: string): string;
 }
 
 // Result wrapper from Kotlin/JS
@@ -305,7 +306,6 @@ function unwrapResult<T>(jsonStr: string): T {
 class WorkerSource {
   private exports: TachiyomiJsExports | null = null;
   private manifest: TachiyomiManifest | null = null;
-  private currentSourceId: string | null = null;
 
   // ============ Preferences Methods ============
 
@@ -337,14 +337,12 @@ class WorkerSource {
   getSettingsSchema(sourceId: string): string | null {
     if (!this.exports) return null;
     try {
-      // Call the getSettingsSchema export which invokes setupPreferenceScreen
       const json = (this.exports as TachiyomiJsExports & { getSettingsSchema(sourceId: string): string }).getSettingsSchema(sourceId);
       const result = JSON.parse(json) as { ok: boolean; data?: string; error?: unknown };
       if (!result.ok) {
         console.error("[Tachiyomi Worker] getSettingsSchema failed:", result.error);
         return null;
       }
-      // result.data is the schema JSON string from PreferenceRegistry
       return result.data ?? null;
     } catch (e) {
       console.error("[Tachiyomi Worker] getSettingsSchema error:", e);
@@ -408,10 +406,6 @@ class WorkerSource {
     return this.manifest?.sources ?? [];
   }
 
-  setSourceId(sourceId: string): void {
-    this.currentSourceId = sourceId;
-  }
-
   // ============ Filter Methods ============
 
   getFilterList(sourceId: string): TachiyomiFilter[] {
@@ -449,12 +443,12 @@ class WorkerSource {
     }
   }
 
-  // ============ Data Methods ============
+  // ============ Data Methods (all take sourceId as first param) ============
 
-  getPopularManga(page: number): MangasPageDto {
-    if (!this.exports || !this.currentSourceId) return { mangas: [], hasNextPage: false };
+  getPopularManga(sourceId: string, page: number): MangasPageDto {
+    if (!this.exports) return { mangas: [], hasNextPage: false };
     try {
-      const json = this.exports.getPopularManga(this.currentSourceId, page);
+      const json = this.exports.getPopularManga(sourceId, page);
       return unwrapResult<MangasPageDto>(json);
     } catch (e) {
       console.error("[Tachiyomi Worker] getPopularManga error:", e);
@@ -462,10 +456,10 @@ class WorkerSource {
     }
   }
 
-  getLatestUpdates(page: number): MangasPageDto {
-    if (!this.exports || !this.currentSourceId) return { mangas: [], hasNextPage: false };
+  getLatestUpdates(sourceId: string, page: number): MangasPageDto {
+    if (!this.exports) return { mangas: [], hasNextPage: false };
     try {
-      const json = this.exports.getLatestUpdates(this.currentSourceId, page);
+      const json = this.exports.getLatestUpdates(sourceId, page);
       return unwrapResult<MangasPageDto>(json);
     } catch (e) {
       console.error("[Tachiyomi Worker] getLatestUpdates error:", e);
@@ -473,10 +467,10 @@ class WorkerSource {
     }
   }
 
-  searchManga(page: number, query: string): MangasPageDto {
-    if (!this.exports || !this.currentSourceId) return { mangas: [], hasNextPage: false };
+  searchManga(sourceId: string, page: number, query: string): MangasPageDto {
+    if (!this.exports) return { mangas: [], hasNextPage: false };
     try {
-      const json = this.exports.searchManga(this.currentSourceId, page, query);
+      const json = this.exports.searchManga(sourceId, page, query);
       return unwrapResult<MangasPageDto>(json);
     } catch (e) {
       console.error("[Tachiyomi Worker] searchManga error:", e);
@@ -486,16 +480,14 @@ class WorkerSource {
 
   /**
    * Search with filter state applied.
-   * Applies filterStateJson to cached filters before searching.
    */
-  searchMangaWithFilters(page: number, query: string, filterStateJson: string): MangasPageDto {
-    if (!this.exports || !this.currentSourceId) return { mangas: [], hasNextPage: false };
+  searchMangaWithFilters(sourceId: string, page: number, query: string, filterStateJson: string): MangasPageDto {
+    if (!this.exports) return { mangas: [], hasNextPage: false };
     try {
-      // Apply filter state before searching
       if (filterStateJson && filterStateJson !== "[]") {
-        this.exports.applyFilterState(this.currentSourceId, filterStateJson);
+        this.exports.applyFilterState(sourceId, filterStateJson);
       }
-      const json = this.exports.searchManga(this.currentSourceId, page, query);
+      const json = this.exports.searchManga(sourceId, page, query);
       return unwrapResult<MangasPageDto>(json);
     } catch (e) {
       console.error("[Tachiyomi Worker] searchMangaWithFilters error:", e);
@@ -503,10 +495,10 @@ class WorkerSource {
     }
   }
 
-  getMangaDetails(mangaUrl: string): MangaDto | null {
-    if (!this.exports || !this.currentSourceId) return null;
+  getMangaDetails(sourceId: string, mangaUrl: string): MangaDto | null {
+    if (!this.exports) return null;
     try {
-      const json = this.exports.getMangaDetails(this.currentSourceId, mangaUrl);
+      const json = this.exports.getMangaDetails(sourceId, mangaUrl);
       return unwrapResult<MangaDto>(json);
     } catch (e) {
       console.error("[Tachiyomi Worker] getMangaDetails error:", e);
@@ -514,10 +506,10 @@ class WorkerSource {
     }
   }
 
-  getChapterList(mangaUrl: string): ChapterDto[] {
-    if (!this.exports || !this.currentSourceId) return [];
+  getChapterList(sourceId: string, mangaUrl: string): ChapterDto[] {
+    if (!this.exports) return [];
     try {
-      const json = this.exports.getChapterList(this.currentSourceId, mangaUrl);
+      const json = this.exports.getChapterList(sourceId, mangaUrl);
       return unwrapResult<ChapterDto[]>(json);
     } catch (e) {
       console.error("[Tachiyomi Worker] getChapterList error:", e);
@@ -525,10 +517,10 @@ class WorkerSource {
     }
   }
 
-  getPageList(chapterUrl: string): PageDto[] {
-    if (!this.exports || !this.currentSourceId) return [];
+  getPageList(sourceId: string, chapterUrl: string): PageDto[] {
+    if (!this.exports) return [];
     try {
-      const json = this.exports.getPageList(this.currentSourceId, chapterUrl);
+      const json = this.exports.getPageList(sourceId, chapterUrl);
       return unwrapResult<PageDto[]>(json);
     } catch (e) {
       console.error("[Tachiyomi Worker] getPageList error:", e);
@@ -536,18 +528,25 @@ class WorkerSource {
     }
   }
 
-  /**
-   * Fetch image through the source's OkHttp client (with interceptors).
-   * Returns base64-encoded image bytes.
-   */
-  fetchImage(pageUrl: string, pageImageUrl: string): string {
-    if (!this.exports || !this.currentSourceId) return "";
+  fetchImage(sourceId: string, pageUrl: string, pageImageUrl: string): string {
+    if (!this.exports) return "";
     try {
-      const json = this.exports.fetchImage(this.currentSourceId, pageUrl, pageImageUrl);
+      const json = this.exports.fetchImage(sourceId, pageUrl, pageImageUrl);
       return unwrapResult<string>(json);
     } catch (e) {
       console.error("[Tachiyomi Worker] fetchImage error:", e);
       return "";
+    }
+  }
+
+  getHeaders(sourceId: string): Record<string, string> {
+    if (!this.exports) return {};
+    try {
+      const json = this.exports.getHeaders(sourceId);
+      return unwrapResult<Record<string, string>>(json);
+    } catch (e) {
+      console.error("[Tachiyomi Worker] getHeaders error:", e);
+      return {};
     }
   }
 }

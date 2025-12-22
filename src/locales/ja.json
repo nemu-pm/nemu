@@ -246,7 +246,10 @@
   "sourceSettings": {
     "loadingSettings": "設定を読み込み中...",
     "noSettings": "このソースには利用可能な設定がありません。",
-    "resetToDefaults": "デフォルトに戻す"
+    "resetToDefaults": "デフォルトに戻す",
+    "reloadingSource": "ソースを再読み込み中...",
+    "sourceReloaded": "ソースを再読み込みしました",
+    "reloadFailed": "ソースの再読み込みに失敗しました"
   },
   "pluginSettings": {
     "noSettings": "このプラグインには設定可能な項目がありません。"

@@ -1,0 +1,82 @@
+{
+  "extensions": [
+    {
+      "extension": "all/mangadex",
+      "testedAt": "2025-12-22",
+      "status": "working",
+      "comment": "Multi-language source, 60+ locales."
+    },
+    {
+      "extension": "en/mangapill",
+      "testedAt": "2025-12-22",
+      "status": "working",
+      "comment": "Simple HTML source. Fixed setUrlWithoutDomain bug."
+    },
+    {
+      "extension": "en/armageddon",
+      "testedAt": "2025-12-22",
+      "status": "working",
+      "comment": "MangaThemesia multisrc."
+    },
+    {
+      "extension": "en/skymanga",
+      "testedAt": "2025-12-22",
+      "status": "working",
+      "comment": "MangaThemesia multisrc."
+    },
+    {
+      "extension": "ja/shonenjumpplus",
+      "testedAt": "2025-12-22",
+      "status": "working",
+      "comment": "GigaViewer multisrc. Image descrambling works."
+    },
+    {
+      "extension": "ja/ganganonline",
+      "testedAt": "2025-12-22",
+      "status": "working",
+      "comment": "GigaViewer multisrc."
+    },
+    {
+      "extension": "ja/comicdays",
+      "testedAt": "2025-12-22",
+      "status": "working",
+      "comment": "GigaViewer multisrc."
+    },
+    {
+      "extension": "ja/comicgardo",
+      "testedAt": "2025-12-22",
+      "status": "working",
+      "comment": "GigaViewer multisrc."
+    },
+    {
+      "extension": "ja/corocoroonline",
+      "testedAt": "2025-12-22",
+      "status": "working",
+      "comment": "Protobuf + AES decryption."
+    },
+    {
+      "extension": "ja/zerosumonline",
+      "testedAt": "2025-12-22",
+      "status": "working",
+      "comment": "Protobuf serialization."
+    },
+    {
+      "extension": "vi/goctruyentranhvui",
+      "testedAt": "2025-12-22",
+      "status": "not_working",
+      "comment": "Requires WebView for auth token."
+    },
+    {
+      "extension": "pt/mangalivre",
+      "testedAt": "2025-12-22",
+      "status": "partial",
+      "comment": "Madara multisrc. Browse/search/details/chapters work. Pages fail - requires Cloudflare bypass. Fixed POST Content-Type header in OkHttp shim."
+    },
+    {
+      "extension": "en/kagane",
+      "testedAt": "2025-12-22",
+      "status": "not_working",
+      "comment": "Widevine DRM - impossible."
+    }
+  ]
+}

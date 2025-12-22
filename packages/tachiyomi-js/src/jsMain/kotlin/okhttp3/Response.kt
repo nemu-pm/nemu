@@ -20,7 +20,7 @@ class Response(
     val isSuccessful: Boolean
         get() = code in 200..299
     
-    fun <T> use(block: (Response) -> T): T {
+    inline fun <T> use(block: (Response) -> T): T {
         return try {
             block(this)
         } finally {
@@ -30,6 +30,23 @@ class Response(
     
     fun close() {
         body.close()
+    }
+    
+    /**
+     * Returns a new response body that can be read multiple times.
+     * This allows examining the body without consuming it.
+     * 
+     * @param byteCount Maximum number of bytes to peek (ignored in this implementation,
+     *                  we always return the full body for simplicity)
+     */
+    fun peekBody(byteCount: Long): ResponseBody {
+        val bytes = body.bytes()
+        return object : ResponseBody() {
+            override fun string(): String = bytes.decodeToString()
+            override fun bytes(): ByteArray = bytes
+            override val contentType: MediaType? = body.contentType
+            override val contentLength: Long = bytes.size.toLong()
+        }
     }
     
     fun newBuilder(): Builder = Builder()

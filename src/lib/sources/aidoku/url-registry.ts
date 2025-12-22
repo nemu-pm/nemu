@@ -277,6 +277,14 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     return wasmBytes !== null;
   }
 
+  unloadSource(sourceId: string): void {
+    const source = this.loadedSources.get(sourceId);
+    if (source) {
+      source.dispose();
+      this.loadedSources.delete(sourceId);
+    }
+  }
+
   dispose(): void {
     for (const source of this.loadedSources.values()) {
       source.dispose();

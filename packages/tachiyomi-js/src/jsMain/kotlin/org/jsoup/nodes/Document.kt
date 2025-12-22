@@ -172,6 +172,12 @@ open class Element(internal val impl: KsoupElement) {
      * Get the value of a form element (input, textarea, select).
      */
     fun value(): String = impl.value()
+    
+    /**
+     * Get the value of a form element (alias for value()).
+     * Name uses backticks because 'val' is a Kotlin keyword.
+     */
+    fun `val`(): String = value()
 
     /**
      * Set the value of a form element.
@@ -180,6 +186,11 @@ open class Element(internal val impl: KsoupElement) {
         impl.value(value)
         return this
     }
+    
+    /**
+     * Set the value of a form element (alias for value()).
+     */
+    fun `val`(value: String): Element = value(value)
 
     /**
      * Get the parent element.

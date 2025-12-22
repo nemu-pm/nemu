@@ -4,7 +4,7 @@ package java.util
  * Simplified Calendar implementation.
  */
 abstract class Calendar {
-    protected var timeInMillis: Long = Date.currentTimeMillis()
+    var timeInMillis: Long = Date.currentTimeMillis()
     
     fun getTimeInMillis(): Long = timeInMillis
     fun setTimeInMillis(millis: Long) { timeInMillis = millis }
@@ -14,6 +14,7 @@ abstract class Calendar {
     
     abstract fun get(field: Int): Int
     abstract fun set(field: Int, value: Int)
+    abstract fun add(field: Int, amount: Int)
     
     open fun getDisplayName(field: Int, style: Int, locale: Locale): String? {
         if (field == DAY_OF_WEEK) {
@@ -43,6 +44,7 @@ abstract class Calendar {
         const val MONTH = 2
         const val DAY_OF_MONTH = 5
         const val DAY_OF_WEEK = 7
+        const val HOUR = 10
         const val HOUR_OF_DAY = 11
         const val MINUTE = 12
         const val SECOND = 13
@@ -110,6 +112,24 @@ class GregorianCalendar : Calendar() {
         day = days + 1
     }
     
+    private fun computeTimeInMillis() {
+        // Calculate days from epoch
+        var totalDays = 0L
+        for (y in 1970 until year) {
+            totalDays += daysInYear(y)
+        }
+        for (m in 0 until month) {
+            totalDays += daysInMonth(year, m)
+        }
+        totalDays += day - 1
+        
+        timeInMillis = totalDays * 24 * 60 * 60 * 1000 +
+            hour * 60 * 60 * 1000 +
+            minute * 60 * 1000 +
+            second * 1000 +
+            millis
+    }
+    
     private fun daysInYear(year: Int): Int = if (isLeapYear(year)) 366 else 365
     
     private fun daysInMonth(year: Int, month: Int): Int {
@@ -130,7 +150,7 @@ class GregorianCalendar : Calendar() {
             MONTH -> month
             DAY_OF_MONTH -> day
             DAY_OF_WEEK -> dayOfWeek
-            HOUR_OF_DAY -> hour
+            HOUR, HOUR_OF_DAY -> hour
             MINUTE -> minute
             SECOND -> second
             MILLISECOND -> millis
@@ -143,12 +163,95 @@ class GregorianCalendar : Calendar() {
             YEAR -> year = value
             MONTH -> month = value
             DAY_OF_MONTH -> day = value
-            HOUR_OF_DAY -> hour = value
+            HOUR, HOUR_OF_DAY -> hour = value
             MINUTE -> minute = value
             SECOND -> second = value
             MILLISECOND -> millis = value
         }
-        // Recompute timeInMillis would go here
+        computeTimeInMillis()
+    }
+    
+    override fun add(field: Int, amount: Int) {
+        when (field) {
+            YEAR -> {
+                year += amount
+            }
+            MONTH -> {
+                month += amount
+                while (month < 0) {
+                    month += 12
+                    year--
+                }
+                while (month > 11) {
+                    month -= 12
+                    year++
+                }
+            }
+            DAY_OF_MONTH -> {
+                day += amount
+                while (day < 1) {
+                    month--
+                    if (month < 0) {
+                        month = 11
+                        year--
+                    }
+                    day += daysInMonth(year, month)
+                }
+                while (day > daysInMonth(year, month)) {
+                    day -= daysInMonth(year, month)
+                    month++
+                    if (month > 11) {
+                        month = 0
+                        year++
+                    }
+                }
+            }
+            HOUR, HOUR_OF_DAY -> {
+                hour += amount
+                while (hour < 0) {
+                    hour += 24
+                    add(DAY_OF_MONTH, -1)
+                }
+                while (hour >= 24) {
+                    hour -= 24
+                    add(DAY_OF_MONTH, 1)
+                }
+            }
+            MINUTE -> {
+                minute += amount
+                while (minute < 0) {
+                    minute += 60
+                    add(HOUR_OF_DAY, -1)
+                }
+                while (minute >= 60) {
+                    minute -= 60
+                    add(HOUR_OF_DAY, 1)
+                }
+            }
+            SECOND -> {
+                second += amount
+                while (second < 0) {
+                    second += 60
+                    add(MINUTE, -1)
+                }
+                while (second >= 60) {
+                    second -= 60
+                    add(MINUTE, 1)
+                }
+            }
+            MILLISECOND -> {
+                millis += amount
+                while (millis < 0) {
+                    millis += 1000
+                    add(SECOND, -1)
+                }
+                while (millis >= 1000) {
+                    millis -= 1000
+                    add(SECOND, 1)
+                }
+            }
+        }
+        computeTimeInMillis()
     }
 }
 

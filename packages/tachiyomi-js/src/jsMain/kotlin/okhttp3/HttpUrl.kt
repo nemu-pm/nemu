@@ -116,6 +116,43 @@ class HttpUrl private constructor(
             return this
         }
         
+        /**
+         * Set the path segment at the specified index.
+         */
+        fun setPathSegment(index: Int, pathSegment: String): Builder {
+            // Parse current path into segments
+            val segments = encodedPath.split("/").filter { it.isNotEmpty() }.toMutableList()
+            
+            // Ensure we have enough segments
+            while (segments.size <= index) {
+                segments.add("")
+            }
+            
+            // Set the segment at the index
+            segments[index] = encodePathSegment(pathSegment)
+            
+            // Rebuild path
+            encodedPath = "/" + segments.joinToString("/")
+            
+            return this
+        }
+        
+        /**
+         * Set the encoded path segment at the specified index.
+         */
+        fun setEncodedPathSegment(index: Int, encodedPathSegment: String): Builder {
+            val segments = encodedPath.split("/").filter { it.isNotEmpty() }.toMutableList()
+            
+            while (segments.size <= index) {
+                segments.add("")
+            }
+            
+            segments[index] = encodedPathSegment
+            encodedPath = "/" + segments.joinToString("/")
+            
+            return this
+        }
+        
         private fun encodePathSegment(segment: String): String {
             return segment
                 .replace("%", "%25")

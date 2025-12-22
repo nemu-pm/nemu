@@ -32,6 +32,7 @@
  *   details <manga-url>       Get manga details
  *   chapters <manga-url>      Get chapter list
  *   pages <chapter-url>       Get page list
+ *   cover <manga-url>         Test cover image fetch with source headers
  *   read <manga-url> <ch-url> Full end-to-end test
  *   filters                   Show filter schema
  *   interactive               Interactive REPL mode
@@ -51,7 +52,7 @@ const SOURCE_LANG = process.env.SOURCE_LANG || "en";
 const PROXY_URL = process.env.PROXY_URL || "https://service.nemu.pm";
 
 // Extensions directory relative to project root
-const EXTENSIONS_BASE = path.resolve(import.meta.dir, "../dev/extensions");
+const EXTENSIONS_BASE = path.resolve(import.meta.dir, "../dev/tachiyomi-extensions");
 
 // ============================================================================
 // HTTP Bridge for Kotlin/JS (tachiyomiHttpRequest)
@@ -196,6 +197,7 @@ interface JsExports {
   getChapterList(sourceId: string, mangaUrl: string): string;
   getPageList(sourceId: string, chapterUrl: string): string;
   fetchImage(sourceId: string, pageUrl: string, pageImageUrl: string): string;
+  getHeaders(sourceId: string): string;
   // Legacy
   getSourceCount(): number;
   getSourceInfo(index: number): string;
@@ -493,6 +495,79 @@ async function runCommand(
       break;
     }
     
+    case "cover": {
+      const mangaUrl = args[0];
+      if (!mangaUrl) {
+        console.error("Error: manga URL required");
+        console.error("Tip: Use 'popular' or 'search' command first to get a manga URL");
+        return;
+      }
+      
+      console.log(`\n=== Cover Image Test: ${mangaUrl} ===\n`);
+      
+      // Get manga details to get cover URL
+      console.log("1. Getting manga details...");
+      const manga = unwrapResult<MangaDto>(exports.getMangaDetails(sourceId, mangaUrl));
+      console.log(`   Title: ${manga.title}`);
+      console.log(`   Cover URL: ${manga.thumbnailUrl || "(none)"}`);
+      
+      if (!manga.thumbnailUrl) {
+        console.error("\n❌ No cover URL found for this manga");
+        return;
+      }
+      
+      // Get source headers
+      console.log("\n2. Getting source headers...");
+      const headers = unwrapResult<Record<string, string>>(exports.getHeaders(sourceId));
+      console.log(`   Headers: ${JSON.stringify(headers)}`);
+      
+      // Fetch cover image through proxy with source headers
+      console.log("\n3. Fetching cover through proxy with source headers...");
+      const proxyHeaders: Record<string, string> = {};
+      for (const [key, value] of Object.entries(headers)) {
+        proxyHeaders[key] = value;
+      }
+      
+      const resp = proxyRequest(manga.thumbnailUrl, {
+        method: "GET",
+        headers: proxyHeaders,
+        wantBytes: true,
+        debug: DEBUG,
+      });
+      
+      if (resp.error) {
+        console.error(`\n❌ Failed to fetch cover: ${resp.error}`);
+        return;
+      }
+      
+      if (resp.status !== 200) {
+        console.error(`\n❌ Cover fetch failed with status ${resp.status}`);
+        return;
+      }
+      
+      const imageBytes = Buffer.from(resp.body, "base64");
+      console.log(`   Received: ${imageBytes.length} bytes`);
+      
+      // Detect image format
+      const isJpeg = imageBytes[0] === 0xFF && imageBytes[1] === 0xD8;
+      const isPng = imageBytes[0] === 0x89 && imageBytes[1] === 0x50;
+      const isWebp = imageBytes[0] === 0x52 && imageBytes[1] === 0x49;
+      const format = isJpeg ? "JPEG" : isPng ? "PNG" : isWebp ? "WebP" : "Unknown";
+      console.log(`   Format: ${format}`);
+      
+      if (!isJpeg && !isPng && !isWebp) {
+        console.error(`\n❌ Response doesn't look like an image (first bytes: ${imageBytes[0]}, ${imageBytes[1]})`);
+        return;
+      }
+      
+      // Save the image
+      const outputPath = path.resolve(import.meta.dir, "../temp", `cover-${Date.now()}.${format.toLowerCase()}`);
+      await Bun.write(outputPath, imageBytes);
+      
+      console.log(`\n✅ SUCCESS! Cover image saved to ${outputPath} (${imageBytes.length} bytes)`);
+      break;
+    }
+    
     case "read": {
       const mangaUrl = args[0];
       const chapterUrl = args[1];
@@ -549,7 +624,7 @@ async function runCommand(
     case "interactive": {
       console.log(`\n=== Interactive mode ===`);
       console.log(`Source: ${selectedSource.name} (${selectedSource.lang})`);
-      console.log(`Commands: info, popular, latest, search, details, chapters, pages, read, filters, quit\n`);
+      console.log(`Commands: info, popular, latest, search, details, chapters, pages, cover, read, filters, quit\n`);
       
       const readline = await import("readline");
       const rl = readline.createInterface({
@@ -611,7 +686,7 @@ async function runCommand(
     
     default:
       console.error(`Unknown command: ${command}`);
-      console.log("Available: info, popular, latest, search, details, chapters, pages, read, filters, settings, interactive");
+      console.log("Available: info, popular, latest, search, details, chapters, pages, cover, read, filters, settings, interactive");
   }
 }
 
@@ -634,6 +709,7 @@ Commands:
   details <manga-url>       Get manga details
   chapters <manga-url>      Get chapter list
   pages <chapter-url>       Get page list
+  cover <manga-url>         Test cover image fetch with source headers
   read <manga-url> <ch-url> Full end-to-end test
   filters                   Show filter schema
   interactive               Interactive REPL mode

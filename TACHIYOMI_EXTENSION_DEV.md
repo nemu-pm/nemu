@@ -28,7 +28,7 @@ Extensions are tested in order of **recent commit activity** (descending). Newer
 │     ├── Extension bug → Record as upstream issue            │
 │     └── Source down → Record as source_unavailable          │
 │                         ↓                                   │
-│  4. Update dev/extension-tests.json with results            │
+│  4. Update dev/tachiyomi-extension-tests.json with results            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -45,13 +45,28 @@ Extensions are tested in order of **recent commit activity** (descending). Newer
 | read | `read <manga> <ch>` | End-to-end image fetch |
 | settings | `settings` | Settings schema extraction |
 
-### 4. Result Classification
+### 4. Acceptance Criteria
 
-- **`pass`**: Feature works correctly
-- **`fail_shim`**: Missing/broken runtime shim (our bug)
-- **`fail_extension`**: Extension code bug (upstream)
-- **`fail_source`**: Source website changed/down
-- **`skip`**: Not applicable (e.g., no latest support)
+An extension is considered **working** when it passes the CLI test script reliably:
+
+```bash
+bun scripts/test-tachiyomi-source.ts <ext> popular   # Returns manga list
+bun scripts/test-tachiyomi-source.ts <ext> search    # Returns search results  
+bun scripts/test-tachiyomi-source.ts <ext> details   # Parses manga metadata
+bun scripts/test-tachiyomi-source.ts <ext> chapters  # Returns chapter list
+bun scripts/test-tachiyomi-source.ts <ext> pages     # Returns page URLs
+bun scripts/test-tachiyomi-source.ts <ext> cover     # Fetches cover with source headers
+```
+
+The `cover` test is critical - it verifies that source headers (Referer, User-Agent, etc.) are correctly passed through the proxy. Many CDNs return 403 without proper headers.
+
+The CLI is the source of truth. If it works in CLI, it works in production.
+
+### 5. Result Classification
+
+- **`working`**: All CLI tests pass
+- **`partial`**: Some tests fail (note which)
+- **`not_working`**: Build or critical tests fail
 
 ## Commands
 
@@ -83,7 +98,7 @@ cd packages/tachiyomi-js
 ```bash
 bun scripts/test-tachiyomi-source.ts en-mangapill info
 bun scripts/test-tachiyomi-source.ts en-mangapill popular
-bun scripts/test-tachiyomi-source.ts en-mangapill search "one piece"
+bun scripts/test-tachiyomi-source.ts en-mangapill search "some manga name you saw in popular"
 bun scripts/test-tachiyomi-source.ts en-mangapill details "/manga/..."
 bun scripts/test-tachiyomi-source.ts en-mangapill chapters "/manga/..."
 bun scripts/test-tachiyomi-source.ts en-mangapill pages "/chapter/..."
@@ -99,24 +114,14 @@ cd packages/tachiyomi-js
 
 ## Test Results
 
-Results are stored in `dev/extension-tests.json`. Each entry records:
+Results are stored in `dev/tachiyomi-extension-tests.json`:
 
 ```json
 {
   "extension": "ja/ganganonline",
-  "testedAt": "2025-12-22T12:00:00Z",
-  "buildStatus": "pass",
-  "tests": {
-    "info": "pass",
-    "popular": "pass",
-    "search": "pass",
-    "details": "pass",
-    "chapters": "pass",
-    "pages": "pass",
-    "read": "pass",
-    "settings": "pass"
-  },
-  "notes": "Fixed explicitNulls and URL encoding for Japanese queries"
+  "testedAt": "2025-12-22",
+  "status": "working",
+  "comment": "GigaViewer multisrc."
 }
 ```
 
@@ -128,30 +133,21 @@ Results are stored in `dev/extension-tests.json`. Each entry records:
 | `MissingFieldException` | JSON config needs `explicitNulls = false` | `keiyoushi/utils/Json.kt` |
 | HTTP 400 on non-ASCII | URL encoding broken | `okhttp3/HttpUrl.kt` |
 | `ClassCastException` | Type mismatch in shim | Check shim return types |
+| `Invalid regular expression: unmatched ]` | ksoup Unicode regex mode | Preprocessor transforms |
+| `Lone quantifier brackets` | Unescaped `]` in regex | Preprocessor transforms |
+
+### Preprocessor Transforms for ksoup/Regex Issues
+
+ksoup compiles CSS selectors to JavaScript regexes with Unicode flag (`u`), which has stricter escape rules:
+
+1. **CSS attribute selectors with `\=`**: Transform `a[href*=type\\=]` → `a[href*=\"type=\"]`
+2. **Regex with unescaped `]`**: Transform `(\\[.*?])` → `(\\[.*?\\])`
+
+These transforms are in `build.gradle.kts` under `codeTransformations`.
 
 ## Tested Extensions
 
-See `dev/extension-tests.json` for full results.
-
-### Quick Status - Passing
-
-| Extension | Build | Popular | Search | Details | Chapters | Pages | Read | Settings |
-|-----------|-------|---------|--------|---------|----------|-------|------|----------|
-| all/mangadex | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (12) |
-| en/mangapill | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | - |
-| ja/shonenjumpplus | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ja/ganganonline | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ja/comicdays | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ja/comicgardo | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ja/corocoroonline | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ja/zerosumonline | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-### Quick Status - Build Failed (Missing Shims)
-
-| Extension | Blocker |
-|-----------|---------|
-| pt/mangalivre | Coroutines, Base64, CryptoAES |
-| en/armageddon | Coroutines, SoftReference |
+Inspect `dev/tachiyomi-extension-tests.json` for full results.
 
 ## Platform Limitations
 
@@ -215,6 +211,6 @@ When testing a new extension:
 1. Run all tests documented above
 2. If issues found, classify as shim/extension/source
 3. Fix shim issues before moving on
-4. Update `dev/extension-tests.json`
+4. Update `dev/tachiyomi-extension-tests.json`
 5. Update the quick status table above
 

@@ -36,6 +36,7 @@ interface SettingsState {
   installSource: (registryId: string, sourceId: string) => Promise<void>;
   uninstallSource: (registryId: string, sourceId: string) => Promise<void>;
   getSource: (registryId: string, sourceId: string) => Promise<MangaSource | null>;
+  reloadSource: (registryId: string, sourceId: string) => Promise<MangaSource | null>;
   installFromAix: (file: File) => Promise<void>;
   setReadingMode: (mode: ReadingMode) => void;
 }
@@ -204,6 +205,31 @@ export function createSettingsStore(
       const registry = manager.getRegistry(registryId);
       if (!registry) return null;
 
+      const source = await registry.getSource(sourceId);
+      if (source) {
+        loadedSources.set(compositeId, source);
+        set({ loadedSources: new Map(loadedSources) });
+      }
+
+      return source;
+    },
+
+    reloadSource: async (registryId: string, sourceId: string) => {
+      const { manager, loadedSources } = get();
+      const compositeId = Keys.source(registryId, sourceId);
+
+      // Get registry first
+      const registry = manager.getRegistry(registryId);
+      if (!registry) return null;
+
+      // Unload from registry (disposes and clears its cache)
+      registry.unloadSource(sourceId);
+
+      // Clear from settings store cache too
+      loadedSources.delete(compositeId);
+      set({ loadedSources: new Map(loadedSources) });
+
+      // Load fresh from registry
       const source = await registry.getSource(sourceId);
       if (source) {
         loadedSources.set(compositeId, source);

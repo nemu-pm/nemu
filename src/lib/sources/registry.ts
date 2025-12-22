@@ -27,6 +27,7 @@ export interface SourceRegistryProvider {
   readonly info: SourceRegistry;
   listSources(): Promise<RegistrySourceInfo[]>;
   installSource(sourceId: string): Promise<void>;
+  unloadSource(sourceId: string): void;
   getSource(sourceId: string): Promise<MangaSource | null>;
   isInstalled(sourceId: string): Promise<boolean>;
 }
