@@ -82,7 +82,7 @@ jobs:
         run: |
           cd vendor/keiyoushi/extensions-source
           
-          LAST_COMMIT="${{ vars.KEIYOUSHI_LAST_COMMIT }}"
+          LAST_COMMIT=$(echo "${{ vars.KEIYOUSHI_LAST_COMMIT }}" | xargs)  # trim whitespace
           
           if [ "${{ inputs.force_tachiyomi_rebuild }}" == "true" ]; then
             echo "Force rebuild requested"
@@ -269,8 +269,11 @@ jobs:
           name: tachiyomi-registry
           path: dist/tachiyomi/
       
-      - name: Create index page
+      - name: Create index page and CNAME
         run: |
+          # CNAME for custom domain
+          echo "sources.nemu.pm" > dist/CNAME
+          
           cat > dist/index.html << 'EOF'
           <!DOCTYPE html>
           <html>
