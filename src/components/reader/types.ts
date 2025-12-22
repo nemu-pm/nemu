@@ -22,6 +22,11 @@ export interface ReaderProps {
   onBackgroundClick?: () => void
   /** Called when keyboard navigation occurs (arrow keys) */
   onKeyboardNavigation?: () => void
+  /**
+   * Scrolling mode only. Called when user tries to scroll "past the top".
+   * Useful for explicitly loading/prepending previous chapter without auto-prefetch.
+   */
+  onScrollingReachStart?: () => void
   disableKeyboard?: boolean
   /** When true, double-click/tap zoom is disabled */
   disableZoom?: boolean
@@ -50,6 +55,8 @@ export interface ScrollingGalleryProps extends Omit<GalleryProps, 'readingMode'>
    * 1 = full viewport width, <1 shrinks to show side gaps.
    */
   pageWidthScale?: number
+  /** Called when user tries to scroll "past the top" of the list. */
+  onReachStart?: () => void
 }
 
 export interface TwoPageGalleryProps extends GalleryProps {

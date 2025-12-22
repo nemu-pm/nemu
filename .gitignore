@@ -9,6 +9,10 @@ dist-ssr
 build
 *.local
 
+# Kotlin/WASM dev builds
+packages/extension-compiler/dev/wasm/
+.gradle/
+
 # Logs
 logs
 *.log

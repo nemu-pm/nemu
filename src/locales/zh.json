@@ -22,6 +22,14 @@
     "goBack": "返回",
     "noImage": "无图片"
   },
+  "storage": {
+    "idbLock": {
+      "title": "存储已锁定",
+      "descriptionBlocked": "nemu 无法访问本地存储，可能是另一个标签页/窗口正在占用。请关闭其他 nemu 标签页/窗口，然后刷新此页面。",
+      "descriptionVersionChange": "nemu 需要升级本地存储。请关闭其他 nemu 标签页/窗口，然后刷新此页面。",
+      "reload": "刷新"
+    }
+  },
   "nav": {
     "library": "书架",
     "browse": "浏览",

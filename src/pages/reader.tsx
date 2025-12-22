@@ -158,7 +158,19 @@ export function ReaderPage() {
 
   // Scrolling mode "zoom": width scale persisted to localStorage only.
   // 100% = full viewport width, smaller shows black side gaps.
-  const [scrollWidthPct, setScrollWidthPct] = useState(100);
+  const [scrollWidthPct, setScrollWidthPct] = useState(() => {
+    if (typeof window === "undefined") return 100;
+    try {
+      const raw = window.localStorage.getItem(SCROLL_WIDTH_KEY);
+      if (!raw) return 100;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return 100;
+      return Math.max(50, Math.min(100, Math.round(n)));
+    } catch {
+      // ignore (private mode / blocked storage)
+      return 100;
+    }
+  });
 
   // Debounce save timer
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -174,6 +186,7 @@ export function ReaderPage() {
 
   const chapterPagesRef = useRef<Record<string, Page[]>>({});
   const loadingChaptersRef = useRef<Set<string>>(new Set());
+  const pendingScrollPrependRef = useRef(false);
   const loadRunIdRef = useRef(0);
   const pendingInternalUrlChaptersRef = useRef<Set<string>>(new Set());
   // Track internal URL sync (chapterId + page) so we don't treat our own `navigate(replace)`
@@ -240,22 +253,6 @@ export function ReaderPage() {
       // ignore
     }
   }, [pagePairingMode]);
-
-  // Load scroll width from localStorage (local-only, no sync)
-  useEffect(() => {
-    try {
-      const raw =
-        typeof window !== "undefined"
-          ? window.localStorage.getItem(SCROLL_WIDTH_KEY)
-          : null;
-      if (!raw) return;
-      const n = Number(raw);
-      if (!Number.isFinite(n)) return;
-      setScrollWidthPct(Math.max(50, Math.min(100, Math.round(n))));
-    } catch {
-      // ignore (private mode / blocked storage)
-    }
-  }, []);
 
   // Persist scroll width to localStorage
   useEffect(() => {
@@ -587,6 +584,44 @@ export function ReaderPage() {
     },
     [getSource, registryId, sourceId, mangaId]
   );
+
+  // Scrolling mode: explicitly prepend the previous chapter when user "pulls" past the top.
+  // This is NOT auto-prefetch (which can cause index-shift snaps on reopen); it's user-driven.
+  const handleScrollingReachStart = useCallback(async () => {
+    if (readingMode !== "scrolling") return;
+    if (loading) return;
+    if (pendingScrollPrependRef.current) return;
+    if (chaptersReadOrder.length === 0) return;
+    if (windowChapterIds.length === 0) return;
+
+    const firstWindowId = windowChapterIds[0]!;
+    const firstPos = chapterReadIndexById.get(firstWindowId);
+    if (firstPos === undefined) return;
+    const prev = chaptersReadOrder[firstPos - 1];
+    if (!prev) return;
+    if (windowChapterIds.includes(prev.id)) return;
+
+    pendingScrollPrependRef.current = true;
+    try {
+      const pages = await ensureChapterPages(prev.id);
+      if (!pages) return;
+
+      const insertedCount = pages.length + (isTwoPageMode ? 1 : 0);
+      setWindowChapterIds((ids) => (ids.includes(prev.id) ? ids : [prev.id, ...ids]));
+      // Preserve current visual position by shifting the current index forward.
+      setCurrentIndex((i) => i + insertedCount);
+    } finally {
+      pendingScrollPrependRef.current = false;
+    }
+  }, [
+    readingMode,
+    loading,
+    chaptersReadOrder,
+    windowChapterIds,
+    chapterReadIndexById,
+    ensureChapterPages,
+    isTwoPageMode,
+  ]);
 
   // CRITICAL: Immediately track max page seen and mark completed (not debounced)
   // This high-water mark pattern ensures completion is never lost due to fast scrolling
@@ -1182,6 +1217,7 @@ export function ReaderPage() {
         scrollPageWidthScale={scrollWidthPct / 100}
         onBackgroundClick={handleBackgroundClick}
         onKeyboardNavigation={handleKeyboardNavigation}
+        onScrollingReachStart={handleScrollingReachStart}
       />
 
       {/* Floating Bottom Panel */}

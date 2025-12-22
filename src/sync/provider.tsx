@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef, useMemo, useCallback, type ReactNode } from "react";
 import { useConvexAuth, useConvex, useQuery } from "convex/react";
 import type { ConvexReactClient } from "convex/react";
-import { IndexedDBUserDataStore } from "@/data/indexeddb";
+import { useTranslation } from "react-i18next";
+import { IDB_UI_EVENT, IndexedDBUserDataStore } from "@/data/indexeddb";
 import { IndexedDBCacheStore } from "@/data/cache";
 import { RegistryManager } from "@/lib/sources/registry";
 import { createLibraryStore } from "@/stores/library";
@@ -14,6 +15,15 @@ import { api } from "../../convex/_generated/api";
 import { SyncContext } from "./context";
 import { SyncEngine } from "./engine";
 import type { DataServices, StoreHooks, SyncContextValue } from "./types";
+import {
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogDescription,
+  ResponsiveDialogFooter,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+} from "@/components/ui/responsive-dialog";
+import { Button } from "@/components/ui/button";
 
 // Re-export types and hooks
 export type { DataServices, StoreHooks } from "./types";
@@ -23,15 +33,90 @@ export { useDataServices, useStores, useAuth, useSyncContext, useSyncStatus, use
 // Track if initial merge has been done
 const MERGED_KEY = "nemu:cloud-merged";
 
+type IdbBlockedEventDetail = {
+  dbName: string;
+  requestedVersion?: number;
+  kind: "blocked" | "versionchange";
+};
+
+const IDB_UI_EVENT_BUFFER_KEY = "nemu:idb-ui-event";
+const MOCK_BLOCK_STICKY_KEY = "nemu:idb-mock-blocked-sticky";
+
 export function SyncProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const convex = useConvex();
   const syncStore = getSyncStore();
   const { data: session } = authClient.useSession();
+  const { t } = useTranslation();
+  const shouldDebugIdbUi =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    typeof window.location?.search === "string" &&
+    window.location.search.includes("idbMockUpgrade=1");
+  const shouldForceIdbDialog =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    typeof window.location?.search === "string" &&
+    window.location.search.includes("idbForceDialog=1");
 
   // Local stores (always available) - stable references
   const [localStore] = useState(() => new IndexedDBUserDataStore());
   const [cacheStore] = useState(() => new IndexedDBCacheStore());
+
+  // Surface IndexedDB lock issues to the user (another tab holding a connection / upgrade blocked)
+  const [idbBlocked, setIdbBlocked] = useState<IdbBlockedEventDetail | null>(null);
+  const [idbDialogOpen, setIdbDialogOpen] = useState(false);
+
+  useEffect(() => {
+    // If the IDB layer emitted before our effects attached (refresh/StrictMode timing),
+    // we can recover from the buffered event.
+    try {
+      const raw = sessionStorage.getItem(IDB_UI_EVENT_BUFFER_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { detail?: IdbBlockedEventDetail } | null;
+        const detail = parsed?.detail;
+        if (detail?.kind) {
+          setIdbBlocked(detail);
+          setIdbDialogOpen(true);
+        }
+        sessionStorage.removeItem(IDB_UI_EVENT_BUFFER_KEY);
+      }
+    } catch {
+      // ignore
+    }
+
+    // Dev-only: if we previously observed a real mock `onblocked`, keep showing the dialog
+    // across refreshes until the mock becomes unblocked (cleared by the mock open handlers).
+    try {
+      if (shouldDebugIdbUi && sessionStorage.getItem(MOCK_BLOCK_STICKY_KEY) === "1") {
+        setIdbBlocked({ dbName: "nemu-user", kind: "blocked", requestedVersion: undefined });
+        setIdbDialogOpen(true);
+      }
+    } catch {
+      // ignore
+    }
+
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<IdbBlockedEventDetail>).detail;
+      if (!detail?.kind) return;
+
+      setIdbBlocked(detail);
+      setIdbDialogOpen(true);
+    };
+
+    window.addEventListener(IDB_UI_EVENT, handler as EventListener);
+    return () => window.removeEventListener(IDB_UI_EVENT, handler as EventListener);
+  }, []);
+
+  // Dev-only: allow forcing the UI open for verification via `?idbMockUpgrade=1`,
+  // even if the upgrade isn't actually blocked (auto-unblock can make onblocked rare).
+  useEffect(() => {
+    if (!shouldForceIdbDialog) return;
+    const detail: IdbBlockedEventDetail = { dbName: "nemu-user", kind: "blocked" };
+
+    setIdbBlocked(detail);
+    setIdbDialogOpen(true);
+  }, [shouldForceIdbDialog]);
 
   // Sync engine (stable reference)
   const [syncEngine] = useState(() => new SyncEngine(localStore));
@@ -322,5 +407,31 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     [services, stores, isAuthenticated, isLoading, syncStatus, pendingCount, signOut]
   );
 
-  return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>;
+  const idbDescription =
+    idbBlocked?.kind === "versionchange"
+      ? t("storage.idbLock.descriptionVersionChange")
+      : t("storage.idbLock.descriptionBlocked");
+
+  return (
+    <SyncContext.Provider value={value}>
+      {children}
+      <ResponsiveDialog open={idbDialogOpen} onOpenChange={setIdbDialogOpen} dismissible={false}>
+        <ResponsiveDialogContent showCloseButton={false}>
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle>{t("storage.idbLock.title")}</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>{idbDescription}</ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          <ResponsiveDialogFooter>
+            <Button
+              onClick={() => {
+                window.location.reload();
+              }}
+            >
+              {t("storage.idbLock.reload")}
+            </Button>
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+    </SyncContext.Provider>
+  );
 }

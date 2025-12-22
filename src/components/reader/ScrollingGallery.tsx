@@ -133,6 +133,7 @@ export function ScrollingGallery({
   pagePairingMode = 'manga',
   readingMode = 'scrolling',
   pageWidthScale = 1,
+  onReachStart,
 }: ScrollingGalleryProps) {
   const listRef = useRef<ListImperativeAPI>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -140,6 +141,9 @@ export function ScrollingGallery({
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
   const [listReady, setListReady] = useState(false)
   const prevRowHeightRef = useRef<number | null>(null)
+  const lastReachStartAtRef = useRef(0)
+  const touchStartYRef = useRef<number | null>(null)
+  const onReachStartRef = useRef<typeof onReachStart>(onReachStart)
   
   // Track the last page index we reported to prevent scroll-to-row feedback loop
   const lastReportedPageIndex = useRef(currentPageIndex)
@@ -278,6 +282,61 @@ export function ScrollingGallery({
     }
   }, [handleNativeScroll, containerSize])
 
+  useEffect(() => {
+    onReachStartRef.current = onReachStart
+  }, [onReachStart])
+
+  const maybeReachStart = useCallback(() => {
+    const cb = onReachStartRef.current
+    if (!cb) return
+    const now = Date.now()
+    // Simple cooldown: wheel/touch/drag can fire many times at the top.
+    if (now - lastReachStartAtRef.current < 800) return
+    lastReachStartAtRef.current = now
+    cb()
+  }, [])
+
+  // Detect user intent to scroll past the very top (wheel/touch overscroll).
+  useEffect(() => {
+    if (!listReady) return
+    const el = listRef.current?.element
+    if (!el) return
+    if (!onReachStart) return
+
+    const onWheel = (e: WheelEvent) => {
+      // deltaY < 0 means user trying to scroll up.
+      if (e.deltaY < 0 && el.scrollTop <= 0) {
+        maybeReachStart()
+      }
+    }
+
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0]
+      touchStartYRef.current = t ? t.clientY : null
+    }
+
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0]
+      if (!t) return
+      const startY = touchStartYRef.current
+      if (startY == null) return
+      const dy = t.clientY - startY
+      // dy > 0: finger moved down, which attempts to scroll up.
+      if (dy > 12 && el.scrollTop <= 0) {
+        maybeReachStart()
+      }
+    }
+
+    el.addEventListener('wheel', onWheel, { passive: true })
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: true })
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+    }
+  }, [listReady, onReachStart, maybeReachStart])
+
   // For variable-height single-page scrolling, use react-window's visibility reporting
   // to update the current page index (no height math required).
   const handleRowsRendered = useCallback(
@@ -360,6 +419,9 @@ export function ScrollingGallery({
 
     const scrollDeltaY = dragStartY.current - e.clientY
     const newScrollTop = dragStartScrollTop.current + scrollDeltaY
+    if (newScrollTop < 0 && listRef.current.element.scrollTop <= 0) {
+      maybeReachStart()
+    }
 
     listRef.current.element.scrollTop = Math.max(0, newScrollTop)
 
@@ -368,7 +430,7 @@ export function ScrollingGallery({
     velocityTracker.current = velocityTracker.current.filter((point) => now - point.time < 100)
 
     e.preventDefault()
-  }, [])
+  }, [maybeReachStart])
 
   const calculateVelocity = useCallback(() => {
     if (velocityTracker.current.length < 2) return 0
@@ -400,6 +462,13 @@ export function ScrollingGallery({
       }
 
       const currentScroll = currentScrollOffset.current
+      if (currentScroll <= 0 && velocity < 0) {
+        // User is trying to scroll past top during inertia.
+        maybeReachStart()
+        inertiaAnimation.current = null
+        isUserScrolling.current = false
+        return
+      }
       const newScroll = Math.max(0, currentScroll + velocity)
 
       listRef.current.element.scrollTop = newScroll
@@ -410,7 +479,7 @@ export function ScrollingGallery({
     }
 
     inertiaAnimation.current = requestAnimationFrame(animate)
-  }, [])
+  }, [maybeReachStart])
 
   const handleMouseUp = useCallback(() => {
     if (!isDragging.current) return

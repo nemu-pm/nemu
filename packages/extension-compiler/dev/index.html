@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keiyoushi WASM Dev Test</title>
+    <style>
+        :root { --bg: #0d1117; --fg: #e6edf3; --border: #30363d; --accent: #58a6ff; --success: #3fb950; --error: #f85149; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--fg); margin: 0; padding: 20px; line-height: 1.5; }
+        h1 { margin: 0 0 20px; font-size: 24px; }
+        h2 { margin: 20px 0 10px; font-size: 18px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+        .status { padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; }
+        .status.loading { background: #1c2128; border: 1px solid var(--border); }
+        .status.success { background: #1a2a1a; border: 1px solid var(--success); color: var(--success); }
+        .status.error { background: #2a1a1a; border: 1px solid var(--error); color: var(--error); }
+        button { background: #21262d; color: var(--fg); border: 1px solid var(--border); padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-right: 8px; margin-bottom: 8px; }
+        button:hover { background: #30363d; }
+        input { background: #21262d; color: var(--fg); border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; margin-right: 8px; }
+        pre { background: #161b22; padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 13px; border: 1px solid var(--border); max-height: 400px; overflow-y: auto; }
+        .hidden { display: none; }
+        .manga-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
+        .manga-card { background: #21262d; border-radius: 8px; overflow: hidden; cursor: pointer; transition: transform 0.2s; }
+        .manga-card:hover { transform: translateY(-4px); }
+        .manga-card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; background: #30363d; }
+        .manga-card .info { padding: 8px; }
+        .manga-card .title { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .chapter-list { display: flex; flex-direction: column; gap: 8px; }
+        .chapter-item { background: #21262d; padding: 12px; border-radius: 6px; cursor: pointer; }
+        .chapter-item:hover { background: #30363d; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Keiyoushi WASM Dev Test</h1>
+    
+    <div id="loadStatus" class="status loading">Initializing Worker...</div>
+    
+    <div id="sourceInfo" class="hidden">
+        <h2>Source Info</h2>
+        <pre id="sourceDetails"></pre>
+    </div>
+    
+    <div id="controls" class="hidden">
+        <h2>Actions</h2>
+        <button onclick="loadPopular()">Popular Manga</button>
+        <button onclick="loadLatest()">Latest Updates</button>
+        <input type="text" id="searchQuery" placeholder="Search..." value="one piece">
+        <button onclick="searchManga()">Search</button>
+    </div>
+    
+    <div id="mangaSection" class="hidden">
+        <h2 id="mangaSectionTitle">Results</h2>
+        <div id="mangaGrid" class="manga-grid"></div>
+    </div>
+    
+    <div id="chapterSection" class="hidden">
+        <h2>Chapters: <span id="selectedMangaTitle"></span></h2>
+        <button onclick="hideChapters()">← Back</button>
+        <div id="chapterList" class="chapter-list"></div>
+    </div>
+    
+    <div id="rawOutput" class="hidden">
+        <h2>Raw Response</h2>
+        <pre id="rawJson"></pre>
+    </div>
+
+    <script type="module">
+        const worker = new Worker('./worker.js', { type: 'module' });
+        let msgId = 0;
+        const pending = new Map();
+        
+        const $ = id => document.getElementById(id);
+        
+        function setStatus(msg, type = 'loading') {
+            const el = $('loadStatus');
+            el.textContent = msg;
+            el.className = `status ${type}`;
+        }
+        
+        function showRaw(data) {
+            $('rawJson').textContent = JSON.stringify(data, null, 2);
+            $('rawOutput').classList.remove('hidden');
+        }
+
+        function callWasm(method, ...args) {
+            return new Promise((resolve, reject) => {
+                const id = msgId++;
+                pending.set(id, { resolve, reject });
+                worker.postMessage({ id, method, args });
+            });
+        }
+
+        worker.onmessage = ({ data: { id, result, error } }) => {
+            const { resolve, reject } = pending.get(id);
+            pending.delete(id);
+            error ? reject(new Error(error)) : resolve(result);
+        };
+
+        let currentMangas = [], currentChapters = [];
+
+        async function init() {
+            try {
+                const count = await callWasm('getSourceCount');
+                setStatus(`✓ Loaded ${count} sources`, 'success');
+                
+                if (count > 0) {
+                    const info = await callWasm('getSourceInfo', 0);
+                    $('sourceDetails').textContent = JSON.stringify(info, null, 2);
+                    $('sourceInfo').classList.remove('hidden');
+                }
+                $('controls').classList.remove('hidden');
+            } catch (e) {
+                setStatus(`✗ ${e.message}`, 'error');
+            }
+        }
+        
+        window.loadPopular = async () => {
+            try {
+                setStatus('Loading...');
+                const data = await callWasm('getPopularManga', 0, 1);
+                currentMangas = data.mangas;
+                showMangaGrid(data.mangas, 'Popular');
+                showRaw(data);
+                setStatus(`✓ ${data.mangas.length} manga`, 'success');
+            } catch (e) { setStatus(`✗ ${e.message}`, 'error'); }
+        };
+        
+        window.loadLatest = async () => {
+            try {
+                setStatus('Loading...');
+                const data = await callWasm('getLatestUpdates', 0, 1);
+                currentMangas = data.mangas;
+                showMangaGrid(data.mangas, 'Latest');
+                showRaw(data);
+                setStatus(`✓ ${data.mangas.length} manga`, 'success');
+            } catch (e) { setStatus(`✗ ${e.message}`, 'error'); }
+        };
+        
+        window.searchManga = async () => {
+            const q = $('searchQuery').value;
+            if (!q) return;
+            try {
+                setStatus(`Searching "${q}"...`);
+                const data = await callWasm('searchManga', 0, 1, q);
+                currentMangas = data.mangas;
+                showMangaGrid(data.mangas, `Search: ${q}`);
+                showRaw(data);
+                setStatus(`✓ ${data.mangas.length} results`, 'success');
+            } catch (e) { setStatus(`✗ ${e.message}`, 'error'); }
+        };
+        
+        function showMangaGrid(mangas, title) {
+            $('mangaSectionTitle').textContent = title;
+            $('mangaGrid').innerHTML = mangas.map((m, i) => `
+                <div class="manga-card" onclick="selectManga(${i})">
+                    <img src="${m.thumbnailUrl || ''}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22150%22 height=%22225%22><rect fill=%22%2321262d%22 width=%22150%22 height=%22225%22/></svg>'" alt="">
+                    <div class="info"><div class="title">${m.title}</div></div>
+                </div>
+            `).join('');
+            $('mangaSection').classList.remove('hidden');
+            $('chapterSection').classList.add('hidden');
+        }
+        
+        window.selectManga = async (i) => {
+            const manga = currentMangas[i];
+            if (!manga) return;
+            try {
+                setStatus(`Loading chapters...`);
+                const chapters = await callWasm('getChapterList', 0, manga.url);
+                currentChapters = chapters;
+                $('selectedMangaTitle').textContent = manga.title;
+                $('chapterList').innerHTML = chapters.slice(0, 30).map((c, i) => `
+                    <div class="chapter-item" onclick="selectChapter(${i})">
+                        <strong>${c.name || `Ch. ${c.chapterNumber}`}</strong>
+                        ${c.scanlator ? `<br><small style="opacity:0.6">${c.scanlator}</small>` : ''}
+                    </div>
+                `).join('');
+                $('mangaSection').classList.add('hidden');
+                $('chapterSection').classList.remove('hidden');
+                showRaw(chapters);
+                setStatus(`✓ ${chapters.length} chapters`, 'success');
+            } catch (e) { setStatus(`✗ ${e.message}`, 'error'); }
+        };
+        
+        window.selectChapter = async (i) => {
+            const ch = currentChapters[i];
+            if (!ch) return;
+            try {
+                setStatus(`Loading pages...`);
+                const pages = await callWasm('getPageList', 0, ch.url);
+                showRaw(pages);
+                setStatus(`✓ ${pages.length} pages`, 'success');
+            } catch (e) { setStatus(`✗ ${e.message}`, 'error'); }
+        };
+        
+        window.hideChapters = () => {
+            $('chapterSection').classList.add('hidden');
+            $('mangaSection').classList.remove('hidden');
+        };
+        
+        init();
+    </script>
+</body>
+</html>
+

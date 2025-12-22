@@ -16,6 +16,7 @@ export function Reader({
   scrollPageWidthScale,
   onBackgroundClick,
   onKeyboardNavigation,
+  onScrollingReachStart,
   disableKeyboard = false,
   disableZoom = false,
 }: ReaderProps) {
@@ -33,6 +34,7 @@ export function Reader({
         isTwoPageMode={isTwoPageMode}
         pagePairingMode={pagePairingMode}
         pageWidthScale={scrollPageWidthScale}
+        onReachStart={onScrollingReachStart}
       />
     )
   }
