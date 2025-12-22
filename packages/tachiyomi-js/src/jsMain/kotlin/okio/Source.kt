@@ -1,6 +1,7 @@
 package okio
 
 import java.io.Closeable
+import javax.crypto.Cipher
 
 /**
  * Okio Source interfaces.
@@ -48,22 +49,60 @@ interface BufferedSink : Sink {
 // Extension to convert Source to BufferedSource
 fun Source.buffer(): BufferedSource {
     val source = this
-    return object : BufferedSource {
-        private val buffer = Buffer()
+    val buffer = Buffer()
+    
+    // Read all data from source into buffer
+    while (true) {
+        val bytesRead = source.read(buffer, 8192)
+        if (bytesRead == -1L) break
+    }
+    
+    return buffer
+}
+
+/**
+ * Creates a Source that decrypts data from this source using the given cipher.
+ * Used for AES-encrypted image streams.
+ */
+fun BufferedSource.cipherSource(cipher: Cipher): Source {
+    val original = this
+    return object : Source {
+        private var decryptedBytes: ByteArray? = null
+        private var offset = 0
         
-        override fun readByteArray(): ByteArray = buffer.readByteArray()
-        override fun readByteArray(byteCount: Long): ByteArray = buffer.readByteArray(byteCount)
-        override fun read(sink: ByteArray, offset: Int, byteCount: Int): Int = buffer.read(sink, offset, byteCount)
-        override fun readByte(): Byte = buffer.readByte()
-        override fun readShort(): Short = buffer.readShort()
-        override fun readInt(): Int = buffer.readInt()
-        override fun readLong(): Long = buffer.readLong()
-        override fun readUtf8(): String = buffer.readUtf8()
-        override fun readUtf8(byteCount: Long): String = buffer.readUtf8(byteCount)
-        override fun readUtf8Line(): String? = buffer.readUtf8Line()
-        override fun skip(byteCount: Long) = buffer.skip(byteCount)
-        override val exhausted: Boolean get() = buffer.exhausted
-        override fun close() = source.close()
+        override fun read(sink: Buffer, byteCount: Long): Long {
+            // Lazily decrypt all data on first read
+            if (decryptedBytes == null) {
+                val encrypted = original.readByteArray()
+                decryptedBytes = cipher.doFinal(encrypted)
+            }
+            
+            val bytes = decryptedBytes!!
+            if (offset >= bytes.size) return -1L
+            
+            val toRead = minOf(byteCount.toInt(), bytes.size - offset)
+            sink.write(bytes, offset, toRead)
+            offset += toRead
+            return toRead.toLong()
+        }
+        
+        override fun close() {
+            original.close()
+        }
+    }
+}
+
+/**
+ * Extension to convert a BufferedSource to a ResponseBody.
+ * Defined in okio package so it can be used with fully-qualified import.
+ */
+fun BufferedSource.asResponseBody(contentType: okhttp3.MediaType?): okhttp3.ResponseBody {
+    val bytes = this.readByteArray()
+    return object : okhttp3.ResponseBody() {
+        override fun string(): String = bytes.decodeToString()
+        override fun bytes(): ByteArray = bytes
+        override val contentType: okhttp3.MediaType? = contentType
+        override val contentLength: Long = bytes.size.toLong()
     }
 }
 

@@ -342,7 +342,7 @@ export function SettingsPage() {
             <Tabs
               value={currentLanguage}
               onValueChange={(value) => {
-                if (value === "en" || value === "zh") {
+                if (value === "en" || value === "zh" || value === "ja") {
                   languageStore?.getState().setLanguage(value);
                 }
               }}
@@ -350,6 +350,7 @@ export function SettingsPage() {
               <TabsList>
                 <TabsTrigger value="en">{t("settings.languageEnglish")}</TabsTrigger>
                 <TabsTrigger value="zh">{t("settings.languageChinese")}</TabsTrigger>
+                <TabsTrigger value="ja">{t("settings.languageJapanese")}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>

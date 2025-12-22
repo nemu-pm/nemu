@@ -20,6 +20,8 @@ import { CacheKeys } from "@/data/cache";
 import { parseSourceKey } from "@/data/keys";
 import pMemoize, { pMemoizeClear } from "p-memoize";
 import { normalizeSourceLang } from "../language";
+import { getSourceSettingsStore } from "@/stores/source-settings";
+import type { Setting } from "@/lib/settings";
 
 /** Validate image magic bytes */
 function isValidImageHeader(header: Uint8Array): boolean {
@@ -154,6 +156,120 @@ export interface TachiyomiBrowsableSource extends MangaSource, MangaSourceSWR {
     page: number,
     filters: TachiyomiFilter[]
   ): Promise<SearchResult<Manga>>;
+
+  // ============ Tachiyomi-specific ============
+
+  /** Sync pending preference changes to persistent store */
+  syncPreferences(): Promise<void>;
+}
+
+/**
+ * Get the SharedPreferences name for a source.
+ * Format: "source_{sourceNumericId}" matching Tachiyomi's naming convention.
+ */
+function getPrefsName(sourceId: string): string {
+  // Tachiyomi uses numeric IDs derived from source identifier hash
+  // For now, use sourceId as-is (extensions usually use their own naming)
+  return `source_${sourceId}`;
+}
+
+/**
+ * Initialize source preferences from stored values.
+ * Loads values from source-settings store and sends to worker.
+ */
+async function initSourcePreferences(
+  source: AsyncTachiyomiSource,
+  sourceKey: string
+): Promise<void> {
+  const prefsName = getPrefsName(source.sourceId);
+  const store = getSourceSettingsStore();
+  const values = store.getState().values.get(sourceKey) ?? {};
+  await source.initPreferences(prefsName, values);
+}
+
+/**
+ * Sync preference changes from worker back to store.
+ * Call periodically or after operations that may change prefs.
+ */
+async function syncPrefChanges(
+  source: AsyncTachiyomiSource,
+  sourceKey: string
+): Promise<void> {
+  const changes = await source.flushPrefChanges();
+  if (changes.length === 0) return;
+
+  const store = getSourceSettingsStore();
+  for (const change of changes) {
+    if (change.key === "__clear__") {
+      store.getState().resetSettings(sourceKey);
+    } else if (change.value === undefined) {
+      // Remove - currently just set to undefined
+      store.getState().setSetting(sourceKey, change.key, undefined);
+    } else {
+      store.getState().setSetting(sourceKey, change.key, change.value);
+    }
+  }
+}
+
+/**
+ * Parse raw schema from Kotlin/JS to Setting[] format
+ */
+function parseSettingsSchema(schemaJson: string | null): Setting[] | null {
+  if (!schemaJson) return null;
+  try {
+    const rawSchema = JSON.parse(schemaJson) as Array<{
+      type: string;
+      key: string;
+      title: string;
+      summary?: string;
+      values?: string[];
+      titles?: string[];
+      default?: unknown;
+    }>;
+    const settings: Setting[] = [];
+    for (const pref of rawSchema) {
+      const base = { key: pref.key, title: pref.title };
+      switch (pref.type) {
+        case "select":
+          settings.push({
+            ...base,
+            type: "select" as const,
+            values: pref.values ?? [],
+            titles: pref.titles,
+            default: pref.default as string | undefined,
+          });
+          break;
+        case "multi-select":
+          settings.push({
+            ...base,
+            type: "multi-select" as const,
+            values: pref.values ?? [],
+            titles: pref.titles,
+            default: pref.default as string[] | undefined,
+          });
+          break;
+        case "switch":
+          settings.push({
+            ...base,
+            type: "switch" as const,
+            subtitle: pref.summary,
+            default: pref.default as boolean | undefined,
+          });
+          break;
+        case "text":
+          settings.push({
+            ...base,
+            type: "text" as const,
+            default: pref.default as string | undefined,
+          });
+          break;
+      }
+    }
+    return settings.length > 0 ? settings : null;
+  } catch (e) {
+    console.error("[TachiyomiAdapter] Failed to parse settings schema:", e);
+    return null;
+  }
 }
 
 /**
@@ -162,14 +278,27 @@ export interface TachiyomiBrowsableSource extends MangaSource, MangaSourceSWR {
  * @param sourceKey - Unique identifier (registryId:sourceId) for caching
  * @param cacheStore - Cache store for persistent manga/chapter/image caching
  */
-export function createTachiyomiBrowsableSource(
+export async function createTachiyomiBrowsableSource(
   source: AsyncTachiyomiSource,
   sourceKey: string,
   cacheStore: CacheStore
-): TachiyomiBrowsableSource {
+): Promise<TachiyomiBrowsableSource> {
   const { sourceId, sourceInfo } = source;
   const supportsLatest = sourceInfo.supportsLatest ?? false;
   const sourceLang = normalizeSourceLang(sourceInfo.lang);
+
+  // Initialize preferences before any operations
+  await initSourcePreferences(source, sourceKey);
+
+  // Load settings schema ONCE at creation time (not lazily)
+  const schemaJson = await source.getSettingsSchema();
+  const schema = parseSettingsSchema(schemaJson);
+  
+  // Cache schema in store for persistence
+  if (schema) {
+    const store = getSourceSettingsStore();
+    await store.getState().setSchema(sourceKey, schema);
+  }
 
   // Pagination state for loadMore
   let currentSearch: { query: string; page: number; filters: TachiyomiFilter[] } | null = null;
@@ -318,7 +447,15 @@ export function createTachiyomiBrowsableSource(
     // ============ Search Methods ============
 
     async search(query: string): Promise<SearchResult<Manga>> {
-      return this.searchWithFilters(query, 1, []);
+      // Can't use this.searchWithFilters since we're building the object
+      currentSearch = { query, page: 1, filters: [] };
+      await source.resetFilters();
+      const result = await source.searchMangaWithFilters(1, query, "[]");
+      return {
+        items: result.mangas.map(mangaDtoToManga),
+        hasMore: result.hasNextPage,
+        loadMore: result.hasNextPage ? loadMoreSearch : undefined,
+      };
     },
 
     async searchWithFilters(
@@ -406,7 +543,15 @@ export function createTachiyomiBrowsableSource(
       return cacheStore.getJson<Chapter[]>(CacheKeys.chapters(registryId, sourceId, mangaId));
     },
 
+    // ============ Preferences Methods ============
+
+    async syncPreferences(): Promise<void> {
+      await syncPrefChanges(source, sourceKey);
+    },
+
     dispose(): void {
+      // Sync any final preference changes before terminating
+      syncPrefChanges(source, sourceKey).catch(() => {});
       source.terminate();
       currentSearch = null;
       currentListing = null;

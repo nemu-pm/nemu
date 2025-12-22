@@ -8,6 +8,7 @@ import {
   ResponsiveDialog,
   ResponsiveDialogContent,
   ResponsiveDialogHeader,
+  ResponsiveDialogFooter,
   ResponsiveDialogTitle,
   ResponsiveDialogDescription,
 } from "@/components/ui/responsive-dialog";
@@ -20,9 +21,15 @@ import {
   File02Icon,
   CheckmarkCircle02Icon,
   CodeIcon,
+  Alert02Icon,
 } from "@hugeicons/core-free-icons";
 
 type Mode = "select" | "registry" | "custom" | "dev";
+
+interface PendingInstall {
+  source: SourceInfo;
+  onConfirm: () => Promise<void>;
+}
 
 interface AddSourceDialogProps {
   open: boolean;
@@ -33,6 +40,7 @@ export function AddSourceDialog({ open, onOpenChange }: AddSourceDialogProps) {
   const { t } = useTranslation();
   const [mode, setMode] = useState<Mode>("select");
   const [installing, setInstalling] = useState<string | null>(null);
+  const [pendingInstall, setPendingInstall] = useState<PendingInstall | null>(null);
 
   const handleClose = () => {
     onOpenChange(false);
@@ -41,46 +49,121 @@ export function AddSourceDialog({ open, onOpenChange }: AddSourceDialogProps) {
   };
 
   return (
-    <ResponsiveDialog open={open} onOpenChange={handleClose}>
-      <ResponsiveDialogContent className="sm:max-w-lg">
+    <>
+      <ResponsiveDialog open={open} onOpenChange={handleClose}>
+        <ResponsiveDialogContent className="sm:max-w-lg">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle>{t("addSource.title")}</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>
+              {mode === "select" && t("addSource.selectMethod")}
+              {mode === "registry" && t("addSource.fromRegistry")}
+              {mode === "custom" && t("addSource.customFile")}
+              {mode === "dev" && "Load locally built Tachiyomi extensions"}
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+
+          {mode === "select" && <ModeSelection onSelectMode={setMode} />}
+
+          {mode === "registry" && (
+            <RegistrySourceList
+              installing={installing}
+              onInstall={setInstalling}
+              onBack={() => setMode("select")}
+              onDone={handleClose}
+              onPendingInstall={setPendingInstall}
+            />
+          )}
+
+          {mode === "custom" && (
+            <CustomSourceUpload
+              installing={installing !== null}
+              onInstall={setInstalling}
+              onBack={() => setMode("select")}
+              onDone={handleClose}
+            />
+          )}
+
+          {mode === "dev" && (
+            <DevSourceList
+              installing={installing}
+              onInstall={setInstalling}
+              onBack={() => setMode("select")}
+              onDone={handleClose}
+              onPendingInstall={setPendingInstall}
+            />
+          )}
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+      
+      <SourceWarningDialog
+        source={pendingInstall?.source ?? null}
+        onClose={() => setPendingInstall(null)}
+        onConfirm={async () => {
+          if (pendingInstall) {
+            await pendingInstall.onConfirm();
+            setPendingInstall(null);
+          }
+        }}
+      />
+    </>
+  );
+}
+
+function SourceWarningDialog({
+  source,
+  onClose,
+  onConfirm,
+}: {
+  source: SourceInfo | null;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const [installing, setInstalling] = useState(false);
+
+  const handleConfirm = async () => {
+    setInstalling(true);
+    try {
+      await onConfirm();
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const hasAuthentication = source?.hasAuthentication;
+  const hasCloudflare = source?.hasCloudflare;
+
+  return (
+    <ResponsiveDialog open={!!source} onOpenChange={(open) => !open && onClose()}>
+      <ResponsiveDialogContent className="sm:max-w-md">
         <ResponsiveDialogHeader>
-          <ResponsiveDialogTitle>{t("addSource.title")}</ResponsiveDialogTitle>
-          <ResponsiveDialogDescription>
-            {mode === "select" && t("addSource.selectMethod")}
-            {mode === "registry" && t("addSource.fromRegistry")}
-            {mode === "custom" && t("addSource.customFile")}
-            {mode === "dev" && "Load locally built Tachiyomi extensions"}
-          </ResponsiveDialogDescription>
+          <ResponsiveDialogTitle className="flex items-center gap-2">
+            <HugeiconsIcon icon={Alert02Icon} className="size-5 text-amber-500" />
+            {t("addSource.warningTitle")}
+          </ResponsiveDialogTitle>
         </ResponsiveDialogHeader>
-
-        {mode === "select" && <ModeSelection onSelectMode={setMode} />}
-
-        {mode === "registry" && (
-          <RegistrySourceList
-            installing={installing}
-            onInstall={setInstalling}
-            onBack={() => setMode("select")}
-            onDone={handleClose}
-          />
-        )}
-
-        {mode === "custom" && (
-          <CustomSourceUpload
-            installing={installing !== null}
-            onInstall={setInstalling}
-            onBack={() => setMode("select")}
-            onDone={handleClose}
-          />
-        )}
-
-        {mode === "dev" && (
-          <DevSourceList
-            installing={installing}
-            onInstall={setInstalling}
-            onBack={() => setMode("select")}
-            onDone={handleClose}
-          />
-        )}
+        
+        <div className="space-y-3">
+          {hasAuthentication && (
+            <p className="text-sm text-muted-foreground">
+              {t("addSource.warningAuthentication")}
+            </p>
+          )}
+          {hasCloudflare && (
+            <p className="text-sm text-muted-foreground">
+              {t("addSource.warningCloudflare")}
+            </p>
+          )}
+        </div>
+        
+        <ResponsiveDialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={installing}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={handleConfirm} disabled={installing}>
+            {installing ? <Spinner className="size-4" /> : t("addSource.installAnyway")}
+          </Button>
+        </ResponsiveDialogFooter>
       </ResponsiveDialogContent>
     </ResponsiveDialog>
   );
@@ -152,11 +235,13 @@ function RegistrySourceList({
   onInstall,
   onBack,
   onDone,
+  onPendingInstall,
 }: {
   installing: string | null;
   onInstall: (id: string | null) => void;
   onBack: () => void;
   onDone: () => void;
+  onPendingInstall: (pending: PendingInstall | null) => void;
 }) {
   const { t } = useTranslation();
   const { useSettingsStore } = useStores();
@@ -180,13 +265,25 @@ function RegistrySourceList({
     grouped[key].sort((a, b) => a.name.localeCompare(b.name));
   });
 
-  const handleInstall = async (registryId: string, sourceId: string) => {
+  const doInstall = async (registryId: string, sourceId: string) => {
     const key = Keys.source(registryId, sourceId);
     onInstall(key);
     try {
       await installSource(registryId, sourceId);
     } finally {
       onInstall(null);
+    }
+  };
+
+  const handleInstall = (source: SourceInfo) => {
+    // Show warning dialog if source has WebView or Cloudflare requirements
+    if (source.hasAuthentication || source.hasCloudflare) {
+      onPendingInstall({
+        source,
+        onConfirm: () => doInstall(source.registryId, source.id),
+      });
+    } else {
+      doInstall(source.registryId, source.id);
     }
   };
 
@@ -206,7 +303,7 @@ function RegistrySourceList({
                     key={key}
                     source={source}
                     installing={installing === key}
-                    onInstall={() => handleInstall(source.registryId, source.id)}
+                    onInstall={() => handleInstall(source)}
                   />
                 );
               })}
@@ -230,11 +327,13 @@ function DevSourceList({
   onInstall,
   onBack,
   onDone,
+  onPendingInstall,
 }: {
   installing: string | null;
   onInstall: (id: string | null) => void;
   onBack: () => void;
   onDone: () => void;
+  onPendingInstall: (pending: PendingInstall | null) => void;
 }) {
   const { t } = useTranslation();
   const { useSettingsStore } = useStores();
@@ -245,13 +344,25 @@ function DevSourceList({
     s => s.registryId === TACHIYOMI_DEV_REGISTRY_ID
   );
 
-  const handleInstall = async (sourceId: string) => {
+  const doInstall = async (sourceId: string) => {
     const key = Keys.source(TACHIYOMI_DEV_REGISTRY_ID, sourceId);
     onInstall(key);
     try {
       await installSource(TACHIYOMI_DEV_REGISTRY_ID, sourceId);
     } finally {
       onInstall(null);
+    }
+  };
+
+  const handleInstall = (source: SourceInfo) => {
+    // Show warning dialog if source has WebView or Cloudflare requirements
+    if (source.hasAuthentication || source.hasCloudflare) {
+      onPendingInstall({
+        source,
+        onConfirm: () => doInstall(source.id),
+      });
+    } else {
+      doInstall(source.id);
     }
   };
 
@@ -282,7 +393,7 @@ function DevSourceList({
                 key={key}
                 source={source}
                 installing={installing === key}
-                onInstall={() => handleInstall(source.id)}
+                onInstall={() => handleInstall(source)}
               />
             );
           })}
@@ -309,6 +420,8 @@ function SourceItem({
   onInstall: () => void;
 }) {
   const { t } = useTranslation();
+  const hasWarnings = source.hasAuthentication || source.hasCloudflare;
+  
   return (
     <div
       className={cn(
@@ -327,7 +440,12 @@ function SourceItem({
           <div className="size-8 rounded-md bg-muted" />
         )}
         <div>
-          <p className="text-sm font-medium">{source.name}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-medium">{source.name}</p>
+            {hasWarnings && (
+              <HugeiconsIcon icon={Alert02Icon} className="size-3.5 text-amber-500" />
+            )}
+          </div>
           <p className="text-xs text-muted-foreground">v{source.version}</p>
         </div>
       </div>

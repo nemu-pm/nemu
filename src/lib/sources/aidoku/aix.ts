@@ -3,7 +3,7 @@
  * Extract WASM, manifest, and settings from cached AIX blobs
  */
 import type { SourceManifest } from "./types";
-import type { Setting } from "./settings-types";
+import type { Setting } from "@/lib/settings";
 
 export interface AixContents {
   wasmBytes: ArrayBuffer;

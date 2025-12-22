@@ -3,18 +3,17 @@ export * from './registry'
 export * from './context'
 export * from './components'
 
-// Settings schema types for plugin authors
+// Re-export settings types from unified module for plugin authors
 export type {
-  PluginFeature,
-  PluginSetting,
-  PluginGroupSetting,
-  PluginSwitchSetting,
-  PluginSliderSetting,
-  PluginSelectSetting,
-  PluginStepperSetting,
-  PluginTextSetting,
-} from './settings-schema'
-export { extractSettingsDefaults } from './settings-schema'
+  Setting,
+  GroupSetting,
+  SwitchSetting,
+  SliderSetting,
+  SelectSetting,
+  TextSetting,
+  FeatureFlags,
+} from '@/lib/settings'
+export { extractDefaults } from '@/lib/settings'
 
 // Re-export settings controls for custom reader settings UI
 export {
@@ -30,4 +29,3 @@ export {
   SettingsRow,
   SettingsSlider,
 } from '@/components/ui/settings-controls'
-

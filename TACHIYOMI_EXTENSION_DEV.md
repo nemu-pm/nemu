@@ -43,6 +43,7 @@ Extensions are tested in order of **recent commit activity** (descending). Newer
 | chapters | `chapters <url>` | Chapter list parsing |
 | pages | `pages <url>` | Page URLs extraction |
 | read | `read <manga> <ch>` | End-to-end image fetch |
+| settings | `settings` | Settings schema extraction |
 
 ### 4. Result Classification
 
@@ -86,6 +87,7 @@ bun scripts/test-tachiyomi-source.ts en-mangapill search "one piece"
 bun scripts/test-tachiyomi-source.ts en-mangapill details "/manga/..."
 bun scripts/test-tachiyomi-source.ts en-mangapill chapters "/manga/..."
 bun scripts/test-tachiyomi-source.ts en-mangapill pages "/chapter/..."
+bun scripts/test-tachiyomi-source.ts en-mangapill settings
 ```
 
 ### Batch Build Multiple Extensions
@@ -111,7 +113,8 @@ Results are stored in `dev/extension-tests.json`. Each entry records:
     "details": "pass",
     "chapters": "pass",
     "pages": "pass",
-    "read": "pass"
+    "read": "pass",
+    "settings": "pass"
   },
   "notes": "Fixed explicitNulls and URL encoding for Japanese queries"
 }
@@ -132,24 +135,78 @@ See `dev/extension-tests.json` for full results.
 
 ### Quick Status - Passing
 
-| Extension | Build | Popular | Search | Details | Chapters | Pages | Read |
-|-----------|-------|---------|--------|---------|----------|-------|------|
-| all/mangadex | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| en/mangapill | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ja/shonenjumpplus | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ja/ganganonline | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ja/comicdays | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ja/comicgardo | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Extension | Build | Popular | Search | Details | Chapters | Pages | Read | Settings |
+|-----------|-------|---------|--------|---------|----------|-------|------|----------|
+| all/mangadex | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (12) |
+| en/mangapill | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | - |
+| ja/shonenjumpplus | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ja/ganganonline | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ja/comicdays | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ja/comicgardo | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ja/corocoroonline | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ja/zerosumonline | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ### Quick Status - Build Failed (Missing Shims)
 
 | Extension | Blocker |
 |-----------|---------|
-| vi/goctruyentranhvui | WebView (not planned) |
 | pt/mangalivre | Coroutines, Base64, CryptoAES |
 | en/armageddon | Coroutines, SoftReference |
-| ja/corocoroonline | Protobuf |
-| ja/zerosumonline | Protobuf |
+
+## Platform Limitations
+
+### WebView-based Extensions
+
+Some extensions use Android WebView to:
+- Extract auth tokens from localStorage after user login
+- Solve captchas interactively
+- Handle age verification
+
+**Why it can't work in browser:** Cross-origin security. Nemu (on `nemu.app`) cannot access localStorage or execute JS on another domain (`source.com`). This is a fundamental browser security boundary.
+
+**Affected extensions:** ~30 extensions that require login/auth via WebView.
+
+### Cloudflare-Protected Sources
+
+Many sources use Cloudflare protection (`network.cloudflareClient`). The challenge requires:
+1. JavaScript execution in a real browser
+2. Setting `cf_clearance` cookie
+3. Using that cookie for subsequent requests
+
+**Why it can't work:** Our proxy server can't solve JS challenges, and we can't access cross-origin cookies from Nemu.
+
+**Affected extensions:** ~118 extensions using `cloudflareClient`.
+
+## Future Work: Browser Extension
+
+A companion browser extension (Chrome/Firefox) could solve both problems:
+
+```javascript
+// Nemu Browser Extension (future)
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type === 'getToken') {
+    // Access localStorage for any domain user has visited
+    chrome.storage.local.get([request.domain], (result) => {
+      sendResponse({ token: result[request.domain]?.authorization });
+    });
+  }
+  
+  if (request.type === 'getCfCookie') {
+    // Get Cloudflare clearance cookie
+    chrome.cookies.get({ url: request.url, name: 'cf_clearance' }, (cookie) => {
+      sendResponse({ cookie: cookie?.value });
+    });
+  }
+});
+```
+
+**Benefits:**
+- Enables WebView-dependent extensions (login/auth)
+- Enables Cloudflare-protected sources
+- User's existing browser sessions are reused
+- No separate server/Docker needed
+
+**Status:** Not started. Track in issue tracker.
 
 ## Contributing
 

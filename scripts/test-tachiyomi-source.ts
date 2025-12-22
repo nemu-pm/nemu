@@ -199,6 +199,7 @@ interface JsExports {
   // Legacy
   getSourceCount(): number;
   getSourceInfo(index: number): string;
+  getSettingsSchema?(sourceId: string): string;
 }
 
 interface MangaDto {
@@ -531,7 +532,7 @@ async function runCommand(
       console.log(`   Received: ${imageBytes.length} bytes`);
       
       // Save the image
-      const outputPath = "/tmp/test-tachiyomi-image.jpg";
+      const outputPath = path.resolve(import.meta.dir, "../temp", `${Date.now()}.png`);
       await Bun.write(outputPath, imageBytes);
         
         // Detect image format
@@ -581,9 +582,36 @@ async function runCommand(
       return; // Don't exit
     }
     
+    case "settings": {
+      console.log(`\n=== Settings Schema ===\n`);
+      
+      if (!ext.exports.getSettingsSchema) {
+        console.log("getSettingsSchema not available in this extension");
+        return;
+      }
+      
+      try {
+        const schemaJson = ext.exports.getSettingsSchema(ext.selectedSource.id.toString());
+        const result: JsResult<string> = JSON.parse(schemaJson);
+        
+        if (!result.ok) {
+          console.error("Error getting schema:", result.error);
+          return;
+        }
+        
+        // result.data is the schema JSON string
+        const schema = JSON.parse(result.data || "[]");
+        console.log("Schema items:", schema.length);
+        console.log(JSON.stringify(schema, null, 2));
+      } catch (e) {
+        console.error("Failed to get settings schema:", e);
+      }
+      break;
+    }
+    
     default:
       console.error(`Unknown command: ${command}`);
-      console.log("Available: info, popular, latest, search, details, chapters, pages, read, filters, interactive");
+      console.log("Available: info, popular, latest, search, details, chapters, pages, read, filters, settings, interactive");
   }
 }
 

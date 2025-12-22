@@ -40,6 +40,7 @@ Output: `dev/extensions/<lang>-<name>/` with `extension.js`, `manifest.json`, `i
 | Rate limiting | ✅ | Token bucket implementation |
 | Bitmap/Canvas | ✅ | PNG/JPEG encode/decode |
 | Chapter recognition | ✅ | Mihon-style number parsing from titles |
+| SharedPreferences | ✅ | Settings UI with schema extraction |
 
 ### Verified Working
 
@@ -95,7 +96,8 @@ packages/tachiyomi-js/src/jsMain/kotlin/
 │   └── util/             ~500 lines   Date, Locale, Calendar, zip
 ├── javax/crypto/         ~520 lines   AES + RSA Cipher
 ├── okio/                 ~200 lines   Buffer/Source
-├── android/              ~1100 lines  Preferences, Bitmap, Canvas
+├── android/              ~1100 lines  SharedPreferences, Bitmap, Canvas
+├── androidx/preference/  ~230 lines   PreferenceScreen, ListPreference, etc.
 └── eu/kanade/            ~500 lines   Source interfaces
 ─────────────────────────────────────────
 Total:                    ~5000 lines
@@ -117,7 +119,7 @@ Total:                    ~5000 lines
 | **GZIPInputStream** | ✅ | Pure Kotlin DEFLATE decoder |
 | **MessageDigest** | ✅ | MD5, SHA-1, SHA-256 |
 | **Bitmap/Canvas** | ✅ | PNG/JPEG decode/encode, drawBitmap |
-| **SharedPreferences** | ✅ | → localStorage |
+| **SharedPreferences** | ✅ | Schema extraction → unified settings UI |
 | **Base64** | ✅ | android.util + java.util |
 
 ### Date Formats Supported
@@ -243,6 +245,32 @@ Strips emoji prefixes and sets `locked: true`:
 - 💴 - Paid chapter (GigaViewer)
 - 🔒 - Locked/unpublished
 
+### Settings System
+
+Extensions use `SharedPreferences` for settings. Our shim:
+
+1. **Schema Extraction**: `setupPreferenceScreen()` is called during source init, capturing preference definitions via `PreferenceRegistry`
+2. **Schema Storage**: Schema saved to `source-settings` store (IndexedDB)
+3. **UI Rendering**: Uses unified `@/lib/settings` - same components as Aidoku sources
+4. **Value Persistence**: User values stored in `source-settings` store
+
+```
+Extension init → setupPreferenceScreen() → PreferenceRegistry captures schema
+                                                    ↓
+                                          JSON schema returned
+                                                    ↓
+                            source-settings store caches schema + values
+                                                    ↓
+                              Settings dialog reads from store (sync)
+```
+
+Supported preference types:
+- `ListPreference` → select dropdown
+- `MultiSelectListPreference` → multi-select checkboxes
+- `SwitchPreferenceCompat` → toggle switch
+- `EditTextPreference` → text input
+- `CheckBoxPreference` → toggle switch
+
 ### Chapter Number Fallback
 
 Three-tier strategy:
@@ -270,6 +298,9 @@ bun scripts/test-tachiyomi-source.ts <ext> manga "/manga/..."
 
 # Full read test
 bun scripts/test-tachiyomi-source.ts <ext> read "/manga/..." "/chapter/..."
+
+# Settings schema
+bun scripts/test-tachiyomi-source.ts <ext> settings
 ```
 
 ---
@@ -308,7 +339,12 @@ src/lib/sources/tachiyomi/
 
 src/lib/
 ├── chapter-recognition.ts    # Mihon-style chapter parsing
-└── format-chapter.ts         # Chapter title formatting
+├── format-chapter.ts         # Chapter title formatting
+└── settings/                 # Unified settings system
+    ├── types.ts              # Setting type definitions
+    ├── schema.ts             # extractDefaults, isSettingVisible
+    ├── renderer.tsx          # SettingsRenderer component
+    └── index.ts              # Public exports
 
 dev/extensions/               # Built extensions (gitignored)
 └── <lang>-<name>/
@@ -330,3 +366,32 @@ dev/extensions/               # Built extensions (gitignored)
 | Crypto | None | AES + RSA |
 | Debugging | Limited | Full stack traces |
 | Shim size | ~2000 lines | ~5000 lines |
+| Settings | settings.json in AIX | Schema extracted at runtime |
+
+### Unified Settings
+
+Both Aidoku and Tachiyomi sources use the same settings infrastructure:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Unified Settings System (@/lib/settings)                   │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Source Creation (async)                                    │
+│  ─────────────────────────────────────────────────────────  │
+│  Aidoku:        extractAix() → settings.json → store        │
+│  Tachiyomi:     getSettingsSchema() → JSON → store          │
+│                                                             │
+│  source-settings store (single source of truth)             │
+│  ─────────────────────────────────────────────────────────  │
+│  schemas: Map<sourceKey, Setting[]>  // loaded at init      │
+│  values: Map<sourceKey, Record<>>    // persisted IndexedDB │
+│                                                             │
+│  Settings Dialog (sync read from store)                     │
+│  ─────────────────────────────────────────────────────────  │
+│  <SettingsRenderer schema={store.schemas} values={...} />   │
+│  Same UI components for both source types                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Setting types: `select`, `multi-select`, `switch`, `slider`, `text`, `segment`, `group`, `page`

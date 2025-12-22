@@ -1,12 +1,12 @@
 /**
  * Source settings store
  * Manages per-source settings with IndexedDB persistence
+ * 
+ * Schemas are loaded when sources are created (not lazily).
+ * This store just caches schemas and persists user values.
  */
 import { create, type StoreApi, type UseBoundStore } from "zustand";
-import type { Setting, SourceSettingsData } from "@/lib/sources/aidoku/settings-types";
-import type { CacheStore } from "@/data/cache";
-import { CacheKeys } from "@/data/keys";
-import { extractAixSettings } from "@/lib/sources/aidoku/aix";
+import type { Setting, SourceSettingsData } from "@/lib/settings";
 
 const DB_NAME = "nemu-source-settings";
 const DB_VERSION = 1;
@@ -30,7 +30,6 @@ interface SourceSettingsState {
   setSetting: (sourceKey: string, key: string, value: unknown) => void;
   resetSettings: (sourceKey: string) => void;
   setSchema: (sourceKey: string, schema: Setting[]) => Promise<void>;
-  loadSchema: (sourceKey: string, cacheStore: CacheStore) => Promise<Setting[] | null>;
 }
 
 export type SourceSettingsStore = UseBoundStore<StoreApi<SourceSettingsState>>;
@@ -213,28 +212,6 @@ export function createSourceSettingsStore(): SourceSettingsStore {
       newSchemas.set(sourceKey, schema);
       set({ schemas: newSchemas });
       await saveSchema(sourceKey, schema);
-    },
-
-    loadSchema: async (sourceKey, cacheStore) => {
-      const { schemas } = get();
-      const cached = schemas.get(sourceKey);
-      if (cached) return cached;
-      
-      const [registryId, sourceId] = sourceKey.split(":", 2);
-      if (!registryId || !sourceId) return null;
-      
-      // Extract settings from cached AIX
-      const aixData = await cacheStore.get(CacheKeys.aix(registryId, sourceId));
-      if (!aixData) return null;
-      
-      const schema = await extractAixSettings(aixData);
-      if (!schema) return null;
-      
-      const newSchemas = new Map(schemas);
-      newSchemas.set(sourceKey, schema);
-      set({ schemas: newSchemas });
-      await saveSchema(sourceKey, schema);
-      return schema;
     },
   }));
 }

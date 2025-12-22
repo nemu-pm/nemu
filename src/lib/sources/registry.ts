@@ -17,6 +17,10 @@ export interface RegistrySourceInfo {
   icon?: string;
   languages?: string[];
   contentRating?: number;
+  /** Requires authentication/login to work properly */
+  hasAuthentication?: boolean;
+  /** Uses Cloudflare bypass - may not work without browser extension */
+  hasCloudflare?: boolean;
 }
 
 export interface SourceRegistryProvider {

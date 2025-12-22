@@ -81,6 +81,8 @@ export class TachiyomiDevRegistry implements SourceRegistryProvider {
         version: ext.manifest.version,
         icon: ext.iconUrl,
         languages: languages.length > 0 ? languages : undefined,
+        hasAuthentication: ext.manifest.hasWebView,
+        hasCloudflare: ext.manifest.hasCloudflare,
       });
     }
     
@@ -169,7 +171,7 @@ export class TachiyomiDevRegistry implements SourceRegistryProvider {
         ext.manifest
       );
       
-      const source = createTachiyomiBrowsableSource(asyncSource, sourceKey, this.cacheStore);
+      const source = await createTachiyomiBrowsableSource(asyncSource, sourceKey, this.cacheStore);
       this.loadedSources.set(sourceId, source);
       
       console.log(`[TachiyomiDev] Loaded source: ${source.name}`);

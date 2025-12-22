@@ -19,6 +19,10 @@ export interface TachiyomiManifest {
   jsPath: string;
   icon?: string; // Relative path to icon (e.g., "icon.png")
   sources?: TachiyomiSourceInfo[]; // Populated after loading
+  
+  // Platform compatibility flags (detected during build)
+  hasWebView?: boolean;   // Uses WebView for auth/token extraction - may require login
+  hasCloudflare?: boolean; // Uses Cloudflare bypass - may not work without browser extension
 }
 
 export interface MangaDto {

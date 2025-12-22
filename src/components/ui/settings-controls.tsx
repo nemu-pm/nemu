@@ -14,7 +14,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Add01Icon, Remove01Icon, Delete02Icon } from "@hugeicons/core-free-icons"
@@ -80,6 +79,10 @@ interface SettingsSelectProps {
 export function SettingsSelect({ label, subtitle, value, options, onChange }: SettingsSelectProps) {
   if (options.length === 0) return null
 
+  // Find the label for the current value
+  const selectedOption = options.find((opt) => opt.value === value)
+  const displayLabel = selectedOption?.label ?? value
+
   return (
     <div className="flex items-center justify-between px-3 py-2.5">
       <div className="space-y-0.5">
@@ -90,7 +93,7 @@ export function SettingsSelect({ label, subtitle, value, options, onChange }: Se
       </div>
       <Select value={value} onValueChange={(v) => v && onChange(v)}>
         <SelectTrigger className="w-auto min-w-[100px]" size="sm">
-          <SelectValue />
+          <span className="truncate">{displayLabel}</span>
         </SelectTrigger>
         <SelectContent>
           {options.map((opt) => (

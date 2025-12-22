@@ -47,7 +47,7 @@
       "testedAt": "2025-12-22",
       "commitHash": "vi-goctruyentranhvui-v1",
       "status": "not_working",
-      "comment": "Requires WebView - not supported in JS runtime."
+      "comment": "Requires WebView for auth token extraction. Needs browser extension (future work)."
     },
     {
       "extension": "pt/mangalivre",
@@ -67,15 +67,22 @@
       "extension": "ja/corocoroonline",
       "testedAt": "2025-12-22",
       "commitHash": "ja-corocoroonline-v1",
-      "status": "not_working",
-      "comment": "Requires kotlinx.serialization.protobuf."
+      "status": "working",
+      "comment": "Protobuf serialization works. AES-encrypted images decrypted correctly. Uses Cloudflare (may have challenges)."
     },
     {
       "extension": "ja/zerosumonline",
       "testedAt": "2025-12-22",
       "commitHash": "ja-zerosumonline-v1",
+      "status": "working",
+      "comment": "Protobuf serialization works. 84 manga, 49 pages per chapter."
+    },
+    {
+      "extension": "en/kagane",
+      "testedAt": "2025-12-22",
+      "commitHash": "en-kagane-v1",
       "status": "not_working",
-      "comment": "Requires kotlinx.serialization.protobuf."
+      "comment": "Widevine DRM. Impossible without hardware-backed keys."
     }
   ]
 }

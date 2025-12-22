@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { PluginSetting } from './settings-schema'
+import type { Setting } from '@/lib/settings'
 
 // ============================================================================
 // Core Plugin Types
@@ -152,7 +152,7 @@ export interface ReaderPlugin {
 
   // Settings (schema-based, auto-rendered in app settings)
   /** Declarative settings schema - UI is auto-generated */
-  settingsSchema?: PluginSetting[]
+  settingsSchema?: Setting[]
   /** Get current settings values */
   getSettings?: () => Record<string, unknown>
   /** Update settings values */

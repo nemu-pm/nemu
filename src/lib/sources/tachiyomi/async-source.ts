@@ -41,6 +41,11 @@ export interface AsyncTachiyomiSource {
    */
   fetchImage(pageUrl: string, pageImageUrl: string): Promise<string>;
   
+  // Preferences methods
+  initPreferences(prefsName: string, values: Record<string, unknown>): Promise<void>;
+  flushPrefChanges(): Promise<Array<{ name: string; key: string; value: unknown }>>;
+  getSettingsSchema(): Promise<string | null>;
+  
   terminate(): void;
 }
 
@@ -169,6 +174,20 @@ export async function createAsyncTachiyomiSource(
     async fetchImage(pageUrl: string, pageImageUrl: string): Promise<string> {
       await ext.workerApi.setSourceId(sourceId);
       return ext.workerApi.fetchImage(pageUrl, pageImageUrl);
+    },
+
+    // ============ Preferences Methods ============
+
+    async initPreferences(prefsName: string, values: Record<string, unknown>): Promise<void> {
+      await ext.workerApi.initPreferences(prefsName, values);
+    },
+
+    async flushPrefChanges(): Promise<Array<{ name: string; key: string; value: unknown }>> {
+      return ext.workerApi.flushPrefChanges();
+    },
+
+    async getSettingsSchema(): Promise<string | null> {
+      return ext.workerApi.getSettingsSchema(sourceId);
     },
 
     terminate(): void {

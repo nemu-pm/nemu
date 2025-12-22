@@ -187,6 +187,7 @@
     "languageDescription": "选择您的首选语言",
     "languageEnglish": "English",
     "languageChinese": "中文",
+    "languageJapanese": "日本語",
     "theme": "主题",
     "themeDescription": "选择您的首选主题",
     "themeSystem": "跟随系统",
@@ -212,7 +213,11 @@
     "installing": "安装中...",
     "installSuccess": "源安装成功！",
     "invalidFile": "请选择 .aix 文件",
-    "installFailed": "安装源失败"
+    "installFailed": "安装源失败",
+    "warningTitle": "提示",
+    "warningAuthentication": "此源需要登录或身份验证。在当前版本的 nemu 中可能无法正常使用。",
+    "warningCloudflare": "此源有 Cloudflare 保护。在当前版本的 nemu 中可能无法正常使用。",
+    "installAnyway": "仍然安装"
   },
   "clearData": {
     "clearCache": "清除缓存",

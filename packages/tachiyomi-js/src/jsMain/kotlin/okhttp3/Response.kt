@@ -89,7 +89,22 @@ abstract class ResponseBody {
     abstract val contentType: MediaType?
     abstract val contentLength: Long
     
+    /**
+     * Returns the content type as a method (for compatibility with okhttp3 API).
+     */
+    @JsName("getContentType")
+    fun contentType(): MediaType? = contentType
+    
     open fun byteStream(): java.io.InputStream = java.io.ByteArrayInputStream(bytes())
+    
+    /**
+     * Returns the body as an Okio BufferedSource.
+     */
+    open fun source(): okio.BufferedSource {
+        val buffer = okio.Buffer()
+        buffer.write(bytes())
+        return buffer
+    }
     
     open fun close() {}
     

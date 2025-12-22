@@ -2,7 +2,7 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { TextSquareIcon } from '@hugeicons/core-free-icons'
 import i18n from '@/lib/i18n'
 import type { ReaderPlugin, ReaderPluginContext } from '../../types'
-import type { PluginSetting } from '../../settings-schema'
+import type { Setting } from '@/lib/settings'
 import { useTextDetectorStore, disposeWorker } from './store'
 import { DetectionOverlay, ModelLoadingContent, JapaneseLearningGlobalUI } from './components'
 import { isJapaneseEnabled, isJapaneseChapter as isJapaneseChapterLang } from './language'
@@ -22,7 +22,7 @@ const JapaneseLearningIcon = (
  * Settings schema - auto-rendered in app settings
  * Note: We use a getter function to ensure translations are evaluated at render time
  */
-const getSettingsSchema = (): PluginSetting[] => [
+const getSettingsSchema = (): Setting[] => [
   {
     type: 'group',
     title: t('detection'),

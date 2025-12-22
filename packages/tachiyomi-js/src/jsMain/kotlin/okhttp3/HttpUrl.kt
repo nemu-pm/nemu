@@ -12,6 +12,21 @@ class HttpUrl private constructor(
     val encodedQuery: String?,
     val fragment: String?
 ) {
+    /**
+     * Returns the path segments of the URL.
+     * e.g., "/foo/bar" -> ["foo", "bar"]
+     */
+    val pathSegments: List<String>
+        get() = encodedPath.split("/").filter { it.isNotEmpty() }.map { decodePathSegment(it) }
+    
+    private fun decodePathSegment(segment: String): String {
+        return segment
+            .replace("%20", " ")
+            .replace("%3F", "?")
+            .replace("%23", "#")
+            .replace("%25", "%")
+    }
+    
     fun newBuilder(): Builder = Builder().apply {
         scheme(scheme)
         host(host)

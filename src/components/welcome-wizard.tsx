@@ -106,6 +106,12 @@ const CHINESE_SOURCES: RecommendedSourceRef[] = [
   { registryId: "aidoku-community", sourceId: "ja.shonenjumpplus" },
 ];
 
+const JAPANESE_SOURCES: RecommendedSourceRef[] = [
+  { registryId: "aidoku-community", sourceId: "ja.shonenjumpplus" },
+  { registryId: "aidoku-community", sourceId: "multi.mangaplus" },
+  { registryId: "aidoku-community", sourceId: "multi.mangadex" },
+];
+
 export function useWelcomeWizard() {
   const [shouldShow, setShouldShow] = useState(false);
 
@@ -152,11 +158,15 @@ export function WelcomeWizard({ open, onComplete }: WelcomeWizardProps) {
 
   // Initialize selected sources based on language
   useEffect(() => {
-    const sources = selectedLanguage === "zh" ? CHINESE_SOURCES : ENGLISH_SOURCES;
+    const sources = selectedLanguage === "zh" ? CHINESE_SOURCES 
+      : selectedLanguage === "ja" ? JAPANESE_SOURCES 
+      : ENGLISH_SOURCES;
     setSelectedSources(new Set(sources.map(s => `${s.registryId}:${s.sourceId}`)));
   }, [selectedLanguage]);
 
-  const recommendedSourceRefs = selectedLanguage === "zh" ? CHINESE_SOURCES : ENGLISH_SOURCES;
+  const recommendedSourceRefs = selectedLanguage === "zh" ? CHINESE_SOURCES 
+    : selectedLanguage === "ja" ? JAPANESE_SOURCES 
+    : ENGLISH_SOURCES;
 
   // Get enriched source info from availableSources
   const getSourceInfo = (ref: RecommendedSourceRef) => {
@@ -286,6 +296,7 @@ export function WelcomeWizard({ open, onComplete }: WelcomeWizardProps) {
                 <TabsList className="w-full">
                   <TabsTrigger value="en" className="flex-1">English</TabsTrigger>
                   <TabsTrigger value="zh" className="flex-1">中文</TabsTrigger>
+                  <TabsTrigger value="ja" className="flex-1">日本語</TabsTrigger>
                 </TabsList>
               </Tabs>
             </div>

@@ -254,6 +254,22 @@ export function ScrollingGallery({
       const scrollOffset = target.scrollTop
       currentScrollOffset.current = scrollOffset
 
+      // If the user reaches the very bottom, force the last page as current.
+      // This prevents an off-by-one where the final page is short and the "midpoint"
+      // visibility heuristic never selects it.
+      const EPS_PX = 2
+      const isAtBottom =
+        target.scrollTop + target.clientHeight >= target.scrollHeight - EPS_PX
+      if (isAtBottom) {
+        // Choose the last non-spacer item, if any.
+        let last = pageCount - 1
+        while (last > 0 && (getItemKind?.(last) ?? 'page') === 'spacer') last -= 1
+        if (last >= 0 && last !== lastReportedPageIndex.current) {
+          lastReportedPageIndex.current = last
+          onPageChange(last)
+        }
+      }
+
       // For fixed-height rows (two-page mode), we can compute the visible item directly.
       if (!isTwoPageMode) return
       const targetCount = spreads.length
@@ -342,6 +358,20 @@ export function ScrollingGallery({
   const handleRowsRendered = useCallback(
     (visibleRows: { startIndex: number; stopIndex: number }) => {
       if (isTwoPageMode) return
+      const el = listRef.current?.element
+      if (el) {
+        const EPS_PX = 2
+        const isAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - EPS_PX
+        if (isAtBottom) {
+          let last = pageCount - 1
+          while (last > 0 && (getItemKind?.(last) ?? 'page') === 'spacer') last -= 1
+          if (last >= 0 && last !== lastReportedPageIndex.current) {
+            lastReportedPageIndex.current = last
+            onPageChange(last)
+          }
+          return
+        }
+      }
       // Don't let react-window's initial (row 0) render override the desired starting page.
       // Wait until our initial target row is actually visible, then start reporting.
       if (!didInitialScrollRef.current) {
@@ -378,7 +408,7 @@ export function ScrollingGallery({
       lastReportedPageIndex.current = newPageIndex
       onPageChange(newPageIndex)
     },
-    [isTwoPageMode, onPageChange, pageCount, currentPageIndex]
+    [isTwoPageMode, onPageChange, pageCount, currentPageIndex, getItemKind]
   )
 
   // Initial scroll so switching into scrolling mode lands on the current page, not row 0.

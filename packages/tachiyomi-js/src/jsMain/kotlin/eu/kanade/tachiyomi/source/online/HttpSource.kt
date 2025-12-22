@@ -51,6 +51,10 @@ abstract class HttpSource : CatalogueSource {
 
     // Popular manga
     
+    /**
+     * Returns an observable with the page of popular manga.
+     * Extensions can override this to provide custom behavior (e.g., single-manga sources).
+     */
     @Deprecated("Use the non-RxJava API instead", replaceWith = ReplaceWith("getPopularManga"))
     override fun fetchPopularManga(page: Int): Observable<MangasPage> {
         return Observable.defer {
@@ -59,9 +63,13 @@ abstract class HttpSource : CatalogueSource {
         }
     }
 
+    /**
+     * Get popular manga by calling fetchPopularManga.
+     * This allows extensions that override fetchPopularManga to work correctly.
+     */
+    @Suppress("DEPRECATION")
     override fun getPopularManga(page: Int): MangasPage {
-        val response = client.newCall(popularMangaRequest(page)).execute()
-        return popularMangaParse(response)
+        return fetchPopularManga(page).blockingFirst()
     }
 
     protected abstract fun popularMangaRequest(page: Int): Request
@@ -69,6 +77,10 @@ abstract class HttpSource : CatalogueSource {
 
     // Search manga
 
+    /**
+     * Returns an observable with the page of search results.
+     * Extensions can override this to provide custom behavior.
+     */
     @Deprecated("Use the non-RxJava API instead", replaceWith = ReplaceWith("getSearchManga"))
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
         return Observable.defer {
@@ -77,9 +89,13 @@ abstract class HttpSource : CatalogueSource {
         }
     }
 
+    /**
+     * Get search results by calling fetchSearchManga.
+     * This allows extensions that override fetchSearchManga to work correctly.
+     */
+    @Suppress("DEPRECATION")
     override fun getSearchManga(page: Int, query: String, filters: FilterList): MangasPage {
-        val response = client.newCall(searchMangaRequest(page, query, filters)).execute()
-        return searchMangaParse(response)
+        return fetchSearchManga(page, query, filters).blockingFirst()
     }
 
     protected abstract fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request
@@ -87,6 +103,10 @@ abstract class HttpSource : CatalogueSource {
 
     // Latest updates
 
+    /**
+     * Returns an observable with the page of latest manga updates.
+     * Extensions can override this to provide custom behavior.
+     */
     @Deprecated("Use the non-RxJava API instead", replaceWith = ReplaceWith("getLatestUpdates"))
     override fun fetchLatestUpdates(page: Int): Observable<MangasPage> {
         return Observable.defer {
@@ -95,9 +115,13 @@ abstract class HttpSource : CatalogueSource {
         }
     }
 
+    /**
+     * Get latest updates by calling fetchLatestUpdates.
+     * This allows extensions that override fetchLatestUpdates to work correctly.
+     */
+    @Suppress("DEPRECATION")
     override fun getLatestUpdates(page: Int): MangasPage {
-        val response = client.newCall(latestUpdatesRequest(page)).execute()
-        return latestUpdatesParse(response)
+        return fetchLatestUpdates(page).blockingFirst()
     }
 
     protected abstract fun latestUpdatesRequest(page: Int): Request
@@ -105,11 +129,19 @@ abstract class HttpSource : CatalogueSource {
 
     // Manga details
 
+    /**
+     * Get manga details by calling fetchMangaDetails.
+     * This allows extensions that override fetchMangaDetails to work correctly.
+     */
+    @Suppress("DEPRECATION")
     override fun getMangaDetails(manga: SManga): SManga {
-        val response = client.newCall(mangaDetailsRequest(manga)).execute()
-        return mangaDetailsParse(response).apply { initialized = true }
+        return fetchMangaDetails(manga).blockingFirst()
     }
 
+    /**
+     * Returns an observable with the manga details.
+     * Extensions can override this to provide custom behavior.
+     */
     @Deprecated("Use the non-RxJava API instead", replaceWith = ReplaceWith("getMangaDetails"))
     override fun fetchMangaDetails(manga: SManga): Observable<SManga> {
         return Observable.defer {
@@ -126,15 +158,19 @@ abstract class HttpSource : CatalogueSource {
 
     // Chapter list
 
+    /**
+     * Get chapter list by calling fetchChapterList.
+     * This allows extensions that override fetchChapterList to work correctly.
+     */
+    @Suppress("DEPRECATION")
     override fun getChapterList(manga: SManga): List<SChapter> {
-        println("[HttpSource] getChapterList: calling chapterListRequest")
-        val request = chapterListRequest(manga)
-        println("[HttpSource] getChapterList: got request ${request.url}")
-        val response = client.newCall(request).execute()
-        println("[HttpSource] getChapterList: got response ${response.code}")
-        return chapterListParse(response)
+        return fetchChapterList(manga).blockingFirst()
     }
 
+    /**
+     * Returns an observable with the chapter list.
+     * Extensions can override this to provide custom behavior.
+     */
     @Deprecated("Use the non-RxJava API instead", replaceWith = ReplaceWith("getChapterList"))
     override fun fetchChapterList(manga: SManga): Observable<List<SChapter>> {
         return Observable.defer {
@@ -151,15 +187,19 @@ abstract class HttpSource : CatalogueSource {
 
     // Page list
 
+    /**
+     * Get page list by calling fetchPageList.
+     * This allows extensions that override fetchPageList to work correctly.
+     */
+    @Suppress("DEPRECATION")
     override fun getPageList(chapter: SChapter): List<Page> {
-        println("[HttpSource.getPageList] creating request...")
-        val request = pageListRequest(chapter)
-        println("[HttpSource.getPageList] request URL: ${request.url}")
-        val response = client.newCall(request).execute()
-        println("[HttpSource.getPageList] got response: ${response.code}")
-        return pageListParse(response)
+        return fetchPageList(chapter).blockingFirst()
     }
 
+    /**
+     * Returns an observable with the page list.
+     * Extensions can override this to provide custom behavior.
+     */
     @Deprecated("Use the non-RxJava API instead", replaceWith = ReplaceWith("getPageList"))
     override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {
         return Observable.defer {
@@ -176,9 +216,25 @@ abstract class HttpSource : CatalogueSource {
 
     // Image URL
 
+    /**
+     * Get image URL by calling fetchImageUrl.
+     * This allows extensions that override fetchImageUrl to work correctly.
+     */
+    @Suppress("DEPRECATION")
     open fun getImageUrl(page: Page): String {
-        val response = client.newCall(imageUrlRequest(page)).execute()
-        return imageUrlParse(response)
+        return fetchImageUrl(page).blockingFirst()
+    }
+
+    /**
+     * Returns an observable with the image URL.
+     * Extensions can override this to provide custom behavior.
+     */
+    @Deprecated("Use the non-RxJava API instead", replaceWith = ReplaceWith("getImageUrl"))
+    open fun fetchImageUrl(page: Page): Observable<String> {
+        return Observable.defer {
+            val response = client.newCall(imageUrlRequest(page)).execute()
+            Observable.just(imageUrlParse(response))
+        }
     }
 
     protected open fun imageUrlRequest(page: Page): Request {

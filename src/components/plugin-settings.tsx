@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SettingsDialog } from '@/components/ui/settings-dialog'
 import { usePluginRegistry } from '@/lib/plugins'
-import { PluginSettingsRenderer, type PluginFeature } from '@/lib/plugins/settings-schema'
+import { SettingsRenderer, type FeatureFlags } from '@/lib/settings'
 
 interface PluginSettingsProps {
   open: boolean
@@ -28,7 +28,7 @@ async function detectWebGPU(): Promise<boolean> {
 export function PluginSettings({ open, onOpenChange, pluginId }: PluginSettingsProps) {
   const { t } = useTranslation()
   const plugin = usePluginRegistry((s) => s.getPlugin(pluginId))
-  const [features, setFeatures] = useState<Record<PluginFeature, boolean>>({ webgpu: false })
+  const [features, setFeatures] = useState<FeatureFlags>({ webgpu: false })
   const [settings, setSettings] = useState<Record<string, unknown>>({})
 
   useEffect(() => {
@@ -73,7 +73,7 @@ export function PluginSettings({ open, onOpenChange, pluginId }: PluginSettingsP
       maxWidth="max-w-lg"
     >
       {hasSettings && (
-        <PluginSettingsRenderer
+        <SettingsRenderer
           schema={settingsSchema}
           values={settings}
           onChange={handleChange}

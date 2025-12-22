@@ -2,7 +2,7 @@ import { create, type StoreApi, type UseBoundStore } from "zustand";
 
 const LANGUAGE_KEY = "nemu:language";
 
-export type Language = "en" | "zh";
+export type Language = "en" | "zh" | "ja";
 
 function getBrowserLanguage(): Language {
   if (typeof window === "undefined") return "en";
@@ -10,6 +10,9 @@ function getBrowserLanguage(): Language {
   const lang = navigator.language.toLowerCase();
   if (lang.startsWith("zh")) {
     return "zh";
+  }
+  if (lang.startsWith("ja")) {
+    return "ja";
   }
   return "en";
 }
@@ -19,7 +22,7 @@ function getStoredLanguage(): Language | null {
   
   try {
     const stored = localStorage.getItem(LANGUAGE_KEY);
-    if (stored === "en" || stored === "zh") {
+    if (stored === "en" || stored === "zh" || stored === "ja") {
       return stored;
     }
   } catch {

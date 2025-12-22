@@ -60,14 +60,21 @@ val jsImports = listOf(
     "import java.lang.System",
     "import java.lang.Integer", 
     "import java.lang.Class",
+    "import java.lang.Character",
     "import tachiyomi.shim.compat.*"
 )
 
 // Code transformations for JS compatibility
 val codeTransformations = listOf<Pair<Regex, String>>(
     // [^] in regex is invalid in JS unicode mode - transform to [^\\]
-    Regex("\\[\\^]") to "[^\\\\\\\\]"
+    Regex("\\[\\^]") to "[^\\\\\\\\]",
+    // Replace okhttp3.ResponseBody.Companion.asResponseBody import with okio.asResponseBody
+    Regex("import okhttp3\\.ResponseBody\\.Companion\\.asResponseBody") to "import okio.asResponseBody"
 )
+
+// Feature detection flags (set during preprocessSource, used in manifest)
+var usesWebView = false
+var usesCloudflare = false
 
 // =============================================================================
 // Kotlin Multiplatform Configuration
@@ -112,6 +119,7 @@ kotlin {
             
             dependencies {
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:1.7.3")
                 implementation("com.fleeksoft.ksoup:ksoup:0.2.4")
             }
         }
@@ -146,6 +154,12 @@ if (isExtensionBuild) {
                 println("  lib deps: ${libDeps.joinToString(", ")}")
             }
             
+            // Files we have shims for - skip copying from extension sources
+            val shimmedFiles = setOf(
+                "eu/kanade/tachiyomi/lib/i18n/Intl.kt",
+                "eu/kanade/tachiyomi/lib/i18n/Intl.kt".replace("/", File.separator)
+            )
+            
             // Helper function to process source files
             fun processSourceDir(sourceDir: File) {
                 if (!sourceDir.exists()) {
@@ -160,6 +174,12 @@ if (isExtensionBuild) {
                     }
                     
                         val relativePath = file.relativeTo(sourceDir)
+                    
+                    // Skip files we have shims for
+                    if (relativePath.path in shimmedFiles || relativePath.path.replace(File.separator, "/") in shimmedFiles) {
+                        println("  Skipping shimmed file: ${relativePath.path}")
+                        return@forEach
+                    }
                     val outFile = File(outDir, relativePath.path)
                     outFile.parentFile.mkdirs()
                     
@@ -196,6 +216,22 @@ if (isExtensionBuild) {
             
             // Then process extension source (highest priority - may override)
             processSourceDir(extensionSourcePath)
+            
+            // Detect WebView and Cloudflare usage by scanning source files
+            usesWebView = false
+            usesCloudflare = false
+            outDir.walk().filter { it.extension == "kt" }.forEach { file ->
+                val content = file.readText()
+                if (content.contains("WebView") || content.contains("evaluateJavascript") || content.contains("localStorage")) {
+                    usesWebView = true
+                }
+                if (content.contains("cloudflareClient")) {
+                    usesCloudflare = true
+                }
+            }
+            
+            if (usesWebView) println("  ⚠️  Uses WebView (may require auth)")
+            if (usesCloudflare) println("  ⚠️  Uses Cloudflare client (may have challenges)")
         }
     }
 
@@ -623,6 +659,33 @@ if (isExtensionBuild) {
                 |} catch (e: Throwable) { error(e) }
                 |
                 |// ============================================================================
+                |// Preferences API
+                |// ============================================================================
+                |
+                |/**
+                | * Get settings schema for a source. 
+                | * Invokes setupPreferenceScreen to capture preference definitions.
+                | */
+                |@JsExport
+                |fun getSettingsSchema(sourceId: String): String = try {
+                |    val src = sourcesById[sourceId]
+                |        ?: throw Exception("Source not found: ${"$"}sourceId")
+                |    
+                |    // Clear any existing schema
+                |    androidx.preference.PreferenceRegistry.clear()
+                |    
+                |    // If source is ConfigurableSource, call setupPreferenceScreen
+                |    if (src is eu.kanade.tachiyomi.source.ConfigurableSource) {
+                |        val context = android.content.Context()
+                |        val screen = androidx.preference.PreferenceScreen(context)
+                |        src.setupPreferenceScreen(screen)
+                |    }
+                |    
+                |    // Return captured schema
+                |    success(androidx.preference.PreferenceRegistry.getAllSchemasJson())
+                |} catch (e: Throwable) { error(e) }
+                |
+                |// ============================================================================
                 |// Legacy index-based API (deprecated)
                 |// ============================================================================
                 |
@@ -659,8 +722,8 @@ if (isExtensionBuild) {
         .firstOrNull { it.exists() }
     
     tasks.register<Copy>("devBuild") {
-        dependsOn("compileProductionExecutableKotlinJs")
-        from(layout.buildDirectory.dir("compileSync/js/main/productionExecutable/kotlin"))
+        dependsOn("jsBrowserProductionWebpack")
+        from(layout.buildDirectory.dir("kotlin-webpack/js/productionExecutable"))
         into(outputDir)
         include("*.js", "*.js.map")
         
@@ -689,6 +752,8 @@ if (isExtensionBuild) {
                 appendLine("  \"lang\": \"$extensionLang\",")
                 appendLine("  \"version\": $extVersionCode,")
                 appendLine("  \"nsfw\": $isNsfw,")
+                appendLine("  \"hasWebView\": $usesWebView,")
+                appendLine("  \"hasCloudflare\": $usesCloudflare,")
                 if (iconPath != null) {
                     appendLine("  \"icon\": \"$iconPath\",")
                 }

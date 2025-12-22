@@ -1,7 +1,7 @@
 package uy.kohesive.injekt
 
 import android.content.SharedPreferences
-import android.content.InMemorySharedPreferences
+import android.content.BridgedSharedPreferences
 import kotlinx.serialization.json.Json
 import kotlin.reflect.KClass
 
@@ -41,6 +41,6 @@ object api {
 
 class ApplicationStub : android.app.Application() {
     override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
-        return InMemorySharedPreferences.getInstance(name)
+        return BridgedSharedPreferences.getInstance(name)
     }
 }

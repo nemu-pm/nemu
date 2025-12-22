@@ -187,6 +187,7 @@
     "languageDescription": "Choose your preferred language",
     "languageEnglish": "English",
     "languageChinese": "中文",
+    "languageJapanese": "日本語",
     "theme": "Theme",
     "themeDescription": "Choose your preferred theme",
     "themeSystem": "System",
@@ -212,7 +213,11 @@
     "installing": "Installing...",
     "installSuccess": "Source installed successfully!",
     "invalidFile": "Please select a .aix file",
-    "installFailed": "Failed to install source"
+    "installFailed": "Failed to install source",
+    "warningTitle": "Notice",
+    "warningAuthentication": "This source requires login or authentication. It may not work correctly in the current version of nemu.",
+    "warningCloudflare": "This source has Cloudflare protection. It may not work correctly in the current version of nemu.",
+    "installAnyway": "Install Anyway"
   },
   "clearData": {
     "clearCache": "Clear Cache",

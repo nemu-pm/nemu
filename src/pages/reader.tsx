@@ -626,30 +626,29 @@ export function ReaderPage() {
   // CRITICAL: Immediately track max page seen and mark completed (not debounced)
   // This high-water mark pattern ensures completion is never lost due to fast scrolling
   useEffect(() => {
-    if (currentItem?.kind !== "page") return;
-    if (effectiveChapterPages.length === 0) return;
+    if (visiblePageIndices.length === 0) return;
 
-    const chapterId = currentItem.chapterId;
-    const pageIndex = currentItem.localIndex;
-    const total = effectiveChapterPages.length;
+    // Update high-water marks for every page currently visible (two-page spreads need this).
+    for (const idx of visiblePageIndices) {
+      const item = virtualItems[idx];
+      if (!item || item.kind !== "page") continue;
+      const total = chapterPagesRef.current[item.chapterId]?.length ?? 0;
+      if (total <= 0) continue;
 
-    // Update high-water mark
-    const prevMax = maxPageSeenRef.current.get(chapterId) ?? -1;
-    if (pageIndex > prevMax) {
-      maxPageSeenRef.current.set(chapterId, pageIndex);
+      const prevMax = maxPageSeenRef.current.get(item.chapterId) ?? -1;
+      if (item.localIndex > prevMax) {
+        maxPageSeenRef.current.set(item.chapterId, item.localIndex);
+      }
+
+      const maxSeen = maxPageSeenRef.current.get(item.chapterId) ?? item.localIndex;
+      const shouldComplete = maxSeen >= total - 1;
+      const alreadyCompleted = completedChaptersRef.current.has(item.chapterId);
+      if (shouldComplete && !alreadyCompleted) {
+        completedChaptersRef.current.add(item.chapterId);
+        markCompleted(registryId, sourceId, mangaId, item.chapterId, total);
+      }
     }
-
-    // Check if chapter should be marked completed (max page reached end)
-    const maxSeen = maxPageSeenRef.current.get(chapterId) ?? pageIndex;
-    const shouldComplete = maxSeen >= total - 1;
-    const alreadyCompleted = completedChaptersRef.current.has(chapterId);
-
-    if (shouldComplete && !alreadyCompleted) {
-      // Mark completed IMMEDIATELY (not debounced) - this is critical
-      completedChaptersRef.current.add(chapterId);
-      markCompleted(registryId, sourceId, mangaId, chapterId, total);
-    }
-  }, [currentItem, effectiveChapterPages.length, registryId, sourceId, mangaId, markCompleted]);
+  }, [visiblePageIndices, virtualItems, registryId, sourceId, mangaId, markCompleted]);
 
   // Auto-save progress (debounced) - position tracking, non-critical
   useEffect(() => {

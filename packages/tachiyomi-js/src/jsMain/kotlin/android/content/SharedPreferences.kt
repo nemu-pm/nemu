@@ -1,8 +1,8 @@
 package android.content
 
 /**
- * SharedPreferences shim using in-memory storage.
- * The JS runtime will sync this with localStorage.
+ * SharedPreferences shim with external bridge for host persistence.
+ * Host provides __prefs_* functions to persist values.
  */
 interface SharedPreferences {
     fun getString(key: String, defValue: String?): String?
@@ -29,37 +29,124 @@ interface SharedPreferences {
     }
 }
 
-class InMemorySharedPreferences(private val name: String) : SharedPreferences {
-    private val data = mutableMapOf<String, Any?>()
+// External bridge functions - host provides implementations
+private fun prefsGet(name: String, key: String): dynamic {
+    return js("(typeof __prefs_get === 'function' ? __prefs_get(name, key) : undefined)")
+}
+
+private fun prefsSet(name: String, key: String, value: dynamic) {
+    js("if (typeof __prefs_set === 'function') __prefs_set(name, key, value)")
+}
+
+private fun prefsRemove(name: String, key: String) {
+    js("if (typeof __prefs_remove === 'function') __prefs_remove(name, key)")
+}
+
+private fun prefsClear(name: String) {
+    js("if (typeof __prefs_clear === 'function') __prefs_clear(name)")
+}
+
+private fun prefsGetAll(name: String): dynamic {
+    return js("(typeof __prefs_getAll === 'function' ? __prefs_getAll(name) : {})")
+}
+
+/**
+ * SharedPreferences implementation that bridges to host via external functions.
+ * Falls back to in-memory storage if bridge not available.
+ */
+class BridgedSharedPreferences(private val name: String) : SharedPreferences {
+    // Local cache for faster reads within same session
+    private val cache = mutableMapOf<String, Any?>()
+    private var cacheInitialized = false
+    
+    private fun initCache() {
+        if (cacheInitialized) return
+        cacheInitialized = true
+        try {
+            val all = prefsGetAll(name)
+            if (all != null && all != undefined) {
+                val keys = js("Object.keys(all)") as Array<String>
+                for (key in keys) {
+                    cache[key] = all[key]
+                }
+            }
+        } catch (e: Throwable) {
+            // Bridge not available, use empty cache
+        }
+    }
+    
+    private fun getValue(key: String): Any? {
+        initCache()
+        // Check cache first
+        if (cache.containsKey(key)) {
+            return cache[key]
+        }
+        // Try bridge
+        try {
+            val value = prefsGet(name, key)
+            if (value != undefined) {
+                cache[key] = value
+                return value
+            }
+        } catch (e: Throwable) {
+            // Bridge not available
+        }
+        return null
+    }
     
     override fun getString(key: String, defValue: String?): String? {
-        return data[key] as? String ?: defValue
+        val value = getValue(key)
+        return value as? String ?: defValue
     }
     
     override fun getStringSet(key: String, defValues: Set<String>?): Set<String>? {
-        @Suppress("UNCHECKED_CAST")
-        return data[key] as? Set<String> ?: defValues
+        val value = getValue(key)
+        if (value == null) return defValues
+        // JS arrays need conversion
+        return try {
+            @Suppress("UNCHECKED_CAST")
+            when (value) {
+                is Set<*> -> value as Set<String>
+                is Array<*> -> (value as Array<String>).toSet()
+                else -> {
+                    val arr = value.unsafeCast<Array<String>>()
+                    arr.toSet()
+                }
+            }
+        } catch (e: Throwable) {
+            defValues
+        }
     }
     
     override fun getInt(key: String, defValue: Int): Int {
-        return (data[key] as? Number)?.toInt() ?: defValue
+        val value = getValue(key)
+        return (value as? Number)?.toInt() ?: defValue
     }
     
     override fun getLong(key: String, defValue: Long): Long {
-        return (data[key] as? Number)?.toLong() ?: defValue
+        val value = getValue(key)
+        return (value as? Number)?.toLong() ?: defValue
     }
     
     override fun getFloat(key: String, defValue: Float): Float {
-        return (data[key] as? Number)?.toFloat() ?: defValue
+        val value = getValue(key)
+        return (value as? Number)?.toFloat() ?: defValue
     }
     
     override fun getBoolean(key: String, defValue: Boolean): Boolean {
-        return data[key] as? Boolean ?: defValue
+        val value = getValue(key)
+        return value as? Boolean ?: defValue
     }
     
-    override fun contains(key: String): Boolean = data.containsKey(key)
+    override fun contains(key: String): Boolean {
+        initCache()
+        return cache.containsKey(key) || getValue(key) != null
+    }
     
-    override fun getAll(): Map<String, *> = data.toMap()
+    override fun getAll(): Map<String, *> {
+        initCache()
+        return cache.toMap()
+    }
     
     override fun edit(): SharedPreferences.Editor = EditorImpl()
     
@@ -70,41 +157,51 @@ class InMemorySharedPreferences(private val name: String) : SharedPreferences {
         
         override fun putString(key: String, value: String?): SharedPreferences.Editor {
             changes[key] = value
+            removals.remove(key)
             return this
         }
         
         override fun putStringSet(key: String, values: Set<String>?): SharedPreferences.Editor {
-            changes[key] = values?.toSet()
+            // Store as array for JS compatibility
+            changes[key] = values?.toTypedArray()
+            removals.remove(key)
             return this
         }
         
         override fun putInt(key: String, value: Int): SharedPreferences.Editor {
             changes[key] = value
+            removals.remove(key)
             return this
         }
         
         override fun putLong(key: String, value: Long): SharedPreferences.Editor {
             changes[key] = value
+            removals.remove(key)
             return this
         }
         
         override fun putFloat(key: String, value: Float): SharedPreferences.Editor {
             changes[key] = value
+            removals.remove(key)
             return this
         }
         
         override fun putBoolean(key: String, value: Boolean): SharedPreferences.Editor {
             changes[key] = value
+            removals.remove(key)
             return this
         }
         
         override fun remove(key: String): SharedPreferences.Editor {
             removals.add(key)
+            changes.remove(key)
             return this
         }
         
         override fun clear(): SharedPreferences.Editor {
             clearAll = true
+            changes.clear()
+            removals.clear()
             return this
         }
         
@@ -119,21 +216,35 @@ class InMemorySharedPreferences(private val name: String) : SharedPreferences {
         
         private fun applyChanges() {
             if (clearAll) {
-                data.clear()
+                cache.clear()
+                try { prefsClear(name) } catch (e: Throwable) {}
             }
-            removals.forEach { data.remove(it) }
-            data.putAll(changes)
+            
+            for (key in removals) {
+                cache.remove(key)
+                try { prefsRemove(name, key) } catch (e: Throwable) {}
+            }
+            
+            for ((key, value) in changes) {
+                cache[key] = value
+                try { prefsSet(name, key, value) } catch (e: Throwable) {}
+            }
         }
     }
     
     companion object {
-        private val instances = mutableMapOf<String, InMemorySharedPreferences>()
+        private val instances = mutableMapOf<String, BridgedSharedPreferences>()
         
         fun getInstance(name: String): SharedPreferences {
-            return instances.getOrPut(name) { InMemorySharedPreferences(name) }
+            return instances.getOrPut(name) { BridgedSharedPreferences(name) }
         }
     }
 }
+
+/**
+ * Legacy alias for backwards compatibility.
+ */
+typealias InMemorySharedPreferences = BridgedSharedPreferences
 
 open class Context {
     companion object {
@@ -141,7 +252,7 @@ open class Context {
     }
     
     open fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
-        return InMemorySharedPreferences.getInstance(name)
+        return BridgedSharedPreferences.getInstance(name)
     }
 }
 

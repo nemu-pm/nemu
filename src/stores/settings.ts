@@ -8,7 +8,7 @@ import type { CacheStore } from "@/data/cache";
 import { Keys, CacheKeys, LOCAL_REGISTRY_ID, parseSourceKey } from "@/data/keys";
 import type { InstalledSource } from "@/data/schema";
 import type { ReadingMode } from "@/data/schema";
-import type { Setting } from "@/lib/sources/aidoku/settings-types";
+import type { Setting } from "@/lib/settings";
 import { getSourceSettingsStore } from "./source-settings";
 
 const READING_MODE_KEY = "nemu:reader:readingMode";

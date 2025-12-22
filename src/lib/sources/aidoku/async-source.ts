@@ -16,7 +16,7 @@ import type {
   WorkerSourceApi,
 } from "./source.worker";
 import { getSourceSettingsStore } from "../../../stores/source-settings";
-import { extractDefaults } from "./settings-types";
+import { extractDefaults } from "@/lib/settings";
 
 /**
  * Async source interface - mirrors AidokuSource but with async methods

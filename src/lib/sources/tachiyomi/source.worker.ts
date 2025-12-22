@@ -99,6 +99,68 @@ function tachiyomiHttpRequest(
 // Expose to Kotlin/JS runtime
 (globalThis as Record<string, unknown>).tachiyomiHttpRequest = tachiyomiHttpRequest;
 
+// ============ Preferences Bridge ============
+// In-memory preferences storage, synced with main thread's IndexedDB store
+
+// Storage: prefsName -> { key -> value }
+const prefsStorage = new Map<string, Map<string, unknown>>();
+
+// Pending changes to be synced to main thread
+let pendingPrefChanges: Array<{ name: string; key: string; value: unknown }> = [];
+
+/**
+ * Get all prefs for a given name (for initial load)
+ */
+function __prefs_getAll(name: string): Record<string, unknown> {
+  const prefs = prefsStorage.get(name);
+  if (!prefs) return {};
+  return Object.fromEntries(prefs);
+}
+
+/**
+ * Get a single pref value
+ */
+function __prefs_get(name: string, key: string): unknown {
+  return prefsStorage.get(name)?.get(key);
+}
+
+/**
+ * Set a single pref value (updates in-memory + queues for main thread sync)
+ */
+function __prefs_set(name: string, key: string, value: unknown): void {
+  let prefs = prefsStorage.get(name);
+  if (!prefs) {
+    prefs = new Map();
+    prefsStorage.set(name, prefs);
+  }
+  prefs.set(key, value);
+  pendingPrefChanges.push({ name, key, value });
+}
+
+/**
+ * Remove a single pref
+ */
+function __prefs_remove(name: string, key: string): void {
+  prefsStorage.get(name)?.delete(key);
+  pendingPrefChanges.push({ name, key, value: undefined });
+}
+
+/**
+ * Clear all prefs for a name
+ */
+function __prefs_clear(name: string): void {
+  prefsStorage.delete(name);
+  // Signal clear to main thread
+  pendingPrefChanges.push({ name, key: "__clear__", value: null });
+}
+
+// Expose to Kotlin/JS
+(globalThis as Record<string, unknown>).__prefs_getAll = __prefs_getAll;
+(globalThis as Record<string, unknown>).__prefs_get = __prefs_get;
+(globalThis as Record<string, unknown>).__prefs_set = __prefs_set;
+(globalThis as Record<string, unknown>).__prefs_remove = __prefs_remove;
+(globalThis as Record<string, unknown>).__prefs_clear = __prefs_clear;
+
 // ============ Image Codec Bridge ============
 // Provides sync JPEG/PNG decode/encode via jpeg-js library
 import { decodeImage, encodeJpeg, encodePng } from "./image-codec";
@@ -245,31 +307,76 @@ class WorkerSource {
   private manifest: TachiyomiManifest | null = null;
   private currentSourceId: string | null = null;
 
+  // ============ Preferences Methods ============
+
+  /**
+   * Initialize preferences for a source before loading.
+   * Called by main thread with stored values.
+   */
+  initPreferences(prefsName: string, values: Record<string, unknown>): void {
+    const prefs = new Map<string, unknown>();
+    for (const [key, value] of Object.entries(values)) {
+      prefs.set(key, value);
+    }
+    prefsStorage.set(prefsName, prefs);
+  }
+
+  /**
+   * Get and clear pending preference changes for main thread sync.
+   */
+  flushPrefChanges(): Array<{ name: string; key: string; value: unknown }> {
+    const changes = pendingPrefChanges;
+    pendingPrefChanges = [];
+    return changes;
+  }
+
+  /**
+   * Get settings schema JSON by invoking setupPreferenceScreen.
+   * Returns Aidoku-compatible schema format.
+   */
+  getSettingsSchema(sourceId: string): string | null {
+    if (!this.exports) return null;
+    try {
+      // Call the getSettingsSchema export which invokes setupPreferenceScreen
+      const json = (this.exports as TachiyomiJsExports & { getSettingsSchema(sourceId: string): string }).getSettingsSchema(sourceId);
+      const result = JSON.parse(json) as { ok: boolean; data?: string; error?: unknown };
+      if (!result.ok) {
+        console.error("[Tachiyomi Worker] getSettingsSchema failed:", result.error);
+        return null;
+      }
+      // result.data is the schema JSON string from PreferenceRegistry
+      return result.data ?? null;
+    } catch (e) {
+      console.error("[Tachiyomi Worker] getSettingsSchema error:", e);
+      return null;
+    }
+  }
+
   async load(jsUrl: string, manifest: TachiyomiManifest): Promise<boolean> {
     try {
       console.log("[Tachiyomi Worker] Loading JS from:", jsUrl);
       this.manifest = manifest;
 
-      // Import Kotlin/JS module (UMD format)
-      // The UMD module sets globalThis['tachiyomi.js:tachiyomi-js'] in browser context
+      // Import Kotlin/JS module (webpack UMD format)
+      // Module name is set to "$lang-$name" in build.gradle.kts (e.g., "all-mangadex")
       await import(/* @vite-ignore */ jsUrl);
       
-      // Kotlin/JS UMD exports to globalThis['tachiyomi.js:tachiyomi-js'].tachiyomi.generated
+      // Webpack exports to globalThis['$moduleName'].tachiyomi.generated
+      // The module name is passed as part of the sourceId (e.g., "all-mangadex")
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const globalExports = (globalThis as any)["tachiyomi.js:tachiyomi-js"];
+      const g = globalThis as any;
       
+      // Find the extension module - it's the only one with tachiyomi.generated
       let exports: TachiyomiJsExports | null = null;
-      
-      if (globalExports?.tachiyomi?.generated) {
-        exports = globalExports.tachiyomi.generated;
+      for (const key of Object.keys(g)) {
+        if (g[key]?.tachiyomi?.generated) {
+          exports = g[key].tachiyomi.generated;
+          break;
+        }
       }
       
       if (!exports || typeof exports.getManifest !== "function") {
-        console.error("[Tachiyomi Worker] Could not find exports.");
-        console.error("[Tachiyomi Worker] globalThis keys:", Object.keys(globalThis).filter(k => k.includes("tachi")));
-        if (globalExports) {
-          console.error("[Tachiyomi Worker] globalExports keys:", Object.keys(globalExports));
-        }
+        console.error("[Tachiyomi Worker] Could not find tachiyomi.generated exports");
         return false;
       }
       
