@@ -197,6 +197,28 @@ bun test
 bun run build
 ```
 
+## Large assets (Cloudflare R2)
+
+- Heavy binaries (for example `r2-assets/models/comictextdetector.pt.onnx`) live in `./r2-assets`. Place any new large files there and they will be uploaded to Cloudflare R2 during `npm run build` via the `sync:r2-assets` script.
+- At runtime, large assets are expected to be served from a CDN/R2 domain. The text detector model defaults to `https://assets.nemu.pm/models/comictextdetector.pt.onnx` and can be overridden with `VITE_R2_ASSET_BASE_URL` or a file-specific `VITE_TEXT_DETECTOR_MODEL_URL`.
+
+### Configuring Cloudflare R2 uploads
+
+Set the following environment variables for build environments (Vercel, CI, or local when you want to push files):
+
+- `R2_BUCKET`: Bucket name.
+- `R2_ACCOUNT_ID`: Cloudflare account ID.
+- `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`: R2 API credentials with write access to the bucket.
+- Optional: `R2_ASSET_PREFIX` to namespace objects inside the bucket, `R2_ENDPOINT` to override the default endpoint.
+
+During the build, `npm run sync:r2-assets` will:
+
+1. Hash every file under `r2-assets`.
+2. Skip uploads when the remote object already has the same `sha256` metadata.
+3. Upload only changed/new files with the correct content-type.
+
+Expose the bucket through a Cloudflare R2 public bucket domain or a custom subdomain such as `assets.nemu.pm`, and set `VITE_R2_ASSET_BASE_URL` accordingly so clients load assets from R2 instead of the Vercel public folder.
+
 ## Adding a New Provider
 
 1. Create `src/providers/{provider}/adapter.ts`

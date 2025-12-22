@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npx concurrently \"vite --host\" \"convex dev\"",
+    "prebuild": "npm run sync:r2-assets",
     "build": "tsx scripts/generate-apple-secret.ts && tsc -b && vite build",
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
@@ -14,6 +15,7 @@
     "test:browser": "vitest --config vitest.config.browser.ts",
     "test:coverage": "vitest run --coverage",
     "service": "bun service/dev.ts",
+    "sync:r2-assets": "tsx scripts/sync-r2-assets.ts",
     "generate:apple-secret": "tsx scripts/generate-apple-secret.ts",
     "predeploy": "npm run generate:apple-secret",
     "deploy": "npm run predeploy && npx convex deploy"
@@ -72,6 +74,7 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.956.0",
     "@eslint/js": "^9.39.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
@@ -87,6 +90,7 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "happy-dom": "^20.0.11",
+    "mime-types": "^3.0.2",
     "playwright": "^1.57.0",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",

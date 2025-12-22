@@ -7,7 +7,9 @@
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope
 
-const MODEL_PATH = '/comictextdetector.pt.onnx'
+const MODEL_PATH =
+  import.meta.env.VITE_TEXT_DETECTOR_MODEL_URL ??
+  `${import.meta.env.VITE_R2_ASSET_BASE_URL ?? 'https://assets.nemu.pm'}/models/comictextdetector.pt.onnx`
 const INPUT_SIZE = 1024
 
 const IS_IOS =
