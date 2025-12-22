@@ -90,10 +90,8 @@ jobs:
           elif [ -n "${{ inputs.tachiyomi_extensions }}" ]; then
             EXTENSIONS="${{ inputs.tachiyomi_extensions }}"
           elif [ -z "$LAST_COMMIT" ]; then
-            echo "No last commit found, will skip build (run with force_rebuild to initialize)"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-            echo "extensions=" >> $GITHUB_OUTPUT
-            exit 0
+            echo "No last commit found, building all extensions"
+            EXTENSIONS=$(find src -mindepth 2 -maxdepth 2 -type d | sed 's|src/||' | sort | tr '\n' ',' | sed 's/,$//')
           else
             CHANGED_FILES=$(git diff --name-only "$LAST_COMMIT" HEAD -- src/ 2>/dev/null || echo "")
             
