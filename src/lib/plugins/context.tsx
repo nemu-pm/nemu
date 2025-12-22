@@ -250,6 +250,47 @@ export function ReaderPluginProvider({
     }
   }, [currentPageIndex, plugins, ctx, prevPageRef])
 
+  // Visible page image availability hook
+  // Some plugins (e.g. OCR auto-detect) need to react when the *current* page's image URL
+  // becomes available (blob URL loaded) even if the user hasn't changed pages.
+  //
+  // We intentionally re-use `onPageChange` for this signal so plugins don't need a new hook.
+  // This effect is carefully gated to avoid double-calling `onPageChange` on real page turns.
+  const prevUrlSignalRef = useRef<{
+    sessionKey: string
+    chapterId: string
+    pageIndex: number
+    visibleKey: string | null
+  }>({ sessionKey, chapterId, pageIndex: currentPageIndex, visibleKey: null })
+  useEffect(() => {
+    const prev = prevUrlSignalRef.current
+
+    // If the reader session, chapter, or page index changed, let the dedicated hooks handle it.
+    // Reset the URL key so we can fire again when the new page's image loads.
+    if (prev.sessionKey !== sessionKey || prev.chapterId !== chapterId || prev.pageIndex !== currentPageIndex) {
+      prevUrlSignalRef.current = {
+        sessionKey,
+        chapterId,
+        pageIndex: currentPageIndex,
+        visibleKey: null,
+      }
+      return
+    }
+
+    const indices = ctx.visiblePageIndices
+    if (indices.length === 0) return
+
+    const urls = indices.map((i) => ctx.getPageImageUrl(i) ?? '')
+    // Avoid spamming while nothing is loaded yet
+    if (!urls.some(Boolean)) return
+
+    const visibleKey = `${indices.join(',')}|${urls.join('||')}`
+    if (prev.visibleKey === visibleKey) return
+
+    prevUrlSignalRef.current = { ...prev, visibleKey }
+    plugins.forEach((p) => p.hooks?.onPageChange?.(currentPageIndex, ctx))
+  }, [sessionKey, chapterId, currentPageIndex, ctx, plugins])
+
   // Chapter change hook
   const prevChapterRef = useMemo(() => ({ current: chapterId }), [])
   useEffect(() => {

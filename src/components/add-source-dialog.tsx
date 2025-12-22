@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useStores } from "@/data/context";
 import { type SourceInfo } from "@/stores/settings";
 import { Keys } from "@/data/keys";
+import { TACHIYOMI_DEV_REGISTRY_ID } from "@/lib/sources/tachiyomi/dev-registry";
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -18,9 +19,10 @@ import {
   CloudDownloadIcon,
   File02Icon,
   CheckmarkCircle02Icon,
+  CodeIcon,
 } from "@hugeicons/core-free-icons";
 
-type Mode = "select" | "registry" | "custom";
+type Mode = "select" | "registry" | "custom" | "dev";
 
 interface AddSourceDialogProps {
   open: boolean;
@@ -47,6 +49,7 @@ export function AddSourceDialog({ open, onOpenChange }: AddSourceDialogProps) {
             {mode === "select" && t("addSource.selectMethod")}
             {mode === "registry" && t("addSource.fromRegistry")}
             {mode === "custom" && t("addSource.customFile")}
+            {mode === "dev" && "Load locally built Tachiyomi extensions"}
           </ResponsiveDialogDescription>
         </ResponsiveDialogHeader>
 
@@ -69,6 +72,15 @@ export function AddSourceDialog({ open, onOpenChange }: AddSourceDialogProps) {
             onDone={handleClose}
           />
         )}
+
+        {mode === "dev" && (
+          <DevSourceList
+            installing={installing}
+            onInstall={setInstalling}
+            onBack={() => setMode("select")}
+            onDone={handleClose}
+          />
+        )}
       </ResponsiveDialogContent>
     </ResponsiveDialog>
   );
@@ -80,8 +92,10 @@ function ModeSelection({
   onSelectMode: (mode: Mode) => void;
 }) {
   const { t } = useTranslation();
+  const isDev = import.meta.env.DEV;
+  
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className={cn("grid gap-3", isDev ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
       <button
         onClick={() => onSelectMode("registry")}
         className="flex flex-col items-center gap-3 rounded-lg border p-6 text-center transition-colors hover:bg-muted"
@@ -112,6 +126,23 @@ function ModeSelection({
           <p className="text-sm text-muted-foreground">{t("addSource.customDescription")}</p>
         </div>
       </button>
+
+      {isDev && (
+        <button
+          onClick={() => onSelectMode("dev")}
+          className="flex flex-col items-center gap-3 rounded-lg border border-orange-500/30 bg-orange-500/5 p-6 text-center transition-colors hover:bg-orange-500/10"
+        >
+          <div className="rounded-full bg-orange-500/10 p-3">
+            <HugeiconsIcon icon={CodeIcon} className="size-6 text-orange-500" />
+          </div>
+          <div>
+            <p className="font-medium">Dev Extensions</p>
+            <p className="text-sm text-muted-foreground">
+              Locally built Tachiyomi
+            </p>
+          </div>
+        </button>
+      )}
     </div>
   );
 }
@@ -131,16 +162,18 @@ function RegistrySourceList({
   const { useSettingsStore } = useStores();
   const { availableSources, installSource } = useSettingsStore();
 
-  // Group sources by registry
-  const grouped = availableSources.reduce(
-    (acc, source) => {
-      const key = source.registryId;
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(source);
-      return acc;
-    },
-    {} as Record<string, SourceInfo[]>
-  );
+  // Group sources by registry (exclude dev registry)
+  const grouped = availableSources
+    .filter(s => s.registryId !== TACHIYOMI_DEV_REGISTRY_ID)
+    .reduce(
+      (acc, source) => {
+        const key = source.registryId;
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(source);
+        return acc;
+      },
+      {} as Record<string, SourceInfo[]>
+    );
 
   // Sort sources within each registry by name
   Object.keys(grouped).forEach((key) => {
@@ -181,6 +214,80 @@ function RegistrySourceList({
           </div>
         ))}
       </div>
+
+      <div className="flex justify-between border-t pt-4">
+        <Button variant="ghost" onClick={onBack}>
+          {t("common.back")}
+        </Button>
+        <Button onClick={onDone}>{t("common.done")}</Button>
+      </div>
+    </div>
+  );
+}
+
+function DevSourceList({
+  installing,
+  onInstall,
+  onBack,
+  onDone,
+}: {
+  installing: string | null;
+  onInstall: (id: string | null) => void;
+  onBack: () => void;
+  onDone: () => void;
+}) {
+  const { t } = useTranslation();
+  const { useSettingsStore } = useStores();
+  const { availableSources, installSource } = useSettingsStore();
+
+  // Filter to only show dev sources
+  const devSources = availableSources.filter(
+    s => s.registryId === TACHIYOMI_DEV_REGISTRY_ID
+  );
+
+  const handleInstall = async (sourceId: string) => {
+    const key = Keys.source(TACHIYOMI_DEV_REGISTRY_ID, sourceId);
+    onInstall(key);
+    try {
+      await installSource(TACHIYOMI_DEV_REGISTRY_ID, sourceId);
+    } finally {
+      onInstall(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {devSources.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            No dev extensions found.
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Build an extension:
+          </p>
+          <pre className="mt-2 rounded bg-muted p-2 text-left text-xs">
+{`cd packages/tachiyomi-js
+./gradlew devBuild -Pextension=all/mangadex`}
+          </pre>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Then refresh this dialog.
+          </p>
+        </div>
+      ) : (
+        <div className="max-h-80 space-y-1 overflow-y-auto pr-2">
+          {devSources.map((source) => {
+            const key = Keys.source(source.registryId, source.id);
+            return (
+              <SourceItem
+                key={key}
+                source={source}
+                installing={installing === key}
+                onInstall={() => handleInstall(source.id)}
+              />
+            );
+          })}
+        </div>
+      )}
 
       <div className="flex justify-between border-t pt-4">
         <Button variant="ghost" onClick={onBack}>

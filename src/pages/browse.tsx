@@ -85,13 +85,18 @@ function formatSectionLabel(
   t: (key: string) => string,
   appLanguage: string | undefined
 ): string {
-  if (langCode === "multi") {
-    return t("common.multiLanguage");
-  }
   if (langCode === "other") {
     return t("browse.otherLanguages") || "Other";
   }
-  // Use Intl.DisplayNames for proper language name
+  
+  // Try i18n first (languages.en, languages.ja, languages.multi, etc.)
+  const i18nKey = `languages.${langCode}`;
+  const translated = t(i18nKey);
+  if (translated && translated !== i18nKey) {
+    return translated;
+  }
+  
+  // Fallback to Intl.DisplayNames
   const displayLang = appLanguage || "en";
   try {
     const displayName = new Intl.DisplayNames([displayLang], {

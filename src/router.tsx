@@ -19,8 +19,10 @@ import {
 import { FadingOverlay } from "@/components/fading-overlay";
 import { useTranslation } from "react-i18next";
 import type { BrowsableSource } from "@/lib/sources/aidoku/adapter";
+import type { TachiyomiBrowsableSource } from "@/lib/sources/tachiyomi/adapter";
 import type { MangaSource } from "@/lib/sources/types";
-import type { Listing, Filter } from "@/lib/sources/aidoku/types";
+import type { Listing, Filter, HomeLayout } from "@/lib/sources/aidoku/types";
+import type { TachiyomiFilter, TachiyomiListing } from "@/lib/sources/tachiyomi/types";
 
 // Pages
 import { LibraryPage } from "./pages/library";
@@ -222,15 +224,28 @@ function MobileNavLink({
   );
 }
 
-// Loader data type for source browse
-export interface SourceBrowseLoaderData {
+// ============================================================================
+// Loader data types - discriminated union for Aidoku vs Tachiyomi
+// ============================================================================
+
+export interface AidokuLoaderData {
+  type: "aidoku";
   source: BrowsableSource;
   listings: Listing[];
   filters: Filter[];
   hasHomeProvider: boolean;
   onlySearch: boolean;
-  initialHome: import("@/lib/sources/aidoku/types").HomeLayout | null;
+  initialHome: HomeLayout | null;
 }
+
+export interface TachiyomiLoaderData {
+  type: "tachiyomi";
+  source: TachiyomiBrowsableSource;
+  listings: TachiyomiListing[];
+  filters: TachiyomiFilter[];
+}
+
+export type SourceBrowseLoaderData = AidokuLoaderData | TachiyomiLoaderData;
 
 // Routes
 const libraryRoute = createRoute({
@@ -274,6 +289,26 @@ export interface SourceBrowseSearch {
   // filters could be added here but they're complex - keeping as local state for now
 }
 
+/**
+ * Type guard to check if a source is an Aidoku BrowsableSource
+ */
+function isAidokuBrowsableSource(source: MangaSource): source is BrowsableSource {
+  const browsable = source as BrowsableSource;
+  return typeof browsable.hasHomeProvider === "function" &&
+         typeof browsable.getHome === "function" &&
+         typeof browsable.isOnlySearch === "function";
+}
+
+/**
+ * Type guard to check if a source is a Tachiyomi BrowsableSource
+ */
+function isTachiyomiBrowsableSource(source: MangaSource): source is TachiyomiBrowsableSource {
+  const browsable = source as TachiyomiBrowsableSource;
+  return typeof browsable.supportsLatest === "boolean" &&
+         typeof browsable.getFilters === "function" &&
+         typeof browsable.resetFilters === "function";
+}
+
 const sourceBrowseRoute = createRoute({
   getParentRoute: () => browseLayoutRoute,
   path: "$registryId/$sourceId",
@@ -290,36 +325,51 @@ const sourceBrowseRoute = createRoute({
       throw new Error("Source not found");
     }
 
-    const browsable = loadedSource as BrowsableSource;
-    if (!browsable.getListings || !browsable.getFilters) {
+    // Detect source type and return appropriate data
+    if (isTachiyomiBrowsableSource(loadedSource)) {
+      // Tachiyomi source
+      const [listings, filters] = await Promise.all([
+        loadedSource.getListings(),
+        loadedSource.getFilters(),
+      ]);
+
+      return {
+        type: "tachiyomi",
+        source: loadedSource,
+        listings,
+        filters,
+      };
+    } else if (isAidokuBrowsableSource(loadedSource)) {
+      // Aidoku source
+      const [hasHomeProvider, onlySearch, listings, filters] = await Promise.all([
+        loadedSource.hasHomeProvider(),
+        loadedSource.isOnlySearch(),
+        loadedSource.getListings(),
+        loadedSource.getFilters(),
+      ]);
+
+      // Fetch initial home content if source provides home (critical for scroll restoration)
+      let initialHome: HomeLayout | null = null;
+      if (hasHomeProvider && !onlySearch) {
+        try {
+          initialHome = await loadedSource.getHome(false); // Use cache if available
+        } catch {
+          // Ignore errors - home will be loaded in component
+        }
+      }
+
+      return {
+        type: "aidoku",
+        source: loadedSource,
+        listings,
+        filters,
+        hasHomeProvider,
+        onlySearch,
+        initialHome,
+      };
+    } else {
       throw new Error("Source does not support browsing");
     }
-
-    const [hasHomeProvider, onlySearch, listings, filters] = await Promise.all([
-      browsable.hasHomeProvider(),
-      browsable.isOnlySearch(),
-      browsable.getListings(),
-      browsable.getFilters(),
-    ]);
-
-    // Fetch initial home content if source provides home (critical for scroll restoration)
-    let initialHome = null;
-    if (hasHomeProvider && !onlySearch) {
-      try {
-        initialHome = await browsable.getHome(false); // Use cache if available
-      } catch {
-        // Ignore errors - home will be loaded in component
-      }
-    }
-
-    return {
-      source: browsable,
-      listings,
-      filters,
-      hasHomeProvider,
-      onlySearch,
-      initialHome,
-    };
   },
   staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   component: SourceBrowsePage,

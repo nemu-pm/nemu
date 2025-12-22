@@ -11,6 +11,7 @@ import { createAidokuMangaSource } from "./adapter";
 import type { SourceRegistryProvider, RegistrySourceInfo } from "../registry";
 import { getSourceSettingsStore } from "../../../stores/source-settings";
 import { extractAix } from "./aix";
+import { normalizeSourceLangs } from "../language";
 
 // ============ DEFAULT AIDOKU REGISTRIES ============
 
@@ -116,12 +117,15 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
           ? `sources/${s.file}`
           : "";
 
-      // Modern: languages[], Legacy: lang string
-      const languages = s.languages
+      // Modern: languages[], Legacy: lang string - normalize to BCP-47
+      const rawLangs = s.languages
         ? (s.languages as string[])
         : s.lang
           ? [s.lang as string]
-          : undefined;
+          : [];
+      const languages = normalizeSourceLangs(rawLangs);
+      // Convert empty to undefined for cleaner data
+      const normalizedLanguages = languages.length > 0 ? languages : undefined;
 
       // Modern: contentRating (0=safe, 1=suggestive, 2=nsfw)
       // Legacy: nsfw (same values)
@@ -133,7 +137,7 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
         version: s.version as number,
         iconPath,
         downloadPath,
-        languages,
+        languages: normalizedLanguages,
         contentRating,
       };
     });

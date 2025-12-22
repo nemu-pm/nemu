@@ -90,14 +90,23 @@ export function formatLanguageDisplay(
   
   if (isMultiLanguage) {
     // Return translated "Multi-language" if translation function provided
-    // Otherwise fallback to English
-    return t ? t("common.multiLanguage") : "Multi-language";
+    return t ? t("languages.multi") : "Multi-language";
   }
 
   // Single language: get localized name
   const langCode = languages[0];
   
-  // Determine display language: use app language if provided, otherwise browser language
+  // Try i18n first (languages.en, languages.ja, etc.)
+  if (t) {
+    const i18nKey = `languages.${langCode}`;
+    const translated = t(i18nKey);
+    // i18next returns the key if translation not found
+    if (translated && translated !== i18nKey) {
+      return translated;
+    }
+  }
+  
+  // Fallback to Intl.DisplayNames
   const displayLang = appLanguage || (typeof navigator !== "undefined" ? navigator.language : "en");
   
   try {
@@ -105,8 +114,6 @@ export function formatLanguageDisplay(
       type: "language",
     }).of(langCode);
     
-    // Intl.DisplayNames might return undefined for some codes
-    // Capitalize first letter if we got a valid name
     if (displayName) {
       return displayName.charAt(0).toUpperCase() + displayName.slice(1);
     }

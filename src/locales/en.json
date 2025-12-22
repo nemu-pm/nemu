@@ -22,6 +22,32 @@
     "goBack": "Go Back",
     "noImage": "No Image"
   },
+  "languages": {
+    "multi": "Multi-language",
+    "ar": "Arabic",
+    "bg": "Bulgarian",
+    "ca": "Catalan",
+    "cs": "Czech",
+    "de": "German",
+    "en": "English",
+    "es": "Spanish",
+    "fr": "French",
+    "id": "Indonesian",
+    "it": "Italian",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "pl": "Polish",
+    "pt": "Portuguese",
+    "pt-BR": "Portuguese (Brazil)",
+    "ru": "Russian",
+    "th": "Thai",
+    "tr": "Turkish",
+    "uk": "Ukrainian",
+    "vi": "Vietnamese",
+    "zh": "Chinese",
+    "zh-Hans": "Simplified Chinese",
+    "zh-Hant": "Traditional Chinese"
+  },
   "storage": {
     "idbLock": {
       "title": "Storage locked",
@@ -140,6 +166,8 @@
   },
   "settings": {
     "loading": "Loading settings...",
+    "sourceUpdated": "Updated source: {{name}}",
+    "sourcesUpdated": "Updated {{count}} sources: {{names}}",
     "cloudSync": "Cloud Sync",
     "loadingAuth": "Loading...",
     "signOut": "Sign Out",

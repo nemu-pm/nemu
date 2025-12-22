@@ -6,6 +6,7 @@ import type { SourceRegistry } from "../../data/schema";
 import type { UserDataStore } from "../../data/store";
 import type { CacheStore } from "../../data/cache";
 import { AidokuUrlRegistry, AIDOKU_REGISTRIES } from "./aidoku/url-registry";
+import { TachiyomiDevRegistry, TACHIYOMI_DEV_REGISTRY_ID } from "./tachiyomi/dev-registry";
 
 // ============ TYPES ============
 
@@ -56,6 +57,14 @@ export class RegistryManager {
       );
       this.registries.set(def.id, registry);
     }
+    
+    // Add Tachiyomi dev registry (only in development mode)
+    if (import.meta.env.DEV) {
+      this.registries.set(
+        TACHIYOMI_DEV_REGISTRY_ID,
+        new TachiyomiDevRegistry(this.installedSourceStore, this.cacheStore)
+      );
+    }
   }
 
   /**
@@ -73,6 +82,14 @@ export class RegistryManager {
         this.cacheStore
       );
       this.registries.set(def.id, registry);
+    }
+    
+    // Update Tachiyomi dev registry if it exists
+    if (import.meta.env.DEV) {
+      const devRegistry = this.registries.get(TACHIYOMI_DEV_REGISTRY_ID);
+      if (devRegistry instanceof TachiyomiDevRegistry) {
+        devRegistry.setUserStore(store);
+      }
     }
   }
 

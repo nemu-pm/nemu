@@ -1,9 +1,11 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
+import { toast } from "sonner";
+import i18n from "@/lib/i18n";
 import type { MangaSource } from "@/lib/sources/types";
 import type { RegistrySourceInfo, RegistryManager } from "@/lib/sources/registry";
 import type { UserDataStore } from "@/data/store";
 import type { CacheStore } from "@/data/cache";
-import { Keys, CacheKeys, LOCAL_REGISTRY_ID } from "@/data/keys";
+import { Keys, CacheKeys, LOCAL_REGISTRY_ID, parseSourceKey } from "@/data/keys";
 import type { InstalledSource } from "@/data/schema";
 import type { ReadingMode } from "@/data/schema";
 import type { Setting } from "@/lib/sources/aidoku/settings-types";
@@ -76,8 +78,46 @@ export function createSettingsStore(
 
         // Get all available sources from registries
         const allSources = await manager.listAllSources();
+        
+        // Check for source updates and auto-update
+        const updatedSources: string[] = [];
+        for (const installed of installedSources) {
+          const { registryId, sourceId } = parseSourceKey(installed.id);
+          const registrySource = allSources.find(
+            (s) => s.registryId === registryId && s.id === sourceId
+          );
+          if (registrySource && registrySource.version > installed.version) {
+            try {
+              const registry = manager.getRegistry(registryId);
+              if (registry) {
+                await registry.installSource(sourceId);
+                updatedSources.push(registrySource.name);
+              }
+            } catch (e) {
+              console.error(`[SettingsStore] Failed to update source ${sourceId}:`, e);
+            }
+          }
+        }
+        
+        // Show toast if sources were updated
+        if (updatedSources.length > 0) {
+          toast.success(
+            updatedSources.length === 1
+              ? i18n.t("settings.sourceUpdated", { name: updatedSources[0] })
+              : i18n.t("settings.sourcesUpdated", { 
+                  count: updatedSources.length, 
+                  names: updatedSources.join(", ") 
+                })
+          );
+        }
+        
+        // Reload installed sources after updates
+        const finalInstalledSources = updatedSources.length > 0 
+          ? await userStore.getInstalledSources()
+          : installedSources;
+        
         // InstalledSource.id is the composite key (registryId:sourceId)
-        const installedIds = new Set(installedSources.map((s) => s.id));
+        const installedIds = new Set(finalInstalledSources.map((s) => s.id));
 
         const availableSources: SourceInfo[] = allSources.map((s) => ({
           ...s,
@@ -86,7 +126,7 @@ export function createSettingsStore(
 
         set({
           availableSources,
-          installedSources,
+          installedSources: finalInstalledSources,
           readingMode,
           loading: false,
         });

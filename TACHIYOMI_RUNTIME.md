@@ -1,321 +1,332 @@
-# Tachiyomi Extension WASM Runtime
+# Tachiyomi Extension Kotlin/JS Runtime
 
-Kotlin/WASM runtime for executing Tachiyomi/Keiyoushi manga extensions in the browser.
+Kotlin/JS runtime for executing Tachiyomi/Keiyoushi extensions in the browser.
+
+## Quick Start
+
+```bash
+# Build a single extension
+cd packages/tachiyomi-js
+./gradlew devBuild -Pextension=all/mangadex
+
+# Build multiple extensions
+./gradlew compileExtensions -Pext=ja/shonenjumpplus,ja/ganganonline
+
+# Build all extensions in a language
+./gradlew compileExtensions -Pext=ja/*
+
+# List available extensions
+./gradlew listExtensions
+
+# Test built extension
+bun scripts/test-tachiyomi-source.ts all-mangadex popular
+```
+
+Output: `dev/extensions/<lang>-<name>/` with `extension.js`, `manifest.json`, `icon.png`
+
+---
 
 ## Status
 
-**✅ WASM compilation works** - extensions compile directly from vendor source.
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Kotlin/JS compilation | ✅ | Extensions compile from vendor source |
+| Sync XHR HTTP bridge | ✅ | Web Worker with XMLHttpRequest |
+| Ksoup HTML parsing | ✅ | Real parser, Jsoup API wrapper |
+| ParsedHttpSource | ✅ | 223+ extensions use this |
+| AES encryption | ✅ | Pure Kotlin AES/CBC/PKCS7 |
+| RSA encryption | ✅ | Pure Kotlin BigInteger + PKCS1 padding |
+| GZIP decompression | ✅ | Pure Kotlin DEFLATE decoder |
+| Rate limiting | ✅ | Token bucket implementation |
+| Bitmap/Canvas | ✅ | PNG/JPEG encode/decode |
+| Chapter recognition | ✅ | Mihon-style number parsing from titles |
 
-**✅ Sync XHR HTTP bridge works** - HTTP requests via synchronous XMLHttpRequest in Web Worker.
+### Verified Working
 
-**✅ MangaDex PoC verified** - API calls work (popular manga, chapters, pages).
+- **MangaDex** - Full flow (browse → details → chapters → pages → images)
+- **GigaViewer sources** - Shonen Jump+, Gangan Online, Zenon, etc.
+- **GanganOnline** - Japanese date format `yyyy.MM.dd`
 
-**⏳ nemu integration pending** - TypeScript adapter scaffolded (`src/lib/sources/keiyoushi/`) but not yet wired into source registry.
+---
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Browser Main Thread (nemu)                                 │
-│  - src/lib/sources/keiyoushi/adapter.ts → MangaSource       │
-│  - Comlink wraps worker for async communication             │
+│  Browser Main Thread                                        │
+│  src/lib/sources/tachiyomi/adapter.ts                       │
+│  - Converts to MangaSource interface                        │
+│  - Comlink wraps worker for async                           │
 ├─────────────────────────────────────────────────────────────┤
-│  Web Worker (src/lib/sources/keiyoushi/source.worker.ts)    │
-│  - Loads Kotlin/WASM module                                 │
-│  - Sync XHR works here (not blocked like main thread)       │
-│  - Exposes API via Comlink                                  │
+│  Web Worker                                                 │
+│  src/lib/sources/tachiyomi/source.worker.ts                 │
+│  - Loads Kotlin/JS as ES module                             │
+│  - Sync XHR allowed here                                    │
 ├─────────────────────────────────────────────────────────────┤
-│  Kotlin/WASM Module (compiled from vendor source)           │
-│  - Extension code runs synchronously in worker              │
-│  - OkHttp.execute() → sync XHR via @JsFun                   │
-│  - @JsExport entry points return JSON strings               │
+│  Kotlin/JS Module (dev/extensions/<ext>/extension.js)       │
+│  - Extension code + shim library                            │
+│  - @JsExport entry points return JSON                       │
 ├─────────────────────────────────────────────────────────────┤
-│  Extension Shim Library (packages/extension-lib-wasm/)      │
-│  - Android/JVM API stubs                                    │
-│  - OkHttp → sync XMLHttpRequest bridge                      │
-│  - Source/HttpSource interfaces                             │
+│  Shim Library (~5000 lines)                                 │
+│  packages/tachiyomi-js/src/jsMain/kotlin/                   │
+│  - OkHttp → sync XMLHttpRequest                             │
+│  - Jsoup → Ksoup wrapper                                    │
+│  - javax.crypto → Pure Kotlin AES/RSA                       │
+│  - java.util.zip → Pure Kotlin GZIP/DEFLATE                 │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-This follows the same pattern as Aidoku (`src/lib/sources/aidoku/`):
-- Main thread uses `async-source.ts` with Comlink
-- Worker runs `source.worker.ts` with sync WASM calls
-- Sync XHR works in Web Workers (blocked in main thread)
+---
 
-## HTTP Implementation: Synchronous XHR in Web Worker
+## Shim Implementation
 
-Following the Aidoku pattern (`src/lib/sources/aidoku/imports/net.ts`), HTTP requests use **synchronous XMLHttpRequest** in a Web Worker:
+### Package Overview
+
+```
+packages/tachiyomi-js/src/jsMain/kotlin/
+├── okhttp3/              ~900 lines   HTTP client
+├── org/jsoup/            ~470 lines   Ksoup wrapper
+├── rx/                   ~160 lines   Sync Observable
+├── java/
+│   ├── io/               ~120 lines   InputStream, Reader
+│   ├── math/             ~490 lines   BigInteger (RSA)
+│   ├── security/         ~400 lines   RSA keys, MessageDigest
+│   ├── text/             ~190 lines   SimpleDateFormat
+│   └── util/             ~500 lines   Date, Locale, Calendar, zip
+├── javax/crypto/         ~520 lines   AES + RSA Cipher
+├── okio/                 ~200 lines   Buffer/Source
+├── android/              ~1100 lines  Preferences, Bitmap, Canvas
+└── eu/kanade/            ~500 lines   Source interfaces
+─────────────────────────────────────────
+Total:                    ~5000 lines
+```
+
+### Completeness
+
+| Component | Status | Implementation |
+|-----------|--------|----------------|
+| **OkHttp** | ✅ | Request, Response, Headers, HttpUrl, FormBody, Interceptors |
+| **Rate Limiting** | ✅ | Token bucket with busy-wait (sync context) |
+| **Jsoup** | ✅ | Wrapper over Ksoup 0.2.4 |
+| **ParsedHttpSource** | ✅ | Full selector/element parsing |
+| **RxJava** | ✅ | Sync Observable (minimal API) |
+| **SimpleDateFormat** | ✅ | ISO, US, Japanese (年月日), dot/slash formats |
+| **AES Cipher** | ✅ | AES-128/192/256, CBC, PKCS7 padding |
+| **RSA Cipher** | ✅ | PKCS1v1.5 padding, key generation |
+| **BigInteger** | ✅ | Pure Kotlin (modPow, modInverse for RSA) |
+| **GZIPInputStream** | ✅ | Pure Kotlin DEFLATE decoder |
+| **MessageDigest** | ✅ | MD5, SHA-1, SHA-256 |
+| **Bitmap/Canvas** | ✅ | PNG/JPEG decode/encode, drawBitmap |
+| **SharedPreferences** | ✅ | → localStorage |
+| **Base64** | ✅ | android.util + java.util |
+
+### Date Formats Supported
 
 ```kotlin
-// OkHttpClient.kt - execute() uses sync XHR
-fun execute(): Response {
-    val result = syncHttpRequest(url, method, headersJson, body)
-    // Blocks until response (works in Web Worker)
-    return Response(...)
-}
+// ISO formats
+"yyyy-MM-dd"
+"yyyy-MM-dd HH:mm:ss"
+"yyyy-MM-dd'T'HH:mm:ss"
 
-// FetchBridge.kt - @JsFun with sync XMLHttpRequest + CORS proxy
-@JsFun("""
-(url, method, headersJson, body) => {
-    const proxyUrl = 'https://service.nemu.pm/proxy?url=' + encodeURIComponent(url);
-    const xhr = new XMLHttpRequest();
-    xhr.open(method, proxyUrl, false);  // false = synchronous
-    xhr.send(body);
-    return { status: xhr.status, body: xhr.responseText, ... };
-}
-""")
-external fun syncHttpRequest(url: String, method: String, headersJson: String, body: String?): SyncHttpResult
+// US format
+"MM/dd/yyyy"
+"MMMM d, yyyy"
+
+// Japanese formats
+"yyyy年MM月dd日"
+"yyyy年M月d日H時"
+"yyyy/M/d"
+"yyyy.MM.dd"
+"M月 d, yyyy"
 ```
 
-**Why Web Worker?**
-- Sync XHR is **blocked in main thread** (DOMException in modern browsers)
-- Sync XHR **works in Web Workers**
-- Same pattern proven by Aidoku runtime
+### RSA Implementation
 
-## Build Commands
+Pure Kotlin BigInteger with:
+- Modular exponentiation (square-and-multiply)
+- Modular inverse (extended GCD)
+- Miller-Rabin primality test
+- PKCS#1 v1.5 padding
 
-### Production Build
+Supports:
+- `KeyFactory.getInstance("RSA").generatePublic(X509EncodedKeySpec)`
+- `KeyPairGenerator.getInstance("RSA").generateKeyPair()`
+- `Cipher.getInstance("RSA/ECB/PKCS1Padding")`
+
+---
+
+## Build System
+
+### Single Extension
 
 ```bash
-cd packages
-./gradlew :extension-compiler:wasmJsBrowserProductionWebpack -Pextension=all/mangadex
+./gradlew devBuild -Pextension=<lang>/<name>
 ```
 
-Output: `packages/extension-compiler/build/.../optimized/`
-- `all-mangadex.wasm` (~540KB)
-- `all-mangadex.uninstantiated.mjs` (loader)
-
-### Dev Build (with test harness)
+### Batch Compilation
 
 ```bash
-cd packages
-./gradlew :extension-compiler:devBuild -Pextension=all/mangadex
-npx serve extension-compiler/dev
-# Open http://localhost:3000
+# Multiple specific extensions
+./gradlew compileExtensions -Pext=ja/shonenjumpplus,ja/ganganonline,all/mangadex
+
+# All extensions in a language
+./gradlew compileExtensions -Pext=ja/*
+
+# List available
+./gradlew listExtensions
 ```
 
-Output: `packages/extension-compiler/dev/wasm/all-mangadex/`
-
-The dev folder contains:
-- `index.html` - Test UI for browsing manga, chapters, pages
-- `worker.js` - Web Worker that loads WASM (edit `EXTENSION` constant to switch)
-- `wasm/` - Build output (gitignored)
-
-## Key Design: Zero Source Modification
-
-The build pipeline compiles extensions **directly from vendor source** without copying or modifying code:
-
-1. **Preprocessor** adds missing JVM imports (`java.lang.System`, `java.lang.Integer`, etc.)
-2. **Excludes** Android-specific files (`*Activity.kt`)
-3. **Generates** `Main.kt` entry point with `@JsExport` functions
-4. **Compiles** against `extension-lib-wasm` shim library
-
-This enables automated CI/CD: GitHub Actions can build all Keiyoushi extensions to WASM.
-
-## nemu Integration
+### Output Structure
 
 ```
-src/lib/sources/keiyoushi/
-├── types.ts              # DTO types matching WASM exports
-├── source.worker.ts      # Web Worker that loads Kotlin/WASM
-├── async-source.ts       # Comlink wrapper for async API
-├── adapter.ts            # Converts to nemu's MangaSource interface
-└── index.ts              # Exports
+dev/extensions/
+├── ja-shonenjumpplus/
+│   ├── extension.js       # Compiled Kotlin/JS
+│   ├── extension.js.map   # Source map
+│   ├── icon.png           # From res/mipmap-xxhdpi/
+│   └── manifest.json      # Metadata
+└── all-mangadex/
+    └── ...
 ```
 
-### Production vs Development
+### Build Features
 
-**Production**: WASM files served from CDN
-```typescript
-const wasmUrl = "https://cdn.nemu.pm/wasm/all-mangadex/all-mangadex.wasm";
+- **No stale builds** - Gradle inputs track extension name, auto-invalidates cache
+- **Multisrc support** - Automatically includes theme libraries (GigaViewer, etc.)
+- **Lib dependencies** - Auto-detects `project(":lib:cryptoaes")` style deps
+
+---
+
+## Extension Compatibility
+
+### By Extension Type
+
+| Type | Count | Status |
+|------|-------|--------|
+| HttpSource | ~50 | ✅ Works |
+| ParsedHttpSource | ~223 | ✅ Works |
+| GigaViewer multisrc | 7 | ✅ Works |
+| Other multisrc | varies | Depends on shims |
+
+### Known Working Extensions
+
+- `all/mangadex` - Full MangaDex with 61 language sources
+- `ja/shonenjumpplus` - GigaViewer, locked chapter detection
+- `ja/ganganonline` - Japanese dates
+- `ja/zenon` - GigaViewer
+- `ja/tonarinoyoungjump` - GigaViewer
+
+### Extensions Needing More Shims
+
+| Extension | Missing |
+|-----------|---------|
+| `zh/manhuaren` | JSONObject, UUID |
+| `ja/mangatoshokanz` | android.util.Base64 (different from java.util) |
+| `zh/zaimanhua` | TextPaint text measurement |
+
+---
+
+## Adapter Layer
+
+The TypeScript adapter (`src/lib/sources/tachiyomi/adapter.ts`) provides:
+
+### Chapter Recognition
+
+Ported from Mihon's `ChapterRecognition.kt`:
+- Parses chapter numbers from titles like "Vol.1 Ch. 5 - Title"
+- Fallback to index-based numbering if parsing fails
+- Handles alpha suffixes (Ch.5a → 5.1)
+
+### Locked Chapter Detection
+
+Strips emoji prefixes and sets `locked: true`:
+- 💴 - Paid chapter (GigaViewer)
+- 🔒 - Locked/unpublished
+
+### Chapter Number Fallback
+
+Three-tier strategy:
+1. Source-provided number (if > -1)
+2. Parsed from chapter name
+3. Index-based (for descending lists)
+
+---
+
+## Testing
+
+```bash
+# Extension info
+bun scripts/test-tachiyomi-source.ts <ext> info
+
+# Browse
+bun scripts/test-tachiyomi-source.ts <ext> popular
+bun scripts/test-tachiyomi-source.ts <ext> latest
+
+# Search
+bun scripts/test-tachiyomi-source.ts <ext> search "query"
+
+# Manga details
+bun scripts/test-tachiyomi-source.ts <ext> manga "/manga/..."
+
+# Full read test
+bun scripts/test-tachiyomi-source.ts <ext> read "/manga/..." "/chapter/..."
 ```
 
-**Development**: Local WASM files via Vite proxy
-```typescript
-// vite.config.ts
-export default defineConfig({
-  server: {
-    proxy: {
-      '/dev-wasm': {
-        target: 'file://',
-        rewrite: () => './packages/extension-compiler/dev/wasm'
-      }
-    }
-  }
-});
-
-// Or simpler: run `npx serve packages/extension-compiler/dev -p 3001`
-// and load from http://localhost:3001/wasm/...
-```
-
-### Dev Workflow
-
-1. Build extension: `./gradlew :extension-compiler:devBuild -Pextension=all/mangadex`
-2. Start WASM server: `npx serve packages/extension-compiler/dev -p 3001`
-3. In nemu dev, set `VITE_WASM_DEV_URL=http://localhost:3001/wasm`
-4. Adapter checks env and uses dev URL when present
-
-### Usage in nemu
-
-```typescript
-import { createAsyncKeiyoushiSource, createKeiyoushiMangaSource } from "@/lib/sources/keiyoushi";
-
-// Resolve WASM URL (dev vs production)
-const wasmBase = import.meta.env.VITE_WASM_DEV_URL || "https://cdn.nemu.pm/wasm";
-
-const asyncSource = await createAsyncKeiyoushiSource(
-  `${wasmBase}/all-mangadex/all-mangadex.wasm`,
-  { id: "mangadex", name: "MangaDex", lang: "en", version: "1.0" }
-);
-
-const source = createKeiyoushiMangaSource(asyncSource);
-
-const results = await source.search("one piece");
-const manga = await source.getManga(results.items[0].id);
-const chapters = await source.getChapters(manga.id);
-```
-
-## Compilation Pipeline
-
-```
-vendor/keiyoushi/extensions-source/src/all/mangadex/
-          │
-          ▼ (preprocess: add imports)
-    build/preprocessed/src/
-          │
-          ▼ (+ generated Main.kt)
-    build/generated/src/wasmJsMain/kotlin/Main.kt
-          │
-          ▼ (compile against extension-lib-wasm)
-    build/compileSync/.../all-mangadex.wasm + .mjs
-```
-
-## API Shimming
-
-Original extensions import Android/JVM APIs. We provide stub implementations:
-
-| Original API | WASM Shim |
-|--------------|-----------|
-| `OkHttpClient.execute()` | Sync XHR via `@JsFun` (through CORS proxy) |
-| `SharedPreferences` | In-memory `Map` |
-| `java.util.Date` | JS `Date.now()` via `@JsFun` |
-| `java.util.Locale` | Static language data |
-| `java.lang.Integer` | Maps to Kotlin `Int` |
-| `KClass.java.classLoader` | Stub ClassLoader |
-| `android.util.Log` | `console.log()` |
-| `kotlinx.serialization` | Works natively in K/WASM |
-| `rx.Observable` | Simplified sync implementation |
-
-### Auto-Injected Imports
-
-The preprocessor adds these imports to each `.kt` file:
-
-```kotlin
-import java.lang.System
-import java.lang.Integer
-import java.lang.Class
-import keiyoushi.wasm.compat.*  // Extension shims
-```
+---
 
 ## File Structure
 
 ```
-packages/
-├── extension-lib-wasm/           # Shim library
-│   └── src/wasmJsMain/kotlin/
-│       ├── android/              # SharedPreferences, Log, Build
-│       ├── androidx/preference/  # Preference UI stubs (no-op)
-│       ├── eu/kanade/tachiyomi/  # Source interfaces
-│       │   ├── source/           # Source, CatalogueSource, HttpSource
-│       │   └── network/          # GET(), asObservable()
-│       ├── java/                 # util (Date, Locale), lang (System, Integer)
-│       │   └── io/               # IOException
-│       ├── keiyoushi/wasm/compat/# Extension shims
-│       ├── okhttp3/              # Request, Response, OkHttpClient
-│       │   └── internal/         # FetchBridge (sync XHR)
-│       ├── org/jsoup/            # Parser stub
-│       └── rx/                   # Observable stub
-│
-└── extension-compiler/           # Build tool
-    └── build.gradle.kts          # Parameterized build for any extension
+packages/tachiyomi-js/
+├── build.gradle.kts          # Build logic
+├── src/jsMain/kotlin/
+│   ├── android/              # Android API shims
+│   │   ├── graphics/         # Bitmap, Canvas, BitmapFactory
+│   │   └── ...
+│   ├── eu/kanade/tachiyomi/  # Source interfaces
+│   │   └── source/online/
+│   │       ├── HttpSource.kt
+│   │       └── ParsedHttpSource.kt
+│   ├── java/
+│   │   ├── io/               # InputStream, BufferedReader
+│   │   ├── math/             # BigInteger
+│   │   ├── security/         # KeyFactory, KeyPairGenerator, RSA keys
+│   │   ├── text/             # SimpleDateFormat
+│   │   └── util/             # Date, Locale, Calendar
+│   │       └── zip/          # GZIPInputStream
+│   ├── javax/crypto/         # Cipher (AES + RSA)
+│   ├── okhttp3/              # HTTP client
+│   ├── okio/                 # Binary I/O
+│   ├── org/jsoup/            # Ksoup wrapper
+│   └── rx/                   # RxJava shim
 
-src/lib/sources/keiyoushi/        # nemu integration
-├── types.ts                      # TypeScript types
-├── source.worker.ts              # Web Worker
-├── async-source.ts               # Comlink async wrapper
-├── adapter.ts                    # MangaSource adapter
-└── index.ts
+src/lib/sources/tachiyomi/
+├── adapter.ts                # MangaSource adapter
+├── source.worker.ts          # Web Worker runtime
+├── types.ts                  # TypeScript types
+└── dev-registry.ts           # Dev extension loader
+
+src/lib/
+├── chapter-recognition.ts    # Mihon-style chapter parsing
+└── format-chapter.ts         # Chapter title formatting
+
+dev/extensions/               # Built extensions (gitignored)
+└── <lang>-<name>/
+    ├── extension.js
+    ├── manifest.json
+    └── icon.png
 ```
+
+---
 
 ## Comparison with Aidoku
 
-| Aspect | Aidoku | Keiyoushi/WASM |
-|--------|--------|----------------|
-| Source language | Rust | Kotlin |
-| Binary format | WASM (wasmer) | WASM (WasmGC) |
-| Size | ~50KB/source | ~600KB/source |
-| HTTP | Sync XHR in Worker | Sync XHR in Worker |
-| JSON | Host-provided imports | kotlinx.serialization |
-| Source modification | None | None |
-| Extension count | ~100 | 700+ (Keiyoushi) |
-| nemu integration | ✅ Complete | ✅ Started |
-
-## Lessons Learned
-
-During development, we explored multiple approaches before settling on the current architecture:
-
-### Approach 1: Async/Await with Coroutines (Abandoned)
-
-**Idea**: Use Kotlin coroutines with `suspend` functions, bridging OkHttp's `execute()` to browser's async `fetch()` API.
-
-**Problems**:
-- Required injecting `suspend` keyword into extension source methods via regex preprocessing
-- Cascading async: if `execute()` is `suspend`, then `popularMangaParse()` must be `suspend`, then `getPopularManga()` must be `suspend`, etc.
-- Brittle regex-based source transformation
-- Complex Promise handling between Kotlin/WASM and JavaScript
-
-**Why it failed**: The async cascade forced modifications to too many method signatures, violating our "zero modification" goal.
-
-### Approach 2: Synchronous XHR in Web Worker (Current)
-
-**Idea**: Use synchronous `XMLHttpRequest` inside a Web Worker (same pattern as Aidoku).
-
-**Benefits**:
-- Extension code remains **completely synchronous** - no `suspend` keywords needed
-- No source code modifications required
-- Proven pattern from Aidoku runtime
-- Simple execution model
-
-**Key insight**: Synchronous XHR is blocked in the **main thread** of modern browsers (throws `DOMException`), but is **allowed in Web Workers**. This is why Aidoku uses this architecture.
-
-### Key Technical Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| Web Worker for WASM | Enables sync XHR; isolates extension execution |
-| CORS Proxy | Browser same-origin policy blocks direct API calls |
-| JSON string returns | WASM objects can't be cloned via `postMessage`; strings can |
-| Import injection | JVM auto-imports (`java.lang.*`) don't exist in Kotlin/WASM |
-| No coroutines | Sync XHR eliminates need for async handling |
-
-### What Worked Well
-
-1. **Aidoku as reference** - Same architectural patterns apply despite Rust vs Kotlin
-2. **WasmGC availability** - Modern browsers all support it now (Dec 2024+)
-3. **kotlinx.serialization** - Works natively in Kotlin/WASM, no shimming needed
-4. **Gradle multiplatform** - Clean separation between JVM and WASM targets
-
-## Limitations
-
-1. **Bundle size**: ~600KB vs Aidoku's ~50KB (Kotlin stdlib overhead)
-2. **Preferences UI**: `setupPreferenceScreen()` is no-op
-3. **Jsoup**: HTML parsing needs real implementation or JS bridge
-4. **CORS**: All requests must go through `service.nemu.pm/proxy`
-
-## Future Work
-
-- [ ] Wire keiyoushi adapter into nemu's source registry
-- [ ] Test full manga reading flow end-to-end
-- [ ] CI/CD pipeline to build all Keiyoushi extensions
-- [ ] Reduce bundle size with shared stdlib
-- [ ] Jsoup HTML parsing bridge
+| Aspect | Aidoku | Tachiyomi/JS |
+|--------|--------|--------------|
+| Language | Rust | Kotlin |
+| Format | WASM (~50KB) | JS (~600KB) |
+| Extensions | ~100 | 1200+ |
+| HTML parsing | Hand-rolled | Ksoup (real parser) |
+| Crypto | None | AES + RSA |
+| Debugging | Limited | Full stack traces |
+| Shim size | ~2000 lines | ~5000 lines |

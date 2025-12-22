@@ -13,6 +13,9 @@ build
 packages/extension-compiler/dev/wasm/
 .gradle/
 
+# Tachiyomi dev extensions
+dev/extensions/
+
 # Logs
 logs
 *.log

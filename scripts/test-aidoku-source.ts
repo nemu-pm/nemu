@@ -52,6 +52,7 @@
 import { unzipSync } from "fflate";
 import { loadSource, type AidokuSource } from "../src/lib/sources/aidoku/runtime";
 import type { SourceManifest, Manga, Chapter } from "../src/lib/sources/aidoku/types";
+import { installXHRPolyfill, PROXY_URL } from "./lib/proxy-request";
 
 const DEBUG = process.env.DEBUG === "1";
 
@@ -64,9 +65,6 @@ interface SettingsItem {
   items?: SettingsItem[];
 }
 
-// Configuration - use production proxy by default
-const PROXY_URL = process.env.PROXY_URL || "https://service.nemu.pm";
-
 // Override proxyUrl to use local proxy
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -78,161 +76,8 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   return originalFetch(input, init);
 };
 
-// Sync XMLHttpRequest using local proxy
-class ProxiedXMLHttpRequest {
-  private _method = "GET";
-  private _url = "";
-  private _headers: Record<string, string> = {};
-  private _responseText = "";
-  private _response: ArrayBuffer | null = null;
-  private _status = 0;
-  private _responseHeaders: Record<string, string> = {};
-
-  readyState = 0;
-  get status() { return this._status; }
-  get statusText() { return this._status === 200 ? "OK" : "Error"; }
-  get responseText() { return this._responseText; }
-  responseType: XMLHttpRequestResponseType = "";
-  get response() { return this._response; }
-
-  onload: (() => void) | null = null;
-  onerror: ((e: Error) => void) | null = null;
-  onreadystatechange: (() => void) | null = null;
-
-  open(method: string, url: string, _async = true) {
-    this._method = method;
-    this._url = url;
-    this.readyState = 1;
-  }
-
-  setRequestHeader(name: string, value: string) {
-    this._headers[name] = value;
-  }
-
-  overrideMimeType(_mimeType: string) {}
-
-  getAllResponseHeaders(): string {
-    return Object.entries(this._responseHeaders)
-      .map(([k, v]) => `${k}: ${v}`)
-      .join("\r\n");
-  }
-
-  send(body?: Document | XMLHttpRequestBodyInit | null) {
-    // Extract original URL if already proxied (e.g., from service.nemu.pm/proxy)
-    let targetUrl = this._url;
-    const proxyMatch = this._url.match(/\/proxy\?url=(.+)/);
-    if (proxyMatch) {
-      targetUrl = decodeURIComponent(proxyMatch[1]);
-    }
-    
-    // Build proxy URL
-    const proxyTarget = `${PROXY_URL}/proxy?url=${encodeURIComponent(targetUrl)}`;
-    
-    // Build headers - convert x-proxy-* to actual headers for the proxy
-    const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(this._headers)) {
-      if (k.toLowerCase().startsWith("x-proxy-")) {
-        headers[`x-proxy-${k.slice(8)}`] = v;
-      } else {
-        headers[`x-proxy-${k}`] = v;
-      }
-    }
-
-    console.log(`[HTTP] ${this._method} ${targetUrl}`);
-
-    try {
-      // Use Bun's synchronous fetch equivalent
-      const result = Bun.spawnSync([
-        "curl", "-s", "-i",
-        "-X", this._method,
-        "-L",
-        "--max-time", "30",
-        ...Object.entries(headers).flatMap(([k, v]) => ["-H", `${k}: ${v}`]),
-        ...(body ? ["-d", body.toString()] : []),
-        proxyTarget,
-      ]);
-
-      const rawBuffer: Buffer = result.stdout as Buffer;
-      
-      // Find header/body separator
-      let headerEnd = -1;
-      let separatorLen = 4;
-      for (let i = 0; i < rawBuffer.length - 3; i++) {
-        if (rawBuffer[i] === 0x0d && rawBuffer[i+1] === 0x0a && 
-            rawBuffer[i+2] === 0x0d && rawBuffer[i+3] === 0x0a) {
-          headerEnd = i;
-          break;
-        }
-      }
-      if (headerEnd === -1) {
-        for (let i = 0; i < rawBuffer.length - 1; i++) {
-          if (rawBuffer[i] === 0x0a && rawBuffer[i+1] === 0x0a) {
-            headerEnd = i;
-            separatorLen = 2;
-            break;
-          }
-        }
-      }
-      
-      if (headerEnd !== -1) {
-        const headerPart = rawBuffer.slice(0, headerEnd).toString("utf-8");
-        const bodyBuffer = rawBuffer.slice(headerEnd + separatorLen);
-        
-        // Parse status from last HTTP line (in case of redirects)
-        const lastHttpIndex = headerPart.lastIndexOf("HTTP/");
-        if (lastHttpIndex !== -1) {
-          const statusLine = headerPart.slice(lastHttpIndex).split(/\r?\n/)[0];
-          const statusMatch = statusLine.match(/HTTP\/[\d.]+ (\d+)/);
-          if (statusMatch) {
-            this._status = parseInt(statusMatch[1], 10);
-          }
-        }
-        
-        // Parse headers
-        const headerLines = headerPart.slice(lastHttpIndex).split(/\r?\n/).slice(1);
-        for (const line of headerLines) {
-          const idx = line.indexOf(": ");
-          if (idx > 0) {
-            this._responseHeaders[line.slice(0, idx).toLowerCase()] = line.slice(idx + 2);
-          }
-        }
-        
-        // Store response as ArrayBuffer
-        this._response = bodyBuffer.buffer.slice(
-          bodyBuffer.byteOffset,
-          bodyBuffer.byteOffset + bodyBuffer.byteLength
-        );
-        
-        // Also create responseText for compatibility (Latin-1 style)
-        this._responseText = "";
-        for (let i = 0; i < bodyBuffer.length; i++) {
-          this._responseText += String.fromCharCode(bodyBuffer[i]);
-        }
-      } else {
-        this._response = rawBuffer.buffer.slice(0);
-        this._responseText = "";
-        for (let i = 0; i < rawBuffer.length; i++) {
-          this._responseText += String.fromCharCode(rawBuffer[i]);
-        }
-        this._status = 200;
-      }
-
-      this.readyState = 4;
-      this.onreadystatechange?.();
-      this.onload?.();
-    } catch (e) {
-      console.error("[HTTP] Error:", e);
-      this._status = 0;
-      this.readyState = 4;
-      this.onerror?.(e as Error);
-    }
-  }
-
-  abort() {}
-}
-
-// @ts-expect-error - polyfill
-globalThis.XMLHttpRequest = ProxiedXMLHttpRequest;
+// Install XMLHttpRequest polyfill for WASM runtime
+installXHRPolyfill();
 
 /**
  * Extract default settings from settings.json

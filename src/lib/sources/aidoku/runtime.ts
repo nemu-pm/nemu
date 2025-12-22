@@ -10,6 +10,7 @@ import { createEnvImports } from "./imports/env";
 import { createAidokuImports } from "./imports/aidoku";
 import { createCanvasImports, createHostImage, getHostImageData } from "./imports/canvas";
 import { createJsImports } from "./imports/js";
+import { normalizeSourceLang } from "../language";
 import {
   encodeString,
   encodeEmptyVec,
@@ -686,7 +687,7 @@ export async function loadSource(
               dateUploaded: chapter.dateUploaded ? (chapter.dateUploaded as number) * 1000 : undefined,
               scanlator: chapter.scanlator as string | undefined,
               url: chapter.url as string | undefined,
-              lang: (chapter.lang as string) || "zh",
+              lang: normalizeSourceLang(chapter.lang as string),
               sourceOrder: index,
               locked: chapter.locked as boolean | undefined,
             };
@@ -737,7 +738,7 @@ export async function loadSource(
           dateUploaded: c.dateUploaded ? c.dateUploaded * 1000 : undefined,
           scanlator: c.scanlators?.join(", ") || undefined,
           url: c.url || undefined,
-          lang: c.language || "zh",
+          lang: normalizeSourceLang(c.language),
           sourceOrder: index,
           locked: c.locked || undefined,
         }));
