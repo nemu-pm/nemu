@@ -1,11 +1,10 @@
 /**
  * Generate Tachiyomi extension registry from built extensions.
- * 
- * Usage:
- *   bun dev/generate-tachiyomi-registry.ts
- * 
- * Reads: dist/tachiyomi/tachiyomi-extensions/*/manifest.json
- * Outputs: dist/tachiyomi/index.json
+ *
+ * Usage: bun dev/generate-tachiyomi-registry.ts
+ *
+ * Reads from dist/tachiyomi/tachiyomi-extensions/<ext>/manifest.json
+ * Outputs to dist/tachiyomi/index.json
  */
 
 import * as fs from "fs";
