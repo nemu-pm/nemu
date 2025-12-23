@@ -760,19 +760,33 @@ if (isExtensionBuild) {
     val iconFile = iconDensities.map { File(extensionResPath, "mipmap-$it/ic_launcher.png") }
         .firstOrNull { it.exists() }
     
-    tasks.register<Copy>("devBuild") {
-        dependsOn("jsBrowserProductionWebpack")
-        from(layout.buildDirectory.dir("kotlin-webpack/js/productionExecutable"))
-        into(outputDir)
-        include("*.js", "*.js.map")
+    // Use bun bundler instead of webpack (10x faster)
+    tasks.register("esbuildBundle") {
+        dependsOn("compileProductionExecutableKotlinJs")
         
-        rename { fileName ->
-            when {
-                fileName.endsWith(".js.map") -> "extension.js.map"
-                fileName.endsWith(".js") -> "extension.js"
-                else -> fileName
+        val inputFile = layout.buildDirectory.file("compileSync/js/main/productionExecutable/kotlin/$extensionLang-$extensionName.js")
+        val outputFile = File(outputDir, "extension.js")
+        
+        inputs.file(inputFile)
+        outputs.file(outputFile)
+        
+        doLast {
+            outputDir.mkdirs()
+            exec {
+                commandLine(
+                    "bun", "build",
+                    inputFile.get().asFile.absolutePath,
+                    "--outfile", outputFile.absolutePath,
+                    "--minify",
+                    "--target", "node",
+                    "--format", "cjs"
+                )
             }
         }
+    }
+    
+    tasks.register("devBuild") {
+        dependsOn("esbuildBundle")
         
         doLast {
             // Copy icon if available
