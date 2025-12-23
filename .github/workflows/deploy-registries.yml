@@ -16,6 +16,11 @@ on:
         required: false
         default: ''
         type: string
+      skip_tests:
+        description: 'Skip extension tests'
+        required: false
+        default: 'false'
+        type: boolean
   push:
     paths:
       - 'packages/tachiyomi-shim/**'
@@ -30,6 +35,9 @@ concurrency:
   group: deploy-registries
   cancel-in-progress: true
 
+env:
+  BUILD_START_TIME: ${{ github.event.head_commit.timestamp || github.event.repository.updated_at }}
+
 jobs:
   # ============================================================================
   # Aidoku Registry (fetch upstream + enrich with authors)
@@ -40,8 +48,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
-          fetch-depth: 0
+          submodules: recursive  # Need vendor/Aidoku-Community for author data
       
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -63,13 +70,14 @@ jobs:
           retention-days: 1
 
   # ============================================================================
-  # Tachiyomi Extensions (detect changes + build + generate registry)
+  # Tachiyomi Extensions (detect changes + build + test + generate registry)
   # ============================================================================
   tachiyomi-detect:
     runs-on: ubuntu-latest
     outputs:
       extensions: ${{ steps.detect.outputs.extensions }}
       has_changes: ${{ steps.detect.outputs.has_changes }}
+      keiyoushi_commit: ${{ steps.detect.outputs.keiyoushi_commit }}
     
     steps:
       - name: Checkout
@@ -83,7 +91,13 @@ jobs:
         run: |
           cd vendor/keiyoushi/extensions-source
           
+          # Get current keiyoushi submodule commit (this is what we track, NOT nemu repo commit)
+          CURRENT_COMMIT=$(git rev-parse HEAD)
+          echo "Current keiyoushi commit: $CURRENT_COMMIT"
+          echo "keiyoushi_commit=$CURRENT_COMMIT" >> $GITHUB_OUTPUT
+          
           LAST_COMMIT=$(echo "${{ vars.KEIYOUSHI_LAST_COMMIT }}" | xargs)  # trim whitespace
+          echo "Last tracked commit: $LAST_COMMIT"
           
           if [ "${{ inputs.force_tachiyomi_rebuild }}" == "true" ]; then
             echo "Force rebuild requested"
@@ -93,11 +107,14 @@ jobs:
           elif [ -z "$LAST_COMMIT" ]; then
             echo "No last commit found, building all extensions"
             EXTENSIONS=$(find src -mindepth 2 -maxdepth 2 -type d | sed 's|src/||' | sort | tr '\n' ',' | sed 's/,$//')
+          elif ! git cat-file -e "$LAST_COMMIT" 2>/dev/null; then
+            echo "Last commit $LAST_COMMIT not found in history, building all extensions"
+            EXTENSIONS=$(find src -mindepth 2 -maxdepth 2 -type d | sed 's|src/||' | sort | tr '\n' ',' | sed 's/,$//')
           else
             CHANGED_FILES=$(git diff --name-only "$LAST_COMMIT" HEAD -- src/ 2>/dev/null || echo "")
             
             if [ -z "$CHANGED_FILES" ]; then
-              echo "No changes detected"
+              echo "No changes detected since $LAST_COMMIT"
               echo "has_changes=false" >> $GITHUB_OUTPUT
               echo "extensions=" >> $GITHUB_OUTPUT
               exit 0
@@ -124,9 +141,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
+        # Shim only needs packages/tachiyomi-shim, no submodules
       
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -187,6 +202,7 @@ jobs:
         run: chmod +x packages/tachiyomi-shim/gradlew packages/tachiyomi-js/gradlew
       
       - name: Build extensions (chunk ${{ matrix.chunk }})
+        id: build
         run: |
           EXTENSIONS="${{ needs.tachiyomi-detect.outputs.extensions }}"
           IFS=',' read -ra EXT_ARRAY <<< "$EXTENSIONS"
@@ -199,19 +215,134 @@ jobs:
           
           if [ $START -ge $TOTAL ]; then
             echo "No extensions in this chunk"
+            echo '{"chunk": ${{ matrix.chunk }}, "extensions": []}' > chunk-results.json
             exit 0
           fi
           
+          # Generate manifest for this chunk's extensions
+          CHUNK_EXTS=""
+          for i in $(seq $START $(( END - 1 ))); do
+            if [ $i -ge $TOTAL ]; then break; fi
+            if [ -n "$CHUNK_EXTS" ]; then CHUNK_EXTS="$CHUNK_EXTS,"; fi
+            CHUNK_EXTS="$CHUNK_EXTS${EXT_ARRAY[$i]}"
+          done
+          
+          echo "Generating manifest for: $CHUNK_EXTS"
+          bun dev/scan-extensions.ts --only "$CHUNK_EXTS"
+          
           cd packages/tachiyomi-js
+          
+          # Initialize results JSON
+          echo '{"chunk": ${{ matrix.chunk }}, "extensions": [' > ../../chunk-results.json
+          FIRST=true
           
           for i in $(seq $START $(( END - 1 ))); do
             if [ $i -ge $TOTAL ]; then break; fi
             EXT="${EXT_ARRAY[$i]}"
+            
             echo "::group::Building $EXT"
-            # Use daemon (faster), parallel, and build cache
-            ./gradlew devBuild -Pextension="$EXT" --build-cache --parallel || echo "::warning::Failed to build $EXT"
+            BUILD_START=$(date +%s%3N)
+            
+            # Capture build output to file
+            BUILD_OUTPUT_FILE=$(mktemp)
+            BUILD_STATUS="success"
+            BUILD_ERROR=""
+            
+            if ./gradlew devBuild -Pextension="$EXT" --build-cache --parallel --configuration-cache --stacktrace > "$BUILD_OUTPUT_FILE" 2>&1; then
+              echo "✅ Build succeeded: $EXT"
+            else
+              BUILD_STATUS="failed"
+              BUILD_ERROR=$(cat "$BUILD_OUTPUT_FILE" | tail -100)
+              echo "❌ Build failed: $EXT"
+              cat "$BUILD_OUTPUT_FILE"
+            fi
+            
+            BUILD_END=$(date +%s%3N)
+            BUILD_TIME=$((BUILD_END - BUILD_START))
+            
             echo "::endgroup::"
+            
+            # Add result to JSON
+            if [ "$FIRST" = true ]; then
+              FIRST=false
+            else
+              echo ',' >> ../../chunk-results.json
+            fi
+            
+            # Escape error for JSON
+            BUILD_ERROR_JSON=$(echo "$BUILD_ERROR" | jq -Rs '.')
+            
+            cat >> ../../chunk-results.json << JSONEOF
+          {
+            "id": "$EXT",
+            "status": "$BUILD_STATUS",
+            "buildTimeMs": $BUILD_TIME,
+            "error": $BUILD_ERROR_JSON
+          }
+          JSONEOF
+            
+            rm -f "$BUILD_OUTPUT_FILE"
           done
+          
+          echo ']}' >> ../../chunk-results.json
+          
+          # Pretty print for logs
+          echo "Chunk results:"
+          cat ../../chunk-results.json | jq .
+      
+      - name: Run extension tests
+        if: ${{ inputs.skip_tests != true }}
+        continue-on-error: true
+        run: |
+          # Read chunk results and run tests for successful builds
+          RESULTS=$(cat chunk-results.json)
+          EXTENSIONS=$(echo "$RESULTS" | jq -r '.extensions[] | select(.status == "success") | .id')
+          
+          if [ -z "$EXTENSIONS" ]; then
+            echo "No successful builds to test"
+            exit 0
+          fi
+          
+          # Create updated results with test info
+          UPDATED_RESULTS=$(echo "$RESULTS" | jq '.extensions = []')
+          
+          for EXT in $(echo "$RESULTS" | jq -r '.extensions[].id'); do
+            EXT_RESULT=$(echo "$RESULTS" | jq --arg ext "$EXT" '.extensions[] | select(.id == $ext)')
+            STATUS=$(echo "$EXT_RESULT" | jq -r '.status')
+            
+            if [ "$STATUS" = "success" ]; then
+              echo "::group::Testing $EXT"
+              
+              # Run test with timeout
+              TEST_OUTPUT=$(timeout 60 bun dev/test-extension.ts "$EXT" --timeout=30000 2>&1 || echo '{"status": "error", "error": "Test process failed or timed out"}')
+              
+              # Parse test result
+              if echo "$TEST_OUTPUT" | jq . > /dev/null 2>&1; then
+                TEST_RESULT=$(echo "$TEST_OUTPUT" | jq '{status: .status, durationMs: .durationMs, error: .error, details: .details}')
+              else
+                TEST_RESULT='{"status": "error", "error": "Invalid test output"}'
+              fi
+              
+              echo "Test result: $(echo "$TEST_RESULT" | jq -c .)"
+              echo "::endgroup::"
+              
+              # Add test result to extension
+              EXT_RESULT=$(echo "$EXT_RESULT" | jq --argjson test "$TEST_RESULT" '. + {test: $test}')
+            fi
+            
+            UPDATED_RESULTS=$(echo "$UPDATED_RESULTS" | jq --argjson ext "$EXT_RESULT" '.extensions += [$ext]')
+          done
+          
+          echo "$UPDATED_RESULTS" > chunk-results.json
+          echo "Updated chunk results with test info:"
+          cat chunk-results.json | jq .
+      
+      - name: Upload chunk results
+        uses: actions/upload-artifact@v4
+        with:
+          name: chunk-results-${{ matrix.chunk }}
+          path: chunk-results.json
+          retention-days: 1
       
       - name: Upload built extensions
         uses: actions/upload-artifact@v4
@@ -222,16 +353,14 @@ jobs:
           if-no-files-found: ignore
 
   tachiyomi-registry:
-    needs: [tachiyomi-detect, tachiyomi-shim, tachiyomi-build]
+    needs: [tachiyomi-detect, tachiyomi-build]
     if: always() && needs.tachiyomi-detect.result == 'success'
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
+        # Only need repo files, not submodules or history
       
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -245,6 +374,14 @@ jobs:
         with:
           path: dev/tachiyomi-extensions/
           pattern: tachiyomi-chunk-*
+          merge-multiple: true
+      
+      - name: Download chunk results
+        if: needs.tachiyomi-build.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          path: .cache/build-results/
+          pattern: chunk-results-*
           merge-multiple: true
       
       - name: Restore cached extensions
@@ -265,6 +402,15 @@ jobs:
       - name: Generate registry
         run: bun dev/generate-tachiyomi-registry.ts
       
+      - name: Generate build report
+        env:
+          BUILD_START_TIME: ${{ env.BUILD_START_TIME }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          mkdir -p .cache/build-results
+          bun dev/generate-build-report.ts
+      
       - name: Save extension cache
         uses: actions/cache/save@v4
         with:
@@ -282,7 +428,7 @@ jobs:
   # Deploy combined registries to GitHub Pages
   # ============================================================================
   deploy:
-    needs: [aidoku, tachiyomi-registry]
+    needs: [aidoku, tachiyomi-detect, tachiyomi-registry]
     if: always() && (needs.aidoku.result == 'success' || needs.tachiyomi-registry.result == 'success')
     runs-on: ubuntu-latest
     permissions:
@@ -291,8 +437,8 @@ jobs:
       id-token: write
     
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Create dist directory
+        run: mkdir -p dist
       
       - name: Download Aidoku registry
         if: needs.aidoku.result == 'success'
@@ -336,6 +482,7 @@ jobs:
             <ul>
               <li><a href="tachiyomi/index.json">tachiyomi/index.json</a></li>
               <li><a href="tachiyomi/index.min.json">tachiyomi/index.min.json</a></li>
+              <li><a href="tachiyomi/build-report.html">tachiyomi/build-report.html</a> (build report)</li>
             </ul>
           </body>
           </html>
@@ -344,15 +491,23 @@ jobs:
       - name: Update keiyoushi commit tracker
         if: needs.tachiyomi-registry.result == 'success'
         uses: actions/github-script@v7
+        env:
+          KEIYOUSHI_COMMIT: ${{ needs.tachiyomi-detect.outputs.keiyoushi_commit }}
         with:
           script: |
+            const commit = process.env.KEIYOUSHI_COMMIT;
+            if (!commit) {
+              console.log('No keiyoushi commit to track');
+              return;
+            }
             try {
               await github.rest.actions.createOrUpdateRepoVariable({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 name: 'KEIYOUSHI_LAST_COMMIT',
-                value: context.sha
+                value: commit
               });
+              console.log(`Updated KEIYOUSHI_LAST_COMMIT to ${commit}`);
             } catch (e) {
               console.log('Could not update variable:', e.message);
             }
@@ -364,4 +519,3 @@ jobs:
       
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
-

@@ -86,3 +86,13 @@ temp/
 # Dev scripts (one-time extraction, not needed in repo)
 dev/extract-aidoku-source-authors.ts
 dev/extract-tachiyomi-extension-authors.ts
+
+# CI/CD cache
+.cache/
+
+# Kotlin/Gradle generated files
+.kotlin/
+packages/tachiyomi-js/extensions-manifest.json
+packages/tachiyomi-js/buildSrc/build/
+packages/tachiyomi-js/buildSrc/.gradle/
+packages/tachiyomi-shim/build/

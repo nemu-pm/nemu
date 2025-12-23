@@ -2,6 +2,45 @@
 
 This document outlines the strategy for incrementally building and testing Keiyoushi extensions with our Kotlin/JS runtime.
 
+## Quick Start
+
+**Build a single extension:**
+```bash
+cd packages/tachiyomi-js
+./gradlew devBuild -Pextension=en/mangapill --configuration-cache
+```
+
+**Test it:**
+```bash
+# Quick info check
+bun scripts/test-tachiyomi-source.ts en-mangapill info
+
+# Test popular manga
+bun scripts/test-tachiyomi-source.ts en-mangapill popular
+
+# Search
+bun scripts/test-tachiyomi-source.ts en-mangapill search "one piece"
+
+# Interactive REPL (explore freely)
+bun scripts/test-tachiyomi-source.ts en-mangapill interactive
+```
+
+**One-liner build + test:**
+```bash
+cd packages/tachiyomi-js && ./gradlew devBuild -Pextension=en/mangapill -q && bun ../../scripts/test-tachiyomi-source.ts en-mangapill popular
+```
+
+**CI-style test (JSON output):**
+```bash
+bun dev/test-extension.ts en/mangapill
+```
+
+Output goes to: `dev/tachiyomi-extensions/en-mangapill/`
+
+> **Tip:** Config cache makes rebuilds fast (~0.5s warm). Just re-run the same `devBuild` command after code changes.
+
+---
+
 ## Strategy
 
 ### 1. Extension Prioritization
@@ -90,8 +129,10 @@ Output:
 
 ```bash
 cd packages/tachiyomi-js
-./gradlew devBuild -Pextension=en/mangapill
+./gradlew devBuild -Pextension=en/mangapill --configuration-cache
 ```
+
+The `--configuration-cache` flag enables Gradle's configuration cache for faster rebuilds (~0.5s warm vs ~15s cold).
 
 ### Test Extension
 
@@ -109,7 +150,7 @@ bun scripts/test-tachiyomi-source.ts en-mangapill settings
 
 ```bash
 cd packages/tachiyomi-js
-./gradlew compileExtensions -Pext=en/mangapill,ja/shonenjumpplus,all/mangadex
+./gradlew compileExtensions -Pext=en/mangapill,ja/shonenjumpplus,all/mangadex --configuration-cache --parallel
 ```
 
 ## Test Results
@@ -142,8 +183,9 @@ ksoup compiles CSS selectors to JavaScript regexes with Unicode flag (`u`), whic
 
 1. **CSS attribute selectors with `\=`**: Transform `a[href*=type\\=]` → `a[href*=\"type=\"]`
 2. **Regex with unescaped `]`**: Transform `(\\[.*?])` → `(\\[.*?\\])`
+3. **Empty negated character class**: Transform `[^]` → `[^\\]`
 
-These transforms are in `build.gradle.kts` under `codeTransformations`.
+These transforms are in `packages/tachiyomi-js/buildSrc/src/main/kotlin/ExtensionBuildTasks.kt` under `CodeTransformations`.
 
 ## Tested Extensions
 
