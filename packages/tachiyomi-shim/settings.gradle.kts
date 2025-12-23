@@ -13,9 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-// Include the shim library as a composite build
-// This allows Gradle to build and cache it separately, then reuse for all extensions
-includeBuild("../tachiyomi-shim")
-
-rootProject.name = "tachiyomi-js"
+rootProject.name = "tachiyomi-shim"
 

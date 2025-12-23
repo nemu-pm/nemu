@@ -18,6 +18,7 @@ on:
         type: string
   push:
     paths:
+      - 'packages/tachiyomi-shim/**'
       - 'packages/tachiyomi-js/**'
       - 'dev/aidoku-source-authors-base.json'
       - 'dev/tachiyomi-extension-authors-base.json'
@@ -114,14 +115,48 @@ jobs:
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
 
-  tachiyomi-build:
+  # Pre-compile the shim library once, share cache with all parallel build jobs
+  tachiyomi-shim:
     needs: tachiyomi-detect
+    if: needs.tachiyomi-detect.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      
+      - name: Make gradlew executable
+        run: chmod +x packages/tachiyomi-shim/gradlew packages/tachiyomi-js/gradlew
+      
+      - name: Pre-compile shim library
+        run: |
+          cd packages/tachiyomi-shim
+          ./gradlew compileKotlinJs --build-cache --parallel
+          echo "Shim compiled successfully"
+
+  tachiyomi-build:
+    needs: [tachiyomi-detect, tachiyomi-shim]
     if: needs.tachiyomi-detect.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        chunk: [0, 1, 2, 3]
+        # 8 parallel jobs for better throughput
+        chunk: [0, 1, 2, 3, 4, 5, 6, 7]
     
     steps:
       - name: Checkout
@@ -142,13 +177,14 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: false
+          # Read from cache populated by tachiyomi-shim job
+          cache-read-only: true
       
       - name: Install dependencies
         run: bun install
       
       - name: Make gradlew executable
-        run: chmod +x packages/tachiyomi-js/gradlew
+        run: chmod +x packages/tachiyomi-shim/gradlew packages/tachiyomi-js/gradlew
       
       - name: Build extensions (chunk ${{ matrix.chunk }})
         run: |
@@ -156,7 +192,8 @@ jobs:
           IFS=',' read -ra EXT_ARRAY <<< "$EXTENSIONS"
           TOTAL=${#EXT_ARRAY[@]}
           
-          CHUNK_SIZE=$(( (TOTAL + 3) / 4 ))
+          # 8 chunks
+          CHUNK_SIZE=$(( (TOTAL + 7) / 8 ))
           START=$(( ${{ matrix.chunk }} * CHUNK_SIZE ))
           END=$(( START + CHUNK_SIZE ))
           
@@ -171,7 +208,8 @@ jobs:
             if [ $i -ge $TOTAL ]; then break; fi
             EXT="${EXT_ARRAY[$i]}"
             echo "::group::Building $EXT"
-            ./gradlew devBuild -Pextension="$EXT" --no-daemon || echo "::warning::Failed to build $EXT"
+            # Use daemon (faster), parallel, and build cache
+            ./gradlew devBuild -Pextension="$EXT" --build-cache --parallel || echo "::warning::Failed to build $EXT"
             echo "::endgroup::"
           done
       
@@ -184,7 +222,7 @@ jobs:
           if-no-files-found: ignore
 
   tachiyomi-registry:
-    needs: [tachiyomi-detect, tachiyomi-build]
+    needs: [tachiyomi-detect, tachiyomi-shim, tachiyomi-build]
     if: always() && needs.tachiyomi-detect.result == 'success'
     runs-on: ubuntu-latest
     

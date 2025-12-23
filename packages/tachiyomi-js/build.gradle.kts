@@ -143,16 +143,18 @@ kotlin {
     
     sourceSets {
         val jsMain by getting {
-            // Always include shim source
-            // (default src/jsMain/kotlin is included automatically)
-            
             // For extension builds, add preprocessed extension source and generated entry point
+            // The shim code is now in a separate module (tachiyomi-shim) and only compiled once
             if (isExtensionBuild) {
                 kotlin.srcDir(preprocessedSrcDir)
                 kotlin.srcDir(generatedSrcDir)
             }
             
             dependencies {
+                // Depend on pre-compiled shim library (via composite build)
+                implementation("tachiyomi.shim:tachiyomi-shim")
+                
+                // These are already transitive from shim, but needed for extension code compilation
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:1.7.3")
                 implementation("com.fleeksoft.ksoup:ksoup:0.2.4")
