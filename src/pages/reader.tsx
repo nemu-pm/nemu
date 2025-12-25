@@ -122,6 +122,60 @@ export function ReaderPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [imageUrls, setImageUrls] = useState<Map<string, string>>(new Map());
 
+  // iOS PWA: avoid `vh/dvh` weirdness by sizing the fullscreen reader to the visual viewport in px.
+  const [visualViewportHeight, setVisualViewportHeight] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    return Math.round(window.visualViewport?.height ?? window.innerHeight);
+  });
+
+  // Lock document scroll while in reader, without `position: fixed` (which can clip on iOS/PWA).
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverscroll = document.documentElement.style.overscrollBehavior;
+    const prevBodyOverscroll = document.body.style.overscrollBehavior;
+
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
+    document.body.style.overscrollBehavior = "none";
+
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overscrollBehavior = prevHtmlOverscroll;
+      document.body.style.overscrollBehavior = prevBodyOverscroll;
+    };
+  }, []);
+
+  // Track visual viewport height changes (keyboard, toolbars, rotation).
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const update = () => {
+      setVisualViewportHeight(Math.round(window.visualViewport?.height ?? window.innerHeight));
+    };
+
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    window.visualViewport?.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("scroll", update);
+
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+      window.visualViewport?.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("scroll", update);
+    };
+  }, []);
+
+  const fullscreenStyle = useMemo<React.CSSProperties | undefined>(() => {
+    if (!visualViewportHeight || visualViewportHeight <= 0) return undefined;
+    return { height: visualViewportHeight };
+  }, [visualViewportHeight]);
+
   const [isWideScreen, setIsWideScreen] = useState(() => {
     if (typeof window === "undefined") return false;
     const h = window.innerHeight;
@@ -1118,7 +1172,7 @@ export function ReaderPage() {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-black reader-lock-scroll">
+      <div className="flex h-dvh items-center justify-center bg-black reader-lock-scroll" style={fullscreenStyle}>
         <Spinner className="size-8 text-white" />
       </div>
     );
@@ -1126,7 +1180,7 @@ export function ReaderPage() {
 
   if (error) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-black reader-lock-scroll">
+      <div className="flex h-dvh items-center justify-center bg-black reader-lock-scroll" style={fullscreenStyle}>
         <div className="text-center">
           <p className="text-xl text-red-400">{t("reader.failedToLoad")}</p>
           <p className="mt-2 text-neutral-400 selectable">{error}</p>
@@ -1163,7 +1217,7 @@ export function ReaderPage() {
       getPageImageUrl={getPageImageUrl}
       getLoadedPageUrls={getLoadedPageUrls}
     >
-    <div className="fixed inset-0 bg-black relative overflow-hidden reader-lock-scroll">
+    <div className="h-dvh w-screen bg-black relative overflow-hidden reader-lock-scroll" style={fullscreenStyle}>
       {/* Floating Top Bar */}
       <header
         className={`absolute left-0 right-0 z-10 flex justify-center ${

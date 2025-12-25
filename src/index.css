@@ -207,22 +207,13 @@ a img {
   }
 }
 
-/* Lock body scroll when in reader mode */
-html:has(.reader-lock-scroll),
-body:has(.reader-lock-scroll) {
-  overflow: hidden;
-  overscroll-behavior: none;
+/* Sonner (toast) safe-area offsets (iOS notch / iOS PWA). */
+[data-sonner-toaster][data-position^="top"] {
+  top: calc(env(safe-area-inset-top, 0px) + 16px) !important;
 }
 
-/* Sonner (toast) safe-area offsets (notably iOS standalone/PWA). */
-.toaster[data-sonner-toaster][data-position^="top"],
-.toaster [data-sonner-toaster][data-position^="top"] {
-  top: calc(var(--nemu-safe-top, 0px) + 16px) !important;
-}
-
-.toaster[data-sonner-toaster][data-position^="bottom"],
-.toaster [data-sonner-toaster][data-position^="bottom"] {
-  bottom: calc(var(--nemu-safe-bottom, 0px) + 16px) !important;
+[data-sonner-toaster][data-position^="bottom"] {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
 }
 
 /* Reader floating UI - adaptive glassmorphism for light/dark modes */
