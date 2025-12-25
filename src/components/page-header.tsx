@@ -31,10 +31,13 @@ export function PageHeader({ title, icon, action, actions, loading, className }:
   const collapseText = isScrolled && isMobile;
   return (
     <motion.header
+      data-slot="page-header"
       className={cn("sticky top-0 z-40", className)}
       initial={false}
       animate={{
-        paddingTop: isScrolled ? "0.75rem" : "0",
+        paddingTop: isScrolled
+          ? "calc(var(--nemu-safe-top, 0px) + 0.75rem)"
+          : "var(--nemu-safe-top, 0px)",
         paddingBottom: isScrolled ? "0.75rem" : "0",
       }}
       transition={springTransition}

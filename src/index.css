@@ -8,6 +8,9 @@
 
 :root {
   --radius: 0.65rem;
+  /* PWA safe-area helpers (defaults to 0; set in standalone mode below) */
+  --nemu-safe-top: 0px;
+  --nemu-safe-bottom: 0px;
   /* Nemu Light Theme - Blue-violet (hue 269°) */
   --background: oklch(0.985 0.006 269);
   --foreground: oklch(0.18 0.02 269);
@@ -188,6 +191,19 @@ a img {
 .h-dvh {
   height: 100vh;
   height: 100dvh;
+}
+
+/* iOS/standalone PWA: `dvh` can under-measure and produce bottom gaps (notably in the Reader). */
+@media (display-mode: standalone) {
+  :root {
+    --nemu-safe-top: env(safe-area-inset-top, 0px);
+    --nemu-safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .h-dvh {
+    height: 100vh;
+    height: -webkit-fill-available;
+  }
 }
 
 /* Lock body scroll when in reader mode */
