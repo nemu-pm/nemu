@@ -91,7 +91,11 @@
     "noHomeContent": "ホームコンテンツがありません",
     "refresh": "更新",
     "search": "検索",
-    "otherLanguages": "その他"
+    "otherLanguages": "その他",
+    "listing": {
+      "popular": "人気",
+      "latest": "最新"
+    }
   },
   "manga": {
     "sourceNotFound": "ソースが見つかりません",
@@ -164,7 +168,16 @@
     "noResults": "結果なし",
     "noResultsForQuery": "「{{query}}」に一致する漫画が見つかりませんでした"
   },
+  "about": {
+    "title": "このアプリについて",
+    "tagline": "心地よい漫画リーダー",
+    "description": "nemuはクロスプラットフォーム対応のウェブベース漫画リーダーです。さまざまなソースから漫画を発見して読むことができます。漫画好きのために心を込めて作りました。",
+    "sourceCode": "ソースコード",
+    "madeWith": "漫画好きのために心を込めて"
+  },
   "settings": {
+    "about": "",
+    "aboutNemu": "nemuについて",
     "loading": "設定を読み込み中...",
     "sourceUpdated": "ソースを更新しました: {{name}}",
     "sourcesUpdated": "{{count}}個のソースを更新しました: {{names}}",
@@ -267,7 +280,9 @@
       "description": "OCRと文法分析のために漫画ページのテキスト領域を検出します",
       "detection": "検出",
       "autoDetect": "テキスト自動検出",
-      "autoDetectSubtitle": "表示中のページでテキストを自動検出します（WebGPUが必要）",
+      "autoDetectSubtitle": "表示中のページでテキストを自動検出します",
+      "localInference": "ローカル推論",
+      "localInferenceSubtitle": "ブラウザ内でテキスト検出を実行します。WebGPUが必要です。",
       "enableForAllLanguages": "すべての言語で有効",
       "enableForAllLanguagesSubtitle": "日本語以外の漫画でもテキスト検出を表示します",
       "minConfidence": "最小信頼度",

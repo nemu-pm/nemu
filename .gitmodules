@@ -4,18 +4,6 @@
 [submodule "vendor/Aidoku/aidoku-rs"]
 	path = vendor/Aidoku/aidoku-rs
 	url = https://github.com/Aidoku/aidoku-rs.git
-[submodule "vendor/Aidoku-Community/sources"]
-	path = vendor/Aidoku-Community/sources
-	url = https://github.com/Aidoku-Community/sources.git
-[submodule "vendor/keiyoushi/extensions-source"]
-	path = vendor/keiyoushi/extensions-source
-	url = https://github.com/keiyoushi/extensions-source.git
 [submodule "vendor/mihonapp/mihon"]
 	path = vendor/mihonapp/mihon
 	url = https://github.com/mihonapp/mihon.git
-[submodule "vendor/yuzono/tachiyomi-extensions"]
-	path = vendor/yuzono/tachiyomi-extensions
-	url = https://github.com/yuzono/tachiyomi-extensions
-[submodule "vendor/Skittyblock/aidoku-community-sources"]
-	path = vendor/Skittyblock/aidoku-community-sources
-	url = https://github.com/Skittyblock/aidoku-community-sources

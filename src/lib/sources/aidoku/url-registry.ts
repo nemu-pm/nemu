@@ -10,8 +10,8 @@ import { Keys, CacheKeys } from "../../../data/keys";
 import { createAidokuMangaSource } from "./adapter";
 import type { SourceRegistryProvider, RegistrySourceInfo } from "../registry";
 import { getSourceSettingsStore } from "../../../stores/source-settings";
-import { extractAix } from "./aix";
 import { normalizeSourceLangs } from "../language";
+import type { Setting } from "@/lib/settings";
 
 // ============ DEFAULT AIDOKU REGISTRIES ============
 
@@ -173,13 +173,6 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     const registryId = this.info.id;
     await this.cacheStore.set(CacheKeys.aix(registryId, sourceId), aixData);
 
-    // Clean up old cache keys if they exist (migration)
-    await Promise.all([
-      this.cacheStore.delete(CacheKeys.wasm(registryId, sourceId)),
-      this.cacheStore.delete(CacheKeys.manifest(registryId, sourceId)),
-      this.cacheStore.delete(CacheKeys.settings(registryId, sourceId)),
-    ]);
-
     // Save installed source with composite id for storage uniqueness
     await this.userStore.saveInstalledSource({
       id: Keys.source(registryId, sourceId),
@@ -219,19 +212,6 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     // Try to load from cached AIX
     let aixData = await this.cacheStore.get(CacheKeys.aix(registryId, sourceId));
     
-    // Migration: if no AIX cached but old wasm exists, re-download
-    if (!aixData) {
-      const oldWasm = await this.cacheStore.get(CacheKeys.wasm(registryId, sourceId));
-      if (oldWasm) {
-        // Old format - trigger re-install to cache AIX
-        await this.ensureFetched();
-        if (this.sourceIndex.has(sourceId)) {
-          await this.installSource(sourceId);
-          aixData = await this.cacheStore.get(CacheKeys.aix(registryId, sourceId));
-        }
-      }
-    }
-    
     if (!aixData) {
       // Not installed at all - try to install
       await this.ensureFetched();
@@ -243,13 +223,18 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
       if (!aixData) return null;
     }
 
-    const { wasmBytes, manifest, settings } = await extractAix(aixData);
+    // Get icon URL from source index (always available after ensureFetched)
+    const entry = this.sourceIndex.get(sourceId);
+    const icon = entry?.iconPath ? `${this.baseUrl}/${entry.iconPath}` : undefined;
+    
+    // Create source - this extracts AIX in the worker and returns settingsJson + manifest
+    const { source, settingsJson, manifest } = await createAidokuMangaSource(aixData, sourceKey, this.cacheStore, icon);
     
     const settingsStore = getSourceSettingsStore();
     
     // Load settings schema from AIX if not already in store
-    if (settings && !settingsStore.getState().schemas.get(sourceKey)) {
-      await settingsStore.getState().setSchema(sourceKey, settings);
+    if (settingsJson && !settingsStore.getState().schemas.get(sourceKey)) {
+      await settingsStore.getState().setSchema(sourceKey, settingsJson as Setting[]);
     }
     
     // Set manifest-based defaults if not already set by user
@@ -261,20 +246,13 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
       settingsStore.getState().setSetting(sourceKey, "url", manifest.info.urls[0]);
     }
     
-    // Get icon URL from source index (always available after ensureFetched)
-    const entry = this.sourceIndex.get(sourceId);
-    const icon = entry?.iconPath ? `${this.baseUrl}/${entry.iconPath}` : undefined;
-    
-    return createAidokuMangaSource(wasmBytes, manifest, sourceKey, this.cacheStore, icon);
+    return source;
   }
 
   async isInstalled(sourceId: string): Promise<boolean> {
     const registryId = this.info.id;
-    // Check new AIX cache or old wasm cache (for migration)
     const aixData = await this.cacheStore.get(CacheKeys.aix(registryId, sourceId));
-    if (aixData) return true;
-    const wasmBytes = await this.cacheStore.get(CacheKeys.wasm(registryId, sourceId));
-    return wasmBytes !== null;
+    return aixData !== null;
   }
 
   unloadSource(sourceId: string): void {

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { cn } from "@/lib/utils";
 
 interface FadingOverlayProps {
   /**
@@ -67,9 +66,7 @@ export function FadingOverlay({
     <>
       {/* Fade gradient overlay at top */}
       <div
-        className={cn(
-          "fixed top-0 left-0 right-0 pointer-events-none z-40 transition-opacity duration-150"
-        )}
+        className="fixed top-0 left-0 right-0 z-30 pointer-events-none transition-opacity duration-150"
         style={{
           height: `${gradientHeight}px`,
           background: `linear-gradient(to bottom, ${gradientColor}, transparent)`,
@@ -78,9 +75,7 @@ export function FadingOverlay({
       />
       {/* Fade gradient overlay at bottom */}
       <div
-        className={cn(
-          "fixed bottom-0 left-0 right-0 pointer-events-none z-40 transition-opacity duration-150"
-        )}
+        className="fixed bottom-0 left-0 right-0 z-30 pointer-events-none transition-opacity duration-150"
         style={{
           height: `${gradientHeight}px`,
           background: `linear-gradient(to top, ${gradientColor}, transparent)`,

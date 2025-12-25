@@ -11,7 +11,7 @@ import { useStores } from "@/data/context";
 import { hasHomeBeenRefreshed, markHomeRefreshed } from "@/lib/sources/aidoku/adapter";
 import type { BrowsableSource } from "@/lib/sources/aidoku/adapter";
 import type { Manga, SearchResult } from "@/lib/sources/types";
-import type { FilterValue, HomeLayout, Listing, Filter } from "@/lib/sources/aidoku/types";
+import type { FilterValue, HomeLayout, Listing, Filter } from "@nemu.pm/aidoku-runtime";
 import { MangaCardGallery } from "@/components/manga-card-gallery";
 import { useScrollRestoration } from "@/hooks/use-scroll-restoration";
 import { HomeView, HomeSkeletonView } from "@/components/home-components";
@@ -108,13 +108,21 @@ export function AidokuBrowse({ data }: AidokuBrowseProps) {
   useEffect(() => {
     if (!source || !isHomeSelected || searchActive) return;
     
-    if (initialHome && homeLoadedForSourceRef.current !== source.sourceKey && !homeRefreshing) {
-      homeLoadedForSourceRef.current = source.sourceKey;
-      const isFirstVisit = !hasHomeBeenRefreshed(source.sourceKey);
-      if (!isFirstVisit) return;
+    // If we have cached initialHome and already loaded for this source, skip unless refreshing
+    if (initialHome && homeLoadedForSourceRef.current === source.sourceKey && !homeRefreshing) {
+      return;
     }
     
-    if (homeLoadedForSourceRef.current === source.sourceKey && !homeRefreshing) return;
+    // If we have cached initialHome but haven't loaded yet, check if first visit
+    if (initialHome && homeLoadedForSourceRef.current !== source.sourceKey && !homeRefreshing) {
+      const isFirstVisit = !hasHomeBeenRefreshed(source.sourceKey);
+      if (!isFirstVisit) {
+        // Not first visit, use cached data without refresh
+        homeLoadedForSourceRef.current = source.sourceKey;
+        return;
+      }
+      // First visit - fall through to loadHome() for fresh fetch
+    }
 
     const currentSource = source;
     const abortController = new AbortController();

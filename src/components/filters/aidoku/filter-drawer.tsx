@@ -1,18 +1,18 @@
 import { useState, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import type {
-  Filter,
-  FilterValue,
-  TextFilter,
-  SelectFilter,
-  SortFilter,
-  CheckFilter,
-  GroupFilter,
-  GenreFilter,
-  SortSelection,
-  MultiSelectValue,
-} from "@/lib/sources/aidoku/types";
-import { FilterType } from "@/lib/sources/aidoku/types";
+import {
+  FilterType,
+  type Filter,
+  type FilterValue,
+  type TextFilter,
+  type SelectFilter,
+  type SortFilter,
+  type CheckFilter,
+  type GroupFilter,
+  type GenreFilter,
+  type SortSelection,
+  type MultiSelectValue,
+} from "@nemu.pm/aidoku-runtime";
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,

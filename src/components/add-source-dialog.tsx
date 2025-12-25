@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useStores } from "@/data/context";
 import { type SourceInfo } from "@/stores/settings";
 import { Keys } from "@/data/keys";
-import { TACHIYOMI_DEV_REGISTRY_ID } from "@/lib/sources/tachiyomi/dev-registry";
+import { TACHIYOMI_LOCAL_REGISTRY_ID } from "@/lib/sources/tachiyomi/local-registry";
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -249,7 +249,7 @@ function RegistrySourceList({
 
   // Group sources by registry (exclude dev registry)
   const grouped = availableSources
-    .filter(s => s.registryId !== TACHIYOMI_DEV_REGISTRY_ID)
+    .filter(s => s.registryId !== TACHIYOMI_LOCAL_REGISTRY_ID)
     .reduce(
       (acc, source) => {
         const key = source.registryId;
@@ -341,14 +341,14 @@ function DevSourceList({
 
   // Filter to only show dev sources
   const devSources = availableSources.filter(
-    s => s.registryId === TACHIYOMI_DEV_REGISTRY_ID
+    s => s.registryId === TACHIYOMI_LOCAL_REGISTRY_ID
   );
 
   const doInstall = async (sourceId: string) => {
-    const key = Keys.source(TACHIYOMI_DEV_REGISTRY_ID, sourceId);
+    const key = Keys.source(TACHIYOMI_LOCAL_REGISTRY_ID, sourceId);
     onInstall(key);
     try {
-      await installSource(TACHIYOMI_DEV_REGISTRY_ID, sourceId);
+      await installSource(TACHIYOMI_LOCAL_REGISTRY_ID, sourceId);
     } finally {
       onInstall(null);
     }
@@ -377,8 +377,9 @@ function DevSourceList({
             Build an extension:
           </p>
           <pre className="mt-2 rounded bg-muted p-2 text-left text-xs">
-{`cd packages/tachiyomi-js
-./gradlew devBuild -Pextension=all/mangadex`}
+{`# In tachiyomi-js repo:
+bun scripts/scan-extensions.ts en/mangadex
+cd compiler && ./gradlew devBuild -Pextension=en/mangadex`}
           </pre>
           <p className="mt-2 text-xs text-muted-foreground">
             Then refresh this dialog.

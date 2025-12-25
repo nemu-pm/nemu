@@ -10,7 +10,8 @@ import type { SourceBrowseSearch } from "@/router";
 import { useTranslation } from "react-i18next";
 import { useStores } from "@/data/context";
 import type { TachiyomiBrowsableSource } from "@/lib/sources/tachiyomi/adapter";
-import type { TachiyomiFilter, TachiyomiListing } from "@/lib/sources/tachiyomi/types";
+import type { FilterState } from "@nemu.pm/tachiyomi-runtime";
+import type { GenericListing } from "@/components/browse";
 import type { Manga, SearchResult } from "@/lib/sources/types";
 import { MangaCardGallery } from "@/components/manga-card-gallery";
 import { useScrollRestoration } from "@/hooks/use-scroll-restoration";
@@ -24,8 +25,8 @@ import { SourceImageProvider } from "@/hooks/use-source-image";
 
 export interface TachiyomiBrowseData {
   source: TachiyomiBrowsableSource;
-  listings: TachiyomiListing[];
-  filters: TachiyomiFilter[];
+  listings: GenericListing[];
+  filters: FilterState[];
 }
 
 interface TachiyomiBrowseProps {
@@ -67,7 +68,7 @@ export function TachiyomiBrowse({ data }: TachiyomiBrowseProps) {
   }, [navigate, registryId, sourceId, tab]);
 
   // Local UI state
-  const [filters, setFilters] = useState<TachiyomiFilter[]>(initialFilters);
+  const [filters, setFilters] = useState<FilterState[]>(initialFilters);
   const [filterOpen, setFilterOpen] = useState(false);
   const [searchInput, setSearchInput] = useState(searchQuery);
   const [listingRefreshKey, setListingRefreshKey] = useState(0);
@@ -150,7 +151,7 @@ export function TachiyomiBrowse({ data }: TachiyomiBrowseProps) {
     setFilters(initialFilters);
   }, [navigate, registryId, sourceId, initialFilters]);
 
-  const handleFilterChange = useCallback((newFilters: TachiyomiFilter[]) => {
+  const handleFilterChange = useCallback((newFilters: FilterState[]) => {
     setFilters(newFilters);
     // If filters changed and not already in search mode, enter search mode
     if (!searchActive) {

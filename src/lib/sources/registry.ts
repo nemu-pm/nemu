@@ -6,7 +6,7 @@ import type { SourceRegistry } from "../../data/schema";
 import type { UserDataStore } from "../../data/store";
 import type { CacheStore } from "../../data/cache";
 import { AidokuUrlRegistry, AIDOKU_REGISTRIES } from "./aidoku/url-registry";
-import { TachiyomiDevRegistry, TACHIYOMI_DEV_REGISTRY_ID } from "./tachiyomi/dev-registry";
+import { TachiyomiLocalRegistry, TACHIYOMI_LOCAL_REGISTRY_ID } from "./tachiyomi/local-registry";
 
 // ============ TYPES ============
 
@@ -63,11 +63,11 @@ export class RegistryManager {
       this.registries.set(def.id, registry);
     }
     
-    // Add Tachiyomi dev registry (only in development mode)
-    if (import.meta.env.DEV) {
+    // Add Tachiyomi local registry (only in development mode with path configured)
+    if (import.meta.env.DEV && import.meta.env.VITE_TACHIYOMI_LOCAL_PATH) {
       this.registries.set(
-        TACHIYOMI_DEV_REGISTRY_ID,
-        new TachiyomiDevRegistry(this.installedSourceStore, this.cacheStore)
+        TACHIYOMI_LOCAL_REGISTRY_ID,
+        new TachiyomiLocalRegistry(this.installedSourceStore, this.cacheStore)
       );
     }
   }
@@ -89,11 +89,11 @@ export class RegistryManager {
       this.registries.set(def.id, registry);
     }
     
-    // Update Tachiyomi dev registry if it exists
-    if (import.meta.env.DEV) {
-      const devRegistry = this.registries.get(TACHIYOMI_DEV_REGISTRY_ID);
-      if (devRegistry instanceof TachiyomiDevRegistry) {
-        devRegistry.setUserStore(store);
+    // Update Tachiyomi local registry if it exists
+    if (import.meta.env.DEV && import.meta.env.VITE_TACHIYOMI_LOCAL_PATH) {
+      const localRegistry = this.registries.get(TACHIYOMI_LOCAL_REGISTRY_ID);
+      if (localRegistry instanceof TachiyomiLocalRegistry) {
+        localRegistry.setUserStore(store);
       }
     }
   }

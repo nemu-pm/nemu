@@ -33,54 +33,26 @@ function NemuLogo({ className }: { className?: string }) {
   );
 }
 
-// Welcome header with sleeping zzz illustration
+// Welcome header with app icon
 function WelcomeHeader() {
   return (
     <div className="relative flex items-center justify-center py-6">
-      {/* Gradient background orb */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="size-32 rounded-full bg-gradient-to-br from-primary/20 via-primary/10 to-transparent blur-2xl" />
+      {/* App icon with subtle glow - matches about dialog */}
+      <div className="relative group">
+        {/* Soft ambient glow */}
+        <div className="absolute inset-0 rounded-2xl bg-[#6b8cce]/30 blur-2xl scale-125" />
+
+        {/* Icon container - cute squish animation on press */}
+        <div
+          className="relative size-20 rounded-2xl overflow-hidden shadow-lg ring-1 ring-white/10 transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] active:scale-[0.82] active:rotate-[-4deg] cursor-pointer select-none"
+        >
+          <img
+            src="/icon.jpg"
+            alt="nemu"
+            className="size-full object-cover pointer-events-none"
+          />
+        </div>
       </div>
-      
-      {/* Sleeping zzz icon - matches favicon style */}
-      <svg 
-        viewBox="0 0 100 100" 
-        className="relative size-24 text-primary"
-        aria-hidden="true"
-      >
-        {/* Small z (bottom-left) */}
-        <path 
-          d="M12 82 L20 82 L12 92 L20 92" 
-          stroke="currentColor" 
-          strokeWidth="4" 
-          strokeLinecap="round" 
-          strokeLinejoin="round" 
-          fill="none"
-          className="opacity-40"
-        />
-        
-        {/* Medium z (middle) */}
-        <path 
-          d="M32 56 L46 56 L32 72 L46 72" 
-          stroke="currentColor" 
-          strokeWidth="5" 
-          strokeLinecap="round" 
-          strokeLinejoin="round" 
-          fill="none"
-          className="opacity-60"
-        />
-        
-        {/* Large Z (top-right) */}
-        <path 
-          d="M56 18 L82 18 L56 44 L82 44" 
-          stroke="currentColor" 
-          strokeWidth="7" 
-          strokeLinecap="round" 
-          strokeLinejoin="round" 
-          fill="none"
-          className="opacity-90"
-        />
-      </svg>
     </div>
   );
 }

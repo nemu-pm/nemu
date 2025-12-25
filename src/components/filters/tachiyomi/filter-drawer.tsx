@@ -1,14 +1,14 @@
 import { useState, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type {
-  TachiyomiFilter,
-  CheckBoxFilter,
-  TriStateFilter,
-  TextFilter,
-  SelectFilter,
-  SortFilter,
-  GroupFilter,
-} from "@/lib/sources/tachiyomi/types";
+  FilterState,
+  FilterCheckBox,
+  FilterTriState,
+  FilterText,
+  FilterSelect,
+  FilterSort,
+  FilterGroup,
+} from "@nemu.pm/tachiyomi-runtime";
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -41,8 +41,8 @@ import {
 interface TachiyomiFilterDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  filters: TachiyomiFilter[];
-  onApply: (filters: TachiyomiFilter[]) => void;
+  filters: FilterState[];
+  onApply: (filters: FilterState[]) => void;
   onReset: () => void;
 }
 
@@ -55,7 +55,7 @@ export function TachiyomiFilterDrawer({
 }: TachiyomiFilterDrawerProps) {
   const { t } = useTranslation();
   // Deep clone filters for draft state
-  const [draft, setDraft] = useState<TachiyomiFilter[]>(() => 
+  const [draft, setDraft] = useState<FilterState[]>(() => 
     JSON.parse(JSON.stringify(filters))
   );
 
@@ -66,7 +66,7 @@ export function TachiyomiFilterDrawer({
     }
   }, [open, filters]);
 
-  const updateFilter = useCallback((index: number, updated: TachiyomiFilter) => {
+  const updateFilter = useCallback((index: number, updated: FilterState) => {
     setDraft((prev) => {
       const next = [...prev];
       next[index] = updated;
@@ -94,7 +94,7 @@ export function TachiyomiFilterDrawer({
         <div className="-mx-6 max-h-[60vh] overflow-y-auto px-6">
           <div className="space-y-6 py-2">
             {draft.map((filter, idx) => (
-              <TachiyomiFilterControl
+              <FilterControl
                 key={`${filter.name}-${idx}`}
                 filter={filter}
                 onChange={(updated) => updateFilter(idx, updated)}
@@ -119,8 +119,8 @@ export function TachiyomiFilterDrawer({
 // ============================================================================
 
 interface TachiyomiFilterHeaderBarProps {
-  filters: TachiyomiFilter[];
-  onChange: (filters: TachiyomiFilter[]) => void;
+  filters: FilterState[];
+  onChange: (filters: FilterState[]) => void;
   onOpenFullFilters: () => void;
 }
 
@@ -132,26 +132,26 @@ export function TachiyomiFilterHeaderBar({
   // Count active filters (non-default states)
   const filterCount = useMemo(() => {
     let count = 0;
-    const countFilters = (list: TachiyomiFilter[]) => {
+    const countFilters = (list: FilterState[]) => {
       for (const f of list) {
         switch (f.type) {
-          case "checkbox":
+          case "CheckBox":
             if (f.state) count++;
             break;
-          case "tristate":
+          case "TriState":
             if (f.state !== 0) count++;
             break;
-          case "text":
+          case "Text":
             if (f.state) count++;
             break;
-          case "select":
+          case "Select":
             if (f.state !== 0) count++;
             break;
-          case "sort":
+          case "Sort":
             // Sort is always "active" in some way, don't count
             break;
-          case "group":
-            countFilters(f.filters);
+          case "Group":
+            countFilters(f.state);
             break;
         }
       }
@@ -160,21 +160,21 @@ export function TachiyomiFilterHeaderBar({
     return count;
   }, [filters]);
 
-  const updateFilter = useCallback((index: number, updated: TachiyomiFilter) => {
+  const updateFilter = useCallback((index: number, updated: FilterState) => {
     const next = [...filters];
     next[index] = updated;
     onChange(next);
   }, [filters, onChange]);
 
   // Only show interactive, inline-friendly filters in header
-  // Hide: header, separator, text, group (these go in full drawer)
+  // Hide: Header, Separator, Text, Group (these go in full drawer)
   const visibleFilters = filters
     .map((f, i) => ({ filter: f, index: i }))
     .filter(({ filter }) => {
-      return filter.type === "checkbox" || 
-             filter.type === "tristate" || 
-             filter.type === "select" || 
-             filter.type === "sort";
+      return filter.type === "CheckBox" || 
+             filter.type === "TriState" || 
+             filter.type === "Select" || 
+             filter.type === "Sort";
     });
 
   return (
@@ -199,7 +199,7 @@ export function TachiyomiFilterHeaderBar({
 
       {/* Inline filter pills */}
       {visibleFilters.map(({ filter, index }) => (
-        <TachiyomiInlineFilterPill
+        <InlineFilterPill
           key={`${filter.name}-${index}`}
           filter={filter}
           onChange={(updated) => updateFilter(index, updated)}
@@ -213,20 +213,20 @@ export function TachiyomiFilterHeaderBar({
 // Inline Filter Pill (for header bar)
 // ============================================================================
 
-interface TachiyomiInlineFilterPillProps {
-  filter: TachiyomiFilter;
-  onChange: (updated: TachiyomiFilter) => void;
+interface InlineFilterPillProps {
+  filter: FilterState;
+  onChange: (updated: FilterState) => void;
 }
 
-function TachiyomiInlineFilterPill({ filter, onChange }: TachiyomiInlineFilterPillProps) {
+function InlineFilterPill({ filter, onChange }: InlineFilterPillProps) {
   switch (filter.type) {
-    case "checkbox":
+    case "CheckBox":
       return <InlineCheckboxPill filter={filter} onChange={onChange} />;
-    case "tristate":
+    case "TriState":
       return <InlineTristatePill filter={filter} onChange={onChange} />;
-    case "select":
+    case "Select":
       return <InlineSelectPill filter={filter} onChange={onChange} />;
-    case "sort":
+    case "Sort":
       return <InlineSortPill filter={filter} onChange={onChange} />;
     default:
       return null;
@@ -237,8 +237,8 @@ function InlineCheckboxPill({
   filter,
   onChange,
 }: {
-  filter: CheckBoxFilter;
-  onChange: (updated: TachiyomiFilter) => void;
+  filter: FilterCheckBox;
+  onChange: (updated: FilterState) => void;
 }) {
   const handleClick = () => {
     onChange({ ...filter, state: !filter.state });
@@ -264,8 +264,8 @@ function InlineTristatePill({
   filter,
   onChange,
 }: {
-  filter: TriStateFilter;
-  onChange: (updated: TachiyomiFilter) => void;
+  filter: FilterTriState;
+  onChange: (updated: FilterState) => void;
 }) {
   const handleClick = () => {
     // Cycle: 0 (ignore) -> 1 (include) -> 2 (exclude) -> 0
@@ -294,8 +294,8 @@ function InlineSelectPill({
   filter,
   onChange,
 }: {
-  filter: SelectFilter;
-  onChange: (updated: TachiyomiFilter) => void;
+  filter: FilterSelect;
+  onChange: (updated: FilterState) => void;
 }) {
   const selectedLabel = filter.values[filter.state] ?? filter.values[0] ?? "Select";
   const isActive = filter.state !== 0;
@@ -337,8 +337,8 @@ function InlineSortPill({
   filter,
   onChange,
 }: {
-  filter: SortFilter;
-  onChange: (updated: TachiyomiFilter) => void;
+  filter: FilterSort;
+  onChange: (updated: FilterState) => void;
 }) {
   const state = filter.state ?? { index: 0, ascending: false };
   const selectedLabel = filter.values[state.index] ?? filter.values[0] ?? "Sort";
@@ -386,28 +386,28 @@ function InlineSortPill({
 // Filter Control Router (for full drawer)
 // ============================================================================
 
-interface TachiyomiFilterControlProps {
-  filter: TachiyomiFilter;
-  onChange: (updated: TachiyomiFilter) => void;
+interface FilterControlProps {
+  filter: FilterState;
+  onChange: (updated: FilterState) => void;
 }
 
-function TachiyomiFilterControl({ filter, onChange }: TachiyomiFilterControlProps) {
+function FilterControl({ filter, onChange }: FilterControlProps) {
   switch (filter.type) {
-    case "header":
+    case "Header":
       return <h3 className="text-sm font-semibold text-muted-foreground">{filter.name}</h3>;
-    case "separator":
+    case "Separator":
       return <hr className="border-border" />;
-    case "checkbox":
+    case "CheckBox":
       return <CheckboxFilterControl filter={filter} onChange={onChange} />;
-    case "tristate":
+    case "TriState":
       return <TristateFilterControl filter={filter} onChange={onChange} />;
-    case "text":
+    case "Text":
       return <TextFilterControl filter={filter} onChange={onChange} />;
-    case "select":
+    case "Select":
       return <SelectFilterControl filter={filter} onChange={onChange} />;
-    case "sort":
+    case "Sort":
       return <SortFilterControl filter={filter} onChange={onChange} />;
-    case "group":
+    case "Group":
       return <GroupFilterControl filter={filter} onChange={onChange} />;
     default:
       return null;
@@ -422,8 +422,8 @@ function CheckboxFilterControl({
   filter,
   onChange,
 }: {
-  filter: CheckBoxFilter;
-  onChange: (updated: TachiyomiFilter) => void;
+  filter: FilterCheckBox;
+  onChange: (updated: FilterState) => void;
 }) {
   const handleToggle = () => {
     onChange({ ...filter, state: !filter.state });
@@ -457,8 +457,8 @@ function TristateFilterControl({
   filter,
   onChange,
 }: {
-  filter: TriStateFilter;
-  onChange: (updated: TachiyomiFilter) => void;
+  filter: FilterTriState;
+  onChange: (updated: FilterState) => void;
 }) {
   const handleToggle = () => {
     const nextState = (filter.state + 1) % 3;
@@ -498,8 +498,8 @@ function TextFilterControl({
   filter,
   onChange,
 }: {
-  filter: TextFilter;
-  onChange: (updated: TachiyomiFilter) => void;
+  filter: FilterText;
+  onChange: (updated: FilterState) => void;
 }) {
   return (
     <div className="space-y-2">
@@ -523,8 +523,8 @@ function SelectFilterControl({
   filter,
   onChange,
 }: {
-  filter: SelectFilter;
-  onChange: (updated: TachiyomiFilter) => void;
+  filter: FilterSelect;
+  onChange: (updated: FilterState) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -568,8 +568,8 @@ function SortFilterControl({
   filter,
   onChange,
 }: {
-  filter: SortFilter;
-  onChange: (updated: TachiyomiFilter) => void;
+  filter: FilterSort;
+  onChange: (updated: FilterState) => void;
 }) {
   const state = filter.state ?? { index: 0, ascending: false };
 
@@ -621,21 +621,21 @@ function GroupFilterControl({
   filter,
   onChange,
 }: {
-  filter: GroupFilter;
-  onChange: (updated: TachiyomiFilter) => void;
+  filter: FilterGroup;
+  onChange: (updated: FilterState) => void;
 }) {
-  const updateChild = (index: number, updated: TachiyomiFilter) => {
-    const newFilters = [...filter.filters];
-    newFilters[index] = updated;
-    onChange({ ...filter, filters: newFilters });
+  const updateChild = (index: number, updated: FilterState) => {
+    const newState = [...filter.state];
+    newState[index] = updated;
+    onChange({ ...filter, state: newState });
   };
 
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold">{filter.name}</h3>
       <div className="ml-2 space-y-2 border-l-2 border-border pl-4">
-        {filter.filters.map((childFilter, idx) => (
-          <TachiyomiFilterControl
+        {filter.state.map((childFilter, idx) => (
+          <FilterControl
             key={`${childFilter.name}-${idx}`}
             filter={childFilter}
             onChange={(updated) => updateChild(idx, updated)}
@@ -645,4 +645,3 @@ function GroupFilterControl({
     </div>
   );
 }
-

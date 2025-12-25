@@ -42,6 +42,8 @@ export function BrowseListingTabs({
       {listings.map((listing, index) => {
         const buttonIndex = showHomeTab ? index + 1 : index;
         const isSelected = selectedIndex === buttonIndex;
+        // Translate known listing IDs, fallback to raw name
+        const displayName = t(`browse.listing.${listing.id}`, { defaultValue: listing.name });
         return (
           <Button
             key={listing.id}
@@ -49,7 +51,7 @@ export function BrowseListingTabs({
             size="sm"
             onClick={() => onSelect(buttonIndex)}
           >
-            {listing.name}
+            {displayName}
           </Button>
         );
       })}

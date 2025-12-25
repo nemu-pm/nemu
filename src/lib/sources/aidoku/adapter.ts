@@ -10,24 +10,26 @@ import type {
   Chapter,
   Page,
 } from "../types";
-import type { AsyncAidokuSource } from "./async-source";
-import type {
-  Manga as AidokuManga,
-  Chapter as AidokuChapter,
-  Page as AidokuPage,
-  SourceManifest,
-  Filter,
-  FilterValue,
-  Listing,
-  FilterInfo,
-  HomeLayout,
-} from "./types";
-import { FilterType } from "./types";
+import {
+  loadSource,
+  FilterType,
+  type AsyncAidokuSource,
+  type Manga as AidokuManga,
+  type Chapter as AidokuChapter,
+  type Page as AidokuPage,
+  type SourceManifest,
+  type Filter,
+  type FilterValue,
+  type Listing,
+  type HomeLayout,
+  type FilterInfo,
+} from "@nemu.pm/aidoku-runtime";
 import type { CacheStore } from "@/data/cache";
 import { CacheKeys } from "@/data/cache";
 import { parseSourceKey } from "@/data/keys";
-import { createAsyncSource } from "./async-source";
-import { proxyUrl } from "@/config";
+import { SERVICE_URL, proxyUrl } from "@/config";
+import { getSourceSettingsStore } from "@/stores/source-settings";
+import { extractDefaults } from "@/lib/settings";
 import pMemoize, { pMemoizeClear } from "p-memoize";
 
 /**
@@ -125,20 +127,63 @@ function convertFilterInfo(info: FilterInfo, index?: number): Filter {
 
 /**
  * Create a MangaSource from an Aidoku WASM source
- * @param wasmUrlOrBytes - URL to fetch WASM from, or ArrayBuffer of WASM bytes
- * @param sourceKey - Unique identifier (registryId:sourceId) for settings/storage
- * @param cacheStore - Cache store for persistent manga/chapter caching
- * @param icon - Optional icon URL from registry
+ */
+export interface CreateAidokuSourceResult {
+  source: MangaSource;
+  settingsJson?: unknown[];
+  manifest: SourceManifest;
+}
+
+/**
+ * Get merged settings (defaults + user values) for a source
+ */
+function getMergedSettings(sourceKey: string): Record<string, unknown> {
+  const state = getSourceSettingsStore().getState();
+  const schema = state.schemas.get(sourceKey);
+  const defaults = schema ? extractDefaults(schema) : {};
+  const userValues = state.values.get(sourceKey) ?? {};
+  return { ...defaults, ...userValues };
+}
+
+/**
+ * Create an Aidoku manga source from AIX bytes
+ * 
+ * Uses @nemu.pm/aidoku-runtime which handles:
+ * - AIX extraction
+ * - Web Worker management (browser)
+ * - Sync HTTP bridging
+ * 
+ * @param aixBytes - AIX package bytes (zip containing wasm + manifest)
+ * @param sourceKey - Unique identifier (registryId:sourceId)
+ * @param cacheStore - Cache store for SWR caching
+ * @param icon - Optional icon URL
  */
 export async function createAidokuMangaSource(
-  wasmUrlOrBytes: string | ArrayBuffer,
-  manifest: SourceManifest,
+  aixBytes: ArrayBuffer,
   sourceKey: string,
   cacheStore: CacheStore,
   icon?: string
-): Promise<MangaSource> {
-  const asyncSource = await createAsyncSource(wasmUrlOrBytes, manifest, sourceKey);
-  return new AidokuMangaSourceAdapter(asyncSource, manifest, sourceKey, cacheStore, icon);
+): Promise<CreateAidokuSourceResult> {
+  // Load source via aidoku-js (handles Worker, sync HTTP, etc.)
+  const asyncSource = await loadSource(aixBytes, sourceKey, {
+    proxyUrl: `${SERVICE_URL}/proxy?url=`,
+    settings: {
+      get: () => getMergedSettings(sourceKey),
+      subscribe: (callback) => {
+        // Subscribe to settings store changes for this source
+        return getSourceSettingsStore().subscribe((state, prevState) => {
+          const newValues = state.values.get(sourceKey);
+          const oldValues = prevState.values.get(sourceKey);
+          if (newValues !== oldValues) {
+            callback();
+          }
+        });
+      },
+    },
+  });
+
+  const source = new AidokuMangaSourceAdapter(asyncSource, asyncSource.manifest, sourceKey, cacheStore, icon);
+  return { source, settingsJson: asyncSource.settingsJson, manifest: asyncSource.manifest };
 }
 
 /** Extended interface for sources with browse/listing capabilities */
@@ -526,7 +571,7 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
   }
 
   dispose(): void {
-    this.asyncSource.terminate();
+    this.asyncSource.dispose();
     this.currentSearch = null;
     this.currentListing = null;
     // Clear memoized caches to free memory

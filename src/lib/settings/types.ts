@@ -211,8 +211,8 @@ export interface SettingsData {
 }
 
 /**
- * Legacy alias for source settings (uses sourceKey instead of id)
- * @deprecated Use SettingsData with id field instead
+ * Source settings data stored in IndexedDB
+ * Uses sourceKey as primary key for the object store
  */
 export interface SourceSettingsData {
   sourceKey: string;

@@ -21,8 +21,9 @@ import { useTranslation } from "react-i18next";
 import type { BrowsableSource } from "@/lib/sources/aidoku/adapter";
 import type { TachiyomiBrowsableSource } from "@/lib/sources/tachiyomi/adapter";
 import type { MangaSource } from "@/lib/sources/types";
-import type { Listing, Filter, HomeLayout } from "@/lib/sources/aidoku/types";
-import type { TachiyomiFilter, TachiyomiListing } from "@/lib/sources/tachiyomi/types";
+import type { Listing, Filter, HomeLayout } from "@nemu.pm/aidoku-runtime";
+import type { FilterState } from "@nemu.pm/tachiyomi-runtime";
+import type { GenericListing } from "@/components/browse";
 
 // Pages
 import { LibraryPage } from "./pages/library";
@@ -69,9 +70,9 @@ function ShellLayout() {
   };
 
   return (
-    <div className="relative h-dvh bg-background text-foreground" data-vaul-drawer-wrapper>
+    <div className="relative min-h-dvh bg-background text-foreground" data-vaul-drawer-wrapper>
       {/* Desktop: Left Dock */}
-      <nav className="desktop-dock fixed left-4 top-1/2 z-50 hidden -translate-y-1/2 flex-col gap-1 rounded-2xl p-2 md:flex">
+      <nav className="desktop-dock fixed left-4 top-1/2 z-40 hidden -translate-y-1/2 flex-col gap-1 rounded-2xl p-2 md:flex">
         {/* Back button - animated expand/collapse */}
         <div
           className={cn(
@@ -108,7 +109,7 @@ function ShellLayout() {
       </div>
 
       {/* Mobile: Bottom Tab Bar */}
-      <nav className="fixed inset-x-0 bottom-0 z-50 flex justify-center pb-[max(env(safe-area-inset-bottom),12px)] md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-center pb-[max(env(safe-area-inset-bottom),12px)] md:hidden">
         <div className="mobile-tab-bar flex items-center rounded-[22px] px-3 py-2">
           {/* Back button - animated expand/collapse */}
           <div
@@ -145,7 +146,7 @@ function DesktopDockLink({
   to: string;
   icon: typeof Home01Icon;
   labelKey: string;
-}) {
+} & { tabIndex?: number; "aria-hidden"?: boolean }) {
   const routerState = useRouterState();
   const { t } = useTranslation();
   const isActive = routerState.location.pathname === to;
@@ -191,7 +192,7 @@ function MobileNavLink({
   to: string;
   icon: typeof Home01Icon;
   labelKey: string;
-}) {
+} & { tabIndex?: number; "aria-hidden"?: boolean }) {
   const routerState = useRouterState();
   const { t } = useTranslation();
   const isActive = routerState.location.pathname === to;
@@ -241,8 +242,8 @@ export interface AidokuLoaderData {
 export interface TachiyomiLoaderData {
   type: "tachiyomi";
   source: TachiyomiBrowsableSource;
-  listings: TachiyomiListing[];
-  filters: TachiyomiFilter[];
+  listings: GenericListing[];
+  filters: FilterState[];
 }
 
 export type SourceBrowseLoaderData = AidokuLoaderData | TachiyomiLoaderData;

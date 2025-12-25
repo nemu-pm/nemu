@@ -43,8 +43,10 @@ export interface GrammarWord {
 }
 
 export interface TextDetectorSettings {
-  /** Auto-run detection when page changes (requires WebGPU) */
+  /** Auto-run detection when page changes */
   autoDetect: boolean
+  /** Run text detection locally in browser (requires WebGPU) */
+  localInference: boolean
   /** Enable plugin for non-Japanese manga */
   enableForAllLanguages: boolean
   /** Minimum confidence threshold */
@@ -74,6 +76,7 @@ export interface OcrResult {
 
 export const DEFAULT_SETTINGS: TextDetectorSettings = {
   autoDetect: false,
+  localInference: false,
   enableForAllLanguages: false,
   minConfidence: 0.25,
 }

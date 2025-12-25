@@ -29,13 +29,9 @@ export function PageHeader({ title, icon, action, actions, loading, className }:
   const isScrolled = useScrollPosition(10);
   const isMobile = useIsMobile();
   const collapseText = isScrolled && isMobile;
-
   return (
     <motion.header
-      className={cn(
-        "sticky top-0 z-40",
-        className
-      )}
+      className={cn("sticky top-0 z-40", className)}
       initial={false}
       animate={{
         paddingTop: isScrolled ? "0.75rem" : "0",
@@ -56,7 +52,9 @@ export function PageHeader({ title, icon, action, actions, loading, className }:
         animate={{ opacity: isScrolled ? 1 : 0 }}
         transition={springTransition}
       />
-      <div className="relative flex items-center justify-between min-h-[2.5rem]">
+      <div
+        className="relative flex items-center justify-between min-h-[2.5rem]"
+      >
         <motion.div
           className={cn(
             "flex items-center gap-2",

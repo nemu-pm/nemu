@@ -27,7 +27,7 @@ export function MangaCard({ to, params, cover, title, subtitle, badge, className
     >
       <div className="space-y-2">
         <motion.div
-          className="relative aspect-[2/3] overflow-hidden rounded-lg bg-muted shadow-sm ring-1 ring-black/5 dark:ring-white/10"
+          className="relative aspect-[2/3] overflow-hidden rounded-lg bg-muted manga-cover-glass"
           whileHover={{ y: -3, scale: 1.02 }}
           whileTap={{ y: -1, scale: 0.98 }}
           transition={{
@@ -45,11 +45,9 @@ export function MangaCard({ to, params, cover, title, subtitle, badge, className
           <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
           {/* Badge overlay */}
           {badge && (
-            <div className="absolute right-1.5 top-1.5">
-              <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground shadow-sm">
-                {badge}
-              </span>
-            </div>
+            <span className="absolute right-1.5 top-1.5 rounded-md bg-primary px-1.5 py-1 text-[11px] font-semibold leading-none text-primary-foreground shadow-md">
+              {badge}
+            </span>
           )}
         </motion.div>
         <div className="h-[3.75rem] px-0.5">
@@ -100,7 +98,7 @@ export function MangaCardCompact({
       style={{ width }}
     >
       <motion.div
-        className="overflow-hidden rounded-lg bg-muted shadow-sm ring-1 ring-black/5 dark:ring-white/10"
+        className="overflow-hidden rounded-lg bg-muted manga-cover-glass"
         style={{ height }}
         whileHover={{ y: -2, scale: 1.02 }}
         whileTap={{ y: -1, scale: 0.98 }}
@@ -163,7 +161,7 @@ export function MangaCardFeatured({
     >
       {/* Cover with lift animation */}
       <motion.div
-        className="relative shrink-0 overflow-hidden rounded-lg bg-muted shadow-md ring-1 ring-black/5 dark:ring-white/10"
+        className="relative shrink-0 overflow-hidden rounded-lg bg-muted manga-cover-glass"
         style={{ width: 110, height: 165 }}
         whileHover={{ y: -2, scale: 1.02 }}
         transition={{ type: "spring", stiffness: 400, damping: 25 }}
@@ -248,7 +246,7 @@ export function MangaCardList({
     >
       {/* Cover with subtle lift */}
       <motion.div
-        className="relative shrink-0 overflow-hidden rounded-lg bg-muted shadow-sm ring-1 ring-black/5 dark:ring-white/10"
+        className="relative shrink-0 overflow-hidden rounded-lg bg-muted manga-cover-glass"
         style={{ width: 64, height: 96 }}
         whileHover={{ y: -1, scale: 1.02 }}
         transition={{ type: "spring", stiffness: 400, damping: 25 }}
@@ -338,7 +336,7 @@ export function MangaCardChapter({
     >
       {/* Cover with subtle lift */}
       <motion.div
-        className="relative shrink-0 overflow-hidden rounded-lg bg-muted shadow-sm ring-1 ring-black/5 dark:ring-white/10"
+        className="relative shrink-0 overflow-hidden rounded-lg bg-muted manga-cover-glass"
         style={{ width: 64, height: 96 }}
         whileHover={{ y: -1, scale: 1.02 }}
         transition={{ type: "spring", stiffness: 400, damping: 25 }}
@@ -347,7 +345,6 @@ export function MangaCardChapter({
           src={cover}
           alt={title}
           className="size-full object-cover"
-
         />
       </motion.div>
 
@@ -396,7 +393,7 @@ export function MangaCardBanner({
 }: MangaCardBannerProps) {
   const content = (
     <motion.div
-      className="relative overflow-hidden rounded-xl bg-muted shadow-md ring-1 ring-black/5 dark:ring-white/10"
+      className="relative overflow-hidden rounded-xl bg-muted manga-cover-glass"
       style={{ width, height }}
       whileHover={{ y: -2, scale: 1.02 }}
       whileTap={{ scale: 0.98 }}

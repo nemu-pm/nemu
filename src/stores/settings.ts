@@ -8,8 +8,6 @@ import type { CacheStore } from "@/data/cache";
 import { Keys, CacheKeys, LOCAL_REGISTRY_ID, parseSourceKey } from "@/data/keys";
 import type { InstalledSource } from "@/data/schema";
 import type { ReadingMode } from "@/data/schema";
-import type { Setting } from "@/lib/settings";
-import { getSourceSettingsStore } from "./source-settings";
 
 const READING_MODE_KEY = "nemu:reader:readingMode";
 
@@ -176,8 +174,7 @@ export function createSettingsStore(
       await userStore.removeInstalledSource(compositeId);
 
       // Clear cache
-      await cacheStore.delete(CacheKeys.wasm(registryId, sourceId));
-      await cacheStore.delete(CacheKeys.manifest(registryId, sourceId));
+      await cacheStore.delete(CacheKeys.aix(registryId, sourceId));
 
       // Update state
       const installedSources = await userStore.getInstalledSources();
@@ -241,48 +238,18 @@ export function createSettingsStore(
 
     installFromAix: async (file: File) => {
       const registryId = LOCAL_REGISTRY_ID;
-      const { unzipSync } = await import("fflate");
+      const { extractAix } = await import("@nemu.pm/aidoku-runtime");
       const arrayBuffer = await file.arrayBuffer();
-      const files = unzipSync(new Uint8Array(arrayBuffer));
-
-      const manifestData = files["Payload/source.json"];
-      const wasmData = files["Payload/main.wasm"];
-      const settingsData = files["Payload/settings.json"];
-
-      if (!manifestData || !wasmData) {
-        throw new Error("Invalid .aix package: missing source.json or main.wasm");
-      }
-
-      const manifest = JSON.parse(new TextDecoder().decode(manifestData));
+      
+      // Extract to validate and get sourceId
+      const { manifest } = extractAix(arrayBuffer);
       const sourceId = manifest.info?.id;
       if (!sourceId) {
         throw new Error("Invalid manifest: missing info.id");
       }
 
-      // Save to cache
-      await cacheStore.set(
-        CacheKeys.wasm(registryId, sourceId),
-        wasmData.buffer.slice(0) as ArrayBuffer
-      );
-      await cacheStore.set(
-        CacheKeys.manifest(registryId, sourceId),
-        manifestData.buffer.slice(0) as ArrayBuffer
-      );
-      
-      // Cache settings.json if present and save schema
-      if (settingsData) {
-        const settingsBuffer = settingsData.buffer.slice(0) as ArrayBuffer;
-        await cacheStore.set(CacheKeys.settings(registryId, sourceId), settingsBuffer);
-        
-        // Parse and save schema to source settings store
-        try {
-          const schema = JSON.parse(new TextDecoder().decode(settingsData)) as Setting[];
-          const sourceKey = Keys.source(registryId, sourceId);
-          await getSourceSettingsStore().getState().setSchema(sourceKey, schema);
-        } catch {
-          // Ignore schema parsing errors
-        }
-      }
+      // Cache the whole AIX package
+      await cacheStore.set(CacheKeys.aix(registryId, sourceId), arrayBuffer);
 
       // Save to installed sources (id is composite key)
       await userStore.saveInstalledSource({

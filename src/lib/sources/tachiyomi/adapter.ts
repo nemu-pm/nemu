@@ -6,14 +6,10 @@
 import type { MangaSource, MangaSourceSWR, Manga, Chapter, Page, SearchResult } from "../types";
 import { MangaStatus } from "../types";
 import { parseChapterNumber } from "@/lib/chapter-recognition";
-import type { AsyncTachiyomiSource } from "./async-source";
-import type {
-  MangaDto,
-  ChapterDto,
-  TachiyomiFilter,
-  TachiyomiListing,
-} from "./types";
-import { TACHIYOMI_LISTINGS, buildFilterStateJson } from "./types";
+import type { AsyncTachiyomiSource } from "@nemu.pm/tachiyomi-runtime/async";
+import type { Manga as RuntimeManga, Chapter as RuntimeChapter, FilterState } from "@nemu.pm/tachiyomi-runtime";
+import { buildFilterStateJson } from "@nemu.pm/tachiyomi-runtime";
+import type { GenericListing } from "@/components/browse";
 import { proxyUrl } from "@/config";
 import type { CacheStore } from "@/data/cache";
 import { CacheKeys } from "@/data/cache";
@@ -46,7 +42,7 @@ const STATUS_MAP: Record<number, typeof MangaStatus[keyof typeof MangaStatus]> =
   6: MangaStatus.Hiatus, // On Hiatus
 };
 
-function mangaDtoToManga(dto: MangaDto): Manga {
+function toManga(dto: RuntimeManga): Manga {
   return {
     id: dto.url, // Tachiyomi uses URL as identifier
     title: dto.title,
@@ -54,7 +50,7 @@ function mangaDtoToManga(dto: MangaDto): Manga {
     authors: dto.author ? [dto.author] : undefined,
     artists: dto.artist ? [dto.artist] : undefined,
     description: dto.description,
-    tags: dto.genre.length > 0 ? dto.genre : undefined,
+    tags: dto.genre && dto.genre.length > 0 ? dto.genre : undefined,
     status: STATUS_MAP[dto.status] ?? MangaStatus.Unknown,
     url: dto.url,
   };
@@ -81,7 +77,7 @@ function parseLockedStatus(name: string): { title: string; locked: boolean } {
 }
 
 /**
- * Convert ChapterDto to Chapter with chapter recognition.
+ * Convert RuntimeChapter to Chapter with chapter recognition.
  * Mihon-style: parse chapter number from name if source doesn't provide one.
  * Falls back to index-based numbering if parsing fails.
  *
@@ -91,8 +87,8 @@ function parseLockedStatus(name: string): { title: string; locked: boolean } {
  * @param totalChapters - Total number of chapters
  * @param mangaTitle - Manga title (for better chapter number parsing)
  */
-function chapterDtoToChapter(
-  dto: ChapterDto,
+function toChapter(
+  dto: RuntimeChapter,
   sourceLang: string | undefined,
   index: number,
   totalChapters: number,
@@ -138,7 +134,7 @@ export interface TachiyomiBrowsableSource extends MangaSource, MangaSourceSWR {
   // ============ Filter Methods ============
 
   /** Get available filters for this source */
-  getFilters(): Promise<TachiyomiFilter[]>;
+  getFilters(): Promise<FilterState[]>;
 
   /** Reset filters to default state */
   resetFilters(): Promise<void>;
@@ -146,10 +142,10 @@ export interface TachiyomiBrowsableSource extends MangaSource, MangaSourceSWR {
   // ============ Browse Methods ============
 
   /** Get listings (Popular, Latest) */
-  getListings(): Promise<TachiyomiListing[]>;
+  getListings(): Promise<GenericListing[]>;
 
   /** Get manga for a specific listing */
-  getMangaForListing(listing: TachiyomiListing, page: number): Promise<SearchResult<Manga>>;
+  getMangaForListing(listing: GenericListing, page: number): Promise<SearchResult<Manga>>;
 
   // ============ Search with Filters ============
 
@@ -157,7 +153,7 @@ export interface TachiyomiBrowsableSource extends MangaSource, MangaSourceSWR {
   searchWithFilters(
     query: string | null,
     page: number,
-    filters: TachiyomiFilter[]
+    filters: FilterState[]
   ): Promise<SearchResult<Manga>>;
 
   // ============ Tachiyomi-specific ============
@@ -319,8 +315,8 @@ export async function createTachiyomiBrowsableSource(
   }
 
   // Pagination state for loadMore
-  let currentSearch: { query: string; page: number; filters: TachiyomiFilter[] } | null = null;
-  let currentListing: { listing: TachiyomiListing; page: number } | null = null;
+  let currentSearch: { query: string; page: number; filters: FilterState[] } | null = null;
+  let currentListing: { listing: GenericListing; page: number } | null = null;
 
   // ============ Memoized Fetchers ============
   // p-memoize: caches results + dedupes concurrent calls with same key
@@ -416,7 +412,7 @@ export async function createTachiyomiBrowsableSource(
       filterStateJson
     );
     return {
-      items: result.mangas.map(mangaDtoToManga),
+      items: result.mangas.map(toManga),
       hasMore: result.hasNextPage,
       loadMore: result.hasNextPage ? loadMoreSearch : undefined,
     };
@@ -431,7 +427,7 @@ export async function createTachiyomiBrowsableSource(
       ? await source.getPopularManga(currentListing.page)
       : await source.getLatestUpdates(currentListing.page);
     return {
-      items: result.mangas.map(mangaDtoToManga),
+      items: result.mangas.map(toManga),
       hasMore: result.hasNextPage,
       loadMore: result.hasNextPage ? loadMoreListing : undefined,
     };
@@ -446,7 +442,7 @@ export async function createTachiyomiBrowsableSource(
 
     // ============ Filter Methods ============
 
-    async getFilters(): Promise<TachiyomiFilter[]> {
+    async getFilters(): Promise<FilterState[]> {
       return source.getFilterList();
     },
 
@@ -456,21 +452,25 @@ export async function createTachiyomiBrowsableSource(
 
     // ============ Browse Methods ============
 
-    async getListings(): Promise<TachiyomiListing[]> {
+    async getListings(): Promise<GenericListing[]> {
       // Return both Popular and Latest if supported
+      // Names are translation keys - UI will localize
       if (supportsLatest) {
-        return TACHIYOMI_LISTINGS;
+        return [
+          { id: "popular", name: "browse.listing.popular" },
+          { id: "latest", name: "browse.listing.latest" },
+        ];
       }
-      return [TACHIYOMI_LISTINGS[0]]; // Just Popular
+      return [{ id: "popular", name: "browse.listing.popular" }];
     },
 
-    async getMangaForListing(listing: TachiyomiListing, page: number): Promise<SearchResult<Manga>> {
+    async getMangaForListing(listing: GenericListing, page: number): Promise<SearchResult<Manga>> {
       currentListing = { listing, page };
       const result = listing.id === "popular"
         ? await source.getPopularManga(page)
         : await source.getLatestUpdates(page);
       return {
-        items: result.mangas.map(mangaDtoToManga),
+        items: result.mangas.map(toManga),
         hasMore: result.hasNextPage,
         loadMore: result.hasNextPage ? loadMoreListing : undefined,
       };
@@ -484,7 +484,7 @@ export async function createTachiyomiBrowsableSource(
       await source.resetFilters();
       const result = await source.searchMangaWithFilters(1, query, "[]");
       return {
-        items: result.mangas.map(mangaDtoToManga),
+        items: result.mangas.map(toManga),
         hasMore: result.hasNextPage,
         loadMore: result.hasNextPage ? loadMoreSearch : undefined,
       };
@@ -493,7 +493,7 @@ export async function createTachiyomiBrowsableSource(
     async searchWithFilters(
       query: string | null,
       page: number,
-      filters: TachiyomiFilter[]
+      filters: FilterState[]
     ): Promise<SearchResult<Manga>> {
       currentSearch = { query: query ?? "", page, filters };
       
@@ -503,7 +503,7 @@ export async function createTachiyomiBrowsableSource(
       
       const result = await source.searchMangaWithFilters(page, query ?? "", filterStateJson);
       return {
-        items: result.mangas.map(mangaDtoToManga),
+        items: result.mangas.map(toManga),
         hasMore: result.hasNextPage,
         loadMore: result.hasNextPage ? loadMoreSearch : undefined,
       };
@@ -516,7 +516,7 @@ export async function createTachiyomiBrowsableSource(
       if (!dto) {
         throw new Error(`Manga not found: ${mangaId}`);
       }
-      const manga = mangaDtoToManga(dto);
+      const manga = toManga(dto);
       // Background cache update
       cacheManga(mangaId, manga);
       return manga;
@@ -533,7 +533,7 @@ export async function createTachiyomiBrowsableSource(
       // Convert with chapter recognition (Mihon-style)
       // Falls back to index-based numbering if parsing fails
       const converted = chapters.map((dto, index) =>
-        chapterDtoToChapter(dto, sourceLang, index, chapters.length, mangaTitle)
+        toChapter(dto, sourceLang, index, chapters.length, mangaTitle)
       );
       // Background cache update
       cacheChapters(mangaId, converted);
@@ -546,7 +546,7 @@ export async function createTachiyomiBrowsableSource(
       return pages.map((p) => ({
         index: p.index,
         async getImage(): Promise<Blob> {
-          // Always use source's fetchImage - handles URL resolution, headers, and interceptors
+          // fetchImage always returns base64 bytes (like Mihon's getImage)
           const base64 = await source.fetchImage(p.url, p.imageUrl || "");
           const binary = atob(base64);
           const bytes = new Uint8Array(binary.length);
@@ -582,9 +582,9 @@ export async function createTachiyomiBrowsableSource(
     },
 
     dispose(): void {
-      // Sync any final preference changes before terminating
+      // Sync any final preference changes before disposing
       syncPrefChanges(source, sourceKey).catch(() => {});
-      source.terminate();
+      source.dispose();
       currentSearch = null;
       currentListing = null;
       // Clear memoized caches to free memory

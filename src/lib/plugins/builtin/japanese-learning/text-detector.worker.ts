@@ -50,6 +50,12 @@ export interface DetectRequest {
   preferWebGPU: boolean
 }
 
+export interface DetectRemoteRequest {
+  type: 'detect-remote'
+  requestId: string
+  imageData: ImageData
+}
+
 export interface DisposeRequest {
   type: 'dispose'
 }
@@ -58,7 +64,7 @@ export interface CheckWebGPURequest {
   type: 'check-webgpu'
 }
 
-export type WorkerRequest = DetectRequest | DisposeRequest | CheckWebGPURequest
+export type WorkerRequest = DetectRequest | DetectRemoteRequest | DisposeRequest | CheckWebGPURequest
 
 export interface DetectResponse {
   type: 'detect-done'
@@ -409,6 +415,54 @@ async function checkWebGPUAvailable(): Promise<boolean> {
 }
 
 // ============================================================================
+// Remote Detection (via API)
+// ============================================================================
+
+const TEXT_DETECTOR_API = 'https://textdetector.nemu.pm'
+
+async function runRemoteDetection(
+  requestId: string,
+  imageData: ImageData
+): Promise<DetectResponse> {
+  // Convert ImageData to JPEG base64 in worker (off main thread)
+  const canvas = new OffscreenCanvas(imageData.width, imageData.height)
+  const ctx2d = canvas.getContext('2d')!
+  ctx2d.putImageData(imageData, 0, 0)
+  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.9 })
+  
+  // Convert blob to base64 using arrayBuffer + manual encoding (no FileReader in worker)
+  const arrayBuffer = await blob.arrayBuffer()
+  const bytes = new Uint8Array(arrayBuffer)
+  let binary = ''
+  const chunkSize = 0x8000 // 32KB chunks to avoid stack issues
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize)
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[])
+  }
+  const base64 = btoa(binary)
+
+  const response = await fetch(`${TEXT_DETECTOR_API}/detect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageBase64: base64, requestId }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Remote detection failed: ${response.status} ${response.statusText}`)
+  }
+
+  const result = await response.json()
+  return {
+    type: 'detect-done',
+    requestId,
+    detections: result.detections,
+    loadTimeMs: 0,
+    inferenceTimeMs: result.inferenceTimeMs || 0,
+    backend: 'REMOTE',
+  }
+}
+
+// ============================================================================
 // Message Handler with Queue (serialize detection requests)
 // ============================================================================
 
@@ -435,7 +489,9 @@ async function processQueue() {
 
 ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
   const { type } = e.data
-  const requestId = type === 'detect' ? (e.data as DetectRequest).requestId : undefined
+  const requestId = (type === 'detect' || type === 'detect-remote') 
+    ? (e.data as DetectRequest | DetectRemoteRequest).requestId 
+    : undefined
 
   try {
     if (type === 'detect') {
@@ -447,6 +503,10 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         processQueue()
       })
       
+      ctx.postMessage(result)
+    } else if (type === 'detect-remote') {
+      const req = e.data as DetectRemoteRequest
+      const result = await runRemoteDetection(req.requestId, req.imageData)
       ctx.postMessage(result)
     } else if (type === 'dispose') {
       await releaseSession()

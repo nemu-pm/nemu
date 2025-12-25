@@ -91,7 +91,11 @@
     "noHomeContent": "No home content available",
     "refresh": "Refresh",
     "search": "Search",
-    "otherLanguages": "Other"
+    "otherLanguages": "Other",
+    "listing": {
+      "popular": "Popular",
+      "latest": "Latest"
+    }
   },
   "manga": {
     "sourceNotFound": "Source not found",
@@ -164,7 +168,16 @@
     "noResults": "No results",
     "noResultsForQuery": "No manga found for \"{{query}}\" in any source"
   },
+  "about": {
+    "title": "About",
+    "tagline": "A cozy manga reading companion",
+    "description": "nemu is a web-based cross-platform manga reader that lets you discover and read manga from various sources. Built with love for manga enthusiasts.",
+    "sourceCode": "Source Code",
+    "madeWith": "Made with care for manga lovers"
+  },
   "settings": {
+    "about": "About",
+    "aboutNemu": "About nemu",
     "loading": "Loading settings...",
     "sourceUpdated": "Updated source: {{name}}",
     "sourcesUpdated": "Updated {{count}} sources: {{names}}",
@@ -267,7 +280,9 @@
       "description": "Detect text regions in manga pages for OCR and grammar analysis",
       "detection": "Detection",
       "autoDetect": "Auto Detect Text",
-      "autoDetectSubtitle": "Automatically detect text on visible pages (requires WebGPU)",
+      "autoDetectSubtitle": "Automatically detect text on visible pages",
+      "localInference": "Local Inference",
+      "localInferenceSubtitle": "Run text detection locally in your browser. Requires WebGPU.",
       "enableForAllLanguages": "Enable For All Languages",
       "enableForAllLanguagesSubtitle": "Show text detection for non-Japanese manga too",
       "minConfidence": "Minimum Confidence",

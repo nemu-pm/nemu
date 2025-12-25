@@ -26,7 +26,7 @@ import type {
   HomeImageScroller,
   HomeLink,
   Listing,
-} from "@/lib/sources/aidoku/types";
+} from "@nemu.pm/aidoku-runtime";
 
 // ============================================================================
 // Constants

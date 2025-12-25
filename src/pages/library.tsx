@@ -2,13 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStores } from "@/data/context";
 import { MangaCard } from "@/components/manga-card";
-import { Button } from "@/components/ui/button";
 import { LibraryPageSkeleton } from "@/components/page-skeletons";
 import { PageHeader } from "@/components/page-header";
-import { NoSourcesEmpty } from "@/components/no-sources-empty";
-import { PageEmpty } from "@/components/page-empty";
-import { Book01Icon } from "@hugeicons/core-free-icons";
-import { Link } from "@tanstack/react-router";
+import { LibraryEmpty } from "@/components/library-empty";
 import { SourceImageProvider } from "@/hooks/use-source-image";
 import { formatChapterShort } from "@/lib/format-chapter";
 import type { LibraryManga, ChapterSummary } from "@/data/schema";
@@ -186,30 +182,12 @@ export function LibraryPage() {
 
   // Empty state: no sources installed
   if (hasNoSources) {
-    return (
-      <NoSourcesEmpty
-        icon={Book01Icon}
-        titleKey="library.noSources"
-        descriptionKey="library.noSourcesDescription"
-        buttonKey="library.addSource"
-      />
-    );
+    return <LibraryEmpty variant="no-sources" />;
   }
 
   // Empty state: no mangas in library
   if (hasNoMangas) {
-    return (
-      <PageEmpty
-        icon={Book01Icon}
-        title={t("library.empty")}
-        description={t("library.emptyDescription")}
-        action={
-          <Link to="/search" search={{ q: "" }}>
-            <Button>{t("library.startSearching")}</Button>
-          </Link>
-        }
-      />
-    );
+    return <LibraryEmpty variant="no-manga" />;
   }
 
   // Library grid

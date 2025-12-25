@@ -29,11 +29,18 @@ const getSettingsSchema = (): Setting[] => [
     items: [
       {
         type: 'switch',
+        key: 'localInference',
+        title: t('localInference'),
+        subtitle: t('localInferenceSubtitle'),
+        default: false,
+        requiresFeature: 'webgpu',
+      },
+      {
+        type: 'switch',
         key: 'autoDetect',
         title: t('autoDetect'),
         subtitle: t('autoDetectSubtitle'),
         default: false,
-        requiresFeature: 'webgpu',
       },
       {
         type: 'switch',
@@ -233,6 +240,11 @@ export const japaneseLearningPlugin: ReaderPlugin = {
     },
 
     onUnmount: () => {
+      // Clear debounce timer
+      if (autoDetectDebounceTimer) {
+        clearTimeout(autoDetectDebounceTimer)
+        autoDetectDebounceTimer = null
+      }
       // Clear detection results and dispose worker on reader close
       const { clearDetections } = useTextDetectorStore.getState()
       clearDetections()
@@ -273,7 +285,14 @@ function isJapaneseChapter(ctx: ReaderPluginContext): boolean {
 }
 
 /**
- * Load cached detections for all visible pages, and optionally run model detection
+ * Global debounce for auto-detection to avoid spamming the server
+ */
+let autoDetectDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let lastAutoDetectTime = 0
+const AUTO_DETECT_DEBOUNCE_MS = 5000
+
+/**
+ * Load cached detections for visible pages + prefetch next pages, with debounced auto-detection
  */
 async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
   // Hard guard: never load/run detections when plugin isn't enabled for this chapter.
@@ -282,10 +301,27 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
   if (!enabled) return
 
   const store = useTextDetectorStore.getState()
-  const { settings, detections, loadingPages, runDetection, loadFromCache, checkWebGPU } = store
+  const { settings, detections, loadingPages, runDetection, loadFromCache } = store
   const autoDetectAllowed = settings.autoDetect && isJapaneseChapter(ctx)
 
-  for (const pageIndex of ctx.visiblePageIndices) {
+  // Calculate pages to process: visible pages + prefetch next pages
+  // In two-page mode, prefetch 2 pages; in single page mode, prefetch 1 page
+  const isTwoPageMode = ctx.visiblePageIndices.length >= 2
+  const prefetchCount = isTwoPageMode ? 2 : 1
+  const maxVisibleIndex = Math.max(...ctx.visiblePageIndices)
+  
+  const pagesToProcess = new Set<number>(ctx.visiblePageIndices)
+  for (let i = 1; i <= prefetchCount; i++) {
+    const nextPage = maxVisibleIndex + i
+    if (nextPage < ctx.pageCount) {
+      pagesToProcess.add(nextPage)
+    }
+  }
+
+  // Track pages that need detection (not cached)
+  const pagesToDetect: number[] = []
+
+  for (const pageIndex of pagesToProcess) {
     // Skip if already have results or currently loading
     if (detections.has(pageIndex) || loadingPages.has(pageIndex)) continue
 
@@ -302,22 +338,59 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
     if (fromCache) continue
 
     // Only auto-run model detection for Japanese chapters.
-    // (Even if enableForAllLanguages is true, we don't want background inference on non-JP.)
     if (!autoDetectAllowed) continue
 
-    // Check WebGPU on first use
-    await checkWebGPU()
+    pagesToDetect.push(pageIndex)
+  }
 
-    // Get image URL
-    const imageUrl = ctx.getPageImageUrl(pageIndex)
-    if (!imageUrl) continue
+  // If no pages need detection, we're done
+  if (pagesToDetect.length === 0) return
 
-    try {
-      const imageData = await loadImageData(imageUrl)
-      runDetection(pageIndex, imageData, cacheKey)
-    } catch (err) {
-      console.error('[TextDetector] Auto-detection failed:', err)
+  // Debounce: check if we should run detection now or schedule it
+  const now = Date.now()
+  const timeSinceLastDetect = now - lastAutoDetectTime
+
+  // Clear any pending debounce
+  if (autoDetectDebounceTimer) {
+    clearTimeout(autoDetectDebounceTimer)
+    autoDetectDebounceTimer = null
+  }
+
+  const runDetections = async () => {
+    lastAutoDetectTime = Date.now()
+    
+    for (const pageIndex of pagesToDetect) {
+      // Re-check in case state changed during debounce
+      const currentState = useTextDetectorStore.getState()
+      if (currentState.detections.has(pageIndex) || currentState.loadingPages.has(pageIndex)) continue
+
+      const imageUrl = ctx.getPageImageUrl(pageIndex)
+      if (!imageUrl) continue
+
+      const cacheKey = {
+        registryId: ctx.registryId,
+        sourceId: ctx.sourceId,
+        mangaId: ctx.mangaId,
+        chapterId: ctx.chapterId,
+        pageIndex,
+      }
+
+      try {
+        const imageData = await loadImageData(imageUrl)
+        runDetection(pageIndex, imageData, cacheKey)
+      } catch (err) {
+        console.error('[TextDetector] Auto-detection failed:', err)
+      }
     }
+  }
+
+  if (timeSinceLastDetect >= AUTO_DETECT_DEBOUNCE_MS) {
+    // Enough time has passed, run immediately
+    runDetections()
+  } else {
+    // Schedule for later
+    const delay = AUTO_DETECT_DEBOUNCE_MS - timeSinceLastDetect
+    autoDetectDebounceTimer = setTimeout(runDetections, delay)
   }
 }
 

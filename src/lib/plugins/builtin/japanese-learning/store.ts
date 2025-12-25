@@ -24,7 +24,7 @@ async function checkWebGPUAvailability(): Promise<boolean> {
   }
 }
 
-// Get initial settings, sanitizing autoDetect if WebGPU unavailable
+// Get initial settings, sanitizing localInference if WebGPU unavailable
 function getInitialSettings(): TextDetectorSettings {
   const saved = storage.get<TextDetectorSettings>('settings') ?? DEFAULT_SETTINGS
   // Eager sanitization runs async after store creation
@@ -36,8 +36,8 @@ const initialSettings = getInitialSettings()
 // Run eager WebGPU check to sanitize settings on module load
 checkWebGPUAvailability().then((available) => {
   webgpuAvailable = available
-  if (!available && initialSettings.autoDetect) {
-    const sanitized = { ...initialSettings, autoDetect: false }
+  if (!available && initialSettings.localInference) {
+    const sanitized = { ...initialSettings, localInference: false }
     storage.set('settings', sanitized)
     // Update store if already created
     if (useTextDetectorStore) {
@@ -106,6 +106,7 @@ async function checkWebGPU(): Promise<boolean> {
     w.postMessage({ type: 'check-webgpu' } satisfies WorkerRequest)
   })
 }
+
 
 // ============================================================================
 // Store
@@ -212,9 +213,9 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
 
   setSettings: (partial) => {
     let settings = { ...get().settings, ...partial }
-    // Guard: never persist autoDetect=true if WebGPU unavailable
-    if (settings.autoDetect && get().webgpuAvailable === false) {
-      settings = { ...settings, autoDetect: false }
+    // Guard: never persist localInference=true if WebGPU unavailable
+    if (settings.localInference && get().webgpuAvailable === false) {
+      settings = { ...settings, localInference: false }
     }
     storage.set('settings', settings)
     set({ settings })
@@ -269,9 +270,9 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
   checkWebGPU: async () => {
     const available = await checkWebGPU()
     set({ webgpuAvailable: available })
-    // Sanitize: force autoDetect off if WebGPU unavailable
-    if (!available && get().settings.autoDetect) {
-      const sanitized = { ...get().settings, autoDetect: false }
+    // Sanitize: force localInference off if WebGPU unavailable
+    if (!available && get().settings.localInference) {
+      const sanitized = { ...get().settings, localInference: false }
       storage.set('settings', sanitized)
       set({ settings: sanitized })
     }
@@ -380,7 +381,37 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
 
     get().setLoadingPage(pageIndex, true)
 
-    const runModelDetection = () => {
+    const handleDetectionResult = (rawDets: Detection[]) => {
+      const dets: TextDetection[] = rawDets
+        .filter((d: Detection) => d.conf >= settings.minConfidence)
+        .map((d: Detection) => ({
+          x1: d.x1,
+          y1: d.y1,
+          x2: d.x2,
+          y2: d.y2,
+          confidence: d.conf,
+          class: d.cls,
+          label: d.label,
+        }))
+
+      get().setDetections(pageIndex, dets)
+      get().setLoadingPage(pageIndex, false)
+
+      // Mark as freshly detected (for flash animation)
+      const freshlyDetectedPages = new Set(get().freshlyDetectedPages)
+      freshlyDetectedPages.add(pageIndex)
+      set({ freshlyDetectedPages })
+
+      // Cache results
+      if (cacheKey) {
+        setCachedDetections(cacheKey, dets).catch(() => {})
+      }
+
+      onComplete?.()
+    }
+
+    // Run detection via worker (both local and remote go through worker to stay off main thread)
+    const runWorkerDetection = () => {
       const requestId = `page-${pageIndex}-${Date.now()}`
       const abortController = new AbortController()
       const { signal } = abortController
@@ -403,34 +434,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
         } else if (e.data.type === 'detect-done') {
           w.removeEventListener('message', handler)
           set({ modelLoadingStage: null, modelLoaded: true })
-
-          const { detections: rawDets } = e.data
-          const dets: TextDetection[] = rawDets
-            .filter((d: Detection) => d.conf >= settings.minConfidence)
-            .map((d: Detection) => ({
-              x1: d.x1,
-              y1: d.y1,
-              x2: d.x2,
-              y2: d.y2,
-              confidence: d.conf,
-              class: d.cls,
-              label: d.label,
-            }))
-
-          get().setDetections(pageIndex, dets)
-          get().setLoadingPage(pageIndex, false)
-
-          // Mark as freshly detected (for flash animation)
-          const freshlyDetectedPages = new Set(get().freshlyDetectedPages)
-          freshlyDetectedPages.add(pageIndex)
-          set({ freshlyDetectedPages })
-
-          // Cache results
-          if (cacheKey) {
-            setCachedDetections(cacheKey, dets).catch(() => {})
-          }
-
-          onComplete?.()
+          handleDetectionResult(e.data.detections)
         } else if (e.data.type === 'error') {
           w.removeEventListener('message', handler)
           console.error('[TextDetector] Detection error:', e.data.message)
@@ -440,7 +444,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
           if (msg.includes('out of memory') || msg.includes('memory')) {
             alert(i18n.t('plugin.japaneseLearning.errors.outOfMemory'))
           } else {
-            alert(`[OCR Debug] Detection error: ${e.data.message}`)
+            alert(`[TextDetector] Detection error: ${e.data.message}`)
           }
           
           set({ modelLoadingStage: null })
@@ -452,17 +456,29 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
       w.addEventListener('message', handler)
       w.addEventListener('error', (e) => {
         console.error('[TextDetector] Worker error:', e)
-        alert(`[OCR Debug] Worker error: ${e.message || 'Unknown error'}`)
+        alert(`[TextDetector] Worker error: ${e.message || 'Unknown error'}`)
         set({ modelLoadingStage: null })
         get().setLoadingPage(pageIndex, false)
       })
-      w.postMessage({
-        type: 'detect',
-        requestId,
-        imageData,
-        preferWebGPU: webgpuAvailable ?? false,
-      } satisfies WorkerRequest)
+
+      // Send appropriate message type based on localInference setting
+      if (settings.localInference) {
+        w.postMessage({
+          type: 'detect',
+          requestId,
+          imageData,
+          preferWebGPU: webgpuAvailable ?? false,
+        } satisfies WorkerRequest)
+      } else {
+        w.postMessage({
+          type: 'detect-remote',
+          requestId,
+          imageData,
+        } satisfies WorkerRequest)
+      }
     }
+
+    const executeDetection = runWorkerDetection
 
     // Check cache first
     if (cacheKey) {
@@ -473,12 +489,12 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
             get().setLoadingPage(pageIndex, false)
             onComplete?.()
           } else {
-            runModelDetection()
+            executeDetection()
           }
         })
-        .catch(() => runModelDetection())
+        .catch(() => executeDetection())
     } else {
-      runModelDetection()
+      executeDetection()
     }
   },
 }))

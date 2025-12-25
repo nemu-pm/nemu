@@ -8,71 +8,89 @@
 
 :root {
   --radius: 0.65rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.141 0.005 285.823);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: oklch(0.488 0.243 264.376);
-  --primary-foreground: oklch(0.97 0.014 254.604);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.967 0.001 286.375);
-  --accent-foreground: oklch(0.21 0.006 285.885);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.809 0.105 251.813);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.546 0.245 262.881);
-  --chart-4: oklch(0.488 0.243 264.376);
-  --chart-5: oklch(0.424 0.199 265.638);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-primary: oklch(0.546 0.245 262.881);
-  --sidebar-primary-foreground: oklch(0.97 0.014 254.604);
-  --sidebar-accent: oklch(0.967 0.001 286.375);
-  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-  --sidebar-border: oklch(0.92 0.004 286.32);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* Nemu Light Theme - Blue-violet (hue 269°) */
+  --background: oklch(0.985 0.006 269);
+  --foreground: oklch(0.18 0.02 269);
+  --card: oklch(0.99 0.004 269);
+  --card-foreground: oklch(0.18 0.02 269);
+  --popover: oklch(0.995 0.003 269);
+  --popover-foreground: oklch(0.18 0.02 269);
+  /* Primary: Nemu's vibrant blue-violet eyes */
+  --primary: oklch(0.616 0.188 269);
+  --primary-foreground: oklch(0.98 0.01 269);
+  /* Secondary: Very subtle blue-violet tint */
+  --secondary: oklch(0.94 0.015 269);
+  --secondary-foreground: oklch(0.35 0.04 269);
+  /* Muted: Nearly neutral with hint of blue */
+  --muted: oklch(0.94 0.01 269);
+  --muted-foreground: oklch(0.50 0.02 269);
+  /* Accent: Subtle cool shift */
+  --accent: oklch(0.93 0.02 269);
+  --accent-foreground: oklch(0.35 0.06 269);
+  /* Destructive */
+  --destructive: oklch(0.60 0.20 25);
+  /* Border: Very subtle tint */
+  --border: oklch(0.91 0.012 269);
+  --input: oklch(0.93 0.01 269);
+  --ring: oklch(0.616 0.188 269);
+  /* Chart colors: Blue-violet spectrum */
+  --chart-1: oklch(0.616 0.188 269);   /* Primary blue-violet */
+  --chart-2: oklch(0.55 0.16 269);     /* Deep blue-violet */
+  --chart-3: oklch(0.65 0.12 255);     /* Cool blue */
+  --chart-4: oklch(0.58 0.14 280);     /* Soft violet */
+  --chart-5: oklch(0.50 0.18 269);     /* Deep blue-violet */
+  /* Sidebar */
+  --sidebar: oklch(0.975 0.008 269);
+  --sidebar-foreground: oklch(0.18 0.02 269);
+  --sidebar-primary: oklch(0.616 0.188 269);
+  --sidebar-primary-foreground: oklch(0.98 0.01 269);
+  --sidebar-accent: oklch(0.93 0.02 269);
+  --sidebar-accent-foreground: oklch(0.35 0.06 269);
+  --sidebar-border: oklch(0.91 0.012 269);
+  --sidebar-ring: oklch(0.616 0.188 269);
 }
 
 .dark {
-  --background: oklch(0.141 0.005 285.823);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.488 0.243 264.376);
-  --primary-foreground: oklch(0.97 0.014 254.604);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.809 0.105 251.813);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.546 0.245 262.881);
-  --chart-4: oklch(0.488 0.243 264.376);
-  --chart-5: oklch(0.424 0.199 265.638);
-  --sidebar: oklch(0.21 0.006 285.885);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.623 0.214 259.815);
-  --sidebar-primary-foreground: oklch(0.97 0.014 254.604);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.439 0 0);
+  /* Nemu Dark Theme - Nearly neutral charcoal, lets primary color pop */
+  --background: oklch(0.145 0.006 269);
+  --foreground: oklch(0.93 0.008 269);
+  --card: oklch(0.175 0.008 269);
+  --card-foreground: oklch(0.93 0.008 269);
+  --popover: oklch(0.19 0.01 269);
+  --popover-foreground: oklch(0.93 0.008 269);
+  /* Primary: Brighter for dark mode visibility */
+  --primary: oklch(0.65 0.18 269);
+  --primary-foreground: oklch(0.98 0.01 269);
+  /* Secondary: Nearly neutral */
+  --secondary: oklch(0.22 0.008 269);
+  --secondary-foreground: oklch(0.88 0.01 269);
+  /* Muted: True charcoal */
+  --muted: oklch(0.22 0.006 269);
+  --muted-foreground: oklch(0.60 0.01 269);
+  /* Accent: Very subtle */
+  --accent: oklch(0.24 0.01 269);
+  --accent-foreground: oklch(0.85 0.015 269);
+  /* Destructive */
+  --destructive: oklch(0.65 0.18 22);
+  /* Border: Neutral with hint */
+  --border: oklch(0.40 0.015 269 / 18%);
+  --input: oklch(0.40 0.015 269 / 22%);
+  --ring: oklch(0.65 0.18 269);
+  /* Chart colors: Blue-violet spectrum */
+  --chart-1: oklch(0.68 0.17 269);   /* Primary blue-violet */
+  --chart-2: oklch(0.55 0.16 269);   /* Deep blue-violet */
+  --chart-3: oklch(0.65 0.12 255);   /* Cool blue */
+  --chart-4: oklch(0.60 0.14 280);   /* Soft violet */
+  --chart-5: oklch(0.50 0.18 269);   /* Deep blue-violet */
+  /* Sidebar */
+  --sidebar: oklch(0.155 0.007 269);
+  --sidebar-foreground: oklch(0.93 0.008 269);
+  --sidebar-primary: oklch(0.68 0.17 269);
+  --sidebar-primary-foreground: oklch(0.98 0.01 269);
+  --sidebar-accent: oklch(0.24 0.01 269);
+  --sidebar-accent-foreground: oklch(0.85 0.015 269);
+  --sidebar-border: oklch(0.40 0.015 269 / 15%);
+  --sidebar-ring: oklch(0.60 0.16 269);
 }
 
 @theme inline {
@@ -370,46 +388,46 @@ body:has(.reader-lock-scroll) {
   display: none !important;
 }
 
-/* Mobile floating tab bar - iOS style */
+/* Mobile floating tab bar - iOS style with Nemu blue-violet tint */
 .mobile-tab-bar {
-  background: oklch(0.98 0 0 / 0.72);
+  background: oklch(0.98 0.015 269 / 0.72);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 0.5px solid oklch(0 0 0 / 0.08);
+  border: 0.5px solid oklch(0.5 0.10 269 / 0.12);
   box-shadow:
-    0 2px 20px oklch(0 0 0 / 0.08),
-    0 0 1px oklch(0 0 0 / 0.12),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.5);
+    0 2px 20px oklch(0.4 0.12 269 / 0.08),
+    0 0 1px oklch(0.4 0.12 269 / 0.12),
+    inset 0 0.5px 0 oklch(1 0.02 269 / 0.5);
 }
 
 .dark .mobile-tab-bar {
-  background: oklch(0.18 0 0 / 0.75);
-  border: 0.5px solid oklch(1 0 0 / 0.1);
+  background: oklch(0.18 0.008 269 / 0.78);
+  border: 0.5px solid oklch(0.50 0.02 269 / 0.12);
   box-shadow:
     0 4px 24px oklch(0 0 0 / 0.4),
     0 0 1px oklch(0 0 0 / 0.3),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+    inset 0 0.5px 0 oklch(1 0 0 / 0.04);
 }
 
-/* Desktop floating dock - left sidebar */
+/* Desktop floating dock - left sidebar with Nemu blue-violet tint */
 .desktop-dock {
-  background: oklch(0.98 0 0 / 0.72);
+  background: oklch(0.98 0.015 269 / 0.72);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 0.5px solid oklch(0 0 0 / 0.08);
+  border: 0.5px solid oklch(0.5 0.10 269 / 0.12);
   box-shadow:
-    0 4px 24px oklch(0 0 0 / 0.06),
-    0 0 1px oklch(0 0 0 / 0.1),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.6);
+    0 4px 24px oklch(0.4 0.12 269 / 0.06),
+    0 0 1px oklch(0.4 0.12 269 / 0.1),
+    inset 0 0.5px 0 oklch(1 0.02 269 / 0.6);
 }
 
 .dark .desktop-dock {
-  background: oklch(0.18 0 0 / 0.75);
-  border: 0.5px solid oklch(1 0 0 / 0.1);
+  background: oklch(0.18 0.008 269 / 0.78);
+  border: 0.5px solid oklch(0.50 0.02 269 / 0.12);
   box-shadow:
     0 4px 24px oklch(0 0 0 / 0.35),
     0 0 1px oklch(0 0 0 / 0.25),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+    inset 0 0.5px 0 oklch(1 0 0 / 0.04);
 }
 
 /* Button Styles - Nemu: True Glassmorphism */
@@ -466,22 +484,22 @@ body:has(.reader-lock-scroll) {
    ─────────────────────────────────────────────────────────────────────────────*/
 
 .btn-nemu-outline {
-  background: oklch(0.98 0 0 / 0.65);
-  border: 0.5px solid oklch(0 0 0 / 0.1);
+  background: oklch(0.98 0.015 269 / 0.65);
+  border: 0.5px solid oklch(0.5 0.10 269 / 0.14);
   box-shadow:
-    0 1px 4px oklch(0 0 0 / 0.06),
-    0 0 1px oklch(0 0 0 / 0.08),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.5);
+    0 1px 4px oklch(0.4 0.12 269 / 0.06),
+    0 0 1px oklch(0.4 0.12 269 / 0.08),
+    inset 0 0.5px 0 oklch(1 0.02 269 / 0.5);
   transition: all 180ms ease;
 }
 
 .btn-nemu-outline:hover {
-  background: oklch(0.98 0 0 / 0.8);
-  border-color: oklch(0 0 0 / 0.14);
+  background: oklch(0.98 0.02 269 / 0.8);
+  border-color: oklch(0.5 0.12 269 / 0.2);
   box-shadow:
-    0 2px 8px oklch(0 0 0 / 0.08),
-    0 0 1px oklch(0 0 0 / 0.1),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.6);
+    0 2px 8px oklch(0.4 0.12 269 / 0.1),
+    0 0 1px oklch(0.4 0.12 269 / 0.12),
+    inset 0 0.5px 0 oklch(1 0.02 269 / 0.6);
 }
 
 .btn-nemu-outline:focus-visible {
@@ -494,21 +512,21 @@ body:has(.reader-lock-scroll) {
 }
 
 .dark .btn-nemu-outline {
-  background: oklch(0.2 0 0 / 0.6);
-  border: 0.5px solid oklch(1 0 0 / 0.1);
+  background: oklch(0.20 0.008 269 / 0.6);
+  border: 0.5px solid oklch(0.50 0.02 269 / 0.18);
   box-shadow:
     0 2px 8px oklch(0 0 0 / 0.3),
     0 0 1px oklch(0 0 0 / 0.25),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+    inset 0 0.5px 0 oklch(1 0 0 / 0.05);
 }
 
 .dark .btn-nemu-outline:hover {
-  background: oklch(0.25 0 0 / 0.7);
-  border-color: oklch(1 0 0 / 0.15);
+  background: oklch(0.24 0.01 269 / 0.7);
+  border-color: oklch(0.50 0.025 269 / 0.22);
   box-shadow:
     0 4px 12px oklch(0 0 0 / 0.35),
     0 0 1px oklch(0 0 0 / 0.3),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.1);
+    inset 0 0.5px 0 oklch(1 0 0 / 0.06);
 }
 
 .dark .btn-nemu-outline:focus-visible {
@@ -523,21 +541,21 @@ body:has(.reader-lock-scroll) {
    ─────────────────────────────────────────────────────────────────────────────*/
 
 .btn-nemu-secondary {
-  background: oklch(0.94 0.003 280 / 0.85);
-  border: 0.5px solid oklch(0 0 0 / 0.07);
+  background: oklch(0.94 0.02 269 / 0.85);
+  border: 0.5px solid oklch(0.5 0.10 269 / 0.12);
   box-shadow:
-    0 1px 3px oklch(0 0 0 / 0.05),
-    0 0 1px oklch(0 0 0 / 0.06),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.6);
+    0 1px 3px oklch(0.4 0.12 269 / 0.05),
+    0 0 1px oklch(0.4 0.12 269 / 0.06),
+    inset 0 0.5px 0 oklch(1 0.02 269 / 0.6);
   transition: all 180ms ease;
 }
 
 .btn-nemu-secondary:hover {
-  background: oklch(0.91 0.003 280 / 0.9);
+  background: oklch(0.91 0.025 269 / 0.9);
   box-shadow:
-    0 2px 6px oklch(0 0 0 / 0.07),
-    0 0 1px oklch(0 0 0 / 0.08),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.7);
+    0 2px 6px oklch(0.4 0.12 269 / 0.08),
+    0 0 1px oklch(0.4 0.12 269 / 0.1),
+    inset 0 0.5px 0 oklch(1 0.02 269 / 0.7);
 }
 
 .btn-nemu-secondary:focus-visible {
@@ -550,20 +568,20 @@ body:has(.reader-lock-scroll) {
 }
 
 .dark .btn-nemu-secondary {
-  background: oklch(0.26 0.003 280 / 0.7);
-  border: 0.5px solid oklch(1 0 0 / 0.08);
+  background: oklch(0.22 0.008 269 / 0.7);
+  border: 0.5px solid oklch(0.50 0.015 269 / 0.15);
   box-shadow:
     0 2px 6px oklch(0 0 0 / 0.25),
     0 0 1px oklch(0 0 0 / 0.2),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.06);
+    inset 0 0.5px 0 oklch(1 0 0 / 0.04);
 }
 
 .dark .btn-nemu-secondary:hover {
-  background: oklch(0.3 0.003 280 / 0.75);
+  background: oklch(0.26 0.01 269 / 0.75);
   box-shadow:
     0 3px 10px oklch(0 0 0 / 0.3),
     0 0 1px oklch(0 0 0 / 0.25),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+    inset 0 0.5px 0 oklch(1 0 0 / 0.05);
 }
 
 .dark .btn-nemu-secondary:focus-visible {
@@ -668,21 +686,21 @@ body:has(.reader-lock-scroll) {
    Tabs Styles - Nemu: True Glassmorphism
    ─────────────────────────────────────────────────────────────────────────────*/
 
-/* TabsList container - subtle glass tray */
+/* TabsList container - subtle glass tray with Nemu blue-violet tint */
 .tabs-nemu-list {
-  background: oklch(0 0 0 / 0.04);
-  border: 0.5px solid oklch(0 0 0 / 0.06);
+  background: oklch(0.5 0.08 269 / 0.06);
+  border: 0.5px solid oklch(0.5 0.10 269 / 0.08);
   box-shadow:
-    inset 0 1px 2px oklch(0 0 0 / 0.03),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.3);
+    inset 0 1px 2px oklch(0.4 0.08 269 / 0.04),
+    inset 0 0.5px 0 oklch(1 0.02 269 / 0.3);
 }
 
 .dark .tabs-nemu-list {
-  background: oklch(1 0 0 / 0.05);
+  background: oklch(1 0 0 / 0.04);
   border: 0.5px solid oklch(1 0 0 / 0.06);
   box-shadow:
     inset 0 1px 3px oklch(0 0 0 / 0.2),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.04);
+    inset 0 0.5px 0 oklch(1 0 0 / 0.03);
 }
 
 /* TabsTrigger - glass panel that elevates when active */
@@ -700,23 +718,23 @@ body:has(.reader-lock-scroll) {
   background: oklch(1 0 0 / 0.05);
 }
 
-/* Active tab - elevated glass panel (default variant only) */
+/* Active tab - elevated glass panel with Nemu blue-violet tint (default variant only) */
 [data-variant="default"] .tabs-nemu-trigger[data-active] {
-  background: oklch(0.99 0 0 / 0.9);
-  border: 0.5px solid oklch(0 0 0 / 0.08);
+  background: oklch(0.98 0.015 269 / 0.9);
+  border: 0.5px solid oklch(0.5 0.10 269 / 0.12);
   box-shadow:
-    0 1px 3px oklch(0 0 0 / 0.06),
-    0 0 1px oklch(0 0 0 / 0.04),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.7);
+    0 1px 3px oklch(0.4 0.12 269 / 0.08),
+    0 0 1px oklch(0.4 0.12 269 / 0.06),
+    inset 0 0.5px 0 oklch(1 0.02 269 / 0.6);
 }
 
 .dark [data-variant="default"] .tabs-nemu-trigger[data-active] {
-  background: oklch(0.24 0 0 / 0.8);
-  border: 0.5px solid oklch(1 0 0 / 0.1);
+  background: oklch(0.22 0.01 269 / 0.8);
+  border: 0.5px solid oklch(1 0 0 / 0.08);
   box-shadow:
-    0 2px 6px oklch(0 0 0 / 0.25),
+    0 2px 6px oklch(0 0 0 / 0.3),
     0 0 1px oklch(0 0 0 / 0.2),
-    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+    inset 0 0.5px 0 oklch(1 0 0 / 0.05);
 }
 
 /* Line variant - no glass panel on active, just text color change */
@@ -1298,6 +1316,94 @@ body:has(.reader-lock-scroll) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Card - Graphmorphism-tinted glass cards
+   Layered depth with luminous edge treatment and subtle inner glow
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.card-nemu {
+  position: relative;
+
+  /* Frosted glass */
+  background: oklch(0.99 0.008 269 / 0.6);
+
+  /* Uniform border - no corner mismatch */
+  border: 1px solid oklch(0.75 0.05 269 / 0.15);
+
+  box-shadow:
+    /* Bright top highlight */
+    inset 0 1px 0 oklch(1 0.01 269 / 0.8),
+    /* Bright bottom too - softer */
+    inset 0 -1px 0 oklch(1 0.01 269 / 0.4);
+
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease,
+    transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.card-nemu:hover {
+  border-color: oklch(0.7 0.06 269 / 0.2);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0.01 269 / 0.9),
+    inset 0 -1px 0 oklch(1 0.01 269 / 0.5);
+}
+
+/* Dark mode - matching navbar dark */
+.dark .card-nemu {
+  background: oklch(0.18 0.008 269 / 0.78);
+
+  border: 0.5px solid oklch(0.50 0.02 269 / 0.12);
+
+  box-shadow:
+    0 4px 24px oklch(0 0 0 / 0.35),
+    0 0 1px oklch(0 0 0 / 0.25),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.04);
+}
+
+.dark .card-nemu:hover {
+  border-color: oklch(0.50 0.04 269 / 0.18);
+  box-shadow:
+    0 6px 28px oklch(0 0 0 / 0.4),
+    0 0 1px oklch(0 0 0 / 0.3),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.06);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Manga Cover - Glassmorphism image cards matching navbar style
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.manga-cover-glass {
+  border: 0.5px solid oklch(0.5 0.10 269 / 0.12);
+  box-shadow:
+    0 2px 12px oklch(0.4 0.12 269 / 0.05),
+    0 0 1px oklch(0.4 0.12 269 / 0.08);
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.manga-cover-glass:hover {
+  border-color: oklch(0.5 0.12 269 / 0.18);
+  box-shadow:
+    0 4px 16px oklch(0.4 0.12 269 / 0.08),
+    0 0 1px oklch(0.4 0.12 269 / 0.12);
+}
+
+.dark .manga-cover-glass {
+  border: 0.5px solid oklch(0.50 0.02 269 / 0.12);
+  box-shadow:
+    0 3px 16px oklch(0 0 0 / 0.3),
+    0 0 1px oklch(0 0 0 / 0.2);
+}
+
+.dark .manga-cover-glass:hover {
+  border-color: oklch(0.50 0.04 269 / 0.18);
+  box-shadow:
+    0 5px 20px oklch(0 0 0 / 0.35),
+    0 0 1px oklch(0 0 0 / 0.25);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

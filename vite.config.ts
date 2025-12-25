@@ -2,29 +2,58 @@ import path from "path"
 import fs from "fs"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
-import { defineConfig, type Plugin } from "vite"
+import { defineConfig, loadEnv, type Plugin } from "vite"
 
 /**
- * Plugin to serve dev/tachiyomi-extensions/ as static files in development.
- * This allows TachiyomiDevRegistry to load locally built extensions.
+ * Plugin to serve local Tachiyomi extensions in development.
  * 
- * Special handling for /dev/tachiyomi-extensions/index.json - dynamically scans
+ * Configure via VITE_TACHIYOMI_LOCAL_PATH env var in .env.local:
+ *   VITE_TACHIYOMI_LOCAL_PATH=/path/to/tachiyomi-js/dist/extensions
+ * 
+ * Directory structure: lang/name/manifest.json (e.g., en/mangapill/manifest.json)
+ * 
+ * Special handling for /local-extensions/index.json - dynamically scans
  * the directory and returns the list of available extensions.
  */
-function devExtensionsPlugin(): Plugin {
-  const devExtensionsDir = path.resolve(__dirname, "dev/tachiyomi-extensions")
+function localExtensionsPlugin(extensionsDir?: string): Plugin {
+  const localExtensionsDir = extensionsDir || ""
   
   return {
-    name: "dev-extensions",
+    name: "local-extensions",
     configureServer(server) {
+      if (!localExtensionsDir) {
+        console.log(`\n📦 Tachiyomi local extensions: disabled (set VITE_TACHIYOMI_LOCAL_PATH)\n`)
+        return
+      }
+      
+      // Log the extensions directory on startup
+      console.log(`\n📦 Tachiyomi local extensions: ${localExtensionsDir}`)
+      if (fs.existsSync(localExtensionsDir)) {
+        // Count extensions in nested structure (lang/name/)
+        let count = 0
+        for (const lang of fs.readdirSync(localExtensionsDir)) {
+          const langPath = path.join(localExtensionsDir, lang)
+          if (fs.statSync(langPath).isDirectory()) {
+            for (const name of fs.readdirSync(langPath)) {
+              if (fs.existsSync(path.join(langPath, name, "manifest.json"))) {
+                count++
+              }
+            }
+          }
+        }
+        console.log(`   Found ${count} extension(s)\n`)
+      } else {
+        console.log(`   Directory not found\n`)
+      }
+      
       server.middlewares.use((req, res, next) => {
-        if (!req.url?.startsWith("/dev/tachiyomi-extensions/")) {
+        if (!req.url?.startsWith("/local-extensions/")) {
           return next()
         }
         
         // Strip query string (Vite adds ?import for dynamic imports)
         const urlWithoutQuery = req.url.split("?")[0]
-        const relativePath = urlWithoutQuery.slice("/dev/tachiyomi-extensions/".length)
+        const relativePath = urlWithoutQuery.slice("/local-extensions/".length)
         
         // Special case: dynamically generate index.json by scanning directory
         if (relativePath === "index.json" || relativePath === "") {
@@ -32,22 +61,26 @@ function devExtensionsPlugin(): Plugin {
           res.setHeader("Access-Control-Allow-Origin", "*")
           res.setHeader("Cache-Control", "no-cache")
           
-          if (!fs.existsSync(devExtensionsDir)) {
+          if (!fs.existsSync(localExtensionsDir)) {
             res.end("[]")
             return
           }
           
-          // Scan for directories with manifest.json
-          const entries = fs.readdirSync(devExtensionsDir)
-          const extensionDirs: string[] = []
+          // Scan nested structure: lang/name/manifest.json
+          const extensionPaths: string[] = []
           
-          for (const entry of entries) {
-            const entryPath = path.join(devExtensionsDir, entry)
+          for (const lang of fs.readdirSync(localExtensionsDir)) {
+            const langPath = path.join(localExtensionsDir, lang)
             try {
-              if (fs.statSync(entryPath).isDirectory()) {
-                const manifestPath = path.join(entryPath, "manifest.json")
-                if (fs.existsSync(manifestPath)) {
-                  extensionDirs.push(entry)
+              if (!fs.statSync(langPath).isDirectory()) continue
+              
+              for (const name of fs.readdirSync(langPath)) {
+                const extPath = path.join(langPath, name)
+                if (fs.statSync(extPath).isDirectory()) {
+                  const manifestPath = path.join(extPath, "manifest.json")
+                  if (fs.existsSync(manifestPath)) {
+                    extensionPaths.push(`${lang}/${name}`)
+                  }
                 }
               }
             } catch {
@@ -55,14 +88,14 @@ function devExtensionsPlugin(): Plugin {
             }
           }
           
-          res.end(JSON.stringify(extensionDirs))
+          res.end(JSON.stringify(extensionPaths))
           return
         }
         
-        const filePath = path.join(devExtensionsDir, relativePath)
+        const filePath = path.join(localExtensionsDir, relativePath)
         
         // Security: prevent directory traversal
-        if (!filePath.startsWith(devExtensionsDir)) {
+        if (!filePath.startsWith(localExtensionsDir)) {
           res.statusCode = 403
           res.end("Forbidden")
           return
@@ -87,6 +120,7 @@ function devExtensionsPlugin(): Plugin {
           ".json": "application/json",
           ".js": "application/javascript",
           ".mjs": "application/javascript",
+          ".png": "image/png",
         }
         res.setHeader("Content-Type", contentTypes[ext] || "application/octet-stream")
         res.setHeader("Access-Control-Allow-Origin", "*")
@@ -100,16 +134,21 @@ function devExtensionsPlugin(): Plugin {
 }
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [react(), tailwindcss(), devExtensionsPlugin()],
+export default defineConfig(({ mode }) => {
+  // Load env file to get VITE_TACHIYOMI_LOCAL_PATH
+  const env = loadEnv(mode, process.cwd(), '')
+  
+  return {
+  plugins: [react(), tailwindcss(), localExtensionsPlugin(env.VITE_TACHIYOMI_LOCAL_PATH)],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  // Exclude onnxruntime-web from dep optimization - it has WASM files that need special handling
+  // Dep optimization config
   optimizeDeps: {
-    exclude: ["onnxruntime-web"],
+    // Exclude packages with workers - they need direct file access
+    exclude: ["onnxruntime-web", "@nemu.pm/aidoku-runtime", "@nemu.pm/tachiyomi-runtime"],
   },
   // Worker format must be "es" to support dynamic imports in workers
   worker: {
@@ -117,6 +156,14 @@ export default defineConfig({
   },
   server: {
     port: 5662,
+    // Allow serving from linked packages (for bun link during dev)
+    fs: {
+      allow: [
+        "..",
+        path.resolve(__dirname, "../aidoku-js"),
+        path.resolve(__dirname, "../tachiyomi-js"),
+      ],
+    },
     // Required for SharedArrayBuffer support in onnxruntime-web
     // Using credentialless instead of require-corp to allow loading external images
     headers: {
@@ -130,4 +177,4 @@ export default defineConfig({
       },
     },
   },
-})
+}})

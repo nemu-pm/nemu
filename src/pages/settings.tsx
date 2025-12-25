@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import { useStores, useAuth, useSyncStore } from "@/data/context";
 import { parseSourceKey } from "@/data/keys";
@@ -23,6 +24,7 @@ import { SignOutDialog } from "@/components/sign-out-dialog";
 import { SourceSettings } from "@/components/source-settings";
 import { PluginSettings } from "@/components/plugin-settings";
 import { ClearDataDialog } from "@/components/clear-data-dialog";
+import { AboutDialog } from "@/components/about-dialog";
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -32,7 +34,7 @@ import {
   ResponsiveDialogDescription,
 } from "@/components/ui/responsive-dialog";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Delete02Icon, CloudIcon, Settings02Icon, Recycle03Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Delete02Icon, CloudIcon, Settings02Icon, Recycle03Icon, InformationCircleIcon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { usePluginRegistry } from "@/lib/plugins";
 
 type OAuthProvider = "google" | "apple";
@@ -95,6 +97,7 @@ export function SettingsPage() {
   } | null>(null);
   const [clearMode, setClearMode] = useState<"cache" | "all" | null>(null);
   const [settingsPluginId, setSettingsPluginId] = useState<string | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [uninstallConfirm, setUninstallConfirm] = useState<{
     registryId: string;
     sourceId: string;
@@ -417,6 +420,36 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
+      {/* About */}
+      <motion.div
+        whileTap={{ scale: 0.97 }}
+        transition={{ type: "spring", stiffness: 400, damping: 25 }}
+      >
+        <Card
+          className="!py-0 cursor-pointer hover:bg-accent/50"
+          onClick={() => setAboutOpen(true)}
+        >
+          <CardContent className="flex items-center gap-3 px-4 py-2.5">
+            <HugeiconsIcon icon={InformationCircleIcon} className="size-5 text-muted-foreground" />
+            <span className="flex-1 font-medium text-sm">
+              {t("settings.about")}{" "}
+              <span
+                className="text-primary"
+                style={{
+                  fontFamily: "'Noto Serif JP Variable', serif",
+                  fontWeight: 500,
+                  letterSpacing: "-0.02em",
+                  fontFeatureSettings: '"palt" 1',
+                }}
+              >
+                nemu
+              </span>
+            </span>
+            <HugeiconsIcon icon={ArrowRight01Icon} className="size-4 text-muted-foreground" />
+          </CardContent>
+        </Card>
+      </motion.div>
+
       <AddSourceDialog open={addSourceOpen} onOpenChange={setAddSourceOpen} />
       <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
       <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
@@ -477,6 +510,8 @@ export function SettingsPage() {
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
+
+      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
     </div>
   );
 }

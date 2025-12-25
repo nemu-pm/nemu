@@ -48,12 +48,6 @@ export function parseSourceKey(key: string): { registryId: string; sourceId: str
 export const CacheKeys = {
   /** The whole .aix package blob */
   aix: (registryId: string, sourceId: string) => `aix${SEP}${registryId}${SEP}${sourceId}`,
-  /** @deprecated Use aix() instead - kept for migration */
-  wasm: (registryId: string, sourceId: string) => `wasm${SEP}${registryId}${SEP}${sourceId}`,
-  /** @deprecated Use aix() instead - kept for migration */
-  manifest: (registryId: string, sourceId: string) => `manifest${SEP}${registryId}${SEP}${sourceId}`,
-  /** @deprecated Use aix() instead - kept for migration */
-  settings: (registryId: string, sourceId: string) => `settings${SEP}${registryId}${SEP}${sourceId}`,
   manga: (registryId: string, sourceId: string, mangaId: string) =>
     `manga${SEP}${registryId}${SEP}${sourceId}${SEP}${mangaId}`,
   chapters: (registryId: string, sourceId: string, mangaId: string) =>
