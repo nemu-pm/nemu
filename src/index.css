@@ -201,8 +201,9 @@ a img {
   }
 
   .h-dvh {
+    /* In iOS standalone, `100dvh` can be smaller than the true viewport.
+       Force `100vh` to avoid bottom gaps/strips in full-screen layouts like the Reader. */
     height: 100vh;
-    height: -webkit-fill-available;
   }
 }
 
