@@ -1118,7 +1118,7 @@ export function ReaderPage() {
 
   if (loading) {
     return (
-      <div className="flex h-dvh items-center justify-center bg-black reader-lock-scroll">
+      <div className="fixed inset-0 flex items-center justify-center bg-black reader-lock-scroll">
         <Spinner className="size-8 text-white" />
       </div>
     );
@@ -1126,7 +1126,7 @@ export function ReaderPage() {
 
   if (error) {
     return (
-      <div className="flex h-dvh items-center justify-center bg-black reader-lock-scroll">
+      <div className="fixed inset-0 flex items-center justify-center bg-black reader-lock-scroll">
         <div className="text-center">
           <p className="text-xl text-red-400">{t("reader.failedToLoad")}</p>
           <p className="mt-2 text-neutral-400 selectable">{error}</p>
@@ -1163,7 +1163,7 @@ export function ReaderPage() {
       getPageImageUrl={getPageImageUrl}
       getLoadedPageUrls={getLoadedPageUrls}
     >
-    <div className="h-dvh w-screen bg-black relative overflow-hidden reader-lock-scroll">
+    <div className="fixed inset-0 bg-black relative overflow-hidden reader-lock-scroll">
       {/* Floating Top Bar */}
       <header
         className={`absolute left-0 right-0 z-10 flex justify-center ${

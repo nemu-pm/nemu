@@ -211,10 +211,18 @@ a img {
 html:has(.reader-lock-scroll),
 body:has(.reader-lock-scroll) {
   overflow: hidden;
-  position: fixed;
-  width: 100%;
-  height: 100%;
   overscroll-behavior: none;
+}
+
+/* Sonner (toast) safe-area offsets (notably iOS standalone/PWA). */
+.toaster[data-sonner-toaster][data-position^="top"],
+.toaster [data-sonner-toaster][data-position^="top"] {
+  top: calc(var(--nemu-safe-top, 0px) + 16px) !important;
+}
+
+.toaster[data-sonner-toaster][data-position^="bottom"],
+.toaster [data-sonner-toaster][data-position^="bottom"] {
+  bottom: calc(var(--nemu-safe-bottom, 0px) + 16px) !important;
 }
 
 /* Reader floating UI - adaptive glassmorphism for light/dark modes */
