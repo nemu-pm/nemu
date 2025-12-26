@@ -653,6 +653,14 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // Sign out
   // ============================================================================
   const signOut = useCallback(async (clearLocal: boolean) => {
+    // Best-effort: flush a sync run before wiping local data, so we don't silently
+    // drop pending ops for users who expect cloud state to be preserved.
+    if (clearLocal) {
+      try {
+        await syncCore.syncNow("manual");
+      } catch {}
+    }
+
     setSigningOut(true);
     syncCore.stop();
     if (clearLocal) {

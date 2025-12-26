@@ -727,6 +727,29 @@ describe("SyncCore integration", () => {
 
       expect(repos.libraryItems.items.size).toBe(1);
     });
+
+    it("auto-syncs when transport transitions to ready (no manual syncNow)", async () => {
+      // Start with a transport that is not ready (e.g. NullTransport / signed-out state)
+      transport.setReady(false);
+      transport.setLibraryItemsPages([
+        { entries: [createSyncItem("item-1", 1000)], hasMore: false },
+      ]);
+
+      const applied = new Promise<void>((resolve) => {
+        syncCore.onApplied((ev) => {
+          if (ev.table === "libraryItems") resolve();
+        });
+      });
+
+      await syncCore.start();
+
+      // Now simulate "sign in": transport becomes ready and is set again.
+      transport.setReady(true);
+      syncCore.setTransport(transport);
+
+      await applied;
+      expect(repos.libraryItems.items.size).toBe(1);
+    });
   });
 
   describe("account isolation (Phase 6.6)", () => {

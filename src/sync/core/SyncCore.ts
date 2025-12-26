@@ -120,6 +120,7 @@ export class SyncCore {
   private repos: SyncCoreRepos;
   private config: SyncCoreConfig;
   private transport: SyncTransport | null = null;
+  private lastTransportReady = false;
 
   private _status: SyncStatus = "offline";
   private _pendingCount = 0;
@@ -129,6 +130,7 @@ export class SyncCore {
 
   private syncInterval: ReturnType<typeof setInterval> | null = null;
   private syncInProgress = false;
+  private inFlightSync: Promise<void> | null = null;
   private online = navigator?.onLine ?? true;
   private started = false;
 
@@ -155,8 +157,19 @@ export class SyncCore {
    * - Pass NullTransport (or null) when logged out
    */
   setTransport(transport: SyncTransport | null): void {
+    const wasReady = this.lastTransportReady;
     this.transport = transport;
     this.updateStatus();
+
+    // If we transition from "not ready" -> "ready" while started+online,
+    // kick an immediate sync. This fixes a real app flow:
+    // sign-out can temporarily wire NullTransport, and later sign-in wires a ready transport.
+    // Without this, SyncCore would wait for the interval (or a local write) to sync, making
+    // the library look "gone" after re-login.
+    const isReady = this.lastTransportReady;
+    if (this.started && this.online && !wasReady && isReady) {
+      void this.syncNow("startup");
+    }
   }
 
   /**
@@ -220,29 +233,38 @@ export class SyncCore {
    */
   async syncNow(reason: SyncRunReason = "manual"): Promise<void> {
     if (!this.canSync()) return;
-    if (this.syncInProgress) return;
+    if (this.syncInProgress) {
+      // Coalesce callers onto the currently running sync instead of dropping the request.
+      await this.inFlightSync;
+      return;
+    }
 
     this.syncInProgress = true;
     const previousStatus = this._status;
     this.setStatus("syncing");
 
-    try {
-      // Pull phase: remote → local
-      await this.runPullPhase();
+    this.inFlightSync = (async () => {
+      try {
+        // Pull phase: remote → local
+        await this.runPullPhase();
 
-      // Push phase: local → remote
-      await this.runPushPhase();
-    } catch (error) {
-      console.error(`[SyncCore] Sync failed (reason: ${reason}):`, error);
-    } finally {
-      this.syncInProgress = false;
-      await this.updatePendingCount();
+        // Push phase: local → remote
+        await this.runPushPhase();
+      } catch (error) {
+        console.error(`[SyncCore] Sync failed (reason: ${reason}):`, error);
+      } finally {
+        this.syncInProgress = false;
+        await this.updatePendingCount();
+        this.inFlightSync = null;
 
-      // Emit status change if it changed
-      if (this._status !== previousStatus) {
-        this.emitMetric("statusChanged", { from: previousStatus, to: this._status });
+        // Emit status change if it changed
+        if (this._status !== previousStatus) {
+          this.emitMetric("statusChanged", { from: previousStatus, to: this._status });
+        }
       }
-    }
+    })();
+
+    await this.inFlightSync;
   }
 
   /**
@@ -731,7 +753,10 @@ export class SyncCore {
   }
 
   private updateStatus(): void {
-    if (!this.transport || !this.transport.isReady()) {
+    const ready = !!this.transport && this.transport.isReady();
+    this.lastTransportReady = ready;
+
+    if (!ready) {
       this.setStatus("offline");
     } else if (!this.online) {
       this.setStatus("offline");
