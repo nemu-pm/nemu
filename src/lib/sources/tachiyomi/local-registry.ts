@@ -2,9 +2,13 @@
  * Local registry for locally built Tachiyomi extensions.
  * Only enabled in development mode when VITE_TACHIYOMI_LOCAL_PATH is set.
  */
-import type { SourceRegistry } from "@/data/schema";
-import type { UserDataStore } from "@/data/store";
+import type { SourceRegistry, InstalledSource } from "@/data/schema";
 import type { CacheStore } from "@/data/cache";
+
+/** Minimal interface for saving installed sources */
+export interface InstalledSourceStore {
+  saveInstalledSource(source: InstalledSource): Promise<void>;
+}
 import type { SourceRegistryProvider, RegistrySourceInfo } from "../registry";
 import type { MangaSource } from "../types";
 import type { ExtensionManifest } from "@nemu.pm/tachiyomi-runtime";
@@ -36,22 +40,22 @@ export class TachiyomiLocalRegistry implements SourceRegistryProvider {
     type: "builtin",
   };
 
-  private userStore: UserDataStore;
+  private installedSourceStore: InstalledSourceStore;
   private cacheStore: CacheStore;
   private extensions = new Map<string, LocalExtension>();
   private loadedSources = new Map<string, MangaSource>();
   private initialized = false;
 
-  constructor(userStore: UserDataStore, cacheStore: CacheStore) {
-    this.userStore = userStore;
+  constructor(installedSourceStore: InstalledSourceStore, cacheStore: CacheStore) {
+    this.installedSourceStore = installedSourceStore;
     this.cacheStore = cacheStore;
   }
 
   /**
-   * Update the user store (called when auth state changes)
+   * Update the installed source store (called when auth state changes)
    */
-  setUserStore(store: UserDataStore): void {
-    this.userStore = store;
+  setInstalledSourceStore(store: InstalledSourceStore): void {
+    this.installedSourceStore = store;
   }
 
   /**
@@ -132,8 +136,8 @@ export class TachiyomiLocalRegistry implements SourceRegistryProvider {
       throw new Error(`Extension not found: ${sourceId}`);
     }
     
-    // Save to user store so it appears in installed sources
-    await this.userStore.saveInstalledSource({
+    // Save to installed source store so it appears in installed sources
+    await this.installedSourceStore.saveInstalledSource({
       id: Keys.source(TACHIYOMI_LOCAL_REGISTRY_ID, sourceId),
       registryId: TACHIYOMI_LOCAL_REGISTRY_ID,
       version: ext.manifest.version,

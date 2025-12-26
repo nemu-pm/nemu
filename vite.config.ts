@@ -149,6 +149,8 @@ export default defineConfig(({ mode }) => {
   optimizeDeps: {
     // Exclude packages with workers - they need direct file access
     exclude: ["onnxruntime-web", "@nemu.pm/aidoku-runtime", "@nemu.pm/tachiyomi-runtime"],
+    // Force CJS→ESM conversion for cheerio's dependency chain
+    include: ["cheerio", "cheerio > css-select", "cheerio > css-select > boolbase"],
   },
   // Worker format must be "es" to support dynamic imports in workers
   worker: {

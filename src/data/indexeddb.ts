@@ -1,17 +1,43 @@
 import type { UserDataStore } from "./store";
 import type {
-  LibraryManga,
   HistoryEntry,
   InstalledSource,
   SourceRegistry,
   UserSettings,
+  LocalLibraryItem,
+  LocalSourceLink,
+  LocalChapterProgress,
+  LocalMangaProgress,
+  HLCState,
 } from "./schema";
 import {
-  LibraryMangaSchema,
   HistoryEntrySchema,
   SourceRegistrySchema,
   UserSettingsSchema,
+  LocalLibraryItemSchema,
+  LocalSourceLinkSchema,
+  LocalChapterProgressSchema,
+  LocalMangaProgressSchema,
+  HLCStateSchema,
+  MangaMetadataSchema,
+  ExternalIdsSchema,
+  SourceLinkSchema,
 } from "./schema";
+import { z } from "zod";
+
+// ============================================================================
+// Legacy LibraryManga type (internal only - for migration)
+// ============================================================================
+const LegacyLibraryMangaSchema = z.object({
+  id: z.string(),
+  addedAt: z.number(),
+  metadata: MangaMetadataSchema,
+  overrides: MangaMetadataSchema.partial().optional(),
+  coverCustom: z.string().optional(),
+  externalIds: ExternalIdsSchema.optional(),
+  sources: z.array(SourceLinkSchema).min(1),
+});
+type LegacyLibraryManga = z.infer<typeof LegacyLibraryMangaSchema>;
 
 /**
  * =========================
@@ -34,7 +60,11 @@ import {
  *
  * If you change the schema, also update INDEXEDDB.md.
  */
-const DB_NAME = "nemu-user";
+/**
+ * Default DB name for backwards compatibility (local profile).
+ * Profile-specific DBs use getUserDbName(profileId) instead.
+ */
+const DEFAULT_DB_NAME = "nemu-user";
 /**
  * Schema version for `nemu-user`.
  *
@@ -42,7 +72,7 @@ const DB_NAME = "nemu-user";
  * - Bumping this will cause browsers to run `onupgradeneeded` for users whose DB is older.
  * - That upgrade can be BLOCKED by other tabs; we surface that via the `nemu:idb-blocked` UI event.
  */
-const DB_VERSION = 5; // Bumped for history index + safe composite ids
+const DB_VERSION = 7;
 /**
  * Minimum DB version that the current app code can safely operate on *without* running migrations.
  *
@@ -78,6 +108,13 @@ const STORES = {
   history: "history",
   settings: "settings",
   registries: "registries",
+  // Normalized canonical tables (mirrors Convex schema)
+  libraryItems: "library_items",
+  sourceLinks: "source_links",
+  chapterProgress: "chapter_progress",
+  mangaProgress: "manga_progress",
+  // HLC state per profile
+  hlcState: "hlc_state",
 } as const;
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -164,7 +201,7 @@ function maybeStartMockUpgradeReproAfterDbOpen() {
     const delReq = indexedDB.deleteDatabase(MOCK_BLOCK_DB_NAME);
     delReq.onblocked = () => {
       try { sessionStorage.setItem(MOCK_BLOCK_STICKY_KEY, "1"); } catch { /* ignore */ }
-      emitIdbUiEvent({ dbName: DB_NAME, requestedVersion: DB_VERSION, kind: "blocked" });
+      emitIdbUiEvent({ dbName: DEFAULT_DB_NAME, requestedVersion: DB_VERSION, kind: "blocked" });
     };
     delReq.onsuccess = () => {
       // Only clear sticky if Tab A is no longer holding the mock lock.
@@ -254,9 +291,10 @@ try {
       const msg = ev.data as any;
       if (!msg || typeof msg !== "object") return;
       if (msg.senderId && msg.senderId === IDB_SENDER_ID) return;
-      if (msg.type === "close-db" && msg.dbName === DB_NAME) {
+      // Close our DB if another tab is upgrading it (handles profile-specific DB names)
+      if (msg.type === "close-db" && lastOpenedUserDb && lastOpenedUserDb.name === msg.dbName) {
         try {
-          lastOpenedUserDb?.close();
+          lastOpenedUserDb.close();
           lastOpenedUserDb = null;
         } catch {
           // ignore
@@ -292,13 +330,33 @@ function makeLegacyHistoryKey(
 }
 
 /**
- * IndexedDB implementation of UserDataStore
+ * IndexedDB implementation of UserDataStore.
+ *
+ * Phase 6.6: Supports profile-specific databases via profileId parameter.
+ * Each profile gets its own isolated DB: "nemu-user" (default) or "nemu-user::user:<id>".
  */
 export class IndexedDBUserDataStore implements UserDataStore {
   private dbPromise: Promise<IDBDatabase> | null = null;
+  readonly profileId: string;
+
+  /**
+   * @param profileId - Optional profile ID. If provided, DB name becomes "nemu-user::{profileId}".
+   *                    Typically "user:<userId>" for authenticated users, omit for local/anonymous.
+   */
+  constructor(profileId?: string) {
+    this.profileId = profileId ?? "";
+  }
+
+  /**
+   * Get the DB name for this store (includes profile suffix if set).
+   */
+  private getDbName(): string {
+    return this.profileId ? `${DEFAULT_DB_NAME}::${this.profileId}` : DEFAULT_DB_NAME;
+  }
 
   private getDB(): Promise<IDBDatabase> {
     if (!this.dbPromise) {
+      const dbName = this.getDbName();
       this.dbPromise = new Promise((resolve, reject) => {
         /**
          * ===================
@@ -343,14 +401,14 @@ export class IndexedDBUserDataStore implements UserDataStore {
           // Ask other tabs to close the user DB if they have it open (helps unblock schema upgrades).
           // IMPORTANT: only do this when we are actually attempting a DB_VERSION open.
           try {
-            idbBroadcast?.postMessage({ type: "close-db", dbName: DB_NAME, senderId: IDB_SENDER_ID });
+            idbBroadcast?.postMessage({ type: "close-db", dbName: dbName, senderId: IDB_SENDER_ID });
           } catch {
             // ignore
           }
 
           let upgradeRequest: IDBOpenDBRequest;
           try {
-            upgradeRequest = indexedDB.open(DB_NAME, DB_VERSION);
+            upgradeRequest = indexedDB.open(dbName, DB_VERSION);
           } catch (e) {
             reject(e);
             return;
@@ -359,7 +417,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
           // A versioned open was blocked by another tab's existing connection(s).
           // UI should tell the user to close other tabs/windows and reload.
           upgradeRequest.onblocked = () => {
-            emitIdbUiEvent({ dbName: DB_NAME, requestedVersion: DB_VERSION, kind: "blocked" });
+            emitIdbUiEvent({ dbName: dbName, requestedVersion: DB_VERSION, kind: "blocked" });
           };
 
           upgradeRequest.onerror = () => {
@@ -496,6 +554,40 @@ export class IndexedDBUserDataStore implements UserDataStore {
                 cursor.continue();
               };
             }
+
+            // Add normalized canonical stores (v5 -> v6)
+            // library_items: keyed by libraryItemId
+            if (!db.objectStoreNames.contains(STORES.libraryItems)) {
+              const store = db.createObjectStore(STORES.libraryItems, { keyPath: "libraryItemId" });
+              store.createIndex("by_updatedAt", "updatedAt", { unique: false });
+            }
+
+            // source_links: keyed by cursorId (registryId:sourceId:sourceMangaId)
+            if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
+              const store = db.createObjectStore(STORES.sourceLinks, { keyPath: "cursorId" });
+              store.createIndex("by_libraryItemId", "libraryItemId", { unique: false });
+              store.createIndex("by_updatedAt", "updatedAt", { unique: false });
+            }
+
+            // chapter_progress: keyed by cursorId (registryId:sourceId:sourceMangaId:sourceChapterId)
+            if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
+              const store = db.createObjectStore(STORES.chapterProgress, { keyPath: "cursorId" });
+              store.createIndex("by_sourceManga", ["registryId", "sourceId", "sourceMangaId"], { unique: false });
+              store.createIndex("by_lastReadAt", "lastReadAt", { unique: false });
+              store.createIndex("by_updatedAt", "updatedAt", { unique: false });
+            }
+
+            // manga_progress: keyed by cursorId (registryId:sourceId:sourceMangaId)
+            if (!db.objectStoreNames.contains(STORES.mangaProgress)) {
+              const store = db.createObjectStore(STORES.mangaProgress, { keyPath: "cursorId" });
+              store.createIndex("by_lastReadAt", "lastReadAt", { unique: false });
+              store.createIndex("by_updatedAt", "updatedAt", { unique: false });
+            }
+
+            // HLC state store (keyed by profileId, default "default") (v6 -> v7)
+            if (!db.objectStoreNames.contains(STORES.hlcState)) {
+              db.createObjectStore(STORES.hlcState, { keyPath: "profileId" });
+            }
           };
         };
 
@@ -503,11 +595,11 @@ export class IndexedDBUserDataStore implements UserDataStore {
         // request. We'll only attempt a DB_VERSION open when necessary (fresh install or
         // existing DB is older than MIN_COMPAT_VERSION).
         let currentSawUpgradeNeeded = false;
-        const currentRequest = indexedDB.open(DB_NAME);
+        const currentRequest = indexedDB.open(dbName);
 
         try {
           currentRequest.onblocked = () => {
-            emitIdbUiEvent({ dbName: DB_NAME, kind: "blocked" });
+            emitIdbUiEvent({ dbName: dbName, kind: "blocked" });
           };
           currentRequest.onupgradeneeded = (event) => {
             currentSawUpgradeNeeded = true;
@@ -528,7 +620,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
             }
             db.onversionchange = () => {
               try { db.close(); } catch { /* ignore */ }
-              emitIdbUiEvent({ dbName: DB_NAME, kind: "versionchange" });
+              emitIdbUiEvent({ dbName: dbName, kind: "versionchange" });
             };
             settleOk(db, "current");
           };
@@ -550,9 +642,13 @@ export class IndexedDBUserDataStore implements UserDataStore {
     return this.dbPromise;
   }
 
-  // ============ LIBRARY ============
+  // ============ LEGACY LIBRARY (internal only - for migration) ============
 
-  async getLibrary(): Promise<LibraryManga[]> {
+  /**
+   * @internal Read legacy library data (for migration to canonical tables)
+   * @deprecated Use getLibraryEntries() instead
+   */
+  async getLibrary(): Promise<LegacyLibraryManga[]> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORES.library, "readonly");
@@ -563,55 +659,12 @@ export class IndexedDBUserDataStore implements UserDataStore {
       request.onsuccess = () => {
         const results = request.result
           .map((item) => {
-            const parsed = LibraryMangaSchema.safeParse(item);
+            const parsed = LegacyLibraryMangaSchema.safeParse(item);
             return parsed.success ? parsed.data : null;
           })
-          .filter((item): item is LibraryManga => item !== null);
+          .filter((item): item is LegacyLibraryManga => item !== null);
         resolve(results);
       };
-    });
-  }
-
-  async getLibraryManga(id: string): Promise<LibraryManga | null> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORES.library, "readonly");
-      const store = tx.objectStore(STORES.library);
-      const request = store.get(id);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        if (!request.result) {
-          resolve(null);
-          return;
-        }
-        const parsed = LibraryMangaSchema.safeParse(request.result);
-        resolve(parsed.success ? parsed.data : null);
-      };
-    });
-  }
-
-  async saveLibraryManga(manga: LibraryManga): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORES.library, "readwrite");
-      const store = tx.objectStore(STORES.library);
-      const request = store.put(manga);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
-    });
-  }
-
-  async removeLibraryManga(id: string): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORES.library, "readwrite");
-      const store = tx.objectStore(STORES.library);
-      const request = store.delete(id);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
     });
   }
 
@@ -911,6 +964,729 @@ export class IndexedDBUserDataStore implements UserDataStore {
       const tx = db.transaction(STORES.registries, "readwrite");
       const store = tx.objectStore(STORES.registries);
       const request = store.delete(id);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  // ============ PHASE 6: NORMALIZED CANONICAL STORES ============
+
+  // ============ LIBRARY ITEMS ============
+
+  async getLibraryItem(libraryItemId: string): Promise<LocalLibraryItem | null> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.libraryItems)) {
+        resolve(null);
+        return;
+      }
+      const tx = db.transaction(STORES.libraryItems, "readonly");
+      const store = tx.objectStore(STORES.libraryItems);
+      const request = store.get(libraryItemId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        if (!request.result) {
+          resolve(null);
+          return;
+        }
+        const parsed = LocalLibraryItemSchema.safeParse(request.result);
+        resolve(parsed.success ? parsed.data : null);
+      };
+    });
+  }
+
+  async getAllLibraryItems(): Promise<LocalLibraryItem[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.libraryItems)) {
+        resolve([]);
+        return;
+      }
+      const tx = db.transaction(STORES.libraryItems, "readonly");
+      const store = tx.objectStore(STORES.libraryItems);
+      const request = store.getAll();
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const results = request.result
+          .map((item) => {
+            const parsed = LocalLibraryItemSchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LocalLibraryItem => item !== null && item.inLibrary !== false);
+        resolve(results);
+      };
+    });
+  }
+
+  async saveLibraryItem(item: LocalLibraryItem): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.libraryItems)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.libraryItems, "readwrite");
+      const store = tx.objectStore(STORES.libraryItems);
+      const request = store.put(item);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  async saveLibraryItemsBatch(items: LocalLibraryItem[]): Promise<void> {
+    if (items.length === 0) return;
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.libraryItems)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.libraryItems, "readwrite");
+      const store = tx.objectStore(STORES.libraryItems);
+      
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+
+      for (const item of items) {
+        store.put(item);
+      }
+    });
+  }
+
+  async removeLibraryItem(libraryItemId: string): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.libraryItems)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.libraryItems, "readwrite");
+      const store = tx.objectStore(STORES.libraryItems);
+      const request = store.delete(libraryItemId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  // ============ SOURCE LINKS ============
+
+  async getSourceLink(cursorId: string): Promise<LocalSourceLink | null> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
+        resolve(null);
+        return;
+      }
+      const tx = db.transaction(STORES.sourceLinks, "readonly");
+      const store = tx.objectStore(STORES.sourceLinks);
+      const request = store.get(cursorId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        if (!request.result) {
+          resolve(null);
+          return;
+        }
+        const parsed = LocalSourceLinkSchema.safeParse(request.result);
+        resolve(parsed.success ? parsed.data : null);
+      };
+    });
+  }
+
+  async getSourceLinksForLibraryItem(libraryItemId: string): Promise<LocalSourceLink[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
+        resolve([]);
+        return;
+      }
+      const tx = db.transaction(STORES.sourceLinks, "readonly");
+      const store = tx.objectStore(STORES.sourceLinks);
+      
+      let request: IDBRequest<IDBCursorWithValue | null>;
+      try {
+        const index = store.index("by_libraryItemId");
+        request = index.openCursor(IDBKeyRange.only(libraryItemId));
+      } catch {
+        // Fallback if index doesn't exist
+        request = store.openCursor();
+      }
+
+      const results: LocalSourceLink[] = [];
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve(results);
+          return;
+        }
+        const parsed = LocalSourceLinkSchema.safeParse(cursor.value);
+        if (parsed.success && !parsed.data.deletedAt) {
+          if (parsed.data.libraryItemId === libraryItemId) {
+            results.push(parsed.data);
+          }
+        }
+        cursor.continue();
+      };
+    });
+  }
+
+  async saveSourceLink(link: LocalSourceLink): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.sourceLinks, "readwrite");
+      const store = tx.objectStore(STORES.sourceLinks);
+      const request = store.put(link);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  async saveSourceLinksBatch(links: LocalSourceLink[]): Promise<void> {
+    if (links.length === 0) return;
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.sourceLinks, "readwrite");
+      const store = tx.objectStore(STORES.sourceLinks);
+      
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+
+      for (const link of links) {
+        store.put(link);
+      }
+    });
+  }
+
+  async removeSourceLink(cursorId: string): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.sourceLinks, "readwrite");
+      const store = tx.objectStore(STORES.sourceLinks);
+      const request = store.delete(cursorId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  async getAllSourceLinks(): Promise<LocalSourceLink[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
+        resolve([]);
+        return;
+      }
+      const tx = db.transaction(STORES.sourceLinks, "readonly");
+      const store = tx.objectStore(STORES.sourceLinks);
+      const request = store.getAll();
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const results = request.result
+          .map((item) => {
+            const parsed = LocalSourceLinkSchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LocalSourceLink => item !== null && !item.deletedAt);
+        resolve(results);
+      };
+    });
+  }
+
+  /**
+   * Get all library entries (items joined with their source links).
+   * This is the canonical way to load library data for UI.
+   */
+  async getLibraryEntries(): Promise<Array<{ item: LocalLibraryItem; sources: LocalSourceLink[] }>> {
+    const [items, allLinks] = await Promise.all([
+      this.getAllLibraryItems(),
+      this.getAllSourceLinks(),
+    ]);
+
+    // Group source links by libraryItemId
+    const linksByItem = new Map<string, LocalSourceLink[]>();
+    for (const link of allLinks) {
+      const existing = linksByItem.get(link.libraryItemId) ?? [];
+      existing.push(link);
+      linksByItem.set(link.libraryItemId, existing);
+    }
+
+    // Join items with their sources
+    return items
+      .filter((item) => item.inLibrary !== false)
+      .map((item) => ({
+        item,
+        sources: linksByItem.get(item.libraryItemId) ?? [],
+      }));
+  }
+
+  // ============ CHAPTER PROGRESS ============
+
+  async getChapterProgressEntry(cursorId: string): Promise<LocalChapterProgress | null> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
+        resolve(null);
+        return;
+      }
+      const tx = db.transaction(STORES.chapterProgress, "readonly");
+      const store = tx.objectStore(STORES.chapterProgress);
+      const request = store.get(cursorId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        if (!request.result) {
+          resolve(null);
+          return;
+        }
+        const parsed = LocalChapterProgressSchema.safeParse(request.result);
+        resolve(parsed.success ? parsed.data : null);
+      };
+    });
+  }
+
+  async getChapterProgressForManga(
+    registryId: string,
+    sourceId: string,
+    sourceMangaId: string
+  ): Promise<Record<string, LocalChapterProgress>> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
+        resolve({});
+        return;
+      }
+      const tx = db.transaction(STORES.chapterProgress, "readonly");
+      const store = tx.objectStore(STORES.chapterProgress);
+      
+      let request: IDBRequest<IDBCursorWithValue | null>;
+      try {
+        const index = store.index("by_sourceManga");
+        const range = IDBKeyRange.only([registryId, sourceId, sourceMangaId]);
+        request = index.openCursor(range);
+      } catch {
+        // Fallback: scan all
+        request = store.openCursor();
+      }
+
+      const result: Record<string, LocalChapterProgress> = {};
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve(result);
+          return;
+        }
+        const parsed = LocalChapterProgressSchema.safeParse(cursor.value);
+        if (parsed.success && !parsed.data.deletedAt) {
+          if (
+            parsed.data.registryId === registryId &&
+            parsed.data.sourceId === sourceId &&
+            parsed.data.sourceMangaId === sourceMangaId
+          ) {
+            result[parsed.data.sourceChapterId] = parsed.data;
+          }
+        }
+        cursor.continue();
+      };
+    });
+  }
+
+  async getRecentChapterProgress(limit: number): Promise<LocalChapterProgress[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
+        resolve([]);
+        return;
+      }
+      const tx = db.transaction(STORES.chapterProgress, "readonly");
+      const store = tx.objectStore(STORES.chapterProgress);
+      const index = store.index("by_lastReadAt");
+      const request = index.openCursor(null, "prev"); // Descending
+
+      const results: LocalChapterProgress[] = [];
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor && results.length < limit) {
+          const parsed = LocalChapterProgressSchema.safeParse(cursor.value);
+          if (parsed.success && !parsed.data.deletedAt) {
+            results.push(parsed.data);
+          }
+          cursor.continue();
+        } else {
+          resolve(results);
+        }
+      };
+    });
+  }
+
+  async saveChapterProgressEntry(entry: LocalChapterProgress): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.chapterProgress, "readwrite");
+      const store = tx.objectStore(STORES.chapterProgress);
+
+      // High-water mark merge on save
+      const getRequest = store.get(entry.cursorId);
+      getRequest.onerror = () => reject(getRequest.error);
+      getRequest.onsuccess = () => {
+        const existing = getRequest.result as LocalChapterProgress | undefined;
+        const merged: LocalChapterProgress = existing
+          ? {
+              ...entry,
+              progress: Math.max(existing.progress, entry.progress),
+              total: Math.max(existing.total, entry.total),
+              completed: existing.completed || entry.completed,
+              lastReadAt: Math.max(existing.lastReadAt, entry.lastReadAt),
+              updatedAt: Math.max(existing.updatedAt, entry.updatedAt),
+            }
+          : entry;
+
+        const putRequest = store.put(merged);
+        putRequest.onerror = () => reject(putRequest.error);
+        putRequest.onsuccess = () => resolve();
+      };
+    });
+  }
+
+  async saveChapterProgressBatch(entries: LocalChapterProgress[]): Promise<void> {
+    if (entries.length === 0) return;
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.chapterProgress, "readwrite");
+      const store = tx.objectStore(STORES.chapterProgress);
+      
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+
+      // For batch, we do simple upserts without merge (caller is responsible for merging)
+      for (const entry of entries) {
+        store.put(entry);
+      }
+    });
+  }
+
+  async removeChapterProgress(cursorId: string): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.chapterProgress, "readwrite");
+      const store = tx.objectStore(STORES.chapterProgress);
+      const request = store.delete(cursorId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  // ============ MANGA PROGRESS ============
+
+  async getMangaProgressEntry(cursorId: string): Promise<LocalMangaProgress | null> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.mangaProgress)) {
+        resolve(null);
+        return;
+      }
+      const tx = db.transaction(STORES.mangaProgress, "readonly");
+      const store = tx.objectStore(STORES.mangaProgress);
+      const request = store.get(cursorId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        if (!request.result) {
+          resolve(null);
+          return;
+        }
+        const parsed = LocalMangaProgressSchema.safeParse(request.result);
+        resolve(parsed.success ? parsed.data : null);
+      };
+    });
+  }
+
+  async getRecentMangaProgress(limit: number): Promise<LocalMangaProgress[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.mangaProgress)) {
+        resolve([]);
+        return;
+      }
+      const tx = db.transaction(STORES.mangaProgress, "readonly");
+      const store = tx.objectStore(STORES.mangaProgress);
+      const index = store.index("by_lastReadAt");
+      const request = index.openCursor(null, "prev"); // Descending
+
+      const results: LocalMangaProgress[] = [];
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor && results.length < limit) {
+          const parsed = LocalMangaProgressSchema.safeParse(cursor.value);
+          if (parsed.success) {
+            results.push(parsed.data);
+          }
+          cursor.continue();
+        } else {
+          resolve(results);
+        }
+      };
+    });
+  }
+
+  async getAllMangaProgress(): Promise<LocalMangaProgress[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.mangaProgress)) {
+        resolve([]);
+        return;
+      }
+      const tx = db.transaction(STORES.mangaProgress, "readonly");
+      const store = tx.objectStore(STORES.mangaProgress);
+      const request = store.getAll();
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const results = request.result
+          .map((item) => {
+            const parsed = LocalMangaProgressSchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LocalMangaProgress => item !== null && !item.deletedAt);
+        resolve(results);
+      };
+    });
+  }
+
+  async saveMangaProgressEntry(entry: LocalMangaProgress): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.mangaProgress)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.mangaProgress, "readwrite");
+      const store = tx.objectStore(STORES.mangaProgress);
+
+      // Only update if newer (materialized summary)
+      const getRequest = store.get(entry.cursorId);
+      getRequest.onerror = () => reject(getRequest.error);
+      getRequest.onsuccess = () => {
+        const existing = getRequest.result as LocalMangaProgress | undefined;
+        const shouldUpdate = !existing || entry.lastReadAt >= existing.lastReadAt;
+        
+        if (shouldUpdate) {
+          const putRequest = store.put(entry);
+          putRequest.onerror = () => reject(putRequest.error);
+          putRequest.onsuccess = () => resolve();
+        } else {
+          resolve();
+        }
+      };
+    });
+  }
+
+  async saveMangaProgressBatch(entries: LocalMangaProgress[]): Promise<void> {
+    if (entries.length === 0) return;
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.mangaProgress)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.mangaProgress, "readwrite");
+      const store = tx.objectStore(STORES.mangaProgress);
+      
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+
+      for (const entry of entries) {
+        store.put(entry);
+      }
+    });
+  }
+
+  async removeMangaProgress(cursorId: string): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.mangaProgress)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.mangaProgress, "readwrite");
+      const store = tx.objectStore(STORES.mangaProgress);
+      const request = store.delete(cursorId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  /**
+   * Clear user-scoped data from this device.
+   *
+   * Used by "Sign out → Remove data from this device".
+   *
+   * Intentionally does NOT clear:
+   * - registries (local-only app data)
+   */
+  async clearAccountData(): Promise<void> {
+    const db = await this.getDB();
+
+    const candidates: string[] = [
+      STORES.library,
+      STORES.history,
+      STORES.settings,
+      STORES.libraryItems,
+      STORES.sourceLinks,
+      STORES.chapterProgress,
+      STORES.mangaProgress,
+      STORES.hlcState,
+    ];
+    const storeNames = candidates.filter((name) => db.objectStoreNames.contains(name));
+    if (storeNames.length === 0) return;
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeNames, "readwrite");
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+
+      for (const name of storeNames) {
+        tx.objectStore(name).clear();
+      }
+    });
+  }
+
+  // ============ PHASE 6.6: PROFILE UTILITIES ============
+
+  /**
+   * Check if this profile has any library data.
+   * Used to determine whether to prompt for import on sign-in.
+   */
+  async hasLibraryData(): Promise<boolean> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.library)) {
+        resolve(false);
+        return;
+      }
+      const tx = db.transaction(STORES.library, "readonly");
+      const store = tx.objectStore(STORES.library);
+      const request = store.count();
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        resolve(request.result > 0);
+      };
+    });
+  }
+
+  // ============ PHASE 6.5: HLC STATE MANAGEMENT ============
+
+  /**
+   * Get HLC state for a profile.
+   * Returns null if no state exists (new profile).
+   *
+   * @param profileId Profile identifier (default: "default")
+   */
+  async getHLCState(profileId: string = "default"): Promise<HLCState | null> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.hlcState)) {
+        resolve(null);
+        return;
+      }
+      const tx = db.transaction(STORES.hlcState, "readonly");
+      const store = tx.objectStore(STORES.hlcState);
+      const request = store.get(profileId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        if (!request.result) {
+          resolve(null);
+          return;
+        }
+        // Extract just the HLC fields (profileId is the key, not part of HLCState)
+        const { wallMs, counter, nodeId } = request.result;
+        const parsed = HLCStateSchema.safeParse({ wallMs, counter, nodeId });
+        resolve(parsed.success ? parsed.data : null);
+      };
+    });
+  }
+
+  /**
+   * Save HLC state for a profile.
+   *
+   * @param state HLC state to save
+   * @param profileId Profile identifier (default: "default")
+   */
+  async saveHLCState(state: HLCState, profileId: string = "default"): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.hlcState)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.hlcState, "readwrite");
+      const store = tx.objectStore(STORES.hlcState);
+      // Store with profileId as the key
+      const request = store.put({
+        profileId,
+        wallMs: state.wallMs,
+        counter: state.counter,
+        nodeId: state.nodeId,
+      });
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  /**
+   * Delete HLC state for a profile (e.g., when signing out with clear).
+   *
+   * @param profileId Profile identifier (default: "default")
+   */
+  async removeHLCState(profileId: string = "default"): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.hlcState)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.hlcState, "readwrite");
+      const store = tx.objectStore(STORES.hlcState);
+      const request = store.delete(profileId);
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();

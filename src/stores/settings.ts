@@ -3,7 +3,15 @@ import { toast } from "sonner";
 import i18n from "@/lib/i18n";
 import type { MangaSource } from "@/lib/sources/types";
 import type { RegistrySourceInfo, RegistryManager } from "@/lib/sources/registry";
-import type { UserDataStore } from "@/data/store";
+import type { InstalledSource as InstalledSourceSchema } from "@/data/schema";
+
+/** Minimal interface for settings store needs */
+export interface SettingsStoreOps {
+  getInstalledSources(): Promise<InstalledSourceSchema[]>;
+  getInstalledSource(id: string): Promise<InstalledSourceSchema | null>;
+  saveInstalledSource(source: InstalledSourceSchema): Promise<void>;
+  removeInstalledSource(id: string): Promise<void>;
+}
 import type { CacheStore } from "@/data/cache";
 import { Keys, CacheKeys, LOCAL_REGISTRY_ID, parseSourceKey } from "@/data/keys";
 import type { InstalledSource } from "@/data/schema";
@@ -42,7 +50,7 @@ interface SettingsState {
 export type SettingsStore = UseBoundStore<StoreApi<SettingsState>>;
 
 export function createSettingsStore(
-  userStore: UserDataStore,
+  ops: SettingsStoreOps,
   cacheStore: CacheStore,
   manager: RegistryManager
 ): SettingsStore {
@@ -62,7 +70,7 @@ export function createSettingsStore(
         await manager.initialize();
 
         // Load installed sources from storage
-        const installedSources = await userStore.getInstalledSources();
+        const installedSources = await ops.getInstalledSources();
 
         // Load reading mode from localStorage
         let readingMode: ReadingMode = "rtl";
@@ -112,7 +120,7 @@ export function createSettingsStore(
         
         // Reload installed sources after updates
         const finalInstalledSources = updatedSources.length > 0 
-          ? await userStore.getInstalledSources()
+          ? await ops.getInstalledSources()
           : installedSources;
         
         // InstalledSource.id is the composite key (registryId:sourceId)
@@ -147,7 +155,7 @@ export function createSettingsStore(
       await registry.installSource(sourceId);
 
       // Reload installed sources
-      const installedSources = await userStore.getInstalledSources();
+      const installedSources = await ops.getInstalledSources();
       const installedIds = new Set(installedSources.map((s) => s.id));
 
       set((state) => ({
@@ -171,13 +179,13 @@ export function createSettingsStore(
       }
 
       // Remove from storage (id is composite key)
-      await userStore.removeInstalledSource(compositeId);
+      await ops.removeInstalledSource(compositeId);
 
       // Clear cache
       await cacheStore.delete(CacheKeys.aix(registryId, sourceId));
 
       // Update state
-      const installedSources = await userStore.getInstalledSources();
+      const installedSources = await ops.getInstalledSources();
       const installedIds = new Set(installedSources.map((s) => s.id));
 
       set((state) => ({
@@ -252,14 +260,14 @@ export function createSettingsStore(
       await cacheStore.set(CacheKeys.aix(registryId, sourceId), arrayBuffer);
 
       // Save to installed sources (id is composite key)
-      await userStore.saveInstalledSource({
+      await ops.saveInstalledSource({
         id: Keys.source(registryId, sourceId),
         registryId,
         version: manifest.info?.version ?? 1,
       });
 
       // Reload installed sources
-      const installedSources = await userStore.getInstalledSources();
+      const installedSources = await ops.getInstalledSources();
       set({ installedSources });
     },
 

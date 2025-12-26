@@ -71,7 +71,17 @@
     "startSearching": "検索を開始",
     "unread": "未読",
     "caughtUp": "最新まで読了",
-    "updated": "更新済み"
+    "updated": "更新済み",
+    "fetchMetadata": "メタデータを取得"
+  },
+  "metadata": {
+    "fetchTitle": "メタデータを取得",
+    "fetchDescription": "外部データベースからこの漫画の詳細情報を検索して取得します",
+    "searchPlaceholder": "漫画タイトルを検索...",
+    "searchPrompt": "タイトルを入力して検索するとメタデータを取得できます",
+    "noResults": "結果が見つかりません",
+    "apply": "メタデータを適用",
+    "applying": "適用中..."
   },
   "browse": {
     "loading": "ソースを読み込み中...",

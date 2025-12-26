@@ -93,7 +93,6 @@ export async function tokenize(text: string, limit = 5, signal?: AbortSignal, pr
     romanized,
     tokens,
     totalScore,
-    grammars: {},
   }
 }
 
@@ -150,5 +149,3 @@ function convertTupleToToken(tuple: IchiranTokenTuple): IchiranToken {
     alternatives: Array.isArray(alternatives) ? alternatives : [],
   }
 }
-
-

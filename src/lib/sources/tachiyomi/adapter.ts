@@ -388,14 +388,22 @@ export async function createTachiyomiBrowsableSource(
 
   // ============ Cache Helpers ============
 
-  function cacheManga(mangaId: string, manga: Manga): void {
+  async function cacheManga(mangaId: string, manga: Manga): Promise<void> {
     const { registryId, sourceId } = parseSourceKey(sourceKey);
-    cacheStore.setJson(CacheKeys.manga(registryId, sourceId, mangaId), manga).catch(() => {});
+    try {
+      await cacheStore.setJson(CacheKeys.manga(registryId, sourceId, mangaId), manga);
+    } catch {
+      // Cache is best-effort; never fail content fetch because caching failed.
+    }
   }
 
-  function cacheChapters(mangaId: string, chapters: Chapter[]): void {
+  async function cacheChapters(mangaId: string, chapters: Chapter[]): Promise<void> {
     const { registryId, sourceId } = parseSourceKey(sourceKey);
-    cacheStore.setJson(CacheKeys.chapters(registryId, sourceId, mangaId), chapters).catch(() => {});
+    try {
+      await cacheStore.setJson(CacheKeys.chapters(registryId, sourceId, mangaId), chapters);
+    } catch {
+      // Cache is best-effort; never fail content fetch because caching failed.
+    }
   }
 
   // ============ Internal Helpers ============
@@ -517,8 +525,8 @@ export async function createTachiyomiBrowsableSource(
         throw new Error(`Manga not found: ${mangaId}`);
       }
       const manga = toManga(dto);
-      // Background cache update
-      cacheManga(mangaId, manga);
+      // Keep SWR cache consistent: when this resolves, cached manga should be updated too.
+      await cacheManga(mangaId, manga);
       return manga;
     },
 
@@ -535,8 +543,8 @@ export async function createTachiyomiBrowsableSource(
       const converted = chapters.map((dto, index) =>
         toChapter(dto, sourceLang, index, chapters.length, mangaTitle)
       );
-      // Background cache update
-      cacheChapters(mangaId, converted);
+      // Keep SWR cache consistent: when this resolves, cached chapters should be updated too.
+      await cacheChapters(mangaId, converted);
       return converted;
     },
 

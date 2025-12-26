@@ -71,7 +71,17 @@
     "startSearching": "开始搜索",
     "unread": "未读",
     "caughtUp": "已读至最新话",
-    "updated": "更新"
+    "updated": "更新",
+    "fetchMetadata": "获取元数据"
+  },
+  "metadata": {
+    "fetchTitle": "获取元数据",
+    "fetchDescription": "从外部数据库搜索并获取该漫画的详细信息",
+    "searchPlaceholder": "搜索漫画标题...",
+    "searchPrompt": "输入标题并搜索以获取元数据",
+    "noResults": "未找到结果",
+    "apply": "应用元数据",
+    "applying": "应用中..."
   },
   "browse": {
     "loading": "加载源中...",

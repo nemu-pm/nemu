@@ -51,16 +51,6 @@ export interface WordInfoWithGloss extends WordInfo {
 
 export type IchiranTokenTuple = [string, WordInfoWithGloss, any[]]
 
-export interface IchiranSegmentation {
-  0: Array<{
-    0: IchiranTokenTuple[]
-    1: number
-  }>
-  1?: string
-}
-
-export type IchiranRawResult = (IchiranSegmentation | string)[]
-
 export interface IchiranToken {
   word: string
   romanized: string
@@ -74,52 +64,6 @@ export interface TokenizeResponse {
   romanized: string
   tokens: IchiranToken[]
   totalScore: number
-  raw?: IchiranRawResult
-  grammars?: Record<string, GrammarData>
-}
-
-// Grammar analysis types
-export interface GrammarCapture {
-  label: string
-  start: number
-  end: number
-  tokens: any[]
-}
-
-export interface GrammarSegment {
-  type: 'capture' | 'raw'
-  text: string
-  label?: string
-}
-
-export interface GrammarMatchedSentence {
-  level: string
-  description: string
-  captures: GrammarCapture[]
-  segments: GrammarSegment[]
-}
-
-export interface GrammarExample {
-  jp: string
-  en: string
-}
-
-export interface GrammarDetail {
-  label: string
-  formation: string
-  description: string
-  explanation: string
-  examples: GrammarExample[]
-}
-
-export interface GrammarData {
-  matchedSentences: GrammarMatchedSentence[]
-  grammarDetail: GrammarDetail
-}
-
-export interface AnalyzeResponse {
-  segments: IchiranRawResult
-  grammars: Record<string, GrammarData>
 }
 
 // /api/segment response - returns array of alternative segmentations
@@ -150,4 +94,3 @@ export interface GrammarToken {
   alternatives: GrammarToken[]
   components: GrammarToken[]
 }
-

@@ -106,10 +106,9 @@ export function ReaderPage() {
   const { page: routePage } = useSearch({ strict: false }) as { page?: number };
   const navigate = useNavigate();
   const router = useRouter();
-  const { useSettingsStore, useHistoryStore, useLibraryStore } = useStores();
+  const { useSettingsStore, useHistoryStore } = useStores();
   const { getSource, readingMode, setReadingMode, availableSources } = useSettingsStore();
   const { getProgress, saveProgress, markCompleted } = useHistoryStore();
-  const { updateLastRead } = useLibraryStore();
 
   const [manga, setManga] = useState<Manga | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
@@ -699,10 +698,15 @@ export function ReaderPage() {
       const alreadyCompleted = completedChaptersRef.current.has(item.chapterId);
       if (shouldComplete && !alreadyCompleted) {
         completedChaptersRef.current.add(item.chapterId);
-        markCompleted(registryId, sourceId, mangaId, item.chapterId, total);
+        const chapter = chapterById.get(item.chapterId);
+        markCompleted(registryId, sourceId, mangaId, item.chapterId, total, chapter ? {
+          chapterNumber: chapter.chapterNumber,
+          volumeNumber: chapter.volumeNumber,
+          chapterTitle: chapter.title,
+        } : undefined);
       }
     }
-  }, [visiblePageIndices, virtualItems, registryId, sourceId, mangaId, markCompleted]);
+  }, [visiblePageIndices, virtualItems, registryId, sourceId, mangaId, markCompleted, chapterById]);
 
   // Auto-save progress (debounced) - position tracking, non-critical
   useEffect(() => {
@@ -715,6 +719,8 @@ export function ReaderPage() {
     }
 
     // Debounce save by 500ms
+    // Reading progress is saved to history, library derives progress from history subscription
+    const chapter = chapterById.get(currentItem.chapterId);
     saveTimerRef.current = setTimeout(() => {
       saveProgress(
         registryId,
@@ -722,19 +728,13 @@ export function ReaderPage() {
         mangaId,
         currentItem.chapterId,
         currentItem.localIndex,
-        effectiveChapterPages.length
-      );
-
-      // Update library manga's lastReadChapter
-      const chapter = chapters.find((c) => c.id === currentItem.chapterId);
-      if (chapter) {
-        updateLastRead(registryId, sourceId, mangaId, {
-          id: chapter.id,
-          title: chapter.title,
+        effectiveChapterPages.length,
+        chapter ? {
           chapterNumber: chapter.chapterNumber,
           volumeNumber: chapter.volumeNumber,
-        });
-      }
+          chapterTitle: chapter.title,
+        } : undefined
+      );
     }, 500);
 
     return () => {
@@ -748,9 +748,8 @@ export function ReaderPage() {
     registryId,
     sourceId,
     mangaId,
-    chapters,
     saveProgress,
-    updateLastRead,
+    chapterById,
   ]);
 
   // Expand chapter window (append/prepend) so chapter boundaries feel like normal paging

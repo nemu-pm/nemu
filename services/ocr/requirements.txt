@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+numpy
+pillow
+python-multipart
+httpx
+opencv-python-headless
+torch
+shapely
+pyclipper
+vllm

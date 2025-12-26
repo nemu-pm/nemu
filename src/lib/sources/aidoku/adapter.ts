@@ -518,16 +518,16 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
   async getManga(mangaId: string): Promise<Manga> {
     const result = await this.fetchMangaDetails(mangaId);
     const manga = this.convertManga(result);
-    // Update cache in background
-    this.cacheManga(mangaId, manga);
+    // Keep SWR cache consistent: when this resolves, cached manga should be updated too.
+    await this.cacheManga(mangaId, manga);
     return manga;
   }
 
   async getChapters(mangaId: string): Promise<Chapter[]> {
     const chapters = await this.fetchChapters(mangaId);
     const converted = chapters.map(this.convertChapter);
-    // Update cache in background
-    this.cacheChapters(mangaId, converted);
+    // Keep SWR cache consistent: when this resolves, cached chapters should be updated too.
+    await this.cacheChapters(mangaId, converted);
     return converted;
   }
 
@@ -543,14 +543,22 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
     return this.cacheStore.getJson<Chapter[]>(CacheKeys.chapters(registryId, sourceId, mangaId));
   }
 
-  private cacheManga(mangaId: string, manga: Manga): void {
+  private async cacheManga(mangaId: string, manga: Manga): Promise<void> {
     const [registryId, sourceId] = this.sourceKey.split(":");
-    this.cacheStore.setJson(CacheKeys.manga(registryId, sourceId, mangaId), manga);
+    try {
+      await this.cacheStore.setJson(CacheKeys.manga(registryId, sourceId, mangaId), manga);
+    } catch {
+      // Cache is best-effort; never fail content fetch because caching failed.
+    }
   }
 
-  private cacheChapters(mangaId: string, chapters: Chapter[]): void {
+  private async cacheChapters(mangaId: string, chapters: Chapter[]): Promise<void> {
     const [registryId, sourceId] = this.sourceKey.split(":");
-    this.cacheStore.setJson(CacheKeys.chapters(registryId, sourceId, mangaId), chapters);
+    try {
+      await this.cacheStore.setJson(CacheKeys.chapters(registryId, sourceId, mangaId), chapters);
+    } catch {
+      // Cache is best-effort; never fail content fetch because caching failed.
+    }
   }
 
   async getPages(mangaId: string, chapterId: string): Promise<Page[]> {

@@ -24,5 +24,3 @@ export function isJapaneseEnabled(ctx: ReaderPluginContext, enableForAllLanguage
 export function isJapaneseChapter(ctx: ReaderPluginContext): boolean {
   return isJapaneseLangCode(ctx.chapterLanguage) || isJapaneseOnlySource(ctx.sourceLanguages)
 }
-
-

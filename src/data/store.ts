@@ -1,5 +1,4 @@
 import type {
-  LibraryManga,
   HistoryEntry,
   InstalledSource,
   SourceRegistry,
@@ -8,16 +7,11 @@ import type {
 
 /**
  * User data store interface
- * Abstraction over storage - IndexedDB locally, Convex when signed in
+ * Note: Library operations migrated to canonical tables via LibraryStore + CanonicalLibraryOps.
+ * This interface is now primarily used for history, settings, and registries.
  */
 export interface UserDataStore {
-  // Library
-  getLibrary(): Promise<LibraryManga[]>;
-  getLibraryManga(id: string): Promise<LibraryManga | null>;
-  saveLibraryManga(manga: LibraryManga): Promise<void>;
-  removeLibraryManga(id: string): Promise<void>;
-
-  // History (separate from library)
+  // History (legacy - will be migrated to canonical progress tables)
   getHistoryEntry(
     registryId: string,
     sourceId: string,

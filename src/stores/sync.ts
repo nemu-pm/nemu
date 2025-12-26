@@ -1,5 +1,5 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
-import type { SyncStatus } from "@/sync/engine";
+import type { SyncStatus } from "@/sync/core/types";
 
 type OAuthProvider = "google" | "apple";
 

@@ -1,252 +1,223 @@
 import { create } from 'zustand'
-import i18n from '@/lib/i18n'
-import type { TextDetection, TextDetectorSettings, GrammarBreakdown, OcrSelection, OcrResult } from './types'
-import type { GrammarToken, GrammarData } from './ichiran-types'
+import type { TextDetection, TextDetectorSettings, OcrResult, OcrTranscriptLine } from './types'
+import type { GrammarToken } from './ichiran-types'
 import { DEFAULT_SETTINGS } from './types'
 import { createPluginStorage } from '../../types'
-import type {
-  WorkerRequest,
-  WorkerResponse,
-  Detection,
-} from './text-detector.worker'
-import { getCachedDetections, setCachedDetections, type DetectionCacheKey } from './detection-cache'
+import type { WorkerRequest, WorkerResponse, OcrDetectionWithText } from './ocr.worker'
+import { getCachedOcrPageV2, setCachedOcrPageV2, type OcrPageCacheKeyV2 } from './ocr-page-cache'
+import { tokenize } from './ichiran-service'
+import { convertIchiranToGrammarTokens } from './grammar-analysis'
+import { ConvexHttpClient } from 'convex/browser'
+import { api } from '../../../../../convex/_generated/api'
 
 const storage = createPluginStorage('japanese-learning')
 
-// Lightweight WebGPU check (doesn't start worker)
-async function checkWebGPUAvailability(): Promise<boolean> {
-  if (typeof navigator === 'undefined' || !('gpu' in navigator)) return false
+// ============================================================================
+// Proper nouns (Gemini via Convex) → Ichiran entity boosts
+// ============================================================================
+
+let convexHttp: ConvexHttpClient | null = null
+function getConvexHttp(): ConvexHttpClient | null {
+  const url = (import.meta as any)?.env?.VITE_CONVEX_URL as string | undefined
+  if (!url) return null
+  if (!convexHttp) convexHttp = new ConvexHttpClient(url)
+  return convexHttp
+}
+
+const properNounCache = new Map<string, string[]>()
+let didWarnConvexMissing = false
+
+async function getProperNouns(text: string): Promise<string[]> {
+  const clean = (text ?? '').trim()
+  if (!clean) return []
+  const cached = properNounCache.get(clean)
+  if (cached) return cached
+
+  const client = getConvexHttp()
+  if (!client) {
+    if (!didWarnConvexMissing) {
+      didWarnConvexMissing = true
+      console.warn('[JapaneseLearning] proper nouns disabled: missing VITE_CONVEX_URL')
+    }
+    return []
+  }
+
   try {
-    const adapter = await (navigator as unknown as { gpu: { requestAdapter(): Promise<unknown> } }).gpu.requestAdapter()
-    return !!adapter
-  } catch {
-    return false
+    // api.d.ts may not include this action until convex codegen runs; runtime is fine.
+    const fn = (api as any).ocr.extractProperNouns
+    if (import.meta.env.DEV) console.debug('[JapaneseLearning] proper nouns → convex', { len: clean.length })
+    const res = (await client.action(fn, { text: clean })) as { proper_nouns?: string[] } | null
+    const nouns = Array.isArray(res?.proper_nouns) ? res!.proper_nouns.filter((s) => typeof s === 'string') : []
+    properNounCache.set(clean, nouns)
+    if (import.meta.env.DEV) console.debug('[JapaneseLearning] proper nouns ← convex', { count: nouns.length })
+    return nouns
+  } catch (err) {
+    // Convex / OpenRouter not configured → just fall back to Ichiran with no boosts.
+    console.warn('[JapaneseLearning] proper nouns prepass failed; falling back to none', err)
+    properNounCache.set(clean, [])
+    return []
   }
 }
 
-// Get initial settings, sanitizing localInference if WebGPU unavailable
 function getInitialSettings(): TextDetectorSettings {
-  const saved = storage.get<TextDetectorSettings>('settings') ?? DEFAULT_SETTINGS
-  // Eager sanitization runs async after store creation
-  return saved
+  const raw = (storage.get<Record<string, unknown>>('settings') ?? {}) as Record<string, unknown>
+  return {
+    autoDetect: typeof raw.autoDetect === 'boolean' ? raw.autoDetect : DEFAULT_SETTINGS.autoDetect,
+    enableForAllLanguages:
+      typeof raw.enableForAllLanguages === 'boolean'
+        ? raw.enableForAllLanguages
+        : DEFAULT_SETTINGS.enableForAllLanguages,
+    minConfidence: typeof raw.minConfidence === 'number' ? raw.minConfidence : DEFAULT_SETTINGS.minConfidence,
+  }
 }
 
 const initialSettings = getInitialSettings()
-
-// Run eager WebGPU check to sanitize settings on module load
-checkWebGPUAvailability().then((available) => {
-  webgpuAvailable = available
-  if (!available && initialSettings.localInference) {
-    const sanitized = { ...initialSettings, localInference: false }
-    storage.set('settings', sanitized)
-    // Update store if already created
-    if (useTextDetectorStore) {
-      useTextDetectorStore.setState({ settings: sanitized, webgpuAvailable: available })
-    }
-  } else if (useTextDetectorStore) {
-    useTextDetectorStore.setState({ webgpuAvailable: available })
-  }
-})
 
 // ============================================================================
 // Worker Management
 // ============================================================================
 
 let worker: Worker | null = null
-let webgpuAvailable: boolean | null = null
-let currentDetectionAbortController: AbortController | null = null
 
 function getWorker(): Worker {
   if (!worker) {
-    try {
-      worker = new Worker(
-        new URL('./text-detector.worker.ts', import.meta.url),
-        { type: 'module' }
-      )
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      console.error('[TextDetector] Failed to create worker:', errMsg)
-      alert(`[OCR Debug] Failed to create worker: ${errMsg}`)
-      throw err
-    }
+    worker = new Worker(new URL('./ocr.worker.ts', import.meta.url), { type: 'module' })
   }
   return worker
 }
 
 export function disposeWorker() {
-  if (worker) {
-    const w = worker
-    worker = null
-    // Best-effort cleanup, then terminate immediately.
-    // If a detection is in-flight, aborting result handling is not enough; we
-    // must terminate the worker to stop ONNX runtime from continuing to run.
-    try {
-      w.postMessage({ type: 'dispose' } satisfies WorkerRequest)
-    } catch {
-      // ignore
-    }
-    w.terminate()
+  if (!worker) return
+  const w = worker
+  worker = null
+  try {
+    w.postMessage({ type: 'dispose' } satisfies WorkerRequest)
+  } catch {
+    // ignore
   }
-  currentDetectionAbortController = null
+  w.terminate()
 }
-
-async function checkWebGPU(): Promise<boolean> {
-  if (webgpuAvailable !== null) return webgpuAvailable
-
-  return new Promise((resolve) => {
-    const w = getWorker()
-    const handler = (e: MessageEvent<WorkerResponse>) => {
-      if (e.data.type === 'webgpu-result') {
-        w.removeEventListener('message', handler)
-        webgpuAvailable = e.data.available
-        resolve(e.data.available)
-      }
-    }
-    w.addEventListener('message', handler)
-    w.postMessage({ type: 'check-webgpu' } satisfies WorkerRequest)
-  })
-}
-
 
 // ============================================================================
 // Store
 // ============================================================================
 
-export type ModelLoadingStage = 'downloading' | 'initializing' | null
-
-/** Grammar analysis state from ichiran */
 interface GrammarAnalysisState {
   tokens: GrammarToken[]
-  grammars: Record<string, GrammarData>
   loading: boolean
   error: string | null
 }
 
+export interface TranscriptSelection {
+  pageIndex: number
+  line: OcrTranscriptLine
+}
+
+export interface BoxSelection {
+  pageIndex: number
+  box: TextDetection
+}
+
 interface TextDetectorState {
-  // Settings
   settings: TextDetectorSettings
 
-  // Detection results per page (keyed by pageIndex)
   detections: Map<number, TextDetection[]>
+  transcripts: Map<number, OcrTranscriptLine[]>
 
-  // Currently loading pages
   loadingPages: Set<number>
-
-  // Pages that just completed fresh detection (not from cache) - for flash animation
+  ocrLoadingPages: Set<number>
   freshlyDetectedPages: Set<number>
 
-  // Model loading state
-  modelLoadingStage: ModelLoadingStage
-  modelLoaded: boolean
+  transcriptPopoverOpen: boolean
 
-  // WebGPU availability (checked once)
-  webgpuAvailable: boolean | null
-
-  // Selected block for grammar breakdown
-  selectedDetection: TextDetection | null
-
-  // Grammar breakdown result (legacy)
-  grammarBreakdown: GrammarBreakdown | null
-  grammarLoading: boolean
-
-  // OCR selection state (for click-to-OCR flow)
-  ocrSelection: OcrSelection | null
-  ocrResult: OcrResult
   ocrSheetOpen: boolean
-  
-  // Ichiran-based grammar analysis
-  grammarAnalysis: GrammarAnalysisState
-  
-  // Selected token index for details view
-  selectedTokenIndex: number | null
+  ocrResult: OcrResult
+  transcriptSelection: TranscriptSelection | null
+  boxSelection: BoxSelection | null
 
-  // Actions
+  grammarAnalysis: GrammarAnalysisState
+
   setSettings: (settings: Partial<TextDetectorSettings>) => void
-  getSettings: () => TextDetectorSettings
-  setDetections: (pageIndex: number, dets: TextDetection[]) => void
   clearDetections: (pageIndex?: number) => void
   setLoadingPage: (pageIndex: number, loading: boolean) => void
+  setOcrLoadingPage: (pageIndex: number, loading: boolean) => void
   clearFreshlyDetected: (pageIndex: number) => void
-  selectDetection: (det: TextDetection | null) => void
-  setGrammarBreakdown: (breakdown: GrammarBreakdown | null) => void
-  setGrammarLoading: (loading: boolean) => void
-  checkWebGPU: () => Promise<boolean>
-  setModelLoadingStage: (stage: ModelLoadingStage) => void
-  cancelModelLoading: () => void
 
-  // OCR actions
-  openOcrSheet: (selection: OcrSelection) => void
+  toggleTranscriptPopover: (open?: boolean) => void
+
+  openOcrSheetFromTranscript: (pageIndex: number, line: OcrTranscriptLine) => void
+  openOcrSheetFromBox: (pageIndex: number, box: TextDetection) => void
   closeOcrSheet: () => void
-  setOcrResult: (result: Partial<OcrResult>) => void
-  setGrammarAnalysis: (analysis: Partial<GrammarAnalysisState>) => void
-  setSelectedTokenIndex: (index: number | null) => void
-  setCroppedImage: (url: string | null, dimensions: { width: number; height: number } | null) => void
 
-  // Load cached detections (without running model)
-  loadFromCache: (pageIndex: number, cacheKey: DetectionCacheKey) => Promise<boolean>
+  loadFromCache: (pageIndex: number, cacheKey: OcrPageCacheKeyV2) => Promise<boolean>
 
-  // Run detection on an image (with optional caching)
-  runDetection: (
-    pageIndex: number,
-    imageData: ImageData,
-    cacheKey?: DetectionCacheKey,
-    onComplete?: () => void
-  ) => void
+  runOcr: (pageIndex: number, image: Blob, cacheKey?: OcrPageCacheKeyV2) => void
 }
 
 export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
   settings: initialSettings,
   detections: new Map(),
+  transcripts: new Map(),
   loadingPages: new Set(),
+  ocrLoadingPages: new Set(),
   freshlyDetectedPages: new Set(),
-  modelLoadingStage: null,
-  modelLoaded: false,
-  webgpuAvailable: null,
-  selectedDetection: null,
-  grammarBreakdown: null,
-  grammarLoading: false,
-  ocrSelection: null,
-  ocrResult: { text: '', loading: false, error: null },
+  transcriptPopoverOpen: false,
   ocrSheetOpen: false,
-  grammarAnalysis: { tokens: [], grammars: {}, loading: false, error: null },
-  selectedTokenIndex: null,
+  ocrResult: { text: '', loading: false, error: null },
+  transcriptSelection: null,
+  boxSelection: null,
+  grammarAnalysis: { tokens: [], loading: false, error: null },
 
   setSettings: (partial) => {
-    let settings = { ...get().settings, ...partial }
-    // Guard: never persist localInference=true if WebGPU unavailable
-    if (settings.localInference && get().webgpuAvailable === false) {
-      settings = { ...settings, localInference: false }
-    }
+    const settings = { ...get().settings, ...partial }
     storage.set('settings', settings)
     set({ settings })
   },
 
-  getSettings: () => get().settings,
-
-  setDetections: (pageIndex, dets) => {
-    const detections = new Map(get().detections)
-    detections.set(pageIndex, dets)
-    set({ detections })
-  },
-
   clearDetections: (pageIndex) => {
     if (pageIndex === undefined) {
-      set({ detections: new Map() })
-    } else {
-      const detections = new Map(get().detections)
-      detections.delete(pageIndex)
-      set({ detections })
+      set({
+        detections: new Map(),
+        transcripts: new Map(),
+        loadingPages: new Set(),
+        ocrLoadingPages: new Set(),
+        freshlyDetectedPages: new Set(),
+        transcriptPopoverOpen: false,
+        ocrSheetOpen: false,
+        ocrResult: { text: '', loading: false, error: null },
+        transcriptSelection: null,
+        boxSelection: null,
+        grammarAnalysis: { tokens: [], loading: false, error: null },
+      })
+      return
     }
+
+    const detections = new Map(get().detections)
+    detections.delete(pageIndex)
+    const transcripts = new Map(get().transcripts)
+    transcripts.delete(pageIndex)
+    const loadingPages = new Set(get().loadingPages)
+    loadingPages.delete(pageIndex)
+    const ocrLoadingPages = new Set(get().ocrLoadingPages)
+    ocrLoadingPages.delete(pageIndex)
+    const freshlyDetectedPages = new Set(get().freshlyDetectedPages)
+    freshlyDetectedPages.delete(pageIndex)
+
+    set({ detections, transcripts, loadingPages, ocrLoadingPages, freshlyDetectedPages })
   },
 
   setLoadingPage: (pageIndex, loading) => {
     const loadingPages = new Set(get().loadingPages)
-    if (loading) {
-      loadingPages.add(pageIndex)
-    } else {
-      loadingPages.delete(pageIndex)
-    }
+    if (loading) loadingPages.add(pageIndex)
+    else loadingPages.delete(pageIndex)
     set({ loadingPages })
+  },
+
+  setOcrLoadingPage: (pageIndex, loading) => {
+    const ocrLoadingPages = new Set(get().ocrLoadingPages)
+    if (loading) ocrLoadingPages.add(pageIndex)
+    else ocrLoadingPages.delete(pageIndex)
+    set({ ocrLoadingPages })
   },
 
   clearFreshlyDetected: (pageIndex) => {
@@ -255,246 +226,202 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
     set({ freshlyDetectedPages })
   },
 
-  selectDetection: (det) => {
-    set({ selectedDetection: det, grammarBreakdown: null })
+  toggleTranscriptPopover: (open) => {
+    const next = open ?? !get().transcriptPopoverOpen
+    set({ transcriptPopoverOpen: next })
   },
 
-  setGrammarBreakdown: (breakdown) => {
-    set({ grammarBreakdown: breakdown })
-  },
-
-  setGrammarLoading: (loading) => {
-    set({ grammarLoading: loading })
-  },
-
-  checkWebGPU: async () => {
-    const available = await checkWebGPU()
-    set({ webgpuAvailable: available })
-    // Sanitize: force localInference off if WebGPU unavailable
-    if (!available && get().settings.localInference) {
-      const sanitized = { ...get().settings, localInference: false }
-      storage.set('settings', sanitized)
-      set({ settings: sanitized })
-    }
-    return available
-  },
-
-  setModelLoadingStage: (stage) => {
-    set({ modelLoadingStage: stage, modelLoaded: stage === null && get().modelLoaded ? true : get().modelLoaded })
-  },
-
-  cancelModelLoading: () => {
-    // Abort current detection and dispose worker
-    if (currentDetectionAbortController) {
-      currentDetectionAbortController.abort()
-      currentDetectionAbortController = null
-    }
-    disposeWorker()
-    set({ 
-      modelLoadingStage: null, 
-      loadingPages: new Set(),
-    })
-  },
-
-  openOcrSheet: (selection) => {
+  openOcrSheetFromTranscript: (pageIndex, line) => {
     set({
-      ocrSelection: selection,
       ocrSheetOpen: true,
-      ocrResult: { text: '', loading: true, error: null },
-      grammarAnalysis: { tokens: [], grammars: {}, loading: false, error: null },
-      selectedTokenIndex: null,
+      transcriptSelection: { pageIndex, line },
+      boxSelection: null,
+      ocrResult: { text: line.text, loading: false, error: null },
+      grammarAnalysis: { tokens: [], loading: false, error: null },
     })
+
+    ;(async () => {
+      try {
+        const text = line.text?.trim()
+        if (!text) return
+        set({ grammarAnalysis: { ...get().grammarAnalysis, loading: true, error: null } })
+        const properNouns = await getProperNouns(text)
+        const resp = await tokenize(text, 5, undefined, properNouns)
+        const tokens = convertIchiranToGrammarTokens(resp.tokens)
+        set({ grammarAnalysis: { tokens, loading: false, error: null } })
+      } catch (err) {
+        console.error('[JapaneseLearning] ichiran analysis failed:', err)
+        set({ grammarAnalysis: { ...get().grammarAnalysis, loading: false, error: 'Analysis failed' } })
+      }
+    })()
+  },
+
+  openOcrSheetFromBox: (pageIndex, box) => {
+    const transcript = get().transcripts.get(pageIndex) ?? null
+    const hit = transcript?.find(
+      (l) => l.x1 === box.x1 && l.y1 === box.y1 && l.x2 === box.x2 && l.y2 === box.y2
+    )
+
+    set({
+      ocrSheetOpen: true,
+      transcriptSelection: hit ? { pageIndex, line: hit } : null,
+      boxSelection: { pageIndex, box },
+      ocrResult: hit
+        ? { text: hit.text, loading: false, error: null }
+        : { text: '', loading: true, error: null },
+      grammarAnalysis: { tokens: [], loading: false, error: null },
+    })
+
+    if (hit?.text?.trim()) {
+      // Load ichiran immediately (same as transcript-click).
+      ;(async () => {
+        try {
+          set({ grammarAnalysis: { ...get().grammarAnalysis, loading: true, error: null } })
+          const text = hit.text.trim()
+          const properNouns = await getProperNouns(text)
+          const resp = await tokenize(text, 5, undefined, properNouns)
+          const tokens = convertIchiranToGrammarTokens(resp.tokens)
+          set({ grammarAnalysis: { tokens, loading: false, error: null } })
+        } catch (err) {
+          console.error('[JapaneseLearning] ichiran analysis failed:', err)
+          set({ grammarAnalysis: { ...get().grammarAnalysis, loading: false, error: 'Analysis failed' } })
+        }
+      })()
+    }
   },
 
   closeOcrSheet: () => {
-    const { ocrSelection } = get()
-    // Revoke blob URL if exists
-    if (ocrSelection?.croppedImageUrl) {
-      URL.revokeObjectURL(ocrSelection.croppedImageUrl)
-    }
     set({
-      ocrSelection: null,
       ocrSheetOpen: false,
       ocrResult: { text: '', loading: false, error: null },
-      grammarAnalysis: { tokens: [], grammars: {}, loading: false, error: null },
-      selectedTokenIndex: null,
-    })
-  },
-
-  setOcrResult: (result) => {
-    set({ ocrResult: { ...get().ocrResult, ...result } })
-  },
-
-  setGrammarAnalysis: (analysis) => {
-    set({ grammarAnalysis: { ...get().grammarAnalysis, ...analysis } })
-  },
-
-  setSelectedTokenIndex: (index) => {
-    set({ selectedTokenIndex: index })
-  },
-
-  setCroppedImage: (url, dimensions) => {
-    const { ocrSelection } = get()
-    if (!ocrSelection) return
-    // Revoke old URL if exists
-    if (ocrSelection.croppedImageUrl) {
-      URL.revokeObjectURL(ocrSelection.croppedImageUrl)
-    }
-    set({
-      ocrSelection: {
-        ...ocrSelection,
-        croppedImageUrl: url,
-        croppedDimensions: dimensions,
-      },
+      transcriptSelection: null,
+      boxSelection: null,
+      grammarAnalysis: { tokens: [], loading: false, error: null },
     })
   },
 
   loadFromCache: async (pageIndex, cacheKey) => {
-    const { detections } = get()
-    
-    // Already have detections
-    if (detections.has(pageIndex)) return true
-    
-    try {
-      const cached = await getCachedDetections(cacheKey)
-      if (cached) {
-        get().setDetections(pageIndex, cached)
-        return true
-      }
-    } catch {
-      // Cache error - ignore
-    }
-    return false
+    if (get().detections.has(pageIndex) && get().transcripts.has(pageIndex)) return true
+    const cached = await getCachedOcrPageV2(cacheKey)
+    if (!cached || cached.version !== 2) return false
+    const detections = new Map(get().detections)
+    detections.set(pageIndex, cached.detections ?? [])
+    const transcripts = new Map(get().transcripts)
+    transcripts.set(pageIndex, cached.transcript ?? [])
+    set({ detections, transcripts })
+    return true
   },
 
-  runDetection: (pageIndex, imageData, cacheKey, onComplete) => {
-    const { loadingPages, settings, webgpuAvailable, detections } = get()
+  runOcr: (pageIndex, image, cacheKey) => {
+    if (get().ocrLoadingPages.has(pageIndex)) return
+    if (get().transcripts.has(pageIndex)) return
 
-    // Already have detections for this page
-    if (detections.has(pageIndex)) {
-      onComplete?.()
-      return
-    }
+    get().setOcrLoadingPage(pageIndex, true)
 
-    // Already loading this page
-    if (loadingPages.has(pageIndex)) return
+    ;(async () => {
+      const requestId = `ocr-${pageIndex}-${Date.now()}`
+      try {
+        const w = getWorker()
 
-    get().setLoadingPage(pageIndex, true)
+        const handler = (e: MessageEvent<WorkerResponse>) => {
+          if (!('requestId' in e.data) || e.data.requestId !== requestId) return
 
-    const handleDetectionResult = (rawDets: Detection[]) => {
-      const dets: TextDetection[] = rawDets
-        .filter((d: Detection) => d.conf >= settings.minConfidence)
-        .map((d: Detection) => ({
-          x1: d.x1,
-          y1: d.y1,
-          x2: d.x2,
-          y2: d.y2,
-          confidence: d.conf,
-          class: d.cls,
-          label: d.label,
-        }))
+          // Fast path: show boxes ASAP from /ocr detections event
+          if (e.data.type === 'ocr-detections') {
+            const dets: TextDetection[] = e.data.detections
+              .filter((d) => d.conf >= get().settings.minConfidence)
+              .map((d) => ({
+                x1: d.x1,
+                y1: d.y1,
+                x2: d.x2,
+                y2: d.y2,
+                confidence: d.conf,
+                class: d.cls,
+                label: d.label,
+              }))
 
-      get().setDetections(pageIndex, dets)
-      get().setLoadingPage(pageIndex, false)
+            const detections = new Map(get().detections)
+            detections.set(pageIndex, dets)
+            set({ detections })
 
-      // Mark as freshly detected (for flash animation)
-      const freshlyDetectedPages = new Set(get().freshlyDetectedPages)
-      freshlyDetectedPages.add(pageIndex)
-      set({ freshlyDetectedPages })
-
-      // Cache results
-      if (cacheKey) {
-        setCachedDetections(cacheKey, dets).catch(() => {})
-      }
-
-      onComplete?.()
-    }
-
-    // Run detection via worker (both local and remote go through worker to stay off main thread)
-    const runWorkerDetection = () => {
-      const requestId = `page-${pageIndex}-${Date.now()}`
-      const abortController = new AbortController()
-      const { signal } = abortController
-      currentDetectionAbortController = abortController
-
-      const w = getWorker()
-
-      const handler = (e: MessageEvent<WorkerResponse>) => {
-        if (signal.aborted) {
-          w.removeEventListener('message', handler)
-          return
-        }
-
-        if ('requestId' in e.data && e.data.requestId !== requestId) {
-          return
-        }
-
-        if (e.data.type === 'model-loading') {
-          get().setModelLoadingStage(e.data.stage)
-        } else if (e.data.type === 'detect-done') {
-          w.removeEventListener('message', handler)
-          set({ modelLoadingStage: null, modelLoaded: true })
-          handleDetectionResult(e.data.detections)
-        } else if (e.data.type === 'error') {
-          w.removeEventListener('message', handler)
-          console.error('[TextDetector] Detection error:', e.data.message)
-          
-          // Check for memory errors (iOS PWA has very limited memory)
-          const msg = e.data.message?.toLowerCase() || ''
-          if (msg.includes('out of memory') || msg.includes('memory')) {
-            alert(i18n.t('plugin.japaneseLearning.errors.outOfMemory'))
-          } else {
-            alert(`[TextDetector] Detection error: ${e.data.message}`)
+            // Trigger flash only when autoDetect is off.
+            // (If autoDetect is on, overlay won't clear, so we'd leak entries forever.)
+            if (!get().settings.autoDetect) {
+              const freshlyDetectedPages = new Set(get().freshlyDetectedPages)
+              freshlyDetectedPages.add(pageIndex)
+              set({ freshlyDetectedPages })
+            }
+            return
           }
-          
-          set({ modelLoadingStage: null })
-          get().setLoadingPage(pageIndex, false)
-          onComplete?.()
-        }
-      }
 
-      w.addEventListener('message', handler)
-      w.addEventListener('error', (e) => {
-        console.error('[TextDetector] Worker error:', e)
-        alert(`[TextDetector] Worker error: ${e.message || 'Unknown error'}`)
-        set({ modelLoadingStage: null })
-        get().setLoadingPage(pageIndex, false)
-      })
+          if (e.data.type === 'ocr-done') {
+            w.removeEventListener('message', handler)
 
-      // Send appropriate message type based on localInference setting
-      if (settings.localInference) {
-        w.postMessage({
-          type: 'detect',
-          requestId,
-          imageData,
-          preferWebGPU: webgpuAvailable ?? false,
-        } satisfies WorkerRequest)
-      } else {
-        w.postMessage({
-          type: 'detect-remote',
-          requestId,
-          imageData,
-        } satisfies WorkerRequest)
-      }
-    }
+            const lines: OcrTranscriptLine[] = e.data.detections
+              .map((d: OcrDetectionWithText) => ({
+                order: d.order,
+                x1: d.x1,
+                y1: d.y1,
+                x2: d.x2,
+                y2: d.y2,
+                confidence: d.conf,
+                class: d.cls,
+                label: d.label,
+                text: d.text,
+              }))
+              .filter((d) => d.text && d.text.trim().length > 0)
+              .sort((a, b) => a.order - b.order)
 
-    const executeDetection = runWorkerDetection
+            const transcripts = new Map(get().transcripts)
+            transcripts.set(pageIndex, lines)
+            set({ transcripts })
 
-    // Check cache first
-    if (cacheKey) {
-      getCachedDetections(cacheKey)
-        .then((cached) => {
-          if (cached) {
-            get().setDetections(pageIndex, cached)
-            get().setLoadingPage(pageIndex, false)
-            onComplete?.()
-          } else {
-            executeDetection()
+            // Persist v2 page cache (detections + transcript together).
+            if (cacheKey) {
+              const dets = get().detections.get(pageIndex) ?? []
+              setCachedOcrPageV2(cacheKey, { version: 2, detections: dets, transcript: lines }).catch(() => {})
+            }
+
+            // If user clicked a box and is waiting, resolve it now.
+            const sel = get().boxSelection
+            if (sel && sel.pageIndex === pageIndex) {
+              const hit = lines.find(
+                (l) =>
+                  l.x1 === sel.box.x1 &&
+                  l.y1 === sel.box.y1 &&
+                  l.x2 === sel.box.x2 &&
+                  l.y2 === sel.box.y2
+              )
+
+              if (hit) {
+                // Reuse transcript flow to populate text + trigger analysis
+                get().openOcrSheetFromTranscript(pageIndex, hit)
+              } else {
+                set({ ocrResult: { text: '', loading: false, error: 'No text detected' } })
+              }
+            }
+
+            get().setOcrLoadingPage(pageIndex, false)
+            return
           }
-        })
-        .catch(() => executeDetection())
-    } else {
-      executeDetection()
-    }
+
+          if (e.data.type === 'error') {
+            w.removeEventListener('message', handler)
+            console.error('[JapaneseLearning] ocr failed:', e.data.message)
+            get().setOcrLoadingPage(pageIndex, false)
+            alert(`[OCR] ${e.data.message}`)
+          }
+        }
+
+        w.addEventListener('message', handler)
+        w.postMessage({ type: 'ocr', requestId, image } satisfies WorkerRequest)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[JapaneseLearning] ocr failed:', msg)
+        alert(`[OCR] ${msg}`)
+      } finally {
+        // handled via messages
+      }
+    })()
   },
 }))

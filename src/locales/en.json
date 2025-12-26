@@ -71,7 +71,22 @@
     "startSearching": "Start Searching",
     "unread": "Unread",
     "caughtUp": "Caught up",
-    "updated": "Updated"
+    "updated": "Updated",
+    "mangaNotFound": "Manga not found in library",
+    "noActiveSource": "No active source",
+    "sources": "Sources",
+    "active": "Active",
+    "setActive": "Set Active",
+    "fetchMetadata": "Fetch Metadata"
+  },
+  "metadata": {
+    "fetchTitle": "Fetch Metadata",
+    "fetchDescription": "Search external databases to get rich metadata for this manga",
+    "searchPlaceholder": "Search manga title...",
+    "searchPrompt": "Enter a title and search to find metadata",
+    "noResults": "No results found",
+    "apply": "Apply Metadata",
+    "applying": "Applying..."
   },
   "browse": {
     "loading": "Loading sources...",
@@ -255,6 +270,12 @@
     "removeData": "Remove data from this device",
     "removeDataDescription": "Your cloud data will stay safe.",
     "signingOut": "Signing out..."
+  },
+  "import": {
+    "title": "Import Local Library",
+    "description": "You have a local library on this device. Would you like to import it into your account?",
+    "confirm": "Import",
+    "skip": "Not Now"
   },
   "sourceSettings": {
     "loadingSettings": "Loading settings...",

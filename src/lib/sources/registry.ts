@@ -3,10 +3,12 @@
  */
 import type { MangaSource } from "./types";
 import type { SourceRegistry } from "../../data/schema";
-import type { UserDataStore } from "../../data/store";
 import type { CacheStore } from "../../data/cache";
-import { AidokuUrlRegistry, AIDOKU_REGISTRIES } from "./aidoku/url-registry";
+import { AidokuUrlRegistry, AIDOKU_REGISTRIES, type InstalledSourceStore } from "./aidoku/url-registry";
 import { TachiyomiLocalRegistry, TACHIYOMI_LOCAL_REGISTRY_ID } from "./tachiyomi/local-registry";
+
+// Re-export for convenience
+export type { InstalledSourceStore };
 
 // ============ TYPES ============
 
@@ -37,15 +39,23 @@ export interface SourceRegistryProvider {
 /**
  * Manages all source registries
  */
+/** Minimal interface for registry metadata storage */
+export interface RegistryMetadataStore {
+  getRegistries(): Promise<SourceRegistry[]>;
+  getRegistry(id: string): Promise<SourceRegistry | null>;
+  saveRegistry(registry: SourceRegistry): Promise<void>;
+  removeRegistry(id: string): Promise<void>;
+}
+
 export class RegistryManager {
   private registries: Map<string, SourceRegistryProvider> = new Map();
-  private registryStore: UserDataStore; // For registry metadata (always local)
-  private installedSourceStore: UserDataStore; // For installed sources (can be Convex)
+  private registryStore: RegistryMetadataStore;
+  private installedSourceStore: InstalledSourceStore;
   private cacheStore: CacheStore;
 
   constructor(
-    registryStore: UserDataStore,
-    installedSourceStore: UserDataStore,
+    registryStore: RegistryMetadataStore,
+    installedSourceStore: InstalledSourceStore,
     cacheStore: CacheStore
   ) {
     this.registryStore = registryStore;
@@ -75,7 +85,7 @@ export class RegistryManager {
   /**
    * Update the store used for installed sources (called when auth state changes)
    */
-  setInstalledSourceStore(store: UserDataStore): void {
+  setInstalledSourceStore(store: InstalledSourceStore): void {
     this.installedSourceStore = store;
     // Recreate registries with new store
     for (const def of AIDOKU_REGISTRIES) {
@@ -93,7 +103,7 @@ export class RegistryManager {
     if (import.meta.env.DEV && import.meta.env.VITE_TACHIYOMI_LOCAL_PATH) {
       const localRegistry = this.registries.get(TACHIYOMI_LOCAL_REGISTRY_ID);
       if (localRegistry instanceof TachiyomiLocalRegistry) {
-        localRegistry.setUserStore(store);
+        localRegistry.setInstalledSourceStore(store);
       }
     }
   }

@@ -87,3 +87,6 @@ dev/extract-aidoku-source-authors.ts
 
 # Kotlin/Gradle generated files
 .kotlin/
+
+aidoku.config.json
+__pycache__

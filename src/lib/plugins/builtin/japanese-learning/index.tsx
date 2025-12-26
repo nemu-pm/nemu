@@ -1,12 +1,11 @@
-import { HugeiconsIcon } from '@hugeicons/react'
-import { TextSquareIcon } from '@hugeicons/core-free-icons'
 import i18n from '@/lib/i18n'
 import type { ReaderPlugin, ReaderPluginContext } from '../../types'
 import type { Setting } from '@/lib/settings'
 import { useTextDetectorStore, disposeWorker } from './store'
-import { DetectionOverlay, ModelLoadingContent, JapaneseLearningGlobalUI } from './components'
+import { DetectionOverlay, JapaneseLearningGlobalUI, OcrNavbarIcon, OcrTranscriptPopoverContent } from './components'
 import { isJapaneseEnabled, isJapaneseChapter as isJapaneseChapterLang } from './language'
 import iconImage from './icon.png'
+import type { OcrPageCacheKeyV2 } from './ocr-page-cache'
 
 const t = (key: string) => i18n.t(`plugin.japaneseLearning.${key}`)
 
@@ -27,14 +26,6 @@ const getSettingsSchema = (): Setting[] => [
     type: 'group',
     title: t('detection'),
     items: [
-      {
-        type: 'switch',
-        key: 'localInference',
-        title: t('localInference'),
-        subtitle: t('localInferenceSubtitle'),
-        default: false,
-        requiresFeature: 'webgpu',
-      },
       {
         type: 'switch',
         key: 'autoDetect',
@@ -105,58 +96,70 @@ export const japaneseLearningPlugin: ReaderPlugin = {
   // Navbar actions - show "Run Detection" button if autoDetect is off
   navbarActions: [
     {
-      id: 'run-detection',
+      id: 'ocr',
       label: t('detectText'),
-      icon: <HugeiconsIcon icon={TextSquareIcon} className="size-5" />,
+      icon: <OcrNavbarIcon />,
       // Show loading when detecting on any page or model is loading
       useIsLoading: () => {
         const loadingPages = useTextDetectorStore((s) => s.loadingPages)
-        const modelLoadingStage = useTextDetectorStore((s) => s.modelLoadingStage)
-        return loadingPages.size > 0 || modelLoadingStage !== null
+        const ocrLoadingPages = useTextDetectorStore((s) => s.ocrLoadingPages)
+        return loadingPages.size > 0 || ocrLoadingPages.size > 0
       },
       onClick: async (ctx: ReaderPluginContext) => {
         try {
           const store = useTextDetectorStore.getState()
-          const { settings, loadingPages, detections, runDetection } = store
+          const { loadingPages, detections, transcripts, ocrLoadingPages, toggleTranscriptPopover, transcriptPopoverOpen } =
+            store
 
-          // Don't run if autoDetect is on
-          if (settings.autoDetect) return
+          // Always show the button; click toggles the transcript popover.
+          // If we're opening it, ensure visible pages have detections queued (manual mode).
+          const nextOpen = !transcriptPopoverOpen
+          toggleTranscriptPopover(nextOpen)
+          if (!nextOpen) return
 
           // Get visible pages that haven't been detected yet
           const pagesToDetect = ctx.visiblePageIndices.filter(
             (idx) => !detections.has(idx) && !loadingPages.has(idx)
           )
 
-          if (pagesToDetect.length === 0) {
-            return // All visible pages already detected
-          }
-
-          // Run detection on all visible pages
-          let totalDetected = 0
-          for (const pageIndex of pagesToDetect) {
+          // Queue detection for missing pages, and auto-run OCR when detections exist
+          for (const pageIndex of ctx.visiblePageIndices) {
             const imageUrl = ctx.getPageImageUrl(pageIndex)
-            if (!imageUrl) {
-              console.warn(`[TextDetector] No image URL for page ${pageIndex}`)
+            if (!imageUrl) continue
+
+            // If missing detections, start /ocr (it streams detections first).
+            if (!detections.has(pageIndex) && !ocrLoadingPages.has(pageIndex)) {
+              try {
+                const imageBlob = await loadImageBlob(imageUrl)
+                store.runOcr(pageIndex, imageBlob, {
+                  registryId: ctx.registryId,
+                  sourceId: ctx.sourceId,
+                  mangaId: ctx.mangaId,
+                  chapterId: ctx.chapterId,
+                  pageIndex,
+                })
+              } catch (err) {
+                const errMsg = err instanceof Error ? err.message : String(err)
+                console.error(`[TextDetector] Failed to load image for page ${pageIndex}:`, errMsg)
+              }
               continue
             }
 
-            try {
-              const imageData = await loadImageData(imageUrl)
-              const cacheKey = {
-                registryId: ctx.registryId,
-                sourceId: ctx.sourceId,
-                mangaId: ctx.mangaId,
-                chapterId: ctx.chapterId,
-                pageIndex,
+            // If detections exist but transcript not built yet, ensure /ocr is running
+            if (detections.has(pageIndex) && !transcripts.has(pageIndex) && !ocrLoadingPages.has(pageIndex)) {
+              try {
+                const imageBlob = await loadImageBlob(imageUrl)
+                store.runOcr(pageIndex, imageBlob, {
+                  registryId: ctx.registryId,
+                  sourceId: ctx.sourceId,
+                  mangaId: ctx.mangaId,
+                  chapterId: ctx.chapterId,
+                  pageIndex,
+                })
+              } catch (err) {
+                const errMsg = err instanceof Error ? err.message : String(err)
+                console.error(`[OCR] Failed to load image for page ${pageIndex}:`, errMsg)
               }
-              runDetection(pageIndex, imageData, cacheKey, () => {
-                const dets = useTextDetectorStore.getState().detections.get(pageIndex)
-                totalDetected += dets?.length ?? 0
-              })
-            } catch (err) {
-              const errMsg = err instanceof Error ? err.message : String(err)
-              console.error(`[TextDetector] Failed to load image for page ${pageIndex}:`, errMsg)
-              alert(`[OCR Debug] Failed to load image: ${errMsg}`)
             }
           }
 
@@ -173,22 +176,18 @@ export const japaneseLearningPlugin: ReaderPlugin = {
         }
       },
       // Disable if all visible pages are already detected (or loading)
-      isDisabled: (ctx: ReaderPluginContext) => {
-        const { detections, loadingPages } = useTextDetectorStore.getState()
-        // Disabled if every visible page is either already detected or currently loading
-        return ctx.visiblePageIndices.every(
-          (idx) => detections.has(idx) || loadingPages.has(idx)
-        )
+      isDisabled: (_ctx: ReaderPluginContext) => {
+        // Never disable: button is both "open transcript" and "detect if missing".
+        // (Popover content will guide what's available.)
+        return false
       },
-      // Only show when autoDetect is off AND source is Japanese (or enableForAllLanguages)
+      // Always show for JP-enabled sources (regardless of autoDetect)
       isVisible: (ctx: ReaderPluginContext) => {
-        const s = useTextDetectorStore.getState().settings
-        const visible = !s.autoDetect && isJapaneseSource(ctx)
-        return visible
+        return isJapaneseSource(ctx)
       },
-      // Show popover when model is loading (hook for reactivity)
-      usePopoverOpen: () => useTextDetectorStore((s) => s.modelLoadingStage) !== null,
-      popoverContent: () => <ModelLoadingContent />,
+      // Transcript popover (controlled by store)
+      usePopoverOpen: () => useTextDetectorStore((s) => s.transcriptPopoverOpen),
+      popoverContent: () => <OcrTranscriptPopoverContent />,
     },
   ],
 
@@ -301,7 +300,7 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
   if (!enabled) return
 
   const store = useTextDetectorStore.getState()
-  const { settings, detections, loadingPages, runDetection, loadFromCache } = store
+  const { settings, detections, loadingPages, runOcr, loadFromCache } = store
   const autoDetectAllowed = settings.autoDetect && isJapaneseChapter(ctx)
 
   // Calculate pages to process: visible pages + prefetch next pages
@@ -331,7 +330,7 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
       mangaId: ctx.mangaId,
       chapterId: ctx.chapterId,
       pageIndex,
-    }
+    } satisfies OcrPageCacheKeyV2
 
     // Always try to load from cache first
     const fromCache = await loadFromCache(pageIndex, cacheKey)
@@ -362,22 +361,20 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
     for (const pageIndex of pagesToDetect) {
       // Re-check in case state changed during debounce
       const currentState = useTextDetectorStore.getState()
-      if (currentState.detections.has(pageIndex) || currentState.loadingPages.has(pageIndex)) continue
+      if (currentState.detections.has(pageIndex) || currentState.ocrLoadingPages.has(pageIndex)) continue
 
       const imageUrl = ctx.getPageImageUrl(pageIndex)
       if (!imageUrl) continue
 
-      const cacheKey = {
-        registryId: ctx.registryId,
-        sourceId: ctx.sourceId,
-        mangaId: ctx.mangaId,
-        chapterId: ctx.chapterId,
-        pageIndex,
-      }
-
       try {
-        const imageData = await loadImageData(imageUrl)
-        runDetection(pageIndex, imageData, cacheKey)
+        const imageBlob = await loadImageBlob(imageUrl)
+        runOcr(pageIndex, imageBlob, {
+          registryId: ctx.registryId,
+          sourceId: ctx.sourceId,
+          mangaId: ctx.mangaId,
+          chapterId: ctx.chapterId,
+          pageIndex,
+        })
       } catch (err) {
         console.error('[TextDetector] Auto-detection failed:', err)
       }
@@ -395,27 +392,13 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
 }
 
 /**
- * Load an image URL and convert to ImageData
+ * Load a page image URL as a Blob (preferred).
+ * This matches the "upload image blob to OCR service" flow and avoids re-encoding via canvas.
  */
-async function loadImageData(url: string): Promise<ImageData> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = img.naturalWidth
-      canvas.height = img.naturalHeight
-      const ctx2d = canvas.getContext('2d')!
-      ctx2d.drawImage(img, 0, 0)
-      const imageData = ctx2d.getImageData(0, 0, canvas.width, canvas.height)
-      // Clean up
-      canvas.width = 0
-      canvas.height = 0
-      resolve(imageData)
-    }
-    img.onerror = () => reject(new Error('Failed to load image'))
-    img.src = url
-  })
+async function loadImageBlob(url: string): Promise<Blob> {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`Failed to fetch image: ${res.status} ${res.statusText}`)
+  return await res.blob()
 }
 
 export default japaneseLearningPlugin

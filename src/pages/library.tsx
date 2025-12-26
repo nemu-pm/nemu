@@ -1,13 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useStores } from "@/data/context";
+import { useStores, useMangaProgressIndex, type MangaProgressIndex } from "@/data/context";
 import { MangaCard } from "@/components/manga-card";
 import { LibraryPageSkeleton } from "@/components/page-skeletons";
 import { PageHeader } from "@/components/page-header";
 import { LibraryEmpty } from "@/components/library-empty";
 import { SourceImageProvider } from "@/hooks/use-source-image";
+import type { ChapterSummary, LocalMangaProgress } from "@/data/schema";
+import { makeMangaProgressCursorId } from "@/data/schema";
+import type { LibraryEntry } from "@/data/view";
+import {
+  getEntryEffectiveMetadata,
+  getEntryCover,
+  entryHasAnyUpdate,
+  getEntryMostRecentSource,
+  getEntryAddedAt,
+} from "@/data/view";
 import { formatChapterShort } from "@/lib/format-chapter";
-import type { LibraryManga, ChapterSummary } from "@/data/schema";
 import type { Chapter } from "@/lib/sources";
 
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
@@ -30,45 +39,67 @@ function findLatestChapter(chapters: Chapter[]): ChapterSummary | null {
   };
 }
 
-/** Check if "Updated" badge should show for a manga */
-function hasUpdatedBadge(manga: LibraryManga): boolean {
-  const { latestChapter, seenLatestChapter } = manga;
-  return (
-    latestChapter?.chapterNumber != null &&
-    seenLatestChapter?.chapterNumber != null &&
-    latestChapter.chapterNumber > seenLatestChapter.chapterNumber
-  );
+/** Build progress map from manga progress index (canonical) */
+function buildProgressMap(
+  entry: LibraryEntry,
+  progressIndex: MangaProgressIndex
+): Map<string, LocalMangaProgress> {
+  const progress = new Map<string, LocalMangaProgress>();
+  for (const source of entry.sources) {
+    const key = makeMangaProgressCursorId(source.registryId, source.sourceId, source.sourceMangaId);
+    const p = progressIndex.get(key);
+    if (p) {
+      progress.set(source.cursorId, p);
+    }
+  }
+  return progress;
 }
 
-/** Compute progress display info for a library manga */
-function useProgressInfo(manga: LibraryManga, t: (key: string) => string) {
+/** Compute progress display info for a library entry */
+function useProgressInfo(
+  entry: LibraryEntry,
+  progressIndex: MangaProgressIndex,
+  t: (key: string) => string
+) {
   return useMemo(() => {
-    const { lastReadChapter, latestChapter, seenLatestChapter } = manga;
+    const progress = buildProgressMap(entry, progressIndex);
+    // Get most recently read source for progress display
+    const recentSource = getEntryMostRecentSource(entry, progress);
+    if (!recentSource) {
+      return { badge: undefined, subtitle: t("library.unread"), lastReadAt: undefined };
+    }
 
-    // "Updated" badge: new chapters since user last viewed
-    // Only compare if both have valid chapter numbers
-    const hasNewChapters =
-      latestChapter?.chapterNumber != null &&
-      seenLatestChapter?.chapterNumber != null &&
-      latestChapter.chapterNumber > seenLatestChapter.chapterNumber;
+    const sourceProgress = progress.get(recentSource.cursorId);
+    const lastReadAt = sourceProgress?.lastReadAt;
+
+    // "Updated" badge: any source has new chapters
+    const hasNewChapters = entryHasAnyUpdate(entry);
+
+    // Get latest chapter from most recent source
+    const latestChapter = recentSource.latestChapter;
 
     // "Caught up": user has read the latest chapter
-    // Require valid chapter numbers on both, or same chapter ID
     const isCaughtUp =
-      lastReadChapter &&
-      latestChapter &&
-      (lastReadChapter.id === latestChapter.id ||
-        (lastReadChapter.chapterNumber != null &&
-          latestChapter.chapterNumber != null &&
-          lastReadChapter.chapterNumber >= latestChapter.chapterNumber));
+      sourceProgress?.lastReadSourceChapterId != null &&
+      latestChapter != null &&
+      sourceProgress.lastReadSourceChapterId === latestChapter.id;
 
-    // Subtitle text
+    // Build ChapterSummary-like object for formatting
+    const lastReadChapter = sourceProgress?.lastReadSourceChapterId ? {
+      id: sourceProgress.lastReadSourceChapterId,
+      chapterNumber: sourceProgress.lastReadChapterNumber,
+      volumeNumber: sourceProgress.lastReadVolumeNumber,
+      title: sourceProgress.lastReadChapterTitle,
+    } : undefined;
+
     let subtitle: string;
     if (isCaughtUp) {
       subtitle = t("library.caughtUp");
     } else if (lastReadChapter && latestChapter) {
+      // Show both: "第5章 / 第82章" (localized)
       subtitle = `${formatChapterShort(lastReadChapter)} / ${formatChapterShort(latestChapter)}`;
     } else if (lastReadChapter) {
+      // Only have last read
       subtitle = formatChapterShort(lastReadChapter);
     } else {
       subtitle = t("library.unread");
@@ -77,54 +108,58 @@ function useProgressInfo(manga: LibraryManga, t: (key: string) => string) {
     return {
       badge: hasNewChapters ? t("library.updated") : undefined,
       subtitle,
+      lastReadAt,
     };
-  }, [manga, t]);
+  }, [entry, progressIndex, t]);
 }
 
 export function LibraryPage() {
   const { t } = useTranslation();
   const { useLibraryStore, useSettingsStore } = useStores();
-  const { mangas, loading: libraryLoading, updateLatestChapter } = useLibraryStore();
+  const { index: progressIndex } = useMangaProgressIndex();
+  const { entries, loading: libraryLoading, updateLatestChapter } = useLibraryStore();
   const { installedSources, loading: settingsLoading, getSource } = useSettingsStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshingRef = useRef(false);
 
-  // Refresh library: fetch latest chapters for all manga
+  // Refresh library: fetch chapters for ALL sources of each entry
   const refreshLibrary = useCallback(async () => {
-    if (refreshingRef.current || mangas.length === 0) return;
+    if (refreshingRef.current || entries.length === 0) return;
     refreshingRef.current = true;
     setIsRefreshing(true);
 
     try {
-      // Process manga in chunks of MAX_CONCURRENT_REQUESTS
-      for (let i = 0; i < mangas.length; i += MAX_CONCURRENT_REQUESTS) {
-        const chunk = mangas.slice(i, i + MAX_CONCURRENT_REQUESTS);
+      // Process entries in chunks of MAX_CONCURRENT_REQUESTS
+      for (let i = 0; i < entries.length; i += MAX_CONCURRENT_REQUESTS) {
+        const chunk = entries.slice(i, i + MAX_CONCURRENT_REQUESTS);
         await Promise.all(
-          chunk.map(async (manga) => {
-            try {
-              const { activeRegistryId, activeSourceId } = manga;
-              const activeSourceLink = manga.sources.find(
-                (s) => s.registryId === activeRegistryId && s.sourceId === activeSourceId
-              );
-              if (!activeSourceLink) return;
+          chunk.map(async (entry) => {
+            // Fetch all sources for this entry
+            await Promise.all(
+              entry.sources.map(async (sourceLink) => {
+                try {
+                  const source = await getSource(sourceLink.registryId, sourceLink.sourceId);
+                  if (!source) return;
 
-              const source = await getSource(activeRegistryId, activeSourceId);
-              if (!source) return;
-
-              const chapters = await source.getChapters(activeSourceLink.mangaId);
-              const latest = findLatestChapter(chapters);
-              if (latest) {
-                await updateLatestChapter(
-                  activeRegistryId,
-                  activeSourceId,
-                  activeSourceLink.mangaId,
-                  latest
-                );
-              }
-            } catch (e) {
-              // Silently skip failed manga
-              console.warn(`[Library] Failed to refresh ${manga.title}:`, e);
-            }
+                  const chapters = await source.getChapters(sourceLink.sourceMangaId);
+                  const latest = findLatestChapter(chapters);
+                  if (latest) {
+                    await updateLatestChapter(
+                      sourceLink.registryId,
+                      sourceLink.sourceId,
+                      sourceLink.sourceMangaId,
+                      latest
+                    );
+                  }
+                } catch (e) {
+                  // Silently skip failed sources
+                  console.warn(
+                    `[Library] Failed to refresh source ${sourceLink.sourceId}:`,
+                    e
+                  );
+                }
+              })
+            );
           })
         );
       }
@@ -134,7 +169,7 @@ export function LibraryPage() {
       refreshingRef.current = false;
       setIsRefreshing(false);
     }
-  }, [mangas, getSource, updateLatestChapter]);
+  }, [entries, getSource, updateLatestChapter]);
 
   // Check if refresh is needed (stale > 30 min)
   const checkAndRefresh = useCallback(() => {
@@ -146,86 +181,80 @@ export function LibraryPage() {
   }, [refreshLibrary]);
 
   // On mount: check if stale and refresh
-  // Also set up interval for periodic refresh
   useEffect(() => {
-    // Initial check on mount
     checkAndRefresh();
-
-    // Set up interval for periodic refresh
     const interval = setInterval(checkAndRefresh, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [checkAndRefresh]);
 
-  // Sort: Updated manga first, then by lastReadAt, then by addedAt
-  const sortedMangas = useMemo(() => {
-    return [...mangas].sort((a, b) => {
-      // 1. Updated manga first
-      const aUpdated = hasUpdatedBadge(a);
-      const bUpdated = hasUpdatedBadge(b);
+  // Sort: Updated entries first, then by most recent activity
+  const sortedEntries = useMemo(() => {
+    return [...entries].sort((a, b) => {
+      // 1. Updated entries first
+      const aUpdated = entryHasAnyUpdate(a);
+      const bUpdated = entryHasAnyUpdate(b);
       if (aUpdated !== bUpdated) return aUpdated ? -1 : 1;
-      // 2. By lastReadAt (most recent first)
-      const aTime = a.lastReadAt ?? 0;
-      const bTime = b.lastReadAt ?? 0;
-      if (aTime !== bTime) return bTime - aTime;
-      // 3. Fall back to addedAt
-      return b.addedAt - a.addedAt;
+
+      // 2. By most recent activity: max(lastReadAt, addedAt)
+      const aProgress = buildProgressMap(a, progressIndex);
+      const bProgress = buildProgressMap(b, progressIndex);
+      const aSource = getEntryMostRecentSource(a, aProgress);
+      const bSource = getEntryMostRecentSource(b, bProgress);
+      const aReadTime = aSource ? (aProgress.get(aSource.cursorId)?.lastReadAt ?? 0) : 0;
+      const bReadTime = bSource ? (bProgress.get(bSource.cursorId)?.lastReadAt ?? 0) : 0;
+      const aTime = Math.max(aReadTime, getEntryAddedAt(a));
+      const bTime = Math.max(bReadTime, getEntryAddedAt(b));
+      return bTime - aTime;
     });
-  }, [mangas]);
+  }, [entries, progressIndex]);
 
   const loading = libraryLoading || settingsLoading;
   const hasNoSources = installedSources.length === 0;
-  const hasNoMangas = mangas.length === 0;
+  const hasNoEntries = entries.length === 0;
 
   if (loading) {
     return <LibraryPageSkeleton />;
   }
 
-  // Empty state: no sources installed
   if (hasNoSources) {
     return <LibraryEmpty variant="no-sources" />;
   }
 
-  // Empty state: no mangas in library
-  if (hasNoMangas) {
+  if (hasNoEntries) {
     return <LibraryEmpty variant="no-manga" />;
   }
 
-  // Library grid
   return (
     <div className="space-y-4">
       <PageHeader title={t("nav.library")} loading={isRefreshing} />
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 sm:gap-4 md:grid-cols-5 lg:grid-cols-6">
-        {sortedMangas.map((manga) => (
-          <LibraryMangaCard key={manga.id} manga={manga} />
+        {sortedEntries.map((entry) => (
+          <LibraryEntryCard key={entry.item.libraryItemId} entry={entry} progressIndex={progressIndex} />
         ))}
       </div>
     </div>
   );
 }
 
-/** Individual library manga card with progress info */
-function LibraryMangaCard({ manga }: { manga: LibraryManga }) {
+/** Individual library entry card with progress info */
+function LibraryEntryCard({ entry, progressIndex }: { entry: LibraryEntry; progressIndex: MangaProgressIndex }) {
   const { t } = useTranslation();
-  const { badge, subtitle } = useProgressInfo(manga, t);
+  const { badge, subtitle } = useProgressInfo(entry, progressIndex, t);
 
-  const activeSource = manga.sources.find(
-    (s) =>
-      s.registryId === manga.activeRegistryId &&
-      s.sourceId === manga.activeSourceId
-  );
-  const sourceKey = `${manga.activeRegistryId}:${manga.activeSourceId}`;
+  // Use most recent source for cover image context
+  const progress = buildProgressMap(entry, progressIndex);
+  const recentSource = getEntryMostRecentSource(entry, progress) ?? entry.sources[0];
+  const sourceKey = recentSource ? `${recentSource.registryId}:${recentSource.sourceId}` : "";
+  const metadata = getEntryEffectiveMetadata(entry);
+  const cover = getEntryCover(entry);
 
   return (
     <SourceImageProvider sourceKey={sourceKey}>
       <MangaCard
-        to="/sources/$registryId/$sourceId/$mangaId"
-        params={{
-          registryId: manga.activeRegistryId,
-          sourceId: manga.activeSourceId,
-          mangaId: activeSource?.mangaId ?? "",
-        }}
-        cover={manga.cover}
-        title={manga.title}
+        to="/library/$id"
+        params={{ id: entry.item.libraryItemId }}
+        cover={cover}
+        title={metadata.title}
         subtitle={subtitle}
         badge={badge}
       />

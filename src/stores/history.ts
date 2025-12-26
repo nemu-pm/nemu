@@ -1,7 +1,14 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import type { HistoryEntry } from "@/data/schema";
-import type { UserDataStore } from "@/data/store";
 import { makeHistoryKey } from "@/data/indexeddb";
+
+/** Minimal interface for history store needs */
+export interface HistoryStoreOps {
+  getHistoryEntry(registryId: string, sourceId: string, mangaId: string, chapterId: string): Promise<HistoryEntry | null>;
+  saveHistoryEntry(entry: HistoryEntry): Promise<void>;
+  getMangaHistory(registryId: string, sourceId: string, mangaId: string): Promise<Record<string, HistoryEntry>>;
+  getRecentHistory(limit: number): Promise<HistoryEntry[]>;
+}
 
 interface HistoryState {
   // Cache of loaded progress entries (keyed by registryId:sourceId:mangaId:chapterId)
@@ -25,21 +32,23 @@ interface HistoryState {
     mangaId: string,
     chapterId: string,
     progress: number,
-    total: number
+    total: number,
+    chapterMeta?: { chapterNumber?: number; volumeNumber?: number; chapterTitle?: string }
   ) => Promise<void>;
   markCompleted: (
     registryId: string,
     sourceId: string,
     mangaId: string,
     chapterId: string,
-    total?: number
+    total?: number,
+    chapterMeta?: { chapterNumber?: number; volumeNumber?: number; chapterTitle?: string }
   ) => Promise<void>;
   getRecentHistory: (limit?: number) => Promise<HistoryEntry[]>;
 }
 
 export type HistoryStore = UseBoundStore<StoreApi<HistoryState>>;
 
-export function createHistoryStore(userStore: UserDataStore): HistoryStore {
+export function createHistoryStore(ops: HistoryStoreOps): HistoryStore {
   return create<HistoryState>((set, get) => ({
     entries: new Map(),
 
@@ -48,7 +57,7 @@ export function createHistoryStore(userStore: UserDataStore): HistoryStore {
       const cached = get().entries.get(key);
       if (cached) return cached;
 
-      const entry = await userStore.getHistoryEntry(registryId, sourceId, mangaId, chapterId);
+      const entry = await ops.getHistoryEntry(registryId, sourceId, mangaId, chapterId);
       if (entry) {
         set((state) => ({
           entries: new Map(state.entries).set(key, entry),
@@ -58,7 +67,7 @@ export function createHistoryStore(userStore: UserDataStore): HistoryStore {
     },
 
     getMangaProgress: async (registryId, sourceId, mangaId) => {
-      const history = await userStore.getMangaHistory(registryId, sourceId, mangaId);
+      const history = await ops.getMangaHistory(registryId, sourceId, mangaId);
 
       // Update cache
       set((state) => {
@@ -72,7 +81,7 @@ export function createHistoryStore(userStore: UserDataStore): HistoryStore {
       return history;
     },
 
-    saveProgress: async (registryId, sourceId, mangaId, chapterId, progress, total) => {
+    saveProgress: async (registryId, sourceId, mangaId, chapterId, progress, total, chapterMeta) => {
       const key = makeHistoryKey(registryId, sourceId, mangaId, chapterId);
       const existing = get().entries.get(key);
       
@@ -87,16 +96,20 @@ export function createHistoryStore(userStore: UserDataStore): HistoryStore {
         total: existing ? Math.max(existing.total, total) : total,
         completed: existing?.completed ?? false,
         dateRead: Date.now(),
+        // Include chapter metadata (prefer new, fall back to existing)
+        chapterNumber: chapterMeta?.chapterNumber ?? existing?.chapterNumber,
+        volumeNumber: chapterMeta?.volumeNumber ?? existing?.volumeNumber,
+        chapterTitle: chapterMeta?.chapterTitle ?? existing?.chapterTitle,
       };
 
-      await userStore.saveHistoryEntry(entry);
+      await ops.saveHistoryEntry(entry);
 
       set((state) => ({
         entries: new Map(state.entries).set(key, entry),
       }));
     },
 
-    markCompleted: async (registryId, sourceId, mangaId, chapterId, total?: number) => {
+    markCompleted: async (registryId, sourceId, mangaId, chapterId, total?: number, chapterMeta?) => {
       const key = makeHistoryKey(registryId, sourceId, mangaId, chapterId);
       const existing = get().entries.get(key);
       
@@ -114,9 +127,13 @@ export function createHistoryStore(userStore: UserDataStore): HistoryStore {
         total: finalTotal,
         completed: true,
         dateRead: Date.now(),
+        // Include chapter metadata
+        chapterNumber: chapterMeta?.chapterNumber ?? existing?.chapterNumber,
+        volumeNumber: chapterMeta?.volumeNumber ?? existing?.volumeNumber,
+        chapterTitle: chapterMeta?.chapterTitle ?? existing?.chapterTitle,
       };
 
-      await userStore.saveHistoryEntry(entry);
+      await ops.saveHistoryEntry(entry);
 
       set((state) => ({
         entries: new Map(state.entries).set(key, entry),
@@ -124,7 +141,7 @@ export function createHistoryStore(userStore: UserDataStore): HistoryStore {
     },
 
     getRecentHistory: async (limit = 50) => {
-      return userStore.getRecentHistory(limit);
+      return ops.getRecentHistory(limit);
     },
   }));
 }

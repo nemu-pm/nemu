@@ -3,9 +3,14 @@
  * Fetches sources from remote Aidoku registry URLs (.aix packages)
  */
 import type { MangaSource } from "../types";
-import type { SourceRegistry } from "../../../data/schema";
-import type { UserDataStore } from "../../../data/store";
+import type { SourceRegistry, InstalledSource } from "../../../data/schema";
 import type { CacheStore } from "../../../data/cache";
+
+/** Minimal interface for installed source storage */
+export interface InstalledSourceStore {
+  saveInstalledSource(source: InstalledSource): Promise<void>;
+  getInstalledSource(id: string): Promise<InstalledSource | null>;
+}
 import { Keys, CacheKeys } from "../../../data/keys";
 import { createAidokuMangaSource } from "./adapter";
 import type { SourceRegistryProvider, RegistrySourceInfo } from "../registry";
@@ -53,17 +58,17 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
   // Prevent race condition when loading same source concurrently
   private loadingPromises: Map<string, Promise<MangaSource | null>> = new Map();
 
-  private userStore: UserDataStore;
+  private installedSourceStore: InstalledSourceStore;
   private cacheStore: CacheStore;
 
   constructor(
     id: string,
     name: string,
     indexUrl: string,
-    userStore: UserDataStore,
+    installedSourceStore: InstalledSourceStore,
     cacheStore: CacheStore
   ) {
-    this.userStore = userStore;
+    this.installedSourceStore = installedSourceStore;
     this.cacheStore = cacheStore;
     this.info = { id, name, type: "url", url: indexUrl };
     this.baseUrl = indexUrl.replace(/\/[^/]+$/, "");
@@ -174,7 +179,7 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     await this.cacheStore.set(CacheKeys.aix(registryId, sourceId), aixData);
 
     // Save installed source with composite id for storage uniqueness
-    await this.userStore.saveInstalledSource({
+    await this.installedSourceStore.saveInstalledSource({
       id: Keys.source(registryId, sourceId),
       registryId,
       version: entry.version,

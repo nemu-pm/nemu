@@ -132,12 +132,17 @@ export const POS_STYLES: Record<PartOfSpeechCategoryType, POSStyleVariant> = {
   },
 } as const
 
+export const MULTI_SELECT_STYLE = 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/30'
+
 export function getPOSStyles(pos: string): POSStyleVariant {
   const category = getPOSCategory(pos)
   return POS_STYLES[category]
 }
 
-export function getWordClasses(pos: string, isSelected: boolean): string {
+export function getWordClasses(pos: string, isSelected: boolean, isMultiSelected: boolean): string {
+  if (isMultiSelected) {
+    return MULTI_SELECT_STYLE
+  }
   const styles = getPOSStyles(pos)
   return isSelected
     ? `${styles.full} ${styles.border}`
