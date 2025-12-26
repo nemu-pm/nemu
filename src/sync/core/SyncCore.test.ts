@@ -8,7 +8,7 @@
  * - Applied event emission
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { SyncCore, type SyncCoreRepos, type SyncMetaRepo, type PendingOpsRepo, type HLCManager } from "./SyncCore";
 import { TestTransport } from "../transports/TestTransport";
 import type {
