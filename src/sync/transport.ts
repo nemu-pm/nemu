@@ -15,12 +15,11 @@ import type { MangaMetadata, ExternalIds, ChapterSummary, UserOverrides } from "
  * Library item from sync (matches Convex library_items table).
  */
 export interface SyncLibraryItem {
-  cursorId: string; // = libraryItemId
+  id: string; // = libraryItemId
   libraryItemId: string;
   metadata: MangaMetadata;
   externalIds?: ExternalIds;
   inLibrary?: boolean;
-  inLibraryClock?: string;
   overrides?: UserOverrides;
   createdAt: number;
   updatedAt: number;
@@ -30,7 +29,7 @@ export interface SyncLibraryItem {
  * Library source link from sync (matches Convex library_source_links table).
  */
 export interface SyncLibrarySourceLink {
-  cursorId: string; // "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
+  id: string; // "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
   libraryItemId: string;
   registryId: string;
   sourceId: string;
@@ -43,14 +42,13 @@ export interface SyncLibrarySourceLink {
   updateAckAt?: number;
   createdAt: number;
   updatedAt: number;
-  deletedAt?: number;
 }
 
 /**
  * Chapter progress from sync (matches Convex chapter_progress table).
  */
 export interface SyncChapterProgress {
-  cursorId: string; // "${registryId}:${sourceId}:${sourceMangaId}:${sourceChapterId}" (URL-encoded)
+  id: string; // "${registryId}:${sourceId}:${sourceMangaId}:${sourceChapterId}" (URL-encoded)
   registryId: string;
   sourceId: string;
   sourceMangaId: string;
@@ -64,15 +62,13 @@ export interface SyncChapterProgress {
   volumeNumber?: number;
   chapterTitle?: string;
   updatedAt: number;
-  deletedAt?: number;
 }
 
 /**
  * Manga progress from sync (matches Convex manga_progress table).
- * Note: manga_progress does NOT use soft-delete (no deletedAt field).
  */
 export interface SyncMangaProgress {
-  cursorId: string; // "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
+  id: string; // "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
   registryId: string;
   sourceId: string;
   sourceMangaId: string;

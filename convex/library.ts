@@ -171,7 +171,7 @@ export const save = mutation({
         updatedAt: now,
       });
 
-      // Phase 2: Tombstone removed source links when using "replace".
+      // Phase 8: Hard-delete removed source links when using "replace".
       for (const removed of removedSources) {
         const link = await ctx.db
           .query("library_source_links")
@@ -184,7 +184,7 @@ export const save = mutation({
           )
           .first();
         if (!link) continue;
-        await ctx.db.patch(link._id, { deletedAt: now, updatedAt: now });
+        await ctx.db.delete(link._id);
       }
 
       await dualWriteSourceLinks(ctx, userId, args.mangaId, mergedSources, now);
@@ -293,14 +293,9 @@ async function dualWriteLibraryItem(
   }
 }
 
-/** Phase 6: Build cursorId for source links */
-function makeSourceLinkCursorId(registryId: string, sourceId: string, sourceMangaId: string): string {
-  return `${encodeURIComponent(registryId)}:${encodeURIComponent(sourceId)}:${encodeURIComponent(sourceMangaId)}`;
-}
-
 /**
  * Dual-write to library_source_links table
- * Phase 6: Populates cursorId for deterministic pagination
+ * Phase 8: Simplified - no cursorId, no deletedAt
  */
 async function dualWriteSourceLinks(
   ctx: MutationCtx,
@@ -330,19 +325,14 @@ async function dualWriteSourceLinks(
       return `V${vol}C${chNum}:${ch.id}`;
     };
 
-    // Phase 6: Canonical cursorId
-    const cursorId = makeSourceLinkCursorId(source.registryId, source.sourceId, source.mangaId);
-
     if (existing) {
       await ctx.db.patch(existing._id, {
         libraryItemId,
-        cursorId, // Phase 6
         latestChapter: source.latestChapter,
         latestChapterSortKey: buildSortKey(source.latestChapter),
         updateAckChapter: source.updateAcknowledged,
         updateAckChapterSortKey: buildSortKey(source.updateAcknowledged),
         updatedAt: now,
-        deletedAt: undefined,
       });
     } else {
       await ctx.db.insert("library_source_links", {
@@ -351,7 +341,6 @@ async function dualWriteSourceLinks(
         registryId: source.registryId,
         sourceId: source.sourceId,
         sourceMangaId: source.mangaId,
-        cursorId, // Phase 6
         latestChapter: source.latestChapter,
         latestChapterSortKey: buildSortKey(source.latestChapter),
         updateAckChapter: source.updateAcknowledged,
@@ -401,17 +390,14 @@ export const remove = mutation({
       });
     }
 
-    // Soft-delete source links
+    // Phase 8: Hard-delete source links (no soft-delete)
     const sourceLinks = await ctx.db
       .query("library_source_links")
       .withIndex("by_user_item", (q) => q.eq("userId", userId).eq("libraryItemId", args.mangaId))
       .collect();
 
     for (const link of sourceLinks) {
-      await ctx.db.patch(link._id, {
-        deletedAt: now,
-        updatedAt: now,
-      });
+      await ctx.db.delete(link._id);
     }
   },
 });

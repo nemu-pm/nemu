@@ -10,46 +10,6 @@ import { v } from "convex/values";
 // - `chapterSortKey`: monotonic key for ordering/comparison (not identity)
 // ============================================================================
 
-// ============================================================================
-// CURSOR ID CONVENTIONS (Phase 6 from sync.md)
-// ============================================================================
-// Each table has a canonical `cursorId` for deterministic pagination tie-breakers:
-// - `library_items.cursorId` = libraryItemId
-// - `library_source_links.cursorId` = "${registryId}:${sourceId}:${sourceMangaId}"
-// - `chapter_progress.cursorId` = "${registryId}:${sourceId}:${sourceMangaId}:${sourceChapterId}"
-// - `manga_progress.cursorId` = "${registryId}:${sourceId}:${sourceMangaId}"
-//
-// Composite cursor format: { updatedAt: number, cursorId: string }
-// Query: (updatedAt > cursor.updatedAt) OR (updatedAt == cursor.updatedAt AND cursorId > cursor.cursorId)
-// ============================================================================
-
-// ============================================================================
-// PHASE 6.5: INTENTCLOCK (HLC-BASED) CONVENTIONS
-// ============================================================================
-// IntentClock is a lexicographically comparable string for user-intent ordering.
-// Format: "{wallMsPadded}:{counterPadded}:{nodeId}"
-// Example: "00001703497912345:000012:device-9f3c"
-//
-// Used for:
-// - Library membership (inLibrary + inLibraryClock) - replaces deletedAt tombstone
-// - User overrides (overrides.metadata + overrides.metadataClock)
-// - Cover override (overrides.coverUrl + overrides.coverUrlClock)
-//
-// Merge rule: If incoming.clock > existing.clock, accept incoming value (including null)
-// ============================================================================
-
-// ============================================================================
-// PHASE 6.5.5: NORMALIZED OVERRIDES SHAPE
-// ============================================================================
-// User overrides are grouped in a nested structure with independent clocks:
-// - overrides.metadata: Partial<MangaMetadata> | null (null = explicitly cleared)
-// - overrides.metadataClock: IntentClock
-// - overrides.coverUrl: string | null (null = use source cover)
-// - overrides.coverUrlClock: IntentClock
-//
-// This replaces the flat shape: overrides, overridesClock, coverOverrideUrl, coverClock
-// ============================================================================
-
 // Reusable validators
 const chapterSummary = v.object({
   id: v.string(), // sourceChapterId
@@ -96,17 +56,15 @@ const externalIds = v.object({
   mal: v.optional(v.number()),
 });
 
-// Phase 6.5.5: Normalized user overrides with independent clocks
+// Phase 8: Simplified user overrides (no clocks)
 const userOverrides = v.object({
   // Metadata overrides (sparse - only user-edited fields)
   // null = explicitly cleared, undefined = never set
   metadata: v.optional(v.union(mangaMetadataPartial, v.null())),
-  metadataClock: v.optional(v.string()), // IntentClock
 
   // Cover override URL (R2 or other storage)
   // null = explicitly cleared (use source cover), undefined = never set
   coverUrl: v.optional(v.union(v.string(), v.null())),
-  coverUrlClock: v.optional(v.string()), // IntentClock
 });
 
 export default defineSchema({
@@ -180,40 +138,20 @@ export default defineSchema({
     metadata: mangaMetadata,
     externalIds: v.optional(externalIds),
 
-    // Library membership state (replaces deletedAt tombstone)
+    // Library membership state
     // inLibrary=false means "removed from library", inLibrary=true means "in library"
     inLibrary: v.optional(v.boolean()), // Default true, optional for backward compat
-    inLibraryClock: v.optional(v.string()), // IntentClock
 
-    // User overrides (Phase 6.5.5 normalized shape)
+    // User overrides (Phase 8 simplified - no clocks)
     overrides: v.optional(userOverrides),
 
     // Sync fields
     createdAt: v.number(),
     updatedAt: v.number(),
-
-    // ========================================================================
-    // LEGACY FIELDS (to be removed after migration)
-    // Run: npx convex run migrations:migrateLibraryItemsToNormalizedOverrides
-    // ========================================================================
-    // @deprecated - use inLibrary instead
-    deletedAt: v.optional(v.number()),
-    // @deprecated - use overrides.coverUrl instead
-    coverCustom: v.optional(v.string()),
-    coverOverrideUrl: v.optional(v.union(v.string(), v.null())),
-    // @deprecated - use overrides.metadataClock/coverUrlClock instead
-    overridesClock: v.optional(v.string()),
-    coverClock: v.optional(v.string()),
-    overridesUpdatedAt: v.optional(v.number()),
-    coverCustomUpdatedAt: v.optional(v.number()),
-    overridesDeletedAt: v.optional(v.number()),
-    coverCustomDeletedAt: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_user_item", ["userId", "libraryItemId"])
-    .index("by_user_updated", ["userId", "updatedAt"])
-    // Phase 6: Composite cursor index for deterministic pagination
-    .index("by_user_cursor", ["userId", "updatedAt", "libraryItemId"]),
+    .index("by_user_updated", ["userId", "updatedAt"]),
 
   // library_source_links: normalized bindings + availability per source
   library_source_links: defineTable({
@@ -224,10 +162,6 @@ export default defineSchema({
     registryId: v.string(),
     sourceId: v.string(),
     sourceMangaId: v.string(), // the id inside the source
-
-    // Phase 6: Canonical cursorId for deterministic pagination
-    // Format: "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
-    cursorId: v.optional(v.string()),
 
     // Availability tracking
     latestChapter: v.optional(chapterSummary),
@@ -240,14 +174,11 @@ export default defineSchema({
     // Sync fields
     createdAt: v.number(),
     updatedAt: v.number(),
-    deletedAt: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_user_item", ["userId", "libraryItemId"])
     .index("by_user_source_manga", ["userId", "registryId", "sourceId", "sourceMangaId"])
-    .index("by_user_updated", ["userId", "updatedAt"])
-    // Phase 6: Composite cursor index for deterministic pagination
-    .index("by_user_cursor", ["userId", "updatedAt", "cursorId"]),
+    .index("by_user_updated", ["userId", "updatedAt"]),
 
   // chapter_progress: canonical truth per chapter (replaces history table)
   chapter_progress: defineTable({
@@ -258,10 +189,6 @@ export default defineSchema({
     sourceId: v.string(),
     sourceMangaId: v.string(),
     sourceChapterId: v.string(),
-
-    // Phase 6: Canonical cursorId for deterministic pagination
-    // Format: "${registryId}:${sourceId}:${sourceMangaId}:${sourceChapterId}" (URL-encoded)
-    cursorId: v.optional(v.string()),
 
     // Optional denormalized link to library item
     libraryItemId: v.optional(v.string()),
@@ -279,14 +206,11 @@ export default defineSchema({
 
     // Sync fields
     updatedAt: v.number(),
-    deletedAt: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_user_chapter", ["userId", "registryId", "sourceId", "sourceMangaId", "sourceChapterId"])
     .index("by_user_source_manga", ["userId", "registryId", "sourceId", "sourceMangaId"])
-    .index("by_user_updated", ["userId", "updatedAt"])
-    // Phase 6: Composite cursor index for deterministic pagination
-    .index("by_user_cursor", ["userId", "updatedAt", "cursorId"]),
+    .index("by_user_updated", ["userId", "updatedAt"]),
 
   // manga_progress: materialized "last read" summary for fast library UI
   manga_progress: defineTable({
@@ -296,10 +220,6 @@ export default defineSchema({
     registryId: v.string(),
     sourceId: v.string(),
     sourceMangaId: v.string(),
-
-    // Phase 6: Canonical cursorId for deterministic pagination
-    // Format: "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
-    cursorId: v.optional(v.string()),
 
     // Optional link to library item
     libraryItemId: v.optional(v.string()),
@@ -317,7 +237,5 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_source_manga", ["userId", "registryId", "sourceId", "sourceMangaId"])
     .index("by_user_updated", ["userId", "updatedAt"])
-    .index("by_user_recent", ["userId", "lastReadAt"])
-    // Phase 6: Composite cursor index for deterministic pagination
-    .index("by_user_cursor", ["userId", "updatedAt", "cursorId"]),
+    .index("by_user_recent", ["userId", "lastReadAt"]),
 });

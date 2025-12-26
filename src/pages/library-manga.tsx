@@ -5,7 +5,7 @@ import { useStores, useMangaProgressIndex, useChapterProgress, type MangaProgres
 import type { Chapter } from "@/lib/sources";
 import { hasSWR } from "@/lib/sources";
 import type { LocalMangaProgress, LocalChapterProgress, MangaMetadata, ExternalIds } from "@/data/schema";
-import { makeMangaProgressCursorId } from "@/data/schema";
+import { makeMangaProgressId } from "@/data/schema";
 import type { LibraryEntry } from "@/data/view";
 import {
   getEntryEffectiveMetadata,
@@ -82,10 +82,10 @@ function buildProgressMap(
 ): Map<string, LocalMangaProgress> {
   const progress = new Map<string, LocalMangaProgress>();
   for (const source of entry.sources) {
-    const key = makeMangaProgressCursorId(source.registryId, source.sourceId, source.sourceMangaId);
+    const key = makeMangaProgressId(source.registryId, source.sourceId, source.sourceMangaId);
     const p = progressIndex.get(key);
     if (p) {
-      progress.set(source.cursorId, p);
+      progress.set(source.id, p);
     }
   }
   return progress;
@@ -105,7 +105,7 @@ function chapterProgressToGridFormat(
       total: cp.total,
       completed: cp.completed,
       dateRead: cp.lastReadAt,
-      id: cp.cursorId,
+      id: cp.id,
       registryId,
       sourceId,
       mangaId,
@@ -147,7 +147,7 @@ export function LibraryMangaPage() {
     const progress = buildProgressMap(entry, progressIndex);
     const mostRecent = getEntryMostRecentSource(entry, progress);
     if (!mostRecent) return;
-    const idx = entry.sources.findIndex((s) => s.cursorId === mostRecent.cursorId);
+    const idx = entry.sources.findIndex((s) => s.id === mostRecent.id);
     setSelectedSourceIdx(idx >= 0 ? idx : 0);
   }, [entry, progressIndex]);
 
@@ -328,7 +328,7 @@ export function LibraryMangaPage() {
   // Get most recent source for continue reading
   const progressMap = buildProgressMap(entry, progressIndex);
   const mostRecentSource = getEntryMostRecentSource(entry, progressMap) ?? entry.sources[0];
-  const mostRecentProgress = mostRecentSource ? progressMap.get(mostRecentSource.cursorId) : undefined;
+  const mostRecentProgress = mostRecentSource ? progressMap.get(mostRecentSource.id) : undefined;
   const lastReadChapterId = mostRecentProgress?.lastReadSourceChapterId;
 
   // Find continue chapter from most recent source's chapters
@@ -478,7 +478,7 @@ export function LibraryMangaPage() {
 
                 return (
                   <TabsTrigger
-                    key={source.cursorId}
+                    key={source.id}
                     value={String(idx)}
                     className="gap-2"
                   >

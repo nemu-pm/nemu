@@ -24,12 +24,11 @@ export const libraryItemsAll = query({
       .collect();
 
     return items.map((e) => ({
-      cursorId: e.libraryItemId,
+      id: e.libraryItemId,
       libraryItemId: e.libraryItemId,
       metadata: e.metadata,
       externalIds: e.externalIds,
       inLibrary: e.inLibrary,
-      inLibraryClock: e.inLibraryClock,
       overrides: e.overrides,
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
@@ -51,7 +50,7 @@ export const sourceLinksAll = query({
       .collect();
 
     return links.map((e) => ({
-      cursorId: e.cursorId,
+      id: `${encodeURIComponent(e.registryId)}:${encodeURIComponent(e.sourceId)}:${encodeURIComponent(e.sourceMangaId)}`,
       libraryItemId: e.libraryItemId,
       registryId: e.registryId,
       sourceId: e.sourceId,
@@ -64,7 +63,6 @@ export const sourceLinksAll = query({
       updateAckAt: e.updateAckAt,
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
-      deletedAt: e.deletedAt,
     }));
   },
 });
@@ -83,7 +81,7 @@ export const chapterProgressAll = query({
       .collect();
 
     return progress.map((e) => ({
-      cursorId: e.cursorId,
+      id: `${encodeURIComponent(e.registryId)}:${encodeURIComponent(e.sourceId)}:${encodeURIComponent(e.sourceMangaId)}:${encodeURIComponent(e.sourceChapterId)}`,
       registryId: e.registryId,
       sourceId: e.sourceId,
       sourceMangaId: e.sourceMangaId,
@@ -97,7 +95,6 @@ export const chapterProgressAll = query({
       volumeNumber: e.volumeNumber,
       chapterTitle: e.chapterTitle,
       updatedAt: e.updatedAt,
-      deletedAt: e.deletedAt,
     }));
   },
 });
@@ -116,7 +113,7 @@ export const mangaProgressAll = query({
       .collect();
 
     return progress.map((e) => ({
-      cursorId: e.cursorId,
+      id: `${encodeURIComponent(e.registryId)}:${encodeURIComponent(e.sourceId)}:${encodeURIComponent(e.sourceMangaId)}`,
       registryId: e.registryId,
       sourceId: e.sourceId,
       sourceMangaId: e.sourceMangaId,

@@ -5,7 +5,7 @@ import { useStores, useMangaProgressIndex, useChapterProgress } from "@/data/con
 import type { Manga, Chapter } from "@/lib/sources";
 import { hasSWR } from "@/lib/sources";
 import type { LocalChapterProgress } from "@/data/schema";
-import { makeMangaProgressCursorId, makeSourceLinkCursorId } from "@/data/schema";
+import { makeMangaProgressId, makeSourceLinkId } from "@/data/schema";
 import { metadataFromSource } from "@/lib/metadata";
 import { CoverImage } from "@/components/cover-image";
 import { Badge } from "@/components/ui/badge";
@@ -46,7 +46,7 @@ function chapterProgressToGridFormat(
       total: cp.total,
       completed: cp.completed,
       dateRead: cp.lastReadAt,
-      id: cp.cursorId,
+      id: cp.id,
       registryId,
       sourceId,
       mangaId,
@@ -100,9 +100,9 @@ export function MangaPage() {
 
   const inLibrary = isInLibrary(registryId, sourceId, mangaId);
   // Find library entry that contains this source
-  const cursorId = makeSourceLinkCursorId(registryId, sourceId, mangaId);
+  const linkId = makeSourceLinkId(registryId, sourceId, mangaId);
   const libraryEntry = entries.find((e) =>
-    e.sources.some((s) => s.cursorId === cursorId)
+    e.sources.some((s) => s.id === linkId)
   );
 
   // Load manga data with SWR pattern
@@ -196,7 +196,7 @@ export function MangaPage() {
   }, [libraryEntry, removeFromLibrary]);
 
   // Get manga progress for continue reading (from canonical manga_progress)
-  const sourceKey = makeMangaProgressCursorId(registryId, sourceId, mangaId);
+  const sourceKey = makeMangaProgressId(registryId, sourceId, mangaId);
   const mangaProgress = progressIndex.get(sourceKey);
   const lastReadChapter = mangaProgress?.lastReadSourceChapterId
     ? chapters.find((ch) => ch.id === mangaProgress.lastReadSourceChapterId)

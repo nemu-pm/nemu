@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { LibraryEmpty } from "@/components/library-empty";
 import { SourceImageProvider } from "@/hooks/use-source-image";
 import type { ChapterSummary, LocalMangaProgress } from "@/data/schema";
-import { makeMangaProgressCursorId } from "@/data/schema";
+import { makeMangaProgressId } from "@/data/schema";
 import type { LibraryEntry } from "@/data/view";
 import {
   getEntryEffectiveMetadata,
@@ -46,10 +46,10 @@ function buildProgressMap(
 ): Map<string, LocalMangaProgress> {
   const progress = new Map<string, LocalMangaProgress>();
   for (const source of entry.sources) {
-    const key = makeMangaProgressCursorId(source.registryId, source.sourceId, source.sourceMangaId);
+    const key = makeMangaProgressId(source.registryId, source.sourceId, source.sourceMangaId);
     const p = progressIndex.get(key);
     if (p) {
-      progress.set(source.cursorId, p);
+      progress.set(source.id, p);
     }
   }
   return progress;
@@ -69,7 +69,7 @@ function useProgressInfo(
       return { badge: undefined, subtitle: t("library.unread"), lastReadAt: undefined };
     }
 
-    const sourceProgress = progress.get(recentSource.cursorId);
+    const sourceProgress = progress.get(recentSource.id);
     const lastReadAt = sourceProgress?.lastReadAt;
 
     // "Updated" badge: any source has new chapters
@@ -202,8 +202,8 @@ export function LibraryPage() {
       const bProgress = buildProgressMap(b, progressIndex);
       const aSource = getEntryMostRecentSource(a, aProgress);
       const bSource = getEntryMostRecentSource(b, bProgress);
-      const aReadTime = aSource ? (aProgress.get(aSource.cursorId)?.lastReadAt ?? 0) : 0;
-      const bReadTime = bSource ? (bProgress.get(bSource.cursorId)?.lastReadAt ?? 0) : 0;
+      const aReadTime = aSource ? (aProgress.get(aSource.id)?.lastReadAt ?? 0) : 0;
+      const bReadTime = bSource ? (bProgress.get(bSource.id)?.lastReadAt ?? 0) : 0;
       const aTime = Math.max(aReadTime, getEntryAddedAt(a));
       const bTime = Math.max(bReadTime, getEntryAddedAt(b));
       return bTime - aTime;

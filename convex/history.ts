@@ -225,29 +225,14 @@ export const save = mutation({
 });
 
 // ============================================================================
-// Phase 2 + Phase 6: Dual-write helpers (sync.md)
+// Phase 8: Dual-write helpers (simplified - no cursorId)
 // ============================================================================
 
 import type { MutationCtx } from "./_generated/server";
 
-/** Phase 6: Build cursorId for chapter progress */
-function makeChapterProgressCursorId(
-  registryId: string,
-  sourceId: string,
-  sourceMangaId: string,
-  sourceChapterId: string
-): string {
-  return `${encodeURIComponent(registryId)}:${encodeURIComponent(sourceId)}:${encodeURIComponent(sourceMangaId)}:${encodeURIComponent(sourceChapterId)}`;
-}
-
-/** Phase 6: Build cursorId for manga progress */
-function makeMangaProgressCursorId(registryId: string, sourceId: string, sourceMangaId: string): string {
-  return `${encodeURIComponent(registryId)}:${encodeURIComponent(sourceId)}:${encodeURIComponent(sourceMangaId)}`;
-}
-
 /**
  * Dual-write to chapter_progress table
- * Phase 6: Populates cursorId for deterministic pagination
+ * Phase 8: Simplified - no cursorId
  */
 async function dualWriteChapterProgress(
   ctx: MutationCtx,
@@ -292,17 +277,8 @@ async function dualWriteChapterProgress(
     .first();
   const libraryItemId = sourceLink?.libraryItemId;
 
-  // Phase 6: Canonical cursorId
-  const cursorId = makeChapterProgressCursorId(
-    data.registryId,
-    data.sourceId,
-    data.sourceMangaId,
-    data.sourceChapterId
-  );
-
   if (existing) {
     await ctx.db.patch(existing._id, {
-      cursorId, // Phase 6
       progress: data.progress,
       total: data.total,
       completed: data.completed,
@@ -320,7 +296,6 @@ async function dualWriteChapterProgress(
       sourceId: data.sourceId,
       sourceMangaId: data.sourceMangaId,
       sourceChapterId: data.sourceChapterId,
-      cursorId, // Phase 6
       libraryItemId,
       progress: data.progress,
       total: data.total,
@@ -336,7 +311,7 @@ async function dualWriteChapterProgress(
 
 /**
  * Dual-write to manga_progress table (materialized "last read" summary)
- * Phase 6: Populates cursorId for deterministic pagination
+ * Phase 8: Simplified - no cursorId
  */
 async function dualWriteMangaProgress(
   ctx: MutationCtx,
@@ -377,14 +352,10 @@ async function dualWriteMangaProgress(
     .first();
   const libraryItemId = sourceLink?.libraryItemId;
 
-  // Phase 6: Canonical cursorId
-  const cursorId = makeMangaProgressCursorId(data.registryId, data.sourceId, data.sourceMangaId);
-
   if (existing) {
     // Only update if this read is more recent
     if (data.lastReadAt >= existing.lastReadAt) {
       await ctx.db.patch(existing._id, {
-        cursorId, // Phase 6
         lastReadAt: data.lastReadAt,
         lastReadSourceChapterId: data.sourceChapterId,
         lastReadChapterNumber: data.chapterNumber,
@@ -400,7 +371,6 @@ async function dualWriteMangaProgress(
       registryId: data.registryId,
       sourceId: data.sourceId,
       sourceMangaId: data.sourceMangaId,
-      cursorId, // Phase 6
       libraryItemId,
       lastReadAt: data.lastReadAt,
       lastReadSourceChapterId: data.sourceChapterId,

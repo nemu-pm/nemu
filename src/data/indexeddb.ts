@@ -70,7 +70,7 @@ const DEFAULT_DB_NAME = "nemu-user";
  * - Bumping this will cause browsers to run `onupgradeneeded` for users whose DB is older.
  * - That upgrade can be BLOCKED by other tabs; we surface that via the `nemu:idb-blocked` UI event.
  */
-const DB_VERSION = 7;
+const DB_VERSION = 11;
 // Note: We always upgrade to DB_VERSION if the existing DB is older. This ensures
 // canonical stores are created even for DBs that existed before they were added.
 // The old MIN_COMPAT_VERSION approach caused bugs where local profile DBs at v4-v6
@@ -548,24 +548,24 @@ export class IndexedDBUserDataStore implements UserDataStore {
               store.createIndex("by_updatedAt", "updatedAt", { unique: false });
             }
 
-            // source_links: keyed by cursorId (registryId:sourceId:sourceMangaId)
+            // source_links: keyed by id (registryId:sourceId:sourceMangaId)
             if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
-              const store = db.createObjectStore(STORES.sourceLinks, { keyPath: "cursorId" });
+              const store = db.createObjectStore(STORES.sourceLinks, { keyPath: "id" });
               store.createIndex("by_libraryItemId", "libraryItemId", { unique: false });
               store.createIndex("by_updatedAt", "updatedAt", { unique: false });
             }
 
-            // chapter_progress: keyed by cursorId (registryId:sourceId:sourceMangaId:sourceChapterId)
+            // chapter_progress: keyed by id (registryId:sourceId:sourceMangaId:sourceChapterId)
             if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
-              const store = db.createObjectStore(STORES.chapterProgress, { keyPath: "cursorId" });
+              const store = db.createObjectStore(STORES.chapterProgress, { keyPath: "id" });
               store.createIndex("by_sourceManga", ["registryId", "sourceId", "sourceMangaId"], { unique: false });
               store.createIndex("by_lastReadAt", "lastReadAt", { unique: false });
               store.createIndex("by_updatedAt", "updatedAt", { unique: false });
             }
 
-            // manga_progress: keyed by cursorId (registryId:sourceId:sourceMangaId)
+            // manga_progress: keyed by id (registryId:sourceId:sourceMangaId)
             if (!db.objectStoreNames.contains(STORES.mangaProgress)) {
-              const store = db.createObjectStore(STORES.mangaProgress, { keyPath: "cursorId" });
+              const store = db.createObjectStore(STORES.mangaProgress, { keyPath: "id" });
               store.createIndex("by_lastReadAt", "lastReadAt", { unique: false });
               store.createIndex("by_updatedAt", "updatedAt", { unique: false });
             }
@@ -574,6 +574,56 @@ export class IndexedDBUserDataStore implements UserDataStore {
             if (!db.objectStoreNames.contains(STORES.hlcState)) {
               db.createObjectStore(STORES.hlcState, { keyPath: "profileId" });
             }
+
+            // Migration: Rename cursorId -> id in normalized stores (v6-v10 -> v11)
+            // These stores were created with keyPath: "cursorId" but we renamed to "id".
+            // We need to drop and recreate them - data will resync from cloud.
+            // Note: v8-v10 DBs may also have wrong keyPath if created during dev transition.
+            console.log("[IDB] Checking cursorId->id migration: oldVersion =", oldVersion, "condition =", oldVersion >= 6 && oldVersion < 11);
+            if (oldVersion >= 6 && oldVersion < 11) {
+              console.log("[IDB] Running cursorId->id migration - dropping and recreating stores with keyPath: id");
+              // Drop and recreate source_links
+              if (db.objectStoreNames.contains(STORES.sourceLinks)) {
+                console.log("[IDB] Dropping source_links store");
+                db.deleteObjectStore(STORES.sourceLinks);
+              }
+              {
+                const store = db.createObjectStore(STORES.sourceLinks, { keyPath: "id" });
+                store.createIndex("by_libraryItemId", "libraryItemId", { unique: false });
+                store.createIndex("by_updatedAt", "updatedAt", { unique: false });
+              }
+
+              // Drop and recreate chapter_progress
+              if (db.objectStoreNames.contains(STORES.chapterProgress)) {
+                db.deleteObjectStore(STORES.chapterProgress);
+              }
+              {
+                const store = db.createObjectStore(STORES.chapterProgress, { keyPath: "id" });
+                store.createIndex("by_sourceManga", ["registryId", "sourceId", "sourceMangaId"], { unique: false });
+                store.createIndex("by_lastReadAt", "lastReadAt", { unique: false });
+                store.createIndex("by_updatedAt", "updatedAt", { unique: false });
+              }
+
+              // Drop and recreate manga_progress
+              if (db.objectStoreNames.contains(STORES.mangaProgress)) {
+                db.deleteObjectStore(STORES.mangaProgress);
+              }
+              {
+                const store = db.createObjectStore(STORES.mangaProgress, { keyPath: "id" });
+                store.createIndex("by_lastReadAt", "lastReadAt", { unique: false });
+                store.createIndex("by_updatedAt", "updatedAt", { unique: false });
+              }
+
+              // Drop HLC state store (no longer needed in Phase 8)
+              if (db.objectStoreNames.contains(STORES.hlcState)) {
+                console.log("[IDB] Dropping hlcState store");
+                db.deleteObjectStore(STORES.hlcState);
+              }
+              console.log("[IDB] cursorId->id migration complete");
+            }
+            
+            // Debug: log store keyPaths after upgrade
+            console.log("[IDB] Final store list:", Array.from(db.objectStoreNames));
           };
         };
 
@@ -1073,7 +1123,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
   // ============ SOURCE LINKS ============
 
-  async getSourceLink(cursorId: string): Promise<LocalSourceLink | null> {
+  async getSourceLink(id: string): Promise<LocalSourceLink | null> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
@@ -1082,7 +1132,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.sourceLinks, "readonly");
       const store = tx.objectStore(STORES.sourceLinks);
-      const request = store.get(cursorId);
+      const request = store.get(id);
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
@@ -1124,10 +1174,8 @@ export class IndexedDBUserDataStore implements UserDataStore {
           return;
         }
         const parsed = LocalSourceLinkSchema.safeParse(cursor.value);
-        if (parsed.success && !parsed.data.deletedAt) {
-          if (parsed.data.libraryItemId === libraryItemId) {
-            results.push(parsed.data);
-          }
+        if (parsed.success && parsed.data.libraryItemId === libraryItemId) {
+          results.push(parsed.data);
         }
         cursor.continue();
       };
@@ -1136,6 +1184,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
   async saveSourceLink(link: LocalSourceLink): Promise<void> {
     const db = await this.getDB();
+    console.log("[IDB] saveSourceLink called with link:", { id: link.id, hasId: "id" in link, keys: Object.keys(link) });
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
         resolve();
@@ -1143,6 +1192,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.sourceLinks, "readwrite");
       const store = tx.objectStore(STORES.sourceLinks);
+      console.log("[IDB] sourceLinks store keyPath:", store.keyPath);
       const request = store.put(link);
 
       request.onerror = () => reject(request.error);
@@ -1170,7 +1220,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
-  async removeSourceLink(cursorId: string): Promise<void> {
+  async deleteSourceLink(id: string): Promise<void> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
@@ -1179,14 +1229,14 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.sourceLinks, "readwrite");
       const store = tx.objectStore(STORES.sourceLinks);
-      const request = store.delete(cursorId);
+      const request = store.delete(id);
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();
     });
   }
 
-  async getAllSourceLinks(options?: { includeDeleted?: boolean }): Promise<LocalSourceLink[]> {
+  async getAllSourceLinks(): Promise<LocalSourceLink[]> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
@@ -1205,13 +1255,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
             return parsed.success ? parsed.data : null;
           })
           .filter((item): item is LocalSourceLink => item !== null);
-
-        if (options?.includeDeleted) {
-          resolve(parsed);
-          return;
-        }
-
-        resolve(parsed.filter((item) => !item.deletedAt));
+        resolve(parsed);
       };
     });
   }
@@ -1256,7 +1300,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
   // ============ CHAPTER PROGRESS ============
 
-  async getChapterProgressEntry(cursorId: string): Promise<LocalChapterProgress | null> {
+  async getChapterProgressEntry(id: string): Promise<LocalChapterProgress | null> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
@@ -1265,7 +1309,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.chapterProgress, "readonly");
       const store = tx.objectStore(STORES.chapterProgress);
-      const request = store.get(cursorId);
+      const request = store.get(id);
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
@@ -1312,7 +1356,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
           return;
         }
         const parsed = LocalChapterProgressSchema.safeParse(cursor.value);
-        if (parsed.success && !parsed.data.deletedAt) {
+        if (parsed.success) {
           if (
             parsed.data.registryId === registryId &&
             parsed.data.sourceId === sourceId &&
@@ -1344,7 +1388,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
         const cursor = request.result;
         if (cursor && results.length < limit) {
           const parsed = LocalChapterProgressSchema.safeParse(cursor.value);
-          if (parsed.success && !parsed.data.deletedAt) {
+          if (parsed.success) {
             results.push(parsed.data);
           }
           cursor.continue();
@@ -1373,7 +1417,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
             const parsed = LocalChapterProgressSchema.safeParse(item);
             return parsed.success ? parsed.data : null;
           })
-          .filter((item): item is LocalChapterProgress => item !== null && !item.deletedAt);
+          .filter((item): item is LocalChapterProgress => item !== null);
         resolve(results);
       };
     });
@@ -1381,6 +1425,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
   async saveChapterProgressEntry(entry: LocalChapterProgress): Promise<void> {
     const db = await this.getDB();
+    console.log("[IDB] saveChapterProgressEntry called with entry:", { id: entry.id, hasId: "id" in entry, keys: Object.keys(entry) });
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
         resolve();
@@ -1388,9 +1433,10 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.chapterProgress, "readwrite");
       const store = tx.objectStore(STORES.chapterProgress);
+      console.log("[IDB] chapterProgress store keyPath:", store.keyPath);
 
       // High-water mark merge on save
-      const getRequest = store.get(entry.cursorId);
+      const getRequest = store.get(entry.id);
       getRequest.onerror = () => reject(getRequest.error);
       getRequest.onsuccess = () => {
         const existing = getRequest.result as LocalChapterProgress | undefined;
@@ -1433,7 +1479,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
-  async removeChapterProgress(cursorId: string): Promise<void> {
+  async removeChapterProgress(id: string): Promise<void> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
@@ -1442,7 +1488,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.chapterProgress, "readwrite");
       const store = tx.objectStore(STORES.chapterProgress);
-      const request = store.delete(cursorId);
+      const request = store.delete(id);
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();
@@ -1451,7 +1497,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
   // ============ MANGA PROGRESS ============
 
-  async getMangaProgressEntry(cursorId: string): Promise<LocalMangaProgress | null> {
+  async getMangaProgressEntry(id: string): Promise<LocalMangaProgress | null> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.mangaProgress)) {
@@ -1460,7 +1506,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.mangaProgress, "readonly");
       const store = tx.objectStore(STORES.mangaProgress);
-      const request = store.get(cursorId);
+      const request = store.get(id);
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
@@ -1529,6 +1575,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
   async saveMangaProgressEntry(entry: LocalMangaProgress): Promise<void> {
     const db = await this.getDB();
+    console.log("[IDB] saveMangaProgressEntry called with entry:", { id: entry.id, hasId: "id" in entry, keys: Object.keys(entry) });
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.mangaProgress)) {
         resolve();
@@ -1536,9 +1583,10 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.mangaProgress, "readwrite");
       const store = tx.objectStore(STORES.mangaProgress);
+      console.log("[IDB] mangaProgress store keyPath:", store.keyPath);
 
       // Only update if newer (materialized summary)
-      const getRequest = store.get(entry.cursorId);
+      const getRequest = store.get(entry.id);
       getRequest.onerror = () => reject(getRequest.error);
       getRequest.onsuccess = () => {
         const existing = getRequest.result as LocalMangaProgress | undefined;
@@ -1575,7 +1623,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
-  async removeMangaProgress(cursorId: string): Promise<void> {
+  async removeMangaProgress(id: string): Promise<void> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.mangaProgress)) {
@@ -1584,7 +1632,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.mangaProgress, "readwrite");
       const store = tx.objectStore(STORES.mangaProgress);
-      const request = store.delete(cursorId);
+      const request = store.delete(id);
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();

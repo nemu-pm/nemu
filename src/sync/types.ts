@@ -28,7 +28,7 @@ export interface StoreHooks {
 }
 
 /**
- * Manga progress index - keyed by cursorId (registryId:sourceId:sourceMangaId)
+ * Manga progress index - keyed by id (registryId:sourceId:sourceMangaId)
  * Provides fast lookup for "last read" info per source-manga
  */
 export type MangaProgressIndex = Map<string, LocalMangaProgress>;

@@ -6,7 +6,7 @@ import type {
   MangaMetadata,
   ExternalIds,
 } from "@/data/schema";
-import { makeSourceLinkCursorId } from "@/data/schema";
+import { makeSourceLinkId } from "@/data/schema";
 import type { LibraryEntry } from "@/data/view";
 
 /** Generate a UUID for new library entries */
@@ -37,7 +37,7 @@ export interface CanonicalLibraryOps {
 
   // Write source links
   saveSourceLink(link: LocalSourceLink): Promise<void>;
-  removeSourceLink(cursorId: string): Promise<void>;
+  removeSourceLink(id: string): Promise<void>;
 }
 
 // ============================================================================
@@ -209,7 +209,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       };
 
       const source: LocalSourceLink = {
-        cursorId: makeSourceLinkCursorId(input.source.registryId, input.source.sourceId, input.source.sourceMangaId),
+        id: makeSourceLinkId(input.source.registryId, input.source.sourceId, input.source.sourceMangaId),
         libraryItemId,
         registryId: input.source.registryId,
         sourceId: input.source.sourceId,
@@ -239,14 +239,14 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       const entry = get().get(libraryItemId);
       if (!entry) return;
 
-      const cursorId = makeSourceLinkCursorId(sourceInput.registryId, sourceInput.sourceId, sourceInput.sourceMangaId);
+      const id = makeSourceLinkId(sourceInput.registryId, sourceInput.sourceId, sourceInput.sourceMangaId);
 
       // Check if source already exists
-      if (entry.sources.some((s) => s.cursorId === cursorId)) return;
+      if (entry.sources.some((s) => s.id === id)) return;
 
       const now = Date.now();
       const source: LocalSourceLink = {
-        cursorId,
+        id,
         libraryItemId,
         registryId: sourceInput.registryId,
         sourceId: sourceInput.sourceId,
@@ -282,14 +282,14 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
         return;
       }
 
-      const cursorId = makeSourceLinkCursorId(registryId, sourceId, sourceMangaId);
+      const id = makeSourceLinkId(registryId, sourceId, sourceMangaId);
 
       try {
-        await ops.removeSourceLink(cursorId);
+        await ops.removeSourceLink(id);
         set((state) => ({
           entries: state.entries.map((e) =>
             e.item.libraryItemId === libraryItemId
-              ? { ...e, sources: e.sources.filter((s) => s.cursorId !== cursorId) }
+              ? { ...e, sources: e.sources.filter((s) => s.id !== id) }
               : e
           ),
         }));
@@ -316,9 +316,9 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
     },
 
     getBySource: (registryId, sourceId, sourceMangaId) => {
-      const cursorId = makeSourceLinkCursorId(registryId, sourceId, sourceMangaId);
+      const id = makeSourceLinkId(registryId, sourceId, sourceMangaId);
       return get().entries.find((e) =>
-        e.sources.some((s) => s.cursorId === cursorId)
+        e.sources.some((s) => s.id === id)
       );
     },
 
@@ -429,13 +429,13 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
     },
 
     acknowledgeUpdate: async (registryId, sourceId, sourceMangaId, latestChapter) => {
-      const cursorId = makeSourceLinkCursorId(registryId, sourceId, sourceMangaId);
+      const id = makeSourceLinkId(registryId, sourceId, sourceMangaId);
       const entry = get().entries.find((e) =>
-        e.sources.some((s) => s.cursorId === cursorId)
+        e.sources.some((s) => s.id === id)
       );
       if (!entry) return;
 
-      const source = entry.sources.find((s) => s.cursorId === cursorId);
+      const source = entry.sources.find((s) => s.id === id);
       if (!source) return;
 
       const updatedSource: LocalSourceLink = {
@@ -454,7 +454,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
               ? {
                   ...e,
                   sources: e.sources.map((s) =>
-                    s.cursorId === cursorId ? updatedSource : s
+                    s.id === id ? updatedSource : s
                   ),
                 }
               : e
@@ -466,13 +466,13 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
     },
 
     updateLatestChapter: async (registryId, sourceId, sourceMangaId, latestChapter) => {
-      const cursorId = makeSourceLinkCursorId(registryId, sourceId, sourceMangaId);
+      const id = makeSourceLinkId(registryId, sourceId, sourceMangaId);
       const entry = get().entries.find((e) =>
-        e.sources.some((s) => s.cursorId === cursorId)
+        e.sources.some((s) => s.id === id)
       );
       if (!entry) return;
 
-      const source = entry.sources.find((s) => s.cursorId === cursorId);
+      const source = entry.sources.find((s) => s.id === id);
       if (!source) return;
 
       const updatedSource: LocalSourceLink = {
@@ -492,7 +492,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
               ? {
                   ...e,
                   sources: e.sources.map((s) =>
-                    s.cursorId === cursorId ? updatedSource : s
+                    s.id === id ? updatedSource : s
                   ),
                 }
               : e

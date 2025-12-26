@@ -143,9 +143,6 @@ export const LocalLibraryItemSchema = z.object({
   // Sync fields
   createdAt: z.number(),
   updatedAt: z.number(),
-
-  // Legacy clock field (ignored, kept for backward compat with existing IDB data)
-  inLibraryClock: z.string().optional(),
 });
 
 /**
@@ -153,8 +150,8 @@ export const LocalLibraryItemSchema = z.object({
  * Key: "${registryId}:${sourceId}:${sourceMangaId}"
  */
 export const LocalSourceLinkSchema = z.object({
-  // Primary key
-  cursorId: z.string(),
+  // Primary key (composite: registryId:sourceId:sourceMangaId)
+  id: z.string(),
 
   // FK
   libraryItemId: z.string(),
@@ -175,9 +172,6 @@ export const LocalSourceLinkSchema = z.object({
   // Sync fields
   createdAt: z.number(),
   updatedAt: z.number(),
-
-  // Legacy field (ignored, kept for backward compat)
-  deletedAt: z.number().optional(),
 });
 
 /**
@@ -185,8 +179,8 @@ export const LocalSourceLinkSchema = z.object({
  * Key: "${registryId}:${sourceId}:${sourceMangaId}:${sourceChapterId}"
  */
 export const LocalChapterProgressSchema = z.object({
-  // Primary key
-  cursorId: z.string(),
+  // Primary key (composite: registryId:sourceId:sourceMangaId:sourceChapterId)
+  id: z.string(),
 
   // Source reference
   registryId: z.string(),
@@ -210,9 +204,6 @@ export const LocalChapterProgressSchema = z.object({
 
   // Sync fields
   updatedAt: z.number(),
-
-  // Legacy field (ignored, kept for backward compat)
-  deletedAt: z.number().optional(),
 });
 
 /**
@@ -220,8 +211,8 @@ export const LocalChapterProgressSchema = z.object({
  * Key: "${registryId}:${sourceId}:${sourceMangaId}"
  */
 export const LocalMangaProgressSchema = z.object({
-  // Primary key
-  cursorId: z.string(),
+  // Primary key (composite: registryId:sourceId:sourceMangaId)
+  id: z.string(),
 
   // Source reference
   registryId: z.string(),
@@ -267,7 +258,7 @@ export type UserOverrides = z.infer<typeof UserOverridesSchema>;
  * Build key for source links
  * Format: "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
  */
-export function makeSourceLinkCursorId(registryId: string, sourceId: string, sourceMangaId: string): string {
+export function makeSourceLinkId(registryId: string, sourceId: string, sourceMangaId: string): string {
   return `${encodeURIComponent(registryId)}:${encodeURIComponent(sourceId)}:${encodeURIComponent(sourceMangaId)}`;
 }
 
@@ -275,7 +266,7 @@ export function makeSourceLinkCursorId(registryId: string, sourceId: string, sou
  * Build key for chapter progress
  * Format: "${registryId}:${sourceId}:${sourceMangaId}:${sourceChapterId}" (URL-encoded)
  */
-export function makeChapterProgressCursorId(
+export function makeChapterProgressId(
   registryId: string,
   sourceId: string,
   sourceMangaId: string,
@@ -288,8 +279,8 @@ export function makeChapterProgressCursorId(
  * Build key for manga progress (same format as source link)
  * Format: "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
  */
-export function makeMangaProgressCursorId(registryId: string, sourceId: string, sourceMangaId: string): string {
-  return makeSourceLinkCursorId(registryId, sourceId, sourceMangaId);
+export function makeMangaProgressId(registryId: string, sourceId: string, sourceMangaId: string): string {
+  return makeSourceLinkId(registryId, sourceId, sourceMangaId);
 }
 
 // ============ HELPERS ============

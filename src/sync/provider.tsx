@@ -17,7 +17,7 @@ import { api } from "../../convex/_generated/api";
 import { IDB_UI_EVENT, IndexedDBUserDataStore } from "@/data/indexeddb";
 import { IndexedDBCacheStore } from "@/data/cache";
 import type { HistoryEntry, LocalLibraryItem, LocalSourceLink, LocalMangaProgress, LocalChapterProgress, UserSettings } from "@/data/schema";
-import { makeSourceLinkCursorId } from "@/data/schema";
+import { makeSourceLinkId } from "@/data/schema";
 import { RegistryManager } from "@/lib/sources/registry";
 import { createLibraryStore, type CanonicalLibraryOps } from "@/stores/library";
 import { createHistoryStore, type HistoryStoreOps } from "@/stores/history";
@@ -219,7 +219,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       const store = localStoreRef.current;
       for (const item of cloudLibraryItems) {
         const local: LocalLibraryItem = {
-          libraryItemId: item.cursorId,
+          libraryItemId: item.id,
           metadata: item.metadata,
           externalIds: item.externalIds,
           inLibrary: item.inLibrary ?? true,
@@ -242,7 +242,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       const store = localStoreRef.current;
       for (const link of cloudSourceLinks) {
         const local: LocalSourceLink = {
-          cursorId: link.cursorId ?? `${link.registryId}:${link.sourceId}:${link.sourceMangaId}`,
+          id: link.id ?? `${link.registryId}:${link.sourceId}:${link.sourceMangaId}`,
           libraryItemId: link.libraryItemId,
           registryId: link.registryId,
           sourceId: link.sourceId,
@@ -255,7 +255,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           updateAckAt: link.updateAckAt,
           createdAt: link.createdAt,
           updatedAt: link.updatedAt,
-          deletedAt: link.deletedAt,
         };
         await store.saveSourceLink(local);
       }
@@ -272,7 +271,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       const store = localStoreRef.current;
       for (const cp of cloudChapterProgress) {
         const local: LocalChapterProgress = {
-          cursorId: cp.cursorId ?? `${cp.registryId}:${cp.sourceId}:${cp.sourceMangaId}:${cp.sourceChapterId}`,
+          id: cp.id ?? `${cp.registryId}:${cp.sourceId}:${cp.sourceMangaId}:${cp.sourceChapterId}`,
           registryId: cp.registryId,
           sourceId: cp.sourceId,
           sourceMangaId: cp.sourceMangaId,
@@ -286,7 +285,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           volumeNumber: cp.volumeNumber,
           chapterTitle: cp.chapterTitle,
           updatedAt: cp.updatedAt,
-          deletedAt: cp.deletedAt,
         };
         await store.saveChapterProgressEntry(local);
       }
@@ -303,9 +301,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       const newIndex = new Map<string, LocalMangaProgress>();
       
       for (const mp of cloudMangaProgress) {
-        const cursorId = mp.cursorId ?? `${mp.registryId}:${mp.sourceId}:${mp.sourceMangaId}`;
+        const id = mp.id ?? `${mp.registryId}:${mp.sourceId}:${mp.sourceMangaId}`;
         const local: LocalMangaProgress = {
-          cursorId,
+          id,
           registryId: mp.registryId,
           sourceId: mp.sourceId,
           sourceMangaId: mp.sourceMangaId,
@@ -318,7 +316,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           updatedAt: mp.updatedAt,
         };
         await store.saveMangaProgressEntry(local);
-        newIndex.set(cursorId, local);
+        newIndex.set(id, local);
       }
       
       setMangaProgressIndex(newIndex);
@@ -354,7 +352,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     localStore.getAllMangaProgress().then((entries) => {
       const index = new Map<string, LocalMangaProgress>();
       for (const entry of entries) {
-        index.set(entry.cursorId, entry);
+        index.set(entry.id, entry);
       }
       setMangaProgressIndex(index);
       setMangaProgressLoading(false);
@@ -464,15 +462,12 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       }
     },
 
-    removeSourceLink: async (cursorId: string) => {
+    removeSourceLink: async (id: string) => {
       const store = localStoreRef.current;
       
-      const existing = await store.getSourceLink(cursorId);
-      if (existing) {
-        const updated: LocalSourceLink = { ...existing, deletedAt: Date.now(), updatedAt: Date.now() };
-        await store.saveSourceLink(updated);
-        // Note: Convex will get updated via subscription sync
-      }
+      // Phase 8: Hard delete source links (no soft-delete)
+      await store.deleteSourceLink(id);
+      // Note: Convex will get updated via subscription sync
     },
   }), []); // Empty deps - uses refs
 
@@ -482,11 +477,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const historyOps: HistoryStoreOps = useMemo(() => ({
     getHistoryEntry: async (registryId: string, sourceId: string, mangaId: string, chapterId: string): Promise<HistoryEntry | null> => {
       const store = localStoreRef.current;
-      const cursorId = `${encodeURIComponent(registryId)}:${encodeURIComponent(sourceId)}:${encodeURIComponent(mangaId)}:${encodeURIComponent(chapterId)}`;
-      const progress = await store.getChapterProgressEntry(cursorId);
+      const progressId = `${encodeURIComponent(registryId)}:${encodeURIComponent(sourceId)}:${encodeURIComponent(mangaId)}:${encodeURIComponent(chapterId)}`;
+      const progress = await store.getChapterProgressEntry(progressId);
       if (!progress) return null;
       return {
-        id: cursorId,
+        id: progressId,
         registryId: progress.registryId,
         sourceId: progress.sourceId,
         mangaId: progress.sourceMangaId,
@@ -508,9 +503,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       
       await store.saveHistoryEntry(entry);
       
-      const chapterCursorId = `${encodeURIComponent(entry.registryId)}:${encodeURIComponent(entry.sourceId)}:${encodeURIComponent(entry.mangaId)}:${encodeURIComponent(entry.chapterId)}`;
+      const chapterId = `${encodeURIComponent(entry.registryId)}:${encodeURIComponent(entry.sourceId)}:${encodeURIComponent(entry.mangaId)}:${encodeURIComponent(entry.chapterId)}`;
       const chapterProgress: LocalChapterProgress = {
-        cursorId: chapterCursorId,
+        id: chapterId,
         registryId: entry.registryId,
         sourceId: entry.sourceId,
         sourceMangaId: entry.mangaId,
@@ -526,9 +521,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       };
       await store.saveChapterProgressEntry(chapterProgress);
       
-      const mangaCursorId = `${encodeURIComponent(entry.registryId)}:${encodeURIComponent(entry.sourceId)}:${encodeURIComponent(entry.mangaId)}`;
+      const mangaId = `${encodeURIComponent(entry.registryId)}:${encodeURIComponent(entry.sourceId)}:${encodeURIComponent(entry.mangaId)}`;
       const mangaProgress: LocalMangaProgress = {
-        cursorId: mangaCursorId,
+        id: mangaId,
         registryId: entry.registryId,
         sourceId: entry.sourceId,
         sourceMangaId: entry.mangaId,
@@ -543,7 +538,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       
       setMangaProgressIndex((prev) => {
         const next = new Map(prev);
-        next.set(mangaCursorId, mangaProgress);
+        next.set(mangaId, mangaProgress);
         return next;
       });
       
@@ -571,7 +566,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       const result: Record<string, HistoryEntry> = {};
       for (const [chapterId, progress] of Object.entries(progressMap)) {
         result[chapterId] = {
-          id: progress.cursorId,
+          id: progress.id,
           registryId: progress.registryId,
           sourceId: progress.sourceId,
           mangaId: progress.sourceMangaId,
@@ -733,7 +728,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         await canonicalLibraryOps.saveLibraryItem(item);
         
         const sourceLink: LocalSourceLink = {
-          cursorId: makeSourceLinkCursorId(registryId, sourceId, sourceMangaId),
+          id: makeSourceLinkId(registryId, sourceId, sourceMangaId),
           libraryItemId,
           registryId,
           sourceId,
@@ -781,8 +776,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         await localProfile.saveLibraryItem(item);
       }
       
-      const links = await localStore.getAllSourceLinks({ includeDeleted: true });
-      console.log("[SignOut] Found", links.length, "source links to copy (including tombstones)");
+      const links = await localStore.getAllSourceLinks();
+      console.log("[SignOut] Found", links.length, "source links to copy");
       for (const link of links) {
         await localProfile.saveSourceLink(link);
       }

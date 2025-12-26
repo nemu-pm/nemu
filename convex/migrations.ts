@@ -1,4 +1,5 @@
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
+import { v } from "convex/values";
 
 export const removeReadingModeFromSettings = mutation({
   handler: async (ctx) => {
@@ -437,6 +438,12 @@ export const backfillLibrarySourceLinks = mutation({
         const latestChapter = source.latestChapter;
         const updateAckChapter = source.updateAcknowledged;
 
+        // Skip deleted entries (Phase 8: no soft-delete on new tables)
+        if (doc.deletedAt) {
+          skipped++;
+          continue;
+        }
+
         if (existing) {
           // Update if this is newer
           if (now > existing.updatedAt) {
@@ -447,7 +454,6 @@ export const backfillLibrarySourceLinks = mutation({
               updateAckChapter,
               updateAckChapterSortKey: buildSortKey(updateAckChapter),
               updatedAt: now,
-              deletedAt: doc.deletedAt,
             });
             updated++;
           } else {
@@ -466,7 +472,6 @@ export const backfillLibrarySourceLinks = mutation({
             updateAckChapterSortKey: buildSortKey(updateAckChapter),
             createdAt: now,
             updatedAt: now,
-            deletedAt: doc.deletedAt,
           });
           inserted++;
         }
@@ -767,3 +772,365 @@ export const migrateLibraryItemsToNormalizedOverrides = mutation({
   },
 });
 
+// ============================================================================
+// Phase 8: Remove cursor-based sync fields
+// ============================================================================
+
+/**
+ * Phase 8.M2: Remove Phase 7 clock/cursor fields from all documents.
+ *
+ * This migration:
+ * - library_items: removes inLibraryClock, overrides.metadataClock, overrides.coverUrlClock
+ * - library_source_links: hard deletes soft-deleted rows, removes deletedAt and cursorId
+ * - chapter_progress: hard deletes soft-deleted rows, removes deletedAt and cursorId
+ * - manga_progress: hard deletes soft-deleted rows, removes deletedAt and cursorId
+ *
+ * Run via: npx convex run migrations:removePhase7Fields
+ */
+export const removePhase7Fields = mutation({
+  handler: async (ctx) => {
+    const results = {
+      libraryItems: { migrated: 0, skipped: 0 },
+      sourceLinks: { migrated: 0, deleted: 0, skipped: 0 },
+      chapterProgress: { migrated: 0, deleted: 0, skipped: 0 },
+      mangaProgress: { migrated: 0, deleted: 0, skipped: 0 },
+    };
+
+    // 1. Clean library_items - remove clock fields
+    const items = await ctx.db.query("library_items").collect();
+    for (const doc of items) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const item = doc as any;
+
+      const hasClockFields =
+        "inLibraryClock" in item ||
+        (item.overrides && ("metadataClock" in item.overrides || "coverUrlClock" in item.overrides));
+
+      if (!hasClockFields) {
+        results.libraryItems.skipped++;
+        continue;
+      }
+
+      // Build clean overrides without clock fields
+      let cleanOverrides = item.overrides;
+      if (item.overrides) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { metadataClock, coverUrlClock, ...rest } = item.overrides;
+        cleanOverrides = Object.keys(rest).length > 0 ? rest : undefined;
+      }
+
+      // Build clean document
+      const clean = {
+        userId: item.userId,
+        libraryItemId: item.libraryItemId,
+        metadata: item.metadata,
+        externalIds: item.externalIds,
+        inLibrary: item.inLibrary,
+        overrides: cleanOverrides,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      };
+
+      await ctx.db.replace(doc._id, clean);
+      results.libraryItems.migrated++;
+    }
+
+    // 2. Clean library_source_links - hard delete tombstones, remove deletedAt/cursorId
+    const links = await ctx.db.query("library_source_links").collect();
+    for (const doc of links) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const link = doc as any;
+
+      // Hard delete tombstones
+      if (link.deletedAt) {
+        await ctx.db.delete(doc._id);
+        results.sourceLinks.deleted++;
+        continue;
+      }
+
+      const hasLegacyFields = "deletedAt" in link || "cursorId" in link;
+      if (!hasLegacyFields) {
+        results.sourceLinks.skipped++;
+        continue;
+      }
+
+      // Build clean document
+      const clean = {
+        userId: link.userId,
+        libraryItemId: link.libraryItemId,
+        registryId: link.registryId,
+        sourceId: link.sourceId,
+        sourceMangaId: link.sourceMangaId,
+        latestChapter: link.latestChapter,
+        latestChapterSortKey: link.latestChapterSortKey,
+        updateAckChapter: link.updateAckChapter,
+        updateAckChapterSortKey: link.updateAckChapterSortKey,
+        createdAt: link.createdAt,
+        updatedAt: link.updatedAt,
+      };
+
+      await ctx.db.replace(doc._id, clean);
+      results.sourceLinks.migrated++;
+    }
+
+    // 3. Clean chapter_progress - hard delete tombstones, remove deletedAt/cursorId
+    const chapters = await ctx.db.query("chapter_progress").collect();
+    for (const doc of chapters) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cp = doc as any;
+
+      // Hard delete tombstones
+      if (cp.deletedAt) {
+        await ctx.db.delete(doc._id);
+        results.chapterProgress.deleted++;
+        continue;
+      }
+
+      const hasLegacyFields = "deletedAt" in cp || "cursorId" in cp;
+      if (!hasLegacyFields) {
+        results.chapterProgress.skipped++;
+        continue;
+      }
+
+      // Build clean document
+      const clean = {
+        userId: cp.userId,
+        registryId: cp.registryId,
+        sourceId: cp.sourceId,
+        sourceMangaId: cp.sourceMangaId,
+        sourceChapterId: cp.sourceChapterId,
+        libraryItemId: cp.libraryItemId,
+        progress: cp.progress,
+        total: cp.total,
+        completed: cp.completed,
+        lastReadAt: cp.lastReadAt,
+        chapterNumber: cp.chapterNumber,
+        volumeNumber: cp.volumeNumber,
+        chapterTitle: cp.chapterTitle,
+        updatedAt: cp.updatedAt,
+      };
+
+      await ctx.db.replace(doc._id, clean);
+      results.chapterProgress.migrated++;
+    }
+
+    // 4. Clean manga_progress - hard delete tombstones, remove deletedAt/cursorId
+    const mangaProgress = await ctx.db.query("manga_progress").collect();
+    for (const doc of mangaProgress) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mp = doc as any;
+
+      // Hard delete tombstones
+      if (mp.deletedAt) {
+        await ctx.db.delete(doc._id);
+        results.mangaProgress.deleted++;
+        continue;
+      }
+
+      const hasLegacyFields = "deletedAt" in mp || "cursorId" in mp;
+      if (!hasLegacyFields) {
+        results.mangaProgress.skipped++;
+        continue;
+      }
+
+      // Build clean document
+      const clean = {
+        userId: mp.userId,
+        registryId: mp.registryId,
+        sourceId: mp.sourceId,
+        sourceMangaId: mp.sourceMangaId,
+        libraryItemId: mp.libraryItemId,
+        lastReadAt: mp.lastReadAt,
+        lastReadSourceChapterId: mp.lastReadSourceChapterId,
+        lastReadChapterNumber: mp.lastReadChapterNumber,
+        lastReadVolumeNumber: mp.lastReadVolumeNumber,
+        lastReadChapterTitle: mp.lastReadChapterTitle,
+        updatedAt: mp.updatedAt,
+      };
+
+      await ctx.db.replace(doc._id, clean);
+      results.mangaProgress.migrated++;
+    }
+
+    return results;
+  },
+});
+
+/**
+ * Remove duplicate source links from library_source_links table.
+ * Keeps the most recently updated entry for each (userId, registryId, sourceId, sourceMangaId).
+ *
+ * Run via: npx convex run migrations:removeDuplicateSourceLinks
+ */
+export const removeDuplicateSourceLinks = mutation({
+  handler: async (ctx) => {
+    const allLinks = await ctx.db.query("library_source_links").collect();
+
+    // Group by composite key
+    const groups = new Map<string, typeof allLinks>();
+    for (const link of allLinks) {
+      const key = `${link.userId}:${link.registryId}:${link.sourceId}:${link.sourceMangaId}`;
+      const existing = groups.get(key) ?? [];
+      existing.push(link);
+      groups.set(key, existing);
+    }
+
+    let deleted = 0;
+    for (const [, links] of groups) {
+      if (links.length <= 1) continue;
+
+      // Sort by updatedAt desc, keep the first (newest)
+      links.sort((a, b) => b.updatedAt - a.updatedAt);
+      const [, ...duplicates] = links;
+
+      for (const dup of duplicates) {
+        await ctx.db.delete(dup._id);
+        deleted++;
+      }
+    }
+
+    return { total: allLinks.length, deleted, remaining: allLinks.length - deleted };
+  },
+});
+
+/**
+ * Debug query to find source links matching a search term.
+ *
+ * Run via: npx convex run migrations:debugSourceLinks --args '{"search": "rawkuma"}'
+ */
+export const debugSourceLinks = query({
+  args: { search: v.string() },
+  handler: async (ctx, { search }) => {
+    const allLinks = await ctx.db.query("library_source_links").collect();
+    const searchLower = search.toLowerCase();
+
+    const matches = allLinks.filter(
+      (link) =>
+        link.sourceId.toLowerCase().includes(searchLower) ||
+        link.registryId.toLowerCase().includes(searchLower) ||
+        link.sourceMangaId.toLowerCase().includes(searchLower)
+    );
+
+    // Group by composite key to find duplicates
+    const groups = new Map<string, typeof matches>();
+    for (const link of matches) {
+      const key = `${link.userId}:${link.registryId}:${link.sourceId}:${link.sourceMangaId}`;
+      const existing = groups.get(key) ?? [];
+      existing.push(link);
+      groups.set(key, existing);
+    }
+
+    const duplicates = [...groups.entries()]
+      .filter(([, links]) => links.length > 1)
+      .map(([key, links]) => ({ key, count: links.length, links }));
+
+    return {
+      total: matches.length,
+      duplicateGroups: duplicates.length,
+      matches: matches.map((l) => ({
+        _id: l._id,
+        userId: l.userId,
+        libraryItemId: l.libraryItemId,
+        registryId: l.registryId,
+        sourceId: l.sourceId,
+        sourceMangaId: l.sourceMangaId,
+        updatedAt: l.updatedAt,
+      })),
+      duplicates,
+    };
+  },
+});
+
+/**
+ * Debug query to find sources in old library table.
+ *
+ * Run via: npx convex run migrations:debugLibrarySources '{"search": "rawkuma"}'
+ */
+export const debugLibrarySources = query({
+  args: { search: v.string() },
+  handler: async (ctx, { search }) => {
+    const library = await ctx.db.query("library").collect();
+    const searchLower = search.toLowerCase();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    type SourceLink = { registryId: string; sourceId: string; mangaId: string };
+    const results: {
+      mangaId: string;
+      title: string;
+      userId: string;
+      sources: SourceLink[];
+      duplicates: { key: string; count: number }[];
+    }[] = [];
+
+    for (const doc of library) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = doc as any;
+      const sources: SourceLink[] = data.sources ?? [];
+
+      const matchingSources = sources.filter(
+        (s) =>
+          s.sourceId.toLowerCase().includes(searchLower) ||
+          s.registryId.toLowerCase().includes(searchLower) ||
+          s.mangaId.toLowerCase().includes(searchLower)
+      );
+
+      if (matchingSources.length === 0) continue;
+
+      // Find duplicates within this manga's sources
+      const groups = new Map<string, number>();
+      for (const s of sources) {
+        const key = `${s.registryId}:${s.sourceId}:${s.mangaId}`;
+        groups.set(key, (groups.get(key) ?? 0) + 1);
+      }
+
+      const duplicates = [...groups.entries()]
+        .filter(([, count]) => count > 1)
+        .map(([key, count]) => ({ key, count }));
+
+      results.push({
+        mangaId: doc.mangaId,
+        title: data.metadata?.title ?? "unknown",
+        userId: doc.userId,
+        sources: matchingSources,
+        duplicates,
+      });
+    }
+
+    return results;
+  },
+});
+
+/**
+ * Debug query to find library items by title/search.
+ *
+ * Run via: npx convex run migrations:debugLibraryItems '{"search": "exorcist"}'
+ */
+export const debugLibraryItems = query({
+  args: { search: v.string() },
+  handler: async (ctx, { search }) => {
+    const items = await ctx.db.query("library_items").collect();
+    const links = await ctx.db.query("library_source_links").collect();
+    const searchLower = search.toLowerCase();
+
+    const matches = items.filter(
+      (item) =>
+        item.libraryItemId.toLowerCase().includes(searchLower) ||
+        item.metadata.title.toLowerCase().includes(searchLower)
+    );
+
+    return matches.map((item) => ({
+      _id: item._id,
+      libraryItemId: item.libraryItemId,
+      title: item.metadata.title,
+      userId: item.userId,
+      inLibrary: item.inLibrary,
+      sourceLinks: links
+        .filter((l) => l.libraryItemId === item.libraryItemId)
+        .map((l) => ({
+          _id: l._id,
+          sourceId: l.sourceId,
+          sourceMangaId: l.sourceMangaId,
+        })),
+    }));
+  },
+});

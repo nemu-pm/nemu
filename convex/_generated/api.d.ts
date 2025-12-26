@@ -15,7 +15,6 @@ import type * as http from "../http.js";
 import type * as library from "../library.js";
 import type * as metadata from "../metadata.js";
 import type * as migrations from "../migrations.js";
-import type * as migrations_backfill_cursor_ids from "../migrations/backfill_cursor_ids.js";
 import type * as ocr from "../ocr.js";
 import type * as settings from "../settings.js";
 import type * as sync from "../sync.js";
@@ -34,7 +33,6 @@ declare const fullApi: ApiFromModules<{
   library: typeof library;
   metadata: typeof metadata;
   migrations: typeof migrations;
-  "migrations/backfill_cursor_ids": typeof migrations_backfill_cursor_ids;
   ocr: typeof ocr;
   settings: typeof settings;
   sync: typeof sync;

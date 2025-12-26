@@ -39,7 +39,7 @@ export interface LibraryEntry {
  * Used when UI needs progress info (e.g., "Continue reading").
  */
 export interface LibraryEntryWithProgress extends LibraryEntry {
-  progress: Map<string, LocalMangaProgress>; // keyed by source cursorId
+  progress: Map<string, LocalMangaProgress>; // keyed by source id
 }
 
 // ============================================================================
@@ -126,7 +126,7 @@ export function getEntryMostRecentSource(
   let bestTime = 0;
 
   for (const source of entry.sources) {
-    const sourceProgress = progress.get(source.cursorId);
+    const sourceProgress = progress.get(source.id);
     if (sourceProgress && sourceProgress.lastReadAt > bestTime) {
       bestTime = sourceProgress.lastReadAt;
       bestSource = source;

@@ -47,7 +47,7 @@ export function useSyncStore() {
 
 /**
  * Get manga progress index (canonical).
- * Returns all manga_progress entries as a Map keyed by cursorId.
+ * Returns all manga_progress entries as a Map keyed by id.
  * Use for: sorting library by last read, continue-reading widgets.
  */
 export function useMangaProgressIndex(): { index: MangaProgressIndex; loading: boolean } {
