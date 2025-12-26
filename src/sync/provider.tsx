@@ -531,15 +531,30 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
     // Offer import only if:
     // - default (local/offline) profile has legacy library rows, AND
+    // - cloud account appears empty (avoid duplicating into an already-synced account), AND
     // - current (user:<id>) profile doesn't already have canonical library entries.
     (async () => {
       try {
         const defaultStore = new IndexedDBUserDataStore();
-        const [hasLocalLegacy, currentEntries] = await Promise.all([
-          defaultStore.hasLibraryData(),
-          localStore.getLibraryEntries(),
-        ]);
-        if (hasLocalLegacy && currentEntries.length === 0) {
+        const hasLocalLegacy = await defaultStore.hasLibraryData();
+        if (!hasLocalLegacy) return;
+
+        // Conservative: only offer import when we can confirm the cloud library is empty.
+        // This avoids accidental duplication for existing accounts where local canonical
+        // might still be empty briefly before the first pull completes.
+        let cloudEmpty = false;
+        try {
+          const firstPage = await transport.pullLibraryItems({ updatedAt: 0, cursorId: "" }, 1);
+          cloudEmpty = firstPage.entries.length === 0;
+        } catch {
+          // If we can't verify cloud emptiness (offline / transient error), don't prompt.
+          return;
+        }
+
+        if (!cloudEmpty) return;
+
+        const currentEntries = await localStore.getLibraryEntries();
+        if (currentEntries.length === 0) {
           setShowImportDialog(true);
         }
       } finally {
@@ -547,7 +562,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         try { sessionStorage.setItem(IMPORT_OFFERED_SESSION_KEY, "true"); } catch {}
       }
     })();
-  }, [isAuthenticated, isLoading, session?.user?.id, localStore]);
+  }, [isAuthenticated, isLoading, session?.user?.id, localStore, transport]);
 
   const handleImportLocal = useCallback(async () => {
     if (!session?.user?.id) return;
@@ -570,7 +585,12 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         createdAt: manga.addedAt,
         updatedAt: now,
       };
-      await canonicalLibraryOps.saveLibraryItem(item, { inLibraryClock: undefined });
+      // Import represents a new user intent; generate clocks so later merges/deletes are correct.
+      await canonicalLibraryOps.saveLibraryItem(item, {
+        inLibraryClock: null,
+        metadataClock: item.overrides ? null : undefined,
+        coverUrlClock: item.overrides ? null : undefined,
+      });
 
       for (const source of manga.sources) {
         const link: LocalSourceLink = {
