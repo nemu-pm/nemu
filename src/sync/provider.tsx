@@ -28,7 +28,7 @@ import { getSourceSettingsStore } from "@/stores/source-settings";
 import { getSyncStore } from "@/stores/sync";
 import { authClient } from "@/lib/auth-client";
 import { SyncContext } from "./context";
-import type { DataServices, StoreHooks, SyncContextValue } from "./types";
+import type { StoreHooks, SyncContextValue } from "./types";
 import { SyncCore } from "./core/SyncCore";
 import { clearSyncState, createSyncCoreRepos } from "./core/adapters";
 import { ConvexTransport } from "./convex-transport";
@@ -141,6 +141,35 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // ============================================================================
   const [signingOut, setSigningOut] = useState(false);
   const storesRef = useRef<StoreHooks | null>(null);
+  
+  // Syncing dialog - show immediately after login using sessionStorage (no waiting for auth)
+  const WAS_LOGGED_OUT_KEY = "nemu:was-logged-out";
+  
+  // Check sessionStorage synchronously on mount to show dialog immediately
+  const [showSyncingDialog, setShowSyncingDialog] = useState(() => {
+    try {
+      // If we have the flag AND we're likely logged in (session exists), show immediately
+      const wasLoggedOut = sessionStorage.getItem(WAS_LOGGED_OUT_KEY) === "true";
+      if (wasLoggedOut) {
+        console.log("[SyncProvider] Detected post-login, showing sync dialog immediately");
+        sessionStorage.removeItem(WAS_LOGGED_OUT_KEY);
+        return true;
+      }
+    } catch {}
+    return false;
+  });
+
+  // Track logged-out state in sessionStorage
+  useEffect(() => {
+    if (isLoading) return;
+    
+    try {
+      if (!isAuthenticated) {
+        // User is logged out - set flag for next login
+        sessionStorage.setItem(WAS_LOGGED_OUT_KEY, "true");
+      }
+    } catch {}
+  }, [isAuthenticated, isLoading]);
 
   useEffect(() => {
     console.log("[SyncProvider] EFFECT - Setting up syncCore. isAuthenticated:", isAuthenticated, "convex:", !!convex, "signingOut:", signingOut);
@@ -159,6 +188,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       console.log("[SyncProvider] STATUS CHANGE:", status);
       syncStore.getState().setSyncStatus(status);
       syncStore.getState().setPendingCount(syncCore.pendingCount);
+      
+      // Hide syncing dialog when sync completes
+      if (status === "synced") {
+        setShowSyncingDialog(false);
+      }
     });
 
     // Subscribe to apply events - refresh stores when remote data applied
@@ -555,14 +589,18 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // When localStore changes (profile switch), reload all stores
   useEffect(() => {
     console.log("[SyncProvider] localStore changed - reloading stores");
-    stores.useSettingsStore.getState().initialize().then(() => {
-      console.log("[SyncProvider] settingsStore.initialize() DONE after profile switch");
-    });
-    stores.useLibraryStore.getState().load(false).then(() => {
-      console.log("[SyncProvider] libraryStore.load() DONE after profile switch");
-    });
+    
+    Promise.all([
+      stores.useSettingsStore.getState().initialize().then(() => {
+        console.log("[SyncProvider] settingsStore.initialize() DONE after profile switch");
+      }),
+      stores.useLibraryStore.getState().load(false).then(() => {
+        console.log("[SyncProvider] libraryStore.load() DONE after profile switch");
+      }),
+    ]);
+    
     getSourceSettingsStore().getState().initialize();
-  }, [localStore, stores]);
+  }, [localStore, stores, effectiveProfileId]);
 
   // ============================================================================
   // Import dialog (migrates legacy local data to canonical tables)
@@ -813,6 +851,23 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   return (
     <SyncContext.Provider value={value}>
       {children}
+      
+      {/* Syncing dialog - shown during profile switch / initial sync */}
+      <ResponsiveDialog open={showSyncingDialog} dismissible={false}>
+        <ResponsiveDialogContent showCloseButton={false}>
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle>{t("sync.syncing")}</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>{t("sync.syncingDescription")}</ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          <div className="flex justify-center py-4">
+            <div className="relative">
+              <div className="size-10 rounded-full border-4 border-muted" />
+              <div className="absolute inset-0 size-10 rounded-full border-4 border-t-primary animate-spin" />
+            </div>
+          </div>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+      
       <ResponsiveDialog open={idbDialogOpen} onOpenChange={setIdbDialogOpen} dismissible={false}>
         <ResponsiveDialogContent showCloseButton={false}>
           <ResponsiveDialogHeader>

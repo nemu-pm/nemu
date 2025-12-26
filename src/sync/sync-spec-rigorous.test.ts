@@ -19,7 +19,7 @@
  * - Field-safe merges
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect } from "bun:test";
 import { SyncCore, type SyncCoreRepos, type SyncMetaRepo, type PendingOpsRepo, type HLCManager } from "./core/SyncCore";
 import { TestTransport } from "./transports/TestTransport";
 import type {
@@ -32,17 +32,14 @@ import type {
 } from "@/data/schema";
 import type { PendingOp } from "./core/types";
 import { CURSOR_KEYS } from "./core/types";
-import type { SyncLibraryItem, SyncLibrarySourceLink, SyncChapterProgress } from "./transport";
+import type { SyncLibraryItem, SyncLibrarySourceLink } from "./transport";
 import {
   formatIntentClock,
-  parseIntentClock,
   compareIntentClocks,
   HLC,
   createHLCState,
   mergeFieldWithClock,
-  mergeLibraryMembership,
   isClockNewer,
-  ZERO_CLOCK,
 } from "./hlc";
 
 // ============================================================================
@@ -211,13 +208,6 @@ async function startAndEnableSync(core: SyncCore, transport: TestTransport) {
   core.setTransport(transport);
 }
 
-// Pseudo-random number generator for deterministic tests
-function seededRandom(seed: number): () => number {
-  return () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-}
 
 // ============================================================================
 // 7.T2: Property Tests - Cursor Correctness
@@ -342,6 +332,53 @@ describe("7.T2: Cursor correctness property tests", () => {
       expect(repos.libraryItems.items.has("r:s:manga1")).toBe(true);
       expect(repos.libraryItems.items.has("r:s:manga2")).toBe(true);
       expect(repos.libraryItems.items.has("r/s/manga3")).toBe(true);
+
+      syncCore.stop();
+    });
+
+    it("SPEC: no missed rows when N=10,000 rows share the same updatedAt and are paginated", async () => {
+      // Phase 6 exit criteria calls out a large shared-updatedAt dataset with small pages.
+      // This test stresses the SyncCore pull loop (multi-page processing) and cursor advancement.
+      const repos = createRepos("device-a");
+      const transport = new TestTransport();
+      transport.setReady(false);
+
+      const sameTimestamp = 5000;
+      const N = 10_000;
+      const pageSize = 37;
+
+      const entries = Array.from({ length: N }, (_, i) => ({
+        ...createSyncItem(`item-${String(i).padStart(5, "0")}`, sameTimestamp),
+        cursorId: `item-${String(i).padStart(5, "0")}`,
+      }));
+
+      const pages = [];
+      for (let i = 0; i < entries.length; i += pageSize) {
+        const chunk = entries.slice(i, i + pageSize);
+        const last = chunk[chunk.length - 1];
+        const isLast = i + pageSize >= entries.length;
+        pages.push({
+          entries: chunk,
+          hasMore: !isLast,
+          nextCursor: !isLast ? { updatedAt: sameTimestamp, cursorId: last.cursorId } : undefined,
+        });
+      }
+
+      transport.setLibraryItemsPages(pages);
+
+      const syncCore = new SyncCore({
+        repos,
+        // Make the test deterministic: ensure a single sync can drain all scripted pages.
+        config: { maxPagesPerTick: pages.length + 1 },
+      });
+      await startAndEnableSync(syncCore, transport);
+      await syncCore.syncNow("manual");
+
+      expect(repos.libraryItems.items.size).toBe(N);
+
+      const cursor = await repos.syncMeta.getCompositeCursor(CURSOR_KEYS.LIBRARY_ITEMS);
+      expect(cursor.updatedAt).toBe(sameTimestamp);
+      expect(cursor.cursorId).toBe("item-09999");
 
       syncCore.stop();
     });
@@ -593,7 +630,7 @@ describe("7.T3: HLC clock merge correctness", () => {
         let clock: string | undefined = undefined;
 
         for (const i of perm) {
-          const result = mergeFieldWithClock(value, clock, ops[i].value, ops[i].clock);
+          const result: { value: { title: string } | null | undefined; clock: string | undefined } = mergeFieldWithClock(value, clock, ops[i].value, ops[i].clock);
           value = result.value as { title: string } | null | undefined;
           clock = result.clock;
         }
@@ -782,6 +819,109 @@ describe("7.T3: HLC clock merge correctness", () => {
       expect(result.value).toBe("existing-value");
       expect(result.clock).toBe(existingClock);
     });
+  });
+});
+
+// ============================================================================
+// Additional rigorous SyncCore behavioral tests (gaps from sync.md invariants)
+// ============================================================================
+
+describe("SyncCore - settings merge + pending ops correctness", () => {
+  it("SPEC: settings pull merges deterministically AND replaces any pending settings op with the merged snapshot", async () => {
+    // sync.md: settings are small, merged locally, and the push path must not drop remote additions.
+    // SyncCore contract: if settings change due to pull, ensure there is exactly one pending settings op
+    // representing the merged state (replace any existing pending settings ops).
+    const repos = createRepos("device-a");
+    const transport = new TestTransport();
+    transport.setReady(false);
+
+    // Local user has an installed source A and (critically) a pending op representing that local edit.
+    repos.settings.settings = {
+      installedSources: [{ id: "A", registryId: "regA", version: 1 }],
+    };
+    await repos.pendingOps.addPendingOp({
+      table: "settings",
+      operation: "save",
+      data: { installedSources: [{ id: "A", registryId: "regA", version: 1 }] },
+      timestamp: Date.now(),
+      retries: 0,
+    });
+
+    // Remote has source B (should be unioned).
+    transport.setSettingsSnapshot({
+      installedSources: [{ id: "B", registryId: "regB", version: 1 }],
+    });
+
+    const syncCore = new SyncCore({ repos });
+    // Ensure the merged pending settings op remains for inspection by making the push fail.
+    transport.injectPushFailure(new Error("Simulated push failure"));
+    await startAndEnableSync(syncCore, transport);
+    await syncCore.syncNow("manual");
+
+    // Local settings should now include A and B (deterministic ordering by id).
+    expect(repos.settings.settings.installedSources.map((s) => s.id)).toEqual(["A", "B"]);
+
+    // There must be exactly one pending settings op, and it must represent the merged snapshot.
+    const pending = await repos.pendingOps.getPendingOps();
+    const pendingSettings = pending.filter((op) => op.table === "settings" && op.operation === "save");
+    expect(pendingSettings.length).toBe(1);
+    expect((pendingSettings[0].data as UserSettings).installedSources.map((s) => s.id)).toEqual(["A", "B"]);
+    expect(pendingSettings[0].retries).toBeGreaterThanOrEqual(1);
+
+    // And because the push failed, nothing should have been pushed.
+    expect(transport.pushedEvents.some((e) => e.type === "settings")).toBe(false);
+
+    syncCore.stop();
+  });
+});
+
+describe("SyncCore - HLC receiveIntentClock forwarding", () => {
+  it("SPEC: applying remote library items MUST forward all provided intent clocks into hlc.receiveIntentClock()", async () => {
+    const received: string[] = [];
+    const repos = createRepos("device-a");
+    repos.hlc = {
+      async generateIntentClock() {
+        return formatIntentClock({ wallMs: Date.now(), counter: 0, nodeId: "device-a" });
+      },
+      async receiveIntentClock(clock: string) {
+        received.push(clock);
+      },
+    };
+
+    const transport = new TestTransport();
+    transport.setReady(false);
+
+    const memberClock = makeClock(1000, 0, "cloud");
+    const metaClock = makeClock(1000, 1, "cloud");
+    const coverClock = makeClock(1000, 2, "cloud");
+
+    transport.setLibraryItemsPages([
+      {
+        entries: [
+          createSyncItem("item-1", 1000, {
+            inLibrary: true,
+            inLibraryClock: memberClock,
+            overrides: {
+              metadata: { title: "X" },
+              metadataClock: metaClock,
+              coverUrl: "cover",
+              coverUrlClock: coverClock,
+            },
+          }),
+        ],
+        hasMore: false,
+      },
+    ]);
+
+    const syncCore = new SyncCore({ repos });
+    await startAndEnableSync(syncCore, transport);
+    await syncCore.syncNow("manual");
+
+    // All clocks must be forwarded (order is not important; duplicates are allowed).
+    expect(received).toEqual(expect.arrayContaining([memberClock, metaClock, coverClock]));
+    expect(received.length).toBeGreaterThanOrEqual(3);
+
+    syncCore.stop();
   });
 });
 

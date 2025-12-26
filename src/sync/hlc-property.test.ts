@@ -13,7 +13,7 @@
  * 5. Field-group independence: different field clocks merge independently
  */
 
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect } from "bun:test";
 import {
   HLC,
   createHLCState,
@@ -79,7 +79,7 @@ function applyOps(ops: TestOp[]): { value: { title: string } | null | undefined;
   let clock: string | undefined = undefined;
 
   for (const op of ops) {
-    const result = mergeFieldWithClock(value, clock, op.value, op.clock);
+    const result: { value: { title: string } | null | undefined; clock: string | undefined } = mergeFieldWithClock(value, clock, op.value, op.clock);
     value = result.value as { title: string } | null | undefined;
     clock = result.clock;
   }
@@ -563,7 +563,6 @@ describe("Edge Cases", () => {
 
     // Simulate burst of events in same millisecond
     const clocks = new Set<string>();
-    const baseTime = Date.now();
 
     // Generate 1000 clocks as fast as possible
     for (let i = 0; i < 1000; i++) {

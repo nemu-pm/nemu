@@ -51,10 +51,14 @@
   "storage": {
     "idbLock": {
       "title": "Storage locked",
-      "descriptionBlocked": "Nemu can’t access its local storage because another tab/window is using it. Close other Nemu tabs/windows, then reload this page.",
+      "descriptionBlocked": "Nemu can't access its local storage because another tab/window is using it. Close other Nemu tabs/windows, then reload this page.",
       "descriptionVersionChange": "Nemu needs to upgrade its local storage. Close other Nemu tabs/windows, then reload this page.",
       "reload": "Reload"
     }
+  },
+  "sync": {
+    "syncing": "Syncing",
+    "syncingDescription": "Syncing your library and settings..."
   },
   "nav": {
     "library": "Library",

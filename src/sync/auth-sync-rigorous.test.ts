@@ -27,7 +27,7 @@ import type {
 } from "@/data/schema";
 import type { PendingOp } from "./core/types";
 import { CURSOR_KEYS } from "./core/types";
-import type { SyncLibraryItem, SyncLibrarySourceLink } from "./transport";
+import type { SyncLibraryItem } from "./transport";
 import { formatIntentClock } from "./hlc";
 
 import "fake-indexeddb/auto";
@@ -232,24 +232,21 @@ describe("Sign-out 'keep data' flow - rigorous tests", () => {
       expect(storedItem!.inLibrary).toBe(false);
       expect(storedItem!.inLibraryClock).toBe(makeClock(2000, 0, "device-a"));
 
-      // BUG EXPOSURE: getAllLibraryItems() filters out tombstones
-      // This means sign-out "keep data" will lose them, breaking convergence
-      const allItems = await userStore.getAllLibraryItems();
-      const hasTombstone = allItems.some(i => i.libraryItemId === "manga-removed");
-      
-      // Document the bug: getAllLibraryItems does NOT return inLibrary=false items
-      // This test PASSES because we're documenting the current (buggy) behavior
-      // The CORRECT behavior would be to have a method that returns ALL items
-      expect(allItems.length).toBe(0); // BUG: should be 1
-      expect(hasTombstone).toBe(false); // BUG: should be true
-      
-      // At minimum, point query must work for known IDs
-      expect(storedItem).not.toBeNull();
+      // Default listing is allowed to hide removed items (UI convenience),
+      // but MUST provide an opt-in to include tombstones for correct sync/sign-out copy.
+      const defaultList = await userStore.getAllLibraryItems();
+      expect(defaultList.some((i) => i.libraryItemId === "manga-removed")).toBe(false);
+
+      const allItems = await userStore.getAllLibraryItems({ includeRemoved: true });
+      expect(allItems.some((i) => i.libraryItemId === "manga-removed")).toBe(true);
+      const tombstone = allItems.find((i) => i.libraryItemId === "manga-removed")!;
+      expect(tombstone.inLibrary).toBe(false);
+      expect(tombstone.inLibraryClock).toBe(makeClock(2000, 0, "device-a"));
     });
 
     it("SPEC: source link tombstones (deletedAt) MUST be preserved via point query", async () => {
-      // Note: getAllSourceLinks() also filters out deletedAt items (BUG)
-      // This test verifies that at least the point query works
+      // Note: getAllSourceLinks() filters out deletedAt by default (UI convenience),
+      // but MUST provide an opt-in to include tombstones for correct sync/sign-out copy.
       const tombstonedLink: LocalSourceLink = {
         cursorId: "r:s:manga-removed",
         libraryItemId: "manga-1",
@@ -267,17 +264,13 @@ describe("Sign-out 'keep data' flow - rigorous tests", () => {
       expect(storedLink).not.toBeNull();
       expect(storedLink!.deletedAt).toBe(2000);
 
-      // BUG EXPOSURE: getAllSourceLinks() filters out tombstones
-      const allLinks = await userStore.getAllSourceLinks();
-      expect(allLinks.length).toBe(0); // BUG: should be 1
+      const defaultList = await userStore.getAllSourceLinks();
+      expect(defaultList.some((l) => l.cursorId === "r:s:manga-removed")).toBe(false);
 
-      // At minimum, if we copy via point query for known IDs, it works
-      if (storedLink) {
-        await localStore.saveSourceLink(storedLink);
-        const localLink = await localStore.getSourceLink("r:s:manga-removed");
-        expect(localLink).not.toBeNull();
-        expect(localLink!.deletedAt).toBe(2000);
-      }
+      const allLinks = await userStore.getAllSourceLinks({ includeDeleted: true });
+      expect(allLinks.some((l) => l.cursorId === "r:s:manga-removed")).toBe(true);
+      const link = allLinks.find((l) => l.cursorId === "r:s:manga-removed")!;
+      expect(link.deletedAt).toBe(2000);
     });
   });
 

@@ -56,6 +56,10 @@
       "reload": "刷新"
     }
   },
+  "sync": {
+    "syncing": "同步中",
+    "syncingDescription": "正在同步您的库和设置..."
+  },
   "nav": {
     "library": "书架",
     "browse": "浏览",

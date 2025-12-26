@@ -56,6 +56,10 @@
       "reload": "再読み込み"
     }
   },
+  "sync": {
+    "syncing": "同期中",
+    "syncingDescription": "ライブラリと設定を同期しています..."
+  },
   "nav": {
     "library": "ライブラリ",
     "browse": "探す",
