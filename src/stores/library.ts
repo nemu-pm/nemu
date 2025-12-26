@@ -157,6 +157,9 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
   const storeId = ++storeCounter;
   console.log("[LibraryStore] CREATING STORE with id:", storeId);
   
+  // Avoid spamming repeated cleanup attempts across background refreshes.
+  const cleanedInvalidIds = new Set<string>();
+
   const store = create<LibraryState>((set, get) => ({
     entries: [],
     loading: true,
@@ -173,13 +176,35 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
         console.log("[LibraryStore] calling ops.getLibraryEntries()...");
         const entries = await ops.getLibraryEntries();
         console.log("[LibraryStore] ops.getLibraryEntries() returned:", entries.length, "entries");
+
+        // Filter + cleanup invalid entries (missing source links).
+        // These are not actionable in the UI and can crash routes that assume at least one source.
+        const invalid = entries.filter((e) => !e.sources || e.sources.length === 0);
+        const valid = entries.filter((e) => e.sources && e.sources.length > 0);
+        if (invalid.length > 0) {
+          const ids = invalid.map((e) => e.item.libraryItemId);
+          console.warn("[LibraryStore] load(): removing invalid library entries (missing sources)", { storeId, count: ids.length, ids });
+          // Fire-and-forget cleanup; do not block UI load.
+          (async () => {
+            for (const id of ids) {
+              if (cleanedInvalidIds.has(id)) continue;
+              cleanedInvalidIds.add(id);
+              try {
+                await ops.removeLibraryItem(id);
+              } catch (e) {
+                console.error("[LibraryStore] Failed to remove invalid library item:", id, e);
+              }
+            }
+          })();
+        }
+
         if (!keepLoading) {
-          console.log("[LibraryStore] setting entries (foreground):", entries.length);
-          set({ entries, loading: false });
+          console.log("[LibraryStore] setting entries (foreground):", valid.length);
+          set({ entries: valid, loading: false });
         } else {
           // Background refresh: keep current loading state unchanged.
-          console.log("[LibraryStore] setting entries (background):", entries.length);
-          set({ entries });
+          console.log("[LibraryStore] setting entries (background):", valid.length);
+          set({ entries: valid });
         }
         console.log("[LibraryStore] store state after set. storeId:", storeId, "entries:", get().entries.length);
       } catch (e) {

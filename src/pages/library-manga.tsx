@@ -278,6 +278,39 @@ export function LibraryMangaPage() {
     );
   }
 
+  if (!entry.sources || entry.sources.length === 0) {
+    return (
+      <PageEmpty
+        icon={Alert02Icon}
+        title={t("manga.failedToLoad")}
+        description={
+          `Corrupt library entry: missing source links.\n\n` +
+          `libraryItemId: ${entry.item.libraryItemId}\n` +
+          `Tip: remove it from library (this only affects local data) then re-add from a source.`
+        }
+        action={(
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => window.history.back()}>
+              {t("common.back")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                try {
+                  await removeFromLibrary(entry.item.libraryItemId);
+                } finally {
+                  window.history.back();
+                }
+              }}
+            >
+              {t("library.removeFromLibrary")}
+            </Button>
+          </div>
+        )}
+      />
+    );
+  }
+
   if (error) {
     return (
       <PageEmpty

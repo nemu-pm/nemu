@@ -4,12 +4,13 @@ import { createLibraryStore } from "./library";
 describe("LibraryStore.load", () => {
   it("foreground load flips loading true -> false", async () => {
     let entries: any[] = [];
+    const removed: string[] = [];
     const store = createLibraryStore({
       getLibraryEntries: async () => entries,
       getLibraryItem: async () => null,
       getSourceLinksForItem: async () => [],
       saveLibraryItem: async () => {},
-      removeLibraryItem: async () => {},
+      removeLibraryItem: async (id: string) => { removed.push(id); },
       saveSourceLink: async () => {},
       removeSourceLink: async () => {},
     });
@@ -21,17 +22,19 @@ describe("LibraryStore.load", () => {
     entries = [{ item: { libraryItemId: "x" }, sources: [] }];
     await store.getState().load(false);
     expect(store.getState().loading).toBe(false);
-    expect(store.getState().entries).toEqual(entries);
+    expect(store.getState().entries).toEqual([]);
+    expect(removed).toEqual(["x"]);
   });
 
   it("background refresh does not change loading state", async () => {
     let entries: any[] = [];
+    const removed: string[] = [];
     const store = createLibraryStore({
       getLibraryEntries: async () => entries,
       getLibraryItem: async () => null,
       getSourceLinksForItem: async () => [],
       saveLibraryItem: async () => {},
-      removeLibraryItem: async () => {},
+      removeLibraryItem: async (id: string) => { removed.push(id); },
       saveSourceLink: async () => {},
       removeSourceLink: async () => {},
     });
@@ -43,7 +46,8 @@ describe("LibraryStore.load", () => {
     entries = [{ item: { libraryItemId: "y" }, sources: [] }];
     await store.getState().load(true);
     expect(store.getState().loading).toBe(false);
-    expect(store.getState().entries).toEqual(entries);
+    expect(store.getState().entries).toEqual([]);
+    expect(removed).toEqual(["y"]);
 
     // If something else sets loading=true, background refresh should not "unstick" it either.
     store.setState({ loading: true });

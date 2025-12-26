@@ -1245,6 +1245,13 @@ export class IndexedDBUserDataStore implements UserDataStore {
         item,
         sources: linksByItem.get(item.libraryItemId) ?? [],
       }));
+    const missing = result.filter((e) => e.sources.length === 0);
+    if (missing.length > 0) {
+      console.warn(
+        "[IndexedDB] getLibraryEntries(): found entries missing source links (corrupt).",
+        { profileId: this.profileId, count: missing.length, libraryItemIds: missing.map((e) => e.item.libraryItemId) }
+      );
+    }
     console.log("[IndexedDB] getLibraryEntries() returning:", result.length, "entries");
     return result;
   }
