@@ -879,13 +879,12 @@ describe("SyncCore - HLC receiveIntentClock forwarding", () => {
   it("SPEC: applying remote library items MUST forward all provided intent clocks into hlc.receiveIntentClock()", async () => {
     const received: string[] = [];
     const repos = createRepos("device-a");
-    repos.hlc = {
-      async generateIntentClock() {
-        return formatIntentClock({ wallMs: Date.now(), counter: 0, nodeId: "device-a" });
-      },
-      async receiveIntentClock(clock: string) {
-        received.push(clock);
-      },
+    // `createRepos()` returns a concrete InMemoryHLCManager instance; don't replace it (type mismatch).
+    // Instead, wrap its receiver to observe forwarded clocks.
+    const originalReceive = repos.hlc.receiveIntentClock.bind(repos.hlc);
+    repos.hlc.receiveIntentClock = async (clock: string) => {
+      received.push(clock);
+      await originalReceive(clock);
     };
 
     const transport = new TestTransport();
