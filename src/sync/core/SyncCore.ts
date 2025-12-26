@@ -470,6 +470,7 @@ export class SyncCore {
 
   private async runPullPhase(): Promise<void> {
     if (!this.transport?.isReady()) return;
+    if (!this.started) return;
 
     // Pull in fixed order to maintain consistency
     // libraryItems → sourceLinks → chapterProgress → mangaProgress
@@ -488,6 +489,7 @@ export class SyncCore {
         return result;
       }
     );
+    if (!this.started) return;
 
     await this.pullTable(
       "sourceLinks",
@@ -503,6 +505,7 @@ export class SyncCore {
         return result;
       }
     );
+    if (!this.started) return;
 
     await this.pullTable(
       "chapterProgress",
@@ -521,6 +524,7 @@ export class SyncCore {
         return result;
       }
     );
+    if (!this.started) return;
 
     await this.pullTable(
       "mangaProgress",
@@ -600,12 +604,15 @@ export class SyncCore {
     let totalApplied = 0;
 
     while (pagesProcessed < this.config.maxPagesPerTick) {
+      if (!this.started) break;
       const startTime = Date.now();
 
       try {
         const response = await pullFn(cursor, this.config.pageLimit);
+        if (!this.started) break;
 
         if (response.entries.length > 0) {
+          if (!this.started) break;
           const result = await applyFn(response.entries, cursor);
           cursor = result.nextCursor;
           totalApplied += response.entries.length;
@@ -646,10 +653,12 @@ export class SyncCore {
 
   private async runPushPhase(): Promise<void> {
     if (!this.transport?.isReady()) return;
+    if (!this.started) return;
 
     const pending = await this.repos.pendingOps.getPendingOps();
 
     for (const op of pending) {
+      if (!this.started) break;
       // Skip if too many retries
       if (op.retries >= this.config.retryPolicy.maxRetries) {
         console.warn(`[SyncCore] Dropping op ${op.id} after ${op.retries} retries`);

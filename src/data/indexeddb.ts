@@ -1628,6 +1628,44 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
+  // ============ DIAGNOSTICS / INTEGRITY CHECKS ============
+
+  private async countStore(storeName: string): Promise<number> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(storeName)) {
+        resolve(0);
+        return;
+      }
+      const tx = db.transaction(storeName, "readonly");
+      const store = tx.objectStore(storeName);
+      const request = store.count();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+  }
+
+  /**
+   * Raw counts of canonical tables (no filtering).
+   *
+   * Used by SyncProvider to detect "local wiped but cursors still advanced"
+   * and force a full re-pull.
+   */
+  async getCanonicalCounts(): Promise<{
+    libraryItems: number;
+    sourceLinks: number;
+    chapterProgress: number;
+    mangaProgress: number;
+  }> {
+    const [libraryItems, sourceLinks, chapterProgress, mangaProgress] = await Promise.all([
+      this.countStore(STORES.libraryItems),
+      this.countStore(STORES.sourceLinks),
+      this.countStore(STORES.chapterProgress),
+      this.countStore(STORES.mangaProgress),
+    ]);
+    return { libraryItems, sourceLinks, chapterProgress, mangaProgress };
+  }
+
   // ============ PHASE 6.6: PROFILE UTILITIES ============
 
   /**

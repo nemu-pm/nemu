@@ -31,6 +31,7 @@ import { SyncContext } from "./context";
 import type { StoreHooks, SyncContextValue } from "./types";
 import { SyncCore } from "./core/SyncCore";
 import { clearSyncState, createSyncCoreRepos } from "./core/adapters";
+import { CURSOR_KEYS } from "./core/types";
 import { ConvexTransport } from "./convex-transport";
 import { NullTransport } from "./transports/NullTransport";
 import type { PushLibraryItem, PushLibrarySourceLink, PushChapterProgress } from "./transport";
@@ -59,6 +60,7 @@ const IDB_UI_EVENT_BUFFER_KEY = "nemu:idb-ui-event";
 const MOCK_BLOCK_STICKY_KEY = "nemu:idb-mock-blocked-sticky";
 const IMPORT_OFFERED_SESSION_KEY = "nemu:import-offered-session";
 const IMPORT_DECISION_KEY_PREFIX = "nemu:import-local-library:decision:";
+const LAST_PROFILE_ID_KEY = "nemu:last-profile-id";
 
 type ImportDecision = "skipped" | "imported";
 
@@ -88,26 +90,71 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const { data: session } = authClient.useSession();
   const { t } = useTranslation();
 
+  const [signingOut, setSigningOut] = useState(false);
+
   // Debug flags
   const shouldDebugIdbUi = import.meta.env.DEV && typeof window !== "undefined" && window.location?.search?.includes("idbMockUpgrade=1");
   const shouldForceIdbDialog = import.meta.env.DEV && typeof window !== "undefined" && window.location?.search?.includes("idbForceDialog=1");
 
   // Profile selection - STRICT ISOLATION
   const sessionProfileId = makeProfileId(session?.user?.id);
-  const effectiveProfileId = sessionProfileId;
+  // Bootstrap: if session hasn't loaded yet, but we were previously signed in, open the last
+  // user-scoped DB immediately so the library renders from cached local data (no empty flicker).
+  // Once auth resolves to logged-out, we clear this and switch back to the local/default profile.
+  const lastProfileIdRef = useRef<string | undefined>(undefined);
+  const lastProfileIdInitRef = useRef(false);
+  if (!lastProfileIdInitRef.current) {
+    lastProfileIdInitRef.current = true;
+    try {
+      const raw = localStorage.getItem(LAST_PROFILE_ID_KEY) ?? undefined;
+      lastProfileIdRef.current = raw && raw.startsWith("user:") ? raw : undefined;
+    } catch {
+      lastProfileIdRef.current = undefined;
+    }
+  }
+
+  const effectiveProfileId =
+    sessionProfileId ??
+    ((isAuthenticated || isLoading) ? lastProfileIdRef.current : undefined);
   
   console.log("[SyncProvider] RENDER - Profile:", { sessionProfileId, effectiveProfileId, isAuthenticated, isLoading, userId: session?.user?.id });
+
+  // Persist last signed-in profile for fast boot on subsequent app opens.
+  // IMPORTANT: do NOT write this while signing out, otherwise a deliberate sign-out can
+  // re-persist the user profile id before the auth session clears.
+  useEffect(() => {
+    if (!sessionProfileId) return;
+    if (signingOut) return;
+    lastProfileIdRef.current = sessionProfileId;
+    try {
+      localStorage.setItem(LAST_PROFILE_ID_KEY, sessionProfileId);
+    } catch {
+      // ignore
+    }
+  }, [sessionProfileId, signingOut]);
+
+  // If auth definitively resolves to logged-out, clear the persisted profile bootstrap.
+  useEffect(() => {
+    if (isLoading) return;
+    if (isAuthenticated) return;
+    lastProfileIdRef.current = undefined;
+    try {
+      localStorage.removeItem(LAST_PROFILE_ID_KEY);
+    } catch {
+      // ignore
+    }
+  }, [isAuthenticated, isLoading]);
 
   // ============================================================================
   // Core setup (recreated when profile changes)
   // ============================================================================
-  const { localStore, syncCore, hlcManager, transport } = useMemo(() => {
+  const { localStore, syncCore, hlcManager, transport, repos } = useMemo(() => {
     console.log("[SyncProvider] CREATING new localStore/syncCore for profile:", effectiveProfileId);
     const store = new IndexedDBUserDataStore(effectiveProfileId);
     const repos = createSyncCoreRepos(store, effectiveProfileId);
     const core = new SyncCore({ repos });
     const t = new ConvexTransport();
-    return { localStore: store, syncCore: core, hlcManager: repos.hlc!, transport: t };
+    return { localStore: store, syncCore: core, hlcManager: repos.hlc!, transport: t, repos };
   }, [effectiveProfileId]);
 
   const cacheStore = useMemo(() => new IndexedDBCacheStore(), []);
@@ -139,7 +186,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // ============================================================================
   // SyncCore lifecycle + transport wiring
   // ============================================================================
-  const [signingOut, setSigningOut] = useState(false);
   const storesRef = useRef<StoreHooks | null>(null);
   
   // Syncing dialog - show immediately after login using sessionStorage (no waiting for auth)
@@ -173,6 +219,35 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     console.log("[SyncProvider] EFFECT - Setting up syncCore. isAuthenticated:", isAuthenticated, "convex:", !!convex, "signingOut:", signingOut);
+
+    // If the canonical tables are empty but cursors are advanced, we're in a broken state
+    // (most commonly: user DB cleared but sync DB not cleared).
+    // Repair by resetting cursors back to zero so the next pull rehydrates local state.
+    const repairIfNeeded = async () => {
+      try {
+        const counts = await localStoreRef.current.getCanonicalCounts();
+        const cursors = await syncCore.getCursors();
+
+        const maybeReset = async (key: string, count: number, cursor: { updatedAt: number; cursorId: string }) => {
+          if (count !== 0) return;
+          if (cursor.updatedAt === 0 && cursor.cursorId === "") return;
+          console.warn("[SyncProvider] Repair: resetting cursor due to empty local table:", { key, cursor, count });
+          await repos.syncMeta.setCompositeCursor(key, { updatedAt: 0, cursorId: "" });
+        };
+
+        await Promise.all([
+          maybeReset(CURSOR_KEYS.LIBRARY_ITEMS, counts.libraryItems, cursors.libraryItems),
+          maybeReset(CURSOR_KEYS.SOURCE_LINKS, counts.sourceLinks, cursors.sourceLinks),
+          maybeReset(CURSOR_KEYS.CHAPTER_PROGRESS, counts.chapterProgress, cursors.chapterProgress),
+          maybeReset(CURSOR_KEYS.MANGA_PROGRESS, counts.mangaProgress, cursors.mangaProgress),
+        ]);
+      } catch (e) {
+        console.warn("[SyncProvider] Repair check failed (non-fatal):", e);
+      }
+    };
+
+    void repairIfNeeded();
+
     if (isAuthenticated && convex && !signingOut) {
       console.log("[SyncProvider] EFFECT - Setting ConvexTransport");
       transport.setConvex(convex as ConvexReactClient);
@@ -707,6 +782,15 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // ============================================================================
   const signOut = useCallback(async (keepData: boolean) => {
     console.log("[SignOut] Starting sign out, keepData:", keepData, "effectiveProfileId:", effectiveProfileId);
+
+    // A deliberate sign-out should never allow "boot last profile" on next app open.
+    // Clear immediately (do not wait for auth state to settle).
+    lastProfileIdRef.current = undefined;
+    try {
+      localStorage.removeItem(LAST_PROFILE_ID_KEY);
+    } catch {
+      // ignore
+    }
     
     try {
       await syncCore.syncNow("manual");
@@ -831,6 +915,15 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     syncStatus,
     pendingCount,
     signOut,
+    stopSync: async () => {
+      try {
+        // Stop background loops immediately so we don't rewrite sync metadata while storage is being cleared.
+        syncCore.stop();
+        syncCore.setTransport(nullTransport);
+      } catch {
+        // ignore
+      }
+    },
     syncNow: () => syncCore.syncNow("manual"),
     getSyncDebugSnapshot: () => syncCore.debugSnapshot(),
     debugInfo: {
@@ -842,7 +935,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     mangaProgressIndex,
     mangaProgressLoading,
     loadChapterProgress,
-  }), [localStore, cacheStore, registryManager, stores, isAuthenticated, isLoading, syncStatus, pendingCount, signOut, syncCore, sessionProfileId, effectiveProfileId, mangaProgressIndex, mangaProgressLoading, loadChapterProgress]);
+  }), [localStore, cacheStore, registryManager, stores, isAuthenticated, isLoading, syncStatus, pendingCount, signOut, syncCore, nullTransport, sessionProfileId, effectiveProfileId, mangaProgressIndex, mangaProgressLoading, loadChapterProgress]);
 
   const idbDescription = idbBlocked?.kind === "versionchange"
     ? t("storage.idbLock.descriptionVersionChange")

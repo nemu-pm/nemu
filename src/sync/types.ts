@@ -34,6 +34,11 @@ export interface SyncContextValue {
   syncStatus: SyncStatus;
   pendingCount: number;
   signOut: (keepData: boolean) => Promise<void>;
+  /**
+   * Immediately stop background sync loops (used by "Clear All Data" to avoid
+   * SyncCore rewriting `nemu-sync::*` while we are clearing storage).
+   */
+  stopSync?: () => Promise<void>;
   syncNow?: () => Promise<void>;
   getSyncDebugSnapshot?: () => Promise<unknown>;
   debugInfo?: {

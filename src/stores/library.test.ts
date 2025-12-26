@@ -23,7 +23,8 @@ describe("LibraryStore.load", () => {
     await store.getState().load(false);
     expect(store.getState().loading).toBe(false);
     expect(store.getState().entries).toEqual([]);
-    expect(removed).toEqual(["x"]);
+    // Missing sources can be transient; load should NOT auto-remove.
+    expect(removed).toEqual([]);
   });
 
   it("background refresh does not change loading state", async () => {
@@ -47,7 +48,8 @@ describe("LibraryStore.load", () => {
     await store.getState().load(true);
     expect(store.getState().loading).toBe(false);
     expect(store.getState().entries).toEqual([]);
-    expect(removed).toEqual(["y"]);
+    // Missing sources can be transient; background load should NOT auto-remove.
+    expect(removed).toEqual([]);
 
     // If something else sets loading=true, background refresh should not "unstick" it either.
     store.setState({ loading: true });

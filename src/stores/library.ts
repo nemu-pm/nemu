@@ -156,9 +156,6 @@ let storeCounter = 0;
 export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
   const storeId = ++storeCounter;
   console.log("[LibraryStore] CREATING STORE with id:", storeId);
-  
-  // Avoid spamming repeated cleanup attempts across background refreshes.
-  const cleanedInvalidIds = new Set<string>();
 
   const store = create<LibraryState>((set, get) => ({
     entries: [],
@@ -182,20 +179,15 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
         const invalid = entries.filter((e) => !e.sources || e.sources.length === 0);
         const valid = entries.filter((e) => e.sources && e.sources.length > 0);
         if (invalid.length > 0) {
-          const ids = invalid.map((e) => e.item.libraryItemId);
-          console.warn("[LibraryStore] load(): removing invalid library entries (missing sources)", { storeId, count: ids.length, ids });
-          // Fire-and-forget cleanup; do not block UI load.
-          (async () => {
-            for (const id of ids) {
-              if (cleanedInvalidIds.has(id)) continue;
-              cleanedInvalidIds.add(id);
-              try {
-                await ops.removeLibraryItem(id);
-              } catch (e) {
-                console.error("[LibraryStore] Failed to remove invalid library item:", id, e);
-              }
-            }
-          })();
+          // IMPORTANT:
+          // Missing sources can be a *transient* state during sync (library_items pulled before source_links),
+          // during startup, or after HMR. Auto-removing here can incorrectly tombstone real items and even
+          // push deletions to cloud.
+          console.warn("[LibraryStore] load(): hiding invalid library entries (missing sources)", {
+            storeId,
+            count: invalid.length,
+            ids: invalid.map((e) => e.item.libraryItemId),
+          });
         }
 
         if (!keepLoading) {

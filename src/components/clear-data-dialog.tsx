@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { useAuth, useDataServices } from "@/data/context";
+import { useAuth, useDataServices, useSyncContext } from "@/data/context";
 import { api } from "../../convex/_generated/api";
 
 interface ClearDataDialogProps {
@@ -25,6 +25,7 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
   const { t } = useTranslation();
   const { isAuthenticated } = useAuth();
   const { localStore } = useDataServices();
+  const syncCtx = useSyncContext();
   const [clearCloud, setClearCloud] = useState(false);
   const [loading, setLoading] = useState(false);
   const clearCloudData = useMutation(api.library.clearAll);
@@ -108,6 +109,15 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
   const handleClear = async () => {
     setLoading(true);
     try {
+      // IMPORTANT: stop background sync loops before clearing storage.
+      // Otherwise SyncCore can rewrite `nemu-sync::*` cursors during the clear flow,
+      // leaving the app "synced" with an empty library after re-login.
+      try {
+        await syncCtx.stopSync?.();
+      } catch {
+        // ignore
+      }
+
       if (mode === "cache") {
         // Clear cache store contents first (more reliable than deleteDatabase when connections are open),
         // then best-effort delete the DB and reload to drop any workers holding connections.
