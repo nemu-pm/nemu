@@ -100,7 +100,38 @@ export const useConvexLibrary: SubscriptionHook<
   Record<string, never>,
   CloudLibraryItem[]
 > = (args) => {
-  return useQuery(api.library.list, args === "skip" ? "skip" : {});
+  const result = useQuery(api.library.list, args === "skip" ? "skip" : {});
+  if (result === undefined) return undefined;
+
+  // Legacy compat: very old rows may not have `metadata` yet (top-level `title`/`cover` existed historically).
+  // We normalize here so the legacy type stays stable, and so callers don't crash on missing metadata.
+  return result
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((doc: any): CloudLibraryItem | null => {
+      const metadata =
+        doc.metadata ??
+        (doc.title
+          ? {
+              title: doc.title as string,
+              cover: doc.cover as string | undefined,
+            }
+          : null);
+
+      if (!metadata) return null;
+
+      return {
+        mangaId: doc.mangaId,
+        addedAt: doc.addedAt,
+        metadata,
+        overrides: doc.overrides,
+        coverCustom: doc.coverCustom,
+        externalIds: doc.externalIds,
+        sources: doc.sources,
+        updatedAt: doc.updatedAt,
+        deletedAt: doc.deletedAt,
+      };
+    })
+    .filter((x): x is CloudLibraryItem => x !== null);
 };
 
 /**
@@ -324,11 +355,30 @@ export class ConvexTransport implements SyncTransport {
       return;
     }
 
+    // Legacy compat: old rows may not have structured metadata yet.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const legacy = existing as any;
+    const metadata =
+      existing.metadata ??
+      (legacy.title
+        ? {
+            title: legacy.title as string,
+            cover: legacy.cover as string | undefined,
+          }
+        : null);
+
+    if (!metadata) {
+      console.warn(
+        `[ConvexTransport] pushSourceLink: library item ${link.libraryItemId} missing metadata`
+      );
+      return;
+    }
+
     // Add/update this source link
     await this.convex.mutation(api.library.save, {
       mangaId: link.libraryItemId,
       addedAt: existing.addedAt,
-      metadata: existing.metadata,
+      metadata,
       overrides: existing.overrides,
       coverCustom: existing.coverCustom,
       externalIds: existing.externalIds,
@@ -406,6 +456,25 @@ export class ConvexTransport implements SyncTransport {
       return;
     }
 
+    // Legacy compat: old rows may not have structured metadata yet.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const legacy = existing as any;
+    const metadata =
+      existing.metadata ??
+      (legacy.title
+        ? {
+            title: legacy.title as string,
+            cover: legacy.cover as string | undefined,
+          }
+        : null);
+
+    if (!metadata) {
+      console.warn(
+        `[ConvexTransport] deleteSourceLink: library item ${libraryItemId} missing metadata`
+      );
+      return;
+    }
+
     // Filter out the source link to delete
     const sourceKey = `${registryId}:${sourceId}:${sourceMangaId}`;
     const filteredSources = existing.sources.filter(
@@ -424,7 +493,7 @@ export class ConvexTransport implements SyncTransport {
     await this.convex.mutation(api.library.save, {
       mangaId: libraryItemId,
       addedAt: existing.addedAt,
-      metadata: existing.metadata,
+      metadata,
       overrides: existing.overrides,
       coverCustom: existing.coverCustom,
       externalIds: existing.externalIds,

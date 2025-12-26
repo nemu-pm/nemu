@@ -329,6 +329,24 @@ export const backfillLibraryItems = mutation({
         )
         .first();
 
+      // Legacy `library` rows may not have `metadata` yet (old shape had `title`/`cover` at top-level).
+      // Prefer structured metadata, otherwise derive from legacy fields.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const legacy = doc as any;
+      const metadata =
+        doc.metadata ??
+        (legacy.title
+          ? {
+              title: legacy.title as string,
+              cover: legacy.cover as string | undefined,
+            }
+          : null);
+
+      if (!metadata) {
+        skipped++;
+        continue;
+      }
+
       // If entry is deleted and we already have it, just update
       // If not deleted, merge/create
 
@@ -345,7 +363,7 @@ export const backfillLibraryItems = mutation({
         const oldUpdatedAt = doc.updatedAt ?? doc.addedAt;
         if (oldUpdatedAt > existing.updatedAt) {
           await ctx.db.patch(existing._id, {
-            metadata: doc.metadata,
+            metadata,
             overrides: normalizedOverrides,
             externalIds: doc.externalIds,
             inLibrary: !doc.deletedAt,
@@ -359,7 +377,7 @@ export const backfillLibraryItems = mutation({
         await ctx.db.insert("library_items", {
           userId: doc.userId,
           libraryItemId,
-          metadata: doc.metadata,
+          metadata,
           overrides: normalizedOverrides,
           externalIds: doc.externalIds,
           inLibrary: !doc.deletedAt,

@@ -116,7 +116,25 @@ export default defineSchema({
     addedAt: v.number(),
 
     // Metadata
-    metadata: mangaMetadata,
+    // Legacy note: very old prod rows may have `title`/`cover` at top-level and no `metadata`.
+    // Run: `npx convex run migrations:migrateLibraryToMetadata --prod` then we can make this required again,
+    // or drop the entire legacy `library` table in Phase 8.
+    metadata: v.optional(mangaMetadata),
+    // Legacy fields (very old prod docs). These must remain optional until we either:
+    // - run the old migrations to remove them, or
+    // - drop the legacy `library` table in Phase 8.
+    title: v.optional(v.string()),
+    cover: v.optional(v.string()),
+    activeRegistryId: v.optional(v.string()),
+    activeSourceId: v.optional(v.string()),
+    // Legacy top-level progress fields (Phase 2-era). Kept only to allow schema validation to pass.
+    lastReadAt: v.optional(v.number()),
+    lastReadChapter: v.optional(chapterSummary),
+    latestChapter: v.optional(chapterSummary),
+    seenLatestChapter: v.optional(chapterSummary),
+    // Legacy field from very old clients (map-like / untyped)
+    // Example seen in prod: `history: {}`
+    history: v.optional(v.any()),
     overrides: v.optional(mangaMetadataPartial),
     coverCustom: v.optional(v.string()), // R2 key
 
@@ -164,6 +182,10 @@ export default defineSchema({
         version: v.number(),
       })
     ),
+    // Legacy field from older builds (removed in current app schema).
+    // Keep optional to allow schema validation to pass, then run:
+    //   npx convex run migrations:removeReadingModeFromSettings --prod
+    readingMode: v.optional(v.string()),
     updatedAt: v.optional(v.number()),
   }).index("by_user", ["userId"]),
 
