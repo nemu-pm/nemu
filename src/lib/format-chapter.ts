@@ -34,7 +34,7 @@ export function formatChapterTitle(
   mode: ChapterTitleDisplayMode = "default"
 ): string {
   const t = i18n.t.bind(i18n);
-  const { volumeNumber, chapterNumber, title } = chapter;
+  const { volumeNumber, chapterNumber, title, id } = chapter;
   
   // Format numbers with f32 precision fix
   const volNum = volumeNumber != null ? formatNumber(volumeNumber) : null;
@@ -43,7 +43,11 @@ export function formatChapterTitle(
   if (mode === "default") {
     // No numbers: show title text in title
     if (volNum == null && chNum == null) {
-      return title || t("chapter.untitled");
+      // Some historical progress rows may not have chapter title/number metadata.
+      // Prefer title, otherwise fall back to a stable identifier instead of "Untitled".
+      if (title) return title;
+      if (id) return t("chapter.chX", { n: id });
+      return t("chapter.untitled");
     }
 
     // Simple case: only chapter number, no volume
@@ -123,7 +127,7 @@ export function formatChapterShort(
   chapter: ChapterSummary | Chapter
 ): string {
   const t = i18n.t.bind(i18n);
-  const { volumeNumber, chapterNumber, title } = chapter;
+  const { volumeNumber, chapterNumber, title, id } = chapter;
 
   const volNum = volumeNumber != null ? formatNumber(volumeNumber) : null;
   const chNum = chapterNumber != null ? formatNumber(chapterNumber) : null;
@@ -132,6 +136,10 @@ export function formatChapterShort(
   if (volNum == null && chNum == null) {
     if (title) {
       return truncateWithEllipsis(title, SHORT_TITLE_MAX_LENGTH);
+    }
+    // If we have a stable id, show it (better than "Untitled" for progress display).
+    if (id) {
+      return t("chapter.chX", { n: truncateWithEllipsis(id, SHORT_TITLE_MAX_LENGTH) });
     }
     return t("chapter.untitled");
   }

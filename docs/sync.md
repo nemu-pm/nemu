@@ -1166,253 +1166,153 @@ The goal is that once `SyncCore` exists, correctness is enforced by tests, not b
   - progress writes
   - verify UI selectors can be derived from canonical local stores only
 
-#### Phase 8: Full cutover + deletion of legacy tables/paths (simplify to the end state)
+#### Phase 8: Pre-release cutover (single PR) — canonical-only end state
 
-This is where the system becomes clean: one canonical schema, one sync path, no legacy glue.
+This phase is intentionally written for **one PR / one commit** (pre-release “move fast” mode).
+It still has an ordered checklist so a junior can implement without missing hidden dependencies.
 
-**Phase 8 invariants (must hold throughout Phase 8)**
-- **Canonical-only**: old tables are not required for correctness (they may still exist until final drop, but are unused).
-- **No dual-write**: each logical write is performed once (to canonical tables), with deterministic merge semantics.
-- **Tombstones converge**: deletes cannot resurrect across devices (tombstones are preserved long enough for convergence).
-- **User intent preserved**: overrides/covers obey the field-safe merge rules from Phase 6.
+### Phase 8 goal (what “done” means)
+- **Client**: no code path depends on legacy Convex tables/endpoints (`library`, `history`, `getForLibrary`) for correctness.
+- **Server**: canonical-only writes (no dual-write) and canonical-only reads for sync.
+- **Legacy**: legacy tables are either:
+  - unused but still present (safer rollback), or
+  - dropped (irreversible; only if you explicitly accept that risk).
 
-**Phase 8 implementation strategy (important)**
-- Treat Phase 8 as a sequence of **small, mergeable PRs**. Each PR should be:
-  - safe to ship (feature-flagged or “read-only cleanup”)
-  - verified by a concrete checklist (below)
-  - reversible (easy to back out without data loss)
-- Do not “big bang” drop tables. The safe order is:
-  - stop reads → stop writes → verify → drop
+### Phase 8 invariants
+- **Canonical-only behavior**: library/history correctness comes from canonical tables:
+  - `library_items`, `library_source_links`, `chapter_progress`, `manga_progress`
+- **No resurrection**: deletes and clears converge (HLC intent clocks).
+- **Logged-out works**: NullTransport + local DB still render and accept writes into pending ops.
 
-**Phase 8 must-have prechecks (before any risky cutover)**
-- `bun test` and `bun run typecheck` are green.
-- Sync invariants from Phase 6/7 still hold:
-  - logged-out still works (NullTransport)
-  - sign-out dialog semantics are correct (keep vs remove)
-  - deletes include intent clocks (`inLibraryClock`)
-- Convex canonical tables are already deployed in production (`library_items`, `library_source_links`, `chapter_progress`, `manga_progress`) and are being kept up to date (dual-write or equivalent).
-
-**Phase 8 terminology (use consistent words)**
-- **Deploy**: ship code (Convex functions/schema and/or web app).
-- **Backfill**: one-time copy/transform legacy → canonical tables (Phase 6.x).
-- **Cutover**: switch the app to canonical-only behavior:
-  - stop legacy **reads** (client)
-  - stop legacy **writes** / dual-write (server)
-- **Drop**: destructive removal of legacy tables/endpoints after cutover is proven stable.
+### Phase 8 terminology (use consistent words)
+- **Deploy**: ship code (Convex + web).
+- **Cutover**: stop legacy reads (client) + stop legacy writes (server).
+- **Drop**: remove legacy tables/endpoints (destructive).
 
 ---
 
-**8.1 — Stop reading old shapes everywhere**
-Goal: client rendering and domain logic depend only on local canonical tables + SyncCore, not on legacy cloud snapshots.
+### Phase 8 single-PR checklist (implement in this order)
 
-**8.1.1 — Inventory all remaining legacy reads (do this first)**
-- Ripgrep targets:
-  - `getForLibrary`
-  - `api.library.get`
-  - `api.library.getForLibrary`
-  - `api.history.getForLibrary`
-  - `localStore.getLibrary()` / `localStore.getHistory()` / `saveHistoryEntry()` legacy paths
-  - any “cloud snapshot” state in React (should be gone after Phase 7, but verify)
+#### 8.0 Preconditions (do not skip)
+- [ ] `bun test` is green
+- [ ] `bun run typecheck` is green
+- [ ] Canonical tables exist in both dev + prod Convex deployments
+- [ ] Prod legacy docs are clean enough that schema deploys don’t fail (you already ran legacy cleanup migrations recently)
 
-**8.1.2 — Replace legacy UI selectors with canonical selectors**
-- Library screens must be derivable from:
-  - local `library_items` + local `library_source_links`
-  - local `manga_progress` / `chapter_progress` for “continue reading”
-- If any UI still depends on legacy `HistoryEntry` shape:
-  - keep it as **view-only derived data** built from canonical `chapter_progress`
-  - do not re-introduce cloud snapshot diffing
+#### 8.1 Cut legacy reads (client + transport)
+Goal: eliminate all runtime reliance on legacy endpoints/shapes.
 
-**8.1.3 — Make ConvexTransport stop using legacy reads**
-Right now, some push operations still fetch legacy `api.library.get` for metadata. Fix this by ensuring pushes only use:
-- local canonical tables for metadata/externalIds/overrides (preferred), or
-- new canonical Convex queries (temporary)
+**8.1.1 Inventory (ripgrep)**
+- [ ] No uses remain of:
+  - [ ] `getForLibrary`
+  - [ ] `api.library.list` / `api.library.get` (legacy) except inside explicit legacy-compat code paths you are deleting
+  - [ ] `api.history.getForLibrary` / `api.history.listSince` (legacy)
 
-Concrete task:
-- Update `ConvexTransport.pushSourceLink()` to avoid fetching legacy `api.library.get`:
-  - read local `library_items` via local store repo (ideal: push ops should carry full needed data)
-  - or add a canonical query that reads `library_items` only (acceptable transitional)
+**8.1.2 Transport cleanup**
+- [ ] In `src/sync/convex-transport.ts`:
+  - [ ] remove (or stop exporting/using) legacy full-snapshot hooks:
+    - `useConvexLibrary`, `useConvexHistorySince` (and any UI that used them)
+  - [ ] remove legacy “fetch existing library item” reads used to push source links:
+    - `pushSourceLink()` must not call legacy `api.library.get`
+    - `deleteSourceLink()` must not call legacy `api.library.get`
+  - [ ] replace with one of:
+    - [ ] **preferred**: push ops already carry everything needed (metadata/externalIds/overrides) from local canonical row
+    - [ ] **acceptable**: add a canonical query to fetch `library_items` (not legacy `library`)
 
-**8.1 exit checklist**
-- App renders library and history UI with Convex disconnected (offline) using local canonical tables only.
-- There are **no** UI selectors that read legacy local tables as truth (compat only, if still present, must be clearly marked).
+**8.1.3 UI/store cleanup**
+- [ ] UI renders from local canonical tables only:
+  - [ ] library list: `library_items` + `library_source_links`
+  - [ ] continue reading: `manga_progress` (and chapter details from source, not legacy history snapshots)
+- [ ] If any UI still uses `HistoryEntry` shape, it must be **derived** from local canonical `chapter_progress` (view-only).
 
----
-
-**8.2 — Stop writing old tables (end dual-write)**
-Goal: Convex becomes canonical-only; old `library`/`history` tables receive no new writes.
-
-**8.2.1 — Decide the cutover mechanism**
-Choose ONE:
-- **Option A (recommended)**: introduce new canonical-only mutations/queries
-  - `api.v2.library.save/remove/clearAll`
-  - `api.v2.history.save/clearAll`
-  - `api.v2.settings.save/get` (already effectively canonical)
-- **Option B**: keep current mutations but remove legacy writes inside them
-  - simpler, but riskier if existing callers still depend on legacy side-effects
-
-**8.2.2 — Implement canonical-only write path on server**
-Files to touch (expected):
-- `convex/schema.ts`
-  - ensure canonical tables are the only required ones
-  - keep legacy tables until 8.3
-- `convex/library.ts`
-  - make `save/remove/clearAll` write canonical tables only
-  - ensure membership uses `inLibrary + inLibraryClock`
-  - ensure overrides use normalized `overrides.{metadata,metadataClock,coverUrl,coverUrlClock}`
-- `convex/history.ts`
-  - make `save/clearAll/removeMangaHistory` write canonical tables only (`chapter_progress` + `manga_progress`)
-  - keep high-water mark semantics server-side
-- `convex/sync.ts`
-  - ensure listSince endpoints are only for canonical tables (already)
-
-**8.2.3 — Update client to only call canonical mutations**
-- `src/sync/convex-transport.ts`
-  - move pushes to canonical-only endpoints (v2)
-  - remove any remaining reliance on legacy fields (`overrides`, `coverCustom`, `deletedAt`)
-- `src/sync/provider.tsx`
-  - ensure enqueue data matches canonical push types and local canonical state
-
-**8.2.4 — Rollout safety: feature flag**
-Add a server-side flag (env var or Convex config) so you can:
-- ship canonical-only code disabled
-- enable in dev first
-- then enable in prod
-
-**8.2 exit checklist**
-- In dev, after enabling canonical-only writes:
-  - new writes appear in canonical tables
-  - legacy tables stop changing (verify with row counts / timestamps)
-- No user-facing regressions:
-  - add/remove library
-  - set/clear metadata overrides
-  - set/clear coverUrl override
-  - progress updates (chapter + manga summary)
+**8.1 done when**
+- [ ] App works with Convex disconnected (offline): library + progress render from local canonical DB.
+- [ ] No code path needs legacy Convex tables for correctness.
 
 ---
 
-**8.3 — Drop legacy Convex tables + migrations**
-Goal: remove the old schema and the old server endpoints entirely.
+#### 8.2 Cut legacy writes (server canonical-only + client pushes)
+Goal: end dual-write and stop mutating legacy tables.
 
-**8.3.1 — Add a one-time verification mutation (before dropping tables)**
-Implement `api.migrations.verifyPhase8Cutover` that checks:
-- Canonical coverage:
-  - for each user, `library_items` count is “reasonable”
-  - for each `library_item`, at least one `library_source_link` exists (or explicit rule if you allow zero)
-- Tombstone sanity:
-  - any `inLibrary=false` rows retain `inLibraryClock`
-- Overrides sanity:
-  - if `overrides.metadata` exists (or is null), `metadataClock` exists
-  - same for `coverUrl` / `coverUrlClock`
-- Progress sanity:
-  - `manga_progress.lastReadAt >= max(chapter_progress.lastReadAt)` (or at least not obviously broken)
+**8.2.1 Decide the implementation shape (pick one and execute)**
+- [ ] **Option A (recommended, clean)**: add canonical-only endpoints:
+  - [ ] `convex/v2/library.ts` mutations: save/remove/clearAll (canonical only)
+  - [ ] `convex/v2/history.ts` mutations: save/clearAll (canonical only)
+  - [ ] `convex/v2/settings.ts` (optional; settings already simple)
+- [ ] **Option B (faster, riskier)**: modify existing mutations to stop touching legacy tables
+  - only do this if you verified there are no remaining legacy callers
 
-**8.3.2 — Dev/prod Convex runbook (exact steps)**
-Think in releases, and do **dev first**:
+**8.2.2 Server work (Convex)**
+- [ ] Ensure all write mutations called by SyncTransport push only canonical tables:
+  - [ ] library membership uses `inLibrary + inLibraryClock`
+  - [ ] overrides use `overrides.{metadata,metadataClock,coverUrl,coverUrlClock}`
+  - [ ] progress writes update `chapter_progress` and `manga_progress` (high-water mark)
+- [ ] Ensure any “clear all” deletes canonical rows (and does not depend on legacy)
 
-**Release A (safe deploy, no cutover yet)**
-- **Dev**
-  - Deploy Convex with:
-    - canonical-only code paths available (behind a flag)
-    - verification mutation(s) (read-only checks)
-    - NO legacy table drops
-  - Deploy web to dev (still compatible with legacy).
-  - Run verification in dev.
-- **Prod**
-  - Deploy Convex with the same safe changes (still NO legacy drops).
-  - Deploy web to prod (still compatible with legacy).
-  - Run verification in prod (read-only).
+**8.2.3 Client work**
+- [ ] `src/sync/convex-transport.ts` push methods call canonical-only mutations.
+- [ ] Remove any remaining “legacy-shaped” params (`coverCustom`, legacy overrides, legacy deletedAt) from push path.
 
-**Release B (client cutover: stop legacy reads)**
-- **Dev**
-  - Update web app to stop reading legacy endpoints/shapes (Phase 8.1).
-  - Verify offline behavior (NullTransport) and sign-out keep/remove.
-  - Deploy web to dev.
-- **Prod**
-  - Deploy web to prod.
-
-**Release C (server cutover: stop legacy writes / end dual-write)**
-- **Dev**
-  - Enable the canonical-only write flag.
-  - Verify new writes only touch canonical tables; legacy tables stop changing.
-  - Run verification mutation again.
-- **Prod**
-  - Enable the canonical-only write flag.
-  - Run verification mutation again.
-
-**Release D (destructive cleanup: drop legacy)**
-- **Dev**
-  - Remove legacy tables/endpoints from Convex.
-  - Deploy Convex; smoke test.
-- **Prod**
-  - Remove legacy tables/endpoints from Convex.
-  - Deploy Convex; smoke test.
-
-Commands (examples; adjust function names to whatever is implemented):
-- `npx convex deploy`
-- `npx convex run migrations:verifyPhase8Cutover --prod`
-
-**8.3.3 — Drop legacy tables**
-- Remove from `convex/schema.ts`:
-  - `library`
-  - `history`
-  - any transitional/compat tables no longer needed
-- Delete any remaining legacy Convex functions that:
-  - query legacy tables
-  - dual-write to legacy tables
-
-**8.3 exit checklist**
-- Prod schema has no legacy tables.
-- Prod functions have no legacy endpoints callable by clients.
-- Verification mutation passes in prod after cutover.
+**8.2 done when**
+- [ ] New writes no longer change legacy tables in Convex (spot check via dashboard timestamps / row diffs).
+- [ ] Sync still converges for library/progress/overrides.
 
 ---
 
-**8.4 — Simplify local storage**
-- Optional but clean end goal:
-  - remove separate `nemu-sync` DB
-  - keep `pending_ops` + `sync_meta` in the same canonical local DB as user data
+#### 8.3 Verification (must exist before you drop anything)
+Goal: prove canonical tables are self-consistent before any destructive cleanup.
 
-**8.4.1 — Decide whether to do this now**
-- If your priority is shipping canonical cutover fast: do 8.4 later.
-- If you want the “clean local story” now: do 8.4 as a follow-up PR after 8.3.
+- [ ] Add `convex/migrations.ts` mutation: `verifyPhase8Cutover` that checks:
+  - [ ] every `library_item` has required fields (`metadata`, clocks where applicable)
+  - [ ] link coverage rule is enforced (define explicitly: allow 0 links or require ≥1)
+  - [ ] `inLibrary=false` rows still have `inLibraryClock`
+  - [ ] progress sanity (no obviously broken monotonicity)
+- [ ] Run it in dev and prod:
+  - [ ] `npx convex run migrations:verifyPhase8Cutover`
+  - [ ] `npx convex run migrations:verifyPhase8Cutover --prod`
 
-**8.4.2 — Implementation outline (if doing now)**
-- Move sync state stores into `IndexedDBUserDataStore` DB:
-  - new object stores: `sync_meta`, `pending_ops`
-  - migrate data from `nemu-sync::<profileId>` → `nemu-user::<profileId>`
-- Update adapters in `src/sync/core/adapters.ts`:
-  - `createSyncMetaRepo` / `createPendingOpsRepo` to use the unified DB
-- Update clearing semantics:
-  - `clearAccountData()` must clear:
-    - canonical user tables
-    - `hlcState`
-    - `sync_meta` / `pending_ops`
+---
 
-**8.4 exit checklist**
-- No separate IndexedDB database for sync state.
-- Sign-out “remove data” deletes everything for that profile (including sync state).
+#### 8.4 (Optional) Drop legacy tables/endpoints (irreversible)
+Only do this in the same PR if you explicitly accept:
+- no easy rollback
+- legacy data may be permanently deleted by schema change
 
-**Phase 8 exit criteria (objective “go/no-go”)**
-- **No legacy references**
-  - Client codebase has no remaining references to old Convex endpoints / tables (including `getForLibrary`).
-  - Convex schema no longer defines old `library`/`history` tables (after the final cutover release).
-- **End-to-end convergence**
-  - Two-device scenario:
-    - device A offline writes progress + overrides + cover custom
-    - device B online modifies other fields
-    - when A comes online, both converge to the same canonical state (by rule, not by luck).
-- **Backend replaceability**
-  - Demonstrate a minimal `HttpTransport` (or “spec stub”) can satisfy `SyncTransport` without changing UI/business logic.
+If you choose to do it:
+- [ ] Remove legacy tables from `convex/schema.ts`: `library`, `history`
+- [ ] Delete legacy Convex functions that reference them
+- [ ] Remove any remaining legacy client imports/types/endpoints
 
-**Phase 8 QA matrix (do this manually at least once before prod cutover)**
-- **Sign out → Keep data**:
-  - sign out (keep), kill app, reopen, confirm same library still visible offline
-- **Sign out → Remove data**:
-  - sign out (remove), kill app, reopen, confirm empty local profile
-- **Two-device convergence** (the “real” sync test):
-  - A (offline): add to library, set overrides, set coverUrl, read chapters (progress)
-  - B (online): remove/re-add, edit different fields
-  - A comes online: both converge; no resurrected deletes; overrides obey clocks
+---
+
+### Phase 8 deploy/run checklist (still do dev first, even with one PR)
+
+**Dev**
+- [ ] Deploy Convex
+- [ ] Deploy web
+- [ ] Run verification mutation
+- [ ] Manual QA (below)
+
+**Prod**
+- [ ] Deploy Convex
+- [ ] Deploy web
+- [ ] Run verification mutation
+- [ ] Manual QA (below)
+
+### Phase 8 manual QA checklist (must do once)
+- [ ] Sign out → **Keep data** → restart while logged out → same library visible offline
+- [ ] Sign out → **Remove data** → restart while logged out → empty local profile
+- [ ] Two-device convergence:
+  - [ ] A offline: add/remove, set/clear metadata overrides, set/clear coverUrl, read progress
+  - [ ] B online: mutate other fields
+  - [ ] A online: converge; no resurrected deletes; clocks win per field group
+
+### Phase 8 exit criteria (objective “go/no-go”)
+- [ ] **No legacy references** (codebase)
+  - [ ] no client references to legacy endpoints/tables (including `getForLibrary`)
+  - [ ] Convex schema has no legacy tables (only if you chose 8.4)
+- [ ] **End-to-end convergence** (two-device scenario passes)
+- [ ] **Backend replaceability** (SyncCore still depends only on SyncTransport)
 
 ---
 
