@@ -58,7 +58,25 @@ type IdbBlockedEventDetail = {
 const IDB_UI_EVENT_BUFFER_KEY = "nemu:idb-ui-event";
 const MOCK_BLOCK_STICKY_KEY = "nemu:idb-mock-blocked-sticky";
 const LAST_PROFILE_KEY = "nemu:last-profile";
-const IMPORT_OFFERED_KEY = "nemu:import-offered";
+const IMPORT_OFFERED_SESSION_KEY = "nemu:import-offered-session";
+const IMPORT_DECISION_KEY_PREFIX = "nemu:import-local-library:decision:"; // `${prefix}${userId}` -> "skipped" | "imported"
+
+type ImportDecision = "skipped" | "imported";
+
+function getImportDecision(userId: string): ImportDecision | null {
+  try {
+    const raw = localStorage.getItem(`${IMPORT_DECISION_KEY_PREFIX}${userId}`);
+    return raw === "skipped" || raw === "imported" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function setImportDecision(userId: string, decision: ImportDecision): void {
+  try {
+    localStorage.setItem(`${IMPORT_DECISION_KEY_PREFIX}${userId}`, decision);
+  } catch {}
+}
 
 function makeProfileId(userId: string | null | undefined): string | undefined {
   return userId ? `user:${userId}` : undefined;
@@ -505,12 +523,31 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [showImportDialog, setShowImportDialog] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated || isLoading || !session?.user?.id || sessionStorage.getItem(IMPORT_OFFERED_KEY)) return;
-    new IndexedDBUserDataStore().hasLibraryData().then((hasData) => {
-      if (hasData) setShowImportDialog(true);
-      sessionStorage.setItem(IMPORT_OFFERED_KEY, "true");
-    });
-  }, [isAuthenticated, isLoading, session?.user?.id]);
+    if (!isAuthenticated || isLoading || !session?.user?.id) return;
+
+    const userId = session.user.id;
+    if (getImportDecision(userId)) return;
+    if (sessionStorage.getItem(IMPORT_OFFERED_SESSION_KEY)) return;
+
+    // Offer import only if:
+    // - default (local/offline) profile has legacy library rows, AND
+    // - current (user:<id>) profile doesn't already have canonical library entries.
+    (async () => {
+      try {
+        const defaultStore = new IndexedDBUserDataStore();
+        const [hasLocalLegacy, currentEntries] = await Promise.all([
+          defaultStore.hasLibraryData(),
+          localStore.getLibraryEntries(),
+        ]);
+        if (hasLocalLegacy && currentEntries.length === 0) {
+          setShowImportDialog(true);
+        }
+      } finally {
+        // Avoid re-opening in the same tab session even if auth/loading toggles.
+        try { sessionStorage.setItem(IMPORT_OFFERED_SESSION_KEY, "true"); } catch {}
+      }
+    })();
+  }, [isAuthenticated, isLoading, session?.user?.id, localStore]);
 
   const handleImportLocal = useCallback(async () => {
     if (!session?.user?.id) return;
@@ -560,7 +597,15 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
     stores.useLibraryStore.getState().load();
     stores.useSettingsStore.getState().initialize();
+    setImportDecision(session.user.id, "imported");
   }, [session?.user?.id, canonicalLibraryOps, settingsOps, stores]);
+
+  const handleSkipImport = useCallback(() => {
+    if (session?.user?.id) {
+      setImportDecision(session.user.id, "skipped");
+    }
+    setShowImportDialog(false);
+  }, [session?.user?.id]);
 
   // ============================================================================
   // IDB blocked dialog
@@ -617,7 +662,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       } catch {}
       setLastProfileId(undefined);
     }
-    sessionStorage.removeItem(IMPORT_OFFERED_KEY);
+    sessionStorage.removeItem(IMPORT_OFFERED_SESSION_KEY);
     syncStore.getState().reset();
   }, [syncCore, localStore, syncStore]);
 
@@ -666,7 +711,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
             <ResponsiveDialogDescription>{t("import.description")}</ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <ResponsiveDialogFooter>
-            <Button variant="outline" onClick={() => setShowImportDialog(false)}>{t("import.skip")}</Button>
+            <Button variant="outline" onClick={handleSkipImport}>{t("import.skip")}</Button>
             <Button onClick={handleImportLocal}>{t("import.confirm")}</Button>
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>

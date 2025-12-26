@@ -87,7 +87,12 @@ interface LibraryState {
   error: string | null;
 
   // Actions
-  /** Load library from store. If keepLoading=true, don't set loading=false (for sync) */
+  /**
+   * Load library from store.
+   *
+   * - keepLoading=false (default): this is a foreground load; flips `loading` true → false.
+   * - keepLoading=true: this is a background refresh; does NOT change `loading` (prevents UI from getting stuck in skeleton).
+   */
   load: (keepLoading?: boolean) => Promise<void>;
   
   /** Add a new manga to library (generates UUID) */
@@ -154,9 +159,18 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
 
     load: async (keepLoading = false) => {
       try {
-        set({ loading: true, error: null });
+        if (!keepLoading) {
+          set({ loading: true, error: null });
+        } else {
+          set({ error: null });
+        }
         const entries = await ops.getLibraryEntries();
-        set({ entries, loading: keepLoading });
+        if (!keepLoading) {
+          set({ entries, loading: false });
+        } else {
+          // Background refresh: keep current loading state unchanged.
+          set({ entries });
+        }
       } catch (e) {
         console.error("[LibraryStore] Load error:", e);
         set({
