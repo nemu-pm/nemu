@@ -151,26 +151,37 @@ export type LibraryStore = UseBoundStore<StoreApi<LibraryState>>;
 // Store Factory
 // ============================================================================
 
+let storeCounter = 0;
+
 export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
-  return create<LibraryState>((set, get) => ({
+  const storeId = ++storeCounter;
+  console.log("[LibraryStore] CREATING STORE with id:", storeId);
+  
+  const store = create<LibraryState>((set, get) => ({
     entries: [],
     loading: true,
     error: null,
 
     load: async (keepLoading = false) => {
+      console.log("[LibraryStore] load() called. storeId:", storeId, "keepLoading:", keepLoading);
       try {
         if (!keepLoading) {
           set({ loading: true, error: null });
         } else {
           set({ error: null });
         }
+        console.log("[LibraryStore] calling ops.getLibraryEntries()...");
         const entries = await ops.getLibraryEntries();
+        console.log("[LibraryStore] ops.getLibraryEntries() returned:", entries.length, "entries");
         if (!keepLoading) {
+          console.log("[LibraryStore] setting entries (foreground):", entries.length);
           set({ entries, loading: false });
         } else {
           // Background refresh: keep current loading state unchanged.
+          console.log("[LibraryStore] setting entries (background):", entries.length);
           set({ entries });
         }
+        console.log("[LibraryStore] store state after set. storeId:", storeId, "entries:", get().entries.length);
       } catch (e) {
         console.error("[LibraryStore] Load error:", e);
         set({
@@ -489,4 +500,13 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       }
     },
   }));
+  
+  // Debug: log subscriber count changes
+  store.subscribe((state, prevState) => {
+    if (state.entries.length !== prevState.entries.length) {
+      console.log("[LibraryStore] SUBSCRIBER notified. storeId:", storeId, "entries changed:", prevState.entries.length, "->", state.entries.length);
+    }
+  });
+  
+  return store;
 }

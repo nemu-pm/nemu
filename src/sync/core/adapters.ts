@@ -28,6 +28,46 @@ const DEFAULT_SYNC_DB_NAME = "nemu-sync";
 const DB_VERSION = 1;
 
 /**
+ * Clear all SyncCore state for a profile (pending ops + cursors).
+ *
+ * Used by: "Sign out → Remove data from this device".
+ *
+ * Note: we clear stores instead of deleteDatabase() to avoid "blocked" issues
+ * when other tabs or open connections exist.
+ */
+export async function clearSyncState(profileId?: string): Promise<void> {
+  if (typeof indexedDB === "undefined") return;
+  const dbName = profileId ? `${DEFAULT_SYNC_DB_NAME}::${profileId}` : DEFAULT_SYNC_DB_NAME;
+
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(dbName, DB_VERSION);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(PENDING_STORE)) {
+        db.createObjectStore(PENDING_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(SYNC_META_STORE)) {
+        db.createObjectStore(SYNC_META_STORE, { keyPath: "key" });
+      }
+    };
+  });
+
+  const stores = [PENDING_STORE, SYNC_META_STORE].filter((s) => db.objectStoreNames.contains(s));
+  if (stores.length === 0) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(stores, "readwrite");
+    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => resolve();
+    for (const s of stores) {
+      tx.objectStore(s).clear();
+    }
+  });
+}
+
+/**
  * Creates a SyncMetaRepo adapter backed by IndexedDB.
  * Stores composite cursors in a separate sync DB.
  */

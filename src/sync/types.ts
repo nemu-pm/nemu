@@ -33,7 +33,15 @@ export interface SyncContextValue {
   // Sync v2 additions
   syncStatus: SyncStatus;
   pendingCount: number;
-  signOut: (clearLocal: boolean) => Promise<void>;
+  signOut: (keepData: boolean) => Promise<void>;
+  syncNow?: () => Promise<void>;
+  getSyncDebugSnapshot?: () => Promise<unknown>;
+  debugInfo?: {
+    sessionProfileId?: string;
+    effectiveProfileId?: string;
+    userDbName: string;
+    syncDbName: string;
+  };
   // Canonical progress (replaces legacy libraryHistory)
   mangaProgressIndex: MangaProgressIndex;
   mangaProgressLoading: boolean;

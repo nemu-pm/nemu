@@ -1,7 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
-import { useStores, useAuth, useSyncStore } from "@/data/context";
+import { useStores, useAuth, useSyncStore, useDataServices, useSyncContext } from "@/data/context";
 import { parseSourceKey } from "@/data/keys";
 import type { SyncStore } from "@/stores/sync";
 import { languageStore } from "@/stores/language";
@@ -36,6 +36,9 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Delete02Icon, CloudIcon, Settings02Icon, Recycle03Icon, InformationCircleIcon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { usePluginRegistry } from "@/lib/plugins";
+import { CardDescription } from "@/components/ui/card";
+
+type SyncDebugSnapshot = any;
 
 type OAuthProvider = "google" | "apple";
 
@@ -73,6 +76,8 @@ export function SettingsPage() {
   const syncStore = useSyncStore() as SyncStore;
   const user = syncStore((state) => state.user);
   const oauthProvider = syncStore((state) => state.oauthProvider);
+  const syncCtx = useSyncContext();
+  const { localStore } = useDataServices();
   const { useSettingsStore } = useStores();
   const {
     availableSources,
@@ -136,12 +141,62 @@ export function SettingsPage() {
     }
   };
 
+  const provider = oauthProvider;
+  const displayName = user?.name && user.name !== user.email ? user.name : null;
+
+  // ============================================================================
+  // Sync Debug
+  // ============================================================================
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugSnapshot, setDebugSnapshot] = useState<SyncDebugSnapshot | null>(null);
+  const [localCounts, setLocalCounts] = useState<Record<string, number> | null>(null);
+
+  const refreshDebug = useCallback(async () => {
+    setDebugLoading(true);
+    try {
+      const [snap, entries, progress] = await Promise.all([
+        syncCtx.getSyncDebugSnapshot?.() ?? Promise.resolve(null),
+        localStore.getLibraryEntries(),
+        localStore.getAllMangaProgress(),
+      ]);
+      setDebugSnapshot(snap as any);
+      setLocalCounts({
+        libraryEntries: entries.length,
+        mangaProgress: progress.length,
+      });
+    } finally {
+      setDebugLoading(false);
+    }
+  }, [syncCtx, localStore]);
+
+  const handleSyncNow = useCallback(async () => {
+    setDebugLoading(true);
+    try {
+      await (syncCtx.syncNow?.() ?? Promise.resolve());
+      await refreshDebug();
+    } finally {
+      setDebugLoading(false);
+    }
+  }, [syncCtx, refreshDebug]);
+
+  const copyDebug = useCallback(async () => {
+    const payload = {
+      at: new Date().toISOString(),
+      auth: { isAuthenticated, authLoading, user, oauthProvider },
+      debugInfo: syncCtx.debugInfo,
+      localCounts,
+      snapshot: debugSnapshot,
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    } catch {
+      // ignore
+    }
+  }, [isAuthenticated, authLoading, user, oauthProvider, syncCtx.debugInfo, localCounts, debugSnapshot]);
+
   if (loading) {
     return <SettingsPageSkeleton />;
   }
-
-  const provider = oauthProvider;
-  const displayName = user?.name && user.name !== user.email ? user.name : null;
 
   return (
     <div className="space-y-6">
@@ -193,6 +248,47 @@ export function SettingsPage() {
               </Button>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Sync Debug */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <HugeiconsIcon icon={InformationCircleIcon} className="size-5" />
+            Sync Debug
+          </CardTitle>
+          <CardDescription>
+            Use this to compare two browsers side-by-side (profile/db, cursors, pending ops).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={refreshDebug} disabled={debugLoading}>
+              {debugLoading ? "Refreshing..." : "Refresh"}
+            </Button>
+            <Button size="sm" onClick={handleSyncNow} disabled={debugLoading || !isAuthenticated}>
+              Sync now
+            </Button>
+            <Button size="sm" variant="outline" onClick={copyDebug} disabled={!debugSnapshot}>
+              Copy JSON
+            </Button>
+          </div>
+
+          <div className="text-sm space-y-1">
+            <div><span className="font-medium">profileId</span>: {syncCtx.debugInfo?.effectiveProfileId ?? "(local/default)"}</div>
+            <div><span className="font-medium">userDb</span>: {syncCtx.debugInfo?.userDbName}</div>
+            <div><span className="font-medium">syncDb</span>: {syncCtx.debugInfo?.syncDbName}</div>
+            {localCounts && (
+              <div><span className="font-medium">localCounts</span>: {JSON.stringify(localCounts)}</div>
+            )}
+          </div>
+
+          <div className="rounded-lg border bg-muted/40 p-3 overflow-auto">
+            <pre className="text-xs leading-relaxed">
+              {debugSnapshot ? JSON.stringify(debugSnapshot, null, 2) : "Click Refresh to load debug snapshot."}
+            </pre>
+          </div>
         </CardContent>
       </Card>
 

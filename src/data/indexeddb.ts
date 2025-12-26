@@ -73,25 +73,10 @@ const DEFAULT_DB_NAME = "nemu-user";
  * - That upgrade can be BLOCKED by other tabs; we surface that via the `nemu:idb-blocked` UI event.
  */
 const DB_VERSION = 7;
-/**
- * Minimum DB version that the current app code can safely operate on *without* running migrations.
- *
- * Why this exists:
- * - We intentionally try to open "current version" first (indexedDB.open(name) with no version)
- *   to avoid getting stuck behind a blocked version-change request at startup.
- * - But if the existing DB is *too old*, the app code may be incorrect or crash without migrations.
- *   In that case we must force a versioned open to run migrations (and show the lock dialog if blocked).
- *
- * Guidelines for future edits:
- * - If your change is **compatible** (you add fallbacks), MIN_COMPAT_VERSION can stay the same.
- * - If your change is **incompatible** (missing store/index/fields breaks correctness),
- *   bump MIN_COMPAT_VERSION to the oldest DB version the new code can safely tolerate.
- *
- * Today:
- * - v3 stored history embedded in `library` (no standalone `history` store) → incompatible.
- * - v4 is compatible (we have fallbacks for missing `by_manga` index + legacy history ids).
- */
-const MIN_COMPAT_VERSION = 4;
+// Note: We always upgrade to DB_VERSION if the existing DB is older. This ensures
+// canonical stores are created even for DBs that existed before they were added.
+// The old MIN_COMPAT_VERSION approach caused bugs where local profile DBs at v4-v6
+// would never get the canonical stores (libraryItems, sourceLinks, etc.).
 /**
  * Dev-only repro DB used for `idbHoldLock`/`idbMockUpgrade` so we don't wedge the real DB.
  *
@@ -338,6 +323,7 @@ function makeLegacyHistoryKey(
 export class IndexedDBUserDataStore implements UserDataStore {
   private dbPromise: Promise<IDBDatabase> | null = null;
   readonly profileId: string;
+  readonly dbName: string;
 
   /**
    * @param profileId - Optional profile ID. If provided, DB name becomes "nemu-user::{profileId}".
@@ -345,13 +331,15 @@ export class IndexedDBUserDataStore implements UserDataStore {
    */
   constructor(profileId?: string) {
     this.profileId = profileId ?? "";
+    this.dbName = this.profileId ? `${DEFAULT_DB_NAME}::${this.profileId}` : DEFAULT_DB_NAME;
+    console.log("[IndexedDB] CREATED IndexedDBUserDataStore with profileId:", this.profileId, "dbName:", this.dbName);
   }
 
   /**
    * Get the DB name for this store (includes profile suffix if set).
    */
   private getDbName(): string {
-    return this.profileId ? `${DEFAULT_DB_NAME}::${this.profileId}` : DEFAULT_DB_NAME;
+    return this.dbName;
   }
 
   private getDB(): Promise<IDBDatabase> {
@@ -611,9 +599,9 @@ export class IndexedDBUserDataStore implements UserDataStore {
           };
           currentRequest.onsuccess = () => {
             const db = currentRequest.result;
-            // If this DB is too old for the current code to function safely, do not proceed.
-            // Instead, attempt a real upgrade open so onupgradeneeded can run migrations.
-            if (db.version > 0 && db.version < MIN_COMPAT_VERSION) {
+            // If this DB is older than DB_VERSION, upgrade to get all stores/indexes.
+            // Without this, DBs created before canonical stores were added would never upgrade.
+            if (db.version > 0 && db.version < DB_VERSION) {
               try { db.close(); } catch { /* ignore */ }
               startUpgradeOpen();
               return;
@@ -997,10 +985,12 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
-  async getAllLibraryItems(): Promise<LocalLibraryItem[]> {
+  async getAllLibraryItems(options?: { includeRemoved?: boolean }): Promise<LocalLibraryItem[]> {
+    console.log("[IndexedDB] getAllLibraryItems() called on store with profileId:", this.profileId, "dbName:", this.dbName);
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.libraryItems)) {
+        console.log("[IndexedDB] getAllLibraryItems() - store does not exist, returning []");
         resolve([]);
         return;
       }
@@ -1010,13 +1000,23 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
-        const results = request.result
+        console.log("[IndexedDB] getAllLibraryItems() raw results:", request.result.length);
+        const parsed = request.result
           .map((item) => {
             const parsed = LocalLibraryItemSchema.safeParse(item);
             return parsed.success ? parsed.data : null;
           })
-          .filter((item): item is LocalLibraryItem => item !== null && item.inLibrary !== false);
-        resolve(results);
+          .filter((item): item is LocalLibraryItem => item !== null);
+        console.log("[IndexedDB] getAllLibraryItems() after parse:", parsed.length);
+
+        if (options?.includeRemoved) {
+          resolve(parsed);
+          return;
+        }
+
+        const filtered = parsed.filter((item) => item.inLibrary !== false);
+        console.log("[IndexedDB] getAllLibraryItems() after filter inLibrary:", filtered.length);
+        resolve(filtered);
       };
     });
   }
@@ -1188,7 +1188,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
-  async getAllSourceLinks(): Promise<LocalSourceLink[]> {
+  async getAllSourceLinks(options?: { includeDeleted?: boolean }): Promise<LocalSourceLink[]> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
@@ -1201,13 +1201,19 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
-        const results = request.result
+        const parsed = request.result
           .map((item) => {
             const parsed = LocalSourceLinkSchema.safeParse(item);
             return parsed.success ? parsed.data : null;
           })
-          .filter((item): item is LocalSourceLink => item !== null && !item.deletedAt);
-        resolve(results);
+          .filter((item): item is LocalSourceLink => item !== null);
+
+        if (options?.includeDeleted) {
+          resolve(parsed);
+          return;
+        }
+
+        resolve(parsed.filter((item) => !item.deletedAt));
       };
     });
   }
@@ -1217,10 +1223,12 @@ export class IndexedDBUserDataStore implements UserDataStore {
    * This is the canonical way to load library data for UI.
    */
   async getLibraryEntries(): Promise<Array<{ item: LocalLibraryItem; sources: LocalSourceLink[] }>> {
+    console.log("[IndexedDB] getLibraryEntries() called on store with profileId:", this.profileId);
     const [items, allLinks] = await Promise.all([
       this.getAllLibraryItems(),
       this.getAllSourceLinks(),
     ]);
+    console.log("[IndexedDB] getLibraryEntries() got items:", items.length, "links:", allLinks.length);
 
     // Group source links by libraryItemId
     const linksByItem = new Map<string, LocalSourceLink[]>();
@@ -1231,12 +1239,14 @@ export class IndexedDBUserDataStore implements UserDataStore {
     }
 
     // Join items with their sources
-    return items
+    const result = items
       .filter((item) => item.inLibrary !== false)
       .map((item) => ({
         item,
         sources: linksByItem.get(item.libraryItemId) ?? [],
       }));
+    console.log("[IndexedDB] getLibraryEntries() returning:", result.length, "entries");
+    return result;
   }
 
   // ============ CHAPTER PROGRESS ============
@@ -1336,6 +1346,30 @@ export class IndexedDBUserDataStore implements UserDataStore {
         } else {
           resolve(results);
         }
+      };
+    });
+  }
+
+  async getAllChapterProgress(): Promise<LocalChapterProgress[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
+        resolve([]);
+        return;
+      }
+      const tx = db.transaction(STORES.chapterProgress, "readonly");
+      const store = tx.objectStore(STORES.chapterProgress);
+      const request = store.getAll();
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const results = request.result
+          .map((item) => {
+            const parsed = LocalChapterProgressSchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LocalChapterProgress => item !== null && !item.deletedAt);
+        resolve(results);
       };
     });
   }

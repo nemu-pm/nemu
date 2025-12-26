@@ -121,6 +121,8 @@ export function LibraryPage() {
   const { installedSources, loading: settingsLoading, getSource } = useSettingsStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshingRef = useRef(false);
+  
+  console.log("[LibraryPage] RENDER - entries:", entries.length, "installedSources:", installedSources.length, "loading:", libraryLoading, settingsLoading);
 
   // Refresh library: fetch chapters for ALL sources of each entry
   const refreshLibrary = useCallback(async () => {

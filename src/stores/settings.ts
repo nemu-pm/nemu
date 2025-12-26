@@ -64,6 +64,7 @@ export function createSettingsStore(
     error: null,
 
     initialize: async () => {
+      console.log("[SettingsStore] initialize() called");
       const { manager } = get();
       try {
         set({ loading: true, error: null });
@@ -71,6 +72,7 @@ export function createSettingsStore(
 
         // Load installed sources from storage
         const installedSources = await ops.getInstalledSources();
+        console.log("[SettingsStore] initialize() got installedSources:", installedSources.length);
 
         // Load reading mode from localStorage
         let readingMode: ReadingMode = "rtl";

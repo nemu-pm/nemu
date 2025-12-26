@@ -332,6 +332,35 @@ export class SyncCore {
   }
 
   /**
+   * Debug snapshot for UI diagnostics.
+   */
+  async debugSnapshot(): Promise<{
+    now: number;
+    started: boolean;
+    online: boolean;
+    status: SyncStatus;
+    transportReady: boolean;
+    pendingCount: number;
+    pendingOps: PendingOp[];
+    cursors: SyncCursors;
+  }> {
+    const [pendingOps, cursors] = await Promise.all([
+      this.repos.pendingOps.getPendingOps(),
+      this.getCursors(),
+    ]);
+    return {
+      now: Date.now(),
+      started: this.started,
+      online: this.online,
+      status: this._status,
+      transportReady: !!this.transport && this.transport.isReady(),
+      pendingCount: this._pendingCount,
+      pendingOps,
+      cursors,
+    };
+  }
+
+  /**
    * Apply a remote delta received from transport subscription.
    * This is THE ONLY place that applies remote data + updates cursors.
    * 
@@ -604,7 +633,9 @@ export class SyncCore {
     }
 
     // Emit applied event if we applied any entries
+    console.log(`[SyncCore] pullTable(${tableName}) done. totalApplied:`, totalApplied);
     if (totalApplied > 0) {
+      console.log(`[SyncCore] EMITTING onApplied for ${tableName}`);
       this.emitApplied({ table: tableName, affectedCount: totalApplied });
     }
   }

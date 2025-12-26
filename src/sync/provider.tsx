@@ -30,7 +30,7 @@ import { authClient } from "@/lib/auth-client";
 import { SyncContext } from "./context";
 import type { DataServices, StoreHooks, SyncContextValue } from "./types";
 import { SyncCore } from "./core/SyncCore";
-import { createSyncCoreRepos } from "./core/adapters";
+import { clearSyncState, createSyncCoreRepos } from "./core/adapters";
 import { ConvexTransport } from "./convex-transport";
 import { NullTransport } from "./transports/NullTransport";
 import type { PushLibraryItem, PushLibrarySourceLink, PushChapterProgress } from "./transport";
@@ -57,9 +57,8 @@ type IdbBlockedEventDetail = {
 
 const IDB_UI_EVENT_BUFFER_KEY = "nemu:idb-ui-event";
 const MOCK_BLOCK_STICKY_KEY = "nemu:idb-mock-blocked-sticky";
-const LAST_PROFILE_KEY = "nemu:last-profile";
 const IMPORT_OFFERED_SESSION_KEY = "nemu:import-offered-session";
-const IMPORT_DECISION_KEY_PREFIX = "nemu:import-local-library:decision:"; // `${prefix}${userId}` -> "skipped" | "imported"
+const IMPORT_DECISION_KEY_PREFIX = "nemu:import-local-library:decision:";
 
 type ImportDecision = "skipped" | "imported";
 
@@ -78,7 +77,7 @@ function setImportDecision(userId: string, decision: ImportDecision): void {
   } catch {}
 }
 
-function makeProfileId(userId: string | null | undefined): string | undefined {
+export function makeProfileId(userId: string | null | undefined): string | undefined {
   return userId ? `user:${userId}` : undefined;
 }
 
@@ -93,26 +92,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const shouldDebugIdbUi = import.meta.env.DEV && typeof window !== "undefined" && window.location?.search?.includes("idbMockUpgrade=1");
   const shouldForceIdbDialog = import.meta.env.DEV && typeof window !== "undefined" && window.location?.search?.includes("idbForceDialog=1");
 
-  // Profile selection
+  // Profile selection - STRICT ISOLATION
   const sessionProfileId = makeProfileId(session?.user?.id);
-  const [lastProfileId, setLastProfileId] = useState<string | undefined>(() => {
-    try {
-      const raw = localStorage.getItem(LAST_PROFILE_KEY);
-      return raw && raw.length > 0 ? raw : undefined;
-    } catch { return undefined; }
-  });
-  const effectiveProfileId = sessionProfileId ?? lastProfileId;
-
-  useEffect(() => {
-    if (sessionProfileId) {
-      try { localStorage.setItem(LAST_PROFILE_KEY, sessionProfileId); setLastProfileId(sessionProfileId); } catch {}
-    }
-  }, [sessionProfileId]);
+  const effectiveProfileId = sessionProfileId;
+  
+  console.log("[SyncProvider] RENDER - Profile:", { sessionProfileId, effectiveProfileId, isAuthenticated, isLoading, userId: session?.user?.id });
 
   // ============================================================================
   // Core setup (recreated when profile changes)
   // ============================================================================
   const { localStore, syncCore, hlcManager, transport } = useMemo(() => {
+    console.log("[SyncProvider] CREATING new localStore/syncCore for profile:", effectiveProfileId);
     const store = new IndexedDBUserDataStore(effectiveProfileId);
     const repos = createSyncCoreRepos(store, effectiveProfileId);
     const core = new SyncCore({ repos });
@@ -121,10 +111,30 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   }, [effectiveProfileId]);
 
   const cacheStore = useMemo(() => new IndexedDBCacheStore(), []);
-  // RegistryManager needs: registryMetadataStore (localStore has getRegistries etc), installedSourceStore (settingsOps)
-  // But settingsOps depends on registryManager... circular! Use localStore for now, update later with setInstalledSourceStore
   const registryManager = useMemo(() => new RegistryManager(localStore, localStore, cacheStore), [localStore, cacheStore]);
   const nullTransport = useMemo(() => new NullTransport(), []);
+
+  // ============================================================================
+  // REFS for stable ops - stores read from these instead of capturing closures
+  // This allows stores to be created ONCE and still use the correct data source
+  // ============================================================================
+  const localStoreRef = useRef(localStore);
+  const syncCoreRef = useRef(syncCore);
+  const hlcManagerRef = useRef(hlcManager);
+  const isAuthenticatedRef = useRef(isAuthenticated);
+  const registryManagerRef = useRef(registryManager);
+  const cacheStoreRef = useRef(cacheStore);
+  
+  // Update refs synchronously during render (safe because these are refs)
+  if (localStoreRef.current !== localStore) {
+    console.log("[SyncProvider] localStoreRef.current CHANGED from", localStoreRef.current?.profileId, "to", localStore.profileId);
+  }
+  localStoreRef.current = localStore;
+  syncCoreRef.current = syncCore;
+  hlcManagerRef.current = hlcManager;
+  isAuthenticatedRef.current = isAuthenticated;
+  registryManagerRef.current = registryManager;
+  cacheStoreRef.current = cacheStore;
 
   // ============================================================================
   // SyncCore lifecycle + transport wiring
@@ -133,33 +143,48 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const storesRef = useRef<StoreHooks | null>(null);
 
   useEffect(() => {
+    console.log("[SyncProvider] EFFECT - Setting up syncCore. isAuthenticated:", isAuthenticated, "convex:", !!convex, "signingOut:", signingOut);
     if (isAuthenticated && convex && !signingOut) {
+      console.log("[SyncProvider] EFFECT - Setting ConvexTransport");
       transport.setConvex(convex as ConvexReactClient);
       syncCore.setTransport(transport);
     } else {
+      console.log("[SyncProvider] EFFECT - Setting NullTransport");
       syncCore.setTransport(nullTransport);
     }
     syncCore.start();
     
     // Subscribe to status changes
     const unsubStatus = syncCore.onStatusChange((status) => {
+      console.log("[SyncProvider] STATUS CHANGE:", status);
       syncStore.getState().setSyncStatus(status);
       syncStore.getState().setPendingCount(syncCore.pendingCount);
     });
 
     // Subscribe to apply events - refresh stores when remote data applied
     const unsubApplied = syncCore.onApplied(async (event) => {
-      if (!storesRef.current) return;
+      console.log("[SyncProvider] ON_APPLIED:", event.table, "affectedCount:", event.affectedCount, "storesRef.current:", !!storesRef.current);
+      if (!storesRef.current) {
+        console.warn("[SyncProvider] ON_APPLIED - storesRef.current is NULL! Cannot refresh stores.");
+        return;
+      }
       
       // Refresh relevant stores based on what table was applied
       if (event.table === "libraryItems" || event.table === "sourceLinks") {
+        console.log("[SyncProvider] ON_APPLIED - Calling libraryStore.load(true)");
         storesRef.current.useLibraryStore.getState().load(true);
+      }
+      
+      // Refresh settings store when settings are synced
+      if (event.table === "settings") {
+        console.log("[SyncProvider] ON_APPLIED - Calling settingsStore.initialize()");
+        storesRef.current.useSettingsStore.getState().initialize();
       }
       
       // Refresh manga progress index when progress tables are applied
       if (event.table === "mangaProgress" || event.table === "chapterProgress") {
         try {
-          const allProgress = await localStore.getAllMangaProgress();
+          const allProgress = await localStoreRef.current.getAllMangaProgress();
           const newIndex = new Map<string, LocalMangaProgress>();
           for (const p of allProgress) {
             newIndex.set(p.cursorId, p);
@@ -179,11 +204,16 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // ============================================================================
   const [mangaProgressIndex, setMangaProgressIndex] = useState<Map<string, LocalMangaProgress>>(new Map());
   const [mangaProgressLoading, setMangaProgressLoading] = useState(true);
-  const mangaProgressLoadedRef = useRef(false);
+  const lastLocalStoreRef = useRef<IndexedDBUserDataStore | null>(null);
 
   useEffect(() => {
-    if (mangaProgressLoadedRef.current) return;
-    mangaProgressLoadedRef.current = true;
+    // Reset loading state when localStore changes (profile switch)
+    if (lastLocalStoreRef.current !== localStore) {
+      lastLocalStoreRef.current = localStore;
+      setMangaProgressLoading(true);
+      setMangaProgressIndex(new Map());
+    }
+    
     localStore.getAllMangaProgress().then((entries) => {
       const index = new Map<string, LocalMangaProgress>();
       for (const entry of entries) {
@@ -197,16 +227,13 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // On-demand chapter progress loader
   const loadChapterProgress = useCallback(
     (registryId: string, sourceId: string, sourceMangaId: string) =>
-      localStore.getChapterProgressForManga(registryId, sourceId, sourceMangaId),
-    [localStore]
+      localStoreRef.current.getChapterProgressForManga(registryId, sourceId, sourceMangaId),
+    []
   );
 
   // ============================================================================
   // Auth state tracking
   // ============================================================================
-  const [authKey, setAuthKey] = useState(0);
-  const prevAuthRef = useRef<boolean | null>(null);
-
   useEffect(() => { syncStore.getState().setAuthState(isAuthenticated, isLoading); }, [isAuthenticated, isLoading, syncStore]);
   useEffect(() => {
     if (session?.user) {
@@ -215,34 +242,35 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       syncStore.getState().setUser(null);
     }
   }, [session, syncStore]);
-  useEffect(() => {
-    if (isLoading) return;
-    if (prevAuthRef.current !== null && prevAuthRef.current !== isAuthenticated) setAuthKey((k) => k + 1);
-    prevAuthRef.current = isAuthenticated;
-  }, [isAuthenticated, isLoading]);
   useEffect(() => { if (!isAuthenticated && signingOut) setSigningOut(false); }, [isAuthenticated, signingOut]);
 
   // ============================================================================
-  // Canonical Library Ops (delegates to SyncCore.enqueue for push)
+  // Canonical Library Ops - uses REFS so stores don't need recreation
   // ============================================================================
   const canonicalLibraryOps: CanonicalLibraryOps = useMemo(() => ({
-    getLibraryEntries: () => localStore.getLibraryEntries(),
-    getLibraryItem: (id) => localStore.getLibraryItem(id),
-    getSourceLinksForItem: (id) => localStore.getSourceLinksForLibraryItem(id),
+    getLibraryEntries: () => {
+      console.log("[canonicalLibraryOps] getLibraryEntries() - localStoreRef.current.profileId:", localStoreRef.current.profileId);
+      return localStoreRef.current.getLibraryEntries();
+    },
+    getLibraryItem: (id) => localStoreRef.current.getLibraryItem(id),
+    getSourceLinksForItem: (id) => localStoreRef.current.getSourceLinksForLibraryItem(id),
 
     saveLibraryItem: async (item: LocalLibraryItem, clocks?: SaveItemClocks) => {
-      // Resolve clocks: null = generate new, undefined = preserve existing, string = use provided
+      const hlc = hlcManagerRef.current;
+      const store = localStoreRef.current;
+      const core = syncCoreRef.current;
+      const authed = isAuthenticatedRef.current;
+      
       const inLibraryClock = clocks?.inLibraryClock === null
-        ? await hlcManager.generateIntentClock()
+        ? await hlc.generateIntentClock()
         : (clocks?.inLibraryClock ?? item.inLibraryClock);
       const metadataClock = clocks?.metadataClock === null
-        ? await hlcManager.generateIntentClock()
+        ? await hlc.generateIntentClock()
         : (clocks?.metadataClock ?? item.overrides?.metadataClock);
       const coverUrlClock = clocks?.coverUrlClock === null
-        ? await hlcManager.generateIntentClock()
+        ? await hlc.generateIntentClock()
         : (clocks?.coverUrlClock ?? item.overrides?.coverUrlClock);
       
-      // Write resolved clocks back to local item
       const itemWithClocks: LocalLibraryItem = {
         ...item,
         inLibraryClock,
@@ -252,10 +280,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           coverUrlClock,
         } : undefined,
       };
-      await localStore.saveLibraryItem(itemWithClocks);
+      await store.saveLibraryItem(itemWithClocks);
       
-      if (isAuthenticated) {
-        // Build PushLibraryItem (transport-ready shape)
+      if (authed) {
         const pushItem: PushLibraryItem = {
           libraryItemId: itemWithClocks.libraryItemId,
           metadata: itemWithClocks.metadata,
@@ -272,8 +299,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
             coverUrlClock: itemWithClocks.overrides.coverUrlClock,
           };
         }
-        
-        await syncCore.enqueue({
+        await core.enqueue({
           table: "library_items",
           operation: "save",
           data: pushItem,
@@ -284,33 +310,40 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     },
 
     removeLibraryItem: async (libraryItemId: string, inLibraryClock?: string) => {
-      // Soft-delete: set inLibrary=false
-      const existing = await localStore.getLibraryItem(libraryItemId);
+      const hlc = hlcManagerRef.current;
+      const store = localStoreRef.current;
+      const core = syncCoreRef.current;
+      const authed = isAuthenticatedRef.current;
+      
+      const existing = await store.getLibraryItem(libraryItemId);
       if (existing) {
-        const clock = inLibraryClock ?? await hlcManager.generateIntentClock();
+        const clock = inLibraryClock ?? await hlc.generateIntentClock();
         const updated: LocalLibraryItem = {
           ...existing,
           inLibrary: false,
           inLibraryClock: clock,
           updatedAt: Date.now(),
         };
-        await localStore.saveLibraryItem(updated);
-        if (isAuthenticated) {
-        await syncCore.enqueue({
-          table: "library_items",
-          operation: "remove",
-          data: { libraryItemId, inLibraryClock: clock },
-          timestamp: Date.now(),
-          retries: 0,
-        });
+        await store.saveLibraryItem(updated);
+        if (authed) {
+          await core.enqueue({
+            table: "library_items",
+            operation: "remove",
+            data: { libraryItemId, inLibraryClock: clock },
+            timestamp: Date.now(),
+            retries: 0,
+          });
         }
       }
     },
 
     saveSourceLink: async (link: LocalSourceLink) => {
-      await localStore.saveSourceLink(link);
-      if (isAuthenticated) {
-        // Build PushLibrarySourceLink (transport-ready shape, excludes cursorId/createdAt/updatedAt)
+      const store = localStoreRef.current;
+      const core = syncCoreRef.current;
+      const authed = isAuthenticatedRef.current;
+      
+      await store.saveSourceLink(link);
+      if (authed) {
         const pushLink: PushLibrarySourceLink = {
           libraryItemId: link.libraryItemId,
           registryId: link.registryId,
@@ -324,7 +357,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           updateAckAt: link.updateAckAt,
           deletedAt: link.deletedAt,
         };
-        await syncCore.enqueue({
+        await core.enqueue({
           table: "source_links",
           operation: "save",
           data: pushLink,
@@ -335,15 +368,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     },
 
     removeSourceLink: async (cursorId: string) => {
-      // Soft-delete: set deletedAt
-      const existing = await localStore.getSourceLink(cursorId);
+      const store = localStoreRef.current;
+      const core = syncCoreRef.current;
+      const authed = isAuthenticatedRef.current;
+      
+      const existing = await store.getSourceLink(cursorId);
       if (existing) {
         const updated: LocalSourceLink = { ...existing, deletedAt: Date.now(), updatedAt: Date.now() };
-        await localStore.saveSourceLink(updated);
+        await store.saveSourceLink(updated);
       }
-      if (isAuthenticated && existing) {
-        // Include full identifiers for transport.deleteSourceLink
-        await syncCore.enqueue({
+      if (authed && existing) {
+        await core.enqueue({
           table: "source_links",
           operation: "remove",
           data: {
@@ -357,18 +392,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-  }), [localStore, isAuthenticated, hlcManager, syncCore]);
+  }), []); // Empty deps - uses refs
 
   // ============================================================================
-  // History Store Ops (sync-aware) - reads/writes canonical progress tables
+  // History Store Ops - uses REFS
   // ============================================================================
   const historyOps: HistoryStoreOps = useMemo(() => ({
     getHistoryEntry: async (registryId: string, sourceId: string, mangaId: string, chapterId: string): Promise<HistoryEntry | null> => {
-      // Read from canonical chapter_progress table
+      const store = localStoreRef.current;
       const cursorId = `${encodeURIComponent(registryId)}:${encodeURIComponent(sourceId)}:${encodeURIComponent(mangaId)}:${encodeURIComponent(chapterId)}`;
-      const progress = await localStore.getChapterProgressEntry(cursorId);
+      const progress = await store.getChapterProgressEntry(cursorId);
       if (!progress) return null;
-      // Convert to HistoryEntry format for backward compat
       return {
         id: cursorId,
         registryId: progress.registryId,
@@ -385,10 +419,12 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       };
     },
     saveHistoryEntry: async (entry: HistoryEntry) => {
-      // Save to legacy history store (for backward compat)
-      await localStore.saveHistoryEntry(entry);
+      const store = localStoreRef.current;
+      const core = syncCoreRef.current;
+      const authed = isAuthenticatedRef.current;
       
-      // Also save to canonical chapter_progress table
+      await store.saveHistoryEntry(entry);
+      
       const chapterCursorId = `${encodeURIComponent(entry.registryId)}:${encodeURIComponent(entry.sourceId)}:${encodeURIComponent(entry.mangaId)}:${encodeURIComponent(entry.chapterId)}`;
       const chapterProgress: LocalChapterProgress = {
         cursorId: chapterCursorId,
@@ -405,9 +441,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         chapterTitle: entry.chapterTitle,
         updatedAt: Date.now(),
       };
-      await localStore.saveChapterProgressEntry(chapterProgress);
+      await store.saveChapterProgressEntry(chapterProgress);
       
-      // Update manga_progress summary
       const mangaCursorId = `${encodeURIComponent(entry.registryId)}:${encodeURIComponent(entry.sourceId)}:${encodeURIComponent(entry.mangaId)}`;
       const mangaProgress: LocalMangaProgress = {
         cursorId: mangaCursorId,
@@ -421,17 +456,15 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         lastReadChapterTitle: entry.chapterTitle,
         updatedAt: Date.now(),
       };
-      await localStore.saveMangaProgressEntry(mangaProgress);
+      await store.saveMangaProgressEntry(mangaProgress);
       
-      // Update in-memory index
       setMangaProgressIndex((prev) => {
         const next = new Map(prev);
         next.set(mangaCursorId, mangaProgress);
         return next;
       });
       
-      if (isAuthenticated) {
-        // Build PushChapterProgress (transport-ready shape, excludes cursorId/updatedAt)
+      if (authed) {
         const pushProgress: PushChapterProgress = {
           registryId: entry.registryId,
           sourceId: entry.sourceId,
@@ -445,12 +478,12 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           volumeNumber: entry.volumeNumber,
           chapterTitle: entry.chapterTitle,
         };
-        await syncCore.enqueue({ table: "chapter_progress", operation: "save", data: pushProgress, timestamp: Date.now(), retries: 0 });
+        await core.enqueue({ table: "chapter_progress", operation: "save", data: pushProgress, timestamp: Date.now(), retries: 0 });
       }
     },
     getMangaHistory: async (registryId: string, sourceId: string, mangaId: string): Promise<Record<string, HistoryEntry>> => {
-      // Read from canonical chapter_progress table
-      const progressMap = await localStore.getChapterProgressForManga(registryId, sourceId, mangaId);
+      const store = localStoreRef.current;
+      const progressMap = await store.getChapterProgressForManga(registryId, sourceId, mangaId);
       const result: Record<string, HistoryEntry> = {};
       for (const [chapterId, progress] of Object.entries(progressMap)) {
         result[chapterId] = {
@@ -470,52 +503,66 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       }
       return result;
     },
-    getRecentHistory: (limit: number) => localStore.getRecentHistory(limit),
-  }), [localStore, isAuthenticated, syncCore]);
+    getRecentHistory: (limit: number) => localStoreRef.current.getRecentHistory(limit),
+  }), []); // Empty deps - uses refs
 
   // ============================================================================
-  // Settings Store Ops (sync-aware) - also serves as InstalledSourceStore for RegistryManager
+  // Settings Store Ops - uses REFS
   // ============================================================================
   const settingsOps: SettingsStoreOps = useMemo(() => ({
-    getInstalledSources: () => localStore.getInstalledSources(),
-    getInstalledSource: (id: string) => localStore.getInstalledSource(id),
-    saveInstalledSource: async (source: Parameters<typeof localStore.saveInstalledSource>[0]) => {
-      await localStore.saveInstalledSource(source);
-      const settings = await localStore.getSettings();
-      if (isAuthenticated) {
-        await syncCore.enqueue({ table: "settings", operation: "save", data: settings, timestamp: Date.now(), retries: 0 });
+    getInstalledSources: () => localStoreRef.current.getInstalledSources(),
+    getInstalledSource: (id: string) => localStoreRef.current.getInstalledSource(id),
+    saveInstalledSource: async (source: Parameters<IndexedDBUserDataStore["saveInstalledSource"]>[0]) => {
+      const store = localStoreRef.current;
+      const core = syncCoreRef.current;
+      const authed = isAuthenticatedRef.current;
+      
+      await store.saveInstalledSource(source);
+      const settings = await store.getSettings();
+      if (authed) {
+        await core.enqueue({ table: "settings", operation: "save", data: settings, timestamp: Date.now(), retries: 0 });
       }
     },
     removeInstalledSource: async (id: string) => {
-      await localStore.removeInstalledSource(id);
-      const settings = await localStore.getSettings();
-      if (isAuthenticated) {
-        await syncCore.enqueue({ table: "settings", operation: "save", data: settings, timestamp: Date.now(), retries: 0 });
+      const store = localStoreRef.current;
+      const core = syncCoreRef.current;
+      const authed = isAuthenticatedRef.current;
+      
+      await store.removeInstalledSource(id);
+      const settings = await store.getSettings();
+      if (authed) {
+        await core.enqueue({ table: "settings", operation: "save", data: settings, timestamp: Date.now(), retries: 0 });
       }
     },
-  }), [localStore, isAuthenticated, syncCore]);
+  }), []); // Empty deps - uses refs
 
   // ============================================================================
-  // Services and stores
+  // Services and stores - CREATED ONCE using useRef (not useMemo!)
+  // This prevents React Strict Mode from creating duplicate stores
   // ============================================================================
-  const { services, stores } = useMemo(() => {
-    registryManager.setInstalledSourceStore(settingsOps);
-    const newStores: StoreHooks = {
+  if (!storesRef.current) {
+    console.log("[SyncProvider] CREATING stores ONCE (lazy ref init)");
+    registryManagerRef.current.setInstalledSourceStore(settingsOps);
+    storesRef.current = {
       useLibraryStore: createLibraryStore(canonicalLibraryOps),
       useHistoryStore: createHistoryStore(historyOps),
-      useSettingsStore: createSettingsStore(settingsOps, cacheStore, registryManager),
+      useSettingsStore: createSettingsStore(settingsOps, cacheStoreRef.current, registryManagerRef.current),
     };
-    storesRef.current = newStores;
-    const newServices: DataServices = { localStore, cacheStore, registryManager };
-    return { services: newServices, stores: newStores };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authKey, localStore, cacheStore, registryManager, canonicalLibraryOps, historyOps, settingsOps]);
+    console.log("[SyncProvider] storesRef.current SET:", !!storesRef.current);
+  }
+  const stores = storesRef.current;
 
+  // When localStore changes (profile switch), reload all stores
   useEffect(() => {
-    stores.useSettingsStore.getState().initialize();
-    stores.useLibraryStore.getState().load(false);
+    console.log("[SyncProvider] localStore changed - reloading stores");
+    stores.useSettingsStore.getState().initialize().then(() => {
+      console.log("[SyncProvider] settingsStore.initialize() DONE after profile switch");
+    });
+    stores.useLibraryStore.getState().load(false).then(() => {
+      console.log("[SyncProvider] libraryStore.load() DONE after profile switch");
+    });
     getSourceSettingsStore().getState().initialize();
-  }, [stores]);
+  }, [localStore, stores]);
 
   // ============================================================================
   // Import dialog (migrates legacy local data to canonical tables)
@@ -529,37 +576,28 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (getImportDecision(userId)) return;
     if (sessionStorage.getItem(IMPORT_OFFERED_SESSION_KEY)) return;
 
-    // Offer import only if:
-    // - default (local/offline) profile has legacy library rows, AND
-    // - cloud account appears empty (avoid duplicating into an already-synced account), AND
-    // - current (user:<id>) profile doesn't already have canonical library entries.
     (async () => {
       try {
         const defaultStore = new IndexedDBUserDataStore();
         const hasLocalLegacy = await defaultStore.hasLibraryData();
         if (!hasLocalLegacy) return;
 
-        // Conservative: only offer import when we can confirm the cloud library is empty.
-        // This avoids accidental duplication for existing accounts where local canonical
-        // might still be empty briefly before the first pull completes.
         let cloudEmpty = false;
         try {
           const firstPage = await transport.pullLibraryItems({ updatedAt: 0, cursorId: "" }, 1);
           cloudEmpty = firstPage.entries.length === 0;
         } catch {
-          // If we can't verify cloud emptiness (offline / transient error), don't prompt.
           return;
         }
-
         if (!cloudEmpty) return;
 
         const currentEntries = await localStore.getLibraryEntries();
-        if (currentEntries.length === 0) {
-          setShowImportDialog(true);
-        }
-      } finally {
-        // Avoid re-opening in the same tab session even if auth/loading toggles.
-        try { sessionStorage.setItem(IMPORT_OFFERED_SESSION_KEY, "true"); } catch {}
+        if (currentEntries.length > 0) return;
+
+        sessionStorage.setItem(IMPORT_OFFERED_SESSION_KEY, "true");
+        setShowImportDialog(true);
+      } catch (e) {
+        console.error("[SyncProvider] Import check failed:", e);
       }
     })();
   }, [isAuthenticated, isLoading, session?.user?.id, localStore, transport]);
@@ -567,65 +605,133 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const handleImportLocal = useCallback(async () => {
     if (!session?.user?.id) return;
     setShowImportDialog(false);
-    const defaultStore = new IndexedDBUserDataStore();
-    const [legacyLib, settings] = await Promise.all([defaultStore.getLibrary(), defaultStore.getSettings()]);
+    setImportDecision(session.user.id, "imported");
 
-    // Convert legacy LibraryManga to canonical tables
-    const now = Date.now();
-    for (const manga of legacyLib) {
-      const item: LocalLibraryItem = {
-        libraryItemId: manga.id,
-        metadata: manga.metadata,
-        externalIds: manga.externalIds,
-        inLibrary: true,
-        overrides: manga.overrides || manga.coverCustom ? {
-          metadata: manga.overrides,
-          coverUrl: manga.coverCustom,
-        } : undefined,
-        createdAt: manga.addedAt,
-        updatedAt: now,
-      };
-      // Import represents a new user intent; generate clocks so later merges/deletes are correct.
-      await canonicalLibraryOps.saveLibraryItem(item, {
-        inLibraryClock: null,
-        metadataClock: item.overrides ? null : undefined,
-        coverUrlClock: item.overrides ? null : undefined,
-      });
-
-      for (const source of manga.sources) {
-        const link: LocalSourceLink = {
-          cursorId: makeSourceLinkCursorId(source.registryId, source.sourceId, source.mangaId),
-          libraryItemId: manga.id,
-          registryId: source.registryId,
-          sourceId: source.sourceId,
-          sourceMangaId: source.mangaId,
-          latestChapter: source.latestChapter,
-          updateAckChapter: source.updateAcknowledged,
+    try {
+      const defaultStore = new IndexedDBUserDataStore();
+      const legacyData = await defaultStore.getLibrary();
+      
+      for (const legacy of legacyData) {
+        const parts = legacy.id.split(":");
+        if (parts.length < 3) continue;
+        
+        const [registryId, sourceId, ...mangaIdParts] = parts;
+        const sourceMangaId = mangaIdParts.join(":");
+        
+        const libraryItemId = crypto.randomUUID();
+        const now = Date.now();
+        
+        const item: LocalLibraryItem = {
+          libraryItemId,
+          metadata: legacy.metadata ?? { title: "Unknown" },
+          externalIds: legacy.externalIds,
+          inLibrary: true,
+          createdAt: legacy.addedAt ?? now,
+          updatedAt: now,
+        };
+        
+        if (legacy.overrides) {
+          item.overrides = { metadata: legacy.overrides };
+        }
+        if (legacy.coverCustom) {
+          item.overrides = { ...item.overrides, coverUrl: legacy.coverCustom };
+        }
+        
+        await canonicalLibraryOps.saveLibraryItem(item, { inLibraryClock: null });
+        
+        const sourceLink: LocalSourceLink = {
+          cursorId: makeSourceLinkCursorId(registryId, sourceId, sourceMangaId),
+          libraryItemId,
+          registryId,
+          sourceId,
+          sourceMangaId,
           createdAt: now,
           updatedAt: now,
         };
-        await canonicalLibraryOps.saveSourceLink(link);
+        
+        await canonicalLibraryOps.saveSourceLink(sourceLink);
       }
+      
+      stores.useLibraryStore.getState().load(false);
+    } catch (e) {
+      console.error("[SyncProvider] Import failed:", e);
     }
-
-    if (settings.installedSources.length > 0) {
-      // Save each installed source
-      for (const source of settings.installedSources) {
-        await settingsOps.saveInstalledSource(source);
-      }
-    }
-
-    stores.useLibraryStore.getState().load();
-    stores.useSettingsStore.getState().initialize();
-    setImportDecision(session.user.id, "imported");
-  }, [session?.user?.id, canonicalLibraryOps, settingsOps, stores]);
+  }, [session?.user?.id, canonicalLibraryOps, stores]);
 
   const handleSkipImport = useCallback(() => {
-    if (session?.user?.id) {
-      setImportDecision(session.user.id, "skipped");
-    }
+    if (!session?.user?.id) return;
     setShowImportDialog(false);
+    setImportDecision(session.user.id, "skipped");
   }, [session?.user?.id]);
+
+  // ============================================================================
+  // Sign out
+  // ============================================================================
+  const signOut = useCallback(async (keepData: boolean) => {
+    console.log("[SignOut] Starting sign out, keepData:", keepData, "effectiveProfileId:", effectiveProfileId);
+    
+    try {
+      await syncCore.syncNow("manual");
+    } catch {}
+
+    setSigningOut(true);
+    syncCore.stop();
+    
+    if (keepData && effectiveProfileId) {
+      console.log("[SignOut] Copying data from user profile to local profile...");
+      const localProfile = new IndexedDBUserDataStore();
+      
+      const items = await localStore.getAllLibraryItems({ includeRemoved: true });
+      console.log("[SignOut] Found", items.length, "library items to copy (including tombstones)");
+      for (const item of items) {
+        await localProfile.saveLibraryItem(item);
+      }
+      
+      const links = await localStore.getAllSourceLinks({ includeDeleted: true });
+      console.log("[SignOut] Found", links.length, "source links to copy (including tombstones)");
+      for (const link of links) {
+        await localProfile.saveSourceLink(link);
+      }
+      
+      const chapters = await localStore.getAllChapterProgress();
+      console.log("[SignOut] Found", chapters.length, "chapter progress to copy");
+      for (const ch of chapters) {
+        await localProfile.saveChapterProgressEntry(ch);
+      }
+      
+      const mangas = await localStore.getAllMangaProgress();
+      console.log("[SignOut] Found", mangas.length, "manga progress to copy");
+      for (const m of mangas) {
+        await localProfile.saveMangaProgressEntry(m);
+      }
+      
+      const settings = await localStore.getSettings();
+      console.log("[SignOut] Copying settings with", settings.installedSources.length, "installed sources");
+      await localProfile.saveSettings(settings);
+      
+      const verifyItems = await localProfile.getAllLibraryItems({ includeRemoved: true });
+      console.log(
+        "[SignOut] Verification: local profile now has",
+        verifyItems.length,
+        "library items (including tombstones)"
+      );
+    }
+    
+    console.log("[SignOut] Clearing cloud profile data...");
+    await localStore.clearAccountData();
+    try {
+      await clearSyncState(effectiveProfileId);
+    } catch (e) {
+      console.error("[SignOut] Failed to clear sync state:", e);
+    }
+    try {
+      if (session?.user?.id) localStorage.removeItem(`${IMPORT_DECISION_KEY_PREFIX}${session.user.id}`);
+    } catch {}
+    
+    sessionStorage.removeItem(IMPORT_OFFERED_SESSION_KEY);
+    syncStore.getState().reset();
+    console.log("[SignOut] Sign out complete");
+  }, [syncCore, localStore, syncStore, effectiveProfileId, session?.user?.id]);
 
   // ============================================================================
   // IDB blocked dialog
@@ -634,84 +740,71 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [idbDialogOpen, setIdbDialogOpen] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(IDB_UI_EVENT_BUFFER_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as { detail?: IdbBlockedEventDetail };
-        if (parsed?.detail?.kind) {
-          setIdbBlocked(parsed.detail);
+    if (shouldDebugIdbUi) {
+      try {
+        const buffered = sessionStorage.getItem(IDB_UI_EVENT_BUFFER_KEY);
+        if (buffered) {
+          sessionStorage.removeItem(IDB_UI_EVENT_BUFFER_KEY);
+          const parsed = JSON.parse(buffered) as IdbBlockedEventDetail;
+          setIdbBlocked(parsed);
           setIdbDialogOpen(true);
         }
-        sessionStorage.removeItem(IDB_UI_EVENT_BUFFER_KEY);
-      }
-    } catch {}
-    try {
-      if (shouldDebugIdbUi && sessionStorage.getItem(MOCK_BLOCK_STICKY_KEY) === "1") {
-        setIdbBlocked({ dbName: "nemu-user", kind: "blocked" });
-        setIdbDialogOpen(true);
-      }
-    } catch {}
-    const handler = (ev: Event) => {
-      const d = (ev as CustomEvent<IdbBlockedEventDetail>).detail;
-      if (d?.kind) {
-        setIdbBlocked(d);
-        setIdbDialogOpen(true);
+      } catch {}
+    }
+    if (shouldForceIdbDialog) {
+      setIdbBlocked({ dbName: "nemu-user", kind: "blocked", requestedVersion: 999 });
+      setIdbDialogOpen(true);
+    }
+    const handler = (e: CustomEvent<IdbBlockedEventDetail>) => {
+      setIdbBlocked(e.detail);
+      setIdbDialogOpen(true);
+      if (shouldDebugIdbUi) {
+        try { sessionStorage.setItem(IDB_UI_EVENT_BUFFER_KEY, JSON.stringify(e.detail)); } catch {}
       }
     };
     window.addEventListener(IDB_UI_EVENT, handler as EventListener);
     return () => window.removeEventListener(IDB_UI_EVENT, handler as EventListener);
-  }, [shouldDebugIdbUi]);
+  }, [shouldDebugIdbUi, shouldForceIdbDialog]);
 
   useEffect(() => {
-    if (shouldForceIdbDialog) {
-      setIdbBlocked({ dbName: "nemu-user", kind: "blocked" });
-      setIdbDialogOpen(true);
+    if (shouldDebugIdbUi) {
+      const sticky = localStorage.getItem(MOCK_BLOCK_STICKY_KEY);
+      if (sticky === "true") {
+        setIdbBlocked({ dbName: "nemu-user", kind: "blocked" });
+        setIdbDialogOpen(true);
+      }
     }
-  }, [shouldForceIdbDialog]);
+  }, [shouldDebugIdbUi]);
 
   // ============================================================================
-  // Sign out
-  // ============================================================================
-  const signOut = useCallback(async (clearLocal: boolean) => {
-    // Best-effort: flush a sync run before wiping local data, so we don't silently
-    // drop pending ops for users who expect cloud state to be preserved.
-    if (clearLocal) {
-      try {
-        await syncCore.syncNow("manual");
-      } catch {}
-    }
-
-    setSigningOut(true);
-    syncCore.stop();
-    if (clearLocal) {
-      await localStore.clearAccountData();
-      try {
-        localStorage.removeItem(LAST_PROFILE_KEY);
-      } catch {}
-      setLastProfileId(undefined);
-    }
-    sessionStorage.removeItem(IMPORT_OFFERED_SESSION_KEY);
-    syncStore.getState().reset();
-  }, [syncCore, localStore, syncStore]);
-
-  // ============================================================================
-  // Context value
+  // Sync status
   // ============================================================================
   const syncStatus = syncStore((s) => s.syncStatus);
   const pendingCount = syncStore((s) => s.pendingCount);
 
+  // ============================================================================
+  // Context value
+  // ============================================================================
   const value: SyncContextValue = useMemo(() => ({
-    services,
+    services: { localStore, cacheStore, registryManager },
     stores,
     isAuthenticated,
     isLoading,
     syncStatus,
     pendingCount,
     signOut,
+    syncNow: () => syncCore.syncNow("manual"),
+    getSyncDebugSnapshot: () => syncCore.debugSnapshot(),
+    debugInfo: {
+      sessionProfileId,
+      effectiveProfileId,
+      userDbName: effectiveProfileId ? `nemu-user::${effectiveProfileId}` : "nemu-user",
+      syncDbName: effectiveProfileId ? `nemu-sync::${effectiveProfileId}` : "nemu-sync",
+    },
     mangaProgressIndex,
     mangaProgressLoading,
     loadChapterProgress,
-  }), [services, stores, isAuthenticated, isLoading, syncStatus, pendingCount, signOut, mangaProgressIndex, mangaProgressLoading, loadChapterProgress]);
+  }), [localStore, cacheStore, registryManager, stores, isAuthenticated, isLoading, syncStatus, pendingCount, signOut, syncCore, sessionProfileId, effectiveProfileId, mangaProgressIndex, mangaProgressLoading, loadChapterProgress]);
 
   const idbDescription = idbBlocked?.kind === "versionchange"
     ? t("storage.idbLock.descriptionVersionChange")

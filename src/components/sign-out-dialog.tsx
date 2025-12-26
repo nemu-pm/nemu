@@ -22,26 +22,28 @@ interface SignOutDialogProps {
 export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
   const { t } = useTranslation();
   const signOutSync = useSignOut();
-  const [clearLocal, setClearLocal] = useState(false);
+  const [keepData, setKeepData] = useState(true); // Default to keeping data
   const [loading, setLoading] = useState(false);
 
   // Reset state when dialog closes
   const handleOpenChange = (newOpen: boolean) => {
     if (loading) return;
     if (!newOpen) {
-      setClearLocal(false);
+      setKeepData(true);
     }
     onOpenChange(newOpen);
   };
 
   const handleSignOut = async () => {
     setLoading(true);
-    const shouldClearLocal = clearLocal;
+    const shouldKeepData = keepData;
     // Close dialog FIRST to avoid race condition where auth state changes
     // while dialog is still mounted (causing queries to fire without auth)
     handleOpenChange(false);
     // Then sign out asynchronously
-    await signOutSync(shouldClearLocal);
+    // keepData=true: copy user profile → local, then delete user profile
+    // keepData=false: just delete user profile
+    await signOutSync(shouldKeepData);
     await authClient.signOut();
   };
 
@@ -56,8 +58,8 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
         </ResponsiveDialogHeader>
 
         <RadioGroup
-          value={clearLocal ? "clear" : "keep"}
-          onValueChange={(v) => setClearLocal(v === "clear")}
+          value={keepData ? "keep" : "clear"}
+          onValueChange={(v) => setKeepData(v === "keep")}
         >
           <div className="flex items-start gap-3">
             <RadioGroupItem value="keep" id="keep" className="mt-0.5" />
