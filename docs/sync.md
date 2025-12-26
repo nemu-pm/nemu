@@ -1166,164 +1166,217 @@ The goal is that once `SyncCore` exists, correctness is enforced by tests, not b
   - progress writes
   - verify UI selectors can be derived from canonical local stores only
 
-#### Phase 8: Pre-release cutover (single PR) — canonical-only end state
+#### Phase 8: Nuke cursor-based sync — use Convex subscriptions directly
 
-This phase is intentionally written for **one PR / one commit** (pre-release “move fast” mode).
-It still has an ordered checklist so a junior can implement without missing hidden dependencies.
+**Lesson learned:** Cursor-based incremental sync is over-engineered for this use case. We reimplemented what Convex already provides (real-time subscriptions) and introduced countless bugs:
+- Cursor corruption on server rollback/restore
+- Race conditions between cursor persistence and data apply
+- Partial wipes leaving cursors ahead of data
+- Complex recovery logic that itself had bugs
 
-### Phase 8 goal (what “done” means)
-- **Client**: no code path depends on legacy Convex tables/endpoints (`library`, `history`, `getForLibrary`) for correctness.
-- **Server**: canonical-only writes (no dual-write) and canonical-only reads for sync.
-- **Legacy**: legacy tables are either:
-  - unused but still present (safer rollback), or
-  - dropped (irreversible; only if you explicitly accept that risk).
+### Phase 8 goal: Simplify radically
+
+**New model:**
+1. **Server is truth** — Convex already has real-time subscriptions
+2. **Local is cache** — mirror server state to IDB for offline viewing
+3. **Kill cursors entirely** — no `nemu-sync::*` DB, no cursor tracking, no `sync_meta`
+4. **No custom pending ops** — Convex handles offline writes automatically
+
+**Architecture:**
+```
+[Convex] ←subscription→ [SyncProvider] →write→ [Local IDB] ←read← [UI / Stores]
+              ↑                                     ↑
+         [SyncProvider] ←――――――――――――――――――――――――――┘
+              ↓                              (user actions)
+         Convex mutation
+```
+
+**Key principle: UI is unaware of Convex.** UI/stores only read from local IDB.
+
+- **SyncProvider** owns all Convex interactions:
+  - Subscribes to Convex queries (`useQuery`)
+  - Writes server state to local IDB
+  - Sends mutations to Convex on user actions
+- **UI / Stores** only interact with local IDB:
+  - Read library, progress, etc. from IDB
+  - User actions → call store methods → SyncProvider handles Convex
+
+**Flow:**
+- Online: Convex subscription fires → SyncProvider writes to IDB → store refreshes → UI updates
+- Offline: UI reads stale IDB, user actions call SyncProvider → Convex queues mutations
+- Reconnect: Convex retries mutations + subscription fires → IDB updated → UI updates
 
 ### Phase 8 invariants
-- **Canonical-only behavior**: library/history correctness comes from canonical tables:
-  - `library_items`, `library_source_links`, `chapter_progress`, `manga_progress`
-- **No resurrection**: deletes and clears converge (HLC intent clocks).
-- **Logged-out works**: NullTransport + local DB still render and accept writes into pending ops.
+- **No cursors**: delete `sync_meta`, `CURSOR_KEYS`, composite cursor logic
+- **No `nemu-sync::*` DB**: only `nemu-user::*` for local cache
+- **No custom pending ops**: Convex client handles offline mutation queuing
+- **Subscription-driven**: Convex `useQuery` subscriptions write to local IDB
+- **Offline viewing works**: local IDB is readable without connection (may be stale)
 
-### Phase 8 terminology (use consistent words)
-- **Deploy**: ship code (Convex + web).
-- **Cutover**: stop legacy reads (client) + stop legacy writes (server).
-- **Drop**: remove legacy tables/endpoints (destructive).
+### What we keep from Phase 1-7
+- Canonical tables (`library_items`, `library_source_links`, `chapter_progress`, `manga_progress`)
+- Profile isolation (`nemu-user::<profileId>`)
+- Local IDB as the single source of truth for UI
+- Stores read from IDB only (unaware of Convex)
 
----
-
-### Phase 8 single-PR checklist (implement in this order)
-
-#### 8.0 Preconditions (do not skip)
-- [ ] `bun test` is green
-- [ ] `bun run typecheck` is green
-- [ ] Canonical tables exist in both dev + prod Convex deployments
-- [ ] Prod legacy docs are clean enough that schema deploys don’t fail (you already ran legacy cleanup migrations recently)
-
-#### 8.1 Cut legacy reads (client + transport)
-Goal: eliminate all runtime reliance on legacy endpoints/shapes.
-
-**8.1.1 Inventory (ripgrep)**
-- [ ] No uses remain of:
-  - [ ] `getForLibrary`
-  - [ ] `api.library.list` / `api.library.get` (legacy) except inside explicit legacy-compat code paths you are deleting
-  - [ ] `api.history.getForLibrary` / `api.history.listSince` (legacy)
-
-**8.1.2 Transport cleanup**
-- [ ] In `src/sync/convex-transport.ts`:
-  - [ ] remove (or stop exporting/using) legacy full-snapshot hooks:
-    - `useConvexLibrary`, `useConvexHistorySince` (and any UI that used them)
-  - [ ] remove legacy “fetch existing library item” reads used to push source links:
-    - `pushSourceLink()` must not call legacy `api.library.get`
-    - `deleteSourceLink()` must not call legacy `api.library.get`
-  - [ ] replace with one of:
-    - [ ] **preferred**: push ops already carry everything needed (metadata/externalIds/overrides) from local canonical row
-    - [ ] **acceptable**: add a canonical query to fetch `library_items` (not legacy `library`)
-
-**8.1.3 UI/store cleanup**
-- [ ] UI renders from local canonical tables only:
-  - [ ] library list: `library_items` + `library_source_links`
-  - [ ] continue reading: `manga_progress` (and chapter details from source, not legacy history snapshots)
-- [ ] If any UI still uses `HistoryEntry` shape, it must be **derived** from local canonical `chapter_progress` (view-only).
-
-**8.1 done when**
-- [ ] App works with Convex disconnected (offline): library + progress render from local canonical DB.
-- [ ] No code path needs legacy Convex tables for correctness.
+### What we delete
+- `nemu-sync::*` databases
+- `sync_meta` store and cursor tracking
+- `pending_ops` store (Convex handles offline writes)
+- `SyncCore` entirely (or reduce to thin status wrapper)
+- `pullLibraryItems`, `pullSourceLinks`, etc. transport methods
+- All `listSince` cursor-based endpoints (can keep for admin/debug)
+- Composite cursor types and helpers
+- `createSyncMetaRepo`, `createPendingOpsRepo`
+- HLC clocks (`IntentClock`, `inLibraryClock`, `metadataClock`, etc.) — Convex handles conflict resolution
+- `hlc.ts`, `createHLCManager`
+- `deletedAt` fields (tombstones) — subscription-based sync doesn't need them, use hard deletes
+- `cursorId` fields in Convex — only needed for cursor-based pagination (local IDB renames to `id`)
+- `by_user_cursor` indexes
 
 ---
 
-#### 8.2 Cut legacy writes (server canonical-only + client pushes)
-Goal: end dual-write and stop mutating legacy tables.
+### Phase 8 checklist
 
-**8.2.1 Decide the implementation shape (pick one and execute)**
-- [ ] **Option A (recommended, clean)**: add canonical-only endpoints:
-  - [ ] `convex/v2/library.ts` mutations: save/remove/clearAll (canonical only)
-  - [ ] `convex/v2/history.ts` mutations: save/clearAll (canonical only)
-  - [ ] `convex/v2/settings.ts` (optional; settings already simple)
-- [ ] **Option B (faster, riskier)**: modify existing mutations to stop touching legacy tables
-  - only do this if you verified there are no remaining legacy callers
+#### 8.1 Delete sync infrastructure
+- [ ] Delete `SyncCore` class (or gut it to bare minimum)
+- [ ] Remove `CURSOR_KEYS`, `CompositeCursor` types
+- [ ] Remove `sync_meta` and `pending_ops` stores
+- [ ] Remove `createSyncMetaRepo`, `createPendingOpsRepo`
+- [ ] Remove `clearSyncState`
+- [ ] Delete `nemu-sync::*` DB creation entirely
+- [ ] Delete HLC infrastructure (`hlc.ts`, `IntentClock`, `createHLCManager`)
+- [ ] Remove clock fields from schema (`inLibraryClock`, `metadataClock`, `coverUrlClock`)
+- [ ] Remove `deletedAt` fields — use hard deletes instead of soft deletes
+- [ ] Remove `cursorId` fields from Convex (local IDB renames to `id`)
+- [ ] Remove `by_user_cursor` indexes
 
-**8.2.2 Server work (Convex)**
-- [ ] Ensure all write mutations called by SyncTransport push only canonical tables:
-  - [ ] library membership uses `inLibrary + inLibraryClock`
-  - [ ] overrides use `overrides.{metadata,metadataClock,coverUrl,coverUrlClock}`
-  - [ ] progress writes update `chapter_progress` and `manga_progress` (high-water mark)
-- [ ] Ensure any “clear all” deletes canonical rows (and does not depend on legacy)
+#### 8.2 Add subscription-based sync (SyncProvider)
+- [ ] In `SyncProvider`, subscribe to canonical tables via `useQuery`:
+  - `api.sync.libraryItemsAll` (or paginated if needed)
+  - `api.sync.sourceLinksAll`
+  - `api.sync.chapterProgressAll` (or by-manga on-demand)
+  - `api.sync.mangaProgressAll`
+- [ ] On subscription update: batch-write entire result set to local IDB
+- [ ] Trigger store refresh after IDB write (so UI updates)
+- [ ] No diffing, no cursors — just overwrite local with server state
 
-**8.2.3 Client work**
-- [ ] `src/sync/convex-transport.ts` push methods call canonical-only mutations.
-- [ ] Remove any remaining “legacy-shaped” params (`coverCustom`, legacy overrides, legacy deletedAt) from push path.
+#### 8.3 Simplify writes (SyncProvider handles Convex)
+- [ ] Store actions call SyncProvider methods (not Convex directly)
+- [ ] SyncProvider writes to local IDB + calls Convex mutation
+- [ ] No local pending ops queue — Convex client handles offline
+- [ ] UI/stores remain unaware of Convex
 
-**8.2 done when**
-- [ ] New writes no longer change legacy tables in Convex (spot check via dashboard timestamps / row diffs).
-- [ ] Sync still converges for library/progress/overrides.
-
----
-
-#### 8.3 Verification (must exist before you drop anything)
-Goal: prove canonical tables are self-consistent before any destructive cleanup.
-
-- [ ] Add `convex/migrations.ts` mutation: `verifyPhase8Cutover` that checks:
-  - [ ] every `library_item` has required fields (`metadata`, clocks where applicable)
-  - [ ] link coverage rule is enforced (define explicitly: allow 0 links or require ≥1)
-  - [ ] `inLibrary=false` rows still have `inLibraryClock`
-  - [ ] progress sanity (no obviously broken monotonicity)
-- [ ] Run it in dev and prod:
-  - [ ] `npx convex run migrations:verifyPhase8Cutover`
-  - [ ] `npx convex run migrations:verifyPhase8Cutover --prod`
+#### 8.4 Simplify local storage
+- [ ] Only `nemu-user::*` databases (one per profile)
+- [ ] Local IDB = cache for offline viewing only
+- [ ] "Clear all data" just clears `nemu-user::*`
 
 ---
 
-#### 8.4 (Optional) Drop legacy tables/endpoints (irreversible)
-Only do this in the same PR if you explicitly accept:
-- no easy rollback
-- legacy data may be permanently deleted by schema change
+---
 
-If you choose to do it:
-- [ ] Remove legacy tables from `convex/schema.ts`: `library`, `history`
-- [ ] Delete legacy Convex functions that reference them
-- [ ] Remove any remaining legacy client imports/types/endpoints
+### Phase 8 migration plan (dev + prod)
+
+Both dev and prod Convex deployments currently have Phase 7 schema with clock fields.
+Migration must be done carefully to avoid breaking running clients.
+
+#### 8.M1 Deploy code that ignores clock fields (backwards compatible)
+- [ ] Client stops reading/writing clock fields
+- [ ] Server mutations stop requiring clock fields (make optional)
+- [ ] Server still accepts clock fields (old clients) but ignores them
+- [ ] Deploy to dev, verify
+- [ ] Deploy to prod, verify
+
+#### 8.M2 Remove Phase 7 fields from existing documents
+- [ ] Add migration: `convex/migrations:removePhase7Fields`
+  ```ts
+  // For each library_items doc:
+  // - unset inLibraryClock
+  // - unset overrides.metadataClock
+  // - unset overrides.coverUrlClock
+  // For each library_source_links doc:
+  // - hard delete if deletedAt is set
+  // - unset deletedAt
+  // - unset cursorId
+  // For each chapter_progress doc:
+  // - hard delete if deletedAt is set
+  // - unset deletedAt
+  // - unset cursorId
+  // For each manga_progress doc:
+  // - hard delete if deletedAt is set
+  // - unset deletedAt
+  // - unset cursorId
+  ```
+- [ ] Run on dev: `npx convex run migrations:removePhase7Fields`
+- [ ] Verify dev data
+- [ ] Run on prod: `npx convex run migrations:removePhase7Fields --prod`
+- [ ] Verify prod data
+
+#### 8.M3 Remove Phase 7 fields from Convex schema
+- [ ] Update `convex/schema.ts`:
+  - Remove `inLibraryClock`, `metadataClock`, `coverUrlClock` from `library_items`
+  - Remove `deletedAt` from `library_source_links`, `chapter_progress`, `manga_progress`
+  - Remove `cursorId` from `library_source_links`, `chapter_progress`, `manga_progress` (Convex uses `_id`)
+  - Remove `by_user_cursor` indexes from all tables
+- [ ] Deploy schema change to dev
+- [ ] Deploy schema change to prod
+
+**Note:** Convex documents have built-in `_id`. The `cursorId` field was only needed for cursor pagination tie-breaking. For local IDB, we keep a renamed `id` field (see 8.M4).
+
+#### 8.M4 Cleanup client code
+- [ ] Delete `src/sync/hlc.ts`
+- [ ] Delete `IntentClock` type
+- [ ] Delete `createHLCManager`
+- [ ] Remove clock fields from `LocalLibraryItem` schema
+- [ ] Remove `deletedAt` from local schema types
+- [ ] Rename `cursorId` → `id` in local schema types (see note below)
+- [ ] Rename `makeSourceLinkCursorId` → `makeSourceLinkId` (keep composite key format)
+- [ ] Rename `makeChapterProgressCursorId` → `makeChapterProgressId`
+- [ ] Rename `makeMangaProgressCursorId` → `makeMangaProgressId`
+- [ ] Update `CanonicalLibraryOps.removeSourceLink(cursorId)` → `removeSourceLink(id)`
+- [ ] Remove clock merge logic from apply functions
+- [ ] Remove tombstone handling logic
+
+**Note on `cursorId` → `id` rename:**
+The `cursorId` field in `library_source_links`, `chapter_progress`, `manga_progress` is actually a **natural composite key** (e.g. `registryId:sourceId:sourceMangaId`). It's not cursor-sync machinery — it's a valid unique identifier. We rename it to `id` to avoid confusion with the removed cursor-based sync system. The composite key format stays the same.
 
 ---
 
-### Phase 8 deploy/run checklist (still do dev first, even with one PR)
-
-**Dev**
-- [ ] Deploy Convex
-- [ ] Deploy web
-- [ ] Run verification mutation
-- [ ] Manual QA (below)
-
-**Prod**
-- [ ] Deploy Convex
-- [ ] Deploy web
-- [ ] Run verification mutation
-- [ ] Manual QA (below)
-
-### Phase 8 manual QA checklist (must do once)
-- [ ] Sign out → **Keep data** → restart while logged out → same library visible offline
-- [ ] Sign out → **Remove data** → restart while logged out → empty local profile
-- [ ] Two-device convergence:
-  - [ ] A offline: add/remove, set/clear metadata overrides, set/clear coverUrl, read progress
-  - [ ] B online: mutate other fields
-  - [ ] A online: converge; no resurrected deletes; clocks win per field group
-
-### Phase 8 exit criteria (objective “go/no-go”)
-- [ ] **No legacy references** (codebase)
-  - [ ] no client references to legacy endpoints/tables (including `getForLibrary`)
-  - [ ] Convex schema has no legacy tables (only if you chose 8.4)
-- [ ] **End-to-end convergence** (two-device scenario passes)
-- [ ] **Backend replaceability** (SyncCore still depends only on SyncTransport)
+### Phase 8 exit criteria
+- [ ] No `SyncCore`, no `sync_meta`, no `pending_ops`, no HLC
+- [ ] No `nemu-sync::*` databases
+- [ ] No clock fields in Convex schema or documents
+- [ ] No `deletedAt` fields — hard deletes only
+- [ ] No `cursorId` fields in Convex schema (local uses `id` with natural composite keys)
+- [ ] No `by_user_cursor` indexes
+- [ ] No clock fields in local schema
+- [ ] Server rollback/restore works: subscription fires → local repopulates
+- [ ] Offline viewing works: local IDB readable (stale)
+- [ ] Offline writes work: Convex queues mutations automatically
+- [ ] Tests pass
 
 ---
 
-### Current known tradeoffs (what’s acceptable vs not)
+### Why this is better
 
-- Acceptable (for now):
-  - Provider contains some glue because the server returns a **UI-shaped** history snapshot (`getForLibrary`).
-    - We now persist deltas into IndexedDB, but the conversion/diff still lives in the provider layer.
-- Not ideal long-term:
-  - Diffing snapshot-shaped data in React effects to drive persistence (should be cursor-based deltas instead).
-  - Having both an in-memory grouped history view **and** a persisted flat history table as parallel “truths”
-    (better: local DB is the only truth, and grouped views are derived selectors).
+| Old (over-engineered) | New (Convex-native) |
+|----------------------|---------------------|
+| Complex cursor pagination | Simple full sync |
+| `cursorId` + `by_user_cursor` indexes in Convex | Convex `_id`, local `id` (natural composite keys) |
+| Cursor corruption on rollback | Subscription just fires |
+| Custom pending ops queue | Convex handles offline writes |
+| HLC clocks for conflict resolution | Convex handles conflicts |
+| Soft deletes + tombstones | Hard deletes |
+| `nemu-sync` + `nemu-user` coordination | Single DB per profile |
+| `SyncCore` (800+ lines) | Delete it |
+| `hlc.ts`, clock fields everywhere | Delete it |
+| Hundreds of lines of sync logic | Convex does it for us |
+
+**Trade-off:** More data transferred on each subscription update. Acceptable for:
+- Library: typically < 1000 items
+- Progress: can be fetched on-demand per manga
+
+If scale becomes an issue later, revisit — but don't prematurely optimize with cursors again.
 
 

@@ -154,12 +154,15 @@ export function SettingsPage() {
   const refreshDebug = useCallback(async () => {
     setDebugLoading(true);
     try {
-      const [snap, entries, progress] = await Promise.all([
-        syncCtx.getSyncDebugSnapshot?.() ?? Promise.resolve(null),
+      const [entries, progress] = await Promise.all([
         localStore.getLibraryEntries(),
         localStore.getAllMangaProgress(),
       ]);
-      setDebugSnapshot(snap as any);
+      setDebugSnapshot({
+        at: Date.now(),
+        syncStatus: syncCtx.syncStatus,
+        isAuthenticated,
+      });
       setLocalCounts({
         libraryEntries: entries.length,
         mangaProgress: progress.length,
@@ -167,17 +170,7 @@ export function SettingsPage() {
     } finally {
       setDebugLoading(false);
     }
-  }, [syncCtx, localStore]);
-
-  const handleSyncNow = useCallback(async () => {
-    setDebugLoading(true);
-    try {
-      await (syncCtx.syncNow?.() ?? Promise.resolve());
-      await refreshDebug();
-    } finally {
-      setDebugLoading(false);
-    }
-  }, [syncCtx, refreshDebug]);
+  }, [localStore, syncCtx.syncStatus, isAuthenticated]);
 
   const copyDebug = useCallback(async () => {
     const payload = {
@@ -267,9 +260,6 @@ export function SettingsPage() {
             <Button size="sm" variant="outline" onClick={refreshDebug} disabled={debugLoading}>
               {debugLoading ? "Refreshing..." : "Refresh"}
             </Button>
-            <Button size="sm" onClick={handleSyncNow} disabled={debugLoading || !isAuthenticated}>
-              Sync now
-            </Button>
             <Button size="sm" variant="outline" onClick={copyDebug} disabled={!debugSnapshot}>
               Copy JSON
             </Button>
@@ -278,7 +268,7 @@ export function SettingsPage() {
           <div className="text-sm space-y-1">
             <div><span className="font-medium">profileId</span>: {syncCtx.debugInfo?.effectiveProfileId ?? "(local/default)"}</div>
             <div><span className="font-medium">userDb</span>: {syncCtx.debugInfo?.userDbName}</div>
-            <div><span className="font-medium">syncDb</span>: {syncCtx.debugInfo?.syncDbName}</div>
+            <div><span className="font-medium">syncStatus</span>: {syncCtx.syncStatus}</div>
             {localCounts && (
               <div><span className="font-medium">localCounts</span>: {JSON.stringify(localCounts)}</div>
             )}

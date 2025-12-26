@@ -30,15 +30,14 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
   const [loading, setLoading] = useState(false);
   const clearCloudData = useMutation(api.library.clearAll);
 
-  const profileId = localStore?.profileId ?? "";
   const knownDbNames = useMemo(() => {
     // Minimal set to cover the most important DBs even when indexedDB.databases() isn't available.
+    // Phase 8: No more nemu-sync DB - only nemu-user and nemu-cache
     const names = new Set<string>();
     names.add("nemu-cache");
     if (localStore?.dbName) names.add(localStore.dbName);
-    names.add(profileId ? `nemu-sync::${profileId}` : "nemu-sync");
     return names;
-  }, [localStore?.dbName, profileId]);
+  }, [localStore?.dbName]);
 
   const handleOpenChange = (newOpen: boolean) => {
     // Prevent closing while loading
@@ -109,9 +108,7 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
   const handleClear = async () => {
     setLoading(true);
     try {
-      // IMPORTANT: stop background sync loops before clearing storage.
-      // Otherwise SyncCore can rewrite `nemu-sync::*` cursors during the clear flow,
-      // leaving the app "synced" with an empty library after re-login.
+      // Stop any active subscriptions before clearing storage
       try {
         await syncCtx.stopSync?.();
       } catch {
@@ -140,8 +137,7 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
         await clearCloudData();
       }
 
-      // Clear IndexedDB data first to avoid partial-wipe states (e.g. clearing nemu-user but leaving nemu-sync),
-      // which can strand sync cursors and make the app appear "synced" with an empty library.
+      // Clear all IndexedDB databases
       const dbNames = new Set<string>(knownDbNames);
       if (typeof indexedDB.databases === "function") {
         try {

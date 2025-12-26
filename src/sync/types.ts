@@ -4,8 +4,16 @@ import type { RegistryManager } from "@/lib/sources/registry";
 import type { LibraryStore } from "@/stores/library";
 import type { HistoryStore } from "@/stores/history";
 import type { SettingsStore } from "@/stores/settings";
-import type { SyncStatus } from "./core/types";
 import type { LocalMangaProgress, LocalChapterProgress } from "@/data/schema";
+
+/**
+ * Sync status (Phase 8 - simplified)
+ * 
+ * - offline: no network or not authenticated
+ * - syncing: actively syncing data
+ * - synced: all data is synced
+ */
+export type SyncStatus = "offline" | "syncing" | "synced";
 
 export interface DataServices {
   localStore: IndexedDBUserDataStore;
@@ -30,22 +38,16 @@ export interface SyncContextValue {
   stores: StoreHooks;
   isAuthenticated: boolean;
   isLoading: boolean;
-  // Sync v2 additions
   syncStatus: SyncStatus;
-  pendingCount: number;
   signOut: (keepData: boolean) => Promise<void>;
   /**
-   * Immediately stop background sync loops (used by "Clear All Data" to avoid
-   * SyncCore rewriting `nemu-sync::*` while we are clearing storage).
+   * Stop sync subscriptions (used by "Clear All Data").
    */
   stopSync?: () => Promise<void>;
-  syncNow?: () => Promise<void>;
-  getSyncDebugSnapshot?: () => Promise<unknown>;
   debugInfo?: {
     sessionProfileId?: string;
     effectiveProfileId?: string;
     userDbName: string;
-    syncDbName: string;
   };
   // Canonical progress (replaces legacy libraryHistory)
   mangaProgressIndex: MangaProgressIndex;

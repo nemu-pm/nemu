@@ -237,29 +237,9 @@ type SourceLinkInput = {
 };
 
 /**
- * Compare two IntentClocks. Returns true if `a` is newer than `b`.
- * IntentClock format: "{wallMsPadded}:{counterPadded}:{nodeId}"
- * Lexicographic comparison works because wallMs and counter are zero-padded.
- */
-function isClockNewer(a: string | undefined, b: string | undefined): boolean {
-  if (!a) return false;
-  if (!b) return true;
-  return a > b;
-}
-
-/**
- * Dual-write to library_items table with clock-based merge.
- * Phase 6.5.5: Uses normalized overrides shape with HLC-based clocks.
- *
- * Merge rules (per field-group):
- * - If incoming.clock > existing.clock: accept incoming value (including null)
- * - Else: keep existing value
- *
- * Field groups:
- * - Membership: inLibrary + inLibraryClock
- * - Metadata overrides: overrides.metadata + overrides.metadataClock
- * - Cover override: overrides.coverUrl + overrides.coverUrlClock
- * - Source metadata (metadata, externalIds): always accept (not user-controlled)
+ * Dual-write to library_items table.
+ * Phase 8: Simplified - no clock-based merge, just overwrite.
+ * Clock fields are accepted but ignored (backward compat for old clients).
  */
 async function dualWriteLibraryItem(
   ctx: MutationCtx,
@@ -267,16 +247,15 @@ async function dualWriteLibraryItem(
   libraryItemId: string,
   data: {
     metadata: { title: string; cover?: string; authors?: string[]; artists?: string[]; description?: string; tags?: string[]; status?: number; url?: string };
-    // Phase 6.5.5: Normalized overrides shape
     overrides?: {
       metadata?: { title?: string; cover?: string; authors?: string[]; artists?: string[]; description?: string; tags?: string[]; status?: number; url?: string } | null;
-      metadataClock?: string;
+      metadataClock?: string; // ignored
       coverUrl?: string | null;
-      coverUrlClock?: string;
+      coverUrlClock?: string; // ignored
     };
     externalIds?: { mangaUpdates?: number; aniList?: number; mal?: number };
     inLibrary?: boolean;
-    inLibraryClock?: string;
+    inLibraryClock?: string; // ignored
     createdAt: number;
     updatedAt: number;
   }
@@ -286,64 +265,18 @@ async function dualWriteLibraryItem(
     .withIndex("by_user_item", (q) => q.eq("userId", userId).eq("libraryItemId", libraryItemId))
     .first();
 
+  // Build overrides without clock fields
+  const overrides = data.overrides ? {
+    metadata: data.overrides.metadata,
+    coverUrl: data.overrides.coverUrl,
+  } : undefined;
+
   if (existing) {
-    // Clock-based merge for each field group
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const existingOverrides = existing.overrides as any;
-
-    // Membership: accept if incoming clock is newer
-    const acceptMembership = isClockNewer(data.inLibraryClock, existing.inLibraryClock);
-    const finalInLibrary = acceptMembership ? data.inLibrary : existing.inLibrary;
-    const finalInLibraryClock = acceptMembership ? data.inLibraryClock : existing.inLibraryClock;
-
-    // Metadata overrides: accept if incoming clock is newer
-    // IMPORTANT: undefined means "not provided", not an explicit user action.
-    // Explicit clears are represented as null.
-    const incomingHasMetadata =
-      !!data.overrides &&
-      Object.prototype.hasOwnProperty.call(data.overrides, "metadata");
-    const acceptMetadataOverrides =
-      incomingHasMetadata &&
-      isClockNewer(data.overrides?.metadataClock, existingOverrides?.metadataClock);
-    const finalMetadata = acceptMetadataOverrides
-      ? data.overrides?.metadata
-      : existingOverrides?.metadata;
-    const finalMetadataClock = acceptMetadataOverrides
-      ? data.overrides?.metadataClock
-      : existingOverrides?.metadataClock;
-
-    // Cover override: accept if incoming clock is newer
-    const incomingHasCoverUrl =
-      !!data.overrides &&
-      Object.prototype.hasOwnProperty.call(data.overrides, "coverUrl");
-    const acceptCoverOverride =
-      incomingHasCoverUrl &&
-      isClockNewer(data.overrides?.coverUrlClock, existingOverrides?.coverUrlClock);
-    const finalCoverUrl = acceptCoverOverride
-      ? data.overrides?.coverUrl
-      : existingOverrides?.coverUrl;
-    const finalCoverUrlClock = acceptCoverOverride
-      ? data.overrides?.coverUrlClock
-      : existingOverrides?.coverUrlClock;
-
-    // Build merged overrides
-    const mergedOverrides = (finalMetadata !== undefined || finalCoverUrl !== undefined)
-      ? {
-          metadata: finalMetadata,
-          metadataClock: finalMetadataClock,
-          coverUrl: finalCoverUrl,
-          coverUrlClock: finalCoverUrlClock,
-        }
-      : undefined;
-
     await ctx.db.patch(existing._id, {
-      // Source metadata: always accept (not user-controlled)
       metadata: data.metadata,
       externalIds: data.externalIds ?? existing.externalIds,
-      // Clock-merged fields
-      inLibrary: finalInLibrary,
-      inLibraryClock: finalInLibraryClock,
-      overrides: mergedOverrides,
+      inLibrary: data.inLibrary ?? existing.inLibrary,
+      overrides,
       updatedAt: data.updatedAt,
     });
   } else {
@@ -353,8 +286,7 @@ async function dualWriteLibraryItem(
       metadata: data.metadata,
       externalIds: data.externalIds,
       inLibrary: data.inLibrary ?? true,
-      inLibraryClock: data.inLibraryClock,
-      overrides: data.overrides,
+      overrides,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
     });
@@ -434,13 +366,14 @@ async function dualWriteSourceLinks(
 export const remove = mutation({
   args: {
     mangaId: v.string(),
-    // Phase 6.5: Client-generated clock for membership change
+    // Deprecated: clock field accepted but ignored
     inLibraryClock: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuth(ctx);
     const now = Date.now();
 
+    // Legacy library table - soft delete
     const existing = await ctx.db
       .query("library")
       .withIndex("by_user_manga", (q) =>
@@ -455,22 +388,17 @@ export const remove = mutation({
       });
     }
 
-    // Phase 2: Dual-write soft delete to new tables with clock-based merge
+    // Normalized table - set inLibrary=false (no clock merge)
     const libraryItem = await ctx.db
       .query("library_items")
       .withIndex("by_user_item", (q) => q.eq("userId", userId).eq("libraryItemId", args.mangaId))
       .first();
 
     if (libraryItem) {
-      // Only update if incoming clock is newer (or no existing clock)
-      const acceptRemove = isClockNewer(args.inLibraryClock, libraryItem.inLibraryClock);
-      if (acceptRemove || !libraryItem.inLibraryClock) {
-        await ctx.db.patch(libraryItem._id, {
-          inLibrary: false,
-          inLibraryClock: args.inLibraryClock,
-          updatedAt: now,
-        });
-      }
+      await ctx.db.patch(libraryItem._id, {
+        inLibrary: false,
+        updatedAt: now,
+      });
     }
 
     // Soft-delete source links

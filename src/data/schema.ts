@@ -110,76 +110,24 @@ export const SourceRegistrySchema = z.discriminatedUnion("type", [
 
 // ============================================================================
 // Normalized local schema types (mirrors cloud canonical tables)
+// Phase 8: Simplified - no clock fields, no soft deletes
 // ============================================================================
 
 /**
- * Composite cursor for deterministic pagination.
- */
-export const CompositeCursorSchema = z.object({
-  updatedAt: z.number(),
-  cursorId: z.string(),
-});
-
-// ============================================================================
-// IntentClock type (HLC-based)
-// ============================================================================
-
-/**
- * IntentClock is a lexicographically comparable string representing an HLC timestamp.
- * Format: "{wallMsPadded}:{counterPadded}:{nodeId}"
- * Example: "00001703497912345:000012:device-9f3c"
- */
-export const IntentClockSchema = z.string();
-
-/**
- * HLC state stored per profile.
- */
-export const HLCStateSchema = z.object({
-  wallMs: z.number(),
-  counter: z.number(),
-  nodeId: z.string(),
-});
-
-// ============================================================================
-// User Overrides (normalized shape)
-// ============================================================================
-
-/**
- * User overrides for library items with HLC-based ordering.
- *
- * This normalized shape groups related fields together:
- * - metadata + metadataClock: user edits to title, description, etc.
- * - coverUrl + coverUrlClock: user-uploaded cover override
- *
- * Both field groups have independent clocks for independent conflict resolution.
- *
- * Values:
- * - `metadata = null` means "explicitly cleared metadata overrides"
- * - `metadata = undefined` means "never set / inherited from source"
- * - `coverUrl = null` means "explicitly cleared cover → use source cover"
- * - `coverUrl = undefined` means "never set / use source cover"
+ * User overrides for library items (metadata and cover).
  */
 export const UserOverridesSchema = z.object({
   // Metadata overrides (sparse - only user-edited fields)
   metadata: MangaMetadataSchema.partial().nullable().optional(),
-  metadataClock: IntentClockSchema.optional(),
-
   // Cover override URL (R2 or other storage)
   coverUrl: z.string().nullable().optional(),
-  coverUrlClock: IntentClockSchema.optional(),
 });
 
 /**
  * Local library item (normalized, mirrors library_items table).
- * cursorId = libraryItemId
- *
- * Uses IntentClock for user-intent ordering:
- * - inLibrary + inLibraryClock: library membership state
- * - overrides.metadata + overrides.metadataClock: user metadata overrides
- * - overrides.coverUrl + overrides.coverUrlClock: user cover override
  */
 export const LocalLibraryItemSchema = z.object({
-  // cursorId = libraryItemId (primary key)
+  // Primary key
   libraryItemId: z.string(),
 
   // Metadata (source-derived, not user-editable)
@@ -187,24 +135,25 @@ export const LocalLibraryItemSchema = z.object({
   externalIds: ExternalIdsSchema.optional(),
 
   // Library membership state
-  // inLibrary=false means "removed from library", inLibrary=true means "in library"
   inLibrary: z.boolean().default(true),
-  inLibraryClock: IntentClockSchema.optional(),
 
-  // User overrides (normalized shape with independent clocks)
+  // User overrides
   overrides: UserOverridesSchema.optional(),
 
   // Sync fields
   createdAt: z.number(),
   updatedAt: z.number(),
+
+  // Legacy clock field (ignored, kept for backward compat with existing IDB data)
+  inLibraryClock: z.string().optional(),
 });
 
 /**
  * Local source link (normalized, mirrors library_source_links table).
- * cursorId = "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
+ * Key: "${registryId}:${sourceId}:${sourceMangaId}"
  */
 export const LocalSourceLinkSchema = z.object({
-  // Primary key (cursorId)
+  // Primary key
   cursorId: z.string(),
 
   // FK
@@ -226,15 +175,17 @@ export const LocalSourceLinkSchema = z.object({
   // Sync fields
   createdAt: z.number(),
   updatedAt: z.number(),
+
+  // Legacy field (ignored, kept for backward compat)
   deletedAt: z.number().optional(),
 });
 
 /**
  * Local chapter progress (normalized, mirrors chapter_progress table).
- * cursorId = "${registryId}:${sourceId}:${sourceMangaId}:${sourceChapterId}" (URL-encoded)
+ * Key: "${registryId}:${sourceId}:${sourceMangaId}:${sourceChapterId}"
  */
 export const LocalChapterProgressSchema = z.object({
-  // Primary key (cursorId)
+  // Primary key
   cursorId: z.string(),
 
   // Source reference
@@ -259,15 +210,17 @@ export const LocalChapterProgressSchema = z.object({
 
   // Sync fields
   updatedAt: z.number(),
+
+  // Legacy field (ignored, kept for backward compat)
   deletedAt: z.number().optional(),
 });
 
 /**
  * Local manga progress (normalized, mirrors manga_progress table).
- * cursorId = "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
+ * Key: "${registryId}:${sourceId}:${sourceMangaId}"
  */
 export const LocalMangaProgressSchema = z.object({
-  // Primary key (cursorId)
+  // Primary key
   cursorId: z.string(),
 
   // Source reference
@@ -287,16 +240,6 @@ export const LocalMangaProgressSchema = z.object({
 
   // Sync fields
   updatedAt: z.number(),
-  deletedAt: z.number().optional(),
-});
-
-/**
- * Sync cursor stored in sync_meta.
- */
-export const SyncCursorSchema = z.object({
-  key: z.string(), // e.g. "library_items_cursor"
-  updatedAt: z.number(),
-  cursorId: z.string(),
 });
 
 // ============ INFERRED TYPES ============
@@ -312,22 +255,16 @@ export type UserSettings = z.infer<typeof UserSettingsSchema>;
 export type SourceRegistry = z.infer<typeof SourceRegistrySchema>;
 
 // Normalized local types
-export type CompositeCursor = z.infer<typeof CompositeCursorSchema>;
 export type LocalLibraryItem = z.infer<typeof LocalLibraryItemSchema>;
 export type LocalSourceLink = z.infer<typeof LocalSourceLinkSchema>;
 export type LocalChapterProgress = z.infer<typeof LocalChapterProgressSchema>;
 export type LocalMangaProgress = z.infer<typeof LocalMangaProgressSchema>;
-export type SyncCursor = z.infer<typeof SyncCursorSchema>;
-
-// HLC types
-export type IntentClock = z.infer<typeof IntentClockSchema>;
-export type HLCState = z.infer<typeof HLCStateSchema>;
 export type UserOverrides = z.infer<typeof UserOverridesSchema>;
 
-// ============ PHASE 6: CURSOR ID HELPERS ============
+// ============ KEY HELPERS ============
 
 /**
- * Build cursorId for source links
+ * Build key for source links
  * Format: "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
  */
 export function makeSourceLinkCursorId(registryId: string, sourceId: string, sourceMangaId: string): string {
@@ -335,7 +272,7 @@ export function makeSourceLinkCursorId(registryId: string, sourceId: string, sou
 }
 
 /**
- * Build cursorId for chapter progress
+ * Build key for chapter progress
  * Format: "${registryId}:${sourceId}:${sourceMangaId}:${sourceChapterId}" (URL-encoded)
  */
 export function makeChapterProgressCursorId(
@@ -348,7 +285,7 @@ export function makeChapterProgressCursorId(
 }
 
 /**
- * Build cursorId for manga progress (same format as source link)
+ * Build key for manga progress (same format as source link)
  * Format: "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
  */
 export function makeMangaProgressCursorId(registryId: string, sourceId: string, sourceMangaId: string): string {

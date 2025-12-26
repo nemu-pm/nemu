@@ -5,7 +5,6 @@ import type {
   LocalSourceLink,
   MangaMetadata,
   ExternalIds,
-  IntentClock,
 } from "@/data/schema";
 import { makeSourceLinkCursorId } from "@/data/schema";
 import type { LibraryEntry } from "@/data/view";
@@ -19,20 +18,8 @@ function generateId(): string {
 }
 
 // ============================================================================
-// Canonical Library Store Interface
+// Canonical Library Store Interface (Phase 8 - simplified)
 // ============================================================================
-
-/**
- * Clock options for save operations.
- * - `undefined` = no clock change (preserve existing)
- * - `null` = generate new clock (user intent changed)
- * - `string` = use provided clock value
- */
-export interface SaveItemClocks {
-  inLibraryClock?: IntentClock | null;
-  metadataClock?: IntentClock | null;
-  coverUrlClock?: IntentClock | null;
-}
 
 /**
  * Interface for canonical library operations.
@@ -45,8 +32,8 @@ export interface CanonicalLibraryOps {
   getSourceLinksForItem(libraryItemId: string): Promise<LocalSourceLink[]>;
 
   // Write library items
-  saveLibraryItem(item: LocalLibraryItem, clocks?: SaveItemClocks): Promise<void>;
-  removeLibraryItem(libraryItemId: string, inLibraryClock?: IntentClock): Promise<void>;
+  saveLibraryItem(item: LocalLibraryItem): Promise<void>;
+  removeLibraryItem(libraryItemId: string): Promise<void>;
 
   // Write source links
   saveSourceLink(link: LocalSourceLink): Promise<void>;
@@ -234,8 +221,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       };
 
       try {
-        // Save with membership clock (null = generate new clock)
-        await ops.saveLibraryItem(item, { inLibraryClock: null });
+        await ops.saveLibraryItem(item);
         await ops.saveSourceLink(source);
 
         const entry: LibraryEntry = { item, sources: [source] };
@@ -378,7 +364,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       };
 
       try {
-        await ops.saveLibraryItem(updated, { metadataClock: null });
+        await ops.saveLibraryItem(updated);
         set((state) => ({
           entries: state.entries.map((e) =>
             e.item.libraryItemId === libraryItemId ? { ...e, item: updated } : e
@@ -404,7 +390,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       };
 
       try {
-        await ops.saveLibraryItem(updated, { metadataClock: null });
+        await ops.saveLibraryItem(updated);
         set((state) => ({
           entries: state.entries.map((e) =>
             e.item.libraryItemId === libraryItemId ? { ...e, item: updated } : e
@@ -430,7 +416,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       };
 
       try {
-        await ops.saveLibraryItem(updated, { coverUrlClock: null });
+        await ops.saveLibraryItem(updated);
         set((state) => ({
           entries: state.entries.map((e) =>
             e.item.libraryItemId === libraryItemId ? { ...e, item: updated } : e

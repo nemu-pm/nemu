@@ -26,14 +26,12 @@ export function useAuth() {
 }
 
 export function useSyncStatus() {
-  const { syncStatus, pendingCount, isAuthenticated } = useSyncContext();
+  const { syncStatus, isAuthenticated } = useSyncContext();
   return {
     status: syncStatus,
-    pendingCount,
     isOnline: syncStatus !== "offline",
     isSyncing: syncStatus === "syncing",
     isSynced: syncStatus === "synced",
-    isPending: syncStatus === "pending",
     isAuthenticated,
   };
 }

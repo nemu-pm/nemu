@@ -8,7 +8,6 @@ import type {
   LocalSourceLink,
   LocalChapterProgress,
   LocalMangaProgress,
-  HLCState,
 } from "./schema";
 import {
   HistoryEntrySchema,
@@ -18,7 +17,6 @@ import {
   LocalSourceLinkSchema,
   LocalChapterProgressSchema,
   LocalMangaProgressSchema,
-  HLCStateSchema,
   MangaMetadataSchema,
   ExternalIdsSchema,
   SourceLinkSchema,
@@ -1523,7 +1521,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
             const parsed = LocalMangaProgressSchema.safeParse(item);
             return parsed.success ? parsed.data : null;
           })
-          .filter((item): item is LocalMangaProgress => item !== null && !item.deletedAt);
+          .filter((item): item is LocalMangaProgress => item !== null);
         resolve(results);
       };
     });
@@ -1690,85 +1688,4 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
-  // ============ PHASE 6.5: HLC STATE MANAGEMENT ============
-
-  /**
-   * Get HLC state for a profile.
-   * Returns null if no state exists (new profile).
-   *
-   * @param profileId Profile identifier (default: "default")
-   */
-  async getHLCState(profileId: string = "default"): Promise<HLCState | null> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      if (!db.objectStoreNames.contains(STORES.hlcState)) {
-        resolve(null);
-        return;
-      }
-      const tx = db.transaction(STORES.hlcState, "readonly");
-      const store = tx.objectStore(STORES.hlcState);
-      const request = store.get(profileId);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        if (!request.result) {
-          resolve(null);
-          return;
-        }
-        // Extract just the HLC fields (profileId is the key, not part of HLCState)
-        const { wallMs, counter, nodeId } = request.result;
-        const parsed = HLCStateSchema.safeParse({ wallMs, counter, nodeId });
-        resolve(parsed.success ? parsed.data : null);
-      };
-    });
-  }
-
-  /**
-   * Save HLC state for a profile.
-   *
-   * @param state HLC state to save
-   * @param profileId Profile identifier (default: "default")
-   */
-  async saveHLCState(state: HLCState, profileId: string = "default"): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      if (!db.objectStoreNames.contains(STORES.hlcState)) {
-        resolve();
-        return;
-      }
-      const tx = db.transaction(STORES.hlcState, "readwrite");
-      const store = tx.objectStore(STORES.hlcState);
-      // Store with profileId as the key
-      const request = store.put({
-        profileId,
-        wallMs: state.wallMs,
-        counter: state.counter,
-        nodeId: state.nodeId,
-      });
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
-    });
-  }
-
-  /**
-   * Delete HLC state for a profile (e.g., when signing out with clear).
-   *
-   * @param profileId Profile identifier (default: "default")
-   */
-  async removeHLCState(profileId: string = "default"): Promise<void> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
-      if (!db.objectStoreNames.contains(STORES.hlcState)) {
-        resolve();
-        return;
-      }
-      const tx = db.transaction(STORES.hlcState, "readwrite");
-      const store = tx.objectStore(STORES.hlcState);
-      const request = store.delete(profileId);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
-    });
-  }
 }
