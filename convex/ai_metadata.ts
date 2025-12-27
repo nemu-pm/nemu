@@ -19,6 +19,15 @@ function getGoogleAI() {
 
 const MODEL = "gemini-3-flash-preview"
 
+// Timing helper
+function timer(label: string) {
+  const start = Date.now()
+  return {
+    log: (msg: string) => console.log(`[${label}] ${msg} (${Date.now() - start}ms)`),
+    end: () => Date.now() - start,
+  }
+}
+
 // =============================================================================
 // Title Lookup
 // =============================================================================
@@ -32,7 +41,9 @@ export const findJapaneseTitle = action({
     authors: v.optional(v.array(v.string())),
   },
   handler: async (_, { title, authors }) => {
+    const t = timer("findJapaneseTitle")
     const ai = getGoogleAI()
+    t.log("GoogleAI initialized")
     
     const authorHint = authors?.length 
       ? `\nThe manga may be by: ${authors.join(", ")}`
@@ -41,6 +52,7 @@ export const findJapaneseTitle = action({
     console.log("[ai_metadata.findJapaneseTitle] searching:", { title, authors })
 
     try {
+      t.log("Starting Gemini call...")
       const response = await ai.models.generateContent({
         model: MODEL,
         contents: `Find the original Japanese title of the manga "${title}".${authorHint}
@@ -65,17 +77,19 @@ REQUIREMENTS:
           },
         },
       })
+      t.log("Gemini call completed")
 
       const result = JSON.parse(response.text ?? "{}")
       
       if (!result.found || !result.title) {
-        console.log("[ai_metadata.findJapaneseTitle] not found")
+        t.log("Not found, returning null")
         return null
       }
 
-      console.log("[ai_metadata.findJapaneseTitle] found:", result.title)
+      t.log(`Found: ${result.title}`)
       return result.title as string
     } catch (e) {
+      t.log(`Error: ${e}`)
       console.error("[ai_metadata.findJapaneseTitle] error:", e)
       return null
     }
@@ -83,7 +97,7 @@ REQUIREMENTS:
 })
 
 /**
- * Find the Chinese title(s) of a manga (Simplified and/or Traditional).
+ * Find the Chinese title of a manga (prefer Simplified Chinese).
  */
 export const findChineseTitle = action({
   args: {
@@ -91,7 +105,9 @@ export const findChineseTitle = action({
     englishTitle: v.optional(v.string()),
   },
   handler: async (_, { japaneseTitle, englishTitle }) => {
+    const t = timer("findChineseTitle")
     const ai = getGoogleAI()
+    t.log("GoogleAI initialized")
     
     const titleHint = englishTitle 
       ? `Japanese: "${japaneseTitle}", English: "${englishTitle}"`
@@ -100,20 +116,22 @@ export const findChineseTitle = action({
     console.log("[ai_metadata.findChineseTitle] searching:", { japaneseTitle, englishTitle })
 
     try {
+      t.log("Starting Gemini call...")
       const response = await ai.models.generateContent({
         model: MODEL,
-        contents: `Find the official Chinese title(s) of the manga ${titleHint}.
+        contents: `Find the official Chinese title of the manga ${titleHint}.
 
-Search on:
-- Bilibili Comics (哔哩哔哩漫画)
-- Dongman Zhijia (动漫之家)
-- WeChat Reading / QQ Reading
-- Taiwan manga publishers
-- Chinese Wikipedia
+SEARCH PRIORITY (in order):
+1. Bilibili Comics (哔哩哔哩漫画) - Simplified Chinese
+2. Kuaikan Manhua (快看漫画) - Simplified Chinese  
+3. Dongman Zhijia (动漫之家) - Simplified Chinese
+4. Chinese Wikipedia (zh.wikipedia.org)
+5. Taiwan/HK sources (Traditional Chinese) - as fallback
 
 REQUIREMENTS:
-- Return verbatim titles as they appear on official sources
-- Do NOT translate yourself - only return titles found on actual websites
+- STRONGLY prefer Simplified Chinese sources over Traditional
+- If only Traditional Chinese title is found, convert it to Simplified Chinese for the "simplified" field
+- Return verbatim titles from official sources when possible
 - Set found=false if no official Chinese title exists`,
         config: {
           tools: [{ googleSearch: {} }],
@@ -122,18 +140,19 @@ REQUIREMENTS:
             type: Type.OBJECT,
             properties: {
               found: { type: Type.BOOLEAN, description: "Whether any Chinese title was found" },
-              simplified: { type: Type.STRING, description: "Simplified Chinese title", nullable: true },
-              traditional: { type: Type.STRING, description: "Traditional Chinese title", nullable: true },
+              simplified: { type: Type.STRING, description: "Simplified Chinese title (convert from Traditional if needed)", nullable: true },
+              traditional: { type: Type.STRING, description: "Traditional Chinese title if found", nullable: true },
             },
             required: ["found"],
           },
         },
       })
+      t.log("Gemini call completed")
 
       const result = JSON.parse(response.text ?? "{}")
       
       if (!result.found) {
-        console.log("[ai_metadata.findChineseTitle] not found")
+        t.log("Not found, returning null")
         return { simplified: null, traditional: null }
       }
 
@@ -141,9 +160,10 @@ REQUIREMENTS:
         simplified: result.simplified || null,
         traditional: result.traditional || null,
       }
-      console.log("[ai_metadata.findChineseTitle] found:", output)
+      t.log(`Found: ${JSON.stringify(output)}`)
       return output
     } catch (e) {
+      t.log(`Error: ${e}`)
       console.error("[ai_metadata.findChineseTitle] error:", e)
       return { simplified: null, traditional: null }
     }
@@ -163,7 +183,9 @@ export const findJapaneseDescription = action({
     romajiTitle: v.optional(v.string()),
   },
   handler: async (_, { japaneseTitle, romajiTitle }) => {
+    const t = timer("findJapaneseDescription")
     const ai = getGoogleAI()
+    t.log("GoogleAI initialized")
     
     const titleHint = romajiTitle 
       ? `"${japaneseTitle}" (${romajiTitle})`
@@ -172,6 +194,7 @@ export const findJapaneseDescription = action({
     console.log("[ai_metadata.findJapaneseDescription] searching:", { japaneseTitle, romajiTitle })
 
     try {
+      t.log("Starting Gemini call...")
       const response = await ai.models.generateContent({
         model: MODEL,
         contents: `Find the official Japanese synopsis/description (あらすじ) of the manga ${titleHint}.
@@ -200,17 +223,19 @@ REQUIREMENTS:
           },
         },
       })
+      t.log("Gemini call completed")
 
       const result = JSON.parse(response.text ?? "{}")
       
       if (!result.found || !result.description) {
-        console.log("[ai_metadata.findJapaneseDescription] not found")
+        t.log("Not found, returning null")
         return null
       }
 
-      console.log("[ai_metadata.findJapaneseDescription] found:", result.description.slice(0, 100) + "...")
+      t.log(`Found: ${result.description.slice(0, 50)}...`)
       return result.description as string
     } catch (e) {
+      t.log(`Error: ${e}`)
       console.error("[ai_metadata.findJapaneseDescription] error:", e)
       return null
     }
@@ -218,7 +243,7 @@ REQUIREMENTS:
 })
 
 /**
- * Find the official Chinese description/synopsis of a manga.
+ * Find the official Chinese description/synopsis of a manga (prefer Simplified Chinese).
  */
 export const findChineseDescription = action({
   args: {
@@ -226,7 +251,9 @@ export const findChineseDescription = action({
     englishTitle: v.optional(v.string()),
   },
   handler: async (_, { japaneseTitle, englishTitle }) => {
+    const t = timer("findChineseDescription")
     const ai = getGoogleAI()
+    t.log("GoogleAI initialized")
     
     const titleHint = englishTitle 
       ? `"${japaneseTitle}" (English: ${englishTitle})`
@@ -235,20 +262,22 @@ export const findChineseDescription = action({
     console.log("[ai_metadata.findChineseDescription] searching:", { japaneseTitle, englishTitle })
 
     try {
+      t.log("Starting Gemini call...")
       const response = await ai.models.generateContent({
         model: MODEL,
-        contents: `Find the official Chinese synopsis/description (简介/劇情介紹) of the manga ${titleHint}.
+        contents: `Find the official Chinese synopsis/description (简介) of the manga ${titleHint}.
 
-Search for this on:
-- Bilibili Comics (哔哩哔哩漫画)
-- Kuaikan Manhua (快看漫画)
-- Dongman (动漫之家)
-- WeChat Reading
-- Taiwan/HK publisher sites
+SEARCH PRIORITY (in order):
+1. Bilibili Comics (哔哩哔哩漫画) - Simplified Chinese
+2. Kuaikan Manhua (快看漫画) - Simplified Chinese
+3. Dongman Zhijia (动漫之家) - Simplified Chinese
+4. WeChat Reading / QQ Reading
+5. Taiwan/HK sources - as fallback
 
 REQUIREMENTS:
-- Return the verbatim Chinese description as it appears on the source
-- Do NOT translate or paraphrase
+- STRONGLY prefer Simplified Chinese (简体中文) sources
+- If only Traditional Chinese description is found, convert it to Simplified Chinese
+- Preserve paragraph breaks and newlines from the original
 - Set found=false if no official Chinese description exists`,
         config: {
           tools: [{ googleSearch: {} }],
@@ -257,23 +286,25 @@ REQUIREMENTS:
             type: Type.OBJECT,
             properties: {
               found: { type: Type.BOOLEAN, description: "Whether an official description was found" },
-              description: { type: Type.STRING, description: "The Chinese description", nullable: true },
+              description: { type: Type.STRING, description: "The Chinese description in Simplified Chinese (can include newlines)", nullable: true },
             },
             required: ["found"],
           },
         },
       })
+      t.log("Gemini call completed")
 
       const result = JSON.parse(response.text ?? "{}")
       
       if (!result.found || !result.description) {
-        console.log("[ai_metadata.findChineseDescription] not found")
+        t.log("Not found, returning null")
         return null
       }
 
-      console.log("[ai_metadata.findChineseDescription] found:", result.description.slice(0, 100) + "...")
+      t.log(`Found: ${result.description.slice(0, 50)}...`)
       return result.description as string
     } catch (e) {
+      t.log(`Error: ${e}`)
       console.error("[ai_metadata.findChineseDescription] error:", e)
       return null
     }
@@ -292,11 +323,14 @@ export const findAuthorJapaneseName = action({
     englishName: v.string(),
   },
   handler: async (_, { englishName }) => {
+    const t = timer("findAuthorJapaneseName")
     const ai = getGoogleAI()
+    t.log("GoogleAI initialized")
 
     console.log("[ai_metadata.findAuthorJapaneseName] searching:", englishName)
 
     try {
+      t.log("Starting Gemini call...")
       const response = await ai.models.generateContent({
         model: MODEL,
         contents: `Find the original Japanese name of the manga author/artist "${englishName}".
@@ -324,17 +358,19 @@ REQUIREMENTS:
           },
         },
       })
+      t.log("Gemini call completed")
 
       const result = JSON.parse(response.text ?? "{}")
       
       if (!result.found || !result.name) {
-        console.log("[ai_metadata.findAuthorJapaneseName] not found")
+        t.log("Not found, returning null")
         return null
       }
 
-      console.log("[ai_metadata.findAuthorJapaneseName] found:", result.name)
+      t.log(`Found: ${result.name}`)
       return result.name as string
     } catch (e) {
+      t.log(`Error: ${e}`)
       console.error("[ai_metadata.findAuthorJapaneseName] error:", e)
       return null
     }

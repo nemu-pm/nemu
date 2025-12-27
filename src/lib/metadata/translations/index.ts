@@ -80,6 +80,32 @@ export function translateAniListTags(tags: string[], lang: SupportedLanguage): s
 }
 
 /**
+ * Translate a tag that could be either a genre or an AniList tag.
+ * Tries genre first, then AniList tag.
+ */
+export function translateTag(tag: string, lang: SupportedLanguage): string {
+  if (lang === "en") return tag;
+  
+  // Try genre translation first
+  const genreMap = genreTranslations[lang];
+  if (genreMap[tag]) return genreMap[tag];
+  
+  // Try AniList tag translation
+  const anilistMap = anilistTagTranslations[lang];
+  if (anilistMap[tag]) return anilistMap[tag];
+  
+  // Return original if no translation found
+  return tag;
+}
+
+/**
+ * Translate multiple tags (genres or AniList tags)
+ */
+export function translateTags(tags: string[], lang: SupportedLanguage): string[] {
+  return tags.map((t) => translateTag(t, lang));
+}
+
+/**
  * Get all unique genre/tag names from AniList tags
  */
 export function getAniListTagNames(): string[] {

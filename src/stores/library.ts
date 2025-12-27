@@ -454,13 +454,23 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
 
       const { metadataOverrides, coverUrl, externalIds } = edits;
 
+      // Merge metadata, treating undefined values as "remove this key"
+      let mergedMetadata = entry.item.overrides?.metadata;
+      if (metadataOverrides) {
+        const merged = { ...mergedMetadata, ...metadataOverrides };
+        // Strip undefined values to actually remove cleared overrides
+        mergedMetadata = Object.fromEntries(
+          Object.entries(merged).filter(([, v]) => v !== undefined)
+        ) as typeof mergedMetadata;
+        // If empty, set to undefined to clean up
+        if (Object.keys(mergedMetadata ?? {}).length === 0) mergedMetadata = undefined;
+      }
+
       const updated: LocalLibraryItem = {
         ...entry.item,
         overrides: {
           ...entry.item.overrides,
-          metadata: metadataOverrides
-            ? { ...entry.item.overrides?.metadata, ...metadataOverrides }
-            : entry.item.overrides?.metadata,
+          metadata: mergedMetadata,
           coverUrl: coverUrl !== undefined ? coverUrl : entry.item.overrides?.coverUrl,
         },
         externalIds: externalIds

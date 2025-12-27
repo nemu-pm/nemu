@@ -7,7 +7,8 @@
 import type { MangaMetadata } from "@/data/schema";
 
 // Types
-export type { Provider, ProviderSearchResult, MetadataSearchResult, SmartMatchPhase } from "./types";
+export type { Provider, ProviderSearchResult, MetadataSearchResult, SmartMatchPhase, SelectionProvider, LocalizationData } from "./types";
+export { SELECTION_NO_CHANGE, SELECTION_AI } from "./types";
 
 // Matching utilities
 export {
@@ -46,7 +47,21 @@ export {
   type FieldOption,
   type FieldSelection,
   type ExactMatch,
+  type AIField,
+  type AIFieldData,
 } from "./store";
+
+// Localization
+export {
+  isTextInLanguage,
+  areAuthorsInLanguage,
+  fetchChineseTitleFromGemini,
+  fetchLocalizedDescription,
+  getAITabsNeeded,
+  type EffectiveLanguage,
+  type GeminiFunctions,
+  type AITabsNeeded,
+} from "./localize";
 
 /** Create metadata from source manga data */
 export function metadataFromSource(manga: {

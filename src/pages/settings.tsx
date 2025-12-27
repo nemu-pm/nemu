@@ -6,6 +6,7 @@ import { parseSourceKey } from "@/data/keys";
 import type { SyncStore } from "@/stores/sync";
 import { languageStore } from "@/stores/language";
 import { themeStore } from "@/stores/theme";
+import { metadataLanguageStore, type MetadataLanguage } from "@/stores/metadata-language";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -83,6 +84,7 @@ export function SettingsPage() {
   } = useSettingsStore();
   const currentLanguage = languageStore ? languageStore((state) => state.language) : "en";
   const currentTheme = themeStore ? themeStore((state) => state.theme) : "system";
+  const currentMetadataLanguage = metadataLanguageStore ? metadataLanguageStore((state) => state.preference) : "auto";
   const [addSourceOpen, setAddSourceOpen] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
@@ -381,6 +383,29 @@ export function SettingsPage() {
                 <TabsTrigger value="system">{t("settings.themeSystem")}</TabsTrigger>
                 <TabsTrigger value="light">{t("settings.themeLight")}</TabsTrigger>
                 <TabsTrigger value="dark">{t("settings.themeDark")}</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+          <div className="space-y-2">
+            <div>
+              <p className="font-medium">{t("settings.metadataLanguage")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("settings.metadataLanguageDescription")}
+              </p>
+            </div>
+            <Tabs
+              value={currentMetadataLanguage}
+              onValueChange={(value) => {
+                if (value === "auto" || value === "en" || value === "zh" || value === "ja") {
+                  metadataLanguageStore?.getState().setPreference(value as MetadataLanguage);
+                }
+              }}
+            >
+              <TabsList>
+                <TabsTrigger value="auto">{t("settings.metadataLanguageAuto")}</TabsTrigger>
+                <TabsTrigger value="en">English</TabsTrigger>
+                <TabsTrigger value="zh">中文</TabsTrigger>
+                <TabsTrigger value="ja">日本語</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>

@@ -16,6 +16,7 @@
     "previous": "Previous",
     "search": "Search",
     "select": "Select",
+    "apply": "Apply",
     "settings": "Settings",
     "multiLanguage": "Multi-language",
     "done": "Done",
@@ -132,7 +133,8 @@
     "addAuthor": "Add author...",
     "artists": "Artists",
     "addArtist": "Add artist...",
-    "viewOriginal": "View Original"
+    "viewOriginal": "View Original",
+    "saveFailed": "Failed to save changes"
   },
   "browse": {
     "loading": "Loading sources...",
@@ -267,6 +269,9 @@
     "themeSystem": "System",
     "themeLight": "Light",
     "themeDark": "Dark",
+    "metadataLanguage": "Metadata Language",
+    "metadataLanguageDescription": "Language for titles, authors, descriptions, and tags when using Smart Match",
+    "metadataLanguageAuto": "Auto",
     "uninstallSource": "Uninstall Source",
     "uninstallSourceDescription": "Are you sure you want to uninstall \"{{name}}\"? This will remove the source but keep your library data.",
     "uninstall": "Uninstall",

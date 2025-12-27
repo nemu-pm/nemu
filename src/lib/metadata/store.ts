@@ -6,7 +6,8 @@
 
 import { create } from "zustand";
 import type { MangaMetadata, ExternalIds } from "@/data/schema";
-import type { Provider, ProviderSearchResult, SmartMatchPhase } from "./types";
+import type { Provider, ProviderSearchResult, SmartMatchPhase, SelectionProvider } from "./types";
+import { SELECTION_AI } from "./types";
 import {
   hasExactMatch,
   getMUCandidates,
@@ -28,6 +29,11 @@ import {
   type JikanManga,
 } from "./providers/jikan";
 import { MangaStatus } from "@/lib/sources/types";
+import {
+  getLocalizedTitle,
+  getLocalizedAuthors,
+  type EffectiveLanguage,
+} from "./localize";
 
 // =============================================================================
 // Types
@@ -45,7 +51,8 @@ export interface FieldOption {
 export interface FieldSelection {
   field: MetadataField;
   options: FieldOption[];
-  selectedProvider: Provider | null;
+  /** Selected provider, or special values like SELECTION_AI / SELECTION_NO_CHANGE */
+  selectedProvider: SelectionProvider | null;
 }
 
 export interface ExactMatch {
@@ -54,6 +61,15 @@ export interface ExactMatch {
   metadata: MangaMetadata;
   result: ProviderSearchResult;
 }
+
+/** AI-fetched data (Gemini fallback) */
+export interface AIFieldData {
+  loading: boolean;
+  value: string | null;
+}
+
+/** Fields that can have AI fallback */
+export type AIField = "chineseTitle" | "description";
 
 export interface SmartMatchStore {
   phase: SmartMatchPhase;
@@ -64,17 +80,31 @@ export interface SmartMatchStore {
   lastSearchQuery: string | null;
   error: string | null;
 
+  /** Current effective language for field selections */
+  effectiveLang: EffectiveLanguage;
+
+  /** AI-fetched data (Gemini fallback for description + Chinese title) */
+  aiData: Map<AIField, AIFieldData>;
+
   reset: () => void;
   setPhase: (phase: SmartMatchPhase, message?: string) => void;
   setResults: (provider: Provider, results: ProviderSearchResult[]) => void;
-  setExactMatches: (matches: ExactMatch[]) => void;
+  setExactMatches: (matches: ExactMatch[], lang?: EffectiveLanguage) => void;
   setLastSearchQuery: (query: string | null) => void;
   setError: (error: string | null) => void;
-  selectFieldProvider: (field: MetadataField, provider: Provider | null) => void;
+  selectFieldProvider: (field: MetadataField, provider: SelectionProvider | null) => void;
   hasAnyResults: () => boolean;
   hasExactMatches: () => boolean;
   getProviderResults: (provider: Provider) => ProviderSearchResult[];
   getMergedMetadata: () => { metadata: MangaMetadata; externalIds: ExternalIds };
+
+  /** Rebuild field selections with new language */
+  setEffectiveLang: (lang: EffectiveLanguage) => void;
+
+  /** AI data actions */
+  setAIData: (field: AIField, data: Partial<AIFieldData>) => void;
+  initAIDataLoading: (fields: AIField[]) => void;
+  clearAIData: () => void;
 }
 
 // =============================================================================
@@ -107,28 +137,60 @@ function formatFieldValue(value: string | string[] | number | undefined, field: 
   return String(value);
 }
 
-function buildFieldSelections(matches: ExactMatch[]): Map<MetadataField, FieldSelection> {
+/**
+ * Build field selections with language-aware values.
+ *
+ * For title/authors: shows localized values from providers when lang != "en"
+ * For other fields: shows original English values
+ *
+ * Auto-select priority:
+ * 1. Provider with actual localized data (for title/authors when lang != "en")
+ * 2. First provider by priority (AL > MAL > MU)
+ */
+function buildFieldSelections(
+  matches: ExactMatch[],
+  lang: EffectiveLanguage = "en"
+): Map<MetadataField, FieldSelection> {
   const fields: MetadataField[] = ["title", "cover", "description", "status", "authors", "tags"];
   const selections = new Map<MetadataField, FieldSelection>();
 
+  // Priority: AL > MAL > MU
+  const priorityOrder: Provider[] = ["anilist", "mal", "mangaupdates"];
+  const sortedMatches = [...matches].sort(
+    (a, b) => priorityOrder.indexOf(a.provider) - priorityOrder.indexOf(b.provider)
+  );
+
   for (const field of fields) {
     const options: FieldOption[] = [];
-    const seenValues = new Set<string>();
-
-    // Priority: AL > MAL > MU (AniList has richest tag system)
-    const priorityOrder: Provider[] = ["anilist", "mal", "mangaupdates"];
-
-    const sortedMatches = [...matches].sort((a, b) =>
-      priorityOrder.indexOf(a.provider) - priorityOrder.indexOf(b.provider)
-    );
+    let firstLocalizedProvider: Provider | null = null;
 
     for (const match of sortedMatches) {
-      const value = getFieldValue(match.metadata, field);
-      const displayValue = formatFieldValue(value, field);
+      let value: string | string[] | number | undefined;
+      let displayValue: string;
+      let hasLocalized = false;
+
+      // For title/authors, use localized values when non-English
+      if (field === "title" && lang !== "en") {
+        const localized = getLocalizedTitle(match, lang);
+        hasLocalized = localized !== null;
+        value = localized || match.metadata.title;
+        displayValue = value || "";
+      } else if (field === "authors" && lang !== "en") {
+        const localized = getLocalizedAuthors(match, lang);
+        hasLocalized = localized !== null;
+        value = localized || match.metadata.authors;
+        displayValue = Array.isArray(value) ? value.join(", ") : "";
+      } else {
+        value = getFieldValue(match.metadata, field);
+        displayValue = formatFieldValue(value, field);
+      }
 
       if (!displayValue) continue;
-      if (seenValues.has(displayValue)) continue;
-      seenValues.add(displayValue);
+
+      // Track first provider with actual localized data
+      if (hasLocalized && !firstLocalizedProvider) {
+        firstLocalizedProvider = match.provider;
+      }
 
       options.push({
         provider: match.provider,
@@ -138,10 +200,13 @@ function buildFieldSelections(matches: ExactMatch[]): Map<MetadataField, FieldSe
       });
     }
 
+    // Auto-select: prefer provider with localized data, else first provider
+    const selectedProvider = firstLocalizedProvider ?? (options.length > 0 ? options[0].provider : null);
+
     selections.set(field, {
       field,
       options,
-      selectedProvider: options.length > 0 ? options[0].provider : null,
+      selectedProvider,
     });
   }
 
@@ -160,6 +225,8 @@ const initialState = {
   fieldSelections: new Map<MetadataField, FieldSelection>(),
   lastSearchQuery: null as string | null,
   error: null as string | null,
+  effectiveLang: "en" as EffectiveLanguage,
+  aiData: new Map<AIField, AIFieldData>(),
 };
 
 export const useSmartMatchStore = create<SmartMatchStore>((set, get) => ({
@@ -169,6 +236,7 @@ export const useSmartMatchStore = create<SmartMatchStore>((set, get) => ({
     ...initialState,
     results: new Map(),
     fieldSelections: new Map(),
+    aiData: new Map(),
   }),
 
   setPhase: (phase, message) => set({
@@ -182,9 +250,10 @@ export const useSmartMatchStore = create<SmartMatchStore>((set, get) => ({
     return { results: newResults };
   }),
 
-  setExactMatches: (matches) => set({
+  setExactMatches: (matches, lang = "en") => set({
     exactMatches: matches,
-    fieldSelections: buildFieldSelections(matches),
+    effectiveLang: lang,
+    fieldSelections: buildFieldSelections(matches, lang),
   }),
 
   setLastSearchQuery: (query) => set({ lastSearchQuery: query }),
@@ -212,13 +281,25 @@ export const useSmartMatchStore = create<SmartMatchStore>((set, get) => ({
   getProviderResults: (provider) => get().results.get(provider) || [],
 
   getMergedMetadata: () => {
-    const { exactMatches, fieldSelections } = get();
+    const { exactMatches, fieldSelections, aiData } = get();
 
     const metadata: MangaMetadata = { title: "" };
     const externalIds: ExternalIds = {};
 
     for (const [field, selection] of fieldSelections) {
       if (!selection.selectedProvider) continue;
+
+      // Handle AI tab selection
+      if (selection.selectedProvider === SELECTION_AI) {
+        if (field === "title") {
+          const chineseTitle = aiData.get("chineseTitle");
+          if (chineseTitle?.value) metadata.title = chineseTitle.value;
+        } else if (field === "description") {
+          const desc = aiData.get("description");
+          if (desc?.value) metadata.description = desc.value;
+        }
+        continue;
+      }
 
       const option = selection.options.find(o => o.provider === selection.selectedProvider);
       if (!option || option.value === undefined) continue;
@@ -243,6 +324,29 @@ export const useSmartMatchStore = create<SmartMatchStore>((set, get) => ({
 
     return { metadata, externalIds };
   },
+
+  setEffectiveLang: (lang) => set(state => ({
+    effectiveLang: lang,
+    fieldSelections: buildFieldSelections(state.exactMatches, lang),
+  })),
+
+  // AI data actions
+  setAIData: (field, data) => set(state => {
+    const newData = new Map(state.aiData);
+    const existing = newData.get(field) || { loading: false, value: null };
+    newData.set(field, { ...existing, ...data });
+    return { aiData: newData };
+  }),
+
+  initAIDataLoading: (fields) => set(state => {
+    const newData = new Map(state.aiData);
+    for (const field of fields) {
+      newData.set(field, { loading: true, value: null });
+    }
+    return { aiData: newData };
+  }),
+
+  clearAIData: () => set({ aiData: new Map() }),
 }));
 
 // =============================================================================
@@ -281,6 +385,9 @@ function mapMUToResult(detail: MUSeriesDetail): ProviderSearchResult {
     },
     coverUrl: detail.image?.url.original,
     sourceUrl: detail.url,
+    localizationData: {
+      muAssociated: detail.associated,
+    },
   };
 }
 
@@ -293,6 +400,14 @@ function mapALToResult(media: ALMedia): ProviderSearchResult {
     metadata: mapAniListToMetadata(media),
     coverUrl: media.coverImage?.extraLarge || media.coverImage?.large,
     sourceUrl: media.siteUrl,
+    localizationData: {
+      alTitle: media.title,
+      alSynonyms: media.synonyms,
+      alStaff: media.staff?.edges?.map(e => ({
+        role: e.role,
+        native: e.node.name.native,
+      })),
+    },
   };
 }
 
@@ -305,6 +420,11 @@ function mapMALToResult(manga: JikanManga): ProviderSearchResult {
     metadata: mapJikanToMetadata(manga),
     coverUrl: manga.images?.webp?.large_image_url || manga.images?.jpg?.large_image_url,
     sourceUrl: manga.url,
+    localizationData: {
+      malTitleJapanese: manga.title_japanese,
+      malTitleEnglish: manga.title_english,
+      malTitleSynonyms: manga.title_synonyms,
+    },
   };
 }
 

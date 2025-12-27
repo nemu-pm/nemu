@@ -31,6 +31,7 @@ import { getEntryEffectiveMetadata, getEntryCover } from "@/data/view";
 import { MangaStatus } from "@/lib/sources/types";
 import { useCoverUpload, getR2PublicUrl } from "@/hooks/use-cover-upload";
 import { proxyUrl } from "@/config";
+import { toast } from "sonner";
 
 interface MetadataEditDialogProps {
   open: boolean;
@@ -246,19 +247,30 @@ export function MetadataEditDialog({
     setSaving(true);
     try {
       const overrides: Partial<MangaMetadata> = {};
+      const existingMeta = currentOverrides?.metadata;
+      // For each field: set new value if overridden, or undefined to clear existing override
       if (isOverridden.title) overrides.title = form.title;
+      else if (existingMeta?.title) overrides.title = undefined;
+      
       if (isOverridden.description) overrides.description = form.description || undefined;
+      else if (existingMeta?.description) overrides.description = undefined;
+      
       if (isOverridden.status) overrides.status = form.status;
+      else if (existingMeta?.status) overrides.status = undefined;
+      
       if (isOverridden.tags) overrides.tags = form.tags.length > 0 ? fromTags(form.tags) : undefined;
+      else if (existingMeta?.tags) overrides.tags = undefined;
+      
       if (isOverridden.authors) overrides.authors = form.authors.length > 0 ? fromTags(form.authors) : undefined;
+      else if (existingMeta?.authors) overrides.authors = undefined;
 
       let coverUrl: string | null | undefined;
       if (form.coverFile) {
         // Upload local file to R2
         const key = await uploadCover(form.coverFile);
         coverUrl = getR2PublicUrl(key);
-      } else if (form.coverUrl) {
-        // External URL (fallback from auto-fetch) - download via proxy and upload to R2
+      } else if (form.coverUrl && form.coverUrl !== currentOverrides?.coverUrl) {
+        // External URL (new, not existing override) - download via proxy and upload to R2
         try {
           const response = await fetch(proxyUrl(form.coverUrl));
           if (!response.ok) throw new Error("Failed to fetch");
@@ -280,6 +292,7 @@ export function MetadataEditDialog({
       onOpenChange(false);
     } catch (e) {
       console.error("[MetadataEdit] Save error:", e);
+      toast.error(t("metadata.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -288,13 +301,13 @@ export function MetadataEditDialog({
   const tagInputStyles = {
     inlineTagsContainer: "tag-input-nemu",
     tag: { body: "tag-nemu", closeButton: "tag-nemu-close" },
-    input: "!text-sm",
+    input: "!text-base sm:!text-sm",
   };
 
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
       <ResponsiveDialogContent 
-        className="sm:max-w-lg max-h-[90vh] overflow-hidden flex flex-col [&_input]:!text-sm [&_textarea]:!text-sm"
+        className="sm:max-w-lg max-h-[90vh] overflow-hidden flex flex-col [&_input]:!text-base [&_input]:sm:!text-sm [&_textarea]:!text-base [&_textarea]:sm:!text-sm"
         showCloseButton={false}
       >
         <ResponsiveDialogHeader className="pr-0">
@@ -385,73 +398,25 @@ export function MetadataEditDialog({
             </div>
 
             {/* Title + Status on desktop right side */}
-            <div className="flex-1 min-w-0 space-y-4 sm:block hidden">
-              <FieldWrapper
-                label={t("metadata.title")}
-                isOverridden={isOverridden.title}
-                onReset={() => resetField("title")}
-              >
-                <Input
-                  value={form.title}
-                  onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder={isOverridden.title ? baseMetadata.title : undefined}
-                />
-              </FieldWrapper>
-
-              <FieldWrapper
-                label={t("metadata.status")}
-                isOverridden={isOverridden.status}
-                onReset={() => resetField("status")}
-              >
-                <Tabs
-                  value={String(form.status)}
-                  onValueChange={v => setForm(f => ({ ...f, status: Number(v) }))}
-                >
-                  <TabsList className="w-full">
-                    {STATUS_OPTIONS.map(opt => (
-                      <TabsTrigger key={opt.value} value={String(opt.value)} className="flex-1 text-xs">
-                        {t(opt.label)}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
-              </FieldWrapper>
-            </div>
+            <TitleStatusFields
+              className="flex-1 min-w-0 space-y-4 sm:block hidden"
+              form={form}
+              setForm={setForm}
+              isOverridden={isOverridden}
+              resetField={resetField}
+              baseMetadata={baseMetadata}
+            />
           </div>
 
           {/* Mobile-only: Title + Status below cover */}
-          <div className="sm:hidden space-y-4">
-            <FieldWrapper
-              label={t("metadata.title")}
-              isOverridden={isOverridden.title}
-              onReset={() => resetField("title")}
-            >
-              <Input
-                value={form.title}
-                onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                placeholder={isOverridden.title ? baseMetadata.title : undefined}
-              />
-            </FieldWrapper>
-
-            <FieldWrapper
-              label={t("metadata.status")}
-              isOverridden={isOverridden.status}
-              onReset={() => resetField("status")}
-            >
-              <Tabs
-                value={String(form.status)}
-                onValueChange={v => setForm(f => ({ ...f, status: Number(v) }))}
-              >
-                <TabsList className="w-full">
-                  {STATUS_OPTIONS.map(opt => (
-                    <TabsTrigger key={opt.value} value={String(opt.value)} className="flex-1 text-xs">
-                      {t(opt.label)}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </Tabs>
-            </FieldWrapper>
-          </div>
+          <TitleStatusFields
+            className="sm:hidden space-y-4"
+            form={form}
+            setForm={setForm}
+            isOverridden={isOverridden}
+            resetField={resetField}
+            baseMetadata={baseMetadata}
+          />
 
           {/* Rest of the fields - always full width */}
           <FieldWrapper
@@ -514,7 +479,14 @@ export function MetadataEditDialog({
           open={matchDrawerOpen}
           onOpenChange={setMatchDrawerOpen}
           initialQuery={form.title}
-          currentMetadata={effectiveMetadata}
+          currentMetadata={{
+            title: form.title,
+            description: form.description || undefined,
+            status: form.status,
+            authors: fromTags(form.authors),
+            tags: fromTags(form.tags),
+            cover: form.coverPreview || effectiveMetadata.cover,
+          }}
           authors={fromTags(form.authors)}
           onSelect={handleMatchSelect}
         />
@@ -551,6 +523,62 @@ function FieldWrapper({ label, isOverridden, onReset, children }: FieldWrapperPr
         )}
       </div>
       {children}
+    </div>
+  );
+}
+
+// ============================================================================
+
+interface TitleStatusFieldsProps {
+  className?: string;
+  form: FormState;
+  setForm: React.Dispatch<React.SetStateAction<FormState>>;
+  isOverridden: { title: boolean; status: boolean };
+  resetField: (field: "title" | "status") => void;
+  baseMetadata: MangaMetadata;
+}
+
+function TitleStatusFields({
+  className,
+  form,
+  setForm,
+  isOverridden,
+  resetField,
+  baseMetadata,
+}: TitleStatusFieldsProps) {
+  const { t } = useTranslation();
+  return (
+    <div className={className}>
+      <FieldWrapper
+        label={t("metadata.title")}
+        isOverridden={isOverridden.title}
+        onReset={() => resetField("title")}
+      >
+        <Input
+          value={form.title}
+          onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+          placeholder={isOverridden.title ? baseMetadata.title : undefined}
+        />
+      </FieldWrapper>
+
+      <FieldWrapper
+        label={t("metadata.status")}
+        isOverridden={isOverridden.status}
+        onReset={() => resetField("status")}
+      >
+        <Tabs
+          value={String(form.status)}
+          onValueChange={v => setForm(f => ({ ...f, status: Number(v) }))}
+        >
+          <TabsList className="w-full">
+            {STATUS_OPTIONS.map(opt => (
+              <TabsTrigger key={opt.value} value={String(opt.value)} className="flex-1 text-xs">
+                {t(opt.label)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </FieldWrapper>
     </div>
   );
 }
