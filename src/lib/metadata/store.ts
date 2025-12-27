@@ -116,10 +116,8 @@ function buildFieldSelections(matches: ExactMatch[]): Map<MetadataField, FieldSe
     const options: FieldOption[] = [];
     const seenValues = new Set<string>();
 
-    // Priority: MU > AL > MAL (except cover: AL > MAL > MU)
-    const priorityOrder: Provider[] = field === "cover"
-      ? ["anilist", "mal", "mangaupdates"]
-      : ["mangaupdates", "anilist", "mal"];
+    // Priority: AL > MAL > MU (AniList has richest tag system)
+    const priorityOrder: Provider[] = ["anilist", "mal", "mangaupdates"];
 
     const sortedMatches = [...matches].sort((a, b) =>
       priorityOrder.indexOf(a.provider) - priorityOrder.indexOf(b.provider)
@@ -265,10 +263,8 @@ function mapMUToResult(detail: MUSeriesDetail): ProviderSearchResult {
 
   const authors = detail.authors?.filter(a => a.type === "Author").map(a => a.name);
   const artists = detail.authors?.filter(a => a.type === "Artist").map(a => a.name);
-  const tags = [
-    ...(detail.genres?.map(g => g.genre) || []),
-    ...(detail.categories?.slice(0, 10).map(c => c.category) || []),
-  ];
+  // Use only genres (36 fixed items), exclude user-generated categories
+  const tags = detail.genres?.map(g => g.genre) || [];
 
   return {
     provider: "mangaupdates",

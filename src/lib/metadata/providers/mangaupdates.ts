@@ -52,9 +52,16 @@ export interface MUSeriesDetail {
   status?: string;
   genres?: Array<{ genre: string }>;
   categories?: Array<{ category: string }>;
-  authors?: Array<{ name: string; type: string }>;
+  authors?: Array<{ name: string; type: string; author_id?: number }>;
   associated?: Array<{ title: string }>;
   latest_chapter?: number;
+}
+
+export interface MUAuthorDetail {
+  id: number;
+  name: string;
+  actualname?: string;
+  associated?: Array<{ name: string }>;
 }
 
 /**
@@ -146,6 +153,67 @@ export async function searchMangaUpdatesRaw(
 }
 
 /**
+ * Fetch author details from MangaUpdates
+ */
+export async function fetchMUAuthor(authorId: number): Promise<MUAuthorDetail | null> {
+  const res = await muFetch(`${API_BASE}/authors/${authorId}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+/**
+ * Get Japanese name for an author (from actualname field)
+ */
+export function getMUAuthorJapaneseName(author: MUAuthorDetail): string | null {
+  // actualname is typically the Japanese name
+  if (author.actualname) {
+    return author.actualname;
+  }
+  // Fallback: look in associated names for Japanese characters
+  if (author.associated?.length) {
+    for (const assoc of author.associated) {
+      if (/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(assoc.name)) {
+        // Prefer names with hiragana/katakana (definitely Japanese)
+        if (/[\u3040-\u309F\u30A0-\u30FF]/.test(assoc.name)) {
+          return assoc.name;
+        }
+      }
+    }
+    // Fallback to kanji-only if no kana found
+    for (const assoc of author.associated) {
+      if (/[\u4E00-\u9FAF]/.test(assoc.name)) {
+        return assoc.name;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Fetch Japanese author names for a series
+ * Returns map of romanized name -> Japanese name
+ */
+export async function fetchMUAuthorJapaneseNames(
+  detail: MUSeriesDetail
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  
+  for (const author of detail.authors || []) {
+    if (!author.author_id) continue;
+    
+    const authorDetail = await fetchMUAuthor(author.author_id);
+    if (!authorDetail) continue;
+    
+    const japaneseName = getMUAuthorJapaneseName(authorDetail);
+    if (japaneseName) {
+      result.set(author.name, japaneseName);
+    }
+  }
+  
+  return result;
+}
+
+/**
  * Map MangaUpdates data to our metadata schema
  */
 function mapToMetadata(detail: MUSeriesDetail): MangaMetadata {
@@ -168,11 +236,8 @@ function mapToMetadata(detail: MUSeriesDetail): MangaMetadata {
     ?.filter((a) => a.type === "Artist")
     .map((a) => a.name);
 
-  // Combine genres and top categories as tags
-  const tags = [
-    ...(detail.genres?.map((g) => g.genre) || []),
-    ...(detail.categories?.slice(0, 10).map((c) => c.category) || []),
-  ];
+  // Use only genres (36 fixed items), exclude user-generated categories
+  const tags = detail.genres?.map((g) => g.genre) || [];
 
   return {
     title: detail.title,

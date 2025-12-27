@@ -11,11 +11,25 @@ import { api } from "../../convex/_generated/api";
 
 const MAX_COVER_WIDTH = 400;
 const MAX_COVER_HEIGHT = 600;
-const WEBP_QUALITY = 0.85;
+const IMAGE_QUALITY = 0.85;
+
+/** Safari's canvas.toBlob hangs on image/webp despite MDN saying it should fallback to PNG */
+const isSafari = typeof navigator !== "undefined" && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+/** Convert dataURL to File */
+function dataUrlToFile(dataUrl: string, filename: string, mimeType: string): File {
+  const arr = dataUrl.split(",");
+  const bstr = atob(arr[1]);
+  const u8arr = new Uint8Array(bstr.length);
+  for (let i = 0; i < bstr.length; i++) {
+    u8arr[i] = bstr.charCodeAt(i);
+  }
+  return new File([u8arr], filename, { type: mimeType });
+}
 
 /**
  * Resize an image file to fit within max dimensions.
- * Converts to WebP for smaller file size.
+ * Uses JPEG on Safari (toBlob hangs for webp), WebP elsewhere.
  */
 async function resizeImage(file: File): Promise<File> {
   return new Promise((resolve, reject) => {
@@ -52,21 +66,28 @@ async function resizeImage(file: File): Promise<File> {
 
       ctx.drawImage(img, 0, 0, width, height);
 
-      // Convert to WebP blob
+      // Safari: use toDataURL (sync) with JPEG to avoid toBlob webp hang
+      if (isSafari) {
+        try {
+          const dataUrl = canvas.toDataURL("image/jpeg", IMAGE_QUALITY);
+          resolve(dataUrlToFile(dataUrl, "cover.jpg", "image/jpeg"));
+        } catch (e) {
+          reject(new Error("Failed to create image: " + String(e)));
+        }
+        return;
+      }
+
+      // Other browsers: use toBlob with WebP
       canvas.toBlob(
         (blob) => {
           if (!blob) {
             reject(new Error("Failed to create blob"));
             return;
           }
-          // Convert Blob to File to preserve filename for R2
-          const resizedFile = new File([blob], "cover.webp", {
-            type: "image/webp",
-          });
-          resolve(resizedFile);
+          resolve(new File([blob], "cover.webp", { type: "image/webp" }));
         },
         "image/webp",
-        WEBP_QUALITY
+        IMAGE_QUALITY
       );
     };
 

@@ -43,7 +43,15 @@ interface JikanManga {
   volumes?: number;
   genres?: Array<{ name: string }>;
   themes?: Array<{ name: string }>;
-  authors?: Array<{ name: string }>;
+  authors?: Array<{ mal_id: number; name: string }>;
+}
+
+interface JikanPerson {
+  mal_id: number;
+  name: string;
+  given_name?: string;
+  family_name?: string;
+  alternate_names?: string[];
 }
 
 /**
@@ -110,6 +118,60 @@ export async function fetchJikanById(malId: number): Promise<JikanManga | null> 
 
   const data = await res.json();
   return data.data || null;
+}
+
+/**
+ * Fetch person details from Jikan
+ */
+export async function fetchJikanPerson(personId: number): Promise<JikanPerson | null> {
+  const res = await rateLimitedFetch(`${API_BASE}/people/${personId}`);
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  return data.data || null;
+}
+
+/**
+ * Get Japanese name for a person (family_name + given_name)
+ */
+export function getJikanPersonJapaneseName(person: JikanPerson): string | null {
+  if (person.family_name && person.given_name) {
+    return `${person.family_name}${person.given_name}`;
+  }
+  // Fallback to alternate names if available
+  if (person.alternate_names?.length) {
+    // Look for a name with Japanese characters
+    for (const name of person.alternate_names) {
+      if (/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(name)) {
+        return name;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Fetch Japanese author names for a manga
+ * Returns map of romanized name -> Japanese name
+ */
+export async function fetchJikanAuthorJapaneseNames(
+  manga: JikanManga
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  
+  for (const author of manga.authors || []) {
+    if (!author.mal_id) continue;
+    
+    const person = await fetchJikanPerson(author.mal_id);
+    if (!person) continue;
+    
+    const japaneseName = getJikanPersonJapaneseName(person);
+    if (japaneseName) {
+      result.set(author.name, japaneseName);
+    }
+  }
+  
+  return result;
 }
 
 /**

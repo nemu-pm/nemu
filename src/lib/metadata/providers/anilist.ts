@@ -32,7 +32,7 @@ interface ALMedia {
   staff?: {
     edges: Array<{
       role: string;
-      node: { name: { full?: string } };
+      node: { name: { full?: string; native?: string } };
     }>;
   };
 }
@@ -55,7 +55,7 @@ const SEARCH_QUERY = `
         staff(sort: RELEVANCE, perPage: 10) {
           edges {
             role
-            node { name { full } }
+            node { name { full native } }
           }
         }
       }
@@ -144,7 +144,7 @@ export async function fetchAniListById(id: number): Promise<ALMedia | null> {
         staff(sort: RELEVANCE, perPage: 10) {
           edges {
             role
-            node { name { full } }
+            node { name { full native } }
           }
         }
       }

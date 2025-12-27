@@ -2,6 +2,217 @@
  * Title matching utilities for metadata validation
  */
 
+// =============================================================================
+// Language Detection
+// =============================================================================
+
+export type TitleLanguage = "ja" | "zh" | "en" | "unknown";
+
+/**
+ * Detect the likely language of a title based on character analysis.
+ * - Japanese: has hiragana OR katakana (unique to Japanese)
+ * - Chinese: has kanji but NO hiragana/katakana
+ * - English: Latin characters only
+ */
+export function detectTitleLanguage(title: string): TitleLanguage {
+  const hasHiragana = /[\u3040-\u309F]/.test(title);
+  const hasKatakana = /[\u30A0-\u30FF]/.test(title);
+  const hasKanji = /[\u4E00-\u9FAF]/.test(title);
+  const hasLatin = /[a-zA-Z]/.test(title);
+
+  // Japanese: has hiragana OR katakana (unique to Japanese writing)
+  if (hasHiragana || hasKatakana) return "ja";
+
+  // Chinese: has kanji but NO hiragana/katakana
+  // Note: Kanji-only Japanese titles will be detected as Chinese, but that's
+  // acceptable because AniList/MAL provide dedicated Japanese title fields
+  if (hasKanji) return "zh";
+
+  // Latin only
+  if (hasLatin) return "en";
+
+  return "unknown";
+}
+
+/**
+ * Find first item in array matching the target language
+ */
+function findByLanguage(items: string[], lang: TitleLanguage): string | null {
+  for (const item of items) {
+    if (detectTitleLanguage(item) === lang) return item;
+  }
+  return null;
+}
+
+// =============================================================================
+// Title Extraction Types
+// =============================================================================
+
+export interface MUTitleData {
+  title: string;
+  associated?: Array<{ title: string }>;
+}
+
+export interface ALTitleData {
+  title: { romaji?: string; english?: string; native?: string };
+  synonyms?: string[];
+}
+
+export interface MALTitleData {
+  title: string;
+  title_english?: string;
+  title_japanese?: string;
+  title_synonyms?: string[];
+}
+
+export interface ProviderTitleData {
+  mu?: MUTitleData;
+  al?: ALTitleData;
+  mal?: MALTitleData;
+}
+
+// =============================================================================
+// Title Extraction
+// =============================================================================
+
+/**
+ * Get Japanese title from provider data.
+ * Priority: AniList native > MAL title_japanese > MU associated (detected)
+ *
+ * Note: AniList `native` and MAL `title_japanese` are ALWAYS Japanese by definition,
+ * so no language detection needed for those fields.
+ */
+export function getJapaneseTitle(providers: ProviderTitleData): string | null {
+  // AniList native is always Japanese
+  if (providers.al?.title.native) return providers.al.title.native;
+
+  // MAL title_japanese is always Japanese
+  if (providers.mal?.title_japanese) return providers.mal.title_japanese;
+
+  // MU associated needs detection
+  if (providers.mu?.associated) {
+    const titles = providers.mu.associated.map((a) => a.title);
+    return findByLanguage(titles, "ja");
+  }
+
+  return null;
+}
+
+/**
+ * Get Chinese title from provider data.
+ * Priority: MU associated (detected) > AniList synonyms (detected) > null
+ *
+ * Returns null if no Chinese title found (triggers Gemini fallback).
+ */
+export function getChineseTitle(providers: ProviderTitleData): string | null {
+  // MU associated
+  if (providers.mu?.associated) {
+    const titles = providers.mu.associated.map((a) => a.title);
+    const found = findByLanguage(titles, "zh");
+    if (found) return found;
+  }
+
+  // AniList synonyms
+  if (providers.al?.synonyms) {
+    const found = findByLanguage(providers.al.synonyms, "zh");
+    if (found) return found;
+  }
+
+  return null;
+}
+
+/**
+ * Get English title from provider data.
+ * Priority: AniList english > AniList romaji > MAL title_english > MU title
+ */
+export function getEnglishTitle(providers: ProviderTitleData): string | null {
+  return (
+    providers.al?.title.english ||
+    providers.al?.title.romaji ||
+    providers.mal?.title_english ||
+    providers.mu?.title ||
+    null
+  );
+}
+
+/**
+ * Get title in the preferred language.
+ */
+export function getTitleByLanguage(
+  providers: ProviderTitleData,
+  lang: "en" | "ja" | "zh"
+): string | null {
+  switch (lang) {
+    case "ja":
+      return getJapaneseTitle(providers);
+    case "zh":
+      return getChineseTitle(providers);
+    case "en":
+    default:
+      return getEnglishTitle(providers);
+  }
+}
+
+// =============================================================================
+// Author Name Extraction Types
+// =============================================================================
+
+export interface ALStaffData {
+  staff?: {
+    edges: Array<{
+      role: string;
+      node: { name: { full?: string; native?: string } };
+    }>;
+  };
+}
+
+/**
+ * Extract Japanese author/artist names from AniList staff data.
+ * Returns map of role -> Japanese names array
+ */
+export function getALJapaneseStaffNames(media: ALStaffData): {
+  authors: string[];
+  artists: string[];
+} {
+  const authors: string[] = [];
+  const artists: string[] = [];
+
+  for (const edge of media.staff?.edges || []) {
+    const native = edge.node.name.native;
+    if (!native) continue;
+
+    if (edge.role.includes("Story") || edge.role.includes("Original")) {
+      if (!authors.includes(native)) authors.push(native);
+    }
+    if (edge.role.includes("Art")) {
+      if (!artists.includes(native)) artists.push(native);
+    }
+  }
+
+  return { authors, artists };
+}
+
+/**
+ * Map of romanized name -> Japanese name
+ */
+export type AuthorNameMap = Map<string, string>;
+
+/**
+ * Convert author names to Japanese using a name mapping.
+ * Returns original names if no Japanese equivalent found.
+ */
+export function convertAuthorsToJapanese(
+  authors: string[] | undefined,
+  nameMap: AuthorNameMap
+): string[] | undefined {
+  if (!authors?.length) return undefined;
+  return authors.map((name) => nameMap.get(name) ?? name);
+}
+
+// =============================================================================
+// Fuzzy Matching
+// =============================================================================
+
 /**
  * Normalize string for fuzzy comparison: NFKC, lowercase, remove punctuation
  */
