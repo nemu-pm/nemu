@@ -167,29 +167,22 @@ export interface ALStaffData {
 }
 
 /**
- * Extract Japanese author/artist names from AniList staff data.
- * Returns map of role -> Japanese names array
+ * Extract Japanese staff names from AniList staff data.
+ * Returns combined authors + artists (deduped)
  */
-export function getALJapaneseStaffNames(media: ALStaffData): {
-  authors: string[];
-  artists: string[];
-} {
-  const authors: string[] = [];
-  const artists: string[] = [];
+export function getALJapaneseStaffNames(media: ALStaffData): string[] {
+  const staff = new Set<string>();
 
   for (const edge of media.staff?.edges || []) {
     const native = edge.node.name.native;
     if (!native) continue;
 
-    if (edge.role.includes("Story") || edge.role.includes("Original")) {
-      if (!authors.includes(native)) authors.push(native);
-    }
-    if (edge.role.includes("Art")) {
-      if (!artists.includes(native)) artists.push(native);
+    if (edge.role.includes("Story") || edge.role.includes("Original") || edge.role.includes("Art")) {
+      staff.add(native);
     }
   }
 
-  return { authors, artists };
+  return [...staff];
 }
 
 /**

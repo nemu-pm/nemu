@@ -64,7 +64,6 @@ export function getEntryEffectiveMetadata(entry: LibraryEntry): MangaMetadata {
     title: overrides.title ?? base.title,
     cover: overrides.cover ?? base.cover,
     authors: overrides.authors ?? base.authors,
-    artists: overrides.artists ?? base.artists,
     description: overrides.description ?? base.description,
     tags: overrides.tags ?? base.tags,
     status: overrides.status ?? base.status,

@@ -70,7 +70,7 @@ interface MetadataMatchDrawerProps {
 type ViewMode = "searching" | "merge" | "manual";
 
 // Field display order - cover first, then matches edit dialog order
-const FIELD_ORDER: MetadataField[] = ["cover", "title", "status", "authors", "artists", "description", "tags"];
+const FIELD_ORDER: MetadataField[] = ["cover", "title", "status", "authors", "description", "tags"];
 
 const FIELD_LABELS: Record<MetadataField, string> = {
   title: "metadata.title",
@@ -78,7 +78,6 @@ const FIELD_LABELS: Record<MetadataField, string> = {
   description: "metadata.description",
   status: "metadata.status",
   authors: "metadata.authors",
-  artists: "metadata.artists",
   tags: "metadata.tags",
 };
 
@@ -424,7 +423,6 @@ export function MetadataMatchDrawer({
     description: currentMetadata.description || "",
     status: getStatusLabel(currentMetadata.status, t),
     authors: currentMetadata.authors?.join(", ") || "",
-    artists: currentMetadata.artists?.join(", ") || "",
     tags: currentMetadata.tags?.join(", ") || "",
   }), [currentMetadata, t]);
   

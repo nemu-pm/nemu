@@ -49,7 +49,6 @@ interface FormState {
   status: number;
   tags: Tag[];
   authors: Tag[];
-  artists: Tag[];
   coverFile: File | null;
   coverUrl: string | null;
   coverPreview: string | null;
@@ -92,7 +91,6 @@ export function MetadataEditDialog({
     status: effectiveMetadata.status ?? MangaStatus.Unknown,
     tags: toTags(effectiveMetadata.tags),
     authors: toTags(effectiveMetadata.authors),
-    artists: toTags(effectiveMetadata.artists),
     coverFile: null,
     coverUrl: currentOverrides?.coverUrl ?? null,
     coverPreview: effectiveCover ?? null,
@@ -100,7 +98,6 @@ export function MetadataEditDialog({
 
   const [activeTagIndex, setActiveTagIndex] = useState<number | null>(null);
   const [activeAuthorIndex, setActiveAuthorIndex] = useState<number | null>(null);
-  const [activeArtistIndex, setActiveArtistIndex] = useState<number | null>(null);
   const [matchDrawerOpen, setMatchDrawerOpen] = useState(false);
   const [pendingExternalIds, setPendingExternalIds] = useState<ExternalIds | undefined>();
   const [saving, setSaving] = useState(false);
@@ -117,14 +114,12 @@ export function MetadataEditDialog({
         status: meta.status ?? MangaStatus.Unknown,
         tags: toTags(meta.tags),
         authors: toTags(meta.authors),
-        artists: toTags(meta.artists),
         coverFile: null,
         coverUrl: entry.item.overrides?.coverUrl ?? null,
         coverPreview: cover ?? null,
       });
       setActiveTagIndex(null);
       setActiveAuthorIndex(null);
-      setActiveArtistIndex(null);
       setPendingExternalIds(entry.item.externalIds);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -144,7 +139,6 @@ export function MetadataEditDialog({
     status: form.status !== (baseMetadata.status ?? MangaStatus.Unknown),
     tags: JSON.stringify(fromTags(form.tags)) !== JSON.stringify(baseMetadata.tags ?? []),
     authors: JSON.stringify(fromTags(form.authors)) !== JSON.stringify(baseMetadata.authors ?? []),
-    artists: JSON.stringify(fromTags(form.artists)) !== JSON.stringify(baseMetadata.artists ?? []),
     cover: form.coverFile !== null || form.coverUrl !== null || form.coverPreview !== baseCover,
   };
 
@@ -166,10 +160,6 @@ export function MetadataEditDialog({
       case "authors":
         setForm(f => ({ ...f, authors: toTags(baseMetadata.authors) }));
         setActiveAuthorIndex(null);
-        break;
-      case "artists":
-        setForm(f => ({ ...f, artists: toTags(baseMetadata.artists) }));
-        setActiveArtistIndex(null);
         break;
       case "cover":
         if (form.coverPreview?.startsWith("blob:")) {
@@ -194,13 +184,6 @@ export function MetadataEditDialog({
       authors: typeof newTags === "function" ? newTags(f.authors) : newTags,
     }));
   }, []);
-  
-  const setArtistsCallback = useCallback((newTags: React.SetStateAction<Tag[]>) => {
-    setForm(f => ({
-      ...f,
-      artists: typeof newTags === "function" ? newTags(f.artists) : newTags,
-    }));
-  }, []);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -223,7 +206,6 @@ export function MetadataEditDialog({
       status: metadata.status ?? f.status,
       tags: metadata.tags ? toTags(metadata.tags) : f.tags,
       authors: metadata.authors ? toTags(metadata.authors) : f.authors,
-      artists: metadata.artists ? toTags(metadata.artists) : f.artists,
     }));
     setPendingExternalIds(prev => ({ ...prev, ...externalIds }));
     
@@ -269,7 +251,6 @@ export function MetadataEditDialog({
       if (isOverridden.status) overrides.status = form.status;
       if (isOverridden.tags) overrides.tags = form.tags.length > 0 ? fromTags(form.tags) : undefined;
       if (isOverridden.authors) overrides.authors = form.authors.length > 0 ? fromTags(form.authors) : undefined;
-      if (isOverridden.artists) overrides.artists = form.artists.length > 0 ? fromTags(form.artists) : undefined;
 
       let coverUrl: string | null | undefined;
       if (form.coverFile) {
@@ -485,22 +466,6 @@ export function MetadataEditDialog({
               placeholder={t("metadata.addAuthor")}
               activeTagIndex={activeAuthorIndex}
               setActiveTagIndex={setActiveAuthorIndex}
-              styleClasses={tagInputStyles}
-            />
-          </FieldWrapper>
-
-          <FieldWrapper
-            label={t("metadata.artists")}
-            isOverridden={isOverridden.artists}
-            onReset={() => resetField("artists")}
-          >
-            <TagInput
-              key="artists"
-              tags={form.artists}
-              setTags={setArtistsCallback}
-              placeholder={t("metadata.addArtist")}
-              activeTagIndex={activeArtistIndex}
-              setActiveTagIndex={setActiveArtistIndex}
               styleClasses={tagInputStyles}
             />
           </FieldWrapper>

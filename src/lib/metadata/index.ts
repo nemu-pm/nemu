@@ -53,7 +53,6 @@ export function metadataFromSource(manga: {
   title: string;
   cover?: string;
   authors?: string[];
-  artists?: string[];
   description?: string;
   tags?: string[];
   status?: number;
@@ -63,7 +62,6 @@ export function metadataFromSource(manga: {
     title: manga.title,
     cover: manga.cover,
     authors: manga.authors,
-    artists: manga.artists,
     description: manga.description,
     tags: manga.tags,
     status: manga.status,

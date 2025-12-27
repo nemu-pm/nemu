@@ -10,6 +10,7 @@ import type {
   Chapter,
   Page,
 } from "../types";
+import { mergeAuthors } from "../types";
 import {
   loadSource,
   FilterType,
@@ -594,8 +595,7 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
     id: manga.key,
     title: manga.title || "",
     cover: manga.cover,
-    authors: manga.authors,
-    artists: manga.artists,
+    authors: mergeAuthors(manga.authors, manga.artists),
     description: manga.description,
     tags: manga.tags,
     status: manga.status,

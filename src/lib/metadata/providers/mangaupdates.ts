@@ -228,13 +228,9 @@ function mapToMetadata(detail: MUSeriesDetail): MangaMetadata {
       status = MangaStatus.Cancelled;
   }
 
-  // Separate authors and artists
-  const authors = detail.authors
-    ?.filter((a) => a.type === "Author")
-    .map((a) => a.name);
-  const artists = detail.authors
-    ?.filter((a) => a.type === "Artist")
-    .map((a) => a.name);
+  // Combine authors and artists into single array (deduped)
+  const allCreators = detail.authors?.map((a) => a.name) || [];
+  const uniqueCreators = [...new Set(allCreators)];
 
   // Use only genres (36 fixed items), exclude user-generated categories
   const tags = detail.genres?.map((g) => g.genre) || [];
@@ -242,8 +238,7 @@ function mapToMetadata(detail: MUSeriesDetail): MangaMetadata {
   return {
     title: detail.title,
     cover: detail.image?.url.original,
-    authors: authors?.length ? authors : undefined,
-    artists: artists?.length ? artists : undefined,
+    authors: uniqueCreators.length ? uniqueCreators : undefined,
     description: detail.description,
     tags: tags.length ? tags : undefined,
     status,

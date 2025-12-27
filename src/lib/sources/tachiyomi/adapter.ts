@@ -4,7 +4,7 @@
  * Includes p-memoize for in-memory dedup and IndexedDB caching for images/data.
  */
 import type { MangaSource, MangaSourceSWR, Manga, Chapter, Page, SearchResult } from "../types";
-import { MangaStatus } from "../types";
+import { MangaStatus, mergeAuthors } from "../types";
 import { parseChapterNumber } from "@/lib/chapter-recognition";
 import type { AsyncTachiyomiSource } from "@nemu.pm/tachiyomi-runtime/async";
 import type { Manga as RuntimeManga, Chapter as RuntimeChapter, FilterState } from "@nemu.pm/tachiyomi-runtime";
@@ -43,12 +43,13 @@ const STATUS_MAP: Record<number, typeof MangaStatus[keyof typeof MangaStatus]> =
 };
 
 function toManga(dto: RuntimeManga): Manga {
+  const authors = dto.author ? [dto.author] : undefined;
+  const artists = dto.artist ? [dto.artist] : undefined;
   return {
     id: dto.url, // Tachiyomi uses URL as identifier
     title: dto.title,
     cover: dto.thumbnailUrl,
-    authors: dto.author ? [dto.author] : undefined,
-    artists: dto.artist ? [dto.artist] : undefined,
+    authors: mergeAuthors(authors, artists),
     description: dto.description,
     tags: dto.genre && dto.genre.length > 0 ? dto.genre : undefined,
     status: STATUS_MAP[dto.status] ?? MangaStatus.Unknown,

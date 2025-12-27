@@ -184,19 +184,16 @@ function mapToMetadata(m: ALMedia): MangaMetadata {
       break;
   }
 
-  // Extract authors/artists from staff
-  const authors: string[] = [];
-  const artists: string[] = [];
+  // Extract staff (authors + artists combined, deduped)
+  const staff = new Set<string>();
   for (const edge of m.staff?.edges || []) {
     const name = edge.node.name.full;
     if (!name) continue;
-    if (edge.role.includes("Story") || edge.role.includes("Original")) {
-      authors.push(name);
-    }
-    if (edge.role.includes("Art")) {
-      artists.push(name);
+    if (edge.role.includes("Story") || edge.role.includes("Original") || edge.role.includes("Art")) {
+      staff.add(name);
     }
   }
+  const authors = [...staff];
 
   // Combine genres and top tags
   const tags = [
@@ -214,7 +211,6 @@ function mapToMetadata(m: ALMedia): MangaMetadata {
     title: m.title.romaji || m.title.english || m.title.native || "",
     cover: m.coverImage?.extraLarge || m.coverImage?.large,
     authors: authors.length ? authors : undefined,
-    artists: artists.length ? artists : undefined,
     description,
     tags: tags.length ? tags : undefined,
     status,

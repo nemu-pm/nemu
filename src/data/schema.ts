@@ -29,7 +29,6 @@ export const MangaMetadataSchema = z.object({
   title: z.string(),
   cover: z.string().optional(),
   authors: z.array(z.string()).optional(),
-  artists: z.array(z.string()).optional(),
   description: z.string().optional(),
   tags: z.array(z.string()).optional(),
   status: z.number().optional(), // MangaStatus enum

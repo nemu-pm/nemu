@@ -33,7 +33,7 @@ import { MangaStatus } from "@/lib/sources/types";
 // Types
 // =============================================================================
 
-export type MetadataField = "title" | "cover" | "description" | "status" | "authors" | "artists" | "tags";
+export type MetadataField = "title" | "cover" | "description" | "status" | "authors" | "tags";
 
 export interface FieldOption {
   provider: Provider;
@@ -88,7 +88,6 @@ function getFieldValue(metadata: MangaMetadata, field: MetadataField): string | 
     case "description": return metadata.description;
     case "status": return metadata.status;
     case "authors": return metadata.authors;
-    case "artists": return metadata.artists;
     case "tags": return metadata.tags;
   }
 }
@@ -109,7 +108,7 @@ function formatFieldValue(value: string | string[] | number | undefined, field: 
 }
 
 function buildFieldSelections(matches: ExactMatch[]): Map<MetadataField, FieldSelection> {
-  const fields: MetadataField[] = ["title", "cover", "description", "status", "authors", "artists", "tags"];
+  const fields: MetadataField[] = ["title", "cover", "description", "status", "authors", "tags"];
   const selections = new Map<MetadataField, FieldSelection>();
 
   for (const field of fields) {
@@ -230,7 +229,6 @@ export const useSmartMatchStore = create<SmartMatchStore>((set, get) => ({
         case "description": metadata.description = option.value as string; break;
         case "status": metadata.status = option.value as number; break;
         case "authors": metadata.authors = option.value as string[]; break;
-        case "artists": metadata.artists = option.value as string[]; break;
         case "tags": metadata.tags = option.value as string[]; break;
       }
     }
@@ -261,8 +259,9 @@ function mapMUToResult(detail: MUSeriesDetail): ProviderSearchResult {
     else if (s.includes("discontinue") || s.includes("cancel")) status = MangaStatus.Cancelled;
   }
 
-  const authors = detail.authors?.filter(a => a.type === "Author").map(a => a.name);
-  const artists = detail.authors?.filter(a => a.type === "Artist").map(a => a.name);
+  // Combine authors and artists into single array (deduped)
+  const allCreators = detail.authors?.map(a => a.name) || [];
+  const uniqueCreators = [...new Set(allCreators)];
   // Use only genres (36 fixed items), exclude user-generated categories
   const tags = detail.genres?.map(g => g.genre) || [];
 
@@ -274,8 +273,7 @@ function mapMUToResult(detail: MUSeriesDetail): ProviderSearchResult {
     metadata: {
       title: detail.title,
       cover: detail.image?.url.original,
-      authors: authors?.length ? authors : undefined,
-      artists: artists?.length ? artists : undefined,
+      authors: uniqueCreators.length ? uniqueCreators : undefined,
       description: detail.description,
       tags: tags.length ? tags : undefined,
       status,

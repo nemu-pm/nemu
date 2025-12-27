@@ -56,11 +56,17 @@ export interface Manga {
   title: string;
   cover?: string;
   authors?: string[];
-  artists?: string[];
   description?: string;
   tags?: string[];
   status?: MangaStatus;
   url?: string;
+}
+
+/** Merge authors + artists into single array, deduped */
+export function mergeAuthors(authors?: string[], artists?: string[]): string[] | undefined {
+  const combined = [...(authors || []), ...(artists || [])];
+  const unique = [...new Set(combined)];
+  return unique.length ? unique : undefined;
 }
 
 export interface Chapter {
