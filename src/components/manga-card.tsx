@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router"
+import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
 import { CoverImage } from "@/components/cover-image"
 import { cn, formatRelativeTime } from "@/lib/utils"
@@ -320,9 +321,10 @@ export function MangaCardChapter({
   dateUploaded,
   className,
 }: MangaCardChapterProps) {
+  const { t } = useTranslation()
   const chapterLabel =
     chapterTitle ||
-    (chapterNumber !== undefined ? `Chapter ${chapterNumber}` : "Chapter")
+    (chapterNumber !== undefined ? t("chapter.chapterX", { n: chapterNumber }) : t("chapter.untitled"))
 
   return (
     <Link

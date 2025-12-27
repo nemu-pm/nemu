@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useStores } from "@/data/context";
+import { Keys, parseSourceKey } from "@/data/keys";
 import { languageStore, type Language } from "@/stores/language";
 import { formatLanguageDisplay } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -133,7 +134,7 @@ export function WelcomeWizard({ open, onComplete }: WelcomeWizardProps) {
     const sources = selectedLanguage === "zh" ? CHINESE_SOURCES 
       : selectedLanguage === "ja" ? JAPANESE_SOURCES 
       : ENGLISH_SOURCES;
-    setSelectedSources(new Set(sources.map(s => `${s.registryId}:${s.sourceId}`)));
+    setSelectedSources(new Set(sources.map((s) => Keys.source(s.registryId, s.sourceId))));
   }, [selectedLanguage]);
 
   const recommendedSourceRefs = selectedLanguage === "zh" ? CHINESE_SOURCES 
@@ -178,7 +179,7 @@ export function WelcomeWizard({ open, onComplete }: WelcomeWizardProps) {
     setInstalling(true);
     try {
       for (const key of selectedSources) {
-        const [registryId, sourceId] = key.split(":");
+        const { registryId, sourceId } = parseSourceKey(key);
         // Check if already installed
         const isInstalled = availableSources.find(
           s => s.registryId === registryId && s.id === sourceId

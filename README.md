@@ -1,60 +1,37 @@
 # nemu
 
-A frontend-only content reader with a pluggable provider architecture. Currently supports Aidoku WASM sources running directly in the browser, with the architecture designed for future providers (Komga, Kavita, etc).
+A content reader with a pluggable source runtime architecture (Aidoku WASM + Tachiyomi runtime).
 
-## Architecture
+## Architecture (current)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                           Frontend                               │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
-│  │   App.tsx    │───▶│ Zustand Store │───▶│   Registry   │      │
-│  │   (React)    │    │  (registry)   │    │   Manager    │      │
-│  └──────────────┘    └──────────────┘    └──────┬───────┘      │
-│                                                  │               │
-│         ┌────────────────────────────────────────┼────────┐     │
-│         │              Providers                 │        │     │
-│         ├────────────────────────────────────────▼────────┤     │
-│         │       ┌─────────────────────────────────┐       │     │
-│         │       │     MangaSource Interface       │       │     │
-│         │       │  search() getManga() getPages() │       │     │
-│         │       └─────────────────────────────────┘       │     │
-│         │           ▲           ▲           ▲             │     │
-│         │           │           │           │             │     │
-│         │  ┌────────┴──┐ ┌──────┴─────┐ ┌───┴────────┐   │     │
-│         │  │  Aidoku   │ │   Komga    │ │  Kavita    │   │     │
-│         │  │  Adapter  │ │  (future)  │ │  (future)  │   │     │
-│         │  └─────┬─────┘ └────────────┘ └────────────┘   │     │
-│         │        │                                        │     │
-│         │  ┌─────▼─────┐                                  │     │
-│         │  │   WASM    │                                  │     │
-│         │  │  Runtime  │                                  │     │
-│         │  │ (Worker)  │                                  │     │
-│         │  └───────────┘                                  │     │
-│         └─────────────────────────────────────────────────┘     │
-│                                                                  │
-│         ┌─────────────────────────────────────────────────┐     │
-│         │                 Data Layer                      │     │
-│         ├─────────────────────────────────────────────────┤     │
-│         │  UserDataStore        │      CacheStore         │     │
-│         │  (syncable)           │      (local only)       │     │
-│         │  - Library            │      - WASM binaries    │     │
-│         │  - Reading history    │      - Images           │     │
-│         │  - Installed sources  │      - Metadata         │     │
-│         └─────────────────────────────────────────────────┘     │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                              Frontend (React)                         │
+├──────────────────────────────────────────────────────────────────────┤
+│  src/main.tsx                                                         │
+│   - TanStack Router (src/router.tsx)                                  │
+│   - Zustand stores (src/stores/*)                                     │
+│   - Local persistence: IndexedDB                                      │
+│     - User DB (src/data/indexeddb.ts)                                 │
+│     - Cache DB (src/data/cache.ts)                                    │
+│   - Source runtimes (src/lib/sources/*)                               │
+│     - Aidoku: .aix → WebWorker runtime via @nemu.pm/aidoku-runtime     │
+│     - Tachiyomi: extension runtime via @nemu.pm/tachiyomi-runtime      │
+│   - Reader plugin system (src/lib/plugins/*)                           │
+└──────────────────────────────────────────────────────────────────────┘
                                    │
                                    ▼
-                      ┌───────────────────────┐
-                      │     CORS Proxy        │
-                      │   (for web sources)   │
-                      └───────────────────────┘
-```
+┌──────────────────────────────────────────────────────────────────────┐
+│                             Convex backend                             │
+├──────────────────────────────────────────────────────────────────────┤
+│  - Auth (better-auth via @convex-dev/better-auth)                      │
+│  - Canonical tables: library_items, library_source_links, progress      │
+│  - Realtime subscriptions → hydrate local IndexedDB (src/sync/setup.tsx)│
+└──────────────────────────────────────────────────────────────────────┘
 
 ## Key Concepts
 
-### Provider Layer (`src/providers/`)
+### Source layer (`src/lib/sources/`)
 
 **MangaSource Interface** - Unified interface for ALL manga sources:
 ```typescript
@@ -92,7 +69,7 @@ interface Page {
 
 Each source handles its own image fetching (proxy, auth headers, etc).
 
-### Registry System (`src/providers/registry.ts`)
+### Registry System (`src/lib/sources/registry.ts`)
 
 Polymorphic registry system for discovering and managing sources:
 
@@ -115,11 +92,11 @@ Separated for different sync strategies:
 | **UserDataStore** | Library, history, settings | Cloud sync (future) |
 | **CacheStore** | WASM binaries, images | Local only |
 
-### Current Providers
+### Current runtimes
 
-#### Aidoku (`src/providers/aidoku/`)
+#### Aidoku (`src/lib/sources/aidoku/`)
 
-Runs Aidoku WASM sources in Web Workers:
+Runs Aidoku WASM sources in Web Workers (via `@nemu.pm/aidoku-runtime`).
 
 ```
 adapter.ts          → AidokuMangaSource (implements MangaSource)
@@ -128,60 +105,23 @@ source.worker.ts    → Worker thread (runs WASM)
 runtime.ts          → WASM instantiation & host functions
 ```
 
-## Directory Structure
+## Directory Structure (high level)
 
 ```
 src/
-├── providers/           # Source provider layer
-│   ├── types.ts         # MangaSource, SearchResult, Page, Manga, Chapter
-│   ├── registry.ts      # RegistryManager, registry types
-│   ├── index.ts         # Public exports
-│   └── aidoku/          # Aidoku provider implementation
-│       ├── adapter.ts   # MangaSource implementation
-│       ├── async-source.ts
-│       ├── source.worker.ts
-│       ├── runtime.ts
-│       ├── url-registry.ts  # Aidoku URL registry
-│       ├── types.ts     # Aidoku-specific types
-│       └── imports/     # WASM host function implementations
-│
-├── data/                # Data persistence layer
-│   ├── schema.ts        # Zod schemas (LibraryManga, ReadingHistory, etc)
-│   ├── keys.ts          # Composite key generation & constants
-│   ├── store.ts         # UserDataStore interface
-│   ├── indexeddb.ts     # IndexedDB implementation
-│   └── cache.ts         # CacheStore interface
-│
-├── stores/              # Zustand state stores
-│   ├── sources.ts       # Source registry & installation
-│   ├── library.ts       # User's manga library
-│   └── history.ts       # Reading progress
-│
-├── pages/               # Page components
-│   ├── library.tsx      # Library grid view
-│   ├── search.tsx       # Aggregated search
-│   ├── manga.tsx        # Manga details & chapters
-│   ├── reader.tsx       # Chapter reader
-│   └── settings.tsx     # Source management
-│
-├── components/          # Shared components
-│   ├── ui/              # shadcn/ui components
-│   ├── shell.tsx        # App shell with nav
-│   ├── cover-image.tsx  # Lazy cover images
-│   └── add-source-dialog.tsx
-│
-├── router.tsx           # TanStack Router config
-├── App.tsx              # Root component
-└── main.tsx             # Entry point
-
-service/
-└── wrangler.toml        # Cloudflare Workers CORS proxy
+├── lib/sources/         # Source runtimes + registries (Aidoku/Tachiyomi)
+├── data/                # IndexedDB persistence (user + cache), schemas, keys
+├── stores/              # Zustand stores (library/settings/history/progress/sync)
+├── sync/                # Convex subscription hydration + sync UX
+├── pages/               # Route-level UI
+├── components/          # Shared UI building blocks
+└── main.tsx             # App entry
 ```
 
 ## Running
 
 ```bash
-# Install dependencies
+# Install dependencies (bun)
 bun install
 
 # Start dev server

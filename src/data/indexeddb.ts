@@ -1,6 +1,5 @@
 import type { UserDataStore } from "./store";
 import type {
-  HistoryEntry,
   InstalledSource,
   SourceRegistry,
   UserSettings,
@@ -10,7 +9,7 @@ import type {
   LocalMangaProgress,
 } from "./schema";
 import {
-  HistoryEntrySchema,
+  ChapterSummarySchema,
   SourceRegistrySchema,
   UserSettingsSchema,
   LocalLibraryItemSchema,
@@ -19,13 +18,23 @@ import {
   LocalMangaProgressSchema,
   MangaMetadataSchema,
   ExternalIdsSchema,
-  SourceLinkSchema,
 } from "./schema";
 import { z } from "zod";
 
 // ============================================================================
-// Legacy LibraryManga type (internal only - for migration)
+// Legacy schemas (internal only - for migration)
 // ============================================================================
+
+/** Legacy SourceLink format (embedded in library entries) */
+const LegacySourceLinkSchema = z.object({
+  registryId: z.string(),
+  sourceId: z.string(),
+  mangaId: z.string(),
+  latestChapter: ChapterSummarySchema.optional(),
+  updateAcknowledged: ChapterSummarySchema.optional(),
+});
+
+/** Legacy LibraryManga type (for migration) */
 const LegacyLibraryMangaSchema = z.object({
   id: z.string(),
   addedAt: z.number(),
@@ -33,9 +42,26 @@ const LegacyLibraryMangaSchema = z.object({
   overrides: MangaMetadataSchema.partial().optional(),
   coverCustom: z.string().optional(),
   externalIds: ExternalIdsSchema.optional(),
-  sources: z.array(SourceLinkSchema).min(1),
+  sources: z.array(LegacySourceLinkSchema).min(1),
 });
 type LegacyLibraryManga = z.infer<typeof LegacyLibraryMangaSchema>;
+
+/** Legacy HistoryEntry type (for migration) */
+const LegacyHistoryEntrySchema = z.object({
+  id: z.string(),
+  registryId: z.string(),
+  sourceId: z.string(),
+  mangaId: z.string(),
+  chapterId: z.string(),
+  progress: z.number().int(),
+  total: z.number().int(),
+  completed: z.boolean(),
+  dateRead: z.number(),
+  chapterNumber: z.number().optional(),
+  volumeNumber: z.number().optional(),
+  chapterTitle: z.string().optional(),
+});
+type LegacyHistoryEntry = z.infer<typeof LegacyHistoryEntrySchema>;
 
 /**
  * =========================
@@ -87,8 +113,8 @@ const MOCK_BLOCK_STICKY_KEY = "nemu:idb-mock-blocked-sticky";
 const MOCK_LOCK_HELD_KEY = "nemu:idb-mock-lock-held";
 
 const STORES = {
-  library: "library",
-  history: "history",
+  library: "library", // Legacy, kept for migration/clear
+  history: "history", // Legacy, kept for migration/clear
   settings: "settings",
   registries: "registries",
   // Normalized canonical tables (mirrors Convex schema)
@@ -96,8 +122,6 @@ const STORES = {
   sourceLinks: "source_links",
   chapterProgress: "chapter_progress",
   mangaProgress: "manga_progress",
-  // HLC state per profile
-  hlcState: "hlc_state",
 } as const;
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -290,7 +314,8 @@ try {
 }
 
 /** Create composite key for history entry */
-export function makeHistoryKey(
+/** @internal Used for migration only */
+function makeHistoryKey(
   registryId: string,
   sourceId: string,
   mangaId: string,
@@ -302,16 +327,6 @@ export function makeHistoryKey(
   return `${enc(registryId)}:${enc(sourceId)}:${enc(mangaId)}:${enc(chapterId)}`;
 }
 
-/** Legacy history key format (pre-encoding). Used for lazy migration. */
-function makeLegacyHistoryKey(
-  registryId: string,
-  sourceId: string,
-  mangaId: string,
-  chapterId: string
-): string {
-  return `${registryId}:${sourceId}:${mangaId}:${chapterId}`;
-}
-
 /**
  * IndexedDB implementation of UserDataStore.
  *
@@ -320,24 +335,56 @@ function makeLegacyHistoryKey(
  */
 export class IndexedDBUserDataStore implements UserDataStore {
   private dbPromise: Promise<IDBDatabase> | null = null;
-  readonly profileId: string;
-  readonly dbName: string;
+  private _profileId: string;
+  private _dbName: string;
+
+  get profileId(): string { return this._profileId; }
+  get dbName(): string { return this._dbName; }
 
   /**
    * @param profileId - Optional profile ID. If provided, DB name becomes "nemu-user::{profileId}".
    *                    Typically "user:<userId>" for authenticated users, omit for local/anonymous.
    */
   constructor(profileId?: string) {
-    this.profileId = profileId ?? "";
-    this.dbName = this.profileId ? `${DEFAULT_DB_NAME}::${this.profileId}` : DEFAULT_DB_NAME;
-    console.log("[IndexedDB] CREATED IndexedDBUserDataStore with profileId:", this.profileId, "dbName:", this.dbName);
+    this._profileId = profileId ?? "";
+    this._dbName = this._profileId ? `${DEFAULT_DB_NAME}::${this._profileId}` : DEFAULT_DB_NAME;
+  }
+
+  /**
+   * Switch to a different profile without recreating the store instance.
+   *
+   * IMPORTANT ARCHITECTURE NOTE:
+   * We intentionally do NOT call `db.close()` here.
+   *
+   * Why:
+   * - The app kicks off async loads (library/settings/progress) that may still be mid-flight when
+   *   auth/profile changes. If we close the connection, those in-flight operations can throw
+   *   `InvalidStateError: ... The database connection is closing` when they later try to start
+   *   a transaction.
+   * - Profile switching is a *routing* change (different DB name). Leaving the prior connection
+   *   open briefly does not block the new profile DB, since it is a different database.
+   *
+   * If we later need to aggressively reclaim resources, implement a ref-counted/pooled connection
+   * manager instead of closing here.
+   * 
+   * @returns Promise that resolves when switch is complete
+   */
+  async switchProfile(profileId: string | undefined): Promise<void> {
+    const newProfileId = profileId ?? "";
+    if (newProfileId === this._profileId) return;
+
+    // Drop the cached open promise so subsequent operations open the new DB.
+    // Do NOT close the previous connection here (see note above).
+    this.dbPromise = null;
+    this._profileId = newProfileId;
+    this._dbName = newProfileId ? `${DEFAULT_DB_NAME}::${newProfileId}` : DEFAULT_DB_NAME;
   }
 
   /**
    * Get the DB name for this store (includes profile suffix if set).
    */
   private getDbName(): string {
-    return this.dbName;
+    return this._dbName;
   }
 
   private getDB(): Promise<IDBDatabase> {
@@ -484,11 +531,15 @@ export class IndexedDBUserDataStore implements UserDataStore {
                   if (item.history && typeof item.history === "object") {
                     // Parse id to extract registryId, sourceId, mangaId
                     // Format: registryId:sourceId:mangaId
-                    const parts = (item.id as string).split(":");
-                    if (parts.length >= 3) {
-                      const [registryId, sourceId, mangaId] = parts;
+                    const rawId = String(item.id ?? "");
+                    const first = rawId.indexOf(":");
+                    const second = first === -1 ? -1 : rawId.indexOf(":", first + 1);
+                    if (first !== -1 && second !== -1) {
+                      const registryId = rawId.slice(0, first);
+                      const sourceId = rawId.slice(first + 1, second);
+                      const mangaId = rawId.slice(second + 1);
                       for (const [chapterId, progress] of Object.entries(item.history)) {
-                        const historyEntry: HistoryEntry = {
+                        const historyEntry: LegacyHistoryEntry = {
                           id: makeHistoryKey(registryId, sourceId, mangaId, chapterId),
                           registryId,
                           sourceId,
@@ -521,7 +572,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
                 if (!cursor) {
                   return;
                 }
-                const entry = cursor.value as HistoryEntry;
+                const entry = cursor.value as LegacyHistoryEntry;
                 const newId = makeHistoryKey(
                   entry.registryId,
                   entry.sourceId,
@@ -530,7 +581,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
                 );
 
                 if (entry.id !== newId) {
-                  const updated: HistoryEntry = { ...entry, id: newId };
+                  const updated: LegacyHistoryEntry = { ...entry, id: newId };
                   // Delete old key then insert updated record under new key.
                   historyStore.delete(entry.id);
                   historyStore.put(updated);
@@ -570,21 +621,13 @@ export class IndexedDBUserDataStore implements UserDataStore {
               store.createIndex("by_updatedAt", "updatedAt", { unique: false });
             }
 
-            // HLC state store (keyed by profileId, default "default") (v6 -> v7)
-            if (!db.objectStoreNames.contains(STORES.hlcState)) {
-              db.createObjectStore(STORES.hlcState, { keyPath: "profileId" });
-            }
-
             // Migration: Rename cursorId -> id in normalized stores (v6-v10 -> v11)
             // These stores were created with keyPath: "cursorId" but we renamed to "id".
             // We need to drop and recreate them - data will resync from cloud.
             // Note: v8-v10 DBs may also have wrong keyPath if created during dev transition.
-            console.log("[IDB] Checking cursorId->id migration: oldVersion =", oldVersion, "condition =", oldVersion >= 6 && oldVersion < 11);
             if (oldVersion >= 6 && oldVersion < 11) {
-              console.log("[IDB] Running cursorId->id migration - dropping and recreating stores with keyPath: id");
               // Drop and recreate source_links
               if (db.objectStoreNames.contains(STORES.sourceLinks)) {
-                console.log("[IDB] Dropping source_links store");
                 db.deleteObjectStore(STORES.sourceLinks);
               }
               {
@@ -614,16 +657,11 @@ export class IndexedDBUserDataStore implements UserDataStore {
                 store.createIndex("by_updatedAt", "updatedAt", { unique: false });
               }
 
-              // Drop HLC state store (no longer needed in Phase 8)
-              if (db.objectStoreNames.contains(STORES.hlcState)) {
-                console.log("[IDB] Dropping hlcState store");
-                db.deleteObjectStore(STORES.hlcState);
+              // Drop HLC state store (no longer needed)
+              if (db.objectStoreNames.contains("hlc_state")) {
+                db.deleteObjectStore("hlc_state");
               }
-              console.log("[IDB] cursorId->id migration complete");
             }
-            
-            // Debug: log store keyPaths after upgrade
-            console.log("[IDB] Final store list:", Array.from(db.objectStoreNames));
           };
         };
 
@@ -704,177 +742,30 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
-  // ============ HISTORY (separate from library) ============
-
-  async getHistoryEntry(
-    registryId: string,
-    sourceId: string,
-    mangaId: string,
-    chapterId: string
-  ): Promise<HistoryEntry | null> {
-    const db = await this.getDB();
-    const key = makeHistoryKey(registryId, sourceId, mangaId, chapterId);
-    const legacyKey = makeLegacyHistoryKey(registryId, sourceId, mangaId, chapterId);
-
-    const readOne = (k: string) =>
-      new Promise<HistoryEntry | null>((resolve, reject) => {
-        const tx = db.transaction(STORES.history, "readonly");
-        const store = tx.objectStore(STORES.history);
-        const request = store.get(k);
-        request.onerror = () => reject(request.error);
-        request.onsuccess = () => {
-          if (!request.result) {
-            resolve(null);
-            return;
-          }
-          const parsed = HistoryEntrySchema.safeParse(request.result);
-          resolve(parsed.success ? parsed.data : null);
-        };
-      });
-
-    const entry = await readOne(key);
-    if (entry) return entry;
-    if (legacyKey !== key) return await readOne(legacyKey);
-    return null;
-  }
-
-  async saveHistoryEntry(entry: HistoryEntry): Promise<void> {
+  /**
+   * @internal Read ALL legacy history data (for migration to canonical tables)
+   * @deprecated Use getAllChapterProgress() instead. Used only for one-time migration.
+   */
+  async getAllLegacyHistory(): Promise<LegacyHistoryEntry[]> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORES.history, "readwrite");
-      const store = tx.objectStore(STORES.history);
-      
-      const legacyId = makeLegacyHistoryKey(
-        entry.registryId,
-        entry.sourceId,
-        entry.mangaId,
-        entry.chapterId
-      );
-
-      // High-water mark protection: read existing entry first and merge.
-      // Also lazily migrate legacy ids → encoded ids on write.
-      const getRequest = store.get(entry.id);
-      getRequest.onerror = () => reject(getRequest.error);
-      getRequest.onsuccess = () => {
-        const existing = getRequest.result as any | undefined;
-
-        const mergeWith = (base: any | undefined): HistoryEntry => {
-          return base
-            ? {
-                ...entry,
-                progress: Math.max(base.progress ?? 0, entry.progress),
-                total: Math.max(base.total ?? 0, entry.total),
-                completed: !!base.completed || entry.completed,
-                dateRead: Math.max(base.dateRead ?? 0, entry.dateRead),
-              }
-            : entry;
-        };
-
-        if (existing) {
-          const merged = mergeWith(existing);
-          const putRequest = store.put(merged);
-          putRequest.onerror = () => reject(putRequest.error);
-          putRequest.onsuccess = () => resolve();
-          return;
-        }
-
-        // If legacy key differs, check legacy entry and migrate it.
-        if (legacyId !== entry.id) {
-          const legacyReq = store.get(legacyId);
-          legacyReq.onerror = () => reject(legacyReq.error);
-          legacyReq.onsuccess = () => {
-            const legacyExisting = legacyReq.result as any | undefined;
-            const merged = mergeWith(legacyExisting);
-
-            if (legacyExisting) {
-              try {
-                store.delete(legacyId);
-              } catch {
-                // ignore
-              }
-            }
-
-            const putRequest = store.put(merged);
-            putRequest.onerror = () => reject(putRequest.error);
-            putRequest.onsuccess = () => resolve();
-          };
-          return;
-        }
-
-        // No existing, no legacy mismatch
-        const putRequest = store.put(entry);
-        putRequest.onerror = () => reject(putRequest.error);
-        putRequest.onsuccess = () => resolve();
-      };
-    });
-  }
-
-  async getMangaHistory(
-    registryId: string,
-    sourceId: string,
-    mangaId: string
-  ): Promise<Record<string, HistoryEntry>> {
-    const db = await this.getDB();
-
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORES.history, "readonly");
-      const store = tx.objectStore(STORES.history);
-      let request: IDBRequest<IDBCursorWithValue | null>;
-      try {
-        const index = store.index("by_manga");
-        const range = IDBKeyRange.only([registryId, sourceId, mangaId]);
-        request = index.openCursor(range);
-      } catch {
-        // Fallback (e.g. if upgrade is blocked and index doesn't exist yet): scan store.
-        request = store.openCursor();
+      if (!db.objectStoreNames.contains(STORES.history)) {
+        resolve([]);
+        return;
       }
-
-      const result: Record<string, HistoryEntry> = {};
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        const cursor = request.result as IDBCursorWithValue | null;
-        if (!cursor) {
-          resolve(result);
-          return;
-        }
-
-        const parsed = HistoryEntrySchema.safeParse(cursor.value);
-        if (parsed.success) {
-          // If we fell back to scanning the whole store, filter by fields.
-          if (
-            parsed.data.registryId === registryId &&
-            parsed.data.sourceId === sourceId &&
-            parsed.data.mangaId === mangaId
-          ) {
-            result[parsed.data.chapterId] = parsed.data;
-          }
-        }
-        cursor.continue();
-      };
-    });
-  }
-
-  async getRecentHistory(limit: number): Promise<HistoryEntry[]> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
       const tx = db.transaction(STORES.history, "readonly");
       const store = tx.objectStore(STORES.history);
-      const index = store.index("by_dateRead");
-      const request = index.openCursor(null, "prev"); // Descending order
+      const request = store.getAll();
 
-      const results: HistoryEntry[] = [];
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
-        const cursor = request.result;
-        if (cursor && results.length < limit) {
-          const parsed = HistoryEntrySchema.safeParse(cursor.value);
-          if (parsed.success) {
-            results.push(parsed.data);
-          }
-          cursor.continue();
-        } else {
-          resolve(results);
-        }
+        const results = request.result
+          .map((item) => {
+            const parsed = LegacyHistoryEntrySchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LegacyHistoryEntry => item !== null);
+        resolve(results);
       };
     });
   }
@@ -1034,11 +925,9 @@ export class IndexedDBUserDataStore implements UserDataStore {
   }
 
   async getAllLibraryItems(options?: { includeRemoved?: boolean }): Promise<LocalLibraryItem[]> {
-    console.log("[IndexedDB] getAllLibraryItems() called on store with profileId:", this.profileId, "dbName:", this.dbName);
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.libraryItems)) {
-        console.log("[IndexedDB] getAllLibraryItems() - store does not exist, returning []");
         resolve([]);
         return;
       }
@@ -1048,14 +937,12 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
-        console.log("[IndexedDB] getAllLibraryItems() raw results:", request.result.length);
         const parsed = request.result
           .map((item) => {
             const parsed = LocalLibraryItemSchema.safeParse(item);
             return parsed.success ? parsed.data : null;
           })
           .filter((item): item is LocalLibraryItem => item !== null);
-        console.log("[IndexedDB] getAllLibraryItems() after parse:", parsed.length);
 
         if (options?.includeRemoved) {
           resolve(parsed);
@@ -1063,7 +950,6 @@ export class IndexedDBUserDataStore implements UserDataStore {
         }
 
         const filtered = parsed.filter((item) => item.inLibrary !== false);
-        console.log("[IndexedDB] getAllLibraryItems() after filter inLibrary:", filtered.length);
         resolve(filtered);
       };
     });
@@ -1184,7 +1070,6 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
   async saveSourceLink(link: LocalSourceLink): Promise<void> {
     const db = await this.getDB();
-    console.log("[IDB] saveSourceLink called with link:", { id: link.id, hasId: "id" in link, keys: Object.keys(link) });
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
         resolve();
@@ -1192,7 +1077,6 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.sourceLinks, "readwrite");
       const store = tx.objectStore(STORES.sourceLinks);
-      console.log("[IDB] sourceLinks store keyPath:", store.keyPath);
       const request = store.put(link);
 
       request.onerror = () => reject(request.error);
@@ -1216,6 +1100,90 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
       for (const link of links) {
         store.put(link);
+      }
+    });
+  }
+
+  /**
+   * Apply a full library snapshot (items + source links) in a single transaction.
+   *
+   * This reduces windows of inconsistent local state where items exist but links
+   * haven't been written yet (or vice versa).
+   *
+   * NOTE: This intentionally does NOT clear stores; it is an upsert-only mirror of
+   * the cloud snapshot, preserving any local-only rows (e.g. offline writes) until
+   * Convex convergence completes.
+   */
+  async saveLibrarySnapshot(items: LocalLibraryItem[], links: LocalSourceLink[]): Promise<void> {
+    if (items.length === 0 && links.length === 0) return;
+    const db = await this.getDB();
+
+    const storeNames = [STORES.libraryItems, STORES.sourceLinks].filter((name) =>
+      db.objectStoreNames.contains(name)
+    );
+    if (storeNames.length === 0) return;
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeNames, "readwrite");
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+
+      // Cache semantics: local library tables mirror cloud snapshots exactly.
+      // Clear + repopulate ensures hard deletes in cloud propagate to local.
+      if (db.objectStoreNames.contains(STORES.libraryItems)) {
+        const itemsStore = tx.objectStore(STORES.libraryItems);
+        itemsStore.clear();
+        for (const item of items) itemsStore.put(item);
+      }
+      if (db.objectStoreNames.contains(STORES.sourceLinks)) {
+        const linksStore = tx.objectStore(STORES.sourceLinks);
+        linksStore.clear();
+        for (const link of links) linksStore.put(link);
+      }
+    });
+  }
+
+  /**
+   * Delete a library item and all its source links.
+   * Used for hard-delete semantics in the local cache.
+   */
+  async deleteLibraryItemAndLinks(libraryItemId: string): Promise<void> {
+    const db = await this.getDB();
+    const storeNames = [STORES.libraryItems, STORES.sourceLinks].filter((name) =>
+      db.objectStoreNames.contains(name)
+    );
+    if (storeNames.length === 0) return;
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeNames, "readwrite");
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+
+      if (db.objectStoreNames.contains(STORES.libraryItems)) {
+        tx.objectStore(STORES.libraryItems).delete(libraryItemId);
+      }
+
+      if (db.objectStoreNames.contains(STORES.sourceLinks)) {
+        const store = tx.objectStore(STORES.sourceLinks);
+        let request: IDBRequest<IDBCursorWithValue | null>;
+        try {
+          const index = store.index("by_libraryItemId");
+          request = index.openCursor(IDBKeyRange.only(libraryItemId));
+        } catch {
+          request = store.openCursor();
+        }
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          const parsed = LocalSourceLinkSchema.safeParse(cursor.value);
+          if (parsed.success && parsed.data.libraryItemId === libraryItemId) {
+            try { cursor.delete(); } catch { /* ignore */ }
+          }
+          cursor.continue();
+        };
+        request.onerror = () => {
+          // Let tx.onerror surface the real error; ignore here.
+        };
       }
     });
   }
@@ -1265,12 +1233,10 @@ export class IndexedDBUserDataStore implements UserDataStore {
    * This is the canonical way to load library data for UI.
    */
   async getLibraryEntries(): Promise<Array<{ item: LocalLibraryItem; sources: LocalSourceLink[] }>> {
-    console.log("[IndexedDB] getLibraryEntries() called on store with profileId:", this.profileId);
     const [items, allLinks] = await Promise.all([
       this.getAllLibraryItems(),
       this.getAllSourceLinks(),
     ]);
-    console.log("[IndexedDB] getLibraryEntries() got items:", items.length, "links:", allLinks.length);
 
     // Group source links by libraryItemId
     const linksByItem = new Map<string, LocalSourceLink[]>();
@@ -1287,14 +1253,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
         item,
         sources: linksByItem.get(item.libraryItemId) ?? [],
       }));
-    const missing = result.filter((e) => e.sources.length === 0);
-    if (missing.length > 0) {
-      console.warn(
-        "[IndexedDB] getLibraryEntries(): found entries missing source links (corrupt).",
-        { profileId: this.profileId, count: missing.length, libraryItemIds: missing.map((e) => e.item.libraryItemId) }
-      );
-    }
-    console.log("[IndexedDB] getLibraryEntries() returning:", result.length, "entries");
+
     return result;
   }
 
@@ -1425,7 +1384,6 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
   async saveChapterProgressEntry(entry: LocalChapterProgress): Promise<void> {
     const db = await this.getDB();
-    console.log("[IDB] saveChapterProgressEntry called with entry:", { id: entry.id, hasId: "id" in entry, keys: Object.keys(entry) });
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.chapterProgress)) {
         resolve();
@@ -1433,7 +1391,6 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.chapterProgress, "readwrite");
       const store = tx.objectStore(STORES.chapterProgress);
-      console.log("[IDB] chapterProgress store keyPath:", store.keyPath);
 
       // High-water mark merge on save
       const getRequest = store.get(entry.id);
@@ -1575,7 +1532,6 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
   async saveMangaProgressEntry(entry: LocalMangaProgress): Promise<void> {
     const db = await this.getDB();
-    console.log("[IDB] saveMangaProgressEntry called with entry:", { id: entry.id, hasId: "id" in entry, keys: Object.keys(entry) });
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.mangaProgress)) {
         resolve();
@@ -1583,7 +1539,6 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.mangaProgress, "readwrite");
       const store = tx.objectStore(STORES.mangaProgress);
-      console.log("[IDB] mangaProgress store keyPath:", store.keyPath);
 
       // Only update if newer (materialized summary)
       const getRequest = store.get(entry.id);
@@ -1658,7 +1613,6 @@ export class IndexedDBUserDataStore implements UserDataStore {
       STORES.sourceLinks,
       STORES.chapterProgress,
       STORES.mangaProgress,
-      STORES.hlcState,
     ];
     const storeNames = candidates.filter((name) => db.objectStoreNames.contains(name));
     if (storeNames.length === 0) return;
@@ -1694,8 +1648,8 @@ export class IndexedDBUserDataStore implements UserDataStore {
   /**
    * Raw counts of canonical tables (no filtering).
    *
-   * Used by SyncProvider to detect "local wiped but cursors still advanced"
-   * and force a full re-pull.
+   * Used by SyncSetup to detect "local wiped" state.
+   * Phase 8+: cursors removed; this is now just for diagnostics.
    */
   async getCanonicalCounts(): Promise<{
     libraryItems: number;
@@ -1713,6 +1667,25 @@ export class IndexedDBUserDataStore implements UserDataStore {
   }
 
   // ============ PHASE 6.6: PROFILE UTILITIES ============
+
+  /**
+   * Check if this profile has any synced canonical data (libraryItems).
+   * Used to determine if this is a first-ever sync (show dialog) or reload (skip dialog).
+   */
+  async hasSyncedData(): Promise<boolean> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.libraryItems)) {
+        resolve(false);
+        return;
+      }
+      const tx = db.transaction(STORES.libraryItems, "readonly");
+      const store = tx.objectStore(STORES.libraryItems);
+      const request = store.count();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result > 0);
+    });
+  }
 
   /**
    * Check if this profile has any library data.

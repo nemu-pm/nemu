@@ -219,6 +219,21 @@ export class RegistryManager {
     return results;
   }
 
+  /**
+   * Dispose loaded source instances without clearing registries.
+   * Safe to call during React Strict Mode double-mounting.
+   */
+  disposeLoadedSources(): void {
+    for (const registry of this.registries.values()) {
+      if ("unloadAll" in registry) {
+        (registry as { unloadAll: () => void }).unloadAll();
+      }
+    }
+  }
+
+  /**
+   * Full dispose - clears all registries. Only call on true unmount.
+   */
   dispose(): void {
     for (const registry of this.registries.values()) {
       if ("dispose" in registry) {

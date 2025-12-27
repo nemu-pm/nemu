@@ -94,6 +94,8 @@ export interface NavbarAction {
   popoverContent?: () => ReactNode
   /** Hook to get popover open state (must be a React hook) */
   usePopoverOpen?: () => boolean
+  /** Callback when popover should close (e.g. click outside) */
+  onPopoverClose?: () => void
 }
 
 /**

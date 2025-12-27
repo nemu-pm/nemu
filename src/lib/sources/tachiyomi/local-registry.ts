@@ -215,15 +215,19 @@ export class TachiyomiLocalRegistry implements SourceRegistryProvider {
     }
   }
 
-  /**
-   * Force reload extensions (useful for hot reload during dev)
-   */
-  async reload(): Promise<void> {
-    // Dispose existing sources
+  /** Unload all loaded sources (safe to call during React Strict Mode) */
+  unloadAll(): void {
     for (const source of this.loadedSources.values()) {
       source.dispose();
     }
     this.loadedSources.clear();
+  }
+
+  /**
+   * Force reload extensions (useful for hot reload during dev)
+   */
+  async reload(): Promise<void> {
+    this.unloadAll();
     this.extensions.clear();
     this.initialized = false;
     

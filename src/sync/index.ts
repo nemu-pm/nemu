@@ -1,23 +1,43 @@
 /**
- * Sync module exports (Phase 8 - Subscription-based)
- *
- * Simplified exports - no more SyncCore, cursors, or HLC.
- * Convex subscriptions handle real-time sync directly.
+ * Sync module exports
+ * 
+ * Architecture:
+ * - services.ts: Module singletons (no React)
+ * - setup.tsx: SyncSetup component (has hooks, renders dialogs)
+ * - hooks.ts: Consumer hooks (direct imports, Zustand selectors)
  */
 
-export { SyncProvider } from "./provider";
+// Setup component (sibling to app tree)
+export { SyncSetup } from "./setup";
+
+// Services (module singletons)
 export {
-  useSyncContext,
+  cacheStore,
+  createServicesContainer,
+  type ServicesContainer,
+  signOut,
+  loadChapterProgress,
+  getDebugInfo,
+  makeProfileId,
+} from "./services";
+
+// Hooks
+export {
   useDataServices,
   useStores,
   useAuth,
   useSyncStatus,
   useSignOut,
-  useMangaProgressIndex,
+  useSyncStore,
+  useAllMangaProgress,
+  useProgressLoading,
+  useSourceLinkProgress,
   useChapterProgress,
   useChapterProgressLoader,
 } from "./hooks";
-export type { DataServices, StoreHooks, SyncContextValue, MangaProgressIndex, SyncStatus } from "./types";
+
+// Types
+export type { DataServices, StoreHooks, SyncStatus } from "./types";
 
 // Transport types (kept for type compatibility)
 export type {

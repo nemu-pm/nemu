@@ -1,5 +1,10 @@
 {
   "common": {
+    "current": "当前",
+    "new": "新",
+    "noChange": "保持原样",
+    "expand": "展开",
+    "collapse": "收起",
     "save": "保存",
     "cancel": "取消",
     "delete": "删除",
@@ -9,6 +14,7 @@
     "next": "下一步",
     "previous": "上一步",
     "search": "搜索",
+    "select": "选择",
     "settings": "设置",
     "multiLanguage": "多语言",
     "done": "完成",
@@ -20,7 +26,13 @@
     "confirm": "确认",
     "continue": "继续",
     "goBack": "返回",
-    "noImage": "无图片"
+    "noImage": "无图片",
+    "reset": "重置",
+    "ok": "确定",
+    "add": "添加",
+    "saving": "保存中...",
+    "clear": "清除",
+    "copy": "复制"
   },
   "languages": {
     "multi": "多语言",
@@ -66,6 +78,13 @@
     "search": "搜索",
     "settings": "设置"
   },
+  "status": {
+    "unknown": "未知",
+    "ongoing": "连载中",
+    "completed": "已完结",
+    "hiatus": "休刊中",
+    "cancelled": "已停载"
+  },
   "library": {
     "noSources": "未安装源",
     "noSourcesDescription": "添加源以开始发现和阅读漫画",
@@ -76,16 +95,39 @@
     "unread": "未读",
     "caughtUp": "已读至最新话",
     "updated": "更新",
-    "fetchMetadata": "获取元数据"
+    "fetchMetadata": "获取元数据",
+    "editMetadata": "编辑信息"
   },
   "metadata": {
+    "editTitle": "编辑信息",
     "fetchTitle": "获取元数据",
     "fetchDescription": "从外部数据库搜索并获取该漫画的详细信息",
     "searchPlaceholder": "搜索漫画标题...",
     "searchPrompt": "输入标题并搜索以获取元数据",
     "noResults": "未找到结果",
     "apply": "应用元数据",
-    "applying": "应用中..."
+    "applying": "应用中...",
+    "smartMatch": {
+      "title": "智能匹配",
+      "searching": "搜索中...",
+      "aiLookup": "AI 查询中...",
+      "aiRetry": "使用 AI 建议重试...",
+      "manualDescription": "搜索漫画标题以获取元数据",
+      "noChanges": "无可应用的更改",
+      "searchManually": "手动搜索"
+    },
+    "cover": "封面",
+    "uploadImage": "上传",
+    "title": "标题",
+    "description": "简介",
+    "status": "状态",
+    "tags": "标签",
+    "addTag": "添加标签...",
+    "authors": "作者",
+    "addAuthor": "添加作者...",
+    "artists": "作画",
+    "addArtist": "添加作画...",
+    "viewOriginal": "查看原图"
   },
   "browse": {
     "loading": "加载源中...",
@@ -119,6 +161,7 @@
     "inLibrary": "已在书架",
     "addToLibrary": "添加到书架",
     "chapters": "章节",
+    "noChapters": "暂无章节",
     "removeFromLibrary": "从书架移除",
     "removeFromLibraryDescription": "确定要从书架移除「{{name}}」吗？",
     "remove": "移除"
@@ -184,10 +227,9 @@
   },
   "about": {
     "title": "关于",
-    "tagline": "温馨的漫画阅读伴侣",
-    "description": "nemu 是一款跨平台网页漫画阅读器，让您能够从各种来源发现和阅读漫画。为漫画爱好者用心打造。",
-    "sourceCode": "源代码",
-    "madeWith": "为漫画爱好者用心打造"
+    "tagline": "魔法の漫画リーダー",
+    "description": "nemu 是一款跨平台网页漫画阅读器，让您能够从各种来源发现和阅读漫画。",
+    "sourceCode": "源代码"
   },
   "settings": {
     "about": "关于",
@@ -225,6 +267,11 @@
     "uninstall": "卸载",
     "plugins": "插件",
     "noPlugins": "未安装插件。"
+  },
+  "sources": {
+    "installing": "正在安装源",
+    "installingDescription": "正在安装 {{name}}...",
+    "installingDescriptionGeneric": "请稍候，源正在安装中..."
   },
   "addSource": {
     "title": "添加源",
@@ -310,6 +357,7 @@
       "analyzingGrammar": "分析语法中...",
       "extractingText": "从图片中提取文字...",
       "tapWordHint": "点击任意词语查看详细释义",
+      "dragWordsHint": "拖拽词语以选择多个",
       "tryAnotherRegion": "尝试选择其他文字区域",
       "structure": "结构",
       "conjugations": "活用",

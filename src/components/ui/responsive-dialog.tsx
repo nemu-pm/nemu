@@ -396,8 +396,46 @@ function ResponsiveDialogDescription({ className, children }: ResponsiveDialogDe
   )
 }
 
+// ============================================================================
+// Nested Dialog Support (for stacked drawers on mobile)
+// ============================================================================
+
+interface ResponsiveDialogNestedProps {
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  children: React.ReactNode
+}
+
+/**
+ * Nested dialog for stacked UI (e.g., match picker inside edit dialog).
+ * On mobile: Uses Vaul's NestedRoot for the stacked drawer effect.
+ * On desktop: Uses regular dialog (appears on top).
+ */
+function ResponsiveDialogNested({ open, onOpenChange, children }: ResponsiveDialogNestedProps) {
+  const { isMobile } = React.useContext(ResponsiveDialogContext)
+  
+  if (isMobile) {
+    return (
+      <ResponsiveDialogContext.Provider value={{ open, onOpenChange, isMobile: true, dismissible: true }}>
+        <DrawerPrimitive.NestedRoot open={open} onOpenChange={onOpenChange}>
+          {children}
+        </DrawerPrimitive.NestedRoot>
+      </ResponsiveDialogContext.Provider>
+    )
+  }
+  
+  return (
+    <ResponsiveDialogContext.Provider value={{ open, onOpenChange, isMobile: false, dismissible: true }}>
+      <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+        {children}
+      </DialogPrimitive.Root>
+    </ResponsiveDialogContext.Provider>
+  )
+}
+
 export {
   ResponsiveDialog,
+  ResponsiveDialogNested,
   ResponsiveDialogTrigger,
   ResponsiveDialogClose,
   ResponsiveDialogContent,
@@ -405,4 +443,5 @@ export {
   ResponsiveDialogFooter,
   ResponsiveDialogTitle,
   ResponsiveDialogDescription,
+  ResponsiveDialogContext,
 }

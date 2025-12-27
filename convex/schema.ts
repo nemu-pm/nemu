@@ -18,16 +18,6 @@ const chapterSummary = v.object({
   volumeNumber: v.optional(v.number()),
 });
 
-// OLD schema: sourceLink embedded in library.sources[]
-const sourceLink = v.object({
-  registryId: v.string(),
-  sourceId: v.string(),
-  mangaId: v.string(), // sourceMangaId
-  // Chapter availability tracking
-  latestChapter: v.optional(chapterSummary),
-  updateAcknowledged: v.optional(chapterSummary),
-});
-
 const mangaMetadata = v.object({
   title: v.string(),
   cover: v.optional(v.string()),
@@ -56,7 +46,7 @@ const externalIds = v.object({
   mal: v.optional(v.number()),
 });
 
-// Phase 8: Simplified user overrides (no clocks)
+// User overrides (no clocks)
 const userOverrides = v.object({
   // Metadata overrides (sparse - only user-edited fields)
   // null = explicitly cleared, undefined = never set
@@ -68,51 +58,6 @@ const userOverrides = v.object({
 });
 
 export default defineSchema({
-  library: defineTable({
-    userId: v.string(),
-    mangaId: v.string(), // UUID
-    addedAt: v.number(),
-
-    // Metadata
-    metadata: mangaMetadata,
-    overrides: v.optional(mangaMetadataPartial),
-    coverCustom: v.optional(v.string()), // R2 key
-
-    // External IDs for metadata re-fetching
-    externalIds: v.optional(externalIds),
-
-    // Source bindings - reading progress derived from history table
-    sources: v.array(sourceLink),
-
-    // Sync metadata
-    updatedAt: v.optional(v.number()),
-    deletedAt: v.optional(v.number()),
-  })
-    .index("by_user", ["userId"])
-    .index("by_user_manga", ["userId", "mangaId"]),
-
-  history: defineTable({
-    userId: v.string(),
-    registryId: v.string(),
-    sourceId: v.string(),
-    mangaId: v.string(),
-    chapterId: v.string(),
-    progress: v.number(),
-    total: v.number(),
-    completed: v.boolean(),
-    dateRead: v.number(),
-    updatedAt: v.optional(v.number()),
-    // Chapter metadata (cached for display)
-    chapterNumber: v.optional(v.number()),
-    volumeNumber: v.optional(v.number()),
-    chapterTitle: v.optional(v.string()),
-  })
-    .index("by_user", ["userId"])
-    .index("by_user_manga", ["userId", "registryId", "sourceId", "mangaId"])
-    .index("by_user_chapter", ["userId", "registryId", "sourceId", "mangaId", "chapterId"])
-    .index("by_user_recent", ["userId", "dateRead"])
-    .index("by_user_updated", ["userId", "updatedAt"]),
-
   settings: defineTable({
     userId: v.string(),
     installedSources: v.array(
@@ -126,13 +71,13 @@ export default defineSchema({
   }).index("by_user", ["userId"]),
 
   // ============================================================================
-  // NEW TABLES (Phase 1 from sync.md) - Ideal normalized schema
+  // NORMALIZED TABLES (Phase 9 - legacy tables removed)
   // ============================================================================
 
-  // library_items: one row per user library entry (replaces library table)
+  // library_items: one row per user library entry
   library_items: defineTable({
     userId: v.string(),
-    libraryItemId: v.string(), // UUID (maps to old library.mangaId)
+    libraryItemId: v.string(), // UUID
 
     // Metadata (source-derived, not user-editable)
     metadata: mangaMetadata,
@@ -142,7 +87,7 @@ export default defineSchema({
     // inLibrary=false means "removed from library", inLibrary=true means "in library"
     inLibrary: v.optional(v.boolean()), // Default true, optional for backward compat
 
-    // User overrides (Phase 8 simplified - no clocks)
+    // User overrides
     overrides: v.optional(userOverrides),
 
     // Sync fields
@@ -180,7 +125,7 @@ export default defineSchema({
     .index("by_user_source_manga", ["userId", "registryId", "sourceId", "sourceMangaId"])
     .index("by_user_updated", ["userId", "updatedAt"]),
 
-  // chapter_progress: canonical truth per chapter (replaces history table)
+  // chapter_progress: canonical truth per chapter
   chapter_progress: defineTable({
     userId: v.string(),
 
@@ -197,7 +142,7 @@ export default defineSchema({
     progress: v.number(),
     total: v.number(),
     completed: v.boolean(),
-    lastReadAt: v.number(), // user clock (was dateRead)
+    lastReadAt: v.number(), // user clock
 
     // Cached chapter metadata (optional, for display)
     chapterNumber: v.optional(v.number()),

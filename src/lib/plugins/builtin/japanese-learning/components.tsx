@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useRef, useCallback, Fragment, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Spinner } from '@/components/ui/spinner'
@@ -8,18 +9,17 @@ import {
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
-  DrawerFooter,
 } from '@/components/ui/drawer'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { Copy01Icon, TextSquareIcon, Cancel01Icon } from '@hugeicons/core-free-icons'
+import { Copy01Icon, TextSquareIcon } from '@hugeicons/core-free-icons'
 import { useTextDetectorStore } from './store'
-import type { TextDetection } from './types'
+import type { TextDetection, OcrTranscriptLine } from './types'
 import type { GrammarToken } from './ichiran-types'
 import type { ReaderPluginContext } from '../../types'
 import { usePluginCtx } from '../../context'
 import { cn, copyToClipboard } from '@/lib/utils'
 import { motion, AnimatePresence } from 'motion/react'
-import { getPOSStyles, getWordClasses } from './pos-styles'
+import { getPOSStyles } from './pos-styles'
 import { getPOSCategory, PartOfSpeechCategory } from './grammar-analysis'
 import { isJapaneseEnabled } from './language'
 import { useWordSelection, isWordInSelection } from './useWordSelection'
@@ -138,163 +138,192 @@ export function OcrNavbarIcon() {
 }
 
 // ============================================================================
-// Transcript popover content (toolbar)
+// Transcript popover content - compact elegant transcript view
 // ============================================================================
 
-export function OcrTranscriptPopoverContent() {
-  const { t } = useTranslation()
-  const ctx = usePluginCtx()
-
-  const settings = useTextDetectorStore((s) => s.settings)
-  const detections = useTextDetectorStore((s) => s.detections)
-  const loadingPages = useTextDetectorStore((s) => s.loadingPages)
-  const transcripts = useTextDetectorStore((s) => s.transcripts)
-  const ocrLoadingPages = useTextDetectorStore((s) => s.ocrLoadingPages)
-
-  const runOcr = useTextDetectorStore((s) => s.runOcr)
+function TranscriptColumn({
+  pageIndex,
+  lines,
+  imageUrl,
+}: {
+  pageIndex: number
+  lines: OcrTranscriptLine[]
+  imageUrl: string | undefined
+}) {
   const openOcrSheetFromTranscript = useTextDetectorStore((s) => s.openOcrSheetFromTranscript)
-  const toggleTranscriptPopover = useTextDetectorStore((s) => s.toggleTranscriptPopover)
+  const setHoveredLine = useTextDetectorStore((s) => s.setHoveredLine)
+  const setBoxPopout = useTextDetectorStore((s) => s.setBoxPopout)
+  const hoveredLine = useTextDetectorStore((s) => s.hoveredLine)
 
-  const visiblePages = ctx.visiblePageIndices
+  if (lines.length === 0) {
+    return (
+      <div className="flex-1 min-w-0 text-center py-4 text-xs text-muted-foreground/60 italic">
+        No text detected
+      </div>
+    )
+  }
 
-  const loadBlob = useCallback(async (pageIndex: number): Promise<Blob | null> => {
-    const url = ctx.getPageImageUrl(pageIndex)
-    if (!url) return null
-    const res = await fetch(url)
-    if (!res.ok) return null
-    return await res.blob()
-  }, [ctx])
-
-  const handleDetect = useCallback(async (pageIndex: number) => {
-    const blob = await loadBlob(pageIndex)
-    if (!blob) return
-    runOcr(pageIndex, blob, {
-      registryId: ctx.registryId,
-      sourceId: ctx.sourceId,
-      mangaId: ctx.mangaId,
-      chapterId: ctx.chapterId,
-      pageIndex,
-    })
-  }, [ctx, loadBlob, runOcr])
-
-  const handleOcr = useCallback(async (pageIndex: number) => {
-    const blob = await loadBlob(pageIndex)
-    if (!blob) return
-    runOcr(pageIndex, blob, {
-      registryId: ctx.registryId,
-      sourceId: ctx.sourceId,
-      mangaId: ctx.mangaId,
-      chapterId: ctx.chapterId,
-      pageIndex,
-    })
-  }, [loadBlob, runOcr])
+  // Check if a line matches the current hover
+  const isLineHovered = (line: OcrTranscriptLine) =>
+    hoveredLine &&
+    hoveredLine.pageIndex === pageIndex &&
+    hoveredLine.x1 === line.x1 &&
+    hoveredLine.y1 === line.y1 &&
+    hoveredLine.x2 === line.x2 &&
+    hoveredLine.y2 === line.y2
 
   return (
-    <div className="w-[420px] max-w-[75vw] space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-medium reader-ui-text-primary">
-          {t('plugin.japaneseLearning.detectText', { defaultValue: 'Dialogue OCR' })}
-        </div>
-        <button
-          type="button"
-          className="reader-ui-text-secondary hover:reader-ui-text-primary"
-          onClick={() => toggleTranscriptPopover(false)}
-          title={t('common.close', { defaultValue: 'Close' })}
-        >
-          <HugeiconsIcon icon={Cancel01Icon} className="size-4" />
-        </button>
-      </div>
+    <div className="flex-1 min-w-0 space-y-0.5">
+      {lines.map((line) => {
+        const isHovered = isLineHovered(line)
+        const somethingHovered = hoveredLine !== null
+        // Fade non-hovered lines when any line is hovered
+        const isFaded = somethingHovered && !isHovered
 
-      <div className="text-xs reader-ui-text-secondary">
-        {settings.autoDetect
-          ? t('plugin.japaneseLearning.autoDetectOn', { defaultValue: 'Auto-detect on. Tap a page below to OCR transcript.' })
-          : t('plugin.japaneseLearning.autoDetectOff', { defaultValue: 'Auto-detect off. Click Detect to find dialogue boxes.' })}
-      </div>
+        return (
+          <button
+            key={line.order}
+            type="button"
+            onClick={(e) => {
+            const clickPosition = { x: e.clientX, y: e.clientY }
 
-      <div className="space-y-3">
-        {visiblePages.map((pageIndex) => {
-          const dets = detections.get(pageIndex) ?? []
-          const transcript = transcripts.get(pageIndex) ?? null
-          const isDetecting = loadingPages.has(pageIndex)
-          const isOcring = ocrLoadingPages.has(pageIndex)
+            if (imageUrl) {
+              // Set popout immediately (spinner), then fill with cropped image when ready.
+              const box: TextDetection = {
+                x1: line.x1,
+                y1: line.y1,
+                x2: line.x2,
+                y2: line.y2,
+                confidence: line.confidence,
+                class: line.class,
+                label: line.label,
+              }
+              setBoxPopout({
+                pageIndex,
+                box,
+                clickPosition,
+                croppedImageUrl: null,
+                croppedDimensions: null,
+              })
 
-          return (
-            <div key={pageIndex} className="rounded-xl border reader-ui-border p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-xs font-medium reader-ui-text-primary">
-                  {t('plugin.japaneseLearning.pageN', { defaultValue: 'Page {{n}}', n: pageIndex + 1 })}
-                </div>
-                <div className="text-[11px] reader-ui-text-secondary tabular-nums">
-                  {dets.length > 0
-                    ? t('plugin.japaneseLearning.detectedCount', { defaultValue: '{{n}} boxes', n: dets.length })
-                    : t('plugin.japaneseLearning.notDetected', { defaultValue: 'No detections yet' })}
-                </div>
-              </div>
+              ;(async () => {
+                try {
+                  const res = await fetch(imageUrl)
+                  if (!res.ok) throw new Error(`Failed to fetch image for popout: ${res.status} ${res.statusText}`)
+                  const sourceBlob = await res.blob()
+                  const bitmap = await createImageBitmap(sourceBlob)
 
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={isDetecting}
-                  onClick={() => handleDetect(pageIndex)}
-                  className="h-8"
-                >
-                  {isDetecting ? (
-                    <span className="inline-flex items-center gap-2">
-                      <Spinner className="size-3.5" />
-                      {t('common.loading', { defaultValue: 'Detecting…' })}
-                    </span>
-                  ) : (
-                    t('plugin.japaneseLearning.detectText', { defaultValue: 'Detect' })
-                  )}
-                </Button>
+                  const padding = 10
+                  const cropX = Math.max(0, line.x1 - padding)
+                  const cropY = Math.max(0, line.y1 - padding)
+                  const cropWidth = Math.min(bitmap.width - cropX, line.x2 - line.x1 + padding * 2)
+                  const cropHeight = Math.min(bitmap.height - cropY, line.y2 - line.y1 + padding * 2)
+                  if (cropWidth <= 1 || cropHeight <= 1) return
 
-                <Button
-                  size="sm"
-                  variant="default"
-                  disabled={dets.length === 0 || isOcring}
-                  onClick={() => handleOcr(pageIndex)}
-                  className="h-8"
-                >
-                  {isOcring ? (
-                    <span className="inline-flex items-center gap-2">
-                      <Spinner className="size-3.5" />
-                      {t('plugin.japaneseLearning.extractingText', { defaultValue: 'OCR…' })}
-                    </span>
-                  ) : (
-                    t('plugin.japaneseLearning.transcript', { defaultValue: 'Transcript' })
-                  )}
-                </Button>
-              </div>
+                  const canvas = document.createElement('canvas')
+                  canvas.width = cropWidth
+                  canvas.height = cropHeight
+                  const ctx2d = canvas.getContext('2d')
+                  if (!ctx2d) return
+                  ctx2d.drawImage(bitmap, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight)
 
-              {transcript && transcript.length > 0 && (
-                <div className="pt-2 space-y-1 max-h-[40vh] overflow-auto">
-                  {transcript.map((line) => (
-                    <button
-                      key={line.order}
-                      type="button"
-                      onClick={() => openOcrSheetFromTranscript(pageIndex, line)}
-                      className={cn(
-                        'w-full text-left rounded-lg px-2.5 py-2',
-                        'hover:bg-muted/60 transition-colors',
-                        'reader-ui-text-primary'
-                      )}
-                    >
-                      <div className="flex items-start gap-2">
-                        <span className="mt-[2px] text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground tabular-nums">
-                          {line.order + 1}
-                        </span>
-                        <span className="text-sm leading-snug selectable" lang="ja">
-                          {line.text}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })}
+                  const blob = await new Promise<Blob>((resolve, reject) => {
+                    canvas.toBlob(
+                      (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
+                      'image/jpeg',
+                      0.9
+                    )
+                  })
+
+                  const blobUrl = URL.createObjectURL(blob)
+                  setBoxPopout({
+                    pageIndex,
+                    box,
+                    clickPosition,
+                    croppedImageUrl: blobUrl,
+                    croppedDimensions: { width: cropWidth, height: cropHeight },
+                  })
+                  bitmap.close()
+                } catch (err) {
+                  console.warn('[JapaneseLearning] Failed to crop transcript selection for popout:', err)
+                }
+              })()
+            }
+
+            openOcrSheetFromTranscript(pageIndex, line, { preserveBoxPopout: true })
+          }}
+          onMouseEnter={() => setHoveredLine({ pageIndex, x1: line.x1, y1: line.y1, x2: line.x2, y2: line.y2 })}
+            onMouseLeave={() => setHoveredLine(null)}
+            className={cn(
+              'block w-full text-left rounded-md px-2 py-1.5',
+              'transition-all duration-100',
+              'text-[13px] leading-relaxed',
+              'active:scale-[0.98]',
+              isHovered
+                ? 'bg-white/90 text-black'
+                : 'hover:bg-white/15 reader-ui-text-primary',
+              isFaded && 'opacity-10'
+            )}
+            lang="ja"
+          >
+            {line.text}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+export function OcrTranscriptPopoverContent() {
+  const ctx = usePluginCtx()
+  const settings = useTextDetectorStore((s) => s.settings)
+  const transcripts = useTextDetectorStore((s) => s.transcripts)
+  const hoveredLine = useTextDetectorStore((s) => s.hoveredLine)
+
+  const visiblePages = ctx.visiblePageIndices
+  const isRTL = ctx.readingMode === 'rtl'
+  const isTwoPage = visiblePages.length >= 2
+  const isHovering = hoveredLine !== null
+
+  // Get filtered transcripts for visible pages
+  const pageTranscripts = visiblePages.map((pageIndex) => {
+    const raw = transcripts.get(pageIndex) ?? []
+    return raw.filter(
+      (line) => line.label === 'ja' && line.confidence >= settings.minConfidence
+    )
+  })
+
+  // For RTL, reverse the column order (right page first visually = left column)
+  const orderedPages = isRTL ? [...visiblePages].reverse() : visiblePages
+  const orderedTranscripts = isRTL ? [...pageTranscripts].reverse() : pageTranscripts
+
+  return (
+    <div
+      data-hovering={isHovering || undefined}
+      className={cn(
+        'transcript-popover-content relative max-h-[50vh] overflow-y-auto overscroll-contain',
+        isTwoPage ? 'w-[480px] max-w-[85vw]' : 'w-[260px] max-w-[75vw]'
+      )}
+    >
+      <div
+        className={cn(
+          isTwoPage && 'flex gap-3',
+          isTwoPage && 'divide-x divide-border/40'
+        )}
+      >
+        {orderedPages.map((pageIndex, i) => (
+          <div
+            key={pageIndex}
+            className={cn(isTwoPage && i > 0 && 'pl-3')}
+            style={{ flex: isTwoPage ? 1 : undefined }}
+          >
+            <TranscriptColumn
+              pageIndex={pageIndex}
+              lines={orderedTranscripts[i]}
+              imageUrl={ctx.getPageImageUrl(pageIndex)}
+            />
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -448,9 +477,19 @@ interface DetectionBoxInternalProps {
 function DetectionBox({ detection, imageDims, opacity, isFlashing, pageIndex, imageUrl }: DetectionBoxInternalProps) {
   const colors = LABEL_COLORS[detection.label] ?? LABEL_COLORS.unknown
   const openOcrSheetFromBox = useTextDetectorStore((s) => s.openOcrSheetFromBox)
+  const setBoxPopout = useTextDetectorStore((s) => s.setBoxPopout)
   const runOcr = useTextDetectorStore((s) => s.runOcr)
   const transcripts = useTextDetectorStore((s) => s.transcripts)
   const ocrLoadingPages = useTextDetectorStore((s) => s.ocrLoadingPages)
+  const hoveredLine = useTextDetectorStore((s) => s.hoveredLine)
+
+  // Check if this box is highlighted (matches hovered transcript line)
+  const isHighlighted = hoveredLine &&
+    hoveredLine.pageIndex === pageIndex &&
+    detection.x1 === hoveredLine.x1 &&
+    detection.y1 === hoveredLine.y1 &&
+    detection.x2 === hoveredLine.x2 &&
+    detection.y2 === hoveredLine.y2
 
   const style = useMemo(() => {
     const left = (detection.x1 / imageDims.width) * 100
@@ -472,7 +511,55 @@ function DetectionBox({ detection, imageDims, opacity, isFlashing, pageIndex, im
     e.stopPropagation()
     e.preventDefault()
 
-    openOcrSheetFromBox(pageIndex, detection)
+    const clickPosition = { x: e.clientX, y: e.clientY }
+    openOcrSheetFromBox(pageIndex, detection, clickPosition)
+    setBoxPopout({ pageIndex, box: detection, clickPosition, croppedImageUrl: null, croppedDimensions: null })
+
+    // Crop image region for the floating popout preview.
+    // This is intentionally independent from OCR/worker state.
+    ;(async () => {
+      if (!imageUrl) return
+      try {
+        const res = await fetch(imageUrl)
+        if (!res.ok) throw new Error(`Failed to fetch image for popout: ${res.status} ${res.statusText}`)
+        const sourceBlob = await res.blob()
+        const bitmap = await createImageBitmap(sourceBlob)
+
+        const padding = 10
+        const cropX = Math.max(0, detection.x1 - padding)
+        const cropY = Math.max(0, detection.y1 - padding)
+        const cropWidth = Math.min(bitmap.width - cropX, detection.x2 - detection.x1 + padding * 2)
+        const cropHeight = Math.min(bitmap.height - cropY, detection.y2 - detection.y1 + padding * 2)
+        if (cropWidth <= 1 || cropHeight <= 1) return
+
+        const canvas = document.createElement('canvas')
+        canvas.width = cropWidth
+        canvas.height = cropHeight
+        const ctx2d = canvas.getContext('2d')
+        if (!ctx2d) return
+        ctx2d.drawImage(bitmap, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight)
+
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob(
+            (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
+            'image/jpeg',
+            0.9
+          )
+        })
+
+        const blobUrl = URL.createObjectURL(blob)
+        setBoxPopout({
+          pageIndex,
+          box: detection,
+          clickPosition,
+          croppedImageUrl: blobUrl,
+          croppedDimensions: { width: cropWidth, height: cropHeight },
+        })
+        bitmap.close()
+      } catch (err) {
+        console.warn('[JapaneseLearning] Failed to crop selection for popout:', err)
+      }
+    })()
 
     // If transcript isn't ready yet, start OCR for the page.
     if (!imageUrl) return
@@ -486,14 +573,14 @@ function DetectionBox({ detection, imageDims, opacity, isFlashing, pageIndex, im
     } catch (err) {
       console.error('[JapaneseLearning] Failed to start OCR from box click:', err)
     }
-  }, [openOcrSheetFromBox, pageIndex, detection, imageUrl, transcripts, ocrLoadingPages, runOcr])
+  }, [openOcrSheetFromBox, setBoxPopout, pageIndex, detection, imageUrl, transcripts, ocrLoadingPages, runOcr])
 
   return (
     <button
       type="button"
       className={cn(
         "absolute pointer-events-auto cursor-pointer rounded-sm border-2 transition-opacity duration-200",
-        isFlashing ? "opacity-100" : "opacity-0 hover:opacity-100"
+        isFlashing || isHighlighted ? "opacity-100" : "opacity-0 hover:opacity-100"
       )}
       style={style}
       onClick={handleClick}
@@ -512,7 +599,7 @@ interface TokenDisplayProps {
   isSelected: boolean
   isMultiSelected: boolean
   onPointerDown: () => void
-  onPointerMove: () => void
+  onPointerMove: (wordIndex: number) => void
   onPointerUp: () => void
 }
 
@@ -562,9 +649,15 @@ function getPOSLabel(pos: string): string {
   return labelMap[category] || ''
 }
 
-function TokenDisplay({ token, index, isSelected, isMultiSelected, onPointerDown, onPointerMove, onPointerUp }: TokenDisplayProps) {
-  const category = getPOSCategory(token.partOfSpeech)
-  const isPunctuation = category === PartOfSpeechCategory.PUNCTUATION
+function TokenDisplay({
+  token,
+  index,
+  isSelected,
+  isMultiSelected,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+}: TokenDisplayProps) {
   const displayWord = token.word.replace(/\n/g, '')
   const displayReading = token.reading.replace(/\n/g, '')
   const hasNewline = token.word !== displayWord
@@ -573,29 +666,7 @@ function TokenDisplay({ token, index, isSelected, isMultiSelected, onPointerDown
   const showFurigana = displayReading && displayReading !== displayWord
   const isHighlighted = isSelected || isMultiSelected
 
-  // Punctuation - plain unstyled, but EXACT same structure for alignment
-  if (isPunctuation) {
-    return (
-      <Fragment>
-        <span className="ja-textbook inline-flex flex-col items-center align-bottom mx-[1px]">
-          {/* Furigana row - same as tokens */}
-          <span className="h-[0.9rem] flex items-end justify-center" />
-          {/* Word - exact same structure as tokens */}
-          <span
-            className="relative inline-block rounded-[3px] text-[1.4rem] sm:text-[1.6rem] px-1 py-0.5 text-muted-foreground/50"
-            style={{ borderBottom: '2px solid transparent' }}
-          >
-            {displayWord}
-          </span>
-          {/* POS row - same as tokens */}
-          <span className="h-[1rem] flex items-start justify-center mt-0.5" />
-        </span>
-        {hasNewline && <br />}
-      </Fragment>
-    )
-  }
-
-  // All other tokens - unified structure with drag-to-select support
+  // Tokens - textbook styling with komi-style token selection (single + range)
   // Vertical stack: furigana → word → POS label
   return (
     <Fragment>
@@ -610,14 +681,13 @@ function TokenDisplay({ token, index, isSelected, isMultiSelected, onPointerDown
         className={cn(
           "ja-textbook inline-flex flex-col items-center cursor-pointer",
           "mx-[1px] transition-all duration-150",
-          "select-none group/token align-bottom",
+          "group/token align-bottom select-none",
           posClass
         )}
-        data-selected={isSelected}
         data-word-index={index}
       >
         {/* Furigana row - fixed height for alignment */}
-        <span className="h-[0.9rem] flex items-end justify-center">
+        <span className="h-[0.9rem] flex items-end justify-center select-none">
           {showFurigana && (
             <span
               className={cn(
@@ -632,41 +702,41 @@ function TokenDisplay({ token, index, isSelected, isMultiSelected, onPointerDown
           )}
         </span>
 
-        {/* Main word - same size for everything, with pointer events for drag selection */}
+        {/* Main word - token selection (single + multi range) */}
         <span
           className={cn(
             "relative inline-block rounded-[3px]",
             "text-[1.4rem] sm:text-[1.6rem] px-1 py-0.5",
-            "transition-all duration-150 border-2",
-            getWordClasses(token.partOfSpeech, isSelected, isMultiSelected),
-            !isHighlighted && "group-hover/token:brightness-95 dark:group-hover/token:brightness-110"
+            "transition-all duration-150",
+            "textbook-token"
           )}
-          onMouseDown={(e) => {
-            e.preventDefault()
-            onPointerDown()
-          }}
-          onMouseEnter={onPointerMove}
-          onMouseUp={onPointerUp}
-          onTouchStart={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onPointerDown()
-          }}
-          onTouchMove={(e) => {
+          data-selected={isSelected}
+          data-multi-selected={isMultiSelected}
+          // Use pointer events so we can capture the drag gesture and prevent the Drawer (Vaul)
+          // from reacting to it on desktop (mouse) and mobile (touch).
+          style={{ touchAction: 'none' }}
+          onPointerDown={(e) => {
             e.preventDefault()
             e.stopPropagation()
-            const touch = e.touches[0]
-            const element = document.elementFromPoint(touch.clientX, touch.clientY)
+            ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+            onPointerDown()
+          }}
+          onPointerMove={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            const element = document.elementFromPoint(e.clientX, e.clientY)
             const wordElement = element?.closest('[data-word-index]') as HTMLElement | null
             if (wordElement) {
               const wordIndex = parseInt(wordElement.dataset.wordIndex ?? '0', 10)
-              // Call the move handler directly if over a different word
-              if (wordIndex !== index) {
-                // This will be handled via parent
-              }
+              onPointerMove(wordIndex)
             }
           }}
-          onTouchEnd={(e) => {
+          onPointerUp={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onPointerUp()
+          }}
+          onPointerCancel={(e) => {
             e.preventDefault()
             e.stopPropagation()
             onPointerUp()
@@ -676,7 +746,7 @@ function TokenDisplay({ token, index, isSelected, isMultiSelected, onPointerDown
         </span>
 
         {/* POS label row - fixed height for alignment */}
-        <span className="h-[1rem] flex items-start justify-center mt-0.5">
+        <span className="h-[1rem] flex items-start justify-center mt-0.5 select-none">
           {posLabel && (
             <span
               className={cn(
@@ -724,6 +794,7 @@ function POSTag({ pos, subtle = false }: { pos: string; subtle?: boolean }) {
 }
 
 function TokenSummary({ token }: { token: GrammarToken }) {
+  const { t } = useTranslation()
   const posClass = getPOSClass(token.partOfSpeech)
   const shouldShowPOSOnly =
     !token.components.length &&
@@ -733,21 +804,40 @@ function TokenSummary({ token }: { token: GrammarToken }) {
     token.partOfSpeech.length > 0 &&
     !token.isSuffix
 
+  const handleCopyWord = useCallback(async () => {
+    if (!token.word) return
+    const success = await copyToClipboard(token.word)
+    if (success) toast.success(t('plugin.japaneseLearning.copySuccess'))
+  }, [t, token.word])
+
   return (
     <div className={cn("space-y-2", posClass)}>
       {/* Word header with reading and POS color indicator */}
-      <div className="flex items-baseline gap-3 flex-wrap">
-        <span
-          className="ja-textbook text-2xl sm:text-3xl font-semibold tracking-tight text-foreground selectable"
-          lang="ja"
-        >
-          {token.word}
-        </span>
-        {token.reading && (
-          <span className="text-base text-muted-foreground font-normal selectable" lang="ja">
-            {token.reading}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-baseline gap-3 flex-wrap min-w-0">
+          <span
+            className="ja-textbook text-2xl sm:text-3xl font-semibold tracking-tight text-foreground selectable"
+            lang="ja"
+          >
+            {token.word}
           </span>
-        )}
+          {token.reading && (
+            <span className="text-base text-muted-foreground font-normal selectable" lang="ja">
+              {token.reading}
+            </span>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          onClick={handleCopyWord}
+          className="text-muted-foreground mt-1"
+          title={t('common.copy', { defaultValue: 'Copy' })}
+          aria-label={t('common.copy', { defaultValue: 'Copy' })}
+        >
+          <HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
+        </Button>
       </div>
 
       {/* POS tags row */}
@@ -934,39 +1024,68 @@ function SentenceDisplay({ tokens, showTokens }: SentenceDisplayProps) {
   const { t } = useTranslation()
   const {
     selectedTokenIndex,
+    setSelectedTokenIndex,
     selectionStart,
     selectionEnd,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
+    clearSelection,
     getSelectionType,
   } = useWordSelection()
 
-  // Wait for tokens - no intermediate state to prevent flashing
-  if (!showTokens || tokens.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <div className="text-sm text-muted-foreground">{t('plugin.japaneseLearning.analyzingGrammar')}</div>
-      </div>
-    )
-  }
-
   const selectionType = getSelectionType()
 
-  // Get text for selected range (for copy button)
-  const getSelectedText = (): string => {
+  const tokensKey = useMemo(() => {
+    // Clear selection when token set changes (komi behavior).
+    // Include partOfSpeech to avoid stale selection if only POS changes.
+    return tokens.map((tok) => `${tok.word}\u0000${tok.partOfSpeech}`).join('\u0001')
+  }, [tokens])
+
+  useEffect(() => {
+    clearSelection()
+  }, [clearSelection, tokensKey])
+
+  useEffect(() => {
+    if (tokens.length === 1) {
+      setSelectedTokenIndex(0)
+    }
+  }, [setSelectedTokenIndex, tokens.length])
+
+  const getSelectedText = useCallback((): string => {
     if (selectionType === 'single' && selectedTokenIndex !== null) {
       return tokens[selectedTokenIndex]?.word ?? ''
     }
     if (selectionType === 'multi' && selectionStart !== null && selectionEnd !== null) {
       const start = Math.min(selectionStart, selectionEnd)
       const end = Math.max(selectionStart, selectionEnd)
-      return tokens.slice(start, end + 1).map(t => t.word).join('')
+      return tokens.slice(start, end + 1).map((tok) => tok.word).join('')
     }
     return ''
+  }, [selectedTokenIndex, selectionEnd, selectionStart, selectionType, tokens])
+
+  // Wait for tokens - no intermediate state to prevent flashing
+  // NOTE: must be *after* all hooks to preserve hook call order across renders.
+  if (!showTokens || tokens.length === 0) {
+    return (
+      <motion.div
+        className="flex flex-col items-center justify-center py-10 gap-3"
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.98 }}
+        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+      >
+        <div className="flex items-center gap-3">
+          <Spinner className="size-6 text-primary" />
+          <div className="text-sm font-medium text-foreground/90">
+            {t('plugin.japaneseLearning.analyzingGrammar')}
+          </div>
+        </div>
+      </motion.div>
+    )
   }
 
-  // Tokenized display with visual grammar parsing and drag-to-select
+  // Tokenized display with visual grammar parsing and token selection
   return (
     <div className="space-y-4">
       {/* Token sentence with grammar-highlighted tokens */}
@@ -979,7 +1098,7 @@ function SentenceDisplay({ tokens, showTokens }: SentenceDisplayProps) {
             isSelected={selectedTokenIndex === i}
             isMultiSelected={isWordInSelection(i, selectionStart, selectionEnd)}
             onPointerDown={() => handlePointerDown(i)}
-            onPointerMove={() => handlePointerMove(i)}
+            onPointerMove={(wordIndex) => handlePointerMove(wordIndex)}
             onPointerUp={() => handlePointerUp(i)}
           />
         ))}
@@ -987,12 +1106,7 @@ function SentenceDisplay({ tokens, showTokens }: SentenceDisplayProps) {
 
       {/* Selected token details or multi-selection info */}
       <AnimatePresence mode="wait">
-        {selectionType === 'single' && selectedTokenIndex !== null && tokens[selectedTokenIndex] ? (
-          <TokenDetails
-            key={`details-${selectedTokenIndex}`}
-            token={tokens[selectedTokenIndex]}
-          />
-        ) : selectionType === 'multi' ? (
+        {selectionType === 'multi' ? (
           <motion.div
             key="multi-selection"
             initial={{ opacity: 0, y: 8 }}
@@ -1023,6 +1137,11 @@ function SentenceDisplay({ tokens, showTokens }: SentenceDisplayProps) {
               </Button>
             </div>
           </motion.div>
+        ) : selectionType === 'single' && selectedTokenIndex !== null && tokens[selectedTokenIndex] ? (
+          <TokenDetails
+            key={`details-${selectedTokenIndex}`}
+            token={tokens[selectedTokenIndex]}
+          />
         ) : (
           <motion.div
             key="empty-selection"
@@ -1034,6 +1153,9 @@ function SentenceDisplay({ tokens, showTokens }: SentenceDisplayProps) {
           >
             <p className="text-xs text-muted-foreground/70">
               {t('plugin.japaneseLearning.tapWordHint')}
+            </p>
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              {t('plugin.japaneseLearning.dragWordsHint')}
             </p>
           </motion.div>
         )}
@@ -1055,15 +1177,6 @@ export function OcrResultSheet() {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const showTokens = !grammarAnalysis.loading && grammarAnalysis.tokens.length > 0
-
-  const handleCopy = useCallback(async () => {
-    if (ocrResult.text) {
-      const success = await copyToClipboard(ocrResult.text)
-      if (success) {
-        toast.success(t('plugin.japaneseLearning.copySuccess'))
-      }
-    }
-  }, [ocrResult.text, t])
 
   return (
     <Drawer open={ocrSheetOpen} onOpenChange={(open) => !open && closeOcrSheet()}>
@@ -1125,20 +1238,99 @@ export function OcrResultSheet() {
           </AnimatePresence>
           </div>
         </div>
-
-        <DrawerFooter className="pt-2">
-          <div className="flex gap-2 justify-end w-full">
-            {ocrResult.text && !ocrResult.loading && (
-              <Button variant="ghost" size="sm" onClick={handleCopy} className="gap-1.5 text-muted-foreground">
-                <HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
-                Copy
-              </Button>
-            )}
-          </div>
-        </DrawerFooter>
       </DrawerContent>
     </Drawer>
   )
+}
+
+// ============================================================================
+// Text Popout - Floating cropped image preview (portal)
+// ============================================================================
+
+export function TextPopout() {
+  const { t } = useTranslation()
+  const boxPopout = useTextDetectorStore((s) => s.boxPopout)
+  const ocrSheetOpen = useTextDetectorStore((s) => s.ocrSheetOpen)
+  const [dims, setDims] = useState({ width: 200, height: 100 })
+
+  useEffect(() => {
+    if (boxPopout?.croppedDimensions) {
+      const { width, height } = boxPopout.croppedDimensions
+      const aspectRatio = width / height
+      let displayHeight = window.innerHeight * 0.2
+      let displayWidth = displayHeight * aspectRatio
+      const maxWidth = window.innerWidth * 0.9
+      if (displayWidth > maxWidth) {
+        displayWidth = maxWidth
+        displayHeight = displayWidth / aspectRatio
+      }
+      setDims({ width: displayWidth, height: displayHeight })
+    }
+  }, [boxPopout?.croppedDimensions])
+
+  const showPopout = ocrSheetOpen && !!boxPopout
+  const clickPosition = boxPopout?.clickPosition ?? { x: 0, y: 0 }
+  const { width: displayWidth, height: displayHeight } = dims
+
+  const content = (
+    <AnimatePresence>
+      {showPopout && (
+        <motion.div
+          key="textPopout"
+          initial={{
+            opacity: 0,
+            scale: 0.1,
+            left: clickPosition.x - displayWidth / 2,
+            top: clickPosition.y - displayHeight / 2,
+          }}
+          animate={{
+            opacity: 1,
+            scale: 1,
+            left: `calc(50vw - ${displayWidth / 2}px)`,
+            top: `calc(20vh - ${displayHeight / 2}px)`,
+          }}
+          exit={{
+            opacity: 0,
+            scale: 0.8,
+            transition: { duration: 0.2, ease: 'easeOut' },
+          }}
+          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+          className="fixed pointer-events-none z-[60]"
+        >
+          <motion.div
+            initial={{ rotateY: 0, scale: 1.2 }}
+            animate={{ rotateY: [0, 2, -2, 0], scale: [1.2, 1.05, 1] }}
+            transition={{ duration: 0.8, ease: 'easeOut', delay: 0.2 }}
+            className="bg-background/95 backdrop-blur-xl rounded-xl overflow-hidden shadow-2xl"
+            style={{
+              width: displayWidth,
+              height: displayHeight,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.1)',
+            }}
+          >
+            {boxPopout?.croppedImageUrl ? (
+              <motion.img
+                src={boxPopout.croppedImageUrl}
+                alt={t('plugin.japaneseLearning.selectedText', { defaultValue: 'Selected text' })}
+                className="w-full h-full object-cover"
+                style={{ imageRendering: 'crisp-edges' }}
+                initial={{ scale: 1.1 }}
+                animate={{ scale: 1 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 0.2 }}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <Spinner className="size-5" />
+              </div>
+            )}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+
+  if (typeof document === 'undefined') return null
+  return createPortal(content, document.body)
 }
 
 // ============================================================================
@@ -1170,6 +1362,7 @@ export function JapaneseLearningGlobalUI() {
   return (
     <>
       <OcrResultSheet />
+      <TextPopout />
     </>
   )
 }

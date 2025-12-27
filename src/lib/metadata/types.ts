@@ -1,38 +1,38 @@
 /**
- * Types for metadata fetching service
+ * Types for metadata fetching and smart match
  */
 
-import type { MangaMetadata, ExternalIds } from "@/data/schema";
+import type { MangaMetadata } from "@/data/schema";
 
-/** Result from a metadata search */
-export interface MetadataSearchResult {
-  /** Source of the metadata */
-  source: "mangaupdates" | "anilist" | "mal" | "ai";
-  /** External ID from the source */
+/** Supported metadata providers */
+export type Provider = "mangaupdates" | "anilist" | "mal";
+
+/** Raw search result from a provider */
+export interface ProviderSearchResult {
+  provider: Provider;
   externalId: number;
-  /** The metadata */
+  title: string;
+  alternativeTitles: string[];
   metadata: MangaMetadata;
-  /** Associated/alternative titles */
-  associatedTitles?: string[];
-  /** Cover image URL */
   coverUrl?: string;
-  /** Source URL for verification */
   sourceUrl?: string;
 }
 
-/** Full metadata fetch result */
-export interface MetadataFetchResult {
+/** Single best match result from provider search */
+export interface MetadataSearchResult {
+  source: Provider;
+  externalId: number;
   metadata: MangaMetadata;
-  externalIds: ExternalIds;
-  source: MetadataSearchResult["source"];
+  associatedTitles: string[];
+  coverUrl?: string;
+  sourceUrl?: string;
 }
 
-/** Search options */
-export interface MetadataSearchOptions {
-  /** Only search specific provider */
-  provider?: "mangaupdates" | "anilist" | "mal";
-  /** Skip AI fallback */
-  skipAI?: boolean;
-}
-
-
+/** Smart match progress phase */
+export type SmartMatchPhase =
+  | "searching"
+  | "ai-fallback"
+  | "ai-retry"
+  | "manual"
+  | "complete"
+  | "error";

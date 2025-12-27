@@ -94,11 +94,6 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
           </a>
         </div>
 
-        {/* Credits */}
-        <p className="text-center text-xs text-muted-foreground/70 pt-1">
-          {t("about.madeWith")}
-        </p>
-
         <ResponsiveDialogFooter>
           <ResponsiveDialogClose render={<Button variant="outline" />}>
             {t("common.done")}

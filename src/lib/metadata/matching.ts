@@ -3,7 +3,7 @@
  */
 
 /**
- * Normalize string for comparison: NFKC, lowercase, remove punctuation
+ * Normalize string for fuzzy comparison: NFKC, lowercase, remove punctuation
  */
 export function normalize(s: string): string {
   return s
@@ -13,9 +13,16 @@ export function normalize(s: string): string {
 }
 
 /**
+ * Check if query matches any candidate using fuzzy matching.
+ */
+export function hasExactMatch(query: string, candidates: string[]): boolean {
+  return findMatchingTitle(query, candidates) !== null;
+}
+
+/**
  * Longest common subsequence length
  */
-export function lcsLength(a: string, b: string): number {
+function lcsLength(a: string, b: string): number {
   const m = a.length;
   const n = b.length;
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
@@ -35,15 +42,15 @@ export function lcsLength(a: string, b: string): number {
 /**
  * LCS ratio - how much of the shorter string is preserved in the longer
  */
-export function lcsRatio(a: string, b: string): number {
+function lcsRatio(a: string, b: string): number {
   const minLen = Math.min(a.length, b.length);
   if (minLen === 0) return 0;
   return lcsLength(a, b) / minLen;
 }
 
 /**
- * Check if query matches any of the candidate titles
- * Uses exact match, contains match, and LCS ratio
+ * Check if query matches any of the candidate titles (fuzzy).
+ * Uses exact match, contains match, and LCS ratio.
  *
  * @param query - The search query
  * @param candidates - List of candidate titles to match against
@@ -60,14 +67,14 @@ export function findMatchingTitle(
   for (const c of candidates) {
     const nCand = normalize(c);
 
-    // Exact match
+    // Exact match (normalized)
     if (nQuery === nCand) return c;
 
     const minLen = Math.min(nQuery.length, nCand.length);
     const maxLen = Math.max(nQuery.length, nCand.length);
     const lenRatio = minLen / maxLen;
 
-    // Skip if lengths are too different (prevents "复仇" matching long titles)
+    // Skip if lengths are too different
     if (lenRatio < 0.4) continue;
 
     // Contains match
@@ -75,7 +82,7 @@ export function findMatchingTitle(
       return c;
     }
 
-    // LCS ratio match - handles insertions well
+    // LCS ratio match
     const ratio = lcsRatio(nQuery, nCand);
     if (ratio >= lcsThreshold) return c;
   }
@@ -83,4 +90,44 @@ export function findMatchingTitle(
   return null;
 }
 
+/**
+ * Get all candidate titles from a MangaUpdates result
+ */
+export function getMUCandidates(detail: {
+  title: string;
+  associated?: Array<{ title: string }>;
+}): string[] {
+  return [detail.title, ...(detail.associated?.map((a) => a.title) || [])];
+}
 
+/**
+ * Get all candidate titles from an AniList result
+ */
+export function getALCandidates(media: {
+  title: { romaji?: string; english?: string; native?: string };
+  synonyms?: string[];
+}): string[] {
+  return [
+    media.title.romaji,
+    media.title.english,
+    media.title.native,
+    ...(media.synonyms || []),
+  ].filter((n): n is string => Boolean(n));
+}
+
+/**
+ * Get all candidate titles from a MAL/Jikan result
+ */
+export function getMALCandidates(manga: {
+  title: string;
+  title_english?: string;
+  title_japanese?: string;
+  title_synonyms?: string[];
+}): string[] {
+  return [
+    manga.title,
+    manga.title_english,
+    manga.title_japanese,
+    ...(manga.title_synonyms || []),
+  ].filter((n): n is string => Boolean(n));
+}

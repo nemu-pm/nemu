@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useStores, useMangaProgressIndex, type MangaProgressIndex } from "@/data/context";
+import { useStores, useAllMangaProgress } from "@/data/context";
 import { MangaCard } from "@/components/manga-card";
 import { LibraryPageSkeleton } from "@/components/page-skeletons";
 import { PageHeader } from "@/components/page-header";
@@ -39,10 +39,10 @@ function findLatestChapter(chapters: Chapter[]): ChapterSummary | null {
   };
 }
 
-/** Build progress map from manga progress index (canonical) */
+/** Build progress map from manga progress index */
 function buildProgressMap(
   entry: LibraryEntry,
-  progressIndex: MangaProgressIndex
+  progressIndex: Map<string, LocalMangaProgress>
 ): Map<string, LocalMangaProgress> {
   const progress = new Map<string, LocalMangaProgress>();
   for (const source of entry.sources) {
@@ -58,7 +58,7 @@ function buildProgressMap(
 /** Compute progress display info for a library entry */
 function useProgressInfo(
   entry: LibraryEntry,
-  progressIndex: MangaProgressIndex,
+  progressIndex: Map<string, LocalMangaProgress>,
   t: (key: string) => string
 ) {
   return useMemo(() => {
@@ -113,16 +113,30 @@ function useProgressInfo(
   }, [entry, progressIndex, t]);
 }
 
+let libraryPageRenders = 0;
+const libraryPagePrev = { entries: 0, sources: 0, libLoading: true, setLoading: true };
+
 export function LibraryPage() {
+  const renderNum = ++libraryPageRenders;
   const { t } = useTranslation();
   const { useLibraryStore, useSettingsStore } = useStores();
-  const { index: progressIndex } = useMangaProgressIndex();
+  const progressIndex = useAllMangaProgress();
   const { entries, loading: libraryLoading, updateLatestChapter } = useLibraryStore();
   const { installedSources, loading: settingsLoading, getSource } = useSettingsStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshingRef = useRef(false);
-  
-  console.log("[LibraryPage] RENDER - entries:", entries.length, "installedSources:", installedSources.length, "loading:", libraryLoading, settingsLoading);
+
+  // Debug: track what changed
+  const changes: string[] = [];
+  if (libraryPagePrev.entries !== entries.length) changes.push(`entries: ${libraryPagePrev.entries}→${entries.length}`);
+  if (libraryPagePrev.sources !== installedSources.length) changes.push(`sources: ${libraryPagePrev.sources}→${installedSources.length}`);
+  if (libraryPagePrev.libLoading !== libraryLoading) changes.push(`libLoading: ${libraryPagePrev.libLoading}→${libraryLoading}`);
+  if (libraryPagePrev.setLoading !== settingsLoading) changes.push(`setLoading: ${libraryPagePrev.setLoading}→${settingsLoading}`);
+  libraryPagePrev.entries = entries.length;
+  libraryPagePrev.sources = installedSources.length;
+  libraryPagePrev.libLoading = libraryLoading;
+  libraryPagePrev.setLoading = settingsLoading;
+  console.log(`[LibraryPage] render #${renderNum}`, changes.length > 0 ? `CHANGED: ${changes.join(", ")}` : "(no change)");
 
   // Refresh library: fetch chapters for ALL sources of each entry
   const refreshLibrary = useCallback(async () => {
@@ -239,7 +253,7 @@ export function LibraryPage() {
 }
 
 /** Individual library entry card with progress info */
-function LibraryEntryCard({ entry, progressIndex }: { entry: LibraryEntry; progressIndex: MangaProgressIndex }) {
+function LibraryEntryCard({ entry, progressIndex }: { entry: LibraryEntry; progressIndex: Map<string, LocalMangaProgress> }) {
   const { t } = useTranslation();
   const { badge, subtitle } = useProgressInfo(entry, progressIndex, t);
 

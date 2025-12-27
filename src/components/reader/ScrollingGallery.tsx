@@ -82,7 +82,7 @@ function ScrollingRow({
     const spreadPages = spreads[index]
 
     return (
-      <div style={style} className="flex items-center justify-center bg-black">
+      <div style={style} className="flex items-center justify-center bg-black" data-row-index={index}>
         <div
           className="relative h-full flex items-center justify-center mx-auto"
           style={{ width: `${Math.max(1, Math.min(100, pageWidthScale * 100))}%` }}
@@ -114,7 +114,13 @@ function ScrollingRow({
   const kind = getItemKind?.(index) ?? 'page'
   const widthPct = kind === 'page' ? pageWidthScale * 100 : 100
   return (
-    <div style={style} className="flex items-start justify-center bg-black" onClick={onBackgroundClick}>
+    <div
+      style={style}
+      className="flex items-start justify-center bg-black"
+      onClick={onBackgroundClick}
+      data-row-index={index}
+      data-row-kind={kind}
+    >
       <div className="mx-auto" style={{ width: `${Math.max(1, Math.min(100, widthPct))}%`, maxWidth: '100%' }}>
         {renderImage(index)}
       </div>
@@ -270,8 +276,74 @@ export function ScrollingGallery({
         }
       }
 
+      // Single-page scrolling: compute "current page" from the scroll viewport every scroll.
+      // `onRowsRendered` may not fire while scrolling within the same rendered row window,
+      // so relying on it can make current page appear to only update on rerenders (e.g. clicks).
+      if (!isTwoPageMode) {
+        // Keep the same gating semantics as handleRowsRendered to avoid feedback loops.
+        if (!didInitialScrollRef.current) return
+        if (pendingProgrammaticTargetRowRef.current != null) {
+          // If our pending target is now rendered and visible, clear suppression.
+          const pending = pendingProgrammaticTargetRowRef.current
+          const pendingEl = target.querySelector<HTMLElement>(`[data-row-index="${pending}"]`)
+          if (pendingEl) {
+            const cr = target.getBoundingClientRect()
+            const pr = pendingEl.getBoundingClientRect()
+            const overlapPx = Math.min(pr.bottom, cr.bottom) - Math.max(pr.top, cr.top)
+            if (overlapPx > 0) {
+              pendingProgrammaticTargetRowRef.current = null
+            } else {
+              return
+            }
+          } else {
+            return
+          }
+        }
+
+        const containerRect = target.getBoundingClientRect()
+        const centerY = (containerRect.top + containerRect.bottom) / 2
+
+        let bestIndex: number | null = null
+        let bestDist = Number.POSITIVE_INFINITY
+        let bestOverlapPx = -1
+
+        const nodes = target.querySelectorAll<HTMLElement>('[data-row-index]')
+        for (const node of nodes) {
+          const rawIndex = node.dataset.rowIndex
+          if (rawIndex == null) continue
+          const idx = Number(rawIndex)
+          if (!Number.isFinite(idx)) continue
+          if ((getItemKind?.(idx) ?? 'page') === 'spacer') continue
+
+          const rect = node.getBoundingClientRect()
+          const overlapPx =
+            Math.min(rect.bottom, containerRect.bottom) - Math.max(rect.top, containerRect.top)
+          if (overlapPx <= 0) continue
+
+          const containsCenter = rect.top <= centerY && rect.bottom >= centerY
+          const dist = containsCenter ? 0 : Math.min(Math.abs(rect.top - centerY), Math.abs(rect.bottom - centerY))
+
+          if (
+            dist < bestDist ||
+            (dist === bestDist && overlapPx > bestOverlapPx) ||
+            (dist === bestDist && overlapPx === bestOverlapPx && (bestIndex == null || idx > bestIndex))
+          ) {
+            bestIndex = idx
+            bestDist = dist
+            bestOverlapPx = overlapPx
+          }
+        }
+
+        if (bestIndex == null) return
+        const newPageIndex = Math.max(0, Math.min(pageCount - 1, bestIndex))
+        if (newPageIndex === lastReportedPageIndex.current) return
+        lastReportedPageIndex.current = newPageIndex
+        onPageChange(newPageIndex)
+
+        return
+      }
+
       // For fixed-height rows (two-page mode), we can compute the visible item directly.
-      if (!isTwoPageMode) return
       const targetCount = spreads.length
       const itemHeight = rowHeightPx
       if (targetCount <= 0 || itemHeight <= 0) return
@@ -282,7 +354,7 @@ export function ScrollingGallery({
       lastReportedPageIndex.current = newPageIndex
       onPageChange(newPageIndex)
     },
-    [onPageChange, isTwoPageMode, spreads, rowHeightPx]
+    [onPageChange, isTwoPageMode, spreads, rowHeightPx, pageCount, getItemKind]
   )
 
   // Attach scroll listener to list element
@@ -358,10 +430,11 @@ export function ScrollingGallery({
   const handleRowsRendered = useCallback(
     (visibleRows: { startIndex: number; stopIndex: number }) => {
       if (isTwoPageMode) return
-      const el = listRef.current?.element
-      if (el) {
+      const listEl = listRef.current?.element
+      if (listEl) {
         const EPS_PX = 2
-        const isAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - EPS_PX
+        const isAtBottom =
+          listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - EPS_PX
         if (isAtBottom) {
           let last = pageCount - 1
           while (last > 0 && (getItemKind?.(last) ?? 'page') === 'spacer') last -= 1
@@ -399,11 +472,45 @@ export function ScrollingGallery({
         }
         return
       }
-      const { startIndex, stopIndex } = visibleRows
-      if (startIndex < 0 || stopIndex < 0) return
+      // Stable "current page" rule: choose the page whose row contains the viewport centerline.
+      // This flips exactly when you scroll past the midpoint between pages (direction-independent).
+      if (!listEl) return
+      const containerRect = listEl.getBoundingClientRect()
+      const centerY = (containerRect.top + containerRect.bottom) / 2
 
-      const mid = Math.floor((startIndex + stopIndex) / 2)
-      const newPageIndex = Math.max(0, Math.min(pageCount - 1, mid))
+      let bestIndex: number | null = null
+      let bestDist = Number.POSITIVE_INFINITY
+      let bestOverlapPx = -1
+
+      const nodes = listEl.querySelectorAll<HTMLElement>('[data-row-index]')
+      for (const node of nodes) {
+        const rawIndex = node.dataset.rowIndex
+        if (rawIndex == null) continue
+        const idx = Number(rawIndex)
+        if (!Number.isFinite(idx)) continue
+        if ((getItemKind?.(idx) ?? 'page') === 'spacer') continue
+
+        const rect = node.getBoundingClientRect()
+        const overlapPx =
+          Math.min(rect.bottom, containerRect.bottom) - Math.max(rect.top, containerRect.top)
+        if (overlapPx <= 0) continue
+
+        const containsCenter = rect.top <= centerY && rect.bottom >= centerY
+        const dist = containsCenter ? 0 : Math.min(Math.abs(rect.top - centerY), Math.abs(rect.bottom - centerY))
+
+        if (
+          dist < bestDist ||
+          (dist === bestDist && overlapPx > bestOverlapPx) ||
+          (dist === bestDist && overlapPx === bestOverlapPx && (bestIndex == null || idx > bestIndex))
+        ) {
+          bestIndex = idx
+          bestDist = dist
+          bestOverlapPx = overlapPx
+        }
+      }
+
+      if (bestIndex == null) return
+      const newPageIndex = Math.max(0, Math.min(pageCount - 1, bestIndex))
       if (newPageIndex === lastReportedPageIndex.current) return
       lastReportedPageIndex.current = newPageIndex
       onPageChange(newPageIndex)
@@ -555,6 +662,7 @@ export function ScrollingGallery({
       stopInertia()
     }
   }, [handleMouseMove, handleMouseUp, stopInertia])
+
 
   const rowProps: RowProps = useMemo(
     () => ({

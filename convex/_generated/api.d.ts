@@ -9,13 +9,14 @@
  */
 
 import type * as _lib from "../_lib.js";
+import type * as ai_metadata from "../ai_metadata.js";
 import type * as auth from "../auth.js";
 import type * as history from "../history.js";
 import type * as http from "../http.js";
+import type * as japanese_learning from "../japanese_learning.js";
 import type * as library from "../library.js";
-import type * as metadata from "../metadata.js";
-import type * as migrations from "../migrations.js";
-import type * as ocr from "../ocr.js";
+import type * as proxy from "../proxy.js";
+import type * as r2 from "../r2.js";
 import type * as settings from "../settings.js";
 import type * as sync from "../sync.js";
 
@@ -27,13 +28,14 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   _lib: typeof _lib;
+  ai_metadata: typeof ai_metadata;
   auth: typeof auth;
   history: typeof history;
   http: typeof http;
+  japanese_learning: typeof japanese_learning;
   library: typeof library;
-  metadata: typeof metadata;
-  migrations: typeof migrations;
-  ocr: typeof ocr;
+  proxy: typeof proxy;
+  r2: typeof r2;
   settings: typeof settings;
   sync: typeof sync;
 }>;
@@ -2044,6 +2046,130 @@ export declare const components: {
       findOne: FunctionReference<"query", "internal", any, any>;
       update: FunctionReference<"mutation", "internal", any, any>;
       updateMany: FunctionReference<"mutation", "internal", any, any>;
+    };
+  };
+  r2: {
+    lib: {
+      deleteMetadata: FunctionReference<
+        "mutation",
+        "internal",
+        { bucket: string; key: string },
+        null
+      >;
+      deleteObject: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          accessKeyId: string;
+          bucket: string;
+          endpoint: string;
+          key: string;
+          secretAccessKey: string;
+        },
+        null
+      >;
+      deleteR2Object: FunctionReference<
+        "action",
+        "internal",
+        {
+          accessKeyId: string;
+          bucket: string;
+          endpoint: string;
+          key: string;
+          secretAccessKey: string;
+        },
+        null
+      >;
+      getMetadata: FunctionReference<
+        "query",
+        "internal",
+        {
+          accessKeyId: string;
+          bucket: string;
+          endpoint: string;
+          key: string;
+          secretAccessKey: string;
+        },
+        {
+          bucket: string;
+          bucketLink: string;
+          contentType?: string;
+          key: string;
+          lastModified: string;
+          link: string;
+          sha256?: string;
+          size?: number;
+          url: string;
+        } | null
+      >;
+      listMetadata: FunctionReference<
+        "query",
+        "internal",
+        {
+          accessKeyId: string;
+          bucket: string;
+          cursor?: string;
+          endpoint: string;
+          limit?: number;
+          secretAccessKey: string;
+        },
+        {
+          continueCursor: string;
+          isDone: boolean;
+          page: Array<{
+            bucket: string;
+            bucketLink: string;
+            contentType?: string;
+            key: string;
+            lastModified: string;
+            link: string;
+            sha256?: string;
+            size?: number;
+            url: string;
+          }>;
+          pageStatus?: null | "SplitRecommended" | "SplitRequired";
+          splitCursor?: null | string;
+        }
+      >;
+      store: FunctionReference<
+        "action",
+        "internal",
+        {
+          accessKeyId: string;
+          bucket: string;
+          endpoint: string;
+          secretAccessKey: string;
+          url: string;
+        },
+        any
+      >;
+      syncMetadata: FunctionReference<
+        "action",
+        "internal",
+        {
+          accessKeyId: string;
+          bucket: string;
+          endpoint: string;
+          key: string;
+          onComplete?: string;
+          secretAccessKey: string;
+        },
+        null
+      >;
+      upsertMetadata: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          bucket: string;
+          contentType?: string;
+          key: string;
+          lastModified: string;
+          link: string;
+          sha256?: string;
+          size?: number;
+        },
+        { isNew: boolean }
+      >;
     };
   };
 };

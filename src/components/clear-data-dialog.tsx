@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useMutation } from "convex/react";
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -12,8 +11,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { useAuth, useDataServices, useSyncContext } from "@/data/context";
-import { api } from "../../convex/_generated/api";
+import { useAuth, useDataServices } from "@/data/context";
+import { subscriptionStoppedRef, clearCloudData } from "@/sync/services";
 
 interface ClearDataDialogProps {
   open: boolean;
@@ -25,10 +24,8 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
   const { t } = useTranslation();
   const { isAuthenticated } = useAuth();
   const { localStore } = useDataServices();
-  const syncCtx = useSyncContext();
   const [clearCloud, setClearCloud] = useState(false);
   const [loading, setLoading] = useState(false);
-  const clearCloudData = useMutation(api.library.clearAll);
 
   const knownDbNames = useMemo(() => {
     // Minimal set to cover the most important DBs even when indexedDB.databases() isn't available.
@@ -109,11 +106,7 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
     setLoading(true);
     try {
       // Stop any active subscriptions before clearing storage
-      try {
-        await syncCtx.stopSync?.();
-      } catch {
-        // ignore
-      }
+      subscriptionStoppedRef.current = true;
 
       if (mode === "cache") {
         // Clear cache store contents first (more reliable than deleteDatabase when connections are open),

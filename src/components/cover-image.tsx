@@ -27,6 +27,13 @@ export function CoverImage({ src, alt = "Cover", className }: CoverImageProps) {
       return
     }
 
+    // Blob URLs and data URLs are already local - use directly
+    if (src.startsWith("blob:") || src.startsWith("data:")) {
+      setImgSrc(src)
+      setLoading(false)
+      return
+    }
+
     let blobUrl: string | null = null
     let aborted = false
 

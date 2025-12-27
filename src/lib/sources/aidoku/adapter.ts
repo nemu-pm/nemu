@@ -534,17 +534,17 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
   // ============ SWR METHODS ============
 
   async getCachedManga(mangaId: string): Promise<Manga | null> {
-    const [registryId, sourceId] = this.sourceKey.split(":");
+    const { registryId, sourceId } = parseSourceKey(this.sourceKey);
     return this.cacheStore.getJson<Manga>(CacheKeys.manga(registryId, sourceId, mangaId));
   }
 
   async getCachedChapters(mangaId: string): Promise<Chapter[] | null> {
-    const [registryId, sourceId] = this.sourceKey.split(":");
+    const { registryId, sourceId } = parseSourceKey(this.sourceKey);
     return this.cacheStore.getJson<Chapter[]>(CacheKeys.chapters(registryId, sourceId, mangaId));
   }
 
   private async cacheManga(mangaId: string, manga: Manga): Promise<void> {
-    const [registryId, sourceId] = this.sourceKey.split(":");
+    const { registryId, sourceId } = parseSourceKey(this.sourceKey);
     try {
       await this.cacheStore.setJson(CacheKeys.manga(registryId, sourceId, mangaId), manga);
     } catch {
@@ -553,7 +553,7 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
   }
 
   private async cacheChapters(mangaId: string, chapters: Chapter[]): Promise<void> {
-    const [registryId, sourceId] = this.sourceKey.split(":");
+    const { registryId, sourceId } = parseSourceKey(this.sourceKey);
     try {
       await this.cacheStore.setJson(CacheKeys.chapters(registryId, sourceId, mangaId), chapters);
     } catch {

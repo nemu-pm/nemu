@@ -1,6 +1,12 @@
 {
   "common": {
+    "current": "Current",
+    "new": "New",
+    "noChange": "No Change",
+    "expand": "Expand",
+    "collapse": "Collapse",
     "save": "Save",
+    "saving": "Saving...",
     "cancel": "Cancel",
     "delete": "Delete",
     "edit": "Edit",
@@ -9,6 +15,7 @@
     "next": "Next",
     "previous": "Previous",
     "search": "Search",
+    "select": "Select",
     "settings": "Settings",
     "multiLanguage": "Multi-language",
     "done": "Done",
@@ -20,7 +27,12 @@
     "confirm": "Confirm",
     "continue": "Continue",
     "goBack": "Go Back",
-    "noImage": "No Image"
+    "noImage": "No Image",
+    "reset": "Reset",
+    "ok": "OK",
+    "add": "Add",
+    "clear": "Clear",
+    "copy": "Copy"
   },
   "languages": {
     "multi": "Multi-language",
@@ -66,6 +78,13 @@
     "search": "Search",
     "settings": "Settings"
   },
+  "status": {
+    "unknown": "Unknown",
+    "ongoing": "Ongoing",
+    "completed": "Completed",
+    "hiatus": "Hiatus",
+    "cancelled": "Cancelled"
+  },
   "library": {
     "noSources": "No sources installed",
     "noSourcesDescription": "Add a source to start discovering and reading manga",
@@ -81,16 +100,39 @@
     "sources": "Sources",
     "active": "Active",
     "setActive": "Set Active",
-    "fetchMetadata": "Fetch Metadata"
+    "fetchMetadata": "Fetch Metadata",
+    "editMetadata": "Edit Info"
   },
   "metadata": {
-    "fetchTitle": "Fetch Metadata",
+    "editTitle": "Edit Info",
+    "fetchTitle": "Match Metadata",
     "fetchDescription": "Search external databases to get rich metadata for this manga",
     "searchPlaceholder": "Search manga title...",
     "searchPrompt": "Enter a title and search to find metadata",
     "noResults": "No results found",
-    "apply": "Apply Metadata",
-    "applying": "Applying..."
+    "apply": "Use This",
+    "applying": "Applying...",
+    "smartMatch": {
+      "title": "Smart Match",
+      "searching": "Searching...",
+      "aiLookup": "Looking up with AI...",
+      "aiRetry": "Retrying with AI suggestion...",
+      "manualDescription": "Search for manga titles to find metadata",
+      "noChanges": "No changes to apply",
+      "searchManually": "Search Manually"
+    },
+    "cover": "Cover",
+    "uploadImage": "Upload",
+    "title": "Title",
+    "description": "Description",
+    "status": "Status",
+    "tags": "Tags",
+    "addTag": "Add tag...",
+    "authors": "Authors",
+    "addAuthor": "Add author...",
+    "artists": "Artists",
+    "addArtist": "Add artist...",
+    "viewOriginal": "View Original"
   },
   "browse": {
     "loading": "Loading sources...",
@@ -124,6 +166,7 @@
     "inLibrary": "In Library",
     "addToLibrary": "Add to Library",
     "chapters": "Chapters",
+    "noChapters": "No chapters",
     "removeFromLibrary": "Remove from Library",
     "removeFromLibraryDescription": "Are you sure you want to remove \"{{name}}\" from your library?",
     "remove": "Remove"
@@ -189,10 +232,9 @@
   },
   "about": {
     "title": "About",
-    "tagline": "A cozy manga reading companion",
-    "description": "nemu is a web-based cross-platform manga reader that lets you discover and read manga from various sources. Built with love for manga enthusiasts.",
-    "sourceCode": "Source Code",
-    "madeWith": "Made with care for manga lovers"
+    "tagline": "A magical manga reader",
+    "description": "nemu is a web-based cross-platform manga reader that lets you discover and read manga from various online sources.",
+    "sourceCode": "Source Code"
   },
   "settings": {
     "about": "About",
@@ -230,6 +272,11 @@
     "uninstall": "Uninstall",
     "plugins": "Plugins",
     "noPlugins": "No plugins installed."
+  },
+  "sources": {
+    "installing": "Installing Source",
+    "installingDescription": "Installing {{name}}...",
+    "installingDescriptionGeneric": "Please wait while the source is being installed..."
   },
   "addSource": {
     "title": "Add Source",
@@ -321,6 +368,7 @@
       "analyzingGrammar": "Analyzing grammar...",
       "extractingText": "Extracting text from image...",
       "tapWordHint": "Tap any word for detailed meaning",
+      "dragWordsHint": "Drag on words to select multiple",
       "tryAnotherRegion": "Try selecting another text region",
       "structure": "Structure",
       "conjugations": "Conjugations",

@@ -7,9 +7,10 @@
  * - Falls back to simple proxy fetch when no context
  */
 import { createContext, useContext, useCallback, useRef, type ReactNode } from "react";
-import { useDataServices } from "@/data/context";
+import { useStores } from "@/data/context";
 import type { MangaSource } from "@/lib/sources/types";
 import { proxyUrl } from "@/config";
+import { parseSourceKey } from "@/data/keys";
 
 // ============ CONTEXT ============
 
@@ -28,16 +29,19 @@ interface SourceImageProviderProps {
  * Use this at page/section level where source is known.
  */
 export function SourceImageProvider({ sourceKey, children }: SourceImageProviderProps) {
-  const { registryManager } = useDataServices();
+  const { useSettingsStore } = useStores();
+  const getSource = useSettingsStore((s) => s.getSource);
   const sourceCache = useRef<MangaSource | null | undefined>(undefined);
 
   const fetchImage = useCallback(async (url: string): Promise<Blob> => {
-    // Lazy load source on first image request
+    // Lazy load source on first image request (via settings store for proper dialog handling)
     if (sourceCache.current === undefined) {
-      const [, sourceId] = sourceKey.split(":");
-      sourceCache.current = sourceId 
-        ? await registryManager.getSource(sourceId)
-        : null;
+      try {
+        const { registryId, sourceId } = parseSourceKey(sourceKey);
+        sourceCache.current = await getSource(registryId, sourceId);
+      } catch {
+        sourceCache.current = null;
+      }
     }
 
     if (sourceCache.current) {
@@ -45,7 +49,7 @@ export function SourceImageProvider({ sourceKey, children }: SourceImageProvider
     }
 
     return defaultFetch(url);
-  }, [sourceKey, registryManager]);
+  }, [sourceKey, getSource]);
 
   return (
     <SourceImageContext.Provider value={fetchImage}>

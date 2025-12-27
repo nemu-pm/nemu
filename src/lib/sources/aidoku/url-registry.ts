@@ -179,8 +179,9 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     await this.cacheStore.set(CacheKeys.aix(registryId, sourceId), aixData);
 
     // Save installed source with composite id for storage uniqueness
+    const compositeId = Keys.source(registryId, sourceId);
     await this.installedSourceStore.saveInstalledSource({
-      id: Keys.source(registryId, sourceId),
+      id: compositeId,
       registryId,
       version: entry.version,
     });
@@ -268,11 +269,15 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     }
   }
 
-  dispose(): void {
+  /** Unload all loaded sources (safe to call during React Strict Mode) */
+  unloadAll(): void {
     for (const source of this.loadedSources.values()) {
       source.dispose();
     }
     this.loadedSources.clear();
   }
-}
 
+  dispose(): void {
+    this.unloadAll();
+  }
+}

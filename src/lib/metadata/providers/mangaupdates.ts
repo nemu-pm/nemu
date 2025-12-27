@@ -1,14 +1,30 @@
 /**
  * MangaUpdates metadata provider
  * API docs: https://api.mangaupdates.com/openapi.yaml
+ * 
+ * Uses CORS proxy for all requests since MangaUpdates API doesn't support CORS.
  */
 
 import type { MangaMetadata } from "@/data/schema";
 import type { MetadataSearchResult } from "../types";
 import { findMatchingTitle } from "../matching";
 import { MangaStatus } from "@/lib/sources/types";
+import { convexProxyUrl } from "@/config";
 
 const API_BASE = "https://api.mangaupdates.com/v1";
+
+// MangaUpdates blocks Cloudflare IPs, use Convex proxy instead
+async function muFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  return fetch(convexProxyUrl(url), {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "x-proxy-user-agent": "Mozilla/5.0 (compatible; Nemu/1.0)",
+      ...(options.headers || {}),
+    },
+  });
+}
 
 interface MUSeriesSearchResult {
   series_id: number;
@@ -23,7 +39,7 @@ interface MUSeriesSearchResult {
   genres?: Array<{ genre: string }>;
 }
 
-interface MUSeriesDetail {
+export interface MUSeriesDetail {
   series_id: number;
   title: string;
   url: string;
@@ -48,9 +64,8 @@ export async function searchMangaUpdates(
   query: string,
   maxResults = 5
 ): Promise<MetadataSearchResult | null> {
-  const res = await fetch(`${API_BASE}/series/search`, {
+  const res = await muFetch(`${API_BASE}/series/search`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ search: query, per_page: maxResults }),
   });
 
@@ -94,7 +109,7 @@ export async function searchMangaUpdates(
 export async function fetchSeriesDetail(
   seriesId: number
 ): Promise<MUSeriesDetail | null> {
-  const res = await fetch(`${API_BASE}/series/${seriesId}`);
+  const res = await muFetch(`${API_BASE}/series/${seriesId}`);
   if (!res.ok) {
     console.error("[MangaUpdates] Fetch error:", res.status);
     return null;
@@ -109,13 +124,15 @@ export async function searchMangaUpdatesRaw(
   query: string,
   maxResults = 10
 ): Promise<MUSeriesDetail[]> {
-  const res = await fetch(`${API_BASE}/series/search`, {
+  const res = await muFetch(`${API_BASE}/series/search`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ search: query, per_page: maxResults }),
   });
 
-  if (!res.ok) return [];
+  if (!res.ok) {
+    console.error("[MangaUpdates] Search failed:", res.status, await res.text().catch(() => ""));
+    return [];
+  }
 
   const data = await res.json();
   const results = data.results as Array<{ record: MUSeriesSearchResult }>;

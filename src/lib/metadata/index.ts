@@ -1,120 +1,54 @@
 /**
  * Metadata fetching service
  *
- * Fallback chain: MangaUpdates → AniList → MAL → (AI optional)
+ * Smart Match: Parallel search + AI fallback + per-field merge
  */
 
-export * from "./types";
-export * from "./matching";
+import type { MangaMetadata } from "@/data/schema";
 
-export { searchMangaUpdates, searchMangaUpdatesRaw } from "./providers/mangaupdates";
-export { searchAniList, searchAniListRaw } from "./providers/anilist";
-export { searchJikan, searchJikanRaw } from "./providers/jikan";
+// Types
+export type { Provider, ProviderSearchResult, MetadataSearchResult, SmartMatchPhase } from "./types";
 
-import type { MangaMetadata, ExternalIds } from "@/data/schema";
-import type { MetadataSearchResult, MetadataFetchResult, MetadataSearchOptions } from "./types";
-import { searchMangaUpdates } from "./providers/mangaupdates";
-import { searchAniList } from "./providers/anilist";
-import { searchJikan } from "./providers/jikan";
+// Matching utilities
+export {
+  normalize,
+  hasExactMatch,
+  findMatchingTitle,
+  getMUCandidates,
+  getALCandidates,
+  getMALCandidates,
+} from "./matching";
 
-/**
- * Search for metadata using the fallback chain
- * MangaUpdates → AniList → MAL
- *
- * @param title - The manga title to search for
- * @param options - Search options
- * @returns Metadata result or null if not found
- */
-export async function searchMetadata(
-  title: string,
-  options: MetadataSearchOptions = {}
-): Promise<MetadataFetchResult | null> {
-  const { provider } = options;
+// Providers
+export {
+  searchMangaUpdatesRaw,
+  type MUSeriesDetail,
+} from "./providers/mangaupdates";
+export {
+  searchAniListRaw,
+  mapAniListToMetadata,
+  type ALMedia,
+} from "./providers/anilist";
+export {
+  searchJikanRaw,
+  mapJikanToMetadata,
+  type JikanManga,
+} from "./providers/jikan";
 
-  // If specific provider requested, only use that one
-  if (provider) {
-    let result: MetadataSearchResult | null = null;
+// Smart Match Store
+export {
+  useSmartMatchStore,
+  searchAllProviders,
+  searchProviders,
+  findExactMatches,
+  type SmartMatchStore,
+  type MetadataField,
+  type FieldOption,
+  type FieldSelection,
+  type ExactMatch,
+} from "./store";
 
-    switch (provider) {
-      case "mangaupdates":
-        result = await searchMangaUpdates(title);
-        break;
-      case "anilist":
-        result = await searchAniList(title);
-        break;
-      case "mal":
-        result = await searchJikan(title);
-        break;
-    }
-
-    if (result) {
-      return {
-        metadata: result.metadata,
-        externalIds: buildExternalIds(result),
-        source: result.source,
-      };
-    }
-    return null;
-  }
-
-  // Fallback chain: MU → AL → MAL
-  // Try MangaUpdates first (best CJK coverage)
-  const muResult = await searchMangaUpdates(title);
-  if (muResult) {
-    return {
-      metadata: muResult.metadata,
-      externalIds: buildExternalIds(muResult),
-      source: "mangaupdates",
-    };
-  }
-
-  // Try AniList
-  const alResult = await searchAniList(title);
-  if (alResult) {
-    return {
-      metadata: alResult.metadata,
-      externalIds: buildExternalIds(alResult),
-      source: "anilist",
-    };
-  }
-
-  // Try Jikan (MAL)
-  const malResult = await searchJikan(title);
-  if (malResult) {
-    return {
-      metadata: malResult.metadata,
-      externalIds: buildExternalIds(malResult),
-      source: "mal",
-    };
-  }
-
-  return null;
-}
-
-/**
- * Build external IDs object from search result
- */
-function buildExternalIds(result: MetadataSearchResult): ExternalIds {
-  const ids: ExternalIds = {};
-
-  switch (result.source) {
-    case "mangaupdates":
-      ids.mangaUpdates = result.externalId;
-      break;
-    case "anilist":
-      ids.aniList = result.externalId;
-      break;
-    case "mal":
-      ids.mal = result.externalId;
-      break;
-  }
-
-  return ids;
-}
-
-/**
- * Create metadata from source manga data
- */
+/** Create metadata from source manga data */
 export function metadataFromSource(manga: {
   title: string;
   cover?: string;
@@ -136,4 +70,3 @@ export function metadataFromSource(manga: {
     url: manga.url,
   };
 }
-

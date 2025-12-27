@@ -1,11 +1,11 @@
 import { Link, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useStores, useMangaProgressIndex, useChapterProgress } from "@/data/context";
+import { useStores, useSourceLinkProgress, useChapterProgress } from "@/data/context";
 import type { Manga, Chapter } from "@/lib/sources";
 import { hasSWR } from "@/lib/sources";
 import type { LocalChapterProgress } from "@/data/schema";
-import { makeMangaProgressId, makeSourceLinkId } from "@/data/schema";
+import { makeSourceLinkId } from "@/data/schema";
 import { metadataFromSource } from "@/lib/metadata";
 import { CoverImage } from "@/components/cover-image";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +31,7 @@ import {
   ResponsiveDialogTitle,
   ResponsiveDialogDescription,
 } from "@/components/ui/responsive-dialog";
+import { MangaStatusBadge } from "@/components/manga-status-badge";
 
 /** Convert LocalChapterProgress map to ChapterGrid-compatible format */
 function chapterProgressToGridFormat(
@@ -64,7 +65,6 @@ export function MangaPage() {
     mangaId: string;
   };
   const { useSettingsStore, useLibraryStore } = useStores();
-  const { index: progressIndex } = useMangaProgressIndex();
   const { getSource, availableSources } = useSettingsStore();
   
   const sourceInfo = availableSources.find(
@@ -195,9 +195,8 @@ export function MangaPage() {
     }
   }, [libraryEntry, removeFromLibrary]);
 
-  // Get manga progress for continue reading (from canonical manga_progress)
-  const sourceKey = makeMangaProgressId(registryId, sourceId, mangaId);
-  const mangaProgress = progressIndex.get(sourceKey);
+  // Get manga progress for continue reading
+  const mangaProgress = useSourceLinkProgress(registryId, sourceId, mangaId);
   const lastReadChapter = mangaProgress?.lastReadSourceChapterId
     ? chapters.find((ch) => ch.id === mangaProgress.lastReadSourceChapterId)
     : undefined;
@@ -241,18 +240,25 @@ export function MangaPage() {
 
         {/* Hero section */}
         <div className="flex flex-col gap-6 md:flex-row">
-          {/* Cover */}
-          <div className="shrink-0">
+          {/* Cover with status overlay */}
+          <div className="shrink-0 self-center md:self-start">
+            <div className="relative mx-auto w-48 md:w-56">
             <CoverImage
               src={manga.cover}
               alt={manga.title}
-              className="mx-auto aspect-[3/4] w-48 rounded-lg object-cover shadow-xl md:w-56"
+                className="aspect-[3/4] w-full rounded-lg object-cover shadow-xl"
+              />
+              {/* Status badge positioned at bottom of cover */}
+              <MangaStatusBadge
+                status={manga.status}
+                className="absolute -bottom-3 left-1/2 -translate-x-1/2 shadow-md"
             />
+            </div>
           </div>
 
           {/* Info */}
           <div className="flex-1 space-y-4">
-            <h2 className="text-2xl font-bold selectable">{manga.title}</h2>
+            <h2 className="text-2xl font-bold selectable pt-2 md:pt-0">{manga.title}</h2>
 
             {manga.authors && manga.authors.length > 0 && (
               <p className="text-muted-foreground selectable">

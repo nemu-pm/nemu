@@ -1,32 +1,39 @@
-import { useContext, useState, useEffect, useCallback } from "react";
-import { SyncContext } from "./context";
-import type { DataServices, StoreHooks, SyncContextValue, MangaProgressIndex } from "./types";
-import type { LocalChapterProgress } from "@/data/schema";
+/**
+ * Sync Hooks - Direct imports from services, Zustand selectors for reactive state
+ */
+
+import { useCallback, useState, useEffect } from "react";
+import type { LocalChapterProgress, LocalMangaProgress } from "@/data/schema";
+import { makeMangaProgressId } from "@/data/schema";
 import { getSyncStore } from "@/stores/sync";
+import { loadChapterProgress, signOut } from "./services";
+import { useDataServices, useProgressStoreApi } from "@/data/services-provider";
+export { useDataServices, useStores } from "@/data/services-provider";
 
-export function useSyncContext(): SyncContextValue {
-  const ctx = useContext(SyncContext);
-  if (!ctx) {
-    throw new Error("useSyncContext must be used within SyncProvider");
-  }
-  return ctx;
+// ============================================================================
+// Service accessors (profile-scoped, provided by React Context)
+// ============================================================================
+
+export function useSignOut() {
+  const { localStore } = useDataServices();
+  return useCallback((keepData: boolean) => signOut(localStore, keepData), [localStore]);
 }
 
-export function useDataServices(): DataServices {
-  return useSyncContext().services;
-}
-
-export function useStores(): StoreHooks {
-  return useSyncContext().stores;
-}
+// ============================================================================
+// Auth state (Zustand selectors)
+// ============================================================================
 
 export function useAuth() {
-  const { isAuthenticated, isLoading } = useSyncContext();
+  const store = getSyncStore();
+  const isAuthenticated = store((s) => s.isAuthenticated);
+  const isLoading = store((s) => s.isLoading);
   return { isAuthenticated, isLoading };
 }
 
 export function useSyncStatus() {
-  const { syncStatus, isAuthenticated } = useSyncContext();
+  const store = getSyncStore();
+  const syncStatus = store((s) => s.syncStatus);
+  const isAuthenticated = store((s) => s.isAuthenticated);
   return {
     status: syncStatus,
     isOnline: syncStatus !== "offline",
@@ -36,38 +43,57 @@ export function useSyncStatus() {
   };
 }
 
-export function useSignOut() {
-  const { signOut } = useSyncContext();
-  return signOut;
-}
-
 export function useSyncStore() {
   return getSyncStore();
 }
 
-/**
- * Get manga progress index (canonical).
- * Returns all manga_progress entries as a Map keyed by id.
- * Use for: sorting library by last read, continue-reading widgets.
- */
-export function useMangaProgressIndex(): { index: MangaProgressIndex; loading: boolean } {
-  const { mangaProgressIndex, mangaProgressLoading } = useSyncContext();
-  return { index: mangaProgressIndex, loading: mangaProgressLoading };
+// ============================================================================
+// Progress store selectors (context-backed)
+// ============================================================================
+
+function useProgressStore<T>(selector: (s: { index: Map<string, LocalMangaProgress>; loading: boolean; get: (id: string) => LocalMangaProgress | undefined }) => T): T {
+  const store = useProgressStoreApi();
+  return store(selector as any);
 }
 
-/**
- * Load chapter progress on-demand for a specific source-manga.
- * Returns a map of chapterId -> LocalChapterProgress.
- * Use for: chapter list progress indicators, reader resume.
- */
+// ============================================================================
+// Manga progress (Zustand selectors - no useEffect!)
+// ============================================================================
+
+/** Get all manga progress as a Map (for library page sorting) */
+export function useAllMangaProgress(): Map<string, LocalMangaProgress> {
+  return useProgressStore((s) => s.index);
+}
+
+/** Get progress loading state */
+export function useProgressLoading(): boolean {
+  return useProgressStore((s) => s.loading);
+}
+
+/** Get progress for a source link */
+export function useSourceLinkProgress(
+  registryId: string | undefined,
+  sourceId: string | undefined,
+  sourceMangaId: string | undefined
+): LocalMangaProgress | undefined {
+  const id = registryId && sourceId && sourceMangaId
+    ? makeMangaProgressId(registryId, sourceId, sourceMangaId)
+    : undefined;
+  return useProgressStore((s) => id ? s.get(id) : undefined);
+}
+
+// ============================================================================
+// Chapter progress (on-demand loading - needs useEffect for async IDB read)
+// ============================================================================
+
 export function useChapterProgress(
   registryId: string | undefined,
   sourceId: string | undefined,
   sourceMangaId: string | undefined
 ): { chapters: Record<string, LocalChapterProgress>; loading: boolean } {
-  const { loadChapterProgress } = useSyncContext();
   const [chapters, setChapters] = useState<Record<string, LocalChapterProgress>>({});
   const [loading, setLoading] = useState(false);
+  const { localStore } = useDataServices();
 
   useEffect(() => {
     if (!registryId || !sourceId || !sourceMangaId) {
@@ -76,22 +102,19 @@ export function useChapterProgress(
     }
     
     setLoading(true);
-    loadChapterProgress(registryId, sourceId, sourceMangaId)
+    loadChapterProgress(localStore, registryId, sourceId, sourceMangaId)
       .then(setChapters)
       .finally(() => setLoading(false));
-  }, [registryId, sourceId, sourceMangaId, loadChapterProgress]);
+  }, [localStore, registryId, sourceId, sourceMangaId]);
 
   return { chapters, loading };
 }
 
-/**
- * Imperative chapter progress loader (for callbacks).
- */
 export function useChapterProgressLoader() {
-  const { loadChapterProgress } = useSyncContext();
+  const { localStore } = useDataServices();
   return useCallback(
     (registryId: string, sourceId: string, sourceMangaId: string) =>
-      loadChapterProgress(registryId, sourceId, sourceMangaId),
-    [loadChapterProgress]
+      loadChapterProgress(localStore, registryId, sourceId, sourceMangaId),
+    [localStore]
   );
 }

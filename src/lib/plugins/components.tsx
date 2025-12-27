@@ -110,7 +110,7 @@ function NavbarActionWithPopover({ action, ctx }: { action: NavbarAction; ctx: R
   const popoverOpen = action.usePopoverOpen!()
 
   return (
-    <Popover open={popoverOpen}>
+    <Popover open={popoverOpen} onOpenChange={(open) => !open && action.onPopoverClose?.()}>
       <PopoverTrigger
         disabled={isDisabled}
         onClick={() => action.onClick(ctx)}
@@ -148,7 +148,7 @@ function NavbarActionWithPopoverAndLoading({ action, ctx }: { action: NavbarActi
   const isLoading = action.useIsLoading!()
 
   return (
-    <Popover open={popoverOpen}>
+    <Popover open={popoverOpen} onOpenChange={(open) => !open && action.onPopoverClose?.()}>
       <PopoverTrigger
         disabled={isDisabled}
         onClick={() => action.onClick(ctx)}

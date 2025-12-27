@@ -13,8 +13,13 @@ import { api } from '../../../../../convex/_generated/api'
 const storage = createPluginStorage('japanese-learning')
 
 // ============================================================================
-// Proper nouns (Gemini via Convex) → Ichiran entity boosts
+// Text normalization + proper nouns (Gemini via Convex) → Ichiran
 // ============================================================================
+
+interface NormalizeResult {
+  normalized: string
+  properNouns: string[]
+}
 
 let convexHttp: ConvexHttpClient | null = null
 function getConvexHttp(): ConvexHttpClient | null {
@@ -24,38 +29,49 @@ function getConvexHttp(): ConvexHttpClient | null {
   return convexHttp
 }
 
-const properNounCache = new Map<string, string[]>()
+const normalizeCache = new Map<string, NormalizeResult>()
 let didWarnConvexMissing = false
 
-async function getProperNouns(text: string): Promise<string[]> {
+async function normalizeText(text: string): Promise<NormalizeResult> {
   const clean = (text ?? '').trim()
-  if (!clean) return []
-  const cached = properNounCache.get(clean)
+  if (!clean) return { normalized: clean, properNouns: [] }
+  const cached = normalizeCache.get(clean)
   if (cached) return cached
 
   const client = getConvexHttp()
   if (!client) {
     if (!didWarnConvexMissing) {
       didWarnConvexMissing = true
-      console.warn('[JapaneseLearning] proper nouns disabled: missing VITE_CONVEX_URL')
+      console.warn('[JapaneseLearning] normalization disabled: missing VITE_CONVEX_URL')
     }
-    return []
+    return { normalized: clean, properNouns: [] }
   }
 
   try {
-    // api.d.ts may not include this action until convex codegen runs; runtime is fine.
-    const fn = (api as any).ocr.extractProperNouns
-    if (import.meta.env.DEV) console.debug('[JapaneseLearning] proper nouns → convex', { len: clean.length })
-    const res = (await client.action(fn, { text: clean })) as { proper_nouns?: string[] } | null
-    const nouns = Array.isArray(res?.proper_nouns) ? res!.proper_nouns.filter((s) => typeof s === 'string') : []
-    properNounCache.set(clean, nouns)
-    if (import.meta.env.DEV) console.debug('[JapaneseLearning] proper nouns ← convex', { count: nouns.length })
-    return nouns
+    const fn = api.japanese_learning.normalize
+    if (import.meta.env.DEV) console.debug('[JapaneseLearning] normalize → convex', { len: clean.length })
+    const res = (await client.action(fn, { text: clean })) as {
+      normalized?: string
+      proper_nouns?: string[]
+    } | null
+    const normalized = typeof res?.normalized === 'string' ? res.normalized : clean
+    const properNouns = Array.isArray(res?.proper_nouns)
+      ? res!.proper_nouns.filter((s) => typeof s === 'string')
+      : []
+    const result: NormalizeResult = { normalized, properNouns }
+    normalizeCache.set(clean, result)
+    if (import.meta.env.DEV)
+      console.debug('[JapaneseLearning] normalize ← convex', {
+        normalizedLen: normalized.length,
+        properNounCount: properNouns.length,
+      })
+    return result
   } catch (err) {
-    // Convex / OpenRouter not configured → just fall back to Ichiran with no boosts.
-    console.warn('[JapaneseLearning] proper nouns prepass failed; falling back to none', err)
-    properNounCache.set(clean, [])
-    return []
+    // Convex / OpenRouter not configured → just fall back to original text.
+    console.warn('[JapaneseLearning] normalization prepass failed; using original text', err)
+    const fallback: NormalizeResult = { normalized: clean, properNouns: [] }
+    normalizeCache.set(clean, fallback)
+    return fallback
   }
 }
 
@@ -118,6 +134,14 @@ export interface BoxSelection {
   box: TextDetection
 }
 
+export interface BoxPopout {
+  pageIndex: number
+  box: TextDetection
+  clickPosition: { x: number; y: number }
+  croppedImageUrl: string | null
+  croppedDimensions: { width: number; height: number } | null
+}
+
 interface TextDetectorState {
   settings: TextDetectorSettings
 
@@ -127,13 +151,19 @@ interface TextDetectorState {
   loadingPages: Set<number>
   ocrLoadingPages: Set<number>
   freshlyDetectedPages: Set<number>
+  /** Open popover when current OCR batch completes (manual trigger) */
+  pendingPopoverOpen: boolean
 
   transcriptPopoverOpen: boolean
+  /** Currently hovered transcript line (for box highlighting) */
+  hoveredLine: { pageIndex: number; x1: number; y1: number; x2: number; y2: number } | null
 
   ocrSheetOpen: boolean
   ocrResult: OcrResult
   transcriptSelection: TranscriptSelection | null
   boxSelection: BoxSelection | null
+  /** Floating cropped-image preview shown when opening the sheet from a box click. */
+  boxPopout: BoxPopout | null
 
   grammarAnalysis: GrammarAnalysisState
 
@@ -144,13 +174,21 @@ interface TextDetectorState {
   clearFreshlyDetected: (pageIndex: number) => void
 
   toggleTranscriptPopover: (open?: boolean) => void
+  setHoveredLine: (line: { pageIndex: number; x1: number; y1: number; x2: number; y2: number } | null) => void
 
-  openOcrSheetFromTranscript: (pageIndex: number, line: OcrTranscriptLine) => void
-  openOcrSheetFromBox: (pageIndex: number, box: TextDetection) => void
+  openOcrSheetFromTranscript: (
+    pageIndex: number,
+    line: OcrTranscriptLine,
+    opts?: { preserveBoxPopout?: boolean }
+  ) => void
+  openOcrSheetFromBox: (pageIndex: number, box: TextDetection, clickPosition?: { x: number; y: number }) => void
   closeOcrSheet: () => void
+  setBoxPopout: (popout: BoxPopout | null) => void
 
   loadFromCache: (pageIndex: number, cacheKey: OcrPageCacheKeyV2) => Promise<boolean>
 
+  /** Set pendingPopoverOpen before calling runOcr if manual trigger */
+  setPendingPopoverOpen: (pending: boolean) => void
   runOcr: (pageIndex: number, image: Blob, cacheKey?: OcrPageCacheKeyV2) => void
 }
 
@@ -161,11 +199,14 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
   loadingPages: new Set(),
   ocrLoadingPages: new Set(),
   freshlyDetectedPages: new Set(),
+  pendingPopoverOpen: false,
   transcriptPopoverOpen: false,
+  hoveredLine: null,
   ocrSheetOpen: false,
   ocrResult: { text: '', loading: false, error: null },
   transcriptSelection: null,
   boxSelection: null,
+  boxPopout: null,
   grammarAnalysis: { tokens: [], loading: false, error: null },
 
   setSettings: (partial) => {
@@ -176,17 +217,21 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
 
   clearDetections: (pageIndex) => {
     if (pageIndex === undefined) {
+      const prev = get().boxPopout?.croppedImageUrl
+      if (prev && typeof window !== 'undefined') URL.revokeObjectURL(prev)
       set({
         detections: new Map(),
         transcripts: new Map(),
         loadingPages: new Set(),
         ocrLoadingPages: new Set(),
         freshlyDetectedPages: new Set(),
+        pendingPopoverOpen: false,
         transcriptPopoverOpen: false,
         ocrSheetOpen: false,
         ocrResult: { text: '', loading: false, error: null },
         transcriptSelection: null,
         boxSelection: null,
+        boxPopout: null,
         grammarAnalysis: { tokens: [], loading: false, error: null },
       })
       return
@@ -228,14 +273,23 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
 
   toggleTranscriptPopover: (open) => {
     const next = open ?? !get().transcriptPopoverOpen
-    set({ transcriptPopoverOpen: next })
+    set({ transcriptPopoverOpen: next, hoveredLine: null })
   },
 
-  openOcrSheetFromTranscript: (pageIndex, line) => {
+  setHoveredLine: (line) => set({ hoveredLine: line }),
+
+  openOcrSheetFromTranscript: (pageIndex, line, opts) => {
+    const preserve = !!opts?.preserveBoxPopout
+    if (!preserve) {
+      const prev = get().boxPopout?.croppedImageUrl
+      if (prev && typeof window !== 'undefined') URL.revokeObjectURL(prev)
+    }
+
     set({
       ocrSheetOpen: true,
       transcriptSelection: { pageIndex, line },
       boxSelection: null,
+      ...(preserve ? {} : { boxPopout: null }),
       ocrResult: { text: line.text, loading: false, error: null },
       grammarAnalysis: { tokens: [], loading: false, error: null },
     })
@@ -245,8 +299,8 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
         const text = line.text?.trim()
         if (!text) return
         set({ grammarAnalysis: { ...get().grammarAnalysis, loading: true, error: null } })
-        const properNouns = await getProperNouns(text)
-        const resp = await tokenize(text, 5, undefined, properNouns)
+        const { normalized, properNouns } = await normalizeText(text)
+        const resp = await tokenize(normalized, 5, undefined, properNouns)
         const tokens = convertIchiranToGrammarTokens(resp.tokens)
         set({ grammarAnalysis: { tokens, loading: false, error: null } })
       } catch (err) {
@@ -256,7 +310,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
     })()
   },
 
-  openOcrSheetFromBox: (pageIndex, box) => {
+  openOcrSheetFromBox: (pageIndex, box, clickPosition) => {
     const transcript = get().transcripts.get(pageIndex) ?? null
     const hit = transcript?.find(
       (l) => l.x1 === box.x1 && l.y1 === box.y1 && l.x2 === box.x2 && l.y2 === box.y2
@@ -266,6 +320,9 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
       ocrSheetOpen: true,
       transcriptSelection: hit ? { pageIndex, line: hit } : null,
       boxSelection: { pageIndex, box },
+      boxPopout: clickPosition
+        ? { pageIndex, box, clickPosition, croppedImageUrl: null, croppedDimensions: null }
+        : null,
       ocrResult: hit
         ? { text: hit.text, loading: false, error: null }
         : { text: '', loading: true, error: null },
@@ -278,8 +335,8 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
         try {
           set({ grammarAnalysis: { ...get().grammarAnalysis, loading: true, error: null } })
           const text = hit.text.trim()
-          const properNouns = await getProperNouns(text)
-          const resp = await tokenize(text, 5, undefined, properNouns)
+          const { normalized, properNouns } = await normalizeText(text)
+          const resp = await tokenize(normalized, 5, undefined, properNouns)
           const tokens = convertIchiranToGrammarTokens(resp.tokens)
           set({ grammarAnalysis: { tokens, loading: false, error: null } })
         } catch (err) {
@@ -291,13 +348,25 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
   },
 
   closeOcrSheet: () => {
+    const prev = get().boxPopout?.croppedImageUrl
+    if (prev && typeof window !== 'undefined') URL.revokeObjectURL(prev)
     set({
       ocrSheetOpen: false,
       ocrResult: { text: '', loading: false, error: null },
       transcriptSelection: null,
       boxSelection: null,
+      boxPopout: null,
       grammarAnalysis: { tokens: [], loading: false, error: null },
     })
+  },
+
+  setBoxPopout: (popout) => {
+    const prev = get().boxPopout?.croppedImageUrl
+    const next = popout?.croppedImageUrl ?? null
+    if (prev && prev !== next && typeof window !== 'undefined') {
+      URL.revokeObjectURL(prev)
+    }
+    set({ boxPopout: popout })
   },
 
   loadFromCache: async (pageIndex, cacheKey) => {
@@ -311,6 +380,8 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
     set({ detections, transcripts })
     return true
   },
+
+  setPendingPopoverOpen: (pending) => set({ pendingPopoverOpen: pending }),
 
   runOcr: (pageIndex, image, cacheKey) => {
     if (get().ocrLoadingPages.has(pageIndex)) return
@@ -329,7 +400,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
           // Fast path: show boxes ASAP from /ocr detections event
           if (e.data.type === 'ocr-detections') {
             const dets: TextDetection[] = e.data.detections
-              .filter((d) => d.conf >= get().settings.minConfidence)
+              .filter((d) => d.label === 'ja' && d.conf >= get().settings.minConfidence)
               .map((d) => ({
                 x1: d.x1,
                 y1: d.y1,
@@ -358,6 +429,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
             w.removeEventListener('message', handler)
 
             const lines: OcrTranscriptLine[] = e.data.detections
+              .filter((d: OcrDetectionWithText) => d.label === 'ja')
               .map((d: OcrDetectionWithText) => ({
                 order: d.order,
                 x1: d.x1,
@@ -395,13 +467,19 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
 
               if (hit) {
                 // Reuse transcript flow to populate text + trigger analysis
-                get().openOcrSheetFromTranscript(pageIndex, hit)
+                get().openOcrSheetFromTranscript(pageIndex, hit, { preserveBoxPopout: true })
               } else {
                 set({ ocrResult: { text: '', loading: false, error: 'No text detected' } })
               }
             }
 
             get().setOcrLoadingPage(pageIndex, false)
+
+            // Open popover if manual trigger and all pages done
+            const state = get()
+            if (state.pendingPopoverOpen && state.ocrLoadingPages.size === 0) {
+              set({ pendingPopoverOpen: false, transcriptPopoverOpen: true })
+            }
             return
           }
 

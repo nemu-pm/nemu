@@ -9,6 +9,12 @@ export const LOCAL_REGISTRY_ID = "aidoku-local";
 /** Key separator used in composite keys */
 const SEP = ":";
 
+function enc(part: string): string {
+  // IMPORTANT: composite key parts may contain ":" and other reserved chars.
+  // Always encode parts when building keys that may need round-tripping or uniqueness.
+  return encodeURIComponent(part);
+}
+
 /** Simple hash for cache keys (djb2) */
 function hashString(str: string): string {
   let hash = 5381;
@@ -47,13 +53,13 @@ export function parseSourceKey(key: string): { registryId: string; sourceId: str
  */
 export const CacheKeys = {
   /** The whole .aix package blob */
-  aix: (registryId: string, sourceId: string) => `aix${SEP}${registryId}${SEP}${sourceId}`,
+  aix: (registryId: string, sourceId: string) => `aix${SEP}${enc(registryId)}${SEP}${enc(sourceId)}`,
   manga: (registryId: string, sourceId: string, mangaId: string) =>
-    `manga${SEP}${registryId}${SEP}${sourceId}${SEP}${mangaId}`,
+    `manga${SEP}${enc(registryId)}${SEP}${enc(sourceId)}${SEP}${enc(mangaId)}`,
   chapters: (registryId: string, sourceId: string, mangaId: string) =>
-    `chapters${SEP}${registryId}${SEP}${sourceId}${SEP}${mangaId}`,
+    `chapters${SEP}${enc(registryId)}${SEP}${enc(sourceId)}${SEP}${enc(mangaId)}`,
   image: (url: string) => `image${SEP}${hashString(url)}`,
   /** Home layout cache for sources */
-  home: (registryId: string, sourceId: string) => `home${SEP}${registryId}${SEP}${sourceId}`,
+  home: (registryId: string, sourceId: string) => `home${SEP}${enc(registryId)}${SEP}${enc(sourceId)}`,
 };
 

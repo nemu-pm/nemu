@@ -1,7 +1,7 @@
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useStores, useMangaProgressIndex, useChapterProgress, type MangaProgressIndex } from "@/data/context";
+import { useStores, useAllMangaProgress, useChapterProgress } from "@/data/context";
 import type { Chapter } from "@/lib/sources";
 import { hasSWR } from "@/lib/sources";
 import type { LocalMangaProgress, LocalChapterProgress, MangaMetadata, ExternalIds } from "@/data/schema";
@@ -24,7 +24,7 @@ import { PageEmpty } from "@/components/page-empty";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   PlayIcon,
-  RefreshIcon,
+  Edit02Icon,
   Delete02Icon,
   Add01Icon,
   Alert02Icon,
@@ -40,24 +40,8 @@ import {
   ResponsiveDialogTitle,
   ResponsiveDialogDescription,
 } from "@/components/ui/responsive-dialog";
-import { MetadataFetchDialog } from "@/components/metadata-fetch-dialog";
-import { MangaStatus } from "@/lib/sources/types";
-
-/** Status badge color and label */
-function getStatusInfo(status?: number) {
-  switch (status) {
-    case MangaStatus.Ongoing:
-      return { label: "Ongoing", variant: "default" as const };
-    case MangaStatus.Completed:
-      return { label: "Completed", variant: "secondary" as const };
-    case MangaStatus.Hiatus:
-      return { label: "Hiatus", variant: "outline" as const };
-    case MangaStatus.Cancelled:
-      return { label: "Cancelled", variant: "destructive" as const };
-    default:
-      return null;
-  }
-}
+import { MetadataEditDialog } from "@/components/metadata-edit-dialog";
+import { MangaStatusBadge } from "@/components/manga-status-badge";
 
 /** Find the chapter with the highest chapter number */
 function findLatestChapter(chapters: Chapter[]): { id: string; title?: string; chapterNumber?: number; volumeNumber?: number } | null {
@@ -75,10 +59,10 @@ function findLatestChapter(chapters: Chapter[]): { id: string; title?: string; c
   };
 }
 
-/** Build progress map from manga progress index (canonical) */
+/** Build progress map from manga progress index */
 function buildProgressMap(
   entry: LibraryEntry,
-  progressIndex: MangaProgressIndex
+  progressIndex: Map<string, LocalMangaProgress>
 ): Map<string, LocalMangaProgress> {
   const progress = new Map<string, LocalMangaProgress>();
   for (const source of entry.sources) {
@@ -118,18 +102,20 @@ function chapterProgressToGridFormat(
 export function LibraryMangaPage() {
   const { t } = useTranslation();
   const { id } = useParams({ strict: false }) as { id: string };
+  const navigate = useNavigate();
   const { useSettingsStore, useLibraryStore } = useStores();
-  const { index: progressIndex } = useMangaProgressIndex();
+  const progressIndex = useAllMangaProgress();
   const { getSource, availableSources } = useSettingsStore();
   const {
     entries,
     loading: libraryLoading,
     remove: removeFromLibrary,
     acknowledgeUpdate,
-    updateMetadata,
+    updateUserEdits,
   } = useLibraryStore();
 
   const [selectedSourceIdx, setSelectedSourceIdx] = useState(0);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [chaptersMap, setChaptersMap] = useState<Record<string, Chapter[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +127,13 @@ export function LibraryMangaPage() {
     [entries, id]
   );
 
+  // If this entry disappears (deleted on another device), navigate back to library.
+  useEffect(() => {
+    if (libraryLoading) return;
+    if (entry) return;
+    navigate({ to: "/", replace: true });
+  }, [entry, libraryLoading, navigate]);
+
   // Select most recently read source as default tab once entry is available.
   useEffect(() => {
     if (!entry) return;
@@ -149,7 +142,29 @@ export function LibraryMangaPage() {
     if (!mostRecent) return;
     const idx = entry.sources.findIndex((s) => s.id === mostRecent.id);
     setSelectedSourceIdx(idx >= 0 ? idx : 0);
+    setSelectedSourceId(mostRecent.id);
   }, [entry, progressIndex]);
+
+  // If selected source is removed (or index becomes invalid), fall back to first remaining source.
+  const sourceIdsKey = useMemo(() => entry?.sources.map((s) => s.id).join("|") ?? "", [entry]);
+  useEffect(() => {
+    if (!entry) return;
+    if (entry.sources.length === 0) return;
+
+    // Prefer preserving selection by source id (stable across reorders).
+    if (selectedSourceId) {
+      const idx = entry.sources.findIndex((s) => s.id === selectedSourceId);
+      if (idx >= 0) {
+        if (idx !== selectedSourceIdx) setSelectedSourceIdx(idx);
+        return;
+      }
+    }
+
+    // Fallback: clamp index or reset to first.
+    const nextIdx = selectedSourceIdx >= entry.sources.length ? 0 : selectedSourceIdx;
+    setSelectedSourceIdx(nextIdx);
+    setSelectedSourceId(entry.sources[nextIdx]?.id ?? null);
+  }, [entry, sourceIdsKey, selectedSourceId, selectedSourceIdx]);
 
   const selectedSource = entry?.sources[selectedSourceIdx];
 
@@ -242,16 +257,21 @@ export function LibraryMangaPage() {
   const handleRemove = useCallback(async () => {
     if (!entry) return;
     await removeFromLibrary(entry.item.libraryItemId);
-    window.history.back();
-  }, [entry, removeFromLibrary]);
+    navigate({ to: "/", replace: true });
+  }, [entry, navigate, removeFromLibrary]);
 
-  const handleMetadataSelect = useCallback(async (
-    metadata: MangaMetadata,
-    externalIds: ExternalIds
+  const handleMetadataSave = useCallback(async (
+    metadataOverrides: Partial<MangaMetadata>,
+    externalIds?: ExternalIds,
+    coverUrl?: string | null  // null = clear override
   ) => {
     if (!entry) return;
-    await updateMetadata(entry.item.libraryItemId, metadata, externalIds);
-  }, [entry, updateMetadata]);
+    await updateUserEdits(entry.item.libraryItemId, {
+      metadataOverrides: Object.keys(metadataOverrides).length > 0 ? metadataOverrides : undefined,
+      coverUrl,
+      externalIds,
+    });
+  }, [entry, updateUserEdits]);
 
   // Get chapters for selected source
   const chapters = useMemo(() => {
@@ -269,13 +289,8 @@ export function LibraryMangaPage() {
   }
 
   if (!entry) {
-    return (
-      <PageEmpty
-        icon={Alert02Icon}
-        title={t("manga.failedToLoad")}
-        description={t("library.mangaNotFound")}
-      />
-    );
+    // We'll navigate away in the effect above. Render nothing to avoid a confusing flash.
+    return null;
   }
 
   if (!entry.sources || entry.sources.length === 0) {
@@ -290,7 +305,7 @@ export function LibraryMangaPage() {
         }
         action={(
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => window.history.back()}>
+            <Button variant="outline" onClick={() => navigate({ to: "/" })}>
               {t("common.back")}
             </Button>
             <Button
@@ -299,7 +314,7 @@ export function LibraryMangaPage() {
                 try {
                   await removeFromLibrary(entry.item.libraryItemId);
                 } finally {
-                  window.history.back();
+                  navigate({ to: "/", replace: true });
                 }
               }}
             >
@@ -323,7 +338,6 @@ export function LibraryMangaPage() {
 
   const effectiveMetadata = getEntryEffectiveMetadata(entry);
   const effectiveCover = getEntryCover(entry);
-  const statusInfo = getStatusInfo(effectiveMetadata.status);
 
   // Get most recent source for continue reading
   const progressMap = buildProgressMap(entry, progressIndex);
@@ -350,29 +364,44 @@ export function LibraryMangaPage() {
   return (
     <SourceImageProvider sourceKey={sourceKey}>
       <div className="space-y-8">
-        <PageHeader title={t("nav.library")} />
+        <PageHeader
+          title={t("nav.library")}
+          actions={[
+            {
+              label: t("library.editMetadata"),
+              icon: <HugeiconsIcon icon={Edit02Icon} className="size-4" />,
+              onClick: () => setMetadataDialogOpen(true),
+            },
+            {
+              icon: <HugeiconsIcon icon={Delete02Icon} className="size-4" />,
+              onClick: () => setRemoveConfirmOpen(true),
+            },
+          ]}
+        />
 
         {/* Hero section */}
         <div className="flex flex-col gap-6 md:flex-row">
-          {/* Cover */}
-          <div className="shrink-0">
+          {/* Cover with status overlay */}
+          <div className="shrink-0 self-center md:self-start">
+            <div className="relative mx-auto w-48 md:w-56">
             <CoverImage
               src={effectiveCover}
               alt={effectiveMetadata.title}
-              className="mx-auto aspect-[3/4] w-48 rounded-lg object-cover shadow-xl md:w-56"
+                className="aspect-[3/4] w-full rounded-lg object-cover shadow-xl"
+              />
+              {/* Status badge positioned at bottom of cover */}
+              <MangaStatusBadge
+                status={effectiveMetadata.status}
+                className="absolute -bottom-3 left-1/2 -translate-x-1/2 shadow-md"
             />
+            </div>
           </div>
 
           {/* Info */}
           <div className="flex-1 space-y-4">
-            <div className="flex items-start gap-3">
-              <h2 className="flex-1 text-2xl font-bold selectable">
+            <h2 className="text-2xl font-bold selectable pt-2 md:pt-0">
                 {effectiveMetadata.title}
               </h2>
-              {statusInfo && (
-                <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
-              )}
-            </div>
 
             {effectiveMetadata.authors && effectiveMetadata.authors.length > 0 && (
               <p className="text-muted-foreground selectable">
@@ -425,22 +454,6 @@ export function LibraryMangaPage() {
                 </Link>
               )}
 
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={() => setMetadataDialogOpen(true)}
-              >
-                <HugeiconsIcon icon={RefreshIcon} />
-                {t("library.fetchMetadata")}
-              </Button>
-
-              <Button
-                size="lg"
-                variant="ghost"
-                onClick={() => setRemoveConfirmOpen(true)}
-              >
-                <HugeiconsIcon icon={Delete02Icon} />
-              </Button>
             </div>
           </div>
         </div>
@@ -465,7 +478,9 @@ export function LibraryMangaPage() {
           <Tabs
             value={String(selectedSourceIdx)}
             onValueChange={(v) => {
-              setSelectedSourceIdx(Number(v));
+              const idx = Number(v);
+              setSelectedSourceIdx(idx);
+              setSelectedSourceId(entry.sources[idx]?.id ?? null);
               setLoading(true);
             }}
           >
@@ -554,12 +569,12 @@ export function LibraryMangaPage() {
           </ResponsiveDialogContent>
         </ResponsiveDialog>
 
-        {/* Metadata fetch dialog */}
-        <MetadataFetchDialog
+        {/* Metadata edit dialog */}
+        <MetadataEditDialog
           open={metadataDialogOpen}
           onOpenChange={setMetadataDialogOpen}
-          currentTitle={effectiveMetadata.title}
-          onSelect={handleMetadataSelect}
+          entry={entry}
+          onSave={handleMetadataSave}
         />
       </div>
     </SourceImageProvider>

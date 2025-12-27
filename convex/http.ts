@@ -1,8 +1,26 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { authComponent, createAuth } from "./auth";
+import { proxy, proxyOptions } from "./proxy";
 
 const http = httpRouter();
+
+// Generic CORS proxy (for APIs that block Cloudflare)
+http.route({
+  path: "/proxy",
+  method: "GET",
+  handler: proxy,
+});
+http.route({
+  path: "/proxy",
+  method: "POST",
+  handler: proxy,
+});
+http.route({
+  path: "/proxy",
+  method: "OPTIONS",
+  handler: proxyOptions,
+});
 
 const allowedOrigins = [process.env.SITE_URL, process.env.DEV_URL].filter(
   Boolean

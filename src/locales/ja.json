@@ -1,5 +1,10 @@
 {
   "common": {
+    "current": "現在",
+    "new": "新規",
+    "noChange": "変更なし",
+    "expand": "展開",
+    "collapse": "折りたたむ",
     "save": "保存",
     "cancel": "キャンセル",
     "delete": "削除",
@@ -9,6 +14,7 @@
     "next": "次へ",
     "previous": "前へ",
     "search": "検索",
+    "select": "選択",
     "settings": "設定",
     "multiLanguage": "多言語",
     "done": "完了",
@@ -20,7 +26,13 @@
     "confirm": "確認",
     "continue": "続ける",
     "goBack": "戻る",
-    "noImage": "画像なし"
+    "noImage": "画像なし",
+    "reset": "リセット",
+    "ok": "OK",
+    "add": "追加",
+    "saving": "保存中...",
+    "clear": "クリア",
+    "copy": "コピー"
   },
   "languages": {
     "multi": "多言語",
@@ -66,6 +78,13 @@
     "search": "検索",
     "settings": "設定"
   },
+  "status": {
+    "unknown": "不明",
+    "ongoing": "連載中",
+    "completed": "完結",
+    "hiatus": "休載中",
+    "cancelled": "打ち切り"
+  },
   "library": {
     "noSources": "ソースがインストールされていません",
     "noSourcesDescription": "ソースを追加して漫画の発見と閲覧を始めましょう",
@@ -76,16 +95,39 @@
     "unread": "未読",
     "caughtUp": "最新まで読了",
     "updated": "更新済み",
-    "fetchMetadata": "メタデータを取得"
+    "fetchMetadata": "メタデータを取得",
+    "editMetadata": "情報を編集"
   },
   "metadata": {
+    "editTitle": "情報を編集",
     "fetchTitle": "メタデータを取得",
     "fetchDescription": "外部データベースからこの漫画の詳細情報を検索して取得します",
     "searchPlaceholder": "漫画タイトルを検索...",
     "searchPrompt": "タイトルを入力して検索するとメタデータを取得できます",
     "noResults": "結果が見つかりません",
     "apply": "メタデータを適用",
-    "applying": "適用中..."
+    "applying": "適用中...",
+    "smartMatch": {
+      "title": "スマートマッチ",
+      "searching": "検索中...",
+      "aiLookup": "AIで検索中...",
+      "aiRetry": "AIの提案で再検索中...",
+      "manualDescription": "漫画タイトルを検索してメタデータを取得",
+      "noChanges": "適用する変更がありません",
+      "searchManually": "手動で検索"
+    },
+    "cover": "表紙",
+    "uploadImage": "アップロード",
+    "title": "タイトル",
+    "description": "説明",
+    "status": "状態",
+    "tags": "タグ",
+    "addTag": "タグを追加...",
+    "authors": "作者",
+    "addAuthor": "作者を追加...",
+    "artists": "作画",
+    "addArtist": "作画を追加...",
+    "viewOriginal": "元の表紙を見る"
   },
   "browse": {
     "loading": "ソースを読み込み中...",
@@ -119,6 +161,7 @@
     "inLibrary": "ライブラリに追加済み",
     "addToLibrary": "ライブラリに追加",
     "chapters": "話",
+    "noChapters": "話なし",
     "removeFromLibrary": "ライブラリから削除",
     "removeFromLibraryDescription": "「{{name}}」をライブラリから削除してもよろしいですか？",
     "remove": "削除"
@@ -184,10 +227,9 @@
   },
   "about": {
     "title": "このアプリについて",
-    "tagline": "心地よい漫画リーダー",
-    "description": "nemuはクロスプラットフォーム対応のウェブベース漫画リーダーです。さまざまなソースから漫画を発見して読むことができます。漫画好きのために心を込めて作りました。",
-    "sourceCode": "ソースコード",
-    "madeWith": "漫画好きのために心を込めて"
+    "tagline": "魔法の漫画リーダー",
+    "description": "nemuはクロスプラットフォーム対応のウェブベース漫画リーダーです。さまざまなソースから漫画を発見して読むことができます。",
+    "sourceCode": "ソースコード"
   },
   "settings": {
     "about": "",
@@ -225,6 +267,11 @@
     "uninstall": "アンインストール",
     "plugins": "プラグイン",
     "noPlugins": "プラグインがインストールされていません。"
+  },
+  "sources": {
+    "installing": "ソースをインストール中",
+    "installingDescription": "{{name}}をインストール中...",
+    "installingDescriptionGeneric": "ソースをインストール中です。しばらくお待ちください..."
   },
   "addSource": {
     "title": "ソースを追加",
@@ -310,6 +357,7 @@
       "analyzingGrammar": "文法を分析中...",
       "extractingText": "画像からテキストを抽出中...",
       "tapWordHint": "単語をタップして詳細な意味を確認",
+      "dragWordsHint": "単語をドラッグして複数選択",
       "tryAnotherRegion": "別のテキスト領域を選択してみてください",
       "structure": "構造",
       "conjugations": "活用",

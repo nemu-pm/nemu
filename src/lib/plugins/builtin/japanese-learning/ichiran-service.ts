@@ -43,7 +43,7 @@ function buildEntities(text: string, properNouns: string[]): Entity[] {
       entities.push({
         start: startIndex,
         end: startIndex + noun.length,
-        boost: 100
+        boost: 1000
       })
       startIndex += noun.length
     }

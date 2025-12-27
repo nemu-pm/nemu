@@ -23,7 +23,10 @@ export const libraryItemsAll = query({
       .withIndex("by_user_item", (q) => q.eq("userId", userId))
       .collect();
 
-    return items.map((e) => ({
+    // Filter legacy soft-deleted rows if any still exist; canonical deletion is hard-delete.
+    const live = items.filter((e) => e.inLibrary !== false);
+
+    return live.map((e) => ({
       id: e.libraryItemId,
       libraryItemId: e.libraryItemId,
       metadata: e.metadata,

@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState, useMemo } from "react"
+import { StrictMode, useEffect, useState, useMemo, memo } from "react"
 import { createRoot } from "react-dom/client"
 import { RouterProvider } from "@tanstack/react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -13,9 +13,11 @@ import "./lib/i18n"
 import "./lib/plugins/init" // Initialize reader plugins
 import { router, type RouterContext } from "./router"
 import { ErrorBoundary } from "./components/error-boundary"
-import { DataProvider, useStores } from "./data/context"
+import { DataServicesProvider, useStores } from "@/data/context"
+import { SyncSetup } from "./sync/setup"
 import { Toaster } from "./components/ui/sonner"
 import { WelcomeWizard, useWelcomeWizard } from "./components/welcome-wizard"
+import { SourceInstallDialog } from "./components/source-install-dialog"
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string)
 
@@ -31,8 +33,6 @@ const queryClient = new QueryClient({
 function ThemeSync() {
   const { setTheme: setNextTheme } = useTheme();
   
-  // Only subscribe to store changes - next-themes reads from localStorage on mount
-  // (we configured storageKey="nemu:theme" to match our store's key)
   useEffect(() => {
     if (!themeStore) return;
     
@@ -62,7 +62,6 @@ function ToastPosition() {
   return <Toaster position={position} />;
 }
 
-// Welcome wizard wrapper
 function WelcomeWizardWrapper() {
   const { shouldShow, markCompleted } = useWelcomeWizard();
   
@@ -74,9 +73,10 @@ function WelcomeWizardWrapper() {
   return <WelcomeWizard open={shouldShow} onComplete={handleComplete} />;
 }
 
-// Router wrapper that provides context from stores
-function RouterWithContext() {
-  const { useSettingsStore } = useStores();
+// Router wrapper - MEMOIZED to prevent parent re-renders from cascading
+const RouterWithContext = memo(function RouterWithContext() {
+  const stores = useStores();
+  const { useSettingsStore } = stores;
   const getSource = useSettingsStore((s) => s.getSource);
 
   const routerContext = useMemo<RouterContext>(
@@ -90,7 +90,7 @@ function RouterWithContext() {
       <WelcomeWizardWrapper />
     </>
   );
-}
+});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -99,10 +99,12 @@ createRoot(document.getElementById("root")!).render(
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem storageKey="nemu:theme">
           <ThemeSync />
           <ConvexBetterAuthProvider client={convex} authClient={authClient}>
-            <DataProvider>
+            <DataServicesProvider>
+              <SyncSetup />
+              <SourceInstallDialog />
               <RouterWithContext />
               <ToastPosition />
-            </DataProvider>
+            </DataServicesProvider>
           </ConvexBetterAuthProvider>
         </ThemeProvider>
       </QueryClientProvider>

@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "npx concurrently \"vite --host\" \"convex dev\"",
+    "dev": "concurrently \"vite --host\" \"convex dev\"",
     "build": "tsx scripts/generate-apple-secret.ts && tsc -b && vite build",
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit && tsc -p convex --noEmit",
@@ -13,13 +13,14 @@
     "test:coverage": "bun test --coverage",
     "service": "bun service/dev.ts",
     "generate:apple-secret": "tsx scripts/generate-apple-secret.ts",
-    "predeploy": "npm run generate:apple-secret",
-    "deploy": "npm run predeploy && npx convex deploy"
+    "predeploy": "bun run generate:apple-secret",
+    "deploy": "bun run predeploy && convex deploy"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.88",
     "@base-ui/react": "^1.0.0",
     "@convex-dev/better-auth": "^0.10.5",
+    "@convex-dev/r2": "^0.8.1",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/noto-serif-jp": "^5.2.8",
     "@google/genai": "^1.34.0",
@@ -46,6 +47,7 @@
     "dayjs": "^1.11.19",
     "dotenv": "^17.2.3",
     "embla-carousel-react": "^8.6.0",
+    "emblor-maintained": "^1.4.11",
     "fflate": "^0.8.2",
     "i18next": "^25.7.3",
     "input-otp": "^1.4.2",
@@ -82,6 +84,7 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^9.2.1",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",

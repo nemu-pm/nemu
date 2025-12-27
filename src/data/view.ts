@@ -18,6 +18,10 @@ import type {
   ChapterSummary,
   ExternalIds,
 } from "./schema";
+import { makeSourceLinkId } from "./schema";
+
+// Re-export for convenience
+export type { LocalSourceLink, LocalMangaProgress };
 
 // ============================================================================
 // Canonical UI Types
@@ -165,7 +169,9 @@ export function getEntryExternalIds(entry: LibraryEntry): ExternalIds | undefine
  * Build a source key for lookups.
  */
 export function makeSourceKey(registryId: string, sourceId: string, sourceMangaId: string): string {
-  return `${registryId}:${sourceId}:${sourceMangaId}`;
+  // Use the same canonical encoding as source link IDs so keys remain unambiguous
+  // even when sourceMangaId contains ":" or other reserved characters.
+  return makeSourceLinkId(registryId, sourceId, sourceMangaId);
 }
 
 /**
@@ -188,35 +194,3 @@ export function getEntryAddedAt(entry: LibraryEntry): number {
 export function getEntryUpdatedAt(entry: LibraryEntry): number {
   return entry.item.updatedAt;
 }
-
-// ============================================================================
-// Conversion helpers (for migration period)
-// ============================================================================
-
-/**
- * Convert LocalSourceLink to legacy SourceLink format.
- * Use during migration period when some code still expects SourceLink.
- */
-export function sourceLinkToLegacy(source: LocalSourceLink): {
-  registryId: string;
-  sourceId: string;
-  mangaId: string;
-  latestChapter?: ChapterSummary;
-  updateAcknowledged?: ChapterSummary;
-} {
-  return {
-    registryId: source.registryId,
-    sourceId: source.sourceId,
-    mangaId: source.sourceMangaId,
-    latestChapter: source.latestChapter,
-    updateAcknowledged: source.updateAckChapter,
-  };
-}
-
-/**
- * Get all source links as legacy format.
- */
-export function getEntrySourcesAsLegacy(entry: LibraryEntry) {
-  return entry.sources.map(sourceLinkToLegacy);
-}
-

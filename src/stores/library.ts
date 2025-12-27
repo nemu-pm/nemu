@@ -37,7 +37,7 @@ export interface CanonicalLibraryOps {
 
   // Write source links
   saveSourceLink(link: LocalSourceLink): Promise<void>;
-  removeSourceLink(id: string): Promise<void>;
+  removeSourceLink(registryId: string, sourceId: string, sourceMangaId: string): Promise<void>;
 }
 
 // ============================================================================
@@ -91,7 +91,7 @@ interface LibraryState {
   /** Remove a source from a library item */
   removeSource: (libraryItemId: string, registryId: string, sourceId: string, sourceMangaId: string) => Promise<void>;
   
-  /** Remove item from library (soft delete) */
+  /** Remove item from library (hard delete) */
   remove: (libraryItemId: string) => Promise<void>;
   
   /** Get entry by libraryItemId */
@@ -114,6 +114,16 @@ interface LibraryState {
   
   /** Update user cover override */
   updateCoverOverride: (libraryItemId: string, coverUrl: string | null) => Promise<void>;
+  
+  /** Update all user edits in one operation (metadata overrides + cover + externalIds) */
+  updateUserEdits: (
+    libraryItemId: string,
+    edits: {
+      metadataOverrides?: Partial<MangaMetadata>;
+      coverUrl?: string | null;
+      externalIds?: ExternalIds;
+    }
+  ) => Promise<void>;
   
   /** Acknowledge updates for a source */
   acknowledgeUpdate: (
@@ -142,7 +152,11 @@ let storeCounter = 0;
 
 export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
   const storeId = ++storeCounter;
-  console.log("[LibraryStore] CREATING STORE with id:", storeId);
+  let pendingRetry: ReturnType<typeof setTimeout> | null = null;
+  let retryAttempts = 0;
+  // Latest-load-wins guard. Prevents stale loads (e.g. during profile switches)
+  // from overwriting the current state or reporting spurious errors.
+  let loadSeq = 0;
 
   const store = create<LibraryState>((set, get) => ({
     entries: [],
@@ -150,43 +164,49 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
     error: null,
 
     load: async (keepLoading = false) => {
-      console.log("[LibraryStore] load() called. storeId:", storeId, "keepLoading:", keepLoading);
+      const seq = ++loadSeq;
       try {
         if (!keepLoading) {
           set({ loading: true, error: null });
+          retryAttempts = 0;
         } else {
           set({ error: null });
         }
-        console.log("[LibraryStore] calling ops.getLibraryEntries()...");
         const entries = await ops.getLibraryEntries();
-        console.log("[LibraryStore] ops.getLibraryEntries() returned:", entries.length, "entries");
+        if (seq !== loadSeq) return;
 
-        // Filter + cleanup invalid entries (missing source links).
-        // These are not actionable in the UI and can crash routes that assume at least one source.
+        // NOTE: During sync (or partial hydration), library_items may arrive before source_links.
+        // Keep the UI stable by *temporarily* hiding entries with no sources, and scheduling a retry.
+        // This avoids treating a transient state as corruption/tombstone.
         const invalid = entries.filter((e) => !e.sources || e.sources.length === 0);
         const valid = entries.filter((e) => e.sources && e.sources.length > 0);
         if (invalid.length > 0) {
-          // IMPORTANT:
-          // Missing sources can be a *transient* state during sync (library_items pulled before source_links),
-          // during startup, or after HMR. Auto-removing here can incorrectly tombstone real items and even
-          // push deletions to cloud.
           console.warn("[LibraryStore] load(): hiding invalid library entries (missing sources)", {
             storeId,
             count: invalid.length,
             ids: invalid.map((e) => e.item.libraryItemId),
           });
+
+          // Retry a few times to let source_links hydrate before the UI gets "stuck" hiding items.
+          retryAttempts += 1;
+          if (retryAttempts <= 6) {
+            if (pendingRetry) clearTimeout(pendingRetry);
+            pendingRetry = setTimeout(() => {
+              pendingRetry = null;
+              // Background refresh: don't flip loading skeletons again.
+              get().load(true).catch(() => {});
+            }, 250);
+          }
         }
 
         if (!keepLoading) {
-          console.log("[LibraryStore] setting entries (foreground):", valid.length);
           set({ entries: valid, loading: false });
         } else {
           // Background refresh: keep current loading state unchanged.
-          console.log("[LibraryStore] setting entries (background):", valid.length);
           set({ entries: valid });
         }
-        console.log("[LibraryStore] store state after set. storeId:", storeId, "entries:", get().entries.length);
       } catch (e) {
+        if (seq !== loadSeq) return;
         console.error("[LibraryStore] Load error:", e);
         set({
           error: e instanceof Error ? e.message : String(e),
@@ -285,7 +305,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       const id = makeSourceLinkId(registryId, sourceId, sourceMangaId);
 
       try {
-        await ops.removeSourceLink(id);
+        await ops.removeSourceLink(registryId, sourceId, sourceMangaId);
         set((state) => ({
           entries: state.entries.map((e) =>
             e.item.libraryItemId === libraryItemId
@@ -428,6 +448,40 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       }
     },
 
+    updateUserEdits: async (libraryItemId, edits) => {
+      const entry = get().get(libraryItemId);
+      if (!entry) return;
+
+      const { metadataOverrides, coverUrl, externalIds } = edits;
+
+      const updated: LocalLibraryItem = {
+        ...entry.item,
+        overrides: {
+          ...entry.item.overrides,
+          metadata: metadataOverrides
+            ? { ...entry.item.overrides?.metadata, ...metadataOverrides }
+            : entry.item.overrides?.metadata,
+          coverUrl: coverUrl !== undefined ? coverUrl : entry.item.overrides?.coverUrl,
+        },
+        externalIds: externalIds
+          ? { ...entry.item.externalIds, ...externalIds }
+          : entry.item.externalIds,
+        updatedAt: Date.now(),
+      };
+
+      try {
+        await ops.saveLibraryItem(updated);
+        set((state) => ({
+          entries: state.entries.map((e) =>
+            e.item.libraryItemId === libraryItemId ? { ...e, item: updated } : e
+          ),
+        }));
+      } catch (e) {
+        console.error("[LibraryStore] updateUserEdits error:", e);
+        throw e;
+      }
+    },
+
     acknowledgeUpdate: async (registryId, sourceId, sourceMangaId, latestChapter) => {
       const id = makeSourceLinkId(registryId, sourceId, sourceMangaId);
       const entry = get().entries.find((e) =>
@@ -503,13 +557,6 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       }
     },
   }));
-  
-  // Debug: log subscriber count changes
-  store.subscribe((state, prevState) => {
-    if (state.entries.length !== prevState.entries.length) {
-      console.log("[LibraryStore] SUBSCRIBER notified. storeId:", storeId, "entries changed:", prevState.entries.length, "->", state.entries.length);
-    }
-  });
-  
+
   return store;
 }

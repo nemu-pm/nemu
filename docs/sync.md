@@ -1184,26 +1184,28 @@ The goal is that once `SyncCore` exists, correctness is enforced by tests, not b
 
 **Architecture:**
 ```
-[Convex] ←subscription→ [SyncProvider] →write→ [Local IDB] ←read← [UI / Stores]
-              ↑                                     ↑
-         [SyncProvider] ←――――――――――――――――――――――――――┘
-              ↓                              (user actions)
+[Convex] ←subscription→ [SyncSetup] →write→ [Local IDB] ←read← [UI / Stores]
+              ↑                                    ↑
+         [services.ts] ←―――――――――――――――――――――――――┘
+              ↓                             (user actions)
          Convex mutation
 ```
 
 **Key principle: UI is unaware of Convex.** UI/stores only read from local IDB.
 
-- **SyncProvider** owns all Convex interactions:
+- **`SyncSetup`** (sibling component) owns all Convex subscriptions:
   - Subscribes to Convex queries (`useQuery`)
   - Writes server state to local IDB
-  - Sends mutations to Convex on user actions
+- **`services.ts`** (module singletons) handles mutations:
+  - Store ops call Convex mutations when authenticated
+  - Quarantines all Convex imports
 - **UI / Stores** only interact with local IDB:
   - Read library, progress, etc. from IDB
-  - User actions → call store methods → SyncProvider handles Convex
+  - User actions → call store methods → services.ts handles Convex
 
 **Flow:**
-- Online: Convex subscription fires → SyncProvider writes to IDB → store refreshes → UI updates
-- Offline: UI reads stale IDB, user actions call SyncProvider → Convex queues mutations
+- Online: Convex subscription fires → SyncSetup writes to IDB → store refreshes → UI updates
+- Offline: UI reads stale IDB, user actions call services.ts → Convex queues mutations
 - Reconnect: Convex retries mutations + subscription fires → IDB updated → UI updates
 
 ### Phase 8 invariants
@@ -1236,41 +1238,41 @@ The goal is that once `SyncCore` exists, correctness is enforced by tests, not b
 
 ---
 
-### Phase 8 checklist
+### Phase 8 checklist ✅
 
-#### 8.1 Delete sync infrastructure
-- [ ] Delete `SyncCore` class (or gut it to bare minimum)
-- [ ] Remove `CURSOR_KEYS`, `CompositeCursor` types
-- [ ] Remove `sync_meta` and `pending_ops` stores
-- [ ] Remove `createSyncMetaRepo`, `createPendingOpsRepo`
-- [ ] Remove `clearSyncState`
-- [ ] Delete `nemu-sync::*` DB creation entirely
-- [ ] Delete HLC infrastructure (`hlc.ts`, `IntentClock`, `createHLCManager`)
-- [ ] Remove clock fields from schema (`inLibraryClock`, `metadataClock`, `coverUrlClock`)
-- [ ] Remove `deletedAt` fields — use hard deletes instead of soft deletes
-- [ ] Remove `cursorId` fields from Convex (local IDB renames to `id`)
-- [ ] Remove `by_user_cursor` indexes
+#### 8.1 Delete sync infrastructure ✅
+- [x] Delete `SyncCore` class (or gut it to bare minimum)
+- [x] Remove `CURSOR_KEYS`, `CompositeCursor` types
+- [x] Remove `sync_meta` and `pending_ops` stores
+- [x] Remove `createSyncMetaRepo`, `createPendingOpsRepo`
+- [x] Remove `clearSyncState`
+- [x] Delete `nemu-sync::*` DB creation entirely
+- [x] Delete HLC infrastructure (`hlc.ts`, `IntentClock`, `createHLCManager`)
+- [x] Remove clock fields from schema (`inLibraryClock`, `metadataClock`, `coverUrlClock`)
+- [x] Remove `deletedAt` fields — use hard deletes instead of soft deletes
+- [x] Remove `cursorId` fields from Convex (local IDB renames to `id`)
+- [x] Remove `by_user_cursor` indexes
 
-#### 8.2 Add subscription-based sync (SyncProvider)
-- [ ] In `SyncProvider`, subscribe to canonical tables via `useQuery`:
+#### 8.2 Add subscription-based sync (SyncSetup) ✅
+- [x] In `SyncSetup`, subscribe to canonical tables via `useQuery`:
   - `api.sync.libraryItemsAll` (or paginated if needed)
   - `api.sync.sourceLinksAll`
   - `api.sync.chapterProgressAll` (or by-manga on-demand)
   - `api.sync.mangaProgressAll`
-- [ ] On subscription update: batch-write entire result set to local IDB
-- [ ] Trigger store refresh after IDB write (so UI updates)
-- [ ] No diffing, no cursors — just overwrite local with server state
+- [x] On subscription update: batch-write entire result set to local IDB
+- [x] Trigger store refresh after IDB write (so UI updates)
+- [x] No diffing, no cursors — just overwrite local with server state
 
-#### 8.3 Simplify writes (SyncProvider handles Convex)
-- [ ] Store actions call SyncProvider methods (not Convex directly)
-- [ ] SyncProvider writes to local IDB + calls Convex mutation
-- [ ] No local pending ops queue — Convex client handles offline
-- [ ] UI/stores remain unaware of Convex
+#### 8.3 Simplify writes (services.ts handles Convex) ✅
+- [x] Store actions call services.ts ops (not Convex directly)
+- [x] services.ts writes to local IDB + calls Convex mutation
+- [x] No local pending ops queue — Convex client handles offline
+- [x] UI/stores remain unaware of Convex
 
-#### 8.4 Simplify local storage
-- [ ] Only `nemu-user::*` databases (one per profile)
-- [ ] Local IDB = cache for offline viewing only
-- [ ] "Clear all data" just clears `nemu-user::*`
+#### 8.4 Simplify local storage ✅
+- [x] Only `nemu-user::*` databases (one per profile)
+- [x] Local IDB = cache for offline viewing only
+- [x] "Clear all data" just clears `nemu-user::*`
 
 ---
 
@@ -1281,80 +1283,54 @@ The goal is that once `SyncCore` exists, correctness is enforced by tests, not b
 Both dev and prod Convex deployments currently have Phase 7 schema with clock fields.
 Migration must be done carefully to avoid breaking running clients.
 
-#### 8.M1 Deploy code that ignores clock fields (backwards compatible)
-- [ ] Client stops reading/writing clock fields
-- [ ] Server mutations stop requiring clock fields (make optional)
-- [ ] Server still accepts clock fields (old clients) but ignores them
-- [ ] Deploy to dev, verify
-- [ ] Deploy to prod, verify
+#### 8.M1 Deploy code that ignores clock fields (backwards compatible) ✅
+- [x] Client stops reading/writing clock fields
+- [x] Server mutations stop requiring clock fields (make optional)
+- [x] Server still accepts clock fields (old clients) but ignores them
+- [x] Deploy to dev, verify
+- [x] Deploy to prod, verify
 
-#### 8.M2 Remove Phase 7 fields from existing documents
-- [ ] Add migration: `convex/migrations:removePhase7Fields`
-  ```ts
-  // For each library_items doc:
-  // - unset inLibraryClock
-  // - unset overrides.metadataClock
-  // - unset overrides.coverUrlClock
-  // For each library_source_links doc:
-  // - hard delete if deletedAt is set
-  // - unset deletedAt
-  // - unset cursorId
-  // For each chapter_progress doc:
-  // - hard delete if deletedAt is set
-  // - unset deletedAt
-  // - unset cursorId
-  // For each manga_progress doc:
-  // - hard delete if deletedAt is set
-  // - unset deletedAt
-  // - unset cursorId
-  ```
-- [ ] Run on dev: `npx convex run migrations:removePhase7Fields`
-- [ ] Verify dev data
-- [ ] Run on prod: `npx convex run migrations:removePhase7Fields --prod`
-- [ ] Verify prod data
+#### 8.M2 Remove Phase 7 fields from existing documents ✅
+- [x] Migrations ran on dev and prod
+- [x] All Phase 7 fields removed from documents
 
-#### 8.M3 Remove Phase 7 fields from Convex schema
-- [ ] Update `convex/schema.ts`:
+#### 8.M3 Remove Phase 7 fields from Convex schema ✅
+- [x] Update `convex/schema.ts`:
   - Remove `inLibraryClock`, `metadataClock`, `coverUrlClock` from `library_items`
   - Remove `deletedAt` from `library_source_links`, `chapter_progress`, `manga_progress`
   - Remove `cursorId` from `library_source_links`, `chapter_progress`, `manga_progress` (Convex uses `_id`)
   - Remove `by_user_cursor` indexes from all tables
-- [ ] Deploy schema change to dev
-- [ ] Deploy schema change to prod
+- [x] Deploy schema change to dev
+- [x] Deploy schema change to prod
 
-**Note:** Convex documents have built-in `_id`. The `cursorId` field was only needed for cursor pagination tie-breaking. For local IDB, we keep a renamed `id` field (see 8.M4).
-
-#### 8.M4 Cleanup client code
-- [ ] Delete `src/sync/hlc.ts`
-- [ ] Delete `IntentClock` type
-- [ ] Delete `createHLCManager`
-- [ ] Remove clock fields from `LocalLibraryItem` schema
-- [ ] Remove `deletedAt` from local schema types
-- [ ] Rename `cursorId` → `id` in local schema types (see note below)
-- [ ] Rename `makeSourceLinkCursorId` → `makeSourceLinkId` (keep composite key format)
-- [ ] Rename `makeChapterProgressCursorId` → `makeChapterProgressId`
-- [ ] Rename `makeMangaProgressCursorId` → `makeMangaProgressId`
-- [ ] Update `CanonicalLibraryOps.removeSourceLink(cursorId)` → `removeSourceLink(id)`
-- [ ] Remove clock merge logic from apply functions
-- [ ] Remove tombstone handling logic
-
-**Note on `cursorId` → `id` rename:**
-The `cursorId` field in `library_source_links`, `chapter_progress`, `manga_progress` is actually a **natural composite key** (e.g. `registryId:sourceId:sourceMangaId`). It's not cursor-sync machinery — it's a valid unique identifier. We rename it to `id` to avoid confusion with the removed cursor-based sync system. The composite key format stays the same.
+#### 8.M4 Cleanup client code ✅
+- [x] Delete `src/sync/hlc.ts`
+- [x] Delete `IntentClock` type
+- [x] Delete `createHLCManager`
+- [x] Remove clock fields from `LocalLibraryItem` schema
+- [x] Remove `deletedAt` from local schema types
+- [x] Rename `cursorId` → `id` in local schema types
+- [x] Rename `makeSourceLinkCursorId` → `makeSourceLinkId`
+- [x] Rename `makeChapterProgressCursorId` → `makeChapterProgressId`
+- [x] Rename `makeMangaProgressCursorId` → `makeMangaProgressId`
+- [x] Update `CanonicalLibraryOps.removeSourceLink(cursorId)` → `removeSourceLink(id)`
+- [x] Remove clock merge logic from apply functions
+- [x] Remove tombstone handling logic
 
 ---
 
-### Phase 8 exit criteria
-- [ ] No `SyncCore`, no `sync_meta`, no `pending_ops`, no HLC
-- [ ] No `nemu-sync::*` databases
-- [ ] No clock fields in Convex schema or documents
-- [ ] No `deletedAt` fields — hard deletes only
-- [ ] No `cursorId` fields in Convex schema (local uses `id` with natural composite keys)
-- [ ] No `by_user_cursor` indexes
-- [ ] No clock fields in local schema
-- [ ] Server rollback/restore works: subscription fires → local repopulates
-- [ ] Offline viewing works: local IDB readable (stale)
-- [ ] Offline writes work: Convex queues mutations automatically
-- [ ] Tests pass
+### Phase 8 exit criteria ✅
+- [x] No `SyncCore`, no `sync_meta`, no `pending_ops`, no HLC
+- [x] No `nemu-sync::*` databases
+- [x] No clock fields in Convex schema or documents
+- [x] No `deletedAt` fields — hard deletes only
+- [x] No `cursorId` fields in Convex schema (local uses `id` with natural composite keys)
+- [x] No `by_user_cursor` indexes
+- [x] No clock fields in local schema
+- [x] Server rollback/restore works: subscription fires → local repopulates
+- [x] Offline viewing works: local IDB readable (stale)
+- [x] Offline writes work: Convex queues mutations automatically
+- [x] Tests pass
 
 ---
 
@@ -1379,4 +1355,112 @@ The `cursorId` field in `library_source_links`, `chapter_progress`, `manga_progr
 
 If scale becomes an issue later, revisit — but don't prematurely optimize with cursors again.
 
+---
+
+## Phase 9: Legacy Cleanup ✅ COMPLETED
+
+### 9.1 Delete legacy `library` table ✅
+- [x] Verify no code reads from `library` table (only `library_items`)
+- [x] Verify no code writes to `library` table (only `library_items`)
+- [x] Remove `library` table from `convex/schema.ts`
+- [x] Remove dual-write code from `library.save` and `library.remove`
+- [x] Legacy table data will be GC'd by Convex
+
+### 9.2 Delete legacy `history` table ✅
+- [x] Verify no code reads from `history` table (only `chapter_progress` / `manga_progress`)
+- [x] Verify no code writes to `history` table (only new tables)
+- [x] Remove `history` table from `convex/schema.ts`
+- [x] Remove dual-write code from `history.save`
+- [x] Legacy table data will be GC'd by Convex
+
+### 9.3 Remove backward-compat clock validators ✅
+- [x] Remove `inLibraryClock` from `library.save` args
+- [x] Remove `metadataClock`, `coverUrlClock` from `normalizedOverrides` in args
+- [x] All clock-related code removed
+
+### 9.4 Delete migrations.ts ✅
+- [x] All migrations ran on prod
+- [x] Deleted `convex/migrations.ts` entirely
+
+### 9.5 Cleanup local IDB ✅
+- [x] Removed `hlcState` store from STORES constant
+- [x] Kept migration code for v6-v10 -> v11 (drops and recreates stores with `id` keyPath)
+- [x] Legacy `library` and `history` stores kept for clearing (harmless)
+
+### Phase 9 exit criteria ✅
+- [x] No `library` table in Convex schema
+- [x] No `history` table in Convex schema  
+- [x] No backward-compat clock validators
+- [x] No `migrations.ts`
+- [x] Simplified IDB schema (no hlcState)
+- [x] All code uses canonical tables only
+
+---
+
+## Phase 10: Client-Side Legacy Cleanup
+
+Phase 9 cleaned up Convex. Now clean up the client-side legacy types and IDB stores.
+
+### 10.1 Remove legacy `SourceLinkSchema` ✅
+The old embedded source link format:
+```ts
+// LEGACY (schema.ts) - REMOVED
+SourceLinkSchema = {
+  mangaId: string,           // → sourceMangaId
+  updateAcknowledged: ...,   // → updateAckChapter
+}
+```
+
+- [x] Remove `SourceLinkSchema` from `src/data/schema.ts`
+- [x] Remove `hasSourceUpdate(source: SourceLink)` function (legacy type)
+- [x] Remove `SourceLink` type export
+- [x] Update `LegacyLibraryMangaSchema` in indexeddb.ts to inline the schema (migration only)
+
+### 10.2 Remove legacy conversion helpers ✅
+- [x] Remove `sourceLinkToLegacy()` from `src/data/view.ts`
+- [x] Remove `getEntrySourcesAsLegacy()` from `src/data/view.ts`
+
+### 10.3 Migrate `HistoryEntry` → `LocalChapterProgress` ✅
+The local IDB still uses legacy `history` store with `HistoryEntry` type:
+```ts
+// LEGACY (schema.ts) - REMOVED from public API
+HistoryEntrySchema = {
+  mangaId: string,    // → sourceMangaId
+  chapterId: string,  // → sourceChapterId
+  dateRead: number,   // → lastReadAt
+}
+```
+
+UI components now use `LocalChapterProgress`:
+- [x] Update `src/components/chapter-grid.tsx` to use minimal progress type
+- [x] Update `src/stores/history.ts` (`HistoryStoreOps`, `HistoryStore`) to use canonical types
+- [x] Update `src/data/store.ts` (`UserDataStore` interface) - removed legacy history methods
+
+### 10.4 Migrate IDB history methods ✅
+The legacy `history` IDB store duplicates `chapter_progress`:
+- [x] Remove `getHistoryEntry()` - use `getChapterProgressEntry()` instead
+- [x] Remove `saveHistoryEntry()` - use `saveChapterProgressEntry()` instead  
+- [x] Remove `getMangaHistory()` - use `getChapterProgressForManga()` instead
+- [x] Remove `getRecentHistory()` - no longer needed (use manga_progress)
+- [x] Remove dual-write in `provider.tsx` (now only writes to canonical stores)
+
+### 10.5 Legacy IDB stores kept for backward compat
+Legacy `history` and `library` stores kept in IDB for:
+- Reading data during import dialog (getAllLegacyHistory, getLibrary)
+- Backward compatibility during migration
+- Harmless overhead, can be cleaned up later
+
+### 10.6 HistoryEntrySchema scoped to migration ✅
+- [x] `LegacyHistoryEntrySchema` defined inline in indexeddb.ts (not exported)
+- [x] `getAllLegacyHistory()` migration helper uses internal schema
+- [x] `HistoryEntry` type removed from public exports
+
+### Phase 10 exit criteria ✅
+- [x] No `SourceLinkSchema` or `SourceLink` type (except migration)
+- [x] No `HistoryEntry` type in public API (except migration)
+- [x] No legacy conversion helpers (`sourceLinkToLegacy`, etc.)
+- [x] UI uses `LocalChapterProgress` instead of `HistoryEntry`
+- [x] `history` IDB store only used for one-time migration read
+- [x] All IDB reads/writes use canonical stores (`chapter_progress`, `manga_progress`)
+- [x] No dual-writes to legacy stores
 

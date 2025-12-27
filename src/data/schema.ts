@@ -14,40 +14,6 @@ export const ChapterSummarySchema = z.object({
 });
 
 /**
- * Link between a library manga and a source.
- * Reading progress is derived from history (not cached here).
- */
-export const SourceLinkSchema = z.object({
-  registryId: z.string(),
-  sourceId: z.string(),
-  mangaId: z.string(),
-  // Chapter availability tracking (needed for library UI before fetching details)
-  latestChapter: ChapterSummarySchema.optional(),
-  // Renamed from seenLatestChapter - the latest chapter when user last acknowledged updates
-  updateAcknowledged: ChapterSummarySchema.optional(),
-});
-
-/**
- * Reading history entry (separate from library)
- * Keyed by composite: registryId:sourceId:mangaId:chapterId
- */
-export const HistoryEntrySchema = z.object({
-  id: z.string(),
-  registryId: z.string(),
-  sourceId: z.string(),
-  mangaId: z.string(),
-  chapterId: z.string(),
-  progress: z.number().int(),
-  total: z.number().int(),
-  completed: z.boolean(),
-  dateRead: z.number(),
-  // Chapter metadata (cached for display without re-fetching)
-  chapterNumber: z.number().optional(),
-  volumeNumber: z.number().optional(),
-  chapterTitle: z.string().optional(),
-});
-
-/**
  * External IDs for metadata providers
  */
 export const ExternalIdsSchema = z.object({
@@ -235,8 +201,6 @@ export const LocalMangaProgressSchema = z.object({
 
 // ============ INFERRED TYPES ============
 
-export type SourceLink = z.infer<typeof SourceLinkSchema>;
-export type HistoryEntry = z.infer<typeof HistoryEntrySchema>;
 export type ChapterSummary = z.infer<typeof ChapterSummarySchema>;
 export type ExternalIds = z.infer<typeof ExternalIdsSchema>;
 export type MangaMetadata = z.infer<typeof MangaMetadataSchema>;
@@ -296,13 +260,4 @@ export function mergeStatus(...statuses: (number | undefined)[]): number | undef
     if (statuses.includes(p)) return p;
   }
   return undefined; // No valid status found
-}
-
-/**
- * Check if a specific source has updates (legacy SourceLink)
- */
-export function hasSourceUpdate(source: SourceLink): boolean {
-  const latest = source.latestChapter?.chapterNumber;
-  const acked = source.updateAcknowledged?.chapterNumber;
-  return latest != null && acked != null && latest > acked;
 }

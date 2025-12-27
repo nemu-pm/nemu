@@ -1,6 +1,6 @@
-// Re-export from sync provider
-// The SyncProvider now handles auth-aware store switching and cloud sync
-export { SyncProvider as DataProvider } from "@/sync/provider";
-// eslint-disable-next-line react-refresh/only-export-components
-export { useDataServices, useStores, useAuth, useSyncContext, useSyncStatus, useSignOut, useSyncStore, useMangaProgressIndex, useChapterProgress, useChapterProgressLoader } from "@/sync/hooks";
-export type { DataServices, StoreHooks, SyncStatus, MangaProgressIndex } from "@/sync";
+// App-wide data access:
+// - `DataServicesProvider` owns the lifetime of the current profile's services container.
+// - hooks re-exported here are the stable surface the UI should consume.
+export { DataServicesProvider, useDataServices, useStores, useSetProfileId, useProfileId, useProgressStoreApi } from "./services-provider";
+export { useAuth, useSyncStatus, useSignOut, useSyncStore, useAllMangaProgress, useProgressLoading, useSourceLinkProgress, useChapterProgress, useChapterProgressLoader } from "@/sync/hooks";
+export type { DataServices, StoreHooks, SyncStatus } from "@/sync/types";

@@ -1,14 +1,20 @@
 import { Link } from "@tanstack/react-router";
 import { memo } from "react";
 import type { Chapter } from "@/lib/sources";
-import type { HistoryEntry } from "@/data/schema";
 import { cn } from "@/lib/utils";
 import { formatChapterTitle, formatChapterSubtitle } from "@/lib/format-chapter";
 import { ChapterProgress } from "@/components/chapter-progress";
 
+/** Minimal progress info needed for chapter display */
+interface ChapterProgressInfo {
+  progress: number;
+  total: number;
+  completed: boolean;
+}
+
 interface ChapterGridProps {
   chapters: Chapter[];
-  progress: Record<string, HistoryEntry>;
+  progress: Record<string, ChapterProgressInfo>;
   registryId: string;
   sourceId: string;
   mangaId: string;
@@ -16,7 +22,7 @@ interface ChapterGridProps {
 
 interface ChapterCellProps {
   chapter: Chapter;
-  chapterProgress?: HistoryEntry;
+  chapterProgress?: ChapterProgressInfo;
   registryId: string;
   sourceId: string;
   mangaId: string;

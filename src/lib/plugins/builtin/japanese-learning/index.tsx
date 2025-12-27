@@ -108,27 +108,31 @@ export const japaneseLearningPlugin: ReaderPlugin = {
       onClick: async (ctx: ReaderPluginContext) => {
         try {
           const store = useTextDetectorStore.getState()
-          const { loadingPages, detections, transcripts, ocrLoadingPages, toggleTranscriptPopover, transcriptPopoverOpen } =
-            store
+          const { transcripts, ocrLoadingPages, transcriptPopoverOpen, toggleTranscriptPopover, setPendingPopoverOpen } = store
 
-          // Always show the button; click toggles the transcript popover.
-          // If we're opening it, ensure visible pages have detections queued (manual mode).
-          const nextOpen = !transcriptPopoverOpen
-          toggleTranscriptPopover(nextOpen)
-          if (!nextOpen) return
+          // If popover is open, close it
+          if (transcriptPopoverOpen) {
+            toggleTranscriptPopover(false)
+            return
+          }
 
-          // Get visible pages that haven't been detected yet
-          const pagesToDetect = ctx.visiblePageIndices.filter(
-            (idx) => !detections.has(idx) && !loadingPages.has(idx)
-          )
+          // Check if all visible pages already have transcripts
+          const allHaveTranscripts = ctx.visiblePageIndices.every((idx) => transcripts.has(idx))
+          if (allHaveTranscripts) {
+            toggleTranscriptPopover(true)
+            return
+          }
 
-          // Queue detection for missing pages, and auto-run OCR when detections exist
+          // Start OCR for pages that need it, popover opens when done
+          setPendingPopoverOpen(true)
+
           for (const pageIndex of ctx.visiblePageIndices) {
             const imageUrl = ctx.getPageImageUrl(pageIndex)
             if (!imageUrl) continue
 
-            // If missing detections, start /ocr (it streams detections first).
-            if (!detections.has(pageIndex) && !ocrLoadingPages.has(pageIndex)) {
+            // Skip if already has transcript or currently loading
+            if (transcripts.has(pageIndex) || ocrLoadingPages.has(pageIndex)) continue
+
               try {
                 const imageBlob = await loadImageBlob(imageUrl)
                 store.runOcr(pageIndex, imageBlob, {
@@ -139,40 +143,11 @@ export const japaneseLearningPlugin: ReaderPlugin = {
                   pageIndex,
                 })
               } catch (err) {
-                const errMsg = err instanceof Error ? err.message : String(err)
-                console.error(`[TextDetector] Failed to load image for page ${pageIndex}:`, errMsg)
+              console.error(`[TextDetector] Failed to load image for page ${pageIndex}:`, err)
               }
-              continue
-            }
-
-            // If detections exist but transcript not built yet, ensure /ocr is running
-            if (detections.has(pageIndex) && !transcripts.has(pageIndex) && !ocrLoadingPages.has(pageIndex)) {
-              try {
-                const imageBlob = await loadImageBlob(imageUrl)
-                store.runOcr(pageIndex, imageBlob, {
-                  registryId: ctx.registryId,
-                  sourceId: ctx.sourceId,
-                  mangaId: ctx.mangaId,
-                  chapterId: ctx.chapterId,
-                  pageIndex,
-                })
-              } catch (err) {
-                const errMsg = err instanceof Error ? err.message : String(err)
-                console.error(`[OCR] Failed to load image for page ${pageIndex}:`, errMsg)
-              }
-            }
-          }
-
-          // Show toast after all pages are queued
-          if (pagesToDetect.length === 1) {
-            // Single page - show toast after detection completes (handled in callback)
-          } else {
-            ctx.showToast(i18n.t('plugin.japaneseLearning.runningDetection', { count: pagesToDetect.length }))
           }
         } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          console.error('[TextDetector] onClick error:', errMsg)
-          alert(`[OCR Debug] Initialization error: ${errMsg}`)
+          console.error('[TextDetector] onClick error:', err)
         }
       },
       // Disable if all visible pages are already detected (or loading)
@@ -188,6 +163,7 @@ export const japaneseLearningPlugin: ReaderPlugin = {
       // Transcript popover (controlled by store)
       usePopoverOpen: () => useTextDetectorStore((s) => s.transcriptPopoverOpen),
       popoverContent: () => <OcrTranscriptPopoverContent />,
+      onPopoverClose: () => useTextDetectorStore.getState().toggleTranscriptPopover(false),
     },
   ],
 
@@ -218,6 +194,8 @@ export const japaneseLearningPlugin: ReaderPlugin = {
     },
 
     onPageChange: (_pageIndex: number, ctx: ReaderPluginContext) => {
+      // Close transcript popover on page change
+      useTextDetectorStore.getState().toggleTranscriptPopover(false)
       // Skip if not Japanese source
       if (!isJapaneseSource(ctx)) return
       // Load cached detections for all visible pages on page change
