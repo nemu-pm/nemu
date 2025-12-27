@@ -254,6 +254,28 @@ export function LibraryMangaPage() {
     };
   }, [entry, selectedSource, chaptersMap, getSource, acknowledgeUpdate, t]);
 
+  // Acknowledge update when switching to a source tab (even if chapters are cached)
+  useEffect(() => {
+    if (!selectedSource) return;
+    const sourceKey = makeSourceKey(
+      selectedSource.registryId,
+      selectedSource.sourceId,
+      selectedSource.sourceMangaId
+    );
+    const cached = chaptersMap[sourceKey];
+    if (!cached || cached.length === 0) return;
+
+    const latest = findLatestChapter(cached);
+    if (latest) {
+      acknowledgeUpdate(
+        selectedSource.registryId,
+        selectedSource.sourceId,
+        selectedSource.sourceMangaId,
+        latest
+      );
+    }
+  }, [selectedSource, chaptersMap, acknowledgeUpdate]);
+
   const handleRemove = useCallback(async () => {
     if (!entry) return;
     await removeFromLibrary(entry.item.libraryItemId);
@@ -502,8 +524,8 @@ export function LibraryMangaPage() {
                     )}
                     {info?.name ?? source.sourceId}
                     {hasUpdate && (
-                      <Badge variant="destructive" className="ml-1 px-1.5 text-[10px]">
-                        NEW
+                      <Badge className="ml-1 px-1.5 text-[10px]">
+                        {t("library.updated")}
                       </Badge>
                     )}
                   </TabsTrigger>
