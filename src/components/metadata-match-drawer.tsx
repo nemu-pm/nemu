@@ -138,15 +138,15 @@ function CoverSelection({ currentValue, t }: CoverSelectionProps) {
       </span>
       
       <div className="flex gap-3 overflow-x-auto pt-1 pb-2">
-        {/* No Change option - always show if current value exists */}
-        {currentValue && (
-          <button
-            onClick={() => selectFieldProvider("cover", NO_CHANGE as unknown as Provider)}
-            className={cn(
-              "shrink-0 space-y-1.5 transition-opacity",
-              selectedProvider === NO_CHANGE ? "opacity-100" : "opacity-50 hover:opacity-75"
-            )}
-          >
+        {/* No Change option - always show */}
+        <button
+          onClick={() => selectFieldProvider("cover", NO_CHANGE as unknown as Provider)}
+          className={cn(
+            "shrink-0 space-y-1.5 transition-opacity",
+            selectedProvider === NO_CHANGE ? "opacity-100" : "opacity-50 hover:opacity-75"
+          )}
+        >
+          {currentValue ? (
             <CoverImage
               src={currentValue}
               alt={t("common.noChange")}
@@ -155,14 +155,21 @@ function CoverSelection({ currentValue, t }: CoverSelectionProps) {
                 selectedProvider === NO_CHANGE && "ring-2 ring-primary shadow-lg"
               )}
             />
-            <p className={cn(
-              "text-xs text-center",
-              selectedProvider === NO_CHANGE ? "text-primary font-medium" : "text-muted-foreground"
+          ) : (
+            <div className={cn(
+              "w-24 sm:w-32 aspect-[2/3] rounded-lg bg-muted/50 flex items-center justify-center transition-all",
+              selectedProvider === NO_CHANGE && "ring-2 ring-primary shadow-lg"
             )}>
-              {t("common.noChange")}
-            </p>
-          </button>
-        )}
+              <span className="text-xs text-muted-foreground">{t("common.none")}</span>
+            </div>
+          )}
+          <p className={cn(
+            "text-xs text-center",
+            selectedProvider === NO_CHANGE ? "text-primary font-medium" : "text-muted-foreground"
+          )}>
+            {t("common.noChange")}
+          </p>
+        </button>
         
         {/* Provider covers */}
         {selection.options.map((option) => (
@@ -224,14 +231,12 @@ function MergeFieldRow({ field, currentValue, t }: MergeFieldRowProps) {
   // Build tab options: No Change + ALL provider values
   const tabOptions: { id: string; label: string; value: string }[] = [];
   
-  // Add "No Change" if current value exists
-  if (currentValue) {
-    tabOptions.push({
-      id: NO_CHANGE,
-      label: t("common.noChange"),
-      value: currentValue,
-    });
-  }
+  // Always add "No Change" option
+  tabOptions.push({
+    id: NO_CHANGE,
+    label: t("common.noChange"),
+    value: currentValue || t("common.none"),
+  });
   
   // Add ALL provider options
   for (const option of selection.options) {

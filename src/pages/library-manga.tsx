@@ -230,10 +230,10 @@ export function LibraryMangaPage() {
         setChaptersMap((prev) => ({ ...prev, [sourceKey]: chaptersData }));
         setLoading(false);
 
-        // Acknowledge update when user views this source
+        // Acknowledge update when user views this source (skip if already acked)
         if (chaptersData.length > 0) {
           const latest = findLatestChapter(chaptersData);
-          if (latest) {
+          if (latest && selectedSource.updateAckChapter?.id !== latest.id) {
             await acknowledgeUpdate(
               selectedSource.registryId,
               selectedSource.sourceId,
@@ -266,14 +266,17 @@ export function LibraryMangaPage() {
     if (!cached || cached.length === 0) return;
 
     const latest = findLatestChapter(cached);
-    if (latest) {
-      acknowledgeUpdate(
-        selectedSource.registryId,
-        selectedSource.sourceId,
-        selectedSource.sourceMangaId,
-        latest
-      );
-    }
+    if (!latest) return;
+    
+    // Skip if already acknowledged this chapter (prevents infinite loop)
+    if (selectedSource.updateAckChapter?.id === latest.id) return;
+    
+    acknowledgeUpdate(
+      selectedSource.registryId,
+      selectedSource.sourceId,
+      selectedSource.sourceMangaId,
+      latest
+    );
   }, [selectedSource, chaptersMap, acknowledgeUpdate]);
 
   const handleRemove = useCallback(async () => {
