@@ -115,7 +115,7 @@ export function SourceSettings({
   );
 
   const isEmpty = !schema || schema.length === 0;
-  const { registryId } = parseSourceKey(sourceKey);
+  const registryId = sourceKey ? parseSourceKey(sourceKey).registryId : "";
 
   return (
     <SettingsDialogWithPages

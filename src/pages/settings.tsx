@@ -89,7 +89,9 @@ export function SettingsPage() {
   const [signInOpen, setSignInOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [uninstalling, setUninstalling] = useState<string | null>(null);
-  const [settingsSource, setSettingsSource] = useState<{
+  // Source settings - separate open state from data so data persists during exit animation
+  const [settingsSourceOpen, setSettingsSourceOpen] = useState(false);
+  const [settingsSourceData, setSettingsSourceData] = useState<{
     key: string;
     registryId: string;
     sourceId: string;
@@ -98,6 +100,8 @@ export function SettingsPage() {
     version?: number;
   } | null>(null);
   const [clearMode, setClearMode] = useState<"cache" | "all" | null>(null);
+  // Plugin settings - separate open state from data so data persists during exit animation
+  const [settingsPluginOpen, setSettingsPluginOpen] = useState(false);
   const [settingsPluginId, setSettingsPluginId] = useState<string | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [uninstallConfirm, setUninstallConfirm] = useState<{
@@ -243,16 +247,17 @@ export function SettingsPage() {
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() =>
-                        setSettingsSource({
+                      onClick={() => {
+                        setSettingsSourceData({
                           key: source.id,
                           registryId: source.registryId,
                           sourceId: source.sourceId,
                           name: source.name,
                           icon: source.icon,
                           version: source.version,
-                        })
-                      }
+                        });
+                        setSettingsSourceOpen(true);
+                      }}
                     >
                       <HugeiconsIcon icon={Settings02Icon} className="size-4" />
                     </Button>
@@ -317,7 +322,10 @@ export function SettingsPage() {
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          onClick={() => setSettingsPluginId(plugin.manifest.id)}
+                          onClick={() => {
+                            setSettingsPluginId(plugin.manifest.id);
+                            setSettingsPluginOpen(true);
+                          }}
                           disabled={!isEnabled}
                         >
                           <HugeiconsIcon icon={Settings02Icon} className="size-4" />
@@ -479,19 +487,19 @@ export function SettingsPage() {
       <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
       <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
       
-      {settingsSource && (
-        <SourceSettings
-          open={!!settingsSource}
-          onOpenChange={(open) => !open && setSettingsSource(null)}
-          sourceKey={settingsSource.key}
-          sourceName={settingsSource.name}
-          sourceIcon={settingsSource.icon}
-          sourceVersion={settingsSource.version}
-          reloadSource={async () => {
-            await reloadSource(settingsSource.registryId, settingsSource.sourceId);
-          }}
-        />
-      )}
+      <SourceSettings
+        open={settingsSourceOpen}
+        onOpenChange={setSettingsSourceOpen}
+        sourceKey={settingsSourceData?.key ?? ""}
+        sourceName={settingsSourceData?.name ?? ""}
+        sourceIcon={settingsSourceData?.icon}
+        sourceVersion={settingsSourceData?.version}
+        reloadSource={async () => {
+          if (settingsSourceData) {
+            await reloadSource(settingsSourceData.registryId, settingsSourceData.sourceId);
+          }
+        }}
+      />
 
       <ClearDataDialog
         open={clearMode !== null}
@@ -499,13 +507,11 @@ export function SettingsPage() {
         mode={clearMode ?? "cache"}
       />
 
-      {settingsPluginId && (
-        <PluginSettings
-          open={!!settingsPluginId}
-          onOpenChange={(open) => !open && setSettingsPluginId(null)}
-          pluginId={settingsPluginId}
-        />
-      )}
+      <PluginSettings
+        open={settingsPluginOpen}
+        onOpenChange={setSettingsPluginOpen}
+        pluginId={settingsPluginId ?? ""}
+      />
 
       <ResponsiveDialog
         open={!!uninstallConfirm}

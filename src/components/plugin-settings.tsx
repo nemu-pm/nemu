@@ -56,18 +56,18 @@ export function PluginSettings({ open, onOpenChange, pluginId }: PluginSettingsP
     [plugin, settings]
   )
 
-  if (!plugin) return null
-
-  const { manifest, settingsSchema, getSettings } = plugin
+  const manifest = plugin?.manifest
+  const settingsSchema = plugin?.settingsSchema
+  const getSettings = plugin?.getSettings
   const hasSettings = settingsSchema && settingsSchema.length > 0 && getSettings
 
   return (
     <SettingsDialog
       open={open}
       onOpenChange={onOpenChange}
-      icon={manifest.icon}
-      title={manifest.name}
-      subtitle={manifest.description}
+      icon={manifest?.icon}
+      title={manifest?.name ?? ""}
+      subtitle={manifest?.description}
       empty={!hasSettings}
       emptyMessage={t("pluginSettings.noSettings")}
       maxWidth="max-w-lg"
