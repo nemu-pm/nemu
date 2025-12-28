@@ -6,11 +6,13 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ResponsiveDialog,
+  ResponsiveDialogNested,
   ResponsiveDialogContent,
   ResponsiveDialogHeader,
   ResponsiveDialogFooter,
   ResponsiveDialogTitle,
 } from "@/components/ui/responsive-dialog";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -110,9 +112,11 @@ export function MetadataEditDialog({
   const [activeTagIndex, setActiveTagIndex] = useState<number | null>(null);
   const [activeAuthorIndex, setActiveAuthorIndex] = useState<number | null>(null);
   const [matchDrawerOpen, setMatchDrawerOpen] = useState(false);
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const [pendingExternalIds, setPendingExternalIds] = useState<ExternalIds | undefined>();
   const [saving, setSaving] = useState(false);
   const [fetchingFromSource, setFetchingFromSource] = useState<string | null>(null); // source.id or "single"
+  const isMobile = useIsMobile();
 
   const { useSettingsStore } = useStores();
   const { availableSources, getSource } = useSettingsStore();
@@ -428,42 +432,59 @@ export function MetadataEditDialog({
                   <span className="hidden sm:inline">{t("metadata.fromSource")}</span>
                 </Button>
               ) : entry.sources.length > 1 ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger
+                isMobile ? (
+                  // Mobile: button opens nested drawer
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSourcePickerOpen(true)}
                     disabled={fetchingFromSource !== null}
-                    className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground rounded-md h-8 px-3 shrink-0"
+                    className="h-8 gap-1.5 shrink-0"
                   >
                     <HugeiconsIcon 
                       icon={fetchingFromSource ? Loading03Icon : Download04Icon} 
                       className={`size-4 ${fetchingFromSource ? "animate-spin" : ""}`} 
                     />
-                    <span className="hidden sm:inline">{t("metadata.fromSource")}</span>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="min-w-[200px]">
-                    {entry.sources.map((source) => {
-                      const info = getSourceInfo(source);
-                      const isLoading = fetchingFromSource === source.id;
-                      return (
-                        <DropdownMenuItem
-                          key={source.id}
-                          onClick={() => fetchFromSource(source)}
-                          disabled={fetchingFromSource !== null}
-                          className="gap-2.5 py-2"
-                        >
-                          {info?.icon ? (
-                            <img src={info.icon} alt="" className="size-5 rounded shrink-0" />
-                          ) : (
-                            <div className="size-5 rounded bg-muted shrink-0" />
-                          )}
-                          <span className="flex-1 truncate">{info?.name ?? source.sourceId}</span>
-                          {isLoading && (
-                            <HugeiconsIcon icon={Loading03Icon} className="size-4 animate-spin" />
-                          )}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  </Button>
+                ) : (
+                  // Desktop: dropdown menu
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      disabled={fetchingFromSource !== null}
+                      className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground rounded-md h-8 px-3 shrink-0"
+                    >
+                      <HugeiconsIcon 
+                        icon={fetchingFromSource ? Loading03Icon : Download04Icon} 
+                        className={`size-4 ${fetchingFromSource ? "animate-spin" : ""}`} 
+                      />
+                      <span>{t("metadata.fromSource")}</span>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-[200px]">
+                      {entry.sources.map((source) => {
+                        const info = getSourceInfo(source);
+                        const isLoading = fetchingFromSource === source.id;
+                        return (
+                          <DropdownMenuItem
+                            key={source.id}
+                            onClick={() => fetchFromSource(source)}
+                            disabled={fetchingFromSource !== null}
+                            className="gap-2.5 py-2"
+                          >
+                            {info?.icon ? (
+                              <img src={info.icon} alt="" className="size-5 rounded shrink-0" />
+                            ) : (
+                              <div className="size-5 rounded bg-muted shrink-0" />
+                            )}
+                            <span className="flex-1 truncate">{info?.name ?? source.sourceId}</span>
+                            {isLoading && (
+                              <HugeiconsIcon icon={Loading03Icon} className="size-4 animate-spin" />
+                            )}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )
               ) : null}
 
               <Button
@@ -642,6 +663,47 @@ export function MetadataEditDialog({
           authors={fromTags(form.authors)}
           onSelect={handleMatchSelect}
         />
+
+        {/* Source picker nested drawer (mobile only) */}
+        <ResponsiveDialogNested open={sourcePickerOpen} onOpenChange={setSourcePickerOpen}>
+          <ResponsiveDialogContent className="sm:max-w-sm">
+            <ResponsiveDialogHeader>
+              <ResponsiveDialogTitle>{t("metadata.fetchFromSource")}</ResponsiveDialogTitle>
+            </ResponsiveDialogHeader>
+            <div className="space-y-1">
+              {entry.sources.map((source) => {
+                const info = getSourceInfo(source);
+                const isLoading = fetchingFromSource === source.id;
+                return (
+                  <button
+                    key={source.id}
+                    onClick={() => {
+                      setSourcePickerOpen(false);
+                      fetchFromSource(source);
+                    }}
+                    disabled={fetchingFromSource !== null}
+                    className="flex items-center gap-3 w-full rounded-lg border p-3 text-left transition-colors hover:bg-muted disabled:opacity-50"
+                  >
+                    {info?.icon ? (
+                      <img src={info.icon} alt="" className="size-8 rounded shrink-0" />
+                    ) : (
+                      <div className="size-8 rounded bg-muted shrink-0" />
+                    )}
+                    <span className="flex-1 truncate font-medium">{info?.name ?? source.sourceId}</span>
+                    {isLoading && (
+                      <HugeiconsIcon icon={Loading03Icon} className="size-4 animate-spin" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <ResponsiveDialogFooter>
+              <Button variant="outline" onClick={() => setSourcePickerOpen(false)}>
+                {t("common.cancel")}
+              </Button>
+            </ResponsiveDialogFooter>
+          </ResponsiveDialogContent>
+        </ResponsiveDialogNested>
       </ResponsiveDialogContent>
     </ResponsiveDialog>
   );

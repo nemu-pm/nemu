@@ -1051,14 +1051,12 @@ export function MetadataMatchDrawer({
               <Button variant="ghost" onClick={() => setViewMode("manual")}>
                 {t("metadata.smartMatch.searchManually")}
               </Button>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => onOpenChange(false)}>
-                  {t("common.cancel")}
-                </Button>
-                <Button onClick={handleApply} disabled={!hasChanges}>
-                  {t("common.apply")}
-                </Button>
-              </div>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button onClick={handleApply} disabled={!hasChanges}>
+                {t("common.apply")}
+              </Button>
             </>
           )}
 

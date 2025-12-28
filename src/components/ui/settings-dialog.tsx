@@ -145,18 +145,18 @@ export function SettingsDialog({
             <div className="flex items-start gap-3 min-w-0">
               {iconElement ?? <div className="size-10 rounded-md bg-muted shrink-0" />}
               <div className="min-w-0">
-                <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1">
                   <ResponsiveDialogTitle className="truncate">{title}</ResponsiveDialogTitle>
-                  {version !== undefined && (
+                {version !== undefined && (
                     <Badge variant="secondary" className="shrink-0">v{version}</Badge>
-                  )}
-                </div>
-                {(subtitle || description) && (
-                  <ResponsiveDialogDescription className="truncate">
-                    {subtitle || description}
-                  </ResponsiveDialogDescription>
                 )}
               </div>
+              {(subtitle || description) && (
+                  <ResponsiveDialogDescription className="truncate">
+                  {subtitle || description}
+                </ResponsiveDialogDescription>
+              )}
+            </div>
             </div>
             {headerAction}
           </div>
@@ -168,7 +168,7 @@ export function SettingsDialog({
 
         <ResponsiveDialogFooter className="px-4 pb-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.done")}</Button>
-        </ResponsiveDialogFooter>
+          </ResponsiveDialogFooter>
       </ResponsiveDialogContent>
     </ResponsiveDialog>
   )
@@ -317,9 +317,9 @@ export function SettingsDialogWithPages({
               <div className="flex items-start gap-3 min-w-0">
                 {iconElement ?? <div className="size-10 rounded-md bg-muted shrink-0" />}
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1">
                     <ResponsiveDialogTitle className="truncate">{title}</ResponsiveDialogTitle>
-                    {version !== undefined && (
+                  {version !== undefined && (
                       <Badge variant="secondary" className="shrink-0">v{version}</Badge>
                     )}
                   </div>
@@ -339,7 +339,7 @@ export function SettingsDialogWithPages({
 
         <ResponsiveDialogFooter className="px-4 pb-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.done")}</Button>
-        </ResponsiveDialogFooter>
+          </ResponsiveDialogFooter>
       </ResponsiveDialogContent>
     </ResponsiveDialog>
   )

@@ -1158,7 +1158,7 @@ export function SourceAddDrawer({
     </>
   );
 
-  // Footer logic
+  // Footer logic - returns array of buttons (direct children for ResponsiveDialogFooter)
   const getFooterContent = () => {
     if (viewMode === "select") {
       return (
@@ -1169,27 +1169,27 @@ export function SourceAddDrawer({
     }
     if (viewMode === "merge-confirm") return null; // Confirmation has its own buttons
     if (viewMode === "merge") {
-      // Merge picker: only back button, no done
+      // Merge picker: back + cancel
       return (
-        <div className="flex justify-start w-full">
+        <>
           <Button variant="ghost" onClick={() => setViewMode("select")}>
             {t("common.back")}
           </Button>
-        </div>
+          <Button variant="outline" onClick={handleClose}>
+            {t("common.cancel")}
+          </Button>
+        </>
       );
     }
 
     // Search mode: back + done
     return (
-      <div className="flex justify-between w-full">
-        <Button
-          variant="ghost"
-          onClick={() => setViewMode("select")}
-        >
+      <>
+        <Button variant="ghost" onClick={() => setViewMode("select")}>
           {t("common.back")}
         </Button>
         <Button onClick={handleClose}>{t("common.done")}</Button>
-      </div>
+      </>
     );
   };
 

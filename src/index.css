@@ -207,13 +207,13 @@ a img {
   }
 }
 
-/* Sonner (toast) safe-area offsets (iOS notch / iOS PWA). */
-[data-sonner-toaster][data-position^="top"] {
-  top: calc(env(safe-area-inset-top, 0px) + 16px) !important;
-}
-
-[data-sonner-toaster][data-position^="bottom"] {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
+/* Sonner (toast) safe-area offsets (iOS notch / iOS PWA). 
+   Override CSS variables used by sonner for positioning. */
+[data-sonner-toaster] {
+  --offset-top: calc(env(safe-area-inset-top, 0px) + 16px) !important;
+  --offset-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
+  --mobile-offset-top: calc(env(safe-area-inset-top, 0px) + 16px) !important;
+  --mobile-offset-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px) !important;
 }
 
 /* Reader floating UI - adaptive glassmorphism for light/dark modes */
