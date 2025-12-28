@@ -1,4 +1,5 @@
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import type { LibraryMangaSearch } from "@/router";
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useStores, useAllMangaProgress, useChapterProgress } from "@/data/context";
@@ -17,7 +18,7 @@ import {
 import { CoverImage } from "@/components/cover-image";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SourceSelector } from "@/components/source-selector";
 import { MangaPageSkeleton } from "@/components/page-skeletons";
 import { PageHeader } from "@/components/page-header";
 import { PageEmpty } from "@/components/page-empty";
@@ -26,8 +27,8 @@ import {
   PlayIcon,
   Edit02Icon,
   Delete02Icon,
-  Add01Icon,
   Alert02Icon,
+  Layers01Icon,
 } from "@hugeicons/core-free-icons";
 import { formatChapterTitle } from "@/lib/format-chapter";
 import { ChapterGrid } from "@/components/chapter-grid";
@@ -42,6 +43,8 @@ import {
 } from "@/components/ui/responsive-dialog";
 import { MetadataEditDialog } from "@/components/metadata-edit-dialog";
 import { MangaStatusBadge } from "@/components/manga-status-badge";
+import { SourceManageDialog } from "@/components/source-manage-dialog";
+import { useSortedSources } from "@/hooks/use-sorted-sources";
 
 /** Find the chapter with the highest chapter number */
 function findLatestChapter(chapters: Chapter[]): { id: string; title?: string; chapterNumber?: number; volumeNumber?: number } | null {
@@ -102,6 +105,7 @@ function chapterProgressToGridFormat(
 export function LibraryMangaPage() {
   const { t } = useTranslation();
   const { id } = useParams({ strict: false }) as { id: string };
+  const { source: sourceParam } = useSearch({ strict: false }) as LibraryMangaSearch;
   const navigate = useNavigate();
   const { useSettingsStore, useLibraryStore } = useStores();
   const progressIndex = useAllMangaProgress();
@@ -114,18 +118,31 @@ export function LibraryMangaPage() {
     updateUserEdits,
   } = useLibraryStore();
 
-  const [selectedSourceIdx, setSelectedSourceIdx] = useState(0);
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [chaptersMap, setChaptersMap] = useState<Record<string, Chapter[]>>({});
+  const [chapterCounts, setChapterCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [metadataDialogOpen, setMetadataDialogOpen] = useState(false);
+  const [sourceManageOpen, setSourceManageOpen] = useState(false);
 
   const entry = useMemo<LibraryEntry | undefined>(
     () => entries.find((e) => e.item.libraryItemId === id),
     [entries, id]
   );
+
+  // Sort sources by user-defined order (UI concern)
+  const sortedSources = useSortedSources(entry?.sources ?? [], entry?.item.sourceOrder);
+
+  // Derive selected source from URL param (default to first source)
+  const selectedSourceIdx = useMemo(() => {
+    if (sortedSources.length === 0) return 0;
+    if (!sourceParam) return 0;
+    const idx = sortedSources.findIndex((s) => s.id === sourceParam);
+    return idx >= 0 ? idx : 0;
+  }, [sortedSources, sourceParam]);
+
+  const selectedSource = sortedSources[selectedSourceIdx];
 
   // If this entry disappears (deleted on another device), navigate back to library.
   useEffect(() => {
@@ -134,42 +151,91 @@ export function LibraryMangaPage() {
     navigate({ to: "/", replace: true });
   }, [entry, libraryLoading, navigate]);
 
-  // Select most recently read source as default tab once entry is available.
+  // If URL param points to invalid source, clear it
   useEffect(() => {
-    if (!entry) return;
-    const progress = buildProgressMap(entry, progressIndex);
-    const mostRecent = getEntryMostRecentSource(entry, progress);
-    if (!mostRecent) return;
-    const idx = entry.sources.findIndex((s) => s.id === mostRecent.id);
-    setSelectedSourceIdx(idx >= 0 ? idx : 0);
-    setSelectedSourceId(mostRecent.id);
-  }, [entry, progressIndex]);
-
-  // If selected source is removed (or index becomes invalid), fall back to first remaining source.
-  const sourceIdsKey = useMemo(() => entry?.sources.map((s) => s.id).join("|") ?? "", [entry]);
-  useEffect(() => {
-    if (!entry) return;
-    if (entry.sources.length === 0) return;
-
-    // Prefer preserving selection by source id (stable across reorders).
-    if (selectedSourceId) {
-      const idx = entry.sources.findIndex((s) => s.id === selectedSourceId);
-      if (idx >= 0) {
-        if (idx !== selectedSourceIdx) setSelectedSourceIdx(idx);
-        return;
-      }
+    if (!entry || entry.sources.length === 0) return;
+    if (!sourceParam) return;
+    const exists = entry.sources.some((s) => s.id === sourceParam);
+    if (!exists) {
+      navigate({ to: "/library/$id", params: { id }, search: {}, replace: true });
     }
+  }, [entry, sourceParam, id, navigate]);
 
-    // Fallback: clamp index or reset to first.
-    const nextIdx = selectedSourceIdx >= entry.sources.length ? 0 : selectedSourceIdx;
-    setSelectedSourceIdx(nextIdx);
-    setSelectedSourceId(entry.sources[nextIdx]?.id ?? null);
-  }, [entry, sourceIdsKey, selectedSourceId, selectedSourceIdx]);
 
-  const selectedSource = entry?.sources[selectedSourceIdx];
+  // Prefetch all sources' chapters on page load (SWR pattern)
+  useEffect(() => {
+    if (!entry || entry.sources.length === 0) return;
+    let cancelled = false;
+    setError(null);
+
+    (async () => {
+      // Phase 1: Load cached chapters for ALL sources immediately
+      const cachedResults = await Promise.all(
+        entry.sources.map(async (source) => {
+          const sourceObj = await getSource(source.registryId, source.sourceId);
+          if (!sourceObj || !hasSWR(sourceObj)) return null;
+          const cached = await sourceObj.getCachedChapters(source.sourceMangaId);
+          return { source, chapters: cached };
+        })
+      );
+      if (cancelled) return;
+
+      // Update counts and chaptersMap from cache
+      const newCounts: Record<string, number> = {};
+      const newChaptersMap: Record<string, Chapter[]> = {};
+      for (const result of cachedResults) {
+        if (!result?.chapters) continue;
+        const key = makeSourceKey(result.source.registryId, result.source.sourceId, result.source.sourceMangaId);
+        newCounts[result.source.id] = result.chapters.length;
+        newChaptersMap[key] = result.chapters;
+      }
+      setChapterCounts((prev) => ({ ...prev, ...newCounts }));
+      setChaptersMap((prev) => ({ ...prev, ...newChaptersMap }));
+
+      // Phase 2: Background refresh all sources (chapters + manga details for cache)
+      const freshResults = await Promise.all(
+        entry.sources.map(async (source) => {
+          const sourceObj = await getSource(source.registryId, source.sourceId);
+          if (!sourceObj) return null;
+          try {
+            const [chapters] = await Promise.all([
+              sourceObj.getChapters(source.sourceMangaId),
+              sourceObj.getManga(source.sourceMangaId), // Cache manga details (title, etc.)
+            ]);
+            return { source, chapters };
+          } catch (e) {
+            return { source, error: e }; // Track error but don't fail
+          }
+        })
+      );
+      if (cancelled) return;
+
+      // Update with fresh data
+      let hasAnySuccess = false;
+      for (const result of freshResults) {
+        if (!result || "error" in result) continue;
+        hasAnySuccess = true;
+        const key = makeSourceKey(result.source.registryId, result.source.sourceId, result.source.sourceMangaId);
+        setChapterCounts((prev) => ({ ...prev, [result.source.id]: result.chapters.length }));
+        setChaptersMap((prev) => ({ ...prev, [key]: result.chapters }));
+      }
+
+      // If no source succeeded and we have no cached data, show error
+      if (!hasAnySuccess && Object.keys(newChaptersMap).length === 0) {
+        const firstError = freshResults.find((r) => r && "error" in r);
+        if (firstError && "error" in firstError) {
+          setError(firstError.error instanceof Error ? firstError.error.message : String(firstError.error));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [entry, getSource]);
 
   // Load chapter progress on-demand for selected source
-  const { chapters: chapterProgress, loading: chapterProgressLoading } = useChapterProgress(
+  const { chapters: chapterProgress } = useChapterProgress(
     selectedSource?.registryId,
     selectedSource?.sourceId,
     selectedSource?.sourceMangaId
@@ -186,7 +252,7 @@ export function LibraryMangaPage() {
     );
   }, [selectedSource, chapterProgress]);
 
-  // Load chapters for selected source
+  // Update loading state when selected source's chapters are available
   useEffect(() => {
     if (!entry || !selectedSource) return;
 
@@ -196,63 +262,11 @@ export function LibraryMangaPage() {
       selectedSource.sourceMangaId
     );
 
-    // Skip if already loaded
+    // Chapters loaded by prefetch effect
     if (chaptersMap[sourceKey]) {
       setLoading(false);
-      return;
     }
-
-    let cancelled = false;
-    setError(null);
-
-    (async () => {
-      try {
-        const source = await getSource(selectedSource.registryId, selectedSource.sourceId);
-        if (!source) {
-          setError(t("manga.sourceNotFound"));
-          setLoading(false);
-          return;
-        }
-
-        // SWR: Try cached data first
-        if (hasSWR(source)) {
-          const cachedChapters = await source.getCachedChapters(selectedSource.sourceMangaId);
-          if (cancelled) return;
-          if (cachedChapters) {
-            setChaptersMap((prev) => ({ ...prev, [sourceKey]: cachedChapters }));
-            setLoading(false);
-          }
-        }
-
-        // Fetch fresh data
-        const chaptersData = await source.getChapters(selectedSource.sourceMangaId);
-        if (cancelled) return;
-        setChaptersMap((prev) => ({ ...prev, [sourceKey]: chaptersData }));
-        setLoading(false);
-
-        // Acknowledge update when user views this source (skip if already acked)
-        if (chaptersData.length > 0) {
-          const latest = findLatestChapter(chaptersData);
-          if (latest && selectedSource.updateAckChapter?.id !== latest.id) {
-            await acknowledgeUpdate(
-              selectedSource.registryId,
-              selectedSource.sourceId,
-              selectedSource.sourceMangaId,
-              latest
-            );
-          }
-        }
-      } catch (e) {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
-        setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [entry, selectedSource, chaptersMap, getSource, acknowledgeUpdate, t]);
+  }, [entry, selectedSource, chaptersMap]);
 
   // Acknowledge update when switching to a source tab (even if chapters are cached)
   useEffect(() => {
@@ -366,7 +380,7 @@ export function LibraryMangaPage() {
 
   // Get most recent source for continue reading
   const progressMap = buildProgressMap(entry, progressIndex);
-  const mostRecentSource = getEntryMostRecentSource(entry, progressMap) ?? entry.sources[0];
+  const mostRecentSource = getEntryMostRecentSource(entry, progressMap) ?? sortedSources[0];
   const mostRecentProgress = mostRecentSource ? progressMap.get(mostRecentSource.id) : undefined;
   const lastReadChapterId = mostRecentProgress?.lastReadSourceChapterId;
 
@@ -382,9 +396,7 @@ export function LibraryMangaPage() {
 
   const sourceKey = selectedSource
     ? `${selectedSource.registryId}:${selectedSource.sourceId}`
-    : `${entry.sources[0].registryId}:${entry.sources[0].sourceId}`;
-
-  const isLoadingChapters = loading || chapterProgressLoading;
+    : `${sortedSources[0].registryId}:${sortedSources[0].sourceId}`;
 
   return (
     <SourceImageProvider sourceKey={sourceKey}>
@@ -398,6 +410,12 @@ export function LibraryMangaPage() {
               onClick: () => setMetadataDialogOpen(true),
             },
             {
+              label: t("sources.manageSources"),
+              icon: <HugeiconsIcon icon={Layers01Icon} className="size-4" />,
+              onClick: () => setSourceManageOpen(true),
+            },
+            {
+              label: t("common.remove"),
               icon: <HugeiconsIcon icon={Delete02Icon} className="size-4" />,
               onClick: () => setRemoveConfirmOpen(true),
             },
@@ -483,85 +501,61 @@ export function LibraryMangaPage() {
           </div>
         </div>
 
-        {/* Chapters with source tabs */}
+        {/* Chapters with source selector */}
         <section>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold">{t("manga.chapters")}</h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                // TODO: Open add source dialog
-                console.log("Add source");
-              }}
-            >
-              <HugeiconsIcon icon={Add01Icon} className="mr-1.5 size-4" />
-              {t("library.addSource")}
-            </Button>
-          </div>
+          <h2 className="text-xl font-semibold mb-4">{t("manga.chapters")}</h2>
 
-          <Tabs
-            value={String(selectedSourceIdx)}
-            onValueChange={(v) => {
-              const idx = Number(v);
-              setSelectedSourceIdx(idx);
-              setSelectedSourceId(entry.sources[idx]?.id ?? null);
-              setLoading(true);
+          <SourceSelector
+            sources={sortedSources}
+            selectedIndex={selectedSourceIdx}
+            onSelect={(idx) => {
+              const source = sortedSources[idx];
+              if (!source) return;
+              
+              // First source = no param (cleaner URL), others = source param
+              navigate({
+                to: "/library/$id",
+                params: { id },
+                search: idx === 0 ? {} : { source: source.id },
+                replace: true,
+                resetScroll: false,
+              });
+              
+              // Only show loading if we don't have cached chapters (avoids layout shift)
+              const sourceKey = makeSourceKey(source.registryId, source.sourceId, source.sourceMangaId);
+              if (!chaptersMap[sourceKey]) {
+                setLoading(true);
+              }
             }}
-          >
-            <TabsList className="mb-4 flex-wrap h-auto">
-              {entry.sources.map((source, idx) => {
-                const info = availableSources.find(
-                  (s) => s.id === source.sourceId && s.registryId === source.registryId
-                );
-                const hasUpdate = sourceHasUpdate(source);
+            getSourceInfo={(source) =>
+              availableSources.find(
+                (s) => s.id === source.sourceId && s.registryId === source.registryId
+              )
+            }
+            getChapterCount={(source) => chapterCounts[source.id]}
+            hasUpdate={sourceHasUpdate}
+          />
 
-                return (
-                  <TabsTrigger
-                    key={source.id}
-                    value={String(idx)}
-                    className="gap-2"
-                  >
-                    {info?.icon && (
-                      <img src={info.icon} alt="" className="size-4 rounded" />
-                    )}
-                    {info?.name ?? source.sourceId}
-                    {hasUpdate && (
-                      <Badge className="ml-1 px-1.5 text-[10px]">
-                        {t("library.updated")}
-                      </Badge>
-                    )}
-                  </TabsTrigger>
-                );
-              })}
-            </TabsList>
-
-            {entry.sources.map((source, idx) => (
-              <TabsContent key={idx} value={String(idx)}>
-                {selectedSourceIdx === idx && (
-                  <>
-                    {isLoadingChapters ? (
-                      <div className="py-8 text-center text-muted-foreground">
-                        {t("common.loading")}
-                      </div>
-                    ) : chapters.length > 0 ? (
-                      <ChapterGrid
-                        chapters={chapters}
-                        progress={progress}
-                        registryId={source.registryId}
-                        sourceId={source.sourceId}
-                        mangaId={source.sourceMangaId}
-                      />
-                    ) : (
-                      <div className="py-8 text-center text-muted-foreground">
-                        {t("manga.noChapters")}
-                      </div>
-                    )}
-                  </>
-                )}
-              </TabsContent>
-            ))}
-          </Tabs>
+          {/* Chapter content - min-height prevents scroll reset from layout shift */}
+          <div className="mt-4 min-h-[200px]">
+            {loading ? (
+              <div className="py-8 text-center text-muted-foreground">
+                {t("common.loading")}
+              </div>
+            ) : chapters.length > 0 && selectedSource ? (
+              <ChapterGrid
+                chapters={chapters}
+                progress={progress}
+                registryId={selectedSource.registryId}
+                sourceId={selectedSource.sourceId}
+                mangaId={selectedSource.sourceMangaId}
+              />
+            ) : (
+              <div className="py-8 text-center text-muted-foreground">
+                {t("manga.noChapters")}
+              </div>
+            )}
+          </div>
         </section>
 
         {/* Remove confirmation dialog */}
@@ -600,6 +594,13 @@ export function LibraryMangaPage() {
           onOpenChange={setMetadataDialogOpen}
           entry={entry}
           onSave={handleMetadataSave}
+        />
+
+        {/* Source manage dialog */}
+        <SourceManageDialog
+          open={sourceManageOpen}
+          onOpenChange={setSourceManageOpen}
+          entry={entry}
         />
       </div>
     </SourceImageProvider>

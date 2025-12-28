@@ -33,6 +33,7 @@ export const libraryItemsAll = query({
       externalIds: e.externalIds,
       inLibrary: e.inLibrary,
       overrides: e.overrides,
+      sourceOrder: e.sourceOrder,
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
     }));

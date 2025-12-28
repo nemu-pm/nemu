@@ -28,6 +28,14 @@ function timer(label: string) {
   }
 }
 
+const GEMINI_TIMEOUT_MS = 20_000
+
+// Timeout wrapper for Gemini calls
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = GEMINI_TIMEOUT_MS): Promise<T | null> {
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs))
+  return Promise.race([promise, timeout])
+}
+
 // =============================================================================
 // Title Lookup
 // =============================================================================
@@ -53,7 +61,7 @@ export const findJapaneseTitle = action({
 
     try {
       t.log("Starting Gemini call...")
-      const response = await ai.models.generateContent({
+      const response = await withTimeout(ai.models.generateContent({
         model: MODEL,
         contents: `Find the original Japanese title of the manga "${title}".${authorHint}
 
@@ -76,8 +84,13 @@ REQUIREMENTS:
             required: ["found"],
           },
         },
-      })
+      }))
       t.log("Gemini call completed")
+
+      if (!response) {
+        t.log("Timed out, returning null")
+        return null
+      }
 
       const result = JSON.parse(response.text ?? "{}")
       
@@ -117,7 +130,7 @@ export const findChineseTitle = action({
 
     try {
       t.log("Starting Gemini call...")
-      const response = await ai.models.generateContent({
+      const response = await withTimeout(ai.models.generateContent({
         model: MODEL,
         contents: `Find the official Chinese title of the manga ${titleHint}.
 
@@ -146,8 +159,13 @@ REQUIREMENTS:
             required: ["found"],
           },
         },
-      })
+      }))
       t.log("Gemini call completed")
+
+      if (!response) {
+        t.log("Timed out, returning null")
+        return { simplified: null, traditional: null }
+      }
 
       const result = JSON.parse(response.text ?? "{}")
       
@@ -195,7 +213,7 @@ export const findJapaneseDescription = action({
 
     try {
       t.log("Starting Gemini call...")
-      const response = await ai.models.generateContent({
+      const response = await withTimeout(ai.models.generateContent({
         model: MODEL,
         contents: `Find the official Japanese synopsis/description (あらすじ) of the manga ${titleHint}.
 
@@ -222,8 +240,13 @@ REQUIREMENTS:
             required: ["found"],
           },
         },
-      })
+      }))
       t.log("Gemini call completed")
+
+      if (!response) {
+        t.log("Timed out, returning null")
+        return null
+      }
 
       const result = JSON.parse(response.text ?? "{}")
       
@@ -263,7 +286,7 @@ export const findChineseDescription = action({
 
     try {
       t.log("Starting Gemini call...")
-      const response = await ai.models.generateContent({
+      const response = await withTimeout(ai.models.generateContent({
         model: MODEL,
         contents: `Find the official Chinese synopsis/description (简介) of the manga ${titleHint}.
 
@@ -291,8 +314,13 @@ REQUIREMENTS:
             required: ["found"],
           },
         },
-      })
+      }))
       t.log("Gemini call completed")
+
+      if (!response) {
+        t.log("Timed out, returning null")
+        return null
+      }
 
       const result = JSON.parse(response.text ?? "{}")
       
@@ -331,7 +359,7 @@ export const findAuthorJapaneseName = action({
 
     try {
       t.log("Starting Gemini call...")
-      const response = await ai.models.generateContent({
+      const response = await withTimeout(ai.models.generateContent({
         model: MODEL,
         contents: `Find the original Japanese name of the manga author/artist "${englishName}".
 
@@ -357,8 +385,13 @@ REQUIREMENTS:
             required: ["found"],
           },
         },
-      })
+      }))
       t.log("Gemini call completed")
+
+      if (!response) {
+        t.log("Timed out, returning null")
+        return null
+      }
 
       const result = JSON.parse(response.text ?? "{}")
       

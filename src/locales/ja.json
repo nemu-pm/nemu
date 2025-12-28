@@ -33,7 +33,11 @@
     "add": "追加",
     "saving": "保存中...",
     "clear": "クリア",
-    "copy": "コピー"
+    "copy": "コピー",
+    "none": "なし",
+    "results": "件",
+    "remove": "削除",
+    "removing": "削除中..."
   },
   "languages": {
     "multi": "多言語",
@@ -275,7 +279,23 @@
   "sources": {
     "installing": "ソースをインストール中",
     "installingDescription": "{{name}}をインストール中...",
-    "installingDescriptionGeneric": "ソースをインストール中です。しばらくお待ちください..."
+    "installingDescriptionGeneric": "ソースをインストール中です。しばらくお待ちください...",
+    "manageSources": "ソースを管理",
+    "addSource": "ソースを追加",
+    "addSourceDesc": "この漫画に別の読み取りソースをリンク",
+    "removeSource": "ソースを削除",
+    "removeSourceDescription": "この漫画から{{name}}を削除しますか？後で再追加できます。",
+    "noSources": "リンクされたソースがありません",
+    "dragToReorder": "ドラッグして順序を変更",
+    "searchInSources": "ソースを検索",
+    "searchInSourcesDesc": "インストール済みのソースで検索",
+    "mergeFromLibrary": "ライブラリから統合",
+    "comingSoon": "近日公開",
+    "searchPlaceholder": "漫画のタイトルを検索...",
+    "searchingSources": "ソースを検索中...",
+    "noSourceResults": "どのソースでも結果が見つかりませんでした",
+    "alreadyLinked": "リンク済み",
+    "added": "追加済み"
   },
   "addSource": {
     "title": "ソースを追加",

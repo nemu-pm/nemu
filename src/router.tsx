@@ -377,10 +377,18 @@ const sourceBrowseRoute = createRoute({
   component: SourceBrowsePage,
 });
 
+// Library manga detail search params
+export interface LibraryMangaSearch {
+  source?: string; // source link id
+}
+
 // Library manga detail route
 const libraryMangaRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/library/$id",
+  validateSearch: (search: Record<string, unknown>): LibraryMangaSearch => ({
+    source: typeof search.source === "string" ? search.source : undefined,
+  }),
   component: LibraryMangaPage,
 });
 

@@ -88,6 +88,9 @@ export default defineSchema({
     // User overrides
     overrides: v.optional(userOverrides),
 
+    // Source ordering (array of source link IDs in user's preferred order)
+    sourceOrder: v.optional(v.array(v.string())),
+
     // Sync fields
     createdAt: v.number(),
     updatedAt: v.number(),

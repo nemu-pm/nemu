@@ -82,6 +82,7 @@ function createCanonicalLibraryOps(localStore: IndexedDBUserDataStore): Canonica
           metadata: item.metadata,
           overrides: item.overrides,
           externalIds: item.externalIds,
+          sourceOrder: item.sourceOrder,
           sources: links.map((link) => ({
             registryId: link.registryId,
             sourceId: link.sourceId,

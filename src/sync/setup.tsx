@@ -148,6 +148,7 @@ export function SyncSetup() {
           externalIds: item.externalIds,
           inLibrary: item.inLibrary ?? true,
           overrides: item.overrides,
+          sourceOrder: item.sourceOrder,
           createdAt: item.createdAt,
           updatedAt: item.updatedAt,
         }));

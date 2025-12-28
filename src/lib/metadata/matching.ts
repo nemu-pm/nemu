@@ -3,6 +3,24 @@
  */
 
 // =============================================================================
+// Character Detection Utilities
+// =============================================================================
+
+/**
+ * Check if text contains Japanese-specific characters (hiragana or katakana)
+ */
+export function hasJapaneseChars(text: string): boolean {
+  return /[\u3040-\u309F\u30A0-\u30FF]/.test(text);
+}
+
+/**
+ * Check if text contains CJK ideographs (Chinese/Japanese/Korean)
+ */
+export function hasCJKChars(text: string): boolean {
+  return /[\u4E00-\u9FAF]/.test(text);
+}
+
+// =============================================================================
 // Language Detection
 // =============================================================================
 

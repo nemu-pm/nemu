@@ -1247,12 +1247,36 @@ export class IndexedDBUserDataStore implements UserDataStore {
     }
 
     // Join items with their sources
+    // Sort order: sourceOrder position (if present) → createdAt (oldest first) → id
     const result = items
       .filter((item) => item.inLibrary !== false)
-      .map((item) => ({
-        item,
-        sources: linksByItem.get(item.libraryItemId) ?? [],
-      }));
+      .map((item) => {
+        const sources = linksByItem.get(item.libraryItemId) ?? [];
+        const order = item.sourceOrder;
+        const orderMap = order ? new Map(order.map((id, idx) => [id, idx])) : null;
+
+        sources.sort((a, b) => {
+          // 1. If both in sourceOrder, sort by position
+          if (orderMap) {
+            const aIdx = orderMap.get(a.id);
+            const bIdx = orderMap.get(b.id);
+            if (aIdx !== undefined && bIdx !== undefined) {
+              return aIdx - bIdx;
+            }
+            // One in sourceOrder, one not: sourceOrder wins
+            if (aIdx !== undefined) return -1;
+            if (bIdx !== undefined) return 1;
+          }
+          // 2. Both not in sourceOrder (or no sourceOrder): sort by createdAt
+          if (a.createdAt !== b.createdAt) {
+            return a.createdAt - b.createdAt; // Older first
+          }
+          // 3. Final tiebreaker: id
+          return a.id.localeCompare(b.id);
+        });
+
+        return { item, sources };
+      });
 
     return result;
   }

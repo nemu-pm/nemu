@@ -91,6 +91,9 @@ interface LibraryState {
   /** Remove a source from a library item */
   removeSource: (libraryItemId: string, registryId: string, sourceId: string, sourceMangaId: string) => Promise<void>;
   
+  /** Reorder sources for a library item */
+  reorderSources: (libraryItemId: string, sourceIds: string[]) => void;
+  
   /** Remove item from library (hard delete) */
   remove: (libraryItemId: string) => Promise<void>;
   
@@ -317,6 +320,32 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
         console.error("[LibraryStore] removeSource error:", e);
         throw e;
       }
+    },
+
+    reorderSources: (libraryItemId, sourceIds) => {
+      const entry = get().get(libraryItemId);
+      if (!entry) return;
+
+      // Update item with new sourceOrder
+      const updated: LocalLibraryItem = {
+        ...entry.item,
+        sourceOrder: sourceIds,
+        updatedAt: Date.now(),
+      };
+
+      // Optimistic update: update state immediately
+      set((state) => ({
+        entries: state.entries.map((e) => {
+          if (e.item.libraryItemId !== libraryItemId) return e;
+          return { ...e, item: updated };
+        }),
+      }));
+
+      // Persist to IndexedDB in background (will sync to cloud)
+      ops.saveLibraryItem(updated).catch((e) => {
+        console.error("[LibraryStore] reorderSources save error:", e);
+        // Could rollback here, but sync will eventually fix it
+      });
     },
 
     remove: async (libraryItemId) => {

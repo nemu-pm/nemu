@@ -64,6 +64,10 @@ import { translateTags } from "@/lib/metadata/translations";
 import { metadataLanguageStore, getEffectiveMetadataLanguage } from "@/stores/metadata-language";
 import { languageStore } from "@/stores/language";
 import type { MangaMetadata, ExternalIds } from "@/data/schema";
+import * as OpenCC from "opencc-js";
+
+// Traditional → Simplified Chinese converter
+const t2sConverter = OpenCC.Converter({ from: "tw", to: "cn" });
 
 export interface MatchedMetadata {
   metadata: MangaMetadata;
@@ -379,6 +383,10 @@ function MergeFieldRow({ field, currentValue, currentStatus, t, effectiveLang }:
     if (isTags && effectiveLang !== "en" && Array.isArray(option.value)) {
       displayVal = translateTags(option.value, effectiveLang).join(", ");
     }
+    // For title/description in Chinese mode, convert Traditional → Simplified
+    if ((field === "title" || field === "description") && effectiveLang === "zh" && displayVal) {
+      displayVal = t2sConverter(displayVal);
+    }
     tabOptions.push({
       id: option.provider,
       label: PROVIDER_SHORT_NAMES[option.provider],
@@ -401,10 +409,12 @@ function MergeFieldRow({ field, currentValue, currentStatus, t, effectiveLang }:
     
     // Only show AI tab if loading or has value
     if (data?.loading || data?.value) {
+      // Convert Traditional → Simplified for Chinese mode
+      const aiValue = (effectiveLang === "zh" && data.value) ? t2sConverter(data.value) : (data.value || "");
       tabOptions.push({
         id: SELECTION_AI,
         label: "✨ AI",
-        value: data.value || "",
+        value: aiValue,
         rawValue: data.value,
         loading: data.loading,
       });
@@ -844,6 +854,12 @@ export function MetadataMatchDrawer({
   // Apply merged metadata
   const handleApply = useCallback(() => {
     const { metadata, externalIds } = storeGetMergedMetadata();
+    
+    // Convert Traditional → Simplified Chinese for title/description
+    if (effectiveLang === "zh") {
+      if (metadata.title) metadata.title = t2sConverter(metadata.title);
+      if (metadata.description) metadata.description = t2sConverter(metadata.description);
+    }
     
     // Translate tags if not English
     if (effectiveLang !== "en" && metadata.tags) {

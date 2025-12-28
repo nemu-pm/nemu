@@ -33,7 +33,11 @@
     "add": "添加",
     "saving": "保存中...",
     "clear": "清除",
-    "copy": "复制"
+    "copy": "复制",
+    "none": "无",
+    "results": "个结果",
+    "remove": "移除",
+    "removing": "移除中..."
   },
   "languages": {
     "multi": "多语言",
@@ -275,7 +279,23 @@
   "sources": {
     "installing": "正在安装源",
     "installingDescription": "正在安装 {{name}}...",
-    "installingDescriptionGeneric": "请稍候，源正在安装中..."
+    "installingDescriptionGeneric": "请稍候，源正在安装中...",
+    "manageSources": "管理源",
+    "addSource": "添加源",
+    "addSourceDesc": "为此漫画关联其他阅读源",
+    "removeSource": "移除源",
+    "removeSourceDescription": "从此漫画移除 {{name}}？之后可以重新添加。",
+    "noSources": "暂无关联源",
+    "dragToReorder": "拖动可调整源的顺序",
+    "searchInSources": "搜索源",
+    "searchInSourcesDesc": "在已安装的源中查找",
+    "mergeFromLibrary": "从书库合并",
+    "comingSoon": "即将推出",
+    "searchPlaceholder": "搜索漫画标题...",
+    "searchingSources": "正在搜索源...",
+    "noSourceResults": "未在任何源中找到结果",
+    "alreadyLinked": "已关联",
+    "added": "已添加"
   },
   "addSource": {
     "title": "添加源",

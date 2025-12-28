@@ -53,6 +53,7 @@ export const save = mutation({
       coverUrl: v.optional(v.union(v.string(), v.null())),
     })),
     externalIds: v.optional(externalIdsValidator),
+    sourceOrder: v.optional(v.array(v.string())),
     sources: v.array(sourceLinkValidator),
     sourcesMode: v.optional(v.union(v.literal("merge"), v.literal("replace"))),
   },
@@ -98,6 +99,7 @@ export const save = mutation({
         // This mutation is also used to upsert source links, and those calls do not always include overrides.
         overrides: args.overrides ?? existing.overrides,
         externalIds: args.externalIds ?? existing.externalIds,
+        sourceOrder: args.sourceOrder ?? existing.sourceOrder,
         updatedAt: now,
       });
 
@@ -109,6 +111,7 @@ export const save = mutation({
         metadata: args.metadata,
         externalIds: args.externalIds,
         overrides: args.overrides,
+        sourceOrder: args.sourceOrder,
         createdAt: args.createdAt,
         updatedAt: now,
       });

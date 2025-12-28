@@ -1050,12 +1050,20 @@ a img {
 .tag-input-nemu input {
   flex: 1;
   min-width: 5rem;
-  background: transparent;
-  border: none;
-  outline: none;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
   font-size: 1rem;
   line-height: 1.5;
   color: inherit;
+}
+
+.tag-input-nemu input:focus,
+.tag-input-nemu input:focus-visible {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 @media (min-width: 768px) {
@@ -1929,5 +1937,275 @@ a img {
   border-radius: 2px;
   border: 1px solid var(--pos-border);
   background: var(--pos-bg);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Source Selector - Glassmorphic horizontal scrolling pill selector
+   Elevated floating glass track with frosted pill items
+   ─────────────────────────────────────────────────────────────────────────────*/
+
+.source-selector-container {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* Fade edges to hint at scrollability */
+.source-selector-container::before,
+.source-selector-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 1;
+  transition: opacity 200ms ease;
+}
+
+.source-selector-container::before {
+  left: 0;
+  background: linear-gradient(to right, var(--background), transparent);
+}
+
+.source-selector-container::after {
+  right: 0;
+  background: linear-gradient(to left, var(--background), transparent);
+}
+
+/* Hide fades when at edge */
+.source-selector-container[data-at-start="true"]::before {
+  opacity: 0;
+}
+
+.source-selector-container[data-at-end="true"]::after {
+  opacity: 0;
+}
+
+/* Scrollable track container - hidden scrollbar */
+.source-selector-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+
+  /* Hide scrollbar but keep functionality */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.source-selector-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Inner track - frosted glass tray */
+.source-selector-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem;
+  min-width: 100%;
+  width: max-content;
+
+  /* Glass tray */
+  background: oklch(0.5 0.06 269 / 0.05);
+  border: 0.5px solid oklch(0.5 0.10 269 / 0.08);
+  border-radius: calc(var(--radius) + 6px);
+  box-shadow:
+    inset 0 1px 2px oklch(0.4 0.08 269 / 0.03),
+    inset 0 0.5px 0 oklch(1 0.02 269 / 0.25);
+}
+
+.dark .source-selector-track {
+  background: oklch(1 0 0 / 0.03);
+  border: 0.5px solid oklch(1 0 0 / 0.06);
+  box-shadow:
+    inset 0 1px 3px oklch(0 0 0 / 0.15),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.03);
+}
+
+/* Individual source pill */
+.source-selector-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: calc(var(--radius) + 2px);
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+
+  /* Typography */
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+
+  /* Glass pill - subtle */
+  background: transparent;
+  border: 0.5px solid transparent;
+  box-shadow: none;
+
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease,
+    transform 120ms ease;
+}
+
+.source-selector-item:hover:not(.source-selector-item-active) {
+  background: oklch(0 0 0 / 0.04);
+  border-color: oklch(0 0 0 / 0.04);
+  color: var(--foreground);
+}
+
+.dark .source-selector-item:hover:not(.source-selector-item-active) {
+  background: oklch(1 0 0 / 0.06);
+  border-color: oklch(1 0 0 / 0.04);
+}
+
+.source-selector-item:active {
+  transform: scale(0.98);
+}
+
+/* Active state - elevated frosted glass panel */
+.source-selector-item-active {
+  color: var(--foreground);
+
+  /* Elevated glass panel */
+  background: oklch(0.99 0.01 269 / 0.92);
+  border: 0.5px solid oklch(0.5 0.10 269 / 0.12);
+  box-shadow:
+    0 1px 4px oklch(0.4 0.12 269 / 0.08),
+    0 2px 8px oklch(0 0 0 / 0.04),
+    inset 0 0.5px 0 oklch(1 0.02 269 / 0.7);
+}
+
+.dark .source-selector-item-active {
+  background: oklch(0.24 0.012 269 / 0.85);
+  border: 0.5px solid oklch(1 0 0 / 0.1);
+  box-shadow:
+    0 2px 8px oklch(0 0 0 / 0.3),
+    0 4px 12px oklch(0 0 0 / 0.15),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.06);
+}
+
+/* Focus visible state */
+.source-selector-item:focus-visible {
+  outline: none;
+  border-color: oklch(from var(--primary) calc(l + 0.15) c h / 0.45);
+  box-shadow:
+    0 0 0 2px oklch(from var(--primary) calc(l + 0.2) c h / 0.2),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.5);
+}
+
+.dark .source-selector-item:focus-visible {
+  box-shadow:
+    0 0 0 2px oklch(from var(--primary) calc(l + 0.15) c h / 0.3),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.06);
+}
+
+/* Source icon in pill */
+.source-selector-icon {
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+
+  /* Subtle frame */
+  box-shadow:
+    0 0.5px 1px oklch(0 0 0 / 0.08),
+    inset 0 0 0 0.5px oklch(0 0 0 / 0.06);
+}
+
+.dark .source-selector-icon {
+  box-shadow:
+    0 0.5px 2px oklch(0 0 0 / 0.25),
+    inset 0 0 0 0.5px oklch(1 0 0 / 0.08);
+}
+
+/* Source name */
+.source-selector-name {
+  line-height: 1.2;
+}
+
+/* Chapter count badge - subtle pill */
+.source-selector-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.375rem;
+  height: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+
+  /* Muted badge */
+  background: oklch(0 0 0 / 0.05);
+  color: var(--muted-foreground);
+
+  transition:
+    background 200ms ease,
+    color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.dark .source-selector-count {
+  background: oklch(1 0 0 / 0.08);
+}
+
+/* Update state - luminous primary highlight */
+.source-selector-count-update {
+  background: oklch(from var(--primary) calc(l + 0.28) calc(c * 0.35) h / 0.9);
+  color: oklch(from var(--primary) calc(l - 0.12) calc(c * 0.9) h);
+  box-shadow:
+    0 0 8px oklch(from var(--primary) calc(l + 0.1) c h / 0.2),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.35);
+
+  /* Subtle pulse animation */
+  animation: source-count-pulse 2.5s ease-in-out infinite;
+}
+
+.dark .source-selector-count-update {
+  background: oklch(from var(--primary) calc(l + 0.08) calc(c * 0.5) h / 0.4);
+  color: oklch(from var(--primary) calc(l + 0.3) calc(c * 0.75) h);
+  box-shadow:
+    0 0 12px oklch(from var(--primary) calc(l + 0.05) c h / 0.25),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.12);
+}
+
+@keyframes source-count-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 8px oklch(from var(--primary) calc(l + 0.1) c h / 0.2),
+      inset 0 0.5px 0 oklch(1 0 0 / 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 14px oklch(from var(--primary) calc(l + 0.15) c h / 0.3),
+      inset 0 0.5px 0 oklch(1 0 0 / 0.4);
+  }
+}
+
+.dark .source-selector-count-update {
+  animation-name: source-count-pulse-dark;
+}
+
+@keyframes source-count-pulse-dark {
+  0%, 100% {
+    box-shadow:
+      0 0 12px oklch(from var(--primary) calc(l + 0.05) c h / 0.25),
+      inset 0 0.5px 0 oklch(1 0 0 / 0.12);
+  }
+  50% {
+    box-shadow:
+      0 0 18px oklch(from var(--primary) calc(l + 0.1) c h / 0.35),
+      inset 0 0.5px 0 oklch(1 0 0 / 0.15);
+  }
 }
 

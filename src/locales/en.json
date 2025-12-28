@@ -33,7 +33,11 @@
     "ok": "OK",
     "add": "Add",
     "clear": "Clear",
-    "copy": "Copy"
+    "copy": "Copy",
+    "none": "None",
+    "results": "results",
+    "remove": "Remove",
+    "removing": "Removing..."
   },
   "languages": {
     "multi": "Multi-language",
@@ -281,7 +285,23 @@
   "sources": {
     "installing": "Installing Source",
     "installingDescription": "Installing {{name}}...",
-    "installingDescriptionGeneric": "Please wait while the source is being installed..."
+    "installingDescriptionGeneric": "Please wait while the source is being installed...",
+    "manageSources": "Manage Sources",
+    "addSource": "Add Source",
+    "addSourceDesc": "Link another reading source to this manga",
+    "removeSource": "Remove Source",
+    "removeSourceDescription": "Remove {{name}} from this manga? You can add it back later.",
+    "noSources": "No sources linked",
+    "dragToReorder": "Drag to reorder sources",
+    "searchInSources": "Search Sources",
+    "searchInSourcesDesc": "Find in installed sources",
+    "mergeFromLibrary": "Merge from Library",
+    "comingSoon": "Coming soon",
+    "searchPlaceholder": "Search manga title...",
+    "searchingSources": "Searching sources...",
+    "noSourceResults": "No results found in any source",
+    "alreadyLinked": "Linked",
+    "added": "Added"
   },
   "addSource": {
     "title": "Add Source",

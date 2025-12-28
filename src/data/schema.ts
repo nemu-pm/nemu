@@ -105,6 +105,9 @@ export const LocalLibraryItemSchema = z.object({
   // User overrides
   overrides: UserOverridesSchema.optional(),
 
+  // Source ordering (array of source link IDs in user's preferred order)
+  sourceOrder: z.array(z.string()).optional(),
+
   // Sync fields
   createdAt: z.number(),
   updatedAt: z.number(),
@@ -125,7 +128,7 @@ export const LocalSourceLinkSchema = z.object({
   registryId: z.string(),
   sourceId: z.string(),
   sourceMangaId: z.string(),
-
+  
   // Availability tracking
   latestChapter: ChapterSummarySchema.optional(),
   latestChapterSortKey: z.string().optional(),
