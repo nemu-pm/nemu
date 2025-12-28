@@ -451,7 +451,7 @@ export function SettingsPage() {
         transition={{ type: "spring", stiffness: 400, damping: 25 }}
       >
         <Card
-          className="!py-0 cursor-pointer hover:bg-accent/50"
+          className="!py-0 cursor-default hover:bg-accent/50"
           onClick={() => setAboutOpen(true)}
         >
           <CardContent className="flex items-center gap-3 px-4 py-2.5">
@@ -511,7 +511,7 @@ export function SettingsPage() {
         open={!!uninstallConfirm}
         onOpenChange={(open) => !open && setUninstallConfirm(null)}
       >
-        <ResponsiveDialogContent>
+        <ResponsiveDialogContent showCloseButton={false}>
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle>{t("settings.uninstallSource")}</ResponsiveDialogTitle>
             <ResponsiveDialogDescription>

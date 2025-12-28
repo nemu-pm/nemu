@@ -10,6 +10,8 @@ import { toast } from "sonner";
 import { parseSourceKey } from "@/data/keys";
 import { SettingsDialogWithPages } from "@/components/ui/settings-dialog";
 import { Button } from "@/components/ui/button";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowReloadHorizontalIcon } from "@hugeicons/core-free-icons";
 import type { PageSetting } from "@/lib/settings";
 import { extractDefaults, SettingsRenderer } from "@/lib/settings";
 import { getSourceSettingsStore } from "@/stores/source-settings";
@@ -128,9 +130,10 @@ export function SourceSettings({
       onPopPage={popPage}
       empty={isEmpty}
       emptyMessage={t("sourceSettings.noSettings")}
-      footer={
-        <Button variant="outline" onClick={handleReset} className="w-full">
-          {t("sourceSettings.resetToDefaults")}
+      headerAction={
+        <Button variant="secondary" size="sm" onClick={handleReset} className="h-8 gap-1.5 shrink-0">
+          <HugeiconsIcon icon={ArrowReloadHorizontalIcon} className="size-4" />
+          {t("common.reset")}
         </Button>
       }
     >

@@ -128,6 +128,9 @@ interface LibraryState {
     }
   ) => Promise<void>;
   
+  /** Merge another library item into this one (moves sources, deletes other) */
+  mergeManga: (targetLibraryItemId: string, sourceLibraryItemId: string) => Promise<void>;
+  
   /** Acknowledge updates for a source */
   acknowledgeUpdate: (
     registryId: string,
@@ -346,6 +349,69 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
         console.error("[LibraryStore] reorderSources save error:", e);
         // Could rollback here, but sync will eventually fix it
       });
+    },
+
+    mergeManga: async (targetLibraryItemId, sourceLibraryItemId) => {
+      const targetEntry = get().get(targetLibraryItemId);
+      const sourceEntry = get().get(sourceLibraryItemId);
+      
+      if (!targetEntry || !sourceEntry) {
+        console.error("[LibraryStore] mergeManga: entry not found");
+        return;
+      }
+      
+      // Can't merge with self
+      if (targetLibraryItemId === sourceLibraryItemId) {
+        console.warn("[LibraryStore] mergeManga: cannot merge with self");
+        return;
+      }
+      
+      const now = Date.now();
+      const existingSourceIds = new Set(targetEntry.sources.map((s) => s.id));
+      
+      // Filter sources that aren't already linked to target
+      const sourcesToMove = sourceEntry.sources.filter((s) => !existingSourceIds.has(s.id));
+      
+      if (sourcesToMove.length === 0) {
+        // All sources already exist in target - just delete source entry
+        await get().remove(sourceLibraryItemId);
+        return;
+      }
+      
+      try {
+        // Move source links to target
+        const movedSources: LocalSourceLink[] = [];
+        for (const source of sourcesToMove) {
+          const updatedSource: LocalSourceLink = {
+            ...source,
+            libraryItemId: targetLibraryItemId,
+            updatedAt: now,
+          };
+          await ops.saveSourceLink(updatedSource);
+          movedSources.push(updatedSource);
+        }
+        
+        // Update state: add moved sources to target entry
+        set((state) => ({
+          entries: state.entries.map((e) =>
+            e.item.libraryItemId === targetLibraryItemId
+              ? { ...e, sources: [...e.sources, ...movedSources] }
+              : e
+          ),
+        }));
+        
+        // Delete the source entry (this also removes its source links from state)
+        await get().remove(sourceLibraryItemId);
+        
+        console.log("[LibraryStore] mergeManga: success", {
+          target: targetLibraryItemId,
+          source: sourceLibraryItemId,
+          movedSources: movedSources.length,
+        });
+      } catch (e) {
+        console.error("[LibraryStore] mergeManga error:", e);
+        throw e;
+      }
     },
 
     remove: async (libraryItemId) => {

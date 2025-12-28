@@ -51,7 +51,7 @@ export function AddSourceDialog({ open, onOpenChange }: AddSourceDialogProps) {
   return (
     <>
       <ResponsiveDialog open={open} onOpenChange={handleClose}>
-        <ResponsiveDialogContent className="sm:max-w-lg">
+        <ResponsiveDialogContent className="sm:max-w-lg" showCloseButton={false}>
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle>{t("addSource.title")}</ResponsiveDialogTitle>
             <ResponsiveDialogDescription>
@@ -62,7 +62,16 @@ export function AddSourceDialog({ open, onOpenChange }: AddSourceDialogProps) {
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
 
-          {mode === "select" && <ModeSelection onSelectMode={setMode} />}
+          {mode === "select" && (
+            <>
+              <ModeSelection onSelectMode={setMode} />
+              <ResponsiveDialogFooter>
+                <Button variant="outline" onClick={handleClose}>
+                  {t("common.cancel")}
+                </Button>
+              </ResponsiveDialogFooter>
+            </>
+          )}
 
           {mode === "registry" && (
             <RegistrySourceList
@@ -135,7 +144,7 @@ function SourceWarningDialog({
 
   return (
     <ResponsiveDialog open={!!source} onOpenChange={(open) => !open && onClose()}>
-      <ResponsiveDialogContent className="sm:max-w-md">
+      <ResponsiveDialogContent className="sm:max-w-md" showCloseButton={false}>
         <ResponsiveDialogHeader>
           <ResponsiveDialogTitle className="flex items-center gap-2">
             <HugeiconsIcon icon={Alert02Icon} className="size-5 text-amber-500" />
@@ -197,18 +206,17 @@ function ModeSelection({
         </div>
       </button>
 
-      <button
-        onClick={() => onSelectMode("custom")}
-        className="flex flex-col items-center gap-3 rounded-lg border p-6 text-center transition-colors hover:bg-muted"
+      <div
+        className="flex flex-col items-center gap-3 rounded-lg border p-6 text-center opacity-50 cursor-not-allowed"
       >
-        <div className="rounded-full bg-primary/10 p-3">
-          <HugeiconsIcon icon={File02Icon} className="size-6 text-primary" />
+        <div className="rounded-full bg-muted p-3">
+          <HugeiconsIcon icon={File02Icon} className="size-6 text-muted-foreground" />
         </div>
         <div>
           <p className="font-medium">{t("addSource.customTitle")}</p>
-          <p className="text-sm text-muted-foreground">{t("addSource.customDescription")}</p>
+          <p className="text-sm text-muted-foreground">{t("addSource.customComingSoon")}</p>
         </div>
-      </button>
+      </div>
 
       {isDev && (
         <button
@@ -312,7 +320,7 @@ function RegistrySourceList({
         ))}
       </div>
 
-      <div className="flex justify-between border-t pt-4">
+      <div className="flex justify-between pt-4">
         <Button variant="ghost" onClick={onBack}>
           {t("common.back")}
         </Button>
@@ -401,7 +409,7 @@ cd compiler && ./gradlew devBuild -Pextension=en/mangadex`}
         </div>
       )}
 
-      <div className="flex justify-between border-t pt-4">
+      <div className="flex justify-between pt-4">
         <Button variant="ghost" onClick={onBack}>
           {t("common.back")}
         </Button>
@@ -560,7 +568,7 @@ function CustomSourceUpload({
         <p className="text-center text-sm text-destructive">{error}</p>
       )}
 
-      <div className="flex justify-between border-t pt-4">
+      <div className="flex justify-between pt-4">
         <Button variant="ghost" onClick={onBack}>
           {t("common.back")}
         </Button>

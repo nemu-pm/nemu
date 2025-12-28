@@ -132,7 +132,13 @@
     "addAuthor": "作者を追加...",
     "artists": "作画",
     "addArtist": "作画を追加...",
-    "viewOriginal": "元の表紙を見る"
+    "viewOriginal": "元の表紙を見る",
+    "saveFailed": "保存に失敗しました",
+    "fromSource": "ソースから",
+    "fetchFromSource": "ソースからメタデータを取得",
+    "fetchedFromSource": "ソースからメタデータを取得しました",
+    "fetchFailed": "ソースからメタデータを取得できませんでした",
+    "sourceNotFound": "ソースが見つかりません"
   },
   "browse": {
     "loading": "ソースを読み込み中...",
@@ -290,12 +296,28 @@
     "searchInSources": "ソースを検索",
     "searchInSourcesDesc": "インストール済みのソースで検索",
     "mergeFromLibrary": "ライブラリから統合",
-    "comingSoon": "近日公開",
+    "mergeFromLibraryDesc": "ライブラリ内の他の漫画と統合",
     "searchPlaceholder": "漫画のタイトルを検索...",
     "searchingSources": "ソースを検索中...",
     "noSourceResults": "どのソースでも結果が見つかりませんでした",
     "alreadyLinked": "リンク済み",
-    "added": "追加済み"
+    "added": "追加済み",
+    "merge": {
+      "title": "漫画を統合",
+      "searchPlaceholder": "ライブラリを検索...",
+      "matchingTitles": "類似タイトル",
+      "otherManga": "その他の漫画",
+      "emptyLibrary": "ライブラリに他の漫画がありません",
+      "confirmTitle": "統合を確認",
+      "confirmDescription": "「{{source}}」のソースを「{{target}}」に統合しますか？",
+      "mergeInfo": "以下の操作が行われます：",
+      "mergeInfoAddSources": "「{{source}}」のソースをこの漫画に追加",
+      "mergeInfoRemove": "「{{source}}」をライブラリから削除",
+      "mergeInfoKeepMetadata": "現在の漫画のメタデータを保持",
+      "merging": "統合中...",
+      "sourcesCount": "{{count}}ソース",
+      "sourcesCount_plural": "{{count}}ソース"
+    }
   },
   "addSource": {
     "title": "ソースを追加",
@@ -306,6 +328,7 @@
     "fromRegistryDescription": "利用可能なソースを閲覧",
     "customTitle": "カスタム.aixファイル",
     "customDescription": "自分のソースをアップロード",
+    "customComingSoon": "近日公開",
     "selectFile": "クリックして.aixファイルを選択",
     "dragDropHint": "またはここにドラッグ＆ドロップ",
     "installing": "インストール中...",

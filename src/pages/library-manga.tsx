@@ -24,7 +24,6 @@ import { PageHeader } from "@/components/page-header";
 import { PageEmpty } from "@/components/page-empty";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  PlayIcon,
   Edit02Icon,
   Delete02Icon,
   Alert02Icon,
@@ -383,6 +382,9 @@ export function LibraryMangaPage() {
   const mostRecentSource = getEntryMostRecentSource(entry, progressMap) ?? sortedSources[0];
   const mostRecentProgress = mostRecentSource ? progressMap.get(mostRecentSource.id) : undefined;
   const lastReadChapterId = mostRecentProgress?.lastReadSourceChapterId;
+  const mostRecentSourceInfo = mostRecentSource
+    ? availableSources.find((s) => s.id === mostRecentSource.sourceId && s.registryId === mostRecentSource.registryId)
+    : undefined;
 
   // Find continue chapter from most recent source's chapters
   const mostRecentSourceKey = mostRecentSource
@@ -487,7 +489,9 @@ export function LibraryMangaPage() {
                   search={{ page: undefined }}
                 >
                   <Button size="lg">
-                    <HugeiconsIcon icon={PlayIcon} />
+                    {mostRecentSourceInfo?.icon && (
+                      <img src={mostRecentSourceInfo.icon} alt="" className="size-5 rounded" />
+                    )}
                     {lastReadChapterId && continueChapter
                       ? t("manga.continueReading", {
                           chapter: formatChapterTitle(continueChapter),

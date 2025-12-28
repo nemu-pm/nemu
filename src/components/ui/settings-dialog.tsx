@@ -3,6 +3,7 @@
  * Used by both source settings and plugin settings for consistent UI
  */
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -36,8 +37,8 @@ interface SettingsDialogProps {
   version?: string | number
   /** Content to render in the dialog body */
   children: React.ReactNode
-  /** Optional footer content */
-  footer?: React.ReactNode
+  /** Optional action button in header (e.g., Reset button) */
+  headerAction?: React.ReactNode
   /** Loading state - shows loading message instead of children */
   loading?: boolean
   /** Loading message */
@@ -59,13 +60,15 @@ export function SettingsDialog({
   description,
   version,
   children,
-  footer,
+  headerAction,
   loading,
   loadingMessage = "Loading settings...",
   empty,
   emptyMessage = "No settings available.",
   maxWidth = "max-w-2xl",
 }: SettingsDialogProps) {
+  const { t } = useTranslation()
+  
   const iconElement = typeof icon === "string" ? (
     <img src={icon} alt="" className="size-10 rounded-md object-cover" />
   ) : icon ? (
@@ -75,7 +78,7 @@ export function SettingsDialog({
   if (loading) {
     return (
       <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-        <ResponsiveDialogContent className={`flex flex-col ${maxWidth}`}>
+        <ResponsiveDialogContent className={`flex flex-col ${maxWidth}`} showCloseButton={false}>
           <ResponsiveDialogHeader>
             <div className="flex items-start gap-3">
               {iconElement ?? <div className="size-10 rounded-md bg-muted" />}
@@ -95,6 +98,9 @@ export function SettingsDialog({
           <div className="flex flex-1 items-center justify-center py-8">
             <p className="text-muted-foreground text-sm">{loadingMessage}</p>
           </div>
+          <ResponsiveDialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.done")}</Button>
+          </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
     )
@@ -103,7 +109,7 @@ export function SettingsDialog({
   if (empty) {
     return (
       <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-        <ResponsiveDialogContent className={`flex flex-col ${maxWidth}`}>
+        <ResponsiveDialogContent className={`flex flex-col ${maxWidth}`} showCloseButton={false}>
           <ResponsiveDialogHeader>
             <div className="flex items-start gap-3">
               {iconElement ?? <div className="size-10 rounded-md bg-muted" />}
@@ -123,6 +129,9 @@ export function SettingsDialog({
           <div className="flex flex-1 items-center justify-center py-8">
             <p className="text-muted-foreground text-sm">{emptyMessage}</p>
           </div>
+          <ResponsiveDialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.done")}</Button>
+          </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
     )
@@ -130,23 +139,26 @@ export function SettingsDialog({
 
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-      <ResponsiveDialogContent className={`flex flex-col gap-0 ${maxWidth} max-h-[85vh] overflow-hidden p-0`}>
+      <ResponsiveDialogContent className={`flex flex-col gap-0 ${maxWidth} max-h-[85vh] overflow-hidden p-0`} showCloseButton={false}>
         <ResponsiveDialogHeader className="px-4 py-3">
-          <div className="flex items-start gap-3">
-            {iconElement ?? <div className="size-10 rounded-md bg-muted" />}
-            <div>
-              <div className="flex items-center gap-1">
-                <ResponsiveDialogTitle>{title}</ResponsiveDialogTitle>
-                {version !== undefined && (
-                  <Badge variant="secondary">v{version}</Badge>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-start gap-3 min-w-0">
+              {iconElement ?? <div className="size-10 rounded-md bg-muted shrink-0" />}
+              <div className="min-w-0">
+                <div className="flex items-center gap-1">
+                  <ResponsiveDialogTitle className="truncate">{title}</ResponsiveDialogTitle>
+                  {version !== undefined && (
+                    <Badge variant="secondary" className="shrink-0">v{version}</Badge>
+                  )}
+                </div>
+                {(subtitle || description) && (
+                  <ResponsiveDialogDescription className="truncate">
+                    {subtitle || description}
+                  </ResponsiveDialogDescription>
                 )}
               </div>
-              {(subtitle || description) && (
-                <ResponsiveDialogDescription>
-                  {subtitle || description}
-                </ResponsiveDialogDescription>
-              )}
             </div>
+            {headerAction}
           </div>
         </ResponsiveDialogHeader>
 
@@ -154,11 +166,9 @@ export function SettingsDialog({
           {children}
         </div>
 
-        {footer && (
-          <ResponsiveDialogFooter className="p-4">
-            {footer}
-          </ResponsiveDialogFooter>
-        )}
+        <ResponsiveDialogFooter className="px-4 pb-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.done")}</Button>
+        </ResponsiveDialogFooter>
       </ResponsiveDialogContent>
     </ResponsiveDialog>
   )
@@ -187,8 +197,8 @@ interface SettingsDialogWithPagesProps {
   onPopPage: () => void
   /** Root content (shown when pageStack is empty) */
   children: React.ReactNode
-  /** Footer content (only shown on root page) */
-  footer?: React.ReactNode
+  /** Optional action button in header (e.g., Reset button) - only shown on root page */
+  headerAction?: React.ReactNode
   /** Loading state */
   loading?: boolean
   /** Loading message */
@@ -211,13 +221,15 @@ export function SettingsDialogWithPages({
   pageStack,
   onPopPage,
   children,
-  footer,
+  headerAction,
   loading,
   loadingMessage = "Loading settings...",
   empty,
   emptyMessage = "No settings available.",
   maxWidth = "max-w-2xl",
 }: SettingsDialogWithPagesProps) {
+  const { t } = useTranslation()
+  
   const iconElement = typeof icon === "string" ? (
     <img src={icon} alt="" className="size-10 rounded-md object-cover" />
   ) : icon ? (
@@ -230,7 +242,7 @@ export function SettingsDialogWithPages({
   if (loading) {
     return (
       <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-        <ResponsiveDialogContent className={`flex flex-col ${maxWidth}`}>
+        <ResponsiveDialogContent className={`flex flex-col ${maxWidth}`} showCloseButton={false}>
           <ResponsiveDialogHeader>
             <div className="flex items-start gap-3">
               {iconElement ?? <div className="size-10 rounded-md bg-muted" />}
@@ -250,6 +262,9 @@ export function SettingsDialogWithPages({
           <div className="flex flex-1 items-center justify-center py-8">
             <p className="text-muted-foreground text-sm">{loadingMessage}</p>
           </div>
+          <ResponsiveDialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.done")}</Button>
+          </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
     )
@@ -258,7 +273,7 @@ export function SettingsDialogWithPages({
   if (empty) {
     return (
       <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-        <ResponsiveDialogContent className={`flex flex-col ${maxWidth}`}>
+        <ResponsiveDialogContent className={`flex flex-col ${maxWidth}`} showCloseButton={false}>
           <ResponsiveDialogHeader>
             <div className="flex items-start gap-3">
               {iconElement ?? <div className="size-10 rounded-md bg-muted" />}
@@ -278,6 +293,9 @@ export function SettingsDialogWithPages({
           <div className="flex flex-1 items-center justify-center py-8">
             <p className="text-muted-foreground text-sm">{emptyMessage}</p>
           </div>
+          <ResponsiveDialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.done")}</Button>
+          </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
     )
@@ -285,7 +303,7 @@ export function SettingsDialogWithPages({
 
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-      <ResponsiveDialogContent className={`flex flex-col gap-0 ${maxWidth} max-h-[85vh] overflow-hidden p-0`}>
+      <ResponsiveDialogContent className={`flex flex-col gap-0 ${maxWidth} max-h-[85vh] overflow-hidden p-0`} showCloseButton={false}>
         <ResponsiveDialogHeader className="px-4 py-3">
           {isOnSubPage ? (
             <div className="flex items-center gap-2">
@@ -295,19 +313,22 @@ export function SettingsDialogWithPages({
               <ResponsiveDialogTitle>{currentPage.title}</ResponsiveDialogTitle>
             </div>
           ) : (
-            <div className="flex items-start gap-3">
-              {iconElement ?? <div className="size-10 rounded-md bg-muted" />}
-              <div>
-                <div className="flex items-center gap-1">
-                  <ResponsiveDialogTitle>{title}</ResponsiveDialogTitle>
-                  {version !== undefined && (
-                    <Badge variant="secondary">v{version}</Badge>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-start gap-3 min-w-0">
+                {iconElement ?? <div className="size-10 rounded-md bg-muted shrink-0" />}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1">
+                    <ResponsiveDialogTitle className="truncate">{title}</ResponsiveDialogTitle>
+                    {version !== undefined && (
+                      <Badge variant="secondary" className="shrink-0">v{version}</Badge>
+                    )}
+                  </div>
+                  {subtitle && (
+                    <ResponsiveDialogDescription className="truncate">{subtitle}</ResponsiveDialogDescription>
                   )}
                 </div>
-                {subtitle && (
-                  <ResponsiveDialogDescription>{subtitle}</ResponsiveDialogDescription>
-                )}
               </div>
+              {headerAction}
             </div>
           )}
         </ResponsiveDialogHeader>
@@ -316,13 +337,10 @@ export function SettingsDialogWithPages({
           {isOnSubPage ? currentPage.content : children}
         </div>
 
-        {!isOnSubPage && footer && (
-          <ResponsiveDialogFooter className="p-4">
-            {footer}
-          </ResponsiveDialogFooter>
-        )}
+        <ResponsiveDialogFooter className="px-4 pb-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t("common.done")}</Button>
+        </ResponsiveDialogFooter>
       </ResponsiveDialogContent>
     </ResponsiveDialog>
   )
 }
-

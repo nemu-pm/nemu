@@ -336,7 +336,7 @@ export function SourceManageDialog({
           open={deleteConfirmOpen}
           onOpenChange={setDeleteConfirmOpen}
         >
-          <ResponsiveDialogContent>
+          <ResponsiveDialogContent showCloseButton={false}>
             <ResponsiveDialogHeader>
               <ResponsiveDialogTitle>
                 {t("sources.removeSource")}

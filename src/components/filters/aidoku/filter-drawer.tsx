@@ -101,7 +101,7 @@ export function FilterDrawer({
 
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-      <ResponsiveDialogContent className="max-h-[85vh] sm:max-w-lg">
+      <ResponsiveDialogContent className="max-h-[85vh] sm:max-w-lg" showCloseButton={false}>
         <ResponsiveDialogHeader>
           <ResponsiveDialogTitle>{t("browse.filters")}</ResponsiveDialogTitle>
         </ResponsiveDialogHeader>

@@ -25,7 +25,7 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
 
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-      <ResponsiveDialogContent className="sm:max-w-sm">
+      <ResponsiveDialogContent className="sm:max-w-sm" showCloseButton={false}>
         <ResponsiveDialogHeader className="items-center text-center">
           {/* App icon with subtle glow - interactive! */}
           <div className="relative mx-auto mb-2 group">

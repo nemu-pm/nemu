@@ -896,7 +896,7 @@ export function MetadataMatchDrawer({
   
   return (
     <ResponsiveDialogNested open={open} onOpenChange={onOpenChange}>
-      <ResponsiveDialogContent className="max-w-xl max-h-[85vh] overflow-hidden flex flex-col">
+      <ResponsiveDialogContent className="max-w-xl max-h-[85vh] overflow-hidden flex flex-col" showCloseButton={false}>
         <ResponsiveDialogHeader>
           <ResponsiveDialogTitle className="flex items-center gap-2">
             <HugeiconsIcon icon={SparklesIcon} className="size-5 text-primary" />
@@ -1041,7 +1041,7 @@ export function MetadataMatchDrawer({
 
         <ResponsiveDialogFooter>
           {viewMode === "searching" && (
-            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
               {t("common.cancel")}
             </Button>
           )}
@@ -1051,17 +1051,26 @@ export function MetadataMatchDrawer({
               <Button variant="ghost" onClick={() => setViewMode("manual")}>
                 {t("metadata.smartMatch.searchManually")}
               </Button>
-              <Button onClick={handleApply} disabled={!hasChanges}>
-                {t("common.apply")}
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => onOpenChange(false)}>
+                  {t("common.cancel")}
+                </Button>
+                <Button onClick={handleApply} disabled={!hasChanges}>
+                  {t("common.apply")}
+                </Button>
+              </div>
             </>
           )}
 
           {viewMode === "manual" && (
             <>
-              {hasExactMatches && (
+              {hasExactMatches ? (
                 <Button variant="ghost" onClick={() => setViewMode("merge")}>
                   {t("common.back")}
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={() => onOpenChange(false)}>
+                  {t("common.cancel")}
                 </Button>
               )}
               <Button onClick={handleUseManualSelection} disabled={!manualSelected}>

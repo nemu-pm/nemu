@@ -183,7 +183,7 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
 
   return (
     <ResponsiveDialog open={open} onOpenChange={handleOpenChange}>
-      <ResponsiveDialogContent showCloseButton={!loading}>
+      <ResponsiveDialogContent showCloseButton={false}>
         <ResponsiveDialogHeader>
           <ResponsiveDialogTitle>{isCacheMode ? t("clearData.clearCache") : t("clearData.clearAll")}</ResponsiveDialogTitle>
           <ResponsiveDialogDescription>

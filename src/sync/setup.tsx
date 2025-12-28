@@ -468,7 +468,7 @@ export function SyncSetup() {
 
       {/* Import dialog */}
       <ResponsiveDialog open={showImportDialog} onOpenChange={setShowImportDialog}>
-        <ResponsiveDialogContent>
+        <ResponsiveDialogContent showCloseButton={false}>
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle>{t("import.title")}</ResponsiveDialogTitle>
             <ResponsiveDialogDescription>{t("import.description")}</ResponsiveDialogDescription>

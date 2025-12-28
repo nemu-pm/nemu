@@ -6,6 +6,7 @@ import {
   ResponsiveDialog,
   ResponsiveDialogContent,
   ResponsiveDialogDescription,
+  ResponsiveDialogFooter,
   ResponsiveDialogHeader,
   ResponsiveDialogTitle,
 } from "@/components/ui/responsive-dialog";
@@ -74,7 +75,7 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
 
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-      <ResponsiveDialogContent className="sm:max-w-md">
+      <ResponsiveDialogContent className="sm:max-w-md" showCloseButton={false}>
         <ResponsiveDialogHeader>
           <ResponsiveDialogTitle>{t("signIn.title")}</ResponsiveDialogTitle>
           <ResponsiveDialogDescription>
@@ -105,6 +106,12 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
         {error && (
           <p className="text-sm text-destructive text-center">{error}</p>
         )}
+
+        <ResponsiveDialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading !== null}>
+            {t("common.cancel")}
+          </Button>
+        </ResponsiveDialogFooter>
       </ResponsiveDialogContent>
     </ResponsiveDialog>
   );

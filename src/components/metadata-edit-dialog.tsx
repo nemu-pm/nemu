@@ -24,12 +24,22 @@ import {
   ArrowReloadHorizontalIcon,
   Upload04Icon,
   Delete02Icon,
+  Download04Icon,
+  Loading03Icon,
 } from "@hugeicons/core-free-icons";
-import type { MangaMetadata, ExternalIds } from "@/data/schema";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { MangaMetadata, ExternalIds, LocalSourceLink } from "@/data/schema";
 import type { LibraryEntry } from "@/data/view";
 import { getEntryEffectiveMetadata, getEntryCover } from "@/data/view";
 import { MangaStatus } from "@/lib/sources/types";
+import { metadataFromSource } from "@/lib/metadata";
 import { useCoverUpload, getR2PublicUrl } from "@/hooks/use-cover-upload";
+import { useStores } from "@/data/context";
 import { proxyUrl } from "@/config";
 import { toast } from "sonner";
 
@@ -102,6 +112,10 @@ export function MetadataEditDialog({
   const [matchDrawerOpen, setMatchDrawerOpen] = useState(false);
   const [pendingExternalIds, setPendingExternalIds] = useState<ExternalIds | undefined>();
   const [saving, setSaving] = useState(false);
+  const [fetchingFromSource, setFetchingFromSource] = useState<string | null>(null); // source.id or "single"
+
+  const { useSettingsStore } = useStores();
+  const { availableSources, getSource } = useSettingsStore();
 
   // Reset form when dialog opens - use entry ID as stable dep
   const entryId = entry.item.libraryItemId;
@@ -195,6 +209,87 @@ export function MetadataEditDialog({
     const previewUrl = URL.createObjectURL(file);
     setForm(f => ({ ...f, coverFile: file, coverUrl: null, coverPreview: previewUrl }));
   }, [form.coverPreview]);
+
+  // Get source info for display
+  const getSourceInfo = useCallback(
+    (source: LocalSourceLink) => {
+      return availableSources.find(
+        (s) => s.id === source.sourceId && s.registryId === source.registryId
+      );
+    },
+    [availableSources]
+  );
+
+  // Fetch and apply metadata from a source
+  const fetchFromSource = useCallback(async (source: LocalSourceLink) => {
+    setFetchingFromSource(source.id);
+    try {
+      const sourceObj = await getSource(source.registryId, source.sourceId);
+      if (!sourceObj) {
+        toast.error(t("metadata.sourceNotFound"));
+        return;
+      }
+
+      const manga = await sourceObj.getManga(source.sourceMangaId);
+      const metadata = metadataFromSource(manga);
+
+      // Update form with fetched metadata
+      setForm(f => ({
+        ...f,
+        title: metadata.title || f.title,
+        description: metadata.description ?? f.description,
+        status: metadata.status ?? f.status,
+        tags: metadata.tags ? toTags(metadata.tags) : f.tags,
+        authors: metadata.authors ? toTags(metadata.authors) : f.authors,
+      }));
+
+      // Download cover image to blob if provided (use proxy for CORS)
+      if (metadata.cover) {
+        try {
+          const response = await fetch(proxyUrl(metadata.cover));
+          if (!response.ok) throw new Error("Failed to fetch cover");
+          const blob = await response.blob();
+          const file = new File([blob], "cover.webp", { type: blob.type });
+          
+          if (form.coverPreview?.startsWith("blob:")) {
+            URL.revokeObjectURL(form.coverPreview);
+          }
+          const previewUrl = URL.createObjectURL(blob);
+          
+          setForm(f => ({
+            ...f,
+            coverFile: file,
+            coverUrl: null,
+            coverPreview: previewUrl,
+          }));
+        } catch (e) {
+          console.error("[MetadataEdit] Failed to download cover:", e);
+          // Fallback: use external URL directly
+          setForm(f => ({
+            ...f,
+            coverFile: null,
+            coverUrl: metadata.cover ?? null,
+            coverPreview: metadata.cover ?? f.coverPreview,
+          }));
+        }
+      }
+
+      toast.success(t("metadata.fetchedFromSource"));
+    } catch (e) {
+      console.error("[MetadataEdit] Failed to fetch from source:", e);
+      toast.error(t("metadata.fetchFailed"));
+    } finally {
+      setFetchingFromSource(null);
+    }
+  }, [getSource, t, form.coverPreview]);
+
+  // Handle single source click or dropdown selection
+  const handleFetchFromSource = useCallback(() => {
+    if (entry.sources.length === 1) {
+      fetchFromSource(entry.sources[0]);
+    }
+    // For multiple sources, the dropdown handles it
+  }, [entry.sources, fetchFromSource]);
 
   const handleMatchSelect = useCallback(async (match: MatchedMetadata) => {
     const { metadata, externalIds } = match;
@@ -315,15 +410,72 @@ export function MetadataEditDialog({
             <ResponsiveDialogTitle>
               {t("metadata.editTitle")}
             </ResponsiveDialogTitle>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setMatchDrawerOpen(true)}
-              className="h-8 gap-1.5 shrink-0"
-            >
-              <HugeiconsIcon icon={SparklesIcon} className="size-4" />
-              {t("metadata.smartMatch.title")}
-            </Button>
+            <div className="flex items-center gap-1.5">
+              {/* Fetch from Source button */}
+              {entry.sources.length === 1 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleFetchFromSource}
+                  disabled={fetchingFromSource !== null}
+                  className="h-8 gap-1.5 shrink-0"
+                  title={t("metadata.fetchFromSource")}
+                >
+                  <HugeiconsIcon 
+                    icon={fetchingFromSource ? Loading03Icon : Download04Icon} 
+                    className={`size-4 ${fetchingFromSource ? "animate-spin" : ""}`} 
+                  />
+                  <span className="hidden sm:inline">{t("metadata.fromSource")}</span>
+                </Button>
+              ) : entry.sources.length > 1 ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    disabled={fetchingFromSource !== null}
+                    className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground rounded-md h-8 px-3 shrink-0"
+                  >
+                    <HugeiconsIcon 
+                      icon={fetchingFromSource ? Loading03Icon : Download04Icon} 
+                      className={`size-4 ${fetchingFromSource ? "animate-spin" : ""}`} 
+                    />
+                    <span className="hidden sm:inline">{t("metadata.fromSource")}</span>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[200px]">
+                    {entry.sources.map((source) => {
+                      const info = getSourceInfo(source);
+                      const isLoading = fetchingFromSource === source.id;
+                      return (
+                        <DropdownMenuItem
+                          key={source.id}
+                          onClick={() => fetchFromSource(source)}
+                          disabled={fetchingFromSource !== null}
+                          className="gap-2.5 py-2"
+                        >
+                          {info?.icon ? (
+                            <img src={info.icon} alt="" className="size-5 rounded shrink-0" />
+                          ) : (
+                            <div className="size-5 rounded bg-muted shrink-0" />
+                          )}
+                          <span className="flex-1 truncate">{info?.name ?? source.sourceId}</span>
+                          {isLoading && (
+                            <HugeiconsIcon icon={Loading03Icon} className="size-4 animate-spin" />
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
+
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setMatchDrawerOpen(true)}
+                className="h-8 gap-1.5 shrink-0"
+              >
+                <HugeiconsIcon icon={SparklesIcon} className="size-4" />
+                {t("metadata.smartMatch.title")}
+              </Button>
+            </div>
           </div>
         </ResponsiveDialogHeader>
 

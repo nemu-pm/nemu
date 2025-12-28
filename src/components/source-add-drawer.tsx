@@ -13,8 +13,9 @@ import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { useStores } from "@/data/context";
+import { useStores, useAllMangaProgress } from "@/data/context";
 import { parseSourceKey } from "@/data/keys";
+import { makeMangaProgressId, type LocalMangaProgress } from "@/data/schema";
 import { languageStore } from "@/stores/language";
 import {
   ResponsiveDialog,
@@ -57,7 +58,11 @@ import {
   getPrimaryLanguage,
 } from "@/lib/sources/language-priority";
 import type { Manga } from "@/lib/sources/types";
-import type { LibraryEntry } from "@/data/view";
+import {
+  type LibraryEntry,
+  entryHasAnyUpdate,
+  getEntryMostRecentSource,
+} from "@/data/view";
 
 // =============================================================================
 // Types
@@ -72,7 +77,7 @@ interface SourceAddDrawerProps {
   nested?: boolean;
 }
 
-type ViewMode = "select" | "matching" | "search";
+type ViewMode = "select" | "matching" | "search" | "merge" | "merge-confirm";
 
 /** Manga with similarity score for sorting */
 interface ScoredManga extends Manga {
@@ -91,6 +96,26 @@ interface SourceSearchResult {
   error: string | null;
   /** Best similarity score among all items (for source sorting) */
   bestSimilarity: number;
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/** Build progress map from manga progress index for a library entry */
+function buildProgressMapForEntry(
+  entry: LibraryEntry,
+  progressIndex: Map<string, LocalMangaProgress>
+): Map<string, LocalMangaProgress> {
+  const progress = new Map<string, LocalMangaProgress>();
+  for (const source of entry.sources) {
+    const key = makeMangaProgressId(source.registryId, source.sourceId, source.sourceMangaId);
+    const p = progressIndex.get(key);
+    if (p) {
+      progress.set(source.id, p);
+    }
+  }
+  return progress;
 }
 
 // =============================================================================
@@ -122,15 +147,15 @@ function ModeSelection({
       </button>
 
       <button
-        disabled
-        className="flex flex-col items-center gap-3 rounded-lg border p-6 text-center opacity-50 cursor-not-allowed"
+        onClick={() => onSelectMode("merge")}
+        className="flex flex-col items-center gap-3 rounded-lg border p-6 text-center transition-colors hover:bg-muted"
       >
-        <div className="rounded-full bg-muted p-3">
-          <HugeiconsIcon icon={LayersIcon} className="size-6 text-muted-foreground" />
+        <div className="rounded-full bg-primary/10 p-3">
+          <HugeiconsIcon icon={LayersIcon} className="size-6 text-primary" />
         </div>
         <div>
           <p className="font-medium">{t("sources.mergeFromLibrary")}</p>
-          <p className="text-sm text-muted-foreground">{t("sources.comingSoon")}</p>
+          <p className="text-sm text-muted-foreground">{t("sources.mergeFromLibraryDesc")}</p>
         </div>
       </button>
     </div>
@@ -400,6 +425,310 @@ function SourceResultsList({
 }
 
 // =============================================================================
+// Library Merge Picker
+// =============================================================================
+
+interface LibraryMergePickerProps {
+  currentEntry: LibraryEntry;
+  libraryEntries: LibraryEntry[];
+  progressIndex: Map<string, LocalMangaProgress>;
+  onSelect: (entry: LibraryEntry) => void;
+  t: (key: string) => string;
+}
+
+function LibraryMergePicker({
+  currentEntry,
+  libraryEntries,
+  progressIndex,
+  onSelect,
+  t,
+}: LibraryMergePickerProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Filter out current entry and sort: matching titles first, then by library order
+  const sortedEntries = useMemo(() => {
+    const currentTitle = currentEntry.item.metadata.title.toLowerCase();
+    const filtered = libraryEntries.filter(
+      (e) => e.item.libraryItemId !== currentEntry.item.libraryItemId
+    );
+
+    // Calculate similarity scores and library sort data
+    const withScores = filtered.map((entry) => {
+      const entryTitle = entry.item.metadata.title.toLowerCase();
+      // Simple similarity: check if titles share significant words
+      const currentWords = new Set(currentTitle.split(/\s+/).filter((w) => w.length > 2));
+      const entryWords = entryTitle.split(/\s+/).filter((w) => w.length > 2);
+      const matchingWords = entryWords.filter((w) => currentWords.has(w)).length;
+      const similarity = matchingWords / Math.max(currentWords.size, 1);
+      
+      // Check if entry has updates (same logic as library.tsx)
+      const hasUpdate = entryHasAnyUpdate(entry);
+      
+      // Get most recent activity time (same logic as library.tsx)
+      const progress = buildProgressMapForEntry(entry, progressIndex);
+      const recentSource = getEntryMostRecentSource(entry, progress);
+      const readTime = recentSource ? (progress.get(recentSource.id)?.lastReadAt ?? 0) : 0;
+      const activityTime = Math.max(readTime, entry.item.createdAt);
+      
+      return { entry, similarity, hasUpdate, activityTime };
+    });
+
+    // Sort: matching titles first, then by library order (updated first, then by activity)
+    return withScores.sort((a, b) => {
+      // 1. Matching titles first
+      if (a.similarity > 0.3 && b.similarity <= 0.3) return -1;
+      if (b.similarity > 0.3 && a.similarity <= 0.3) return 1;
+      
+      // 2. Within same group, sort by library order
+      // Updated entries first
+      if (a.hasUpdate !== b.hasUpdate) return a.hasUpdate ? -1 : 1;
+      
+      // Then by most recent activity
+      return b.activityTime - a.activityTime;
+    });
+  }, [libraryEntries, currentEntry, progressIndex]);
+
+  // Filter by search query
+  const displayEntries = useMemo(() => {
+    if (!searchQuery.trim()) return sortedEntries;
+    const query = searchQuery.toLowerCase();
+    return sortedEntries.filter(({ entry }) =>
+      entry.item.metadata.title.toLowerCase().includes(query)
+    );
+  }, [sortedEntries, searchQuery]);
+
+  // Split into matching and others
+  const matchingEntries = displayEntries.filter(({ similarity }) => similarity > 0.3);
+  const otherEntries = displayEntries.filter(({ similarity }) => similarity <= 0.3);
+
+  if (sortedEntries.length === 0) {
+    return (
+      <div className="py-8 text-center text-muted-foreground">
+        <p>{t("sources.merge.emptyLibrary")}</p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Search input */}
+      <div className="relative">
+        <HugeiconsIcon
+          icon={Search01Icon}
+          className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
+        />
+        <Input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder={t("sources.merge.searchPlaceholder")}
+          className="pl-9"
+        />
+      </div>
+
+      {/* Results */}
+      <div className="flex-1 min-h-0 overflow-y-auto -mx-6 px-6 mt-4 space-y-4">
+        {matchingEntries.length > 0 && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-muted-foreground">
+              {t("sources.merge.matchingTitles")}
+            </h3>
+            {matchingEntries.map(({ entry }) => (
+              <LibraryMergeCard
+                key={entry.item.libraryItemId}
+                entry={entry}
+                onSelect={() => onSelect(entry)}
+              />
+            ))}
+          </div>
+        )}
+
+        {otherEntries.length > 0 && (
+          <div className="space-y-2">
+            {matchingEntries.length > 0 && (
+              <h3 className="text-sm font-medium text-muted-foreground">
+                {t("sources.merge.otherManga")}
+              </h3>
+            )}
+            {otherEntries.map(({ entry }) => (
+              <LibraryMergeCard
+                key={entry.item.libraryItemId}
+                entry={entry}
+                onSelect={() => onSelect(entry)}
+              />
+            ))}
+          </div>
+        )}
+
+        {displayEntries.length === 0 && searchQuery && (
+          <div className="py-8 text-center text-muted-foreground">
+            <p>{t("metadata.noResults")}</p>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// =============================================================================
+// Library Merge Card
+// =============================================================================
+
+interface LibraryMergeCardProps {
+  entry: LibraryEntry;
+  onSelect: () => void;
+}
+
+function LibraryMergeCard({ entry, onSelect }: LibraryMergeCardProps) {
+  const { t } = useTranslation();
+  const cover =
+    entry.item.overrides?.coverUrl ??
+    entry.item.overrides?.metadata?.cover ??
+    entry.item.metadata.cover;
+  const title =
+    entry.item.overrides?.metadata?.title ?? entry.item.metadata.title;
+  const sourceCount = entry.sources.length;
+
+  return (
+    <button
+      onClick={onSelect}
+      className="flex items-center gap-3 w-full rounded-lg border p-3 text-left transition-colors hover:bg-muted"
+    >
+      {cover ? (
+        <img
+          src={cover}
+          alt={title}
+          className="h-14 w-auto aspect-[2/3] rounded-md object-cover shrink-0"
+        />
+      ) : (
+        <div className="h-14 aspect-[2/3] rounded-md bg-muted shrink-0" />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="font-medium line-clamp-1">{title}</p>
+        <p className="text-sm text-muted-foreground">
+          {t("sources.merge.sourcesCount", { count: sourceCount })}
+        </p>
+      </div>
+    </button>
+  );
+}
+
+// =============================================================================
+// Merge Confirmation
+// =============================================================================
+
+interface MergeConfirmationProps {
+  targetEntry: LibraryEntry;
+  sourceEntry: LibraryEntry;
+  onConfirm: () => void;
+  onCancel: () => void;
+  isMerging: boolean;
+}
+
+function MergeConfirmation({
+  targetEntry,
+  sourceEntry,
+  onConfirm,
+  onCancel,
+  isMerging,
+}: MergeConfirmationProps) {
+  const { t } = useTranslation();
+  const targetTitle =
+    targetEntry.item.overrides?.metadata?.title ?? targetEntry.item.metadata.title;
+  const targetCover =
+    targetEntry.item.overrides?.coverUrl ??
+    targetEntry.item.overrides?.metadata?.cover ??
+    targetEntry.item.metadata.cover;
+  const sourceTitle =
+    sourceEntry.item.overrides?.metadata?.title ?? sourceEntry.item.metadata.title;
+  const sourceCover =
+    sourceEntry.item.overrides?.coverUrl ??
+    sourceEntry.item.overrides?.metadata?.cover ??
+    sourceEntry.item.metadata.cover;
+
+  return (
+    <div className="space-y-4">
+      {/* Target manga (keeping) */}
+      <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+        {targetCover ? (
+          <img
+            src={targetCover}
+            alt={targetTitle}
+            className="h-16 w-auto aspect-[2/3] rounded-md object-cover shrink-0"
+          />
+        ) : (
+          <div className="h-16 aspect-[2/3] rounded-md bg-muted shrink-0" />
+        )}
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">
+            {t("common.current")}
+          </p>
+          <p className="font-medium line-clamp-1">{targetTitle}</p>
+          <p className="text-sm text-muted-foreground">
+            {t("sources.merge.sourcesCount", { count: targetEntry.sources.length })}
+          </p>
+        </div>
+      </div>
+
+      {/* Arrow/plus indicator */}
+      <div className="flex justify-center">
+        <div className="flex items-center justify-center size-8 rounded-full bg-primary/10 text-primary">
+          +
+        </div>
+      </div>
+
+      {/* Source manga (merging from) */}
+      <div className="flex items-center gap-3 p-3 rounded-lg border">
+        {sourceCover ? (
+          <img
+            src={sourceCover}
+            alt={sourceTitle}
+            className="h-16 w-auto aspect-[2/3] rounded-md object-cover shrink-0"
+          />
+        ) : (
+          <div className="h-16 aspect-[2/3] rounded-md bg-muted shrink-0" />
+        )}
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">
+            {t("sources.mergeFromLibrary")}
+          </p>
+          <p className="font-medium line-clamp-1">{sourceTitle}</p>
+          <p className="text-sm text-muted-foreground">
+            {t("sources.merge.sourcesCount", { count: sourceEntry.sources.length })}
+          </p>
+        </div>
+      </div>
+
+      {/* Info */}
+      <div className="text-sm text-muted-foreground space-y-1">
+        <p className="font-medium text-foreground">{t("sources.merge.mergeInfo")}</p>
+        <ul className="list-disc list-inside space-y-0.5">
+          <li>{t("sources.merge.mergeInfoAddSources", { source: sourceTitle })}</li>
+          <li>{t("sources.merge.mergeInfoRemove", { source: sourceTitle })}</li>
+          <li>{t("sources.merge.mergeInfoKeepMetadata")}</li>
+        </ul>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={onCancel} disabled={isMerging} className="flex-1">
+          {t("common.cancel")}
+        </Button>
+        <Button onClick={onConfirm} disabled={isMerging} className="flex-1">
+          {isMerging ? (
+            <>
+              <Spinner className="size-4 mr-2" />
+              {t("sources.merge.merging")}
+            </>
+          ) : (
+            t("sources.merge.title")
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
 // Main Component
 // =============================================================================
 
@@ -413,7 +742,8 @@ export function SourceAddDrawer({
   const { t } = useTranslation();
   const { useSettingsStore, useLibraryStore } = useStores();
   const { installedSources, availableSources, getSource } = useSettingsStore();
-  const { addSource } = useLibraryStore();
+  const { addSource, entries: libraryEntries, mergeManga } = useLibraryStore();
+  const progressIndex = useAllMangaProgress();
   const appLanguage = languageStore?.((s) => s.language) ?? "en";
 
   // AI action for fallback
@@ -425,7 +755,7 @@ export function SourceAddDrawer({
   const storeSetLastSearchQuery = useSmartMatchStore((s) => s.setLastSearchQuery);
   const phaseMessage = useSmartMatchStore((s) => s.phaseMessage);
 
-  // Local state
+  // Local state - search mode
   const [viewMode, setViewMode] = useState<ViewMode>("select");
   const [sourceResults, setSourceResults] = useState<SourceSearchResult[]>([]);
   const [addingKey, setAddingKey] = useState<string | null>(null);
@@ -433,6 +763,10 @@ export function SourceAddDrawer({
   const [manualQuery, setManualQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const hasSearchedRef = useRef(false);
+
+  // Local state - merge mode
+  const [mergeTarget, setMergeTarget] = useState<LibraryEntry | null>(null);
+  const [isMerging, setIsMerging] = useState(false);
 
   // Initial query from entry title
   const initialQuery = entry.item.metadata.title;
@@ -472,6 +806,8 @@ export function SourceAddDrawer({
       setAddedMangaIds(new Set());
       setManualQuery(initialQuery);
       hasSearchedRef.current = false;
+      setMergeTarget(null);
+      setIsMerging(false);
     }
   }, [open, initialQuery, storeReset]);
 
@@ -700,6 +1036,34 @@ export function SourceAddDrawer({
     [entry.item.libraryItemId, addSource, onSourceAdded, getSource]
   );
 
+  // Handle merge mode selected
+  const handleMergeMode = useCallback(() => {
+    setViewMode("merge");
+  }, []);
+
+  // Handle merge target selected
+  const handleMergeSelect = useCallback((targetEntry: LibraryEntry) => {
+    setMergeTarget(targetEntry);
+    setViewMode("merge-confirm");
+  }, []);
+
+  // Handle merge confirmation
+  const handleMergeConfirm = useCallback(async () => {
+    if (!mergeTarget) return;
+    setIsMerging(true);
+
+    try {
+      // Merge the source entry into the current entry
+      await mergeManga(entry.item.libraryItemId, mergeTarget.item.libraryItemId);
+      onSourceAdded?.();
+      onOpenChange(false);
+    } catch (e) {
+      console.error("[SourceAdd] Merge error:", e);
+    } finally {
+      setIsMerging(false);
+    }
+  }, [mergeTarget, entry.item.libraryItemId, mergeManga, onSourceAdded, onOpenChange]);
+
   const handleClose = () => {
     onOpenChange(false);
   };
@@ -713,6 +1077,8 @@ export function SourceAddDrawer({
           onSelectMode={(mode) => {
             if (mode === "search") {
               handleSearchMode();
+            } else if (mode === "merge") {
+              handleMergeMode();
             }
           }}
           t={t}
@@ -767,41 +1133,102 @@ export function SourceAddDrawer({
           </div>
         </>
       )}
+
+      {/* Library Merge Picker */}
+      {viewMode === "merge" && (
+        <LibraryMergePicker
+          currentEntry={entry}
+          libraryEntries={libraryEntries}
+          progressIndex={progressIndex}
+          onSelect={handleMergeSelect}
+          t={t}
+        />
+      )}
+
+      {/* Merge Confirmation */}
+      {viewMode === "merge-confirm" && mergeTarget && (
+        <MergeConfirmation
+          targetEntry={entry}
+          sourceEntry={mergeTarget}
+          onConfirm={handleMergeConfirm}
+          onCancel={() => setViewMode("merge")}
+          isMerging={isMerging}
+        />
+      )}
     </>
   );
 
-  const footerContent = (
-    <div className="flex justify-between w-full">
-      {viewMode !== "select" ? (
-        <Button variant="ghost" onClick={() => setViewMode("select")}>
+  // Footer logic
+  const getFooterContent = () => {
+    if (viewMode === "select") {
+      return (
+        <Button variant="outline" onClick={handleClose}>
+          {t("common.cancel")}
+        </Button>
+      );
+    }
+    if (viewMode === "merge-confirm") return null; // Confirmation has its own buttons
+    if (viewMode === "merge") {
+      // Merge picker: only back button, no done
+      return (
+        <div className="flex justify-start w-full">
+          <Button variant="ghost" onClick={() => setViewMode("select")}>
+            {t("common.back")}
+          </Button>
+        </div>
+      );
+    }
+
+    // Search mode: back + done
+    return (
+      <div className="flex justify-between w-full">
+        <Button
+          variant="ghost"
+          onClick={() => setViewMode("select")}
+        >
           {t("common.back")}
         </Button>
-      ) : (
-        <div />
-      )}
-      <Button onClick={handleClose}>{t("common.done")}</Button>
-    </div>
-  );
+        <Button onClick={handleClose}>{t("common.done")}</Button>
+      </div>
+    );
+  };
+
+  const footerContent = getFooterContent();
+
+  // Get dialog title based on mode
+  const getDialogTitle = () => {
+    if (viewMode === "merge" || viewMode === "merge-confirm") {
+      return t("sources.merge.title");
+    }
+    return t("sources.addSource");
+  };
+
+  const getDialogDescription = () => {
+    if (viewMode === "select") return t("sources.addSourceDesc");
+    return null;
+  };
 
   // Use nested dialog variant when opened from another dialog
   if (nested) {
     return (
       <ResponsiveDialogNested open={open} onOpenChange={onOpenChange}>
-        <ResponsiveDialogContent className="max-w-xl max-h-[85vh] overflow-hidden flex flex-col">
+        <ResponsiveDialogContent className="sm:max-w-lg max-h-[85vh] overflow-hidden flex flex-col" showCloseButton={false}>
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle>{t("sources.addSource")}</ResponsiveDialogTitle>
-            {viewMode === "select" && (
+            <ResponsiveDialogTitle>{getDialogTitle()}</ResponsiveDialogTitle>
+            {getDialogDescription() && (
               <ResponsiveDialogDescription>
-                {t("sources.addSourceDesc")}
+                {getDialogDescription()}
               </ResponsiveDialogDescription>
             )}
           </ResponsiveDialogHeader>
 
           {dialogContent}
 
-          <ResponsiveDialogFooter>
-            {footerContent}
-          </ResponsiveDialogFooter>
+          {footerContent && (
+            <ResponsiveDialogFooter>
+              {footerContent}
+            </ResponsiveDialogFooter>
+          )}
         </ResponsiveDialogContent>
       </ResponsiveDialogNested>
     );
@@ -809,21 +1236,23 @@ export function SourceAddDrawer({
 
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-      <ResponsiveDialogContent className="max-w-xl max-h-[85vh] overflow-hidden flex flex-col">
+      <ResponsiveDialogContent className="sm:max-w-lg max-h-[85vh] overflow-hidden flex flex-col" showCloseButton={false}>
         <ResponsiveDialogHeader>
-          <ResponsiveDialogTitle>{t("sources.addSource")}</ResponsiveDialogTitle>
-          {viewMode === "select" && (
+          <ResponsiveDialogTitle>{getDialogTitle()}</ResponsiveDialogTitle>
+          {getDialogDescription() && (
             <ResponsiveDialogDescription>
-              {t("sources.addSourceDesc")}
+              {getDialogDescription()}
             </ResponsiveDialogDescription>
           )}
         </ResponsiveDialogHeader>
 
         {dialogContent}
 
-        <ResponsiveDialogFooter>
-          {footerContent}
-        </ResponsiveDialogFooter>
+        {footerContent && (
+          <ResponsiveDialogFooter>
+            {footerContent}
+          </ResponsiveDialogFooter>
+        )}
       </ResponsiveDialogContent>
     </ResponsiveDialog>
   );

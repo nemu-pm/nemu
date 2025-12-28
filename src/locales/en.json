@@ -138,7 +138,12 @@
     "artists": "Artists",
     "addArtist": "Add artist...",
     "viewOriginal": "View Original",
-    "saveFailed": "Failed to save changes"
+    "saveFailed": "Failed to save changes",
+    "fromSource": "From Source",
+    "fetchFromSource": "Fetch metadata from source",
+    "fetchedFromSource": "Metadata fetched from source",
+    "fetchFailed": "Failed to fetch metadata from source",
+    "sourceNotFound": "Source not found"
   },
   "browse": {
     "loading": "Loading sources...",
@@ -296,12 +301,28 @@
     "searchInSources": "Search Sources",
     "searchInSourcesDesc": "Find in installed sources",
     "mergeFromLibrary": "Merge from Library",
-    "comingSoon": "Coming soon",
+    "mergeFromLibraryDesc": "Combine with another library manga",
     "searchPlaceholder": "Search manga title...",
     "searchingSources": "Searching sources...",
     "noSourceResults": "No results found in any source",
     "alreadyLinked": "Linked",
-    "added": "Added"
+    "added": "Added",
+    "merge": {
+      "title": "Merge Manga",
+      "searchPlaceholder": "Search your library...",
+      "matchingTitles": "Matching titles",
+      "otherManga": "Other manga",
+      "emptyLibrary": "No other manga in your library",
+      "confirmTitle": "Confirm Merge",
+      "confirmDescription": "Merge sources from \"{{source}}\" into \"{{target}}\"?",
+      "mergeInfo": "This will:",
+      "mergeInfoAddSources": "Add sources from \"{{source}}\" to this manga",
+      "mergeInfoRemove": "Remove \"{{source}}\" from your library",
+      "mergeInfoKeepMetadata": "Keep current manga's metadata",
+      "merging": "Merging...",
+      "sourcesCount": "{{count}} source",
+      "sourcesCount_plural": "{{count}} sources"
+    }
   },
   "addSource": {
     "title": "Add Source",
@@ -312,6 +333,7 @@
     "fromRegistryDescription": "Browse available sources",
     "customTitle": "Custom .aix File",
     "customDescription": "Upload your own source",
+    "customComingSoon": "Coming soon",
     "selectFile": "Click to select .aix file",
     "dragDropHint": "Or drag and drop here",
     "installing": "Installing...",

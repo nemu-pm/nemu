@@ -49,7 +49,7 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
 
   return (
     <ResponsiveDialog open={open} onOpenChange={handleOpenChange}>
-      <ResponsiveDialogContent showCloseButton={!loading}>
+      <ResponsiveDialogContent showCloseButton={false}>
         <ResponsiveDialogHeader>
           <ResponsiveDialogTitle>{t("signOut.title")}</ResponsiveDialogTitle>
           <ResponsiveDialogDescription>
