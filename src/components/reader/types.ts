@@ -27,6 +27,7 @@ export interface ReaderProps {
    * Useful for explicitly loading/prepending previous chapter without auto-prefetch.
    */
   onScrollingReachStart?: () => void
+  onVisiblePageIndicesChange?: (indices: number[]) => void
   disableKeyboard?: boolean
   /** When true, double-click/tap zoom is disabled */
   disableZoom?: boolean
@@ -57,9 +58,9 @@ export interface ScrollingGalleryProps extends Omit<GalleryProps, 'readingMode'>
   pageWidthScale?: number
   /** Called when user tries to scroll "past the top" of the list. */
   onReachStart?: () => void
+  onVisiblePageIndicesChange?: (indices: number[]) => void
 }
 
 export interface TwoPageGalleryProps extends GalleryProps {
   pagePairingMode: PagePairingMode
 }
-

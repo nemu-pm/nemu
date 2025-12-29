@@ -17,6 +17,7 @@ export function Reader({
   onBackgroundClick,
   onKeyboardNavigation,
   onScrollingReachStart,
+  onVisiblePageIndicesChange,
   disableKeyboard = false,
   disableZoom = false,
 }: ReaderProps) {
@@ -35,6 +36,7 @@ export function Reader({
         pagePairingMode={pagePairingMode}
         pageWidthScale={scrollPageWidthScale}
         onReachStart={onScrollingReachStart}
+        onVisiblePageIndicesChange={onVisiblePageIndicesChange}
       />
     )
   }
@@ -74,4 +76,3 @@ export function Reader({
     />
   )
 }
-

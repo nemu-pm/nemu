@@ -28,6 +28,7 @@ import {
   usePluginPageOverlays,
   usePluginCtx,
   PluginNavbarActions,
+  PluginReaderOverlays,
   PluginSettingsSections,
   PluginDialog,
   useIsInteractionLocked,
@@ -114,6 +115,7 @@ export function ReaderPage() {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [chapterPages, setChapterPages] = useState<Record<string, Page[]>>({});
   const [windowChapterIds, setWindowChapterIds] = useState<string[]>([]);
+  const [scrollVisibleIndices, setScrollVisibleIndices] = useState<number[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -373,8 +375,18 @@ export function ReaderPage() {
 
   const currentItem = virtualItems[currentIndex];
 
+  const handleVisiblePageIndices = useCallback((indices: number[]) => {
+    setScrollVisibleIndices(indices);
+  }, []);
+
   // Compute visible page indices (for two-page mode, this includes both pages in the spread)
   const visiblePageIndices = useMemo(() => {
+    if (readingMode === "scrolling") {
+      if (scrollVisibleIndices.length > 0) {
+        return scrollVisibleIndices;
+      }
+      return currentItem?.kind === "page" ? [currentIndex] : [];
+    }
     if (!isTwoPageMode || currentItem?.kind !== "page") {
       // Single page mode or spacer: just return current index if it's a page
       return currentItem?.kind === "page" ? [currentIndex] : [];
@@ -419,7 +431,15 @@ export function ReaderPage() {
     }
 
     return [currentIndex];
-  }, [virtualItems, currentIndex, isTwoPageMode, pagePairingMode, currentItem?.kind]);
+  }, [
+    virtualItems,
+    currentIndex,
+    isTwoPageMode,
+    pagePairingMode,
+    currentItem?.kind,
+    readingMode,
+    scrollVisibleIndices,
+  ]);
 
   // Derive source languages for plugins
   const sourceLanguages = useMemo(() => {
@@ -1169,6 +1189,35 @@ export function ReaderPage() {
     return result;
   }, [virtualItems, imageUrls]);
 
+  const getPageMeta = useCallback(
+    (pageIndex: number) => {
+      const item = virtualItems[pageIndex];
+      if (!item) return null;
+      if (item.kind === "page") {
+        return {
+          kind: "page" as const,
+          chapterId: item.chapterId,
+          localIndex: item.localIndex,
+          key: item.key,
+        };
+      }
+      return {
+        kind: "spacer" as const,
+        key: item.key,
+      };
+    },
+    [virtualItems]
+  );
+
+  const getVisiblePageMetas = useCallback(() => {
+    return visiblePageIndices.map((pageIndex) => {
+      const meta = getPageMeta(pageIndex);
+      return meta
+        ? { pageIndex, ...meta }
+        : { pageIndex, kind: "spacer" as const };
+    });
+  }, [visiblePageIndices, getPageMeta]);
+
   if (loading) {
     return (
       <div className="flex h-dvh items-center justify-center bg-black reader-lock-scroll" style={fullscreenStyle}>
@@ -1215,6 +1264,8 @@ export function ReaderPage() {
       chapterLanguage={chapterLanguage}
       getPageImageUrl={getPageImageUrl}
       getLoadedPageUrls={getLoadedPageUrls}
+      getPageMeta={getPageMeta}
+      getVisiblePageMetas={getVisiblePageMetas}
     >
     <div className="h-dvh w-screen bg-black relative overflow-hidden reader-lock-scroll" style={fullscreenStyle}>
       {/* Floating Top Bar */}
@@ -1255,6 +1306,9 @@ export function ReaderPage() {
         </div>
       </header>
 
+      {/* Plugin overlays mounted once per reader session (global UI like FABs, managers, etc.) */}
+      <PluginReaderOverlays />
+
       {/* Reader */}
       <InteractionAwareReader
         pageCount={virtualItems.length}
@@ -1270,6 +1324,7 @@ export function ReaderPage() {
         onBackgroundClick={handleBackgroundClick}
         onKeyboardNavigation={handleKeyboardNavigation}
         onScrollingReachStart={handleScrollingReachStart}
+        onVisiblePageIndicesChange={handleVisiblePageIndices}
       />
 
       {/* Floating Bottom Panel */}

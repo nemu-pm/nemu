@@ -8,7 +8,14 @@ import {
   useRef,
   type ReactNode,
 } from 'react'
-import type { ReaderPluginContext, DialogOptions, NavbarAction, PageOverlay, SettingsSection } from './types'
+import type {
+  ReaderPluginContext,
+  DialogOptions,
+  NavbarAction,
+  PageOverlay,
+  ReaderOverlay,
+  SettingsSection,
+} from './types'
 import { usePluginRegistry } from './registry'
 
 // ============================================================================
@@ -29,6 +36,7 @@ interface PluginContextValue {
   // Aggregated contributions from all plugins
   navbarActions: NavbarAction[]
   pageOverlays: PageOverlay[]
+  readerOverlays: ReaderOverlay[]
   settingsSections: SettingsSection[]
   // Dialog state
   dialogState: DialogState | null
@@ -61,6 +69,19 @@ interface ReaderPluginProviderProps {
   // Page access
   getPageImageUrl: (pageIndex: number) => string | undefined
   getLoadedPageUrls: () => Map<number, string>
+  getPageMeta: (pageIndex: number) => {
+    kind: 'page' | 'spacer'
+    chapterId?: string
+    localIndex?: number
+    key?: string
+  } | null
+  getVisiblePageMetas: () => Array<{
+    pageIndex: number
+    kind: 'page' | 'spacer'
+    chapterId?: string
+    localIndex?: number
+    key?: string
+  }>
 }
 
 // ============================================================================
@@ -81,6 +102,8 @@ export function ReaderPluginProvider({
   chapterLanguage,
   getPageImageUrl,
   getLoadedPageUrls,
+  getPageMeta,
+  getVisiblePageMetas,
 }: ReaderPluginProviderProps) {
   const pluginsMap = usePluginRegistry((s) => s.plugins)
   const enabledState = usePluginRegistry((s) => s.enabledState)
@@ -133,6 +156,8 @@ export function ReaderPluginProvider({
       chapterLanguage,
       getPageImageUrl,
       getLoadedPageUrls,
+      getPageMeta,
+      getVisiblePageMetas,
       showDialog,
       hideDialog,
       showToast,
@@ -152,6 +177,8 @@ export function ReaderPluginProvider({
       chapterLanguage,
       getPageImageUrl,
       getLoadedPageUrls,
+      getPageMeta,
+      getVisiblePageMetas,
       showDialog,
       hideDialog,
       showToast,
@@ -167,6 +194,10 @@ export function ReaderPluginProvider({
   )
   const pageOverlays = useMemo(
     () => plugins.flatMap((p) => p.pageOverlays ?? []).sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0)),
+    [plugins]
+  )
+  const readerOverlays = useMemo(
+    () => plugins.flatMap((p) => p.readerOverlays ?? []).sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0)),
     [plugins]
   )
   const settingsSections = useMemo(
@@ -305,11 +336,12 @@ export function ReaderPluginProvider({
       ctx,
       navbarActions,
       pageOverlays,
+      readerOverlays,
       settingsSections,
       dialogState,
       interactionLocks,
     }),
-    [ctx, navbarActions, pageOverlays, settingsSections, dialogState, interactionLocks]
+    [ctx, navbarActions, pageOverlays, readerOverlays, settingsSections, dialogState, interactionLocks]
   )
 
   return <PluginContext.Provider value={value}>{children}</PluginContext.Provider>
@@ -340,6 +372,8 @@ export function usePluginContext(): PluginContextValue {
 // Fallback context for when outside provider
 const NOOP = () => {}
 const EMPTY_MAP = () => new Map<number, string>()
+const EMPTY_PAGE_META = () => null
+const EMPTY_PAGE_METAS = () => []
 const FALLBACK_CTX: ReaderPluginContext = {
   currentPageIndex: 0,
   visiblePageIndices: [0],
@@ -353,6 +387,8 @@ const FALLBACK_CTX: ReaderPluginContext = {
   chapterLanguage: null,
   getPageImageUrl: () => undefined,
   getLoadedPageUrls: EMPTY_MAP,
+  getPageMeta: EMPTY_PAGE_META,
+  getVisiblePageMetas: EMPTY_PAGE_METAS,
   showDialog: NOOP,
   hideDialog: NOOP,
   showToast: NOOP,
@@ -375,6 +411,11 @@ export function usePluginPageOverlays(): PageOverlay[] {
   return value?.pageOverlays ?? []
 }
 
+export function usePluginReaderOverlays(): ReaderOverlay[] {
+  const value = usePluginContextSafe()
+  return value?.readerOverlays ?? []
+}
+
 export function usePluginSettingsSections(): SettingsSection[] {
   const value = usePluginContextSafe()
   return value?.settingsSections ?? []
@@ -390,4 +431,3 @@ export function useIsInteractionLocked(): boolean {
   const value = usePluginContextSafe()
   return (value?.interactionLocks.size ?? 0) > 0
 }
-

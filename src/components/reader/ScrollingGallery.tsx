@@ -140,6 +140,7 @@ export function ScrollingGallery({
   readingMode = 'scrolling',
   pageWidthScale = 1,
   onReachStart,
+  onVisiblePageIndicesChange,
 }: ScrollingGalleryProps) {
   const listRef = useRef<ListImperativeAPI>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -150,6 +151,7 @@ export function ScrollingGallery({
   const lastReachStartAtRef = useRef(0)
   const touchStartYRef = useRef<number | null>(null)
   const onReachStartRef = useRef<typeof onReachStart>(onReachStart)
+  const lastVisibleKeyRef = useRef<string>('')
   
   // Track the last page index we reported to prevent scroll-to-row feedback loop
   const lastReportedPageIndex = useRef(currentPageIndex)
@@ -187,6 +189,37 @@ export function ScrollingGallery({
   )
 
   const rowCount = isTwoPageMode ? spreads.length : pageCount
+
+  const publishVisibleRows = useCallback(
+    (rows: number[]) => {
+      if (!onVisiblePageIndicesChange) return
+      if (!rows || rows.length === 0) return
+
+      const visible = new Set<number>()
+      if (isTwoPageMode) {
+        for (const row of rows) {
+          const spread = spreads[row]
+          if (!spread) continue
+          for (const pageIndex of spread) {
+            if ((getItemKind?.(pageIndex) ?? 'page') === 'spacer') continue
+            visible.add(pageIndex)
+          }
+        }
+      } else {
+        for (const row of rows) {
+          if ((getItemKind?.(row) ?? 'page') === 'spacer') continue
+          visible.add(row)
+        }
+      }
+
+      const next = Array.from(visible).sort((a, b) => a - b)
+      const key = next.join(',')
+      if (key === lastVisibleKeyRef.current) return
+      lastVisibleKeyRef.current = key
+      onVisiblePageIndicesChange(next)
+    },
+    [onVisiblePageIndicesChange, isTwoPageMode, spreads, getItemKind]
+  )
 
   // Track container size
   useEffect(() => {
@@ -308,6 +341,7 @@ export function ScrollingGallery({
         let bestOverlapPx = -1
 
         const nodes = target.querySelectorAll<HTMLElement>('[data-row-index]')
+        const visibleRows: number[] = []
         for (const node of nodes) {
           const rawIndex = node.dataset.rowIndex
           if (rawIndex == null) continue
@@ -319,6 +353,7 @@ export function ScrollingGallery({
           const overlapPx =
             Math.min(rect.bottom, containerRect.bottom) - Math.max(rect.top, containerRect.top)
           if (overlapPx <= 0) continue
+          visibleRows.push(idx)
 
           const containsCenter = rect.top <= centerY && rect.bottom >= centerY
           const dist = containsCenter ? 0 : Math.min(Math.abs(rect.top - centerY), Math.abs(rect.bottom - centerY))
@@ -334,6 +369,7 @@ export function ScrollingGallery({
           }
         }
 
+        publishVisibleRows(visibleRows)
         if (bestIndex == null) return
         const newPageIndex = Math.max(0, Math.min(pageCount - 1, bestIndex))
         if (newPageIndex === lastReportedPageIndex.current) return
@@ -349,12 +385,22 @@ export function ScrollingGallery({
       if (targetCount <= 0 || itemHeight <= 0) return
 
       const i = Math.max(0, Math.min(targetCount - 1, Math.floor((scrollOffset + itemHeight * 0.5) / itemHeight)))
+      const startRow = Math.max(0, Math.min(targetCount - 1, Math.floor(scrollOffset / itemHeight)))
+      const endRow = Math.max(
+        0,
+        Math.min(targetCount - 1, Math.floor((scrollOffset + target.clientHeight - 1) / itemHeight))
+      )
+      if (endRow >= startRow) {
+        const rows: number[] = []
+        for (let row = startRow; row <= endRow; row++) rows.push(row)
+        publishVisibleRows(rows)
+      }
       const newPageIndex = spreads[i]?.[0] ?? 0
       if (newPageIndex === lastReportedPageIndex.current) return
       lastReportedPageIndex.current = newPageIndex
       onPageChange(newPageIndex)
     },
-    [onPageChange, isTwoPageMode, spreads, rowHeightPx, pageCount, getItemKind]
+    [onPageChange, isTwoPageMode, spreads, rowHeightPx, pageCount, getItemKind, publishVisibleRows]
   )
 
   // Attach scroll listener to list element
@@ -429,6 +475,11 @@ export function ScrollingGallery({
   // to update the current page index (no height math required).
   const handleRowsRendered = useCallback(
     (visibleRows: { startIndex: number; stopIndex: number }) => {
+      const rows: number[] = []
+      for (let row = visibleRows.startIndex; row <= visibleRows.stopIndex; row++) {
+        rows.push(row)
+      }
+      publishVisibleRows(rows)
       if (isTwoPageMode) return
       const listEl = listRef.current?.element
       if (listEl) {
@@ -515,7 +566,7 @@ export function ScrollingGallery({
       lastReportedPageIndex.current = newPageIndex
       onPageChange(newPageIndex)
     },
-    [isTwoPageMode, onPageChange, pageCount, currentPageIndex, getItemKind]
+    [isTwoPageMode, onPageChange, pageCount, currentPageIndex, getItemKind, publishVisibleRows]
   )
 
   // Initial scroll so switching into scrolling mode lands on the current page, not row 0.
@@ -524,12 +575,14 @@ export function ScrollingGallery({
     if (!listReady) return
     if (!listRef.current) return
     if (currentPageIndex < 0) return
+    if (rowCount <= 0) return
 
-    const targetIndex = isTwoPageMode ? currentSpreadIndex : currentPageIndex
+    const rawTargetIndex = isTwoPageMode ? currentSpreadIndex : currentPageIndex
+    const targetIndex = Math.max(0, Math.min(rowCount - 1, rawTargetIndex))
     initialTargetRowRef.current = targetIndex
     lastReportedPageIndex.current = currentPageIndex
     listRef.current.scrollToRow({ index: targetIndex, align: isTwoPageMode ? 'center' : 'start' })
-  }, [listReady, currentPageIndex, currentSpreadIndex, isTwoPageMode, pageCount, containerSize.height])
+  }, [listReady, currentPageIndex, currentSpreadIndex, isTwoPageMode, rowCount, containerSize.height])
 
   // Mouse interaction handlers
   const handleMouseDown = useCallback(
@@ -644,16 +697,18 @@ export function ScrollingGallery({
       listRef.current &&
       currentPageIndex >= 0 &&
       currentPageIndex !== lastReportedPageIndex.current &&
-      !isUserScrolling.current
+      !isUserScrolling.current &&
+      rowCount > 0
     ) {
       lastReportedPageIndex.current = currentPageIndex
-      const targetIndex = isTwoPageMode ? currentSpreadIndex : currentPageIndex
+      const rawTargetIndex = isTwoPageMode ? currentSpreadIndex : currentPageIndex
+      const targetIndex = Math.max(0, Math.min(rowCount - 1, rawTargetIndex))
       if (!isTwoPageMode) {
         pendingProgrammaticTargetRowRef.current = targetIndex
       }
       listRef.current.scrollToRow({ index: targetIndex, align: isTwoPageMode ? 'center' : 'start' })
     }
-  }, [currentPageIndex, currentSpreadIndex, isTwoPageMode])
+  }, [currentPageIndex, currentSpreadIndex, isTwoPageMode, rowCount])
 
   useEffect(() => {
     return () => {

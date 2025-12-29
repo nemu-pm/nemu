@@ -114,7 +114,11 @@ export function OcrNavbarIcon() {
   const ctx = usePluginCtx()
   const detections = useTextDetectorStore((s) => s.detections)
 
-  const count = ctx.visiblePageIndices.reduce((sum, pageIndex) => {
+  // In scrolling mode, only count detections for the current (most prominent) page
+  const pageIndices = ctx.readingMode === 'scrolling'
+    ? [ctx.currentPageIndex]
+    : ctx.visiblePageIndices
+  const count = pageIndices.reduce((sum, pageIndex) => {
     return sum + (detections.get(pageIndex)?.length ?? 0)
   }, 0)
 
@@ -280,7 +284,10 @@ export function OcrTranscriptPopoverContent() {
   const transcripts = useTextDetectorStore((s) => s.transcripts)
   const hoveredLine = useTextDetectorStore((s) => s.hoveredLine)
 
-  const visiblePages = ctx.visiblePageIndices
+  // In scrolling mode, only show the current (most prominent) page transcript
+  const visiblePages = ctx.readingMode === 'scrolling'
+    ? [ctx.currentPageIndex]
+    : ctx.visiblePageIndices
   const isRTL = ctx.readingMode === 'rtl'
   const isTwoPage = visiblePages.length >= 2
   const isHovering = hoveredLine !== null

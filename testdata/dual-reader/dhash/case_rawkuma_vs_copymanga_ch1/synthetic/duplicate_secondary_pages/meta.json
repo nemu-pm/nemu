@@ -1,0 +1,80 @@
+{
+  "caseId": "case_rawkuma_vs_copymanga_ch1/duplicate_secondary_pages",
+  "createdAt": "2025-12-28T03:13:50.275Z",
+  "primary": {
+    "label": "ja.rawkuma",
+    "sourceId": "ja.rawkuma",
+    "mangaKey": "/manga/gal-no-jitensha-wo-naoshitara-natsukareta/",
+    "chapterKey": "/manga/gal-no-jitensha-wo-naoshitara-natsukareta/chapter-1.239625/",
+    "files": [
+      "0001.jpg",
+      "0002.jpg",
+      "0003.jpg",
+      "0004.jpg",
+      "0005.jpg",
+      "0006.jpg",
+      "0007.jpg",
+      "0008.jpg",
+      "0009.jpg",
+      "0010.jpg"
+    ],
+    "count": 10
+  },
+  "secondary": {
+    "label": "zh.copymanga",
+    "sourceId": "zh.copymanga",
+    "mangaKey": "banglameixiuhaozixingchehouwobeitachanshangle",
+    "chapterKey": "3e3604e8-d396-11f0-91a3-fa163e4baef8",
+    "files": [
+      "0001.jpg",
+      "0002.jpg",
+      "0003.jpg",
+      "0004.jpg",
+      "0005.jpg",
+      "0006.jpg",
+      "0007.jpg",
+      "0008.jpg",
+      "0009.jpg",
+      "0010.jpg",
+      "0011.jpg",
+      "0012.jpg",
+      "0013.jpg",
+      "0014.jpg",
+      "0015.jpg",
+      "0016.jpg",
+      "0017.jpg",
+      "0018.jpg",
+      "0019.jpg",
+      "0020.jpg"
+    ],
+    "count": 20
+  },
+  "canonical": {
+    "primaryToSecondary_1based": [
+      1,
+      2,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "primaryToSecondary_0based": [
+      0,
+      1,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "note": "Meaning: primary page i maps to secondary page canonical[i-1]. Multiple primaries may map to the same secondary (merged spreads)."
+  },
+  "synthetic": []
+}

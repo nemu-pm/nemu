@@ -44,6 +44,21 @@ export interface ReaderPluginContext {
   getPageImageUrl: (pageIndex: number) => string | undefined
   /** Get all currently loaded page URLs */
   getLoadedPageUrls: () => Map<number, string>
+  /** Get metadata for a virtual page index */
+  getPageMeta: (pageIndex: number) => {
+    kind: 'page' | 'spacer'
+    chapterId?: string
+    localIndex?: number
+    key?: string
+  } | null
+  /** Convenience: metadata for all visible pages */
+  getVisiblePageMetas: () => Array<{
+    pageIndex: number
+    kind: 'page' | 'spacer'
+    chapterId?: string
+    localIndex?: number
+    key?: string
+  }>
 
   // Actions
   /** Show a dialog/modal */
@@ -111,6 +126,19 @@ export interface PageOverlay {
 }
 
 /**
+ * Overlay rendered once per reader session (not per page).
+ * Use this for global UI like floating buttons, managers, listeners, etc.
+ */
+export interface ReaderOverlay {
+  /** Unique overlay ID */
+  id: string
+  /** Z-index relative to other overlays */
+  zIndex?: number
+  /** Render the overlay */
+  render: (ctx: ReaderPluginContext) => ReactNode
+}
+
+/**
  * Settings section added to reader settings panel
  */
 export interface SettingsSection {
@@ -149,6 +177,8 @@ export interface ReaderPlugin {
   // Contributions
   navbarActions?: NavbarAction[]
   pageOverlays?: PageOverlay[]
+  /** Overlays mounted once per reader session */
+  readerOverlays?: ReaderOverlay[]
   /** Settings sections shown in reader settings popover */
   settingsSections?: SettingsSection[]
 
@@ -316,4 +346,3 @@ export function createPluginAsyncStorage(pluginId: string): PluginAsyncStorage {
     },
   }
 }
-

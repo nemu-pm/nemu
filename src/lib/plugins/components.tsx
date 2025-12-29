@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import {
   usePluginNavbarActions,
   usePluginPageOverlays,
+  usePluginReaderOverlays,
   usePluginSettingsSections,
   usePluginDialog,
   usePluginCtx,
@@ -205,6 +206,31 @@ export function PluginPageOverlayWrapper({ pageIndex, children }: PluginPageOver
         </div>
       ))}
     </div>
+  )
+}
+
+// ============================================================================
+// Plugin Reader Overlays (mounted once per reader session)
+// ============================================================================
+
+export function PluginReaderOverlays() {
+  const overlays = usePluginReaderOverlays()
+  const ctx = usePluginCtx()
+
+  if (overlays.length === 0) return null
+
+  return (
+    <>
+      {overlays.map((overlay) => (
+        <div
+          key={overlay.id}
+          className="absolute inset-0 pointer-events-none [&>*]:pointer-events-auto"
+          style={{ zIndex: overlay.zIndex ?? 10 }}
+        >
+          {overlay.render(ctx)}
+        </div>
+      ))}
+    </>
   )
 }
 

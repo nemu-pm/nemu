@@ -174,10 +174,16 @@ export const japaneseLearningPlugin: ReaderPlugin = {
       render: (pageIndex: number, ctx: ReaderPluginContext) => (
         <>
           <DetectionOverlay pageIndex={pageIndex} ctx={ctx} />
-          {/* Only render global UI once - on the first visible page */}
-          {pageIndex === ctx.visiblePageIndices[0] && <JapaneseLearningGlobalUI />}
         </>
       ),
+    },
+  ],
+
+  // Reader overlays - mount global UI once per reader session (instead of piggybacking on a page overlay)
+  readerOverlays: [
+    {
+      id: 'japanese-learning-global-ui',
+      render: (ctx: ReaderPluginContext) => (isJapaneseSource(ctx) ? <JapaneseLearningGlobalUI /> : null),
     },
   ],
 
