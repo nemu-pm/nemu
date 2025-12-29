@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'bun:test';
-import { mapSecondaryChapterForPrimary, matchSecondaryChapter, pairNextChapters } from './chapters';
+import {
+  mapSecondaryChapterForPrimary,
+  matchSecondaryChapter,
+  pairNextChapters,
+  pickSecondaryChapterId,
+  resolveSecondaryChapterSelection,
+} from './chapters';
 
 describe('dual-reader chapters', () => {
   it('maps with seed pair using chapterNumber delta', () => {
@@ -94,5 +100,37 @@ describe('dual-reader chapters', () => {
 
     expect(result).toBe('s3');
   });
-});
 
+  it('picks latest secondary chapter when no primary is available', () => {
+    const secondaryAll = [
+      { id: 's1', chapterNumber: 2 },
+      { id: 's2', chapterNumber: 5 },
+      { id: 's3', chapterNumber: 4 },
+    ];
+
+    const result = pickSecondaryChapterId({
+      primaryChapter: null,
+      primaryAll: [],
+      secondaryAll,
+    });
+
+    expect(result).toBe('s2');
+  });
+
+  it('clears invalid selection when switching secondary sources', () => {
+    const primaryAll = [{ id: 'p1', chapterNumber: 1 }];
+    const secondaryAll = [
+      { id: 's1', chapterNumber: 1 },
+      { id: 's2', chapterNumber: 2 },
+    ];
+
+    const result = resolveSecondaryChapterSelection({
+      selectedId: 's-old',
+      primaryChapter: primaryAll[0],
+      primaryAll,
+      secondaryAll,
+    });
+
+    expect(result).toBe('s1');
+  });
+});

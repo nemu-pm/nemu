@@ -1,13 +1,9 @@
 import type { PageMapInput, SecondaryRenderPlan } from './types';
 import type { SecondaryMatch } from './hash';
 
-export function mapSecondaryPageIndex({ primaryIndex, pageOffset, driftDelta }: PageMapInput): number {
+export function mapSecondaryPageIndex({ primaryIndex, driftDelta }: PageMapInput): number {
   const delta = driftDelta ?? 0;
-  return primaryIndex + pageOffset + delta;
-}
-
-export function applyNudge({ offset, delta }: { offset: number; delta: -1 | 1 }): number {
-  return offset + delta;
+  return primaryIndex + delta;
 }
 
 export function clampIndex(index: number, length: number): number {
@@ -66,12 +62,10 @@ export function shouldMarkMissing(input: {
 export function buildSecondaryRenderPlan(input: {
   match: SecondaryMatch;
   secondaryChapterId: string;
-  pageOffset: number;
   driftDelta: number;
 }): SecondaryRenderPlan {
   const common = {
     secondaryChapterId: input.secondaryChapterId,
-    pageOffset: input.pageOffset,
     driftDelta: input.driftDelta,
   };
   if (input.match.kind === 'single') {
@@ -90,13 +84,11 @@ export function buildSecondaryRenderPlan(input: {
 
 export function buildMissingRenderPlan(input: {
   secondaryChapterId: string;
-  pageOffset: number;
   driftDelta: number;
 }): SecondaryRenderPlan {
   return {
     kind: 'missing',
     secondaryChapterId: input.secondaryChapterId,
-    pageOffset: input.pageOffset,
     driftDelta: input.driftDelta,
   };
 }

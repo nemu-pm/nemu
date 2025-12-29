@@ -504,6 +504,48 @@
       "errors": {
         "outOfMemory": "Out of memory. Text detection requires more memory than available in this app mode. Please open nemu in Safari instead."
       }
+    },
+    "dualRead": {
+      "name": "Dual Read",
+      "description": "Read the same manga from two linked sources with quick switching.",
+      "navbarLabel": "Dual Read",
+      "popover": {
+        "noLinkedSources": "No linked sources found.",
+        "linkSecondary": "Link a second source to enable Dual Read.",
+        "actionLabel": "Dual Read...",
+        "secondaryLabel": "Secondary",
+        "chapterLabel": "Chapter",
+        "chapterPair": "Chapter: {{primary}} <-> {{secondary}}",
+        "unpaired": "Unpaired for this chapter",
+        "loadingPairing": "Loading chapter pairing..."
+      },
+      "dialog": {
+        "title": "Dual Read",
+        "description": "Choose a secondary source and chapter pairing.",
+        "noLinkedSources": "No linked sources found for this manga.",
+        "secondarySource": "Secondary source",
+        "primaryChapter": "Primary chapter",
+        "secondaryChapter": "Secondary chapter",
+        "loadingPrimary": "Loading...",
+        "loadingChapters": "Loading chapters...",
+        "chooseChapter": "Choose a chapter",
+        "enable": "Enable Dual Read",
+        "save": "Save",
+        "disable": "Disable Dual Read",
+        "cancel": "Cancel",
+        "close": "Close"
+      },
+      "overlay": {
+        "unavailableTitle": "Unavailable for this chapter.",
+        "unavailableHint": "Open Dual Read... to realign chapters."
+      },
+      "fab": {
+        "label": "Dual Read"
+      },
+      "errors": {
+        "primaryUnavailable": "Primary source unavailable.",
+        "secondaryUnavailable": "Secondary source unavailable."
+      }
     }
   },
   "welcome": {

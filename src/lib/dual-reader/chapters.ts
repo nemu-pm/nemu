@@ -116,6 +116,21 @@ function mapWithoutSeedPair(input: ChapterMatchInput): ChapterMatchResult {
   return bestId;
 }
 
+function getLatestChapterId(chapters: ChapterLike[]): string | null {
+  if (chapters.length === 0) return null;
+  let bestIndex = chapters.length - 1;
+  let bestNumber: number | null = null;
+  chapters.forEach((chapter, index) => {
+    const num = getChapterNumber(chapter);
+    if (num == null) return;
+    if (bestNumber == null || num > bestNumber) {
+      bestNumber = num;
+      bestIndex = index;
+    }
+  });
+  return chapters[bestIndex]?.id ?? null;
+}
+
 export function mapSecondaryChapterForPrimary(input: ChapterMatchInput): ChapterMatchResult {
   if (!input.primaryChapter) return null;
   if (input.secondaryAll.length === 0) return null;
@@ -126,6 +141,22 @@ export function mapSecondaryChapterForPrimary(input: ChapterMatchInput): Chapter
   }
 
   return mapWithoutSeedPair(input);
+}
+
+export function pickSecondaryChapterId(input: ChapterMatchInput): ChapterMatchResult {
+  if (input.secondaryAll.length === 0) return null;
+  const suggested = mapSecondaryChapterForPrimary(input);
+  if (suggested) return suggested;
+  return getLatestChapterId(input.secondaryAll) ?? input.secondaryAll[0]?.id ?? null;
+}
+
+export function resolveSecondaryChapterSelection(
+  input: ChapterMatchInput & { selectedId: string | null }
+): ChapterMatchResult {
+  if (input.selectedId && input.secondaryAll.some((chapter) => chapter.id === input.selectedId)) {
+    return input.selectedId;
+  }
+  return pickSecondaryChapterId(input);
 }
 
 export function matchSecondaryChapter(input: {
@@ -152,4 +183,3 @@ export function pairNextChapters(input: {
     seedPair: input.seedPair,
   });
 }
-

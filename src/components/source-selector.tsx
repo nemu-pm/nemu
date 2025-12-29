@@ -26,7 +26,7 @@ interface SourceSelectorProps<T extends SourceSelectorItem> {
   selectedIndex: number;
   onSelect: (index: number) => void;
   getSourceInfo: (source: T) => SourceInfo | undefined;
-  getChapterCount: (source: T) => number | undefined;
+  getChapterCount: (source: T) => number | string | undefined;
   hasUpdate: (source: T) => boolean;
 }
 
@@ -127,7 +127,7 @@ export function SourceSelector<T extends SourceSelectorItem>({
                 </span>
 
                 {/* Chapter count badge - highlights when has update */}
-                {chapterCount !== undefined && (
+                {chapterCount !== undefined && chapterCount !== null && (
                   <span
                     className={cn(
                       "source-selector-count",
@@ -145,4 +145,3 @@ export function SourceSelector<T extends SourceSelectorItem>({
     </div>
   );
 }
-

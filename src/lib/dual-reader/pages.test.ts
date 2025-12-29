@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import {
   mapSecondaryPageIndex,
-  applyNudge,
   clampIndex,
   getDriftExpectedIndex,
   shouldApplySiblingSplit,
@@ -11,14 +10,9 @@ import {
 import type { SecondaryMatch } from './hash';
 
 describe('dual-reader pages', () => {
-  it('maps page index with offset and drift', () => {
-    const mapped = mapSecondaryPageIndex({ primaryIndex: 5, pageOffset: 2, driftDelta: -1 });
-    expect(mapped).toBe(6);
-  });
-
-  it('applies nudges to offset', () => {
-    expect(applyNudge({ offset: 0, delta: 1 })).toBe(1);
-    expect(applyNudge({ offset: 1, delta: -1 })).toBe(0);
+  it('maps page index with drift', () => {
+    const mapped = mapSecondaryPageIndex({ primaryIndex: 5, driftDelta: -1 });
+    expect(mapped).toBe(4);
   });
 
   it('clamps indices to bounds', () => {

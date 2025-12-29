@@ -22,7 +22,6 @@ export type ChapterMatchResult = string | null;
 
 export type PageMapInput = {
   primaryIndex: number;
-  pageOffset: number;
   driftDelta?: number | null;
 };
 
@@ -31,7 +30,6 @@ export type SecondaryRenderPlan =
       kind: 'single';
       secondaryChapterId: string;
       secondaryIndex: number;
-      pageOffset: number;
       driftDelta: number;
     }
   | {
@@ -39,7 +37,6 @@ export type SecondaryRenderPlan =
       secondaryChapterId: string;
       secondaryIndex: number;
       side: 'left' | 'right';
-      pageOffset: number;
       driftDelta: number;
     }
   | {
@@ -47,12 +44,10 @@ export type SecondaryRenderPlan =
       secondaryChapterId: string;
       secondaryIndices: [number, number];
       order: 'normal' | 'swap';
-      pageOffset: number;
       driftDelta: number;
     }
   | {
       kind: 'missing';
       secondaryChapterId: string;
-      pageOffset: number;
       driftDelta: number;
     };

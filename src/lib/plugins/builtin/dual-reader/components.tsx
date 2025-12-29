@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import type { ReaderPluginContext } from '../../types';
 import { usePluginCtx } from '../../context';
 import { useStores } from '@/data/context';
@@ -7,16 +8,24 @@ import type { LocalSourceLink } from '@/data/schema';
 import type { SourceInfo } from '@/stores/settings';
 import { sortSourcesByOrder } from '@/hooks/use-sorted-sources';
 import { formatChapterTitle } from '@/lib/format-chapter';
+import { SourceSelector } from '@/components/source-selector';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
+import {
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogHeader,
+  ResponsiveDialogFooter,
+  ResponsiveDialogTitle,
+  ResponsiveDialogDescription,
+} from '@/components/ui/responsive-dialog';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Copy02Icon } from '@hugeicons/core-free-icons';
-import { mapSecondaryChapterForPrimary } from '@/lib/dual-reader/chapters';
+import { mapSecondaryChapterForPrimary, resolveSecondaryChapterSelection } from '@/lib/dual-reader/chapters';
 import {
-  applyNudge,
   buildSecondaryRenderPlan,
   buildMissingRenderPlan,
   clampIndex,
@@ -30,7 +39,7 @@ import { findBestSecondaryMatch, updateDriftDelta } from '@/lib/dual-reader/hash
 import { isDualReadDebugEnabled } from '@/lib/dual-reader/debug';
 import type { SecondaryRenderPlan } from '@/lib/dual-reader/types';
 import { useDualReadStore, type DualReadFabPosition, type DualReadSide } from './store';
-import type { Page } from '@/lib/sources/types';
+import type { Chapter, Page } from '@/lib/sources/types';
 import { computeDualReadHashInWorker } from './dhash-worker-client';
 import { getCachedDualReadHash, setCachedDualReadHash, type DualReadHashCacheKey } from './dhash-cache';
 
@@ -350,16 +359,12 @@ async function ensureSecondaryCompositeImage(
   }
 }
 
-export function openDualReadSetupDialog(ctx: ReaderPluginContext) {
-  ctx.showDialog(<DualReadSetupDialog ctx={ctx} />, { title: 'Dual Read Setup' });
-}
-
-export function openDualReadRealignDialog(ctx: ReaderPluginContext) {
-  ctx.showDialog(<DualReadRealignDialog ctx={ctx} />, { title: 'Realign Chapters' });
-}
-
 export function DualReadPopoverContent() {
   const ctx = usePluginCtx();
+  const { t } = useTranslation();
+  const tr = useCallback((key: string, options?: Record<string, unknown>) => {
+    return t(`plugin.dualRead.${key}`, options);
+  }, [t]);
   const enabled = useDualReadStore((s) => s.enabled);
   const activeSide = useDualReadStore((s) => s.activeSide);
   const seedPair = useDualReadStore((s) => s.seedPair);
@@ -368,6 +373,7 @@ export function DualReadPopoverContent() {
   const secondarySource = useDualReadStore((s) => s.secondarySource);
   const setActiveSide = useDualReadStore((s) => s.setActiveSide);
   const setPopoverOpen = useDualReadStore((s) => s.setPopoverOpen);
+  const setConfigOpen = useDualReadStore((s) => s.setConfigOpen);
 
   const { primaryLink, candidates, availableSources } = useLinkedSources(ctx);
 
@@ -399,31 +405,21 @@ export function DualReadPopoverContent() {
   );
   const statusReady = Boolean(primaryChapter && seedPair && secondaryChapters.length > 0);
 
-  const handleSetup = useCallback(() => {
+  const handleConfig = useCallback(() => {
     setPopoverOpen(false);
-    openDualReadSetupDialog(ctx);
-  }, [ctx, setPopoverOpen]);
-  const handleRealign = useCallback(() => {
-    setPopoverOpen(false);
-    openDualReadRealignDialog(ctx);
-  }, [ctx, setPopoverOpen]);
+    setConfigOpen(true);
+  }, [setPopoverOpen, setConfigOpen]);
 
   if (!primaryLink) {
-    return (
-      <div className="min-w-[220px] text-xs reader-ui-text-secondary">
-        No linked sources found.
-      </div>
-    );
+    return <div className="min-w-[220px] text-xs reader-ui-text-secondary">{tr('popover.noLinkedSources')}</div>;
   }
 
   if (!enabled) {
     return (
       <div className="min-w-[240px] space-y-2">
-        <div className="text-xs reader-ui-text-secondary">
-          Link a second source to enable Dual Read.
-        </div>
-        <Button size="sm" onClick={handleSetup} disabled={candidates.length === 0}>
-          Set Up Dual Read
+        <div className="text-xs reader-ui-text-secondary">{tr('popover.linkSecondary')}</div>
+        <Button size="sm" onClick={handleConfig} disabled={candidates.length === 0}>
+          {tr('popover.actionLabel')}
         </Button>
       </div>
     );
@@ -443,18 +439,18 @@ export function DualReadPopoverContent() {
             {secondarySource ? (
               <SourceLabel link={secondarySource} info={secondaryInfo} />
             ) : (
-              <span className="text-xs font-medium">Secondary</span>
+              <span className="text-xs font-medium">{tr('popover.secondaryLabel')}</span>
             )}
           </TabsTrigger>
         </TabsList>
       </Tabs>
 
       <div className="flex items-center justify-between gap-2">
-        <Button size="sm" variant="secondary" onClick={handleRealign}>
-          Realign...
+        <Button size="sm" variant="secondary" onClick={handleConfig}>
+          {tr('popover.actionLabel')}
         </Button>
         <div className="text-xs reader-ui-text-muted">
-          {primaryChapter ? formatChapterTitle(primaryChapter) : 'Chapter'}
+          {primaryChapter ? formatChapterTitle(primaryChapter) : tr('popover.chapterLabel')}
         </div>
       </div>
 
@@ -462,70 +458,78 @@ export function DualReadPopoverContent() {
         {statusReady ? (
           secondaryChapter ? (
             <span>
-              Chapter: {primaryChapter ? formatChapterTitle(primaryChapter) : '-'} {'<->'}{' '}
-              {formatChapterTitle(secondaryChapter)}
+              {tr('popover.chapterPair', {
+                primary: primaryChapter ? formatChapterTitle(primaryChapter) : '-',
+                secondary: formatChapterTitle(secondaryChapter),
+              })}
             </span>
           ) : (
-            <span className="text-amber-500">Unpaired for this chapter</span>
+            <span className="text-amber-500">{tr('popover.unpaired')}</span>
           )
         ) : (
-          <span>Loading chapter pairing...</span>
+          <span>{tr('popover.loadingPairing')}</span>
         )}
       </div>
     </div>
   );
 }
 
-function DualReadSetupDialog({ ctx }: { ctx: ReaderPluginContext }) {
+function DualReadConfigDialog({ ctx }: { ctx: ReaderPluginContext }) {
+  const { t } = useTranslation();
+  const tr = useCallback((key: string, options?: Record<string, unknown>) => {
+    return t(`plugin.dualRead.${key}`, options);
+  }, [t]);
+
   const { useSettingsStore } = useStores();
   const getSource = useSettingsStore((s) => s.getSource);
 
+  const configOpen = useDualReadStore((s) => s.configOpen);
+  const setConfigOpen = useDualReadStore((s) => s.setConfigOpen);
+  const enabled = useDualReadStore((s) => s.enabled);
+  const secondarySource = useDualReadStore((s) => s.secondarySource);
+  const seedPair = useDualReadStore((s) => s.seedPair);
+  const primaryChapters = useDualReadStore((s) => s.primaryChapters);
+  const storedSecondaryChapters = useDualReadStore((s) => s.secondaryChapters);
+  const setPrimaryChapters = useDualReadStore((s) => s.setPrimaryChapters);
+  const enable = useDualReadStore((s) => s.enable);
+  const disable = useDualReadStore((s) => s.disable);
+  const clearSecondaryCache = useDualReadStore((s) => s.clearSecondaryCache);
+
   const { primaryLink, candidates, availableSources } = useLinkedSources(ctx);
+
   const [selectedSecondaryId, setSelectedSecondaryId] = useState<string | null>(null);
+  const [selectedSecondaryChapterId, setSelectedSecondaryChapterId] = useState<string | null>(null);
+  const [secondaryChapters, setSecondaryChapters] = useState<Chapter[]>([]);
   const [loadingPrimary, setLoadingPrimary] = useState(false);
   const [loadingSecondary, setLoadingSecondary] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const primaryChapters = useDualReadStore((s) => s.primaryChapters);
-  const secondaryChapters = useDualReadStore((s) => s.secondaryChapters);
-  const setPrimaryChapters = useDualReadStore((s) => s.setPrimaryChapters);
-  const setSecondaryChapters = useDualReadStore((s) => s.setSecondaryChapters);
-  const enable = useDualReadStore((s) => s.enable);
-  const setPageOffset = useDualReadStore((s) => s.setPageOffset);
-  const clearSecondaryCache = useDualReadStore((s) => s.clearSecondaryCache);
 
   const defaultSecondary = useMemo(
     () => pickDefaultSecondary(primaryLink, candidates, availableSources),
     [primaryLink, candidates, availableSources]
   );
-  const sourceLabelById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const link of candidates) {
-      const info = getSourceInfo(availableSources, link);
-      map.set(link.id, info?.name ?? link.sourceId);
-    }
-    return map;
-  }, [candidates, availableSources]);
-
-  useEffect(() => {
-    if (!selectedSecondaryId && defaultSecondary) {
-      setSelectedSecondaryId(defaultSecondary.id);
-    }
-  }, [selectedSecondaryId, defaultSecondary]);
 
   const selectedSecondary = useMemo(() => {
-    if (!selectedSecondaryId) return defaultSecondary ?? null;
-    return candidates.find((c) => c.id === selectedSecondaryId) ?? defaultSecondary ?? null;
-  }, [selectedSecondaryId, candidates, defaultSecondary]);
+    if (selectedSecondaryId) {
+      return candidates.find((c) => c.id === selectedSecondaryId) ?? defaultSecondary ?? null;
+    }
+    if (secondarySource) {
+      return candidates.find((c) => c.id === secondarySource.id) ?? defaultSecondary ?? null;
+    }
+    return defaultSecondary ?? null;
+  }, [selectedSecondaryId, candidates, defaultSecondary, secondarySource]);
 
-  const [selectedSecondaryChapterId, setSelectedSecondaryChapterId] = useState<string | null>(null);
+  const selectedSecondaryIndex = useMemo(() => {
+    if (!selectedSecondary) return 0;
+    const idx = candidates.findIndex((c) => c.id === selectedSecondary.id);
+    return idx >= 0 ? idx : 0;
+  }, [candidates, selectedSecondary]);
 
-  const primaryKeyRef = useRef<string | null>(null);
-  const secondaryKeyRef = useRef<string | null>(null);
   const currentPrimaryChapter = useMemo(
     () => primaryChapters.find((c) => c.id === ctx.chapterId),
     [primaryChapters, ctx.chapterId]
   );
+
   const secondaryChapterLabelById = useMemo(() => {
     const map = new Map<string, string>();
     for (const chapter of secondaryChapters) {
@@ -534,8 +538,27 @@ function DualReadSetupDialog({ ctx }: { ctx: ReaderPluginContext }) {
     return map;
   }, [secondaryChapters]);
 
+  const openStateRef = useRef(false);
   useEffect(() => {
-    if (!primaryLink) return;
+    if (!configOpen) {
+      openStateRef.current = false;
+      return;
+    }
+    if (openStateRef.current) return;
+    openStateRef.current = true;
+    setError(null);
+    setSelectedSecondaryId(secondarySource?.id ?? defaultSecondary?.id ?? null);
+    setSelectedSecondaryChapterId(seedPair?.secondaryId ?? null);
+    if (secondarySource && storedSecondaryChapters.length > 0) {
+      setSecondaryChapters(storedSecondaryChapters);
+    } else {
+      setSecondaryChapters([]);
+    }
+  }, [configOpen, secondarySource, defaultSecondary, seedPair, storedSecondaryChapters]);
+
+  const primaryKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!configOpen || !primaryLink) return;
     const key = makeSourceKey(primaryLink);
     if (primaryKeyRef.current === key && primaryChapters.length > 0) return;
     let cancelled = false;
@@ -548,8 +571,8 @@ function DualReadSetupDialog({ ctx }: { ctx: ReaderPluginContext }) {
         if (!source) throw new Error('Primary source unavailable');
         const chapters = await source.getChapters(primaryLink.sourceMangaId);
         if (!cancelled) setPrimaryChapters(chapters);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      } catch (_err) {
+        if (!cancelled) setError(tr('errors.primaryUnavailable'));
       } finally {
         if (!cancelled) setLoadingPrimary(false);
       }
@@ -557,25 +580,47 @@ function DualReadSetupDialog({ ctx }: { ctx: ReaderPluginContext }) {
     return () => {
       cancelled = true;
     };
-  }, [primaryLink, getSource, primaryChapters.length, setPrimaryChapters]);
+  }, [configOpen, primaryLink, getSource, primaryChapters.length, setPrimaryChapters, tr]);
 
+  const secondaryKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!selectedSecondary) return;
+    if (!configOpen) return;
+    if (!selectedSecondary) {
+      setSecondaryChapters([]);
+      return;
+    }
     const key = makeSourceKey(selectedSecondary);
-    if (secondaryKeyRef.current === key && secondaryChapters.length > 0) return;
-    let cancelled = false;
+    if (secondaryKeyRef.current === key) {
+      if (
+        secondarySource?.id === selectedSecondary.id &&
+        storedSecondaryChapters.length > 0 &&
+        secondaryChapters.length === 0
+      ) {
+        setSecondaryChapters(storedSecondaryChapters);
+      }
+      return;
+    }
     secondaryKeyRef.current = key;
+    setSelectedSecondaryChapterId(null);
+    setSecondaryChapters([]);
     setLoadingSecondary(true);
     setError(null);
-    setSelectedSecondaryChapterId(null);
+
+    if (secondarySource?.id === selectedSecondary.id && storedSecondaryChapters.length > 0) {
+      setSecondaryChapters(storedSecondaryChapters);
+      setLoadingSecondary(false);
+      return;
+    }
+
+    let cancelled = false;
     (async () => {
       try {
         const source = await getSource(selectedSecondary.registryId, selectedSecondary.sourceId);
         if (!source) throw new Error('Secondary source unavailable');
         const chapters = await source.getChapters(selectedSecondary.sourceMangaId);
         if (!cancelled) setSecondaryChapters(chapters);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      } catch (_err) {
+        if (!cancelled) setError(tr('errors.secondaryUnavailable'));
       } finally {
         if (!cancelled) setLoadingSecondary(false);
       }
@@ -583,287 +628,234 @@ function DualReadSetupDialog({ ctx }: { ctx: ReaderPluginContext }) {
     return () => {
       cancelled = true;
     };
-  }, [selectedSecondary, getSource, secondaryChapters.length, setSecondaryChapters]);
+  }, [
+    configOpen,
+    selectedSecondary,
+    secondarySource,
+    storedSecondaryChapters,
+    secondaryChapters.length,
+    getSource,
+    tr,
+  ]);
 
   useEffect(() => {
+    if (!configOpen) return;
     if (!primaryChapters.length || !secondaryChapters.length) return;
-    const primaryChapter = currentPrimaryChapter;
-    const suggested = mapSecondaryChapterForPrimary({
-      primaryChapter,
+    const nextSelection = resolveSecondaryChapterSelection({
+      selectedId: selectedSecondaryChapterId,
+      primaryChapter: currentPrimaryChapter,
       primaryAll: primaryChapters,
       secondaryAll: secondaryChapters,
+      seedPair: seedPair ?? undefined,
     });
-    if (!selectedSecondaryChapterId) {
-      setSelectedSecondaryChapterId(suggested ?? secondaryChapters[0]?.id ?? null);
+    if (nextSelection !== selectedSecondaryChapterId) {
+      setSelectedSecondaryChapterId(nextSelection);
     }
-  }, [primaryChapters, secondaryChapters, currentPrimaryChapter, selectedSecondaryChapterId]);
+  }, [
+    configOpen,
+    primaryChapters,
+    secondaryChapters,
+    currentPrimaryChapter,
+    seedPair,
+    selectedSecondaryChapterId,
+  ]);
+
+  const isSecondaryChapterValid = useMemo(() => {
+    if (!selectedSecondaryChapterId) return false;
+    return secondaryChapters.some((chapter) => chapter.id === selectedSecondaryChapterId);
+  }, [secondaryChapters, selectedSecondaryChapterId]);
 
   const handleConfirm = useCallback(() => {
     if (!primaryLink || !selectedSecondary || !selectedSecondaryChapterId) return;
-    const primaryChapter = currentPrimaryChapter;
-    if (!primaryChapter) return;
-    clearSecondaryCache();
-    setPageOffset(0);
+    if (!isSecondaryChapterValid) return;
+    if (!currentPrimaryChapter) return;
+    if (!secondarySource || secondarySource.id !== selectedSecondary.id) {
+      clearSecondaryCache();
+    }
     enable({
       secondarySource: selectedSecondary,
       seedPair: { primaryId: ctx.chapterId, secondaryId: selectedSecondaryChapterId },
       primaryChapters,
       secondaryChapters,
     });
-    ctx.hideDialog();
+    setConfigOpen(false);
   }, [
     primaryLink,
     selectedSecondary,
     selectedSecondaryChapterId,
+    isSecondaryChapterValid,
+    currentPrimaryChapter,
+    secondarySource,
+    clearSecondaryCache,
+    enable,
     primaryChapters,
     secondaryChapters,
-    ctx,
-    enable,
-    setPageOffset,
-    clearSecondaryCache,
-    currentPrimaryChapter,
+    ctx.chapterId,
+    setConfigOpen,
   ]);
+
+  const handleDisable = useCallback(() => {
+    disable();
+    setConfigOpen(false);
+  }, [disable, setConfigOpen]);
+
+  const handleClose = useCallback(() => {
+    setConfigOpen(false);
+  }, [setConfigOpen]);
 
   if (!primaryLink || candidates.length === 0) {
     return (
-      <div className="space-y-3">
-        <div className="text-sm">No linked sources found for this manga.</div>
-        <div className="flex justify-end">
-          <Button variant="secondary" size="sm" onClick={() => ctx.hideDialog()}>
-            Close
-          </Button>
-        </div>
-      </div>
+      <ResponsiveDialog open={configOpen} onOpenChange={setConfigOpen}>
+        <ResponsiveDialogContent className="sm:max-w-md" showCloseButton={false}>
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle>{tr('dialog.title')}</ResponsiveDialogTitle>
+          </ResponsiveDialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm">{tr('dialog.noLinkedSources')}</div>
+            <div className="flex justify-end">
+              <Button variant="secondary" size="sm" onClick={handleClose}>
+                {tr('dialog.close')}
+              </Button>
+            </div>
+          </div>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <div className="text-xs text-muted-foreground">Secondary source</div>
-        <Select
-          value={selectedSecondary?.id ?? ''}
-          onValueChange={(value) => setSelectedSecondaryId(value)}
-          itemToStringLabel={(value) => sourceLabelById.get(String(value)) ?? String(value)}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="Choose a source" />
-          </SelectTrigger>
-          <SelectContent>
-            {candidates.map((link) => {
-              const info = getSourceInfo(availableSources, link);
-              return (
-                <SelectItem key={link.id} value={link.id}>
-                  {info?.name ?? link.sourceId}
-                </SelectItem>
-              );
-            })}
-          </SelectContent>
-        </Select>
-      </div>
+    <ResponsiveDialog open={configOpen} onOpenChange={setConfigOpen}>
+      <ResponsiveDialogContent className="sm:max-w-md" showCloseButton={false}>
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle>{tr('dialog.title')}</ResponsiveDialogTitle>
+          <ResponsiveDialogDescription>{tr('dialog.description')}</ResponsiveDialogDescription>
+        </ResponsiveDialogHeader>
 
-      <div className="space-y-2">
-        <div className="text-xs text-muted-foreground">Primary chapter</div>
-        <div className="text-sm">
-          {loadingPrimary
-            ? 'Loading...'
-            : currentPrimaryChapter
-              ? formatChapterTitle(currentPrimaryChapter)
-              : '-'}
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <div className="text-xs text-muted-foreground">Secondary chapter</div>
-        {loadingSecondary ? (
-          <div className="flex items-center gap-2 text-sm">
-            <Spinner className="size-4" />
-            Loading chapters...
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <div className="text-xs text-muted-foreground">{tr('dialog.secondarySource')}</div>
+            <SourceSelector
+              sources={candidates}
+              selectedIndex={selectedSecondaryIndex}
+              onSelect={(idx) => {
+                const next = candidates[idx];
+                if (!next) return;
+                setSelectedSecondaryId(next.id);
+              }}
+              getSourceInfo={(link) => getSourceInfo(availableSources, link)}
+              getChapterCount={(link) => {
+                const info = getSourceInfo(availableSources, link);
+                const lang = info?.languages?.[0];
+                return lang ? lang.toUpperCase() : undefined;
+              }}
+              hasUpdate={() => false}
+            />
           </div>
-        ) : (
-          <Select
-            value={selectedSecondaryChapterId ?? ''}
-            onValueChange={(value) => setSelectedSecondaryChapterId(value)}
-            itemToStringLabel={(value) => secondaryChapterLabelById.get(String(value)) ?? String(value)}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Choose a chapter" />
-            </SelectTrigger>
-            <SelectContent>
-              {secondaryChapters.map((chapter) => (
-                <SelectItem key={chapter.id} value={chapter.id}>
-                  {formatChapterTitle(chapter)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
 
-      {error && <div className="text-xs text-red-500">{error}</div>}
+          <div className="space-y-2">
+            <div className="text-xs text-muted-foreground">{tr('dialog.primaryChapter')}</div>
+            <div className="text-sm">
+              {loadingPrimary
+                ? tr('dialog.loadingPrimary')
+                : currentPrimaryChapter
+                  ? formatChapterTitle(currentPrimaryChapter)
+                  : '-'}
+            </div>
+          </div>
 
-      <div className="flex items-center justify-end gap-2">
-        <Button variant="secondary" size="sm" onClick={() => ctx.hideDialog()}>
-          Cancel
-        </Button>
-        <Button
-          size="sm"
-          onClick={handleConfirm}
-          disabled={!selectedSecondary || !selectedSecondaryChapterId || loadingPrimary || loadingSecondary}
-        >
-          Enable Dual Read
-        </Button>
-      </div>
-    </div>
-  );
-}
+          <div className="space-y-2">
+            <div className="text-xs text-muted-foreground">{tr('dialog.secondaryChapter')}</div>
+            {loadingSecondary ? (
+              <div className="flex items-center gap-2 text-sm">
+                <Spinner className="size-4" />
+                {tr('dialog.loadingChapters')}
+              </div>
+            ) : (
+              <Select
+                value={selectedSecondaryChapterId ?? ''}
+                onValueChange={(value) => setSelectedSecondaryChapterId(value)}
+                itemToStringLabel={(value) => secondaryChapterLabelById.get(String(value)) ?? String(value)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={tr('dialog.chooseChapter')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {secondaryChapters.map((chapter) => (
+                    <SelectItem key={chapter.id} value={chapter.id}>
+                      {formatChapterTitle(chapter)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
 
-function DualReadRealignDialog({ ctx }: { ctx: ReaderPluginContext }) {
-  const { useSettingsStore } = useStores();
-  const getSource = useSettingsStore((s) => s.getSource);
+          {error && <div className="text-xs text-red-500">{error}</div>}
+        </div>
 
-  const enabled = useDualReadStore((s) => s.enabled);
-  const secondarySource = useDualReadStore((s) => s.secondarySource);
-  const seedPair = useDualReadStore((s) => s.seedPair);
-  const primaryChapters = useDualReadStore((s) => s.primaryChapters);
-  const secondaryChapters = useDualReadStore((s) => s.secondaryChapters);
-  const setSecondaryChapters = useDualReadStore((s) => s.setSecondaryChapters);
-  const setSeedPair = useDualReadStore((s) => s.setSeedPair);
-
-  const [loadingSecondary, setLoadingSecondary] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedSecondaryChapterId, setSelectedSecondaryChapterId] = useState<string | null>(null);
-  const secondaryChapterLabelById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const chapter of secondaryChapters) {
-      map.set(chapter.id, formatChapterTitle(chapter));
-    }
-    return map;
-  }, [secondaryChapters]);
-
-  useEffect(() => {
-    if (!enabled || !secondarySource) return;
-    if (secondaryChapters.length > 0) return;
-    let cancelled = false;
-    setLoadingSecondary(true);
-    setError(null);
-    (async () => {
-      try {
-        const source = await getSource(secondarySource.registryId, secondarySource.sourceId);
-        if (!source) throw new Error('Secondary source unavailable');
-        const chapters = await source.getChapters(secondarySource.sourceMangaId);
-        if (!cancelled) setSecondaryChapters(chapters);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        if (!cancelled) setLoadingSecondary(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, secondarySource, secondaryChapters.length, getSource, setSecondaryChapters]);
-
-  useEffect(() => {
-    if (!primaryChapters.length || !secondaryChapters.length || !seedPair) return;
-    const primaryChapter = primaryChapters.find((c) => c.id === ctx.chapterId);
-    const suggested = primaryChapter
-      ? mapSecondaryChapterForPrimary({
-          primaryChapter,
-          primaryAll: primaryChapters,
-          secondaryAll: secondaryChapters,
-          seedPair,
-        })
-      : null;
-    if (!selectedSecondaryChapterId) {
-      setSelectedSecondaryChapterId(suggested ?? seedPair.secondaryId);
-    }
-  }, [primaryChapters, secondaryChapters, seedPair, ctx.chapterId, selectedSecondaryChapterId]);
-
-  const handleConfirm = useCallback(() => {
-    if (!selectedSecondaryChapterId) return;
-    setSeedPair({ primaryId: ctx.chapterId, secondaryId: selectedSecondaryChapterId });
-    ctx.hideDialog();
-  }, [selectedSecondaryChapterId, setSeedPair, ctx]);
-
-  if (!enabled || !secondarySource) {
-    return (
-      <div className="space-y-3">
-        <div className="text-sm">Dual Read is not enabled.</div>
-        <div className="flex justify-end">
-          <Button variant="secondary" size="sm" onClick={() => ctx.hideDialog()}>
-            Close
+        <ResponsiveDialogFooter>
+          {enabled && (
+            <Button variant="outline" size="sm" onClick={handleDisable}>
+              {tr('dialog.disable')}
+            </Button>
+          )}
+          <Button variant="secondary" size="sm" onClick={handleClose}>
+            {tr('dialog.cancel')}
           </Button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <div className="text-xs text-muted-foreground">Secondary chapter</div>
-        {loadingSecondary ? (
-          <div className="flex items-center gap-2 text-sm">
-            <Spinner className="size-4" />
-            Loading chapters...
-          </div>
-        ) : (
-          <Select
-            value={selectedSecondaryChapterId ?? ''}
-            onValueChange={(value) => setSelectedSecondaryChapterId(value)}
-            itemToStringLabel={(value) => secondaryChapterLabelById.get(String(value)) ?? String(value)}
+          <Button
+            size="sm"
+            onClick={handleConfirm}
+            disabled={
+              !selectedSecondary ||
+              !isSecondaryChapterValid ||
+              !currentPrimaryChapter ||
+              loadingPrimary ||
+              loadingSecondary
+            }
           >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Choose a chapter" />
-            </SelectTrigger>
-            <SelectContent>
-              {secondaryChapters.map((chapter) => (
-                <SelectItem key={chapter.id} value={chapter.id}>
-                  {formatChapterTitle(chapter)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-
-      {error && <div className="text-xs text-red-500">{error}</div>}
-
-      <div className="flex items-center justify-end gap-2">
-        <Button variant="secondary" size="sm" onClick={() => ctx.hideDialog()}>
-          Cancel
-        </Button>
-        <Button size="sm" onClick={handleConfirm} disabled={!selectedSecondaryChapterId || loadingSecondary}>
-          Realign
-        </Button>
-      </div>
-    </div>
+            {enabled ? tr('dialog.save') : tr('dialog.enable')}
+          </Button>
+        </ResponsiveDialogFooter>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   );
 }
 
 function DualReadSessionManager({ ctx }: { ctx: ReaderPluginContext }) {
   const enabled = useDualReadStore((s) => s.enabled);
   const secondarySource = useDualReadStore((s) => s.secondarySource);
+  const seedPair = useDualReadStore((s) => s.seedPair);
   const primaryChapters = useDualReadStore((s) => s.primaryChapters);
   const secondaryChapters = useDualReadStore((s) => s.secondaryChapters);
   const setPrimaryChapters = useDualReadStore((s) => s.setPrimaryChapters);
   const setSecondaryChapters = useDualReadStore((s) => s.setSecondaryChapters);
   const clearSecondaryCache = useDualReadStore((s) => s.clearSecondaryCache);
+  const disable = useDualReadStore((s) => s.disable);
+  const configOpen = useDualReadStore((s) => s.configOpen);
+  const setConfigOpen = useDualReadStore((s) => s.setConfigOpen);
 
   const { useSettingsStore } = useStores();
   const getSource = useSettingsStore((s) => s.getSource);
+
+  const { primaryLink, candidates } = useLinkedSources(ctx);
 
   const secondaryKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
+    if (!primaryLink) {
+      disable();
+      return;
+    }
     if (primaryChapters.length > 0) return;
     let cancelled = false;
     (async () => {
       try {
         const source = await getSource(ctx.registryId, ctx.sourceId);
-        if (!source) return;
+        if (!source) {
+          if (!cancelled) disable();
+          return;
+        }
         const chapters = await source.getChapters(ctx.mangaId);
         if (!cancelled) setPrimaryChapters(chapters);
       } catch (err) {
@@ -873,10 +865,24 @@ function DualReadSessionManager({ ctx }: { ctx: ReaderPluginContext }) {
     return () => {
       cancelled = true;
     };
-  }, [enabled, primaryChapters.length, getSource, ctx.registryId, ctx.sourceId, ctx.mangaId, setPrimaryChapters]);
+  }, [
+    enabled,
+    primaryLink,
+    primaryChapters.length,
+    getSource,
+    ctx.registryId,
+    ctx.sourceId,
+    ctx.mangaId,
+    setPrimaryChapters,
+    disable,
+  ]);
 
   useEffect(() => {
     if (!enabled || !secondarySource) return;
+    if (!candidates.some((link) => link.id === secondarySource.id)) {
+      disable();
+      return;
+    }
     const key = makeSourceKey(secondarySource);
     if (secondaryKeyRef.current && secondaryKeyRef.current !== key) {
       clearSecondaryCache();
@@ -888,7 +894,10 @@ function DualReadSessionManager({ ctx }: { ctx: ReaderPluginContext }) {
     (async () => {
       try {
         const source = await getSource(secondarySource.registryId, secondarySource.sourceId);
-        if (!source) return;
+        if (!source) {
+          if (!cancelled) disable();
+          return;
+        }
         const chapters = await source.getChapters(secondarySource.sourceMangaId);
         if (!cancelled) setSecondaryChapters(chapters);
       } catch (err) {
@@ -905,7 +914,18 @@ function DualReadSessionManager({ ctx }: { ctx: ReaderPluginContext }) {
     getSource,
     clearSecondaryCache,
     setSecondaryChapters,
+    disable,
+    candidates,
   ]);
+
+  useEffect(() => {
+    if (!enabled || !secondarySource || !seedPair) return;
+    if (secondaryChapters.length === 0) return;
+    const hasSeed = secondaryChapters.some((chapter) => chapter.id === seedPair.secondaryId);
+    if (!hasSeed && !configOpen) {
+      setConfigOpen(true);
+    }
+  }, [enabled, secondarySource, seedPair, secondaryChapters, configOpen, setConfigOpen]);
 
   return null;
 }
@@ -913,7 +933,6 @@ function DualReadSessionManager({ ctx }: { ctx: ReaderPluginContext }) {
 function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
   const enabled = useDualReadStore((s) => s.enabled);
   const seedPair = useDualReadStore((s) => s.seedPair);
-  const pageOffset = useDualReadStore((s) => s.pageOffset);
   const driftDeltaByChapter = useDualReadStore((s) => s.driftDeltaByChapter);
   const primaryChapters = useDualReadStore((s) => s.primaryChapters);
   const secondaryChapters = useDualReadStore((s) => s.secondaryChapters);
@@ -1097,7 +1116,6 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
         const driftDelta = driftDeltaByChapter[chapterId] ?? 0;
         const expectedIndex = mapSecondaryPageIndex({
           primaryIndex: meta.localIndex!,
-          pageOffset,
           driftDelta,
         });
         if (!Number.isFinite(expectedIndex)) {
@@ -1180,7 +1198,6 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
             expectedIndex: candidate.expectedIndex,
             window: [start, end],
             driftDelta: candidate.driftDelta,
-            pageOffset,
           });
 
           let secondaryHashes = hashesByChapter.get(candidate.secondaryChapterId);
@@ -1354,7 +1371,6 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
           const renderPlan = buildSecondaryRenderPlan({
             match,
             secondaryChapterId: target.candidate.secondaryChapterId,
-            pageOffset,
             driftDelta,
           });
           setSecondaryRenderPlan(target.candidate.meta.chapterId!, target.candidate.meta.localIndex!, renderPlan);
@@ -1386,7 +1402,6 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
               const siblingPlan = buildSecondaryRenderPlan({
                 match: siblingEntry.best,
                 secondaryChapterId: target.candidate.secondaryChapterId,
-                pageOffset,
                 driftDelta,
               });
               setSecondaryRenderPlan(target.candidate.meta.chapterId!, siblingMeta.localIndex!, siblingPlan);
@@ -1409,7 +1424,6 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
         for (const entry of missingCandidates) {
           const missingPlan = buildMissingRenderPlan({
             secondaryChapterId: entry.candidate.secondaryChapterId,
-            pageOffset,
             driftDelta: entry.candidate.driftDelta,
           });
           setSecondaryRenderPlan(entry.candidate.meta.chapterId!, entry.candidate.meta.localIndex!, missingPlan);
@@ -1457,7 +1471,6 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
     secondaryChapters,
     secondaryPagesByChapter,
     driftDeltaByChapter,
-    pageOffset,
     ctx.currentPageIndex,
     ctx.visiblePageIndices,
     ctx.getPageMeta,
@@ -1475,7 +1488,6 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
 function DualReadSecondaryPrefetcher({ ctx }: { ctx: ReaderPluginContext }) {
   const enabled = useDualReadStore((s) => s.enabled);
   const seedPair = useDualReadStore((s) => s.seedPair);
-  const pageOffset = useDualReadStore((s) => s.pageOffset);
   const driftDeltaByChapter = useDualReadStore((s) => s.driftDeltaByChapter);
   const primaryChapters = useDualReadStore((s) => s.primaryChapters);
   const secondaryChapters = useDualReadStore((s) => s.secondaryChapters);
@@ -1534,7 +1546,7 @@ function DualReadSecondaryPrefetcher({ ctx }: { ctx: ReaderPluginContext }) {
       const driftDelta = driftDeltaByChapter[meta.chapterId] ?? 0;
       const plan = secondaryRenderPlansByChapter[meta.chapterId]?.[meta.localIndex];
       if (plan && plan.secondaryChapterId === secondaryChapterId) {
-        if (plan.pageOffset === pageOffset && plan.driftDelta === driftDelta) {
+        if (plan.driftDelta === driftDelta) {
           if (plan.kind === 'missing') continue;
           if (plan.kind === 'merge') {
             for (const index of plan.secondaryIndices) {
@@ -1555,7 +1567,6 @@ function DualReadSecondaryPrefetcher({ ctx }: { ctx: ReaderPluginContext }) {
 
       const mappedIndex = mapSecondaryPageIndex({
         primaryIndex: meta.localIndex,
-        pageOffset,
         driftDelta,
       });
 
@@ -1577,7 +1588,6 @@ function DualReadSecondaryPrefetcher({ ctx }: { ctx: ReaderPluginContext }) {
     secondaryPagesByChapter,
     secondaryRenderPlansByChapter,
     driftDeltaByChapter,
-    pageOffset,
     ctx.getLoadedPageUrls,
     ctx.getPageMeta,
     loadedPageCount,
@@ -1587,80 +1597,20 @@ function DualReadSecondaryPrefetcher({ ctx }: { ctx: ReaderPluginContext }) {
   return null;
 }
 
-function DualReadNudgeBubble({
-  position,
-  onClose,
-}: {
-  position: DualReadFabPosition;
-  onClose: () => void;
-}) {
-  const offset = useDualReadStore((s) => s.pageOffset);
-  const setPageOffset = useDualReadStore((s) => s.setPageOffset);
-
-  const bubbleRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const handle = (event: MouseEvent) => {
-      if (!bubbleRef.current) return;
-      if (bubbleRef.current.contains(event.target as Node)) return;
-      onClose();
-    };
-    window.addEventListener('mousedown', handle);
-    return () => window.removeEventListener('mousedown', handle);
-  }, [onClose]);
-
-  const nextOffset = useCallback(
-    (delta: -1 | 1) => {
-      setPageOffset(applyNudge({ offset, delta }));
-    },
-    [offset, setPageOffset]
-  );
-
-  const bubbleOffset = 10;
-  const left =
-    position.side === 'left'
-      ? position.x + FAB_SIZE + bubbleOffset
-      : position.x - bubbleOffset - 120;
-
-  return createPortal(
-    <div
-      ref={bubbleRef}
-      className="fixed z-[70] rounded-xl reader-settings-popup px-3 py-2 shadow-lg"
-      style={{ left, top: position.y }}
-    >
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          className="h-8 w-8 rounded-lg reader-ui-bg-hover reader-ui-text-primary text-base font-semibold"
-          onClick={() => nextOffset(-1)}
-        >
-          -
-        </button>
-        <div className="text-xs reader-ui-text-secondary min-w-[48px] text-center">
-          Offset {offset}
-        </div>
-        <button
-          type="button"
-          className="h-8 w-8 rounded-lg reader-ui-bg-hover reader-ui-text-primary text-base font-semibold"
-          onClick={() => nextOffset(1)}
-        >
-          +
-        </button>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
 export function DualReadFab() {
+  const { t } = useTranslation();
+  const tr = useCallback((key: string) => t(`plugin.dualRead.${key}`), [t]);
   const enabled = useDualReadStore((s) => s.enabled);
-  const nudgeOpen = useDualReadStore((s) => s.nudgeOpen);
+  const activeSide = useDualReadStore((s) => s.activeSide);
   const fabPosition = useDualReadStore((s) => s.fabPosition);
   const setFabPosition = useDualReadStore((s) => s.setFabPosition);
   const setPeekActive = useDualReadStore((s) => s.setPeekActive);
-  const setNudgeOpen = useDualReadStore((s) => s.setNudgeOpen);
+  const setActiveSide = useDualReadStore((s) => s.setActiveSide);
 
   const [dragPos, setDragPos] = useState<DualReadFabPosition | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isPressing, setIsPressing] = useState(false);
+  const [isHolding, setIsHolding] = useState(false);
   const holdTimerRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
   const holdActiveRef = useRef(false);
@@ -1713,7 +1663,8 @@ export function DualReadFab() {
     (event: React.PointerEvent<HTMLButtonElement>) => {
       event.preventDefault();
       event.stopPropagation();
-      setNudgeOpen(false);
+      setIsPressing(true);
+      setIsHolding(false);
       isDraggingRef.current = false;
       holdActiveRef.current = false;
       pointerStartRef.current = {
@@ -1724,16 +1675,15 @@ export function DualReadFab() {
       };
 
       clearHoldTimer();
-      if (enabled) {
-        holdTimerRef.current = window.setTimeout(() => {
-          holdActiveRef.current = true;
-          setPeekActive(true);
-        }, HOLD_DELAY_MS);
-      }
+      holdTimerRef.current = window.setTimeout(() => {
+        holdActiveRef.current = true;
+        setIsHolding(true);
+        setPeekActive(true);
+      }, HOLD_DELAY_MS);
 
       event.currentTarget.setPointerCapture(event.pointerId);
     },
-    [enabled, fabPosition, dragPos, setNudgeOpen, setPeekActive, clearHoldTimer]
+    [fabPosition, dragPos, setPeekActive, clearHoldTimer]
   );
 
   const handlePointerMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
@@ -1742,9 +1692,12 @@ export function DualReadFab() {
     const dy = event.clientY - pointerStartRef.current.y;
     if (!isDraggingRef.current && Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) {
       isDraggingRef.current = true;
+      setIsDragging(true);
+      setIsPressing(false);
       clearHoldTimer();
       if (holdActiveRef.current) {
         holdActiveRef.current = false;
+        setIsHolding(false);
         setPeekActive(false);
       }
     }
@@ -1769,28 +1722,45 @@ export function DualReadFab() {
         setDragPos(null);
       } else if (holdActiveRef.current) {
         holdActiveRef.current = false;
+        setIsHolding(false);
         setPeekActive(false);
-      } else {
-        setNudgeOpen(!nudgeOpen);
+      } else if (enabled) {
+        const nextSide = activeSide === 'primary' ? 'secondary' : 'primary';
+        setActiveSide(nextSide);
       }
 
       isDraggingRef.current = false;
       pointerStartRef.current = null;
+      setIsDragging(false);
+      setIsPressing(false);
       try {
         event.currentTarget.releasePointerCapture(event.pointerId);
       } catch {
         // ignore
       }
     },
-    [clearHoldTimer, dragPos, enabled, nudgeOpen, setFabPosition, setNudgeOpen, setPeekActive, snapToEdge]
+    [
+      clearHoldTimer,
+      dragPos,
+      enabled,
+      activeSide,
+      setActiveSide,
+      setFabPosition,
+      setPeekActive,
+      snapToEdge,
+    ]
   );
 
   const handlePointerCancel = useCallback(() => {
     clearHoldTimer();
     if (holdActiveRef.current) setPeekActive(false);
+    holdActiveRef.current = false;
     isDraggingRef.current = false;
     pointerStartRef.current = null;
     setDragPos(null);
+    setIsDragging(false);
+    setIsPressing(false);
+    setIsHolding(false);
   }, [clearHoldTimer, setPeekActive]);
 
   useEffect(() => {
@@ -1805,26 +1775,37 @@ export function DualReadFab() {
   if (!enabled || !fabPosition) return null;
 
   const displayPos = dragPos ?? fabPosition;
+  const scaleClass = isHolding ? 'scale-[0.92]' : isPressing ? 'scale-[0.96]' : '';
+  const motionClass = isDragging
+    ? 'transition-none'
+    : 'transition-[left,top,transform,box-shadow,background-color] duration-200 ease-out';
 
   return (
-    <>
-      {createPortal(
-        <button
-          type="button"
-          className="fixed z-[70] size-12 rounded-full bg-white/85 text-black shadow-lg backdrop-blur-xl flex items-center justify-center"
-          style={{ left: displayPos.x, top: displayPos.y }}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerCancel}
-          aria-label="Dual Read Peek"
-        >
-          <HugeiconsIcon icon={Copy02Icon} className="size-5" />
-        </button>,
-        document.body
-      )}
-      {nudgeOpen && <DualReadNudgeBubble position={displayPos} onClose={() => setNudgeOpen(false)} />}
-    </>
+    createPortal(
+      <button
+        type="button"
+        className={`fixed z-[70] size-12 !rounded-full reader-settings-popup shadow-lg flex items-center justify-center reader-ui-text-primary ${motionClass} ${scaleClass}`}
+        style={{ left: displayPos.x, top: displayPos.y }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        aria-label={tr('fab.label')}
+      >
+        <span
+          className={`pointer-events-none absolute inset-0 rounded-full border border-black/10 dark:border-white/15 transition-opacity duration-200 ${
+            isPressing || isHolding ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+        <span
+          className={`pointer-events-none absolute inset-0 rounded-full bg-black/5 dark:bg-white/10 transition-all duration-300 ${
+            isHolding ? 'opacity-100 scale-110' : 'opacity-0 scale-95'
+          }`}
+        />
+        <HugeiconsIcon icon={Copy02Icon} className="size-5" />
+      </button>,
+      document.body
+    )
   );
 }
 
@@ -1835,17 +1816,21 @@ export function DualReadReaderOverlay({ ctx }: { ctx: ReaderPluginContext }) {
       <DualReadSessionManager ctx={ctx} />
       <DualReadSecondaryPrefetcher ctx={ctx} />
       <DualReadAutoAligner ctx={ctx} />
+      <DualReadConfigDialog ctx={ctx} />
       {enabled && <DualReadFab />}
     </>
   );
 }
 
 export function DualReadOverlay({ pageIndex, ctx }: { pageIndex: number; ctx: ReaderPluginContext }) {
+  const { t } = useTranslation();
+  const tr = useCallback((key: string, options?: Record<string, unknown>) => {
+    return t(`plugin.dualRead.${key}`, options);
+  }, [t]);
   const enabled = useDualReadStore((s) => s.enabled);
   const activeSide = useDualReadStore((s) => s.activeSide);
   const peekActive = useDualReadStore((s) => s.peekActive);
   const seedPair = useDualReadStore((s) => s.seedPair);
-  const pageOffset = useDualReadStore((s) => s.pageOffset);
   const driftDeltaByChapter = useDualReadStore((s) => s.driftDeltaByChapter);
   const primaryChapters = useDualReadStore((s) => s.primaryChapters);
   const secondaryChapters = useDualReadStore((s) => s.secondaryChapters);
@@ -1884,10 +1869,9 @@ export function DualReadOverlay({ pageIndex, ctx }: { pageIndex: number; ctx: Re
     const driftDelta = meta.chapterId ? driftDeltaByChapter[meta.chapterId] ?? 0 : 0;
     return mapSecondaryPageIndex({
       primaryIndex: meta.localIndex,
-      pageOffset,
       driftDelta,
     });
-  }, [meta, pageOffset, driftDeltaByChapter]);
+  }, [meta, driftDeltaByChapter]);
 
   const renderPlan = useMemo(() => {
     if (!meta || meta.kind !== 'page' || meta.localIndex == null || !meta.chapterId) return null;
@@ -1896,9 +1880,9 @@ export function DualReadOverlay({ pageIndex, ctx }: { pageIndex: number; ctx: Re
     if (!plan) return null;
     if (plan.secondaryChapterId !== secondaryChapterId) return null;
     const driftDelta = driftDeltaByChapter[meta.chapterId] ?? 0;
-    if (plan.pageOffset !== pageOffset || plan.driftDelta !== driftDelta) return null;
+    if (plan.driftDelta !== driftDelta) return null;
     return plan;
-  }, [meta, secondaryChapterId, secondaryRenderPlansByChapter, driftDeltaByChapter, pageOffset]);
+  }, [meta, secondaryChapterId, secondaryRenderPlansByChapter, driftDeltaByChapter]);
 
   const secondaryPages = secondaryChapterId ? secondaryPagesByChapter[secondaryChapterId] : undefined;
   const clampedIndex = secondaryPages && mappedIndex != null ? clampIndex(mappedIndex, secondaryPages.length) : null;
@@ -1960,10 +1944,8 @@ export function DualReadOverlay({ pageIndex, ctx }: { pageIndex: number; ctx: Re
             isGlobal && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="rounded-2xl bg-black/70 px-4 py-3 text-white text-sm text-center max-w-[260px]">
-                  <div>Unavailable for this chapter.</div>
-                  <div className="mt-2 text-xs text-white/80">
-                    Open the <span className="font-semibold">Dual Read</span> popover to realign chapters.
-                  </div>
+                  <div>{tr('overlay.unavailableTitle')}</div>
+                  <div className="mt-2 text-xs text-white/80">{tr('overlay.unavailableHint')}</div>
                 </div>
               </div>
             )

@@ -493,6 +493,48 @@
       "errors": {
         "outOfMemory": "メモリ不足です。テキスト検出にはこのアプリモードで利用可能な以上のメモリが必要です。Safariでnemuを開いてください。"
       }
+    },
+    "dualRead": {
+      "name": "Dual Read",
+      "description": "リンク済みの2つのソースを素早く切り替えて同じマンガを読めます。",
+      "navbarLabel": "Dual Read",
+      "popover": {
+        "noLinkedSources": "リンクされたソースが見つかりません。",
+        "linkSecondary": "2つ目のソースをリンクしてDual Readを有効にします。",
+        "actionLabel": "Dual Read...",
+        "secondaryLabel": "セカンダリ",
+        "chapterLabel": "章",
+        "chapterPair": "章: {{primary}} <-> {{secondary}}",
+        "unpaired": "この章は未ペアです",
+        "loadingPairing": "章のペアリングを読み込み中..."
+      },
+      "dialog": {
+        "title": "Dual Read",
+        "description": "セカンダリソースと章のペアを選択します。",
+        "noLinkedSources": "この作品にリンクされたソースが見つかりません。",
+        "secondarySource": "セカンダリソース",
+        "primaryChapter": "プライマリ章",
+        "secondaryChapter": "セカンダリ章",
+        "loadingPrimary": "読み込み中...",
+        "loadingChapters": "章を読み込み中...",
+        "chooseChapter": "章を選択",
+        "enable": "Dual Readを有効化",
+        "save": "保存",
+        "disable": "Dual Readを無効化",
+        "cancel": "キャンセル",
+        "close": "閉じる"
+      },
+      "overlay": {
+        "unavailableTitle": "この章では利用できません。",
+        "unavailableHint": "Dual Read... を開いて章を再調整してください。"
+      },
+      "fab": {
+        "label": "Dual Read"
+      },
+      "errors": {
+        "primaryUnavailable": "プライマリソースが利用できません。",
+        "secondaryUnavailable": "セカンダリソースが利用できません。"
+      }
     }
   },
   "welcome": {
@@ -517,4 +559,3 @@
     "startReading": "読み始める"
   }
 }
-
