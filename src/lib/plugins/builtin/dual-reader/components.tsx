@@ -2229,14 +2229,29 @@ export function DualReadFab({ ctx }: { ctx: ReaderPluginContext }) {
     ctx.getPageMeta,
   ]);
 
+  // Compute valid initial position synchronously to avoid springs starting at -100
+  const getValidInitialPosition = useCallback((): { x: number; y: number } => {
+    if (fabPosition) return { x: fabPosition.x, y: fabPosition.y };
+    if (typeof window === 'undefined') return { x: 0, y: 0 };
+    const width = window.innerWidth;
+    const height = window.visualViewport?.height ?? window.innerHeight;
+    return {
+      x: width - FAB_SIZE - FAB_MARGIN,
+      y: Math.max(FAB_MARGIN, Math.round(height * 0.4)),
+    };
+  }, [fabPosition]);
+
   // Spring-based scale for smooth animations that complete naturally
   // Higher stiffness + lower damping = more bounce
   const scale = useSpring(1, { stiffness: 500, damping: 15 });
-  const x = useSpring(fabPosition?.x ?? -100, { stiffness: 300, damping: 30 });
-  const y = useSpring(fabPosition?.y ?? -100, { stiffness: 300, damping: 30 });
+  const initialPos = getValidInitialPosition();
+  const x = useSpring(initialPos.x, { stiffness: 300, damping: 30 });
+  const y = useSpring(initialPos.y, { stiffness: 300, damping: 30 });
   
   // Track last known position to detect when we need to jump vs animate
   const lastPosRef = useRef<{ x: number; y: number } | null>(null);
+  // Track if springs have been properly initialized (needs state to trigger re-render)
+  const [springsInitialized, setSpringsInitialized] = useState(false);
 
   const clampPosition = useCallback((pos: DualReadFabPosition): DualReadFabPosition => {
     if (typeof window === 'undefined') return pos;
@@ -2425,7 +2440,8 @@ export function DualReadFab({ ctx }: { ctx: ReaderPluginContext }) {
   }, [fabPosition, clampPosition, setFabPosition]);
 
   // Sync spring position when fabPosition changes (not during drag)
-  useEffect(() => {
+  // Use useLayoutEffect to update springs BEFORE paint, preventing visible jump
+  useLayoutEffect(() => {
     if (!fabPosition || isDragging) return;
     
     const lastPos = lastPosRef.current;
@@ -2442,9 +2458,11 @@ export function DualReadFab({ ctx }: { ctx: ReaderPluginContext }) {
       y.set(fabPosition.y);
     }
     lastPosRef.current = { x: fabPosition.x, y: fabPosition.y };
-  }, [fabPosition, isDragging, x, y]);
+    if (!springsInitialized) setSpringsInitialized(true);
+  }, [fabPosition, isDragging, x, y, springsInitialized]);
 
-  if (!enabled || !fabPosition) return null;
+  // Don't render until springs are initialized to prevent flying from wrong position
+  if (!enabled || !fabPosition || !springsInitialized) return null;
 
   const isSecondary = activeSide === 'secondary';
 
