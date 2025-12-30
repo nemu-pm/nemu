@@ -1,3 +1,5 @@
+import { resizeLuma, toLuma } from './image';
+
 export type Dhash = { h: bigint; v: bigint };
 export type MultiDhash = {
   full: Dhash;
@@ -49,113 +51,70 @@ export function dhashDistance(a: Dhash, b: Dhash): number {
   return hammingDistance(a.h, b.h) + hammingDistance(a.v, b.v);
 }
 
-function toLuma(input: DhashInput): Uint8Array {
-  const channels = Math.max(1, Math.trunc(input.channels ?? 4));
-  const length = input.width * input.height;
-  const out = new Uint8Array(length);
-  const data = input.data;
-
-  if (channels === 1) {
-    for (let i = 0; i < length; i++) {
-      out[i] = data[i] ?? 0;
-    }
-    return out;
-  }
-
-  for (let i = 0; i < length; i++) {
-    const base = i * channels;
-    const r = data[base] ?? 0;
-    const g = data[base + 1] ?? 0;
-    const b = data[base + 2] ?? 0;
-    out[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-  }
-  return out;
-}
-
-function resizeLuma(luma: Uint8Array, width: number, height: number, targetW: number, targetH: number): Uint8Array {
-  const out = new Uint8Array(targetW * targetH);
-  const scaleX = width / targetW;
-  const scaleY = height / targetH;
-  for (let y = 0; y < targetH; y++) {
-    const srcY0 = Math.floor(y * scaleY);
-    const srcY1 = Math.min(height, Math.max(srcY0 + 1, Math.floor((y + 1) * scaleY)));
-    for (let x = 0; x < targetW; x++) {
-      const srcX0 = Math.floor(x * scaleX);
-      const srcX1 = Math.min(width, Math.max(srcX0 + 1, Math.floor((x + 1) * scaleX)));
-      let sum = 0;
-      let count = 0;
-      for (let yy = srcY0; yy < srcY1; yy++) {
-        const row = yy * width;
-        for (let xx = srcX0; xx < srcX1; xx++) {
-          sum += luma[row + xx] ?? 0;
-          count += 1;
-        }
-      }
-      out[y * targetW + x] = count > 0 ? Math.round(sum / count) : 0;
+function computeDhashFromLuma(luma: Uint8Array, width: number, height: number): Dhash {
+  const w = Math.max(1, Math.trunc(width));
+  const h = Math.max(1, Math.trunc(height));
+  const hBuf = resizeLuma(luma, w, h, 9, 8);
+  let hVal = 0n;
+  let bit = 0n;
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      const a = hBuf[y * 9 + x] ?? 0;
+      const b = hBuf[y * 9 + x + 1] ?? 0;
+      if (a > b) hVal |= 1n << bit;
+      bit += 1n;
     }
   }
-  return out;
+
+  const vBuf = resizeLuma(luma, w, h, 8, 9);
+  let vVal = 0n;
+  bit = 0n;
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      const a = vBuf[y * 8 + x] ?? 0;
+      const b = vBuf[(y + 1) * 8 + x] ?? 0;
+      if (a > b) vVal |= 1n << bit;
+      bit += 1n;
+    }
+  }
+
+  return { h: hVal, v: vVal };
 }
 
 export function computeDhash(input: DhashInput): Dhash {
   const width = Math.max(1, Math.trunc(input.width));
   const height = Math.max(1, Math.trunc(input.height));
   const luma = toLuma({ ...input, width, height });
-
-  const hBuf = resizeLuma(luma, width, height, 9, 8);
-  let h = 0n;
-  let bit = 0n;
-  for (let y = 0; y < 8; y++) {
-    for (let x = 0; x < 8; x++) {
-      const a = hBuf[y * 9 + x] ?? 0;
-      const b = hBuf[y * 9 + x + 1] ?? 0;
-      if (a > b) h |= 1n << bit;
-      bit += 1n;
-    }
-  }
-
-  const vBuf = resizeLuma(luma, width, height, 8, 9);
-  let v = 0n;
-  bit = 0n;
-  for (let y = 0; y < 8; y++) {
-    for (let x = 0; x < 8; x++) {
-      const a = vBuf[y * 8 + x] ?? 0;
-      const b = vBuf[(y + 1) * 8 + x] ?? 0;
-      if (a > b) v |= 1n << bit;
-      bit += 1n;
-    }
-  }
-
-  return { h, v };
+  return computeDhashFromLuma(luma, width, height);
 }
 
-function sliceImage(input: DhashInput, rect: { left: number; top: number; width: number; height: number }): DhashInput {
-  const channels = Math.max(1, Math.trunc(input.channels ?? 4));
-  const out = new Uint8Array(rect.width * rect.height * channels);
-  const data = input.data;
+function sliceLuma(
+  luma: Uint8Array,
+  width: number,
+  height: number,
+  rect: { left: number; top: number; width: number; height: number }
+): Uint8Array {
+  const out = new Uint8Array(rect.width * rect.height);
   for (let y = 0; y < rect.height; y++) {
     const srcY = rect.top + y;
-    if (srcY < 0 || srcY >= input.height) continue;
+    if (srcY < 0 || srcY >= height) continue;
+    const srcRow = srcY * width;
+    const dstRow = y * rect.width;
     for (let x = 0; x < rect.width; x++) {
       const srcX = rect.left + x;
-      if (srcX < 0 || srcX >= input.width) continue;
-      const srcIndex = (srcY * input.width + srcX) * channels;
-      const dstIndex = (y * rect.width + x) * channels;
-      for (let c = 0; c < channels; c++) {
-        out[dstIndex + c] = data[srcIndex + c] ?? 0;
-      }
+      if (srcX < 0 || srcX >= width) continue;
+      out[dstRow + x] = luma[srcRow + srcX] ?? 0;
     }
   }
-  return { data: out, width: rect.width, height: rect.height, channels };
+  return out;
 }
 
-function findContentRect(
-  input: DhashInput,
+function findContentRectFromLuma(
+  luma: Uint8Array,
+  width: number,
+  height: number,
   opts?: { threshold?: number; minFillRatio?: number; minAreaRatio?: number; maxInsetRatio?: number }
 ): { left: number; top: number; width: number; height: number } | null {
-  const width = Math.max(1, Math.trunc(input.width));
-  const height = Math.max(1, Math.trunc(input.height));
-  const luma = toLuma({ ...input, width, height });
   const threshold = opts?.threshold ?? 8;
   let minX = width;
   let minY = height;
@@ -190,40 +149,48 @@ function findContentRect(
 
 export function computeMultiDhash(
   input: DhashInput,
-  opts?: { split?: boolean; centerCropRatio?: number }
+  opts?: { split?: boolean; centerCropRatio?: number; luma?: Uint8Array }
 ): MultiDhash {
-  const full = computeDhash(input);
-  if (!opts?.split) return { full };
-
   const width = Math.max(1, Math.trunc(input.width));
   const height = Math.max(1, Math.trunc(input.height));
-  const trimRect = findContentRect(input);
+  const luma = opts?.luma ?? toLuma({ ...input, width, height });
+  const full = computeDhashFromLuma(luma, width, height);
+  if (!opts?.split) return { full };
+
+  const trimRect = findContentRectFromLuma(luma, width, height);
   const baseRect = trimRect ?? { left: 0, top: 0, width, height };
   const midX = Math.max(1, Math.floor(baseRect.width / 2));
   const midY = Math.max(1, Math.floor(baseRect.height / 2));
 
-  const left = computeDhash(
-    sliceImage(input, { left: baseRect.left, top: baseRect.top, width: midX, height: baseRect.height })
-  );
-  const right = computeDhash(
-    sliceImage(input, {
-      left: baseRect.left + midX,
-      top: baseRect.top,
-      width: baseRect.width - midX,
-      height: baseRect.height,
-    })
-  );
-  const top = computeDhash(
-    sliceImage(input, { left: baseRect.left, top: baseRect.top, width: baseRect.width, height: midY })
-  );
-  const bottom = computeDhash(
-    sliceImage(input, {
-      left: baseRect.left,
-      top: baseRect.top + midY,
-      width: baseRect.width,
-      height: baseRect.height - midY,
-    })
-  );
+  const leftLuma = sliceLuma(luma, width, height, {
+    left: baseRect.left,
+    top: baseRect.top,
+    width: midX,
+    height: baseRect.height,
+  });
+  const rightLuma = sliceLuma(luma, width, height, {
+    left: baseRect.left + midX,
+    top: baseRect.top,
+    width: baseRect.width - midX,
+    height: baseRect.height,
+  });
+  const topLuma = sliceLuma(luma, width, height, {
+    left: baseRect.left,
+    top: baseRect.top,
+    width: baseRect.width,
+    height: midY,
+  });
+  const bottomLuma = sliceLuma(luma, width, height, {
+    left: baseRect.left,
+    top: baseRect.top + midY,
+    width: baseRect.width,
+    height: baseRect.height - midY,
+  });
+
+  const left = computeDhashFromLuma(leftLuma, midX, baseRect.height);
+  const right = computeDhashFromLuma(rightLuma, baseRect.width - midX, baseRect.height);
+  const top = computeDhashFromLuma(topLuma, baseRect.width, midY);
+  const bottom = computeDhashFromLuma(bottomLuma, baseRect.width, baseRect.height - midY);
   let center: Dhash | undefined;
   if (typeof opts.centerCropRatio === 'number') {
     const ratio = Math.max(0.1, Math.min(1, opts.centerCropRatio));
@@ -231,10 +198,13 @@ export function computeMultiDhash(
     const cropH = Math.max(1, Math.floor(baseRect.height * ratio));
     const cropLeft = Math.max(0, Math.floor(baseRect.left + (baseRect.width - cropW) / 2));
     const cropTop = Math.max(0, Math.floor(baseRect.top + (baseRect.height - cropH) / 2));
-    center = computeDhash(sliceImage(input, { left: cropLeft, top: cropTop, width: cropW, height: cropH }));
+    const centerLuma = sliceLuma(luma, width, height, { left: cropLeft, top: cropTop, width: cropW, height: cropH });
+    center = computeDhashFromLuma(centerLuma, cropW, cropH);
   }
 
-  const trimmed = trimRect ? computeDhash(sliceImage(input, trimRect)) : undefined;
+  const trimmed = trimRect
+    ? computeDhashFromLuma(sliceLuma(luma, width, height, trimRect), trimRect.width, trimRect.height)
+    : undefined;
 
   return { full, left, right, top, bottom, center, trimmed };
 }

@@ -59,6 +59,8 @@ interface ReaderPluginProviderProps {
   pageCount: number
   chapterId: string
   mangaId: string
+  mangaTitle?: string | null
+  mangaGenres?: string[]
   sourceId: string
   registryId: string
   readingMode: 'rtl' | 'ltr' | 'scrolling'
@@ -66,8 +68,13 @@ interface ReaderPluginProviderProps {
   sourceLanguages: string[]
   /** Language code for the current chapter */
   chapterLanguage: string | null
+  chapterTitle?: string
+  chapterNumber?: number
+  volumeNumber?: number
+  currentChapterPageCount?: number
   // Page access
   getPageImageUrl: (pageIndex: number) => string | undefined
+  getPageImageBlob?: (pageIndex: number) => Promise<Blob | null>
   getLoadedPageUrls: () => Map<number, string>
   getPageMeta: (pageIndex: number) => {
     kind: 'page' | 'spacer'
@@ -82,6 +89,7 @@ interface ReaderPluginProviderProps {
     localIndex?: number
     key?: string
   }>
+  resolvePageIndex?: (pageNumber: number, chapterId?: string) => number | null
 }
 
 // ============================================================================
@@ -95,15 +103,23 @@ export function ReaderPluginProvider({
   pageCount,
   chapterId,
   mangaId,
+  mangaTitle,
+  mangaGenres,
   sourceId,
   registryId,
   readingMode,
   sourceLanguages,
   chapterLanguage,
+  chapterTitle,
+  chapterNumber,
+  volumeNumber,
+  currentChapterPageCount,
   getPageImageUrl,
+  getPageImageBlob,
   getLoadedPageUrls,
   getPageMeta,
   getVisiblePageMetas,
+  resolvePageIndex,
 }: ReaderPluginProviderProps) {
   const pluginsMap = usePluginRegistry((s) => s.plugins)
   const enabledState = usePluginRegistry((s) => s.enabledState)
@@ -149,15 +165,23 @@ export function ReaderPluginProvider({
       pageCount,
       chapterId,
       mangaId,
+      mangaTitle,
+      mangaGenres,
       sourceId,
       registryId,
       readingMode,
       sourceLanguages,
       chapterLanguage,
+      chapterTitle,
+      chapterNumber,
+      volumeNumber,
+      currentChapterPageCount,
       getPageImageUrl,
+      getPageImageBlob,
       getLoadedPageUrls,
       getPageMeta,
       getVisiblePageMetas,
+      resolvePageIndex,
       showDialog,
       hideDialog,
       showToast,
@@ -170,15 +194,23 @@ export function ReaderPluginProvider({
       pageCount,
       chapterId,
       mangaId,
+      mangaTitle,
+      mangaGenres,
       sourceId,
       registryId,
       readingMode,
       sourceLanguages,
       chapterLanguage,
+      chapterTitle,
+      chapterNumber,
+      volumeNumber,
+      currentChapterPageCount,
       getPageImageUrl,
+      getPageImageBlob,
       getLoadedPageUrls,
       getPageMeta,
       getVisiblePageMetas,
+      resolvePageIndex,
       showDialog,
       hideDialog,
       showToast,
@@ -380,15 +412,23 @@ const FALLBACK_CTX: ReaderPluginContext = {
   pageCount: 0,
   chapterId: '',
   mangaId: '',
+  mangaTitle: null,
+  mangaGenres: undefined,
   sourceId: '',
   registryId: '',
   readingMode: 'rtl',
   sourceLanguages: [],
   chapterLanguage: null,
+  chapterTitle: undefined,
+  chapterNumber: undefined,
+  volumeNumber: undefined,
+  currentChapterPageCount: undefined,
   getPageImageUrl: () => undefined,
+  getPageImageBlob: undefined,
   getLoadedPageUrls: EMPTY_MAP,
   getPageMeta: EMPTY_PAGE_META,
   getVisiblePageMetas: EMPTY_PAGE_METAS,
+  resolvePageIndex: undefined,
   showDialog: NOOP,
   hideDialog: NOOP,
   showToast: NOOP,

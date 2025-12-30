@@ -90,3 +90,7 @@ dev/extract-aidoku-source-authors.ts
 
 aidoku.config.json
 __pycache__
+
+# Debug pages (local dev only)
+src/pages/dual-read-debug.tsx
+public/dual-read-debug/

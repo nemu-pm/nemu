@@ -15,6 +15,8 @@ import type * as history from "../history.js";
 import type * as http from "../http.js";
 import type * as japanese_learning from "../japanese_learning.js";
 import type * as library from "../library.js";
+import type * as nemu_chat from "../nemu_chat.js";
+import type * as prompts_nemu_chat from "../prompts/nemu_chat.js";
 import type * as proxy from "../proxy.js";
 import type * as r2 from "../r2.js";
 import type * as settings from "../settings.js";
@@ -34,6 +36,8 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   japanese_learning: typeof japanese_learning;
   library: typeof library;
+  nemu_chat: typeof nemu_chat;
+  "prompts/nemu_chat": typeof prompts_nemu_chat;
   proxy: typeof proxy;
   r2: typeof r2;
   settings: typeof settings;

@@ -1156,6 +1156,7 @@ export function ReaderPage() {
           <img
             src={url}
             alt={`Page ${item.localIndex + 1}`}
+            data-reader-page-index={index}
             className={
               readingMode === "scrolling"
                 ? "block w-full h-auto object-contain"
@@ -1176,6 +1177,19 @@ export function ReaderPage() {
       return imageUrls.get(item.key);
     },
     [virtualItems, imageUrls]
+  );
+
+  const getPageImageBlob = useCallback(
+    async (pageIndex: number) => {
+      const item = virtualItems[pageIndex];
+      if (!item || item.kind !== "page") return null;
+      try {
+        return await item.page.getImage();
+      } catch {
+        return null;
+      }
+    },
+    [virtualItems]
   );
 
   const getLoadedPageUrls = useCallback(() => {
@@ -1207,6 +1221,23 @@ export function ReaderPage() {
       };
     },
     [virtualItems]
+  );
+
+  const resolvePageIndex = useCallback(
+    (pageNumber: number, chapterIdOverride?: string) => {
+      if (!Number.isFinite(pageNumber) || pageNumber < 1) return null;
+      const targetChapterId = chapterIdOverride ?? effectiveChapterId;
+      const localIndex = pageNumber - 1;
+      for (let i = 0; i < virtualItems.length; i += 1) {
+        const item = virtualItems[i];
+        if (item?.kind !== "page") continue;
+        if (item.chapterId === targetChapterId && item.localIndex === localIndex) {
+          return i;
+        }
+      }
+      return null;
+    },
+    [virtualItems, effectiveChapterId]
   );
 
   const getVisiblePageMetas = useCallback(() => {
@@ -1257,15 +1288,23 @@ export function ReaderPage() {
       pageCount={virtualItems.length}
       chapterId={effectiveChapterId}
       mangaId={mangaId}
+      mangaTitle={manga?.title ?? null}
+      mangaGenres={manga?.tags}
       sourceId={sourceId}
       registryId={registryId}
       readingMode={readingMode}
       sourceLanguages={sourceLanguages}
       chapterLanguage={chapterLanguage}
+      chapterTitle={effectiveChapter?.title}
+      chapterNumber={effectiveChapter?.chapterNumber}
+      volumeNumber={effectiveChapter?.volumeNumber}
+      currentChapterPageCount={effectiveChapterPages.length}
       getPageImageUrl={getPageImageUrl}
+      getPageImageBlob={getPageImageBlob}
       getLoadedPageUrls={getLoadedPageUrls}
       getPageMeta={getPageMeta}
       getVisiblePageMetas={getVisiblePageMetas}
+      resolvePageIndex={resolvePageIndex}
     >
     <div className="h-dvh w-screen bg-black relative overflow-hidden reader-lock-scroll" style={fullscreenStyle}>
       {/* Floating Top Bar */}
@@ -1403,7 +1442,7 @@ export function ReaderPage() {
                   settingsOpen ? "reader-ui-bg-hover reader-ui-text-primary" : ""
                 }`}
               >
-                <HugeiconsIcon icon={Settings02Icon} className="size-4" />
+                <HugeiconsIcon icon={Settings02Icon} className="size-5" />
               </PopoverTrigger>
               <PopoverContent
                 side="top"

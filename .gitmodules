@@ -7,3 +7,6 @@
 [submodule "vendor/mihonapp/mihon"]
 	path = vendor/mihonapp/mihon
 	url = https://github.com/mihonapp/mihon.git
+[submodule "vendor/vaul"]
+	path = vendor/vaul
+	url = https://github.com/TigerHix/vaul.git

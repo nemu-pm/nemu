@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Chapter, Page } from '@/lib/sources/types';
 import type { LocalSourceLink } from '@/data/schema';
-import type { ChapterPairSeed, SecondaryRenderPlan } from '@/lib/dual-reader/types';
+import type { ChapterPairSeed, SecondaryAlignment, SecondaryRenderPlan } from '@/lib/dual-reader/types';
 import { createPluginStorage } from '../../types';
 
 const storage = createPluginStorage('dual-reader');
@@ -33,6 +33,7 @@ type DualReadState = {
   secondaryImageUrls: Map<string, string>;
   loadingSecondaryKeys: Set<string>;
   secondaryRenderPlansByChapter: Record<string, Record<number, SecondaryRenderPlan>>;
+  secondaryAlignmentByChapter: Record<string, { secondaryChapterId: string; byPage: Record<number, SecondaryAlignment> }>;
 
   fabPosition: DualReadFabPosition | null;
 
@@ -67,6 +68,13 @@ type DualReadState = {
   clearSecondaryCache: () => void;
   setSecondaryRenderPlan: (chapterId: string, primaryIndex: number, plan: SecondaryRenderPlan) => void;
   clearSecondaryRenderPlans: (chapterId?: string) => void;
+  setSecondaryAlignment: (
+    chapterId: string,
+    secondaryChapterId: string,
+    primaryIndex: number,
+    alignment: SecondaryAlignment
+  ) => void;
+  clearSecondaryAlignment: (chapterId?: string) => void;
 
   setFabPosition: (pos: DualReadFabPosition | null) => void;
 };
@@ -153,6 +161,7 @@ function getInitialState() {
     secondaryImageUrls: new Map<string, string>(),
     loadingSecondaryKeys: new Set<string>(),
     secondaryRenderPlansByChapter: {},
+    secondaryAlignmentByChapter: {},
     fabPosition: null,
   };
 }
@@ -194,6 +203,7 @@ export const useDualReadStore = create<DualReadState>((set, get) => ({
       secondaryImageUrls: new Map(),
       loadingSecondaryKeys: new Set(),
       secondaryRenderPlansByChapter: {},
+      secondaryAlignmentByChapter: {},
     }));
   },
 
@@ -237,6 +247,7 @@ export const useDualReadStore = create<DualReadState>((set, get) => ({
       secondaryImageUrls: new Map(),
       loadingSecondaryKeys: new Set(),
       secondaryRenderPlansByChapter: {},
+      secondaryAlignmentByChapter: {},
     });
     persistConfig(get());
   },
@@ -250,7 +261,7 @@ export const useDualReadStore = create<DualReadState>((set, get) => ({
   setConfigOpen: (open) => set({ configOpen: open }),
 
   setSeedPair: (seedPair) => {
-    set({ seedPair, secondaryRenderPlansByChapter: {}, driftDeltaByChapter: {} });
+    set({ seedPair, secondaryRenderPlansByChapter: {}, secondaryAlignmentByChapter: {}, driftDeltaByChapter: {} });
     persistConfig(get());
   },
   setDriftDelta: (chapterId, delta) =>
@@ -280,6 +291,7 @@ export const useDualReadStore = create<DualReadState>((set, get) => ({
       secondaryImageUrls: new Map(),
       loadingSecondaryKeys: new Set(),
       secondaryRenderPlansByChapter: {},
+      secondaryAlignmentByChapter: {},
     });
   },
 
@@ -304,6 +316,32 @@ export const useDualReadStore = create<DualReadState>((set, get) => ({
         next[chapterId] = {};
       }
       return { secondaryRenderPlansByChapter: next };
+    }),
+
+  setSecondaryAlignment: (chapterId, secondaryChapterId, primaryIndex, alignment) =>
+    set((state) => {
+      const existing = state.secondaryAlignmentByChapter[chapterId];
+      const byPage =
+        existing && existing.secondaryChapterId === secondaryChapterId ? { ...existing.byPage } : {};
+      byPage[primaryIndex] = alignment;
+      return {
+        secondaryAlignmentByChapter: {
+          ...state.secondaryAlignmentByChapter,
+          [chapterId]: { secondaryChapterId, byPage },
+        },
+      };
+    }),
+
+  clearSecondaryAlignment: (chapterId) =>
+    set((state) => {
+      if (!chapterId) {
+        return { secondaryAlignmentByChapter: {} };
+      }
+      const next = { ...state.secondaryAlignmentByChapter };
+      if (next[chapterId]) {
+        delete next[chapterId];
+      }
+      return { secondaryAlignmentByChapter: next };
     }),
 
   setFabPosition: (pos) => {

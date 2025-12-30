@@ -77,6 +77,10 @@ async function normalizeText(text: string): Promise<NormalizeResult> {
 
 function getInitialSettings(): TextDetectorSettings {
   const raw = (storage.get<Record<string, unknown>>('settings') ?? {}) as Record<string, unknown>
+  const nemuResponseMode =
+    raw.nemuResponseMode === 'app' || raw.nemuResponseMode === 'jlpt'
+      ? raw.nemuResponseMode
+      : DEFAULT_SETTINGS.nemuResponseMode
   return {
     autoDetect: typeof raw.autoDetect === 'boolean' ? raw.autoDetect : DEFAULT_SETTINGS.autoDetect,
     enableForAllLanguages:
@@ -84,6 +88,7 @@ function getInitialSettings(): TextDetectorSettings {
         ? raw.enableForAllLanguages
         : DEFAULT_SETTINGS.enableForAllLanguages,
     minConfidence: typeof raw.minConfidence === 'number' ? raw.minConfidence : DEFAULT_SETTINGS.minConfidence,
+    nemuResponseMode,
   }
 }
 
@@ -121,7 +126,10 @@ export function disposeWorker() {
 interface GrammarAnalysisState {
   tokens: GrammarToken[]
   loading: boolean
+  stage: 'idle' | 'normalizing' | 'tokenizing' | 'done' | 'error'
+  normalizedText: string | null
   error: string | null
+  requestId: number
 }
 
 export interface TranscriptSelection {
@@ -193,6 +201,7 @@ interface TextDetectorState {
 }
 
 export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
+  // NOTE: grammar analysis is async + cancellable; see startGrammarAnalysis() below.
   settings: initialSettings,
   detections: new Map(),
   transcripts: new Map(),
@@ -207,7 +216,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
   transcriptSelection: null,
   boxSelection: null,
   boxPopout: null,
-  grammarAnalysis: { tokens: [], loading: false, error: null },
+  grammarAnalysis: { tokens: [], loading: false, stage: 'idle', normalizedText: null, error: null, requestId: 0 },
 
   setSettings: (partial) => {
     const settings = { ...get().settings, ...partial }
@@ -217,6 +226,10 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
 
   clearDetections: (pageIndex) => {
     if (pageIndex === undefined) {
+      // Cancel any in-flight grammar analysis.
+      grammarAbortController?.abort()
+      grammarAbortController = null
+
       const prev = get().boxPopout?.croppedImageUrl
       if (prev && typeof window !== 'undefined') URL.revokeObjectURL(prev)
       set({
@@ -232,7 +245,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
         transcriptSelection: null,
         boxSelection: null,
         boxPopout: null,
-        grammarAnalysis: { tokens: [], loading: false, error: null },
+        grammarAnalysis: { tokens: [], loading: false, stage: 'idle', normalizedText: null, error: null, requestId: 0 },
       })
       return
     }
@@ -278,6 +291,10 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
 
   setHoveredLine: (line) => set({ hoveredLine: line }),
 
+  // --------------------------------------------------------------------------
+  // Grammar analysis: normalize (Convex) → tokenize (Ichiran) → GrammarTokens
+  // --------------------------------------------------------------------------
+
   openOcrSheetFromTranscript: (pageIndex, line, opts) => {
     const preserve = !!opts?.preserveBoxPopout
     if (!preserve) {
@@ -291,23 +308,11 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
       boxSelection: null,
       ...(preserve ? {} : { boxPopout: null }),
       ocrResult: { text: line.text, loading: false, error: null },
-      grammarAnalysis: { tokens: [], loading: false, error: null },
+      // Clear any previous analysis results immediately; async analysis starts below.
+      grammarAnalysis: { tokens: [], loading: false, stage: 'idle', normalizedText: null, error: null, requestId: get().grammarAnalysis.requestId },
     })
 
-    ;(async () => {
-      try {
-        const text = line.text?.trim()
-        if (!text) return
-        set({ grammarAnalysis: { ...get().grammarAnalysis, loading: true, error: null } })
-        const { normalized, properNouns } = await normalizeText(text)
-        const resp = await tokenize(normalized, 5, undefined, properNouns)
-        const tokens = convertIchiranToGrammarTokens(resp.tokens)
-        set({ grammarAnalysis: { tokens, loading: false, error: null } })
-      } catch (err) {
-        console.error('[JapaneseLearning] ichiran analysis failed:', err)
-        set({ grammarAnalysis: { ...get().grammarAnalysis, loading: false, error: 'Analysis failed' } })
-      }
-    })()
+    startGrammarAnalysis(line.text)
   },
 
   openOcrSheetFromBox: (pageIndex, box, clickPosition) => {
@@ -326,28 +331,17 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
       ocrResult: hit
         ? { text: hit.text, loading: false, error: null }
         : { text: '', loading: true, error: null },
-      grammarAnalysis: { tokens: [], loading: false, error: null },
+      grammarAnalysis: { tokens: [], loading: false, stage: 'idle', normalizedText: null, error: null, requestId: get().grammarAnalysis.requestId },
     })
 
-    if (hit?.text?.trim()) {
-      // Load ichiran immediately (same as transcript-click).
-      ;(async () => {
-        try {
-          set({ grammarAnalysis: { ...get().grammarAnalysis, loading: true, error: null } })
-          const text = hit.text.trim()
-          const { normalized, properNouns } = await normalizeText(text)
-          const resp = await tokenize(normalized, 5, undefined, properNouns)
-          const tokens = convertIchiranToGrammarTokens(resp.tokens)
-          set({ grammarAnalysis: { tokens, loading: false, error: null } })
-        } catch (err) {
-          console.error('[JapaneseLearning] ichiran analysis failed:', err)
-          set({ grammarAnalysis: { ...get().grammarAnalysis, loading: false, error: 'Analysis failed' } })
-        }
-      })()
-    }
+    startGrammarAnalysis(hit?.text)
   },
 
   closeOcrSheet: () => {
+    // Cancel any in-flight grammar analysis.
+    grammarAbortController?.abort()
+    grammarAbortController = null
+
     const prev = get().boxPopout?.croppedImageUrl
     if (prev && typeof window !== 'undefined') URL.revokeObjectURL(prev)
     set({
@@ -356,7 +350,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
       transcriptSelection: null,
       boxSelection: null,
       boxPopout: null,
-      grammarAnalysis: { tokens: [], loading: false, error: null },
+      grammarAnalysis: { tokens: [], loading: false, stage: 'idle', normalizedText: null, error: null, requestId: get().grammarAnalysis.requestId },
     })
   },
 
@@ -503,3 +497,85 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
     })()
   },
 }))
+
+// ============================================================================
+// Grammar analysis (module-level cancellable state)
+// ============================================================================
+
+let grammarAbortController: AbortController | null = null
+let grammarRequestSeq = 0
+
+function startGrammarAnalysis(text: string | undefined | null) {
+  const clean = (text ?? '').trim()
+  if (!clean) return
+
+  // Cancel previous request (best effort). We ignore late arrivals via requestId too.
+  grammarAbortController?.abort()
+  const controller = new AbortController()
+  grammarAbortController = controller
+
+  const store = useTextDetectorStore.getState()
+  const requestId = ++grammarRequestSeq
+
+  store.setHoveredLine(null)
+  ;(async () => {
+    // Stage 1: normalization (Convex)
+    useTextDetectorStore.setState({
+      grammarAnalysis: {
+        tokens: [],
+        loading: true,
+        stage: 'normalizing',
+        normalizedText: null,
+        error: null,
+        requestId,
+      },
+    })
+
+    try {
+      const { normalized, properNouns } = await normalizeText(clean)
+
+      // Ignore stale results.
+      if (useTextDetectorStore.getState().grammarAnalysis.requestId !== requestId) return
+
+      useTextDetectorStore.setState({
+        grammarAnalysis: {
+          ...useTextDetectorStore.getState().grammarAnalysis,
+          stage: 'tokenizing',
+          normalizedText: normalized,
+          error: null,
+        },
+      })
+
+      // Stage 2: Ichiran tokenization
+      if (controller.signal.aborted) return
+      const resp = await tokenize(normalized, 5, controller.signal, properNouns)
+
+      if (useTextDetectorStore.getState().grammarAnalysis.requestId !== requestId) return
+
+      const tokens = convertIchiranToGrammarTokens(resp.tokens)
+      useTextDetectorStore.setState({
+        grammarAnalysis: {
+          tokens,
+          loading: false,
+          stage: 'done',
+          normalizedText: normalized,
+          error: null,
+          requestId,
+        },
+      })
+    } catch (err) {
+      // If aborted, do nothing (a newer request started).
+      if (err instanceof Error && err.name === 'AbortError') return
+      if (useTextDetectorStore.getState().grammarAnalysis.requestId !== requestId) return
+      console.error('[JapaneseLearning] ichiran analysis failed:', err)
+      useTextDetectorStore.setState({
+        grammarAnalysis: {
+          ...useTextDetectorStore.getState().grammarAnalysis,
+          loading: false,
+          stage: 'error',
+          error: 'Analysis failed',
+        },
+      })
+    }
+  })()
+}

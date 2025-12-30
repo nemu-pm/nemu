@@ -51,3 +51,11 @@ export type SecondaryRenderPlan =
       secondaryChapterId: string;
       driftDelta: number;
     };
+
+export type SecondaryAlignment = {
+  crop: { top: number; right: number; bottom: number; left: number };
+  scale: number;
+  dx: number;
+  dy: number;
+  confidence: number;
+};

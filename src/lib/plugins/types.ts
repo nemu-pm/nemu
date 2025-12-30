@@ -31,6 +31,10 @@ export interface ReaderPluginContext {
   pageCount: number
   chapterId: string
   mangaId: string
+  /** Optional display title for current manga */
+  mangaTitle?: string | null
+  /** Optional genre/tags for the current manga */
+  mangaGenres?: string[]
   sourceId: string
   registryId: string
   readingMode: 'rtl' | 'ltr' | 'scrolling'
@@ -38,10 +42,20 @@ export interface ReaderPluginContext {
   sourceLanguages: string[]
   /** Language code for the current chapter (e.g., "ja", "en"). */
   chapterLanguage: string | null
+  /** Optional display title for current chapter */
+  chapterTitle?: string
+  /** Optional chapter number for current chapter */
+  chapterNumber?: number
+  /** Optional volume number for current chapter */
+  volumeNumber?: number
+  /** Optional page count for current chapter */
+  currentChapterPageCount?: number
 
   // Page access
   /** Get blob URL for a page image (if loaded) */
   getPageImageUrl: (pageIndex: number) => string | undefined
+  /** Get an image blob for a page (may fetch on demand) */
+  getPageImageBlob?: (pageIndex: number) => Promise<Blob | null>
   /** Get all currently loaded page URLs */
   getLoadedPageUrls: () => Map<number, string>
   /** Get metadata for a virtual page index */
@@ -51,6 +65,8 @@ export interface ReaderPluginContext {
     localIndex?: number
     key?: string
   } | null
+  /** Resolve a 1-indexed local page number to a virtual page index */
+  resolvePageIndex?: (pageNumber: number, chapterId?: string) => number | null
   /** Convenience: metadata for all visible pages */
   getVisiblePageMetas: () => Array<{
     pageIndex: number
@@ -103,6 +119,8 @@ export interface NavbarAction {
   isDisabled?: (ctx: ReaderPluginContext) => boolean
   /** Whether action should be visible (return false to hide) */
   isVisible?: (ctx: ReaderPluginContext) => boolean
+  /** Hook to get visibility state (must be a React hook) - takes precedence over isVisible */
+  useIsVisible?: () => boolean
   /** Hook to get loading state (must be a React hook) */
   useIsLoading?: () => boolean
   /** Optional popover content to show (controlled by usePopoverOpen hook) */

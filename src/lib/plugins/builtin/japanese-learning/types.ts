@@ -23,6 +23,8 @@ export interface TextDetectorSettings {
   enableForAllLanguages: boolean
   /** Minimum confidence threshold */
   minConfidence: number
+  /** Nemu response mode */
+  nemuResponseMode: 'app' | 'jlpt'
 }
 
 /** OCR result from AI */
@@ -54,4 +56,5 @@ export const DEFAULT_SETTINGS: TextDetectorSettings = {
   autoDetect: false,
   enableForAllLanguages: false,
   minConfidence: 0.25,
+  nemuResponseMode: 'app',
 }

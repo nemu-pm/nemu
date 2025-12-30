@@ -1,18 +1,17 @@
 import { v } from "convex/values"
 import { action } from "./_generated/server"
-import { createOpenRouter } from "@openrouter/ai-sdk-provider"
-import { generateObject } from "ai"
+import { createGateway, generateObject } from "ai"
 import { z } from "zod"
 
-function getOpenRouter() {
-  const apiKey = process.env.OPENROUTER_API_KEY
+function getGateway() {
+  const apiKey = process.env.AI_GATEWAY_API_KEY
   if (!apiKey) {
-    throw new Error("OPENROUTER_API_KEY environment variable is not set. Add it via: npx convex env set OPENROUTER_API_KEY <key>")
+    throw new Error("AI_GATEWAY_API_KEY environment variable is not set. Add it via: npx convex env set AI_GATEWAY_API_KEY <key>")
   }
-  return createOpenRouter({ apiKey })
+  return createGateway({ apiKey })
 }
 
-const MODEL = "google/gemini-3-flash-preview"
+const MODEL = "anthropic/claude-haiku-4.5"
 
 async function withRetries<T>(fn: () => Promise<T>, maxRetries: number): Promise<T> {
   let lastErr: unknown = null
@@ -38,14 +37,14 @@ export const normalize = action({
     text: v.string(),
   },
   handler: async (_, { text }) => {
-    const openrouter = getOpenRouter()
+    const gateway = getGateway()
     const clean = (text ?? "").trim()
     if (!clean) return { normalized: "", proper_nouns: [] as string[] }
 
     const run = async () => {
       console.log("[japanese-learning.normalize] start", { len: clean.length })
       const { object } = await generateObject({
-        model: openrouter(MODEL),
+        model: gateway(MODEL),
         schema: z.object({
           normalized: z
             .string()
@@ -56,7 +55,8 @@ Normalized Japanese text with natural 、(touten) placement.
 - Do NOT tokenize every word; keep it natural.
 - Do NOT add 、around existing punctuation (。！？、).
 - Do NOT add copulas or endings (no だ／です／だよ).
-- Remove stutters/fillers (ぼ、ぼく→ぼく; あ、あの→あの; drop えっと／あのー／うーん).
+- Remove stutters only (ぼ、ぼく→ぼく; あ、あの→あの), but do NOT remove discourse/filler words like あの／えっと.
+- If elongation is present, normalize it without deleting the word (あのー→あの; えっとー→えっと).
 - Collapse emphasis (ー/〜/repeated っ・kana).
 - Reduce repeats (!!!→! ???→? ……→……).
 - Dialect → standard Japanese (no appended copulas).
@@ -87,7 +87,9 @@ Normalize the Japanese text and extract proper nouns.
 
 NORMALIZATION:
 - Add 、only where natural (clause breaks, after は/も topic markers, before conjunctions). NOT between every word.
-- Clean stutters/fillers, collapse emphasis, reduce excessive punctuation.
+- Clean stutters (e.g. あ、あの→あの) but do NOT remove filler/discourse words like あの／えっと.
+- If elongation is present, normalize it without deleting the word (あのー→あの; えっとー→えっと).
+- Collapse emphasis, reduce excessive punctuation.
 - Keep the original meaning; no paraphrasing.
 - Single line, no newlines.
 

@@ -34,6 +34,8 @@ import { SearchPage } from "./pages/search";
 import { SettingsPage } from "./pages/settings";
 import { MangaPage } from "./pages/manga";
 import { ReaderPage } from "./pages/reader";
+import { DebugDrawerScrollPage } from "./pages/debug-drawer-scroll";
+import { lazy, Suspense } from "react";
 
 // Router context type - passed from provider
 export interface RouterContext {
@@ -271,6 +273,26 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
+// Debug route - file is gitignored, only works locally when present
+const debugPageModules = import.meta.glob<{ DualReadDebugPage: React.ComponentType }>(
+  "./pages/dual-read-debug.tsx"
+);
+const debugPageLoader = debugPageModules["./pages/dual-read-debug.tsx"];
+const LazyDualReadDebugPage = debugPageLoader
+  ? lazy(() => debugPageLoader().then((m) => ({ default: m.DualReadDebugPage })))
+  : null;
+const dualReadDebugRoute = LazyDualReadDebugPage
+  ? createRoute({
+      getParentRoute: () => shellRoute,
+      path: "/debug/dual-read",
+      component: () => (
+        <Suspense fallback={<div className="p-8 text-white/50">Loading debug page...</div>}>
+          <LazyDualReadDebugPage />
+        </Suspense>
+      ),
+    })
+  : null;
+
 // Browse routes - layout pattern with index
 const browseLayoutRoute = createRoute({
   getParentRoute: () => shellRoute,
@@ -417,17 +439,27 @@ const readerRoute = createRoute({
   component: ReaderPage,
 });
 
+// Debug drawer scroll test route
+const debugDrawerScrollRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/debug/drawer-scroll",
+  component: DebugDrawerScrollPage,
+});
+
 // Route tree
+const shellChildren = [
+  libraryRoute,
+  libraryMangaRoute,
+  browseLayoutRoute.addChildren([browseIndexRoute, sourceBrowseRoute]),
+  searchRoute,
+  settingsRoute,
+  mangaRoute,
+  ...(dualReadDebugRoute ? [dualReadDebugRoute] : []),
+];
 const routeTree = rootRoute.addChildren([
-  shellRoute.addChildren([
-    libraryRoute,
-    libraryMangaRoute,
-    browseLayoutRoute.addChildren([browseIndexRoute, sourceBrowseRoute]),
-    searchRoute,
-    settingsRoute,
-    mangaRoute,
-  ]),
+  shellRoute.addChildren(shellChildren),
   readerRoute,
+  debugDrawerScrollRoute,
 ]);
 
 // Create router factory - context will be provided by RouterProvider

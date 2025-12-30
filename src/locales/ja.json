@@ -385,9 +385,9 @@
   "plugin": {
     "japaneseLearning": {
       "name": "日本語学習",
-      "description": "OCRと文法分析のために漫画ページのテキスト領域を検出します",
+      "description": "漫画ページの文を検出して、Nemuくんと一緒に日本語を学びましょう",  
       "detection": "検出",
-      "autoDetect": "テキスト自動検出",
+      "autoDetect": "テキスト自動検出", 
       "autoDetectSubtitle": "表示中のページでテキストを自動検出します",
       "localInference": "ローカル推論",
       "localInferenceSubtitle": "ブラウザ内でテキスト検出を実行します。WebGPUが必要です。",
@@ -402,6 +402,7 @@
       "copySuccess": "クリップボードにコピーしました",
       "sentenceAnalysis": "文分析",
       "analyzingGrammar": "文法を分析中...",
+      "analyzingSentence": "文を分析中...",
       "extractingText": "画像からテキストを抽出中...",
       "tapWordHint": "単語をタップして詳細な意味を確認",
       "dragWordsHint": "単語をドラッグして複数選択",
@@ -492,16 +493,32 @@
       },
       "errors": {
         "outOfMemory": "メモリ不足です。テキスト検出にはこのアプリモードで利用可能な以上のメモリが必要です。Safariでnemuを開いてください。"
+      },
+      "chat": {
+        "title": "ネムに聞く",
+        "subtitle": "日本語学習アシスタント",
+        "inputPlaceholder": "メッセージを入力",
+        "askNemu": "ネムに聞く",
+        "askAboutSentence": "この文について聞く",
+        "askAboutWord": "この単語について聞く",
+        "askAboutWords": "これらの単語について聞く",
+        "settingsTitle": "Nemuチャット",
+        "responseModeTitle": "応答言語",
+        "responseModeSubtitle": "Nemuの応答言語を選択してください",
+        "responseModeApp": "アプリの言語",
+        "responseModeJlpt": "やさしい日本語（N4-N3）",
+        "today": "今日",
+        "read": "既読"
       }
     },
     "dualRead": {
-      "name": "Dual Read",
-      "description": "リンク済みの2つのソースを素早く切り替えて同じマンガを読めます。",
-      "navbarLabel": "Dual Read",
+      "name": "バイリンガルモード",
+      "description": "2つのソースを素早く切り替えて同じマンガを読めます",
+      "navbarLabel": "バイリンガルモード",
       "popover": {
         "noLinkedSources": "リンクされたソースが見つかりません。",
-        "linkSecondary": "2つ目のソースをリンクしてDual Readを有効にします。",
-        "actionLabel": "Dual Read...",
+        "linkSecondary": "2つ目のソースをリンクしてバイリンガルモードを有効にします。",
+        "actionLabel": "バイリンガルモード...",
         "secondaryLabel": "セカンダリ",
         "chapterLabel": "章",
         "chapterPair": "章: {{primary}} <-> {{secondary}}",
@@ -509,7 +526,7 @@
         "loadingPairing": "章のペアリングを読み込み中..."
       },
       "dialog": {
-        "title": "Dual Read",
+        "title": "バイリンガルモード",
         "description": "セカンダリソースと章のペアを選択します。",
         "noLinkedSources": "この作品にリンクされたソースが見つかりません。",
         "secondarySource": "セカンダリソース",
@@ -518,18 +535,18 @@
         "loadingPrimary": "読み込み中...",
         "loadingChapters": "章を読み込み中...",
         "chooseChapter": "章を選択",
-        "enable": "Dual Readを有効化",
+        "enable": "バイリンガルモードを有効化",
         "save": "保存",
-        "disable": "Dual Readを無効化",
+        "disable": "バイリンガルモードを無効化",
         "cancel": "キャンセル",
         "close": "閉じる"
       },
       "overlay": {
         "unavailableTitle": "この章では利用できません。",
-        "unavailableHint": "Dual Read... を開いて章を再調整してください。"
+        "unavailableHint": "バイリンガルモード... を開いて章を再調整してください。"
       },
       "fab": {
-        "label": "Dual Read"
+        "label": "バイリンガルモード"
       },
       "errors": {
         "primaryUnavailable": "プライマリソースが利用できません。",

@@ -385,7 +385,7 @@
   "plugin": {
     "japaneseLearning": {
       "name": "日语学习",
-      "description": "检测漫画页面中的文字区域，用于 OCR 和语法分析",
+      "description": "检测漫画页面中的句子，并与 Nemu くん一起学习日语",
       "detection": "检测",
       "autoDetect": "自动检测文字",
       "autoDetectSubtitle": "自动检测可见页面上的文字",
@@ -402,6 +402,7 @@
       "copySuccess": "已复制到剪贴板",
       "sentenceAnalysis": "句子分析",
       "analyzingGrammar": "分析语法中...",
+      "analyzingSentence": "分析句子中...",
       "extractingText": "从图片中提取文字...",
       "tapWordHint": "点击任意词语查看详细释义",
       "dragWordsHint": "拖拽词语以选择多个",
@@ -492,16 +493,32 @@
       },
       "errors": {
         "outOfMemory": "内存不足。文字检测功能需要更多内存。请使用 Safari 浏览器打开 nemu。"
+      },
+      "chat": {
+        "title": "问 Nemu",
+        "subtitle": "日语学习助手",
+        "inputPlaceholder": "输入消息",
+        "askNemu": "问 Nemu",
+        "askAboutSentence": "问这个句子",
+        "askAboutWord": "问这个词",
+        "askAboutWords": "问这些词",
+        "settingsTitle": "Nemu 聊天",
+        "responseModeTitle": "回复语言",
+        "responseModeSubtitle": "选择 Nemu 的回复语言",
+        "responseModeApp": "应用语言",
+        "responseModeJlpt": "简单日语（N4-N3）",
+        "today": "今天",
+        "read": "已读"
       }
     },
     "dualRead": {
-      "name": "Dual Read",
-      "description": "在两个已链接的来源之间快速切换阅读同一漫画。",
-      "navbarLabel": "Dual Read",
+      "name": "双语阅读",
+      "description": "在两个源之间快速切换阅读同一漫画",
+      "navbarLabel": "双语阅读",
       "popover": {
         "noLinkedSources": "未找到已链接的来源。",
-        "linkSecondary": "链接第二个来源以启用 Dual Read。",
-        "actionLabel": "Dual Read...",
+        "linkSecondary": "链接第二个来源以启用双语阅读。",
+        "actionLabel": "双语阅读...",
         "secondaryLabel": "次要来源",
         "chapterLabel": "章节",
         "chapterPair": "章节：{{primary}} <-> {{secondary}}",
@@ -509,7 +526,7 @@
         "loadingPairing": "正在加载章节配对..."
       },
       "dialog": {
-        "title": "Dual Read",
+        "title": "双语阅读",
         "description": "选择次要来源与章节配对。",
         "noLinkedSources": "此漫画未找到已链接的来源。",
         "secondarySource": "次要来源",
@@ -518,18 +535,18 @@
         "loadingPrimary": "加载中...",
         "loadingChapters": "正在加载章节...",
         "chooseChapter": "选择章节",
-        "enable": "启用 Dual Read",
+        "enable": "启用双语阅读",
         "save": "保存",
-        "disable": "禁用 Dual Read",
+        "disable": "禁用双语阅读",
         "cancel": "取消",
         "close": "关闭"
       },
       "overlay": {
         "unavailableTitle": "此章节不可用。",
-        "unavailableHint": "打开 Dual Read... 重新对齐章节。"
+        "unavailableHint": "打开双语阅读... 重新对齐章节。"
       },
       "fab": {
-        "label": "Dual Read"
+        "label": "双语阅读"
       },
       "errors": {
         "primaryUnavailable": "主来源不可用。",

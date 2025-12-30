@@ -31,18 +31,29 @@ export function PluginNavbarActions() {
   const actions = usePluginNavbarActions()
   const ctx = usePluginCtx()
 
-  // Filter out hidden actions
-  const visibleActions = actions.filter((action) => action.isVisible?.(ctx) ?? true)
+  // Filter out actions hidden by isVisible (sync check)
+  // Actions with useIsVisible hook are filtered in NavbarActionWrapper
+  const preFilteredActions = actions.filter((action) => {
+    if (action.useIsVisible) return true // defer to hook
+    return action.isVisible?.(ctx) ?? true
+  })
 
-  if (visibleActions.length === 0) return null
+  if (preFilteredActions.length === 0) return null
 
   return (
     <>
-      {visibleActions.map((action) => (
-        <NavbarActionButton key={action.id} action={action} ctx={ctx} />
+      {preFilteredActions.map((action) => (
+        <NavbarActionWrapper key={action.id} action={action} ctx={ctx} />
       ))}
     </>
   )
+}
+
+function NavbarActionWrapper({ action, ctx }: { action: NavbarAction; ctx: ReaderPluginContext }) {
+  // Handle useIsVisible hook if present
+  const hookVisible = action.useIsVisible?.() ?? true
+  if (!hookVisible) return null
+  return <NavbarActionButton action={action} ctx={ctx} />
 }
 
 function NavbarActionButton({ action, ctx }: { action: NavbarAction; ctx: ReaderPluginContext }) {

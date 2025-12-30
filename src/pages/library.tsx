@@ -243,6 +243,7 @@ export function LibraryPage() {
   return (
     <div className="space-y-4">
       <PageHeader title={t("nav.library")} loading={isRefreshing} />
+      
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 sm:gap-4 md:grid-cols-5 lg:grid-cols-6">
         {sortedEntries.map((entry) => (
           <LibraryEntryCard key={entry.item.libraryItemId} entry={entry} progressIndex={progressIndex} />

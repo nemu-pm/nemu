@@ -25,9 +25,10 @@
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "vaul": ["./vendor/vaul/src"]
     }
   },
   "include": ["src"],
-  "exclude": ["node_modules", "convex"]
+  "exclude": ["node_modules", "convex", "src/components/ai-elements", "vendor/vaul"]
 }

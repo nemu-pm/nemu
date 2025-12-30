@@ -143,6 +143,11 @@ export default defineConfig(({ mode }) => {
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Use vendored vaul source directly (enables HMR for vendor changes)
+      "vaul": path.resolve(__dirname, "./vendor/vaul/src/index.tsx"),
+      // Force single React instance (prevent duplicate React in vendored packages)
+      "react": path.resolve(__dirname, "./node_modules/react"),
+      "react-dom": path.resolve(__dirname, "./node_modules/react-dom"),
     },
   },
   // Dep optimization config

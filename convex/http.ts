@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { authComponent, createAuth } from "./auth";
 import { proxy, proxyOptions } from "./proxy";
+import { chat as nemuChat } from "./nemu_chat";
 
 const http = httpRouter();
 
@@ -10,6 +11,18 @@ http.route({
   path: "/proxy",
   method: "GET",
   handler: proxy,
+});
+
+// Nemu Chat - AI Japanese learning assistant
+http.route({
+  path: "/nemu-chat",
+  method: "POST",
+  handler: nemuChat,
+});
+http.route({
+  path: "/nemu-chat",
+  method: "OPTIONS",
+  handler: nemuChat,
 });
 http.route({
   path: "/proxy",

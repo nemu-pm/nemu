@@ -293,6 +293,160 @@ a img {
     0 0 1px oklch(0 0 0 / 0.35);
 }
 
+/* Dual-read FAB - glassmorphic floating action button */
+.dual-read-fab {
+  border-radius: 9999px;
+  background: linear-gradient(
+    165deg,
+    oklch(0.99 0.003 269 / 0.9) 0%,
+    oklch(0.96 0.006 269 / 0.85) 100%
+  );
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 0.5px solid oklch(0 0 0 / 0.06);
+  box-shadow:
+    0 6px 20px -4px oklch(0 0 0 / 0.18),
+    0 3px 6px -2px oklch(0 0 0 / 0.1),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.7);
+}
+
+.dark .dual-read-fab {
+  background: linear-gradient(
+    165deg,
+    oklch(0.2 0.01 269 / 0.88) 0%,
+    oklch(0.14 0.008 269 / 0.82) 100%
+  );
+  border-color: oklch(1 0 0 / 0.06);
+  box-shadow:
+    0 6px 24px -4px oklch(0 0 0 / 0.45),
+    0 3px 8px -2px oklch(0 0 0 / 0.3),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.1);
+}
+
+/* Hold state (default→hold): preview activation - glass takes on primary tint */
+.dual-read-fab[data-holding="true"]:not([data-secondary="true"]) {
+  background: linear-gradient(
+    165deg,
+    oklch(0.94 0.04 269 / 0.92) 0%,
+    oklch(0.9 0.05 269 / 0.88) 100%
+  );
+  border-color: oklch(0.6 0.12 269 / 0.3);
+  box-shadow:
+    0 4px 14px -3px oklch(0.5 0.08 269 / 0.2),
+    0 2px 5px -2px oklch(0 0 0 / 0.1),
+    0 0 20px -6px oklch(0.65 0.18 269 / 0.3),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.55);
+}
+
+.dark .dual-read-fab[data-holding="true"]:not([data-secondary="true"]) {
+  background: linear-gradient(
+    165deg,
+    oklch(0.26 0.05 269 / 0.9) 0%,
+    oklch(0.2 0.04 269 / 0.85) 100%
+  );
+  border-color: oklch(0.6 0.12 269 / 0.4);
+  box-shadow:
+    0 4px 14px -3px oklch(0 0 0 / 0.4),
+    0 2px 5px -2px oklch(0 0 0 / 0.25),
+    0 0 22px -6px oklch(0.65 0.18 269 / 0.35),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+}
+
+/* Secondary active state - primary-tinted glass */
+.dual-read-fab[data-secondary="true"] {
+  background: linear-gradient(
+    165deg,
+    oklch(0.88 0.08 269 / 0.93) 0%,
+    oklch(0.82 0.1 269 / 0.9) 100%
+  );
+  border-color: oklch(0.58 0.15 269 / 0.4);
+  box-shadow:
+    0 6px 22px -4px oklch(0.5 0.1 269 / 0.32),
+    0 3px 8px -2px oklch(0 0 0 / 0.12),
+    0 0 16px -4px oklch(0.65 0.18 269 / 0.28),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.45);
+}
+
+.dark .dual-read-fab[data-secondary="true"] {
+  background: linear-gradient(
+    165deg,
+    oklch(0.32 0.09 269 / 0.92) 0%,
+    oklch(0.24 0.08 269 / 0.88) 100%
+  );
+  border-color: oklch(0.58 0.15 269 / 0.5);
+  box-shadow:
+    0 6px 24px -4px oklch(0 0 0 / 0.45),
+    0 3px 8px -2px oklch(0 0 0 / 0.28),
+    0 0 18px -4px oklch(0.65 0.18 269 / 0.35),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.1);
+}
+
+/* Secondary + hold: preview deactivation - glass loses tint, goes neutral */
+.dual-read-fab[data-secondary="true"][data-holding="true"] {
+  background: linear-gradient(
+    165deg,
+    oklch(0.97 0.005 269 / 0.92) 0%,
+    oklch(0.94 0.008 269 / 0.88) 100%
+  );
+  border-color: oklch(0 0 0 / 0.1);
+  box-shadow:
+    0 4px 14px -3px oklch(0 0 0 / 0.16),
+    0 2px 5px -2px oklch(0 0 0 / 0.1),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.6);
+}
+
+.dark .dual-read-fab[data-secondary="true"][data-holding="true"] {
+  background: linear-gradient(
+    165deg,
+    oklch(0.22 0.012 269 / 0.9) 0%,
+    oklch(0.16 0.01 269 / 0.85) 100%
+  );
+  border-color: oklch(1 0 0 / 0.08);
+  box-shadow:
+    0 4px 14px -3px oklch(0 0 0 / 0.42),
+    0 2px 5px -2px oklch(0 0 0 / 0.28),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.1);
+}
+
+/* Pressed state - compressed feel */
+.dual-read-fab[data-pressed="true"]:not([data-holding="true"]) {
+  box-shadow:
+    0 2px 6px -2px oklch(0 0 0 / 0.15),
+    0 1px 2px -1px oklch(0 0 0 / 0.1),
+    inset 0 1px 3px oklch(0 0 0 / 0.06),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.5);
+}
+
+.dark .dual-read-fab[data-pressed="true"]:not([data-holding="true"]) {
+  box-shadow:
+    0 2px 6px -2px oklch(0 0 0 / 0.35),
+    0 1px 2px -1px oklch(0 0 0 / 0.25),
+    inset 0 1px 3px oklch(0 0 0 / 0.15),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.06);
+}
+
+/* Secondary + pressed (not holding) */
+.dual-read-fab[data-secondary="true"][data-pressed="true"]:not([data-holding="true"]) {
+  box-shadow:
+    0 2px 6px -2px oklch(0.5 0.08 269 / 0.2),
+    0 1px 2px -1px oklch(0 0 0 / 0.1),
+    inset 0 1px 3px oklch(0.4 0.06 269 / 0.1),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.4);
+}
+
+.dark .dual-read-fab[data-secondary="true"][data-pressed="true"]:not([data-holding="true"]) {
+  box-shadow:
+    0 2px 6px -2px oklch(0 0 0 / 0.4),
+    0 1px 2px -1px oklch(0 0 0 / 0.28),
+    inset 0 1px 3px oklch(0 0 0 / 0.18),
+    inset 0 0.5px 0 oklch(1 0 0 / 0.08);
+}
+
+/* Loading state - subtle reduced opacity */
+.dual-read-fab[data-loading="true"] {
+  opacity: 0.7;
+}
+
 /* Transcript popover - fade background when hovering a line to reveal page underneath */
 .reader-settings-popup:has(.transcript-popover-content[data-hovering]) {
   background: oklch(0 0 0 / 0.5) !important;

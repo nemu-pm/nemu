@@ -9,84 +9,6 @@ import { Button } from "@/components/ui/button"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Cancel01Icon } from "@hugeicons/core-free-icons"
 
-type ScrollPos = { x: number; y: number }
-type BodyLockSnapshot = {
-  pos: ScrollPos
-  body: {
-    position: string
-    top: string
-    left: string
-    right: string
-    width: string
-    overflow: string
-    paddingRight: string
-  }
-  html: {
-    overflow: string
-  }
-}
-
-let bodyLockCount = 0
-let bodyLockSnapshot: BodyLockSnapshot | null = null
-
-function lockBodyScroll() {
-  if (typeof window === "undefined") return
-  bodyLockCount += 1
-  if (bodyLockCount !== 1) return
-
-  const pos: ScrollPos = { x: window.scrollX, y: window.scrollY }
-  const body = document.body
-  const html = document.documentElement
-
-  bodyLockSnapshot = {
-    pos,
-    body: {
-      position: body.style.position,
-      top: body.style.top,
-      left: body.style.left,
-      right: body.style.right,
-      width: body.style.width,
-      overflow: body.style.overflow,
-      paddingRight: body.style.paddingRight,
-    },
-    html: {
-      overflow: html.style.overflow,
-    },
-  }
-
-  const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
-  body.style.position = "fixed"
-  body.style.top = `${-pos.y}px`
-  body.style.left = `${-pos.x}px`
-  body.style.right = "0"
-  body.style.width = "100%"
-  body.style.overflow = "hidden"
-  html.style.overflow = "hidden"
-  if (scrollbarWidth > 0) body.style.paddingRight = `${scrollbarWidth}px`
-}
-
-function unlockBodyScroll() {
-  if (typeof window === "undefined") return
-  bodyLockCount = Math.max(0, bodyLockCount - 1)
-  if (bodyLockCount !== 0) return
-
-  const snap = bodyLockSnapshot
-  bodyLockSnapshot = null
-  if (!snap) return
-
-  const body = document.body
-  const html = document.documentElement
-  body.style.position = snap.body.position
-  body.style.top = snap.body.top
-  body.style.left = snap.body.left
-  body.style.right = snap.body.right
-  body.style.width = snap.body.width
-  body.style.overflow = snap.body.overflow
-  body.style.paddingRight = snap.body.paddingRight
-  html.style.overflow = snap.html.overflow
-  window.scrollTo(snap.pos.x, snap.pos.y)
-}
-
 interface ResponsiveDialogContextValue {
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -107,35 +29,11 @@ interface ResponsiveDialogProps {
 function ResponsiveDialog({ open, onOpenChange, children, dismissible = true }: ResponsiveDialogProps) {
   const isMobile = useIsMobile()
 
-  const wasOpenRef = React.useRef(false)
-
-  // Safety net for externally-controlled state changes.
-  React.useEffect(() => {
-    if (!isMobile) return
-
-    if (open !== undefined && !!open !== wasOpenRef.current) {
-      if (open) lockBodyScroll()
-      else unlockBodyScroll()
-      wasOpenRef.current = !!open
-    }
-    return () => {
-      if (wasOpenRef.current) {
-        unlockBodyScroll()
-        wasOpenRef.current = false
-      }
-    }
-  }, [isMobile, open])
-
   const handleDrawerOpenChange = React.useCallback(
     (nextOpen: boolean) => {
-      if (isMobile && nextOpen !== wasOpenRef.current) {
-        if (nextOpen) lockBodyScroll()
-        else unlockBodyScroll()
-        wasOpenRef.current = nextOpen
-      }
       onOpenChange?.(nextOpen)
     },
-    [isMobile, onOpenChange]
+    [onOpenChange]
   )
   
   if (isMobile) {
@@ -147,10 +45,6 @@ function ResponsiveDialog({ open, onOpenChange, children, dismissible = true }: 
           snapPoints={[1]}
           fadeFromIndex={0}
           dismissible={dismissible}
-          // Prevent Vaul from doing its own scroll locking (can scrollTo(0,0) on iOS).
-          disablePreventScroll
-          // Prevent Vaul from mutating body styles; we handle locking ourselves.
-          noBodyStyles
         >
           {children}
         </DrawerPrimitive.Root>

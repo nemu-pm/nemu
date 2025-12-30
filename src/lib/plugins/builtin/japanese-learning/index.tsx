@@ -2,7 +2,9 @@ import i18n from '@/lib/i18n'
 import type { ReaderPlugin, ReaderPluginContext } from '../../types'
 import type { Setting } from '@/lib/settings'
 import { useTextDetectorStore, disposeWorker } from './store'
-import { DetectionOverlay, JapaneseLearningGlobalUI, OcrNavbarIcon, OcrTranscriptPopoverContent } from './components'
+import { DetectionOverlay, JapaneseLearningGlobalUI, OcrNavbarIcon, OcrTranscriptPopoverContent } from './ui'
+import { NemuChatNavbarIcon } from './chat/ui'
+import { useNemuChatStore, buildHiddenContextFromReader, createChatStreamCallbacks, sendChatGreeting } from './chat'
 import { isJapaneseEnabled, isJapaneseChapter as isJapaneseChapterLang } from './language'
 import iconImage from './icon.png'
 import type { OcrPageCacheKeyV2 } from './ocr-page-cache'
@@ -50,6 +52,24 @@ const getSettingsSchema = (): Setting[] => [
         step: 5,
         default: 25,
         formatValue: (v) => `${v}%`,
+      },
+    ],
+  },
+  {
+    type: 'group',
+    title: t('chat.settingsTitle'),
+    items: [
+      {
+        type: 'select',
+        key: 'nemuResponseMode',
+        title: t('chat.responseModeTitle'),
+        subtitle: t('chat.responseModeSubtitle'),
+        values: ['app', 'jlpt'],
+        titles: [
+          t('chat.responseModeApp'),
+          t('chat.responseModeJlpt'),
+        ],
+        default: 'app',
       },
     ],
   },
@@ -165,6 +185,38 @@ export const japaneseLearningPlugin: ReaderPlugin = {
       popoverContent: () => <OcrTranscriptPopoverContent />,
       onPopoverClose: () => useTextDetectorStore.getState().toggleTranscriptPopover(false),
     },
+    {
+      id: 'nemu-chat',
+      label: t('chat.title'),
+      icon: <NemuChatNavbarIcon />,
+      onClick: async (ctx: ReaderPluginContext) => {
+        const store = useNemuChatStore.getState()
+        const hiddenContext = store.getContextForRequest() ?? buildHiddenContextFromReader(ctx)
+        if (hiddenContext) {
+          store.open(hiddenContext)
+        }
+
+        const { messages, isStreaming } = useNemuChatStore.getState()
+        if (!hiddenContext || isStreaming || messages.length > 0) return
+
+        try {
+          await sendChatGreeting({
+            hiddenContext,
+            appLanguage: i18n.language,
+            toolContext: store.getToolContextForRequest(),
+            callbacks: createChatStreamCallbacks(),
+          })
+        } catch (err) {
+          console.error('[NemuChat] Greeting error:', err)
+          const chatState = useNemuChatStore.getState()
+          chatState.setShowTypingIndicator(false)
+          chatState.setStreaming(false)
+        }
+      },
+      isVisible: (ctx: ReaderPluginContext) => {
+        return isJapaneseSource(ctx)
+      },
+    },
   ],
 
   // Page overlays - render detection boxes
@@ -232,6 +284,9 @@ export const japaneseLearningPlugin: ReaderPlugin = {
       const { clearDetections } = useTextDetectorStore.getState()
       clearDetections()
       disposeWorker()
+      // Clear chat session when exiting reader
+      const { reset } = useNemuChatStore.getState()
+      reset()
     },
   },
 

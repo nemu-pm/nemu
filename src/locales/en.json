@@ -396,7 +396,7 @@
   "plugin": {
     "japaneseLearning": {
       "name": "Japanese Learning",
-      "description": "Detect text regions in manga pages for OCR and grammar analysis",
+      "description": "Detect sentences in manga pages and learn Japanese with Nemu-kun",
       "detection": "Detection",
       "autoDetect": "Auto Detect Text",
       "autoDetectSubtitle": "Automatically detect text on visible pages",
@@ -413,6 +413,7 @@
       "copySuccess": "Copied to clipboard",
       "sentenceAnalysis": "Sentence Analysis",
       "analyzingGrammar": "Analyzing grammar...",
+      "analyzingSentence": "Analyzing sentence...",
       "extractingText": "Extracting text from image...",
       "tapWordHint": "Tap any word for detailed meaning",
       "dragWordsHint": "Drag on words to select multiple",
@@ -503,11 +504,27 @@
       },
       "errors": {
         "outOfMemory": "Out of memory. Text detection requires more memory than available in this app mode. Please open nemu in Safari instead."
+      },
+      "chat": {
+        "title": "Ask Nemu",
+        "subtitle": "Japanese learning assistant",
+        "inputPlaceholder": "Enter message",
+        "askNemu": "Ask Nemu",
+        "askAboutSentence": "Ask about this sentence",
+        "askAboutWord": "Ask about this word",
+        "askAboutWords": "Ask about these words",
+        "settingsTitle": "Nemu Chat",
+        "responseModeTitle": "Response Language",
+        "responseModeSubtitle": "Choose preferred language for Nemu's responses",
+        "responseModeApp": "App language",
+        "responseModeJlpt": "Simple Japanese (N4-N3)",
+        "today": "Today",
+        "read": "Read"
       }
     },
     "dualRead": {
       "name": "Dual Read",
-      "description": "Read the same manga from two linked sources with quick switching.",
+      "description": "Read the same manga from two sources with quick switching",
       "navbarLabel": "Dual Read",
       "popover": {
         "noLinkedSources": "No linked sources found.",

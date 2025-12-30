@@ -1,0 +1,2 @@
+export const ALIGNMENT_FINE_MAX_DEFAULT = 512;
+export const ALIGNMENT_FFT_MAX_DEFAULT = 256;
