@@ -3,7 +3,7 @@ import { createGateway, stepCountIs, streamText, tool } from "ai"
 import { z } from "zod"
 import { buildPromptConfig } from "./prompts/nemu_chat"
 
-const MODEL = "anthropic/claude-haiku-4-5"
+const MODEL = "anthropic/claude-sonnet-4-5"
 
 function getGateway() {
   const apiKey = process.env.AI_GATEWAY_API_KEY
