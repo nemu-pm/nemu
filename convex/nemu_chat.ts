@@ -95,6 +95,13 @@ const speakSchema = z.object({
     .describe("A short LINE-style bubble (1-2 sentences, ~20-80 characters). Split long replies into multiple calls."),
 })
 
+const sendVoiceSchema = z.object({
+  text: z
+    .string()
+    .min(1)
+    .describe("Voice message text to send to the user. May include audio tags in brackets."),
+})
+
 // Tools that require client execution
 const CLIENT_TOOLS = new Set(["request_transcript", "trigger_ocr"])
 
@@ -257,6 +264,11 @@ export const chat = httpAction(async (_, request) => {
                   inputSchema: speakSchema,
                   execute: async () => ({ ok: true }),
                 }),
+                send_voice_recording: tool({
+                  description: toolDescriptions.sendVoiceRecording,
+                  inputSchema: sendVoiceSchema,
+                  execute: async () => ({ ok: true }),
+                }),
               },
               toolChoice: "required",
               stopWhen: stepCountIs(4),
@@ -334,6 +346,16 @@ export const chat = httpAction(async (_, request) => {
                       streamLogs.push(JSON.stringify({ type: "speak", content: text }))
                       controller.enqueue(
                         encoder.encode(`data: ${JSON.stringify({ type: "speak", content: text })}\n\n`)
+                      )
+                    }
+                  } else if (part.toolName === "send_voice_recording") {
+                    const input = part.input as { text?: string }
+                    const text = typeof input.text === "string" ? input.text.trim() : ""
+                    if (text) {
+                      hadSpeakCall = true
+                      streamLogs.push(JSON.stringify({ type: "voice", content: text }))
+                      controller.enqueue(
+                        encoder.encode(`data: ${JSON.stringify({ type: "voice", content: text })}\n\n`)
                       )
                     }
                   } else if (part.toolName === "suggest_followups") {

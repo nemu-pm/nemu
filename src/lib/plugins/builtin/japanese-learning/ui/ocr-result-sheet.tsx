@@ -8,7 +8,7 @@ import {
   DrawerFooter,
 } from '@/components/ui/drawer'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { Copy01Icon, MessageMultiple02Icon } from '@hugeicons/core-free-icons'
+import { Copy01Icon, MessageMultiple02Icon, PauseIcon, VolumeUpIcon } from '@hugeicons/core-free-icons'
 import { useTextDetectorStore } from '../store'
 import { copyToClipboard } from '@/lib/utils'
 import { motion, AnimatePresence } from 'motion/react'
@@ -16,6 +16,8 @@ import { openChatAndSend } from '../chat/ui'
 import { getExplainDisplayPrompt, getExplainPrompt } from '../chat/prompts'
 import { serializeGrammarTokens } from './utils'
 import { SentenceDisplay } from './sentence-display'
+import { createTtsId, useTtsStore } from '@/stores/tts'
+import { Spinner } from '@/components/ui/spinner'
 
 export function OcrResultSheet() {
   const { t, i18n } = useTranslation()
@@ -24,6 +26,12 @@ export function OcrResultSheet() {
   const grammarAnalysis = useTextDetectorStore((s) => s.grammarAnalysis)
   const closeOcrSheet = useTextDetectorStore((s) => s.closeOcrSheet)
   const responseMode = useTextDetectorStore((s) => s.settings.nemuResponseMode)
+  const playTts = useTtsStore((s) => s.play)
+  const fadeOut = useTtsStore((s) => s.fadeOut)
+  const stopTts = useTtsStore((s) => s.stop)
+  const currentAudioId = useTtsStore((s) => s.currentAudioId)
+  const isPlaying = useTtsStore((s) => s.isPlaying)
+  const isLoading = useTtsStore((s) => s.isLoading)
   
   // Serialize grammar analysis for AI context
   const ichiranAnalysis = useMemo(() => {
@@ -33,6 +41,11 @@ export function OcrResultSheet() {
 
   const sentenceText = (ocrResult.text ?? '').trim()
   const canActOnSentence = !ocrResult.loading && !ocrResult.error && sentenceText.length > 0
+  const normalizedText = (grammarAnalysis.normalizedText ?? '').trim()
+  const ttsText = normalizedText || sentenceText
+  const ttsId = useMemo(() => (ttsText ? createTtsId('sentence', ttsText) : null), [ttsText])
+  const isCurrent = currentAudioId === ttsId
+  const isBusy = isCurrent && (isPlaying || isLoading)
 
   const handleCopySentence = useCallback(async () => {
     if (!sentenceText) return
@@ -47,8 +60,25 @@ export function OcrResultSheet() {
     openChatAndSend(message, displayContent, { ichiranAnalysis })
   }, [ichiranAnalysis, sentenceText, i18n.language, responseMode])
 
+  const handlePlaySentence = useCallback(() => {
+    if (!ttsText || !ttsId) return
+    if (isBusy) {
+      stopTts()
+      return
+    }
+    playTts(ttsId, ttsText, { source: 'sentence' })
+  }, [isBusy, playTts, stopTts, ttsId, ttsText])
+
   return (
-    <Drawer open={ocrSheetOpen} onOpenChange={(open: boolean) => !open && closeOcrSheet()}>
+    <Drawer
+      open={ocrSheetOpen}
+      onOpenChange={(open: boolean) => {
+        if (!open) {
+          fadeOut()
+          closeOcrSheet()
+        }
+      }}
+    >
       <DrawerContent
         className="!h-[70vh] !max-h-[70vh] max-w-2xl mx-auto !border-0"
         // Mobile fix: close on overlay pointer-down so a single outside tap always dismisses,
@@ -57,6 +87,7 @@ export function OcrResultSheet() {
           onPointerDown: (e) => {
             e.preventDefault()
             e.stopPropagation()
+            fadeOut()
             closeOcrSheet()
           },
         }}
@@ -116,27 +147,45 @@ export function OcrResultSheet() {
         </div>
 
         <DrawerFooter className="border-t border-border/50 bg-background/80 supports-backdrop-filter:backdrop-blur-sm">
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={handleCopySentence}
-              disabled={!canActOnSentence}
-              className="flex-1 gap-1.5"
-            >
-              <HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
-              {t('common.copy', { defaultValue: 'Copy' })}
-            </Button>
-            <Button
-              type="button"
-              variant="default"
-              onClick={handleAskAboutSentence}
-              disabled={!canActOnSentence}
-              className="flex-1 gap-1.5"
-            >
-              <HugeiconsIcon icon={MessageMultiple02Icon} className="size-3.5" />
-              {t('plugin.japaneseLearning.chat.askAboutSentence', { defaultValue: 'Ask about this sentence' })}
-            </Button>
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handlePlaySentence}
+                disabled={!canActOnSentence}
+                className="flex-1 gap-1.5"
+              >
+                {isCurrent && isLoading ? (
+                  <Spinner className="size-4" />
+                ) : (
+                  <HugeiconsIcon icon={isBusy ? PauseIcon : VolumeUpIcon} className="size-3.5" />
+                )}
+                {isBusy
+                  ? t('plugin.japaneseLearning.tts.stop', { defaultValue: 'Stop' })
+                  : t('plugin.japaneseLearning.tts.listen', { defaultValue: 'Listen' })}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleCopySentence}
+                disabled={!canActOnSentence}
+                className="flex-1 gap-1.5"
+              >
+                <HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
+                {t('common.copy', { defaultValue: 'Copy' })}
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                onClick={handleAskAboutSentence}
+                disabled={!canActOnSentence}
+                className="flex-1 gap-1.5"
+              >
+                <HugeiconsIcon icon={MessageMultiple02Icon} className="size-3.5" />
+                {t('plugin.japaneseLearning.chat.askAboutSentence', { defaultValue: 'Ask about this sentence' })}
+              </Button>
+            </div>
           </div>
         </DrawerFooter>
       </DrawerContent>

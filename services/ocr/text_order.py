@@ -1000,399 +1000,170 @@ class PanelRegion:
         return _point_in_poly(self.polygon(), x, y)
 
 
-def directed_contour_search(
-    mask: np.ndarray,
-    region: PanelRegion,
-    horizontal: bool,
-    start_pos: int,
-    step: int = 5,
-    perpendicular_search_range: int = 20,
-    edge_threshold: int = 100,
-    max_gap_steps: int = 10,
-    min_hit_frac: float = 0.15,
-    min_tail_hits: int = 3,
-) -> Optional[List[Point]]:
+# =============================================================================
+# XY-CUT PANEL SEGMENTATION (Projection-based, per Kovanen et al. / Tanaka et al.)
+# =============================================================================
+
+def _find_projection_splits(
+    projection: np.ndarray,
+    threshold_ratio: float = 0.3,
+    min_gap: int = 20,
+    margin: int = 30,
+) -> List[int]:
     """
-    Discrete directed contour search as described in the excerpt:
-    - sample in constant step size (x or y)
-    - maximize mask on perpendicular search line
-    - success if reaches the opposite contour
-    - fail if too many misses (threshold passed) or crosses other enclosing contours
+    Find split positions in a 1D projection array.
+    
+    The projection contains summed mask values along rows (for horizontal splits)
+    or columns (for vertical splits). High values indicate panel border presence.
+    
+    Returns list of split positions (indices into projection).
     """
-    thr = int(edge_threshold)
-    gap = 0
-    contour: List[Point] = []
-    hit_count = 0
-    best_vals: List[int] = []
-
-    if horizontal:
-        # start_pos is a y on the left contour
-        y = int(start_pos)
-        x_start = int(round(_poly_x_at_y(region.left, y)))
-        x_end = int(round(_poly_x_at_y(region.right, y)))
-        if x_end <= x_start:
-            x_start, x_end = region.x1, region.x2
-        mh, mw = mask.shape[:2]
-        for x in range(x_start, x_end + 1, step):
-            y_top_f = _poly_y_at_x(region.top, x)
-            y_bottom_f = _poly_y_at_x(region.bottom, x)
-            if y_bottom_f < y_top_f:
-                y_top_f, y_bottom_f = y_bottom_f, y_top_f
-            # Be inclusive + conservative with float->int boundary conversion.
-            y_top = max(0, int(math.floor(y_top_f)))
-            y_bottom = min(mh - 1, int(math.ceil(y_bottom_f)))
-
-            # Constrain current y to region band.
-            if y < y_top:
-                y = y_top
-            elif y > y_bottom:
-                y = y_bottom
-
-            # Maximize mask along perpendicular search line using NumPy (avoid Python inner loops).
-            y0 = max(y_top, y - perpendicular_search_range)
-            y1 = min(y_bottom, y + perpendicular_search_range)
-            if y1 >= y0 and 0 <= x < mw:
-                window = mask[y0 : y1 + 1, x]
-                best_idx = int(window.argmax())
-                best_val = int(window[best_idx])
-                best_y = int(y0 + best_idx)
-            else:
-                best_val = -1
-                best_y = int(y)
-            if best_val < thr:
-                gap += 1
-                contour.append((int(x), int(y)))
-                if gap > max_gap_steps:
-                    return None
-            else:
-                gap = 0
-                y = best_y
-                contour.append((int(x), int(y)))
-                hit_count += 1
-            best_vals.append(int(best_val))
-
-            # Fail if we hit the enclosing boundaries before reaching the opposite side.
-            if y <= int(y_top) or y >= int(y_bottom):
-                # Crossing top/bottom contour => invalid for this region.
-                return None
-
-        # Success if we reached the right contour vicinity at the end.
-        if contour:
-            end_x, end_y = contour[-1]
-            x_right_at_end = _poly_x_at_y(region.right, end_y)
-            if abs(end_x - x_right_at_end) > step * 3:
-                return None
-            # Require sufficient edge evidence along the path (avoid "straight through whitespace" artifacts).
-            if hit_count / max(1, len(contour)) < min_hit_frac:
-                return None
-            # Require that the contour actually locks onto an edge near the destination (tail hits).
-            tail = best_vals[-max(1, min_tail_hits):]
-            if sum(1 for v in tail if v >= thr) < min_tail_hits:
-                return None
-        return contour
-
-    # vertical
-    x = int(start_pos)
-    y_start = int(round(_poly_y_at_x(region.top, x)))
-    y_end = int(round(_poly_y_at_x(region.bottom, x)))
-    if y_end <= y_start:
-        y_start, y_end = region.y1, region.y2
-    mh, mw = mask.shape[:2]
-    for y in range(y_start, y_end + 1, step):
-        x_left_f = _poly_x_at_y(region.left, y)
-        x_right_f = _poly_x_at_y(region.right, y)
-        if x_right_f < x_left_f:
-            x_left_f, x_right_f = x_right_f, x_left_f
-        x_left = max(0, int(math.floor(x_left_f)))
-        x_right = min(mw - 1, int(math.ceil(x_right_f)))
-
-        if x < x_left:
-            x = x_left
-        elif x > x_right:
-            x = x_right
-
-        x0 = max(x_left, x - perpendicular_search_range)
-        x1 = min(x_right, x + perpendicular_search_range)
-        if x1 >= x0 and 0 <= y < mh:
-            window = mask[y, x0 : x1 + 1]
-            best_idx = int(window.argmax())
-            best_val = int(window[best_idx])
-            best_x = int(x0 + best_idx)
-        else:
-            best_val = -1
-            best_x = int(x)
-        if best_val < thr:
-            gap += 1
-            contour.append((int(x), int(y)))
-            if gap > max_gap_steps:
-                return None
-        else:
-            gap = 0
-            x = best_x
-            contour.append((int(x), int(y)))
-            hit_count += 1
-        best_vals.append(int(best_val))
-
-        if x <= int(x_left) or x >= int(x_right):
-            return None
-
-    if contour:
-        end_x, end_y = contour[-1]
-        y_bottom_at_end = _poly_y_at_x(region.bottom, end_x)
-        if abs(end_y - y_bottom_at_end) > step * 3:
-            return None
-        if hit_count / max(1, len(contour)) < min_hit_frac:
-            return None
-        tail = best_vals[-max(1, min_tail_hits):]
-        if sum(1 for v in tail if v >= thr) < min_tail_hits:
-            return None
-    return contour
-
-
-def find_region_splits(
-    mask: np.ndarray,
-    region: PanelRegion,
-    horizontal: bool,
-    step: int = 5,
-    start_edge_threshold: int = 0,
-    start_margin: int = 20,
-    start_stride_mult: int = 3,
-    perpendicular_search_range: int = 20,
-    edge_threshold: int = 100,
-    max_gap_steps: int = 10,
-    min_hit_frac: float = 0.15,
-    min_tail_hits: int = 3,
-) -> List[List[Point]]:
-    """
-    Enumerate candidate starts on the left or top contour and attempt directed contour searches.
-    """
-    splits: List[List[Point]] = []
-    if horizontal:
-        # Start points along left contour
-        for y in range(region.y1 + start_margin, region.y2 - start_margin, max(1, step) * max(1, start_stride_mult)):
-            x0 = int(round(_poly_x_at_y(region.left, y)))
-            if 0 <= y < mask.shape[0] and 0 <= x0 < mask.shape[1]:
-                if start_edge_threshold <= 0 or int(mask[y, x0]) > start_edge_threshold:
-                    c = directed_contour_search(
-                        mask,
-                        region,
-                        horizontal=True,
-                        start_pos=y,
-                        step=step,
-                        perpendicular_search_range=perpendicular_search_range,
-                        edge_threshold=edge_threshold,
-                        max_gap_steps=max_gap_steps,
-                        min_hit_frac=min_hit_frac,
-                        min_tail_hits=min_tail_hits,
-                    )
-                    if c:
-                        splits.append(c)
-    else:
-        # Start points along top contour
-        for x in range(region.x1 + start_margin, region.x2 - start_margin, max(1, step) * max(1, start_stride_mult)):
-            y0 = int(round(_poly_y_at_x(region.top, x)))
-            if 0 <= y0 < mask.shape[0] and 0 <= x < mask.shape[1]:
-                if start_edge_threshold <= 0 or int(mask[y0, x]) > start_edge_threshold:
-                    c = directed_contour_search(
-                        mask,
-                        region,
-                        horizontal=False,
-                        start_pos=x,
-                        step=step,
-                        perpendicular_search_range=perpendicular_search_range,
-                        edge_threshold=edge_threshold,
-                        max_gap_steps=max_gap_steps,
-                        min_hit_frac=min_hit_frac,
-                        min_tail_hits=min_tail_hits,
-                    )
-                    if c:
-                        splits.append(c)
-    return splits
-
-
-def _median_coord(points: List[Point], axis: int) -> float:
-    vals = [p[axis] for p in points]
-    return float(np.median(vals)) if vals else 0.0
-
-
-def _dedupe_contours(contours: List[List[Point]], min_sep: int, axis: int) -> List[List[Point]]:
-    """Keep contours separated by >= min_sep in median coordinate along axis."""
-    if not contours:
+    if len(projection) < 2 * margin:
         return []
-    ordered = sorted(contours, key=lambda c: _median_coord(c, axis))
-    out: List[List[Point]] = []
-    last = None
-    for c in ordered:
-        m = _median_coord(c, axis)
-        if last is None or abs(m - last) >= min_sep:
-            out.append(c)
-            last = m
-    return out
-
-
-def _build_children_horizontal(parent: PanelRegion, splits: List[List[Point]], min_size: int) -> List[PanelRegion]:
-    # Sort splits by median y (top->bottom).
-    splits = _dedupe_contours(splits, min_sep=max(1, min_size // 2), axis=1)
-    if not splits:
+    
+    # Normalize projection to 0-1
+    proj_min = float(projection.min())
+    proj_max = float(projection.max())
+    if proj_max - proj_min < 1e-6:
         return []
-
-    # Define band boundaries: parent.top, split1, split2, ..., parent.bottom
-    boundaries: List[List[Point]] = [parent.top] + splits + [parent.bottom]
-    children: List[PanelRegion] = []
-    for top_b, bot_b in zip(boundaries[:-1], boundaries[1:]):
-        y_top_l = top_b[0][1]
-        y_bot_l = bot_b[0][1]
-        y_top_r = top_b[-1][1]
-        y_bot_r = bot_b[-1][1]
-
-        # Slice parent's left/right between these y ranges.
-        left = _slice_poly_by_y(parent.left, y_top_l, y_bot_l)
-        right = _slice_poly_by_y(parent.right, y_top_r, y_bot_r)
-        if len(left) < 2 or len(right) < 2:
-            continue
-
-        top = top_b
-        bottom = bot_b
-
-        child = PanelRegion(top=top, right=right, bottom=bottom, left=left)
-        if child.width >= min_size and child.height >= min_size:
-            children.append(child)
-    return children
-
-
-def _build_children_vertical(parent: PanelRegion, splits: List[List[Point]], min_size: int) -> List[PanelRegion]:
-    # Sort splits by median x (left->right).
-    splits = _dedupe_contours(splits, min_sep=max(1, min_size // 2), axis=0)
-    if not splits:
+    proj_norm = (projection - proj_min) / (proj_max - proj_min)
+    
+    # Find peaks above threshold (potential split lines)
+    threshold = threshold_ratio
+    candidates: List[int] = []
+    
+    # Look for local maxima above threshold, avoiding margins
+    for i in range(margin, len(proj_norm) - margin):
+        if proj_norm[i] >= threshold:
+            # Check if local maximum
+            window = 5
+            start = max(0, i - window)
+            end = min(len(proj_norm), i + window + 1)
+            if proj_norm[i] >= proj_norm[start:end].max() - 0.01:
+                candidates.append(i)
+    
+    if not candidates:
         return []
-
-    # Boundaries: parent.left, split1, ..., parent.right
-    boundaries: List[List[Point]] = [parent.left] + splits + [parent.right]
-    children: List[PanelRegion] = []
-    for left_b, right_b in zip(boundaries[:-1], boundaries[1:]):
-        x_top_l = left_b[0][0]
-        x_top_r = right_b[0][0]
-        x_bot_l = left_b[-1][0]
-        x_bot_r = right_b[-1][0]
-
-        # Slice parent's top/bottom between these x ranges.
-        top = _slice_poly_by_x(parent.top, x_top_l, x_top_r)
-        bottom = _slice_poly_by_x(parent.bottom, x_bot_l, x_bot_r)
-        if len(top) < 2 or len(bottom) < 2:
-            continue
-
-        # Ensure boundaries oriented top->bottom for vertical boundaries.
-        left = left_b if left_b[0][1] <= left_b[-1][1] else list(reversed(left_b))
-        right = right_b if right_b[0][1] <= right_b[-1][1] else list(reversed(right_b))
-
-        child = PanelRegion(top=top, right=right, bottom=bottom, left=left)
-        if child.width >= min_size and child.height >= min_size:
-            children.append(child)
-    return children
+    
+    # Merge nearby candidates (keep strongest)
+    merged: List[int] = []
+    i = 0
+    while i < len(candidates):
+        group = [candidates[i]]
+        j = i + 1
+        while j < len(candidates) and candidates[j] - candidates[j-1] < min_gap:
+            group.append(candidates[j])
+            j += 1
+        # Keep the one with highest projection value
+        best = max(group, key=lambda x: proj_norm[x])
+        merged.append(best)
+        i = j
+    
+    return merged
 
 
-def recursive_xy_split(mask: np.ndarray, region: PanelRegion,
-                       min_size: int = 100,
-                       depth: int = 0,
-                       max_depth: int = 10,
-                       split_step: int = 5,
-                       start_edge_threshold: int = 0,
-                       start_margin: int = 20,
-                       start_stride_mult: int = 3,
-                       perpendicular_search_range: int = 20,
-                       edge_threshold: int = 100,
-                       max_gap_steps: int = 10,
-                       min_hit_frac: float = 0.15,
-                       min_tail_hits: int = 3) -> PanelRegion:
-    """
-    Recursive XY splits on the fuzzy panel mask.
-
-    Per excerpt:
-    - try horizontal splits (from left contour points); if unsuccessful, try vertical (from top contour points)
-    - for n successful splits create n+1 children
-    - order: horizontal => top-to-bottom, vertical => right-to-left (manga)
-    """
-    if depth >= max_depth or region.width < min_size or region.height < min_size:
-        return region
-
-    # Horizontal first
-    h_splits = find_region_splits(
-        mask,
-        region,
-        horizontal=True,
-        step=split_step,
-        start_edge_threshold=start_edge_threshold,
-        start_margin=start_margin,
-        start_stride_mult=start_stride_mult,
-        perpendicular_search_range=perpendicular_search_range,
-        edge_threshold=edge_threshold,
-        max_gap_steps=max_gap_steps,
-        min_hit_frac=min_hit_frac,
-        min_tail_hits=min_tail_hits,
+def _make_simple_region(x1: int, y1: int, x2: int, y2: int) -> PanelRegion:
+    """Create a simple rectangular PanelRegion."""
+    return PanelRegion(
+        top=[(x1, y1), (x2, y1)],
+        right=[(x2, y1), (x2, y2)],
+        bottom=[(x1, y2), (x2, y2)],
+        left=[(x1, y1), (x1, y2)],
     )
-    children = _build_children_horizontal(region, h_splits, min_size=min_size)
-    if len(children) >= 2:
-        region.children = [
-            recursive_xy_split(
-                mask,
-                c,
-                min_size,
-                depth + 1,
-                max_depth,
-                split_step=split_step,
-                start_edge_threshold=start_edge_threshold,
-                start_margin=start_margin,
-                start_stride_mult=start_stride_mult,
-                perpendicular_search_range=perpendicular_search_range,
-                edge_threshold=edge_threshold,
-                max_gap_steps=max_gap_steps,
-                min_hit_frac=min_hit_frac,
-                min_tail_hits=min_tail_hits,
-            )
-            for c in children
-        ]
-        return region
 
-    # Vertical
-    v_splits = find_region_splits(
-        mask,
-        region,
-        horizontal=False,
-        step=split_step,
-        start_edge_threshold=start_edge_threshold,
-        start_margin=start_margin,
-        start_stride_mult=start_stride_mult,
-        perpendicular_search_range=perpendicular_search_range,
-        edge_threshold=edge_threshold,
-        max_gap_steps=max_gap_steps,
-        min_hit_frac=min_hit_frac,
-        min_tail_hits=min_tail_hits,
-    )
-    children = _build_children_vertical(region, v_splits, min_size=min_size)
-    if len(children) >= 2:
-        # manga order: right-to-left
-        children = list(reversed(children))
-        region.children = [
-            recursive_xy_split(
-                mask,
-                c,
-                min_size,
-                depth + 1,
-                max_depth,
-                split_step=split_step,
-                start_edge_threshold=start_edge_threshold,
-                start_margin=start_margin,
-                start_stride_mult=start_stride_mult,
-                perpendicular_search_range=perpendicular_search_range,
-                edge_threshold=edge_threshold,
-                max_gap_steps=max_gap_steps,
-                min_hit_frac=min_hit_frac,
-                min_tail_hits=min_tail_hits,
-            )
-            for c in children
-        ]
-        return region
 
+def recursive_xy_split_projection(
+    mask: np.ndarray,
+    x1: int, y1: int, x2: int, y2: int,
+    min_size: int = 50,
+    depth: int = 0,
+    max_depth: int = 10,
+    threshold_ratio: float = 0.3,
+    min_gap: int = 20,
+    margin_ratio: float = 0.05,
+) -> PanelRegion:
+    """
+    Paper-faithful recursive XY-cut using projection histograms.
+    
+    Per Kovanen et al. (referencing Tanaka et al.):
+    - Recursively split image with XY-cuts
+    - Try horizontal splits first, then vertical
+    - Vertical splits ordered right-to-left for manga
+    
+    This is much simpler than the contour-tracing approach and more robust.
+    """
+    region = _make_simple_region(x1, y1, x2, y2)
+    
+    w = x2 - x1
+    h = y2 - y1
+    
+    if depth >= max_depth or w < min_size or h < min_size:
+        return region
+    
+    # Margin in pixels
+    margin = max(10, int(min(w, h) * margin_ratio))
+    
+    # Extract region from mask
+    roi = mask[y1:y2, x1:x2]
+    if roi.size == 0:
+        return region
+    
+    # Try horizontal split first (sum along columns → row projection)
+    h_proj = roi.sum(axis=1).astype(np.float64)
+    h_splits = _find_projection_splits(h_proj, threshold_ratio, min_gap, margin)
+    
+    if h_splits:
+        # Convert to absolute y coordinates
+        split_ys = [y1 + s for s in h_splits]
+        
+        # Create children: regions between splits
+        boundaries = [y1] + split_ys + [y2]
+        children: List[PanelRegion] = []
+        
+        for i in range(len(boundaries) - 1):
+            child_y1 = boundaries[i]
+            child_y2 = boundaries[i + 1]
+            if child_y2 - child_y1 >= min_size:
+                child = recursive_xy_split_projection(
+                    mask, x1, child_y1, x2, child_y2,
+                    min_size, depth + 1, max_depth,
+                    threshold_ratio, min_gap, margin_ratio,
+                )
+                children.append(child)
+        
+        if len(children) >= 2:
+            region.children = children
+            return region
+    
+    # Try vertical split (sum along rows → column projection)
+    v_proj = roi.sum(axis=0).astype(np.float64)
+    v_splits = _find_projection_splits(v_proj, threshold_ratio, min_gap, margin)
+    
+    if v_splits:
+        # Convert to absolute x coordinates
+        split_xs = [x1 + s for s in v_splits]
+        
+        # Create children: regions between splits
+        # Paper: "vertical splits ordered right-to-left for manga"
+        boundaries = [x1] + split_xs + [x2]
+        children = []
+        
+        # Iterate RIGHT-TO-LEFT for manga reading order
+        for i in range(len(boundaries) - 2, -1, -1):
+            child_x1 = boundaries[i]
+            child_x2 = boundaries[i + 1]
+            if child_x2 - child_x1 >= min_size:
+                child = recursive_xy_split_projection(
+                    mask, child_x1, y1, child_x2, y2,
+                    min_size, depth + 1, max_depth,
+                    threshold_ratio, min_gap, margin_ratio,
+                )
+                children.append(child)
+        
+        if len(children) >= 2:
+            region.children = children
+            return region
+    
     return region
 
 
@@ -1867,27 +1638,17 @@ def estimate_text_order_from_panel_mask(
     ]
 
     # --- Layer 1: Recursive XY splits (on cached mask) ---
-    root = PanelRegion(
-        top=[(0, 0), (work_w - 1, 0)],
-        right=[(work_w - 1, 0), (work_w - 1, work_h - 1)],
-        bottom=[(0, work_h - 1), (work_w - 1, work_h - 1)],
-        left=[(0, 0), (0, work_h - 1)],
-    )
-    root = recursive_xy_split(
+    # Paper-faithful: projection histogram XY-cut (Kovanen/Tanaka)
+    root = recursive_xy_split_projection(
         panel_mask,
-        root,
+        0, 0, work_w, work_h,
         min_size=int(params.get("l1_min_size", 50)),
         max_depth=int(params.get("l1_max_depth", 10)),
-        split_step=int(params.get("l1_step", 5)),
-        start_edge_threshold=int(params.get("l1_start_edge_threshold", 0)),
-        start_margin=int(params.get("l1_start_margin", 20)),
-        start_stride_mult=int(params.get("l1_start_stride_mult", 3)),
-        perpendicular_search_range=int(params.get("l1_perp_range", 4)),
-        edge_threshold=int(params.get("l1_edge_threshold", 15)),
-        max_gap_steps=int(params.get("l1_max_gap_steps", 1)),
-        min_hit_frac=float(params.get("l1_min_hit_frac", 0.15)),
-        min_tail_hits=int(params.get("l1_min_tail_hits", 15)),
+        threshold_ratio=float(params.get("l1_threshold_ratio", 0.3)),
+        min_gap=int(params.get("l1_min_gap", 20)),
+        margin_ratio=float(params.get("l1_margin_ratio", 0.05)),
     )
+    
     panels = get_leaf_panels(root)
     if not panels:
         panels = [root]

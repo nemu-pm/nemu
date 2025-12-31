@@ -8,6 +8,8 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import type { ChatMessage } from '../types'
 import { NemuAvatar } from './avatar'
+import { ExpandableText } from '@/components/ui/expandable-text'
+import { AudioWaveform } from '@/components/tts/audio-waveform'
 
 function formatTime(timestamp: number, locale: string): string {
   const localeMap: Record<string, string> = { en: 'en-US', ja: 'ja-JP', zh: 'zh-CN' }
@@ -42,20 +44,54 @@ function TailLeft({ className, color = 'white' }: { className?: string; color?: 
   )
 }
 
+function VoiceBubbleContent({
+  message,
+  onVoiceAction,
+}: {
+  message: ChatMessage
+  onVoiceAction?: (messageId: string, action: 'play' | 'pause' | 'stop') => void
+}) {
+  const ttsId = message.id
+  const ttsText = message.ttsText ?? message.content
+
+  return (
+    <div className="space-y-2">
+      <AudioWaveform
+        ttsId={ttsId}
+        text={ttsText}
+        source="voice"
+        skipTagging
+        className="w-full border-transparent bg-transparent px-0"
+        waveformClassName="max-w-[360px]"
+        onUserAction={(action) => onVoiceAction?.(ttsId, action)}
+      />
+      <ExpandableText
+        value={message.displayContent ?? message.content}
+        lines={2}
+        textClassName="text-xs text-black/80"
+        triggerClassName="text-[11px] text-black/60"
+      />
+    </div>
+  )
+}
+
 export function MessageBubble({
   message,
   showAvatar,
   showTimestamp,
   showTail,
+  onVoiceAction,
 }: {
   message: ChatMessage
   showAvatar: boolean
   showTimestamp: boolean
   showTail: boolean
+  onVoiceAction?: (messageId: string, action: 'play' | 'pause' | 'stop') => void
 }) {
   const { t, i18n } = useTranslation()
   const isUser = message.role === 'user'
   const text = message.displayContent || message.content
+  const isVoice = message.kind === 'voice'
 
   if (isUser) {
     const bubbleColor = message.errorMessage ? '#ef4444' : '#5ac463'
@@ -94,7 +130,11 @@ export function MessageBubble({
     )
   }
 
-  const bubbleColor = message.errorMessage ? '#fef2f2' : 'white'
+  const bubbleColor = message.errorMessage
+    ? '#fef2f2'
+    : isVoice
+      ? 'rgba(0, 0, 0, 0.05)'
+      : 'white'
   const rowClass = cn(
     'flex items-start gap-2 px-3',
     showTail
@@ -102,7 +142,11 @@ export function MessageBubble({
   const assistantBubbleClass = cn(
     'max-w-[70%] rounded-[18px] px-3.5 py-2',
     'text-[15px] leading-[1.4] relative',
-    message.errorMessage ? 'bg-red-50 border border-red-200' : 'bg-white text-[#111]',
+    message.errorMessage
+      ? 'bg-red-50 border border-red-200'
+      : isVoice
+        ? 'bg-black/5 text-black border border-black/10 backdrop-blur-md overflow-hidden'
+        : 'bg-white text-[#111]',
     showTail && 'mt-1'
   )
   return (
@@ -119,7 +163,11 @@ export function MessageBubble({
             color={bubbleColor}
           />
         )}
-        <p className="whitespace-pre-wrap break-words select-text">{text}</p>
+        {message.kind === 'voice' ? (
+          <VoiceBubbleContent message={message} onVoiceAction={onVoiceAction} />
+        ) : (
+          <p className="whitespace-pre-wrap break-words select-text">{text}</p>
+        )}
         {message.errorMessage && (
           <p className="text-xs text-red-500 mt-1">⚠️ {message.errorMessage}</p>
         )}

@@ -511,6 +511,12 @@
       "errors": {
         "outOfMemory": "Out of memory. Text detection requires more memory than available in this app mode. Please open nemu in Safari instead."
       },
+      "tts": {
+        "listen": "Listen",
+        "listenPage": "Listen to page",
+        "stop": "Stop",
+        "tooLong": "This page is too long for full-page TTS. Use sentence-by-sentence instead."
+      },
       "chat": {
         "title": "Ask Nemu",
         "subtitle": "Japanese learning assistant",

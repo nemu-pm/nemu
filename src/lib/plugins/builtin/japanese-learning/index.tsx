@@ -8,6 +8,7 @@ import { useNemuChatStore, buildHiddenContextFromReader, createChatStreamCallbac
 import { isJapaneseEnabled, isJapaneseChapter as isJapaneseChapterLang } from './language'
 import iconImage from './icon.png'
 import type { OcrPageCacheKeyV2 } from './ocr-page-cache'
+import { useTtsStore } from '@/stores/tts'
 
 const t = (key: string) => i18n.t(`plugin.japaneseLearning.${key}`)
 
@@ -183,7 +184,10 @@ export const japaneseLearningPlugin: ReaderPlugin = {
       // Transcript popover (controlled by store)
       usePopoverOpen: () => useTextDetectorStore((s) => s.transcriptPopoverOpen),
       popoverContent: () => <OcrTranscriptPopoverContent />,
-      onPopoverClose: () => useTextDetectorStore.getState().toggleTranscriptPopover(false),
+      onPopoverClose: () => {
+        useTtsStore.getState().fadeOut()
+        useTextDetectorStore.getState().toggleTranscriptPopover(false)
+      },
     },
     {
       id: 'nemu-chat',

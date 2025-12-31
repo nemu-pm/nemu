@@ -704,7 +704,9 @@ type LocalizedStrings = {
     triggerOcr: string
     suggestFollowups: string
     speak: string
+    sendVoiceRecording: string
   }
+  voiceToolBlock: string
   outputRulesTitle: string
   outputRules: string[]
   languageRulesTitle: string
@@ -748,12 +750,35 @@ const LOCALIZED: Record<PromptLocale, LocalizedStrings> = {
       triggerOcr: '当页面没有文本时触发OCR（request_transcript内部使用）。',
       suggestFollowups: '仅在有帮助时，给出0-4条用户可能想问的后续问题（用户视角）。',
       speak: '发送一条LINE风格的短消息。所有对用户的回复必须使用该工具，可在同一回复内多次调用。',
+      sendVoiceRecording: '发送语音消息（可用于发音/朗读；文本中可包含音声标签）。',
     },
+    voiceToolBlock: `
+# 语音消息
+
+你可以使用 send_voice_recording(text) 向用户发送语音消息。
+
+何时使用:
+- 用户询问读音/发音/念法，或希望你示范怎么读
+- 用户明确要求你朗读/说出来（例如“能读给我听吗？”）
+- 需要用声音展示语气、节奏或情绪时
+- 遇到你想表演的有趣台词时（你喜欢表演！）
+
+使用该工具时，请加入音声标签让语气更生动:
+- 使用诸如 [ふわふわした声で]、[おずおずと]、[驚いて]、[くすっ] 等标签
+- 将标签放在对应文本前的方括号中
+
+例:
+- send_voice_recording("[わくわく] 今日は楽しいことがありそう！")
+- send_voice_recording("[やわらかく] 大丈夫だよ、心配しないで。[くすっ]")
+- send_voice_recording("[驚いて] えっ、本当に？！")
+    `.trim(),
     outputRulesTitle: '# 输出要求',
     outputRules: [
       '平时状态发言简短，单条消息10-20字左右',
       '兴奋状态可以连发多条，每条也不要太长',
-      '必须使用 speak 工具发送消息，不要直接输出文本',
+      '文本消息必须使用 speak 工具发送，不要直接输出文本',
+      '语音消息请使用 send_voice_recording 工具',
+      '涉及读音/发音/朗读时，优先使用 send_voice_recording 工具（必要时再用 speak 做简短补充）',
       '可以在一次回复中多次调用 speak（并行工具调用）',
       '不使用括号表情或星号动作',
       '像真实LINE聊天一样自然',
@@ -798,12 +823,35 @@ const LOCALIZED: Record<PromptLocale, LocalizedStrings> = {
       triggerOcr: '文字がないページのOCRを実行する（request_transcriptが内部で使う）。',
       suggestFollowups: '必要なときだけ、ユーザー視点の質問を0〜4件提案する。',
       speak: '短いメッセージを送る。返事は全部これで送る。何回でも呼べる。',
+      sendVoiceRecording: '音声メッセージを送る（発音/読み上げにも使う。テキストに音声タグを含めてよい）。',
     },
+    voiceToolBlock: `
+# 音声メッセージ
+
+send_voice_recording(text) を使って音声メッセージを送れる。
+
+使うタイミング:
+- 発音や読み方を聞かれたとき（例:「この単語どう読む？」）
+- ユーザーが読み上げを明確に頼んだとき
+- 声で語気や間を示したいとき
+- 演じたくなる面白いセリフが出てきたとき（演技が好き）
+
+使うときは音声タグを付けて表現をつける:
+- [ふわふわした声で]、[おずおずと]、[驚いて]、[くすっ] など
+- 影響するテキストの直前に [] で置く
+
+例:
+- send_voice_recording("[わくわく] 今日は楽しいことがありそう！")
+- send_voice_recording("[やわらかく] 大丈夫だよ、心配しないで。[くすっ]")
+- send_voice_recording("[驚いて] えっ、本当に？！")
+    `.trim(),
     outputRulesTitle: '# 出力のルール',
     outputRules: [
       'ふだんは短め。1通10〜20文字くらい',
       '興奮したら連投OK。でも1通1通は短く',
-      'メッセージは必ずspeakツールで送る。直接書かない',
+      'テキストは必ずspeakツールで送る。直接書かない',
+      '音声メッセージはsend_voice_recordingツールを使う',
+      '発音/読み上げに関する返答はsend_voice_recordingツールを優先（必要なら短いspeak補足も可）',
       '同じ返事の中でspeakを何回呼んでもいい',
       '（笑）とか*動作*みたいな書き方はしない',
       '本物のチャットみたいに自然に',
@@ -848,12 +896,35 @@ const LOCALIZED: Record<PromptLocale, LocalizedStrings> = {
       triggerOcr: 'Trigger OCR for a page if text is missing (used internally by request_transcript).',
       suggestFollowups: 'Suggest 0-4 follow-up questions from the user\'s perspective only when helpful.',
       speak: 'Send a short LINE-style message. All replies to the user must use this tool. Can be called multiple times in one response.',
+      sendVoiceRecording: 'Send a voice message to the user (use for pronunciation/reading; text can include audio tags).',
     },
+    voiceToolBlock: `
+# Voice Messages
+
+You have access to send_voice_recording(text) to send voice messages to the user.
+
+When to use:
+- When the user asks about pronunciation/reading or wants to hear how something is said
+- When the user explicitly asks you to read/speak something ("can you read this for me?")
+- When a spoken delivery would clarify rhythm or emotion
+- When you encounter a particularly interesting line you want to act out (you enjoy acting!)
+
+When using this tool, add audio tags to make your delivery expressive:
+- Use tags like [ふわふわした声で], [おずおずと], [驚いて], [くすっ], etc.
+- Place tags before the affected text in brackets
+
+Examples:
+- send_voice_recording("[わくわく] 今日は楽しいことがありそう！")
+- send_voice_recording("[やわらかく] 大丈夫だよ、心配しないで。[くすっ]")
+- send_voice_recording("[驚いて] えっ、本当に？！")
+    `.trim(),
     outputRulesTitle: '# Output Requirements',
     outputRules: [
       'Keep messages short normally, around 10-20 characters each',
       'When excited, can send multiple messages, but keep each short',
-      'Must use speak tool for all messages, no plain text output',
+      'Use speak for text messages; do not output plain text',
+      'Use send_voice_recording for voice messages',
+      'For pronunciation/reading requests, prioritize send_voice_recording (you may add a short speak follow-up if helpful)',
       'Can call speak multiple times in one response (parallel tool calls)',
       'No parenthetical expressions like (laughs) or *actions*',
       'Be natural like real LINE chat',
@@ -927,7 +998,8 @@ function formatTools(strings: LocalizedStrings): string {
 - request_transcript: ${t.requestTranscript}
 - trigger_ocr: ${t.triggerOcr}
 - suggest_followups: ${t.suggestFollowups}
-- speak: ${t.speak}`
+- speak: ${t.speak}
+- send_voice_recording: ${t.sendVoiceRecording}`
 }
 
 function formatLanguageRules(
@@ -974,6 +1046,9 @@ export function buildPromptConfig(hiddenContext: PromptHiddenContext, appLanguag
   }
 
   systemSections.push('', formatTools(strings))
+  if (strings.voiceToolBlock) {
+    systemSections.push('', strings.voiceToolBlock)
+  }
 
   // Forcing message: output rules + response style + language rules
   // Injected before each user message, not persisted in history

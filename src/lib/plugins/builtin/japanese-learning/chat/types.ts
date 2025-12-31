@@ -5,10 +5,13 @@
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
+  kind?: 'text' | 'voice'
   content: string
   timestamp: number
   /** Display text (may differ from content sent to AI) */
   displayContent?: string
+  /** Voice text for TTS (may include audio tags) */
+  ttsText?: string
   /** Error message if any */
   errorMessage?: string
   /** Hidden from UI (e.g., system prompts) */
@@ -53,7 +56,7 @@ export interface ToolResult {
 }
 
 export interface ChatStreamEvent {
-  type: 'text' | 'speak' | 'done' | 'error' | 'followups' | 'tool_call' | 'awaiting_tool_results'
+  type: 'text' | 'speak' | 'voice' | 'done' | 'error' | 'followups' | 'tool_call' | 'awaiting_tool_results'
   content?: string
   error?: string
   suggestions?: string[]

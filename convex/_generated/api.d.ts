@@ -21,6 +21,7 @@ import type * as proxy from "../proxy.js";
 import type * as r2 from "../r2.js";
 import type * as settings from "../settings.js";
 import type * as sync from "../sync.js";
+import type * as tts from "../tts.js";
 
 import type {
   ApiFromModules,
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   r2: typeof r2;
   settings: typeof settings;
   sync: typeof sync;
+  tts: typeof tts;
 }>;
 
 /**

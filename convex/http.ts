@@ -3,6 +3,7 @@ import { httpAction } from "./_generated/server";
 import { authComponent, createAuth } from "./auth";
 import { proxy, proxyOptions } from "./proxy";
 import { chat as nemuChat } from "./nemu_chat";
+import { tts, ttsAlignment } from "./tts";
 
 const http = httpRouter();
 
@@ -23,6 +24,27 @@ http.route({
   path: "/nemu-chat",
   method: "OPTIONS",
   handler: nemuChat,
+});
+// TTS proxy (ElevenLabs)
+http.route({
+  path: "/tts",
+  method: "POST",
+  handler: tts,
+});
+http.route({
+  path: "/tts",
+  method: "OPTIONS",
+  handler: tts,
+});
+http.route({
+  path: "/tts-alignment",
+  method: "POST",
+  handler: ttsAlignment,
+});
+http.route({
+  path: "/tts-alignment",
+  method: "OPTIONS",
+  handler: ttsAlignment,
 });
 http.route({
   path: "/proxy",

@@ -73,16 +73,31 @@ interface TTSState {
 
 ## UI Components
 
-### ElevenLabs Waveform Components
+### ElevenLabs UI Components
 Install via:
 ```bash
-pnpm dlx @elevenlabs/cli@latest components add waveform
+bunx --bun @elevenlabs/cli@latest components add waveform
+bunx --bun @elevenlabs/cli@latest components add scrub-bar
 ```
+Note: These are already installed in the project.
 
-Use these components for visualization:
-- **ScrollingWaveform** - Loading/generating state animation
-- **AudioScrubber** - Playback visualization with progress (if needed)
-- **StaticWaveform** - Static display with seed-based consistency
+**Component Usage by Context:**
+| Context | Component | Why |
+|---------|-----------|-----|
+| Chat voice bubbles | **Waveform** (ScrollingWaveform/StaticWaveform) | LINE-style animated bars, richer visual |
+| Sentence/Transcript TTS | **ScrubBar** | Clean, minimal progress bar |
+| Loading state | **ScrollingWaveform** | Animated feedback during generation |
+
+**Waveform Components:**
+- `ScrollingWaveform` - Continuous animation for loading/generating state
+- `StaticWaveform` - Seed-based consistent display for voice bubbles
+
+**ScrubBar Components:**
+- `ScrubBarContainer` - Wrapper with duration/value/onScrub props
+- `ScrubBarTrack` - Clickable track area
+- `ScrubBarProgress` - Filled progress indicator
+- `ScrubBarThumb` - Draggable seek handle
+- `ScrubBarTimeLabel` - Time display (current/total)
 
 ### Sentence Analysis Page
 - **Location**: TTS button placed next to the Copy button
@@ -146,7 +161,8 @@ Examples:
 4. Audio is cached in memory
 
 ### Voice Message UI (LINE-style)
-- **Bubble**: Play button + mini waveform visualization (use ElevenLabs waveform component)
+- **Bubble**: Play button + mini waveform visualization (use `StaticWaveform` with message ID as seed)
+- **Loading**: Show `ScrollingWaveform` while TTS is generating
 - **Text**: Expandable - collapsed by default, tap to reveal transcript
 - **Playback**: Tap to play (no auto-play)
 - **Generation**: Happens on message receive, decoupled from chat backend

@@ -18,6 +18,7 @@ type MessageForRequest =
 export interface ChatStreamCallbacks {
   onText: (text: string) => void
   onSpeak: (text: string) => void
+  onVoice: (text: string) => void
   onToolCall: (toolCall: ToolCall) => void
   onToolsAwaiting: (toolCalls: ToolCall[], partialContent: string) => void
   onToolResults: (toolResults: ToolResult[]) => void
@@ -281,6 +282,9 @@ export async function streamChat(
 
             case 'speak':
               callbacks.onSpeak(event.content ?? '')
+              break
+            case 'voice':
+              callbacks.onVoice(event.content ?? '')
               break
 
             case 'tool_call':

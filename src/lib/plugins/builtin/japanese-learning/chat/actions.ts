@@ -8,6 +8,13 @@ import { useNemuChatStore } from './store'
 import type { HiddenContext, ToolCall } from './types'
 import type { ChatToolContext } from './tools'
 import { getGreetingPrompt } from './prompts'
+import { useTtsStore } from '@/stores/tts'
+
+const AUDIO_TAG_REGEX = /\[[^\]]+\]/g
+
+function stripAudioTags(text: string): string {
+  return text.replace(AUDIO_TAG_REGEX, '').replace(/\s{2,}/g, ' ').trim()
+}
 
 function getToolStatusText(toolCall: ToolCall): string {
   if (toolCall.toolName === 'request_transcript') {
@@ -128,6 +135,20 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
     },
     onSpeak: (text) => {
       enqueueSpeak(text)
+      if (!hasMarkedRead) {
+        markLastUserMessageRead()
+        hasMarkedRead = true
+      }
+    },
+    onVoice: (text) => {
+      const trimmed = text.trim()
+      if (!trimmed) return
+      const displayText = stripAudioTags(trimmed)
+      const messageId = addAssistantMessage(displayText, undefined, {
+        kind: 'voice',
+        ttsText: trimmed,
+      })
+      useTtsStore.getState().prefetch(messageId, trimmed, { skipTagging: true, source: 'voice' })
       if (!hasMarkedRead) {
         markLastUserMessageRead()
         hasMarkedRead = true

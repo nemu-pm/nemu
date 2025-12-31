@@ -38,8 +38,8 @@ interface NemuChatState {
   addAssistantMessage: (
     content: string,
     toolCalls?: ToolCall[],
-    options?: { hidden?: boolean; errorMessage?: string }
-  ) => void
+    options?: { hidden?: boolean; errorMessage?: string; kind?: 'text' | 'voice'; ttsText?: string }
+  ) => string
   addToolResults: (results: ToolResult[]) => void
 
   setStreaming: (streaming: boolean) => void
@@ -112,16 +112,20 @@ export const useNemuChatStore = create<NemuChatState>((set, get) => ({
   },
 
   addAssistantMessage: (content, toolCalls, options) => {
+    const id = generateId()
     const msg: ChatMessage = {
-      id: generateId(),
+      id,
       role: 'assistant',
+      kind: options?.kind ?? 'text',
       content,
       timestamp: Date.now(),
       toolCalls,
       hidden: options?.hidden,
       errorMessage: options?.errorMessage,
+      ttsText: options?.ttsText,
     }
     set((s) => ({ messages: [...s.messages, msg].slice(-30) }))
+    return id
   },
 
   addToolResults: (results) => {

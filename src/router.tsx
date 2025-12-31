@@ -34,6 +34,7 @@ import { SearchPage } from "./pages/search";
 import { SettingsPage } from "./pages/settings";
 import { MangaPage } from "./pages/manga";
 import { ReaderPage } from "./pages/reader";
+import { DebugPopoverDrawerPage } from "./pages/debug-popover-drawer";
 import { lazy, Suspense } from "react";
 import { PageTitleProvider } from "@/components/page-title";
 
@@ -447,6 +448,13 @@ const readerRoute = createRoute({
   component: ReaderPage,
 });
 
+// Debug popover + drawer test route
+const debugPopoverDrawerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/debug/popover-drawer",
+  component: DebugPopoverDrawerPage,
+});
+
 // Route tree
 const shellChildren = [
   libraryRoute,
@@ -460,6 +468,7 @@ const shellChildren = [
 const routeTree = rootRoute.addChildren([
   shellRoute.addChildren(shellChildren),
   readerRoute,
+  debugPopoverDrawerRoute,
 ]);
 
 // Create router factory - context will be provided by RouterProvider

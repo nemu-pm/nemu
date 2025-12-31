@@ -165,6 +165,8 @@ interface TextDetectorState {
   transcriptPopoverOpen: boolean
   /** Currently hovered transcript line (for box highlighting) */
   hoveredLine: { pageIndex: number; x1: number; y1: number; x2: number; y2: number } | null
+  /** Currently playing transcript line (for box highlighting) */
+  playingLine: { pageIndex: number; x1: number; y1: number; x2: number; y2: number } | null
 
   ocrSheetOpen: boolean
   ocrResult: OcrResult
@@ -183,6 +185,7 @@ interface TextDetectorState {
 
   toggleTranscriptPopover: (open?: boolean) => void
   setHoveredLine: (line: { pageIndex: number; x1: number; y1: number; x2: number; y2: number } | null) => void
+  setPlayingLine: (line: { pageIndex: number; x1: number; y1: number; x2: number; y2: number } | null) => void
 
   openOcrSheetFromTranscript: (
     pageIndex: number,
@@ -211,6 +214,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
   pendingPopoverOpen: false,
   transcriptPopoverOpen: false,
   hoveredLine: null,
+  playingLine: null,
   ocrSheetOpen: false,
   ocrResult: { text: '', loading: false, error: null },
   transcriptSelection: null,
@@ -286,10 +290,11 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
 
   toggleTranscriptPopover: (open) => {
     const next = open ?? !get().transcriptPopoverOpen
-    set({ transcriptPopoverOpen: next, hoveredLine: null })
+    set({ transcriptPopoverOpen: next, hoveredLine: null, playingLine: null })
   },
 
   setHoveredLine: (line) => set({ hoveredLine: line }),
+  setPlayingLine: (line) => set({ playingLine: line }),
 
   // --------------------------------------------------------------------------
   // Grammar analysis: normalize (Convex) → tokenize (Ichiran) → GrammarTokens

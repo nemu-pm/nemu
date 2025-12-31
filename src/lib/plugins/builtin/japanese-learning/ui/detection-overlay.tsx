@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import type { TextDetection } from '../types'
 import type { ReaderPluginContext } from '../../../types'
 import { isJapaneseSource } from './utils'
+import { useIsInteractionLocked } from '../../../context'
 
 const LABEL_COLORS: Record<string, { bg: string; border: string }> = {
   ja: { bg: 'rgba(59, 130, 246, VAR)', border: 'rgb(96, 165, 250)' },
@@ -27,9 +28,10 @@ interface DetectionBoxProps {
   isFlashing: boolean
   pageIndex: number
   imageUrl: string | undefined
+  disabled?: boolean
 }
 
-function DetectionBox({ detection, imageDims, opacity, isFlashing, pageIndex, imageUrl }: DetectionBoxProps) {
+function DetectionBox({ detection, imageDims, opacity, isFlashing, pageIndex, imageUrl, disabled }: DetectionBoxProps) {
   const colors = LABEL_COLORS[detection.label] ?? LABEL_COLORS.unknown
   const openOcrSheetFromBox = useTextDetectorStore((s) => s.openOcrSheetFromBox)
   const setBoxPopout = useTextDetectorStore((s) => s.setBoxPopout)
@@ -37,14 +39,22 @@ function DetectionBox({ detection, imageDims, opacity, isFlashing, pageIndex, im
   const transcripts = useTextDetectorStore((s) => s.transcripts)
   const ocrLoadingPages = useTextDetectorStore((s) => s.ocrLoadingPages)
   const hoveredLine = useTextDetectorStore((s) => s.hoveredLine)
+  const playingLine = useTextDetectorStore((s) => s.playingLine)
 
   // Check if this box is highlighted (matches hovered transcript line)
-  const isHighlighted = hoveredLine &&
+  const isHovered = hoveredLine &&
     hoveredLine.pageIndex === pageIndex &&
     detection.x1 === hoveredLine.x1 &&
     detection.y1 === hoveredLine.y1 &&
     detection.x2 === hoveredLine.x2 &&
     detection.y2 === hoveredLine.y2
+  const isPlaying = playingLine &&
+    playingLine.pageIndex === pageIndex &&
+    detection.x1 === playingLine.x1 &&
+    detection.y1 === playingLine.y1 &&
+    detection.x2 === playingLine.x2 &&
+    detection.y2 === playingLine.y2
+  const isHighlighted = Boolean(isHovered || isPlaying)
 
   const style = useMemo(() => {
     const left = (detection.x1 / imageDims.width) * 100
@@ -134,11 +144,13 @@ function DetectionBox({ detection, imageDims, opacity, isFlashing, pageIndex, im
     <button
       type="button"
       className={cn(
-        "absolute pointer-events-auto cursor-pointer rounded-sm border-2 transition-opacity duration-200",
+        "absolute rounded-sm border-2 transition-opacity duration-200",
+        disabled ? "pointer-events-none" : "pointer-events-auto cursor-pointer",
         isFlashing || isHighlighted ? "opacity-100" : "opacity-0 hover:opacity-100"
       )}
       style={style}
       onClick={handleClick}
+      disabled={disabled}
       title={`${detection.label} (${(detection.confidence * 100).toFixed(0)}%)`}
     />
   )
@@ -154,6 +166,7 @@ export function DetectionOverlay({ pageIndex, ctx }: DetectionOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [bounds, setBounds] = useState<ImageBounds | null>(null)
   const [isFlashing, setIsFlashing] = useState(false)
+  const isInteractionLocked = useIsInteractionLocked()
 
   // Check if plugin should be enabled for this source
   const isEnabled = isJapaneseSource(ctx)
@@ -253,6 +266,7 @@ export function DetectionOverlay({ pageIndex, ctx }: DetectionOverlayProps) {
               isFlashing={isFlashing}
               pageIndex={pageIndex}
               imageUrl={ctx.getPageImageUrl(pageIndex)}
+              disabled={isInteractionLocked}
             />
           ))}
         </div>
@@ -260,4 +274,3 @@ export function DetectionOverlay({ pageIndex, ctx }: DetectionOverlayProps) {
     </div>
   )
 }
-

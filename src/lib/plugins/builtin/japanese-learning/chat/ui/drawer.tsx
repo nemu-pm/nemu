@@ -17,6 +17,7 @@ import { useNemuChatStore } from '../store'
 import { createChatStreamCallbacks, sendChatMessage } from '../actions'
 import type { ChatMessage, HiddenContext } from '../types'
 import { languageStore } from '@/stores/language'
+import { useTtsStore } from '@/stores/tts'
 
 import { NemuAvatar } from './avatar'
 import { TypingIndicator } from './typing-indicator'
@@ -54,6 +55,14 @@ export function NemuChatDrawer() {
     getContextForRequest,
     getToolContextForRequest,
   } = store
+  const playTts = useTtsStore((s) => s.play)
+  const currentAudioId = useTtsStore((s) => s.currentAudioId)
+  const lastEndedId = useTtsStore((s) => s.lastEndedId)
+  const lastEndedAt = useTtsStore((s) => s.lastEndedAt)
+  const [autoPlayState, setAutoPlayState] = useState<{ enabled: boolean; currentId: string | null }>({
+    enabled: false,
+    currentId: null,
+  })
 
   // Create callbacks for the stream - these update the store
   const createCallbacks = useCallback(
@@ -145,6 +154,49 @@ export function NemuChatDrawer() {
 
   const hasContent = visibleMessages.length > 0 || isStreaming
 
+  useEffect(() => {
+    if (!isOpen && autoPlayState.enabled) {
+      setAutoPlayState({ enabled: false, currentId: null })
+    }
+  }, [autoPlayState.enabled, isOpen])
+
+  const handleVoiceAction = useCallback(
+    (messageId: string, action: 'play' | 'pause' | 'stop') => {
+      if (action === 'play') {
+        if (autoPlayState.enabled && autoPlayState.currentId && autoPlayState.currentId !== messageId) {
+          setAutoPlayState({ enabled: false, currentId: null })
+          return
+        }
+        if (!currentAudioId) {
+          setAutoPlayState({ enabled: true, currentId: messageId })
+        } else if (currentAudioId !== messageId) {
+          setAutoPlayState({ enabled: false, currentId: null })
+        }
+        return
+      }
+      if (action === 'pause' || action === 'stop') {
+        setAutoPlayState({ enabled: false, currentId: null })
+      }
+    },
+    [autoPlayState.currentId, autoPlayState.enabled, currentAudioId]
+  )
+
+  useEffect(() => {
+    if (!autoPlayState.enabled || !lastEndedId || lastEndedId !== autoPlayState.currentId) return
+    const currentIndex = visibleMessages.findIndex((msg) => msg.id === lastEndedId)
+    if (currentIndex === -1) {
+      setAutoPlayState({ enabled: false, currentId: null })
+      return
+    }
+    const nextMessage = visibleMessages[currentIndex + 1]
+    if (!nextMessage || nextMessage.kind !== 'voice' || nextMessage.role !== 'assistant') {
+      setAutoPlayState({ enabled: false, currentId: null })
+      return
+    }
+    playTts(nextMessage.id, nextMessage.ttsText ?? nextMessage.content, { skipTagging: true, source: 'voice' })
+    setAutoPlayState({ enabled: true, currentId: nextMessage.id })
+  }, [autoPlayState, lastEndedAt, lastEndedId, playTts, visibleMessages])
+
   return (
     <Drawer open={isOpen} onOpenChange={(open: boolean) => !open && close()}>
       <DrawerContent className="!h-[70vh] !max-h-[70vh] max-w-2xl mx-auto flex flex-col z-[70]" aria-describedby={undefined}>
@@ -180,6 +232,7 @@ export function NemuChatDrawer() {
                     showAvatar={msg.role === 'assistant' && i === 0}
                     showTimestamp={i === group.length - 1}
                     showTail={i === 0}
+                    onVoiceAction={handleVoiceAction}
                   />
                 ))}
               </div>
