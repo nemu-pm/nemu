@@ -12,7 +12,7 @@ import { Copy01Icon, MessageMultiple02Icon, PauseIcon, VolumeUpIcon } from '@hug
 import { useTextDetectorStore } from '../store'
 import { copyToClipboard } from '@/lib/utils'
 import { motion, AnimatePresence } from 'motion/react'
-import { openChatAndSend } from '../chat/ui'
+import { openChatAndSend } from '../chat/open-chat-and-send'
 import { getExplainDisplayPrompt, getExplainPrompt } from '../chat/prompts'
 import { serializeGrammarTokens } from './utils'
 import { SentenceDisplay } from './sentence-display'
@@ -41,8 +41,7 @@ export function OcrResultSheet() {
 
   const sentenceText = (ocrResult.text ?? '').trim()
   const canActOnSentence = !ocrResult.loading && !ocrResult.error && sentenceText.length > 0
-  const normalizedText = (grammarAnalysis.normalizedText ?? '').trim()
-  const ttsText = normalizedText || sentenceText
+  const ttsText = sentenceText
   const ttsId = useMemo(() => (ttsText ? createTtsId('sentence', ttsText) : null), [ttsText])
   const isCurrent = currentAudioId === ttsId
   const isBusy = isCurrent && (isPlaying || isLoading)

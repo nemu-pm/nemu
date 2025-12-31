@@ -15,11 +15,15 @@ from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Set
 import numpy as np
 
+from services.ocr.text_order_defaults import merge_text_order_params  # shared defaults
+
 try:
     import cv2
     HAS_CV2 = True
 except ImportError:
     HAS_CV2 = False
+
+PAPER_MIN_LINE_LENGTH_PX = 174
 
 
 def _angle_rad(line: Tuple[int, int, int, int]) -> float:
@@ -89,10 +93,49 @@ class TextBox:
     def distance_to_point(self, x: float, y: float) -> float:
         return math.sqrt((self.cx - x)**2 + (self.cy - y)**2)
 
+    def border_distance_to(self, other: 'TextBox') -> float:
+        """
+        Minimum Euclidean distance between the perimeters of two axis-aligned rectangles.
+        0 if they overlap or touch.
+        """
+        # Horizontal gap between [x1,x2] intervals
+        dx = max(0.0, float(other.x1) - float(self.x2), float(self.x1) - float(other.x2))
+        # Vertical gap between [y1,y2] intervals
+        dy = max(0.0, float(other.y1) - float(self.y2), float(self.y1) - float(other.y2))
+        return math.hypot(dx, dy)
+
 
 # =============================================================================
 # SECTION 2: PANEL SEGMENTATION
 # =============================================================================
+
+def _resize_and_contrast_stretch(
+    img_gray: np.ndarray,
+    target_height: int = 1000,
+    contrast_p_low: float = 2.0,
+    contrast_p_high: float = 98.0,
+) -> Tuple[np.ndarray, float]:
+    """
+    Shared preprocessing:
+    - resize to target height (keep aspect)
+    - light contrast stretching (percentile)
+    Returns (img_uint8_resized, scale).
+    """
+    # Ensure grayscale input
+    if img_gray.ndim == 3 and HAS_CV2:
+        img_gray = cv2.cvtColor(img_gray, cv2.COLOR_BGR2GRAY)
+    if img_gray.ndim != 2:
+        raise ValueError(f"expected grayscale image (H,W) but got shape {img_gray.shape}")
+
+    h, w = img_gray.shape
+    scale = float(target_height) / float(h)
+    new_w = int(round(w * scale))
+    img_resized = cv2.resize(img_gray, (new_w, int(target_height)))
+
+    p_lo, p_hi = np.percentile(img_resized, (contrast_p_low, contrast_p_high))
+    img_stretched = np.clip((img_resized - p_lo) / (p_hi - p_lo + 1e-6) * 255, 0, 255).astype(np.uint8)
+    return img_stretched, float(scale)
+
 
 def preprocess_for_hough(
     img_gray: np.ndarray,
@@ -112,22 +155,12 @@ def preprocess_for_hough(
     - Contrast stretching
     - LoG edge detection (better than Canny for stylized panel outlines)
     """
-    # Ensure grayscale input
-    if img_gray.ndim == 3 and HAS_CV2:
-        # Accept RGB/BGR; OpenCV treats last dim=3 as BGR by convention, but for grayscale it doesn't matter much.
-        img_gray = cv2.cvtColor(img_gray, cv2.COLOR_BGR2GRAY)
-    if img_gray.ndim != 2:
-        raise ValueError(f"preprocess_for_hough expected grayscale image (H,W) but got shape {img_gray.shape}")
-
-    # Resize maintaining aspect ratio
-    h, w = img_gray.shape
-    scale = target_height / h
-    new_w = int(w * scale)
-    img_resized = cv2.resize(img_gray, (new_w, target_height))
-    
-    # Light contrast stretching
-    p_lo, p_hi = np.percentile(img_resized, (contrast_p_low, contrast_p_high))
-    img_stretched = np.clip((img_resized - p_lo) / (p_hi - p_lo + 1e-6) * 255, 0, 255).astype(np.uint8)
+    img_stretched, scale = _resize_and_contrast_stretch(
+        img_gray,
+        target_height=int(target_height),
+        contrast_p_low=float(contrast_p_low),
+        contrast_p_high=float(contrast_p_high),
+    )
     
     # Laplace of Gaussian (LoG) (k=15 per paper).
     # Implemented as Gaussian smoothing (kernel size k) followed by Laplacian.
@@ -163,9 +196,70 @@ def preprocess_for_hough(
     return binary, scale
 
 
+def preprocess_for_hough_ink(
+    img_gray: np.ndarray,
+    target_height: int = 1000,
+    contrast_p_low: float = 2.0,
+    contrast_p_high: float = 98.0,
+    adaptive_block_size: int = 35,
+    adaptive_C: float = 10.0,
+    line_len_ratio: float = 0.08,
+    line_thickness: int = 3,
+    close_ksize: int = 5,
+) -> Tuple[np.ndarray, float]:
+    """
+    Alternative preprocessor for Hough:
+    produce a binary mask where white pixels (~255) are *ink-like long lines*.
+
+    Motivation: LoG is an edge operator → thick borders become double-edges + speckle.
+    For line detection, a "stroke/ink" mask is often more stable.
+    """
+    img_stretched, scale = _resize_and_contrast_stretch(
+        img_gray,
+        target_height=int(target_height),
+        contrast_p_low=float(contrast_p_low),
+        contrast_p_high=float(contrast_p_high),
+    )
+
+    # Adaptive binarization to get ink (white) on black.
+    bs = int(adaptive_block_size)
+    if bs % 2 == 0:
+        bs += 1
+    bs = max(3, bs)
+    ink = cv2.adaptiveThreshold(
+        img_stretched,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        bs,
+        float(adaptive_C),
+    )
+
+    # Keep long axis-aligned structures (panel borders), discard most text.
+    h, w = ink.shape[:2]
+    line_len = max(15, int(round(min(h, w) * float(line_len_ratio))))
+    thickness = max(1, int(line_thickness))
+    k_h = cv2.getStructuringElement(cv2.MORPH_RECT, (line_len, thickness))
+    k_v = cv2.getStructuringElement(cv2.MORPH_RECT, (thickness, line_len))
+    hor = cv2.morphologyEx(ink, cv2.MORPH_OPEN, k_h)
+    ver = cv2.morphologyEx(ink, cv2.MORPH_OPEN, k_v)
+    lines = cv2.bitwise_or(hor, ver)
+
+    # Bridge small gaps.
+    ck = int(close_ksize)
+    if ck % 2 == 0:
+        ck += 1
+    ck = max(1, ck)
+    if ck > 1:
+        k_close = cv2.getStructuringElement(cv2.MORPH_RECT, (ck, ck))
+        lines = cv2.morphologyEx(lines, cv2.MORPH_CLOSE, k_close)
+
+    return lines, scale
+
+
 def detect_panel_lines(
     binary: np.ndarray,
-    min_line_length: int = 174,
+    min_line_length: int = PAPER_MIN_LINE_LENGTH_PX,
     params_list: Optional[List[Tuple[float, float, int, int, int]]] = None,
 ) -> List[Tuple[int, int, int, int]]:
     """
@@ -187,14 +281,22 @@ def detect_panel_lines(
         ]
     
     for rho, theta, threshold, minLen, maxGap in params_list:
-        lines = cv2.HoughLinesP(binary, rho, theta, threshold, 
-                                minLineLength=minLen, maxLineGap=maxGap)
+        # Paper: segments shorter than 174px are pruned immediately.
+        # Enforce a global floor even if params_list contains smaller per-pass values.
+        minLen_eff = max(int(minLen), int(min_line_length), int(PAPER_MIN_LINE_LENGTH_PX))
+        lines = cv2.HoughLinesP(
+            binary,
+            rho,
+            theta,
+            threshold,
+            minLineLength=minLen_eff,
+            maxLineGap=maxGap,
+        )
         if lines is not None:
             for line in lines:
                 x1, y1, x2, y2 = line[0]
                 length = math.sqrt((x2-x1)**2 + (y2-y1)**2)
-                # If per-pass minLen varies, filter consistently with that pass.
-                if length >= float(minLen):
+                if length >= float(minLen_eff):
                     all_lines.append((int(x1), int(y1), int(x2), int(y2)))
 
     # Dedupe exact duplicates across the 3 runs (probabilistic Hough + repeated params).
@@ -758,22 +860,27 @@ def extrapolate_line_segments(lines: List[Tuple[int, int, int, int]],
     return lines
 
 
-def create_panel_mask(lines: List[Tuple[int, int, int, int]], 
-                      img_shape: Tuple[int, int],
-                      line_thickness: int = 8,
-                      blur_size: int = 15) -> np.ndarray:
+def create_panel_mask(
+    lines: List[Tuple[int, int, int, int]],
+    img_shape: Tuple[int, int],
+    line_thickness: int = 8,
+    blur_size: int = 15,
+) -> np.ndarray:
     """
-    Create fuzzy panel edge mask from line segments.
-    Draw thick lines and blur with Gaussian.
+    Create a fuzzy panel edge mask (paper: thick pen + Gaussian blur).
     """
     h, w = img_shape
     mask = np.zeros((h, w), dtype=np.uint8)
     
     for x1, y1, x2, y2 in lines:
-        cv2.line(mask, (int(x1), int(y1)), (int(x2), int(y2)), 255, line_thickness)
-    
-    # Gaussian blur for fuzzy edges
-    mask = cv2.GaussianBlur(mask, (blur_size, blur_size), 0)
+        cv2.line(mask, (int(x1), int(y1)), (int(x2), int(y2)), 255, int(line_thickness))
+
+    k = int(blur_size)
+    if k % 2 == 0:
+        k += 1
+    if k < 3:
+        k = 3
+    mask = cv2.GaussianBlur(mask, (k, k), 0)
     
     return mask
 
@@ -1181,32 +1288,47 @@ def get_leaf_panels(region: PanelRegion) -> List[PanelRegion]:
 # SECTION 3.2: LAYER 2 - INSET PANEL GROUPING WITH SHAPE APPROXIMATION
 # =============================================================================
 
-def optimize_point_to_mask(mask: np.ndarray, x: float, y: float,
-                           search_radius: int = 30,
-                           stride: int = 3) -> Tuple[float, float]:
+def optimize_point_to_mask(mask: np.ndarray, x: float, y: float) -> Tuple[float, float]:
     """
     Optimize point position by moving to nearest intensity pool in mask.
     Points on top of lines should fall to closest intensity pool (~30px per paper).
     """
-    best_x, best_y = x, y
-    min_intensity = mask[int(y), int(x)] if 0 <= int(y) < mask.shape[0] and 0 <= int(x) < mask.shape[1] else 255
+    # Paper intent: move to the nearest intensity pool (~30px).
+    # Implement as: minimize intensity; break ties by Euclidean distance to original point.
+    ix, iy = int(round(x)), int(round(y))
+    best_x, best_y = ix, iy
+    if 0 <= iy < mask.shape[0] and 0 <= ix < mask.shape[1]:
+        best_val = int(mask[iy, ix])
+    else:
+        best_val = 255
+    best_d2 = 0
     
-    stride = max(1, int(stride))
-    for dy in range(-search_radius, search_radius + 1, stride):
-        for dx in range(-search_radius, search_radius + 1, stride):
-            ny, nx = int(y + dy), int(x + dx)
+    # Paper: ~30px neighborhood. We sample every pixel to be faithful (no stride).
+    search_radius = 30
+    for dy in range(-search_radius, search_radius + 1):
+        for dx in range(-search_radius, search_radius + 1):
+            ny, nx = iy + dy, ix + dx
             if 0 <= ny < mask.shape[0] and 0 <= nx < mask.shape[1]:
-                val = mask[ny, nx]
-                if val < min_intensity:
-                    min_intensity = val
+                val = int(mask[ny, nx])
+                d2 = dx * dx + dy * dy
+                if (val < best_val) or (val == best_val and d2 < best_d2):
+                    best_val = val
+                    best_d2 = d2
                     best_x, best_y = nx, ny
     
-    return best_x, best_y
+    return float(best_x), float(best_y)
 
 
-def can_connect_in_mask(mask: np.ndarray, p1: Tuple[float, float], 
-                        p2: Tuple[float, float], threshold: float = 100) -> bool:
-    """Check if two points can be connected with a straight line without crossing high mask values."""
+def can_connect_in_mask(
+    mask: np.ndarray,
+    p1: Tuple[float, float],
+    p2: Tuple[float, float],
+    threshold: float = 100,
+) -> bool:
+    """
+    Check if two points can be connected with a straight line without crossing panel edges.
+    Paper: fuzzy panel edge mask (thick pen + Gaussian blur), so we need an intensity threshold.
+    """
     x1, y1 = int(p1[0]), int(p1[1])
     x2, y2 = int(p2[0]), int(p2[1])
     
@@ -1224,9 +1346,14 @@ def can_connect_in_mask(mask: np.ndarray, p1: Tuple[float, float],
     return True
 
 
-def circular_ray_cast(mask: np.ndarray, cx: float, cy: float, 
-                      num_rays: int = 36, max_dist: float = 500,
-                      threshold: float = 100) -> List[Tuple[float, float]]:
+def circular_ray_cast(
+    mask: np.ndarray,
+    cx: float,
+    cy: float,
+    num_rays: int = 36,
+    max_dist: float = 500,
+    threshold: float = 100,
+) -> List[Tuple[float, float]]:
     """
     Cast rays in circular direction from centroid until panel outline is hit.
     Returns endpoints where rays hit panel edges in the mask.
@@ -1291,8 +1418,6 @@ def group_text_by_connectivity(
     boxes: List[TextBox],
     mask: np.ndarray,
     panel: PanelRegion,
-    optimize_radius: int = 30,
-    optimize_stride: int = 3,
     connect_threshold: float = 100,
 ) -> List[List[TextBox]]:
     """
@@ -1309,10 +1434,10 @@ def group_text_by_connectivity(
     if len(panel_boxes) == 1:
         return [panel_boxes]
     
-    # Optimize points to fall to nearest intensity pool (~30px)
+    # Optimize points to fall to nearest intensity pool (~30px) per paper.
     optimized_centers = []
     for b in panel_boxes:
-        opt_x, opt_y = optimize_point_to_mask(mask, b.cx, b.cy, search_radius=int(optimize_radius), stride=int(optimize_stride))
+        opt_x, opt_y = optimize_point_to_mask(mask, b.cx, b.cy)
         optimized_centers.append((opt_x, opt_y))
     
     # Build connectivity graph using optimized centers
@@ -1321,7 +1446,12 @@ def group_text_by_connectivity(
     
     for i in range(n):
         for j in range(i+1, n):
-            if can_connect_in_mask(mask, optimized_centers[i], optimized_centers[j], threshold=float(connect_threshold)):
+            if can_connect_in_mask(
+                mask,
+                optimized_centers[i],
+                optimized_centers[j],
+                threshold=float(connect_threshold),
+            ):
                 connected[i][j] = connected[j][i] = True
     
     # BFS to find groups
@@ -1366,7 +1496,14 @@ def compute_group_panel_shape(
     cy = sum(b.cy for b in group) / len(group)
     
     # Cast rays to find panel boundaries
-    endpoints = circular_ray_cast(mask, cx, cy, num_rays=int(num_rays), max_dist=float(max_dist), threshold=float(threshold))
+    endpoints = circular_ray_cast(
+        mask,
+        cx,
+        cy,
+        num_rays=int(num_rays),
+        max_dist=float(max_dist),
+        threshold=float(threshold),
+    )
     
     # Compute minimal enclosing rectangle
     rect_cx, rect_cy, _, _, _, _ = minimal_enclosing_rect(endpoints)
@@ -1395,7 +1532,13 @@ def order_groups_layer2(
     # Compute shape approximation for each group
     group_midpoints = []
     for group in groups:
-        mid_x, mid_y = compute_group_panel_shape(group, mask, num_rays=ray_num_rays, max_dist=ray_max_dist, threshold=ray_threshold)
+        mid_x, mid_y = compute_group_panel_shape(
+            group,
+            mask,
+            num_rays=ray_num_rays,
+            max_dist=ray_max_dist,
+            threshold=ray_threshold,
+        )
         group_midpoints.append((mid_x, mid_y, group))
     
     # Normalize distances
@@ -1442,9 +1585,12 @@ def order_groups_layer2(
 # SECTION 3.3: LAYER 3 - WEIGHTED NEAREST NEIGHBOR ORDERING
 # =============================================================================
 
-def order_boxes_weighted_nn(boxes: List[TextBox], 
-                            corner_x: float, corner_y: float,
-                            weight: float = 0.4) -> List[TextBox]:
+def order_boxes_weighted_nn(
+    boxes: List[TextBox],
+    corner_x: float,
+    corner_y: float,
+    weight: float = 0.4,
+) -> List[TextBox]:
     """
     Order text boxes using weighted nearest-neighbor.
     
@@ -1471,7 +1617,8 @@ def order_boxes_weighted_nn(boxes: List[TextBox],
     
     while remaining:
         prev = ordered[-1]
-        max_prev_dist = max(b.distance_to(prev) for b in remaining) or 1
+        # Use border-to-border distance for the "continue from previous" term.
+        max_prev_dist = max(b.border_distance_to(prev) for b in remaining) or 1
         
         best_score = float('inf')
         best_idx = 0
@@ -1479,7 +1626,7 @@ def order_boxes_weighted_nn(boxes: List[TextBox],
         for i, box in enumerate(remaining):
             # Normalized distances
             da = box.distance_to_point(corner_x, corner_y) / max_corner_dist
-            db = box.distance_to(prev) / max_prev_dist
+            db = box.border_distance_to(prev) / max_prev_dist
             
             score = weight * da + (1 - weight) * db
             
@@ -1501,7 +1648,7 @@ class PanelMaskCache:
     """
     Cached panel mask + resize scale for a page (paper pipeline runs at height=1000).
 
-    This lets us tune/order Layers 1–3 without re-running preprocessing + Hough + prune + extrap.
+    This lets us run Layers 1–3 ordering without re-running preprocessing + Hough + prune + extrap.
     """
 
     panel_mask: np.ndarray
@@ -1522,81 +1669,70 @@ def build_panel_mask_cache(
       - Hough (3 passes)
       - pruning
       - extrapolation
-      - fuzzy mask generation
+      - panel-edge mask generation
     """
     if not HAS_CV2:
         raise RuntimeError("OpenCV not available; cannot build panel mask cache.")
 
-    params = pipeline_params or {}
+    params = merge_text_order_params(pipeline_params)
 
-    binary, scale = preprocess_for_hough(
-        img_gray,
-        contrast_p_low=float(params.get("contrast_lo", 11.0)),
-        contrast_p_high=float(params.get("contrast_hi", 81.0)),
-        log_gaussian_ksize=int(params.get("gaussian_k", 15)),
-        laplacian_ksize=int(params.get("laplacian_k", 3)),
-        threshold_lambda=float(params.get("lam", 20.0)),
-        threshold_mean_scale=1.0,
-        threshold_mean_mode=str(params.get("mean_mode", "all")),
-        response_scale=float(params.get("resp_scale", 1.2)),
-    )
+    target_height = int(params.get("work_height", 1000))
+    line_detector = str(params.get("line_detector", "hough_log"))
+
+    if line_detector == "hough_ink":
+        binary, scale = preprocess_for_hough_ink(
+            img_gray,
+            target_height=target_height,
+            contrast_p_low=float(params.get("contrast_lo", 2.0)),
+            contrast_p_high=float(params.get("contrast_hi", 98.0)),
+            adaptive_block_size=int(params.get("ink_block_size", 35)),
+            adaptive_C=float(params.get("ink_C", 10.0)),
+            line_len_ratio=float(params.get("ink_line_len_ratio", 0.08)),
+            line_thickness=int(params.get("ink_line_thickness", 3)),
+            close_ksize=int(params.get("ink_close_ksize", 5)),
+        )
+    else:
+        binary, scale = preprocess_for_hough(
+            img_gray,
+            target_height=target_height,
+            contrast_p_low=float(params.get("contrast_lo", 2.0)),
+            contrast_p_high=float(params.get("contrast_hi", 98.0)),
+            log_gaussian_ksize=int(params.get("log_gaussian_ksize", 15)),
+            laplacian_ksize=int(params.get("laplacian_ksize", 3)),
+            threshold_lambda=float(params.get("threshold_lambda", 20.0)),
+            threshold_mean_scale=float(params.get("threshold_mean_scale", 1.0)),
+            # Paper threshold mean is ambiguous (all LoG pixels vs only positive responses).
+            threshold_mean_mode=str(params.get("mean_mode", "all")),
+            response_scale=float(params.get("response_scale", 1.0)),
+        )
 
     work_h, work_w = binary.shape[:2]
 
-    # Hough: allow per-pass tuning (same keys as tuner UI).
-    hough_params: List[Tuple[float, float, int, int, int]] = []
-    for pass_i, defaults in (
-        (1, (1.0, 32, 174, 10, True)),
-        (2, (1.0, 1, 165, 11, True)),
-        (3, (1.0, 64, 174, 12, True)),
-    ):
-        rho0, thr0, minlen0, maxgap0, on0 = defaults
-        on = bool(params.get(f"h{pass_i}_on", on0))
-        if not on:
-            continue
-        hough_params.append(
-            (
-                float(params.get(f"h{pass_i}_rho", rho0)),
-                math.pi / 180,
-                int(params.get(f"h{pass_i}_thresh", thr0)),
-                int(params.get(f"h{pass_i}_min_len", minlen0)),
-                int(params.get(f"h{pass_i}_max_gap", maxgap0)),
-            )
-        )
-
-    min_line_length = min((p[3] for p in hough_params), default=174)
-    lines = detect_panel_lines(binary, min_line_length=int(min_line_length), params_list=hough_params) if hough_params else []
-
+    # Paper: run probabilistic Hough 3 times with varied parameters.
+    # Numeric params (threshold/maxGap) are not fully specified; expose as knobs.
+    hough_params = [
+        (1, math.pi / 180, int(params.get("h1_thresh", 50)), PAPER_MIN_LINE_LENGTH_PX, int(params.get("h1_max_gap", 8))),
+        (1, math.pi / 180, int(params.get("h2_thresh", 40)), PAPER_MIN_LINE_LENGTH_PX, int(params.get("h2_max_gap", 8))),
+        (2, math.pi / 180, int(params.get("h3_thresh", 60)), PAPER_MIN_LINE_LENGTH_PX, int(params.get("h3_max_gap", 8))),
+    ]
+    lines = detect_panel_lines(binary, min_line_length=PAPER_MIN_LINE_LENGTH_PX, params_list=hough_params)
+    # Paper doesn't mention merging; keep disabled for strict fidelity.
     lines = prune_lines(
         lines,
-        long_threshold=float(params.get("long_threshold", 180)),
-        connect_dist=float(params.get("connect_dist", 18)),
-        angle_eps_deg=float(params.get("angle_eps_deg", 10)),
-        overlap_reject_frac=float(params.get("overlap_reject_frac", 0.65)),
-        merge_collinear=bool(params.get("merge_collinear", True)),
-        merge_angle_eps_deg=float(params.get("merge_angle_eps_deg", 0)),
-        merge_dist_eps=float(params.get("merge_dist_eps", 6)),
-        merge_gap_eps=float(params.get("merge_gap_eps", 0)),
+        # Paper: "considerably long" + "connected near" + angle heuristic; numeric values not specified → knobs.
+        long_threshold=float(params.get("long_threshold", 300)),
+        connect_dist=float(params.get("connect_dist", 30)),
+        angle_eps_deg=float(params.get("angle_eps_deg", 10.0)),
+        overlap_reject_frac=float(params.get("overlap_reject_frac", 0.6)),
+        merge_collinear=False,
     )
-
-    lines = extrapolate_line_segments(
-        lines,
-        (work_h, work_w),
-        extrapolate_check_dist=float(params.get("ex_check_dist", 28)),
-        extrapolate_near_dist=float(params.get("ex_near_dist", 12)),
-        perp_dist_threshold=float(params.get("ex_perp_dist", 26)),
-        perp_angle_eps_deg=float(params.get("ex_perp_angle", 8)),
-        cut_dist_threshold=float(params.get("ex_cut_dist", 85)),
-    )
-
-    blur_k = int(params.get("mask_blur_k", 77))
-    if blur_k % 2 == 0:
-        blur_k += 1
+    # Paper defaults (2.3): check_dist=25, near_dist=30, perp_dist=30, cut_dist=120.
+    lines = extrapolate_line_segments(lines, (work_h, work_w))
     panel_mask = create_panel_mask(
         lines,
         (work_h, work_w),
-        line_thickness=int(params.get("mask_thickness", 34)),
-        blur_size=blur_k,
+        line_thickness=int(params.get("mask_thickness", 8)),
+        blur_size=int(params.get("mask_blur_k", 15)),
     )
 
     return PanelMaskCache(panel_mask=panel_mask, scale=float(scale), work_h=int(work_h), work_w=int(work_w))
@@ -1610,11 +1746,13 @@ def estimate_text_order_from_panel_mask(
     ordering_params: Optional[dict] = None,
 ) -> List[dict]:
     """
-    Layers 1–3 ordering using a precomputed (cached) fuzzy panel mask.
+    Layers 1–3 ordering using a precomputed (cached) panel-edge mask.
     """
     if not detections or not HAS_CV2:
         return estimate_text_order_simple(detections)
 
+    # Allow knobs for parameters not fixed by the paper.
+    # Do NOT allow overriding paper-fixed values (e.g. ~30px pool optimization, connectivity thresholding).
     params = ordering_params or {}
     layer2_weight = float(params.get("layer2_weight", layer2_weight))
     layer3_weight = float(params.get("layer3_weight", layer3_weight))
@@ -1642,6 +1780,7 @@ def estimate_text_order_from_panel_mask(
     root = recursive_xy_split_projection(
         panel_mask,
         0, 0, work_w, work_h,
+        # XY-cut params are not specified by the paper; keep as optional knobs.
         min_size=int(params.get("l1_min_size", 50)),
         max_depth=int(params.get("l1_max_depth", 10)),
         threshold_ratio=float(params.get("l1_threshold_ratio", 0.3)),
@@ -1663,8 +1802,6 @@ def estimate_text_order_from_panel_mask(
             boxes,
             panel_mask,
             panel,
-            optimize_radius=int(params.get("l2_opt_radius", 30)),
-            optimize_stride=int(params.get("l2_opt_stride", 3)),
             connect_threshold=float(params.get("l2_connect_threshold", 100)),
         )
         if not groups:
@@ -1676,13 +1813,19 @@ def estimate_text_order_from_panel_mask(
             corner_x,
             corner_y,
             weight=layer2_weight,
+            # Ray-cast params are not specified by the paper; keep as optional knobs.
             ray_num_rays=int(params.get("l2_num_rays", 36)),
             ray_max_dist=float(params.get("l2_ray_max_dist", 500)),
             ray_threshold=float(params.get("l2_ray_threshold", 100)),
         )
 
         for group in ordered_groups:
-            ordered_group = order_boxes_weighted_nn(group, corner_x, corner_y, weight=layer3_weight)
+            ordered_group = order_boxes_weighted_nn(
+                group,
+                corner_x,
+                corner_y,
+                weight=layer3_weight,
+            )
             final_order.extend(ordered_group)
 
     assigned_indices = {b.index for b in final_order}
@@ -1728,8 +1871,7 @@ def estimate_text_order_full(
     # Final output still refers to the original detection indices (we never reorder the input list).
     _orig_h, _orig_w = img_gray.shape[:2]
     
-    # Convert detections to TextBox
-    params = pipeline_params or {}
+    params = merge_text_order_params(pipeline_params)
     layer2_weight = float(params.get("layer2_weight", layer2_weight))
     layer3_weight = float(params.get("layer3_weight", layer3_weight))
 
@@ -1776,6 +1918,7 @@ def sort_detections_by_reading_order(
     img_gray: Optional[np.ndarray] = None,
     page_width: Optional[float] = None,
     reading_direction: str = "rtl",
+    pipeline_params: Optional[dict] = None,
 ) -> List[dict]:
     """
     Main API function for sorting detections by reading order.
@@ -1787,7 +1930,7 @@ def sort_detections_by_reading_order(
         return []
     
     if img_gray is not None and HAS_CV2:
-        result = estimate_text_order_full(img_gray, detections)
+        result = estimate_text_order_full(img_gray, detections, pipeline_params=pipeline_params)
     else:
         result = estimate_text_order_simple(detections, page_width)
     

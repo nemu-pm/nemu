@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useTextDetectorStore } from '../store'
@@ -7,10 +7,10 @@ import { cn } from '@/lib/utils'
 import type { TextDetection, OcrTranscriptLine } from '../types'
 import { createTtsId, useTtsStore } from '@/stores/tts'
 import { AudioWaveform } from '@/components/tts/audio-waveform'
-import { ScrollFadingOverlay } from './scroll-fading-overlay'
+import { getOcrPageRef } from '../page-ref'
 
 interface TranscriptColumnProps {
-  pageIndex: number
+  pageKey: string
   lines: OcrTranscriptLine[]
   imageUrl: string | undefined
 }
@@ -78,13 +78,17 @@ function findNextMatch(
   return -1
 }
 
-function buildLineTimings(lines: OcrTranscriptLine[], alignment: { characters: string[]; startTimes: number[]; endTimes: number[] }) {
+function buildLineTimings(
+  lines: OcrTranscriptLine[],
+  alignment: { characters: string[]; startTimes: number[]; endTimes: number[]; isFinal?: boolean }
+) {
   const entries = buildAlignmentEntries(alignment)
   if (entries.length === 0) return lines.map(() => null)
 
   const lineChars = lines.map((line) => extractLineChars(line.text))
   const totalChars = lineChars.reduce((sum, chars) => sum + chars.length, 0)
   const duration = alignment.endTimes[alignment.endTimes.length - 1] ?? 0
+  const isFinal = alignment.isFinal ?? true
   let cursor = 0
 
   const timings: Array<LineTiming | null> = lineChars.map((chars) => {
@@ -110,7 +114,7 @@ function buildLineTimings(lines: OcrTranscriptLine[], alignment: { characters: s
     return { start: entries[startIndex].start, end: entries[endIndex].end }
   })
 
-  if (totalChars > 0 && duration > 0) {
+  if (isFinal && totalChars > 0 && duration > 0) {
     let running = 0
     for (let i = 0; i < lineChars.length; i++) {
       const chars = lineChars[i]
@@ -128,7 +132,7 @@ function buildLineTimings(lines: OcrTranscriptLine[], alignment: { characters: s
   return timings
 }
 
-function TranscriptColumn({ pageIndex, lines, imageUrl }: TranscriptColumnProps) {
+function TranscriptColumn({ pageKey, lines, imageUrl }: TranscriptColumnProps) {
   const { t } = useTranslation()
   const openOcrSheetFromTranscript = useTextDetectorStore((s) => s.openOcrSheetFromTranscript)
   const setHoveredLine = useTextDetectorStore((s) => s.setHoveredLine)
@@ -144,10 +148,11 @@ function TranscriptColumn({ pageIndex, lines, imageUrl }: TranscriptColumnProps)
     [lines]
   )
   const ttsId = useMemo(
-    () => (transcriptText ? createTtsId(`transcript-${pageIndex}`, transcriptText) : null),
-    [pageIndex, transcriptText]
+    () => (transcriptText ? createTtsId(`transcript-${pageKey}`, transcriptText) : null),
+    [pageKey, transcriptText]
   )
-  const [hasPlayed, setHasPlayed] = useState(false)
+  const hasPlayed = useTtsStore((s) => (ttsId ? s.playedIds.has(ttsId) : false))
+  const markPlayed = useTtsStore((s) => s.markPlayed)
   const alignment = useTtsStore((s) => (ttsId ? s.alignments.get(ttsId) : null))
   const isCurrent = currentAudioId === ttsId
 
@@ -163,7 +168,6 @@ function TranscriptColumn({ pageIndex, lines, imageUrl }: TranscriptColumnProps)
     () => (alignment ? buildLineTimings(lines, alignment) : null),
     [alignment, lines]
   )
-  const scrollRef = useRef<HTMLDivElement | null>(null)
   const lastPlayingRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -186,21 +190,21 @@ function TranscriptColumn({ pageIndex, lines, imageUrl }: TranscriptColumnProps)
     }
     const activeLine = lines[activeIndex]
     if (!activeLine) return
-    const key = `${pageIndex}:${activeLine.order}`
+    const key = `${pageKey}:${activeLine.order}`
     if (lastPlayingRef.current === key) return
     lastPlayingRef.current = key
     setPlayingLine({
-      pageIndex,
+      pageKey,
       x1: activeLine.x1,
       y1: activeLine.y1,
       x2: activeLine.x2,
       y2: activeLine.y2,
     })
-  }, [currentTime, isCurrent, lineTimings, lines, pageIndex, setPlayingLine])
+  }, [currentTime, isCurrent, lineTimings, lines, pageKey, setPlayingLine])
 
   if (lines.length === 0) {
     return (
-      <div className="flex-1 min-w-0 text-center py-4 text-xs text-muted-foreground/60 italic">
+      <div className="transcript-empty flex-1 min-w-0">
         No text detected
       </div>
     )
@@ -209,7 +213,7 @@ function TranscriptColumn({ pageIndex, lines, imageUrl }: TranscriptColumnProps)
   // Check if a line matches the current hover
   const isLineHovered = (line: OcrTranscriptLine) =>
     hoveredLine &&
-    hoveredLine.pageIndex === pageIndex &&
+    hoveredLine.pageKey === pageKey &&
     hoveredLine.x1 === line.x1 &&
     hoveredLine.y1 === line.y1 &&
     hoveredLine.x2 === line.x2 &&
@@ -218,14 +222,14 @@ function TranscriptColumn({ pageIndex, lines, imageUrl }: TranscriptColumnProps)
   return (
     <div className="flex-1 min-w-0 flex flex-col h-full">
       {ttsId && transcriptText ? (
-        <div className="pb-2">
+        <div className="pb-2 px-1">
           <AudioWaveform
             ttsId={ttsId}
             text={transcriptText}
             source="transcript"
-            showWaveform={hasPlayed}
-            className="w-fit max-w-full border-border/60 bg-transparent"
-            waveformClassName="max-w-[240px]"
+            showWaveform={hasPlayed || isCurrent}
+            className="w-full border-border/60 bg-transparent"
+            waveformClassName="flex-1 min-w-0"
             onBeforePlay={() => {
               if (transcriptText.length > 500) {
                 toast.error(
@@ -235,19 +239,18 @@ function TranscriptColumn({ pageIndex, lines, imageUrl }: TranscriptColumnProps)
                 )
                 return false
               }
-              setHasPlayed(true)
+              if (ttsId) {
+                markPlayed(ttsId)
+              }
               return true
             }}
           />
         </div>
       ) : null}
-      <div className="relative flex-1 min-h-0">
-        <div ref={scrollRef} className="h-full overflow-y-auto pr-1 space-y-0.5">
+      <div className="flex-1 min-h-0">
+        <div className="h-full overflow-y-auto space-y-0.5 px-1 py-1">
           {lines.map((line, index) => {
             const isHovered = isLineHovered(line)
-            const somethingHovered = hoveredLine !== null
-            // Fade non-hovered lines when any line is hovered
-            const isFaded = somethingHovered && !isHovered
             const timing = lineTimings?.[index]
             const isReading = Boolean(
               isCurrent &&
@@ -275,7 +278,7 @@ function TranscriptColumn({ pageIndex, lines, imageUrl }: TranscriptColumnProps)
                       label: line.label,
                     }
                     setBoxPopout({
-                      pageIndex,
+                      pageKey,
                       box,
                       clickPosition,
                       croppedImageUrl: null,
@@ -313,7 +316,7 @@ function TranscriptColumn({ pageIndex, lines, imageUrl }: TranscriptColumnProps)
 
                         const blobUrl = URL.createObjectURL(blob)
                         setBoxPopout({
-                          pageIndex,
+                          pageKey,
                           box,
                           clickPosition,
                           croppedImageUrl: blobUrl,
@@ -326,21 +329,14 @@ function TranscriptColumn({ pageIndex, lines, imageUrl }: TranscriptColumnProps)
                     })()
                   }
 
-                  openOcrSheetFromTranscript(pageIndex, line, { preserveBoxPopout: true })
+                  openOcrSheetFromTranscript(pageKey, line, { preserveBoxPopout: true })
                 }}
-                onMouseEnter={() => setHoveredLine({ pageIndex, x1: line.x1, y1: line.y1, x2: line.x2, y2: line.y2 })}
+                onMouseEnter={() => setHoveredLine({ pageKey, x1: line.x1, y1: line.y1, x2: line.x2, y2: line.y2 })}
                 onMouseLeave={() => setHoveredLine(null)}
                 className={cn(
-                  'block w-full text-left rounded-md px-2 py-1.5',
-                  'transition-all duration-100',
-                  'text-[13px] leading-relaxed',
-                  'active:scale-[0.98]',
-                  isHovered
-                    ? 'bg-white/90 text-black'
-                    : isReading
-                      ? 'bg-white/70 text-black'
-                      : 'hover:bg-white/15 reader-ui-text-primary',
-                  isFaded && 'opacity-10'
+                  'transcript-line',
+                  isHovered && 'transcript-line-hovered',
+                  isReading && !isHovered && 'transcript-line-reading'
                 )}
                 lang="ja"
               >
@@ -349,7 +345,6 @@ function TranscriptColumn({ pageIndex, lines, imageUrl }: TranscriptColumnProps)
             )
           })}
         </div>
-        <ScrollFadingOverlay scrollRef={scrollRef} gradientColor="var(--popover)" />
       </div>
     </div>
   )
@@ -359,7 +354,6 @@ export function OcrTranscriptPopoverContent() {
   const ctx = usePluginCtx()
   const settings = useTextDetectorStore((s) => s.settings)
   const transcripts = useTextDetectorStore((s) => s.transcripts)
-  const hoveredLine = useTextDetectorStore((s) => s.hoveredLine)
 
   // In scrolling mode, only show the current (most prominent) page transcript
   const visiblePages = ctx.readingMode === 'scrolling'
@@ -367,46 +361,42 @@ export function OcrTranscriptPopoverContent() {
     : ctx.visiblePageIndices
   const isRTL = ctx.readingMode === 'rtl'
   const isTwoPage = visiblePages.length >= 2
-  const isHovering = hoveredLine !== null
+
+  const pageRefs = useMemo(
+    () => visiblePages.map((pageIndex) => getOcrPageRef(ctx, pageIndex)).filter(Boolean),
+    [ctx, visiblePages]
+  )
 
   // Get filtered transcripts for visible pages
-  const pageTranscripts = visiblePages.map((pageIndex) => {
-    const raw = transcripts.get(pageIndex) ?? []
+  const pageTranscripts = pageRefs.map((ref) => {
+    const raw = transcripts.get(ref!.pageKey) ?? []
     return raw.filter(
       (line) => line.label === 'ja' && line.confidence >= settings.minConfidence
     )
   })
 
   // For RTL, reverse the column order (right page first visually = left column)
-  const orderedPages = isRTL ? [...visiblePages].reverse() : visiblePages
+  const orderedPages = isRTL ? [...pageRefs].reverse() : pageRefs
   const orderedTranscripts = isRTL ? [...pageTranscripts].reverse() : pageTranscripts
 
   return (
     <div
-      data-hovering={isHovering || undefined}
       className={cn(
         'transcript-popover-content relative h-[50vh] max-h-[50vh] overflow-hidden overscroll-contain',
         isTwoPage ? 'w-[480px] max-w-[85vw]' : 'w-[260px] max-w-[75vw]'
       )}
     >
-      <div
-        className={cn(
-          'h-full',
-          isTwoPage && 'flex gap-3',
-          isTwoPage && 'divide-x divide-border/40'
-        )}
-      >
-        {orderedPages.map((pageIndex, i) => (
-          <div
-            key={pageIndex}
-            className={cn('h-full', isTwoPage && i > 0 && 'pl-3')}
-            style={{ flex: isTwoPage ? 1 : undefined }}
-          >
-            <TranscriptColumn
-              pageIndex={pageIndex}
-              lines={orderedTranscripts[i]}
-              imageUrl={ctx.getPageImageUrl(pageIndex)}
-            />
+      <div className={cn('h-full', isTwoPage && 'flex gap-0')}>
+        {orderedPages.map((ref, i) => (
+          <div key={ref!.pageKey} className="contents">
+            {isTwoPage && i > 0 && <div className="transcript-column-divider mx-2 shrink-0" />}
+            <div className="h-full min-w-0 flex-1">
+              <TranscriptColumn
+                pageKey={ref!.pageKey}
+                lines={orderedTranscripts[i]}
+                imageUrl={ctx.getPageImageUrl(ref!.pageIndex)}
+              />
+            </div>
           </div>
         ))}
       </div>

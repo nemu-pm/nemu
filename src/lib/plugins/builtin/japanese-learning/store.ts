@@ -4,11 +4,12 @@ import type { GrammarToken } from './ichiran-types'
 import { DEFAULT_SETTINGS } from './types'
 import { createPluginStorage } from '../../types'
 import type { WorkerRequest, WorkerResponse, OcrDetectionWithText } from './ocr.worker'
-import { getCachedOcrPageV2, setCachedOcrPageV2, type OcrPageCacheKeyV2 } from './ocr-page-cache'
+import { getCachedOcrPageV3, setCachedOcrPageV3, type OcrPageCacheKeyV3 } from './ocr-page-cache'
 import { tokenize } from './ichiran-service'
 import { convertIchiranToGrammarTokens } from './grammar-analysis'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../../../../../convex/_generated/api'
+import { jlDebugLog } from './debug'
 
 const storage = createPluginStorage('japanese-learning')
 
@@ -133,17 +134,17 @@ interface GrammarAnalysisState {
 }
 
 export interface TranscriptSelection {
-  pageIndex: number
+  pageKey: string
   line: OcrTranscriptLine
 }
 
 export interface BoxSelection {
-  pageIndex: number
+  pageKey: string
   box: TextDetection
 }
 
 export interface BoxPopout {
-  pageIndex: number
+  pageKey: string
   box: TextDetection
   clickPosition: { x: number; y: number }
   croppedImageUrl: string | null
@@ -153,20 +154,20 @@ export interface BoxPopout {
 interface TextDetectorState {
   settings: TextDetectorSettings
 
-  detections: Map<number, TextDetection[]>
-  transcripts: Map<number, OcrTranscriptLine[]>
+  detections: Map<string, TextDetection[]>
+  transcripts: Map<string, OcrTranscriptLine[]>
 
-  loadingPages: Set<number>
-  ocrLoadingPages: Set<number>
-  freshlyDetectedPages: Set<number>
+  loadingPages: Set<string>
+  ocrLoadingPages: Set<string>
+  freshlyDetectedPages: Set<string>
   /** Open popover when current OCR batch completes (manual trigger) */
   pendingPopoverOpen: boolean
 
   transcriptPopoverOpen: boolean
   /** Currently hovered transcript line (for box highlighting) */
-  hoveredLine: { pageIndex: number; x1: number; y1: number; x2: number; y2: number } | null
+  hoveredLine: { pageKey: string; x1: number; y1: number; x2: number; y2: number } | null
   /** Currently playing transcript line (for box highlighting) */
-  playingLine: { pageIndex: number; x1: number; y1: number; x2: number; y2: number } | null
+  playingLine: { pageKey: string; x1: number; y1: number; x2: number; y2: number } | null
 
   ocrSheetOpen: boolean
   ocrResult: OcrResult
@@ -178,29 +179,29 @@ interface TextDetectorState {
   grammarAnalysis: GrammarAnalysisState
 
   setSettings: (settings: Partial<TextDetectorSettings>) => void
-  clearDetections: (pageIndex?: number) => void
-  setLoadingPage: (pageIndex: number, loading: boolean) => void
-  setOcrLoadingPage: (pageIndex: number, loading: boolean) => void
-  clearFreshlyDetected: (pageIndex: number) => void
+  clearDetections: () => void
+  setLoadingPage: (pageKey: string, loading: boolean) => void
+  setOcrLoadingPage: (pageKey: string, loading: boolean) => void
+  clearFreshlyDetected: (pageKey: string) => void
 
   toggleTranscriptPopover: (open?: boolean) => void
-  setHoveredLine: (line: { pageIndex: number; x1: number; y1: number; x2: number; y2: number } | null) => void
-  setPlayingLine: (line: { pageIndex: number; x1: number; y1: number; x2: number; y2: number } | null) => void
+  setHoveredLine: (line: { pageKey: string; x1: number; y1: number; x2: number; y2: number } | null) => void
+  setPlayingLine: (line: { pageKey: string; x1: number; y1: number; x2: number; y2: number } | null) => void
 
   openOcrSheetFromTranscript: (
-    pageIndex: number,
+    pageKey: string,
     line: OcrTranscriptLine,
     opts?: { preserveBoxPopout?: boolean }
   ) => void
-  openOcrSheetFromBox: (pageIndex: number, box: TextDetection, clickPosition?: { x: number; y: number }) => void
+  openOcrSheetFromBox: (pageKey: string, box: TextDetection, clickPosition?: { x: number; y: number }) => void
   closeOcrSheet: () => void
   setBoxPopout: (popout: BoxPopout | null) => void
 
-  loadFromCache: (pageIndex: number, cacheKey: OcrPageCacheKeyV2) => Promise<boolean>
+  loadFromCache: (pageKey: string, cacheKey: OcrPageCacheKeyV3) => Promise<boolean>
 
   /** Set pendingPopoverOpen before calling runOcr if manual trigger */
   setPendingPopoverOpen: (pending: boolean) => void
-  runOcr: (pageIndex: number, image: Blob, cacheKey?: OcrPageCacheKeyV2) => void
+  runOcr: (pageKey: string, image: Blob, cacheKey?: OcrPageCacheKeyV3) => void
 }
 
 export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
@@ -228,63 +229,47 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
     set({ settings })
   },
 
-  clearDetections: (pageIndex) => {
-    if (pageIndex === undefined) {
-      // Cancel any in-flight grammar analysis.
-      grammarAbortController?.abort()
-      grammarAbortController = null
+  clearDetections: () => {
+    // Cancel any in-flight grammar analysis.
+    grammarAbortController?.abort()
+    grammarAbortController = null
 
-      const prev = get().boxPopout?.croppedImageUrl
-      if (prev && typeof window !== 'undefined') URL.revokeObjectURL(prev)
-      set({
-        detections: new Map(),
-        transcripts: new Map(),
-        loadingPages: new Set(),
-        ocrLoadingPages: new Set(),
-        freshlyDetectedPages: new Set(),
-        pendingPopoverOpen: false,
-        transcriptPopoverOpen: false,
-        ocrSheetOpen: false,
-        ocrResult: { text: '', loading: false, error: null },
-        transcriptSelection: null,
-        boxSelection: null,
-        boxPopout: null,
-        grammarAnalysis: { tokens: [], loading: false, stage: 'idle', normalizedText: null, error: null, requestId: 0 },
-      })
-      return
-    }
-
-    const detections = new Map(get().detections)
-    detections.delete(pageIndex)
-    const transcripts = new Map(get().transcripts)
-    transcripts.delete(pageIndex)
-    const loadingPages = new Set(get().loadingPages)
-    loadingPages.delete(pageIndex)
-    const ocrLoadingPages = new Set(get().ocrLoadingPages)
-    ocrLoadingPages.delete(pageIndex)
-    const freshlyDetectedPages = new Set(get().freshlyDetectedPages)
-    freshlyDetectedPages.delete(pageIndex)
-
-    set({ detections, transcripts, loadingPages, ocrLoadingPages, freshlyDetectedPages })
+    const prev = get().boxPopout?.croppedImageUrl
+    if (prev && typeof window !== 'undefined') URL.revokeObjectURL(prev)
+    set({
+      detections: new Map(),
+      transcripts: new Map(),
+      loadingPages: new Set(),
+      ocrLoadingPages: new Set(),
+      freshlyDetectedPages: new Set(),
+      pendingPopoverOpen: false,
+      transcriptPopoverOpen: false,
+      ocrSheetOpen: false,
+      ocrResult: { text: '', loading: false, error: null },
+      transcriptSelection: null,
+      boxSelection: null,
+      boxPopout: null,
+      grammarAnalysis: { tokens: [], loading: false, stage: 'idle', normalizedText: null, error: null, requestId: 0 },
+    })
   },
 
-  setLoadingPage: (pageIndex, loading) => {
+  setLoadingPage: (pageKey, loading) => {
     const loadingPages = new Set(get().loadingPages)
-    if (loading) loadingPages.add(pageIndex)
-    else loadingPages.delete(pageIndex)
+    if (loading) loadingPages.add(pageKey)
+    else loadingPages.delete(pageKey)
     set({ loadingPages })
   },
 
-  setOcrLoadingPage: (pageIndex, loading) => {
+  setOcrLoadingPage: (pageKey, loading) => {
     const ocrLoadingPages = new Set(get().ocrLoadingPages)
-    if (loading) ocrLoadingPages.add(pageIndex)
-    else ocrLoadingPages.delete(pageIndex)
+    if (loading) ocrLoadingPages.add(pageKey)
+    else ocrLoadingPages.delete(pageKey)
     set({ ocrLoadingPages })
   },
 
-  clearFreshlyDetected: (pageIndex) => {
+  clearFreshlyDetected: (pageKey) => {
     const freshlyDetectedPages = new Set(get().freshlyDetectedPages)
-    freshlyDetectedPages.delete(pageIndex)
+    freshlyDetectedPages.delete(pageKey)
     set({ freshlyDetectedPages })
   },
 
@@ -300,7 +285,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
   // Grammar analysis: normalize (Convex) → tokenize (Ichiran) → GrammarTokens
   // --------------------------------------------------------------------------
 
-  openOcrSheetFromTranscript: (pageIndex, line, opts) => {
+  openOcrSheetFromTranscript: (pageKey, line, opts) => {
     const preserve = !!opts?.preserveBoxPopout
     if (!preserve) {
       const prev = get().boxPopout?.croppedImageUrl
@@ -309,7 +294,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
 
     set({
       ocrSheetOpen: true,
-      transcriptSelection: { pageIndex, line },
+      transcriptSelection: { pageKey, line },
       boxSelection: null,
       ...(preserve ? {} : { boxPopout: null }),
       ocrResult: { text: line.text, loading: false, error: null },
@@ -320,18 +305,18 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
     startGrammarAnalysis(line.text)
   },
 
-  openOcrSheetFromBox: (pageIndex, box, clickPosition) => {
-    const transcript = get().transcripts.get(pageIndex) ?? null
+  openOcrSheetFromBox: (pageKey, box, clickPosition) => {
+    const transcript = get().transcripts.get(pageKey) ?? null
     const hit = transcript?.find(
       (l) => l.x1 === box.x1 && l.y1 === box.y1 && l.x2 === box.x2 && l.y2 === box.y2
     )
 
     set({
       ocrSheetOpen: true,
-      transcriptSelection: hit ? { pageIndex, line: hit } : null,
-      boxSelection: { pageIndex, box },
+      transcriptSelection: hit ? { pageKey, line: hit } : null,
+      boxSelection: { pageKey, box },
       boxPopout: clickPosition
-        ? { pageIndex, box, clickPosition, croppedImageUrl: null, croppedDimensions: null }
+        ? { pageKey, box, clickPosition, croppedImageUrl: null, croppedDimensions: null }
         : null,
       ocrResult: hit
         ? { text: hit.text, loading: false, error: null }
@@ -368,28 +353,30 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
     set({ boxPopout: popout })
   },
 
-  loadFromCache: async (pageIndex, cacheKey) => {
-    if (get().detections.has(pageIndex) && get().transcripts.has(pageIndex)) return true
-    const cached = await getCachedOcrPageV2(cacheKey)
-    if (!cached || cached.version !== 2) return false
+  loadFromCache: async (pageKey, cacheKey) => {
+    if (get().detections.has(pageKey) && get().transcripts.has(pageKey)) return true
+    const cached = await getCachedOcrPageV3(cacheKey)
+    if (!cached || cached.version !== 3) return false
+    jlDebugLog('cache hit', { pageKey, chapterId: cacheKey.chapterId, localIndex: cacheKey.localIndex })
     const detections = new Map(get().detections)
-    detections.set(pageIndex, cached.detections ?? [])
+    detections.set(pageKey, cached.detections ?? [])
     const transcripts = new Map(get().transcripts)
-    transcripts.set(pageIndex, cached.transcript ?? [])
+    transcripts.set(pageKey, cached.transcript ?? [])
     set({ detections, transcripts })
     return true
   },
 
   setPendingPopoverOpen: (pending) => set({ pendingPopoverOpen: pending }),
 
-  runOcr: (pageIndex, image, cacheKey) => {
-    if (get().ocrLoadingPages.has(pageIndex)) return
-    if (get().transcripts.has(pageIndex)) return
+  runOcr: (pageKey, image, cacheKey) => {
+    if (get().ocrLoadingPages.has(pageKey)) return
+    if (get().transcripts.has(pageKey)) return
 
-    get().setOcrLoadingPage(pageIndex, true)
+    get().setOcrLoadingPage(pageKey, true)
+    jlDebugLog('ocr start', { pageKey, cacheKey })
 
     ;(async () => {
-      const requestId = `ocr-${pageIndex}-${Date.now()}`
+      const requestId = `ocr-${pageKey}-${Date.now()}`
       try {
         const w = getWorker()
 
@@ -411,14 +398,14 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
               }))
 
             const detections = new Map(get().detections)
-            detections.set(pageIndex, dets)
+            detections.set(pageKey, dets)
             set({ detections })
 
             // Trigger flash only when autoDetect is off.
             // (If autoDetect is on, overlay won't clear, so we'd leak entries forever.)
             if (!get().settings.autoDetect) {
               const freshlyDetectedPages = new Set(get().freshlyDetectedPages)
-              freshlyDetectedPages.add(pageIndex)
+              freshlyDetectedPages.add(pageKey)
               set({ freshlyDetectedPages })
             }
             return
@@ -444,18 +431,19 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
               .sort((a, b) => a.order - b.order)
 
             const transcripts = new Map(get().transcripts)
-            transcripts.set(pageIndex, lines)
+            transcripts.set(pageKey, lines)
             set({ transcripts })
+            jlDebugLog('ocr done', { pageKey, lineCount: lines.length })
 
             // Persist v2 page cache (detections + transcript together).
             if (cacheKey) {
-              const dets = get().detections.get(pageIndex) ?? []
-              setCachedOcrPageV2(cacheKey, { version: 2, detections: dets, transcript: lines }).catch(() => {})
+              const dets = get().detections.get(pageKey) ?? []
+              setCachedOcrPageV3(cacheKey, { version: 3, detections: dets, transcript: lines }).catch(() => {})
             }
 
             // If user clicked a box and is waiting, resolve it now.
             const sel = get().boxSelection
-            if (sel && sel.pageIndex === pageIndex) {
+            if (sel && sel.pageKey === pageKey) {
               const hit = lines.find(
                 (l) =>
                   l.x1 === sel.box.x1 &&
@@ -466,13 +454,13 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
 
               if (hit) {
                 // Reuse transcript flow to populate text + trigger analysis
-                get().openOcrSheetFromTranscript(pageIndex, hit, { preserveBoxPopout: true })
+                get().openOcrSheetFromTranscript(pageKey, hit, { preserveBoxPopout: true })
               } else {
                 set({ ocrResult: { text: '', loading: false, error: 'No text detected' } })
               }
             }
 
-            get().setOcrLoadingPage(pageIndex, false)
+            get().setOcrLoadingPage(pageKey, false)
 
             // Open popover if manual trigger and all pages done
             const state = get()
@@ -485,7 +473,8 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
           if (e.data.type === 'error') {
             w.removeEventListener('message', handler)
             console.error('[JapaneseLearning] ocr failed:', e.data.message)
-            get().setOcrLoadingPage(pageIndex, false)
+            jlDebugLog('ocr error', { pageKey, message: e.data.message })
+            get().setOcrLoadingPage(pageKey, false)
             alert(`[OCR] ${e.data.message}`)
           }
         }

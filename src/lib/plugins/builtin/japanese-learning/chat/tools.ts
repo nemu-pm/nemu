@@ -3,13 +3,14 @@
  */
 
 import type { ReaderPluginContext } from '../../../types'
-import type { OcrPageCacheKeyV2 } from '../ocr-page-cache'
+import type { OcrPageCacheKeyV3 } from '../ocr-page-cache'
 
 export interface ChatToolContext {
   chapterId?: string
   resolvePageIndex?: (pageNumber: number, chapterId?: string) => number | null
   getPageImageBlob?: (pageIndex: number) => Promise<Blob | null>
-  getCacheKey?: (pageIndex: number) => OcrPageCacheKeyV2 | undefined
+  getPageKey?: (pageIndex: number) => string | undefined
+  getCacheKey?: (pageIndex: number) => OcrPageCacheKeyV3 | undefined
 }
 
 export function createChatToolContext(ctx: ReaderPluginContext): ChatToolContext {
@@ -27,16 +28,23 @@ export function createChatToolContext(ctx: ReaderPluginContext): ChatToolContext
       }
     })
 
-  const getCacheKey = (pageIndex: number): OcrPageCacheKeyV2 | undefined => {
+  const getPageKey = (pageIndex: number): string | undefined => {
     const meta = ctx.getPageMeta(pageIndex)
-    const chapterId = meta?.kind === 'page' ? meta.chapterId ?? ctx.chapterId : ctx.chapterId
-    if (!chapterId) return undefined
+    if (!meta || meta.kind !== 'page') return undefined
+    if (!meta.chapterId || typeof meta.localIndex !== 'number') return undefined
+    return meta.key ?? `${meta.chapterId}:${meta.localIndex}`
+  }
+
+  const getCacheKey = (pageIndex: number): OcrPageCacheKeyV3 | undefined => {
+    const meta = ctx.getPageMeta(pageIndex)
+    if (!meta || meta.kind !== 'page') return undefined
+    if (!meta.chapterId || typeof meta.localIndex !== 'number') return undefined
     return {
       registryId: ctx.registryId,
       sourceId: ctx.sourceId,
       mangaId: ctx.mangaId,
-      chapterId,
-      pageIndex,
+      chapterId: meta.chapterId,
+      localIndex: meta.localIndex,
     }
   }
 
@@ -44,6 +52,7 @@ export function createChatToolContext(ctx: ReaderPluginContext): ChatToolContext
     chapterId: ctx.chapterId,
     resolvePageIndex: ctx.resolvePageIndex,
     getPageImageBlob,
+    getPageKey,
     getCacheKey,
   }
 }

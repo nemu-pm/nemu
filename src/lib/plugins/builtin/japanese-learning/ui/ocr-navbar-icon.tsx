@@ -3,6 +3,7 @@ import { TextSquareIcon } from '@hugeicons/core-free-icons'
 import { useTextDetectorStore } from '../store'
 import { usePluginCtx } from '../../../context'
 import { cn } from '@/lib/utils'
+import { getOcrPageRef } from '../page-ref'
 
 export function OcrNavbarIcon() {
   const ctx = usePluginCtx()
@@ -13,7 +14,9 @@ export function OcrNavbarIcon() {
     ? [ctx.currentPageIndex]
     : ctx.visiblePageIndices
   const count = pageIndices.reduce((sum, pageIndex) => {
-    return sum + (detections.get(pageIndex)?.length ?? 0)
+    const ref = getOcrPageRef(ctx, pageIndex)
+    if (!ref) return sum
+    return sum + (detections.get(ref.pageKey)?.length ?? 0)
   }, 0)
 
   return (

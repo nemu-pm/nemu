@@ -56,7 +56,16 @@ export interface ToolResult {
 }
 
 export interface ChatStreamEvent {
-  type: 'text' | 'speak' | 'voice' | 'done' | 'error' | 'followups' | 'tool_call' | 'awaiting_tool_results'
+  type:
+    | 'text'
+    | 'speak'
+    | 'voice'
+    | 'done'
+    | 'error'
+    | 'followups'
+    | 'tool_call'
+    | 'awaiting_tool_results'
+    | 'activity'
   content?: string
   error?: string
   suggestions?: string[]
@@ -65,6 +74,8 @@ export interface ChatStreamEvent {
   args?: Record<string, unknown>
   toolCalls?: ToolCall[]
   partialContent?: string
+  activity?: 'llm' | 'client_tools'
+  activityToolName?: string
 }
 
 export interface ChatStreamRequest {

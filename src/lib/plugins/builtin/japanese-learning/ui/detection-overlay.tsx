@@ -5,6 +5,8 @@ import type { TextDetection } from '../types'
 import type { ReaderPluginContext } from '../../../types'
 import { isJapaneseSource } from './utils'
 import { useIsInteractionLocked } from '../../../context'
+import { getOcrPageRef } from '../page-ref'
+import type { OcrPageCacheKeyV3 } from '../ocr-page-cache'
 
 const LABEL_COLORS: Record<string, { bg: string; border: string }> = {
   ja: { bg: 'rgba(59, 130, 246, VAR)', border: 'rgb(96, 165, 250)' },
@@ -26,12 +28,13 @@ interface DetectionBoxProps {
   imageDims: { width: number; height: number }
   opacity: number
   isFlashing: boolean
-  pageIndex: number
+  pageKey: string
   imageUrl: string | undefined
+  cacheKey: OcrPageCacheKeyV3 | undefined
   disabled?: boolean
 }
 
-function DetectionBox({ detection, imageDims, opacity, isFlashing, pageIndex, imageUrl, disabled }: DetectionBoxProps) {
+function DetectionBox({ detection, imageDims, opacity, isFlashing, pageKey, imageUrl, cacheKey, disabled }: DetectionBoxProps) {
   const colors = LABEL_COLORS[detection.label] ?? LABEL_COLORS.unknown
   const openOcrSheetFromBox = useTextDetectorStore((s) => s.openOcrSheetFromBox)
   const setBoxPopout = useTextDetectorStore((s) => s.setBoxPopout)
@@ -43,13 +46,13 @@ function DetectionBox({ detection, imageDims, opacity, isFlashing, pageIndex, im
 
   // Check if this box is highlighted (matches hovered transcript line)
   const isHovered = hoveredLine &&
-    hoveredLine.pageIndex === pageIndex &&
+    hoveredLine.pageKey === pageKey &&
     detection.x1 === hoveredLine.x1 &&
     detection.y1 === hoveredLine.y1 &&
     detection.x2 === hoveredLine.x2 &&
     detection.y2 === hoveredLine.y2
   const isPlaying = playingLine &&
-    playingLine.pageIndex === pageIndex &&
+    playingLine.pageKey === pageKey &&
     detection.x1 === playingLine.x1 &&
     detection.y1 === playingLine.y1 &&
     detection.x2 === playingLine.x2 &&
@@ -77,8 +80,8 @@ function DetectionBox({ detection, imageDims, opacity, isFlashing, pageIndex, im
     e.preventDefault()
 
     const clickPosition = { x: e.clientX, y: e.clientY }
-    openOcrSheetFromBox(pageIndex, detection, clickPosition)
-    setBoxPopout({ pageIndex, box: detection, clickPosition, croppedImageUrl: null, croppedDimensions: null })
+    openOcrSheetFromBox(pageKey, detection, clickPosition)
+    setBoxPopout({ pageKey, box: detection, clickPosition, croppedImageUrl: null, croppedDimensions: null })
 
     // Crop image region for the floating popout preview.
     // This is intentionally independent from OCR/worker state.
@@ -114,7 +117,7 @@ function DetectionBox({ detection, imageDims, opacity, isFlashing, pageIndex, im
 
         const blobUrl = URL.createObjectURL(blob)
         setBoxPopout({
-          pageIndex,
+          pageKey,
           box: detection,
           clickPosition,
           croppedImageUrl: blobUrl,
@@ -128,17 +131,17 @@ function DetectionBox({ detection, imageDims, opacity, isFlashing, pageIndex, im
 
     // If transcript isn't ready yet, start OCR for the page.
     if (!imageUrl) return
-    if (transcripts.has(pageIndex) || ocrLoadingPages.has(pageIndex)) return
+    if (transcripts.has(pageKey) || ocrLoadingPages.has(pageKey)) return
 
     try {
       const res = await fetch(imageUrl)
       if (!res.ok) throw new Error(`Failed to fetch image: ${res.status} ${res.statusText}`)
       const blob = await res.blob()
-      runOcr(pageIndex, blob)
+      runOcr(pageKey, blob, cacheKey)
     } catch (err) {
       console.error('[JapaneseLearning] Failed to start OCR from box click:', err)
     }
-  }, [openOcrSheetFromBox, setBoxPopout, pageIndex, detection, imageUrl, transcripts, ocrLoadingPages, runOcr])
+  }, [openOcrSheetFromBox, setBoxPopout, pageKey, detection, imageUrl, transcripts, ocrLoadingPages, runOcr, cacheKey])
 
   return (
     <button
@@ -171,8 +174,9 @@ export function DetectionOverlay({ pageIndex, ctx }: DetectionOverlayProps) {
   // Check if plugin should be enabled for this source
   const isEnabled = isJapaneseSource(ctx)
 
-  const blocks = isEnabled ? (detections.get(pageIndex) ?? []) : []
-  const isFreshDetection = freshlyDetectedPages.has(pageIndex)
+  const pageRef = useMemo(() => getOcrPageRef(ctx, pageIndex), [ctx, pageIndex])
+  const blocks = isEnabled && pageRef ? (detections.get(pageRef.pageKey) ?? []) : []
+  const isFreshDetection = !!pageRef && freshlyDetectedPages.has(pageRef.pageKey)
 
   // Handle flash animation for fresh detections (non-auto-detect mode only)
   useEffect(() => {
@@ -180,11 +184,11 @@ export function DetectionOverlay({ pageIndex, ctx }: DetectionOverlayProps) {
       setIsFlashing(true)
       const timer = setTimeout(() => {
         setIsFlashing(false)
-        clearFreshlyDetected(pageIndex)
+        if (pageRef) clearFreshlyDetected(pageRef.pageKey)
       }, 600) // Flash duration
       return () => clearTimeout(timer)
     }
-  }, [isFreshDetection, settings.autoDetect, blocks.length, pageIndex, clearFreshlyDetected])
+  }, [isFreshDetection, settings.autoDetect, blocks.length, clearFreshlyDetected, pageRef])
 
   const calculateBounds = useCallback(() => {
     const imageUrl = ctx.getPageImageUrl(pageIndex)
@@ -264,8 +268,9 @@ export function DetectionOverlay({ pageIndex, ctx }: DetectionOverlayProps) {
               imageDims={{ width: bounds.naturalWidth, height: bounds.naturalHeight }}
               opacity={0.4}
               isFlashing={isFlashing}
-              pageIndex={pageIndex}
+              pageKey={pageRef?.pageKey ?? String(pageIndex)}
               imageUrl={ctx.getPageImageUrl(pageIndex)}
+              cacheKey={pageRef?.cacheKey}
               disabled={isInteractionLocked}
             />
           ))}

@@ -17,6 +17,7 @@
     "deploy": "bun run predeploy && convex deploy"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.2",
     "@ai-sdk/google": "^3.0.2",
     "@ai-sdk/openai": "^2.0.88",
     "@ai-sdk/react": "^3.0.3",

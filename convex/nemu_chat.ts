@@ -1,16 +1,15 @@
 import { httpAction } from "./_generated/server"
-import { createGateway, stepCountIs, streamText, tool } from "ai"
+import { stepCountIs, streamText, tool } from "ai"
+import { anthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
 import { buildPromptConfig } from "./prompts/nemu_chat"
 
 const MODEL = "anthropic/claude-sonnet-4-5"
 
-function getGateway() {
-  const apiKey = process.env.AI_GATEWAY_API_KEY
-  if (!apiKey) {
-    throw new Error("AI_GATEWAY_API_KEY environment variable is not set")
-  }
-  return createGateway({ apiKey })
+function getAnthropicModelId(model: string): string {
+  // Keep the same model identity while adapting from Gateway IDs ("anthropic/<id>")
+  // to Anthropic provider IDs ("<id>").
+  return model.startsWith("anthropic/") ? model.slice("anthropic/".length) : model
 }
 
 // =============================================================================
@@ -115,7 +114,7 @@ const CLIENT_TOOLS = new Set(["request_transcript", "trigger_ocr"])
 
 export const chat = httpAction(async (_, request) => {
   const origin = request.headers.get("Origin")
-  const allowAnyOrigin = process.env.NEMU_CHAT_ALLOW_ANY_ORIGIN === "true"
+  const allowAnyOrigin = process.env.ALLOW_ANY_ORIGIN === "true"
   const allowedOrigins = [process.env.SITE_URL, process.env.DEV_URL].filter(Boolean) as string[]
   const allowedOrigin = allowAnyOrigin
     ? origin || "*"
@@ -167,7 +166,10 @@ export const chat = httpAction(async (_, request) => {
     }
 
     const { messages, hiddenContext, appLanguage } = parseResult.data
-    const gateway = getGateway()
+    const apiKey = process.env.ANTHROPIC_API_KEY
+    if (!apiKey) {
+      throw new Error("ANTHROPIC_API_KEY environment variable is not set")
+    }
     const { systemPrompt, toolDescriptions, forcingMessage } = buildPromptConfig(hiddenContext, appLanguage)
 
     // Convert messages to AI SDK format
@@ -239,13 +241,45 @@ export const chat = httpAction(async (_, request) => {
         for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
           let streamLogs: string[] = []
           let hadSpeakCall = false
+          let lastActivitySentAt = 0
+          let currentToolName: string | null = null
+
+          const emitActivity = (toolName?: string) => {
+            // No typing dots during followups generation.
+            if (toolName === "suggest_followups") return
+            const now = Date.now()
+            // Throttle to avoid spamming SSE.
+            if (now - lastActivitySentAt < 120) return
+            lastActivitySentAt = now
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "activity",
+                  activity: "llm",
+                  activityToolName: toolName,
+                })}\n\n`
+              )
+            )
+          }
           
           try {
+            // Anthropic prompt caching: cache the (stable) system prompt.
+            // This uses message-level providerOptions (see @ai-sdk/anthropic "Cache Control").
+            const modelMessagesWithSystem = [
+              {
+                role: "system" as const,
+                content: systemPrompt,
+                providerOptions: {
+                  anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } },
+                },
+              },
+              ...aiMessages,
+            ]
+
             const result = streamText({
-              model: gateway(MODEL),
-              system: systemPrompt,
+              model: anthropic(getAnthropicModelId(MODEL)),
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              messages: aiMessages as any,
+              messages: modelMessagesWithSystem as any,
               tools: {
                 request_transcript: tool({
                   description: toolDescriptions.requestTranscript,
@@ -273,6 +307,19 @@ export const chat = httpAction(async (_, request) => {
               toolChoice: "required",
               stopWhen: stepCountIs(4),
               includeRawChunks: true,
+              onFinish: ({ providerMetadata, totalUsage }) => {
+                const meta = (providerMetadata as any)?.anthropic
+                const cacheCreated = meta?.cacheCreationInputTokens
+                const cachedIn = (totalUsage as any)?.cachedInputTokens
+                const cacheWrite = (totalUsage as any)?.cacheCreationInputTokens
+                // Log only when caching signals are present to avoid noise.
+                if (cacheCreated != null || cachedIn != null || cacheWrite != null) {
+                  console.log("[nemu_chat] Anthropic cache:", {
+                    cacheCreationInputTokens: cacheCreated ?? cacheWrite,
+                    cachedInputTokens: cachedIn,
+                  })
+                }
+              },
             })
 
             let accumulatedText = ""
@@ -295,24 +342,31 @@ export const chat = httpAction(async (_, request) => {
               switch (part.type) {
                 case "text-delta":
                   accumulatedText += part.text
+                  emitActivity()
                   streamLogs.push(JSON.stringify({ type: "text-delta", id: part.id, content: part.text }))
                   break
 
                 case "tool-input-start":
+                  currentToolName = part.toolName
+                  emitActivity(part.toolName)
                   streamLogs.push(
                     JSON.stringify({ type: "tool-input-start", id: part.id, toolName: part.toolName })
                   )
                   break
 
                 case "tool-input-delta":
+                  emitActivity(currentToolName ?? undefined)
                   streamLogs.push(JSON.stringify({ type: "tool-input-delta", id: part.id, delta: part.delta }))
                   break
 
                 case "tool-input-end":
+                  emitActivity(currentToolName ?? undefined)
+                  currentToolName = null
                   streamLogs.push(JSON.stringify({ type: "tool-input-end", id: part.id }))
                   break
 
                 case "tool-call":
+                  emitActivity(part.toolName)
                   streamLogs.push(
                     JSON.stringify({
                       type: "tool-call",
@@ -401,6 +455,9 @@ export const chat = httpAction(async (_, request) => {
 
             // If we have pending client tool calls, tell client to execute and reconnect
             if (pendingClientToolCalls.length > 0) {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "phase", phase: "client_tools" })}\n\n`)
+              )
               const trimmed = accumulatedText.trim()
               if (trimmed) {
                 streamLogs.push(JSON.stringify({ type: "assistant-text-ignored", content: trimmed }))

@@ -504,7 +504,8 @@
         "listen": "朗读",
         "listenPage": "朗读本页",
         "stop": "停止",
-        "tooLong": "本页内容过长，无法整页朗读。请改用逐句朗读。"
+        "tooLong": "本页内容过长，无法整页朗读。请改用逐句朗读。",
+        "generationFailed": "无法生成语音，请重试。"
       },
       "chat": {
         "title": "问 Nemu",
@@ -520,7 +521,9 @@
         "responseModeApp": "应用语言",
         "responseModeJlpt": "简单日语（N4-N3）",
         "today": "今天",
-        "read": "已读"
+        "read": "已读",
+        "emptyTitle": "嗨！我是 Nemu",
+        "emptyDescription": "点击漫画对话框，问我关于词汇、语法或意思的问题吧！"
       }
     },
     "dualRead": {

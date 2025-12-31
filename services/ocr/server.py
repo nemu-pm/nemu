@@ -224,7 +224,12 @@ def run_detection_raw_cv(cv_img: np.ndarray) -> tuple[list[dict], float]:
     return detections, detect_time
 
 
-def apply_reading_order(detections: list[dict], img_gray: np.ndarray, reading_direction: Literal["rtl", "ltr"] = "rtl") -> list[dict]:
+def apply_reading_order(
+    detections: list[dict],
+    img_gray: np.ndarray,
+    reading_direction: Literal["rtl", "ltr"] = "rtl",
+    pipeline_params: dict | None = None,
+) -> list[dict]:
     """Assign reading order using services/ocr/text_order.py."""
     # Support both module execution and standalone deployed layouts.
     try:
@@ -236,6 +241,7 @@ def apply_reading_order(detections: list[dict], img_gray: np.ndarray, reading_di
         detections,
         img_gray=img_gray,
         reading_direction=reading_direction,
+        pipeline_params=pipeline_params,
     )
 
 

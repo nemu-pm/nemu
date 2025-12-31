@@ -5,10 +5,10 @@ import { useTextDetectorStore, disposeWorker } from './store'
 import { DetectionOverlay, JapaneseLearningGlobalUI, OcrNavbarIcon, OcrTranscriptPopoverContent } from './ui'
 import { NemuChatNavbarIcon } from './chat/ui'
 import { useNemuChatStore, buildHiddenContextFromReader, createChatStreamCallbacks, sendChatGreeting } from './chat'
-import { isJapaneseEnabled, isJapaneseChapter as isJapaneseChapterLang } from './language'
+import { isJapaneseEnabled } from './language'
 import iconImage from './icon.png'
-import type { OcrPageCacheKeyV2 } from './ocr-page-cache'
-import { useTtsStore } from '@/stores/tts'
+import { getOcrPageRef } from './page-ref'
+import { jlDebugLog } from './debug'
 
 const t = (key: string) => i18n.t(`plugin.japaneseLearning.${key}`)
 
@@ -138,7 +138,10 @@ export const japaneseLearningPlugin: ReaderPlugin = {
           }
 
           // Check if all visible pages already have transcripts
-          const allHaveTranscripts = ctx.visiblePageIndices.every((idx) => transcripts.has(idx))
+          const visibleRefs = ctx.visiblePageIndices
+            .map((idx) => getOcrPageRef(ctx, idx))
+            .filter(Boolean)
+          const allHaveTranscripts = visibleRefs.length > 0 && visibleRefs.every((ref) => transcripts.has(ref!.pageKey))
           if (allHaveTranscripts) {
             toggleTranscriptPopover(true)
             return
@@ -148,21 +151,17 @@ export const japaneseLearningPlugin: ReaderPlugin = {
           setPendingPopoverOpen(true)
 
           for (const pageIndex of ctx.visiblePageIndices) {
+            const ref = getOcrPageRef(ctx, pageIndex)
+            if (!ref) continue
             const imageUrl = ctx.getPageImageUrl(pageIndex)
             if (!imageUrl) continue
 
             // Skip if already has transcript or currently loading
-            if (transcripts.has(pageIndex) || ocrLoadingPages.has(pageIndex)) continue
+            if (transcripts.has(ref.pageKey) || ocrLoadingPages.has(ref.pageKey)) continue
 
               try {
                 const imageBlob = await loadImageBlob(imageUrl)
-                store.runOcr(pageIndex, imageBlob, {
-                  registryId: ctx.registryId,
-                  sourceId: ctx.sourceId,
-                  mangaId: ctx.mangaId,
-                  chapterId: ctx.chapterId,
-                  pageIndex,
-                })
+                store.runOcr(ref.pageKey, imageBlob, ref.cacheKey)
               } catch (err) {
               console.error(`[TextDetector] Failed to load image for page ${pageIndex}:`, err)
               }
@@ -185,7 +184,6 @@ export const japaneseLearningPlugin: ReaderPlugin = {
       usePopoverOpen: () => useTextDetectorStore((s) => s.transcriptPopoverOpen),
       popoverContent: () => <OcrTranscriptPopoverContent />,
       onPopoverClose: () => {
-        useTtsStore.getState().fadeOut()
         useTextDetectorStore.getState().toggleTranscriptPopover(false)
       },
     },
@@ -321,10 +319,9 @@ export function isJapaneseSource(ctx: ReaderPluginContext): boolean {
   return isJapaneseEnabled(ctx, settings.enableForAllLanguages)
 }
 
-/** True only when the current chapter language is Japanese (ignores enableForAllLanguages). */
-function isJapaneseChapter(ctx: ReaderPluginContext): boolean {
-  return isJapaneseChapterLang(ctx)
-}
+// (Unused now) Previously: chapter-only Japanese gate for auto-detect.
+// We now gate by isJapaneseSource(ctx) so auto-detect works when enableForAllLanguages is set
+// or when chapterLanguage is missing/stale in scrolling windows.
 
 /**
  * Global debounce for auto-detection to avoid spamming the server
@@ -343,46 +340,49 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
   if (!enabled) return
 
   const store = useTextDetectorStore.getState()
-  const { settings, detections, loadingPages, runOcr, loadFromCache } = store
-  const autoDetectAllowed = settings.autoDetect && isJapaneseChapter(ctx)
+  const { settings, transcripts, ocrLoadingPages, loadingPages, runOcr, loadFromCache } = store
+  // Auto-detect should run whenever the plugin is enabled for this context.
+  // (This includes enableForAllLanguages + Japanese-only sources; chapterLanguage can be null/stale in scrolling windows.)
+  const autoDetectAllowed = settings.autoDetect && isJapaneseSource(ctx)
 
   // Calculate pages to process: visible pages + prefetch next pages
   // In two-page mode, prefetch 2 pages; in single page mode, prefetch 1 page
   const isTwoPageMode = ctx.visiblePageIndices.length >= 2
   const prefetchCount = isTwoPageMode ? 2 : 1
+  if (ctx.visiblePageIndices.length === 0) return
   const maxVisibleIndex = Math.max(...ctx.visiblePageIndices)
-  
+
   const pagesToProcess = new Set<number>(ctx.visiblePageIndices)
-  for (let i = 1; i <= prefetchCount; i++) {
-    const nextPage = maxVisibleIndex + i
-    if (nextPage < ctx.pageCount) {
-      pagesToProcess.add(nextPage)
+  // Prefetch: walk forward and skip spacers so we actually hit real pages.
+  let cursor = maxVisibleIndex + 1
+  let added = 0
+  while (cursor < ctx.pageCount && added < prefetchCount) {
+    const meta = ctx.getPageMeta(cursor)
+    if (meta && meta.kind === 'page') {
+      pagesToProcess.add(cursor)
+      added += 1
     }
+    cursor += 1
   }
 
   // Track pages that need detection (not cached)
-  const pagesToDetect: number[] = []
+  const pagesToDetect: Array<NonNullable<ReturnType<typeof getOcrPageRef>>> = []
 
   for (const pageIndex of pagesToProcess) {
-    // Skip if already have results or currently loading
-    if (detections.has(pageIndex) || loadingPages.has(pageIndex)) continue
+    const ref = getOcrPageRef(ctx, pageIndex)
+    if (!ref) continue
 
-    const cacheKey = {
-      registryId: ctx.registryId,
-      sourceId: ctx.sourceId,
-      mangaId: ctx.mangaId,
-      chapterId: ctx.chapterId,
-      pageIndex,
-    } satisfies OcrPageCacheKeyV2
+    // Skip if already have transcript or currently loading
+    if (transcripts.has(ref.pageKey) || ocrLoadingPages.has(ref.pageKey) || loadingPages.has(ref.pageKey)) continue
 
     // Always try to load from cache first
-    const fromCache = await loadFromCache(pageIndex, cacheKey)
+    const fromCache = await loadFromCache(ref.pageKey, ref.cacheKey)
     if (fromCache) continue
 
     // Only auto-run model detection for Japanese chapters.
     if (!autoDetectAllowed) continue
 
-    pagesToDetect.push(pageIndex)
+    pagesToDetect.push(ref)
   }
 
   // If no pages need detection, we're done
@@ -400,24 +400,33 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
 
   const runDetections = async () => {
     lastAutoDetectTime = Date.now()
-    
-    for (const pageIndex of pagesToDetect) {
+    jlDebugLog('auto-detect start', { count: pagesToDetect.length, chapterId: ctx.chapterId })
+
+    for (const ref of pagesToDetect) {
       // Re-check in case state changed during debounce
       const currentState = useTextDetectorStore.getState()
-      if (currentState.detections.has(pageIndex) || currentState.ocrLoadingPages.has(pageIndex)) continue
+      if (currentState.transcripts.has(ref.pageKey) || currentState.ocrLoadingPages.has(ref.pageKey)) continue
 
-      const imageUrl = ctx.getPageImageUrl(pageIndex)
-      if (!imageUrl) continue
+      // Guard: page indices can shift (spacers/window changes). Only run if pageIndex still refers to the same stable pageKey.
+      const metaNow = ctx.getPageMeta(ref.pageIndex)
+      const keyNow =
+        metaNow && metaNow.kind === 'page' && metaNow.chapterId && typeof metaNow.localIndex === 'number'
+          ? metaNow.key ?? `${metaNow.chapterId}:${metaNow.localIndex}`
+          : null
+      if (keyNow !== ref.pageKey) {
+        jlDebugLog('auto-detect skip: page moved', { pageIndex: ref.pageIndex, expected: ref.pageKey, got: keyNow })
+        continue
+      }
+
+      const imageUrl = ctx.getPageImageUrl(ref.pageIndex)
+      if (!imageUrl) {
+        jlDebugLog('auto-detect skip: image not loaded yet', { pageKey: ref.pageKey, pageIndex: ref.pageIndex })
+        continue
+      }
 
       try {
         const imageBlob = await loadImageBlob(imageUrl)
-        runOcr(pageIndex, imageBlob, {
-          registryId: ctx.registryId,
-          sourceId: ctx.sourceId,
-          mangaId: ctx.mangaId,
-          chapterId: ctx.chapterId,
-          pageIndex,
-        })
+        runOcr(ref.pageKey, imageBlob, ref.cacheKey)
       } catch (err) {
         console.error('[TextDetector] Auto-detection failed:', err)
       }

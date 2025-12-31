@@ -6,6 +6,7 @@ import type { ReaderPluginContext } from '../../../types'
 import type { OcrTranscriptLine } from '../types'
 import type { HiddenContext } from './types'
 import { useTextDetectorStore } from '../store'
+import { getOcrPageRef } from '../page-ref'
 
 export interface BuildHiddenContextOptions {
   pageIndex?: number
@@ -59,13 +60,11 @@ export function buildHiddenContextFromReader(
   options: BuildHiddenContextOptions = {}
 ): HiddenContext {
   const pageIndex = options.pageIndex ?? ctx.currentPageIndex
-  const meta = ctx.getPageMeta(pageIndex)
-  const localIndex =
-    meta && meta.kind === 'page' && typeof meta.localIndex === 'number' ? meta.localIndex : pageIndex
-  const currentPage = localIndex + 1
+  const pageRef = getOcrPageRef(ctx, pageIndex)
+  const currentPage = (pageRef?.localIndex ?? pageIndex) + 1
 
   const transcripts = useTextDetectorStore.getState().transcripts
-  const transcriptLines = transcripts.get(pageIndex)
+  const transcriptLines = pageRef ? transcripts.get(pageRef.pageKey) : undefined
   const pageTranscript = options.pageTranscript ?? formatTranscript(transcriptLines)
   const responseMode =
     options.responseMode ?? useTextDetectorStore.getState().settings.nemuResponseMode

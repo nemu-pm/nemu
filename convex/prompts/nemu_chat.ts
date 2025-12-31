@@ -1030,38 +1030,47 @@ export function buildPromptConfig(hiddenContext: PromptHiddenContext, appLanguag
   const responseMode = hiddenContext.responseMode ?? 'app'
   const locale = resolveLocale(appLanguage, responseMode)
   const strings = LOCALIZED[locale]
-  // System prompt: character + context + tools (no formatting rules)
+  // System prompt (cacheable prefix): character + stable rules + tools.
+  //
+  // IMPORTANT: Keep volatile reader/page-specific context OUT of system prompt
+  // so the system prefix stays stable for prompt caching.
   const systemSections: string[] = [
     getCharacterPrompt(locale),
     '',
-    formatContext(hiddenContext, strings),
+    formatOutputRules(strings),
+    '',
+    formatResponseStyle(strings),
+    '',
+    formatLanguageRules(strings, appLanguage, locale, responseMode),
+    '',
+    formatTools(strings),
   ]
+  if (strings.voiceToolBlock) systemSections.push('', strings.voiceToolBlock)
+
+  // Forcing message (NOT persisted, injected before each user message):
+  // Put all dynamic/volatile context here (chapter/page/transcript/ichiran).
+  const forcingSections: string[] = [formatContext(hiddenContext, strings)]
 
   if (hiddenContext.pageTranscript) {
-    systemSections.push('', strings.transcriptTitle, '', hiddenContext.pageTranscript)
+    forcingSections.push('', strings.transcriptTitle, '', hiddenContext.pageTranscript)
+  } else {
+    // Explicit hint so the model knows transcript can be fetched if needed.
+    forcingSections.push(
+      '',
+      strings.transcriptTitle,
+      '',
+      `Transcript not provided. If needed, call request_transcript(pageNumber=${hiddenContext.currentPage}).`
+    )
   }
 
+  // One-turn only: included only when the client sends it for this request.
   if (hiddenContext.ichiranAnalysis) {
-    systemSections.push('', strings.ichiranTitle, '', hiddenContext.ichiranAnalysis)
+    forcingSections.push('', strings.ichiranTitle, '', hiddenContext.ichiranAnalysis)
   }
-
-  systemSections.push('', formatTools(strings))
-  if (strings.voiceToolBlock) {
-    systemSections.push('', strings.voiceToolBlock)
-  }
-
-  // Forcing message: output rules + response style + language rules
-  // Injected before each user message, not persisted in history
-  // Response language is last for maximum effectiveness
-  const forcingSections: string[] = [
-    formatOutputRules(strings),
-    formatResponseStyle(strings),
-    formatLanguageRules(strings, appLanguage, locale, responseMode),
-  ]
 
   return {
     systemPrompt: systemSections.join('\n'),
     toolDescriptions: strings.toolDescriptions,
-    forcingMessage: forcingSections.join('\n\n'),
+    forcingMessage: forcingSections.join('\n'),
   }
 }

@@ -4,7 +4,8 @@ import { generateText } from "ai"
 
 const MODEL = "gemini-2.5-flash-lite"
 const ELEVENLABS_MODEL_ID = "eleven_v3"
-const ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1/text-to-speech"
+const ELEVENLABS_DIALOGUE_STREAM_URL = "https://api.elevenlabs.io/v1/text-to-dialogue/stream/with-timestamps"
+const ELEVENLABS_OUTPUT_FORMAT = "pcm_24000"
 const TRANSCRIPT_LIMIT = 500
 
 const AUDIO_TAG_PROMPT = `
@@ -116,10 +117,14 @@ const AUDIO_TAG_PROMPT = `
 「[おずおずと] え、ぼくがやるの？」
 `.trim()
 
-const allowedOrigins = [process.env.SITE_URL, process.env.DEV_URL].filter(Boolean) as string[]
-
 function getCorsHeaders(origin: string | null) {
-  const allowedOrigin = origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0] || "*"
+  const allowAnyOrigin = process.env.ALLOW_ANY_ORIGIN === "true"
+  const allowedOrigins = [process.env.SITE_URL, process.env.DEV_URL].filter(Boolean) as string[]
+  const allowedOrigin = allowAnyOrigin
+    ? origin || "*"
+    : origin && allowedOrigins.includes(origin)
+      ? origin
+      : allowedOrigins[0] || "*"
   return {
     "Access-Control-Allow-Origin": allowedOrigin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -220,20 +225,26 @@ export const tts = httpAction(async (_, request) => {
     }
   }
 
+  ttsText += '\n\n...'
+
   console.log("[tts] post-tag text", { source: body?.source, text: ttsText })
 
-  const elevenRes = await fetch(`${ELEVENLABS_API_BASE}/${voiceId}/stream`, {
+  const streamUrl = new URL(ELEVENLABS_DIALOGUE_STREAM_URL)
+  streamUrl.searchParams.set("output_format", ELEVENLABS_OUTPUT_FORMAT)
+
+  const elevenRes = await fetch(streamUrl.toString(), {
     method: "POST",
     headers: {
       "xi-api-key": apiKey,
       "Content-Type": "application/json",
-      Accept: "audio/mpeg",
+      Accept: "text/event-stream",
     },
     body: JSON.stringify({
-      text: ttsText,
+      inputs: [{ text: ttsText, voice_id: voiceId }],
       model_id: ELEVENLABS_MODEL_ID,
-      voice_settings: {
-        stability: 0
+      apply_text_normalization: "auto",
+      settings: {
+        stability: 0,
       },
     }),
   })
@@ -251,7 +262,7 @@ export const tts = httpAction(async (_, request) => {
     return new Response("TTS stream missing", { status: 502, headers: corsHeaders })
   }
 
-  const contentType = elevenRes.headers.get("Content-Type") || "audio/mpeg"
+  const contentType = elevenRes.headers.get("Content-Type") || "text/event-stream"
   const stream = new ReadableStream({
     start(controller) {
       const reader = elevenRes.body!.getReader()
@@ -277,108 +288,8 @@ export const tts = httpAction(async (_, request) => {
       ...corsHeaders,
       "Content-Type": contentType,
       "Cache-Control": "no-store",
+      "Access-Control-Expose-Headers": "X-TTS-Format",
+      "X-TTS-Format": ELEVENLABS_OUTPUT_FORMAT,
     },
   })
-})
-
-export const ttsAlignment = httpAction(async (_, request) => {
-  const origin = request.headers.get("Origin")
-  const corsHeaders = getCorsHeaders(origin)
-
-  if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        ...corsHeaders,
-        "Access-Control-Max-Age": "86400",
-      },
-    })
-  }
-
-  if (request.method !== "POST") {
-    return new Response("Method not allowed", { status: 405, headers: corsHeaders })
-  }
-
-  let body: { text?: string; skipTagging?: boolean; source?: string } | null = null
-  try {
-    body = await request.json()
-  } catch {
-    body = null
-  }
-
-  const rawText = typeof body?.text === "string" ? body.text : ""
-  const cleanText = rawText.trim()
-  if (!cleanText) {
-    return new Response("Missing text", { status: 400, headers: corsHeaders })
-  }
-
-  if (body?.source === "transcript" && cleanText.length > TRANSCRIPT_LIMIT) {
-    return new Response("Transcript too long for TTS", { status: 413, headers: corsHeaders })
-  }
-
-  const apiKey = process.env.ELEVENLABS_API_KEY
-  const voiceId = process.env.ELEVENLABS_VOICE_ID
-  if (!apiKey || !voiceId) {
-    console.error("[tts] Missing ELEVENLABS_API_KEY or ELEVENLABS_VOICE_ID")
-    return new Response("TTS not configured", { status: 500, headers: corsHeaders })
-  }
-
-  const hasTags = /\[[^\]]+\]/.test(cleanText)
-  const shouldTag = !body?.skipTagging && !hasTags
-  let ttsText = cleanText
-
-  if (shouldTag) {
-    try {
-      ttsText = await withRetries(() => addAudioTags(cleanText), 1)
-    } catch (err) {
-      console.warn("[tts] Audio tag generation failed; using raw text", err)
-      ttsText = cleanText
-    }
-  }
-
-  console.log("[tts] post-tag text", { source: body?.source, text: ttsText })
-
-  const elevenRes = await fetch(`${ELEVENLABS_API_BASE}/${voiceId}/with-timestamps`, {
-    method: "POST",
-    headers: {
-      "xi-api-key": apiKey,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({
-      text: ttsText,
-      model_id: ELEVENLABS_MODEL_ID,
-      voice_settings: {
-        stability: 0
-      },
-    }),
-  })
-
-  if (!elevenRes.ok) {
-    const errorText = await elevenRes.text().catch(() => "")
-    console.error("[tts] ElevenLabs alignment error", elevenRes.status, errorText)
-    return new Response(errorText || "TTS alignment request failed", {
-      status: elevenRes.status,
-      headers: corsHeaders,
-    })
-  }
-
-  const payload = await elevenRes.json().catch(() => null)
-  if (!payload) {
-    return new Response("Invalid alignment response", { status: 502, headers: corsHeaders })
-  }
-
-  return new Response(
-    JSON.stringify({
-      alignment: payload.alignment ?? null,
-      normalized_text: payload.normalized_text ?? payload.normalizedText ?? null,
-    }),
-    {
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-      },
-    }
-  )
 })

@@ -47,7 +47,7 @@ const stats = {
 
 function getConfig(env: Env) {
   return {
-    rateLimitRequests: parseInt(env.RATE_LIMIT_REQUESTS || "500", 10),
+    rateLimitRequests: parseInt(env.RATE_LIMIT_REQUESTS || "2000", 10),
     rateLimitWindowMs: parseInt(env.RATE_LIMIT_WINDOW_MS || "60000", 10),
     cacheTtlMs: parseInt(env.CACHE_TTL_MS || "300000", 10),
     maxCacheSize: parseInt(env.MAX_CACHE_SIZE || "1000", 10),

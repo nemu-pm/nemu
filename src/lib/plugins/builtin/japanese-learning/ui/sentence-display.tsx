@@ -8,7 +8,7 @@ import { Copy01Icon, MessageMultiple02Icon } from '@hugeicons/core-free-icons'
 import { cn, copyToClipboard } from '@/lib/utils'
 import { motion, AnimatePresence, useAnimationControls, useReducedMotion, type Variants } from 'motion/react'
 import { useWordSelection, isWordInSelection } from '../useWordSelection'
-import { openChatAndSend } from '../chat/ui'
+import { openChatAndSend } from '../chat/open-chat-and-send'
 import { getExplainDisplayPrompt, getExplainPrompt } from '../chat/prompts'
 import { useTextDetectorStore } from '../store'
 import { ScrollFadingOverlay } from './scroll-fading-overlay'
@@ -249,8 +249,6 @@ export function SentenceDisplay({ tokens, sentenceText, ichiranAnalysis, grammar
           </div>
         </div>
       </div>
-
-      <div className="h-px bg-border/50" />
 
       {/* Details pane (fills remaining space; scrollable) */}
       <div className="relative flex-1 min-h-0 overflow-hidden">

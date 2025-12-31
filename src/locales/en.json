@@ -515,7 +515,8 @@
         "listen": "Listen",
         "listenPage": "Listen to page",
         "stop": "Stop",
-        "tooLong": "This page is too long for full-page TTS. Use sentence-by-sentence instead."
+        "tooLong": "This page is too long for full-page TTS. Use sentence-by-sentence instead.",
+        "generationFailed": "Couldn't generate audio. Please try again."
       },
       "chat": {
         "title": "Ask Nemu",
@@ -531,7 +532,9 @@
         "responseModeApp": "App language",
         "responseModeJlpt": "Simple Japanese (N4-N3)",
         "today": "Today",
-        "read": "Read"
+        "read": "Read",
+        "emptyTitle": "Hi! I'm Nemu",
+        "emptyDescription": "Tap any speech bubble and ask me about words, grammar, or meaning!"
       }
     },
     "dualRead": {

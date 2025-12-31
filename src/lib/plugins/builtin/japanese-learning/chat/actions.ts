@@ -45,6 +45,10 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
   let hasMarkedRead = false
   let bufferedText = ''
   let streamCompleted = false
+  let currentPhase: 'assistant' | 'followups' | 'client_tools' | null = null
+  let typingMode: 'activity' | 'client_tools' | 'optimistic' | null = null
+  let typingPulseTimer: ReturnType<typeof setTimeout> | null = null
+  let optimisticTypingTimer: ReturnType<typeof setTimeout> | null = null
   const speakQueue: string[] = []
   let processingSpeak = false
   let hasShownFirstSpeak = false
@@ -62,6 +66,56 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
     }
   }
 
+  const clearTypingPulse = () => {
+    if (typingPulseTimer) {
+      clearTimeout(typingPulseTimer)
+      typingPulseTimer = null
+    }
+  }
+
+  const clearOptimisticTypingTimer = () => {
+    if (optimisticTypingTimer) {
+      clearTimeout(optimisticTypingTimer)
+      optimisticTypingTimer = null
+    }
+  }
+
+  const stopTyping = () => {
+    typingMode = null
+    clearTypingPulse()
+    clearOptimisticTypingTimer()
+    setShowTypingIndicator(false)
+  }
+
+  const startClientToolTyping = () => {
+    typingMode = 'client_tools'
+    clearTypingPulse()
+    clearOptimisticTypingTimer()
+    setShowTypingIndicator(true)
+  }
+
+  const pulseTypingFromActivity = () => {
+    if (currentPhase === 'followups') return
+    if (typingMode === 'client_tools') return
+    typingMode = 'activity'
+    setShowTypingIndicator(true)
+    clearTypingPulse()
+    clearOptimisticTypingTimer()
+    typingPulseTimer = setTimeout(() => {
+      typingPulseTimer = null
+      if (typingMode === 'activity') {
+        typingMode = null
+        setShowTypingIndicator(false)
+      }
+    }, 700)
+  }
+
+  const markReadIfNeeded = () => {
+    if (hasMarkedRead) return
+    markLastUserMessageRead()
+    hasMarkedRead = true
+  }
+
   const getSpeakDelay = (text: string) => {
     const length = text.replace(/\s+/g, '').length
     const base = 300
@@ -73,7 +127,7 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
 
   const maybeFinishStream = () => {
     if (streamCompleted && !processingSpeak && speakQueue.length === 0) {
-      setShowTypingIndicator(false)
+      stopTyping()
       setStreaming(false)
     }
   }
@@ -86,10 +140,10 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
       return
     }
     processingSpeak = true
-    setShowTypingIndicator(true)
     const delay = hasShownFirstSpeak ? getSpeakDelay(next) : 0
     const deliverSpeak = () => {
-      setShowTypingIndicator(false)
+      // Speak bubbles are real output; don't show dots here.
+      if (typingMode !== 'client_tools') stopTyping()
       addAssistantMessage(next)
       hasShownFirstSpeak = true
       processingSpeak = false
@@ -100,7 +154,7 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
           return
         }
         if (!streamCompleted) {
-          setShowTypingIndicator(true)
+          // Don't show dots during silent waiting.
           return
         }
         maybeFinishStream()
@@ -126,21 +180,38 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
   }
 
   return {
+    onStreamStart: () => {
+      // Flip read receipt ASAP for snappier UX.
+      markReadIfNeeded()
+
+      // Special-case: show dots briefly after send, then turn off unless real activity arrives.
+      if (currentPhase === 'followups') return
+      if (typingMode === 'client_tools') return
+      typingMode = 'optimistic'
+      setShowTypingIndicator(true)
+      clearOptimisticTypingTimer()
+      optimisticTypingTimer = setTimeout(() => {
+        optimisticTypingTimer = null
+        if (typingMode === 'optimistic') {
+          typingMode = null
+          setShowTypingIndicator(false)
+        }
+      }, 5000)
+    },
     onText: (text) => {
       bufferedText += text
-      if (!hasMarkedRead) {
-        markLastUserMessageRead()
-        hasMarkedRead = true
-      }
+      currentPhase = 'assistant'
+      pulseTypingFromActivity()
+      markReadIfNeeded()
     },
     onSpeak: (text) => {
       enqueueSpeak(text)
-      if (!hasMarkedRead) {
-        markLastUserMessageRead()
-        hasMarkedRead = true
-      }
+      currentPhase = 'assistant'
+      // No dots here; speak bubble is the output.
+      markReadIfNeeded()
     },
     onVoice: (text) => {
+      currentPhase = 'assistant'
       const trimmed = text.trim()
       if (!trimmed) return
       const displayText = stripAudioTags(trimmed)
@@ -149,31 +220,30 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
         ttsText: trimmed,
       })
       useTtsStore.getState().prefetch(messageId, trimmed, { skipTagging: true, source: 'voice' })
-      if (!hasMarkedRead) {
-        markLastUserMessageRead()
-        hasMarkedRead = true
-      }
+      markReadIfNeeded()
     },
     onToolCall: (tc) => {
+      pulseTypingFromActivity()
       console.log('[NemuChat] Tool call:', {
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
         args: tc.args,
         status: getToolStatusText(tc),
       })
-      if (!hasMarkedRead) {
-        markLastUserMessageRead()
-        hasMarkedRead = true
-      }
+      markReadIfNeeded()
     },
     onToolsAwaiting: (toolCalls, partialContent) => {
       setShowTypingIndicator(true)
+      currentPhase = 'client_tools'
+      startClientToolTyping()
+      markReadIfNeeded()
       const shouldHide = !partialContent?.trim()
       addAssistantMessage(partialContent ?? '', toolCalls, { hidden: shouldHide })
     },
     onToolResults: (toolResults) => {
       addToolResults(toolResults)
-      setShowTypingIndicator(true)
+      // Tool execution completed; don't show dots while we wait for the next backend chunk.
+      stopTyping()
       toolResults.forEach((result) => {
         console.log('[NemuChat] Tool result:', {
           toolCallId: result.toolCallId,
@@ -184,7 +254,22 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
       })
     },
     onFollowups: (suggestions) => {
+      currentPhase = 'followups'
+      stopTyping()
       setFollowUps(suggestions)
+    },
+    onActivity: (activity, toolName) => {
+      if (!activity) return
+      if (activity === 'llm') {
+        // Don't show dots for followups generation.
+        if (toolName === 'suggest_followups') return
+        pulseTypingFromActivity()
+        markReadIfNeeded()
+      }
+      if (activity === 'client_tools') {
+        startClientToolTyping()
+        markReadIfNeeded()
+      }
     },
     onDone: () => {
       const trimmed = bufferedText.trim()
@@ -203,7 +288,7 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
       speakQueue.length = 0
       processingSpeak = false
       clearSpeakTimers()
-      setShowTypingIndicator(false)
+      stopTyping()
       setStreaming(false)
     },
     onCancelled: () => {
@@ -215,6 +300,8 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
       speakQueue.length = 0
       processingSpeak = false
       clearSpeakTimers()
+      clearTypingPulse()
+      clearOptimisticTypingTimer()
     },
   }
 }
@@ -240,7 +327,8 @@ export async function sendChatMessage(options: {
   addUserMessage(text, displayContent)
   clearFollowUps()
   setStreaming(true)
-  setShowTypingIndicator(true)
+  // No dots during initial wait; show only on backend activity/tool phases.
+  setShowTypingIndicator(false)
   await sendMessageAndStream(text, existingMessages, hiddenContext, appLanguage, callbacks, toolContext ?? undefined)
 }
 
@@ -255,10 +343,12 @@ export async function sendChatGreeting(options: {
 
   clearFollowUps()
   setStreaming(true)
-  setShowTypingIndicator(true)
+  // No dots during initial wait; show only on backend activity/tool phases.
+  setShowTypingIndicator(false)
   const existingMessages = getMessagesForRequest()
   const greetingPrompt = getGreetingPrompt(appLanguage, hiddenContext.responseMode)
   const messages = [...existingMessages, { role: 'user' as const, content: greetingPrompt }]
 
+  callbacks.onStreamStart()
   await streamChat(messages, hiddenContext, appLanguage, callbacks, toolContext ?? undefined)
 }

@@ -8,7 +8,6 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import type { ChatMessage } from '../types'
 import { NemuAvatar } from './avatar'
-import { ExpandableText } from '@/components/ui/expandable-text'
 import { AudioWaveform } from '@/components/tts/audio-waveform'
 
 function formatTime(timestamp: number, locale: string): string {
@@ -36,10 +35,11 @@ function TailRight({ className, color = '#5ac463' }: { className?: string; color
 }
 
 // For assistant (left) bubbles - mirrored horizontally
-function TailLeft({ className, color = 'white' }: { className?: string; color?: string }) {
+// Uses currentColor so it inherits from the bubble's text color parent
+function TailLeft({ className, colorClass }: { className?: string; colorClass?: string }) {
   return (
-    <svg className={className} width="20" height="14" viewBox="0 0 80 55" style={{ transform: 'scaleX(-1)' }} aria-hidden="true">
-      <path d={TAIL_PATH} fill={color}/>
+    <svg className={cn(className, colorClass)} width="20" height="14" viewBox="0 0 80 55" style={{ transform: 'scaleX(-1)' }} aria-hidden="true">
+      <path d={TAIL_PATH} fill="currentColor"/>
     </svg>
   )
 }
@@ -53,24 +53,20 @@ function VoiceBubbleContent({
 }) {
   const ttsId = message.id
   const ttsText = message.ttsText ?? message.content
+  const transcript = message.displayContent ?? message.content
 
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col gap-2 w-[240px]">
       <AudioWaveform
         ttsId={ttsId}
         text={ttsText}
         source="voice"
         skipTagging
-        className="w-full border-transparent bg-transparent px-0"
-        waveformClassName="max-w-[360px]"
         onUserAction={(action) => onVoiceAction?.(ttsId, action)}
       />
-      <ExpandableText
-        value={message.displayContent ?? message.content}
-        lines={2}
-        textClassName="text-xs text-black/80"
-        triggerClassName="text-[11px] text-black/60"
-      />
+      <p className="text-xs opacity-70 whitespace-pre-wrap break-words select-text leading-relaxed">
+        {transcript}
+      </p>
     </div>
   )
 }
@@ -91,7 +87,6 @@ export function MessageBubble({
   const { t, i18n } = useTranslation()
   const isUser = message.role === 'user'
   const text = message.displayContent || message.content
-  const isVoice = message.kind === 'voice'
 
   if (isUser) {
     const bubbleColor = message.errorMessage ? '#ef4444' : '#5ac463'
@@ -130,37 +125,36 @@ export function MessageBubble({
     )
   }
 
-  const bubbleColor = message.errorMessage
-    ? '#fef2f2'
-    : isVoice
-      ? 'rgba(0, 0, 0, 0.05)'
-      : 'white'
   const rowClass = cn(
     'flex items-start gap-2 px-3',
     showTail
   )
+  // Light mode: subtle violet tint to distinguish from background
+  // Dark mode: keep white bubbles
   const assistantBubbleClass = cn(
     'max-w-[70%] rounded-[18px] px-3.5 py-2',
     'text-[15px] leading-[1.4] relative',
-    message.errorMessage
-      ? 'bg-red-50 border border-red-200'
-      : isVoice
-        ? 'bg-black/5 text-black border border-black/10 backdrop-blur-md overflow-hidden'
-        : 'bg-white text-[#111]',
+    message.errorMessage 
+      ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50' 
+      : 'bg-secondary dark:bg-white text-foreground dark:text-[#111]',
     showTail && 'mt-1'
   )
+  // Tail color class matches bubble background
+  const tailColorClass = message.errorMessage
+    ? 'text-red-50 dark:text-red-950/30'
+    : 'text-secondary dark:text-white'
   return (
     <div className={rowClass}>
       {/* Avatar */}
       <div className="w-10 flex-shrink-0">
         {showAvatar ? <NemuAvatar size="sm" /> : <div className="w-10" />}
       </div>
-      {/* Assistant bubble - white */}
+      {/* Assistant bubble */}
       <div className={assistantBubbleClass}>
         {showTail && (
           <TailLeft 
             className="absolute top-0 left-[-5px]" 
-            color={bubbleColor}
+            colorClass={tailColorClass}
           />
         )}
         {message.kind === 'voice' ? (
@@ -186,7 +180,7 @@ export function MessageBubble({
 export function DatePill({ text = 'Today' }: { text?: string }) {
   return (
     <div className="flex justify-center py-2">
-      <span className="px-3 py-1 text-xs text-muted-foreground bg-white/10 rounded-full">
+      <span className="px-3 py-1 text-xs text-muted-foreground bg-muted dark:bg-white/10 rounded-full">
         {text}
       </span>
     </div>

@@ -16,6 +16,11 @@ type MessageForRequest =
   | { role: 'tool'; toolResults: ToolResult[] }
 
 export interface ChatStreamCallbacks {
+  /**
+   * Called immediately when a stream request is about to start (before network I/O).
+   * Useful for optimistic UI (read receipt / short typing grace window).
+   */
+  onStreamStart: () => void
   onText: (text: string) => void
   onSpeak: (text: string) => void
   onVoice: (text: string) => void
@@ -23,6 +28,7 @@ export interface ChatStreamCallbacks {
   onToolsAwaiting: (toolCalls: ToolCall[], partialContent: string) => void
   onToolResults: (toolResults: ToolResult[]) => void
   onFollowups: (suggestions: string[]) => void
+  onActivity: (activity: ChatStreamEvent['activity'], toolName?: string) => void
   onDone: () => void
   onError: (error: string) => void
   onCancelled: () => void
@@ -101,18 +107,22 @@ async function executeRequestTranscript(
     return { toolCallId, toolName, result: 'Page not found in the current chapter.', isError: true }
   }
   const pageIndex = resolvedIndex ?? pageNumber - 1
+  const pageKey = toolContext?.getPageKey?.(pageIndex)
+  if (!pageKey) {
+    return { toolCallId, toolName, result: 'Page not available in the current chapter.', isError: true }
+  }
   const store = useTextDetectorStore.getState()
 
   // Check existing transcript
-  const existingTranscript = store.transcripts.get(pageIndex)
+  const existingTranscript = store.transcripts.get(pageKey)
   if (existingTranscript && existingTranscript.length > 0) {
     const text = existingTranscript.map((line) => line.text).filter(Boolean).join('\n')
     return { toolCallId, toolName, result: text || 'No text found on this page.', isError: false }
   }
 
   // Wait if OCR is in progress
-  if (store.ocrLoadingPages.has(pageIndex)) {
-    const waited = await waitForTranscript(pageIndex)
+  if (store.ocrLoadingPages.has(pageKey)) {
+    const waited = await waitForTranscript(pageKey)
     if (waited) {
       return { toolCallId, toolName, result: waited, isError: false }
     }
@@ -131,8 +141,8 @@ async function executeRequestTranscript(
       }
     }
     const cacheKey = toolContext.getCacheKey?.(pageIndex)
-    useTextDetectorStore.getState().runOcr(pageIndex, imageBlob, cacheKey)
-    const waited = await waitForTranscript(pageIndex)
+    useTextDetectorStore.getState().runOcr(pageKey, imageBlob, cacheKey)
+    const waited = await waitForTranscript(pageKey)
     if (waited) {
       return { toolCallId, toolName, result: waited, isError: false }
     }
@@ -162,14 +172,18 @@ async function executeTriggerOcr(
     return { toolCallId, toolName, result: 'Page not found in the current chapter.', isError: true }
   }
   const pageIndex = resolvedIndex ?? pageNumber - 1
+  const pageKey = toolContext?.getPageKey?.(pageIndex)
+  if (!pageKey) {
+    return { toolCallId, toolName, result: 'Page not available in the current chapter.', isError: true }
+  }
   const store = useTextDetectorStore.getState()
 
-  if (store.transcripts.has(pageIndex)) {
+  if (store.transcripts.has(pageKey)) {
     return { toolCallId, toolName, result: `Page ${pageNumber} OCR already available.`, isError: false }
   }
 
-  if (store.ocrLoadingPages.has(pageIndex)) {
-    const waited = await waitForTranscript(pageIndex)
+  if (store.ocrLoadingPages.has(pageKey)) {
+    const waited = await waitForTranscript(pageKey)
     if (waited) {
       return { toolCallId, toolName, result: `OCR complete for page ${pageNumber}.`, isError: false }
     }
@@ -186,23 +200,23 @@ async function executeTriggerOcr(
   }
 
   const cacheKey = toolContext.getCacheKey?.(pageIndex)
-  store.runOcr(pageIndex, imageBlob, cacheKey)
-  const waited = await waitForTranscript(pageIndex)
+  store.runOcr(pageKey, imageBlob, cacheKey)
+  const waited = await waitForTranscript(pageKey)
   if (waited) {
     return { toolCallId, toolName, result: `OCR complete for page ${pageNumber}.`, isError: false }
   }
   return { toolCallId, toolName, result: 'OCR processing failed or timed out.', isError: true }
 }
 
-async function waitForTranscript(pageIndex: number): Promise<string | null> {
+async function waitForTranscript(pageKey: string): Promise<string | null> {
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 500))
     const current = useTextDetectorStore.getState()
-    const transcript = current.transcripts.get(pageIndex)
+    const transcript = current.transcripts.get(pageKey)
     if (transcript && transcript.length > 0) {
       return transcript.map((line) => line.text).filter(Boolean).join('\n')
     }
-    if (!current.ocrLoadingPages.has(pageIndex)) break
+    if (!current.ocrLoadingPages.has(pageKey)) break
   }
   return null
 }
@@ -320,6 +334,10 @@ export async function streamChat(
               callbacks.onFollowups(event.suggestions ?? [])
               break
 
+            case 'activity':
+              callbacks.onActivity(event.activity, event.activityToolName)
+              break
+
             case 'error':
               callbacks.onError(event.error ?? 'Unknown error')
               return
@@ -358,6 +376,8 @@ export async function sendMessageAndStream(
   callbacks: ChatStreamCallbacks,
   toolContext?: ChatToolContext
 ): Promise<void> {
+  // Only fire once per user send (not on internal recursive continuations).
+  callbacks.onStreamStart()
   const messages: MessageForRequest[] = [...existingMessages, { role: 'user', content: userMessage }]
   await streamChat(messages, hiddenContext, appLanguage, callbacks, toolContext)
 }

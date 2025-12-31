@@ -15,8 +15,7 @@ import { cn } from '@/lib/utils'
 
 import { useNemuChatStore } from '../store'
 import { createChatStreamCallbacks, sendChatMessage } from '../actions'
-import type { ChatMessage, HiddenContext } from '../types'
-import { languageStore } from '@/stores/language'
+import type { ChatMessage } from '../types'
 import { useTtsStore } from '@/stores/tts'
 
 import { NemuAvatar } from './avatar'
@@ -56,12 +55,16 @@ export function NemuChatDrawer() {
     getToolContextForRequest,
   } = store
   const playTts = useTtsStore((s) => s.play)
-  const currentAudioId = useTtsStore((s) => s.currentAudioId)
   const lastEndedId = useTtsStore((s) => s.lastEndedId)
   const lastEndedAt = useTtsStore((s) => s.lastEndedAt)
-  const [autoPlayState, setAutoPlayState] = useState<{ enabled: boolean; currentId: string | null }>({
+  const [autoPlayState, setAutoPlayState] = useState<{
+    enabled: boolean
+    currentId: string | null
+    armedAt: number
+  }>({
     enabled: false,
     currentId: null,
+    armedAt: 0,
   })
 
   // Create callbacks for the stream - these update the store
@@ -153,48 +156,44 @@ export function NemuChatDrawer() {
   const showTypingAvatar = !lastVisibleMessage || lastVisibleMessage.role !== 'assistant'
 
   const hasContent = visibleMessages.length > 0 || isStreaming
+  const shouldShowTypingIndicator = isStreaming && showTypingIndicator
 
   useEffect(() => {
     if (!isOpen && autoPlayState.enabled) {
-      setAutoPlayState({ enabled: false, currentId: null })
+      setAutoPlayState({ enabled: false, currentId: null, armedAt: 0 })
     }
   }, [autoPlayState.enabled, isOpen])
 
   const handleVoiceAction = useCallback(
     (messageId: string, action: 'play' | 'pause' | 'stop') => {
       if (action === 'play') {
-        if (autoPlayState.enabled && autoPlayState.currentId && autoPlayState.currentId !== messageId) {
-          setAutoPlayState({ enabled: false, currentId: null })
-          return
-        }
-        if (!currentAudioId) {
-          setAutoPlayState({ enabled: true, currentId: messageId })
-        } else if (currentAudioId !== messageId) {
-          setAutoPlayState({ enabled: false, currentId: null })
-        }
+        setAutoPlayState({ enabled: true, currentId: messageId, armedAt: Date.now() })
         return
       }
       if (action === 'pause' || action === 'stop') {
-        setAutoPlayState({ enabled: false, currentId: null })
+        setAutoPlayState({ enabled: false, currentId: null, armedAt: 0 })
       }
     },
-    [autoPlayState.currentId, autoPlayState.enabled, currentAudioId]
+    []
   )
 
   useEffect(() => {
     if (!autoPlayState.enabled || !lastEndedId || lastEndedId !== autoPlayState.currentId) return
+    if (lastEndedAt <= autoPlayState.armedAt) return
     const currentIndex = visibleMessages.findIndex((msg) => msg.id === lastEndedId)
     if (currentIndex === -1) {
-      setAutoPlayState({ enabled: false, currentId: null })
+      setAutoPlayState({ enabled: false, currentId: null, armedAt: 0 })
       return
     }
-    const nextMessage = visibleMessages[currentIndex + 1]
-    if (!nextMessage || nextMessage.kind !== 'voice' || nextMessage.role !== 'assistant') {
-      setAutoPlayState({ enabled: false, currentId: null })
+    const nextMessage = visibleMessages
+      .slice(currentIndex + 1)
+      .find((msg) => msg.kind === 'voice' && msg.role === 'assistant')
+    if (!nextMessage) {
+      setAutoPlayState({ enabled: false, currentId: null, armedAt: 0 })
       return
     }
     playTts(nextMessage.id, nextMessage.ttsText ?? nextMessage.content, { skipTagging: true, source: 'voice' })
-    setAutoPlayState({ enabled: true, currentId: nextMessage.id })
+    setAutoPlayState({ enabled: true, currentId: nextMessage.id, armedAt: Date.now() })
   }, [autoPlayState, lastEndedAt, lastEndedId, playTts, visibleMessages])
 
   return (
@@ -203,8 +202,8 @@ export function NemuChatDrawer() {
         <DrawerTitle className="sr-only">Nemu Chat</DrawerTitle>
 
         {/* Simple header - just name */}
-        <div className="flex items-center justify-center px-4 py-3 border-b border-white/10 flex-shrink-0">
-          <h3 className="font-medium text-sm">Nemu</h3>
+        <div className="flex items-center justify-center px-4 py-3 border-b border-border flex-shrink-0">
+          <h3 className="font-medium text-sm text-foreground">Nemu</h3>
         </div>
 
         {/* Messages */}
@@ -238,17 +237,17 @@ export function NemuChatDrawer() {
               </div>
             ))}
 
-            {isStreaming && showTypingIndicator && <TypingIndicator showAvatar={showTypingAvatar} />}
+            {shouldShowTypingIndicator && <TypingIndicator showAvatar={showTypingAvatar} />}
 
             {!isStreaming && followUpSuggestions.length > 0 && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="ml-11">
-                <Suggestions className="!gap-2 flex-wrap">
+                <Suggestions className="!gap-2 flex-wrap ml-4">
                   {followUpSuggestions.map((s) => (
                     <Suggestion
                       key={s.id}
                       suggestion={s.text}
                       onClick={handleSuggestion}
-                      className="text-xs bg-white/5 border-white/20 hover:bg-white/10"
+                      className="text-xs bg-secondary/80 border-border hover:bg-secondary"
                     />
                   ))}
                 </Suggestions>
@@ -256,7 +255,7 @@ export function NemuChatDrawer() {
             )}
 
             {showDebugContext && hiddenContext && (
-              <div className="mx-4 mt-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-muted-foreground">
+              <div className="mx-4 mt-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-[11px] text-muted-foreground">
                 <div className="font-medium text-xs text-foreground/80 mb-1">Debug context</div>
                 <pre className="whitespace-pre-wrap break-words">
                   {JSON.stringify(hiddenContext, null, 2)}
@@ -374,34 +373,23 @@ const LineInputBar = forwardRef<HTMLInputElement, LineInputBarProps>(
     }, [hasText, onSubmit, toggleListening])
 
     return (
-      <div className="flex-shrink-0 px-3 py-2.5 bg-black/40 backdrop-blur-xl border-t border-white/[0.08]">
+      <div className="flex-shrink-0 px-3 py-2.5 bg-background/80 dark:bg-black/40 backdrop-blur-xl border-t border-border">
         <div className="flex items-center gap-2">
-          {/* Input container - LINE pill style with glassmorphism */}
-          <div
+          {/* Input container - pill style using input-nemu glassmorphism */}
+          <input
+            ref={inputRefToUse}
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
             className={cn(
-              'flex-1 flex items-center rounded-full transition-all duration-200',
-              'bg-white/[0.08] backdrop-blur-md border border-white/[0.12]',
-              'hover:bg-white/[0.10] hover:border-white/[0.15]',
-              'focus-within:bg-white/[0.12] focus-within:border-white/[0.20]',
-              isListening && 'border-blue-400/50 bg-blue-500/10'
+              'input-nemu flex-1 rounded-full px-4 py-2.5 text-base',
+              isListening && '!border-primary/50 !ring-2 !ring-primary/20'
             )}
-          >
-            <input
-              ref={inputRefToUse}
-              type="text"
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={placeholder}
-              className={cn(
-                'flex-1 bg-transparent px-4 py-2.5 text-base',
-                'placeholder:text-white/40 text-white/90',
-                'focus:outline-none'
-              )}
-            />
-          </div>
+          />
 
-          {/* Action button - mic when empty, send when has text (LINE style: no background) */}
+          {/* Action button - mic when empty, send when has text */}
           <motion.button
             type="button"
             onClick={handleActionClick}
@@ -409,11 +397,11 @@ const LineInputBar = forwardRef<HTMLInputElement, LineInputBarProps>(
             whileTap={{ scale: 0.9 }}
           >
             {hasText ? (
-              <Send className="size-6 text-blue-500 hover:text-blue-400" strokeWidth={2.5} />
+              <Send className="size-6 text-primary hover:text-primary/80" strokeWidth={2.5} />
             ) : (
               <Mic className={cn(
                 'size-6 transition-colors',
-                isListening ? 'text-red-500 animate-pulse' : 'text-zinc-400 hover:text-zinc-300'
+                isListening ? 'text-red-500 animate-pulse' : 'text-muted-foreground hover:text-foreground/70'
               )} strokeWidth={2} />
             )}
           </motion.button>
@@ -423,39 +411,5 @@ const LineInputBar = forwardRef<HTMLInputElement, LineInputBarProps>(
   }
 )
 
-/**
- * Open the chat and send a message - for external use (from "Ask about sentence" button)
- */
-export function openChatAndSend(text: string, displayContent: string, contextOverride?: Partial<HiddenContext>) {
-  const store = useNemuChatStore.getState()
-  const initialContext = store.getContextForRequest(contextOverride)
-  if (initialContext) {
-    store.open(initialContext)
-  }
-
-  // Send message directly - no setTimeout, no useEffect
-  // Need to wait for store to open before sending
-  setTimeout(async () => {
-    const state = useNemuChatStore.getState()
-    const context = state.getContextForRequest(contextOverride)
-    if (!context) return
-    const lang = languageStore?.getState().language || 'en'
-    console.log('lang', lang)
-
-    try {
-      await sendChatMessage({
-        text,
-        displayContent,
-        hiddenContext: context,
-        appLanguage: lang,
-        toolContext: state.getToolContextForRequest(),
-        callbacks: createChatStreamCallbacks(),
-      })
-    } catch (err) {
-      console.error('[NemuChat]', err)
-      const state = useNemuChatStore.getState()
-      state.setShowTypingIndicator(false)
-      state.setStreaming(false)
-    }
-  }, 50) // Small delay to ensure drawer is open
-}
+// (moved) openChatAndSend lives in ../open-chat-and-send.ts to keep this file
+// Fast Refresh-compatible (component exports only).
