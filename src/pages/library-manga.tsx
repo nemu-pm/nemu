@@ -44,6 +44,8 @@ import { MetadataEditDialog } from "@/components/metadata-edit-dialog";
 import { MangaStatusBadge } from "@/components/manga-status-badge";
 import { SourceManageDialog } from "@/components/source-manage-dialog";
 import { useSortedSources } from "@/hooks/use-sorted-sources";
+import { ExpandableText } from "@/components/ui/expandable-text";
+import { usePageTitle } from "@/components/page-title";
 
 /** Find the chapter with the highest chapter number */
 function findLatestChapter(chapters: Chapter[]): { id: string; title?: string; chapterNumber?: number; volumeNumber?: number } | null {
@@ -129,6 +131,9 @@ export function LibraryMangaPage() {
     () => entries.find((e) => e.item.libraryItemId === id),
     [entries, id]
   );
+
+  const entryTitle = entry ? getEntryEffectiveMetadata(entry).title : null;
+  usePageTitle(entryTitle ? [entryTitle, t("nav.library")] : [t("nav.library")]);
 
   // Sort sources by user-defined order (UI concern)
   const sortedSources = useSortedSources(entry?.sources ?? [], entry?.item.sourceOrder);
@@ -470,9 +475,13 @@ export function LibraryMangaPage() {
             )}
 
             {effectiveMetadata.description && (
-              <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground selectable">
-                {effectiveMetadata.description}
-              </p>
+              <ExpandableText
+                value={effectiveMetadata.description}
+                lines={3}
+                className="max-w-2xl"
+                textClassName="text-sm leading-relaxed text-muted-foreground selectable whitespace-pre-wrap"
+                triggerClassName="justify-start w-fit px-0 hover:bg-transparent"
+              />
             )}
 
             {/* Actions */}

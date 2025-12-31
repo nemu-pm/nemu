@@ -42,6 +42,8 @@ import type { SecondaryRenderPlan } from '@/lib/dual-reader/types';
 import { buildAlignmentQueue, getAlignmentPlanSignature } from '@/lib/dual-reader/alignment-scheduler';
 import { buildAlignmentOptions } from '@/lib/dual-reader/alignment-options';
 import { useDualReadStore, type DualReadFabPosition, type DualReadSide } from './store';
+import { useDualReadPluginSettingsStore } from './settings';
+import { useDualReadDebugStore, type DualReadDebugSnapshot } from './debug-store';
 import type { Chapter, Page } from '@/lib/sources/types';
 import {
   clearDualReadWorkerCache,
@@ -51,7 +53,7 @@ import {
   getDualReadWorkerPendingStats,
 } from './dhash-worker-client';
 import { getCachedDualReadHash, setCachedDualReadHash, type DualReadHashCacheKey } from './dhash-cache';
-import { ALIGNMENT_FINE_MAX_DEFAULT } from '@/lib/dual-reader/alignment-constants';
+import { ALIGNMENT_CONFIDENCE_MIN_DEFAULT, ALIGNMENT_FINE_MAX_DEFAULT } from '@/lib/dual-reader/alignment-constants';
 
 const HOLD_DELAY_MS = 220;
 const DRAG_THRESHOLD_PX = 6;
@@ -106,6 +108,247 @@ type AlignmentLayout = {
   scale: number;
   clipPath: string;
 };
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function DualReadDebugOverlay({ ctx }: { ctx: ReaderPluginContext }) {
+  const debugOverlay = useDualReadPluginSettingsStore((s) => s.settings.debugOverlay);
+  const setPluginSettings = useDualReadPluginSettingsStore((s) => s.setSettings);
+  const snapshot = useDualReadDebugStore((s) => s.snapshot);
+  const events = useDualReadDebugStore((s) => s.events);
+  const clear = useDualReadDebugStore((s) => s.clear);
+  const [collapsed, setCollapsed] = useState(false);
+  const [topOffsetPx, setTopOffsetPx] = useState<number>(80);
+  const secondaryRenderPlansByChapter = useDualReadStore((s) => s.secondaryRenderPlansByChapter);
+  const driftDeltaByChapter = useDualReadStore((s) => s.driftDeltaByChapter);
+  const seedPair = useDualReadStore((s) => s.seedPair);
+  const primaryChapters = useDualReadStore((s) => s.primaryChapters);
+  const secondaryChapters = useDualReadStore((s) => s.secondaryChapters);
+  const canRender = debugOverlay && typeof document !== 'undefined';
+
+  useEffect(() => {
+    useDualReadDebugStore.getState().setOverlayEnabled(debugOverlay);
+    if (!debugOverlay) {
+      useDualReadDebugStore.getState().clear();
+    }
+  }, [debugOverlay]);
+
+  useEffect(() => {
+    if (!debugOverlay) return;
+    useDualReadDebugStore.getState().updateSnapshot({
+      sessionKey: useDualReadStore.getState().sessionKey,
+      dualReadEnabled: useDualReadStore.getState().enabled,
+      visiblePageIndices: ctx.visiblePageIndices.length > 0 ? ctx.visiblePageIndices : [ctx.currentPageIndex],
+    });
+  }, [debugOverlay, ctx.currentPageIndex, ctx.visiblePageIndices]);
+
+  const formatTs = (ts: number | null) => {
+    if (!ts) return '—';
+    try {
+      return new Date(ts).toLocaleTimeString();
+    } catch {
+      return String(ts);
+    }
+  };
+
+  const visible =
+    snapshot.visiblePageIndices.length > 0
+      ? snapshot.visiblePageIndices
+      : ctx.visiblePageIndices.length > 0
+        ? ctx.visiblePageIndices
+        : [ctx.currentPageIndex];
+
+  const planStatus = useMemo(() => {
+    if (!debugOverlay) return '';
+    const parts: string[] = [];
+    for (const pageIndex of visible) {
+      const meta = ctx.getPageMeta(pageIndex);
+      if (!meta || meta.kind !== 'page' || meta.localIndex == null || !meta.chapterId) {
+        parts.push(`${pageIndex}:—`);
+        continue;
+      }
+      const plan = secondaryRenderPlansByChapter[meta.chapterId]?.[meta.localIndex];
+      if (!plan) {
+        parts.push(`${pageIndex}:none`);
+        continue;
+      }
+      const drift = driftDeltaByChapter[meta.chapterId] ?? 0;
+      const driftStale = plan.kind === 'missing' ? false : plan.driftDelta !== drift;
+      let chapterStale = false;
+      if (seedPair) {
+        const primaryChapter = primaryChapters.find((c) => c.id === meta.chapterId);
+        const expectedSecondaryChapterId =
+          primaryChapter && secondaryChapters.length > 0
+            ? mapSecondaryChapterForPrimary({
+                primaryChapter,
+                primaryAll: primaryChapters,
+                secondaryAll: secondaryChapters,
+                seedPair,
+              })
+            : null;
+        chapterStale = Boolean(expectedSecondaryChapterId && plan.secondaryChapterId !== expectedSecondaryChapterId);
+      }
+      const flags = `${driftStale ? 'd' : ''}${chapterStale ? 'c' : ''}`;
+      parts.push(`${pageIndex}:${plan.kind}${flags ? `(${flags})` : ''}`);
+    }
+    return parts.join(' · ');
+  }, [
+    visible,
+    ctx,
+    secondaryRenderPlansByChapter,
+    driftDeltaByChapter,
+    seedPair,
+    primaryChapters,
+    secondaryChapters,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!debugOverlay) return;
+    if (typeof document === 'undefined') return;
+    const el = document.querySelector('.reader-ui-panel[data-position="top"]') as HTMLElement | null;
+
+    const update = () => {
+      if (!el) {
+        setTopOffsetPx(80);
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      // Place below navbar, with a small gap. Clamp to keep it in viewport.
+      const next = Math.max(0, Math.round(rect.bottom + 8));
+      setTopOffsetPx(next);
+    };
+
+    update();
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && el) {
+      ro = new ResizeObserver(update);
+      ro.observe(el);
+    }
+    window.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('scroll', update);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('scroll', update);
+    };
+  }, [debugOverlay]);
+
+  if (!canRender) return null;
+
+  return createPortal(
+    <div className="fixed left-2 right-2 z-[99999] pointer-events-none" style={{ top: topOffsetPx }}>
+      <div
+        className="pointer-events-auto rounded-xl border border-white/10 bg-black/80 text-white shadow-lg backdrop-blur"
+        style={{ touchAction: 'pan-y', WebkitUserSelect: 'none' }}
+      >
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <div className="min-w-0">
+            <div className="text-[12px] font-semibold leading-tight">Dual Read Debug</div>
+            <div className="text-[11px] leading-tight text-white/70">
+              session={snapshot.sessionKey ?? '—'} · dualRead={snapshot.dualReadEnabled ? 'on' : 'off'}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded-md px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10"
+              onClick={() => setCollapsed((v) => !v)}
+            >
+              {collapsed ? 'Expand' : 'Minimize'}
+            </button>
+            <button
+              type="button"
+              className="rounded-md px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10"
+              onClick={() => clear()}
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              className="rounded-md px-2 py-1 text-[11px] font-medium text-white/80 hover:bg-white/10"
+              onClick={() => setPluginSettings({ debugOverlay: false })}
+            >
+              Hide
+            </button>
+          </div>
+        </div>
+
+        {!collapsed && (
+          <div className="px-3 pb-3">
+            <div className="mb-2 grid grid-cols-2 gap-2 text-[11px] leading-tight">
+              <div className="rounded-lg bg-white/5 px-2 py-1">
+                <div className="text-white/70">Visible</div>
+                <div className="font-mono">{visible.join(', ')}</div>
+                <div className="mt-0.5 font-mono text-[10px] text-white/60 break-words">{planStatus}</div>
+              </div>
+              <div className="rounded-lg bg-white/5 px-2 py-1">
+                <div className="text-white/70">Stable</div>
+                <div className="font-mono">
+                  {snapshot.stableVisiblePageIndices.length ? snapshot.stableVisiblePageIndices.join(', ') : '—'}
+                </div>
+              </div>
+              <div className="rounded-lg bg-white/5 px-2 py-1">
+                <div className="text-white/70">Render plan</div>
+                <div className="font-mono">
+                  {formatTs(snapshot.lastRenderPlanRunTs)}
+                  {snapshot.lastRenderPlanSummary ? ` · ${snapshot.lastRenderPlanSummary}` : ''}
+                </div>
+              </div>
+              <div className="rounded-lg bg-white/5 px-2 py-1">
+                <div className="text-white/70">Alignment queue</div>
+                <div className="font-mono">
+                  {formatTs(snapshot.lastAlignmentQueueTs)} · total={snapshot.alignmentQueueTotal} · stable=
+                  {snapshot.alignmentQueueStable} · backfill={snapshot.alignmentQueueBackfill}
+                </div>
+              </div>
+              <div className="rounded-lg bg-white/5 px-2 py-1">
+                <div className="text-white/70">In-flight</div>
+                <div className="font-mono">
+                  pending={snapshot.alignmentPending} · controllers={snapshot.alignmentControllers} · slots=
+                  {snapshot.alignmentQueueAvailableSlots}
+                </div>
+              </div>
+              <div className="rounded-lg bg-white/5 px-2 py-1">
+                <div className="text-white/70">Run queue (preview)</div>
+                <div className="font-mono">
+                  {snapshot.alignmentRunQueue.length ? snapshot.alignmentRunQueue.join(', ') : '—'}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-white/5 px-2 py-2">
+              <div className="mb-1 text-[11px] font-semibold text-white/80">Events</div>
+              <div className="max-h-[35vh] overflow-auto pr-1">
+                <div className="space-y-1">
+                  {events
+                    .slice()
+                    .reverse()
+                    .map((e, idx) => (
+                      <div key={`${e.ts}:${idx}`} className="text-[11px] leading-tight text-white/80">
+                        <span className="font-mono text-white/60">{formatTs(e.ts)}</span>{' '}
+                        <span className="font-mono text-white">{e.type}</span>
+                        {e.data ? <span className="font-mono text-white/60"> · {safeJson(e.data)}</span> : null}
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 function computeFitScale(containerW: number, containerH: number, naturalW: number, naturalH: number): number {
   if (containerW <= 0 || containerH <= 0 || naturalW <= 0 || naturalH <= 0) return 1;
@@ -1026,6 +1269,7 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
   const sampleCacheRef = useRef(new Set<string>());
   const pendingAlignmentRef = useRef(new Set<string>());
   const alignmentAbortRef = useRef(new Map<string, AbortController>());
+  const alignmentKeyToGlobalIndexRef = useRef(new Map<string, number>());
   const alignmentAttemptRef = useRef(new Map<string, { signature: string; timestamp: number; count: number }>());
   const [alignmentQueueTick, setAlignmentQueueTick] = useState(0);
   const [stableVisiblePageIndices, setStableVisiblePageIndices] = useState<number[]>([]);
@@ -1038,6 +1282,26 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
     if (!isDualReadDebugEnabled()) return;
     console.debug(`[DualRead] autoAlign ${label}`, data ?? {});
   }, []);
+
+  const debugOverlayEnabled = useCallback(() => {
+    return useDualReadPluginSettingsStore.getState().settings.debugOverlay;
+  }, []);
+
+  const pushDebugEvent = useCallback(
+    (type: string, data?: Record<string, unknown>) => {
+      if (!debugOverlayEnabled()) return;
+      useDualReadDebugStore.getState().pushEvent(type, data);
+    },
+    [debugOverlayEnabled]
+  );
+
+  const updateDebugSnapshot = useCallback(
+    (partial: Partial<DualReadDebugSnapshot>) => {
+      if (!debugOverlayEnabled()) return;
+      useDualReadDebugStore.getState().updateSnapshot(partial);
+    },
+    [debugOverlayEnabled]
+  );
 
   const bumpAlignmentQueue = useCallback(() => {
     setAlignmentQueueTick((value) => value + 1);
@@ -1056,12 +1320,34 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
     alignmentAttemptRef.current.clear();
     alignmentAbortRef.current.forEach((controller) => controller.abort());
     alignmentAbortRef.current.clear();
+    alignmentKeyToGlobalIndexRef.current.clear();
     visibleDebounceTimersRef.current.forEach((id) => clearTimeout(id));
     visibleDebounceTimersRef.current.clear();
     rawVisibleSetRef.current.clear();
     stableVisibleSetRef.current.clear();
     setStableVisiblePageIndices([]);
     clearDualReadWorkerCache();
+
+    // Reset debug snapshot on new session / secondary source change.
+    if (debugOverlayEnabled()) {
+      useDualReadDebugStore.getState().updateSnapshot({
+        sessionKey,
+        dualReadEnabled: useDualReadStore.getState().enabled,
+        visiblePageIndices: [],
+        stableVisiblePageIndices: [],
+        lastRenderPlanRunTs: null,
+        lastRenderPlanSummary: null,
+        lastAlignmentQueueTs: null,
+        alignmentQueueTotal: 0,
+        alignmentQueueStable: 0,
+        alignmentQueueBackfill: 0,
+        alignmentQueueAvailableSlots: 0,
+        alignmentPending: 0,
+        alignmentControllers: 0,
+        alignmentRunQueue: [],
+      });
+      useDualReadDebugStore.getState().pushEvent('session_reset', { sessionKey, secondaryKey });
+    }
   }, [sessionKey, secondaryKey]);
 
   useEffect(() => {
@@ -1108,6 +1394,31 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
     if (changed) {
       setStableVisiblePageIndices(Array.from(stableVisibleSetRef.current).sort((a, b) => a - b));
     }
+
+    // Abort in-flight alignment work for pages that are no longer visible.
+    // This prevents the worker queue from spending time on off-screen pages while the user scrolls.
+    const aborted: Array<{ key: string; globalIndex: number }> = [];
+    alignmentKeyToGlobalIndexRef.current.forEach((globalIndex, alignmentKey) => {
+      if (rawSet.has(globalIndex)) return;
+      const controller = alignmentAbortRef.current.get(alignmentKey);
+      if (!controller) return;
+      if (controller.signal.aborted) return;
+      controller.abort();
+      aborted.push({ key: alignmentKey, globalIndex });
+    });
+
+    if (aborted.length > 0) {
+      pushDebugEvent('alignment_abort', { count: aborted.length, sample: aborted.slice(0, 6) });
+    }
+
+    updateDebugSnapshot({
+      sessionKey,
+      dualReadEnabled: enabled,
+      visiblePageIndices: rawVisible,
+      stableVisiblePageIndices: Array.from(stableVisibleSetRef.current).sort((a, b) => a - b),
+      alignmentPending: pendingAlignmentRef.current.size,
+      alignmentControllers: alignmentAbortRef.current.size,
+    });
   }, [enabled, ctx.currentPageIndex, ctx.visiblePageIndices]);
 
   const hashKeyToString = useCallback((key: DualReadHashCacheKey) => {
@@ -1244,6 +1555,7 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
     (input: {
       chapterId: string;
       pageIndex: number;
+      globalIndex?: number;
       primaryUrl: string | null | undefined;
       renderPlan: SecondaryRenderPlan;
       secondaryChapterId: string;
@@ -1263,6 +1575,14 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
           reason: 'primary_url_missing',
           trigger: input.trigger,
         });
+        pushDebugEvent('alignment_skip', {
+          chapterId: input.chapterId,
+          pageIndex: input.pageIndex,
+          secondaryChapterId: input.secondaryChapterId,
+          reason: 'primary_url_missing',
+          trigger: input.trigger,
+          globalIndex: input.globalIndex,
+        });
         return;
       }
       if (renderPlan.kind === 'missing') {
@@ -1273,22 +1593,41 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
           reason: 'missing_plan',
           trigger: input.trigger,
         });
+        pushDebugEvent('alignment_skip', {
+          chapterId: input.chapterId,
+          pageIndex: input.pageIndex,
+          secondaryChapterId: input.secondaryChapterId,
+          reason: 'missing_plan',
+          trigger: input.trigger,
+          globalIndex: input.globalIndex,
+        });
         return;
       }
 
       const alignmentKey = `${input.chapterId}:${input.secondaryChapterId}:${input.pageIndex}`;
+      pushDebugEvent('alignment_schedule', {
+        key: alignmentKey,
+        trigger: input.trigger,
+        kind: renderPlan.kind,
+        globalIndex: input.globalIndex,
+      });
       const state = useDualReadStore.getState();
       const existingEntry = state.secondaryAlignmentByChapter[input.chapterId];
       const existingAlignment =
         existingEntry?.secondaryChapterId === input.secondaryChapterId
           ? existingEntry.byPage[input.pageIndex]
           : undefined;
-      if (existingAlignment) {
+      if (existingAlignment && existingAlignment.confidence >= ALIGNMENT_CONFIDENCE_MIN_DEFAULT) {
         logDebug('alignment_cached', {
           chapterId: input.chapterId,
           pageIndex: input.pageIndex,
           secondaryChapterId: input.secondaryChapterId,
           confidence: existingAlignment.confidence,
+        });
+        pushDebugEvent('alignment_cached', {
+          key: alignmentKey,
+          confidence: existingAlignment.confidence,
+          globalIndex: input.globalIndex,
         });
         return;
       }
@@ -1309,6 +1648,14 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
           ageMs: Date.now() - lastAttempt.timestamp,
           count: lastAttempt.count,
         });
+        pushDebugEvent('alignment_skip', {
+          key: alignmentKey,
+          reason: 'retry_cooldown',
+          trigger: input.trigger,
+          globalIndex: input.globalIndex,
+          ageMs: Date.now() - lastAttempt.timestamp,
+          count: lastAttempt.count,
+        });
         return;
       }
 
@@ -1322,6 +1669,9 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
 
       const controller = new AbortController();
       alignmentAbortRef.current.set(alignmentKey, controller);
+      if (typeof input.globalIndex === 'number' && Number.isFinite(input.globalIndex)) {
+        alignmentKeyToGlobalIndexRef.current.set(alignmentKey, input.globalIndex);
+      }
 
       (async () => {
         let primarySampleMs = 0;
@@ -1340,6 +1690,14 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
             pendingWorkerAlign: pendingStats.align,
             pendingAlignment: pendingAlignmentRef.current.size,
           });
+          pushDebugEvent('alignment_start', {
+            key: alignmentKey,
+            trigger: input.trigger,
+            kind: renderPlan.kind,
+            globalIndex: input.globalIndex,
+            pendingWorker: pendingStats.total,
+            pendingAlignment: pendingAlignmentRef.current.size,
+          });
 
           const pages =
             input.pagesByChapter?.get(input.secondaryChapterId) ??
@@ -1352,6 +1710,12 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
               secondaryChapterId: input.secondaryChapterId,
               reason: 'secondary_pages_missing',
               trigger: input.trigger,
+            });
+            pushDebugEvent('alignment_skip', {
+              key: alignmentKey,
+              reason: 'secondary_pages_missing',
+              trigger: input.trigger,
+              globalIndex: input.globalIndex,
             });
             return;
           }
@@ -1455,6 +1819,12 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
               trigger: input.trigger,
               elapsedMs: nowMs() - traceStart,
             });
+            pushDebugEvent('alignment_skip', {
+              key: alignmentKey,
+              reason: 'aborted',
+              trigger: input.trigger,
+              globalIndex: input.globalIndex,
+            });
             return;
           }
 
@@ -1473,6 +1843,12 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
               signature,
               elapsedMs: nowMs() - traceStart,
             });
+            pushDebugEvent('alignment_skip', {
+              key: alignmentKey,
+              reason: 'stale_plan_missing',
+              trigger: input.trigger,
+              globalIndex: input.globalIndex,
+            });
             return;
           }
           const currentSignature = getAlignmentPlanSignature(currentPlan);
@@ -1486,6 +1862,12 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
               currentSignature,
               signature,
               elapsedMs: nowMs() - traceStart,
+            });
+            pushDebugEvent('alignment_skip', {
+              key: alignmentKey,
+              reason: 'stale_plan',
+              trigger: input.trigger,
+              globalIndex: input.globalIndex,
             });
             return;
           }
@@ -1503,6 +1885,16 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
             elapsedMs: Math.round(nowMs() - traceStart),
             pendingWorker: getDualReadWorkerPendingCount(),
           });
+          pushDebugEvent('alignment_result', {
+            key: alignmentKey,
+            trigger: input.trigger,
+            globalIndex: input.globalIndex,
+            confidence: alignment.confidence,
+            dx: alignment.dx,
+            dy: alignment.dy,
+            scale: alignment.scale,
+            elapsedMs: Math.round(nowMs() - traceStart),
+          });
         } catch (err) {
           const pendingStats = getDualReadWorkerPendingStats();
           logDebug('alignment_error', {
@@ -1519,10 +1911,17 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
             secondarySampleMs: Math.round(secondarySampleMs),
             alignmentMs: Math.round(alignmentMs),
           });
+          pushDebugEvent('alignment_error', {
+            key: alignmentKey,
+            trigger: input.trigger,
+            globalIndex: input.globalIndex,
+            error: err instanceof Error ? err.message : String(err),
+          });
         } finally {
           pendingAlignmentRef.current.delete(alignmentKey);
           alignmentAbortRef.current.get(alignmentKey)?.abort();
           alignmentAbortRef.current.delete(alignmentKey);
+          alignmentKeyToGlobalIndexRef.current.delete(alignmentKey);
           bumpAlignmentQueue();
         }
       })();
@@ -1571,7 +1970,13 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
     const visibleIndices =
       ctx.visiblePageIndices.length > 0 ? ctx.visiblePageIndices : [ctx.currentPageIndex];
     const loadedIndices = Array.from(ctx.getLoadedPageUrls().keys()).sort((a, b) => a - b);
-    const candidateIndices = loadedIndices.length > 0 ? loadedIndices : visibleIndices;
+    // Always include the currently visible pages as candidates.
+    // Otherwise, if `loadedIndices` is non-empty but missing some visible pages (can happen in scrolling/eviction),
+    // we may never compute render plans for what the user is actually looking at (spinner forever).
+    const candidateIndices =
+      loadedIndices.length > 0
+        ? Array.from(new Set([...visibleIndices, ...loadedIndices])).sort((a, b) => a - b)
+        : visibleIndices;
     const pageCandidates = candidateIndices
       .map((index) => ({ index, meta: ctx.getPageMeta(index) }))
       .filter(
@@ -1582,7 +1987,18 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
       return;
     }
 
-    const candidates = pageCandidates
+    // Prefer matching for (stable) visible pages first to avoid starvation when many pages are loaded.
+    const stableSet =
+      stableVisibleSetRef.current.size > 0 ? stableVisibleSetRef.current : new Set<number>();
+    const visibleSet = new Set(visibleIndices);
+    const prioritizedCandidates = [...pageCandidates].sort((a, b) => {
+      const aRank = stableSet.has(a.index) ? 0 : visibleSet.has(a.index) ? 1 : 2;
+      const bRank = stableSet.has(b.index) ? 0 : visibleSet.has(b.index) ? 1 : 2;
+      if (aRank !== bRank) return aRank - bRank;
+      return a.index - b.index;
+    });
+
+    const candidates = prioritizedCandidates
       .map((entry) => {
         const meta = entry.meta!;
         const chapterId = meta.chapterId!;
@@ -1643,10 +2059,44 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
       .join('|');
     const expectedKey = candidates.map((c) => `${c.pageIndex}:${Math.trunc(c.expectedIndex)}`).join('|');
     const runKey = `${expectedKey}:${pagesReadyKey}`;
-    if (lastRunRef.current === runKey) return;
+
+    // If any visible pages are missing a valid render plan, always allow a re-run,
+    // even if the (expectedKey/pagesReadyKey) signature hasn't changed.
+    // Otherwise we can get stuck with `none` plans (FAB spinner forever) after navigating back.
+    const visibleNeedsPlan = (() => {
+      for (const pageIndex of visibleIndices) {
+        const meta = ctx.getPageMeta(pageIndex);
+        if (!meta || meta.kind !== 'page' || meta.localIndex == null || !meta.chapterId) continue;
+        const plan = secondaryRenderPlansByChapter[meta.chapterId]?.[meta.localIndex];
+        if (!plan) return true;
+        const drift = driftDeltaByChapter[meta.chapterId] ?? 0;
+        if (plan.driftDelta !== drift) return true;
+        const primaryChapter = primaryChapters.find((c) => c.id === meta.chapterId);
+        if (!primaryChapter) continue;
+        const expectedSecondaryChapterId = mapSecondaryChapterForPrimary({
+          primaryChapter,
+          primaryAll: primaryChapters,
+          secondaryAll: secondaryChapters,
+          seedPair,
+        });
+        if (expectedSecondaryChapterId && plan.secondaryChapterId !== expectedSecondaryChapterId) return true;
+      }
+      return false;
+    })();
+
+    if (lastRunRef.current === runKey && !visibleNeedsPlan) return;
     if (inFlightRef.current.has(runKey)) return;
     inFlightRef.current.add(runKey);
     lastSkipRef.current = null;
+    pushDebugEvent('renderPlan_run', {
+      visible: visibleIndices,
+      loadedCount: loadedIndices.length,
+      candidateCount: candidates.length,
+    });
+    updateDebugSnapshot({
+      lastRenderPlanRunTs: Date.now(),
+      lastRenderPlanSummary: `candidates=${candidates.length} loaded=${loadedIndices.length} needsPlan=${visibleNeedsPlan ? 'y' : 'n'}`,
+    });
 
     let cancelled = false;
     (async () => {
@@ -1792,21 +2242,8 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
             accept,
           });
 
-          if (!accept) {
-            logSkip('reject', {
-              expectedIndex: candidate.expectedIndex,
-              bestIndex: best.bestIndex,
-              bestDistance: best.distance,
-              secondBestDistance,
-              adaptiveThreshold,
-              softThreshold: AUTO_ALIGN_SOFT_THRESHOLD,
-              minGap: AUTO_ALIGN_MIN_GAP,
-              pageIndex: candidate.pageIndex,
-              kind: best.kind,
-            });
-            continue;
-          }
-
+          // Missing is a distinct state: if we are confident this page is missing,
+          // record it even if the match wouldn't pass "accept" thresholds.
           if (missing) {
             missingCandidates.push({ candidate, best, secondBestDistance });
             logSkip('missing', {
@@ -1816,6 +2253,21 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
               secondBestDistance,
               missingDistance: AUTO_ALIGN_MISSING_DISTANCE,
               missingGap: AUTO_ALIGN_MISSING_GAP,
+              pageIndex: candidate.pageIndex,
+              kind: best.kind,
+            });
+            continue;
+          }
+
+          if (!accept) {
+            logSkip('reject', {
+              expectedIndex: candidate.expectedIndex,
+              bestIndex: best.bestIndex,
+              bestDistance: best.distance,
+              secondBestDistance,
+              adaptiveThreshold,
+              softThreshold: AUTO_ALIGN_SOFT_THRESHOLD,
+              minGap: AUTO_ALIGN_MIN_GAP,
               pageIndex: candidate.pageIndex,
               kind: best.kind,
             });
@@ -1841,7 +2293,12 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
 
         const sortedAccepted = sortCandidates(acceptedCandidates);
         const visibleSet = new Set(visibleIndices);
-        const chosen = sortedAccepted.find((entry) => visibleSet.has(entry.candidate.pageIndex)) ?? sortedAccepted[0] ?? null;
+        const stableSet = stableVisibleSetRef.current.size > 0 ? stableVisibleSetRef.current : visibleSet;
+        const chosen =
+          sortedAccepted.find((entry) => stableSet.has(entry.candidate.pageIndex)) ??
+          sortedAccepted.find((entry) => visibleSet.has(entry.candidate.pageIndex)) ??
+          sortedAccepted[0] ??
+          null;
         let nextDrift = chosen?.candidate.driftDelta ?? 0;
         if (chosen) {
           const { candidate, best } = chosen;
@@ -1923,6 +2380,25 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
           setSecondaryRenderPlan(entry.candidate.meta.chapterId!, entry.candidate.meta.localIndex!, missingPlan);
         }
 
+        // Safety fallback: never leave visible pages with `none` plans.
+        // If we couldn't accept a match (or compute one), mark them as missing so the UI doesn't spin forever.
+        const visibleSetForFallback = new Set(visibleIndices);
+        const stateAfter = useDualReadStore.getState();
+        const driftNowByChapter = stateAfter.driftDeltaByChapter;
+        for (const c of candidates) {
+          if (!visibleSetForFallback.has(c.pageIndex)) continue;
+          const chapterId = c.meta.chapterId!;
+          const localIndex = c.meta.localIndex!;
+          const existing = stateAfter.secondaryRenderPlansByChapter[chapterId]?.[localIndex];
+          if (existing) continue;
+          const driftDelta = driftNowByChapter[chapterId] ?? c.driftDelta ?? 0;
+          const missingPlan = buildMissingRenderPlan({
+            secondaryChapterId: c.secondaryChapterId,
+            driftDelta,
+          });
+          setSecondaryRenderPlan(chapterId, localIndex, missingPlan);
+        }
+
         if (chosen && nextDrift !== chosen.candidate.driftDelta) {
           setDriftDelta(chosen.candidate.meta.chapterId!, nextDrift);
         }
@@ -1946,6 +2422,17 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
             nextDrift,
           });
         }
+
+        pushDebugEvent('renderPlan_apply', {
+          accepted: acceptedCandidates.length,
+          missing: missingCandidates.length,
+          chosenGlobalPage: chosen?.candidate.pageIndex ?? null,
+          chosenLocalPage: chosen?.candidate.meta.localIndex ?? null,
+          nextDrift,
+        });
+        updateDebugSnapshot({
+          lastRenderPlanSummary: `accepted=${acceptedCandidates.length} missing=${missingCandidates.length} chosen=${chosen ? chosen.candidate.pageIndex : '—'} drift=${nextDrift}`,
+        });
       } catch (err) {
         logDebug('error', { error: err instanceof Error ? err.message : String(err) });
       } finally {
@@ -1992,6 +2479,28 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
     const loadedIndices = Array.from(ctx.getLoadedPageUrls().keys());
     const rawVisibleSet = new Set(visibleIndices);
     const stableVisibleSet = new Set(stableVisiblePageIndices);
+    // If nothing is stable-visible yet (e.g. fast scrolling), don't start background alignment work.
+    // This keeps the worker available for the pages the user actually stops on.
+    if (stableVisiblePageIndices.length === 0) {
+      updateDebugSnapshot({
+        sessionKey,
+        dualReadEnabled: enabled,
+        visiblePageIndices: visibleIndices,
+        stableVisiblePageIndices: [],
+        lastAlignmentQueueTs: Date.now(),
+        alignmentQueueTotal: 0,
+        alignmentQueueStable: 0,
+        alignmentQueueBackfill: 0,
+        alignmentQueueAvailableSlots: ALIGNMENT_MAX_CONCURRENCY - pendingAlignmentRef.current.size,
+        alignmentPending: pendingAlignmentRef.current.size,
+        alignmentControllers: alignmentAbortRef.current.size,
+      });
+      if (debugOverlayEnabled()) {
+        useDualReadDebugStore.getState().setAlignmentQueuePreview([]);
+      }
+      return;
+    }
+
     const queue = buildAlignmentQueue({
       visiblePageIndices: visibleIndices,
       loadedPageIndices: loadedIndices,
@@ -2000,11 +2509,10 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
       renderPlansByChapter: secondaryRenderPlansByChapter,
       alignmentByChapter: secondaryAlignmentByChapter,
       driftDeltaByChapter,
-    }).filter((entry) => {
-      // Don't queue alignments for pages that are currently visible unless they stayed visible long enough.
-      // This reduces wasted work during fast scrolling.
-      return !rawVisibleSet.has(entry.globalIndex) || stableVisibleSet.has(entry.globalIndex);
     });
+    // Prioritize stable-visible pages first, then allow off-screen backfill.
+    const stableQueue = queue.filter((entry) => stableVisibleSet.has(entry.globalIndex));
+    const backfillQueue = queue.filter((entry) => !rawVisibleSet.has(entry.globalIndex));
 
     let available = ALIGNMENT_MAX_CONCURRENCY - pendingAlignmentRef.current.size;
     if (isDualReadDebugEnabled()) {
@@ -2021,12 +2529,32 @@ function DualReadAutoAligner({ ctx }: { ctx: ReaderPluginContext }) {
         });
       }
     }
+
+    updateDebugSnapshot({
+      sessionKey,
+      dualReadEnabled: enabled,
+      visiblePageIndices: visibleIndices,
+      stableVisiblePageIndices,
+      lastAlignmentQueueTs: Date.now(),
+      alignmentQueueTotal: queue.length,
+      alignmentQueueStable: stableQueue.length,
+      alignmentQueueBackfill: backfillQueue.length,
+      alignmentQueueAvailableSlots: available,
+      alignmentPending: pendingAlignmentRef.current.size,
+      alignmentControllers: alignmentAbortRef.current.size,
+    });
+
     if (available <= 0) return;
-    for (const entry of queue) {
+    const runQueue = [...stableQueue, ...backfillQueue];
+    if (debugOverlayEnabled()) {
+      useDualReadDebugStore.getState().setAlignmentQueuePreview(runQueue.map((e) => e.globalIndex));
+    }
+    for (const entry of runQueue) {
       if (available <= 0) break;
       requestAlignmentForPlan({
         chapterId: entry.chapterId,
         pageIndex: entry.localIndex,
+        globalIndex: entry.globalIndex,
         primaryUrl: entry.primaryUrl,
         renderPlan: entry.renderPlan,
         secondaryChapterId: entry.secondaryChapterId,
@@ -2191,6 +2719,9 @@ export function DualReadFab({ ctx }: { ctx: ReaderPluginContext }) {
   const holdTimerRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
   const holdActiveRef = useRef(false);
+  // If the user starts moving *after* hold has activated, treat it as a "hold+drag" intent
+  // (commit the side switch) rather than "drag to reposition the FAB".
+  const holdDragCommitRef = useRef(false);
   const pointerStartRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
 
   // Compute loading state: visible pages without valid render plans
@@ -2213,6 +2744,7 @@ export function DualReadFab({ ctx }: { ctx: ReaderPluginContext }) {
       const plan = secondaryRenderPlansByChapter[meta.chapterId]?.[meta.localIndex];
       if (!plan) return true; // No plan yet
       if (plan.secondaryChapterId !== secondaryChapterId) return true; // Plan is stale
+      if (plan.kind === 'missing') continue; // Missing is a valid terminal state (no alignment to schedule)
       const driftDelta = driftDeltaByChapter[meta.chapterId] ?? 0;
       if (plan.driftDelta !== driftDelta) return true; // Plan needs refresh
     }
@@ -2313,6 +2845,7 @@ export function DualReadFab({ ctx }: { ctx: ReaderPluginContext }) {
       setIsHolding(false);
       isDraggingRef.current = false;
       holdActiveRef.current = false;
+      holdDragCommitRef.current = false;
       pointerStartRef.current = {
         x: event.clientX,
         y: event.clientY,
@@ -2341,6 +2874,16 @@ export function DualReadFab({ ctx }: { ctx: ReaderPluginContext }) {
     if (!pointerStartRef.current) return;
     const dx = event.clientX - pointerStartRef.current.x;
     const dy = event.clientY - pointerStartRef.current.y;
+
+    // If hold is already active, preserve the hold intent even if the user starts moving.
+    // Moving during hold commits the side switch on release.
+    if (holdActiveRef.current) {
+      if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) {
+        holdDragCommitRef.current = true;
+      }
+      return;
+    }
+
     if (!isDraggingRef.current && Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) {
       isDraggingRef.current = true;
       setIsDragging(true);
@@ -2348,11 +2891,6 @@ export function DualReadFab({ ctx }: { ctx: ReaderPluginContext }) {
       clearHoldTimer();
       // Lift up for drag
       scale.set(1.12);
-      if (holdActiveRef.current) {
-        holdActiveRef.current = false;
-        setIsHolding(false);
-        setPeekActive(false);
-      }
     }
     if (!isDraggingRef.current) return;
     // Directly set position during drag for responsiveness
@@ -2384,9 +2922,15 @@ export function DualReadFab({ ctx }: { ctx: ReaderPluginContext }) {
         setFabPosition(snapped);
         setDragPos(null);
       } else if (holdActiveRef.current) {
+        const commitSwitch = holdDragCommitRef.current;
         holdActiveRef.current = false;
+        holdDragCommitRef.current = false;
         setIsHolding(false);
         setPeekActive(false);
+        if (enabled && commitSwitch) {
+          const nextSide = activeSide === 'primary' ? 'secondary' : 'primary';
+          setActiveSide(nextSide);
+        }
       } else if (enabled) {
         const nextSide = activeSide === 'primary' ? 'secondary' : 'primary';
         setActiveSide(nextSide);
@@ -2422,6 +2966,7 @@ export function DualReadFab({ ctx }: { ctx: ReaderPluginContext }) {
     scale.set(1);
     if (holdActiveRef.current) setPeekActive(false);
     holdActiveRef.current = false;
+    holdDragCommitRef.current = false;
     isDraggingRef.current = false;
     pointerStartRef.current = null;
     setDragPos(null);
@@ -2510,6 +3055,7 @@ export function DualReadReaderOverlay({ ctx }: { ctx: ReaderPluginContext }) {
       <DualReadSecondaryPrefetcher ctx={ctx} />
       <DualReadAutoAligner ctx={ctx} />
       <DualReadConfigDialog ctx={ctx} />
+      <DualReadDebugOverlay ctx={ctx} />
       {enabled && <DualReadFab ctx={ctx} />}
     </>
   );
@@ -2607,7 +3153,7 @@ export function DualReadOverlay({ pageIndex, ctx }: { pageIndex: number; ctx: Re
   const imageUrl = imageKey ? secondaryImageUrls.get(imageKey) : undefined;
   const isMissing = renderPlan?.kind === 'missing';
   const lookupReady = Boolean(primaryChapter && seedPair && secondaryChapters.length > 0);
-  const applyAlignment = alignment && alignment.confidence >= 0.2;
+  const applyAlignment = alignment && alignment.confidence >= ALIGNMENT_CONFIDENCE_MIN_DEFAULT;
   const getPrimaryImage = useCallback(() => {
     if (typeof document === 'undefined') return null;
     const container = overlayContainerRef.current;
@@ -2636,13 +3182,19 @@ export function DualReadOverlay({ pageIndex, ctx }: { pageIndex: number; ctx: Re
       return;
     }
 
-    const containerRect = container.getBoundingClientRect();
-    if (containerRect.width <= 0 || containerRect.height <= 0) {
+    // IMPORTANT: use layout (untransformed) size, not getBoundingClientRect().
+    // The reader can apply CSS transforms for zoom (Swiper Zoom / react-zoom-pan-pinch),
+    // and getBoundingClientRect() reflects the *transformed* visual box. Our absolute
+    // positioning is in the element's *layout* coordinate space, so mixing these causes
+    // scale-dependent misalignment under zoom.
+    const containerW = container.clientWidth;
+    const containerH = container.clientHeight;
+    if (containerW <= 0 || containerH <= 0) {
       return;
     }
     const primaryRender = computeRenderBounds(
-      containerRect.width,
-      containerRect.height,
+      containerW,
+      containerH,
       primaryImg.naturalWidth,
       primaryImg.naturalHeight
     );

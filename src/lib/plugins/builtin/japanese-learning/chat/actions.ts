@@ -215,12 +215,11 @@ export async function sendChatMessage(options: {
     getMessagesForRequest,
   } = useNemuChatStore.getState()
 
+  const existingMessages = getMessagesForRequest()
   addUserMessage(text, displayContent)
   clearFollowUps()
   setStreaming(true)
   setShowTypingIndicator(true)
-
-  const existingMessages = getMessagesForRequest()
   await sendMessageAndStream(text, existingMessages, hiddenContext, appLanguage, callbacks, toolContext ?? undefined)
 }
 

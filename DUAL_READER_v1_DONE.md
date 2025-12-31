@@ -59,7 +59,7 @@ Dual Read is implemented as a built-in reader plugin that lets users link two so
   - `src/lib/dual-reader/dhash-dataset.test.ts`
 - Offline synthetic dataset generator:
   - `scripts/dual-reader/generate-synthetic-local.ts`
-- Bundled datasets in `testdata/dual-reader/dhash/…` include crop, watermark, insert/delete, merge/split, duplicates, swaps, and missing-page noise.
+- Bundled datasets in `tests/fixtures/dual-reader/dhash/…` include crop, watermark, insert/delete, merge/split, duplicates, swaps, and missing-page noise.
 
 ## Limitations
 - Split detection is left/right only (no top/bottom or vertical splits).
@@ -81,4 +81,4 @@ Dual Read is implemented as a built-in reader plugin that lets users link two so
 Run:
 - `bun scripts/dual-reader/generate-synthetic-local.ts`
 
-This recreates/updates local synthetic datasets in `testdata/dual-reader/dhash/...`.
+This recreates/updates local synthetic datasets in `tests/fixtures/dual-reader/dhash/...`.

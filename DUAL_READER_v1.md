@@ -233,9 +233,9 @@ This is important enough to validate early, before UI wiring.
   - Run:
     - `cd /home/tiger/nemu`
     - `bun scripts/dual-reader/prepare-dhash-dataset.ts`
-    - `bun scripts/dual-reader/eval-dhash-drift.ts testdata/dual-reader/dhash/case_rawkuma_vs_copymanga_ch1`
+    - `bun scripts/dual-reader/eval-dhash-drift.ts tests/fixtures/dual-reader/dhash/case_rawkuma_vs_copymanga_ch1`
   - Output:
-    - Dataset directory: `testdata/dual-reader/dhash/case_rawkuma_vs_copymanga_ch1/`
+    - Dataset directory: `tests/fixtures/dual-reader/dhash/case_rawkuma_vs_copymanga_ch1/`
     - Real pages live under: `primary/` and `secondary/`
     - Synthetic variants live under: `synthetic/*/`
   - Exit criteria for Step 1.5:
@@ -322,5 +322,4 @@ If this is insufficient (performance/edge cases), introduce a **generic** render
 - Persist Dual Read config per manga/source pair to IndexedDB (and optionally sync later).
 - UX for “secondary missing pages” beyond a placeholder.
 - Inter-plugin correctness: other plugins (e.g. Japanese OCR) will still receive the primary `ReaderPluginContext`. If we need them to react to “viewing secondary”, add a **generic** field like `activeContent: 'primary'|'secondary'` to plugin context and update plugins to respect it.
-
 

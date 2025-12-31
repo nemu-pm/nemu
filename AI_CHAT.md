@@ -56,22 +56,19 @@ A LINE-style chat interface where users can ask the app mascot "nemu-kun" for he
 #### Chat Bubbles
 Regular conversation messages from user and nemu. Standard LINE bubble styling.
 
-#### Status Pills
-For tool calls and system actions (e.g., "Reading page 42..."):
-- Centered in chat
-- Rounded pill shape
-- Semi-transparent background
-- Persist in chat history after completion
-- Not chat bubbles - distinct visual treatment
+#### Tool Call Visibility
+Tool calls are not rendered in the chat UI:
+- Tool calls are logged to console only
+- No status pills in v1
 
 ### Read Receipts
-- Single check (✓): Message sent
-- Double check (✓✓): AI has started processing
+- "Read" label appears on the user's last message once the AI starts responding
+- No sent/delivered checkmarks
 
 ### Input
 - LINE-style input behavior
-- Disabled while nemu is responding (no queuing or interruption)
-- No keyboard shortcuts (mobile-first design)
+- Input remains active while nemu is responding (sending cancels the prior request)
+- Enter sends message; no other shortcuts
 
 ### Follow-up Suggestions
 - Rendered as **buttons below nemu's message** (not inline)

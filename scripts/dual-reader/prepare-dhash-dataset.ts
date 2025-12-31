@@ -148,7 +148,7 @@ function clamp(n: number, min: number, max: number) {
 }
 
 async function main() {
-  const root = path.resolve("testdata/dual-reader/dhash");
+  const root = path.resolve("tests/fixtures/dual-reader/dhash");
   const caseId = "case_rawkuma_vs_copymanga_ch1";
   const caseDir = path.join(root, caseId);
 

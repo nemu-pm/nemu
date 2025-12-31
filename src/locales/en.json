@@ -34,6 +34,7 @@
     "add": "Add",
     "clear": "Clear",
     "copy": "Copy",
+    "ask": "Ask",
     "none": "None",
     "results": "results",
     "remove": "Remove",
@@ -82,6 +83,11 @@
     "browse": "Browse",
     "search": "Search",
     "settings": "Settings"
+  },
+  "titles": {
+    "manga": "Manga",
+    "reader": "Reader",
+    "debug": "Debug"
   },
   "status": {
     "unknown": "Unknown",
@@ -528,9 +534,9 @@
       "navbarLabel": "Dual Read",
       "popover": {
         "noLinkedSources": "No linked sources found.",
-        "linkSecondary": "Link a second source to enable Dual Read.",
+        "linkSecondary": "Link another source to enable Dual Read.",
         "actionLabel": "Dual Read...",
-        "secondaryLabel": "Secondary",
+        "secondaryLabel": "Paired",
         "chapterLabel": "Chapter",
         "chapterPair": "Chapter: {{primary}} <-> {{secondary}}",
         "unpaired": "Unpaired for this chapter",
@@ -538,11 +544,11 @@
       },
       "dialog": {
         "title": "Dual Read",
-        "description": "Choose a secondary source and chapter pairing.",
+        "description": "Choose a paired source and chapter pairing.",
         "noLinkedSources": "No linked sources found for this manga.",
-        "secondarySource": "Secondary source",
-        "primaryChapter": "Primary chapter",
-        "secondaryChapter": "Secondary chapter",
+        "secondarySource": "Paired source",
+        "primaryChapter": "Current chapter",
+        "secondaryChapter": "Paired chapter",
         "loadingPrimary": "Loading...",
         "loadingChapters": "Loading chapters...",
         "chooseChapter": "Choose a chapter",
@@ -559,9 +565,16 @@
       "fab": {
         "label": "Dual Read"
       },
+      "settings": {
+        "debug": {
+          "title": "Debug",
+          "overlayTitle": "Debug overlay",
+          "overlaySubtitle": "Show the debug overlay."
+        }
+      },
       "errors": {
-        "primaryUnavailable": "Primary source unavailable.",
-        "secondaryUnavailable": "Secondary source unavailable."
+        "primaryUnavailable": "Current source unavailable.",
+        "secondaryUnavailable": "Paired source unavailable."
       }
     }
   },

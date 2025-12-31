@@ -103,7 +103,7 @@ async function ensureDir(dir: string) {
 }
 
 async function main() {
-  const root = path.resolve('testdata/dual-reader/dhash/case_rawkuma_vs_copymanga_ch1');
+  const root = path.resolve('tests/fixtures/dual-reader/dhash/case_rawkuma_vs_copymanga_ch1');
   const baseMeta = JSON.parse(await readFile(path.join(root, 'meta.json'), 'utf8')) as BaseMeta;
   const pDir = path.join(root, 'primary');
   const sDir = path.join(root, 'secondary');

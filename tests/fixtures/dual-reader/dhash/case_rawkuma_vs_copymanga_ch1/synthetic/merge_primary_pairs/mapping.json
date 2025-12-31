@@ -1,0 +1,48 @@
+{
+  "type": "primaryToSecondary_match_v1",
+  "primaryCount": 5,
+  "secondaryCount": 10,
+  "mapping": [
+    {
+      "kind": "merge",
+      "indices": [
+        0,
+        1
+      ],
+      "order": "normal"
+    },
+    {
+      "kind": "merge",
+      "indices": [
+        2,
+        3
+      ],
+      "order": "normal"
+    },
+    {
+      "kind": "merge",
+      "indices": [
+        4,
+        5
+      ],
+      "order": "normal"
+    },
+    {
+      "kind": "merge",
+      "indices": [
+        6,
+        7
+      ],
+      "order": "normal"
+    },
+    {
+      "kind": "merge",
+      "indices": [
+        8,
+        9
+      ],
+      "order": "normal"
+    }
+  ],
+  "note": "Primary pages are merged pairs (spreads); secondary remains single pages."
+}

@@ -49,7 +49,18 @@ export function OcrResultSheet() {
 
   return (
     <Drawer open={ocrSheetOpen} onOpenChange={(open: boolean) => !open && closeOcrSheet()}>
-      <DrawerContent className="!h-[70vh] !max-h-[70vh] max-w-2xl mx-auto !border-0">
+      <DrawerContent
+        className="!h-[70vh] !max-h-[70vh] max-w-2xl mx-auto !border-0"
+        // Mobile fix: close on overlay pointer-down so a single outside tap always dismisses,
+        // even after token interactions inside the sheet.
+        overlayProps={{
+          onPointerDown: (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            closeOcrSheet()
+          },
+        }}
+      >
         <div className="flex-1 min-h-0 overflow-hidden">
           <AnimatePresence mode="wait">
             {ocrResult.loading ? (

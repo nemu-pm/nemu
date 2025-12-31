@@ -34,6 +34,7 @@
     "saving": "保存中...",
     "clear": "清除",
     "copy": "复制",
+    "ask": "问",
     "none": "无",
     "results": "个结果",
     "remove": "移除",
@@ -82,6 +83,11 @@
     "browse": "浏览",
     "search": "搜索",
     "settings": "设置"
+  },
+  "titles": {
+    "manga": "漫画",
+    "reader": "阅读器",
+    "debug": "调试"
   },
   "status": {
     "unknown": "未知",
@@ -517,9 +523,9 @@
       "navbarLabel": "双语阅读",
       "popover": {
         "noLinkedSources": "未找到已链接的来源。",
-        "linkSecondary": "链接第二个来源以启用双语阅读。",
+        "linkSecondary": "链接另一个来源以启用双语阅读。",
         "actionLabel": "双语阅读...",
-        "secondaryLabel": "次要来源",
+        "secondaryLabel": "配对来源",
         "chapterLabel": "章节",
         "chapterPair": "章节：{{primary}} <-> {{secondary}}",
         "unpaired": "此章节未配对",
@@ -527,11 +533,11 @@
       },
       "dialog": {
         "title": "双语阅读",
-        "description": "选择次要来源与章节配对。",
+        "description": "选择配对来源与章节配对。",
         "noLinkedSources": "此漫画未找到已链接的来源。",
-        "secondarySource": "次要来源",
-        "primaryChapter": "主章节",
-        "secondaryChapter": "次要章节",
+        "secondarySource": "配对来源",
+        "primaryChapter": "当前章节",
+        "secondaryChapter": "配对章节",
         "loadingPrimary": "加载中...",
         "loadingChapters": "正在加载章节...",
         "chooseChapter": "选择章节",
@@ -548,9 +554,16 @@
       "fab": {
         "label": "双语阅读"
       },
+      "settings": {
+        "debug": {
+          "title": "调试",
+          "overlayTitle": "调试浮层",
+          "overlaySubtitle": "显示调试浮层。"
+        }
+      },
       "errors": {
-        "primaryUnavailable": "主来源不可用。",
-        "secondaryUnavailable": "次要来源不可用。"
+        "primaryUnavailable": "当前来源不可用。",
+        "secondaryUnavailable": "配对来源不可用。"
       }
     }
   },

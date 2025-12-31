@@ -309,22 +309,12 @@ export function SentenceDisplay({ tokens, sentenceText, ichiranAnalysis, grammar
                 <TokenDetails
                   key={`details-${selectedTokenIndex}`}
                   token={tokens[selectedTokenIndex]}
-                  actions={
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => {
-                        const text = getSelectedText()
-                        if (text) {
-                          handleAskNemu(text, 'word')
-                        }
-                      }}
-                      className="gap-1.5"
-                    >
-                      <HugeiconsIcon icon={MessageMultiple02Icon} className="size-3.5" />
-                      {t('plugin.japaneseLearning.chat.askAboutWord', { defaultValue: 'Ask about this word' })}
-                    </Button>
-                  }
+                  onAskNemu={() => {
+                    const text = getSelectedText()
+                    if (text) {
+                      handleAskNemu(text, 'word')
+                    }
+                  }}
                 />
               ) : (
                 <motion.div

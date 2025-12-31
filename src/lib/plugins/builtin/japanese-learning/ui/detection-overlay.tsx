@@ -178,7 +178,13 @@ export function DetectionOverlay({ pageIndex, ctx }: DetectionOverlayProps) {
     if (!imageUrl || !containerRef.current) return
 
     const container = containerRef.current
-    const containerRect = container.getBoundingClientRect()
+    // IMPORTANT: use layout (untransformed) size, not getBoundingClientRect().
+    // Reader zoom in paged/scrolling modes is implemented via CSS transforms, and
+    // getBoundingClientRect() reflects the transformed visual size. Our overlay box
+    // is positioned within the element's layout coordinate space.
+    const containerW = container.clientWidth
+    const containerH = container.clientHeight
+    if (containerW <= 0 || containerH <= 0) return
     const pluginAwareRoot = container.parentElement?.parentElement
     const img = pluginAwareRoot?.querySelector('img')
     if (!img) return
@@ -187,8 +193,6 @@ export function DetectionOverlay({ pageIndex, ctx }: DetectionOverlayProps) {
     const naturalHeight = img.naturalHeight
     if (!naturalWidth || !naturalHeight) return
 
-    const containerW = containerRect.width
-    const containerH = containerRect.height
     const imageAspect = naturalWidth / naturalHeight
     const containerAspect = containerW / containerH
 

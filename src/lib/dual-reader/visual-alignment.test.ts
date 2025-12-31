@@ -207,7 +207,7 @@ function chooseFiles(metaFiles: string[] | undefined, dirFiles: string[]): strin
 
 describe('dual-reader visual alignment', () => {
   it('recovers alignment on synthetic singles', async () => {
-    const root = path.resolve('testdata/dual-reader/dhash/case_rawkuma_vs_copymanga_ch1/synthetic');
+    const root = path.resolve('tests/fixtures/dual-reader/dhash/case_rawkuma_vs_copymanga_ch1/synthetic');
     const caseDir = path.join(root, 'insert_delete_from_primary_seed42');
     const meta = JSON.parse(await readFile(path.join(caseDir, 'meta.json'), 'utf8')) as {
       primary: { files: string[] };
@@ -262,7 +262,7 @@ describe('dual-reader visual alignment', () => {
   }, 20000);
 
   it('handles split/merge transforms', async () => {
-    const root = path.resolve('testdata/dual-reader/dhash/case_rawkuma_vs_copymanga_ch1/synthetic');
+    const root = path.resolve('tests/fixtures/dual-reader/dhash/case_rawkuma_vs_copymanga_ch1/synthetic');
     const mergeDir = path.join(root, 'merge_primary_pairs');
     const splitDir = path.join(root, 'split_secondary_pairs');
     const rng = makeRng(84);
@@ -342,7 +342,7 @@ describe('dual-reader visual alignment', () => {
   }, 20000);
 
   it('falls back on missing pages', async () => {
-    const root = path.resolve('testdata/dual-reader/dhash/case_rawkuma_vs_copymanga_ch1/synthetic');
+    const root = path.resolve('tests/fixtures/dual-reader/dhash/case_rawkuma_vs_copymanga_ch1/synthetic');
     const caseDir = path.join(root, 'insert_delete_from_primary_seed42');
     const meta = JSON.parse(await readFile(path.join(caseDir, 'meta.json'), 'utf8')) as {
       primary: { files: string[] };

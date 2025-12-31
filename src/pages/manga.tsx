@@ -23,6 +23,7 @@ import {
 import { formatChapterTitle } from "@/lib/format-chapter";
 import { ChapterGrid } from "@/components/chapter-grid";
 import { SourceImageProvider } from "@/hooks/use-source-image";
+import { ExpandableText } from "@/components/ui/expandable-text";
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -32,6 +33,7 @@ import {
   ResponsiveDialogDescription,
 } from "@/components/ui/responsive-dialog";
 import { MangaStatusBadge } from "@/components/manga-status-badge";
+import { usePageTitle } from "@/components/page-title";
 
 /** Convert LocalChapterProgress map to ChapterGrid-compatible format */
 function chapterProgressToGridFormat(
@@ -97,6 +99,8 @@ export function MangaPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+
+  usePageTitle(manga ? [manga.title, sourceName] : [sourceName]);
 
   const inLibrary = isInLibrary(registryId, sourceId, mangaId);
   // Find library entry that contains this source
@@ -280,9 +284,13 @@ export function MangaPage() {
             )}
 
             {manga.description && (
-              <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground selectable">
-                {manga.description}
-              </p>
+              <ExpandableText
+                value={manga.description}
+                lines={3}
+                className="max-w-2xl"
+                textClassName="text-sm leading-relaxed text-muted-foreground selectable whitespace-pre-wrap"
+                triggerClassName="justify-start w-fit px-0 hover:bg-transparent"
+              />
             )}
 
             {/* Actions */}

@@ -10,9 +10,14 @@ import { useLoaderData } from "@tanstack/react-router";
 import type { SourceBrowseLoaderData } from "@/router";
 import { AidokuBrowse, type AidokuBrowseData } from "./source-browse/aidoku-browse";
 import { TachiyomiBrowse, type TachiyomiBrowseData } from "./source-browse/tachiyomi-browse";
+import { useTranslation } from "react-i18next";
+import { usePageTitle } from "@/components/page-title";
 
 export function SourceBrowsePage() {
+  const { t } = useTranslation();
   const loaderData = useLoaderData({ from: "/_shell/browse/$registryId/$sourceId" }) as SourceBrowseLoaderData;
+
+  usePageTitle([loaderData.source.name, t("nav.browse")]);
 
   // Route to provider-specific implementation based on source type
   switch (loaderData.type) {

@@ -225,7 +225,7 @@ async function evaluateCase(caseDir: string) {
 
 describe('dual-reader dhash datasets', () => {
   it('matches bundled synthetic cases', async () => {
-    const root = path.resolve('testdata/dual-reader/dhash');
+    const root = path.resolve('tests/fixtures/dual-reader/dhash');
     const caseDir = path.join(root, 'case_rawkuma_vs_copymanga_ch1');
     const syntheticDir = path.join(caseDir, 'synthetic');
     const entries = await readdir(syntheticDir, { withFileTypes: true });

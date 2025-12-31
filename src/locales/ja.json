@@ -34,6 +34,7 @@
     "saving": "保存中...",
     "clear": "クリア",
     "copy": "コピー",
+    "ask": "聞く",
     "none": "なし",
     "results": "件",
     "remove": "削除",
@@ -82,6 +83,11 @@
     "browse": "探す",
     "search": "検索",
     "settings": "設定"
+  },
+  "titles": {
+    "manga": "マンガ",
+    "reader": "リーダー",
+    "debug": "デバッグ"
   },
   "status": {
     "unknown": "不明",
@@ -517,9 +523,9 @@
       "navbarLabel": "バイリンガルモード",
       "popover": {
         "noLinkedSources": "リンクされたソースが見つかりません。",
-        "linkSecondary": "2つ目のソースをリンクしてバイリンガルモードを有効にします。",
+        "linkSecondary": "別のソースをリンクしてバイリンガルモードを有効にします。",
         "actionLabel": "バイリンガルモード...",
-        "secondaryLabel": "セカンダリ",
+        "secondaryLabel": "ペア",
         "chapterLabel": "章",
         "chapterPair": "章: {{primary}} <-> {{secondary}}",
         "unpaired": "この章は未ペアです",
@@ -527,11 +533,11 @@
       },
       "dialog": {
         "title": "バイリンガルモード",
-        "description": "セカンダリソースと章のペアを選択します。",
+        "description": "ペアソースと章のペアを選択します。",
         "noLinkedSources": "この作品にリンクされたソースが見つかりません。",
-        "secondarySource": "セカンダリソース",
-        "primaryChapter": "プライマリ章",
-        "secondaryChapter": "セカンダリ章",
+        "secondarySource": "ペアソース",
+        "primaryChapter": "現在の章",
+        "secondaryChapter": "ペアの章",
         "loadingPrimary": "読み込み中...",
         "loadingChapters": "章を読み込み中...",
         "chooseChapter": "章を選択",
@@ -548,9 +554,16 @@
       "fab": {
         "label": "バイリンガルモード"
       },
+      "settings": {
+        "debug": {
+          "title": "デバッグ",
+          "overlayTitle": "デバッグオーバーレイ",
+          "overlaySubtitle": "デバッグオーバーレイを表示します。"
+        }
+      },
       "errors": {
-        "primaryUnavailable": "プライマリソースが利用できません。",
-        "secondaryUnavailable": "セカンダリソースが利用できません。"
+        "primaryUnavailable": "現在のソースが利用できません。",
+        "secondaryUnavailable": "ペアソースが利用できません。"
       }
     }
   },

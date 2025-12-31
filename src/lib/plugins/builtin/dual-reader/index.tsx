@@ -6,15 +6,33 @@ import { useStores } from '@/data/context';
 import { DualReadPopoverContent, DualReadOverlay, DualReadReaderOverlay, resetDualReadLoaders } from './components';
 import { disposeDualReadWorker } from './dhash-worker-client';
 import { useDualReadStore } from './store';
+import { useDualReadPluginSettingsStore } from './settings';
 import iconImage from './icon.png';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Copy02Icon } from '@hugeicons/core-free-icons';
+import type { Setting } from '@/lib/settings';
 
 const t = (key: string) => i18n.t(`plugin.dualRead.${key}`);
 
 const DualReadIcon = (
   <img src={iconImage} alt="" className="size-10 rounded-md object-cover" />
 );
+
+const getSettingsSchema = (): Setting[] => [
+  {
+    type: 'group',
+    title: t('settings.debug.title'),
+    items: [
+      {
+        type: 'switch',
+        key: 'debugOverlay',
+        title: t('settings.debug.overlayTitle'),
+        subtitle: t('settings.debug.overlaySubtitle'),
+        default: false,
+      },
+    ],
+  },
+];
 
 /** Hook to check if dual read should be visible (has linked sources) */
 function useDualReadVisible(): boolean {
@@ -46,6 +64,18 @@ export const dualReaderPlugin: ReaderPlugin = {
       defaultEnabled: true,
       builtin: true,
     };
+  },
+
+  get settingsSchema() {
+    return getSettingsSchema();
+  },
+
+  getSettings: () => {
+    return { ...useDualReadPluginSettingsStore.getState().settings } as Record<string, unknown>;
+  },
+
+  setSettings: (values: Record<string, unknown>) => {
+    useDualReadPluginSettingsStore.getState().setSettings(values);
   },
 
   get navbarActions() {

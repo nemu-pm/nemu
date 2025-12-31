@@ -45,6 +45,7 @@ function ResponsiveDialog({ open, onOpenChange, children, dismissible = true }: 
           snapPoints={[1]}
           fadeFromIndex={0}
           dismissible={dismissible}
+          repositionInputs={false}
         >
           {children}
         </DrawerPrimitive.Root>

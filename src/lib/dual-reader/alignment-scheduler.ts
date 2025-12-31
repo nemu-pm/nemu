@@ -1,4 +1,5 @@
 import type { SecondaryAlignment, SecondaryRenderPlan } from './types';
+import { ALIGNMENT_CONFIDENCE_MIN_DEFAULT } from './alignment-constants';
 
 export type AlignmentQueueEntry = {
   chapterId: string;
@@ -63,7 +64,13 @@ export function buildAlignmentQueue(input: AlignmentQueueInput): AlignmentQueueE
     alignmentByChapter,
     driftDeltaByChapter,
   } = input;
-  const loaded = loadedPageIndices.length > 0 ? loadedPageIndices : visiblePageIndices;
+  // Always include visible pages, even if `loadedPageIndices` is non-empty.
+  // Some reader implementations can report a non-empty loaded set that doesn't include the current visible pages,
+  // which would starve alignment for what the user is actually viewing.
+  const loaded =
+    loadedPageIndices.length > 0
+      ? Array.from(new Set([...visiblePageIndices, ...loadedPageIndices]))
+      : visiblePageIndices;
   const candidates: AlignmentQueueEntry[] = [];
   const unique = new Set<number>();
 
@@ -83,7 +90,8 @@ export function buildAlignmentQueue(input: AlignmentQueueInput): AlignmentQueueE
       alignmentEntry?.secondaryChapterId === renderPlan.secondaryChapterId
         ? alignmentEntry.byPage[localIndex]
         : undefined;
-    if (existingAlignment) continue;
+    // Don't treat low-confidence alignment as "done" — allow re-attempts.
+    if (existingAlignment && existingAlignment.confidence >= ALIGNMENT_CONFIDENCE_MIN_DEFAULT) continue;
     const primaryUrl = getPageImageUrl(globalIndex);
     if (!primaryUrl) continue;
     candidates.push({

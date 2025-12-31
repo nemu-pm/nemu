@@ -148,11 +148,21 @@ export function TokenDisplay({
           onPointerUp={(e) => {
             e.preventDefault()
             e.stopPropagation()
+            try {
+              ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+            } catch {
+              // ignore
+            }
             onPointerUp()
           }}
           onPointerCancel={(e) => {
             e.preventDefault()
             e.stopPropagation()
+            try {
+              ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+            } catch {
+              // ignore
+            }
             onPointerUp()
           }}
         >

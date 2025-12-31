@@ -72,13 +72,21 @@ export function NemuChatDrawer() {
   // Send a message - called directly on button click
   // No isStreaming guard - can always send (backend will cancel previous request)
   const sendMessage = useCallback(
-    async (text: string, displayContent?: string) => {
+    async (
+      text: string,
+      displayContent?: string,
+      opts?: {
+        focusInput?: boolean
+      }
+    ) => {
       const context = getContextForRequest()
       if (!context) return
 
       setInput('')
-      // Refocus input immediately after clearing
-      inputRef.current?.focus()
+      // Refocus input immediately after clearing (unless caller opts out, e.g. suggestion click)
+      if (opts?.focusInput !== false) {
+        inputRef.current?.focus()
+      }
 
       // Stream response
       try {
@@ -112,7 +120,7 @@ export function NemuChatDrawer() {
   // Handle suggestion click
   const handleSuggestion = useCallback(
     (suggestion: string) => {
-      sendMessage(suggestion)
+      sendMessage(suggestion, undefined, { focusInput: false })
     },
     [sendMessage]
   )

@@ -8,7 +8,7 @@
  * 4. Manual selection → adds to exact matches → same merge UI
  */
 
-import { useState, useCallback, useEffect, useMemo, useRef, useLayoutEffect } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
@@ -27,18 +27,12 @@ import { Badge } from "@/components/ui/badge";
 import { CoverImage } from "@/components/cover-image";
 import { MangaStatusBadge } from "@/components/manga-status-badge";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { ExpandableText } from "@/components/ui/expandable-text";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Search01Icon,
   CheckmarkCircle02Icon,
   SparklesIcon,
-  ArrowDown01Icon,
-  ArrowUp01Icon,
 } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
 import {
@@ -228,54 +222,6 @@ function TagPills({ values, className }: { values: string[]; className?: string 
   );
 }
 
-/** Description content with expand/collapse based on actual visual overflow */
-function DescriptionContent({
-  value,
-  expanded,
-  setExpanded,
-  t,
-}: {
-  value: string;
-  expanded: boolean;
-  setExpanded: (v: boolean) => void;
-  t: (key: string) => string;
-}) {
-  const textRef = useRef<HTMLParagraphElement>(null);
-  const [isClamped, setIsClamped] = useState(false);
-
-  // Check if text is actually clamped (scrollHeight > clientHeight)
-  useLayoutEffect(() => {
-    const el = textRef.current;
-    if (el && !expanded) {
-      setIsClamped(el.scrollHeight > el.clientHeight);
-    }
-  }, [value, expanded]);
-
-  return (
-    <Collapsible open={expanded} onOpenChange={setExpanded}>
-      <div className="rounded-lg bg-muted/30 p-3">
-        <CollapsibleContent>
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">{value}</p>
-        </CollapsibleContent>
-        {!expanded && (
-          <p
-            ref={textRef}
-            className="text-sm leading-relaxed line-clamp-3 whitespace-pre-wrap"
-          >
-            {value}
-          </p>
-        )}
-      </div>
-      {isClamped && (
-        <CollapsibleTrigger className="w-full mt-1.5 py-1 text-xs flex items-center justify-center gap-1 text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted/50">
-          <HugeiconsIcon icon={expanded ? ArrowUp01Icon : ArrowDown01Icon} className="size-3" />
-          {expanded ? t("common.collapse") : t("common.expand")}
-        </CollapsibleTrigger>
-      )}
-    </Collapsible>
-  );
-}
-
 /** Render the appropriate content for a field value */
 function FieldContent({
   field,
@@ -331,11 +277,13 @@ function FieldContent({
   // Description - with expand/collapse and proper whitespace
   if (field === "description") {
     return (
-      <DescriptionContent
+      <ExpandableText
         value={value}
+        lines={3}
         expanded={expanded}
-        setExpanded={setExpanded}
-        t={t}
+        onExpandedChange={setExpanded}
+        containerClassName="rounded-lg bg-muted/30 p-3"
+        textClassName="text-sm leading-relaxed whitespace-pre-wrap"
       />
     );
   }

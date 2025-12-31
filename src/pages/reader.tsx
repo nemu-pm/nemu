@@ -33,6 +33,7 @@ import {
   PluginDialog,
   useIsInteractionLocked,
 } from "@/lib/plugins";
+import { usePageTitle } from "@/components/page-title";
 
 // Wrapper for Reader that has access to plugin context for interaction lock
 function InteractionAwareReader(props: Parameters<typeof Reader>[0]) {
@@ -475,6 +476,14 @@ export function ReaderPage() {
     currentItem?.kind === "page" ? currentItem.localIndex : 0;
   const effectiveChapter = chapterById.get(effectiveChapterId);
   const effectiveChapterPages = chapterPages[effectiveChapterId] ?? [];
+
+  usePageTitle(
+    [
+      manga?.title ?? null,
+      effectiveChapter ? formatChapterTitle(effectiveChapter) : null,
+    ],
+    { scope: "pathname" }
+  );
 
   // Derive current chapter language for plugins (more precise than source-supported languages)
   const chapterLanguage = effectiveChapter?.lang ?? null;

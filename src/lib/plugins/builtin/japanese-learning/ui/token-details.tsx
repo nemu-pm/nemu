@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { motion } from 'motion/react'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { Copy01Icon } from '@hugeicons/core-free-icons'
+import { Copy01Icon, MessageMultiple02Icon } from '@hugeicons/core-free-icons'
 import { Button } from '@/components/ui/button'
 import { cn, copyToClipboard } from '@/lib/utils'
 import { getPOSStyles } from '../pos-styles'
@@ -32,7 +32,7 @@ function POSTag({ pos, subtle = false }: { pos: string; subtle?: boolean }) {
   )
 }
 
-function TokenSummary({ token }: { token: GrammarToken }) {
+function TokenSummary({ token, onAskNemu }: { token: GrammarToken; onAskNemu?: () => void }) {
   const { t } = useTranslation()
   const posClass = getPOSClass(token.partOfSpeech)
   const shouldShowPOSOnly =
@@ -49,8 +49,8 @@ function TokenSummary({ token }: { token: GrammarToken }) {
     if (success) toast.success(t('plugin.japaneseLearning.copySuccess'))
   }, [t, token.word])
 
-  // Only show copy button for valid tokens (not punctuation or empty)
-  const showCopyButton = token.word && getPOSCategory(token.partOfSpeech) !== PartOfSpeechCategory.PUNCTUATION
+  // Only show action buttons for valid tokens (not punctuation or empty)
+  const showActions = token.word && getPOSCategory(token.partOfSpeech) !== PartOfSpeechCategory.PUNCTUATION
 
   return (
     <div className={cn("space-y-2", posClass)}>
@@ -69,18 +69,32 @@ function TokenSummary({ token }: { token: GrammarToken }) {
             </span>
           )}
         </div>
-        {showCopyButton && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            onClick={handleCopyWord}
-            className="text-muted-foreground mt-1"
-            title={t('common.copy', { defaultValue: 'Copy' })}
-            aria-label={t('common.copy', { defaultValue: 'Copy' })}
-          >
-            <HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
-          </Button>
+        {showActions && (
+          <div className="flex items-center gap-1 mt-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={handleCopyWord}
+              className="text-muted-foreground"
+              title={t('common.copy', { defaultValue: 'Copy' })}
+              aria-label={t('common.copy', { defaultValue: 'Copy' })}
+            >
+              <HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
+            </Button>
+            {onAskNemu && (
+              <Button
+                type="button"
+                variant="default"
+                size="xs"
+                onClick={onAskNemu}
+                className="gap-1"
+              >
+                <HugeiconsIcon icon={MessageMultiple02Icon} className="size-3.5" />
+                {t('common.ask', { defaultValue: 'Ask' })}
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
@@ -158,11 +172,11 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 export function TokenDetails({
   token,
   isNested = false,
-  actions,
+  onAskNemu,
 }: {
   token: GrammarToken
   isNested?: boolean
-  actions?: React.ReactNode
+  onAskNemu?: () => void
 }) {
   const { t } = useTranslation()
   const shouldShowMeanings =
@@ -180,7 +194,7 @@ export function TokenDetails({
       )}
     >
       <div className="space-y-4">
-        <TokenSummary token={token} />
+        <TokenSummary token={token} onAskNemu={!isNested ? onAskNemu : undefined} />
 
         {shouldShowMeanings && (
           <div className="pt-1">
@@ -240,8 +254,6 @@ export function TokenDetails({
             </div>
           </div>
         )}
-
-        {actions && !isNested && <div className="pt-2 flex justify-end">{actions}</div>}
       </div>
     </div>
   )

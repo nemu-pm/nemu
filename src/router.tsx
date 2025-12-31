@@ -34,8 +34,8 @@ import { SearchPage } from "./pages/search";
 import { SettingsPage } from "./pages/settings";
 import { MangaPage } from "./pages/manga";
 import { ReaderPage } from "./pages/reader";
-import { DebugDrawerScrollPage } from "./pages/debug-drawer-scroll";
 import { lazy, Suspense } from "react";
+import { PageTitleProvider } from "@/components/page-title";
 
 // Router context type - passed from provider
 export interface RouterContext {
@@ -44,8 +44,16 @@ export interface RouterContext {
 
 // Root route with context
 const rootRoute = createRootRouteWithContext<RouterContext>()({
-  component: () => <Outlet />,
+  component: RootLayout,
 });
+
+function RootLayout() {
+  return (
+    <PageTitleProvider>
+      <Outlet />
+    </PageTitleProvider>
+  );
+}
 
 // Shell layout route
 const shellRoute = createRoute({
@@ -439,13 +447,6 @@ const readerRoute = createRoute({
   component: ReaderPage,
 });
 
-// Debug drawer scroll test route
-const debugDrawerScrollRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/debug/drawer-scroll",
-  component: DebugDrawerScrollPage,
-});
-
 // Route tree
 const shellChildren = [
   libraryRoute,
@@ -459,7 +460,6 @@ const shellChildren = [
 const routeTree = rootRoute.addChildren([
   shellRoute.addChildren(shellChildren),
   readerRoute,
-  debugDrawerScrollRoute,
 ]);
 
 // Create router factory - context will be provided by RouterProvider
