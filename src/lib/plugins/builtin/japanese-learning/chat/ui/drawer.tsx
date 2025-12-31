@@ -12,6 +12,7 @@ import { Conversation, ConversationContent, ConversationEmptyState } from '@/com
 import { useStickToBottomContext } from 'use-stick-to-bottom'
 import { Suggestions, Suggestion } from '@/components/ai-elements/suggestion'
 import { cn } from '@/lib/utils'
+import { hapticPress } from '@/lib/haptics'
 
 import { useNemuChatStore } from '../store'
 import { createChatStreamCallbacks, sendChatMessage } from '../actions'
@@ -93,6 +94,9 @@ export function NemuChatDrawer() {
     ) => {
       const context = getContextForRequest()
       if (!context) return
+
+      // Haptic feedback on send
+      hapticPress()
 
       setInput('')
       // Refocus input immediately after clearing (unless caller opts out, e.g. suggestion click)
@@ -296,6 +300,7 @@ const LineInputBar = forwardRef<HTMLInputElement, LineInputBarProps>(
     const internalRef = useRef<HTMLInputElement>(null)
     const inputRefToUse = (ref as React.RefObject<HTMLInputElement>) || internalRef
     const [isListening, setIsListening] = useState(false)
+    const [speechSupported, setSpeechSupported] = useState(false)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const recognitionRef = useRef<any>(null)
 
@@ -311,31 +316,34 @@ const LineInputBar = forwardRef<HTMLInputElement, LineInputBarProps>(
     useEffect(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-      if (SpeechRecognitionAPI) {
-        const recognition = new SpeechRecognitionAPI()
-        recognition.continuous = false
-        recognition.interimResults = true
-        recognition.lang = getSpeechLang(lang)
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        recognition.onresult = (event: any) => {
-          const transcript = Array.from(event.results)
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .map((result: any) => result[0].transcript)
-            .join('')
-          onChange(transcript)
-        }
-
-        recognition.onend = () => {
-          setIsListening(false)
-        }
-
-        recognition.onerror = () => {
-          setIsListening(false)
-        }
-
-        recognitionRef.current = recognition
+      if (!SpeechRecognitionAPI) {
+        setSpeechSupported(false)
+        return
       }
+      setSpeechSupported(true)
+      const recognition = new SpeechRecognitionAPI()
+      recognition.continuous = false
+      recognition.interimResults = true
+      recognition.lang = getSpeechLang(lang)
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onresult = (event: any) => {
+        const transcript = Array.from(event.results)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((result: any) => result[0].transcript)
+          .join('')
+        onChange(transcript)
+      }
+
+      recognition.onend = () => {
+        setIsListening(false)
+      }
+
+      recognition.onerror = () => {
+        setIsListening(false)
+      }
+
+      recognitionRef.current = recognition
 
       return () => {
         recognitionRef.current?.abort()
@@ -389,22 +397,24 @@ const LineInputBar = forwardRef<HTMLInputElement, LineInputBarProps>(
             )}
           />
 
-          {/* Action button - mic when empty, send when has text */}
-          <motion.button
-            type="button"
-            onClick={handleActionClick}
-            className="flex items-center justify-center size-9 transition-colors duration-150"
-            whileTap={{ scale: 0.9 }}
-          >
-            {hasText ? (
-              <Send className="size-6 text-primary hover:text-primary/80" strokeWidth={2.5} />
-            ) : (
-              <Mic className={cn(
-                'size-6 transition-colors',
-                isListening ? 'text-red-500 animate-pulse' : 'text-muted-foreground hover:text-foreground/70'
-              )} strokeWidth={2} />
-            )}
-          </motion.button>
+          {/* Action button - send when has text, mic when empty (if supported) */}
+          {(hasText || speechSupported) && (
+            <motion.button
+              type="button"
+              onClick={handleActionClick}
+              className="flex items-center justify-center size-9 transition-colors duration-150"
+              whileTap={{ scale: 0.9 }}
+            >
+              {hasText ? (
+                <Send className="size-6 text-primary hover:text-primary/80" strokeWidth={2.5} />
+              ) : (
+                <Mic className={cn(
+                  'size-6 transition-colors',
+                  isListening ? 'text-red-500 animate-pulse' : 'text-muted-foreground hover:text-foreground/70'
+                )} strokeWidth={2} />
+              )}
+            </motion.button>
+          )}
         </div>
       </div>
     )

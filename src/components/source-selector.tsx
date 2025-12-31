@@ -9,6 +9,7 @@
 
 import { useRef, useEffect, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { hapticSelection } from "@/lib/haptics";
 
 interface SourceInfo {
   name: string;
@@ -105,7 +106,10 @@ export function SourceSelector<T extends SourceSelectorItem>({
               <button
                 key={source.id}
                 ref={isSelected ? selectedRef : undefined}
-                onClick={() => onSelect(idx)}
+                onClick={() => {
+                  hapticSelection()
+                  onSelect(idx)
+                }}
                 className={cn(
                   "source-selector-item",
                   isSelected && "source-selector-item-active"

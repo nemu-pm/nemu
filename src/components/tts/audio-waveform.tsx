@@ -5,6 +5,7 @@ import { useTheme } from 'next-themes'
 import { cn } from '@/lib/utils'
 import { Spinner } from '@/components/ui/spinner'
 import { useTtsStore } from '@/stores/tts'
+import { hapticPress } from '@/lib/haptics'
 
 type TtsSource = 'sentence' | 'transcript' | 'voice'
 
@@ -581,7 +582,10 @@ export function AudioWaveform({
       {/* Play/Pause Button - LINE style circular */}
       <button
         type="button"
-        onClick={handleToggle}
+        onClick={() => {
+          hapticPress()
+          handleToggle()
+        }}
         className={cn(
           'flex size-8 shrink-0 items-center justify-center rounded-full',
           // Default state - LINE green circle

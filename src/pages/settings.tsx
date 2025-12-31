@@ -37,6 +37,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Delete02Icon, CloudIcon, Settings02Icon, Recycle03Icon, InformationCircleIcon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { usePluginRegistry } from "@/lib/plugins";
+import { hapticPress } from "@/lib/haptics";
 
 type OAuthProvider = "google" | "apple";
 
@@ -460,7 +461,10 @@ export function SettingsPage() {
       >
         <Card
           className="!py-0 cursor-default hover:bg-accent/50"
-          onClick={() => setAboutOpen(true)}
+          onClick={() => {
+            hapticPress()
+            setAboutOpen(true)
+          }}
         >
           <CardContent className="flex items-center gap-3 px-4 py-2.5">
             <HugeiconsIcon icon={InformationCircleIcon} className="size-5 text-muted-foreground" />

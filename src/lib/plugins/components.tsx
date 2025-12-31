@@ -13,6 +13,7 @@ import {
 import { buttonVariants } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
+import { hapticPress } from '@/lib/haptics'
 import {
   usePluginNavbarActions,
   usePluginPageOverlays,
@@ -81,7 +82,10 @@ function NavbarActionSimple({ action, ctx }: { action: NavbarAction; ctx: Reader
     <button
       type="button"
       disabled={isDisabled}
-      onClick={() => action.onClick(ctx)}
+      onClick={() => {
+        hapticPress()
+        action.onClick(ctx)
+      }}
       title={action.label}
       className={cn(
         buttonVariants({ variant: 'ghost', size: 'icon-sm' }),
@@ -103,7 +107,10 @@ function NavbarActionWithLoading({ action, ctx }: { action: NavbarAction; ctx: R
     <button
       type="button"
       disabled={isDisabled}
-      onClick={() => action.onClick(ctx)}
+      onClick={() => {
+        hapticPress()
+        action.onClick(ctx)
+      }}
       title={action.label}
       className={cn(
         buttonVariants({ variant: 'ghost', size: 'icon-sm' }),
@@ -125,7 +132,10 @@ function NavbarActionWithPopover({ action, ctx }: { action: NavbarAction; ctx: R
     <Popover open={popoverOpen} onOpenChange={(open) => !open && action.onPopoverClose?.()}>
       <PopoverTrigger
         disabled={isDisabled}
-        onClick={() => action.onClick(ctx)}
+        onClick={() => {
+          hapticPress()
+          action.onClick(ctx)
+        }}
         render={(props) => (
           <button
             {...props}
@@ -163,7 +173,10 @@ function NavbarActionWithPopoverAndLoading({ action, ctx }: { action: NavbarActi
     <Popover open={popoverOpen} onOpenChange={(open) => !open && action.onPopoverClose?.()}>
       <PopoverTrigger
         disabled={isDisabled}
-        onClick={() => action.onClick(ctx)}
+        onClick={() => {
+          hapticPress()
+          action.onClick(ctx)
+        }}
         render={(props) => (
           <button
             {...props}

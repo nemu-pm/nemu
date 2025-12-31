@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { hapticSelection } from '@/lib/haptics'
 
 export interface UseWordSelectionReturn {
   selectedTokenIndex: number | null
@@ -38,16 +39,19 @@ export function useWordSelection(): UseWordSelectionReturn {
 
   const handlePointerUp = useCallback((index: number) => {
     if (isDragging) {
-      // Multi selection already set
+      // Multi selection already set - haptic feedback for multi-select complete
+      hapticSelection()
     } else if (dragStartIndex === index) {
       if (selectionStart !== null || selectionEnd !== null) {
         setSelectionStart(null)
         setSelectionEnd(null)
         setSelectedTokenIndex(index)
+        hapticSelection()
       } else if (selectedTokenIndex === index) {
         setSelectedTokenIndex(null)
       } else {
         setSelectedTokenIndex(index)
+        hapticSelection()
       }
     }
 

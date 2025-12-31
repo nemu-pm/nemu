@@ -4,6 +4,7 @@ import * as React from "react"
 import { Slider as SliderPrimitive } from "@base-ui/react/slider"
 
 import { cn } from "@/lib/utils"
+import { hapticSelection } from "@/lib/haptics"
 
 function Slider({
   className,
@@ -11,6 +12,9 @@ function Slider({
   value,
   min = 0,
   max = 100,
+  step,
+  onValueChange,
+  onValueCommitted,
   ...props
 }: SliderPrimitive.Root.Props) {
   const _values = React.useMemo(
@@ -23,6 +27,24 @@ function Slider({
     [value, defaultValue, min, max]
   )
 
+  // Track previous value to only trigger haptic on actual step changes
+  const prevValueRef = React.useRef<readonly number[] | null>(null)
+
+  const handleValueChange = React.useCallback(
+    (newValue: number | readonly number[], eventDetails: Parameters<NonNullable<SliderPrimitive.Root.Props['onValueChange']>>[1]) => {
+      // Normalize to array for comparison
+      const valArray = Array.isArray(newValue) ? newValue : [newValue]
+      const prev = prevValueRef.current
+      // Trigger haptic if value actually changed (not just noise)
+      if (!prev || valArray.some((v, i) => v !== prev[i])) {
+        hapticSelection()
+        prevValueRef.current = valArray
+      }
+      onValueChange?.(newValue, eventDetails)
+    },
+    [onValueChange]
+  )
+
   return (
     <SliderPrimitive.Root
       className="data-horizontal:w-full data-vertical:h-full"
@@ -31,7 +53,10 @@ function Slider({
       value={value}
       min={min}
       max={max}
+      step={step}
       thumbAlignment="edge"
+      onValueChange={handleValueChange}
+      onValueCommitted={onValueCommitted}
       {...props}
     >
       <SliderPrimitive.Control

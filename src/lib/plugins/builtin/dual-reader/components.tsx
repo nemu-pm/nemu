@@ -26,6 +26,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Copy02Icon } from '@hugeicons/core-free-icons';
 import { mapSecondaryChapterForPrimary, resolveSecondaryChapterSelection } from '@/lib/dual-reader/chapters';
+import { hapticPress, hapticConfirm } from '@/lib/haptics';
 import {
   buildSecondaryRenderPlan,
   buildMissingRenderPlan,
@@ -2861,6 +2862,8 @@ export function DualReadFab({ ctx }: { ctx: ReaderPluginContext }) {
         holdActiveRef.current = true;
         setIsHolding(true);
         setPeekActive(true);
+        // Haptic feedback on hold activate
+        hapticConfirm();
         // Additional compression for hold
         scale.set(0.78);
       }, HOLD_DELAY_MS);
@@ -2930,8 +2933,11 @@ export function DualReadFab({ ctx }: { ctx: ReaderPluginContext }) {
         if (enabled && commitSwitch) {
           const nextSide = activeSide === 'primary' ? 'secondary' : 'primary';
           setActiveSide(nextSide);
+          hapticPress();
         }
       } else if (enabled) {
+        // Tap to toggle side
+        hapticPress();
         const nextSide = activeSide === 'primary' ? 'secondary' : 'primary';
         setActiveSide(nextSide);
       }

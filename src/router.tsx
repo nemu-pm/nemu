@@ -8,6 +8,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
+import { hapticPress } from "@/lib/haptics";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Home01Icon,
@@ -94,7 +95,10 @@ function ShellLayout() {
         >
           <div className="min-h-0">
             <button
-              onClick={handleBack}
+              onClick={() => {
+                hapticPress()
+                handleBack()
+              }}
               className="group flex size-11 items-center justify-center rounded-xl text-muted-foreground transition-colors duration-200 hover:bg-primary/10 hover:text-primary active:scale-95"
             >
               <HugeiconsIcon icon={ArrowLeft01Icon} className="size-5" />
@@ -132,7 +136,10 @@ function ShellLayout() {
           >
             <div className="min-w-0">
               <button
-                onClick={handleBack}
+                onClick={() => {
+                  hapticPress()
+                  handleBack()
+                }}
                 className="flex size-9 items-center justify-center rounded-xl text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground active:scale-95"
               >
                 <HugeiconsIcon icon={ArrowLeft01Icon} className="size-5" />
@@ -166,6 +173,7 @@ function DesktopDockLink({
   return (
     <Link
       to={to}
+      onClick={hapticPress}
       className={cn(
         "group relative flex size-11 items-center justify-center rounded-xl transition-all duration-200",
         isActive
@@ -212,6 +220,7 @@ function MobileNavLink({
   return (
     <Link
       to={to}
+      onClick={hapticPress}
       className={cn(
         "relative flex flex-col items-center justify-center gap-0.5 rounded-2xl px-5 py-2 transition-all duration-200",
         isActive

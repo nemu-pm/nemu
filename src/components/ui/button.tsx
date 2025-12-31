@@ -2,6 +2,7 @@ import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
+import { hapticPress } from "@/lib/haptics"
 
 const buttonVariants = cva(
   "inline-flex items-center justify-center whitespace-nowrap rounded-[10px] text-sm font-medium outline-none select-none transition-all duration-200 ease-out active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0 shrink-0",
@@ -37,12 +38,17 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  onClick,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
   return (
     <ButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
+      onClick={(e) => {
+        hapticPress()
+        onClick?.(e)
+      }}
       {...props}
     />
   )

@@ -23,6 +23,7 @@ import {
   CodeIcon,
   Alert02Icon,
 } from "@hugeicons/core-free-icons";
+import { hapticPress } from "@/lib/haptics";
 
 type Mode = "select" | "registry" | "custom" | "dev";
 
@@ -189,7 +190,10 @@ function ModeSelection({
   return (
     <div className={cn("grid gap-3", isDev ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
       <button
-        onClick={() => onSelectMode("registry")}
+        onClick={() => {
+          hapticPress()
+          onSelectMode("registry")
+        }}
         className="flex flex-col items-center gap-3 rounded-lg border p-6 text-center transition-colors hover:bg-muted"
       >
         <div className="rounded-full bg-primary/10 p-3">
@@ -220,7 +224,10 @@ function ModeSelection({
 
       {isDev && (
         <button
-          onClick={() => onSelectMode("dev")}
+          onClick={() => {
+            hapticPress()
+            onSelectMode("dev")
+          }}
           className="flex flex-col items-center gap-3 rounded-lg border border-orange-500/30 bg-orange-500/5 p-6 text-center transition-colors hover:bg-orange-500/10"
         >
           <div className="rounded-full bg-orange-500/10 p-3">

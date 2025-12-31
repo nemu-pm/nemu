@@ -4,6 +4,7 @@ import type { Chapter } from "@/lib/sources";
 import { cn } from "@/lib/utils";
 import { formatChapterTitle, formatChapterSubtitle } from "@/lib/format-chapter";
 import { ChapterProgress } from "@/components/chapter-progress";
+import { hapticPress } from "@/lib/haptics";
 
 /** Minimal progress info needed for chapter display */
 interface ChapterProgressInfo {
@@ -96,6 +97,7 @@ const ChapterCell = memo(function ChapterCell({
         isRead && "chapter-cell-read",
         isInProgress && "chapter-cell-progress"
       )}
+      onClick={hapticPress}
     >
       {content}
     </Link>

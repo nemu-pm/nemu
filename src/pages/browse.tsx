@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/page-header";
 import { NoSourcesEmpty } from "@/components/no-sources-empty";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Globe02Icon } from "@hugeicons/core-free-icons";
+import { hapticPress } from "@/lib/haptics";
 
 type SourceInfo = {
   id: string;
@@ -122,6 +123,7 @@ export function BrowsePage() {
                     sourceId: source.rawSourceId,
                   }}
                   className="source-card"
+                  onClick={hapticPress}
                 >
                   <div className="source-card-icon">
                     {source.icon ? (

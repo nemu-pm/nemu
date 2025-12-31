@@ -4,6 +4,7 @@ import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
+import { hapticSelection } from "@/lib/haptics"
 
 function Tabs({
   className,
@@ -53,10 +54,14 @@ function TabsList({
   )
 }
 
-function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
+function TabsTrigger({ className, onClick, ...props }: TabsPrimitive.Tab.Props) {
   return (
     <TabsPrimitive.Tab
       data-slot="tabs-trigger"
+      onClick={(e) => {
+        hapticSelection()
+        onClick?.(e)
+      }}
       className={cn(
         // Layout
         "tabs-nemu-trigger",

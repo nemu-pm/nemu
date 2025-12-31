@@ -9,6 +9,7 @@ import { createTtsId, useTtsStore } from '@/stores/tts'
 import { AudioWaveform } from '@/components/tts/audio-waveform'
 import { getOcrPageRef } from '../page-ref'
 import { buildLineTimings } from './transcript-timing'
+import { hapticSelection } from '@/lib/haptics'
 
 interface TranscriptColumnProps {
   pageKey: string
@@ -149,6 +150,7 @@ function TranscriptColumn({ pageKey, lines, imageUrl }: TranscriptColumnProps) {
                 key={line.order}
                 type="button"
                 onClick={(e) => {
+                  hapticSelection()
                   const clickPosition = { x: e.clientX, y: e.clientY }
 
                   if (imageUrl) {

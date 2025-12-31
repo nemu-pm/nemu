@@ -40,6 +40,7 @@ import {
   CheckmarkCircle02Icon,
 } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
+import { hapticPress } from "@/lib/haptics";
 import {
   useSmartMatchStore,
   searchAllProviders,
@@ -132,7 +133,10 @@ function ModeSelection({
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <button
-        onClick={() => onSelectMode("search")}
+        onClick={() => {
+          hapticPress();
+          onSelectMode("search");
+        }}
         className="flex flex-col items-center gap-3 rounded-lg border p-6 text-center transition-colors hover:bg-muted"
       >
         <div className="rounded-full bg-primary/10 p-3">
@@ -147,7 +151,10 @@ function ModeSelection({
       </button>
 
       <button
-        onClick={() => onSelectMode("merge")}
+        onClick={() => {
+          hapticPress();
+          onSelectMode("merge");
+        }}
         className="flex flex-col items-center gap-3 rounded-lg border p-6 text-center transition-colors hover:bg-muted"
       >
         <div className="rounded-full bg-primary/10 p-3">
@@ -590,7 +597,10 @@ function LibraryMergeCard({ entry, onSelect }: LibraryMergeCardProps) {
 
   return (
     <button
-      onClick={onSelect}
+      onClick={() => {
+        hapticPress();
+        onSelect();
+      }}
       className="flex items-center gap-3 w-full rounded-lg border p-3 text-left transition-colors hover:bg-muted"
     >
       {cover ? (

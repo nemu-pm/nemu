@@ -126,6 +126,8 @@ export const useNemuChatStore = create<NemuChatState>((set, get) => ({
       ttsText: options?.ttsText,
     }
     set((s) => ({ messages: [...s.messages, msg] }))
+    // Note: Haptic feedback on message receive won't work on iOS Safari
+    // because it's not triggered by a direct user gesture
     return id
   },
 

@@ -9,6 +9,7 @@ import { getOcrPageRef } from '../page-ref'
 import type { OcrPageCacheKeyV3 } from '../ocr-page-cache'
 import { createTtsId, useTtsStore } from '@/stores/tts'
 import { buildLineTimings } from './transcript-timing'
+import { hapticSelection } from '@/lib/haptics'
 
 const LABEL_COLORS: Record<string, { bg: string; border: string }> = {
   ja: { bg: 'rgba(59, 130, 246, VAR)', border: 'rgb(96, 165, 250)' },
@@ -80,6 +81,7 @@ function DetectionBox({ detection, imageDims, opacity, isFlashing, pageKey, imag
   const handleClick = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
+    hapticSelection()
 
     const clickPosition = { x: e.clientX, y: e.clientY }
     openOcrSheetFromBox(pageKey, detection, clickPosition)

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
 import { CoverImage } from "@/components/cover-image"
 import { cn, formatRelativeTime } from "@/lib/utils"
+import { hapticPress } from "@/lib/haptics"
 
 // ============================================================================
 // Base MangaCard - Vertical card with cover and title
@@ -25,6 +26,7 @@ export function MangaCard({ to, params, cover, title, subtitle, badge, className
       to={to}
       params={params}
       className={cn("group block", className)}
+      onClick={hapticPress}
     >
       <div className="space-y-2">
         <motion.div
@@ -97,6 +99,7 @@ export function MangaCardCompact({
       params={params}
       className={cn("group block shrink-0", className)}
       style={{ width }}
+      onClick={hapticPress}
     >
       <motion.div
         className="overflow-hidden rounded-lg bg-muted manga-cover-glass"
@@ -159,6 +162,7 @@ export function MangaCardFeatured({
         "hover:bg-accent/40 active:bg-accent/60",
         className
       )}
+      onClick={hapticPress}
     >
       {/* Cover with lift animation */}
       <motion.div
@@ -244,6 +248,7 @@ export function MangaCardList({
         "hover:bg-accent/40 active:bg-accent/60",
         className
       )}
+      onClick={hapticPress}
     >
       {/* Cover with subtle lift */}
       <motion.div
@@ -335,6 +340,7 @@ export function MangaCardChapter({
         "hover:bg-accent/40 active:bg-accent/60",
         className
       )}
+      onClick={hapticPress}
     >
       {/* Cover with subtle lift */}
       <motion.div
@@ -417,6 +423,7 @@ export function MangaCardBanner({
         to={to}
         params={params}
         className={cn("block shrink-0", className)}
+        onClick={hapticPress}
       >
         {content}
       </Link>
@@ -426,7 +433,10 @@ export function MangaCardBanner({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => {
+        hapticPress()
+        onClick?.()
+      }}
       className={cn("block shrink-0 text-left", className)}
     >
       {content}
