@@ -275,7 +275,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
 
   toggleTranscriptPopover: (open) => {
     const next = open ?? !get().transcriptPopoverOpen
-    set({ transcriptPopoverOpen: next, hoveredLine: null, playingLine: null })
+    set({ transcriptPopoverOpen: next, hoveredLine: null })
   },
 
   setHoveredLine: (line) => set({ hoveredLine: line }),

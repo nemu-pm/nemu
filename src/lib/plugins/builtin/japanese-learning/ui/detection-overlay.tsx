@@ -7,6 +7,8 @@ import { isJapaneseSource } from './utils'
 import { useIsInteractionLocked } from '../../../context'
 import { getOcrPageRef } from '../page-ref'
 import type { OcrPageCacheKeyV3 } from '../ocr-page-cache'
+import { createTtsId, useTtsStore } from '@/stores/tts'
+import { buildLineTimings } from './transcript-timing'
 
 const LABEL_COLORS: Record<string, { bg: string; border: string }> = {
   ja: { bg: 'rgba(59, 130, 246, VAR)', border: 'rgb(96, 165, 250)' },
@@ -166,10 +168,17 @@ interface DetectionOverlayProps {
 
 export function DetectionOverlay({ pageIndex, ctx }: DetectionOverlayProps) {
   const { detections, settings, freshlyDetectedPages, clearFreshlyDetected } = useTextDetectorStore()
+  const transcripts = useTextDetectorStore((s) => s.transcripts)
+  const playingLine = useTextDetectorStore((s) => s.playingLine)
+  const setPlayingLine = useTextDetectorStore((s) => s.setPlayingLine)
+  const currentAudioId = useTtsStore((s) => s.currentAudioId)
+  const currentTime = useTtsStore((s) => s.currentTime)
+  const ensureAlignment = useTtsStore((s) => s.ensureAlignment)
   const containerRef = useRef<HTMLDivElement>(null)
   const [bounds, setBounds] = useState<ImageBounds | null>(null)
   const [isFlashing, setIsFlashing] = useState(false)
   const isInteractionLocked = useIsInteractionLocked()
+  const lastPlayingRef = useRef<string | null>(null)
 
   // Check if plugin should be enabled for this source
   const isEnabled = isJapaneseSource(ctx)
@@ -177,6 +186,65 @@ export function DetectionOverlay({ pageIndex, ctx }: DetectionOverlayProps) {
   const pageRef = useMemo(() => getOcrPageRef(ctx, pageIndex), [ctx, pageIndex])
   const blocks = isEnabled && pageRef ? (detections.get(pageRef.pageKey) ?? []) : []
   const isFreshDetection = !!pageRef && freshlyDetectedPages.has(pageRef.pageKey)
+  const transcriptLines = useMemo(
+    () => (pageRef ? transcripts.get(pageRef.pageKey) ?? [] : []),
+    [pageRef, transcripts]
+  )
+  const transcriptText = useMemo(
+    () => transcriptLines.map((line) => line.text).filter(Boolean).join('\n'),
+    [transcriptLines]
+  )
+  const ttsId = useMemo(
+    () => (pageRef && transcriptText ? createTtsId(`transcript-${pageRef.pageKey}`, transcriptText) : null),
+    [pageRef, transcriptText]
+  )
+  const alignment = useTtsStore((s) => (ttsId ? s.alignments.get(ttsId) : null))
+  const isCurrent = currentAudioId === ttsId
+  const lineTimings = useMemo(
+    () => (alignment ? buildLineTimings(transcriptLines, alignment) : null),
+    [alignment, transcriptLines]
+  )
+
+  useEffect(() => {
+    if (!ttsId || !transcriptText) return
+    if (!isCurrent) return
+    if (transcriptText.length > 500) return
+    if (alignment) return
+    ensureAlignment(ttsId, transcriptText, { source: 'transcript' }).catch(() => undefined)
+  }, [alignment, ensureAlignment, isCurrent, transcriptText, ttsId])
+
+  useEffect(() => {
+    if (!pageRef || !lineTimings || !isCurrent) {
+      if (playingLine && pageRef && playingLine.pageKey === pageRef.pageKey) {
+        lastPlayingRef.current = null
+        setPlayingLine(null)
+      }
+      return
+    }
+
+    const activeIndex = lineTimings.findIndex(
+      (timing) => timing && currentTime >= timing.start && currentTime <= timing.end
+    )
+    if (activeIndex === -1) {
+      if (playingLine && playingLine.pageKey === pageRef.pageKey) {
+        lastPlayingRef.current = null
+        setPlayingLine(null)
+      }
+      return
+    }
+    const activeLine = transcriptLines[activeIndex]
+    if (!activeLine) return
+    const key = `${pageRef.pageKey}:${activeLine.order}`
+    if (lastPlayingRef.current === key) return
+    lastPlayingRef.current = key
+    setPlayingLine({
+      pageKey: pageRef.pageKey,
+      x1: activeLine.x1,
+      y1: activeLine.y1,
+      x2: activeLine.x2,
+      y2: activeLine.y2,
+    })
+  }, [currentTime, isCurrent, lineTimings, pageRef, playingLine, setPlayingLine, transcriptLines])
 
   // Handle flash animation for fresh detections (non-auto-detect mode only)
   useEffect(() => {
