@@ -8,7 +8,7 @@ import {
   DrawerFooter,
 } from '@/components/ui/drawer'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { Copy01Icon, MessageMultiple02Icon, PauseIcon, VolumeUpIcon } from '@hugeicons/core-free-icons'
+import { Copy01Icon, MessageMultiple02Icon, PauseIcon, PlayIcon } from '@hugeicons/core-free-icons'
 import { useTextDetectorStore } from '../store'
 import { copyToClipboard } from '@/lib/utils'
 import { motion, AnimatePresence } from 'motion/react'
@@ -158,21 +158,11 @@ export function OcrResultSheet() {
                 {isCurrent && isLoading ? (
                   <Spinner className="size-4" />
                 ) : (
-                  <HugeiconsIcon icon={isBusy ? PauseIcon : VolumeUpIcon} className="size-3.5" />
+                  <HugeiconsIcon icon={isBusy ? PauseIcon : PlayIcon} className="size-3.5" />
                 )}
                 {isBusy
                   ? t('plugin.japaneseLearning.tts.stop', { defaultValue: 'Stop' })
                   : t('plugin.japaneseLearning.tts.listen', { defaultValue: 'Listen' })}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handleCopySentence}
-                disabled={!canActOnSentence}
-                className="flex-1 gap-1.5"
-              >
-                <HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
-                {t('common.copy', { defaultValue: 'Copy' })}
               </Button>
               <Button
                 type="button"
@@ -183,6 +173,16 @@ export function OcrResultSheet() {
               >
                 <HugeiconsIcon icon={MessageMultiple02Icon} className="size-3.5" />
                 {t('plugin.japaneseLearning.chat.askAboutSentence', { defaultValue: 'Ask about this sentence' })}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleCopySentence}
+                disabled={!canActOnSentence}
+                className="flex-1 gap-1.5"
+              >
+                <HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
+                {t('common.copy', { defaultValue: 'Copy' })}
               </Button>
             </div>
           </div>
