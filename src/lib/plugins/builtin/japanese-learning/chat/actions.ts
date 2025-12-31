@@ -3,7 +3,7 @@
  */
 
 import type { ChatStreamCallbacks } from './service'
-import { sendMessageAndStream, streamChat } from './service'
+import { ContextTooLongError, streamChat } from './service'
 import { useNemuChatStore } from './store'
 import type { HiddenContext, ToolCall } from './types'
 import type { ChatToolContext } from './tools'
@@ -321,6 +321,7 @@ export async function sendChatMessage(options: {
     setStreaming,
     setShowTypingIndicator,
     getMessagesForRequest,
+    truncateOldestHalf,
   } = useNemuChatStore.getState()
 
   const existingMessages = getMessagesForRequest()
@@ -329,7 +330,20 @@ export async function sendChatMessage(options: {
   setStreaming(true)
   // No dots during initial wait; show only on backend activity/tool phases.
   setShowTypingIndicator(false)
-  await sendMessageAndStream(text, existingMessages, hiddenContext, appLanguage, callbacks, toolContext ?? undefined)
+  callbacks.onStreamStart()
+  const messages = [...existingMessages, { role: 'user' as const, content: text }]
+  try {
+    await streamChat(messages, hiddenContext, appLanguage, callbacks, toolContext ?? undefined)
+  } catch (err) {
+    if (!(err instanceof ContextTooLongError)) throw err
+    // Client-side truncation: drop oldest 50% and retry once.
+    truncateOldestHalf()
+    const afterTruncate = getMessagesForRequest()
+    const last = afterTruncate[afterTruncate.length - 1]
+    const withoutLastUser = last?.role === 'user' ? afterTruncate.slice(0, -1) : afterTruncate
+    const retryMessages = [...withoutLastUser, { role: 'user' as const, content: text }]
+    await streamChat(retryMessages, hiddenContext, appLanguage, callbacks, toolContext ?? undefined)
+  }
 }
 
 export async function sendChatGreeting(options: {
@@ -339,7 +353,8 @@ export async function sendChatGreeting(options: {
   callbacks: ChatStreamCallbacks
 }) {
   const { hiddenContext, appLanguage, toolContext, callbacks } = options
-  const { getMessagesForRequest, clearFollowUps, setStreaming, setShowTypingIndicator } = useNemuChatStore.getState()
+  const { getMessagesForRequest, clearFollowUps, setStreaming, setShowTypingIndicator, truncateOldestHalf } =
+    useNemuChatStore.getState()
 
   clearFollowUps()
   setStreaming(true)
@@ -350,5 +365,13 @@ export async function sendChatGreeting(options: {
   const messages = [...existingMessages, { role: 'user' as const, content: greetingPrompt }]
 
   callbacks.onStreamStart()
-  await streamChat(messages, hiddenContext, appLanguage, callbacks, toolContext ?? undefined)
+  try {
+    await streamChat(messages, hiddenContext, appLanguage, callbacks, toolContext ?? undefined)
+  } catch (err) {
+    if (!(err instanceof ContextTooLongError)) throw err
+    truncateOldestHalf()
+    const retryExisting = getMessagesForRequest()
+    const retryMessages = [...retryExisting, { role: 'user' as const, content: greetingPrompt }]
+    await streamChat(retryMessages, hiddenContext, appLanguage, callbacks, toolContext ?? undefined)
+  }
 }

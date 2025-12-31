@@ -475,7 +475,7 @@ function cancelAlignmentRequest() {
   alignmentInFlight = null
 }
 
-function cleanupWebAudio() {
+function cleanupWebAudio(options?: { close?: boolean }) {
   stopWebAudioTicker()
   webAudioSources.forEach((source) => {
     try {
@@ -499,13 +499,15 @@ function cleanupWebAudio() {
   if (webAudioAnalyser) {
     webAudioAnalyser.disconnect()
   }
-  if (webAudioContext && webAudioContext.state !== 'closed') {
-    webAudioContext.close().catch(() => undefined)
-  }
-
   webAudioGain = null
   webAudioAnalyser = null
-  webAudioContext = null
+  if (webAudioContext && webAudioContext.state === 'closed') {
+    webAudioContext = null
+  }
+  if (options?.close && webAudioContext && webAudioContext.state !== 'closed') {
+    webAudioContext.close().catch(() => undefined)
+    webAudioContext = null
+  }
 }
 
 function cleanupAudio() {

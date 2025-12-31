@@ -1,3 +1,4 @@
+/* @refresh skip */
 import { StrictMode, useEffect, useState, useMemo, memo } from "react"
 import { createRoot } from "react-dom/client"
 import { RouterProvider } from "@tanstack/react-router"

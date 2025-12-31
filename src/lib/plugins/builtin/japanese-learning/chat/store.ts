@@ -41,6 +41,7 @@ interface NemuChatState {
     options?: { hidden?: boolean; errorMessage?: string; kind?: 'text' | 'voice'; ttsText?: string }
   ) => string
   addToolResults: (results: ToolResult[]) => void
+  truncateOldestHalf: () => void
 
   setStreaming: (streaming: boolean) => void
   setShowTypingIndicator: (show: boolean) => void
@@ -108,7 +109,7 @@ export const useNemuChatStore = create<NemuChatState>((set, get) => ({
       displayContent,
       timestamp: Date.now(),
     }
-    set((s) => ({ messages: [...s.messages, msg].slice(-30) }))
+    set((s) => ({ messages: [...s.messages, msg] }))
   },
 
   addAssistantMessage: (content, toolCalls, options) => {
@@ -124,7 +125,7 @@ export const useNemuChatStore = create<NemuChatState>((set, get) => ({
       errorMessage: options?.errorMessage,
       ttsText: options?.ttsText,
     }
-    set((s) => ({ messages: [...s.messages, msg].slice(-30) }))
+    set((s) => ({ messages: [...s.messages, msg] }))
     return id
   },
 
@@ -140,6 +141,14 @@ export const useNemuChatStore = create<NemuChatState>((set, get) => ({
         ),
       }))
     }
+  },
+
+  truncateOldestHalf: () => {
+    set((s) => {
+      if (s.messages.length <= 2) return { messages: s.messages }
+      const dropCount = Math.ceil(s.messages.length / 2)
+      return { messages: s.messages.slice(dropCount) }
+    })
   },
 
   setStreaming: (streaming) => {

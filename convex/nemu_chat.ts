@@ -5,11 +5,67 @@ import { z } from "zod"
 import { buildPromptConfig } from "./prompts/nemu_chat"
 
 const MODEL = "anthropic/claude-sonnet-4-5"
+const MAX_INPUT_TOKENS_BUDGET = 80_000
 
 function getAnthropicModelId(model: string): string {
   // Keep the same model identity while adapting from Gateway IDs ("anthropic/<id>")
   // to Anthropic provider IDs ("<id>").
   return model.startsWith("anthropic/") ? model.slice("anthropic/".length) : model
+}
+
+function estimateTokenCountFromText(text: string): number {
+  // Cheap token estimator (provider-agnostic):
+  // - ASCII tends to be ~4 chars/token
+  // - Non-ASCII (JP/CJK) tends to be denser; estimate ~1.5 chars/token
+  let ascii = 0
+  let nonAscii = 0
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code <= 0x7f) ascii++
+    else nonAscii++
+  }
+  return Math.ceil(ascii / 4 + nonAscii / 1.5)
+}
+
+function estimateTokenCountFromAny(value: unknown): number {
+  if (value == null) return 0
+  if (typeof value === "string") return estimateTokenCountFromText(value)
+  try {
+    return estimateTokenCountFromText(JSON.stringify(value))
+  } catch {
+    return 0
+  }
+}
+
+// Works on the "model messages" we pass into `streamText` (system/user/assistant/tool).
+function estimateTokenCountFromModelMessages(messages: Array<{ role: string; content: unknown }>): number {
+  let tokens = 0
+  for (const msg of messages) {
+    const content = (msg as any).content
+    if (typeof content === "string") {
+      tokens += estimateTokenCountFromText(content)
+      continue
+    }
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        if (!part || typeof part !== "object") continue
+        const type = (part as any).type
+        if (type === "text") tokens += estimateTokenCountFromText(String((part as any).text ?? ""))
+        else if (type === "tool-call") {
+          tokens += estimateTokenCountFromAny((part as any).toolName)
+          tokens += estimateTokenCountFromAny((part as any).input)
+        } else if (type === "tool-result") {
+          tokens += estimateTokenCountFromAny((part as any).toolName)
+          tokens += estimateTokenCountFromAny((part as any).output)
+        } else {
+          tokens += estimateTokenCountFromAny(part)
+        }
+      }
+      continue
+    }
+    tokens += estimateTokenCountFromAny(content)
+  }
+  return tokens
 }
 
 // =============================================================================
@@ -144,6 +200,12 @@ export const chat = httpAction(async (_, request) => {
     "Access-Control-Allow-Credentials": "true",
     Vary: "Origin",
   }
+  const jsonHeaders = {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Credentials": "true",
+    Vary: "Origin",
+  }
 
   const encoder = new TextEncoder()
 
@@ -166,10 +228,6 @@ export const chat = httpAction(async (_, request) => {
     }
 
     const { messages, hiddenContext, appLanguage } = parseResult.data
-    const apiKey = process.env.ANTHROPIC_API_KEY
-    if (!apiKey) {
-      throw new Error("ANTHROPIC_API_KEY environment variable is not set")
-    }
     const { systemPrompt, toolDescriptions, forcingMessage } = buildPromptConfig(hiddenContext, appLanguage)
 
     // Convert messages to AI SDK format
@@ -228,11 +286,63 @@ export const chat = httpAction(async (_, request) => {
       }
     }
 
+    // Build final model messages (system + history + forcing + user).
+    //
+    // Prompt caching notes (Anthropic):
+    // - Tools, then system, then messages are cacheable blocks.
+    // - We set an explicit cache breakpoint right BEFORE the forcing message.
+    //   In our structure, forcing is the second-to-last message in `aiMessages`.
+    // - We also cache the system prompt block.
+    const cacheControl = { type: "ephemeral" as const, ttl: "1h" as const }
+    const aiMessagesWithCaching: any[] = aiMessages.map((m) => ({ ...m }))
+    // Message immediately before forcing:
+    // ... <history ...> , <message_before_forcing?>, forcing, user
+    const idxBeforeForcing = aiMessagesWithCaching.length - 3
+    if (idxBeforeForcing >= 0) {
+      aiMessagesWithCaching[idxBeforeForcing] = {
+        ...aiMessagesWithCaching[idxBeforeForcing],
+        providerOptions: {
+          ...(aiMessagesWithCaching[idxBeforeForcing].providerOptions ?? {}),
+          anthropic: { cacheControl },
+        },
+      }
+    }
+
+    const modelMessagesWithSystem: any[] = [
+      {
+        role: "system" as const,
+        content: systemPrompt,
+        providerOptions: { anthropic: { cacheControl } },
+      },
+      ...aiMessagesWithCaching,
+    ]
+
+    // Reject overly-long context (client will truncate + retry).
+    const estimatedTokens = estimateTokenCountFromModelMessages(modelMessagesWithSystem as any)
+    if (estimatedTokens > MAX_INPUT_TOKENS_BUDGET) {
+      return new Response(
+        JSON.stringify({
+          code: "context_too_long",
+          tokenBudget: MAX_INPUT_TOKENS_BUDGET,
+          estimatedTokens,
+          suggestedClientAction: "drop_oldest_half",
+        }),
+        { status: 413, headers: jsonHeaders }
+      )
+    }
+
     // Log entire LLM context for debugging
-    console.log("[nemu_chat] LLM context:", JSON.stringify({
-      system: systemPrompt,
-      messages: aiMessages,
-    }, null, 2))
+    console.log(
+      "[nemu_chat] LLM context:",
+      JSON.stringify(
+        {
+          system: systemPrompt,
+          messages: aiMessagesWithCaching,
+        },
+        null,
+        2
+      )
+    )
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -263,19 +373,6 @@ export const chat = httpAction(async (_, request) => {
           }
           
           try {
-            // Anthropic prompt caching: cache the (stable) system prompt.
-            // This uses message-level providerOptions (see @ai-sdk/anthropic "Cache Control").
-            const modelMessagesWithSystem = [
-              {
-                role: "system" as const,
-                content: systemPrompt,
-                providerOptions: {
-                  anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } },
-                },
-              },
-              ...aiMessages,
-            ]
-
             const result = streamText({
               model: anthropic(getAnthropicModelId(MODEL)),
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -512,11 +609,22 @@ export const chat = httpAction(async (_, request) => {
             if (streamLogs.length > 0) {
               console.log("[nemu_chat] LLM output logs (partial):", streamLogs.join("\n"))
             }
+            const errorMessage = err instanceof Error ? err.message : "Unknown streaming error"
+            // If our estimator missed and provider rejects for context size, tell client to truncate.
+            const looksLikeTooLong =
+              typeof errorMessage === "string" &&
+              (errorMessage.toLowerCase().includes("too long") ||
+                errorMessage.toLowerCase().includes("context length") ||
+                errorMessage.toLowerCase().includes("prompt is too long") ||
+                errorMessage.toLowerCase().includes("max tokens"))
             controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({
-                type: "error",
-                error: err instanceof Error ? err.message : "Unknown streaming error",
-              })}\n\n`)
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "error",
+                  error: looksLikeTooLong ? "context_too_long" : errorMessage,
+                  code: looksLikeTooLong ? "context_too_long" : undefined,
+                })}\n\n`
+              )
             )
             // Error, close stream
             controller.close()

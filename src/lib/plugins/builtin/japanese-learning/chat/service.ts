@@ -36,6 +36,25 @@ export interface ChatStreamCallbacks {
 
 const CONVEX_SITE_URL = import.meta.env.VITE_CONVEX_SITE_URL as string
 
+export class ContextTooLongError extends Error {
+  code = 'context_too_long' as const
+  tokenBudget?: number
+  estimatedTokens?: number
+  suggestedClientAction?: string
+
+  constructor(details?: {
+    tokenBudget?: number
+    estimatedTokens?: number
+    suggestedClientAction?: string
+  }) {
+    super('context_too_long')
+    this.name = 'ContextTooLongError'
+    this.tokenBudget = details?.tokenBudget
+    this.estimatedTokens = details?.estimatedTokens
+    this.suggestedClientAction = details?.suggestedClientAction
+  }
+}
+
 function getClientEnvInfo(baseUrl: string) {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'unknown'
   const href = typeof window !== 'undefined' ? window.location.href : 'unknown'
@@ -263,6 +282,18 @@ export async function streamChat(
 
   if (!response.ok) {
     const bodyText = await response.text().catch(() => '')
+    try {
+      const parsed = JSON.parse(bodyText) as any
+      if (parsed?.code === 'context_too_long') {
+        throw new ContextTooLongError({
+          tokenBudget: parsed?.tokenBudget,
+          estimatedTokens: parsed?.estimatedTokens,
+          suggestedClientAction: parsed?.suggestedClientAction,
+        })
+      }
+    } catch {
+      // ignore json parse errors
+    }
     throw new Error(formatHttpError(response.status, response.statusText, bodyText, baseUrl))
   }
 
@@ -339,6 +370,9 @@ export async function streamChat(
               break
 
             case 'error':
+              if ((event as any).code === 'context_too_long' || event.error === 'context_too_long') {
+                throw new ContextTooLongError()
+              }
               callbacks.onError(event.error ?? 'Unknown error')
               return
 
