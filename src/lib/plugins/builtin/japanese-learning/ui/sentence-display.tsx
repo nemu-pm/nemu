@@ -19,7 +19,7 @@ import type { GrammarToken } from '../ichiran-types'
 interface SentenceDisplayProps {
   tokens: GrammarToken[]
   sentenceText?: string
-  ichiranAnalysis?: string
+  ephemeralContext?: string
   grammar: {
     loading: boolean
     stage: 'idle' | 'normalizing' | 'tokenizing' | 'done' | 'error'
@@ -29,7 +29,7 @@ interface SentenceDisplayProps {
   }
 }
 
-export function SentenceDisplay({ tokens, sentenceText, ichiranAnalysis, grammar }: SentenceDisplayProps) {
+export function SentenceDisplay({ tokens, sentenceText, ephemeralContext, grammar }: SentenceDisplayProps) {
   const { t, i18n } = useTranslation()
   const responseMode = useTextDetectorStore((s) => s.settings.nemuResponseMode)
   const reduceMotion = useReducedMotion()
@@ -57,9 +57,9 @@ export function SentenceDisplay({ tokens, sentenceText, ichiranAnalysis, grammar
     (text: string, kind: 'word' | 'words') => {
       const message = getExplainPrompt(i18n.language, responseMode, kind, text)
       const displayContent = getExplainDisplayPrompt(i18n.language, kind, text)
-      openChatAndSend(message, displayContent, { ichiranAnalysis })
+      openChatAndSend(message, displayContent, { ephemeralContext })
     },
-    [ichiranAnalysis, i18n.language, responseMode]
+    [ephemeralContext, i18n.language, responseMode]
   )
 
   const rawText = (sentenceText ?? '').trim()

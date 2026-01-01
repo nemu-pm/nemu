@@ -38,7 +38,11 @@ export interface HiddenContext {
   currentPage: number
   pageCount?: number
   pageTranscript?: string
-  ichiranAnalysis?: string
+  /**
+   * One-turn-only extra context injected into the forcing message.
+   * Used for things like sentence/grammar analysis dumps, OCR details, etc.
+   */
+  ephemeralContext?: string
   responseMode?: 'app' | 'jlpt'
 }
 
@@ -66,7 +70,9 @@ export interface ChatStreamEvent {
     | 'tool_call'
     | 'awaiting_tool_results'
     | 'activity'
+    | 'context_snapshot'
   content?: string
+  key?: string
   error?: string
   suggestions?: string[]
   toolCallId?: string

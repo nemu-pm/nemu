@@ -6,6 +6,8 @@ import { buildPromptConfig } from "./prompts/nemu_chat"
 
 const MODEL = "anthropic/claude-sonnet-4-5"
 const MAX_INPUT_TOKENS_BUDGET = 80_000
+const CTX_SNAPSHOT_PREFIX = "NEMU_CTX_SNAPSHOT_V1"
+const EPHEMERAL_PREFIX = "NEMU_EPHEMERAL_V1"
 
 function getAnthropicModelId(model: string): string {
   // Keep the same model identity while adapting from Gateway IDs ("anthropic/<id>")
@@ -68,6 +70,72 @@ function estimateTokenCountFromModelMessages(messages: Array<{ role: string; con
   return tokens
 }
 
+function fnv1a32(text: string): string {
+  // Small deterministic hash for short keys (NOT cryptographic).
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  // >>> 0 to keep unsigned.
+  return (hash >>> 0).toString(16).padStart(8, "0")
+}
+
+function parseContextSnapshotKeyFromContent(content: string): string | null {
+  if (!content.startsWith(CTX_SNAPSHOT_PREFIX)) return null
+  const firstLine = content.split("\n", 1)[0] ?? ""
+  const match = firstLine.match(/key=([a-z0-9]+)/i)
+  return match?.[1] ?? null
+}
+
+function getLastContextSnapshotKeyFromClientMessages(
+  messages: Array<{ role: "user" | "assistant" | "tool"; content?: string }>
+): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as any
+    if (m?.role !== "user") continue
+    if (typeof m.content !== "string") continue
+    const key = parseContextSnapshotKeyFromContent(m.content)
+    if (key) return key
+  }
+  return null
+}
+
+function makeContextSnapshotKey(options: {
+  locale: string
+  appLanguage: string
+  hiddenContext: {
+    mangaTitle: string
+    mangaGenres?: string[]
+    chapterTitle?: string
+    chapterNumber?: number
+    volumeNumber?: number
+    currentPage: number
+    pageCount?: number
+    pageTranscript?: string
+    responseMode?: string
+  }
+}): string {
+  const c = options.hiddenContext
+  const normalizedGenres = Array.isArray(c.mangaGenres) ? [...c.mangaGenres].sort() : undefined
+  const payload = {
+    v: 1,
+    locale: options.locale,
+    appLanguage: options.appLanguage,
+    responseMode: c.responseMode ?? null,
+    mangaTitle: c.mangaTitle,
+    mangaGenres: normalizedGenres ?? null,
+    chapterTitle: c.chapterTitle ?? null,
+    chapterNumber: c.chapterNumber ?? null,
+    volumeNumber: c.volumeNumber ?? null,
+    currentPage: c.currentPage,
+    pageCount: c.pageCount ?? null,
+    pageTranscriptHash: c.pageTranscript ? fnv1a32(c.pageTranscript) : null,
+    hasTranscript: Boolean(c.pageTranscript),
+  }
+  return fnv1a32(JSON.stringify(payload))
+}
+
 // =============================================================================
 // Schema Definitions
 // =============================================================================
@@ -81,7 +149,7 @@ const HiddenContextSchema = z.object({
   currentPage: z.number(),
   pageCount: z.number().optional(),
   pageTranscript: z.string().optional(),
-  ichiranAnalysis: z.string().optional(),
+  ephemeralContext: z.string().optional(),
   responseMode: z.enum(["app", "jlpt"]).optional(),
 })
 
@@ -228,7 +296,8 @@ export const chat = httpAction(async (_, request) => {
     }
 
     const { messages, hiddenContext, appLanguage } = parseResult.data
-    const { systemPrompt, toolDescriptions, forcingMessage } = buildPromptConfig(hiddenContext, appLanguage)
+    const { systemPrompt, toolDescriptions, contextSnapshotMessage, ephemeralContextMessage, locale } =
+      buildPromptConfig(hiddenContext, appLanguage)
 
     // Convert messages to AI SDK format
     type AIMessage = 
@@ -274,14 +343,27 @@ export const chat = httpAction(async (_, request) => {
       }
     }
 
-    // Inject forcing message before the last user message (not persisted in history)
-    // This helps the LLM comply with formatting rules
+    // Context snapshot architecture (Option A):
+    // - Persisted snapshot messages live in the client-sent history.
+    // - On any request where the context changed (page/transcript/etc), we insert a snapshot message
+    //   right before the current user message and emit an SSE event telling the client to persist it.
+    // - One-turn-only ephemeralContext is injected only for this request (never persisted).
+    const lastSnapshotKeyFromClient = getLastContextSnapshotKeyFromClientMessages(messages as any)
+    const snapshotKey = makeContextSnapshotKey({ locale, appLanguage, hiddenContext })
+    const needsSnapshot = lastSnapshotKeyFromClient !== snapshotKey
+    const snapshotContent = `${CTX_SNAPSHOT_PREFIX} key=${snapshotKey}\n\n${contextSnapshotMessage}`
+    const hasEphemeral = Boolean(ephemeralContextMessage && ephemeralContextMessage.trim().length > 0)
+    const ephemeralContent = ephemeralContextMessage
+      ? `${EPHEMERAL_PREFIX}\n\n${ephemeralContextMessage}`
+      : null
+
+    // Insert before last user message (current user turn).
     if (aiMessages.length > 0) {
       const lastMsg = aiMessages[aiMessages.length - 1]
       if (lastMsg.role === "user") {
-        // Remove last user message, insert forcing message, then re-add user message
         aiMessages.pop()
-        aiMessages.push({ role: "user", content: forcingMessage })
+        if (needsSnapshot) aiMessages.push({ role: "user", content: snapshotContent })
+        if (ephemeralContent) aiMessages.push({ role: "user", content: ephemeralContent })
         aiMessages.push(lastMsg)
       }
     }
@@ -295,14 +377,15 @@ export const chat = httpAction(async (_, request) => {
     // - We also cache the system prompt block.
     const cacheControl = { type: "ephemeral" as const, ttl: "1h" as const }
     const aiMessagesWithCaching: any[] = aiMessages.map((m) => ({ ...m }))
-    // Message immediately before forcing:
-    // ... <history ...> , <message_before_forcing?>, forcing, user
-    const idxBeforeForcing = aiMessagesWithCaching.length - 3
-    if (idxBeforeForcing >= 0) {
-      aiMessagesWithCaching[idxBeforeForcing] = {
-        ...aiMessagesWithCaching[idxBeforeForcing],
+    // Cache breakpoint: right before the injected tail for this request.
+    // Tail is always: [snapshot?] [ephemeral?] [current user]
+    const tailCount = 1 + (needsSnapshot ? 1 : 0) + (hasEphemeral ? 1 : 0)
+    const idxBreakpoint = aiMessagesWithCaching.length - tailCount - 1
+    if (idxBreakpoint >= 0) {
+      aiMessagesWithCaching[idxBreakpoint] = {
+        ...aiMessagesWithCaching[idxBreakpoint],
         providerOptions: {
-          ...(aiMessagesWithCaching[idxBeforeForcing].providerOptions ?? {}),
+          ...(aiMessagesWithCaching[idxBreakpoint].providerOptions ?? {}),
           anthropic: { cacheControl },
         },
       }
@@ -347,6 +430,18 @@ export const chat = httpAction(async (_, request) => {
     const stream = new ReadableStream({
       async start(controller) {
         const MAX_RETRIES = 2
+        // Emit snapshot event once per request (not per retry).
+        if (needsSnapshot) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "context_snapshot",
+                key: snapshotKey,
+                content: snapshotContent,
+              })}\n\n`
+            )
+          )
+        }
         
         for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
           let streamLogs: string[] = []

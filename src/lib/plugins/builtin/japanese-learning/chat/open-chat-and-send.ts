@@ -16,7 +16,7 @@ export function openChatAndSend(
   contextOverride?: Partial<HiddenContext>,
 ) {
   const store = useNemuChatStore.getState()
-  // IMPORTANT: contextOverride (e.g. ichiranAnalysis) should be one-turn only.
+  // IMPORTANT: contextOverride (e.g. ephemeralContext) should be one-turn only.
   // Do NOT persist it into the store hiddenContext by passing it into getContextForRequest().
   const initialContext = store.getContextForRequest()
   if (initialContext) {

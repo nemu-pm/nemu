@@ -11,7 +11,7 @@ import { getOcrPageRef } from '../page-ref'
 export interface BuildHiddenContextOptions {
   pageIndex?: number
   pageTranscript?: string
-  ichiranAnalysis?: string
+  ephemeralContext?: string
   responseMode?: 'app' | 'jlpt'
 }
 
@@ -24,7 +24,7 @@ export interface BuildHiddenContextInput {
   currentPage: number
   pageCount?: number
   pageTranscript?: string
-  ichiranAnalysis?: string
+  ephemeralContext?: string
   responseMode?: 'app' | 'jlpt'
 }
 
@@ -50,7 +50,7 @@ export function buildHiddenContext(input: BuildHiddenContextInput): HiddenContex
     currentPage: input.currentPage,
     pageCount: input.pageCount,
     pageTranscript: input.pageTranscript,
-    ichiranAnalysis: input.ichiranAnalysis,
+    ephemeralContext: input.ephemeralContext,
     responseMode: input.responseMode,
   }
 }
@@ -78,7 +78,7 @@ export function buildHiddenContextFromReader(
     currentPage,
     pageCount: ctx.currentChapterPageCount,
     pageTranscript,
-    ichiranAnalysis: options.ichiranAnalysis,
+    ephemeralContext: options.ephemeralContext,
     responseMode,
   })
 }

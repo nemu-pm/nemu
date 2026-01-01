@@ -10,7 +10,7 @@ export interface PromptHiddenContext {
   currentPage: number
   pageCount?: number
   pageTranscript?: string
-  ichiranAnalysis?: string
+  ephemeralContext?: string
   responseMode?: NemuResponseMode
 }
 
@@ -697,7 +697,7 @@ type LocalizedStrings = {
     page: string
   }
   transcriptTitle: string
-  ichiranTitle: string
+  ephemeralContextTitle: string
   toolsTitle: string
   toolDescriptions: {
     requestTranscript: string
@@ -743,7 +743,7 @@ const LOCALIZED: Record<PromptLocale, LocalizedStrings> = {
       page: '当前页',
     },
     transcriptTitle: '# 页面文字（按气泡顺序）',
-    ichiranTitle: '# 语法解析参考（来自Ichiran，需要时请核对修正）',
+    ephemeralContextTitle: '# 临时上下文（仅本轮）',
     toolsTitle: '# 可用工具',
     toolDescriptions: {
       requestTranscript: '获取指定页的OCR文本。当用户询问其他页面或需要前后剧情时使用。',
@@ -802,7 +802,7 @@ const LOCALIZED: Record<PromptLocale, LocalizedStrings> = {
     responseStyle: [
       '如果用户询问刚才已问过的句子/词语，可能是打错字，请委婉提醒',
       '必要时结合漫画中的具体例子',
-      '如Ichiran解析可能有误（俚语、方言、创意表达常见），请礼貌指出并修正',
+      '如果自动解析/附加上下文可能有误（俚语、方言、创意表达常见），请礼貌指出并修正',
       '语法说明请给出结构和至少一个例句',
     ],
   },
@@ -816,7 +816,7 @@ const LOCALIZED: Record<PromptLocale, LocalizedStrings> = {
       page: '今のページ',
     },
     transcriptTitle: '# ページの文字（吹き出し順）',
-    ichiranTitle: '# 文法解析（Ichiran参考、必要なら修正して）',
+    ephemeralContextTitle: '# 追加コンテキスト（このターンのみ）',
     toolsTitle: '# 使えるツール',
     toolDescriptions: {
       requestTranscript: '指定ページの文字を取得する。別のページについて聞かれたとき、前後の流れを知りたいときに使う。',
@@ -875,7 +875,7 @@ send_voice_recording(text) を使って音声メッセージを送れる。
     responseStyle: [
       'さっき聞いたのと同じ文や単語をまた聞かれたら、打ち間違いかもしれないからやんわり確認する',
       '必要なら漫画の具体例を使って説明する',
-      'Ichiranの解析が怪しそうなら（スラングや方言、創作表現でよくある）、丁寧に訂正する',
+      '自動解析/追加コンテキストが怪しそうなら（スラングや方言、創作表現でよくある）、丁寧に訂正する',
       '文法を説明するときは、形と例文を最低ひとつ出す',
     ],
   },
@@ -889,7 +889,7 @@ send_voice_recording(text) を使って音声メッセージを送れる。
       page: 'Current page',
     },
     transcriptTitle: '# Page Text (bubble order)',
-    ichiranTitle: '# Grammar Analysis (from Ichiran - verify if needed)',
+    ephemeralContextTitle: '# Extra Context (one-turn)',
     toolsTitle: '# Available Tools',
     toolDescriptions: {
       requestTranscript: 'Get OCR text from a page. Use when the user asks about other pages or needs story context.',
@@ -948,7 +948,7 @@ Examples:
     responseStyle: [
       'If the user asks about a sentence/word that was already asked recently, assume it is likely a typo and gently remind them',
       'Use concrete examples from the manga when relevant',
-      'If ichiran analysis seems incorrect (common with slang, dialect, creative speech), politely note corrections',
+      'If any auto-analysis / extra context seems incorrect (common with slang, dialect, creative speech), politely note corrections',
       'For grammar explanations, show the pattern and at least one example',
     ],
   },
@@ -989,6 +989,27 @@ function formatContext(ctx: PromptHiddenContext, strings: LocalizedStrings): str
   lines.push(`- ${l.page}: ${pageLine}`)
 
   return lines.join('\n')
+}
+
+function buildContextSnapshotMessage(hiddenContext: PromptHiddenContext, strings: LocalizedStrings): string {
+  const sections: string[] = [formatContext(hiddenContext, strings)]
+  if (hiddenContext.pageTranscript) {
+    sections.push('', strings.transcriptTitle, '', hiddenContext.pageTranscript)
+  } else {
+    sections.push(
+      '',
+      strings.transcriptTitle,
+      '',
+      `Transcript not provided. If needed, call request_transcript(pageNumber=${hiddenContext.currentPage}).`
+    )
+  }
+  return sections.join('\n')
+}
+
+function buildEphemeralContextMessage(hiddenContext: PromptHiddenContext, strings: LocalizedStrings): string | null {
+  const extra = hiddenContext.ephemeralContext?.trim()
+  if (!extra) return null
+  return [strings.ephemeralContextTitle, '', extra].join('\n')
 }
 
 function formatTools(strings: LocalizedStrings): string {
@@ -1047,30 +1068,14 @@ export function buildPromptConfig(hiddenContext: PromptHiddenContext, appLanguag
   ]
   if (strings.voiceToolBlock) systemSections.push('', strings.voiceToolBlock)
 
-  // Forcing message (NOT persisted, injected before each user message):
-  // Put all dynamic/volatile context here (chapter/page/transcript/ichiran).
-  const forcingSections: string[] = [formatContext(hiddenContext, strings)]
-
-  if (hiddenContext.pageTranscript) {
-    forcingSections.push('', strings.transcriptTitle, '', hiddenContext.pageTranscript)
-  } else {
-    // Explicit hint so the model knows transcript can be fetched if needed.
-    forcingSections.push(
-      '',
-      strings.transcriptTitle,
-      '',
-      `Transcript not provided. If needed, call request_transcript(pageNumber=${hiddenContext.currentPage}).`
-    )
-  }
-
-  // One-turn only: included only when the client sends it for this request.
-  if (hiddenContext.ichiranAnalysis) {
-    forcingSections.push('', strings.ichiranTitle, '', hiddenContext.ichiranAnalysis)
-  }
+  const contextSnapshotMessage = buildContextSnapshotMessage(hiddenContext, strings)
+  const ephemeralContextMessage = buildEphemeralContextMessage(hiddenContext, strings)
 
   return {
+    locale,
     systemPrompt: systemSections.join('\n'),
     toolDescriptions: strings.toolDescriptions,
-    forcingMessage: forcingSections.join('\n'),
+    contextSnapshotMessage,
+    ephemeralContextMessage,
   }
 }

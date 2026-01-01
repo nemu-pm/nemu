@@ -34,7 +34,7 @@ export function OcrResultSheet() {
   const isLoading = useTtsStore((s) => s.isLoading)
   
   // Serialize grammar analysis for AI context
-  const ichiranAnalysis = useMemo(() => {
+  const ephemeralContext = useMemo(() => {
     if (grammarAnalysis.tokens.length === 0) return undefined
     return serializeGrammarTokens(grammarAnalysis.tokens)
   }, [grammarAnalysis.tokens])
@@ -56,8 +56,8 @@ export function OcrResultSheet() {
     if (!sentenceText) return
     const message = getExplainPrompt(i18n.language, responseMode, 'sentence', sentenceText)
     const displayContent = getExplainDisplayPrompt(i18n.language, 'sentence', sentenceText)
-    openChatAndSend(message, displayContent, { ichiranAnalysis })
-  }, [ichiranAnalysis, sentenceText, i18n.language, responseMode])
+    openChatAndSend(message, displayContent, { ephemeralContext })
+  }, [ephemeralContext, sentenceText, i18n.language, responseMode])
 
   const handlePlaySentence = useCallback(() => {
     if (!ttsText || !ttsId) return
@@ -137,7 +137,7 @@ export function OcrResultSheet() {
                 <SentenceDisplay
                   tokens={grammarAnalysis.tokens}
                   sentenceText={ocrResult.text}
-                  ichiranAnalysis={ichiranAnalysis}
+                  ephemeralContext={ephemeralContext}
                   grammar={grammarAnalysis}
                 />
               </motion.div>

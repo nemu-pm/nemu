@@ -35,6 +35,7 @@ interface NemuChatState {
   getToolContextForRequest: () => ChatToolContext | null
 
   addUserMessage: (content: string, displayContent?: string) => void
+  upsertContextSnapshot: (key: string, content: string) => void
   addAssistantMessage: (
     content: string,
     toolCalls?: ToolCall[],
@@ -110,6 +111,50 @@ export const useNemuChatStore = create<NemuChatState>((set, get) => ({
       timestamp: Date.now(),
     }
     set((s) => ({ messages: [...s.messages, msg] }))
+  },
+
+  upsertContextSnapshot: (key, content) => {
+    const trimmedKey = (key ?? '').trim()
+    if (!trimmedKey) return
+    const trimmedContent = (content ?? '').trim()
+    if (!trimmedContent) return
+
+    set((s) => {
+      // Dedupe: if the newest snapshot already has this key, do nothing.
+      for (let i = s.messages.length - 1; i >= 0; i--) {
+        const m = s.messages[i]
+        if (m.role !== 'user') continue
+        if (!m.hidden) continue
+        if (!m.content.startsWith('NEMU_CTX_SNAPSHOT_V1')) continue
+        const firstLine = m.content.split('\n', 1)[0] ?? ''
+        if (firstLine.includes(`key=${trimmedKey}`)) return { messages: s.messages }
+        break
+      }
+
+      const snapshotMsg: ChatMessage = {
+        id: generateId(),
+        role: 'user',
+        kind: 'text',
+        content: trimmedContent,
+        timestamp: Date.now(),
+        hidden: true,
+        isRead: true,
+      }
+
+      // Insert snapshot right before the most recent visible user message (the one that triggered it).
+      const idx = [...s.messages]
+        .map((m, i) => ({ m, i }))
+        .reverse()
+        .find(({ m }) => m.role === 'user' && !m.hidden)?.i
+
+      if (idx == null) {
+        return { messages: [...s.messages, snapshotMsg] }
+      }
+
+      const next = [...s.messages]
+      next.splice(idx, 0, snapshotMsg)
+      return { messages: next }
+    })
   },
 
   addAssistantMessage: (content, toolCalls, options) => {

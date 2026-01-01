@@ -29,6 +29,7 @@ export interface ChatStreamCallbacks {
   onToolResults: (toolResults: ToolResult[]) => void
   onFollowups: (suggestions: string[]) => void
   onActivity: (activity: ChatStreamEvent['activity'], toolName?: string) => void
+  onContextSnapshot: (key: string, content: string) => void
   onDone: () => void
   onError: (error: string) => void
   onCancelled: () => void
@@ -302,6 +303,7 @@ export async function streamChat(
 
   const decoder = new TextDecoder()
   let buffer = ''
+  let continuationMessages: MessageForRequest[] = messages
 
   try {
     while (true) {
@@ -342,6 +344,26 @@ export async function streamChat(
               }
               break
 
+            case 'context_snapshot': {
+              const key = typeof (event as any).key === 'string' ? (event as any).key : ''
+              const content = typeof (event as any).content === 'string' ? (event as any).content : ''
+              if (key && content) {
+                callbacks.onContextSnapshot(key, content)
+                // Keep internal continuation in sync so tool-loop retries include the snapshot.
+                const last = continuationMessages[continuationMessages.length - 1]
+                if (last?.role === 'user') {
+                  continuationMessages = [
+                    ...continuationMessages.slice(0, -1),
+                    { role: 'user', content },
+                    last,
+                  ]
+                } else {
+                  continuationMessages = [...continuationMessages, { role: 'user', content }]
+                }
+              }
+              break
+            }
+
             case 'awaiting_tool_results':
               callbacks.onToolsAwaiting(event.toolCalls ?? [], event.partialContent ?? '')
               // Execute tools and continue streaming
@@ -352,7 +374,7 @@ export async function streamChat(
 
               // Build new messages with tool results
               const newMessages: MessageForRequest[] = [
-                ...messages,
+                ...continuationMessages,
                 { role: 'assistant', content: event.partialContent ?? '', toolCalls: event.toolCalls },
                 { role: 'tool', toolResults },
               ]

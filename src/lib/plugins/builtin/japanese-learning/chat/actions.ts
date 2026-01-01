@@ -40,6 +40,7 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
     setFollowUps,
     addToolResults,
     markLastUserMessageRead,
+    upsertContextSnapshot,
   } = useNemuChatStore.getState()
 
   let hasMarkedRead = false
@@ -270,6 +271,9 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
         startClientToolTyping()
         markReadIfNeeded()
       }
+    },
+    onContextSnapshot: (key, content) => {
+      upsertContextSnapshot(key, content)
     },
     onDone: () => {
       const trimmed = bufferedText.trim()

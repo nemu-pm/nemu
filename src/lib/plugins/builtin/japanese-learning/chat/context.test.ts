@@ -28,7 +28,7 @@ describe('nemu chat context helpers', () => {
       currentPage: 5,
       pageCount: 20,
       pageTranscript: 'Line 1',
-      ichiranAnalysis: 'Analysis',
+      ephemeralContext: 'Analysis',
       responseMode: 'app',
     })
 
@@ -41,7 +41,7 @@ describe('nemu chat context helpers', () => {
       currentPage: 5,
       pageCount: 20,
       pageTranscript: 'Line 1',
-      ichiranAnalysis: 'Analysis',
+      ephemeralContext: 'Analysis',
       responseMode: 'app',
     })
   })
