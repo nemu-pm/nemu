@@ -94,3 +94,6 @@ __pycache__
 # Debug pages (local dev only)
 src/pages/dual-read-debug.tsx
 public/dual-read-debug/
+
+# OCR benchmark (contains instance IPs)
+services/ocr/bench_ocr.ts

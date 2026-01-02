@@ -342,6 +342,7 @@ try {
   console.log("[2/7] Syncing server files...");
   await syncFile(join(SCRIPT_DIR, "server.py"), "/app/server.py", "server.py");
   await syncFile(join(SCRIPT_DIR, "text_order.py"), "/app/text_order.py", "text_order.py");
+  await syncFile(join(SCRIPT_DIR, "text_order_defaults.py"), "/app/text_order_defaults.py", "text_order_defaults.py");
   await syncFile(join(SCRIPT_DIR, "requirements.txt"), "/app/requirements.txt", "requirements.txt");
 
   console.log("[3/7] Syncing detector package...");

@@ -15,7 +15,11 @@ from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Set
 import numpy as np
 
-from services.ocr.text_order_defaults import merge_text_order_params  # shared defaults
+# Support both module execution and standalone deployed layouts.
+try:
+    from services.ocr.text_order_defaults import merge_text_order_params  # type: ignore
+except ModuleNotFoundError:
+    from text_order_defaults import merge_text_order_params  # type: ignore
 
 try:
     import cv2
