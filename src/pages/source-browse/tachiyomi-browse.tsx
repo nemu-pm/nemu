@@ -22,6 +22,7 @@ import { BrowseSearchBar, BrowseListingTabs } from "@/components/browse";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Search01Icon, Refresh01Icon } from "@hugeicons/core-free-icons";
 import { SourceImageProvider } from "@/hooks/use-source-image";
+import { handleSourceError } from "@/lib/sources/error-handler";
 
 export interface TachiyomiBrowseData {
   source: TachiyomiBrowsableSource;
@@ -127,6 +128,13 @@ export function TachiyomiBrowse({ data }: TachiyomiBrowseProps) {
 
   const scrollKey = `${source.sourceKey}:${searchActive ? 'search' : selectedListingIndex}`;
   useScrollRestoration(scrollKey, manga.length > 0);
+
+  // Handle query errors
+  useEffect(() => {
+    if (activeQuery.error) {
+      handleSourceError(activeQuery.error, searchActive ? "Search" : "Listing");
+    }
+  }, [activeQuery.error, searchActive]);
 
   // Handlers
   const handleSearch = useCallback(() => {

@@ -38,8 +38,78 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Delete02Icon, CloudIcon, Settings02Icon, Recycle03Icon, InformationCircleIcon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { usePluginRegistry } from "@/lib/plugins";
 import { hapticPress } from "@/lib/haptics";
+import { useAgentStore } from "@/stores/agent";
+import { RefreshCcw, Cpu } from "lucide-react";
 
 type OAuthProvider = "google" | "apple";
+
+function AgentStatusCard() {
+  const { t } = useTranslation();
+  const { status, checking, checkStatus } = useAgentStore();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Cpu className="size-5" />
+          {t("settings.agent")}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div
+              className={`size-2.5 rounded-full ${
+                status.available ? "bg-green-500" : "bg-muted-foreground/40"
+              }`}
+            />
+            <div>
+              <p className="font-medium">
+                {status.available
+                  ? t("settings.agentConnected")
+                  : t("settings.agentNotRunning")}
+                {status.available && status.version && (
+                  <span className="ml-1.5 text-muted-foreground font-normal">
+                    {t("settings.agentVersion", { version: status.version })}
+                  </span>
+                )}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {t("settings.agentDescription")}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {!status.available && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  window.open(
+                    "https://github.com/user/nemu-agent/releases",
+                    "_blank"
+                  )
+                }
+              >
+                {t("settings.agentDownload")}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={checkStatus}
+              disabled={checking}
+            >
+              <RefreshCcw
+                className={`size-4 ${checking ? "animate-spin" : ""}`}
+              />
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 const providerIcons: Record<OAuthProvider, React.ReactNode> = {
   google: (
@@ -453,6 +523,9 @@ export function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Nemu Agent */}
+      <AgentStatusCard />
 
       {/* About */}
       <motion.div

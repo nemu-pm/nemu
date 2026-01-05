@@ -129,7 +129,7 @@ export const japaneseLearningPlugin: ReaderPlugin = {
       onClick: async (ctx: ReaderPluginContext) => {
         try {
           const store = useTextDetectorStore.getState()
-          const { transcripts, ocrLoadingPages, transcriptPopoverOpen, toggleTranscriptPopover, setPendingPopoverOpen } = store
+          const { transcripts, detections, ocrLoadingPages, transcriptPopoverOpen, toggleTranscriptPopover, setPendingPopoverOpen, flashPages } = store
 
           // If popover is open, close it
           if (transcriptPopoverOpen) {
@@ -141,6 +141,15 @@ export const japaneseLearningPlugin: ReaderPlugin = {
           const visibleRefs = ctx.visiblePageIndices
             .map((idx) => getOcrPageRef(ctx, idx))
             .filter(Boolean)
+
+          // Flash all visible pages that have detections (manual trigger feedback)
+          const pagesToFlash = visibleRefs
+            .filter((ref) => ref && detections.has(ref.pageKey) && (detections.get(ref.pageKey)?.length ?? 0) > 0)
+            .map((ref) => ref!.pageKey)
+          if (pagesToFlash.length > 0) {
+            flashPages(pagesToFlash)
+          }
+
           const allHaveTranscripts = visibleRefs.length > 0 && visibleRefs.every((ref) => transcripts.has(ref!.pageKey))
           if (allHaveTranscripts) {
             toggleTranscriptPopover(true)
@@ -249,6 +258,8 @@ export const japaneseLearningPlugin: ReaderPlugin = {
     onMount: (ctx: ReaderPluginContext) => {
       // Skip if not Japanese source
       if (!isJapaneseSource(ctx)) return
+      // Reset debounce timer on mount so auto-detect waits for images to load
+      lastAutoDetectTime = Date.now()
       // Load cached detections for all visible pages on mount
       loadCachedForVisiblePages(ctx)
     },

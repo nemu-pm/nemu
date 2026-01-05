@@ -18,7 +18,7 @@ export interface UserDataStore {
   getInstalledSources(): Promise<InstalledSource[]>;
   getInstalledSource(id: string): Promise<InstalledSource | null>;
   saveInstalledSource(source: InstalledSource): Promise<void>;
-  removeInstalledSource(id: string): Promise<void>;
+  removeInstalledSource(id: string, registryId?: string): Promise<void>;
 
   // Registries (local only, not synced)
   getRegistries(): Promise<SourceRegistry[]>;

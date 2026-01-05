@@ -817,19 +817,26 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
   async saveInstalledSource(source: InstalledSource): Promise<void> {
     const settings = await this.getSettings();
+    // Ensure removed=false when installing (clears any existing tombstone)
+    const sourceToSave = { ...source, removed: false };
     const existing = settings.installedSources.findIndex((s) => s.id === source.id);
     if (existing >= 0) {
-      settings.installedSources[existing] = source;
+      settings.installedSources[existing] = sourceToSave;
     } else {
-      settings.installedSources.push(source);
+      settings.installedSources.push(sourceToSave);
     }
     await this.saveSettings(settings);
   }
 
   async removeInstalledSource(id: string): Promise<void> {
     const settings = await this.getSettings();
-    settings.installedSources = settings.installedSources.filter((s) => s.id !== id);
-    await this.saveSettings(settings);
+    const existing = settings.installedSources.find((s) => s.id === id);
+    if (existing) {
+      // Tombstone: mark as removed instead of deleting (for LWW sync)
+      existing.removed = true;
+      existing.updatedAt = Date.now();
+      await this.saveSettings(settings);
+    }
   }
 
   // ============ REGISTRIES (local only) ============

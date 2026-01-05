@@ -1,12 +1,3 @@
-[submodule "vendor/Aidoku/Aidoku"]
-	path = vendor/Aidoku/Aidoku
-	url = https://github.com/Aidoku/Aidoku.git
-[submodule "vendor/Aidoku/aidoku-rs"]
-	path = vendor/Aidoku/aidoku-rs
-	url = https://github.com/Aidoku/aidoku-rs.git
-[submodule "vendor/mihonapp/mihon"]
-	path = vendor/mihonapp/mihon
-	url = https://github.com/mihonapp/mihon.git
 [submodule "vendor/vaul"]
 	path = vendor/vaul
 	url = https://github.com/TigerHix/vaul.git

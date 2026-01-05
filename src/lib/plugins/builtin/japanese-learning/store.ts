@@ -183,6 +183,8 @@ interface TextDetectorState {
   setLoadingPage: (pageKey: string, loading: boolean) => void
   setOcrLoadingPage: (pageKey: string, loading: boolean) => void
   clearFreshlyDetected: (pageKey: string) => void
+  /** Trigger flash animation for the given pages (manual OCR trigger) */
+  flashPages: (pageKeys: string[]) => void
 
   toggleTranscriptPopover: (open?: boolean) => void
   setHoveredLine: (line: { pageKey: string; x1: number; y1: number; x2: number; y2: number } | null) => void
@@ -270,6 +272,14 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
   clearFreshlyDetected: (pageKey) => {
     const freshlyDetectedPages = new Set(get().freshlyDetectedPages)
     freshlyDetectedPages.delete(pageKey)
+    set({ freshlyDetectedPages })
+  },
+
+  flashPages: (pageKeys) => {
+    const freshlyDetectedPages = new Set(get().freshlyDetectedPages)
+    for (const key of pageKeys) {
+      freshlyDetectedPages.add(key)
+    }
     set({ freshlyDetectedPages })
   },
 

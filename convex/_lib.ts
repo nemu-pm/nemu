@@ -15,4 +15,6 @@ export const installedSourceValidator = v.object({
   id: v.string(),
   registryId: v.string(),
   version: v.number(),
+  updatedAt: v.optional(v.number()),
+  removed: v.optional(v.boolean()),
 });

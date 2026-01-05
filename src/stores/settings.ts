@@ -11,7 +11,7 @@ export interface SettingsStoreOps {
   getInstalledSources(): Promise<InstalledSourceSchema[]>;
   getInstalledSource(id: string): Promise<InstalledSourceSchema | null>;
   saveInstalledSource(source: InstalledSourceSchema): Promise<void>;
-  removeInstalledSource(id: string): Promise<void>;
+  removeInstalledSource(id: string, registryId: string): Promise<void>;
 }
 import type { CacheStore } from "@/data/cache";
 import { Keys, CacheKeys, LOCAL_REGISTRY_ID, parseSourceKey } from "@/data/keys";
@@ -198,8 +198,8 @@ export function createSettingsStore(
         registry.unloadSource(sourceId);
       }
 
-      // Remove from storage (id is composite key)
-      await ops.removeInstalledSource(compositeId);
+      // Tombstone in storage (id is composite key)
+      await ops.removeInstalledSource(compositeId, registryId);
 
       // Clear AIX cache
       await cacheStore.delete(CacheKeys.aix(registryId, sourceId));
@@ -294,6 +294,7 @@ export function createSettingsStore(
         id: Keys.source(registryId, sourceId),
         registryId,
         version: manifest.info?.version ?? 1,
+        updatedAt: Date.now(),
       });
 
       // Reload installed sources

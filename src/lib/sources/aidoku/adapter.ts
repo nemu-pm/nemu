@@ -32,6 +32,8 @@ import { SERVICE_URL, proxyUrl } from "@/config";
 import { getSourceSettingsStore } from "@/stores/source-settings";
 import { extractDefaults } from "@/lib/settings";
 import pMemoize, { pMemoizeClear } from "p-memoize";
+import { hasAgent, agentProxyFetch } from "@/lib/agent";
+import { handleSourceError } from "@/lib/sources/error-handler";
 
 /**
  * Track which sources have had their home refreshed this session.
@@ -165,6 +167,16 @@ export async function createAidokuMangaSource(
   cacheStore: CacheStore,
   icon?: string
 ): Promise<CreateAidokuSourceResult> {
+  // Use agent if available, otherwise fallback to CF Worker proxy
+  const useAgent = await hasAgent();
+  const customFetch: ProxyFetch | undefined = useAgent ? agentProxyFetch : undefined;
+
+  if (useAgent) {
+    console.log("[Aidoku] 🚀 Agent detected - using native TLS");
+  } else {
+    console.log("[Aidoku] ⚠️ No agent - using CF Worker proxy");
+  }
+
   // Load source via aidoku-js (handles Worker, sync HTTP, etc.)
   const asyncSource = await loadSource(aixBytes, sourceKey, {
     proxyUrl: `${SERVICE_URL}/proxy?url=`,
@@ -181,9 +193,10 @@ export async function createAidokuMangaSource(
         });
       },
     },
+    customFetch,
   });
 
-  const source = new AidokuMangaSourceAdapter(asyncSource, asyncSource.manifest, sourceKey, cacheStore, icon);
+  const source = new AidokuMangaSourceAdapter(asyncSource, asyncSource.manifest, sourceKey, cacheStore, icon, customFetch);
   return { source, settingsJson: asyncSource.settingsJson, manifest: asyncSource.manifest };
 }
 
@@ -214,6 +227,8 @@ export interface BrowsableSource extends MangaSource {
   readonly sourceKey: string;
 }
 
+type ProxyFetch = (url: string, options?: RequestInit) => Promise<Response>;
+
 class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, BrowsableSource {
   readonly id: string;
   readonly name: string;
@@ -226,14 +241,15 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
   private currentSearch: { query: string; page: number; filters: FilterValue[] } | null = null;
   private currentListing: { listing: Listing; page: number } | null = null;
   private _hasImageProcessor: boolean | null = null;
-  
+  private proxyFetch?: ProxyFetch;
+
   // Memoized fetchers - handle caching + concurrent request deduplication
   private fetchChapters: (mangaId: string) => Promise<AidokuChapter[]>;
   private fetchMangaDetails: (mangaId: string) => Promise<AidokuManga>;
   private fetchRawPages: (mangaId: string, chapterId: string) => Promise<AidokuPage[]>;
   private fetchImageBlob: (url: string, context: Record<string, string> | null) => Promise<Blob>;
 
-  constructor(asyncSource: AsyncAidokuSource, manifest: SourceManifest, sourceKey: string, cacheStore: CacheStore, icon?: string) {
+  constructor(asyncSource: AsyncAidokuSource, manifest: SourceManifest, sourceKey: string, cacheStore: CacheStore, icon?: string, proxyFetch?: ProxyFetch) {
     this.asyncSource = asyncSource;
     this.manifest = manifest;
     this.id = manifest.info.id;
@@ -241,6 +257,7 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
     this.icon = icon;
     this.sourceKey = sourceKey;
     this.cacheStore = cacheStore;
+    this.proxyFetch = proxyFetch;
     
     // p-memoize: caches results + dedupes concurrent calls with same key
     this.fetchChapters = pMemoize(
@@ -255,7 +272,10 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
       async (mangaId: string, chapterId: string) => {
         const chapters = await this.fetchChapters(mangaId);
         const chapter = chapters.find(c => c.key === chapterId) || { key: chapterId };
-        return asyncSource.getPageList({ key: mangaId }, chapter);
+        console.log(`[Aidoku] fetchRawPages: mangaId=${mangaId}, chapterId=${chapterId}`);
+        const pages = await asyncSource.getPageList({ key: mangaId }, chapter);
+        console.log(`[Aidoku] getPageList returned:`, pages);
+        return pages;
       },
       { cacheKey: ([mangaId, chapterId]) => `${mangaId}:${chapterId}` }
     );
@@ -285,15 +305,26 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
         }
 
         const { headers } = await asyncSource.modifyImageRequest(url);
-        // Build proxy headers from source-provided headers only
-        // (Swift does NOT add default Referer - source handles it via modifyImageRequest)
-        const proxyHeaders: Record<string, string> = {};
-        for (const [k, v] of Object.entries(headers)) {
-          proxyHeaders[`x-proxy-${k}`] = v;
+
+        let response: Response;
+
+        if (this.proxyFetch) {
+          // Use Agent or Extension proxy
+          console.log(`[Image] Proxy fetch: ${url.substring(0, 60)}...`);
+          response = await this.proxyFetch(url, { headers });
+          console.log(`[Image] Proxy response: ${response.status}`);
+        } else {
+          // Fallback to CF Worker proxy
+          const proxyHeaders: Record<string, string> = {};
+          for (const [k, v] of Object.entries(headers)) {
+            proxyHeaders[`x-proxy-${k}`] = v;
+          }
+          response = await fetch(proxyUrl(url), { headers: proxyHeaders });
         }
-        const response = await fetch(proxyUrl(url), { headers: proxyHeaders });
         if (!response.ok) {
-          throw new Error(`Failed to fetch image: ${response.status}`);
+          const err = new Error(`Failed to fetch image: ${response.status}`);
+          handleSourceError(err, `Image: ${url.substring(0, 50)}`);
+          throw err;
         }
         
         // Check if we need to process (descramble) the image
@@ -564,11 +595,13 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
 
   async getPages(mangaId: string, chapterId: string): Promise<Page[]> {
     const rawPages = await this.fetchRawPages(mangaId, chapterId);
+    console.log(`[Aidoku] getPages: ${rawPages.length} pages`, rawPages.slice(0, 3).map(p => ({ url: p.url?.substring(0, 60), context: p.context })));
 
     // Wrap each page with getImage() that uses memoized fetcher
     return rawPages.map((page, index) => ({
       index,
       getImage: () => {
+        console.log(`[Aidoku] getImage called for page ${index}: ${page.url?.substring(0, 60)}...`);
         if (!page.url) throw new Error("Page URL is empty");
         return this.fetchImageBlob(page.url, page.context ?? null);
       },

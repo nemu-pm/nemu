@@ -141,6 +141,7 @@ export class TachiyomiLocalRegistry implements SourceRegistryProvider {
       id: Keys.source(TACHIYOMI_LOCAL_REGISTRY_ID, sourceId),
       registryId: TACHIYOMI_LOCAL_REGISTRY_ID,
       version: ext.manifest.version,
+      updatedAt: Date.now(),
     });
   }
 

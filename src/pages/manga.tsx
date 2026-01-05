@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/responsive-dialog";
 import { MangaStatusBadge } from "@/components/manga-status-badge";
 import { usePageTitle } from "@/components/page-title";
+import { handleSourceError } from "@/lib/sources/error-handler";
 
 /** Convert LocalChapterProgress map to ChapterGrid-compatible format */
 function chapterProgressToGridFormat(
@@ -166,6 +167,7 @@ export function MangaPage() {
         }
       } catch (e) {
         if (cancelled) return;
+        handleSourceError(e, "Loading manga details");
         // Only show error if we have no cached data
         if (!manga) {
           setError(e instanceof Error ? e.message : String(e));

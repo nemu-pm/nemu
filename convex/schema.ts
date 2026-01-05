@@ -63,6 +63,8 @@ export default defineSchema({
         id: v.string(),
         registryId: v.string(),
         version: v.number(),
+        updatedAt: v.optional(v.number()), // For LWW sync conflict resolution
+        removed: v.optional(v.boolean()), // Tombstone: true = uninstalled
       })
     ),
     updatedAt: v.optional(v.number()),

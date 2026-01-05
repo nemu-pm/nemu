@@ -193,26 +193,33 @@ function createHistoryOps(localStore: IndexedDBUserDataStore): HistoryStoreOps {
 
 function createSettingsOps(localStore: IndexedDBUserDataStore): SettingsStoreOps {
   return {
-    getInstalledSources: () => localStore.getInstalledSources(),
-    getInstalledSource: (id: string) => localStore.getInstalledSource(id),
+    // Filter out tombstones (removed=true) for UI consumers
+    getInstalledSources: async () => {
+      const all = await localStore.getInstalledSources();
+      return all.filter((s) => !s.removed);
+    },
+    getInstalledSource: async (id: string) => {
+      const source = await localStore.getInstalledSource(id);
+      return source && !source.removed ? source : null;
+    },
     
     saveInstalledSource: async (source: Parameters<IndexedDBUserDataStore["saveInstalledSource"]>[0]) => {
-      // Save to local IDB first
+      // Save to local IDB first (ensures removed=false or undefined)
       await localStore.saveInstalledSource(source);
       
-      // Push per-item mutation to cloud (atomic, no race conditions)
+      // Push per-item mutation to cloud
       if (isAuthenticatedRef.current && convexRef.current) {
         await convexRef.current.mutation(api.settings.saveInstalledSource, { source });
       }
     },
     
-    removeInstalledSource: async (id: string) => {
-      // Remove from local IDB first
+    removeInstalledSource: async (id: string, registryId: string) => {
+      // Tombstone locally (sets removed=true with updatedAt)
       await localStore.removeInstalledSource(id);
       
-      // Push per-item mutation to cloud (atomic, no race conditions)
+      // Push tombstone to cloud
       if (isAuthenticatedRef.current && convexRef.current) {
-        await convexRef.current.mutation(api.settings.removeInstalledSource, { id });
+        await convexRef.current.mutation(api.settings.removeInstalledSource, { id, registryId });
       }
     },
   };

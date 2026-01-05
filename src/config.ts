@@ -15,3 +15,5 @@ export const convexProxyUrl = (url: string) => {
   return `${siteUrl}/proxy?url=${encodeURIComponent(url)}`;
 };
 
+// Bypass page base URL
+export const BYPASS_BASE = isDev ? "http://localhost:5662" : "https://nemu.pm";

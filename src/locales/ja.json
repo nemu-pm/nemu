@@ -286,7 +286,14 @@
     "uninstallSourceDescription": "「{{name}}」をアンインストールしてもよろしいですか？ソースは削除されますが、ライブラリデータは保持されます。",
     "uninstall": "アンインストール",
     "plugins": "プラグイン",
-    "noPlugins": "プラグインがインストールされていません。"
+    "noPlugins": "プラグインがインストールされていません。",
+    "agent": "Nemu Agent",
+    "agentDescription": "保護されたサイトへの互換性を向上させるデスクトップエージェント",
+    "agentConnected": "接続済み",
+    "agentVersion": "v{{version}}",
+    "agentNotRunning": "未起動",
+    "agentDownload": "ダウンロード",
+    "agentRefresh": "更新"
   },
   "sources": {
     "installing": "ソースをインストール中",
@@ -386,7 +393,30 @@
     "description": "アプリケーションで予期しないエラーが発生しました。WASMクラッシュまたは他のランタイムの問題が原因の可能性があります。",
     "showDetails": "エラーの詳細を表示",
     "copyLog": "エラーログをコピー",
-    "refreshPage": "ページを更新"
+    "refreshPage": "ページを更新",
+    "cloudflareBlocked": "Cloudflare保護を検出",
+    "cloudflareBlockedDescription": "このソースはCloudflareで保護されています。Nemu Agentをインストールしてバイパスしてください。",
+    "networkError": "ネットワークエラー",
+    "sourceError": "ソースエラー"
+  },
+  "cloudflare": {
+    "installTitle": "Nemu Agentが必要です",
+    "installDescription": "このソースはCloudflare保護をバイパスするためにNemu Agentが必要です。",
+    "installHint": "デスクトップエージェントをダウンロードして、保護されたサイトを自動的に処理します。",
+    "downloadAgent": "Agentをダウンロード",
+    "bypassingTitle": "保護をバイパス中",
+    "successTitle": "バイパス完了",
+    "failedTitle": "バイパス失敗",
+    "statusSuccess": "検証が完了しました！リクエストを再試行中...",
+    "statusFailed": "検証を完了できませんでした。再試行してください。",
+    "statusIdle": "Cloudflare保護のバイパスを準備中...",
+    "stepWaiting": "検証を完了",
+    "stepDone": "完了",
+    "stepFailed": "検証失敗",
+    "agentOpening": "Nemu Agentで検証ウィンドウを開いています...",
+    "agentWaiting": "エージェントウィンドウで検証を完了してください。",
+    "agentStepOpening": "エージェントウィンドウを開く",
+    "waitingInstruction": "検証ウィンドウが開きました。チェックボックスをクリックするか、キャプチャを完了して続行してください。"
   },
   "plugin": {
     "japaneseLearning": {

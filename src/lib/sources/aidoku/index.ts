@@ -23,4 +23,4 @@ export type {
   HomeComponentValue,
 } from "@nemu.pm/aidoku-runtime";
 
-export { FilterType, MangaStatus, ContentRating, Viewer } from "@nemu.pm/aidoku-runtime";
+export { FilterType, MangaStatus, ContentRating, Viewer, CloudflareBlockedError } from "@nemu.pm/aidoku-runtime";

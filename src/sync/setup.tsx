@@ -244,12 +244,51 @@ export function SyncSetup() {
   useEffect(() => {
     if (!cloudSettings || subscriptionStoppedRef.current) return;
     (async () => {
-      await localStore.saveSettings({ installedSources: cloudSettings.installedSources ?? [] });
-      // Update settings store directly (no initialize()).
-      const installedSources = cloudSettings.installedSources ?? [];
-      const installedIds = new Set(installedSources.map((s) => s.id));
+      // Merge cloud installedSources with local using LWW (last-write-wins) by updatedAt.
+      // Tombstones (removed=true) are preserved and synced for multi-device uninstall.
+      const cloudSources = cloudSettings.installedSources ?? [];
+      const localSources = await localStore.getInstalledSources();
+      const localByKey = new Map(localSources.map((s) => [s.id, s]));
+      const cloudByKey = new Map(cloudSources.map((s) => [s.id, s]));
+      
+      const mergedSources: typeof localSources = [];
+      const seenIds = new Set<string>();
+      
+      // Process all sources from both sides, using LWW
+      const allIds = new Set([...localByKey.keys(), ...cloudByKey.keys()]);
+      for (const id of allIds) {
+        seenIds.add(id);
+        const localSrc = localByKey.get(id);
+        const cloudSrc = cloudByKey.get(id);
+        
+        if (localSrc && cloudSrc) {
+          // Both have it - use LWW by updatedAt
+          const cloudTime = cloudSrc.updatedAt ?? 0;
+          const localTime = localSrc.updatedAt ?? 0;
+          if (localTime > cloudTime) {
+            mergedSources.push(localSrc);
+          } else if (cloudTime > localTime) {
+            mergedSources.push(cloudSrc);
+          } else {
+            // Same updatedAt - prefer higher version, then local
+            mergedSources.push(localSrc.version >= cloudSrc.version ? localSrc : cloudSrc);
+          }
+        } else if (cloudSrc) {
+          // Cloud only - add (could be install from another device, or tombstone)
+          mergedSources.push(cloudSrc);
+        } else if (localSrc) {
+          // Local only - keep (install mutation in-flight, or tombstone)
+          mergedSources.push(localSrc);
+        }
+      }
+      
+      await localStore.saveSettings({ installedSources: mergedSources });
+      
+      // Update settings store - filter out tombstones for UI
+      const activeSources = mergedSources.filter((s) => !s.removed);
+      const installedIds = new Set(activeSources.map((s) => s.id));
       stores.useSettingsStore.setState((state) => ({
-        installedSources,
+        installedSources: activeSources,
         availableSources: state.availableSources.map((s) => ({
           ...s,
           installed: installedIds.has(`${s.registryId}:${s.id}`),

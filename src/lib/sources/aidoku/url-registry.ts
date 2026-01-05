@@ -184,6 +184,7 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
       id: compositeId,
       registryId,
       version: entry.version,
+      updatedAt: Date.now(),
     });
   }
 

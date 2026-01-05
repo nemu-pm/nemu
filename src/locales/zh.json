@@ -286,7 +286,14 @@
     "uninstallSourceDescription": "确定要卸载「{{name}}」吗？这将移除源但保留您的书架数据。",
     "uninstall": "卸载",
     "plugins": "插件",
-    "noPlugins": "未安装插件。"
+    "noPlugins": "未安装插件。",
+    "agent": "Nemu Agent",
+    "agentDescription": "桌面代理，更好地支持受保护的网站",
+    "agentConnected": "已连接",
+    "agentVersion": "v{{version}}",
+    "agentNotRunning": "未运行",
+    "agentDownload": "下载",
+    "agentRefresh": "刷新"
   },
   "sources": {
     "installing": "正在安装源",
@@ -386,7 +393,30 @@
     "description": "应用程序遇到意外错误。这可能是由 WASM 崩溃或其他运行时问题引起的。",
     "showDetails": "显示完整错误详情",
     "copyLog": "复制错误日志",
-    "refreshPage": "刷新页面"
+    "refreshPage": "刷新页面",
+    "cloudflareBlocked": "检测到 Cloudflare 保护",
+    "cloudflareBlockedDescription": "此源受 Cloudflare 保护。请安装 Nemu Agent 以绕过。",
+    "networkError": "网络错误",
+    "sourceError": "源错误"
+  },
+  "cloudflare": {
+    "installTitle": "需要 Nemu Agent",
+    "installDescription": "此源需要 Nemu Agent 来绕过 Cloudflare 保护。",
+    "installHint": "下载桌面代理以自动处理受保护的网站。",
+    "downloadAgent": "下载 Agent",
+    "bypassingTitle": "正在绕过保护",
+    "successTitle": "绕过成功",
+    "failedTitle": "绕过失败",
+    "statusSuccess": "验证完成！正在重试请求...",
+    "statusFailed": "无法完成验证，请重试。",
+    "statusIdle": "正在准备绕过 Cloudflare 保护...",
+    "stepWaiting": "完成验证",
+    "stepDone": "完成",
+    "stepFailed": "验证失败",
+    "agentOpening": "正在 Nemu Agent 中打开验证窗口...",
+    "agentWaiting": "请在代理窗口中完成验证。",
+    "agentStepOpening": "打开代理窗口",
+    "waitingInstruction": "验证窗口已打开。请点击复选框或完成验证码以继续。"
   },
   "plugin": {
     "japaneseLearning": {

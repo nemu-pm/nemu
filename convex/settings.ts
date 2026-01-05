@@ -91,11 +91,12 @@ export const saveInstalledSource = mutation({
 });
 
 /**
- * Remove a single installed source by id.
+ * Remove a single installed source by id (tombstone).
  */
 export const removeInstalledSource = mutation({
   args: {
     id: v.string(),
+    registryId: v.string(),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuth(ctx);
@@ -106,12 +107,26 @@ export const removeInstalledSource = mutation({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .first();
 
+    // Tombstone: set removed=true instead of filtering out
+    const tombstone = {
+      id: args.id,
+      registryId: args.registryId,
+      version: 0,
+      updatedAt: now,
+      removed: true,
+    };
+
     if (existing) {
-      const sources = existing.installedSources.filter(
-        (s) => s.id !== args.id
-      );
+      const sources = existing.installedSources.filter((s) => s.id !== args.id);
+      sources.push(tombstone);
       await ctx.db.patch(existing._id, {
         installedSources: sources,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("settings", {
+        userId,
+        installedSources: [tombstone],
         updatedAt: now,
       });
     }

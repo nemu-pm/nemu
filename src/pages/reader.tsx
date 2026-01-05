@@ -23,6 +23,7 @@ import {
   Settings02Icon,
 } from "@hugeicons/core-free-icons";
 import { formatChapterTitle } from "@/lib/format-chapter";
+import { handleSourceError } from "@/lib/sources/error-handler";
 import {
   ReaderPluginProvider,
   usePluginPageOverlays,
@@ -1002,7 +1003,8 @@ export function ReaderPage() {
           return next;
         });
       } catch (e) {
-        console.error(`Failed to load page ${item.key}:`, e);
+        console.log("[Reader] Caught error:", e);
+        handleSourceError(e, `Failed to load page ${item.key}`);
       } finally {
         loadingImageKeysRef.current.delete(item.key);
       }

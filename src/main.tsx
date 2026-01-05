@@ -19,6 +19,7 @@ import { SyncSetup } from "./sync/setup"
 import { Toaster } from "./components/ui/sonner"
 import { WelcomeWizard, useWelcomeWizard } from "./components/welcome-wizard"
 import { SourceInstallDialog } from "./components/source-install-dialog"
+import { CloudflareBypassDialog } from "./components/cloudflare-bypass-dialog"
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string)
 
@@ -66,12 +67,17 @@ function ToastPosition() {
 function WelcomeWizardWrapper() {
   const { shouldShow, markCompleted } = useWelcomeWizard();
   
+  // Skip wizard on utility routes (debug, etc.)
+  const pathname = window.location.pathname;
+  const skipRoutes = ["/debug"];
+  const shouldSkip = skipRoutes.some(r => pathname.startsWith(r));
+  
   const handleComplete = () => {
     markCompleted();
     router.navigate({ to: "/browse" });
   };
   
-  return <WelcomeWizard open={shouldShow} onComplete={handleComplete} />;
+  return <WelcomeWizard open={shouldShow && !shouldSkip} onComplete={handleComplete} />;
 }
 
 // Router wrapper - MEMOIZED to prevent parent re-renders from cascading
@@ -103,6 +109,7 @@ createRoot(document.getElementById("root")!).render(
             <DataServicesProvider>
               <SyncSetup />
               <SourceInstallDialog />
+              <CloudflareBypassDialog />
               <RouterWithContext />
               <ToastPosition />
             </DataServicesProvider>

@@ -291,7 +291,14 @@
     "uninstallSourceDescription": "Are you sure you want to uninstall \"{{name}}\"? This will remove the source but keep your library data.",
     "uninstall": "Uninstall",
     "plugins": "Plugins",
-    "noPlugins": "No plugins installed."
+    "noPlugins": "No plugins installed.",
+    "agent": "Nemu Agent",
+    "agentDescription": "Desktop agent for better compatibility with protected sites",
+    "agentConnected": "Connected",
+    "agentVersion": "v{{version}}",
+    "agentNotRunning": "Not running",
+    "agentDownload": "Download",
+    "agentRefresh": "Refresh"
   },
   "sources": {
     "installing": "Installing Source",
@@ -397,7 +404,30 @@
     "description": "The application encountered an unexpected error. This might be caused by a WASM crash or other runtime issue.",
     "showDetails": "Show full error details",
     "copyLog": "Copy Error Log",
-    "refreshPage": "Refresh Page"
+    "refreshPage": "Refresh Page",
+    "cloudflareBlocked": "Cloudflare protection detected",
+    "cloudflareBlockedDescription": "This source is protected by Cloudflare. Install the Nemu Agent to bypass.",
+    "networkError": "Network error",
+    "sourceError": "Source error"
+  },
+  "cloudflare": {
+    "installTitle": "Nemu Agent Required",
+    "installDescription": "This source requires the Nemu Agent to bypass Cloudflare protection.",
+    "installHint": "Download the desktop agent to handle protected sites automatically.",
+    "downloadAgent": "Download Agent",
+    "bypassingTitle": "Bypassing Protection",
+    "successTitle": "Bypass Complete",
+    "failedTitle": "Bypass Failed",
+    "statusSuccess": "Verification complete! Retrying request...",
+    "statusFailed": "Could not complete verification. Please try again.",
+    "statusIdle": "Preparing to bypass Cloudflare protection...",
+    "stepWaiting": "Complete verification",
+    "stepDone": "Done",
+    "stepFailed": "Verification failed",
+    "agentOpening": "Opening verification window in Nemu Agent...",
+    "agentWaiting": "Please complete the verification in the agent window.",
+    "agentStepOpening": "Opening agent window",
+    "waitingInstruction": "A verification window has opened. Please click the checkbox or complete the captcha to continue."
   },
   "plugin": {
     "japaneseLearning": {

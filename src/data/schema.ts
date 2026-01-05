@@ -36,12 +36,14 @@ export const MangaMetadataSchema = z.object({
 });
 
 /**
- * An installed source
+ * An installed source (with tombstone support for sync)
  */
 export const InstalledSourceSchema = z.object({
   id: z.string(), // Composite: registryId:sourceId
   registryId: z.string(),
   version: z.number(),
+  updatedAt: z.number().optional(), // For LWW sync conflict resolution
+  removed: z.boolean().optional(), // Tombstone: true = uninstalled
 });
 
 /**
