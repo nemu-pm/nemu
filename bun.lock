@@ -19,7 +19,7 @@
         "@fontsource-variable/noto-serif-jp": "^5.2.8",
         "@hugeicons/core-free-icons": "^3.0.0",
         "@hugeicons/react": "^1.1.3",
-        "@nemu.pm/aidoku-runtime": "latest",
+        "@nemu.pm/aidoku-runtime": "^0.5.0",
         "@nemu.pm/tachiyomi-runtime": "latest",
         "@openrouter/ai-sdk-provider": "^1.5.4",
         "@radix-ui/react-dialog": "^1.1.1",
@@ -505,7 +505,7 @@
 
     "@mswjs/interceptors": ["@mswjs/interceptors@0.40.0", "", { "dependencies": { "@open-draft/deferred-promise": "^2.2.0", "@open-draft/logger": "^0.3.0", "@open-draft/until": "^2.0.0", "is-node-process": "^1.2.0", "outvariant": "^1.4.3", "strict-event-emitter": "^0.5.1" } }, "sha512-EFd6cVbHsgLa6wa4RljGj6Wk75qoHxUSyc5asLyyPSyuhIcdS2Q3Phw6ImS1q+CkALthJRShiYfKANcQMuMqsQ=="],
 
-    "@nemu.pm/aidoku-runtime": ["@nemu.pm/aidoku-runtime@0.4.0", "", { "dependencies": { "@variegated-coffee/serde-postcard-ts": "^0.1.4", "cheerio": "^1.0.0", "comlink": "^4.4.2", "fflate": "^0.8.2" }, "optionalDependencies": { "canvas": "^3.0.0-rc3" } }, "sha512-lV6jgCoajLRjwxrWYursizjR922jMJdQGAYhIqhGa3RGxRkML1zUkao+8M3gGZC1ahIo4FEkQ1XlBEkxLBpgxQ=="],
+    "@nemu.pm/aidoku-runtime": ["@nemu.pm/aidoku-runtime@0.5.0", "", { "dependencies": { "@variegated-coffee/serde-postcard-ts": "^0.1.4", "cheerio": "^1.0.0", "comlink": "^4.4.2", "fflate": "^0.8.2" }, "optionalDependencies": { "canvas": "^3.0.0-rc3" } }, "sha512-bQq/zVFvr6MhoEPVZ0SgphsDB3E35wRPeFimregC5Os5sFvhHLCINnJLW5oJPdd6VuxypfHLQuHH7jqiLwLGiw=="],
 
     "@nemu.pm/tachiyomi-runtime": ["@nemu.pm/tachiyomi-runtime@0.3.0", "", { "dependencies": { "comlink": "^4.4.2" }, "optionalDependencies": { "canvas": "^3.0.0-rc3" } }, "sha512-2zdtmMnrmp0Hqu2ZnwP7YPyMFNK6wwbVcgOO37N1E0zCV3Q/cWdxqMypnwq/rtWObTHi5wxKBEiZKOVQJbLE0g=="],
 
