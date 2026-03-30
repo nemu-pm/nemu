@@ -1,9 +1,8 @@
 import i18n from '@/lib/i18n'
-import { cancelAuthRetries, getAuthGateStatus, requireAuthOrPrompt } from '@/lib/auth-gate'
+import { getAuthGateStatus, requireAuthOrPrompt } from '@/lib/auth-gate'
 import type { ReaderPlugin, ReaderPluginContext } from '../../types'
 import type { Setting } from '@/lib/settings'
-import { getSyncStore } from '@/stores/sync'
-import { clearPendingOcrAuthRetries, useTextDetectorStore, disposeWorker } from './store'
+import { useTextDetectorStore, disposeWorker } from './store'
 import { DetectionOverlay, JapaneseLearningGlobalUI, OcrNavbarIcon, OcrTranscriptPopoverContent } from './ui'
 import { NemuChatNavbarIcon } from './chat/ui'
 import { useNemuChatStore, buildHiddenContextFromReader, createChatStreamCallbacks, sendChatGreeting } from './chat'
@@ -11,12 +10,6 @@ import { isJapaneseEnabled } from './language'
 import iconImage from './icon.png'
 import { getOcrPageRef } from './page-ref'
 import { jlDebugLog } from './debug'
-import { createAuthResolutionRetryController, getVisiblePageLoadPlan } from './auth-retry'
-import {
-  advanceJapaneseLearningReaderRetryScope,
-  clearJapaneseLearningReaderRetryScope,
-  getJapaneseLearningReaderRetryScope,
-} from './reader-session'
 
 const t = (key: string) => i18n.t(`plugin.japaneseLearning.${key}`)
 
@@ -84,24 +77,6 @@ const getSettingsSchema = (): Setting[] => [
   },
 ]
 
-function resetDeferredReaderActions() {
-  const retryScope = getJapaneseLearningReaderRetryScope()
-  if (retryScope) {
-    cancelAuthRetries(retryScope)
-  }
-  clearPendingOcrAuthRetries()
-}
-
-function advanceReaderSessionScope() {
-  resetDeferredReaderActions()
-  return advanceJapaneseLearningReaderRetryScope()
-}
-
-function clearReaderSessionScope() {
-  resetDeferredReaderActions()
-  clearJapaneseLearningReaderRetryScope()
-}
-
 async function handleOcrNavbarClick(ctx: ReaderPluginContext) {
   try {
     const store = useTextDetectorStore.getState()
@@ -137,14 +112,7 @@ async function handleOcrNavbarClick(ctx: ReaderPluginContext) {
       return
     }
 
-    if (!requireAuthOrPrompt({
-      retryScope: getJapaneseLearningReaderRetryScope() ?? undefined,
-      onResolvedAuthenticated: () => {
-        void handleOcrNavbarClick(ctx)
-      },
-    })) {
-      return
-    }
+    if (!requireAuthOrPrompt()) return
 
     setPendingPopoverOpen(true)
 
@@ -169,14 +137,7 @@ async function handleOcrNavbarClick(ctx: ReaderPluginContext) {
 }
 
 async function handleNemuChatClick(ctx: ReaderPluginContext) {
-  if (!requireAuthOrPrompt({
-    retryScope: getJapaneseLearningReaderRetryScope() ?? undefined,
-    onResolvedAuthenticated: () => {
-      void handleNemuChatClick(ctx)
-    },
-  })) {
-    return
-  }
+  if (!requireAuthOrPrompt()) return
 
   const store = useNemuChatStore.getState()
   const hiddenContext = store.getContextForRequest() ?? buildHiddenContextFromReader(ctx)
@@ -320,12 +281,8 @@ export const japaneseLearningPlugin: ReaderPlugin = {
   // Lifecycle hooks
   hooks: {
     onMount: (ctx: ReaderPluginContext) => {
-      advanceReaderSessionScope()
       // Skip if not Japanese source
-      if (!isJapaneseSource(ctx)) {
-        authResolutionRetry.clear()
-        return
-      }
+      if (!isJapaneseSource(ctx)) return
       // Reset debounce timer on mount so auto-detect waits for images to load
       lastAutoDetectTime = Date.now()
       // Load cached detections for all visible pages on mount
@@ -333,7 +290,6 @@ export const japaneseLearningPlugin: ReaderPlugin = {
     },
 
     onPageChange: (_pageIndex: number, ctx: ReaderPluginContext) => {
-      advanceReaderSessionScope()
       // Close transcript popover on page change
       useTextDetectorStore.getState().toggleTranscriptPopover(false)
       // Skip if not Japanese source
@@ -343,11 +299,9 @@ export const japaneseLearningPlugin: ReaderPlugin = {
     },
 
     onChapterChange: (_chapterId: string, ctx: ReaderPluginContext) => {
-      advanceReaderSessionScope()
       // If we moved into a non-JP chapter (and not enabled for all languages),
       // ensure we stop any in-flight detection and drop stale results.
       if (!isJapaneseSource(ctx)) {
-        authResolutionRetry.clear()
         const { clearDetections } = useTextDetectorStore.getState()
         clearDetections()
         disposeWorker()
@@ -359,8 +313,6 @@ export const japaneseLearningPlugin: ReaderPlugin = {
     },
 
     onUnmount: () => {
-      clearReaderSessionScope()
-      authResolutionRetry.clear()
       // Clear debounce timer
       if (autoDetectDebounceTimer) {
         clearTimeout(autoDetectDebounceTimer)
@@ -383,8 +335,6 @@ export const japaneseLearningPlugin: ReaderPlugin = {
   },
 
   teardown: () => {
-    clearReaderSessionScope()
-    authResolutionRetry.clear()
     // Cleanup on plugin disable
     const { clearDetections } = useTextDetectorStore.getState()
     clearDetections()
@@ -415,12 +365,6 @@ export function isJapaneseSource(ctx: ReaderPluginContext): boolean {
 let autoDetectDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let lastAutoDetectTime = 0
 const AUTO_DETECT_DEBOUNCE_MS = 5000
-const authResolutionRetry = createAuthResolutionRetryController<ReaderPluginContext>(
-  getSyncStore(),
-  (ctx) => {
-    void loadCachedForVisiblePages(ctx)
-  }
-)
 
 /**
  * Load cached detections for visible pages + prefetch next pages, with debounced auto-detection
@@ -429,22 +373,11 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
   // Hard guard: never load/run detections when plugin isn't enabled for this chapter.
   // (Prevents any accidental calls from starting auto-detect on non-JP sessions.)
   const enabled = isJapaneseSource(ctx)
-  if (!enabled) {
-    authResolutionRetry.clear()
-    return
-  }
+  if (!enabled) return
 
   const store = useTextDetectorStore.getState()
   const { settings, transcripts, ocrLoadingPages, loadingPages, runOcr, loadFromCache } = store
-  const authStatus = getAuthGateStatus()
-  // Auto-detect should run whenever the plugin is enabled for this context.
-  // (This includes enableForAllLanguages + Japanese-only sources; chapterLanguage can be null/stale in scrolling windows.)
-  const loadPlan = getVisiblePageLoadPlan(authStatus, settings.autoDetect && enabled)
-  if (loadPlan.retryWhenAuthSettles) {
-    authResolutionRetry.schedule(ctx)
-  } else {
-    authResolutionRetry.clear()
-  }
+  const autoDetectAllowed = settings.autoDetect && enabled && getAuthGateStatus() === 'authenticated'
 
   // Calculate pages to process: visible pages + prefetch next pages
   // In two-page mode, prefetch 2 pages; in single page mode, prefetch 1 page
@@ -481,7 +414,7 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
     if (fromCache) continue
 
     // Only auto-run model detection for Japanese chapters.
-    if (!loadPlan.runAutoDetect) continue
+    if (!autoDetectAllowed) continue
 
     pagesToDetect.push(ref)
   }

@@ -11,7 +11,6 @@ import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../../../../../convex/_generated/api'
 import { jlDebugLog } from './debug'
 import { getAuthGateStatus, useAuthGate } from '@/lib/auth-gate'
-import { getSyncStore } from '@/stores/sync'
 
 const storage = createPluginStorage('japanese-learning')
 
@@ -122,39 +121,6 @@ export function disposeWorker() {
   w.terminate()
 }
 
-interface PendingOcrAuthRetry {
-  pageKey: string
-  image: Blob
-  cacheKey?: OcrPageCacheKeyV3
-}
-
-const pendingOcrAuthRetries = new Map<string, PendingOcrAuthRetry>()
-let pendingOcrAuthRetryUnsubscribe: (() => void) | null = null
-
-function cleanupPendingOcrAuthRetrySubscriptionIfIdle() {
-  if (pendingOcrAuthRetries.size > 0) return
-  pendingOcrAuthRetryUnsubscribe?.()
-  pendingOcrAuthRetryUnsubscribe = null
-}
-
-export function clearPendingOcrAuthRetries(pageKey?: string) {
-  if (pageKey == null) {
-    pendingOcrAuthRetries.clear()
-    pendingOcrAuthRetryUnsubscribe?.()
-    pendingOcrAuthRetryUnsubscribe = null
-    return
-  }
-
-  pendingOcrAuthRetries.delete(pageKey)
-  cleanupPendingOcrAuthRetrySubscriptionIfIdle()
-}
-
-function resetPendingOcrAuthRetries() {
-  pendingOcrAuthRetries.clear()
-  pendingOcrAuthRetryUnsubscribe?.()
-  pendingOcrAuthRetryUnsubscribe = null
-}
-
 /** Handle OCR rejection due to missing auth — clears pending UI and optionally prompts sign-in. */
 function handleOcrAuthFailure(prompt: boolean) {
   const state = useTextDetectorStore.getState()
@@ -177,29 +143,6 @@ function handleOcrAuthFailure(prompt: boolean) {
   if (prompt && (awaitingPopover || awaitingSheet)) {
     useAuthGate.getState().promptSignIn()
   }
-}
-
-function schedulePendingOcrAuthRetry(request: PendingOcrAuthRetry) {
-  pendingOcrAuthRetries.set(request.pageKey, request)
-  if (pendingOcrAuthRetryUnsubscribe) return
-
-  pendingOcrAuthRetryUnsubscribe = getSyncStore().subscribe((state) => {
-    if (state.isLoading) return
-
-    const pendingRequests = Array.from(pendingOcrAuthRetries.values())
-    resetPendingOcrAuthRetries()
-    if (pendingRequests.length === 0) return
-
-    if (state.isAuthenticated) {
-      const store = useTextDetectorStore.getState()
-      pendingRequests.forEach(({ pageKey, image, cacheKey }) => {
-        store.runOcr(pageKey, image, cacheKey)
-      })
-      return
-    }
-
-    handleOcrAuthFailure(true)
-  })
 }
 
 // ============================================================================
@@ -317,7 +260,6 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
     // Cancel any in-flight grammar analysis.
     grammarAbortController?.abort()
     grammarAbortController = null
-    clearPendingOcrAuthRetries()
 
     const prev = get().boxPopout?.croppedImageUrl
     if (prev && typeof window !== 'undefined') URL.revokeObjectURL(prev)
@@ -425,11 +367,6 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
     grammarAbortController?.abort()
     grammarAbortController = null
 
-    const pendingBoxPageKey = get().ocrResult.loading ? get().boxSelection?.pageKey : undefined
-    if (pendingBoxPageKey) {
-      clearPendingOcrAuthRetries(pendingBoxPageKey)
-    }
-
     const prev = get().boxPopout?.croppedImageUrl
     if (prev && typeof window !== 'undefined') URL.revokeObjectURL(prev)
     set({
@@ -468,10 +405,6 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
 
   runOcr: (pageKey, image, cacheKey) => {
     const authStatus = getAuthGateStatus()
-    if (authStatus === 'loading') {
-      schedulePendingOcrAuthRetry({ pageKey, image, cacheKey })
-      return
-    }
     if (authStatus !== 'authenticated') {
       handleOcrAuthFailure(authStatus === 'unauthenticated')
       return

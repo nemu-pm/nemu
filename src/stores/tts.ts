@@ -1,15 +1,8 @@
 import { create } from 'zustand'
 import { toast } from 'sonner'
 import i18n from '@/lib/i18n'
-import { getSyncStore } from '@/stores/sync'
 import { getAuthHeaders } from '@/lib/auth-client'
-import { useAuthGate } from '@/lib/auth-gate'
-import {
-  ensureTtsAuthReady,
-  isTtsAuthStateError,
-  TtsAuthPendingError,
-  TtsAuthRequiredError,
-} from './tts-auth'
+import { getAuthGateStatus, useAuthGate } from '@/lib/auth-gate'
 
 type TtsSource = 'sentence' | 'transcript' | 'voice'
 
@@ -123,13 +116,6 @@ type PrefetchTask = { id: string; text: string; options?: TtsRequestOptions }
 const prefetchQueue: PrefetchTask[] = []
 let prefetchActive = false
 const prefetchControllers = new Map<string, AbortController>()
-
-interface PendingPlaybackAuthRetry {
-  id: string
-  text: string
-  options?: TtsRequestOptions
-  requestId: number
-}
 
 function isAbortError(err: unknown): boolean {
   if (!err) return false
@@ -545,20 +531,14 @@ function cleanupAudio() {
   audioEl = null
 }
 
-async function requestTtsAudio(
-  text: string,
-  options?: TtsRequestOptions,
-  signal?: AbortSignal,
-  authBehavior: 'prompt' | 'silent' = 'prompt'
-): Promise<Response> {
-  const shouldPrompt = authBehavior === 'prompt'
-  ensureTtsAuthReady(
-    getSyncStore().getState(),
-    () => {
+async function requestTtsAudio(text: string, options?: TtsRequestOptions, signal?: AbortSignal): Promise<Response> {
+  const authStatus = getAuthGateStatus()
+  if (authStatus !== 'authenticated') {
+    if (authStatus === 'unauthenticated') {
       useAuthGate.getState().promptSignIn()
-    },
-    { promptOnUnauthenticated: shouldPrompt }
-  )
+    }
+    throw new Error('Authentication required')
+  }
   console.log('[TTS] Requesting audio', {
     url: `${CONVEX_SITE_URL}/tts`,
     textLength: text.length,
@@ -591,16 +571,11 @@ async function requestTtsAudio(
   
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
-    // Defense-in-depth: ensureTtsAuthReady() guards before fetch, but the
-    // session token can expire mid-flight, so handle server-side 401 too.
+    // Defense-in-depth: auth is checked before fetch, but the session token
+    // can expire mid-flight, so handle server-side 401 too.
     if (response.status === 401) {
-      if (getSyncStore().getState().isLoading) {
-        throw new TtsAuthPendingError(detail || 'Authentication is still loading')
-      }
-      if (shouldPrompt) {
-        useAuthGate.getState().promptSignIn()
-      }
-      throw new TtsAuthRequiredError(detail || 'Authentication required')
+      useAuthGate.getState().promptSignIn()
+      throw new Error(detail || 'Authentication required')
     }
     console.error('[TTS] Request failed', { status: response.status, detail })
     throw new Error(detail || `TTS request failed (${response.status})`)
@@ -618,9 +593,6 @@ export function createTtsId(prefix: string, text: string): string {
 }
 
 export const useTtsStore = create<TTSState>((set, get) => {
-  let pendingPlaybackAuthRetry: PendingPlaybackAuthRetry | null = null
-  let pendingPlaybackAuthRetryUnsubscribe: (() => void) | null = null
-
   const setLoadingIds = (updater: (prev: Set<string>) => Set<string>) => {
     set((state) => ({ loadingIds: updater(state.loadingIds) }))
   }
@@ -652,41 +624,6 @@ export const useTtsStore = create<TTSState>((set, get) => {
     }
   }
 
-  const clearPendingPlaybackAuthRetry = () => {
-    pendingPlaybackAuthRetry = null
-    pendingPlaybackAuthRetryUnsubscribe?.()
-    pendingPlaybackAuthRetryUnsubscribe = null
-  }
-
-  const schedulePendingPlaybackAuthRetry = (retry: PendingPlaybackAuthRetry) => {
-    pendingPlaybackAuthRetry = retry
-    if (pendingPlaybackAuthRetryUnsubscribe) return
-
-    pendingPlaybackAuthRetryUnsubscribe = getSyncStore().subscribe((authState) => {
-      if (authState.isLoading) return
-
-      const pendingRetry = pendingPlaybackAuthRetry
-      clearPendingPlaybackAuthRetry()
-      if (!pendingRetry) return
-
-      const playbackState = get()
-      const isStillCurrent =
-        playbackState.currentAudioId === pendingRetry.id &&
-        playbackState.isLoading &&
-        activeRequestId === pendingRetry.requestId
-
-      if (!isStillCurrent) return
-
-      if (authState.isAuthenticated) {
-        void get().play(pendingRetry.id, pendingRetry.text, pendingRetry.options)
-        return
-      }
-
-      stopImmediate()
-      useAuthGate.getState().promptSignIn()
-    })
-  }
-
   const drainPrefetchQueue = async () => {
     if (prefetchActive) return
     const task = prefetchQueue.shift()
@@ -702,7 +639,7 @@ export const useTtsStore = create<TTSState>((set, get) => {
     const controller = new AbortController()
     prefetchControllers.set(task.id, controller)
     try {
-      const response = await requestTtsAudio(task.text, task.options, controller.signal, 'silent')
+      const response = await requestTtsAudio(task.text, task.options, controller.signal)
       const contentType = response.headers.get('Content-Type') || ''
       const ttsFormat = response.headers.get('X-TTS-Format') || ''
       const isPcm = ttsFormat ? ttsFormat.startsWith('pcm_') : true
@@ -767,7 +704,7 @@ export const useTtsStore = create<TTSState>((set, get) => {
         set((state) => ({ audioCache: new Map(state.audioCache).set(task.id, blob) }))
       }
     } catch (err) {
-      if (!isAbortError(err) && !isTtsAuthStateError(err)) {
+      if (!isAbortError(err)) {
         console.warn('[TTS] Prefetch failed', err)
       }
     } finally {
@@ -1271,7 +1208,6 @@ export const useTtsStore = create<TTSState>((set, get) => {
   }
 
   const stopImmediate = () => {
-    clearPendingPlaybackAuthRetry()
     clearPcmPeakState(get().currentAudioId)
     cleanupAudio()
     clearPrefetchQueue()
@@ -1353,19 +1289,11 @@ export const useTtsStore = create<TTSState>((set, get) => {
 
       try {
         abortController = new AbortController()
-        const response = await requestTtsAudio(trimmed, options, abortController.signal, 'prompt')
+        const response = await requestTtsAudio(trimmed, options, abortController.signal)
         if (requestId !== activeRequestId) return
         await playStream(response, id, requestId)
       } catch (err) {
         if (requestId !== activeRequestId || isAbortError(err)) return
-        if (err instanceof TtsAuthPendingError) {
-          schedulePendingPlaybackAuthRetry({ id, text: trimmed, options, requestId })
-          return
-        }
-        if (isTtsAuthStateError(err)) {
-          stopImmediate()
-          return
-        }
         const errInfo = err instanceof Error 
           ? { name: err.name, message: err.message, stack: err.stack?.slice(0, 200) }
           : err instanceof DOMException
