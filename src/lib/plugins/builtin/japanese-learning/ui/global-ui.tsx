@@ -17,6 +17,7 @@ export function JapaneseLearningGlobalUI() {
   const setToolContextProvider = useNemuChatStore((s) => s.setToolContextProvider)
   const fadeOut = useTtsStore((s) => s.fadeOut)
   const lastPageRef = useRef<number | null>(null)
+  const unlockInteractionRef = useRef(ctx.unlockInteraction)
 
   // Check if plugin should be enabled for this source
   const isEnabled = isJapaneseSource(ctx)
@@ -34,6 +35,16 @@ export function JapaneseLearningGlobalUI() {
       return () => clearTimeout(timer)
     }
   }, [ocrSheetOpen, ctx])
+
+  useEffect(() => {
+    unlockInteractionRef.current = ctx.unlockInteraction
+  }, [ctx.unlockInteraction])
+
+  useEffect(() => {
+    return () => {
+      unlockInteractionRef.current(PLUGIN_ID)
+    }
+  }, [])
 
   useEffect(() => {
     setContextProvider(() => buildHiddenContextFromReader(ctx))

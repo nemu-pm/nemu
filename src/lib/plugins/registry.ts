@@ -20,6 +20,13 @@ function saveEnabledState(state: Record<string, boolean>) {
   }
 }
 
+export function isPluginEnabledForRuntime(
+  plugin: ReaderPlugin,
+  enabledState: Record<string, boolean>
+): boolean {
+  return enabledState[plugin.manifest.id] ?? plugin.manifest.defaultEnabled ?? true
+}
+
 interface PluginRegistryState {
   /** All registered plugins */
   plugins: Map<string, ReaderPlugin>
@@ -57,8 +64,7 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
       saveEnabledState(enabledState)
     }
 
-    // Only run setup if enabled
-    if (enabledState[id]) {
+    if (isPluginEnabledForRuntime(plugin, enabledState)) {
       plugin.setup?.()
     }
 
@@ -82,17 +88,19 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
   setEnabled: (pluginId: string, enabled: boolean) => {
     const { plugins, enabledState } = get()
     const plugin = plugins.get(pluginId)
-    const wasEnabled = enabledState[pluginId] ?? true
+    const wasEnabled = plugin ? isPluginEnabledForRuntime(plugin, enabledState) : enabledState[pluginId] ?? true
 
-    if (plugin && wasEnabled !== enabled) {
-      if (enabled) {
+    const next = { ...enabledState, [pluginId]: enabled }
+    const willBeEnabled = plugin ? isPluginEnabledForRuntime(plugin, next) : enabled
+
+    if (plugin && wasEnabled !== willBeEnabled) {
+      if (willBeEnabled) {
         plugin.setup?.()
       } else {
         plugin.teardown?.()
       }
     }
 
-    const next = { ...enabledState, [pluginId]: enabled }
     saveEnabledState(next)
     set({ enabledState: next })
   },
@@ -101,8 +109,7 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
     const { plugins, enabledState } = get()
     const plugin = plugins.get(pluginId)
     if (!plugin) return false
-    // Default to plugin's defaultEnabled or true
-    return enabledState[pluginId] ?? plugin.manifest.defaultEnabled ?? true
+    return isPluginEnabledForRuntime(plugin, enabledState)
   },
 
   getPlugin: (pluginId: string) => get().plugins.get(pluginId),
@@ -111,10 +118,6 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
 
   getEnabledPlugins: () => {
     const { plugins, enabledState } = get()
-    return Array.from(plugins.values()).filter((p) => {
-      const enabled = enabledState[p.manifest.id] ?? p.manifest.defaultEnabled ?? true
-      return enabled
-    })
+    return Array.from(plugins.values()).filter((p) => isPluginEnabledForRuntime(p, enabledState))
   },
 }))
-

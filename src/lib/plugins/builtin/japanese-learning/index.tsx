@@ -1,7 +1,9 @@
 import i18n from '@/lib/i18n'
+import { cancelAuthRetries, getAuthGateStatus, requireAuthOrPrompt } from '@/lib/auth-gate'
 import type { ReaderPlugin, ReaderPluginContext } from '../../types'
 import type { Setting } from '@/lib/settings'
-import { useTextDetectorStore, disposeWorker } from './store'
+import { getSyncStore } from '@/stores/sync'
+import { clearPendingOcrAuthRetries, useTextDetectorStore, disposeWorker } from './store'
 import { DetectionOverlay, JapaneseLearningGlobalUI, OcrNavbarIcon, OcrTranscriptPopoverContent } from './ui'
 import { NemuChatNavbarIcon } from './chat/ui'
 import { useNemuChatStore, buildHiddenContextFromReader, createChatStreamCallbacks, sendChatGreeting } from './chat'
@@ -9,6 +11,12 @@ import { isJapaneseEnabled } from './language'
 import iconImage from './icon.png'
 import { getOcrPageRef } from './page-ref'
 import { jlDebugLog } from './debug'
+import { createAuthResolutionRetryController, getVisiblePageLoadPlan } from './auth-retry'
+import {
+  advanceJapaneseLearningReaderRetryScope,
+  clearJapaneseLearningReaderRetryScope,
+  getJapaneseLearningReaderRetryScope,
+} from './reader-session'
 
 const t = (key: string) => i18n.t(`plugin.japaneseLearning.${key}`)
 
@@ -76,6 +84,124 @@ const getSettingsSchema = (): Setting[] => [
   },
 ]
 
+function resetDeferredReaderActions() {
+  const retryScope = getJapaneseLearningReaderRetryScope()
+  if (retryScope) {
+    cancelAuthRetries(retryScope)
+  }
+  clearPendingOcrAuthRetries()
+}
+
+function advanceReaderSessionScope() {
+  resetDeferredReaderActions()
+  return advanceJapaneseLearningReaderRetryScope()
+}
+
+function clearReaderSessionScope() {
+  resetDeferredReaderActions()
+  clearJapaneseLearningReaderRetryScope()
+}
+
+async function handleOcrNavbarClick(ctx: ReaderPluginContext) {
+  try {
+    const store = useTextDetectorStore.getState()
+    const {
+      transcripts,
+      detections,
+      ocrLoadingPages,
+      transcriptPopoverOpen,
+      toggleTranscriptPopover,
+      setPendingPopoverOpen,
+      flashPages,
+    } = store
+
+    if (transcriptPopoverOpen) {
+      toggleTranscriptPopover(false)
+      return
+    }
+
+    const visibleRefs = ctx.visiblePageIndices
+      .map((idx) => getOcrPageRef(ctx, idx))
+      .filter(Boolean)
+
+    const pagesToFlash = visibleRefs
+      .filter((ref) => ref && detections.has(ref.pageKey) && (detections.get(ref.pageKey)?.length ?? 0) > 0)
+      .map((ref) => ref!.pageKey)
+    if (pagesToFlash.length > 0) {
+      flashPages(pagesToFlash)
+    }
+
+    const allHaveTranscripts = visibleRefs.length > 0 && visibleRefs.every((ref) => transcripts.has(ref!.pageKey))
+    if (allHaveTranscripts) {
+      toggleTranscriptPopover(true)
+      return
+    }
+
+    if (!requireAuthOrPrompt({
+      retryScope: getJapaneseLearningReaderRetryScope() ?? undefined,
+      onResolvedAuthenticated: () => {
+        void handleOcrNavbarClick(ctx)
+      },
+    })) {
+      return
+    }
+
+    setPendingPopoverOpen(true)
+
+    for (const pageIndex of ctx.visiblePageIndices) {
+      const ref = getOcrPageRef(ctx, pageIndex)
+      if (!ref) continue
+      const imageUrl = ctx.getPageImageUrl(pageIndex)
+      if (!imageUrl) continue
+
+      if (transcripts.has(ref.pageKey) || ocrLoadingPages.has(ref.pageKey)) continue
+
+      try {
+        const imageBlob = await loadImageBlob(imageUrl)
+        store.runOcr(ref.pageKey, imageBlob, ref.cacheKey)
+      } catch (err) {
+        console.error(`[TextDetector] Failed to load image for page ${pageIndex}:`, err)
+      }
+    }
+  } catch (err) {
+    console.error('[TextDetector] onClick error:', err)
+  }
+}
+
+async function handleNemuChatClick(ctx: ReaderPluginContext) {
+  if (!requireAuthOrPrompt({
+    retryScope: getJapaneseLearningReaderRetryScope() ?? undefined,
+    onResolvedAuthenticated: () => {
+      void handleNemuChatClick(ctx)
+    },
+  })) {
+    return
+  }
+
+  const store = useNemuChatStore.getState()
+  const hiddenContext = store.getContextForRequest() ?? buildHiddenContextFromReader(ctx)
+  if (hiddenContext) {
+    store.open(hiddenContext)
+  }
+
+  const { messages, isStreaming } = useNemuChatStore.getState()
+  if (!hiddenContext || isStreaming || messages.length > 0) return
+
+  try {
+    await sendChatGreeting({
+      hiddenContext,
+      appLanguage: i18n.language,
+      toolContext: store.getToolContextForRequest(),
+      callbacks: createChatStreamCallbacks(),
+    })
+  } catch (err) {
+    console.error('[NemuChat] Greeting error:', err)
+    const chatState = useNemuChatStore.getState()
+    chatState.setShowTypingIndicator(false)
+    chatState.setStreaming(false)
+  }
+}
+
 /**
  * Japanese Learning Plugin
  */
@@ -107,11 +233,20 @@ export const japaneseLearningPlugin: ReaderPlugin = {
   setSettings: (values: Record<string, unknown>) => {
     const { setSettings } = useTextDetectorStore.getState()
     // Convert schema format (percentage) to internal format (0-1)
-    const mapped: Record<string, unknown> = { ...values }
+    const mapped: Parameters<typeof setSettings>[0] = {}
+    if (typeof values.autoDetect === 'boolean') {
+      mapped.autoDetect = values.autoDetect
+    }
+    if (typeof values.enableForAllLanguages === 'boolean') {
+      mapped.enableForAllLanguages = values.enableForAllLanguages
+    }
+    if (values.nemuResponseMode === 'app' || values.nemuResponseMode === 'jlpt') {
+      mapped.nemuResponseMode = values.nemuResponseMode
+    }
     if (typeof values.minConfidence === 'number') {
       mapped.minConfidence = values.minConfidence / 100
     }
-    setSettings(mapped as any)
+    setSettings(mapped)
   },
 
   // Navbar actions - show "Run Detection" button if autoDetect is off
@@ -127,60 +262,10 @@ export const japaneseLearningPlugin: ReaderPlugin = {
         return loadingPages.size > 0 || ocrLoadingPages.size > 0
       },
       onClick: async (ctx: ReaderPluginContext) => {
-        try {
-          const store = useTextDetectorStore.getState()
-          const { transcripts, detections, ocrLoadingPages, transcriptPopoverOpen, toggleTranscriptPopover, setPendingPopoverOpen, flashPages } = store
-
-          // If popover is open, close it
-          if (transcriptPopoverOpen) {
-            toggleTranscriptPopover(false)
-            return
-          }
-
-          // Check if all visible pages already have transcripts
-          const visibleRefs = ctx.visiblePageIndices
-            .map((idx) => getOcrPageRef(ctx, idx))
-            .filter(Boolean)
-
-          // Flash all visible pages that have detections (manual trigger feedback)
-          const pagesToFlash = visibleRefs
-            .filter((ref) => ref && detections.has(ref.pageKey) && (detections.get(ref.pageKey)?.length ?? 0) > 0)
-            .map((ref) => ref!.pageKey)
-          if (pagesToFlash.length > 0) {
-            flashPages(pagesToFlash)
-          }
-
-          const allHaveTranscripts = visibleRefs.length > 0 && visibleRefs.every((ref) => transcripts.has(ref!.pageKey))
-          if (allHaveTranscripts) {
-            toggleTranscriptPopover(true)
-            return
-          }
-
-          // Start OCR for pages that need it, popover opens when done
-          setPendingPopoverOpen(true)
-
-          for (const pageIndex of ctx.visiblePageIndices) {
-            const ref = getOcrPageRef(ctx, pageIndex)
-            if (!ref) continue
-            const imageUrl = ctx.getPageImageUrl(pageIndex)
-            if (!imageUrl) continue
-
-            // Skip if already has transcript or currently loading
-            if (transcripts.has(ref.pageKey) || ocrLoadingPages.has(ref.pageKey)) continue
-
-              try {
-                const imageBlob = await loadImageBlob(imageUrl)
-                store.runOcr(ref.pageKey, imageBlob, ref.cacheKey)
-              } catch (err) {
-              console.error(`[TextDetector] Failed to load image for page ${pageIndex}:`, err)
-              }
-          }
-        } catch (err) {
-          console.error('[TextDetector] onClick error:', err)
-        }
+        await handleOcrNavbarClick(ctx)
       },
       // Disable if all visible pages are already detected (or loading)
-      isDisabled: (_ctx: ReaderPluginContext) => {
+      isDisabled: () => {
         // Never disable: button is both "open transcript" and "detect if missing".
         // (Popover content will guide what's available.)
         return false
@@ -201,28 +286,7 @@ export const japaneseLearningPlugin: ReaderPlugin = {
       label: t('chat.title'),
       icon: <NemuChatNavbarIcon />,
       onClick: async (ctx: ReaderPluginContext) => {
-        const store = useNemuChatStore.getState()
-        const hiddenContext = store.getContextForRequest() ?? buildHiddenContextFromReader(ctx)
-        if (hiddenContext) {
-          store.open(hiddenContext)
-        }
-
-        const { messages, isStreaming } = useNemuChatStore.getState()
-        if (!hiddenContext || isStreaming || messages.length > 0) return
-
-        try {
-          await sendChatGreeting({
-            hiddenContext,
-            appLanguage: i18n.language,
-            toolContext: store.getToolContextForRequest(),
-            callbacks: createChatStreamCallbacks(),
-          })
-        } catch (err) {
-          console.error('[NemuChat] Greeting error:', err)
-          const chatState = useNemuChatStore.getState()
-          chatState.setShowTypingIndicator(false)
-          chatState.setStreaming(false)
-        }
+        await handleNemuChatClick(ctx)
       },
       isVisible: (ctx: ReaderPluginContext) => {
         return isJapaneseSource(ctx)
@@ -256,27 +320,34 @@ export const japaneseLearningPlugin: ReaderPlugin = {
   // Lifecycle hooks
   hooks: {
     onMount: (ctx: ReaderPluginContext) => {
+      advanceReaderSessionScope()
       // Skip if not Japanese source
-      if (!isJapaneseSource(ctx)) return
+      if (!isJapaneseSource(ctx)) {
+        authResolutionRetry.clear()
+        return
+      }
       // Reset debounce timer on mount so auto-detect waits for images to load
       lastAutoDetectTime = Date.now()
       // Load cached detections for all visible pages on mount
-      loadCachedForVisiblePages(ctx)
+      void loadCachedForVisiblePages(ctx)
     },
 
     onPageChange: (_pageIndex: number, ctx: ReaderPluginContext) => {
+      advanceReaderSessionScope()
       // Close transcript popover on page change
       useTextDetectorStore.getState().toggleTranscriptPopover(false)
       // Skip if not Japanese source
       if (!isJapaneseSource(ctx)) return
       // Load cached detections for all visible pages on page change
-      loadCachedForVisiblePages(ctx)
+      void loadCachedForVisiblePages(ctx)
     },
 
     onChapterChange: (_chapterId: string, ctx: ReaderPluginContext) => {
+      advanceReaderSessionScope()
       // If we moved into a non-JP chapter (and not enabled for all languages),
       // ensure we stop any in-flight detection and drop stale results.
       if (!isJapaneseSource(ctx)) {
+        authResolutionRetry.clear()
         const { clearDetections } = useTextDetectorStore.getState()
         clearDetections()
         disposeWorker()
@@ -284,10 +355,12 @@ export const japaneseLearningPlugin: ReaderPlugin = {
       }
 
       // JP chapter: load cache / maybe auto-detect for visible pages
-      loadCachedForVisiblePages(ctx)
+      void loadCachedForVisiblePages(ctx)
     },
 
     onUnmount: () => {
+      clearReaderSessionScope()
+      authResolutionRetry.clear()
       // Clear debounce timer
       if (autoDetectDebounceTimer) {
         clearTimeout(autoDetectDebounceTimer)
@@ -310,6 +383,8 @@ export const japaneseLearningPlugin: ReaderPlugin = {
   },
 
   teardown: () => {
+    clearReaderSessionScope()
+    authResolutionRetry.clear()
     // Cleanup on plugin disable
     const { clearDetections } = useTextDetectorStore.getState()
     clearDetections()
@@ -340,6 +415,12 @@ export function isJapaneseSource(ctx: ReaderPluginContext): boolean {
 let autoDetectDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let lastAutoDetectTime = 0
 const AUTO_DETECT_DEBOUNCE_MS = 5000
+const authResolutionRetry = createAuthResolutionRetryController<ReaderPluginContext>(
+  getSyncStore(),
+  (ctx) => {
+    void loadCachedForVisiblePages(ctx)
+  }
+)
 
 /**
  * Load cached detections for visible pages + prefetch next pages, with debounced auto-detection
@@ -348,13 +429,22 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
   // Hard guard: never load/run detections when plugin isn't enabled for this chapter.
   // (Prevents any accidental calls from starting auto-detect on non-JP sessions.)
   const enabled = isJapaneseSource(ctx)
-  if (!enabled) return
+  if (!enabled) {
+    authResolutionRetry.clear()
+    return
+  }
 
   const store = useTextDetectorStore.getState()
   const { settings, transcripts, ocrLoadingPages, loadingPages, runOcr, loadFromCache } = store
+  const authStatus = getAuthGateStatus()
   // Auto-detect should run whenever the plugin is enabled for this context.
   // (This includes enableForAllLanguages + Japanese-only sources; chapterLanguage can be null/stale in scrolling windows.)
-  const autoDetectAllowed = settings.autoDetect && isJapaneseSource(ctx)
+  const loadPlan = getVisiblePageLoadPlan(authStatus, settings.autoDetect && enabled)
+  if (loadPlan.retryWhenAuthSettles) {
+    authResolutionRetry.schedule(ctx)
+  } else {
+    authResolutionRetry.clear()
+  }
 
   // Calculate pages to process: visible pages + prefetch next pages
   // In two-page mode, prefetch 2 pages; in single page mode, prefetch 1 page
@@ -386,12 +476,12 @@ async function loadCachedForVisiblePages(ctx: ReaderPluginContext) {
     // Skip if already have transcript or currently loading
     if (transcripts.has(ref.pageKey) || ocrLoadingPages.has(ref.pageKey) || loadingPages.has(ref.pageKey)) continue
 
-    // Always try to load from cache first
+    // Always try to load from cache first (cache is local IndexedDB, no auth needed)
     const fromCache = await loadFromCache(ref.pageKey, ref.cacheKey)
     if (fromCache) continue
 
     // Only auto-run model detection for Japanese chapters.
-    if (!autoDetectAllowed) continue
+    if (!loadPlan.runAutoDetect) continue
 
     pagesToDetect.push(ref)
   }

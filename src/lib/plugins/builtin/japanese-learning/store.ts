@@ -10,6 +10,8 @@ import { convertIchiranToGrammarTokens } from './grammar-analysis'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../../../../../convex/_generated/api'
 import { jlDebugLog } from './debug'
+import { getAuthGateStatus, useAuthGate } from '@/lib/auth-gate'
+import { getSyncStore } from '@/stores/sync'
 
 const storage = createPluginStorage('japanese-learning')
 
@@ -24,7 +26,7 @@ interface NormalizeResult {
 
 let convexHttp: ConvexHttpClient | null = null
 function getConvexHttp(): ConvexHttpClient | null {
-  const url = (import.meta as any)?.env?.VITE_CONVEX_URL as string | undefined
+  const url = import.meta.env.VITE_CONVEX_URL as string | undefined
   if (!url) return null
   if (!convexHttp) convexHttp = new ConvexHttpClient(url)
   return convexHttp
@@ -118,6 +120,86 @@ export function disposeWorker() {
     // ignore
   }
   w.terminate()
+}
+
+interface PendingOcrAuthRetry {
+  pageKey: string
+  image: Blob
+  cacheKey?: OcrPageCacheKeyV3
+}
+
+const pendingOcrAuthRetries = new Map<string, PendingOcrAuthRetry>()
+let pendingOcrAuthRetryUnsubscribe: (() => void) | null = null
+
+function cleanupPendingOcrAuthRetrySubscriptionIfIdle() {
+  if (pendingOcrAuthRetries.size > 0) return
+  pendingOcrAuthRetryUnsubscribe?.()
+  pendingOcrAuthRetryUnsubscribe = null
+}
+
+export function clearPendingOcrAuthRetries(pageKey?: string) {
+  if (pageKey == null) {
+    pendingOcrAuthRetries.clear()
+    pendingOcrAuthRetryUnsubscribe?.()
+    pendingOcrAuthRetryUnsubscribe = null
+    return
+  }
+
+  pendingOcrAuthRetries.delete(pageKey)
+  cleanupPendingOcrAuthRetrySubscriptionIfIdle()
+}
+
+function resetPendingOcrAuthRetries() {
+  pendingOcrAuthRetries.clear()
+  pendingOcrAuthRetryUnsubscribe?.()
+  pendingOcrAuthRetryUnsubscribe = null
+}
+
+/** Handle OCR rejection due to missing auth — clears pending UI and optionally prompts sign-in. */
+function handleOcrAuthFailure(prompt: boolean) {
+  const state = useTextDetectorStore.getState()
+  const awaitingPopover = state.pendingPopoverOpen
+  const awaitingSheet = state.ocrSheetOpen && state.ocrResult.loading
+  const nextState: Partial<TextDetectorState> = {}
+
+  if (awaitingPopover) nextState.pendingPopoverOpen = false
+  if (awaitingSheet) {
+    nextState.ocrResult = {
+      text: '',
+      loading: false,
+      error: 'Please sign in to detect text.',
+    }
+  }
+
+  if (Object.keys(nextState).length > 0) {
+    useTextDetectorStore.setState(nextState)
+  }
+  if (prompt && (awaitingPopover || awaitingSheet)) {
+    useAuthGate.getState().promptSignIn()
+  }
+}
+
+function schedulePendingOcrAuthRetry(request: PendingOcrAuthRetry) {
+  pendingOcrAuthRetries.set(request.pageKey, request)
+  if (pendingOcrAuthRetryUnsubscribe) return
+
+  pendingOcrAuthRetryUnsubscribe = getSyncStore().subscribe((state) => {
+    if (state.isLoading) return
+
+    const pendingRequests = Array.from(pendingOcrAuthRetries.values())
+    resetPendingOcrAuthRetries()
+    if (pendingRequests.length === 0) return
+
+    if (state.isAuthenticated) {
+      const store = useTextDetectorStore.getState()
+      pendingRequests.forEach(({ pageKey, image, cacheKey }) => {
+        store.runOcr(pageKey, image, cacheKey)
+      })
+      return
+    }
+
+    handleOcrAuthFailure(true)
+  })
 }
 
 // ============================================================================
@@ -235,6 +317,7 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
     // Cancel any in-flight grammar analysis.
     grammarAbortController?.abort()
     grammarAbortController = null
+    clearPendingOcrAuthRetries()
 
     const prev = get().boxPopout?.croppedImageUrl
     if (prev && typeof window !== 'undefined') URL.revokeObjectURL(prev)
@@ -342,6 +425,11 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
     grammarAbortController?.abort()
     grammarAbortController = null
 
+    const pendingBoxPageKey = get().ocrResult.loading ? get().boxSelection?.pageKey : undefined
+    if (pendingBoxPageKey) {
+      clearPendingOcrAuthRetries(pendingBoxPageKey)
+    }
+
     const prev = get().boxPopout?.croppedImageUrl
     if (prev && typeof window !== 'undefined') URL.revokeObjectURL(prev)
     set({
@@ -379,6 +467,15 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
   setPendingPopoverOpen: (pending) => set({ pendingPopoverOpen: pending }),
 
   runOcr: (pageKey, image, cacheKey) => {
+    const authStatus = getAuthGateStatus()
+    if (authStatus === 'loading') {
+      schedulePendingOcrAuthRetry({ pageKey, image, cacheKey })
+      return
+    }
+    if (authStatus !== 'authenticated') {
+      handleOcrAuthFailure(authStatus === 'unauthenticated')
+      return
+    }
     if (get().ocrLoadingPages.has(pageKey)) return
     if (get().transcripts.has(pageKey)) return
 

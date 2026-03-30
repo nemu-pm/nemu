@@ -20,6 +20,8 @@ import { Toaster } from "./components/ui/sonner"
 import { WelcomeWizard, useWelcomeWizard } from "./components/welcome-wizard"
 import { SourceInstallDialog } from "./components/source-install-dialog"
 import { CloudflareBypassDialog } from "./components/cloudflare-bypass-dialog"
+import { SignInDialog } from "./components/sign-in-dialog"
+import { useAuthGate } from "./lib/auth-gate"
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string)
 
@@ -62,6 +64,12 @@ function ToastPosition() {
   }, []);
 
   return <Toaster position={position} />;
+}
+
+function AuthGateDialog() {
+  const open = useAuthGate((s) => s.open)
+  const dismiss = useAuthGate((s) => s.dismiss)
+  return <SignInDialog open={open} onOpenChange={(v) => { if (!v) dismiss() }} />
 }
 
 function WelcomeWizardWrapper() {
@@ -110,6 +118,7 @@ createRoot(document.getElementById("root")!).render(
               <SyncSetup />
               <SourceInstallDialog />
               <CloudflareBypassDialog />
+              <AuthGateDialog />
               <RouterWithContext />
               <ToastPosition />
             </DataServicesProvider>

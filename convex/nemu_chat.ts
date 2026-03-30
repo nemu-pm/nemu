@@ -3,6 +3,7 @@ import { stepCountIs, streamText, tool } from "ai"
 import { anthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
 import { buildPromptConfig } from "./prompts/nemu_chat"
+import { getHttpSession } from "./auth"
 
 const MODEL = "anthropic/claude-sonnet-4-5"
 const MAX_INPUT_TOKENS_BUDGET = 80_000
@@ -236,7 +237,7 @@ const CLIENT_TOOLS = new Set(["request_transcript", "trigger_ocr"])
 // Main Chat Handler
 // =============================================================================
 
-export const chat = httpAction(async (_, request) => {
+export const chat = httpAction(async (ctx, request) => {
   const origin = request.headers.get("Origin")
   const allowAnyOrigin = process.env.ALLOW_ANY_ORIGIN === "true"
   const allowedOrigins = [process.env.SITE_URL, process.env.DEV_URL].filter(Boolean) as string[]
@@ -253,7 +254,7 @@ export const chat = httpAction(async (_, request) => {
       headers: {
         "Access-Control-Allow-Origin": allowedOrigin,
         "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Headers": "Content-Type, Better-Auth-Cookie",
         "Access-Control-Max-Age": "86400",
         Vary: "Origin",
       },
@@ -265,14 +266,21 @@ export const chat = httpAction(async (_, request) => {
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
     "Access-Control-Allow-Origin": allowedOrigin,
-    "Access-Control-Allow-Credentials": "true",
     Vary: "Origin",
   }
   const jsonHeaders = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": allowedOrigin,
-    "Access-Control-Allow-Credentials": "true",
     Vary: "Origin",
+  }
+
+  // Auth check
+  const session = await getHttpSession(ctx, request)
+  if (!session?.user) {
+    return new Response(
+      JSON.stringify({ code: "unauthorized" }),
+      { status: 401, headers: jsonHeaders }
+    )
   }
 
   const encoder = new TextEncoder()

@@ -286,7 +286,8 @@ export function createChatStreamCallbacks(): ChatStreamCallbacks {
     },
     onError: (error) => {
       console.error('[NemuChat] Stream error:', error)
-      addAssistantMessage('Network error. Please try again.')
+      const trimmed = error.trim()
+      addAssistantMessage(trimmed && !trimmed.startsWith('{') ? trimmed : 'Network error. Please try again.')
       bufferedText = ''
       streamCompleted = true
       speakQueue.length = 0

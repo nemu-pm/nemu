@@ -16,7 +16,7 @@ import type {
   ReaderOverlay,
   SettingsSection,
 } from './types'
-import { usePluginRegistry } from './registry'
+import { isPluginEnabledForRuntime, usePluginRegistry } from './registry'
 
 // ============================================================================
 // Internal Dialog State
@@ -124,10 +124,7 @@ export function ReaderPluginProvider({
   const pluginsMap = usePluginRegistry((s) => s.plugins)
   const enabledState = usePluginRegistry((s) => s.enabledState)
   const plugins = useMemo(() => {
-    return Array.from(pluginsMap.values()).filter((p) => {
-      const enabled = enabledState[p.manifest.id] ?? p.manifest.defaultEnabled ?? true
-      return enabled
-    })
+    return Array.from(pluginsMap.values()).filter((p) => isPluginEnabledForRuntime(p, enabledState))
   }, [pluginsMap, enabledState])
   const [dialogState, setDialogState] = useState<DialogState | null>(null)
   const [interactionLocks, setInteractionLocks] = useState<Set<string>>(new Set())

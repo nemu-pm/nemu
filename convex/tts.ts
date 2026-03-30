@@ -1,4 +1,5 @@
 import { httpAction } from "./_generated/server"
+import { getHttpSession } from "./auth"
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { generateText } from "ai"
 
@@ -128,8 +129,7 @@ function getCorsHeaders(origin: string | null) {
   return {
     "Access-Control-Allow-Origin": allowedOrigin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Headers": "Content-Type, Better-Auth-Cookie",
     Vary: "Origin",
   }
 }
@@ -170,7 +170,7 @@ async function addAudioTags(text: string): Promise<string> {
   return output
 }
 
-export const tts = httpAction(async (_, request) => {
+export const tts = httpAction(async (ctx, request) => {
   const origin = request.headers.get("Origin")
   const corsHeaders = getCorsHeaders(origin)
 
@@ -186,6 +186,15 @@ export const tts = httpAction(async (_, request) => {
 
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405, headers: corsHeaders })
+  }
+
+  // Auth check
+  const session = await getHttpSession(ctx, request)
+  if (!session?.user) {
+    return new Response(
+      JSON.stringify({ code: "unauthorized" }),
+      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    )
   }
 
   let body: { text?: string; skipTagging?: boolean; source?: string } | null = null
