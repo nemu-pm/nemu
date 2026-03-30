@@ -1,15 +1,16 @@
 #!/usr/bin/env bun
 /**
  * Deploy OCR service to vast.ai
- * 
- * Services:
- * 1. Text detection server (FastAPI on port 8080)
- * 2. vLLM OCR server (on port 8000)
- * 
- * Usage: 
+ *
+ * Idempotent: skips unchanged files, skips service restart if already healthy.
+ * Final step: updates ocr.nemu.pm DNS via Cloudflare API.
+ *
+ * Usage:
  *   bun deploy.ts <ssh-host> <ssh-port>           # Full deploy
  *   bun deploy.ts <ssh-host> <ssh-port> --vllm    # Restart vLLM only
  *   bun deploy.ts <ssh-host> <ssh-port> --server  # Restart detection server only
+ *
+ * Reads CLOUDFLARE_API_TOKEN from services/ocr/.env (or env var).
  */
 
 import { $ } from "bun";
@@ -18,9 +19,28 @@ import { mkdirSync, existsSync, readdirSync } from "fs";
 
 const SCRIPT_DIR = dirname(import.meta.path);
 
+// Load .env from script directory
+const envPath = join(SCRIPT_DIR, ".env");
+if (existsSync(envPath)) {
+  const envContent = await Bun.file(envPath).text();
+  for (const line of envContent.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim();
+    if (!process.env[key]) process.env[key] = val;
+  }
+}
+
+const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+const CF_ZONE_ID = "8c7c0aa5b83ef6e94a5ad3eeb6788105";
+const CF_RECORD_NAME = "ocr.nemu.pm";
+
 // Parse args
 const args = process.argv.slice(2);
-const positionalArgs = args.filter(a => !a.startsWith("--"));
+const positionalArgs = args.filter((a) => !a.startsWith("--"));
 const host = positionalArgs[0];
 const port = positionalArgs[1];
 const vllmOnly = args.includes("--vllm");
@@ -36,13 +56,11 @@ if (!host || !port) {
   process.exit(1);
 }
 
-// SSH multiplexing for connection reuse
+// --- SSH helpers ---
+
 const controlDir = "/tmp/ssh-mux-deploy";
 const controlPath = `${controlDir}/%r@%h:%p`;
-
-if (!existsSync(controlDir)) {
-  mkdirSync(controlDir, { recursive: true });
-}
+if (!existsSync(controlDir)) mkdirSync(controlDir, { recursive: true });
 
 const sshBase = [
   "-p", port,
@@ -56,7 +74,6 @@ const sshBase = [
 ];
 
 async function establishMasterConnection() {
-  // Explicitly establish the SSH master connection
   const result = await $`ssh -nNf ${sshBase} ${host}`.nothrow().quiet();
   if (result.exitCode !== 0) {
     throw new Error(`Failed to establish SSH master: ${result.stderr}`);
@@ -89,6 +106,8 @@ async function scp(local: string, remote: string) {
   return result;
 }
 
+// --- File sync ---
+
 async function getLocalMd5(path: string): Promise<string> {
   const result = await $`md5sum ${path}`.nothrow().quiet();
   return result.stdout.toString().split(" ")[0].trim();
@@ -104,82 +123,75 @@ async function getRemoteMd5(path: string): Promise<string | null> {
 async function syncFile(local: string, remote: string, label: string): Promise<boolean> {
   const localMd5 = await getLocalMd5(local);
   const remoteMd5 = await getRemoteMd5(remote);
-  
+
   if (localMd5 === remoteMd5) {
     console.log(`      ${label} - unchanged`);
     return false;
   }
-  
+
   console.log(`      ${label} - copying...`);
   await scp(local, remote);
   return true;
 }
 
+// --- Service health checks ---
+
+async function isVllmHealthy(): Promise<boolean> {
+  const proc = await ssh("pgrep -f 'vllm serve' > /dev/null 2>&1 && curl -sf http://localhost:8000/health > /dev/null 2>&1 && echo OK || echo FAIL", false);
+  return proc.stdout.toString().trim() === "OK";
+}
+
+async function isServerHealthy(): Promise<boolean> {
+  const proc = await ssh("curl -sf http://localhost:8080/health > /dev/null 2>&1 && echo OK || echo FAIL", false);
+  return proc.stdout.toString().trim() === "OK";
+}
+
+// --- Service start ---
+
 async function startVllm() {
   console.log("Starting vLLM server (port 8000)...");
-  
-  // Check if vLLM is installed
+
   const vllmCheck = await ssh("which vllm || echo 'NOT_FOUND'", false);
   if (vllmCheck.stdout.toString().includes("NOT_FOUND")) {
-    console.log("      Installing vLLM (this may take a few minutes)...");
+    console.log("      Installing vLLM...");
     await ssh("pip install -q vllm");
   }
-  
-  // Kill existing vLLM (try graceful shutdown first, then hard kill).
-  // vLLM can spawn worker procs; ensure the port is free before restarting.
+
   await ssh(
     `
-      # Best-effort graceful stop
       pkill -15 -f 'vllm serve' 2>/dev/null || true
       pkill -15 -f 'vllm\\.entrypoints\\.openai\\.api_server' 2>/dev/null || true
       fuser -k -TERM 8000/tcp 2>/dev/null || true
       sleep 6
-
-      # Hard stop anything left
       pkill -9 -f 'vllm serve' 2>/dev/null || true
       pkill -9 -f 'vllm\\.entrypoints\\.openai\\.api_server' 2>/dev/null || true
       fuser -k 8000/tcp 2>/dev/null || true
       sleep 2
-
-      # Confirm port is free (no output if free)
-      (lsof -iTCP:8000 -sTCP:LISTEN -nP || true)
     `,
-    false
+    false,
   );
-  
-  // Clear old log
-  await ssh("rm -f /app/vllm.log", false);
 
-  // Preflight: if the GPU is already mostly occupied by something else (often another container),
-  // vLLM will fail with "Free memory on device ... is less than desired GPU memory utilization".
-  // Fail fast with actionable diagnostics instead of waiting 120s.
-  const memLine = (await ssh("nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo ''", false))
-    .stdout.toString().trim();
+  // GPU preflight
+  const memLine = (
+    await ssh(
+      "nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo ''",
+      false,
+    )
+  ).stdout.toString().trim();
   if (memLine) {
-    const parts = memLine.split(",").map((s) => s.trim());
-    const used = Number.parseInt(parts[0] ?? "", 10);
-    const total = Number.parseInt(parts[1] ?? "", 10);
-    if (Number.isFinite(used) && Number.isFinite(total) && total > 0) {
-      const free = total - used;
-      if (free < 8192) {
-        const diag = await ssh(
-          `
-            echo '--- nvidia-smi ---' && (nvidia-smi || true) && echo '' &&
-            echo '--- free -h ---' && (free -h || true) && echo '' &&
-            echo '--- note ---' &&
-            echo 'GPU has <8GiB free at deploy time; vLLM will not start. This usually means another workload/container is using the GPU.' && echo '' &&
-            echo 'Try: stop other GPU processes on the instance OR pick a fresh vast.ai instance.'
-          `,
-          false
-        );
-        console.log(diag.stdout.toString());
-        throw new Error(`vLLM preflight failed: low GPU free memory (${free}MiB free of ${total}MiB)`);
-      }
+    const [usedStr, totalStr] = memLine.split(",").map((s) => s.trim());
+    const used = Number.parseInt(usedStr ?? "", 10);
+    const total = Number.parseInt(totalStr ?? "", 10);
+    if (Number.isFinite(used) && Number.isFinite(total) && total > 0 && total - used < 8192) {
+      const diag = await ssh("nvidia-smi; echo ''; echo 'GPU has <8GiB free. Stop other GPU processes or use a fresh instance.'", false);
+      console.log(diag.stdout.toString());
+      throw new Error(`vLLM preflight failed: ${total - used}MiB free of ${total}MiB`);
     }
   }
-  
-  // Start vLLM
-  await ssh(`
+
+  await ssh("rm -f /app/vllm.log", false);
+  await ssh(
+    `
     cd /app
     nohup vllm serve jzhang533/PaddleOCR-VL-For-Manga \\
       --trust-remote-code \\
@@ -189,128 +201,165 @@ async function startVllm() {
       --port 8000 \\
       > /app/vllm.log 2>&1 &
     disown
-  `, false);
-  
+  `,
+    false,
+  );
+
   console.log("      vLLM starting, waiting for ready...");
-  
-  // Poll for startup (check for "Uvicorn running" or errors)
-  const maxWaitSec = 120;
+
+  const maxWaitSec = 180;
   const pollIntervalMs = 5000;
   let elapsed = 0;
-  let ready = false;
   let lastLogLines = "";
-  
+
   while (elapsed < maxWaitSec * 1000) {
     await Bun.sleep(pollIntervalMs);
     elapsed += pollIntervalMs;
-    
+
     const logResult = await ssh("tail -60 /app/vllm.log 2>/dev/null || echo ''", false);
     const log = logResult.stdout.toString();
-    
-    // Show new log lines
+
     if (log !== lastLogLines) {
-      const newLines = log.split("\n").filter(l => l.trim() && !lastLogLines.includes(l));
+      const newLines = log.split("\n").filter((l) => l.trim() && !lastLogLines.includes(l));
       for (const line of newLines.slice(-3)) {
         console.log(`      ${line.substring(0, 100)}`);
       }
       lastLogLines = log;
     }
-    
-    // Check for success
+
     if (log.includes("Uvicorn running") || log.includes("Application startup complete")) {
-      ready = true;
-      break;
+      console.log("\n      ✅ vLLM is ready!");
+      return;
     }
-    
-    // Check for fatal errors (vLLM sometimes truncates the traceback in tail output)
+
     if (
       log.includes("Engine core initialization failed") ||
       log.includes("CUDA out of memory") ||
       (log.includes("Traceback") && (log.includes("Error") || log.includes("Exception"))) ||
       log.includes("RuntimeError:")
     ) {
-      console.log("\n      ❌ vLLM failed to start. Full log:");
-      const diag = await ssh(
-        `
-          echo '--- nvidia-smi ---' && (nvidia-smi || true) && echo '' &&
-          echo '--- free -h ---' && (free -h || true) && echo '' &&
-          echo '--- vLLM log (tail -200) ---' && (tail -200 /app/vllm.log 2>/dev/null || true)
-        `,
-        false
-      );
+      const diag = await ssh("nvidia-smi 2>/dev/null; echo '---'; tail -200 /app/vllm.log 2>/dev/null", false);
       console.log(diag.stdout.toString());
       throw new Error("vLLM startup failed");
     }
-    
-    // Check if process died
+
     const procCheck = await ssh("pgrep -f 'vllm serve' || echo 'DEAD'", false);
     if (procCheck.stdout.toString().includes("DEAD")) {
-      console.log("\n      ❌ vLLM process died. Log:");
       const fullLog = await ssh("cat /app/vllm.log", false);
       console.log(fullLog.stdout.toString());
       throw new Error("vLLM process died");
     }
-    
-    process.stdout.write(`      Waiting... ${Math.round(elapsed/1000)}s\r`);
+
+    process.stdout.write(`      Waiting... ${Math.round(elapsed / 1000)}s\r`);
   }
-  
-  if (ready) {
-    console.log("\n      ✅ vLLM is ready!");
-  } else {
-    console.log(`\n      ❌ vLLM did not become ready (waited ${maxWaitSec}s). Diagnostics:`);
-    const diag = await ssh(
-      `
-        echo '--- nvidia-smi ---' && (nvidia-smi || true) && echo '' &&
-        echo '--- free -h ---' && (free -h || true) && echo '' &&
-        echo '--- vLLM log (tail -200) ---' && (tail -200 /app/vllm.log 2>/dev/null || true)
-      `,
-      false
-    );
-    console.log(diag.stdout.toString());
-    throw new Error("vLLM startup timed out");
-  }
+
+  const diag = await ssh("nvidia-smi 2>/dev/null; echo '---'; tail -200 /app/vllm.log 2>/dev/null", false);
+  console.log(diag.stdout.toString());
+  throw new Error(`vLLM startup timed out (${maxWaitSec}s)`);
 }
 
 async function startServer() {
   console.log("Starting detection server (port 8080)...");
-  
-  // Kill existing server
-  await ssh(`
+
+  await ssh(
+    `
     pkill -9 -f 'python.*server.py' 2>/dev/null || true
     fuser -k 8080/tcp 2>/dev/null || true
     sleep 2
-  `, false);
-  
-  // Start server
-  await ssh(`
+  `,
+    false,
+  );
+
+  await ssh(
+    `
     cd /app
     export VLLM_URL=http://localhost:8000/v1
     nohup python3 server.py > /app/server.log 2>&1 &
     disown
-  `, false);
-  
+  `,
+    false,
+  );
+
   await Bun.sleep(8000);
-  
-  // Check health
+
   const healthCheck = await ssh("curl -s http://localhost:8080/health || echo 'FAILED'", false);
-  const healthOutput = healthCheck.stdout.toString().trim();
-  
-  if (healthOutput.includes("FAILED")) {
+  const out = healthCheck.stdout.toString().trim();
+  if (out.includes("FAILED")) {
     console.log("      ⚠️  Server not responding yet");
-    const serverLog = await ssh("tail -20 /app/server.log 2>/dev/null || echo 'No log'", false);
-    console.log(serverLog.stdout.toString());
+    const log = await ssh("tail -20 /app/server.log 2>/dev/null || echo 'No log'", false);
+    console.log(log.stdout.toString());
   } else {
     console.log("      ✅ Server healthy");
-    console.log(`      ${healthOutput}`);
+    console.log(`      ${out}`);
   }
 }
 
-// Main
+// --- DNS update ---
+
+async function updateDns(ip: string) {
+  if (!CF_API_TOKEN) {
+    console.log("      ⚠️  CLOUDFLARE_API_TOKEN not set, skipping DNS update");
+    return;
+  }
+
+  const headers = {
+    Authorization: `Bearer ${CF_API_TOKEN}`,
+    "Content-Type": "application/json",
+  };
+
+  // Find existing record
+  const listRes = await fetch(
+    `https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?name=${CF_RECORD_NAME}&type=A`,
+    { headers },
+  );
+  const listData = (await listRes.json()) as any;
+  const record = listData.result?.[0];
+
+  if (record && record.content === ip) {
+    console.log(`      ${CF_RECORD_NAME} already points to ${ip}`);
+    return;
+  }
+
+  if (record) {
+    // Update existing
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${record.id}`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ content: ip }),
+      },
+    );
+    const data = (await res.json()) as any;
+    if (!data.success) throw new Error(`DNS update failed: ${JSON.stringify(data.errors)}`);
+    console.log(`      ${CF_RECORD_NAME} updated: ${record.content} → ${ip}`);
+  } else {
+    // Create new
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ type: "A", name: CF_RECORD_NAME, content: ip, proxied: true }),
+      },
+    );
+    const data = (await res.json()) as any;
+    if (!data.success) throw new Error(`DNS create failed: ${JSON.stringify(data.errors)}`);
+    console.log(`      ${CF_RECORD_NAME} created → ${ip} (proxied)`);
+  }
+}
+
+function extractIp(sshHost: string): string {
+  const atIdx = sshHost.indexOf("@");
+  return atIdx >= 0 ? sshHost.slice(atIdx + 1) : sshHost;
+}
+
+// --- Main ---
+
 const mode = vllmOnly ? "vllm" : serverOnly ? "server" : "full";
 console.log(`\n🚀 Deploying OCR service to ${host}:${port} (mode: ${mode})\n`);
 
 try {
-  // Test connection
   console.log("[0] Testing SSH connection...");
   try {
     await establishMasterConnection();
@@ -321,14 +370,12 @@ try {
   }
   console.log("    Connected!\n");
 
-  // vLLM only mode
   if (vllmOnly) {
     await startVllm();
     console.log("\n✅ vLLM restart complete!");
     process.exit(0);
   }
 
-  // Server only mode
   if (serverOnly) {
     await startServer();
     console.log("\n✅ Server restart complete!");
@@ -336,34 +383,32 @@ try {
   }
 
   // Full deploy
-  console.log("[1/7] Creating directories...");
+  console.log("[1/8] Creating directories...");
   await ssh("mkdir -p /app/model /app/detector/utils /app/detector/models/yolov5");
 
-  console.log("[2/7] Syncing server files...");
-  await syncFile(join(SCRIPT_DIR, "server.py"), "/app/server.py", "server.py");
-  await syncFile(join(SCRIPT_DIR, "text_order.py"), "/app/text_order.py", "text_order.py");
-  await syncFile(join(SCRIPT_DIR, "text_order_defaults.py"), "/app/text_order_defaults.py", "text_order_defaults.py");
-  await syncFile(join(SCRIPT_DIR, "requirements.txt"), "/app/requirements.txt", "requirements.txt");
+  console.log("[2/8] Syncing server files...");
+  let serverFilesChanged = false;
+  serverFilesChanged = (await syncFile(join(SCRIPT_DIR, "server.py"), "/app/server.py", "server.py")) || serverFilesChanged;
+  serverFilesChanged = (await syncFile(join(SCRIPT_DIR, "text_order.py"), "/app/text_order.py", "text_order.py")) || serverFilesChanged;
+  serverFilesChanged = (await syncFile(join(SCRIPT_DIR, "text_order_defaults.py"), "/app/text_order_defaults.py", "text_order_defaults.py")) || serverFilesChanged;
+  const requirementsChanged = await syncFile(join(SCRIPT_DIR, "requirements.txt"), "/app/requirements.txt", "requirements.txt");
 
-  console.log("[3/7] Syncing detector package...");
+  console.log("[3/8] Syncing detector package...");
   const detectorDir = join(SCRIPT_DIR, "detector");
-  
   for (const f of ["__init__.py", "inference.py", "basemodel.py"]) {
-    await syncFile(join(detectorDir, f), `/app/detector/${f}`, `detector/${f}`);
+    serverFilesChanged = (await syncFile(join(detectorDir, f), `/app/detector/${f}`, `detector/${f}`)) || serverFilesChanged;
   }
-  
   const utilsDir = join(detectorDir, "utils");
-  for (const f of readdirSync(utilsDir).filter(f => f.endsWith(".py"))) {
-    await syncFile(join(utilsDir, f), `/app/detector/utils/${f}`, `utils/${f}`);
+  for (const f of readdirSync(utilsDir).filter((f) => f.endsWith(".py"))) {
+    serverFilesChanged = (await syncFile(join(utilsDir, f), `/app/detector/utils/${f}`, `utils/${f}`)) || serverFilesChanged;
   }
-  
   const yoloDir = join(detectorDir, "models/yolov5");
   await syncFile(join(detectorDir, "models/__init__.py"), "/app/detector/models/__init__.py", "models/__init__.py");
-  for (const f of readdirSync(yoloDir).filter(f => f.endsWith(".py"))) {
-    await syncFile(join(yoloDir, f), `/app/detector/models/yolov5/${f}`, `yolov5/${f}`);
+  for (const f of readdirSync(yoloDir).filter((f) => f.endsWith(".py"))) {
+    serverFilesChanged = (await syncFile(join(yoloDir, f), `/app/detector/models/yolov5/${f}`, `yolov5/${f}`)) || serverFilesChanged;
   }
 
-  console.log("[4/7] Syncing detection model (~77MB)...");
+  console.log("[4/8] Syncing detection model (~77MB)...");
   const modelPath = join(SCRIPT_DIR, "model/comictextdetector.pt");
   if (existsSync(modelPath)) {
     await syncFile(modelPath, "/app/model/comictextdetector.pt", "comictextdetector.pt");
@@ -371,87 +416,62 @@ try {
     console.log("      ⚠️  Model not found locally, skipping");
   }
 
-  console.log("[5/7] Installing dependencies...");
-  const pipCheck = await ssh("pip show fastapi torch vllm pyclipper 2>/dev/null | grep -c 'Name:' || echo 0", false);
-  const installedCount = parseInt(pipCheck.stdout.toString().trim());
-  if (installedCount < 4) {
-    console.log("      Installing Python packages (this may take a few minutes)...");
-    await ssh(`pip install -q -r /app/requirements.txt`);
+  console.log("[5/8] Installing dependencies...");
+  if (requirementsChanged) {
+    console.log("      requirements.txt changed, installing...");
+    await ssh("pip install -q -r /app/requirements.txt");
   } else {
-    console.log("      All dependencies installed");
+    const pipCheck = await ssh("pip show fastapi torch vllm pyclipper 2>/dev/null | grep -c 'Name:' || echo 0", false);
+    const count = parseInt(pipCheck.stdout.toString().trim());
+    if (count < 4) {
+      console.log("      Missing packages, installing...");
+      await ssh("pip install -q -r /app/requirements.txt");
+    } else {
+      console.log("      All dependencies installed");
+    }
   }
 
-  // Stop services
-  console.log("[6/7] Stopping existing services...");
-  await ssh(`
-    supervisorctl stop jupyter 2>/dev/null || true
-    pkill -9 -f 'jupyter-notebook' 2>/dev/null || true
-    pkill -9 -f 'python.*server.py' 2>/dev/null || true
-    pkill -9 -f 'vllm serve' 2>/dev/null || true
-    fuser -k 8080/tcp 2>/dev/null || true
-    fuser -k 8000/tcp 2>/dev/null || true
-    sleep 2
-  `, false);
+  // Kill jupyter to free resources (first deploy only, idempotent)
+  await ssh("supervisorctl stop jupyter 2>/dev/null || true; pkill -9 -f 'jupyter-notebook' 2>/dev/null || true", false);
 
-  // Start services
-  console.log("[7/7] Starting services...");
-  
-  // Start vLLM first
-  await startVllm();
-  
-  // Start detection server
-  await ssh(`
-    cd /app
-    export VLLM_URL=http://localhost:8000/v1
-    nohup python3 server.py > /app/server.log 2>&1 &
-    disown
-  `, false);
-  console.log("      Detection server starting (port 8080)...");
-  
-  await Bun.sleep(10000);
-  
-  // Check health
-  const healthCheck = await ssh("curl -s http://localhost:8080/health || echo 'FAILED'", false);
-  const healthOutput = healthCheck.stdout.toString().trim();
-  
-  if (healthOutput.includes("FAILED") || healthOutput.includes("error")) {
-    const serverLog = await ssh("tail -30 /app/server.log 2>/dev/null || echo 'No log'", false);
-    const vllmLog = await ssh("tail -30 /app/vllm.log 2>/dev/null || echo 'No log'", false);
-    
-    console.log(`
-⚠️  Server may not be ready yet.
-
-Server log:
-${serverLog.stdout.toString()}
-
-vLLM log:
-${vllmLog.stdout.toString()}
-
-Debug:
-  ssh -p ${port} ${host}
-  tail -f /app/server.log
-  tail -f /app/vllm.log
-`);
+  console.log("[6/8] Checking vLLM...");
+  const vllmHealthy = await isVllmHealthy();
+  if (vllmHealthy) {
+    console.log("      ✅ vLLM already running and healthy");
   } else {
-    console.log(`
+    await startVllm();
+  }
+
+  console.log("[7/8] Checking detection server...");
+  const serverHealthy = await isServerHealthy();
+  if (serverHealthy && !serverFilesChanged) {
+    console.log("      ✅ Server already running and healthy (no file changes)");
+  } else {
+    if (serverHealthy && serverFilesChanged) {
+      console.log("      Server files changed, restarting...");
+    }
+    await startServer();
+  }
+
+  console.log("[8/8] Updating DNS...");
+  const ip = extractIp(host);
+  await updateDns(ip);
+
+  const healthOut = (await ssh("curl -s http://localhost:8080/health || echo '{}'", false)).stdout.toString().trim();
+  console.log(`
 ✅ Deployed!
 
-Health: ${healthOutput}
+Health: ${healthOut}
 
 Endpoints:
-  /health  - Health check
-  /detect  - Text detection only
-  /ocr     - Detection + OCR (SSE stream)
+  https://${CF_RECORD_NAME}/health
+  https://${CF_RECORD_NAME}/detect
+  https://${CF_RECORD_NAME}/ocr
 
 Logs:
   ssh -p ${port} ${host} "tail -f /app/server.log"
   ssh -p ${port} ${host} "tail -f /app/vllm.log"
-
-Restart commands:
-  bun deploy.ts ${host} ${port} --vllm    # Restart vLLM only
-  bun deploy.ts ${host} ${port} --server  # Restart detection server only
 `);
-  }
 } catch (e) {
   console.error("\n❌ Deployment failed:", e);
   process.exit(1);
