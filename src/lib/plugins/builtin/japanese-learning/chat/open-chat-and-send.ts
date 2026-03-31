@@ -1,4 +1,5 @@
 import { languageStore } from '@/stores/language'
+import { requireAuthOrPrompt } from '@/lib/auth-gate'
 
 import { sendChatMessage, createChatStreamCallbacks } from './actions'
 import { useNemuChatStore } from './store'
@@ -15,6 +16,8 @@ export function openChatAndSend(
   displayContent: string,
   contextOverride?: Partial<HiddenContext>,
 ) {
+  if (!requireAuthOrPrompt()) return
+
   const store = useNemuChatStore.getState()
   // IMPORTANT: contextOverride (e.g. ephemeralContext) should be one-turn only.
   // Do NOT persist it into the store hiddenContext by passing it into getContextForRequest().
@@ -43,11 +46,9 @@ export function openChatAndSend(
       })
     } catch (err) {
       console.error('[NemuChat]', err)
-      const state = useNemuChatStore.getState()
-      state.setShowTypingIndicator(false)
-      state.setStreaming(false)
+      const chatState = useNemuChatStore.getState()
+      chatState.setShowTypingIndicator(false)
+      chatState.setStreaming(false)
     }
   }, 50) // Small delay to ensure drawer is open
 }
-
-

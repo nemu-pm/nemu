@@ -10,6 +10,7 @@ import { convertIchiranToGrammarTokens } from './grammar-analysis'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../../../../../convex/_generated/api'
 import { jlDebugLog } from './debug'
+import { getAuthGateStatus, useAuthGate } from '@/lib/auth-gate'
 
 const storage = createPluginStorage('japanese-learning')
 
@@ -24,7 +25,7 @@ interface NormalizeResult {
 
 let convexHttp: ConvexHttpClient | null = null
 function getConvexHttp(): ConvexHttpClient | null {
-  const url = (import.meta as any)?.env?.VITE_CONVEX_URL as string | undefined
+  const url = import.meta.env.VITE_CONVEX_URL as string | undefined
   if (!url) return null
   if (!convexHttp) convexHttp = new ConvexHttpClient(url)
   return convexHttp
@@ -118,6 +119,30 @@ export function disposeWorker() {
     // ignore
   }
   w.terminate()
+}
+
+/** Handle OCR rejection due to missing auth — clears pending UI and optionally prompts sign-in. */
+function handleOcrAuthFailure(prompt: boolean) {
+  const state = useTextDetectorStore.getState()
+  const awaitingPopover = state.pendingPopoverOpen
+  const awaitingSheet = state.ocrSheetOpen && state.ocrResult.loading
+  const nextState: Partial<TextDetectorState> = {}
+
+  if (awaitingPopover) nextState.pendingPopoverOpen = false
+  if (awaitingSheet) {
+    nextState.ocrResult = {
+      text: '',
+      loading: false,
+      error: 'Please sign in to detect text.',
+    }
+  }
+
+  if (Object.keys(nextState).length > 0) {
+    useTextDetectorStore.setState(nextState)
+  }
+  if (prompt && (awaitingPopover || awaitingSheet)) {
+    useAuthGate.getState().promptSignIn()
+  }
 }
 
 // ============================================================================
@@ -379,6 +404,11 @@ export const useTextDetectorStore = create<TextDetectorState>((set, get) => ({
   setPendingPopoverOpen: (pending) => set({ pendingPopoverOpen: pending }),
 
   runOcr: (pageKey, image, cacheKey) => {
+    const authStatus = getAuthGateStatus()
+    if (authStatus !== 'authenticated') {
+      handleOcrAuthFailure(authStatus === 'unauthenticated')
+      return
+    }
     if (get().ocrLoadingPages.has(pageKey)) return
     if (get().transcripts.has(pageKey)) return
 

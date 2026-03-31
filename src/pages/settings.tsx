@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/responsive-dialog";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Delete02Icon, CloudIcon, Settings02Icon, Recycle03Icon, InformationCircleIcon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
-import { usePluginRegistry } from "@/lib/plugins";
+import { isPluginEnabledForRuntime, usePluginRegistry } from "@/lib/plugins";
 import { hapticPress } from "@/lib/haptics";
 import { useAgentStore } from "@/stores/agent";
 import { RefreshCcw, Cpu } from "lucide-react";
@@ -366,7 +366,7 @@ export function SettingsPage() {
           ) : (
             <div className="space-y-2">
               {plugins.map((plugin) => {
-                const isEnabled = enabledState[plugin.manifest.id] ?? plugin.manifest.defaultEnabled ?? true;
+                const isEnabled = isPluginEnabledForRuntime(plugin, enabledState);
                 const hasSettings = plugin.settingsSchema && plugin.settingsSchema.length > 0;
                 return (
                   <div
@@ -404,7 +404,9 @@ export function SettingsPage() {
                       )}
                       <Switch
                         checked={isEnabled}
-                        onCheckedChange={(checked) => setPluginEnabled(plugin.manifest.id, checked)}
+                        onCheckedChange={(checked) => {
+                          setPluginEnabled(plugin.manifest.id, checked);
+                        }}
                       />
                     </div>
                   </div>

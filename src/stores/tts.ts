@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 import { toast } from 'sonner'
 import i18n from '@/lib/i18n'
+import { getAuthHeaders } from '@/lib/auth-client'
+import { getAuthGateStatus, useAuthGate } from '@/lib/auth-gate'
+
+class TtsAuthError extends Error {
+  constructor(message = 'Authentication required') {
+    super(message)
+    this.name = 'TtsAuthError'
+  }
+}
 
 type TtsSource = 'sentence' | 'transcript' | 'voice'
 
@@ -530,7 +539,14 @@ function cleanupAudio() {
 }
 
 async function requestTtsAudio(text: string, options?: TtsRequestOptions, signal?: AbortSignal): Promise<Response> {
-  console.log('[TTS] Requesting audio', { 
+  const authStatus = getAuthGateStatus()
+  if (authStatus !== 'authenticated') {
+    if (authStatus === 'unauthenticated') {
+      useAuthGate.getState().promptSignIn()
+    }
+    throw new TtsAuthError()
+  }
+  console.log('[TTS] Requesting audio', {
     url: `${CONVEX_SITE_URL}/tts`,
     textLength: text.length,
     source: options?.source ?? 'sentence'
@@ -540,7 +556,8 @@ async function requestTtsAudio(text: string, options?: TtsRequestOptions, signal
   try {
     response = await fetch(`${CONVEX_SITE_URL}/tts`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: EVENT_STREAM_MIME },
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json', Accept: EVENT_STREAM_MIME, ...getAuthHeaders() },
       body: JSON.stringify({
         text,
         skipTagging: options?.skipTagging ?? false,
@@ -561,6 +578,12 @@ async function requestTtsAudio(text: string, options?: TtsRequestOptions, signal
   
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
+    // Defense-in-depth: auth is checked before fetch, but the session token
+    // can expire mid-flight, so handle server-side 401 too.
+    if (response.status === 401) {
+      useAuthGate.getState().promptSignIn()
+      throw new TtsAuthError(detail || 'Authentication required')
+    }
     console.error('[TTS] Request failed', { status: response.status, detail })
     throw new Error(detail || `TTS request failed (${response.status})`)
   }
@@ -1278,7 +1301,11 @@ export const useTtsStore = create<TTSState>((set, get) => {
         await playStream(response, id, requestId)
       } catch (err) {
         if (requestId !== activeRequestId || isAbortError(err)) return
-        const errInfo = err instanceof Error 
+        if (err instanceof TtsAuthError) {
+          stopImmediate()
+          return
+        }
+        const errInfo = err instanceof Error
           ? { name: err.name, message: err.message, stack: err.stack?.slice(0, 200) }
           : err instanceof DOMException
             ? { name: err.name, message: err.message, code: err.code }

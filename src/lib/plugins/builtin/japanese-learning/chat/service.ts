@@ -6,6 +6,9 @@
 import type { HiddenContext, ToolCall, ToolResult, ChatStreamEvent } from './types'
 import type { ChatToolContext } from './tools'
 import { useTextDetectorStore } from '../store'
+import { useAuthGate } from '@/lib/auth-gate'
+import { getAuthHeaders } from '@/lib/auth-client'
+import { getSyncStore } from '@/stores/sync'
 
 // Track current request for client-side cancellation
 let currentAbortController: AbortController | null = null
@@ -268,7 +271,8 @@ export async function streamChat(
   try {
     response = await fetch(`${baseUrl}/nemu-chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify({ messages, hiddenContext, appLanguage }),
       signal: abortController.signal,
     })
@@ -282,6 +286,14 @@ export async function streamChat(
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      const { isLoading } = getSyncStore().getState()
+      if (!isLoading) {
+        useAuthGate.getState().promptSignIn()
+      }
+      callbacks.onError(isLoading ? 'Authentication is still loading. Please try again.' : 'Please sign in to use this feature')
+      return
+    }
     const bodyText = await response.text().catch(() => '')
     try {
       const parsed = JSON.parse(bodyText) as any
