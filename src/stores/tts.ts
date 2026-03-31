@@ -4,6 +4,13 @@ import i18n from '@/lib/i18n'
 import { getAuthHeaders } from '@/lib/auth-client'
 import { getAuthGateStatus, useAuthGate } from '@/lib/auth-gate'
 
+class TtsAuthError extends Error {
+  constructor(message = 'Authentication required') {
+    super(message)
+    this.name = 'TtsAuthError'
+  }
+}
+
 type TtsSource = 'sentence' | 'transcript' | 'voice'
 
 interface TtsRequestOptions {
@@ -537,7 +544,7 @@ async function requestTtsAudio(text: string, options?: TtsRequestOptions, signal
     if (authStatus === 'unauthenticated') {
       useAuthGate.getState().promptSignIn()
     }
-    throw new Error('Authentication required')
+    throw new TtsAuthError()
   }
   console.log('[TTS] Requesting audio', {
     url: `${CONVEX_SITE_URL}/tts`,
@@ -575,7 +582,7 @@ async function requestTtsAudio(text: string, options?: TtsRequestOptions, signal
     // can expire mid-flight, so handle server-side 401 too.
     if (response.status === 401) {
       useAuthGate.getState().promptSignIn()
-      throw new Error(detail || 'Authentication required')
+      throw new TtsAuthError(detail || 'Authentication required')
     }
     console.error('[TTS] Request failed', { status: response.status, detail })
     throw new Error(detail || `TTS request failed (${response.status})`)
@@ -1294,7 +1301,11 @@ export const useTtsStore = create<TTSState>((set, get) => {
         await playStream(response, id, requestId)
       } catch (err) {
         if (requestId !== activeRequestId || isAbortError(err)) return
-        const errInfo = err instanceof Error 
+        if (err instanceof TtsAuthError) {
+          stopImmediate()
+          return
+        }
+        const errInfo = err instanceof Error
           ? { name: err.name, message: err.message, stack: err.stack?.slice(0, 200) }
           : err instanceof DOMException
             ? { name: err.name, message: err.message, code: err.code }
