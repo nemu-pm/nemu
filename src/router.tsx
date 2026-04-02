@@ -55,9 +55,7 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
 function RootLayout() {
   return (
     <PageTitleProvider>
-      <Suspense>
-        <Outlet />
-      </Suspense>
+      <Outlet />
     </PageTitleProvider>
   );
 }
@@ -125,7 +123,9 @@ function ShellLayout() {
       {/* Scrollable Content Area - uses native window scroll for router scroll restoration */}
       <div className="min-h-dvh">
         <div className="mx-auto max-w-6xl px-4 pb-28 pt-6 md:pb-6 md:pl-20">
-          <Outlet />
+          <Suspense>
+            <Outlet />
+          </Suspense>
         </div>
       </div>
 
@@ -444,7 +444,7 @@ const mangaRoute = createRoute({
   component: MangaPage,
 });
 
-// Reader route (outside shell - fullscreen)
+// Reader route (outside shell - fullscreen, needs own Suspense for lazy load)
 const readerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sources/$registryId/$sourceId/$mangaId/$chapterId",
@@ -459,14 +459,14 @@ const readerRoute = createRoute({
     const page = Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
     return { page };
   },
-  component: ReaderPage,
+  component: () => <Suspense><ReaderPage /></Suspense>,
 });
 
 // Debug popover + drawer test route
 const debugPopoverDrawerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/debug/popover-drawer",
-  component: DebugPopoverDrawerPage,
+  component: () => <Suspense><DebugPopoverDrawerPage /></Suspense>,
 });
 
 // Route tree
