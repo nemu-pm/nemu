@@ -2,7 +2,7 @@
  * Home layout components for source browse pages
  * Uses MangaCard variants for consistent design across all sections
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, memo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -69,7 +69,7 @@ interface HomeComponentViewProps {
   onListingClick?: (listing: Listing) => void;
 }
 
-function HomeComponentView({ component, registryId, sourceId, onListingClick }: HomeComponentViewProps) {
+const HomeComponentView = memo(function HomeComponentView({ component, registryId, sourceId, onListingClick }: HomeComponentViewProps) {
   const { value } = component;
 
   switch (value.type) {
@@ -129,7 +129,7 @@ function HomeComponentView({ component, registryId, sourceId, onListingClick }: 
     default:
       return null;
   }
-}
+})
 
 // ============================================================================
 // Section Header

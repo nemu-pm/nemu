@@ -159,11 +159,15 @@ async function writeSourceLinks(
     return `V${vol}C${chNum}:${ch.id}`;
   };
 
+  // Build map for O(1) lookups instead of O(n) find per source
+  const linkKey = (r: string, s: string, m: string) => `${r}\0${s}\0${m}`;
+  const existingMap = new Map(
+    existingLinks.map((l) => [linkKey(l.registryId, l.sourceId, l.sourceMangaId), l])
+  );
+
   for (const source of sources) {
-    const existing = existingLinks.find(
-      (l) => l.registryId === source.registryId &&
-             l.sourceId === source.sourceId &&
-             l.sourceMangaId === source.sourceMangaId
+    const existing = existingMap.get(
+      linkKey(source.registryId, source.sourceId, source.sourceMangaId)
     );
 
     if (existing) {

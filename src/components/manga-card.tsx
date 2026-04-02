@@ -1,3 +1,4 @@
+import { memo } from "react"
 import { Link } from "@tanstack/react-router"
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
@@ -20,7 +21,7 @@ interface MangaCardProps {
   className?: string
 }
 
-export function MangaCard({ to, params, cover, title, subtitle, badge, className }: MangaCardProps) {
+export const MangaCard = memo(function MangaCard({ to, params, cover, title, subtitle, badge, className }: MangaCardProps) {
   return (
     <Link
       to={to}
@@ -66,7 +67,7 @@ export function MangaCard({ to, params, cover, title, subtitle, badge, className
       </div>
     </Link>
   )
-}
+})
 
 // ============================================================================
 // MangaCardCompact - Smaller variant for dense scrollers
@@ -83,7 +84,7 @@ interface MangaCardCompactProps {
   className?: string
 }
 
-export function MangaCardCompact({
+export const MangaCardCompact = memo(function MangaCardCompact({
   to,
   params,
   cover,
@@ -126,7 +127,7 @@ export function MangaCardCompact({
       </div>
     </Link>
   )
-}
+})
 
 // ============================================================================
 // MangaCardFeatured - Large horizontal card with metadata
@@ -143,7 +144,7 @@ interface MangaCardFeaturedProps {
   className?: string
 }
 
-export function MangaCardFeatured({
+export const MangaCardFeatured = memo(function MangaCardFeatured({
   to,
   params,
   cover,
@@ -212,7 +213,7 @@ export function MangaCardFeatured({
       </div>
     </Link>
   )
-}
+})
 
 // ============================================================================
 // MangaCardList - Horizontal list item with cover and info
@@ -229,7 +230,7 @@ interface MangaCardListProps {
   className?: string
 }
 
-export function MangaCardList({
+export const MangaCardList = memo(function MangaCardList({
   to,
   params,
   cover,
@@ -298,7 +299,7 @@ export function MangaCardList({
       </div>
     </Link>
   )
-}
+})
 
 // ============================================================================
 // MangaCardChapter - List item showing manga with chapter info
@@ -316,7 +317,7 @@ interface MangaCardChapterProps {
 
 }
 
-export function MangaCardChapter({
+export const MangaCardChapter = memo(function MangaCardChapter({
   to,
   params,
   cover,
@@ -372,7 +373,7 @@ export function MangaCardChapter({
       </div>
     </Link>
   )
-}
+})
 
 // ============================================================================
 // MangaCardBanner - Wide image card for banners/promotions
@@ -389,7 +390,7 @@ interface MangaCardBannerProps {
   className?: string
 }
 
-export function MangaCardBanner({
+export const MangaCardBanner = memo(function MangaCardBanner({
   to,
   params,
   imageUrl,
@@ -442,4 +443,4 @@ export function MangaCardBanner({
       {content}
     </button>
   )
-}
+})

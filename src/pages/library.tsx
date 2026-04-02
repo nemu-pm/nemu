@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStores, useAllMangaProgress } from "@/data/context";
 import { MangaCard } from "@/components/manga-card";
@@ -254,7 +254,7 @@ export function LibraryPage() {
 }
 
 /** Individual library entry card with progress info */
-function LibraryEntryCard({ entry, progressIndex }: { entry: LibraryEntry; progressIndex: Map<string, LocalMangaProgress> }) {
+const LibraryEntryCard = memo(function LibraryEntryCard({ entry, progressIndex }: { entry: LibraryEntry; progressIndex: Map<string, LocalMangaProgress> }) {
   const { t } = useTranslation();
   const { badge, subtitle } = useProgressInfo(entry, progressIndex, t);
 
@@ -265,11 +265,14 @@ function LibraryEntryCard({ entry, progressIndex }: { entry: LibraryEntry; progr
   const metadata = getEntryEffectiveMetadata(entry);
   const cover = getEntryCover(entry);
 
+  // Stable params reference for memo to work on MangaCard
+  const params = useMemo(() => ({ id: entry.item.libraryItemId }), [entry.item.libraryItemId]);
+
   return (
     <SourceImageProvider sourceKey={sourceKey}>
       <MangaCard
         to="/library/$id"
-        params={{ id: entry.item.libraryItemId }}
+        params={params}
         cover={cover}
         title={metadata.title}
         subtitle={subtitle}
@@ -277,4 +280,4 @@ function LibraryEntryCard({ entry, progressIndex }: { entry: LibraryEntry; progr
       />
     </SourceImageProvider>
   );
-}
+})
