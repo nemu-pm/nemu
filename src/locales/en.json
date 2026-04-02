@@ -356,7 +356,11 @@
     "warningTitle": "Notice",
     "warningAuthentication": "This source requires login or authentication. It may not work correctly in the current version of nemu.",
     "warningCloudflare": "This source has Cloudflare protection. It may not work correctly in the current version of nemu.",
-    "installAnyway": "Install Anyway"
+    "installAnyway": "Install Anyway",
+    "searchPlaceholder": "Search sources...",
+    "showNSFW": "Show 18+",
+    "allLanguages": "All",
+    "languagesSelected": "{{count}} selected"
   },
   "clearData": {
     "clearCache": "Clear Cache",

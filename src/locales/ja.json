@@ -351,7 +351,11 @@
     "warningTitle": "注意",
     "warningAuthentication": "このソースはログインまたは認証が必要です。現在のバージョンのnemuでは正しく動作しない可能性があります。",
     "warningCloudflare": "このソースにはCloudflare保護があります。現在のバージョンのnemuでは正しく動作しない可能性があります。",
-    "installAnyway": "それでもインストール"
+    "installAnyway": "それでもインストール",
+    "searchPlaceholder": "ソースを検索...",
+    "showNSFW": "18+を表示",
+    "allLanguages": "すべて",
+    "languagesSelected": "{{count}}件選択"
   },
   "clearData": {
     "clearCache": "キャッシュをクリア",

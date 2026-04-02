@@ -1,9 +1,11 @@
-import { useState, useRef } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useStores } from "@/data/context";
 import { type SourceInfo } from "@/stores/settings";
 import { Keys } from "@/data/keys";
 import { TACHIYOMI_LOCAL_REGISTRY_ID } from "@/lib/sources/tachiyomi/local-registry";
+import { groupSourcesByLanguage, getLanguagePriorityOrder } from "@/lib/sources/language-priority";
+import { languageStore } from "@/stores/language";
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -13,6 +15,13 @@ import {
   ResponsiveDialogDescription,
 } from "@/components/ui/responsive-dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -22,6 +31,11 @@ import {
   CheckmarkCircle02Icon,
   CodeIcon,
   Alert02Icon,
+  Search01Icon,
+  ArrowDown01Icon,
+  LanguageSkillIcon,
+  ViewOffSlashIcon,
+  EyeIcon,
 } from "@hugeicons/core-free-icons";
 import { hapticPress } from "@/lib/haptics";
 
@@ -245,6 +259,22 @@ function ModeSelection({
   );
 }
 
+function formatLanguageLabel(
+  langCode: string,
+  t: (key: string) => string,
+  appLanguage: string | undefined
+): string {
+  if (langCode === "other") return t("browse.otherLanguages") || "Other";
+  const i18nKey = `languages.${langCode}`;
+  const translated = t(i18nKey);
+  if (translated && translated !== i18nKey) return translated;
+  try {
+    const name = new Intl.DisplayNames([appLanguage || "en"], { type: "language" }).of(langCode);
+    if (name) return name.charAt(0).toUpperCase() + name.slice(1);
+  } catch { /* fallback */ }
+  return langCode.toUpperCase();
+}
+
 function RegistrySourceList({
   installing,
   onInstall,
@@ -261,24 +291,72 @@ function RegistrySourceList({
   const { t } = useTranslation();
   const { useSettingsStore } = useStores();
   const { availableSources, installSource } = useSettingsStore();
+  const appLanguage = languageStore ? languageStore((state) => state.language) : undefined;
 
-  // Group sources by registry (exclude dev registry)
-  const grouped = availableSources
-    .filter(s => s.registryId !== TACHIYOMI_LOCAL_REGISTRY_ID)
-    .reduce(
-      (acc, source) => {
-        const key = source.registryId;
-        if (!acc[key]) acc[key] = [];
-        acc[key].push(source);
-        return acc;
-      },
-      {} as Record<string, SourceInfo[]>
-    );
+  const [search, setSearch] = useState("");
+  const [showNSFW, setShowNSFW] = useState(false);
+  const [selectedLangs, setSelectedLangs] = useState<Set<string>>(new Set());
 
-  // Sort sources within each registry by name
-  Object.keys(grouped).forEach((key) => {
-    grouped[key].sort((a, b) => a.name.localeCompare(b.name));
-  });
+  // Base sources (exclude dev registry)
+  const baseSources = useMemo(
+    () => availableSources.filter(s => s.registryId !== TACHIYOMI_LOCAL_REGISTRY_ID),
+    [availableSources]
+  );
+
+  // Collect unique individual languages for dropdown, sorted by priority
+  const languageOptions = useMemo(() => {
+    const langs = new Set<string>();
+    for (const s of baseSources) {
+      if (!s.languages || s.languages.length === 0) langs.add("other");
+      else for (const l of s.languages) langs.add(l);
+    }
+    const priority = getLanguagePriorityOrder(appLanguage);
+    return Array.from(langs).sort((a, b) => {
+      const ia = priority.indexOf(a);
+      const ib = priority.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [baseSources, appLanguage]);
+
+  const toggleLang = (lang: string) => {
+    setSelectedLangs((prev) => {
+      const next = new Set(prev);
+      if (next.has(lang)) next.delete(lang);
+      else next.add(lang);
+      return next;
+    });
+  };
+
+  // Apply filters: search, NSFW, language
+  const filteredSources = useMemo(() => {
+    let sources = baseSources;
+    // NSFW filter (contentRating 2 = nsfw)
+    if (!showNSFW) {
+      sources = sources.filter(s => (s.contentRating ?? 0) < 2);
+    }
+    // Language filter (multi-select) — match against raw languages, not collapsed category
+    if (selectedLangs.size > 0) {
+      sources = sources.filter(s => {
+        if (!s.languages || s.languages.length === 0) return selectedLangs.has("other");
+        return s.languages.some(l => selectedLangs.has(l));
+      });
+    }
+    // Search filter
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      sources = sources.filter(s => s.name.toLowerCase().includes(q));
+    }
+    return sources;
+  }, [baseSources, search, showNSFW, selectedLangs]);
+
+  // Group by language
+  const groupedSources = useMemo(
+    () => groupSourcesByLanguage(filteredSources, appLanguage),
+    [filteredSources, appLanguage]
+  );
 
   const doInstall = async (registryId: string, sourceId: string) => {
     const key = Keys.source(registryId, sourceId);
@@ -291,7 +369,6 @@ function RegistrySourceList({
   };
 
   const handleInstall = (source: SourceInfo) => {
-    // Show warning dialog if source has WebView or Cloudflare requirements
     if (source.hasAuthentication || source.hasCloudflare) {
       onPendingInstall({
         source,
@@ -303,31 +380,96 @@ function RegistrySourceList({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="max-h-80 space-y-4 overflow-y-auto pr-2">
-        {Object.entries(grouped).map(([registryId, sources]) => (
-          <div key={registryId}>
-            <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
-              {registryId.replace("aidoku-", "")}
-            </p>
-            <div className="space-y-1">
-              {sources.map((source) => {
-                const key = Keys.source(source.registryId, source.id);
-                return (
-                  <SourceItem
-                    key={key}
-                    source={source}
-                    installing={installing === key}
-                    onInstall={() => handleInstall(source)}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        ))}
+    <div className="space-y-3">
+      {/* Search */}
+      <div className="relative">
+        <HugeiconsIcon icon={Search01Icon} className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("addSource.searchPlaceholder")}
+          className="pl-8"
+        />
       </div>
 
-      <div className="flex justify-between pt-4">
+      {/* Filter row: language dropdown + NSFW toggle */}
+      <div className="flex items-center gap-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md border px-2.5 h-8 text-sm transition-colors",
+              selectedLangs.size > 0
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background hover:bg-muted border-input"
+            )}
+          >
+            <HugeiconsIcon icon={LanguageSkillIcon} className="size-4" />
+            {selectedLangs.size === 0
+              ? t("addSource.allLanguages")
+              : selectedLangs.size === 1
+                ? formatLanguageLabel([...selectedLangs][0], t, appLanguage)
+                : t("addSource.languagesSelected", { count: selectedLangs.size })}
+            <HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="max-h-60 overflow-y-auto overscroll-none">
+            {languageOptions.map((lang) => (
+              <DropdownMenuCheckboxItem
+                key={lang}
+                checked={selectedLangs.has(lang)}
+                onCheckedChange={() => toggleLang(lang)}
+                closeOnClick={false}
+              >
+                {formatLanguageLabel(lang, t, appLanguage)}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <button
+          type="button"
+          onClick={() => setShowNSFW(!showNSFW)}
+          className={cn(
+            "shrink-0 size-8 inline-flex items-center justify-center rounded-md border transition-colors",
+            showNSFW
+              ? "bg-primary text-primary-foreground border-primary"
+              : "text-muted-foreground hover:bg-muted border-input"
+          )}
+        >
+          <HugeiconsIcon icon={showNSFW ? EyeIcon : ViewOffSlashIcon} className="size-4" />
+        </button>
+      </div>
+
+      {/* Source list — fixed height so dialog doesn't resize with filter changes */}
+      <div className="h-72 space-y-4 overflow-y-auto pr-2">
+        {groupedSources.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            {t("browse.noResults")}
+          </p>
+        ) : (
+          groupedSources.map((section) => (
+            <div key={section.label}>
+              <p className="sticky top-0 z-10 mb-2 bg-background/95 backdrop-blur-sm text-xs font-medium text-muted-foreground">
+                {formatLanguageLabel(section.label, t, appLanguage)}
+              </p>
+              <div className="space-y-1">
+                {section.sources.map((source) => {
+                  const key = Keys.source(source.registryId, source.id);
+                  return (
+                    <SourceItem
+                      key={key}
+                      source={source}
+                      installing={installing === key}
+                      onInstall={() => handleInstall(source)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="flex justify-between pt-2">
         <Button variant="ghost" onClick={onBack}>
           {t("common.back")}
         </Button>
