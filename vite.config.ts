@@ -157,6 +157,54 @@ export default defineConfig(({ mode }) => {
     // Force CJS→ESM conversion for cheerio's dependency chain
     include: ["cheerio", "cheerio > css-select", "cheerio > css-select > boolbase"],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // React core + router + state management → vendor chunk
+          if (id.includes("node_modules/react/") ||
+              id.includes("node_modules/react-dom/") ||
+              id.includes("node_modules/@tanstack/react-router") ||
+              id.includes("node_modules/@tanstack/react-query") ||
+              id.includes("node_modules/zustand/")) {
+            return "vendor"
+          }
+          // AI elements: xyflow, shiki, lucide-react, ai-sdk
+          if (id.includes("node_modules/@xyflow/") ||
+              id.includes("node_modules/shiki/") ||
+              id.includes("node_modules/lucide-react/") ||
+              id.includes("node_modules/ai/") ||
+              id.includes("node_modules/@ai-sdk/") ||
+              id.includes("node_modules/@openrouter/") ||
+              id.includes("src/components/ai-elements/")) {
+            return "ai"
+          }
+          // Reader-only dependencies
+          if (id.includes("node_modules/swiper/") ||
+              id.includes("node_modules/react-zoom-pan-pinch/") ||
+              id.includes("node_modules/react-window/")) {
+            return "reader"
+          }
+          // Convex client
+          if (id.includes("node_modules/convex/")) {
+            return "convex"
+          }
+          // Motion (animation library, used in many pages but heavy)
+          if (id.includes("node_modules/motion/")) {
+            return "motion"
+          }
+          // OpenCC (Chinese character conversion, ~1.1MB, only used in metadata matching)
+          if (id.includes("node_modules/opencc-js/")) {
+            return "opencc"
+          }
+          // DnD Kit (drag-and-drop, only used in source management)
+          if (id.includes("node_modules/@dnd-kit/")) {
+            return "dnd-kit"
+          }
+        },
+      },
+    },
+  },
   // Worker format must be "es" to support dynamic imports in workers
   worker: {
     format: "es",

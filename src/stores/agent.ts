@@ -34,17 +34,32 @@ export const useAgentStore = create<AgentStore>((set) => ({
   },
 }));
 
-// Auto-check on app start
-if (typeof window !== "undefined") {
+// Auto-check on app start with proper cleanup
+let agentPollTimer: ReturnType<typeof setInterval> | null = null;
+
+export function startAgentPolling() {
   // Initial check after short delay (let app hydrate first)
   setTimeout(() => {
     useAgentStore.getState().checkStatus();
   }, 500);
 
   // Re-check periodically (every 30s)
-  setInterval(() => {
+  if (agentPollTimer) clearInterval(agentPollTimer);
+  agentPollTimer = setInterval(() => {
     useAgentStore.getState().checkStatus();
   }, 30000);
+}
+
+export function stopAgentPolling() {
+  if (agentPollTimer) {
+    clearInterval(agentPollTimer);
+    agentPollTimer = null;
+  }
+}
+
+// Start polling on module load (browser only)
+if (typeof window !== "undefined") {
+  startAgentPolling();
 }
 
 /**

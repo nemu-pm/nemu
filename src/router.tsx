@@ -26,18 +26,21 @@ import type { Listing, Filter, HomeLayout } from "@nemu.pm/aidoku-runtime";
 import type { FilterState } from "@nemu.pm/tachiyomi-runtime";
 import type { GenericListing } from "@/components/browse";
 
-// Pages
-import { LibraryPage } from "./pages/library";
-import { LibraryMangaPage } from "./pages/library-manga";
-import { BrowsePage } from "./pages/browse";
-import { SourceBrowsePage } from "./pages/source-browse";
-import { SearchPage } from "./pages/search";
-import { SettingsPage } from "./pages/settings";
-import { MangaPage } from "./pages/manga";
-import { ReaderPage } from "./pages/reader";
-import { DebugPopoverDrawerPage } from "./pages/debug-popover-drawer";
 import { lazy, Suspense } from "react";
 import { PageTitleProvider } from "@/components/page-title";
+
+// Library page loaded eagerly (landing page)
+import { LibraryPage } from "./pages/library";
+
+// All other pages lazy-loaded for code splitting
+const LibraryMangaPage = lazy(() => import("./pages/library-manga").then(m => ({ default: m.LibraryMangaPage })));
+const BrowsePage = lazy(() => import("./pages/browse").then(m => ({ default: m.BrowsePage })));
+const SourceBrowsePage = lazy(() => import("./pages/source-browse").then(m => ({ default: m.SourceBrowsePage })));
+const SearchPage = lazy(() => import("./pages/search").then(m => ({ default: m.SearchPage })));
+const SettingsPage = lazy(() => import("./pages/settings").then(m => ({ default: m.SettingsPage })));
+const MangaPage = lazy(() => import("./pages/manga").then(m => ({ default: m.MangaPage })));
+const ReaderPage = lazy(() => import("./pages/reader").then(m => ({ default: m.ReaderPage })));
+const DebugPopoverDrawerPage = lazy(() => import("./pages/debug-popover-drawer").then(m => ({ default: m.DebugPopoverDrawerPage })));
 
 // Router context type - passed from provider
 export interface RouterContext {
@@ -52,7 +55,9 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
 function RootLayout() {
   return (
     <PageTitleProvider>
-      <Outlet />
+      <Suspense>
+        <Outlet />
+      </Suspense>
     </PageTitleProvider>
   );
 }

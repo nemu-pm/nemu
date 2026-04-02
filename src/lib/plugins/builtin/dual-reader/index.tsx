@@ -1,9 +1,8 @@
-import { useMemo } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
 import type { ReaderPlugin, ReaderPluginContext } from '../../types';
 import { usePluginCtx } from '../../context';
 import i18n from '@/lib/i18n';
 import { useStores } from '@/data/context';
-import { DualReadPopoverContent, DualReadOverlay, DualReadReaderOverlay, resetDualReadLoaders } from './components';
 import { disposeDualReadWorker } from './dhash-worker-client';
 import { useDualReadStore } from './store';
 import { useDualReadPluginSettingsStore } from './settings';
@@ -11,6 +10,12 @@ import iconImage from './icon.png';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Copy02Icon } from '@hugeicons/core-free-icons';
 import type { Setting } from '@/lib/settings';
+
+// Lazy-load heavy components (125KB) — only rendered when reader is active
+const LazyDualReadPopoverContent = lazy(() => import('./components').then(m => ({ default: m.DualReadPopoverContent })));
+const LazyDualReadOverlay = lazy(() => import('./components').then(m => ({ default: m.DualReadOverlay })));
+const LazyDualReadReaderOverlay = lazy(() => import('./components').then(m => ({ default: m.DualReadReaderOverlay })));
+const loadComponents = () => import('./components');
 
 const t = (key: string) => i18n.t(`plugin.dualRead.${key}`);
 
@@ -90,7 +95,7 @@ export const dualReaderPlugin: ReaderPlugin = {
         },
         useIsVisible: useDualReadVisible,
         usePopoverOpen: () => useDualReadStore((s) => s.popoverOpen),
-        popoverContent: () => <DualReadPopoverContent />,
+        popoverContent: () => <Suspense><LazyDualReadPopoverContent /></Suspense>,
         onPopoverClose: () => useDualReadStore.getState().setPopoverOpen(false),
       },
     ];
@@ -101,7 +106,7 @@ export const dualReaderPlugin: ReaderPlugin = {
       id: 'dual-read-overlay',
       zIndex: 20,
       render: (pageIndex: number, ctx: ReaderPluginContext) => (
-        <DualReadOverlay pageIndex={pageIndex} ctx={ctx} />
+        <Suspense><LazyDualReadOverlay pageIndex={pageIndex} ctx={ctx} /></Suspense>
       ),
     },
   ],
@@ -110,7 +115,7 @@ export const dualReaderPlugin: ReaderPlugin = {
     {
       id: 'dual-read-root',
       zIndex: 30,
-      render: (ctx: ReaderPluginContext) => <DualReadReaderOverlay ctx={ctx} />,
+      render: (ctx: ReaderPluginContext) => <Suspense><LazyDualReadReaderOverlay ctx={ctx} /></Suspense>,
     },
   ],
 
@@ -119,11 +124,11 @@ export const dualReaderPlugin: ReaderPlugin = {
   hooks: {
     onMount: (ctx: ReaderPluginContext) => {
       const store = useDualReadStore.getState();
-      resetDualReadLoaders();
+      loadComponents().then(m => m.resetDualReadLoaders());
       store.startSession(`${ctx.registryId}:${ctx.sourceId}:${ctx.mangaId}`);
     },
     onUnmount: () => {
-      resetDualReadLoaders();
+      loadComponents().then(m => m.resetDualReadLoaders());
       disposeDualReadWorker();
       useDualReadStore.getState().cleanupRuntime();
     },
