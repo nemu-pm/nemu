@@ -4,6 +4,7 @@ import { usePluginCtx } from '../../context';
 import i18n from '@/lib/i18n';
 import { useStores } from '@/data/context';
 import { disposeDualReadWorker } from './dhash-worker-client';
+import { resetDualReadLoaders } from './loader-state';
 import { useDualReadStore } from './store';
 import { useDualReadPluginSettingsStore } from './settings';
 import iconImage from './icon.png';
@@ -15,7 +16,6 @@ import type { Setting } from '@/lib/settings';
 const LazyDualReadPopoverContent = lazy(() => import('./components').then(m => ({ default: m.DualReadPopoverContent })));
 const LazyDualReadOverlay = lazy(() => import('./components').then(m => ({ default: m.DualReadOverlay })));
 const LazyDualReadReaderOverlay = lazy(() => import('./components').then(m => ({ default: m.DualReadReaderOverlay })));
-const loadComponents = () => import('./components');
 
 const t = (key: string) => i18n.t(`plugin.dualRead.${key}`);
 
@@ -124,11 +124,11 @@ export const dualReaderPlugin: ReaderPlugin = {
   hooks: {
     onMount: (ctx: ReaderPluginContext) => {
       const store = useDualReadStore.getState();
-      loadComponents().then(m => m.resetDualReadLoaders());
+      resetDualReadLoaders();
       store.startSession(`${ctx.registryId}:${ctx.sourceId}:${ctx.mangaId}`);
     },
     onUnmount: () => {
-      loadComponents().then(m => m.resetDualReadLoaders());
+      resetDualReadLoaders();
       disposeDualReadWorker();
       useDualReadStore.getState().cleanupRuntime();
     },

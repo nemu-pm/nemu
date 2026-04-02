@@ -81,13 +81,9 @@ const ALIGNMENT_RETRY_MS = 2000;
 const ALIGNMENT_MAX_CONCURRENCY = 2;
 const ALIGNMENT_VISIBLE_DEBOUNCE_MS = 300;
 
-const loadingSecondaryChapters = new Set<string>();
-const loadingSecondaryImages = new Set<string>();
-
-export function resetDualReadLoaders() {
-  loadingSecondaryChapters.clear();
-  loadingSecondaryImages.clear();
-}
+// Re-export for backward compat; state lives in loader-state.ts (light module)
+export { resetDualReadLoaders } from './loader-state';
+import { loadingSecondaryChapters, loadingSecondaryImages } from './loader-state';
 
 function median(values: number[]): number {
   if (values.length === 0) return 0;
