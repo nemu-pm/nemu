@@ -1,186 +1,113 @@
 # nemu
 
-A content reader with a pluggable source runtime architecture (Aidoku WASM + Tachiyomi runtime).
+Nemu is a content reader built around pluggable source runtimes, local-first data storage, and optional Convex-backed sync.
 
-## Architecture (current)
+## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                              Frontend (React)                         │
-├──────────────────────────────────────────────────────────────────────┤
-│  src/main.tsx                                                         │
-│   - TanStack Router (src/router.tsx)                                  │
-│   - Zustand stores (src/stores/*)                                     │
-│   - Local persistence: IndexedDB                                      │
-│     - User DB (src/data/indexeddb.ts)                                 │
-│     - Cache DB (src/data/cache.ts)                                    │
-│   - Source runtimes (src/lib/sources/*)                               │
-│     - Aidoku: .aix → WebWorker runtime via @nemu.pm/aidoku-runtime     │
-│     - Tachiyomi: extension runtime via @nemu.pm/tachiyomi-runtime      │
-│   - Reader plugin system (src/lib/plugins/*)                           │
-└──────────────────────────────────────────────────────────────────────┘
-                                   │
-                                   ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                             Convex backend                             │
-├──────────────────────────────────────────────────────────────────────┤
-│  - Auth (better-auth via @convex-dev/better-auth)                      │
-│  - Canonical tables: library_items, library_source_links, progress      │
-│  - Realtime subscriptions → hydrate local IndexedDB (src/sync/setup.tsx)│
-└──────────────────────────────────────────────────────────────────────┘
+- Frontend: React 19 + Vite + TanStack Router.
+- State: Zustand stores created from profile-scoped service containers.
+- Local data: IndexedDB for library, progress, cache, source settings, and plugin data.
+- Sources: Aidoku WASM sources plus a Tachiyomi local registry in development.
+- Backend: Convex for auth, sync, proxy HTTP actions, and related app services.
+- Reader extensions: built-in reader plugins registered from `src/lib/plugins`.
 
-## Key Concepts
+## Project Layout
 
-### Source layer (`src/lib/sources/`)
-
-**MangaSource Interface** - Unified interface for ALL manga sources:
-```typescript
-interface MangaSource {
-  id: string;
-  name: string;
-  search(query: string): Promise<SearchResult<Manga>>;
-  getManga(mangaId: string): Promise<Manga>;
-  getChapters(mangaId: string): Promise<Chapter[]>;
-  getPages(mangaId: string, chapterId: string): Promise<Page[]>;
-  dispose(): void;
-}
-```
-
-Any provider (Aidoku, Komga, Kavita, local files) implements this interface.
-
-**SearchResult** - Source-owned pagination:
-```typescript
-interface SearchResult<T> {
-  items: T[];
-  hasMore: boolean;
-  loadMore?: () => Promise<SearchResult<T>>;
-}
-```
-
-The source controls its own pagination strategy (pages, cursors, offsets).
-
-**Page** - Source-controlled image fetching:
-```typescript
-interface Page {
-  index: number;
-  getImage(): Promise<Blob>;
-}
-```
-
-Each source handles its own image fetching (proxy, auth headers, etc).
-
-### Registry System (`src/lib/sources/registry.ts`)
-
-Polymorphic registry system for discovering and managing sources:
-
-| Registry Type | Description | Status |
-|--------------|-------------|--------|
-| **URL** | Remote Aidoku registry | ✅ Implemented |
-| **NAS** | Komga/Kavita servers | 📋 Planned |
-| **Local** | Local file system | 📋 Planned |
-
-Default registries (defined in `DEFAULT_REGISTRIES`):
-- **Aidoku Community** - https://aidoku-community.github.io/sources/index.min.json
-- **Aidoku ZH** - https://raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public/index.json
-
-### Data Layer (`src/data/`)
-
-Separated for different sync strategies:
-
-| Store | Contents | Sync |
-|-------|----------|------|
-| **UserDataStore** | Library, history, settings | Cloud sync (future) |
-| **CacheStore** | WASM binaries, images | Local only |
-
-### Current runtimes
-
-#### Aidoku (`src/lib/sources/aidoku/`)
-
-Runs Aidoku WASM sources in Web Workers (via `@nemu.pm/aidoku-runtime`).
-
-```
-adapter.ts          → AidokuMangaSource (implements MangaSource)
-async-source.ts     → Web Worker wrapper (Comlink)
-source.worker.ts    → Worker thread (runs WASM)
-runtime.ts          → WASM instantiation & host functions
-```
-
-## Directory Structure (high level)
-
-```
+```text
 src/
-├── lib/sources/         # Source runtimes + registries (Aidoku/Tachiyomi)
-├── data/                # IndexedDB persistence (user + cache), schemas, keys
-├── stores/              # Zustand stores (library/settings/history/progress/sync)
-├── sync/                # Convex subscription hydration + sync UX
-├── pages/               # Route-level UI
-├── components/          # Shared UI building blocks
-└── main.tsx             # App entry
+  components/      shared UI
+  data/            IndexedDB stores and profile-scoped data providers
+  hooks/           app hooks
+  lib/             sources, plugins, metadata, settings, reader utilities
+  pages/           route screens
+  stores/          Zustand store factories
+  sync/            sync setup, services container, transport types
+
+convex/            Convex functions, schema, auth, HTTP actions
+services/proxy/    Bun + Cloudflare Worker proxy service
+services/ocr/      Python OCR service
+scripts/           local scripts and build helpers
+tests/fixtures/    reusable test fixtures
 ```
 
-## Running
+## Source System
+
+Source implementations live under `src/lib/sources/`.
+
+- `aidoku/`: Aidoku `.aix` packages executed in a worker-backed runtime.
+- `tachiyomi/`: Tachiyomi local registry support for development workflows.
+- `registry.ts`: `RegistryManager` for built-in and user-added registries.
+
+Source support is intentionally limited. Nemu does not assume every upstream Aidoku source or Tachiyomi extension can run in the browser runtime. Aidoku is generally easier to support; Tachiyomi is much more constrained because some extensions depend on polyfills or platform APIs that do not map cleanly to a browser environment.
+
+The registry manager currently wires in:
+
+- built-in Aidoku URL registries
+- a Tachiyomi local registry when `import.meta.env.DEV` and `VITE_TACHIYOMI_LOCAL_PATH` are set
+- user-added URL registries persisted in IndexedDB
+
+See `docs/sources.md` for compatibility notes, build-report references, and the intended support policy.
+
+## Sync Model
+
+Nemu is local-first.
+
+- Local reads and writes go through profile-scoped services created by `createServicesContainer(...)`.
+- `DataServicesProvider` owns the active services container for the current profile.
+- `SyncSetup` bridges Convex subscriptions into local IndexedDB and in-memory stores.
+- Convex persists canonical cloud data for library items, chapter history/progress, and installed sources.
+
+Prefer the code in `src/data/services-provider.tsx`, `src/sync/services.ts`, and `src/sync/setup.tsx` as the source of truth for sync behavior.
+
+## Reader Plugins
+
+Reader plugin APIs live in `src/lib/plugins`.
+
+- built-in plugins are registered by importing `src/lib/plugins/init.ts`
+- plugin types and storage helpers are exported from `@/lib/plugins`
+- current built-ins are `japanese-learning` and `dual-reader`
+
+See `docs/plugins.md` for the current plugin API.
+
+## Development
 
 ```bash
-# Install dependencies (bun)
+# install dependencies
 bun install
 
-# Start dev server
+# app + convex dev
 bun dev
 
-# Deploy CORS proxy to Cloudflare Workers (required for Aidoku sources)
-cd service && bunx wrangler deploy
+# local proxy service
+bun run service
 
-# Run tests
+# lint and typecheck
+bun run lint
+bun run typecheck
+
+# tests
 bun test
+bun test --coverage
 
-# Type check & build
+# production build
 bun run build
 ```
 
-## Adding a New Provider
+OCR development:
 
-1. Create `src/providers/{provider}/adapter.ts`
-2. Implement `MangaSource` interface
-3. Create a registry class implementing `SourceRegistryProvider`
-4. Register it in `RegistryManager`
-
-Example skeleton:
-```typescript
-// src/providers/komga/adapter.ts
-export class KomgaMangaSource implements MangaSource {
-  constructor(private serverUrl: string, private auth: string) {}
-  
-  async search(query: string): Promise<SearchResult<Manga>> {
-    // Call Komga API
-  }
-  // ... implement other methods
-}
+```bash
+./services/ocr/run.sh 8080
 ```
 
-## Dependencies
+## Deployment Notes
 
-| Package | Purpose |
-|---------|---------|
-| `zustand` | State management |
-| `zod` | Schema validation |
-| `comlink` | Web Worker communication |
-| `fflate` | Unzipping .aix packages |
-| `react-virtuoso` | Virtualized lists |
-| `dayjs` | Date parsing |
-| `cheerio` | HTML parsing (Aidoku WASM) |
-| `@tanstack/react-router` | File-based routing |
-| `shadcn/ui` | UI components |
+- `bun run deploy` runs the Apple secret generation step and deploys Convex functions.
+- The proxy worker source is in `services/proxy/`.
+- The frontend uses `https://service.nemu.pm` as the proxy base in `src/config.ts`.
 
-## Roadmap
+## Useful Environment Variables
 
-- [x] Aidoku WASM provider
-- [x] Registry system (multi-registry with collision-safe keys)
-- [x] Data layer (UserDataStore, CacheStore)
-- [x] Frontend redesign (library, search, reader, settings)
-- [x] Reading progress tracking
-- [x] Add source dialog (registry + custom .aix)
-- [ ] Komga provider
-- [ ] Kavita provider
-- [ ] Cloud sync for user data
-- [ ] Offline reading
-- [ ] Source filters UI
+- `VITE_CONVEX_URL`
+- `VITE_TACHIYOMI_LOCAL_PATH`
+
+Some flows also require OCR or proxy-specific environment/configuration depending on what you are testing.

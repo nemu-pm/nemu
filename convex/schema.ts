@@ -2,7 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 // ============================================================================
-// NAMING CONVENTIONS (Phase 0 from sync.md)
+// Naming conventions for local/cloud sync identifiers.
 // ============================================================================
 // - `libraryItemId`: UUID identifying the user's library entry
 // - `sourceMangaId`: the id inside a specific source (e.g., "123" from MangaDex)
