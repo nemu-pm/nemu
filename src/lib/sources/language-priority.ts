@@ -34,17 +34,11 @@ export function getPrimaryLanguage(languages: string[] | undefined): string {
 /**
  * Get the priority order for language categories based on user's app language
  *
- * - English users: en, ja, multi, then others alphabetically
- * - Other users: user's language, ja, en, multi, then others alphabetically
+ * ja, en, user's language, multi, then others alphabetically
  */
 export function getLanguagePriorityOrder(appLanguage: string | undefined): string[] {
   const userLang = appLanguage || "en";
-  const isEnglishUser = userLang.startsWith("en");
-
-  const order = isEnglishUser
-    ? ["en", "ja", "multi"]
-    : [userLang, "ja", "en", "multi"];
-  return [...new Set(order)];
+  return [...new Set(["ja", "en", userLang, "multi"])];
 }
 
 // =============================================================================
