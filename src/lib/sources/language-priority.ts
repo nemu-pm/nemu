@@ -41,9 +41,10 @@ export function getLanguagePriorityOrder(appLanguage: string | undefined): strin
   const userLang = appLanguage || "en";
   const isEnglishUser = userLang.startsWith("en");
 
-  return isEnglishUser
+  const order = isEnglishUser
     ? ["en", "ja", "multi"]
     : [userLang, "ja", "en", "multi"];
+  return [...new Set(order)];
 }
 
 // =============================================================================

@@ -388,6 +388,7 @@ function RegistrySourceList({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t("addSource.searchPlaceholder")}
+          aria-label={t("addSource.searchPlaceholder")}
           className="pl-8"
         />
       </div>
@@ -428,6 +429,8 @@ function RegistrySourceList({
         <button
           type="button"
           onClick={() => setShowNSFW(!showNSFW)}
+          aria-label={t("addSource.showNSFW")}
+          aria-pressed={showNSFW}
           className={cn(
             "shrink-0 size-8 inline-flex items-center justify-center rounded-md border transition-colors",
             showNSFW
@@ -452,17 +455,20 @@ function RegistrySourceList({
                 {formatLanguageLabel(section.label, t, appLanguage)}
               </p>
               <div className="space-y-1">
-                {section.sources.map((source) => {
-                  const key = Keys.source(source.registryId, source.id);
-                  return (
-                    <SourceItem
-                      key={key}
-                      source={source}
-                      installing={installing === key}
-                      onInstall={() => handleInstall(source)}
-                    />
-                  );
-                })}
+                {section.sources
+                  .slice()
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((source) => {
+                    const key = Keys.source(source.registryId, source.id);
+                    return (
+                      <SourceItem
+                        key={key}
+                        source={source}
+                        installing={installing === key}
+                        onInstall={() => handleInstall(source)}
+                      />
+                    );
+                  })}
               </div>
             </div>
           ))
