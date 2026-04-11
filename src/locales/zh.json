@@ -351,7 +351,11 @@
     "warningTitle": "提示",
     "warningAuthentication": "此源需要登录或身份验证。在当前版本的 nemu 中可能无法正常使用。",
     "warningCloudflare": "此源有 Cloudflare 保护。在当前版本的 nemu 中可能无法正常使用。",
-    "installAnyway": "仍然安装"
+    "installAnyway": "仍然安装",
+    "searchPlaceholder": "搜索源...",
+    "showNSFW": "显示 18+",
+    "allLanguages": "全部",
+    "languagesSelected": "已选 {{count}} 个"
   },
   "clearData": {
     "clearCache": "清除缓存",
