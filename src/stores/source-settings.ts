@@ -28,11 +28,21 @@ interface SourceSettingsState {
   // Actions
   initialize: () => Promise<void>;
   setSetting: (sourceKey: string, key: string, value: unknown) => void;
+  deleteSetting: (sourceKey: string, key: string) => void;
   resetSettings: (sourceKey: string) => void;
   setSchema: (sourceKey: string, schema: Setting[]) => Promise<void>;
 }
 
 export type SourceSettingsStore = UseBoundStore<StoreApi<SourceSettingsState>>;
+
+interface SourceSettingsPersistence {
+  loadAllSettings: () => Promise<Map<string, Record<string, unknown>>>;
+  loadAllSchemas: () => Promise<Map<string, Setting[]>>;
+  saveSettings: (sourceKey: string, values: Record<string, unknown>) => Promise<void>;
+  deleteSettings: (sourceKey: string) => Promise<void>;
+  saveSchema: (sourceKey: string, schema: Setting[]) => Promise<void>;
+  migrateFromLocalStorage: () => Map<string, Record<string, unknown>>;
+}
 
 // IndexedDB helpers
 async function openDB(): Promise<IDBDatabase> {
@@ -146,19 +156,36 @@ function migrateFromLocalStorage(): Map<string, Record<string, unknown>> {
   return migrated;
 }
 
-// Debounced save
-const saveDebounceMap = new Map<string, ReturnType<typeof setTimeout>>();
+export function createSourceSettingsStore(
+  persistenceOverrides: Partial<SourceSettingsPersistence> = {}
+): SourceSettingsStore {
+  const persistence: SourceSettingsPersistence = {
+    loadAllSettings,
+    loadAllSchemas,
+    saveSettings,
+    deleteSettings,
+    saveSchema,
+    migrateFromLocalStorage,
+    ...persistenceOverrides,
+  };
+  const saveDebounceMap = new Map<string, ReturnType<typeof setTimeout>>();
 
-function debouncedSave(sourceKey: string, values: Record<string, unknown>) {
-  const existing = saveDebounceMap.get(sourceKey);
-  if (existing) clearTimeout(existing);
-  saveDebounceMap.set(sourceKey, setTimeout(() => {
-    saveSettings(sourceKey, values).catch(console.error);
-    saveDebounceMap.delete(sourceKey);
-  }, 500));
-}
+  const cancelPendingSave = (sourceKey: string) => {
+    const existing = saveDebounceMap.get(sourceKey);
+    if (existing) {
+      clearTimeout(existing);
+      saveDebounceMap.delete(sourceKey);
+    }
+  };
 
-export function createSourceSettingsStore(): SourceSettingsStore {
+  const debouncedSave = (sourceKey: string, values: Record<string, unknown>) => {
+    cancelPendingSave(sourceKey);
+    saveDebounceMap.set(sourceKey, setTimeout(() => {
+      persistence.saveSettings(sourceKey, values).catch(console.error);
+      saveDebounceMap.delete(sourceKey);
+    }, 500));
+  };
+
   return create<SourceSettingsState>((set, get) => ({
     values: new Map(),
     schemas: new Map(),
@@ -168,15 +195,18 @@ export function createSourceSettingsStore(): SourceSettingsStore {
     initialize: async () => {
       if (get().initialized) return;
       try {
-        const [settings, schemas] = await Promise.all([loadAllSettings(), loadAllSchemas()]);
+        const [settings, schemas] = await Promise.all([
+          persistence.loadAllSettings(),
+          persistence.loadAllSchemas(),
+        ]);
         
         // Migrate from localStorage
-        const migrated = migrateFromLocalStorage();
+        const migrated = persistence.migrateFromLocalStorage();
         for (const [sourceKey, values] of migrated) {
           const existing = settings.get(sourceKey) ?? {};
           const merged = { ...existing, ...values };
           settings.set(sourceKey, merged);
-          await saveSettings(sourceKey, merged);
+          await persistence.saveSettings(sourceKey, merged);
         }
         
         set({ values: settings, schemas, loading: false, initialized: true });
@@ -198,12 +228,37 @@ export function createSourceSettingsStore(): SourceSettingsStore {
       debouncedSave(sourceKey, updated);
     },
 
+    deleteSetting: (sourceKey, key) => {
+      const { values } = get();
+      const current = values.get(sourceKey);
+      if (!current || !(key in current)) return;
+
+      const updated = { ...current };
+      delete updated[key];
+
+      const newValues = new Map(values);
+      if (Object.keys(updated).length === 0) {
+        newValues.delete(sourceKey);
+      } else {
+        newValues.set(sourceKey, updated);
+      }
+      set({ values: newValues });
+
+      if (Object.keys(updated).length === 0) {
+        cancelPendingSave(sourceKey);
+        persistence.deleteSettings(sourceKey).catch(console.error);
+      } else {
+        debouncedSave(sourceKey, updated);
+      }
+    },
+
     resetSettings: (sourceKey) => {
       const { values } = get();
       const newValues = new Map(values);
       newValues.delete(sourceKey);
       set({ values: newValues });
-      deleteSettings(sourceKey).catch(console.error);
+      cancelPendingSave(sourceKey);
+      persistence.deleteSettings(sourceKey).catch(console.error);
     },
 
     setSchema: async (sourceKey, schema) => {
@@ -211,7 +266,7 @@ export function createSourceSettingsStore(): SourceSettingsStore {
       const newSchemas = new Map(schemas);
       newSchemas.set(sourceKey, schema);
       set({ schemas: newSchemas });
-      await saveSchema(sourceKey, schema);
+      await persistence.saveSchema(sourceKey, schema);
     },
   }));
 }
