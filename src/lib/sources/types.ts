@@ -20,6 +20,14 @@ export interface MangaSource {
   dispose(): void;
 }
 
+export interface AuthenticatedSource extends MangaSource {
+  handlesBasicLogin(): Promise<boolean>;
+  handlesWebLogin(): Promise<boolean>;
+  handleBasicLogin(key: string, username: string, password: string): Promise<boolean>;
+  handleWebLogin(key: string, cookies: Record<string, string>): Promise<boolean>;
+  handleNotification(notification: string): Promise<void>;
+}
+
 /** Extension for sources that support stale-while-revalidate caching */
 export interface MangaSourceSWR {
   getCachedManga(mangaId: string): Promise<Manga | null>;
@@ -29,6 +37,21 @@ export interface MangaSourceSWR {
 /** Type guard for SWR-capable sources */
 export function hasSWR(source: MangaSource): source is MangaSource & MangaSourceSWR {
   return "getCachedManga" in source && "getCachedChapters" in source;
+}
+
+export function hasAuthenticationHandlers(source: MangaSource): source is AuthenticatedSource {
+  return (
+    "handlesBasicLogin" in source &&
+    typeof source.handlesBasicLogin === "function" &&
+    "handlesWebLogin" in source &&
+    typeof source.handlesWebLogin === "function" &&
+    "handleBasicLogin" in source &&
+    typeof source.handleBasicLogin === "function" &&
+    "handleWebLogin" in source &&
+    typeof source.handleWebLogin === "function" &&
+    "handleNotification" in source &&
+    typeof source.handleNotification === "function"
+  );
 }
 
 // ============ SEARCH RESULT WITH PAGINATION ============
@@ -87,4 +110,3 @@ export interface Page {
   index: number;
   getImage(): Promise<Blob>;
 }
-
