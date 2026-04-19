@@ -10,6 +10,16 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 
 interface HeaderAction {
   label?: string;
@@ -17,11 +27,25 @@ interface HeaderAction {
   onClick: () => void;
 }
 
+export interface TitleMenuItem {
+  id: string;
+  label: string;
+  onSelect: () => void;
+  checked?: boolean;
+  variant?: "default" | "destructive";
+}
+
+export interface TitleMenuProps {
+  items: TitleMenuItem[];
+  footer?: TitleMenuItem[];
+}
+
 interface PageHeaderProps {
   title: string;
   icon?: string;
   action?: HeaderAction;
   actions?: HeaderAction[];
+  titleMenu?: TitleMenuProps;
   loading?: boolean;
   className?: string;
 }
@@ -75,6 +99,99 @@ const BACKDROP_MASK = "linear-gradient(to bottom, black 20%, transparent)";
 const BACKDROP_BACKGROUND =
   "linear-gradient(to bottom, var(--background), transparent)";
 
+function TitleMenuTrigger({
+  title,
+  titleMenu,
+  align,
+  triggerClassName,
+  arrowClassName,
+}: {
+  title: string;
+  titleMenu: TitleMenuProps;
+  align: "start" | "center";
+  triggerClassName?: string;
+  arrowClassName?: string;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        type="button"
+        className={cn(
+          "m-0 inline-flex max-w-full appearance-none items-center gap-1 border-0 bg-transparent p-0 text-left font-[inherit] leading-[inherit] tracking-[inherit] text-inherit outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          triggerClassName
+        )}
+        aria-label={title}
+      >
+        <span className="block truncate">{title}</span>
+        <HugeiconsIcon
+          icon={ArrowDown01Icon}
+          className={cn("shrink-0 text-muted-foreground", arrowClassName)}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={align} className="min-w-[200px]">
+        {titleMenu.items.map((item) => (
+          <DropdownMenuCheckboxItem
+            key={item.id}
+            checked={item.checked}
+            onClick={item.onSelect}
+          >
+            {item.label}
+          </DropdownMenuCheckboxItem>
+        ))}
+        {titleMenu.footer && titleMenu.footer.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            {titleMenu.footer.map((item) => (
+              <DropdownMenuItem
+                key={item.id}
+                variant={item.variant}
+                onClick={item.onSelect}
+              >
+                {item.label}
+              </DropdownMenuItem>
+            ))}
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function HeaderTitle({
+  title,
+  titleMenu,
+  align,
+  as = "h1",
+  className,
+  triggerClassName,
+  arrowClassName,
+}: {
+  title: string;
+  titleMenu?: TitleMenuProps;
+  align: "start" | "center";
+  as?: "h1" | "h2";
+  className: string;
+  triggerClassName?: string;
+  arrowClassName?: string;
+}) {
+  const Heading = as;
+  if (!titleMenu) {
+    return <Heading className={className}>{title}</Heading>;
+  }
+
+  return (
+    <Heading className={className}>
+      <TitleMenuTrigger
+        title={title}
+        titleMenu={titleMenu}
+        align={align}
+        triggerClassName={triggerClassName}
+        arrowClassName={arrowClassName}
+      />
+    </Heading>
+  );
+}
+
 /**
  * Page header with iOS-26-style scroll behaviour.
  *
@@ -97,6 +214,7 @@ export function PageHeader({
   icon,
   action,
   actions,
+  titleMenu,
   loading,
   className,
 }: PageHeaderProps) {
@@ -201,9 +319,17 @@ export function PageHeader({
                   className="rounded-md object-cover shrink-0 size-6"
                 />
               )}
-              <h2 className="font-medium text-foreground text-base whitespace-nowrap truncate">
-                {title}
-              </h2>
+              <HeaderTitle
+                title={title}
+                titleMenu={titleMenu}
+                align="center"
+                as="h2"
+                className="font-medium text-foreground text-base whitespace-nowrap truncate"
+                triggerClassName={
+                  collapsed ? "pointer-events-auto" : "pointer-events-none"
+                }
+                arrowClassName="size-4"
+              />
               {loading && (
                 <Spinner className="text-muted-foreground size-4" />
               )}
@@ -250,9 +376,13 @@ export function PageHeader({
           }}
         >
           {titleIcon}
-          <h1 className="font-bold text-foreground text-2xl truncate">
-            {title}
-          </h1>
+          <HeaderTitle
+            title={title}
+            titleMenu={titleMenu}
+            align="start"
+            className="font-bold text-foreground text-2xl truncate"
+            arrowClassName="size-5"
+          />
           {loading && <Spinner className="text-muted-foreground" />}
         </div>
       </>
@@ -280,7 +410,13 @@ export function PageHeader({
       <div className="relative flex items-center justify-between min-h-[2.5rem]">
         <div className="flex items-center gap-2">
           {titleIcon}
-          <h1 className="font-bold text-foreground text-2xl">{title}</h1>
+          <HeaderTitle
+            title={title}
+            titleMenu={titleMenu}
+            align="start"
+            className="font-bold text-foreground text-2xl"
+            arrowClassName="size-5"
+          />
           {loading && <Spinner className="text-muted-foreground" />}
         </div>
         {allActions.length > 0 && (
