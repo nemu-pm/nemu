@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo } from 'react'
+import { haptic } from '@/lib/haptics'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Keyboard, Zoom, Virtual, Navigation } from 'swiper/modules'
 import type { Swiper as SwiperType } from 'swiper'
@@ -195,6 +196,7 @@ export function TwoPageGallery({
         onSlideChangeTransitionEnd={(swiper) => {
           const newSpreadIndex = swiper.activeIndex
           if (newSpreadIndex !== currentSpreadIndex) {
+            haptic()
             handleSpreadChange(newSpreadIndex)
           }
         }}

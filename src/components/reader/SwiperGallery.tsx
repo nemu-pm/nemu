@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { haptic } from '@/lib/haptics'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Keyboard, Zoom, Virtual, Navigation, FreeMode, Mousewheel } from 'swiper/modules'
 import type { Swiper as SwiperType } from 'swiper'
@@ -174,6 +175,7 @@ export function SwiperGallery({
           const newUnderlyingIndex = visibleIndices[newVisibleIndex]
           if (newUnderlyingIndex == null) return
           if (newUnderlyingIndex !== currentPageIndex) {
+            haptic()
             onPageChange(newUnderlyingIndex)
           }
         }}
