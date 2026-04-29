@@ -7,17 +7,14 @@ import { Skeleton } from "@/components/ui/skeleton";
  */
 function SkeletonHeader({ children }: { children: React.ReactNode }) {
   return (
-    <>
-      <div
-        className="sticky top-0 z-40 bg-background"
-        style={{ paddingTop: "var(--nemu-safe-top, 0px)" }}
-      >
-        <div className="min-h-[2.75rem]" />
-      </div>
+    <div
+      className="sticky top-0 z-40 bg-background"
+      style={{ paddingTop: "var(--nemu-safe-top, 0px)" }}
+    >
       <div className="flex items-center justify-between min-h-[2.5rem]">
         {children}
       </div>
-    </>
+    </div>
   );
 }
 
