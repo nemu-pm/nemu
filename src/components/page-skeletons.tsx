@@ -1,15 +1,31 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
+/**
+ * Wraps a fake header row with the same safe-area + sticky behavior as the
+ * real PageHeader so skeletons don't render behind the notch on mobile.
+ */
+function SkeletonHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="sticky top-0 z-40 bg-background"
+      style={{ paddingTop: "var(--nemu-safe-top, 0px)" }}
+    >
+      <div className="flex items-center justify-between min-h-[2.5rem]">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function BrowsePageSkeleton() {
   return (
     <div className="space-y-6">
-      {/* PageHeader skeleton */}
-      <div className="flex items-center justify-between min-h-[2.5rem]">
+      <SkeletonHeader>
         <div className="flex items-center gap-2">
-        <Skeleton className="h-8 w-32" />
+          <Skeleton className="h-8 w-32" />
         </div>
         <Skeleton className="h-9 w-28" />
-      </div>
+      </SkeletonHeader>
 
       <div className="space-y-6">
         {/* 2 language sections */}
@@ -39,10 +55,9 @@ export function BrowsePageSkeleton() {
 export function SettingsPageSkeleton() {
   return (
     <div className="space-y-6">
-      {/* PageHeader skeleton */}
-      <div className="flex items-center justify-between min-h-[2.5rem]">
+      <SkeletonHeader>
         <Skeleton className="h-8 w-32" />
-      </div>
+      </SkeletonHeader>
 
       {/* Cloud Sync Card */}
       <div className="rounded-lg border bg-card">
@@ -143,13 +158,12 @@ export function SettingsPageSkeleton() {
 export function MangaPageSkeleton() {
   return (
     <div className="space-y-8">
-      {/* PageHeader skeleton */}
-      <div className="flex items-center justify-between min-h-[2.5rem]">
+      <SkeletonHeader>
         <div className="flex items-center gap-2">
           <Skeleton className="size-8 rounded-md" />
           <Skeleton className="h-8 w-32" />
         </div>
-      </div>
+      </SkeletonHeader>
 
       {/* Hero section */}
       <div className="flex flex-col gap-6 md:flex-row">
@@ -198,8 +212,7 @@ export function MangaPageSkeleton() {
 export function SourceBrowsePageSkeleton() {
   return (
     <div className="space-y-4">
-      {/* PageHeader skeleton */}
-      <div className="flex items-center justify-between min-h-[2.5rem]">
+      <SkeletonHeader>
         <div className="flex items-center gap-2">
           <Skeleton className="size-8 rounded-md" />
           <Skeleton className="h-8 w-48" />
@@ -208,7 +221,7 @@ export function SourceBrowsePageSkeleton() {
           <Skeleton className="size-9 rounded-md" />
           <Skeleton className="size-9 rounded-md" />
         </div>
-      </div>
+      </SkeletonHeader>
 
       {/* Listings header */}
       <div className="flex flex-wrap gap-2">
@@ -234,10 +247,9 @@ export function SourceBrowsePageSkeleton() {
 export function LibraryPageSkeleton() {
   return (
     <div className="space-y-4">
-      {/* PageHeader skeleton */}
-      <div className="flex items-center justify-between min-h-[2.5rem]">
+      <SkeletonHeader>
         <Skeleton className="h-8 w-32" />
-      </div>
+      </SkeletonHeader>
 
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 sm:gap-4 md:grid-cols-5 lg:grid-cols-6">
         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((manga) => (

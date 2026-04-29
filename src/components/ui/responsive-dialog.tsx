@@ -138,6 +138,9 @@ function ResponsiveDialogContent({
           data-slot="responsive-dialog-content"
           className={cn(
             "bg-background flex flex-col gap-6 p-6 text-sm inset-x-0 bottom-0 rounded-t-xl border-t group/drawer-content fixed z-50 max-h-[96vh]",
+            // Add iOS home-indicator clearance so bottom buttons don't land
+            // in the edge-gesture zone (which would eat the first tap).
+            "pb-[calc(1.5rem+env(safe-area-inset-bottom))]",
             dismissible !== false ? "pt-0" : "pt-6",
             className
           )}
