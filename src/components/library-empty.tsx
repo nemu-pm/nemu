@@ -18,7 +18,13 @@ export function LibraryEmpty({ variant }: LibraryEmptyProps) {
 
   return (
     <>
-      <div className="flex h-full min-h-[60vh] flex-col items-center justify-center p-4">
+      <div
+        className="flex h-full min-h-[60vh] flex-col items-center justify-center p-4"
+        style={{
+          paddingTop: "calc(1rem + var(--nemu-safe-top, 0px))",
+          paddingBottom: "calc(1rem + var(--nemu-safe-bottom, 0px))",
+        }}
+      >
         {/* Portrait illustration with magical floating animation */}
         <div className="relative mb-4 portrait-container">
           {/* Ethereal glow layers that pulse independently */}
