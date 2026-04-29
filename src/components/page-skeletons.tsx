@@ -1,19 +1,23 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
- * Wraps a fake header row with the same safe-area + sticky behavior as the
- * real PageHeader so skeletons don't render behind the notch on mobile.
+ * Mirrors the real PageHeader's mobile structure: a sticky bar at top
+ * (safe-area aware, no body) plus an inline title row in normal flow.
+ * This keeps the skeleton-to-loaded transition from popping the layout.
  */
 function SkeletonHeader({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className="sticky top-0 z-40 bg-background"
-      style={{ paddingTop: "var(--nemu-safe-top, 0px)" }}
-    >
+    <>
+      <div
+        className="sticky top-0 z-40 bg-background"
+        style={{ paddingTop: "var(--nemu-safe-top, 0px)" }}
+      >
+        <div className="min-h-[2.75rem]" />
+      </div>
       <div className="flex items-center justify-between min-h-[2.5rem]">
         {children}
       </div>
-    </div>
+    </>
   );
 }
 
