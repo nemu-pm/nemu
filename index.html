@@ -18,6 +18,23 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <style>
+      :root { background-color: oklch(0.985 0.006 269); color-scheme: light; }
+      :root.dark { background-color: oklch(0.145 0.006 269); color-scheme: dark; }
+    </style>
+    <script>
+      (function () {
+        try {
+          var stored = null;
+          try { stored = localStorage.getItem('nemu:theme'); } catch (e) {}
+          var resolved = (stored === 'light' || stored === 'dark')
+            ? stored
+            : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          if (resolved === 'dark') document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
