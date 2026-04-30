@@ -29,7 +29,7 @@ This plan is first because it solves the immediate cost-control problem. It shou
 - `user` and `supporter` are quota tiers, not permissions.
 - Quota checks happen server-side before expensive model/provider calls.
 - Self-hosted and local development default to unlimited usage unless limits are explicitly enabled.
-- Metadata and Japanese normalization share the `metadata` bucket at first.
+- Metadata and Japanese normalization share the `metadata` bucket at first, even though they may dispatch to different providers (Google AI Studio for metadata tagging, AI Gateway for Japanese normalization). The bucket is a usage-cost abstraction, not a provider abstraction. Split later if observed costs justify it.
 - Total daily limits protect the hosted deployment as a whole.
 - Counter increments are atomic: the user counter increments first, then the total counter; if the total counter denies, the user counter rolls back. This avoids drift where a user appears to have consumed quota that the total cap actually rejected.
 - Quota-denied responses are surfaced as a `ConvexError` carrying a stable string code (e.g. `USAGE_LIMIT_EXCEEDED`) plus structured metadata (feature, tier, used, limit, resetAt). Clients match on the code, not the message, and can render an i18n toast.
@@ -159,6 +159,7 @@ Deliverables:
 - `usage_daily` table
 - `usage_plans` table
 - Required indexes
+- `convex deploy` (or `npx convex dev` push for local) so the new tables actually exist before any consumer phase lands.
 
 Keep this schema narrow. Do not add resource permissions or billing tables here.
 
@@ -168,7 +169,21 @@ Deliverables:
 
 - `convex/usage.ts`
 - Internal mutation that checks user and total counters
-- Structured quota-denied error shape
+- Concrete quota-denied error shape exported as a type so clients can match it without string-comparing messages:
+
+  ```ts
+  export const USAGE_LIMIT_EXCEEDED = "USAGE_LIMIT_EXCEEDED" as const;
+  export interface UsageLimitDeniedData {
+    code: typeof USAGE_LIMIT_EXCEEDED;
+    feature: "chat" | "tts" | "metadata";
+    scope: "user" | "total";
+    used: number;
+    limit: number;
+    resetAt: number; // epoch ms of next UTC reset
+  }
+  // Throw via: throw new ConvexError<UsageLimitDeniedData>({...})
+  ```
+
 - UTC day key helper
 - Tier lookup helper
 
