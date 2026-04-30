@@ -10,6 +10,7 @@ import { createContext, useContext, useCallback, useRef, type ReactNode } from "
 import { useStores } from "@/data/context";
 import type { MangaSource } from "@/lib/sources/types";
 import { proxyUrl } from "@/config";
+import { isNative, nativeFetch } from "@/lib/native-fetch";
 import { parseSourceKey } from "@/data/keys";
 
 // ============ CONTEXT ============
@@ -70,13 +71,23 @@ export function useSourceImage(): ImageFetcher | null {
 
 /** Default fetcher - uses image origin as Referer (works for most sources) */
 export async function defaultFetch(url: string): Promise<Blob> {
-  const headers: Record<string, string> = {};
+  let referer: string | null = null;
   try {
-    headers["x-proxy-referer"] = new URL(url).origin;
+    referer = new URL(url).origin;
   } catch {
     // Invalid URL, proceed without referer
   }
-  const res = await fetch(proxyUrl(url), { headers });
+
+  let res: Response;
+  if (isNative()) {
+    // Native: call origin directly with real Referer header.
+    res = await nativeFetch(url, referer ? { headers: { Referer: referer } } : undefined);
+  } else {
+    // Web: route through CF Worker proxy, header forwarded as x-proxy-referer.
+    const headers: Record<string, string> = {};
+    if (referer) headers["x-proxy-referer"] = referer;
+    res = await fetch(proxyUrl(url), { headers });
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.blob();
 }
