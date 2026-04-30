@@ -33,6 +33,7 @@ import { getSourceSettingsStore } from "@/stores/source-settings";
 import { extractDefaults } from "@/lib/settings";
 import pMemoize, { pMemoizeClear } from "p-memoize";
 import { hasAgent, agentProxyFetch } from "@/lib/agent";
+import { isNative, nativeFetch } from "@/lib/native-fetch";
 import { handleSourceError } from "@/lib/sources/error-handler";
 
 /**
@@ -167,14 +168,22 @@ export async function createAidokuMangaSource(
   cacheStore: CacheStore,
   icon?: string
 ): Promise<CreateAidokuSourceResult> {
-  // Use agent if available, otherwise fallback to CF Worker proxy
-  const useAgent = await hasAgent();
-  const customFetch: ProxyFetch | undefined = useAgent ? agentProxyFetch : undefined;
+  // Priority: native HTTP (Capacitor iOS/Android) → desktop Agent → CF Worker proxy.
+  // On a native device CapacitorHttp uses the platform's networking stack and
+  // bypasses webview CORS, so the proxy is never needed.
+  const useNative = isNative();
+  const useAgent = !useNative && (await hasAgent());
+  const customFetch: ProxyFetch | undefined =
+    useNative ? nativeFetch : useAgent ? agentProxyFetch : undefined;
 
-  if (useAgent) {
-    console.log("[Aidoku] 🚀 Agent detected - using native TLS");
-  } else {
-    console.log("[Aidoku] ⚠️ No agent - using CF Worker proxy");
+  if (import.meta.env.DEV) {
+    if (useNative) {
+      console.log("[Aidoku] Native platform — using CapacitorHttp");
+    } else if (useAgent) {
+      console.log("[Aidoku] Agent detected — using native TLS");
+    } else {
+      console.log("[Aidoku] No agent — using CF Worker proxy");
+    }
   }
 
   // Load source via aidoku-js (handles Worker, sync HTTP, etc.)

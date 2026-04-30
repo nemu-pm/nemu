@@ -11,6 +11,7 @@ import type { Manga as RuntimeManga, Chapter as RuntimeChapter, FilterState } fr
 import { buildFilterStateJson } from "@nemu.pm/tachiyomi-runtime";
 import type { GenericListing } from "@/components/browse";
 import { proxyUrl } from "@/config";
+import { isNative, nativeFetch } from "@/lib/native-fetch";
 import type { CacheStore } from "@/data/cache";
 import { CacheKeys } from "@/data/cache";
 import { parseSourceKey } from "@/data/keys";
@@ -364,13 +365,19 @@ export async function createTachiyomiBrowsableSource(
 
       // Get source headers (includes Referer from headersBuilder)
       const headers = await getSourceHeaders();
-      const proxyHeaders: Record<string, string> = {};
-      for (const [key, value] of Object.entries(headers)) {
-        proxyHeaders[`x-proxy-${key}`] = value;
-      }
 
-      // Fetch through proxy with source headers
-      const response = await fetch(proxyUrl(url), { headers: proxyHeaders });
+      // On native, hit the URL directly via CapacitorHttp (no proxy needed).
+      // On web, route through CF Worker proxy with x-proxy-* header forwarding.
+      let response: Response;
+      if (isNative()) {
+        response = await nativeFetch(url, { headers });
+      } else {
+        const proxyHeaders: Record<string, string> = {};
+        for (const [key, value] of Object.entries(headers)) {
+          proxyHeaders[`x-proxy-${key}`] = value;
+        }
+        response = await fetch(proxyUrl(url), { headers: proxyHeaders });
+      }
       if (!response.ok) {
         throw new Error(`Failed to fetch image: ${response.status}`);
       }
