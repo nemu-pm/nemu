@@ -4,7 +4,6 @@ const config: CapacitorConfig = {
   appId: "pm.nemu.app",
   appName: "nemu",
   webDir: "dist",
-  bundledWebRuntime: false,
   ios: {
     // Native iOS project lives under native/ios/ to keep the repo root tidy.
     path: "native/ios",
@@ -21,19 +20,18 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      // Keep the splash visible up to 3s OR until React explicitly hides it
-      // (whichever comes first). This bridges the "launch storyboard ends but
-      // React hasn't loaded library data yet" gap so the user doesn't briefly
-      // see the loading skeleton or empty state. native-init.ts hides it on
-      // first React paint via SplashScreen.hide().
-      launchShowDuration: 3000,
-      launchAutoHide: false,
-      backgroundColor: "#0a0a0f",
-      androidSplashResourceName: "splash",
-      androidScaleType: "CENTER_CROP",
+      // Color-only splash, no icon, theme-adaptive.
+      // - iOS: LaunchScreen.storyboard renders a SplashBackground named
+      //   color (light = #fafaf7 / dark = #0a0a0f) matching index.css.
+      // - Android: Theme.SplashScreen uses @color/splash_background
+      //   defined in values/ + values-night/ for the same adaptation.
+      // The Capacitor plugin's overlay is suppressed by setting
+      // launchShowDuration to 0; the OS-level launch screen does the
+      // brief flash, then index.html's pre-mount script paints the same
+      // color before React mounts, so the handoff is invisible.
+      launchShowDuration: 0,
+      launchAutoHide: true,
       showSpinner: false,
-      splashFullScreen: true,
-      splashImmersive: true,
     },
     StatusBar: {
       style: "DARK",

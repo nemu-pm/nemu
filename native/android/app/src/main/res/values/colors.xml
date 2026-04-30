@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#6B8CCE</color>
+    <color name="colorPrimaryDark">#5471B3</color>
+    <color name="colorAccent">#6B8CCE</color>
+    <!-- Splash background — matches index.css :root --background (light theme).
+         The values-night/ override provides the dark variant. -->
+    <color name="splash_background">#FAFAF7</color>
+</resources>

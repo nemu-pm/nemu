@@ -134,26 +134,36 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
         void authClient.getSession();
         setLoading(null);
         onOpenChange(false);
-      } catch {
+      } catch (err) {
+        // Surface the failure so the user knows the sign-in didn't go
+        // through — without this they'd see the spinner vanish silently.
+        setError(err instanceof Error ? err.message : t("signIn.failed"));
         setLoading(null);
       }
     };
     window.addEventListener("nemu:deep-link", onLink as EventListener);
 
     // If the user dismisses the in-app browser without completing OAuth,
-    // no deep-link fires. Listen for the browser closing to clear loading.
+    // no deep-link fires. Register the close listener up-front so it's
+    // already attached before any handleOAuth call opens the browser —
+    // otherwise a fast dismiss could fire before the dynamic import
+    // settles and we'd miss the event.
     let browserListener: { remove(): void } | null = null;
-    import("@capacitor/browser").then(async ({ Browser }) => {
+    let cancelled = false;
+    void import("@capacitor/browser").then(async ({ Browser }) => {
+      if (cancelled) return;
       browserListener = await Browser.addListener("browserFinished", () => {
         setLoading(null);
       });
+      if (cancelled) browserListener.remove();
     }).catch(() => { /* @capacitor/browser not available */ });
 
     return () => {
+      cancelled = true;
       window.removeEventListener("nemu:deep-link", onLink as EventListener);
       browserListener?.remove();
     };
-  }, [onOpenChange]);
+  }, [onOpenChange, t]);
 
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
