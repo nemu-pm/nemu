@@ -29,9 +29,14 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
       // at them and emits cross-origin cookies/tokens for the SPA shell.
       "capacitor://localhost",
       "https://localhost",
-      // Native app scheme — needed for OAuth callback URL validation.
-      // The Expo plugin docs explicitly use 'myapp://' as a trusted origin.
-      "nemu://",
+      // Native app deep-link scheme, scoped to nemu://auth/** rather than a
+      // bare scheme prefix so callbackURLs are restricted to the auth path.
+      // Defense-in-depth: a malicious app on the same device can still
+      // register the same scheme handler; the client-side nonce check in
+      // sign-in-dialog.tsx (and ultimately a migration to Android App Links
+      // / iOS Universal Links) is what binds callback delivery to the
+      // legitimate app.
+      "nemu://auth/**",
     ].filter(Boolean) as string[],
     database: authComponent.adapter(ctx),
     socialProviders: {
