@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { authClient } from "@/lib/auth-client";
+import { Capacitor } from "@capacitor/core";
 import { Button } from "@/components/ui/button";
 import {
   ResponsiveDialog,
@@ -65,6 +66,31 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
     setError(null);
 
     try {
+      if (Capacitor.isNativePlatform()) {
+        // Capacitor flow: do NOT redirect the webview off-origin (that
+        // breaks the SPA shell and loses state). Ask better-auth for the
+        // OAuth URL via `disableRedirect`, open it in SFSafariViewController
+        // (or Android Custom Tab) via @capacitor/browser, and let the
+        // `nemu://` deep link from auth callback bring us back. The deep
+        // link is handled in src/lib/native-init.ts and dispatched as
+        // `nemu:deep-link`, which we listen for below.
+        const callbackURL = "nemu://auth/callback";
+        const result = await authClient.signIn.social({
+          provider,
+          callbackURL,
+          disableRedirect: true,
+        }) as unknown as { data?: { url?: string }; error?: { message?: string } };
+        const url = result?.data?.url;
+        if (!url) {
+          throw new Error(result?.error?.message || "Could not start OAuth flow");
+        }
+        const { Browser } = await import("@capacitor/browser");
+        await Browser.open({ url, presentationStyle: "popover" });
+        // The deep-link handler in native-init.ts closes the browser and
+        // dispatches `nemu:deep-link`; the useEffect below clears loading
+        // state and refreshes the session.
+        return;
+      }
       await authClient.signIn.social({ provider });
       // OAuth redirects, so we won't reach here
     } catch (err) {
@@ -72,6 +98,62 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
       setLoading(null);
     }
   };
+
+  // Receive the OAuth callback when the deep link fires (Capacitor only).
+  // The crossDomain server plugin appends ?ott=<token> to the callback
+  // redirect URL. We must verify this one-time token against the backend
+  // before the session is available — the crossDomainClient fetch plugin
+  // stores the returned session cookie in localStorage automatically.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const onLink = async (e: Event) => {
+      const detail = (e as CustomEvent<{ url?: string }>).detail;
+      if (!detail?.url) return;
+      try {
+        const u = new URL(detail.url);
+        // Surface any error from the provider; otherwise process the token.
+        const errParam = u.searchParams.get("error");
+        if (errParam) {
+          setError(errParam);
+          setLoading(null);
+          return;
+        }
+        // Exchange the one-time token for a session cookie.
+        // The crossDomain server plugin stores session tokens as OTTs and
+        // appends ?ott=<token> to the redirect URL after OAuth callback.
+        // The verify endpoint returns the session and sets the cookie header
+        // which crossDomainClient's fetchPlugin persists in localStorage.
+        const ott = u.searchParams.get("ott");
+        if (ott) {
+          await authClient.$fetch("/cross-domain/one-time-token/verify", {
+            method: "POST",
+            body: { token: ott },
+          });
+        }
+        // Now the crossDomainClient has the cookie; refresh session state.
+        void authClient.getSession();
+        setLoading(null);
+        onOpenChange(false);
+      } catch {
+        setLoading(null);
+      }
+    };
+    window.addEventListener("nemu:deep-link", onLink as EventListener);
+
+    // If the user dismisses the in-app browser without completing OAuth,
+    // no deep-link fires. Listen for the browser closing to clear loading.
+    let browserListener: { remove(): void } | null = null;
+    import("@capacitor/browser").then(async ({ Browser }) => {
+      browserListener = await Browser.addListener("browserFinished", () => {
+        setLoading(null);
+      });
+    }).catch(() => { /* @capacitor/browser not available */ });
+
+    return () => {
+      window.removeEventListener("nemu:deep-link", onLink as EventListener);
+      browserListener?.remove();
+    };
+  }, [onOpenChange]);
 
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
