@@ -17,6 +17,11 @@
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <!-- Solid-color splash. values/colors.xml defines the light variant,
+             values-night/colors.xml the dark variant — Android picks based
+             on the system theme. No icon: the launch flash is just the
+             brand background, and the React app fades in with the same
+             color via the pre-mount script in index.html. -->
+        <item name="android:background">@color/splash_background</item>
     </style>
 </resources>
