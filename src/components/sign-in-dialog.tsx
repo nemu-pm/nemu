@@ -20,6 +20,11 @@ interface SignInDialogProps {
 
 type Provider = "google" | "apple";
 
+// Stored under this key while the OAuth flow is in flight on Capacitor.
+// The deep-link handler checks the inbound URL's `nemuNonce` against this
+// value before redeeming the OTT — see docs/native-auth.md.
+const NONCE_STORAGE_KEY = "nemu:oauth-nonce";
+
 const providers: { id: Provider; name: string; icon: React.ReactNode }[] = [
   {
     id: "google",
@@ -74,7 +79,28 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
         // `nemu://` deep link from auth callback bring us back. The deep
         // link is handled in src/lib/native-init.ts and dispatched as
         // `nemu:deep-link`, which we listen for below.
-        const callbackURL = "nemu://auth/callback";
+
+        // Client-side nonce to bind the callback to the legitimate app
+        // instance. Generated here, persisted to localStorage, and threaded
+        // through better-auth's callbackURL — so the ?nemuNonce=… param
+        // round-trips back into the deep link. The handler below rejects
+        // any callback whose nonce doesn't match, which catches unsolicited
+        // deep links from other apps trying to trigger an OTT redemption.
+        // NOTE: this does NOT defend against passive interception of the
+        // callback URL by another app that registered the nemu:// scheme;
+        // for that we'll migrate to Android App Links / iOS Universal
+        // Links so the OS binds delivery to the signed app.
+        const nonce =
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        try {
+          localStorage.setItem(NONCE_STORAGE_KEY, nonce);
+        } catch {
+          // Private browsing / quota; nonce check below will simply fail
+          // closed and the user can retry.
+        }
+        const callbackURL = `nemu://auth/callback?nemuNonce=${encodeURIComponent(nonce)}`;
         const result = await authClient.signIn.social({
           provider,
           callbackURL,
@@ -118,6 +144,25 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
           setLoading(null);
           return;
         }
+        // Client-side nonce check. Reject any callback whose `nemuNonce`
+        // doesn't match the value we stored when initiating OAuth — catches
+        // unsolicited deep links from another app or a copy-pasted URL.
+        // See docs/native-auth.md for the threat model and the planned
+        // Universal Links migration that obsoletes this.
+        let storedNonce: string | null = null;
+        try {
+          storedNonce = localStorage.getItem(NONCE_STORAGE_KEY);
+        } catch {
+          // localStorage unavailable; fail closed below.
+        }
+        const receivedNonce = u.searchParams.get("nemuNonce");
+        if (!storedNonce || !receivedNonce || storedNonce !== receivedNonce) {
+          setError(t("signIn.failed"));
+          setLoading(null);
+          return;
+        }
+        // Single-use: drop the nonce immediately so a replay can't reuse it.
+        try { localStorage.removeItem(NONCE_STORAGE_KEY); } catch { /* noop */ }
         // Exchange the one-time token for a session cookie.
         // The crossDomain server plugin stores session tokens as OTTs and
         // appends ?ott=<token> to the redirect URL after OAuth callback.

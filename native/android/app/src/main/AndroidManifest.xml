@@ -18,6 +18,21 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- OAuth deep-link callback. Scoped to nemu://auth/* so the
+                 system only routes auth callbacks here, not arbitrary nemu://
+                 URLs. Long-term we plan to migrate to Android App Links
+                 (https-scheme + autoVerify + assetlinks.json hosted at
+                 https://nemu.pm/.well-known/assetlinks.json) so the OS
+                 cryptographically binds callback delivery to the signed
+                 app. Until then a malicious app could also register this
+                 scheme — see sign-in-dialog.tsx for the client-side nonce
+                 check that catches unsolicited callbacks. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="nemu" android:host="auth" />
+            </intent-filter>
         </activity>
 
         <provider
