@@ -18,9 +18,26 @@ const appleConfigured = Boolean(
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   return betterAuth({
-    trustedOrigins: [siteUrl, devUrl, "https://appleid.apple.com"].filter(
-      Boolean
-    ) as string[],
+    trustedOrigins: [
+      siteUrl,
+      devUrl,
+      "https://appleid.apple.com",
+      // Capacitor / native shell origins — the iOS WKWebView serves the
+      // bundle from capacitor://localhost (Android: https://localhost), and
+      // OAuth callbacks return into the native app via the nemu:// scheme.
+      // These must be trusted so better-auth accepts callbackURLs pointing
+      // at them and emits cross-origin cookies/tokens for the SPA shell.
+      "capacitor://localhost",
+      "https://localhost",
+      // Native app deep-link scheme, scoped to nemu://auth/** rather than a
+      // bare scheme prefix so callbackURLs are restricted to the auth path.
+      // Defense-in-depth: a malicious app on the same device can still
+      // register the same scheme handler; the client-side nonce check in
+      // sign-in-dialog.tsx (and ultimately a migration to Android App Links
+      // / iOS Universal Links) is what binds callback delivery to the
+      // legitimate app.
+      "nemu://auth/**",
+    ].filter(Boolean) as string[],
     database: authComponent.adapter(ctx),
     socialProviders: {
       google: {
