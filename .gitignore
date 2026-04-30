@@ -97,3 +97,29 @@ public/dual-read-debug/
 
 # OCR benchmark (contains instance IPs)
 services/ocr/bench_ocr.ts
+
+# Capacitor native projects — relocated under native/ via ios.path/android.path
+# in capacitor.config.ts. Build artifacts and sync-generated files are excluded
+# below; the rest of the platform source IS committed.
+
+# native/ios
+native/ios/App/build/
+native/ios/App/Pods/
+native/ios/App/output/
+native/ios/App/App/public/
+native/ios/App/App/capacitor.config.json
+native/ios/App/App/config.xml
+native/ios/App/App.xcodeproj/xcuserdata/
+native/ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+native/ios/App/CapApp-SPM/.swiftpm/xcode/xcuserdata/
+native/ios/capacitor-cordova-ios-plugins/
+
+# native/android
+native/android/.gradle/
+native/android/app/build/
+native/android/local.properties
+native/android/app/src/main/assets/public/
+native/android/app/src/main/assets/capacitor.config.json
+native/android/app/src/main/assets/capacitor.plugins.json
+native/android/app/src/main/res/xml/config.xml
+native/android/capacitor-cordova-android-plugins/

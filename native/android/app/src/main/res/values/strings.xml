@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">nemu</string>
+    <string name="title_activity_main">nemu</string>
+    <string name="package_name">pm.nemu.app</string>
+    <string name="custom_url_scheme">pm.nemu.app</string>
+</resources>

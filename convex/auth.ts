@@ -18,9 +18,21 @@ const appleConfigured = Boolean(
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   return betterAuth({
-    trustedOrigins: [siteUrl, devUrl, "https://appleid.apple.com"].filter(
-      Boolean
-    ) as string[],
+    trustedOrigins: [
+      siteUrl,
+      devUrl,
+      "https://appleid.apple.com",
+      // Capacitor / native shell origins — the iOS WKWebView serves the
+      // bundle from capacitor://localhost (Android: https://localhost), and
+      // OAuth callbacks return into the native app via the nemu:// scheme.
+      // These must be trusted so better-auth accepts callbackURLs pointing
+      // at them and emits cross-origin cookies/tokens for the SPA shell.
+      "capacitor://localhost",
+      "https://localhost",
+      // Native app scheme — needed for OAuth callback URL validation.
+      // The Expo plugin docs explicitly use 'myapp://' as a trusted origin.
+      "nemu://",
+    ].filter(Boolean) as string[],
     database: authComponent.adapter(ctx),
     socialProviders: {
       google: {

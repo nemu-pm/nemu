@@ -8,9 +8,14 @@
 
 :root {
   --radius: 0.65rem;
-  /* PWA safe-area helpers (defaults to 0; set in standalone mode below) */
-  --nemu-safe-top: 0px;
-  --nemu-safe-bottom: 0px;
+  /* Safe-area helpers — bind to env() at the root so they apply in any
+     full-bleed context: PWA standalone, iOS Capacitor WKWebView, Android
+     WebView. In a regular browser tab these resolve to 0 because the
+     browser chrome already accounts for the notch. */
+  --nemu-safe-top: env(safe-area-inset-top, 0px);
+  --nemu-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --nemu-safe-left: env(safe-area-inset-left, 0px);
+  --nemu-safe-right: env(safe-area-inset-right, 0px);
   /* Nemu Light Theme - Blue-violet (hue 269°) */
   --background: oklch(0.985 0.006 269);
   --foreground: oklch(0.18 0.02 269);
@@ -144,10 +149,20 @@
     }
   body {
     @apply font-sans bg-background text-foreground select-none;
+    overscroll-behavior: none;
     }
   html {
     @apply font-sans;
     }
+}
+
+/* Keyboard-aware scroll padding on Capacitor.
+   When resize: "none" the webview doesn't shrink, so the keyboard can cover
+   focused inputs. native-init.ts sets --keyboard-height when the keyboard
+   appears. We add bottom padding to the main scrollable shell so the browser
+   can scroll the focused input into view. */
+html.capacitor-native body {
+  padding-bottom: var(--keyboard-height, 0px);
 }
 
 /* Selectable text - for content users may want to copy */
@@ -187,6 +202,37 @@ a img {
   pointer-events: inherit;
 }
 
+/* Capacitor native: tactile press-down on interactive surfaces.
+   Gives a satisfying spring compression on tap — the hallmark iOS feel. */
+html.capacitor-native button:active,
+html.capacitor-native [role="button"]:active,
+html.capacitor-native [data-slot="button"]:active,
+html.capacitor-native .mobile-tab-bar a:active,
+html.capacitor-native .source-card:active,
+html.capacitor-native .chapter-cell:active {
+  transform: scale(0.97);
+  transition: transform 60ms ease;
+}
+
+html.capacitor-native .mobile-tab-bar a {
+  transition: transform 60ms ease, background-color 180ms ease, color 180ms ease;
+}
+
+/* Native splash → React root: fade in once mounted to soften the handoff
+   from the iOS launch storyboard. Only fires inside Capacitor; in regular
+   browsers the .capacitor-native class is absent and #root renders normally.
+   IMPORTANT: opacity-only, no transform — `transform` on #root would create
+   a containing block for fixed-positioned descendants (the bottom tab bar),
+   making `bottom: 0` resolve to the bottom of #root rather than the
+   viewport, which visibly unpins the menu bar in long pages. */
+html.capacitor-native #root {
+  animation: nemu-app-fade-in 350ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes nemu-app-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 /* iOS Safari full-height fix - prevents rubber band scrolling */
 .h-dvh {
   height: 100vh;
@@ -195,16 +241,16 @@ a img {
 
 /* iOS/standalone PWA: `dvh` can under-measure and produce bottom gaps (notably in the Reader). */
 @media (display-mode: standalone) {
-  :root {
-    --nemu-safe-top: env(safe-area-inset-top, 0px);
-    --nemu-safe-bottom: env(safe-area-inset-bottom, 0px);
-  }
-
   .h-dvh {
     /* In iOS standalone, `100dvh` can be smaller than the true viewport.
        Force `100vh` to avoid bottom gaps/strips in full-screen layouts like the Reader. */
     height: 100vh;
   }
+}
+
+/* Capacitor native (iOS/Android WKWebView/WebView) needs the same vh override. */
+html.capacitor-native .h-dvh {
+  height: 100vh;
 }
 
 /* Sonner (toast) safe-area offsets (iOS notch / iOS PWA). 
