@@ -9,6 +9,7 @@ This plan follows `usage-limits.md` and `permissions.md` because self-hosting sh
 ## Current Codebase Facts
 
 - Convex is already the backend runtime and database for synced user data.
+- Synced user-scoped tables today: `settings`, `library_items`, `library_source_links`, `chapter_progress`, `manga_progress`. PR #6 adds `collections` and `collection_items`. All are owned by a single `userId` (`identity.subject`) and have no public surface; self-hosted operators inherit them automatically once they deploy `convex/schema.ts`.
 - `convex/convex.config.ts` wires Better Auth and R2 components.
 - `convex/auth.ts` configures Better Auth with `SITE_URL`, `DEV_URL`, OAuth providers, and cross-domain cookies.
 - `convex/auth.ts` currently hardcodes `crossSubDomainCookies.domain` as `.nemu.pm`.

@@ -21,6 +21,7 @@ This plan is first because it solves the immediate cost-control problem. It shou
 - Japanese normalization lives in `convex/japanese_learning.ts` and currently does not enforce server-side auth.
 - Japanese normalization currently calls Convex through an unauthenticated `ConvexHttpClient` in `src/lib/plugins/builtin/japanese-learning/store.ts`.
 - User-scoped Convex data uses `identity.subject` through `requireAuth` in `convex/_lib.ts`.
+- The in-flight collections feature (PR #6) adds two more user-scoped tables (`collections`, `collection_items`); they do not consume hosted AI quota and are unrelated to this plan, but `library.clearAll` now cascades into them — any future "wipe usage on account reset" work should account for the same cascade pattern.
 - There is currently no plan, supporter, billing, permission, or usage table in `convex/schema.ts`.
 - Bun tests are rooted at `src/` via `bunfig.toml`, so pure policy tests should live under `src/` unless test discovery is intentionally changed.
 
