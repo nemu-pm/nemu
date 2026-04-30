@@ -10,11 +10,24 @@ import type { MetadataSearchResult } from "../types";
 import { findMatchingTitle } from "../matching";
 import { MangaStatus } from "@/lib/sources/types";
 import { convexProxyUrl } from "@/config";
+import { isNative, nativeFetch } from "@/lib/native-fetch";
 
 const API_BASE = "https://api.mangaupdates.com/v1";
 
-// MangaUpdates blocks Cloudflare IPs, use Convex proxy instead
+// MangaUpdates blocks Cloudflare IPs, use Convex proxy instead.
+// On native (iOS/Android) the native HTTP stack hits the API directly.
 async function muFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  if (isNative()) {
+    return nativeFetch(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; Nemu/1.0)",
+        ...(options.headers || {}),
+      },
+    });
+  }
   return fetch(convexProxyUrl(url), {
     ...options,
     headers: {
