@@ -61,13 +61,27 @@ export function handleSourceError(error: unknown, context?: string): boolean {
     return true;
   }
 
-  // Network errors
-  if (error instanceof Error && error.message.includes("fetch")) {
-    toast.error(i18n.t("error.networkError"), {
-      description: context || error.message,
-      duration: 3000,
-    });
-    return true;
+  // Network errors. Cover both web fetch failures ("Failed to fetch", etc.)
+  // and CapacitorHttp native-bridge errors ("Request failed", URLSession /
+  // OkHttp messages) so users on iOS/Android still see the toast instead of
+  // a silent console.error.
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    const isNetworkError =
+      msg.includes("fetch") ||
+      msg.includes("request failed") ||
+      msg.includes("network") ||
+      msg.includes("nsurlerror") ||
+      msg.includes("connection") ||
+      msg.includes("timeout") ||
+      msg.includes("unreachable");
+    if (isNetworkError) {
+      toast.error(i18n.t("error.networkError"), {
+        description: context || error.message,
+        duration: 3000,
+      });
+      return true;
+    }
   }
 
   // Log unhandled errors
