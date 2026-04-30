@@ -5,6 +5,7 @@
 import type { MangaSource } from "../types";
 import type { SourceRegistry, InstalledSource } from "../../../data/schema";
 import type { CacheStore } from "../../../data/cache";
+import { isNative, nativeFetch } from "../../native-fetch";
 
 /** Minimal interface for installed source storage */
 export interface InstalledSourceStore {
@@ -82,7 +83,10 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
 
   private async fetchIndex(): Promise<void> {
     const url = (this.info as { url: string }).url;
-    const res = await fetch(url);
+    // Use native HTTP on Capacitor — GitHub raw/CDN do send CORS, but we
+    // want to be resilient to any CDN that omits the header on a particular
+    // edge.
+    const res = await (isNative() ? nativeFetch(url) : fetch(url));
     if (!res.ok) {
       throw new Error(`Failed to fetch registry index: ${res.status}`);
     }
@@ -168,7 +172,7 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     }
 
     const aixUrl = `${this.baseUrl}/${entry.downloadPath}`;
-    const res = await fetch(aixUrl);
+    const res = await (isNative() ? nativeFetch(aixUrl) : fetch(aixUrl));
     if (!res.ok) {
       throw new Error(`Failed to download .aix: ${res.status}`);
     }
