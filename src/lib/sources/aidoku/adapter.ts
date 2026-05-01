@@ -5,6 +5,7 @@
 import type {
   MangaSource,
   MangaSourceSWR,
+  AuthenticatedSource,
   SearchResult,
   Manga,
   Chapter,
@@ -137,6 +138,12 @@ export interface CreateAidokuSourceResult {
   manifest: SourceManifest;
 }
 
+interface AidokuAsyncSourceWithAuth extends AsyncAidokuSource {
+  handleBasicLogin(key: string, username: string, password: string): Promise<boolean>;
+  handleWebLogin(key: string, cookies: Record<string, string>): Promise<boolean>;
+  handleNotification(notification: string): Promise<void>;
+}
+
 /**
  * Get merged settings (defaults + user values) for a source
  */
@@ -182,6 +189,9 @@ export async function createAidokuMangaSource(
     proxyUrl: `${SERVICE_URL}/proxy?url=`,
     settings: {
       get: () => getMergedSettings(sourceKey),
+      set: (key: string, value: unknown) => {
+        getSourceSettingsStore().getState().setSetting(sourceKey, key, value);
+      },
       subscribe: (callback) => {
         // Subscribe to settings store changes for this source
         return getSourceSettingsStore().subscribe((state, prevState) => {
@@ -194,7 +204,7 @@ export async function createAidokuMangaSource(
       },
     },
     customFetch,
-  });
+  } as Parameters<typeof loadSource>[2]) as AidokuAsyncSourceWithAuth;
 
   const source = new AidokuMangaSourceAdapter(asyncSource, asyncSource.manifest, sourceKey, cacheStore, icon, customFetch);
   return { source, settingsJson: asyncSource.settingsJson, manifest: asyncSource.manifest };
@@ -229,13 +239,13 @@ export interface BrowsableSource extends MangaSource {
 
 type ProxyFetch = (url: string, options?: RequestInit) => Promise<Response>;
 
-class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, BrowsableSource {
+class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, BrowsableSource, AuthenticatedSource {
   readonly id: string;
   readonly name: string;
   readonly icon?: string;
   readonly sourceKey: string;
 
-  private asyncSource: AsyncAidokuSource;
+  private asyncSource: AidokuAsyncSourceWithAuth;
   private manifest: SourceManifest;
   private cacheStore: CacheStore;
   private currentSearch: { query: string; page: number; filters: FilterValue[] } | null = null;
@@ -249,7 +259,7 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
   private fetchRawPages: (mangaId: string, chapterId: string) => Promise<AidokuPage[]>;
   private fetchImageBlob: (url: string, context: Record<string, string> | null) => Promise<Blob>;
 
-  constructor(asyncSource: AsyncAidokuSource, manifest: SourceManifest, sourceKey: string, cacheStore: CacheStore, icon?: string, proxyFetch?: ProxyFetch) {
+  constructor(asyncSource: AidokuAsyncSourceWithAuth, manifest: SourceManifest, sourceKey: string, cacheStore: CacheStore, icon?: string, proxyFetch?: ProxyFetch) {
     this.asyncSource = asyncSource;
     this.manifest = manifest;
     this.id = manifest.info.id;
@@ -612,6 +622,26 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
     return this.fetchImageBlob(url, null);
   }
 
+  async handlesBasicLogin(): Promise<boolean> {
+    return this.asyncSource.handlesBasicLogin();
+  }
+
+  async handlesWebLogin(): Promise<boolean> {
+    return this.asyncSource.handlesWebLogin();
+  }
+
+  async handleBasicLogin(key: string, username: string, password: string): Promise<boolean> {
+    return this.asyncSource.handleBasicLogin(key, username, password);
+  }
+
+  async handleWebLogin(key: string, cookies: Record<string, string>): Promise<boolean> {
+    return this.asyncSource.handleWebLogin(key, cookies);
+  }
+
+  async handleNotification(notification: string): Promise<void> {
+    await this.asyncSource.handleNotification(notification);
+  }
+
   dispose(): void {
     this.asyncSource.dispose();
     this.currentSearch = null;
@@ -662,4 +692,3 @@ function normalizeManifestListing(listing: Partial<Listing> & { id?: string; nam
     kind: listing.kind,
   };
 }
-
