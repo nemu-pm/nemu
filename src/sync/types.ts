@@ -2,6 +2,7 @@ import type { IndexedDBUserDataStore } from "@/data/indexeddb";
 import type { LibraryStore } from "@/stores/library";
 import type { HistoryStore } from "@/stores/history";
 import type { SettingsStore } from "@/stores/settings";
+import type { CollectionsStore } from "@/stores/collections";
 /**
  * Sync status
  * 
@@ -20,4 +21,5 @@ export interface StoreHooks {
   useLibraryStore: LibraryStore;
   useHistoryStore: HistoryStore;
   useSettingsStore: SettingsStore;
+  useCollectionsStore: CollectionsStore;
 }

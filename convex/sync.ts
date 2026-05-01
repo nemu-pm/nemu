@@ -8,6 +8,7 @@
  */
 
 import { query } from "./_generated/server";
+import { v } from "convex/values";
 import { requireAuth } from "./_lib";
 
 /**
@@ -67,6 +68,62 @@ export const sourceLinksAll = query({
       updateAckAt: e.updateAckAt,
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
+    }));
+  },
+});
+
+/**
+ * Get all collections for the user (full snapshot).
+ */
+export const collectionsAll = query({
+  args: {},
+  returns: v.array(v.object({
+    collectionId: v.string(),
+    name: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })),
+  handler: async (ctx) => {
+    const userId = await requireAuth(ctx);
+
+    const collections = await ctx.db
+      .query("collections")
+      .withIndex("by_user_updated", (q) => q.eq("userId", userId))
+      .collect();
+
+    return collections.map((entry) => ({
+      collectionId: entry.collectionId,
+      name: entry.name,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+    }));
+  },
+});
+
+/**
+ * Get all collection memberships for the user (full snapshot).
+ */
+export const collectionItemsAll = query({
+  args: {},
+  returns: v.array(v.object({
+    collectionId: v.string(),
+    libraryItemId: v.string(),
+    addedAt: v.number(),
+    updatedAt: v.number(),
+  })),
+  handler: async (ctx) => {
+    const userId = await requireAuth(ctx);
+
+    const items = await ctx.db
+      .query("collection_items")
+      .withIndex("by_user_updated", (q) => q.eq("userId", userId))
+      .collect();
+
+    return items.map((entry) => ({
+      collectionId: entry.collectionId,
+      libraryItemId: entry.libraryItemId,
+      addedAt: entry.addedAt,
+      updatedAt: entry.updatedAt,
     }));
   },
 });

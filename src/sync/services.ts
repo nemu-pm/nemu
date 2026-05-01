@@ -9,12 +9,20 @@ import type { ConvexReactClient } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { IndexedDBUserDataStore } from "@/data/indexeddb";
 import { IndexedDBCacheStore } from "@/data/cache";
-import type { LocalLibraryItem, LocalSourceLink, LocalMangaProgress, LocalChapterProgress, UserSettings } from "@/data/schema";
+import type {
+  LocalLibraryItem,
+  LocalSourceLink,
+  LocalMangaProgress,
+  LocalChapterProgress,
+  LocalCollection,
+  UserSettings,
+} from "@/data/schema";
 import { makeChapterProgressId, makeMangaProgressId, makeSourceLinkId } from "@/data/schema";
 import { RegistryManager } from "@/lib/sources/registry";
 import { createLibraryStore, type CanonicalLibraryOps } from "@/stores/library";
 import { createHistoryStore, type HistoryStoreOps } from "@/stores/history";
 import { createSettingsStore, type SettingsStoreOps } from "@/stores/settings";
+import { createCollectionsStore, type CanonicalCollectionsOps } from "@/stores/collections";
 import { createProgressStore } from "@/stores/progress";
 import { getSyncStore } from "@/stores/sync";
 import type { StoreHooks } from "./types";
@@ -225,6 +233,55 @@ function createSettingsOps(localStore: IndexedDBUserDataStore): SettingsStoreOps
   };
 }
 
+function createCanonicalCollectionsOps(localStore: IndexedDBUserDataStore): CanonicalCollectionsOps {
+  return {
+    getCollections: () => localStore.getCollections(),
+    getCollectionItems: () => localStore.getCollectionItems(),
+
+    saveCollection: async (collection: LocalCollection) => {
+      await localStore.saveCollection(collection);
+
+      if (isAuthenticatedRef.current && convexRef.current) {
+        await convexRef.current.mutation(api.collections.save, {
+          collectionId: collection.collectionId,
+          name: collection.name,
+          createdAt: collection.createdAt,
+        });
+      }
+    },
+
+    removeCollection: async (collectionId: string) => {
+      await localStore.deleteCollection(collectionId);
+
+      if (isAuthenticatedRef.current && convexRef.current) {
+        await convexRef.current.mutation(api.collections.remove, { collectionId });
+      }
+    },
+
+    addCollectionItems: async (collectionId: string, libraryItemIds: string[]) => {
+      await localStore.addCollectionItems(collectionId, libraryItemIds);
+
+      if (isAuthenticatedRef.current && convexRef.current) {
+        await convexRef.current.mutation(api.collections.addItems, {
+          collectionId,
+          libraryItemIds,
+        });
+      }
+    },
+
+    removeCollectionItems: async (collectionId: string, libraryItemIds: string[]) => {
+      await localStore.removeCollectionItems(collectionId, libraryItemIds);
+
+      if (isAuthenticatedRef.current && convexRef.current) {
+        await convexRef.current.mutation(api.collections.removeItems, {
+          collectionId,
+          libraryItemIds,
+        });
+      }
+    },
+  };
+}
+
 export function createServicesContainer(profileId: ProfileId): ServicesContainer {
   const localStore = new IndexedDBUserDataStore(profileId);
   const registryManager = new RegistryManager(localStore, localStore, cacheStore);
@@ -236,6 +293,7 @@ export function createServicesContainer(profileId: ProfileId): ServicesContainer
   const useLibraryStore = createLibraryStore(createCanonicalLibraryOps(localStore));
   const useHistoryStore = createHistoryStore(createHistoryOps(localStore));
   const useSettingsStore = createSettingsStore(settingsOps, cacheStore, registryManager);
+  const useCollectionsStore = createCollectionsStore(createCanonicalCollectionsOps(localStore));
   const useProgressStore = createProgressStore({
     getAllMangaProgress: () => localStore.getAllMangaProgress(),
   });
@@ -244,6 +302,7 @@ export function createServicesContainer(profileId: ProfileId): ServicesContainer
     useLibraryStore,
     useHistoryStore,
     useSettingsStore,
+    useCollectionsStore,
   };
 
   const dispose = () => {
@@ -272,7 +331,11 @@ export async function signOut(currentLocalStore: IndexedDBUserDataStore, keepDat
   
 
   lastProfileIdRef.current = undefined;
-  try { localStorage.removeItem(LAST_PROFILE_ID_KEY); } catch {}
+  try {
+    localStorage.removeItem(LAST_PROFILE_ID_KEY);
+  } catch {
+    // ignore storage cleanup failures
+  }
   
   subscriptionStoppedRef.current = true;
   
@@ -290,6 +353,10 @@ export async function signOut(currentLocalStore: IndexedDBUserDataStore, keepDat
     
     const mangas = await currentLocalStore.getAllMangaProgress();
     for (const m of mangas) await localProfile.saveMangaProgressEntry(m);
+
+    const collections = await currentLocalStore.getCollections();
+    const collectionItems = await currentLocalStore.getCollectionItems();
+    await localProfile.saveCollectionsSnapshot(collections, collectionItems);
     
     const settings = await currentLocalStore.getSettings();
     await localProfile.saveSettings(settings as UserSettings);
@@ -298,7 +365,9 @@ export async function signOut(currentLocalStore: IndexedDBUserDataStore, keepDat
   await currentLocalStore.clearAccountData();
   try {
     if (currentUserId) localStorage.removeItem(`${IMPORT_DECISION_KEY_PREFIX}${currentUserId}`);
-  } catch {}
+  } catch {
+    // ignore storage cleanup failures
+  }
   
   sessionStorage.removeItem("nemu:import-offered-session");
   syncStore.getState().reset();
