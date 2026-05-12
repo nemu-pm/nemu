@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { authClient } from "@/lib/auth-client";
+import { Capacitor } from "@capacitor/core";
 import { Button } from "@/components/ui/button";
 import {
   ResponsiveDialog,
@@ -18,6 +19,11 @@ interface SignInDialogProps {
 }
 
 type Provider = "google" | "apple";
+
+// Stored under this key while the OAuth flow is in flight on Capacitor.
+// The deep-link handler checks the inbound URL's `nemuNonce` against this
+// value before redeeming the OTT — see docs/native-auth.md.
+const NONCE_STORAGE_KEY = "nemu:oauth-nonce";
 
 const providers: { id: Provider; name: string; icon: React.ReactNode }[] = [
   {
@@ -65,6 +71,52 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
     setError(null);
 
     try {
+      if (Capacitor.isNativePlatform()) {
+        // Capacitor flow: do NOT redirect the webview off-origin (that
+        // breaks the SPA shell and loses state). Ask better-auth for the
+        // OAuth URL via `disableRedirect`, open it in SFSafariViewController
+        // (or Android Custom Tab) via @capacitor/browser, and let the
+        // `nemu://` deep link from auth callback bring us back. The deep
+        // link is handled in src/lib/native-init.ts and dispatched as
+        // `nemu:deep-link`, which we listen for below.
+
+        // Client-side nonce to bind the callback to the legitimate app
+        // instance. Generated here, persisted to localStorage, and threaded
+        // through better-auth's callbackURL — so the ?nemuNonce=… param
+        // round-trips back into the deep link. The handler below rejects
+        // any callback whose nonce doesn't match, which catches unsolicited
+        // deep links from other apps trying to trigger an OTT redemption.
+        // NOTE: this does NOT defend against passive interception of the
+        // callback URL by another app that registered the nemu:// scheme;
+        // for that we'll migrate to Android App Links / iOS Universal
+        // Links so the OS binds delivery to the signed app.
+        const nonce =
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        try {
+          localStorage.setItem(NONCE_STORAGE_KEY, nonce);
+        } catch {
+          // Private browsing / quota; nonce check below will simply fail
+          // closed and the user can retry.
+        }
+        const callbackURL = `nemu://auth/callback?nemuNonce=${encodeURIComponent(nonce)}`;
+        const result = await authClient.signIn.social({
+          provider,
+          callbackURL,
+          disableRedirect: true,
+        }) as unknown as { data?: { url?: string }; error?: { message?: string } };
+        const url = result?.data?.url;
+        if (!url) {
+          throw new Error(result?.error?.message || "Could not start OAuth flow");
+        }
+        const { Browser } = await import("@capacitor/browser");
+        await Browser.open({ url, presentationStyle: "popover" });
+        // The deep-link handler in native-init.ts closes the browser and
+        // dispatches `nemu:deep-link`; the useEffect below clears loading
+        // state and refreshes the session.
+        return;
+      }
       await authClient.signIn.social({ provider });
       // OAuth redirects, so we won't reach here
     } catch (err) {
@@ -72,6 +124,91 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
       setLoading(null);
     }
   };
+
+  // Receive the OAuth callback when the deep link fires (Capacitor only).
+  // The crossDomain server plugin appends ?ott=<token> to the callback
+  // redirect URL. We must verify this one-time token against the backend
+  // before the session is available — the crossDomainClient fetch plugin
+  // stores the returned session cookie in localStorage automatically.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const onLink = async (e: Event) => {
+      const detail = (e as CustomEvent<{ url?: string }>).detail;
+      if (!detail?.url) return;
+      try {
+        const u = new URL(detail.url);
+        // Surface any error from the provider; otherwise process the token.
+        const errParam = u.searchParams.get("error");
+        if (errParam) {
+          setError(errParam);
+          setLoading(null);
+          return;
+        }
+        // Client-side nonce check. Reject any callback whose `nemuNonce`
+        // doesn't match the value we stored when initiating OAuth — catches
+        // unsolicited deep links from another app or a copy-pasted URL.
+        // See docs/native-auth.md for the threat model and the planned
+        // Universal Links migration that obsoletes this.
+        let storedNonce: string | null = null;
+        try {
+          storedNonce = localStorage.getItem(NONCE_STORAGE_KEY);
+        } catch {
+          // localStorage unavailable; fail closed below.
+        }
+        const receivedNonce = u.searchParams.get("nemuNonce");
+        if (!storedNonce || !receivedNonce || storedNonce !== receivedNonce) {
+          setError(t("signIn.failed"));
+          setLoading(null);
+          return;
+        }
+        // Single-use: drop the nonce immediately so a replay can't reuse it.
+        try { localStorage.removeItem(NONCE_STORAGE_KEY); } catch { /* noop */ }
+        // Exchange the one-time token for a session cookie.
+        // The crossDomain server plugin stores session tokens as OTTs and
+        // appends ?ott=<token> to the redirect URL after OAuth callback.
+        // The verify endpoint returns the session and sets the cookie header
+        // which crossDomainClient's fetchPlugin persists in localStorage.
+        const ott = u.searchParams.get("ott");
+        if (ott) {
+          await authClient.$fetch("/cross-domain/one-time-token/verify", {
+            method: "POST",
+            body: { token: ott },
+          });
+        }
+        // Now the crossDomainClient has the cookie; refresh session state.
+        void authClient.getSession();
+        setLoading(null);
+        onOpenChange(false);
+      } catch (err) {
+        // Surface the failure so the user knows the sign-in didn't go
+        // through — without this they'd see the spinner vanish silently.
+        setError(err instanceof Error ? err.message : t("signIn.failed"));
+        setLoading(null);
+      }
+    };
+    window.addEventListener("nemu:deep-link", onLink as EventListener);
+
+    // If the user dismisses the in-app browser without completing OAuth,
+    // no deep-link fires. Register the close listener up-front so it's
+    // already attached before any handleOAuth call opens the browser —
+    // otherwise a fast dismiss could fire before the dynamic import
+    // settles and we'd miss the event.
+    let browserListener: { remove(): void } | null = null;
+    let cancelled = false;
+    void import("@capacitor/browser").then(async ({ Browser }) => {
+      if (cancelled) return;
+      browserListener = await Browser.addListener("browserFinished", () => {
+        setLoading(null);
+      });
+      if (cancelled) browserListener.remove();
+    }).catch(() => { /* @capacitor/browser not available */ });
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("nemu:deep-link", onLink as EventListener);
+      browserListener?.remove();
+    };
+  }, [onOpenChange, t]);
 
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange}>

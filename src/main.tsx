@@ -12,6 +12,7 @@ import { themeStore } from "@/stores/theme"
 import "./index.css"
 import "./lib/i18n"
 import "./lib/plugins/init" // Initialize reader plugins
+import { initNative } from "./lib/native-init"
 import { router, type RouterContext } from "./router"
 import { ErrorBoundary } from "./components/error-boundary"
 import { DataServicesProvider, useStores } from "@/data/context"
@@ -22,6 +23,9 @@ import { SourceInstallDialog } from "./components/source-install-dialog"
 import { CloudflareBypassDialog } from "./components/cloudflare-bypass-dialog"
 import { SignInDialog } from "./components/sign-in-dialog"
 import { useAuthGate } from "./lib/auth-gate"
+
+// Fire-and-forget native setup; no-op on web.
+initNative()
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string)
 
