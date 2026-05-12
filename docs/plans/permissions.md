@@ -214,4 +214,3 @@ When permissions are implemented:
 - Should shared collections share *only* the membership list, or also the rendered cover/metadata view of each book? (i.e. does a viewer see the owner's `library_items` overrides or fall back to source metadata?)
 - Should source moderation be part of the app user system or separate hosted-ops tooling?
 - Should admin access be env-configured first, before building any admin UI?
-

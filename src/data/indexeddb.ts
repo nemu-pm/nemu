@@ -7,6 +7,8 @@ import type {
   LocalSourceLink,
   LocalChapterProgress,
   LocalMangaProgress,
+  LocalCollection,
+  LocalCollectionItem,
 } from "./schema";
 import {
   ChapterSummarySchema,
@@ -16,6 +18,8 @@ import {
   LocalSourceLinkSchema,
   LocalChapterProgressSchema,
   LocalMangaProgressSchema,
+  LocalCollectionSchema,
+  LocalCollectionItemSchema,
   MangaMetadataSchema,
   ExternalIdsSchema,
 } from "./schema";
@@ -96,7 +100,7 @@ const DEFAULT_DB_NAME = "nemu-user";
  * - Bumping this will cause browsers to run `onupgradeneeded` for users whose DB is older.
  * - That upgrade can be BLOCKED by other tabs; we surface that via the `nemu:idb-blocked` UI event.
  */
-const DB_VERSION = 11;
+const DB_VERSION = 12;
 // Note: We always upgrade to DB_VERSION if the existing DB is older. This ensures
 // canonical stores are created even for DBs that existed before they were added.
 // The old MIN_COMPAT_VERSION approach caused bugs where local profile DBs at v4-v6
@@ -122,6 +126,8 @@ const STORES = {
   sourceLinks: "source_links",
   chapterProgress: "chapter_progress",
   mangaProgress: "manga_progress",
+  collections: "collections",
+  collectionItems: "collection_items",
 } as const;
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -662,6 +668,21 @@ export class IndexedDBUserDataStore implements UserDataStore {
                 db.deleteObjectStore("hlc_state");
               }
             }
+
+            // Add collections stores (v11 -> v12)
+            if (!db.objectStoreNames.contains(STORES.collections)) {
+              const store = db.createObjectStore(STORES.collections, { keyPath: "collectionId" });
+              store.createIndex("by_updatedAt", "updatedAt", { unique: false });
+            }
+
+            if (!db.objectStoreNames.contains(STORES.collectionItems)) {
+              const store = db.createObjectStore(STORES.collectionItems, {
+                keyPath: ["collectionId", "libraryItemId"],
+              });
+              store.createIndex("by_collectionId", "collectionId", { unique: false });
+              store.createIndex("by_libraryItemId", "libraryItemId", { unique: false });
+              store.createIndex("by_updatedAt", "updatedAt", { unique: false });
+            }
           };
         };
 
@@ -1156,7 +1177,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
    */
   async deleteLibraryItemAndLinks(libraryItemId: string): Promise<void> {
     const db = await this.getDB();
-    const storeNames = [STORES.libraryItems, STORES.sourceLinks].filter((name) =>
+    const storeNames = [STORES.libraryItems, STORES.sourceLinks, STORES.collectionItems].filter((name) =>
       db.objectStoreNames.contains(name)
     );
     if (storeNames.length === 0) return;
@@ -1183,6 +1204,28 @@ export class IndexedDBUserDataStore implements UserDataStore {
           const cursor = request.result;
           if (!cursor) return;
           const parsed = LocalSourceLinkSchema.safeParse(cursor.value);
+          if (parsed.success && parsed.data.libraryItemId === libraryItemId) {
+            try { cursor.delete(); } catch { /* ignore */ }
+          }
+          cursor.continue();
+        };
+        request.onerror = () => {
+          // Let tx.onerror surface the real error; ignore here.
+        };
+      }
+
+      if (db.objectStoreNames.contains(STORES.collectionItems)) {
+        const store = tx.objectStore(STORES.collectionItems);
+        let request: IDBRequest<IDBCursorWithValue | null>;
+        try {
+          request = store.index("by_libraryItemId").openCursor(IDBKeyRange.only(libraryItemId));
+        } catch {
+          request = store.openCursor();
+        }
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          const parsed = LocalCollectionItemSchema.safeParse(cursor.value);
           if (parsed.success && parsed.data.libraryItemId === libraryItemId) {
             try { cursor.delete(); } catch { /* ignore */ }
           }
@@ -1625,6 +1668,204 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
+  // ============ COLLECTIONS ============
+
+  async getCollections(): Promise<LocalCollection[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.collections)) {
+        resolve([]);
+        return;
+      }
+      const tx = db.transaction(STORES.collections, "readonly");
+      const store = tx.objectStore(STORES.collections);
+      const request = store.getAll();
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const parsed = request.result
+          .map((item) => {
+            const parsed = LocalCollectionSchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LocalCollection => item !== null);
+        resolve(parsed);
+      };
+    });
+  }
+
+  async saveCollection(collection: LocalCollection): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.collections)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.collections, "readwrite");
+      const store = tx.objectStore(STORES.collections);
+      const request = store.put(collection);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  async deleteCollection(collectionId: string): Promise<void> {
+    const db = await this.getDB();
+    const storeNames = [STORES.collections, STORES.collectionItems].filter((name) =>
+      db.objectStoreNames.contains(name)
+    );
+    if (storeNames.length === 0) return;
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeNames, "readwrite");
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+
+      if (db.objectStoreNames.contains(STORES.collections)) {
+        tx.objectStore(STORES.collections).delete(collectionId);
+      }
+
+      if (db.objectStoreNames.contains(STORES.collectionItems)) {
+        const store = tx.objectStore(STORES.collectionItems);
+        let request: IDBRequest<IDBCursorWithValue | null>;
+        try {
+          request = store.index("by_collectionId").openCursor(IDBKeyRange.only(collectionId));
+        } catch {
+          request = store.openCursor();
+        }
+
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          const parsed = LocalCollectionItemSchema.safeParse(cursor.value);
+          if (parsed.success && parsed.data.collectionId === collectionId) {
+            try { cursor.delete(); } catch { /* ignore */ }
+          }
+          cursor.continue();
+        };
+      }
+    });
+  }
+
+  async getCollectionItems(): Promise<LocalCollectionItem[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.collectionItems)) {
+        resolve([]);
+        return;
+      }
+      const tx = db.transaction(STORES.collectionItems, "readonly");
+      const store = tx.objectStore(STORES.collectionItems);
+      const request = store.getAll();
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const parsed = request.result
+          .map((item) => {
+            const parsed = LocalCollectionItemSchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LocalCollectionItem => item !== null);
+        resolve(parsed);
+      };
+    });
+  }
+
+  async addCollectionItems(collectionId: string, libraryItemIds: string[]): Promise<void> {
+    if (libraryItemIds.length === 0) return;
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (
+        !db.objectStoreNames.contains(STORES.collections) ||
+        !db.objectStoreNames.contains(STORES.collectionItems)
+      ) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction([STORES.collections, STORES.collectionItems], "readwrite");
+      const collectionsStore = tx.objectStore(STORES.collections);
+      const itemsStore = tx.objectStore(STORES.collectionItems);
+
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+
+      const collectionRequest = collectionsStore.get(collectionId);
+      collectionRequest.onsuccess = () => {
+        if (!collectionRequest.result) return;
+        const now = Date.now();
+        for (const libraryItemId of new Set(libraryItemIds)) {
+          itemsStore.put({
+            collectionId,
+            libraryItemId,
+            addedAt: now,
+            updatedAt: now,
+          } satisfies LocalCollectionItem);
+        }
+      };
+    });
+  }
+
+  async removeCollectionItems(collectionId: string, libraryItemIds: string[]): Promise<void> {
+    if (libraryItemIds.length === 0) return;
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.collectionItems)) {
+        resolve();
+        return;
+      }
+      const tx = db.transaction(STORES.collectionItems, "readwrite");
+      const store = tx.objectStore(STORES.collectionItems);
+
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+
+      for (const libraryItemId of new Set(libraryItemIds)) {
+        store.delete([collectionId, libraryItemId]);
+      }
+    });
+  }
+
+  async getCollectionsForItem(libraryItemId: string): Promise<LocalCollection[]> {
+    const [collections, items] = await Promise.all([this.getCollections(), this.getCollectionItems()]);
+    const collectionIds = new Set(
+      items
+        .filter((item) => item.libraryItemId === libraryItemId)
+        .map((item) => item.collectionId)
+    );
+    return collections.filter((collection) => collectionIds.has(collection.collectionId));
+  }
+
+  async saveCollectionsSnapshot(
+    collections: LocalCollection[],
+    collectionItems: LocalCollectionItem[]
+  ): Promise<void> {
+    const db = await this.getDB();
+
+    const storeNames = [STORES.collections, STORES.collectionItems].filter((name) =>
+      db.objectStoreNames.contains(name)
+    );
+    if (storeNames.length === 0) return;
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeNames, "readwrite");
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+
+      if (db.objectStoreNames.contains(STORES.collections)) {
+        const collectionsStore = tx.objectStore(STORES.collections);
+        collectionsStore.clear();
+        for (const collection of collections) collectionsStore.put(collection);
+      }
+
+      if (db.objectStoreNames.contains(STORES.collectionItems)) {
+        const itemsStore = tx.objectStore(STORES.collectionItems);
+        itemsStore.clear();
+        for (const collectionItem of collectionItems) itemsStore.put(collectionItem);
+      }
+    });
+  }
+
   /**
    * Clear user-scoped data from this device.
    *
@@ -1644,6 +1885,8 @@ export class IndexedDBUserDataStore implements UserDataStore {
       STORES.sourceLinks,
       STORES.chapterProgress,
       STORES.mangaProgress,
+      STORES.collections,
+      STORES.collectionItems,
     ];
     const storeNames = candidates.filter((name) => db.objectStoreNames.contains(name));
     if (storeNames.length === 0) return;
@@ -1687,14 +1930,18 @@ export class IndexedDBUserDataStore implements UserDataStore {
     sourceLinks: number;
     chapterProgress: number;
     mangaProgress: number;
+    collections: number;
+    collectionItems: number;
   }> {
-    const [libraryItems, sourceLinks, chapterProgress, mangaProgress] = await Promise.all([
+    const [libraryItems, sourceLinks, chapterProgress, mangaProgress, collections, collectionItems] = await Promise.all([
       this.countStore(STORES.libraryItems),
       this.countStore(STORES.sourceLinks),
       this.countStore(STORES.chapterProgress),
       this.countStore(STORES.mangaProgress),
+      this.countStore(STORES.collections),
+      this.countStore(STORES.collectionItems),
     ]);
-    return { libraryItems, sourceLinks, chapterProgress, mangaProgress };
+    return { libraryItems, sourceLinks, chapterProgress, mangaProgress, collections, collectionItems };
   }
 
   // ============ PHASE 6.6: PROFILE UTILITIES ============

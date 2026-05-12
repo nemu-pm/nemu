@@ -19,6 +19,7 @@ import {
   Add01Icon,
   Bookmark02Icon,
   Alert02Icon,
+  CollectionsBookmarkIcon,
 } from "@hugeicons/core-free-icons";
 import { formatChapterTitle } from "@/lib/format-chapter";
 import { ChapterGrid } from "@/components/chapter-grid";
@@ -35,6 +36,7 @@ import {
 import { MangaStatusBadge } from "@/components/manga-status-badge";
 import { usePageTitle } from "@/components/page-title";
 import { handleSourceError } from "@/lib/sources/error-handler";
+import { ManageCollectionMembershipSheet } from "@/components/collections/manage-collection-membership-sheet";
 
 /** Convert LocalChapterProgress map to ChapterGrid-compatible format */
 function chapterProgressToGridFormat(
@@ -100,6 +102,7 @@ export function MangaPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [collectionsOpen, setCollectionsOpen] = useState(false);
 
   usePageTitle(manga ? [manga.title, sourceName] : [sourceName]);
 
@@ -329,6 +332,18 @@ export function MangaPage() {
                   ? t("manga.inLibrary")
                   : t("manga.addToLibrary")}
               </Button>
+
+              {libraryEntry && (
+                <Button
+                  size="icon-lg"
+                  variant="outline"
+                  onClick={() => setCollectionsOpen(true)}
+                  aria-label="Edit collections"
+                  title="Edit collections"
+                >
+                  <HugeiconsIcon icon={CollectionsBookmarkIcon} className="size-4" />
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -381,6 +396,14 @@ export function MangaPage() {
             </ResponsiveDialogFooter>
           </ResponsiveDialogContent>
         </ResponsiveDialog>
+
+        {libraryEntry && (
+          <ManageCollectionMembershipSheet
+            open={collectionsOpen}
+            onOpenChange={setCollectionsOpen}
+            libraryItemId={libraryEntry.item.libraryItemId}
+          />
+        )}
       </div>
     </SourceImageProvider>
   );

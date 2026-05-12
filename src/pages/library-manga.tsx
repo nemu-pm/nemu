@@ -28,6 +28,7 @@ import {
   Delete02Icon,
   Alert02Icon,
   Layers01Icon,
+  CollectionsBookmarkIcon,
 } from "@hugeicons/core-free-icons";
 import { formatChapterTitle } from "@/lib/format-chapter";
 import { ChapterGrid } from "@/components/chapter-grid";
@@ -46,6 +47,7 @@ import { SourceManageDialog } from "@/components/source-manage-dialog";
 import { useSortedSources } from "@/hooks/use-sorted-sources";
 import { ExpandableText } from "@/components/ui/expandable-text";
 import { usePageTitle } from "@/components/page-title";
+import { ManageCollectionMembershipSheet } from "@/components/collections/manage-collection-membership-sheet";
 
 /** Find the chapter with the highest chapter number */
 function findLatestChapter(chapters: Chapter[]): { id: string; title?: string; chapterNumber?: number; volumeNumber?: number } | null {
@@ -126,6 +128,7 @@ export function LibraryMangaPage() {
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [metadataDialogOpen, setMetadataDialogOpen] = useState(false);
   const [sourceManageOpen, setSourceManageOpen] = useState(false);
+  const [collectionsOpen, setCollectionsOpen] = useState(false);
 
   const entry = useMemo<LibraryEntry | undefined>(
     () => entries.find((e) => e.item.libraryItemId === id),
@@ -510,6 +513,15 @@ export function LibraryMangaPage() {
                 </Link>
               )}
 
+              <Button
+                size="icon-lg"
+                variant="outline"
+                onClick={() => setCollectionsOpen(true)}
+                aria-label="Edit collections"
+                title="Edit collections"
+              >
+                <HugeiconsIcon icon={CollectionsBookmarkIcon} className="size-4" />
+              </Button>
             </div>
           </div>
         </div>
@@ -615,6 +627,14 @@ export function LibraryMangaPage() {
           onOpenChange={setSourceManageOpen}
           entry={entry}
         />
+
+        {entry && (
+          <ManageCollectionMembershipSheet
+            open={collectionsOpen}
+            onOpenChange={setCollectionsOpen}
+            libraryItemId={entry.item.libraryItemId}
+          />
+        )}
       </div>
     </SourceImageProvider>
   );

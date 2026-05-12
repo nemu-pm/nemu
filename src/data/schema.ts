@@ -203,6 +203,26 @@ export const LocalMangaProgressSchema = z.object({
   updatedAt: z.number(),
 });
 
+/**
+ * Local collection (normalized, mirrors collections table).
+ */
+export const LocalCollectionSchema = z.object({
+  collectionId: z.string(),
+  name: z.string(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+/**
+ * Local collection membership (normalized, mirrors collection_items table).
+ */
+export const LocalCollectionItemSchema = z.object({
+  collectionId: z.string(),
+  libraryItemId: z.string(),
+  addedAt: z.number(),
+  updatedAt: z.number(),
+});
+
 // ============ INFERRED TYPES ============
 
 export type ChapterSummary = z.infer<typeof ChapterSummarySchema>;
@@ -218,6 +238,8 @@ export type LocalLibraryItem = z.infer<typeof LocalLibraryItemSchema>;
 export type LocalSourceLink = z.infer<typeof LocalSourceLinkSchema>;
 export type LocalChapterProgress = z.infer<typeof LocalChapterProgressSchema>;
 export type LocalMangaProgress = z.infer<typeof LocalMangaProgressSchema>;
+export type LocalCollection = z.infer<typeof LocalCollectionSchema>;
+export type LocalCollectionItem = z.infer<typeof LocalCollectionItemSchema>;
 export type UserOverrides = z.infer<typeof UserOverridesSchema>;
 
 // ============ KEY HELPERS ============
@@ -249,6 +271,14 @@ export function makeChapterProgressId(
  */
 export function makeMangaProgressId(registryId: string, sourceId: string, sourceMangaId: string): string {
   return makeSourceLinkId(registryId, sourceId, sourceMangaId);
+}
+
+/**
+ * Build a stable key for collection membership.
+ * Format: "${collectionId}:${libraryItemId}" (URL-encoded)
+ */
+export function makeCollectionItemId(collectionId: string, libraryItemId: string): string {
+  return `${encodeURIComponent(collectionId)}:${encodeURIComponent(libraryItemId)}`;
 }
 
 // ============ HELPERS ============
