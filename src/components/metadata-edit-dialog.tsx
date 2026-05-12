@@ -43,7 +43,12 @@ import { metadataFromSource } from "@/lib/metadata";
 import { useCoverUpload, getR2PublicUrl } from "@/hooks/use-cover-upload";
 import { useStores } from "@/data/context";
 import { proxyUrl } from "@/config";
+import { isNative, nativeFetch } from "@/lib/native-fetch";
 import { toast } from "sonner";
+
+// Cover-image fetch: bypass proxy on native (CapacitorHttp avoids CORS).
+const coverFetch = (url: string) =>
+  isNative() ? nativeFetch(url) : fetch(proxyUrl(url));
 
 interface MetadataEditDialogProps {
   open: boolean;
@@ -250,7 +255,7 @@ export function MetadataEditDialog({
       // Download cover image to blob if provided (use proxy for CORS)
       if (metadata.cover) {
         try {
-          const response = await fetch(proxyUrl(metadata.cover));
+          const response = await coverFetch(metadata.cover);
           if (!response.ok) throw new Error("Failed to fetch cover");
           const blob = await response.blob();
           const file = new File([blob], "cover.webp", { type: blob.type });
@@ -312,7 +317,7 @@ export function MetadataEditDialog({
     // Download cover image to blob if provided (use proxy for CORS)
     if (metadata.cover) {
       try {
-        const response = await fetch(proxyUrl(metadata.cover));
+        const response = await coverFetch(metadata.cover);
         if (!response.ok) throw new Error("Failed to fetch cover");
         const blob = await response.blob();
         const file = new File([blob], "cover.webp", { type: blob.type });
@@ -371,7 +376,7 @@ export function MetadataEditDialog({
       } else if (form.coverUrl && form.coverUrl !== currentOverrides?.coverUrl) {
         // External URL (new, not existing override) - download via proxy and upload to R2
         try {
-          const response = await fetch(proxyUrl(form.coverUrl));
+          const response = await coverFetch(form.coverUrl);
           if (!response.ok) throw new Error("Failed to fetch");
           const blob = await response.blob();
           const file = new File([blob], "cover.webp", { type: blob.type });
@@ -395,7 +400,7 @@ export function MetadataEditDialog({
     } finally {
       setSaving(false);
     }
-  }, [form, isOverridden, uploadCover, onSave, onOpenChange, pendingExternalIds, currentOverrides]);
+  }, [form, isOverridden, uploadCover, onSave, onOpenChange, pendingExternalIds, currentOverrides, t]);
 
   const tagInputStyles = {
     inlineTagsContainer: "tag-input-nemu",
