@@ -400,7 +400,7 @@ export function MetadataEditDialog({
     } finally {
       setSaving(false);
     }
-  }, [form, isOverridden, uploadCover, onSave, onOpenChange, pendingExternalIds, currentOverrides]);
+  }, [form, isOverridden, uploadCover, onSave, onOpenChange, pendingExternalIds, currentOverrides, t]);
 
   const tagInputStyles = {
     inlineTagsContainer: "tag-input-nemu",
