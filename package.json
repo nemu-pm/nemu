@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "bun scripts/patch-aidoku-runtime.ts",
     "dev": "concurrently \"vite --host\" \"convex dev\"",
     "build": "tsx scripts/generate-apple-secret.ts && tsc -b && vite build",
     "lint": "eslint .",
