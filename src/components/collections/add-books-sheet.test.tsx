@@ -13,7 +13,7 @@ globalThis.navigator = windowInstance.navigator as unknown as typeof globalThis.
 const addBooksTo = mock(async () => {});
 const removeBooksFrom = mock(async () => {});
 
-let libraryEntries = [
+const libraryEntries = [
   {
     item: { libraryItemId: "lib-1" },
     sources: [],
