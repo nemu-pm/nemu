@@ -93,15 +93,9 @@ export const addItems = mutation({
     }
 
     for (const libraryItemId of uniqueIds) {
-      const libraryItem = await ctx.db
-        .query("library_items")
-        .withIndex("by_user_item", (q) =>
-          q.eq("userId", userId).eq("libraryItemId", libraryItemId)
-        )
-        .first();
-
-      if (!libraryItem) continue;
-
+      // Library saves and collection edits can arrive out of order from the
+      // local-first client. Keep membership as an id reference; library.remove
+      // and library.clearAll already cascade stale memberships.
       const existing = await ctx.db
         .query("collection_items")
         .withIndex("by_user_collection_item", (q) =>

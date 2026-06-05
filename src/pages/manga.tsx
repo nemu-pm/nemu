@@ -338,8 +338,8 @@ export function MangaPage() {
                   size="icon-lg"
                   variant="outline"
                   onClick={() => setCollectionsOpen(true)}
-                  aria-label="Edit collections"
-                  title="Edit collections"
+                  aria-label={t("collections.membershipTitle")}
+                  title={t("collections.membershipTitle")}
                 >
                   <HugeiconsIcon icon={CollectionsBookmarkIcon} className="size-4" />
                 </Button>
