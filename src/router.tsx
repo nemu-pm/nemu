@@ -28,6 +28,7 @@ import type { GenericListing } from "@/components/browse";
 
 // Pages
 import { LibraryPage } from "./pages/library";
+import { CollectionDetailPage } from "./pages/library-collection";
 import { LibraryMangaPage } from "./pages/library-manga";
 import { BrowsePage } from "./pages/browse";
 import { SourceBrowsePage } from "./pages/source-browse";
@@ -432,6 +433,12 @@ const libraryMangaRoute = createRoute({
   component: LibraryMangaPage,
 });
 
+const collectionDetailRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/library/collection/$id",
+  component: CollectionDetailPage,
+});
+
 // Source manga route (for browsing, not in library yet)
 const mangaRoute = createRoute({
   getParentRoute: () => shellRoute,
@@ -467,6 +474,7 @@ const debugPopoverDrawerRoute = createRoute({
 // Route tree
 const shellChildren = [
   libraryRoute,
+  collectionDetailRoute,
   libraryMangaRoute,
   browseLayoutRoute.addChildren([browseIndexRoute, sourceBrowseRoute]),
   searchRoute,

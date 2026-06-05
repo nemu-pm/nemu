@@ -11,7 +11,14 @@ import type { ConvexReactClient } from "convex/react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../convex/_generated/api";
 import { IDB_UI_EVENT, IndexedDBUserDataStore } from "@/data/indexeddb";
-import type { LocalLibraryItem, LocalSourceLink, LocalMangaProgress, LocalChapterProgress } from "@/data/schema";
+import type {
+  LocalLibraryItem,
+  LocalSourceLink,
+  LocalMangaProgress,
+  LocalChapterProgress,
+  LocalCollection,
+  LocalCollectionItem,
+} from "@/data/schema";
 import { makeSourceLinkId, makeChapterProgressId, makeMangaProgressId } from "@/data/schema";
 import type { LibraryEntry } from "@/data/view";
 import { getSourceSettingsStore } from "@/stores/source-settings";
@@ -57,7 +64,9 @@ function getImportDecision(userId: string): ImportDecision | null {
 function setImportDecision(userId: string, decision: ImportDecision): void {
   try {
     localStorage.setItem(`${IMPORT_DECISION_KEY_PREFIX}${userId}`, decision);
-  } catch {}
+  } catch {
+    // ignore storage failures
+  }
 }
 
 export function SyncSetup() {
@@ -82,9 +91,11 @@ export function SyncSetup() {
   const [idbBlocked, setIdbBlocked] = useState<IdbBlockedEventDetail | null>(null);
 
   // Update module-level refs
-  convexRef.current = convex as ConvexReactClient;
-  isAuthenticatedRef.current = isAuthenticated;
-  sessionUserIdRef.current = session?.user?.id;
+  useEffect(() => {
+    convexRef.current = convex as ConvexReactClient;
+    isAuthenticatedRef.current = isAuthenticated;
+    sessionUserIdRef.current = session?.user?.id;
+  }, [convex, isAuthenticated, session?.user?.id]);
 
   // Check if first sync
   useEffect(() => {
@@ -103,6 +114,8 @@ export function SyncSetup() {
   
   const cloudLibraryItems = useQuery(api.sync.libraryItemsAll, skipSubscriptions ? "skip" : {});
   const cloudSourceLinks = useQuery(api.sync.sourceLinksAll, skipSubscriptions ? "skip" : {});
+  const cloudCollections = useQuery(api.sync.collectionsAll, skipSubscriptions ? "skip" : {});
+  const cloudCollectionItems = useQuery(api.sync.collectionItemsAll, skipSubscriptions ? "skip" : {});
   const cloudChapterProgress = useQuery(api.sync.chapterProgressAll, skipSubscriptions ? "skip" : {});
   const cloudMangaProgress = useQuery(api.sync.mangaProgressAll, skipSubscriptions ? "skip" : {});
   const cloudSettings = useQuery(api.settings.get, skipSubscriptions ? "skip" : {});
@@ -110,6 +123,8 @@ export function SyncSetup() {
   const isSyncing = isAuthenticated && (
     cloudLibraryItems === undefined ||
     cloudSourceLinks === undefined ||
+    cloudCollections === undefined ||
+    cloudCollectionItems === undefined ||
     cloudSettings === undefined
   );
 
@@ -193,6 +208,56 @@ export function SyncSetup() {
 
     return () => { cancelled = true; };
   }, [cloudLibraryItems, cloudSourceLinks, localStore, stores]);
+
+  useEffect(() => {
+    if (!cloudCollections || !cloudCollectionItems || subscriptionStoppedRef.current) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const collections: LocalCollection[] = cloudCollections.map((collection) => ({
+          collectionId: collection.collectionId,
+          name: collection.name,
+          createdAt: collection.createdAt,
+          updatedAt: collection.updatedAt,
+        }));
+
+        const collectionItems: LocalCollectionItem[] = cloudCollectionItems.map((item) => ({
+          collectionId: item.collectionId,
+          libraryItemId: item.libraryItemId,
+          addedAt: item.addedAt,
+          updatedAt: item.updatedAt,
+        }));
+
+        await localStore.saveCollectionsSnapshot(collections, collectionItems);
+        if (cancelled) return;
+
+        const membership = new Map<string, Set<string>>();
+        for (const item of collectionItems) {
+          const existing = membership.get(item.collectionId) ?? new Set<string>();
+          existing.add(item.libraryItemId);
+          membership.set(item.collectionId, existing);
+        }
+
+        collections.sort((a, b) => {
+          if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+          return a.collectionId.localeCompare(b.collectionId);
+        });
+
+        stores.useCollectionsStore.setState({
+          collections,
+          membership,
+          loading: false,
+          error: null,
+        });
+      } catch (e) {
+        console.error("[SyncSetup] Failed to apply collections snapshot:", e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudCollections, cloudCollectionItems, localStore, stores]);
 
   useEffect(() => {
     if (!cloudChapterProgress || subscriptionStoppedRef.current) return;
@@ -303,6 +368,7 @@ export function SyncSetup() {
     Promise.all([
       stores.useSettingsStore.getState().initialize(),
       stores.useLibraryStore.getState().load(false),
+      stores.useCollectionsStore.getState().load(),
     ]);
     getSourceSettingsStore().getState().initialize();
   }, [profileId, progressStore, stores]);
@@ -355,7 +421,9 @@ export function SyncSetup() {
           setIdbBlocked(parsed);
           setIdbDialogOpen(true);
         }
-      } catch {}
+      } catch {
+        // ignore malformed buffered event payloads
+      }
     }
     if (shouldForceIdbDialog) {
       setIdbBlocked({ dbName: "nemu-user", kind: "blocked", requestedVersion: 999 });
@@ -365,7 +433,11 @@ export function SyncSetup() {
       setIdbBlocked(e.detail);
       setIdbDialogOpen(true);
       if (shouldDebugIdbUi) {
-        try { sessionStorage.setItem(IDB_UI_EVENT_BUFFER_KEY, JSON.stringify(e.detail)); } catch {}
+        try {
+          sessionStorage.setItem(IDB_UI_EVENT_BUFFER_KEY, JSON.stringify(e.detail));
+        } catch {
+          // ignore storage failures
+        }
       }
     };
     window.addEventListener(IDB_UI_EVENT, handler as EventListener);

@@ -6,7 +6,7 @@ Nemu is a content reader built around pluggable source runtimes, local-first dat
 
 - Frontend: React 19 + Vite + TanStack Router.
 - State: Zustand stores created from profile-scoped service containers.
-- Local data: IndexedDB for library, progress, cache, source settings, and plugin data.
+- Local data: IndexedDB for library, collections, progress, cache, source settings, and plugin data.
 - Sources: Aidoku WASM sources plus a Tachiyomi local registry in development.
 - Backend: Convex for auth, sync, proxy HTTP actions, and related app services.
 - Reader extensions: built-in reader plugins registered from `src/lib/plugins`.
@@ -55,9 +55,11 @@ Nemu is local-first.
 - Local reads and writes go through profile-scoped services created by `createServicesContainer(...)`.
 - `DataServicesProvider` owns the active services container for the current profile.
 - `SyncSetup` bridges Convex subscriptions into local IndexedDB and in-memory stores.
-- Convex persists canonical cloud data for library items, chapter history/progress, and installed sources.
+- Convex persists canonical cloud data for library items, collections, chapter history/progress, and installed sources.
 
 Prefer the code in `src/data/services-provider.tsx`, `src/sync/services.ts`, and `src/sync/setup.tsx` as the source of truth for sync behavior.
+
+See `docs/collections.md` for the collections data model, sync flow, and integrity rules.
 
 ## Reader Plugins
 

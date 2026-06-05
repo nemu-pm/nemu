@@ -18,6 +18,8 @@ import {
 } from "@/data/view";
 import { formatChapterShort } from "@/lib/format-chapter";
 import type { Chapter } from "@/lib/sources";
+import { CollectionsManagerDialog } from "@/components/collections/collections-manager-dialog";
+import { useLibraryTitleMenu } from "@/components/collections/library-title-menu";
 
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const REFRESH_STORAGE_KEY = "library_last_refresh";
@@ -119,12 +121,18 @@ const libraryPagePrev = { entries: 0, sources: 0, libLoading: true, setLoading: 
 export function LibraryPage() {
   const renderNum = ++libraryPageRenders;
   const { t } = useTranslation();
-  const { useLibraryStore, useSettingsStore } = useStores();
+  const { useLibraryStore, useSettingsStore, useCollectionsStore } = useStores();
   const progressIndex = useAllMangaProgress();
   const { entries, loading: libraryLoading, updateLatestChapter } = useLibraryStore();
   const { installedSources, loading: settingsLoading, getSource } = useSettingsStore();
+  const { collections } = useCollectionsStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [collectionsManagerOpen, setCollectionsManagerOpen] = useState(false);
   const refreshingRef = useRef(false);
+  const titleMenu = useLibraryTitleMenu({
+    collections,
+    onManage: () => setCollectionsManagerOpen(true),
+  });
 
   // Debug: track what changed
   const changes: string[] = [];
@@ -242,13 +250,15 @@ export function LibraryPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={t("nav.library")} loading={isRefreshing} />
+      <PageHeader title={t("nav.library")} titleMenu={titleMenu} loading={isRefreshing} />
       
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 sm:gap-4 md:grid-cols-5 lg:grid-cols-6">
         {sortedEntries.map((entry) => (
           <LibraryEntryCard key={entry.item.libraryItemId} entry={entry} progressIndex={progressIndex} />
         ))}
       </div>
+
+      <CollectionsManagerDialog open={collectionsManagerOpen} onOpenChange={setCollectionsManagerOpen} />
     </div>
   );
 }

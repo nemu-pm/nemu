@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { requireAuth } from "./_lib";
 
 const metadataValidator = v.object({
@@ -136,7 +137,7 @@ type SourceLinkInput = {
 };
 
 type ExistingLink = {
-  _id: string;
+  _id: Id<"library_source_links">;
   registryId: string;
   sourceId: string;
   sourceMangaId: string;
@@ -171,7 +172,7 @@ async function writeSourceLinks(
       const mergedLatest = source.latestChapter ?? existing.latestChapter;
       const mergedAck = source.updateAckChapter ?? existing.updateAckChapter;
 
-      await ctx.db.patch(existing._id as any, {
+      await ctx.db.patch(existing._id, {
         libraryItemId,
         latestChapter: mergedLatest,
         latestChapterSortKey: buildSortKey(mergedLatest),
@@ -221,6 +222,16 @@ export const remove = mutation({
 
     for (const link of sourceLinks) {
       await ctx.db.delete(link._id);
+    }
+
+    // Hard-delete collection memberships for this library item
+    const collectionItems = await ctx.db
+      .query("collection_items")
+      .withIndex("by_user_item", (q) => q.eq("userId", userId).eq("libraryItemId", args.libraryItemId))
+      .collect();
+
+    for (const item of collectionItems) {
+      await ctx.db.delete(item._id);
     }
   },
 });
@@ -272,6 +283,23 @@ export const clearAll = mutation({
       .collect();
     for (const link of links) {
       await ctx.db.delete(link._id);
+    }
+
+    // Delete all collections and memberships
+    const collections = await ctx.db
+      .query("collections")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    for (const collection of collections) {
+      await ctx.db.delete(collection._id);
+    }
+
+    const collectionItems = await ctx.db
+      .query("collection_items")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    for (const item of collectionItems) {
+      await ctx.db.delete(item._id);
     }
 
     // Delete settings

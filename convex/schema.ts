@@ -128,6 +128,32 @@ export default defineSchema({
     .index("by_user_source_manga", ["userId", "registryId", "sourceId", "sourceMangaId"])
     .index("by_user_updated", ["userId", "updatedAt"]),
 
+  // collections: user-defined named groups of library items
+  collections: defineTable({
+    userId: v.string(),
+    collectionId: v.string(),
+    name: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_collection", ["userId", "collectionId"])
+    .index("by_user_updated", ["userId", "updatedAt"]),
+
+  // collection_items: join table from collections -> library_items
+  collection_items: defineTable({
+    userId: v.string(),
+    collectionId: v.string(),
+    libraryItemId: v.string(),
+    addedAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_collection", ["userId", "collectionId"])
+    .index("by_user_collection_item", ["userId", "collectionId", "libraryItemId"])
+    .index("by_user_item", ["userId", "libraryItemId"])
+    .index("by_user_updated", ["userId", "updatedAt"]),
+
   // chapter_progress: canonical truth per chapter
   chapter_progress: defineTable({
     userId: v.string(),
