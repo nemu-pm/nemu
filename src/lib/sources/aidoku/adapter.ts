@@ -148,6 +148,21 @@ function getMergedSettings(sourceKey: string): Record<string, unknown> {
   return { ...defaults, ...userValues };
 }
 
+function resolveImageRequestUrl(url: string, manifest: SourceManifest): string {
+  try {
+    return new URL(url).toString();
+  } catch {
+    const baseUrl = manifest.info.url ?? manifest.info.urls?.[0];
+    if (!baseUrl) return url;
+
+    try {
+      return new URL(url, baseUrl).toString();
+    } catch {
+      return url;
+    }
+  }
+}
+
 /**
  * Create an Aidoku manga source from AIX bytes
  * 
@@ -304,14 +319,20 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
           // Cache miss or error, continue to fetch
         }
 
-        const { headers } = await asyncSource.modifyImageRequest(url);
+        type ModifyImageRequest = (
+          requestUrl: string,
+          context?: Record<string, string> | null
+        ) => Promise<{ url: string; headers: Record<string, string> }>;
+        const request = await (asyncSource.modifyImageRequest as ModifyImageRequest)(url, context);
+        const requestUrl = resolveImageRequestUrl(request.url || url, this.manifest);
+        const headers = request.headers;
 
         let response: Response;
 
         if (this.proxyFetch) {
           // Use Agent or Extension proxy
-          console.log(`[Image] Proxy fetch: ${url.substring(0, 60)}...`);
-          response = await this.proxyFetch(url, { headers });
+          console.log(`[Image] Proxy fetch: ${requestUrl.substring(0, 60)}...`);
+          response = await this.proxyFetch(requestUrl, { headers });
           console.log(`[Image] Proxy response: ${response.status}`);
         } else {
           // Fallback to CF Worker proxy
@@ -319,11 +340,11 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
           for (const [k, v] of Object.entries(headers)) {
             proxyHeaders[`x-proxy-${k}`] = v;
           }
-          response = await fetch(proxyUrl(url), { headers: proxyHeaders });
+          response = await fetch(proxyUrl(requestUrl), { headers: proxyHeaders });
         }
         if (!response.ok) {
           const err = new Error(`Failed to fetch image: ${response.status}`);
-          handleSourceError(err, `Image: ${url.substring(0, 50)}`);
+          handleSourceError(err, `Image: ${requestUrl.substring(0, 50)}`);
           throw err;
         }
         
@@ -343,7 +364,7 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
           const processed = await asyncSource.processPageImage(
             imageBytes,
             context,
-            url,
+            requestUrl,
             headers,
             response.status,
             Object.fromEntries(response.headers.entries())
@@ -662,4 +683,3 @@ function normalizeManifestListing(listing: Partial<Listing> & { id?: string; nam
     kind: listing.kind,
   };
 }
-
