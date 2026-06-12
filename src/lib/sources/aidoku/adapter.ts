@@ -319,11 +319,7 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
           // Cache miss or error, continue to fetch
         }
 
-        type ModifyImageRequest = (
-          requestUrl: string,
-          context?: Record<string, string> | null
-        ) => Promise<{ url: string; headers: Record<string, string> }>;
-        const request = await (asyncSource.modifyImageRequest as ModifyImageRequest)(url, context);
+        const request = await asyncSource.modifyImageRequest(url, context);
         const requestUrl = resolveImageRequestUrl(request.url || url, this.manifest);
         const headers = request.headers;
 
