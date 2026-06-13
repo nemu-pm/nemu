@@ -4,6 +4,7 @@
  * Used by: source settings, plugin settings
  */
 
+import type { ReactNode } from "react";
 import type {
   Setting,
   GroupSetting,
@@ -42,6 +43,16 @@ export interface SettingsRendererProps {
   onPushPage?: (page: PageSetting) => void;
   /** Available feature flags for conditional visibility */
   features?: FeatureFlags;
+  /** Optional custom renderer for unsupported/source-specific setting types */
+  renderCustomSetting?: (
+    setting: Setting,
+    context: {
+      values: Record<string, unknown>;
+      onChange: (key: string, value: unknown) => void;
+      onPushPage?: (page: PageSetting) => void;
+      features: FeatureFlags;
+    }
+  ) => ReactNode | null | undefined;
 }
 
 /**
@@ -53,6 +64,7 @@ export function SettingsRenderer({
   onChange,
   onPushPage,
   features = {},
+  renderCustomSetting,
 }: SettingsRendererProps) {
   return (
     <>
@@ -64,6 +76,7 @@ export function SettingsRenderer({
           onChange={onChange}
           onPushPage={onPushPage}
           features={features}
+          renderCustomSetting={renderCustomSetting}
         />
       ))}
     </>
@@ -76,14 +89,24 @@ interface SettingItemProps {
   onChange: (key: string, value: unknown) => void;
   onPushPage?: (page: PageSetting) => void;
   features: FeatureFlags;
+  renderCustomSetting?: SettingsRendererProps["renderCustomSetting"];
 }
 
-function SettingItem({ setting, values, onChange, onPushPage, features }: SettingItemProps) {
+function SettingItem({ setting, values, onChange, onPushPage, features, renderCustomSetting }: SettingItemProps) {
   if (!isSettingVisible(setting, values, features)) return null;
 
   switch (setting.type) {
     case "group":
-      return <GroupControl setting={setting} values={values} onChange={onChange} onPushPage={onPushPage} features={features} />;
+      return (
+        <GroupControl
+          setting={setting}
+          values={values}
+          onChange={onChange}
+          onPushPage={onPushPage}
+          features={features}
+          renderCustomSetting={renderCustomSetting}
+        />
+      );
     case "select":
       return <SelectControl setting={setting} value={values[setting.key] as string | undefined} onChange={onChange} />;
     case "multi-select":
@@ -100,9 +123,13 @@ function SettingItem({ setting, values, onChange, onPushPage, features }: Settin
       return onPushPage ? <SettingsPageLink title={setting.title} onClick={() => onPushPage(setting)} /> : null;
     case "editable-list":
       return <EditableListControl setting={setting} value={values[setting.key] as string[] | undefined} onChange={onChange} />;
-    // Skip button, link for now (require special handling)
     default:
-      return null;
+      return renderCustomSetting?.(setting, {
+        values,
+        onChange,
+        onPushPage,
+        features,
+      }) ?? null;
   }
 }
 
@@ -116,12 +143,14 @@ function GroupControl({
   onChange,
   onPushPage,
   features,
+  renderCustomSetting,
 }: {
   setting: GroupSetting;
   values: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;
   onPushPage?: (page: PageSetting) => void;
   features: FeatureFlags;
+  renderCustomSetting?: SettingsRendererProps["renderCustomSetting"];
 }) {
   return (
     <SettingsGroup title={setting.title} footer={setting.footer}>
@@ -131,6 +160,7 @@ function GroupControl({
         onChange={onChange}
         onPushPage={onPushPage}
         features={features}
+        renderCustomSetting={renderCustomSetting}
       />
     </SettingsGroup>
   );
@@ -316,4 +346,3 @@ function EditableListControl({
     />
   );
 }
-

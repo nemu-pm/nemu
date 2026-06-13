@@ -18,6 +18,7 @@ export type {
   TextSetting,
   ButtonSetting,
   LinkSetting,
+  LoginSetting,
   PageSetting,
   EditableListSetting,
   SettingsData,
@@ -37,4 +38,3 @@ export {
 // Renderer
 export { SettingsRenderer } from "./renderer";
 export type { SettingsRendererProps } from "./renderer";
-

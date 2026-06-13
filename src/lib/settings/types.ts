@@ -16,6 +16,7 @@ export type SettingType =
   | "text"
   | "button"
   | "link"
+  | "login"
   | "page"
   | "editable-list";
 
@@ -145,6 +146,12 @@ export interface ButtonSetting extends BaseSetting {
   type: "button";
   /** Action identifier */
   action?: string;
+  /** Highlight destructive actions */
+  destructive?: boolean;
+  /** Optional confirmation title */
+  confirmTitle?: string;
+  /** Optional confirmation message */
+  confirmMessage?: string;
 }
 
 /**
@@ -156,6 +163,33 @@ export interface LinkSetting extends BaseSetting {
   url?: string;
   /** Key of setting containing URL */
   urlKey?: string;
+  /** Whether to open outside the app */
+  external?: boolean;
+}
+
+/**
+ * Login / authentication action
+ */
+export interface LoginSetting extends BaseSetting {
+  type: "login";
+  /** Login method used by the source */
+  method?: "basic" | "web" | "oauth";
+  /** Alternate label when already logged in */
+  logoutTitle?: string;
+  /** Static auth URL */
+  url?: string;
+  /** Setting key containing the auth URL */
+  urlKey?: string;
+  /** OAuth token endpoint */
+  tokenUrl?: string;
+  /** OAuth callback scheme */
+  callbackScheme?: string;
+  /** Enable OAuth PKCE flow */
+  pkce?: boolean;
+  /** Local storage keys captured by web login */
+  localStorageKeys?: string[];
+  /** Show email wording instead of username */
+  useEmail?: boolean;
 }
 
 /**
@@ -195,6 +229,7 @@ export type Setting =
   | TextSetting
   | ButtonSetting
   | LinkSetting
+  | LoginSetting
   | PageSetting
   | EditableListSetting;
 
@@ -224,4 +259,3 @@ export interface SourceSettingsData {
  * Feature flags for conditional setting visibility
  */
 export type FeatureFlags = Record<string, boolean>;
-
