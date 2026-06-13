@@ -44,6 +44,15 @@ interface NormalizedSourceEntry {
   contentRating?: number;
 }
 
+function resolveRegistryUrl(baseUrl: string, pathOrUrl: string): string {
+  try {
+    return new URL(pathOrUrl).toString();
+  } catch {
+    const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+    return new URL(pathOrUrl, base).toString();
+  }
+}
+
 /**
  * Aidoku registry that fetches sources from a remote URL.
  * Supports both "community" format ({ name, sources: [...] }) and
@@ -154,7 +163,7 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
       id: s.id,
       name: s.name,
       version: s.version,
-      icon: s.iconPath ? `${this.baseUrl}/${s.iconPath}` : undefined,
+      icon: s.iconPath ? resolveRegistryUrl(this.baseUrl, s.iconPath) : undefined,
       languages: s.languages,
       contentRating: s.contentRating,
     }));
@@ -167,7 +176,7 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
       throw new Error(`Source not found: ${sourceId}`);
     }
 
-    const aixUrl = `${this.baseUrl}/${entry.downloadPath}`;
+    const aixUrl = resolveRegistryUrl(this.baseUrl, entry.downloadPath);
     const res = await fetch(aixUrl);
     if (!res.ok) {
       throw new Error(`Failed to download .aix: ${res.status}`);
@@ -232,7 +241,7 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
 
     // Get icon URL from source index (always available after ensureFetched)
     const entry = this.sourceIndex.get(sourceId);
-    const icon = entry?.iconPath ? `${this.baseUrl}/${entry.iconPath}` : undefined;
+    const icon = entry?.iconPath ? resolveRegistryUrl(this.baseUrl, entry.iconPath) : undefined;
     
     // Create source - this extracts AIX in the worker and returns settingsJson + manifest
     const { source, settingsJson, manifest } = await createAidokuMangaSource(aixData, sourceKey, this.cacheStore, icon);
