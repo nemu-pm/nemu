@@ -1,0 +1,40 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'pm.nemu.mobile.aidoku'
+version = '0.1.0'
+
+android {
+  namespace "pm.nemu.mobile.aidoku"
+  sourceSets {
+    main {
+      // Kept outside the generated/ignored Android tree so the audited,
+      // reproducible sandbox sources and bundle are present in clean checkouts.
+      java.srcDir "../runtime/kotlin"
+      assets.srcDir "../runtime/assets"
+    }
+    test {
+      java.srcDir "../runtime/kotlinTest"
+    }
+  }
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions {
+    abortOnError false
+    // OkHttp 4.12 matches the app/Expo dependency line. Do not let a network-
+    // based major-version suggestion turn deterministic native lint noisy.
+    disable 'NewerVersionAvailable'
+  }
+}
+
+dependencies {
+  implementation "androidx.javascriptengine:javascriptengine:1.1.0"
+  implementation "com.facebook.fresco:fresco:3.6.0"
+  implementation "com.squareup.okhttp3:okhttp:4.12.0"
+  testImplementation "junit:junit:4.13.2"
+  testImplementation "com.squareup.okhttp3:mockwebserver:4.12.0"
+}

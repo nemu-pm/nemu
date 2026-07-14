@@ -1,0 +1,29 @@
+diff --git a/android/src/main/java/expo/modules/ExpoReactHostFactory.kt b/android/src/main/java/expo/modules/ExpoReactHostFactory.kt
+index c712e48bb6ebcca32ece9dda9f236fc48ba65a77..76ce1985ddba8840c4d250aebe65dea07f119d4a 100644
+--- a/android/src/main/java/expo/modules/ExpoReactHostFactory.kt
++++ b/android/src/main/java/expo/modules/ExpoReactHostFactory.kt
+@@ -33,6 +33,7 @@ object ExpoReactHostFactory {
+     private val jsBundleAssetPath: String?,
+     private val jsBundleFilePath: String? = null,
+     private val useDevSupport: Boolean,
++    private val providedJsRuntimeFactory: JSRuntimeFactory? = null,
+     override val bindingsInstaller: BindingsInstaller? = null,
+     override val turboModuleManagerDelegateBuilder: ReactPackageTurboModuleManagerDelegate.Builder =
+       DefaultTurboModuleManagerDelegate.Builder(),
+@@ -78,7 +79,7 @@ object ExpoReactHostFactory {
+       }
+
+     override val jsRuntimeFactory: JSRuntimeFactory
+-      get() = HermesInstance()
++      get() = providedJsRuntimeFactory ?: HermesInstance()
+
+     override val reactPackages: List<ReactPackage>
+       get() = packageList
+@@ -116,6 +117,7 @@ object ExpoReactHostFactory {
+         jsBundleAssetPath,
+         jsBundleFilePath,
+         useDevSupport,
++        jsRuntimeFactory,
+         bindingsInstaller,
+         hostHandlers = hostHandlers
+       )

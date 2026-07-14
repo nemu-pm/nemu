@@ -1,0 +1,28 @@
+diff --git a/build/src/export/exportHermes.js b/build/src/export/exportHermes.js
+index 1e09d58..6d67d8a 100644
+--- a/build/src/export/exportHermes.js
++++ b/build/src/export/exportHermes.js
+@@ -102,19 +102,21 @@ async function assertEngineMismatchAsync(projectRoot, exp, platform) {
+ function isEnableHermesManaged(expoConfig, platform) {
++    var _expoConfig_extra;
++    const configuredEngine = (_expoConfig_extra = expoConfig.extra) == null ? void 0 : _expoConfig_extra.nemuJsEngine;
+     switch(platform){
+         case 'android':
+             {
+                 var _expoConfig_android;
+                 // NOTE(@kitten): `jsEngine` was deprecated, but we're preserving the check
+-                return (((_expoConfig_android = expoConfig.android) == null ? void 0 : _expoConfig_android.jsEngine) ?? expoConfig.jsEngine) !== 'jsc';
++                return (((_expoConfig_android = expoConfig.android) == null ? void 0 : _expoConfig_android.jsEngine) ?? expoConfig.jsEngine ?? configuredEngine) !== 'jsc';
+             }
+         case 'ios':
+         case 'tvos':
+         case 'macos':
+             {
+                 var _expoConfig_ios;
+                 // NOTE(@kitten): `jsEngine` was deprecated, but we're preserving the check
+-                return (((_expoConfig_ios = expoConfig.ios) == null ? void 0 : _expoConfig_ios.jsEngine) ?? expoConfig.jsEngine) !== 'jsc';
++                return (((_expoConfig_ios = expoConfig.ios) == null ? void 0 : _expoConfig_ios.jsEngine) ?? expoConfig.jsEngine ?? configuredEngine) !== 'jsc';
+             }
+         default:
+             return false;
+     }

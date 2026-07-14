@@ -1,0 +1,336 @@
+diff --git a/apple/Package.swift b/apple/Package.swift
+index ecd7ed6e..39017b2a 100644
+--- a/apple/Package.swift
++++ b/apple/Package.swift
+@@ -24,6 +24,7 @@ let reactNative =
+ let headerSearchPaths = [
+   publicHeaders,
+   "\(publicHeaders)/React-jsi",
++  "\(publicHeaders)/React-jsc",
+   "\(publicHeaders)/hermes-engine",
+   "\(publicHeaders)/React-runtimescheduler",
+   "\(publicHeaders)/React-rendererconsistency",
+@@ -71,7 +72,7 @@ let package = Package(
+   products: [
+     .library(
+       name: "ExpoModulesJSI",
+-      type: .dynamic,
++      type: .static,
+       targets: ["ExpoModulesJSI"],
+     )
+   ],
+@@ -110,14 +111,6 @@ let package = Package(
+
+         .unsafeFlags(swiftIncludeFlags),
+       ],
+-      linkerSettings: [
+-        // React, ReactCommon, hermes, and JSI symbols are provided by the host
+-        // app at final link time. Defer their resolution so the xcframework
+-        // builds without those static libs being available here.
+-        .unsafeFlags([
+-          "-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup",
+-        ])
+-      ],
+     ),
+
+     // C++ target (internal)
+@@ -158,10 +151,10 @@ func resolvePodsRoot() -> String {
+   return "\(repoRoot)/apps/bare-expo/ios/Pods"
+ }
+
+-// Prebuilt xcframeworks the test bundle links against so JSI, Hermes, and
+-// React symbols resolve at load time. The production xcframework build leaves
+-// these unresolved (`-undefined dynamic_lookup`) because the host app provides
+-// them — but a unit-test bundle has no such host.
++// Prebuilt xcframeworks the test bundle links against so React and JSI symbols
++// resolve at load time. The production product is a static framework whose JSC
++// and ExpoModulesCore references resolve when the host app performs its final
++// link, but a unit-test bundle has no such host.
+ //
+ // SwiftPM requires `binaryTarget` paths to be relative to the package root,
+ // so the test wrapper script (`scripts/test.sh`) symlinks each xcframework
+diff --git a/apple/Sources/ExpoModulesJSI-Cxx/TypedArray.cpp b/apple/Sources/ExpoModulesJSI-Cxx/TypedArray.cpp
+--- a/apple/Sources/ExpoModulesJSI-Cxx/TypedArray.cpp
++++ b/apple/Sources/ExpoModulesJSI-Cxx/TypedArray.cpp
+@@ -5,7 +5,10 @@
+
+ namespace expo {
+
+-std::unordered_map<std::string, TypedArrayKind> nameToKindMap = {
++// ExpoModulesCore ships a public TypedArray implementation in the same host.
++// Keep this standalone runtime's lookup table and helper internal so the final
++// static link has one definition for each process-wide Expo C++ symbol.
++static const std::unordered_map<std::string, TypedArrayKind> nameToKindMap = {
+     {"Int8Array", TypedArrayKind::Int8Array},
+     {"Int16Array", TypedArrayKind::Int16Array},
+     {"Int32Array", TypedArrayKind::Int32Array},
+@@ -19,7 +22,7 @@ std::unordered_map<std::string, TypedArrayKind> nameToKindMap = {
+     {"BigUint64Array", TypedArrayKind::BigUint64Array},
+ };
+
+-TypedArrayKind getTypedArrayKindForName(const std::string &name) {
++static TypedArrayKind getTypedArrayKindForName(const std::string &name) {
+   return nameToKindMap.at(name);
+ }
+
+@@ -39,7 +42,7 @@ jsi::ArrayBuffer getTypedArrayBuffer(jsi::IRuntime &runtime, const jsi::Object &
+   throw std::runtime_error("no ArrayBuffer attached");
+ }
+
+-bool isTypedArray(jsi::IRuntime &runtime, const jsi::Object &jsObj) {
++bool isExpoModulesJSITypedArray(jsi::IRuntime &runtime, const jsi::Object &jsObj) {
+   jsi::Object ArrayBuffer = runtime
+     .global()
+     .getPropertyAsObject(runtime, "ArrayBuffer");
+diff --git a/apple/Sources/ExpoModulesJSI-Cxx/include/TypedArray.h b/apple/Sources/ExpoModulesJSI-Cxx/include/TypedArray.h
+--- a/apple/Sources/ExpoModulesJSI-Cxx/include/TypedArray.h
++++ b/apple/Sources/ExpoModulesJSI-Cxx/include/TypedArray.h
+@@ -26,7 +26,7 @@ enum class TypedArrayKind {
+   BigUint64Array = 11,
+ };
+
+-bool isTypedArray(jsi::IRuntime &runtime, const jsi::Object &jsObj);
++bool isExpoModulesJSITypedArray(jsi::IRuntime &runtime, const jsi::Object &jsObj);
+
+ /**
+  * Returns the `TypedArrayKind` of the given typed-array object, derived from its
+diff --git a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
+index a0e3e24d..ce409b10 100644
+--- a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
++++ b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
+@@ -59,10 +59,10 @@ open class JavaScriptRuntime: Equatable, @unchecked Sendable {
+     self.scheduler = expo.RuntimeScheduler()
+   }
+
+-  /// Creates a standalone Hermes runtime. Scheduled tasks run synchronously —
++  /// Creates a standalone JavaScriptCore runtime. Scheduled tasks run synchronously —
+   /// no React scheduler is wired up.
+   public init() {
+-    let runtime = expo.createHermesRuntime()
++    let runtime = expo.createStandaloneRuntime()
+     self.runtimePointee = runtime
+     self.pointee = expo.iruntime(runtime)
+     self.scheduler = expo.RuntimeScheduler()
+diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
+--- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
++++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptValue.swift
+@@ -136,7 +136,7 @@ open class JavaScriptValue: Equatable, @unchecked Sendable {
+     guard let jsiRuntime = runtime?.pointee else {
+       FatalError.runtimeLost()
+     }
+-    return pointee.isObject() && expo.isTypedArray(jsiRuntime, pointee.getObject(jsiRuntime))
++    return pointee.isObject() && expo.isExpoModulesJSITypedArray(jsiRuntime, pointee.getObject(jsiRuntime))
+   }
+
+   /// Checks whether the value is an `ArrayBuffer`.
+diff --git a/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp b/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp
+index f05392fc..f263770d 100644
+--- a/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp
++++ b/apple/Sources/ExpoModulesJSI-Cxx/JSIUtils.cpp
+@@ -1,12 +1,14 @@
+ #include "JSIUtils.h"
+
++#include <JSCRuntime.h>
++
+ namespace expo {
+
+-jsi::Runtime* createHermesRuntime() {
+-  std::unique_ptr<facebook::hermes::HermesRuntime> runtimePtr = facebook::hermes::makeHermesRuntime();
++jsi::Runtime* createStandaloneRuntime() {
++  std::unique_ptr<jsi::Runtime> runtimePtr = facebook::jsc::makeJSCRuntime();
+   jsi::Runtime *runtime = runtimePtr.release();
+
+-  // This version of the Hermes uses a Promise implementation that is provided by the RN.
++  // The JSC runtime uses a Promise implementation that is provided by React Native.
+   // The `setImmediate` function isn't defined, but is required by the Promise implementation.
+   // That's why we inject it here.
+   auto setImmediatePropName = jsi::PropNameID::forUtf8(*runtime, "setImmediate");
+diff --git a/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h b/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
+index 845a3d90..a6f0fbe3 100644
+--- a/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
++++ b/apple/Sources/ExpoModulesJSI-Cxx/include/JSIUtils.h
+@@ -3,7 +3,6 @@
+ #pragma once
+ #ifdef __cplusplus
+
+-#include <hermes/hermes.h>
+ #include <TargetConditionals.h>
+
+ #include "HostFunctionClosure.h"
+@@ -120,7 +119,7 @@ inline bool isHostObject(jsi::IRuntime &runtime, const jsi::Object &object) {
+   return object.isHostObject<jsi::HostObject>(runtime);
+ }
+
+-jsi::Runtime* createHermesRuntime();
++jsi::Runtime* createStandaloneRuntime();
+
+ inline jsi::Value evaluateJavaScript(jsi::IRuntime &runtime, const std::shared_ptr<const jsi::Buffer>& buffer, const std::string& sourceURL) {
+   return expo::CppError::tryCatch(runtime, ^{
+diff --git a/apple/scripts/create-stub-xcframework.sh b/apple/scripts/create-stub-xcframework.sh
+index 11ea57f9..fca895eb 100755
+--- a/apple/scripts/create-stub-xcframework.sh
++++ b/apple/scripts/create-stub-xcframework.sh
+@@ -1,10 +1,9 @@
+ #!/bin/bash
+
+ # Ensures every required slice in ExpoModulesJSI.xcframework exists with at
+-# least a stub binary so CocoaPods detects the package as a dynamic framework
+-# and generates the "[CP] Copy XCFrameworks" and "[CP] Embed Pods Frameworks"
+-# build phases for every supported platform. The real xcframework is built by
+-# build-xcframework.sh at build time.
++# least a stub archive so CocoaPods detects the package as a static framework
++# and generates "[CP] Copy XCFrameworks" without adding it to the app's embed
++# phase. The real xcframework is built by build-xcframework.sh at build time.
+ #
+ # Non-destructive: existing slice binaries (real or stub) are kept; only
+ # missing required slices are stamped. Info.plist is rewritten from whatever
+@@ -25,15 +24,15 @@ if [ -t 1 ]; then
+ fi
+ echo -e "${BLUE}[Expo]${RESET} Ensuring required slices in ${PACKAGE_NAME}.xcframework"
+
+-# The stub binary is only inspected by CocoaPods at install time to detect
+-# that this is a dynamic framework — it is never linked against (the real
+-# xcframework replaces it before the sources compile). Compile it once and
+-# reuse the same binary for every slice that needs stamping.
++# The stub archive is only inspected by CocoaPods at install time to detect
++# static linkage — it is never linked against (the real xcframework replaces
++# it before the sources compile). Compile it once and reuse it for every slice
++# that needs stamping.
+ mkdir -p "$XCFRAMEWORK_PATH"
+ STUB_SOURCE="${XCFRAMEWORK_PATH}/.stub-binary"
+-echo "" | clang -x c - -dynamiclib \
+-  -o "$STUB_SOURCE" \
+-  -install_name "@rpath/${PACKAGE_NAME}.framework/${PACKAGE_NAME}"
++STUB_OBJECT="${XCFRAMEWORK_PATH}/.stub-object.o"
++echo "int expo_modules_jsi_static_stub = 0;" | clang -x c - -c -o "$STUB_OBJECT"
++xcrun libtool -static -o "$STUB_SOURCE" "$STUB_OBJECT"
+
+ for slice_id in "${EXPO_MODULES_JSI_REQUIRED_SLICE_IDS[@]}"; do
+   slice_dir="${XCFRAMEWORK_PATH}/${slice_id}"
+@@ -42,7 +41,7 @@ for slice_id in "${EXPO_MODULES_JSI_REQUIRED_SLICE_IDS[@]}"; do
+   hash_file="${slice_dir}/.build-hash"
+
+   mkdir -p "$framework_dir"
+-  if [[ ! -f "$binary_path" ]]; then
++  if [[ ! -f "$binary_path" || ! -s "$hash_file" ]]; then
+     cp "$STUB_SOURCE" "$binary_path"
+   fi
+   # Empty hash marks the slice as a stub. build-xcframework.sh treats any
+@@ -52,6 +51,6 @@ for slice_id in "${EXPO_MODULES_JSI_REQUIRED_SLICE_IDS[@]}"; do
+   fi
+ done
+
+-rm -f "$STUB_SOURCE"
++rm -f "$STUB_SOURCE" "$STUB_OBJECT"
+
+ write_xcframework_plist "$XCFRAMEWORK_PATH" "$PACKAGE_NAME"
+diff --git a/apple/scripts/build-xcframework.sh b/apple/scripts/build-xcframework.sh
+index 7c2587ae..1796e3fc 100755
+--- a/apple/scripts/build-xcframework.sh
++++ b/apple/scripts/build-xcframework.sh
+@@ -10,7 +10,7 @@
+ #     recorded source hash differs from the current one. Other slices —
+ #     including those built for other platforms in earlier runs — are left
+ #     untouched.
+-#   - Reads React/JSI/Hermes headers directly from Pods/Headers/Public, so the
++#   - Reads React/JSI/JSC headers directly from Pods/Headers/Public, so the
+ #     same configuration works for both prebuilt and source-built React Native
+ #   - Cleans .swiftinterface files for cross-compiler compatibility
+ #
+@@ -81,6 +81,7 @@ SOURCE_FILES=(
+   # installs into Pods/Headers/Public so the real header contents get hashed.
+   "${PODS_ROOT}/Headers/Public/React-jsi/jsi/jsi.h"
+   "${PODS_ROOT}/Headers/Public/React-jsi/jsi/jsi-inl.h"
++  "${PODS_ROOT}/Headers/Public/React-jsc/JSCRuntime.h"
+ )
+
+ compute_hash() {
+@@ -221,6 +222,8 @@ build_slice() {
+
+   local product_path="${BUILD_PRODUCTS_PATH}/${build_dir_name}"
+   local framework_src="${product_path}/PackageFrameworks/${PACKAGE_NAME}.framework"
++  local swift_object="${product_path}/${PACKAGE_NAME}.o"
++  local cxx_object="${product_path}/${PACKAGE_NAME}-Cxx.o"
+   local swiftmodule_src="${product_path}/${PACKAGE_NAME}.swiftmodule"
+   # GeneratedModuleMaps follows the same $EFFECTIVE_PLATFORM_NAME convention as
+   # build products: no suffix for macOS, "-${platform}" for everything else.
+@@ -231,8 +234,8 @@ build_slice() {
+     generated_maps="${DERIVED_DATA_PATH}/Build/Intermediates.noindex/GeneratedModuleMaps-${platform}"
+   fi
+
+-  if [[ ! -d "$framework_src" ]]; then
+-    log "error: xcodebuild did not produce ${framework_src}"
++  if [[ ! -d "$framework_src" && (! -f "$swift_object" || ! -f "$cxx_object") ]]; then
++    log "error: xcodebuild produced neither a framework nor the static product objects"
+     exit 1
+   fi
+
+@@ -243,22 +246,47 @@ build_slice() {
+   rm -rf "$staging_dir"
+   mkdir -p "$staging_dir"
+
+-  # `cp -a` preserves symlinks, attributes, and timestamps. `cp -r` resolves
+-  # symlinks into real files, which breaks the macOS versioned-framework bundle
+-  # layout (top-level `Foo`, `Resources`, etc. must be symlinks into Versions/Current).
+-  cp -a "$framework_src" "$staging_dir/"
+-  if [[ -d "${product_path}/${PACKAGE_NAME}.framework.dSYM" ]]; then
+-    cp -a "${product_path}/${PACKAGE_NAME}.framework.dSYM" "$staging_dir/"
+-  fi
+-
+   # Modules and Headers live at the framework root on flat (iOS/tvOS) bundles
+   # and inside Versions/A on versioned (macOS/Catalyst) bundles.
+   local framework_root="${staging_dir}/${PACKAGE_NAME}.framework"
+   local content_root
+-  if [[ "$platform" == "macosx" || "$platform" == "maccatalyst" ]]; then
+-    content_root="${framework_root}/Versions/A"
++  if [[ -d "$framework_src" ]]; then
++    # `cp -a` preserves symlinks, attributes, and timestamps. `cp -r` resolves
++    # symlinks into real files, which breaks versioned framework bundles.
++    cp -a "$framework_src" "$staging_dir/"
++    if [[ -d "${product_path}/${PACKAGE_NAME}.framework.dSYM" ]]; then
++      cp -a "${product_path}/${PACKAGE_NAME}.framework.dSYM" "$staging_dir/"
++    fi
++    if [[ "$platform" == "macosx" || "$platform" == "maccatalyst" ]]; then
++      content_root="${framework_root}/Versions/A"
++    else
++      content_root="${framework_root}"
++    fi
+   else
+-    content_root="${framework_root}"
++    # A static SPM product is emitted as one Swift object plus one C++ object.
++    # Package both into a static framework so CocoaPods links the module into
++    # the host executable. That keeps ExpoModulesJSI on the host's single JSI
++    # and React-jsc symbol set instead of relying on unresolved dynamic lookup.
++    if [[ "$platform" == "macosx" || "$platform" == "maccatalyst" ]]; then
++      content_root="${framework_root}/Versions/A"
++    else
++      content_root="${framework_root}"
++    fi
++    mkdir -p "$content_root"
++    xcrun libtool -static -o "${content_root}/${PACKAGE_NAME}" "$swift_object" "$cxx_object"
++
++    local info_plist
++    if [[ "$platform" == "macosx" || "$platform" == "maccatalyst" ]]; then
++      info_plist="${content_root}/Resources/Info.plist"
++    else
++      info_plist="${content_root}/Info.plist"
++    fi
++    mkdir -p "$(dirname "$info_plist")"
++    plutil -create xml1 "$info_plist"
++    plutil -insert CFBundleExecutable -string "$PACKAGE_NAME" "$info_plist"
++    plutil -insert CFBundleIdentifier -string "expo.modules.$PACKAGE_NAME" "$info_plist"
++    plutil -insert CFBundleName -string "$PACKAGE_NAME" "$info_plist"
++    plutil -insert CFBundlePackageType -string FMWK "$info_plist"
+   fi
+
+   # Copy Swift module interfaces and generated headers into the staged framework.
+@@ -301,6 +329,9 @@ build_slice() {
+   # and Resources -> Versions/Current/Resources, but not Headers/Modules since
+   # the SPM build doesn't emit those at that point.
+   if [[ "$platform" == "macosx" || "$platform" == "maccatalyst" ]]; then
++    ln -sfn "A" "${framework_root}/Versions/Current"
++    ln -sfn "Versions/Current/${PACKAGE_NAME}" "${framework_root}/${PACKAGE_NAME}"
++    ln -sfn "Versions/Current/Resources" "${framework_root}/Resources"
+     ln -sfn "Versions/Current/Headers" "${framework_root}/Headers"
+     ln -sfn "Versions/Current/Modules" "${framework_root}/Modules"
+   fi

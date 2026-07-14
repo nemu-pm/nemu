@@ -1,0 +1,105 @@
+{
+  "expo": {
+    "name": "Nemu",
+    "slug": "nemu-mobile",
+    "scheme": "nemu",
+    "version": "0.1.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "pm.nemu.mobile",
+      "buildNumber": "1",
+      "entitlements": {
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)"
+        ]
+      },
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Nemu lets you choose images from your photo library when updating manga covers.",
+        "UIBackgroundModes": [
+          "processing"
+        ]
+      }
+    },
+    "android": {
+      "package": "pm.nemu.mobile",
+      "versionCode": 1,
+      "allowBackup": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#fbfbfd"
+      },
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
+    },
+    "updates": {
+      "enabled": false
+    },
+    "extra": {
+      "nemuJsEngine": "jsc"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Nemu lets you choose images from your photo library when updating manga covers.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
+      "expo-sqlite",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": true
+        }
+      ],
+      "expo-background-task",
+      "./plugins/with-third-party-jsc",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/NemuBrand.ttf"
+          ]
+        }
+      ],
+      "expo-asset",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#fbfbfd"
+        }
+      ]
+    ],
+    "experiments": {
+      "autolinkingModuleResolution": true,
+      "typedRoutes": true
+    }
+  }
+}

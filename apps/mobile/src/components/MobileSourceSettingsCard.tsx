@@ -1,0 +1,1865 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import {
+  Button as SwiftButton,
+  HStack as SwiftHStack,
+  Host as SwiftHost,
+  Image as SwiftImage,
+  Menu as SwiftMenu,
+  Text as SwiftText,
+} from "@expo/ui/swift-ui";
+import { MenuView, type MenuAction } from "@expo/ui/community/menu";
+import {
+  buttonStyle,
+  controlSize,
+  disabled as swiftDisabled,
+  font as swiftFont,
+  foregroundStyle,
+  frame,
+  tint,
+} from "@expo/ui/swift-ui/modifiers";
+import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
+import {
+  NemuNativeSwitch,
+  radius,
+  nemuFontWeight,
+  useNemuTheme,
+  GlassSurface,
+  NemuPressable,
+} from "@/design-system";
+import { useMobileLanguageSettings } from "@/data/mobileHooks";
+import type { SourcePackageSetting } from "@/data/schema";
+import { hapticPress, hapticSelection } from "@/lib/haptics";
+import {
+  canRunMobileSwitchSelectionFeedback,
+} from "@/lib/mobileAccessibility";
+import {
+  formatMobileString,
+  getMobileStrings,
+  type MobileStrings,
+} from "@/lib/mobileI18n";
+import {
+  canRunMobileSourceTextSettingBlurFeedback,
+  canSelectMobileSourceSettingOption,
+  describeSourceSettingValue,
+  flattenVisibleEditableSourceSettings,
+  formatSourceSettingAccessibilityLabel,
+  getSourceSegmentIndex,
+  getSourceSegmentOptions,
+  getSourceSettingOptions,
+  hasVisibleSourceSettingRows,
+  isRenderableSourceSetting,
+  isSourceSettingVisible,
+  type MobileSourceSettingFeatureFlags,
+} from "@/lib/mobileSourceSettings";
+import {
+  canRunMobileSourceLoginMethod,
+  isMobileSourceLoggedIn,
+  isMobileSourceLoginSetting,
+  runMobileSourceOAuthLogin,
+  type MobileSourceLoginSetting,
+} from "@/lib/mobileSourceOAuth";
+
+const EMPTY_SETTING_FEATURES: MobileSourceSettingFeatureFlags = {};
+const SLIDER_VALUE_LABEL_WIDTH = 48;
+
+type MobileSourceSettingsCardProps = {
+  settings: SourcePackageSetting[];
+  values: Record<string, unknown>;
+  features?: MobileSourceSettingFeatureFlags;
+  loading?: boolean;
+  error?: string | null;
+  title?: string;
+  subtitle?: string;
+  hideSubtitle?: boolean;
+  emptyMessage?: string;
+  showEmpty?: boolean;
+  disabled?: boolean;
+  navigationResetKey?: string | number | null;
+  onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+  onRetry?: () => void;
+  onReset?: () => void;
+  retryDisabled?: boolean;
+  retrying?: boolean;
+};
+
+function settingValue(
+  setting: SourcePackageSetting,
+  values: Record<string, unknown>,
+): unknown {
+  return values[setting.key] ?? setting.default;
+}
+
+function numericSettingValue(
+  setting: SourcePackageSetting,
+  values: Record<string, unknown>,
+): number {
+  const value = settingValue(setting, values);
+  if (typeof value === "number") return value;
+  const parsed = typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : (setting.min ?? 0);
+}
+
+function stringListSettingValue(
+  setting: SourcePackageSetting,
+  values: Record<string, unknown>,
+): string[] {
+  const value = settingValue(setting, values);
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function snapSliderValue(
+  value: number,
+  min: number,
+  max: number,
+  step: number,
+): number {
+  const snapped = Math.round((value - min) / step) * step + min;
+  const decimals = Math.max(0, String(step).split(".")[1]?.length ?? 0);
+  return Number(clampNumber(snapped, min, max).toFixed(decimals));
+}
+
+function SourceSettingSlider({
+  setting,
+  value,
+  disabled,
+  onChange,
+}: {
+  setting: SourcePackageSetting;
+  value: number;
+  disabled: boolean;
+  onChange: (value: number) => void;
+}) {
+  const { tokens } = useNemuTheme();
+  const [trackWidth, setTrackWidth] = useState(0);
+  const lastEmittedValueRef = useRef(value);
+  const min = setting.min ?? 0;
+  const max = setting.max ?? 100;
+  const step = setting.step ?? 1;
+  const range = max > min ? max - min : 1;
+  const progress = clampNumber((value - min) / range, 0, 1);
+  const formatted =
+    typeof setting.formatValue === "function"
+      ? setting.formatValue(value)
+      : String(value);
+  const sliderValueLeft = trackWidth
+    ? clampNumber(
+        progress * trackWidth - SLIDER_VALUE_LABEL_WIDTH / 2,
+        0,
+        Math.max(0, trackWidth - SLIDER_VALUE_LABEL_WIDTH),
+      )
+    : 0;
+
+  useEffect(() => {
+    lastEmittedValueRef.current = value;
+  }, [value]);
+
+  const updateFromLocation = (locationX: number) => {
+    if (disabled) return;
+    if (!trackWidth) return;
+    const nextValue = snapSliderValue(
+      min + (clampNumber(locationX, 0, trackWidth) / trackWidth) * range,
+      min,
+      max,
+      step,
+    );
+    if (nextValue !== lastEmittedValueRef.current) {
+      lastEmittedValueRef.current = nextValue;
+      onChange(nextValue);
+      void hapticSelection();
+    }
+  };
+
+  return (
+    <View style={styles.sliderControl}>
+      <Text
+        pointerEvents="none"
+        numberOfLines={1}
+        style={[
+          styles.sliderFloatingValue,
+          {
+            color: tokens.mutedForeground,
+            left: sliderValueLeft,
+            width: SLIDER_VALUE_LABEL_WIDTH,
+          },
+        ]}
+      >
+        {formatted}
+      </Text>
+      <View
+        accessibilityRole="adjustable"
+        accessibilityLabel={setting.title}
+        accessibilityState={{ disabled }}
+        accessibilityValue={{
+          min,
+          max,
+          now: value,
+          text: formatted,
+        }}
+        onAccessibilityAction={(event) => {
+          if (disabled) return;
+          const action = event.nativeEvent.actionName;
+          if (action === "increment") {
+            const nextValue = snapSliderValue(value + step, min, max, step);
+            if (nextValue !== value) {
+              onChange(nextValue);
+              void hapticSelection();
+            }
+          } else if (action === "decrement") {
+            const nextValue = snapSliderValue(value - step, min, max, step);
+            if (nextValue !== value) {
+              onChange(nextValue);
+              void hapticSelection();
+            }
+          }
+        }}
+        accessibilityActions={[
+          { name: "increment" },
+          { name: "decrement" },
+        ]}
+        onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
+        onMoveShouldSetResponder={() => !disabled}
+        onStartShouldSetResponder={() => !disabled}
+        onResponderGrant={(event) => {
+          updateFromLocation(event.nativeEvent.locationX);
+        }}
+        onResponderMove={(event) => {
+          updateFromLocation(event.nativeEvent.locationX);
+        }}
+        onResponderRelease={() => {
+          if (!disabled) void hapticPress();
+        }}
+        style={[styles.sliderTrackTouchTarget, disabled && styles.disabledControl]}
+      >
+        <View style={[styles.sliderTrack, { backgroundColor: tokens.muted }]}>
+          <View
+            style={[
+              styles.sliderFill,
+              {
+                backgroundColor: tokens.primary,
+                width: `${progress * 100}%`,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.sliderThumb,
+              {
+                backgroundColor: tokens.primary,
+                borderColor: tokens.background,
+                left: `${progress * 100}%`,
+              },
+            ]}
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function SourceSettingSelectMenu({
+  setting,
+  options,
+  value,
+  strings,
+  disabled,
+  onSelect,
+}: {
+  setting: SourcePackageSetting;
+  options: Array<{ label: string; value: string }>;
+  value: unknown;
+  strings: MobileStrings;
+  disabled: boolean;
+  onSelect: (value: string) => void;
+}) {
+  const { scheme, tokens } = useNemuTheme();
+  const selectedOption = options.find((option) => option.value === value);
+  const selectedValue =
+    selectedOption?.value ?? String(value ?? options[0]?.value ?? "");
+  const selectedLabel =
+    selectedOption?.label ??
+    options.find((option) => option.value === selectedValue)?.label ??
+    selectedValue;
+
+  if (Platform.OS === "ios") {
+    return (
+      <View
+        style={[
+          styles.settingMenuShell,
+          {
+            backgroundColor: tokens.muted,
+            borderColor: tokens.border,
+            opacity: disabled ? 0.62 : 1,
+          },
+        ]}
+      >
+        <SwiftHost
+          colorScheme={scheme}
+          matchContents={{ horizontal: true, vertical: true }}
+          style={styles.settingMenuHost}
+        >
+          <SwiftMenu
+            label={
+              <SwiftHStack
+                alignment="center"
+                spacing={5}
+                modifiers={[frame({ width: 136, height: 32 })]}
+              >
+                <SwiftText
+                  modifiers={[
+                    swiftFont({ size: 12, weight: "medium" }),
+                    foregroundStyle(tokens.foreground),
+                  ]}
+                >
+                  {selectedLabel}
+                </SwiftText>
+                <SwiftImage
+                  systemName="chevron.down"
+                  size={12}
+                  color={tokens.primary}
+                />
+              </SwiftHStack>
+            }
+            modifiers={[
+              buttonStyle("plain"),
+              controlSize("small"),
+              frame({ width: 136, height: 32 }),
+              tint(tokens.primary),
+              ...(disabled ? [swiftDisabled(true)] : []),
+            ]}
+          >
+            {options.map((option) => {
+              const selected = option.value === selectedValue;
+              return (
+                <SwiftButton
+                  key={option.value}
+                  label={selected ? `✓ ${option.label}` : option.label}
+                  onPress={() => {
+                    if (selected) return;
+                    void hapticSelection();
+                    onSelect(option.value);
+                  }}
+                />
+              );
+            })}
+          </SwiftMenu>
+        </SwiftHost>
+      </View>
+    );
+  }
+
+  if (Platform.OS === "android") {
+    const actions: MenuAction[] = options.map((option) => ({
+      id: option.value,
+      title: option.label,
+      titleColor: option.value === selectedValue ? tokens.primary : tokens.foreground,
+      state: option.value === selectedValue ? "on" : "off",
+    }));
+    const trigger = (
+      <View
+        accessibilityLabel={formatSourceSettingAccessibilityLabel(
+          setting,
+          {},
+          strings,
+        )}
+        accessibilityRole="button"
+        accessibilityState={{ disabled }}
+        style={[
+          styles.settingMaterialMenuTrigger,
+          {
+            backgroundColor: tokens.muted,
+            borderColor: tokens.border,
+            opacity: disabled ? 0.62 : 1,
+          },
+        ]}
+      >
+        <Text
+          numberOfLines={1}
+          style={[styles.settingMaterialMenuText, { color: tokens.foreground }]}
+        >
+          {selectedLabel}
+        </Text>
+        <Ionicons name="chevron-down" size={15} color={tokens.primary} />
+      </View>
+    );
+
+    if (disabled) {
+      return trigger;
+    }
+
+    return (
+      <MenuView
+        actions={actions}
+        onPressAction={({ nativeEvent }) => {
+          if (nativeEvent.event === selectedValue) return;
+          void hapticSelection();
+          onSelect(nativeEvent.event);
+        }}
+        style={styles.settingMaterialMenu}
+      >
+        {trigger}
+      </MenuView>
+    );
+  }
+
+  return (
+    <View
+      accessibilityLabel={formatSourceSettingAccessibilityLabel(
+        setting,
+        {},
+        strings,
+      )}
+      accessibilityRole="radiogroup"
+      style={styles.settingOptions}
+    >
+      {options.map((option, index) => {
+        const selected = selectedValue === option.value;
+        const canSelect = canSelectMobileSourceSettingOption({
+          selected,
+          disabled,
+        });
+        return (
+          <NemuPressable
+            key={`${option.value}:${index}`}
+            accessibilityLabel={formatMobileString(
+              strings.settings.sourceSettingsSelectOption,
+              {
+                name: setting.title,
+                option: option.label,
+              },
+            )}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: selected, disabled }}
+            disabled={disabled}
+            hapticFeedback={canSelect ? "selection" : "none"}
+            onPress={() => {
+              if (!canSelect) return;
+              onSelect(option.value);
+            }}
+            pressedScale={0.98}
+            style={[
+              styles.settingOption,
+              {
+                backgroundColor: selected ? tokens.primary : tokens.muted,
+                borderColor: selected ? tokens.primary : tokens.border,
+                opacity: disabled ? 0.62 : 1,
+              },
+            ]}
+          >
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.settingOptionText,
+                {
+                  color: selected
+                    ? tokens.primaryForeground
+                    : tokens.mutedForeground,
+                },
+              ]}
+            >
+              {option.label}
+            </Text>
+          </NemuPressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function validPageStack(
+  settings: SourcePackageSetting[],
+  stack: SourcePackageSetting[],
+  values: Record<string, unknown>,
+  features: MobileSourceSettingFeatureFlags,
+): SourcePackageSetting[] {
+  const validStack: SourcePackageSetting[] = [];
+  let currentSettings = settings;
+
+  for (const page of stack) {
+    if (!settingsTreeContainsPage(currentSettings, page, values, features)) break;
+    validStack.push(page);
+    currentSettings = page.items ?? [];
+  }
+
+  return validStack;
+}
+
+function settingsTreeContainsPage(
+  settings: SourcePackageSetting[],
+  page: SourcePackageSetting,
+  values: Record<string, unknown>,
+  features: MobileSourceSettingFeatureFlags,
+): boolean {
+  return settings.some((setting) => {
+    if (setting === page) {
+      return isSourceSettingVisible(setting, values, features);
+    }
+    if (setting.type === "group" && setting.items?.length) {
+      return settingsTreeContainsPage(setting.items, page, values, features);
+    }
+    return false;
+  });
+}
+
+function SourceSettingControl({
+  setting,
+  values,
+  strings,
+  disabled,
+  onChange,
+}: {
+  setting: SourcePackageSetting;
+  values: Record<string, unknown>;
+  strings: MobileStrings;
+  disabled: boolean;
+  onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+}) {
+  const { tokens } = useNemuTheme();
+  const options = getSourceSettingOptions(setting);
+  const value = settingValue(setting, values);
+  const [draftListItem, setDraftListItem] = useState("");
+  const textFocusValueRef = useRef<string | null>(null);
+  const textCurrentValueRef = useRef<string | null>(null);
+
+  const setValue = (nextValue: unknown) => {
+    if (disabled) return;
+    onChange(setting.key, nextValue, setting);
+  };
+
+  if (setting.type === "switch") {
+    return (
+      <View style={styles.settingControl}>
+        <NemuNativeSwitch
+          accessibilityLabel={formatSourceSettingAccessibilityLabel(
+            setting,
+            values,
+            strings,
+          )}
+          disabled={disabled}
+          value={value === true}
+          onValueChange={(nextValue) => {
+            const checked = value === true;
+            if (
+              !canRunMobileSwitchSelectionFeedback({
+                checked,
+                disabled,
+                nextChecked: nextValue,
+              })
+            ) {
+              return;
+            }
+            void hapticSelection();
+            setValue(nextValue);
+          }}
+        />
+      </View>
+    );
+  }
+
+  if (setting.type === "segment") {
+    const segmentOptions = getSourceSegmentOptions(setting);
+    const selectedIndex = getSourceSegmentIndex(setting, values);
+    if (segmentOptions.length > 0) {
+      return (
+        <View
+          accessibilityLabel={formatSourceSettingAccessibilityLabel(
+            setting,
+            values,
+            strings,
+          )}
+          accessibilityRole="radiogroup"
+          style={styles.settingOptions}
+        >
+          {segmentOptions.map((option) => {
+            const selected = selectedIndex === option.value;
+            const canSelect = canSelectMobileSourceSettingOption({
+              selected,
+              disabled,
+            });
+            return (
+              <NemuPressable
+                key={`${setting.key}:${option.value}`}
+                accessibilityLabel={formatMobileString(
+                  strings.settings.sourceSettingsSelectOption,
+                  {
+                    name: setting.title,
+                    option: option.label,
+                  },
+                )}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected, disabled }}
+                disabled={disabled}
+                hapticFeedback={canSelect ? "selection" : "none"}
+                onPress={() => {
+                  if (!canSelect) return;
+                  setValue(option.value);
+                }}
+                pressedScale={0.98}
+                style={[
+                  styles.settingOption,
+                  {
+                    backgroundColor: selected ? tokens.primary : tokens.muted,
+                    borderColor: selected ? tokens.primary : tokens.border,
+                    opacity: disabled ? 0.62 : 1,
+                  },
+                ]}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.settingOptionText,
+                    {
+                      color: selected
+                        ? tokens.primaryForeground
+                        : tokens.mutedForeground,
+                    },
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </NemuPressable>
+            );
+          })}
+        </View>
+      );
+    }
+  }
+
+  if (setting.type === "select" && options.length > 0) {
+    return (
+      <SourceSettingSelectMenu
+        setting={setting}
+        options={options}
+        value={value}
+        strings={strings}
+        disabled={disabled}
+        onSelect={setValue}
+      />
+    );
+  }
+
+  if (setting.type === "multi-select" && options.length > 0) {
+    const selectedValues = Array.isArray(value) ? value.map(String) : [];
+    return (
+      <View style={styles.settingOptions}>
+        {options.map((option, index) => {
+          const selected = selectedValues.includes(option.value);
+          return (
+            <NemuPressable
+              key={`${option.value}:${index}`}
+              accessibilityLabel={formatMobileString(
+                strings.settings.sourceSettingsToggleOption,
+                {
+                  name: setting.title,
+                  option: option.label,
+                },
+              )}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: selected, disabled }}
+              disabled={disabled}
+              hapticFeedback={disabled ? "none" : "selection"}
+              onPress={() => {
+                const next = selected
+                  ? selectedValues.filter((item) => item !== option.value)
+                  : [...selectedValues, option.value];
+                setValue(next);
+              }}
+              pressedScale={0.98}
+              style={[
+                styles.settingOption,
+                {
+                  backgroundColor: selected ? tokens.primary : tokens.muted,
+                  borderColor: selected ? tokens.primary : tokens.border,
+                  opacity: disabled ? 0.62 : 1,
+                },
+              ]}
+            >
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.settingOptionText,
+                  {
+                    color: selected
+                      ? tokens.primaryForeground
+                      : tokens.mutedForeground,
+                  },
+                ]}
+              >
+                {option.label}
+              </Text>
+            </NemuPressable>
+          );
+        })}
+      </View>
+    );
+  }
+
+  if (setting.type === "slider") {
+    const current = numericSettingValue(setting, values);
+    const step = setting.step ?? 1;
+    const min = setting.min ?? 0;
+    const max = setting.max ?? 100;
+    if (typeof setting.formatValue === "function") {
+      return (
+        <SourceSettingSlider
+          setting={setting}
+          value={current}
+          disabled={disabled}
+          onChange={setValue}
+        />
+      );
+    }
+    const decrementDisabled = current <= min;
+    const incrementDisabled = current >= max;
+    return (
+      <View style={styles.stepper}>
+        <NemuPressable
+          accessibilityRole="button"
+          accessibilityLabel={formatSourceSettingAccessibilityLabel(
+            setting,
+            values,
+            strings,
+            formatMobileString(strings.settings.sourceSettingsDecrease, {
+              name: setting.title,
+            }),
+          )}
+          accessibilityState={{ disabled: disabled || decrementDisabled }}
+          disabled={disabled || decrementDisabled}
+          onPress={() => setValue(Math.max(min, current - step))}
+          pressedScale={0.96}
+          buttonDepth="secondary"
+          style={[
+            styles.stepperButton,
+            {
+              opacity: disabled || decrementDisabled ? 0.62 : 1,
+            },
+          ]}
+        >
+          <Ionicons
+            name="remove-outline"
+            size={16}
+            color={tokens.mutedForeground}
+          />
+        </NemuPressable>
+        <Text style={[styles.stepperValue, { color: tokens.foreground }]}>
+          {current}
+        </Text>
+        <NemuPressable
+          accessibilityRole="button"
+          accessibilityLabel={formatSourceSettingAccessibilityLabel(
+            setting,
+            values,
+            strings,
+            formatMobileString(strings.settings.sourceSettingsIncrease, {
+              name: setting.title,
+            }),
+          )}
+          accessibilityState={{ disabled: disabled || incrementDisabled }}
+          disabled={disabled || incrementDisabled}
+          onPress={() => setValue(Math.min(max, current + step))}
+          pressedScale={0.96}
+          buttonDepth="secondary"
+          style={[
+            styles.stepperButton,
+            {
+              opacity: disabled || incrementDisabled ? 0.62 : 1,
+            },
+          ]}
+        >
+          <Ionicons
+            name="add-outline"
+            size={16}
+            color={tokens.mutedForeground}
+          />
+        </NemuPressable>
+      </View>
+    );
+  }
+
+  if (setting.type === "editable-list") {
+    const currentItems = stringListSettingValue(setting, values);
+    const trimmedDraft = draftListItem.trim();
+    const addDraftItem = (options?: { haptic?: boolean }) => {
+      if (disabled) return;
+      if (!trimmedDraft) return;
+      setValue([...currentItems, trimmedDraft]);
+      setDraftListItem("");
+      if (options?.haptic) void hapticPress();
+    };
+
+    return (
+      <View style={styles.editableList}>
+        <View style={styles.editableListInputRow}>
+          <GlassSurface
+            style={styles.editableListInputShell}
+            contentStyle={styles.editableListInputContent}
+          >
+            <TextInput
+              accessibilityLabel={formatSourceSettingAccessibilityLabel(
+                setting,
+                values,
+                strings,
+              )}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!disabled}
+              returnKeyType="done"
+              value={draftListItem}
+              onChangeText={setDraftListItem}
+              onSubmitEditing={() => addDraftItem({ haptic: true })}
+              placeholder={setting.placeholder ?? setting.title}
+              placeholderTextColor={tokens.mutedForeground}
+              selectionColor={tokens.primary}
+              style={[styles.editableListInput, { color: tokens.foreground }]}
+            />
+          </GlassSurface>
+          <NemuPressable
+            accessibilityRole="button"
+            accessibilityLabel={formatSourceSettingAccessibilityLabel(
+              setting,
+              values,
+              strings,
+              `${strings.common.add} ${setting.title}`,
+            )}
+            accessibilityState={{ disabled: disabled || !trimmedDraft }}
+            disabled={disabled || !trimmedDraft}
+            onPress={() => addDraftItem()}
+            pressedScale={0.94}
+            buttonDepth="primary"
+            style={[
+              styles.editableListAddButton,
+              {
+                opacity: !disabled && trimmedDraft ? 1 : 0.58,
+              },
+            ]}
+          >
+            <Ionicons
+              name="add-outline"
+              size={17}
+              color={tokens.primaryForeground}
+            />
+          </NemuPressable>
+        </View>
+        {currentItems.length ? (
+          <View style={styles.editableListItems}>
+            {currentItems.map((item, index) => (
+              <NemuPressable
+                key={`${item}:${index}`}
+                accessibilityRole="button"
+                accessibilityLabel={`${strings.common.remove} ${item}`}
+                accessibilityState={{ disabled }}
+                disabled={disabled}
+                onPress={() => {
+                  setValue(
+                    currentItems.filter((_, itemIndex) => itemIndex !== index),
+                  );
+                }}
+                pressedScale={0.96}
+                style={[
+                  styles.editableListChip,
+                  {
+                    backgroundColor: tokens.muted,
+                    opacity: disabled ? 0.62 : 1,
+                  },
+                ]}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.editableListChipText,
+                    { color: tokens.mutedForeground },
+                  ]}
+                >
+                  {item}
+                </Text>
+                <Ionicons
+                  name="close-outline"
+                  size={14}
+                  color={tokens.mutedForeground}
+                />
+              </NemuPressable>
+            ))}
+          </View>
+        ) : (
+          <Text
+            style={[styles.editableListEmpty, { color: tokens.mutedForeground }]}
+          >
+            {strings.settings.sourceSettingsNone}
+          </Text>
+        )}
+      </View>
+    );
+  }
+
+  if (setting.type === "text") {
+    const textValue = typeof value === "string" ? value : "";
+    return (
+      <GlassSurface
+        style={styles.settingInputShell}
+        contentStyle={styles.settingInputContent}
+      >
+        <TextInput
+          accessibilityLabel={formatSourceSettingAccessibilityLabel(
+            setting,
+            values,
+            strings,
+          )}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!disabled}
+          returnKeyType="done"
+          value={textValue}
+          onChangeText={(nextValue) => {
+            textCurrentValueRef.current = nextValue;
+            setValue(nextValue);
+          }}
+          onFocus={() => {
+            textFocusValueRef.current = textValue;
+            textCurrentValueRef.current = textValue;
+          }}
+          onBlur={() => {
+            const shouldRunFeedback =
+              canRunMobileSourceTextSettingBlurFeedback({
+                initialValue: textFocusValueRef.current,
+                currentValue: textCurrentValueRef.current ?? textValue,
+                disabled,
+              });
+            textFocusValueRef.current = null;
+            textCurrentValueRef.current = null;
+            if (shouldRunFeedback) void hapticPress();
+          }}
+          placeholder={setting.placeholder ?? setting.title}
+          placeholderTextColor={tokens.mutedForeground}
+          selectionColor={tokens.primary}
+          secureTextEntry={setting.secure === true}
+          style={[styles.settingInput, { color: tokens.foreground }]}
+        />
+      </GlassSurface>
+    );
+  }
+
+  return (
+    <View style={[styles.settingValuePill, { backgroundColor: tokens.muted }]}>
+      <Text
+        numberOfLines={1}
+        style={[styles.settingValueText, { color: tokens.mutedForeground }]}
+      >
+        {describeSourceSettingValue(setting, values, strings)}
+      </Text>
+    </View>
+  );
+}
+
+function SourceSettingRow({
+  setting,
+  values,
+  strings,
+  disabled,
+  onChange,
+}: {
+  setting: SourcePackageSetting;
+  values: Record<string, unknown>;
+  strings: MobileStrings;
+  disabled: boolean;
+  onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+}) {
+  const { tokens } = useNemuTheme();
+  const isSlider = setting.type === "slider";
+
+  return (
+    <View
+      style={[
+        styles.settingRow,
+        isSlider && styles.settingRowStacked,
+        { borderColor: tokens.border },
+      ]}
+    >
+      <View style={[styles.settingText, isSlider && styles.settingTextFull]}>
+        <View style={styles.settingTitleLine}>
+          <Text
+            numberOfLines={1}
+            style={[styles.settingTitle, { color: tokens.foreground }]}
+          >
+            {setting.title}
+          </Text>
+        </View>
+        <Text
+          numberOfLines={2}
+          style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
+        >
+          {setting.subtitle ?? describeSourceSettingValue(setting, values, strings)}
+        </Text>
+      </View>
+      <SourceSettingControl
+        setting={setting}
+        values={values}
+        strings={strings}
+        disabled={disabled}
+        onChange={onChange}
+      />
+    </View>
+  );
+}
+
+function SourceSettingsPageRow({
+  setting,
+  strings,
+  disabled,
+  onPress,
+}: {
+  setting: SourcePackageSetting;
+  strings: MobileStrings;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const { tokens } = useNemuTheme();
+  const detail = setting.subtitle ?? setting.info;
+
+  return (
+    <NemuPressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      accessibilityLabel={[
+        formatMobileString(strings.settings.sourceSettingsOpenPage, {
+          name: setting.title,
+        }),
+        detail,
+      ]
+        .filter(Boolean)
+        .join(", ")}
+      onPress={onPress}
+      disabled={disabled}
+      pressedScale={0.98}
+      style={[
+        styles.pageRow,
+        { borderColor: tokens.border },
+        disabled && styles.disabledControl,
+      ]}
+    >
+      <View style={styles.settingText}>
+        <Text
+          numberOfLines={1}
+          style={[styles.settingTitle, { color: tokens.foreground }]}
+        >
+          {setting.title}
+        </Text>
+        {detail ? (
+          <Text
+            numberOfLines={2}
+            style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
+          >
+            {detail}
+          </Text>
+        ) : null}
+      </View>
+      <Ionicons name="chevron-forward" size={17} color={tokens.mutedForeground} />
+    </NemuPressable>
+  );
+}
+
+function SourceSettingLoginRow({
+  setting,
+  values,
+  strings,
+  disabled,
+  onChange,
+}: {
+  setting: MobileSourceLoginSetting;
+  values: Record<string, unknown>;
+  strings: MobileStrings;
+  disabled: boolean;
+  onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+}) {
+  const { tokens } = useNemuTheme();
+  const loggedIn = isMobileSourceLoggedIn(setting, values);
+  const canRunLogin = canRunMobileSourceLoginMethod(setting);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const statusText = error
+    ? error
+    : !loggedIn && !canRunLogin
+      ? strings.settings.sourceSettingsLoginUnsupported
+    : setting.subtitle ??
+      (loggedIn
+        ? strings.settings.sourceSettingsLoggedIn
+        : strings.settings.sourceSettingsLoggedOut);
+  const actionLabel = loggedIn
+    ? strings.settings.sourceSettingsLogout
+    : canRunLogin
+      ? strings.settings.sourceSettingsLogin
+      : strings.settings.sourceSettingsLoginUnavailable;
+
+  const handlePress = useCallback(async () => {
+    if (disabled || loading) return;
+    setError(null);
+
+    // Log out: clear the stored credential.
+    if (loggedIn) {
+      void hapticPress();
+      onChange(setting.key, "", setting);
+      return;
+    }
+
+    if (!canRunLogin) {
+      void hapticPress();
+      setError(strings.settings.sourceSettingsLoginUnsupported);
+      return;
+    }
+
+    // Log in: run the OAuth (PKCE) flow in the system browser.
+    setLoading(true);
+    void hapticPress();
+    try {
+      const result = await runMobileSourceOAuthLogin({ setting, values });
+      if (result.ok) {
+        onChange(setting.key, result.token, setting);
+      } else {
+        setError(result.error || strings.settings.sourceSettingsLoginFailed);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : strings.settings.sourceSettingsLoginFailed,
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    disabled,
+    canRunLogin,
+    loading,
+    loggedIn,
+    setting,
+    values,
+    onChange,
+    strings.settings.sourceSettingsLoginFailed,
+    strings.settings.sourceSettingsLoginUnsupported,
+  ]);
+
+  return (
+    <NemuPressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: disabled || loading }}
+      accessibilityLabel={[
+        setting.title,
+        loggedIn
+          ? strings.settings.sourceSettingsLoggedIn
+          : strings.settings.sourceSettingsLoggedOut,
+        actionLabel,
+      ]
+        .filter(Boolean)
+        .join(", ")}
+      onPress={handlePress}
+      disabled={disabled || loading}
+      pressedScale={0.98}
+      style={[
+        styles.pageRow,
+        { borderColor: tokens.border },
+        disabled && styles.disabledControl,
+      ]}
+    >
+      <View style={styles.settingText}>
+        <Text
+          numberOfLines={1}
+          style={[styles.settingTitle, { color: tokens.foreground }]}
+        >
+          {setting.title}
+        </Text>
+        <Text
+          numberOfLines={2}
+          style={[
+            styles.settingSubtitle,
+            { color: error ? tokens.danger : tokens.mutedForeground },
+          ]}
+        >
+          {statusText}
+        </Text>
+      </View>
+      {loading ? (
+        <ActivityIndicator size="small" color={tokens.primary} />
+      ) : (
+        <Text
+          numberOfLines={1}
+          style={[styles.loginActionLabel, { color: tokens.primary }]}
+        >
+          {actionLabel}
+        </Text>
+      )}
+    </NemuPressable>
+  );
+}
+
+function SourceSettingsList({
+  settings,
+  values,
+  strings,
+  features,
+  disabled,
+  onChange,
+  onPushPage,
+}: {
+  settings: SourcePackageSetting[];
+  values: Record<string, unknown>;
+  strings: MobileStrings;
+  features: MobileSourceSettingFeatureFlags;
+  disabled: boolean;
+  onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+  onPushPage: (page: SourcePackageSetting) => void;
+}) {
+  const { tokens } = useNemuTheme();
+
+  return (
+    <>
+      {settings.map((setting, index) => {
+        if (!isSourceSettingVisible(setting, values, features)) return null;
+        if (!isRenderableSourceSetting(setting)) return null;
+
+        const key = `${setting.type}:${setting.key}:${index}`;
+
+        if (setting.type === "group") {
+          if (
+            !setting.items?.length ||
+            !hasVisibleSourceSettingRows(setting.items, values, features)
+          ) {
+            return null;
+          }
+
+          return (
+            <View key={key} style={styles.settingGroup}>
+              <Text
+                numberOfLines={1}
+                style={[styles.settingGroupTitle, { color: tokens.mutedForeground }]}
+              >
+                {setting.title}
+              </Text>
+              <View style={styles.settingGroupRows}>
+                <SourceSettingsList
+                  settings={setting.items}
+                  values={values}
+                  strings={strings}
+                  features={features}
+                  disabled={disabled}
+                  onChange={onChange}
+                  onPushPage={onPushPage}
+                />
+              </View>
+              {setting.footer ? (
+                <Text
+                  style={[
+                    styles.settingGroupFooter,
+                    { color: tokens.mutedForeground },
+                  ]}
+                >
+                  {setting.footer}
+                </Text>
+              ) : null}
+            </View>
+          );
+        }
+
+        if (setting.type === "page") {
+          return (
+            <SourceSettingsPageRow
+              key={key}
+              setting={setting}
+              strings={strings}
+              disabled={disabled}
+              onPress={() => onPushPage(setting)}
+            />
+          );
+        }
+
+        if (isMobileSourceLoginSetting(setting)) {
+          return (
+            <SourceSettingLoginRow
+              key={key}
+              setting={setting}
+              values={values}
+              strings={strings}
+              disabled={disabled}
+              onChange={onChange}
+            />
+          );
+        }
+
+        return (
+          <SourceSettingRow
+            key={key}
+            setting={setting}
+            values={values}
+            strings={strings}
+            disabled={disabled}
+            onChange={onChange}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+export function MobileSourceSettingsCard(props: MobileSourceSettingsCardProps) {
+  return (
+    <MobileSourceSettingsCardContent
+      key={props.navigationResetKey ?? "source-settings-card"}
+      {...props}
+    />
+  );
+}
+
+function MobileSourceSettingsCardContent({
+  settings,
+  values,
+  features = EMPTY_SETTING_FEATURES,
+  loading = false,
+  error = null,
+  title,
+  subtitle,
+  hideSubtitle = false,
+  emptyMessage,
+  showEmpty = false,
+  disabled = false,
+  onChange,
+  onRetry,
+  onReset,
+  retryDisabled = false,
+  retrying = false,
+}: MobileSourceSettingsCardProps) {
+  const { tokens } = useNemuTheme();
+  const { appLanguage } = useMobileLanguageSettings();
+  const strings = getMobileStrings(appLanguage);
+  const [pageStack, setPageStack] = useState<SourcePackageSetting[]>([]);
+  const [dismissedError, setDismissedError] = useState<string | null>(null);
+  const activePageStack = useMemo(
+    () => validPageStack(settings, pageStack, values, features),
+    [features, pageStack, settings, values],
+  );
+  const currentPage =
+    activePageStack.length > 0
+      ? activePageStack[activePageStack.length - 1]
+      : undefined;
+  const currentSettings = currentPage?.items ?? settings;
+  const editableSettings = useMemo(
+    () => flattenVisibleEditableSourceSettings(settings, values, features),
+    [features, settings, values],
+  );
+  const hasRootRows = useMemo(
+    () => hasVisibleSourceSettingRows(settings, values, features),
+    [features, settings, values],
+  );
+  const hasCurrentRows = useMemo(
+    () => hasVisibleSourceSettingRows(currentSettings, values, features),
+    [currentSettings, features, values],
+  );
+  const titleLabel = title ?? strings.settings.sourceSettingsDefaultTitle;
+  const subtitleLabel = hideSubtitle
+    ? null
+    : loading
+    ? strings.settings.sourceSettingsLoadingValues
+    : (subtitle ?? strings.settings.sourceSettingsSavedOnDevice);
+  const emptyLabel = emptyMessage ?? strings.settings.sourceSettingsEmpty;
+  const activeError = error && error !== dismissedError ? error : null;
+  const handleChange = useCallback(
+    (key: string, value: unknown, setting: SourcePackageSetting) => {
+      if (disabled) return;
+      setDismissedError(null);
+      onChange(key, value, setting);
+    },
+    [disabled, onChange],
+  );
+  const handleRetry = useCallback(() => {
+    if (!onRetry || retryDisabled) return;
+    setDismissedError(null);
+    onRetry();
+  }, [onRetry, retryDisabled]);
+
+  if (!hasRootRows && !showEmpty) return null;
+
+  return (
+    <View style={[styles.settingsShell, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
+      <View style={styles.settingsContent}>
+      <View style={styles.settingsHeader}>
+        {currentPage ? (
+          <View style={styles.capabilityHeader}>
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityLabel={strings.settings.sourceSettingsBack}
+              accessibilityState={{ disabled }}
+              disabled={disabled}
+              onPress={() => setPageStack(activePageStack.slice(0, -1))}
+              pressedScale={0.94}
+              buttonDepth="secondary"
+              style={[
+                styles.backButton,
+                {
+                  opacity: disabled ? 0.62 : 1,
+                },
+              ]}
+            >
+              <Ionicons
+                name="chevron-back"
+                size={17}
+                color={tokens.mutedForeground}
+              />
+            </NemuPressable>
+            <View style={styles.settingsHeaderText}>
+              <Text style={[styles.statusLabel, { color: tokens.foreground }]}>
+                {currentPage.title}
+              </Text>
+              {!hideSubtitle ? (
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.settingsSubtitle,
+                    { color: tokens.mutedForeground },
+                  ]}
+                >
+                  {currentPage.subtitle ?? titleLabel}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        ) : (
+          <View style={styles.capabilityHeader}>
+            <Ionicons name="options-outline" size={19} color={tokens.primary} />
+            <View style={styles.settingsHeaderText}>
+              <Text style={[styles.statusLabel, { color: tokens.foreground }]}>
+                {titleLabel}
+              </Text>
+              {subtitleLabel ? (
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.settingsSubtitle,
+                    { color: tokens.mutedForeground },
+                  ]}
+                >
+                  {subtitleLabel}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        )}
+        {!currentPage && onReset && editableSettings.length ? (
+          <NemuPressable
+            accessibilityRole="button"
+            accessibilityLabel={strings.settings.sourceSettingsResetLabel}
+            accessibilityState={{ disabled }}
+            disabled={disabled}
+            onPress={() => {
+              if (disabled) return;
+              setDismissedError(null);
+              onReset();
+            }}
+            pressedScale={0.97}
+            buttonDepth="secondary"
+            style={[
+              styles.resetButton,
+              {
+                opacity: disabled ? 0.62 : 1,
+              },
+            ]}
+          >
+            <Ionicons
+              name="refresh-outline"
+              size={15}
+              color={tokens.mutedForeground}
+            />
+            <Text style={[styles.resetText, { color: tokens.mutedForeground }]}>
+              {strings.settings.sourceSettingsReset}
+            </Text>
+          </NemuPressable>
+        ) : null}
+      </View>
+      {activeError ? (
+        <MobileInlineErrorBanner
+          title={strings.settings.settingsActionFailed}
+          detail={activeError}
+          actionLabel={onRetry ? strings.common.retry : undefined}
+          actionDisabled={retryDisabled}
+          actionLoading={retrying}
+          dismissLabel={strings.common.clear}
+          onActionPress={onRetry ? handleRetry : undefined}
+          onDismiss={() => setDismissedError(activeError)}
+          variant="embedded"
+        />
+      ) : null}
+      {hasCurrentRows ? (
+        <View style={styles.settingList}>
+          <SourceSettingsList
+            settings={currentSettings}
+            values={values}
+            strings={strings}
+            features={features}
+            disabled={disabled}
+            onChange={handleChange}
+            onPushPage={(page) => {
+              if (disabled) return;
+              setPageStack([...activePageStack, page]);
+            }}
+          />
+        </View>
+      ) : (
+        <View style={styles.emptyRow}>
+          <Ionicons
+            name="settings-outline"
+            size={18}
+            color={tokens.mutedForeground}
+          />
+          <Text style={[styles.emptyText, { color: tokens.mutedForeground }]}>
+            {emptyLabel}
+          </Text>
+        </View>
+      )}
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  settingsShell: {
+    overflow: "hidden",
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  settingsContent: {
+    gap: 12,
+    padding: 14,
+  },
+  settingsHeader: {
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  capabilityHeader: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  settingsHeaderText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  backButton: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.md,
+    overflow: "hidden",
+  },
+  statusLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: nemuFontWeight.semibold,
+  },
+  settingsSubtitle: {
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  resetButton: {
+    minHeight: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    borderRadius: radius.md,
+    paddingHorizontal: 10,
+    overflow: "hidden",
+  },
+  resetText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: nemuFontWeight.semibold,
+  },
+  settingList: {
+    gap: 10,
+  },
+  settingGroup: {
+    gap: 7,
+  },
+  settingGroupTitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: nemuFontWeight.semibold,
+  },
+  settingGroupRows: {
+    gap: 0,
+  },
+  settingGroupFooter: {
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  settingRow: {
+    minHeight: 66,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+  },
+  settingRowStacked: {
+    alignItems: "stretch",
+    flexDirection: "column",
+    gap: 8,
+  },
+  pageRow: {
+    width: "100%",
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+  },
+  disabledControl: {
+    opacity: 0.62,
+  },
+  loginActionLabel: {
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: nemuFontWeight.semibold,
+  },
+  settingText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  settingTextFull: {
+    width: "100%",
+  },
+  settingTitleLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  settingTitle: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: nemuFontWeight.medium,
+  },
+  settingSubtitle: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  settingControl: {
+    minWidth: 54,
+    alignItems: "flex-end",
+  },
+  settingOptions: {
+    maxWidth: "54%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 6,
+  },
+  settingOption: {
+    minHeight: 28,
+    maxWidth: 116,
+    justifyContent: "center",
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 9,
+  },
+  settingOptionText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: nemuFontWeight.medium,
+  },
+  settingMenuShell: {
+    minWidth: 136,
+    minHeight: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  settingMenuHost: {
+    height: 32,
+    minWidth: 136,
+  },
+  settingMaterialMenu: {
+    minWidth: 136,
+  },
+  settingMaterialMenuTrigger: {
+    minWidth: 136,
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    overflow: "hidden",
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+  },
+  settingMaterialMenuText: {
+    maxWidth: 104,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: nemuFontWeight.medium,
+  },
+  settingValuePill: {
+    minHeight: 28,
+    maxWidth: "48%",
+    justifyContent: "center",
+    borderRadius: radius.md,
+    paddingHorizontal: 9,
+  },
+  settingValueText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: nemuFontWeight.medium,
+  },
+  settingInputShell: {
+    width: "48%",
+    minHeight: 38,
+    borderRadius: radius.md,
+  },
+  settingInputContent: {
+    paddingHorizontal: 10,
+  },
+  settingInput: {
+    minHeight: 38,
+    fontSize: 12,
+  },
+  editableList: {
+    width: "58%",
+    alignItems: "flex-end",
+    gap: 6,
+  },
+  editableListInputRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  editableListInputShell: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: radius.md,
+  },
+  editableListInputContent: {
+    paddingHorizontal: 9,
+  },
+  editableListInput: {
+    minHeight: 34,
+    fontSize: 12,
+  },
+  editableListAddButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.md,
+    overflow: "hidden",
+  },
+  editableListItems: {
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 5,
+  },
+  editableListChip: {
+    minHeight: 26,
+    maxWidth: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: radius.md,
+    paddingHorizontal: 8,
+  },
+  editableListChipText: {
+    maxWidth: 132,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: nemuFontWeight.medium,
+  },
+  editableListEmpty: {
+    fontSize: 11,
+    lineHeight: 14,
+    textAlign: "right",
+  },
+  sliderControl: {
+    width: "100%",
+    minHeight: 48,
+    justifyContent: "flex-end",
+    paddingTop: 18,
+  },
+  sliderFloatingValue: {
+    position: "absolute",
+    top: 0,
+    textAlign: "center",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: nemuFontWeight.medium,
+  },
+  sliderTrackTouchTarget: {
+    height: 24,
+    justifyContent: "center",
+  },
+  sliderTrack: {
+    height: 6,
+    overflow: "visible",
+    borderRadius: 999,
+  },
+  sliderFill: {
+    height: 6,
+    borderRadius: 999,
+  },
+  sliderThumb: {
+    position: "absolute",
+    top: -6,
+    width: 18,
+    height: 18,
+    marginLeft: -9,
+    borderRadius: 9,
+    borderWidth: 3,
+  },
+  stepper: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  stepperButton: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.md,
+    overflow: "hidden",
+  },
+  stepperValue: {
+    minWidth: 34,
+    textAlign: "center",
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: nemuFontWeight.medium,
+  },
+  emptyRow: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  emptyText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+});

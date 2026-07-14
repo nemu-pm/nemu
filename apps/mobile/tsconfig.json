@@ -1,0 +1,28 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "types": [
+      "bun"
+    ],
+    "paths": {
+      "@nemu/core": [
+        "../../packages/core/src/index.ts"
+      ],
+      "@nemu/core/*": [
+        "../../packages/core/src/*"
+      ],
+      "@/*": [
+        "./src/*"
+      ]
+    }
+  },
+  "include": [
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "expo-env.d.ts",
+    ".expo/types/**/*.ts"
+  ]
+}
