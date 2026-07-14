@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'bun:test';
-import { findBestSecondaryMatch } from './hash';
+import { dhashWordFromHex, findBestSecondaryMatch } from './hash';
 import type { Dhash, MultiDhash } from './hash';
 
-const ALL = (1n << 64n) - 1n;
-const HALF = (1n << 32n) - 1n;
+const ALL = 'ffffffffffffffff';
+const HALF = 'ffffffff';
+const ZERO = '0';
 
-function dh(h: bigint, v: bigint): Dhash {
-  return { h, v };
+function dh(h: string, v: string): Dhash {
+  return { h: dhashWordFromHex(h), v: dhashWordFromHex(v) };
 }
 
 function multi(full: Dhash, extra?: Partial<MultiDhash>): MultiDhash {
@@ -15,10 +16,10 @@ function multi(full: Dhash, extra?: Partial<MultiDhash>): MultiDhash {
 
 describe('dual-reader alignment', () => {
   it('prefers split when a secondary spread side matches better', () => {
-    const primaryHash = multi(dh(0n, 0n));
+    const primaryHash = multi(dh(ZERO, ZERO));
     const secondaryHashes = [
       multi(dh(ALL, ALL)),
-      multi(dh(ALL, ALL), { left: dh(0n, 0n), right: dh(ALL, ALL) }),
+      multi(dh(ALL, ALL), { left: dh(ZERO, ZERO), right: dh(ALL, ALL) }),
       multi(dh(ALL, ALL)),
     ];
 
@@ -46,8 +47,8 @@ describe('dual-reader alignment', () => {
   });
 
   it('prefers merge when primary spread matches two secondary pages', () => {
-    const primaryHash = multi(dh(HALF, HALF), { left: dh(0n, 0n), right: dh(ALL, ALL) });
-    const secondaryHashes = [multi(dh(0n, 0n)), multi(dh(ALL, ALL))];
+    const primaryHash = multi(dh(HALF, HALF), { left: dh(ZERO, ZERO), right: dh(ALL, ALL) });
+    const secondaryHashes = [multi(dh(ZERO, ZERO)), multi(dh(ALL, ALL))];
 
     const result = findBestSecondaryMatch({
       primaryHash,
@@ -74,8 +75,8 @@ describe('dual-reader alignment', () => {
   });
 
   it('breaks ties using expectedIndex when pages are duplicated', () => {
-    const primaryHash = multi(dh(0n, 0n));
-    const secondaryHashes = [multi(dh(0n, 0n)), multi(dh(0n, 0n))];
+    const primaryHash = multi(dh(ZERO, ZERO));
+    const secondaryHashes = [multi(dh(ZERO, ZERO)), multi(dh(ZERO, ZERO))];
 
     const result = findBestSecondaryMatch({
       primaryHash,
@@ -101,7 +102,7 @@ describe('dual-reader alignment', () => {
 
   it('jumps to swapped pages when hash distance dominates the deviation penalty', () => {
     const primaryHash = multi(dh(ALL, ALL));
-    const secondaryHashes = [multi(dh(0n, 0n)), multi(dh(ALL, ALL))];
+    const secondaryHashes = [multi(dh(ZERO, ZERO)), multi(dh(ALL, ALL))];
 
     const result = findBestSecondaryMatch({
       primaryHash,

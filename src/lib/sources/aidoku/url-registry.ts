@@ -14,24 +14,21 @@ export interface InstalledSourceStore {
 import { Keys, CacheKeys } from "../../../data/keys";
 import { createAidokuMangaSource } from "./adapter";
 import type { SourceRegistryProvider, RegistrySourceInfo } from "../registry";
-import { getSourceSettingsStore } from "../../../stores/source-settings";
+import {
+  getSourceSettingsStore,
+  type SourceSettingsStore,
+} from "../../../stores/source-settings";
 import { normalizeSourceLangs } from "../language";
 import type { Setting } from "@/lib/settings";
+import { nextSyncTimestamp } from "@nemu/core";
 
 // ============ DEFAULT AIDOKU REGISTRIES ============
 
-export const AIDOKU_REGISTRIES = [
-  {
-    id: "aidoku-community",
-    name: "Aidoku Community",
-    indexUrl: "https://aidoku-community.github.io/sources/index.min.json",
-  },
-  {
-    id: "aidoku-zh",
-    name: "Aidoku ZH",
-    indexUrl: "https://raw.githubusercontent.com/suiyuran/aidoku-zh-sources/main/public/index.min.json",
-  },
-] as const;
+// Single source of truth lives in `@nemu/core/sources`; re-exported here `as
+// const` (readonly literal) so existing consumers (`for…of`, `.some`, field
+// reads in `registry.ts`) keep working unchanged. See
+// `packages/core/src/sources/registries.ts`.
+export { AIDOKU_REGISTRIES, type AidokuRegistryDefinition } from "@nemu/core/sources";
 
 /** Normalized source entry (internal) */
 interface NormalizedSourceEntry {
@@ -69,16 +66,19 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
 
   private installedSourceStore: InstalledSourceStore;
   private cacheStore: CacheStore;
+  private sourceSettingsStore: SourceSettingsStore;
 
   constructor(
     id: string,
     name: string,
     indexUrl: string,
     installedSourceStore: InstalledSourceStore,
-    cacheStore: CacheStore
+    cacheStore: CacheStore,
+    sourceSettingsStore: SourceSettingsStore = getSourceSettingsStore(),
   ) {
     this.installedSourceStore = installedSourceStore;
     this.cacheStore = cacheStore;
+    this.sourceSettingsStore = sourceSettingsStore;
     this.info = { id, name, type: "url", url: indexUrl };
     this.baseUrl = indexUrl.replace(/\/[^/]+$/, "");
   }
@@ -189,11 +189,19 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
 
     // Save installed source with composite id for storage uniqueness
     const compositeId = Keys.source(registryId, sourceId);
+    const existing = await this.installedSourceStore.getInstalledSource(compositeId);
     await this.installedSourceStore.saveInstalledSource({
       id: compositeId,
       registryId,
+      sourceKind: "aidoku",
+      sourceId,
+      name: entry.name,
+      icon: entry.iconPath ? `${this.baseUrl}/${entry.iconPath}` : undefined,
+      languages: entry.languages,
+      contentRating: entry.contentRating,
+      downloadUrl: aixUrl,
       version: entry.version,
-      updatedAt: Date.now(),
+      updatedAt: nextSyncTimestamp(existing?.updatedAt),
     });
   }
 
@@ -244,9 +252,15 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     const icon = entry?.iconPath ? resolveRegistryUrl(this.baseUrl, entry.iconPath) : undefined;
     
     // Create source - this extracts AIX in the worker and returns settingsJson + manifest
-    const { source, settingsJson, manifest } = await createAidokuMangaSource(aixData, sourceKey, this.cacheStore, icon);
-    
-    const settingsStore = getSourceSettingsStore();
+    const settingsStore = this.sourceSettingsStore;
+    await settingsStore.getState().initialize();
+    const { source, settingsJson, manifest } = await createAidokuMangaSource(
+      aixData,
+      sourceKey,
+      this.cacheStore,
+      icon,
+      settingsStore,
+    );
     
     // Load settings schema from AIX if not already in store
     if (settingsJson && !settingsStore.getState().schemas.get(sourceKey)) {

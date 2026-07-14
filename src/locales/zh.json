@@ -410,7 +410,8 @@
     "keepDataDescription": "您可以随时重新登录以继续同步。",
     "removeData": "从此设备移除数据",
     "removeDataDescription": "您的云端数据将保持安全。",
-    "signingOut": "登出中..."
+    "signingOut": "登出中...",
+    "failed": "无法登出，您的本地数据未被更改。"
   },
   "sourceSettings": {
     "loadingSettings": "加载设置中...",

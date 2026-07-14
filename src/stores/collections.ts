@@ -1,5 +1,6 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import type { LocalCollection, LocalCollectionItem } from "@/data/schema";
+import { nextSyncTimestamp } from "@nemu/core";
 
 function generateId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -9,7 +10,7 @@ function generateId(): string {
 }
 
 function sortCollections(collections: LocalCollection[]): LocalCollection[] {
-  return [...collections].sort((a, b) => {
+  return collections.filter((collection) => !collection.removed).sort((a, b) => {
     if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
     return a.collectionId.localeCompare(b.collectionId);
   });
@@ -19,6 +20,7 @@ function buildMembership(collectionItems: LocalCollectionItem[]): Map<string, Se
   const membership = new Map<string, Set<string>>();
 
   for (const item of collectionItems) {
+    if (item.removed) continue;
     const existing = membership.get(item.collectionId) ?? new Set<string>();
     existing.add(item.libraryItemId);
     membership.set(item.collectionId, existing);
@@ -84,7 +86,7 @@ export function createCollectionsStore(ops: CanonicalCollectionsOps): Collection
     },
 
     create: async (name) => {
-      const now = Date.now();
+      const now = nextSyncTimestamp();
       const collection: LocalCollection = {
         collectionId: generateId(),
         name,
@@ -106,7 +108,7 @@ export function createCollectionsStore(ops: CanonicalCollectionsOps): Collection
       const updated: LocalCollection = {
         ...existing,
         name,
-        updatedAt: Date.now(),
+        updatedAt: nextSyncTimestamp(existing.updatedAt),
       };
 
       await ops.saveCollection(updated);

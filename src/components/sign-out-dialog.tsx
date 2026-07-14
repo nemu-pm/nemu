@@ -13,6 +13,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useSignOut } from "@/sync/hooks";
 import { authClient } from "@/lib/auth-client";
+import { toast } from "sonner";
 
 interface SignOutDialogProps {
   open: boolean;
@@ -40,11 +41,21 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
     // Close dialog FIRST to avoid race condition where auth state changes
     // while dialog is still mounted (causing queries to fire without auth)
     handleOpenChange(false);
-    // Then sign out asynchronously
-    // keepData=true: copy user profile → local, then delete user profile
-    // keepData=false: just delete user profile
-    await signOutSync(shouldKeepData);
-    await authClient.signOut();
+    // Then sign out asynchronously. The sync service captures the current
+    // profile, confirms remote logout, and only then copies/clears local data.
+    try {
+      await signOutSync(shouldKeepData, async () => {
+        const result = await authClient.signOut();
+        if (result.error) {
+          throw result.error;
+        }
+      });
+    } catch (error) {
+      toast.error(t("signOut.failed"));
+      console.error("[SignOutDialog] Sign out failed:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -97,4 +108,3 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
     </ResponsiveDialog>
   );
 }
-

@@ -6,6 +6,7 @@
 
 import { type ExactMatch } from "@/lib/metadata/store";
 import { hasJapaneseChars, hasCJKChars } from "@/lib/metadata/matching";
+import { lcsLength } from "@nemu/core/sources";
 import * as OpenCC from "opencc-js";
 
 // Create Traditional -> Simplified Chinese converter
@@ -153,28 +154,9 @@ export function normalizeTitleForMatching(title: string): string {
 }
 
 /**
- * Longest Common Subsequence length - for similarity scoring
- */
-function lcsLength(a: string, b: string): number {
-  const m = a.length;
-  const n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () =>
-    Array(n + 1).fill(0)
-  );
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      dp[i][j] =
-        a[i - 1] === b[j - 1]
-          ? dp[i - 1][j - 1] + 1
-          : Math.max(dp[i - 1][j], dp[i][j - 1]);
-    }
-  }
-  return dp[m][n];
-}
-
-/**
  * Calculate similarity score between two titles (0.0 to 1.0)
- * Uses LCS ratio after normalizing both strings (including Chinese simplification)
+ * Uses LCS ratio after normalizing both strings (including Chinese simplification).
+ * `lcsLength` is shared via @nemu/core/sources.
  */
 export function calculateTitleSimilarity(a: string, b: string): number {
   const normA = normalizeTitleForMatching(a);

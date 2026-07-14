@@ -16,6 +16,7 @@ const chapterSummary = v.object({
   title: v.optional(v.string()),
   chapterNumber: v.optional(v.number()),
   volumeNumber: v.optional(v.number()),
+  lang: v.optional(v.string()),
 });
 
 const mangaMetadata = v.object({
@@ -44,6 +45,12 @@ const externalIds = v.object({
   mal: v.optional(v.number()),
 });
 
+const historyRetargetLock = v.object({
+  sourceLibraryItemId: v.string(),
+  targetLibraryItemId: v.string(),
+  updatedAt: v.number(),
+});
+
 // User overrides (no clocks)
 const userOverrides = v.object({
   // Metadata overrides (sparse - only user-edited fields)
@@ -56,19 +63,37 @@ const userOverrides = v.object({
 });
 
 export default defineSchema({
+  sync_generations: defineTable({
+    userId: v.string(),
+    generation: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
   settings: defineTable({
     userId: v.string(),
+    syncGeneration: v.optional(v.number()),
     installedSources: v.array(
       v.object({
         id: v.string(),
         registryId: v.string(),
+        sourceKind: v.optional(v.union(v.literal("aidoku"), v.literal("tachiyomi"))),
+        sourceId: v.optional(v.string()),
+        name: v.optional(v.string()),
+        icon: v.optional(v.string()),
+        languages: v.optional(v.array(v.string())),
+        contentRating: v.optional(v.number()),
+        hasAuthentication: v.optional(v.boolean()),
+        hasCloudflare: v.optional(v.boolean()),
+        downloadUrl: v.optional(v.string()),
         version: v.number(),
         updatedAt: v.optional(v.number()), // For LWW sync conflict resolution
         removed: v.optional(v.boolean()), // Tombstone: true = uninstalled
       })
     ),
     updatedAt: v.optional(v.number()),
-  }).index("by_user", ["userId"]),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_sync_generation", ["userId", "syncGeneration"]),
 
   // ============================================================================
   // NORMALIZED TABLES (Phase 9 - legacy tables removed)
@@ -77,6 +102,7 @@ export default defineSchema({
   // library_items: one row per user library entry
   library_items: defineTable({
     userId: v.string(),
+    syncGeneration: v.optional(v.number()),
     libraryItemId: v.string(), // UUID
 
     // Metadata (source-derived, not user-editable)
@@ -96,14 +122,20 @@ export default defineSchema({
     // Sync fields
     createdAt: v.number(),
     updatedAt: v.number(),
+    lastRemovedAt: v.optional(v.number()),
+    // Short-lived server-owned lock while a durable history retarget is
+    // draining bounded pages. It is not part of the client sync projection.
+    historyRetargetLock: v.optional(historyRetargetLock),
   })
     .index("by_user", ["userId"])
+    .index("by_user_sync_generation", ["userId", "syncGeneration"])
     .index("by_user_item", ["userId", "libraryItemId"])
     .index("by_user_updated", ["userId", "updatedAt"]),
 
   // library_source_links: normalized bindings + availability per source
   library_source_links: defineTable({
     userId: v.string(),
+    syncGeneration: v.optional(v.number()),
     libraryItemId: v.string(), // FK to library_items
 
     // Source reference
@@ -122,41 +154,53 @@ export default defineSchema({
     // Sync fields
     createdAt: v.number(),
     updatedAt: v.number(),
+    removed: v.optional(v.boolean()),
   })
     .index("by_user", ["userId"])
+    .index("by_user_sync_generation", ["userId", "syncGeneration"])
     .index("by_user_item", ["userId", "libraryItemId"])
+    .index("by_user_generation_item", ["userId", "syncGeneration", "libraryItemId"])
     .index("by_user_source_manga", ["userId", "registryId", "sourceId", "sourceMangaId"])
     .index("by_user_updated", ["userId", "updatedAt"]),
 
   // collections: user-defined named groups of library items
   collections: defineTable({
     userId: v.string(),
+    syncGeneration: v.optional(v.number()),
     collectionId: v.string(),
     name: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
+    removed: v.optional(v.boolean()),
+    lastRemovedAt: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
+    .index("by_user_sync_generation", ["userId", "syncGeneration"])
     .index("by_user_collection", ["userId", "collectionId"])
     .index("by_user_updated", ["userId", "updatedAt"]),
 
   // collection_items: join table from collections -> library_items
   collection_items: defineTable({
     userId: v.string(),
+    syncGeneration: v.optional(v.number()),
     collectionId: v.string(),
     libraryItemId: v.string(),
     addedAt: v.number(),
     updatedAt: v.number(),
+    removed: v.optional(v.boolean()),
   })
     .index("by_user", ["userId"])
+    .index("by_user_sync_generation", ["userId", "syncGeneration"])
     .index("by_user_collection", ["userId", "collectionId"])
     .index("by_user_collection_item", ["userId", "collectionId", "libraryItemId"])
     .index("by_user_item", ["userId", "libraryItemId"])
+    .index("by_user_generation_item", ["userId", "syncGeneration", "libraryItemId"])
     .index("by_user_updated", ["userId", "updatedAt"]),
 
   // chapter_progress: canonical truth per chapter
   chapter_progress: defineTable({
     userId: v.string(),
+    syncGeneration: v.optional(v.number()),
 
     // Source reference (composite key)
     registryId: v.string(),
@@ -182,13 +226,17 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_user", ["userId"])
+    .index("by_user_sync_generation", ["userId", "syncGeneration"])
     .index("by_user_chapter", ["userId", "registryId", "sourceId", "sourceMangaId", "sourceChapterId"])
     .index("by_user_source_manga", ["userId", "registryId", "sourceId", "sourceMangaId"])
+    .index("by_user_item", ["userId", "libraryItemId"])
+    .index("by_user_generation_item", ["userId", "syncGeneration", "libraryItemId"])
     .index("by_user_updated", ["userId", "updatedAt"]),
 
   // manga_progress: materialized "last read" summary for fast library UI
   manga_progress: defineTable({
     userId: v.string(),
+    syncGeneration: v.optional(v.number()),
 
     // Source reference
     registryId: v.string(),
@@ -209,7 +257,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_user", ["userId"])
+    .index("by_user_sync_generation", ["userId", "syncGeneration"])
     .index("by_user_source_manga", ["userId", "registryId", "sourceId", "sourceMangaId"])
+    .index("by_user_item", ["userId", "libraryItemId"])
+    .index("by_user_generation_item", ["userId", "syncGeneration", "libraryItemId"])
     .index("by_user_updated", ["userId", "updatedAt"])
     .index("by_user_recent", ["userId", "lastReadAt"]),
 });

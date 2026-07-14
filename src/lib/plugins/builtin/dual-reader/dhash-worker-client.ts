@@ -1,7 +1,7 @@
 import type { WorkerRequest, WorkerResponse } from './dhash.worker';
-import type { MultiDhash } from '@/lib/dual-reader/hash';
-import { deserializeMultiDhash } from '@/lib/dual-reader/hash-serialization';
-import type { AlignmentResult, AlignmentWorkerOptions } from '@/lib/dual-reader/visual-alignment';
+import type { MultiDhash } from '@nemu/core/dual-reader';
+import { deserializeMultiDhash } from '@nemu/core/dual-reader';
+import type { AlignmentResult, AlignmentWorkerOptions } from '@nemu/core/dual-reader';
 
 type PendingEntry =
   | {

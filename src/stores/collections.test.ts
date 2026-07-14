@@ -87,4 +87,58 @@ describe("CollectionsStore", () => {
     expect(savedAdds).toEqual([]);
     expect(store.getState().getItemsInCollection("missing")).toEqual([]);
   });
+
+  it("retains tombstones in persistence while hiding them from UI state", async () => {
+    const store = createCollectionsStore({
+      getCollections: async () => [{
+        collectionId: "removed",
+        name: "Removed",
+        createdAt: 1,
+        updatedAt: 2,
+        removed: true,
+      }],
+      getCollectionItems: async () => [{
+        collectionId: "removed",
+        libraryItemId: "lib-1",
+        addedAt: 1,
+        updatedAt: 2,
+        removed: true,
+      }],
+      saveCollection: async () => {},
+      removeCollection: async () => {},
+      addCollectionItems: async () => {},
+      removeCollectionItems: async () => {},
+    });
+
+    await store.getState().load();
+
+    expect(store.getState().collections).toEqual([]);
+    expect(store.getState().membership.size).toBe(0);
+  });
+
+  it("renames beyond an observed future clock", async () => {
+    const originalNow = Date.now;
+    Date.now = () => 100;
+    const saved: LocalCollection[] = [];
+    try {
+      const store = createCollectionsStore({
+        getCollections: async () => [{
+          collectionId: "future",
+          name: "Before",
+          createdAt: 1,
+          updatedAt: 500,
+        }],
+        getCollectionItems: async () => [],
+        saveCollection: async (collection) => { saved.push(collection); },
+        removeCollection: async () => {},
+        addCollectionItems: async () => {},
+        removeCollectionItems: async () => {},
+      });
+      await store.getState().load();
+      await store.getState().rename("future", "After");
+      expect(saved[0]?.updatedAt).toBe(501);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
 });

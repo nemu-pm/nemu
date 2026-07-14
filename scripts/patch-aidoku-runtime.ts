@@ -18,8 +18,135 @@ const runtimeDistDir = path.resolve(
 
 const patches: FilePatch[] = [
   {
+    file: "global-store.js",
+    replacements: [
+      {
+        label: "runtime bounded allocation cleanup state",
+        before:
+          "    // Cleanup timer\n    cleanupTimer = null;\n    // Statistics for debugging\n",
+        after:
+          "    // Cleanup timer\n    cleanupTimer = null;\n    // Count allocations so runtimes without an event-loop timer still perform\n    // bounded, opportunistic cleanup.\n    allocationsSinceCleanup = 0;\n    // Statistics for debugging\n",
+      },
+      {
+        label: "runtime optional cancellable cleanup timer",
+        before:
+          "    startCleanupTimer() {\n        if (typeof globalThis !== \"undefined\" && !this.cleanupTimer) {\n            this.cleanupTimer = setInterval(() => {\n                this.performCleanup();\n            }, MEMORY_CONFIG.CLEANUP_INTERVAL_MS);\n        }\n    }\n",
+        after:
+          "    startCleanupTimer() {\n        // AndroidX JavaScriptEngine isolates intentionally have no timer event\n        // loop. Only install the periodic cleanup when the host supplies both\n        // sides of a cancellable interval contract.\n        if (typeof globalThis.setInterval === \"function\" &&\n            typeof globalThis.clearInterval === \"function\" &&\n            this.cleanupTimer === null) {\n            this.cleanupTimer = globalThis.setInterval(() => {\n                this.performCleanup();\n            }, MEMORY_CONFIG.CLEANUP_INTERVAL_MS);\n        }\n    }\n",
+      },
+      {
+        label: "runtime opportunistic cleanup and allocation limits",
+        before:
+          "    /** Perform automatic cleanup of stale descriptors and requests */\n    performCleanup() {\n        const now = Date.now();\n",
+        after:
+          "    prepareAllocation(kind) {\n        this.allocationsSinceCleanup += 1;\n        if (this.allocationsSinceCleanup >= 256) {\n            this.performCleanup();\n        }\n        const entries = kind === \"descriptor\" ? this.descriptors : this.requests;\n        const limit = kind === \"descriptor\"\n            ? MEMORY_CONFIG.MAX_DESCRIPTORS\n            : MEMORY_CONFIG.MAX_REQUESTS;\n        if (entries.size >= limit) {\n            this.performCleanup();\n            if (entries.size >= limit) {\n                throw new Error(`Aidoku runtime ${kind} limit exceeded.`);\n            }\n        }\n    }\n    /** Perform automatic cleanup of stale descriptors and requests */\n    performCleanup() {\n        this.allocationsSinceCleanup = 0;\n        const now = Date.now();\n",
+      },
+      {
+        label: "runtime descriptor allocation guard",
+        before:
+          "    storeStdValue(value) {\n        const rid = this.allocateRid();\n",
+        after:
+          "    storeStdValue(value) {\n        this.prepareAllocation(\"descriptor\");\n        const rid = this.allocateRid();\n",
+      },
+      {
+        label: "runtime request allocation guard",
+        before:
+          "    createRequest(method = 0) {\n        const rid = this.allocateRid();\n",
+        after:
+          "    createRequest(method = 0) {\n        this.prepareAllocation(\"request\");\n        const rid = this.allocateRid();\n",
+      },
+      {
+        label: "runtime cleanup allocation reset",
+        before:
+          "    reset() {\n        this.descriptors.clear();\n        this.requests.clear();\n        this.resources.clear();\n        this.ridCounter = 0;\n",
+        after:
+          "    reset() {\n        this.descriptors.clear();\n        this.requests.clear();\n        this.resources.clear();\n        this.ridCounter = 0;\n        this.allocationsSinceCleanup = 0;\n",
+      },
+      {
+        label: "runtime feature-detected interval cancellation",
+        before:
+          "    destroy() {\n        if (this.cleanupTimer) {\n            clearInterval(this.cleanupTimer);\n            this.cleanupTimer = null;\n        }\n        this.reset();\n",
+        after:
+          "    destroy() {\n        if (this.cleanupTimer !== null) {\n            if (typeof globalThis.clearInterval === \"function\") {\n                globalThis.clearInterval(this.cleanupTimer);\n            }\n            this.cleanupTimer = null;\n        }\n        this.reset();\n",
+      },
+    ],
+  },
+  {
+    file: "imports/std.js",
+    replacements: [
+      {
+        label: "runtime deterministic current-time helper",
+        before:
+          'import { encodeVecString, decodeString, decodeI64, decodeBool, decodeF32 } from "../postcard";\n// Object type enum matching Swift\'s WasmStd.ObjectType\n',
+        after:
+          'import { encodeVecString, decodeString, decodeI64, decodeBool, decodeF32 } from "../postcard";\nfunction nemuAidokuNow() {\n    const deterministicNow = globalThis.__nemuAidokuDeterministicNowBridge;\n    return typeof deterministicNow === "function" ? deterministicNow() : Date.now();\n}\n// Object type enum matching Swift\'s WasmStd.ObjectType\n',
+      },
+      {
+        label: "runtime deterministic current date",
+        before:
+          "        current_date: () => {\n            return Date.now() / 1000;\n        },\n",
+        after:
+          "        current_date: () => {\n            return nemuAidokuNow() / 1000;\n        },\n",
+      },
+      {
+        label: "runtime deterministic current timezone offset",
+        before:
+          "            return BigInt(-new Date().getTimezoneOffset() * 60);",
+        after:
+          "            return BigInt(-new Date(nemuAidokuNow()).getTimezoneOffset() * 60);",
+      },
+      {
+        label: "runtime deterministic date creation",
+        before:
+          "            const date = timestamp < 0 ? new Date() : new Date(timestamp * 1000);",
+        after:
+          "            const date = timestamp < 0 ? new Date(nemuAidokuNow()) : new Date(timestamp * 1000);",
+      },
+      {
+        label: "runtime deterministic relative dates",
+        before:
+          "function parseRelativeDate(str) {\n    const now = new Date();\n",
+        after:
+          "function parseRelativeDate(str) {\n    const now = new Date(nemuAidokuNow());\n",
+      },
+    ],
+  },
+  {
+    file: "imports/env.js",
+    replacements: [
+      {
+        label: "runtime deterministic sleep bridge",
+        before:
+          "        sleep: (seconds) => {\n            // Blocking sleep using sync busy-wait\n            // This is a hack but necessary for WASM sync calls\n            const start = Date.now();\n            while (Date.now() - start < seconds * 1000) {\n                // Busy wait - not ideal but works for short sleeps\n            }\n        },\n",
+        after:
+          "        sleep: (seconds) => {\n            const deterministicSleep = globalThis.__nemuAidokuDeterministicSleepBridge;\n            if (typeof deterministicSleep === \"function\") {\n                deterministicSleep(seconds);\n                return;\n            }\n            // Blocking fallback for runtimes that do not install the deterministic bridge.\n            const start = Date.now();\n            while (Date.now() - start < seconds * 1000) {\n                // Busy wait - not ideal but preserves the upstream synchronous contract.\n            }\n        },\n",
+      },
+    ],
+  },
+  {
     file: "runtime.js",
     replacements: [
+      {
+        label: "runtime precompiled module option",
+        before:
+          "        const { httpBridge, settingsGetter = () => undefined, settingsSetter, canvasModule = defaultCanvasModule } = options;",
+        after:
+          "        const { httpBridge, settingsGetter = () => undefined, settingsSetter, canvasModule = defaultCanvasModule, compiledModule } = options;",
+      },
+      {
+        label: "runtime precompiled module reuse",
+        before:
+          "        const module = await WebAssembly.compile(wasmBytes);",
+        after:
+          "        const module = compiledModule ?? await WebAssembly.compile(wasmBytes);",
+      },
+      {
+        label: "runtime synchronous precompiled module instantiation",
+        before:
+          "        const instance = await WebAssembly.instantiate(module, importObject);",
+        after:
+          "        const instance = compiledModule\n            ? new WebAssembly.Instance(module, importObject)\n            : await WebAssembly.instantiate(module, importObject);",
+      },
       {
         label: "runtime postcard import",
         before:
@@ -61,6 +188,74 @@ const patches: FilePatch[] = [
           "            getSearchMangaList(query, page, filters) {\n",
         after:
           "            handleBasicLogin(key, username, password) {\n                if (!handleBasicLoginExport)\n                    return false;\n                const scope = store.createScope();\n                try {\n                    const keyDescriptor = scope.storeValue(encodeString(key));\n                    const usernameDescriptor = scope.storeValue(encodeString(username));\n                    const passwordDescriptor = scope.storeValue(encodeString(password));\n                    const resultPtr = handleBasicLoginExport(keyDescriptor, usernameDescriptor, passwordDescriptor);\n                    return readBooleanResult(resultPtr, \"handle_basic_login\");\n                }\n                finally {\n                    scope.cleanup();\n                }\n            },\n            handleWebLogin(key, cookies) {\n                if (!handleWebLoginExport)\n                    return false;\n                const scope = store.createScope();\n                try {\n                    const keys = Object.keys(cookies);\n                    const values = keys.map((cookieKey) => cookies[cookieKey] ?? \"\");\n                    const keyDescriptor = scope.storeValue(encodeString(key));\n                    const keysDescriptor = scope.storeValue(encodeVecString(keys));\n                    const valuesDescriptor = scope.storeValue(encodeVecString(values));\n                    const resultPtr = handleWebLoginExport(keyDescriptor, keysDescriptor, valuesDescriptor);\n                    return readBooleanResult(resultPtr, \"handle_web_login\");\n                }\n                finally {\n                    scope.cleanup();\n                }\n            },\n            handleNotification(notification) {\n                if (!handleNotificationExport)\n                    return;\n                const scope = store.createScope();\n                try {\n                    const notificationDescriptor = scope.storeValue(encodeString(notification));\n                    const resultCode = handleNotificationExport(notificationDescriptor);\n                    assertSuccess(resultCode, \"handle_notification\");\n                }\n                finally {\n                    scope.cleanup();\n                }\n            },\n            getSearchMangaList(query, page, filters) {\n",
+      },
+      {
+        label: "runtime initialization control-flow errors",
+        before:
+          "                    catch (e) {\n                        console.error(\"[Aidoku] Initialize error:\", e);\n                    }\n",
+        after:
+          "                    catch (e) {\n                        if (e instanceof CloudflareBlockedError)\n                            throw e;\n                        console.error(\"[Aidoku] Initialize error:\", e);\n                    }\n",
+      },
+      {
+        label: "runtime filter control-flow errors",
+        before:
+          "                catch (e) {\n                    console.error(\"[Aidoku] getFilterList error:\", e);\n                    return [];\n                }\n",
+        after:
+          "                catch (e) {\n                    if (e instanceof CloudflareBlockedError)\n                        throw e;\n                    console.error(\"[Aidoku] getFilterList error:\", e);\n                    return [];\n                }\n",
+      },
+      {
+        label: "runtime legacy image-request control-flow errors",
+        before:
+          "                    catch (e) {\n                        console.error(\"[Aidoku] OLD ABI modifyImageRequest error:\", e);\n                    }\n",
+        after:
+          "                    catch (e) {\n                        if (e instanceof CloudflareBlockedError)\n                            throw e;\n                        console.error(\"[Aidoku] OLD ABI modifyImageRequest error:\", e);\n                    }\n",
+      },
+      {
+        label: "runtime image-request control-flow errors",
+        before:
+          "                catch (e) {\n                    console.error(\"[Aidoku] modifyImageRequest error:\", e);\n                    return { url, headers: defaultHeaders };\n                }\n",
+        after:
+          "                catch (e) {\n                    if (e instanceof CloudflareBlockedError)\n                        throw e;\n                    console.error(\"[Aidoku] modifyImageRequest error:\", e);\n                    return { url, headers: defaultHeaders };\n                }\n",
+      },
+      {
+        label: "runtime image-processor control-flow errors",
+        before:
+          "                catch {\n                    return null;\n                }\n                finally {\n                    scope.cleanup();\n                }\n            },\n            getMangaListForListing(listing, page) {\n",
+        after:
+          "                catch (e) {\n                    if (e instanceof CloudflareBlockedError)\n                        throw e;\n                    return null;\n                }\n                finally {\n                    scope.cleanup();\n                }\n            },\n            getMangaListForListing(listing, page) {\n",
+      },
+      {
+        label: "runtime source disposal",
+        before:
+          "            },\n        };\n    };\n}\n// Helper to encode Listing for aidoku-rs\n",
+        after:
+          "            },\n            dispose() {\n                store.destroy();\n            },\n        };\n    };\n}\n// Helper to encode Listing for aidoku-rs\n",
+      },
+      {
+        label: "runtime listing control-flow errors",
+        before:
+          "                catch (e) {\n                    console.error(\"[Aidoku] getListings error:\", e);\n                    return [];\n                }\n",
+        after:
+          "                catch (e) {\n                    if (e instanceof CloudflareBlockedError)\n                        throw e;\n                    console.error(\"[Aidoku] getListings error:\", e);\n                    return [];\n                }\n",
+      },
+    ],
+  },
+  {
+    file: "runtime.d.ts",
+    replacements: [
+      {
+        label: "runtime precompiled module type",
+        before:
+          "    /** Canvas module for image operations (auto-detected, but can be overridden) */\n    canvasModule?: CanvasModule;\n",
+        after:
+          "    /** Canvas module for image operations (auto-detected, but can be overridden) */\n    canvasModule?: CanvasModule;\n    /** Reuse an immutable compiled module while instantiating fresh source state. */\n    compiledModule?: WebAssembly.Module;\n",
+      },
+      {
+        label: "runtime source disposal type",
+        before:
+          "    processPageImage(imageData: Uint8Array, context: Record<string, string> | null, requestUrl: string, requestHeaders: Record<string, string>, responseCode: number, responseHeaders: Record<string, string>): Promise<Uint8Array | null>;\n}\n",
+        after:
+          "    processPageImage(imageData: Uint8Array, context: Record<string, string> | null, requestUrl: string, requestHeaders: Record<string, string>, responseCode: number, responseHeaders: Record<string, string>): Promise<Uint8Array | null>;\n    dispose(): void;\n}\n",
       },
     ],
   },

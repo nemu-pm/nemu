@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { createLibraryStore } from "./library";
+import type { LocalLibraryItem } from "@/data/schema";
 
 describe("LibraryStore.load", () => {
   it("foreground load flips loading true -> false", async () => {
@@ -58,4 +59,44 @@ describe("LibraryStore.load", () => {
   });
 });
 
-
+describe("LibraryStore sync clocks", () => {
+  it("advances edits beyond a future record clock", async () => {
+    const originalNow = Date.now;
+    Date.now = () => 100;
+    const saved: LocalLibraryItem[] = [];
+    const entry = {
+      item: {
+        libraryItemId: "future",
+        metadata: { title: "Before" },
+        inLibrary: true,
+        createdAt: 1,
+        updatedAt: 500,
+      },
+      sources: [{
+        id: "registry:source:manga",
+        libraryItemId: "future",
+        registryId: "registry",
+        sourceId: "source",
+        sourceMangaId: "manga",
+        createdAt: 1,
+        updatedAt: 500,
+      }],
+    };
+    try {
+      const store = createLibraryStore({
+        getLibraryEntries: async () => [entry],
+        getLibraryItem: async () => entry.item,
+        getSourceLinksForItem: async () => entry.sources,
+        saveLibraryItem: async (item) => { saved.push(item); },
+        removeLibraryItem: async () => {},
+        saveSourceLink: async () => {},
+        removeSourceLink: async () => {},
+      });
+      await store.getState().load();
+      await store.getState().updateMetadata("future", { title: "After" });
+      expect(saved[0]?.updatedAt).toBe(501);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+});

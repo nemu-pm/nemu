@@ -1,4 +1,10 @@
 import { z } from "zod/v4";
+export {
+  makeChapterProgressId,
+  makeCollectionItemId,
+  makeMangaProgressId,
+  makeSourceLinkId,
+} from "@nemu/core";
 
 // ============ USER DATA SCHEMAS ============
 
@@ -11,6 +17,7 @@ export const ChapterSummarySchema = z.object({
   title: z.string().optional(),
   chapterNumber: z.number().optional(),
   volumeNumber: z.number().optional(),
+  lang: z.string().optional(),
 });
 
 /**
@@ -41,6 +48,15 @@ export const MangaMetadataSchema = z.object({
 export const InstalledSourceSchema = z.object({
   id: z.string(), // Composite: registryId:sourceId
   registryId: z.string(),
+  sourceKind: z.enum(["aidoku", "tachiyomi"]).optional(),
+  sourceId: z.string().optional(),
+  name: z.string().optional(),
+  icon: z.string().optional(),
+  languages: z.array(z.string()).optional(),
+  contentRating: z.number().optional(),
+  hasAuthentication: z.boolean().optional(),
+  hasCloudflare: z.boolean().optional(),
+  downloadUrl: z.string().optional(),
   version: z.number(),
   updatedAt: z.number().optional(), // For LWW sync conflict resolution
   removed: z.boolean().optional(), // Tombstone: true = uninstalled
@@ -142,6 +158,7 @@ export const LocalSourceLinkSchema = z.object({
   // Sync fields
   createdAt: z.number(),
   updatedAt: z.number(),
+  removed: z.boolean().optional(),
 });
 
 /**
@@ -211,6 +228,7 @@ export const LocalCollectionSchema = z.object({
   name: z.string(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  removed: z.boolean().optional(),
 });
 
 /**
@@ -221,6 +239,7 @@ export const LocalCollectionItemSchema = z.object({
   libraryItemId: z.string(),
   addedAt: z.number(),
   updatedAt: z.number(),
+  removed: z.boolean().optional(),
 });
 
 // ============ INFERRED TYPES ============
@@ -243,43 +262,6 @@ export type LocalCollectionItem = z.infer<typeof LocalCollectionItemSchema>;
 export type UserOverrides = z.infer<typeof UserOverridesSchema>;
 
 // ============ KEY HELPERS ============
-
-/**
- * Build key for source links
- * Format: "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
- */
-export function makeSourceLinkId(registryId: string, sourceId: string, sourceMangaId: string): string {
-  return `${encodeURIComponent(registryId)}:${encodeURIComponent(sourceId)}:${encodeURIComponent(sourceMangaId)}`;
-}
-
-/**
- * Build key for chapter progress
- * Format: "${registryId}:${sourceId}:${sourceMangaId}:${sourceChapterId}" (URL-encoded)
- */
-export function makeChapterProgressId(
-  registryId: string,
-  sourceId: string,
-  sourceMangaId: string,
-  sourceChapterId: string
-): string {
-  return `${encodeURIComponent(registryId)}:${encodeURIComponent(sourceId)}:${encodeURIComponent(sourceMangaId)}:${encodeURIComponent(sourceChapterId)}`;
-}
-
-/**
- * Build key for manga progress (same format as source link)
- * Format: "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
- */
-export function makeMangaProgressId(registryId: string, sourceId: string, sourceMangaId: string): string {
-  return makeSourceLinkId(registryId, sourceId, sourceMangaId);
-}
-
-/**
- * Build a stable key for collection membership.
- * Format: "${collectionId}:${libraryItemId}" (URL-encoded)
- */
-export function makeCollectionItemId(collectionId: string, libraryItemId: string): string {
-  return `${encodeURIComponent(collectionId)}:${encodeURIComponent(libraryItemId)}`;
-}
 
 // ============ HELPERS ============
 

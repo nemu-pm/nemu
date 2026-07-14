@@ -8,7 +8,7 @@ import { useState, useMemo, useCallback, useRef, useEffect, type ReactNode } fro
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { parseSourceKey } from "@/data/keys";
-import { useStores } from "@/data/context";
+import { useSourceSettingsStoreApi, useStores } from "@/data/context";
 import { SettingsDialogWithPages } from "@/components/ui/settings-dialog";
 import { submitSourceBasicLogin, submitSourceWebLogin } from "@/components/source-settings-auth";
 import {
@@ -28,19 +28,29 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowReloadHorizontalIcon } from "@hugeicons/core-free-icons";
 import type { Setting, PageSetting, ButtonSetting, LinkSetting, LoginSetting, SettingsRendererProps } from "@/lib/settings";
 import { extractDefaults, SettingsRenderer } from "@/lib/settings";
-import { getSourceSettingsStore } from "@/stores/source-settings";
 import { SOURCE_SELECTION_KEY } from "@/lib/sources/tachiyomi/adapter";
 import type { MangaSource } from "@/lib/sources/types";
 import { hasAuthenticationHandlers } from "@/lib/sources/types";
 import { proxyUrl } from "@/config";
 import { agentFetch, hasAgent } from "@/lib/agent";
+import {
+  LOGIN_CODE_VERIFIER_SUFFIX,
+  buildOAuthTokenExchangeBody,
+  detectCompressionFormats,
+  extractAuthorizationCode,
+  hasOAuthTokenPayload,
+  isLikelyOAuthCallbackValue,
+  looksLikeTokenExchangeText,
+  resolveLoginActionUrl,
+  withPkce,
+  type SourceOauthCompressionFormat,
+} from "@nemu/core";
 
 const LOGIN_USERNAME_SUFFIX = ".username";
 const LOGIN_PASSWORD_SUFFIX = ".password";
 const LOGIN_COOKIE_KEYS_SUFFIX = ".keys";
 const LOGIN_COOKIE_VALUES_SUFFIX = ".values";
 const LOGIN_LOCAL_STORAGE_PREFIX = ".ls.";
-const LOGIN_CODE_VERIFIER_SUFFIX = ".codeVerifier";
 const SETTING_EFFECT_DEBOUNCE_MS = 500;
 
 interface SourceSettingsProps {
@@ -94,7 +104,7 @@ export function SourceSettings({
   const { t } = useTranslation();
   const { useSettingsStore } = useStores();
   const getSource = useSettingsStore((s) => s.getSource);
-  const store = getSourceSettingsStore();
+  const store = useSourceSettingsStoreApi();
 
   const parsedSourceKey = useMemo(
     () => (sourceKey ? parseSourceKey(sourceKey) : { registryId: "", sourceId: "" }),
@@ -487,7 +497,7 @@ export function SourceSettings({
           throw new Error(t("sourceSettings.invalidLoginUrl"));
         }
 
-        const liveSettings = getSourceSettingsStore().getState().values.get(sourceKey) ?? {};
+        const liveSettings = store.getState().values.get(sourceKey) ?? {};
         const codeVerifier = String(liveSettings[`${oauthLogin.setting.key}${LOGIN_CODE_VERIFIER_SUFFIX}`] ?? "");
         if (!codeVerifier) {
           throw new Error(t("sourceSettings.openLoginFirst"));
@@ -499,16 +509,12 @@ export function SourceSettings({
         }
 
         const authUrlObject = new URL(authUrl);
-        const body = new URLSearchParams({
-          grant_type: "authorization_code",
+        const body = buildOAuthTokenExchangeBody({
           code,
-          code_verifier: codeVerifier,
+          codeVerifier,
+          redirectUri: authUrlObject.searchParams.get("redirect_uri"),
+          clientId: authUrlObject.searchParams.get("client_id"),
         });
-
-        const redirectUri = authUrlObject.searchParams.get("redirect_uri");
-        const clientId = authUrlObject.searchParams.get("client_id");
-        if (redirectUri) body.set("redirect_uri", redirectUri);
-        if (clientId) body.set("client_id", clientId);
 
         const useAgentForTokenExchange = await hasAgent();
         const requestInit: RequestInit = {
@@ -560,7 +566,7 @@ export function SourceSettings({
     } finally {
       setOAuthLogin((prev) => prev ? { ...prev, submitting: false } : prev);
     }
-  }, [oauthLogin, setPrimarySettingValue, sourceKey, t, values]);
+  }, [oauthLogin, setPrimarySettingValue, sourceKey, store, t, values]);
 
   const renderCustomSetting = useCallback<NonNullable<SettingsRendererProps["renderCustomSetting"]>>((setting, context) => {
     switch (setting.type) {
@@ -827,12 +833,7 @@ function findSettingByKey(settings: Setting[], key: string): Setting | null {
 }
 
 function resolveActionUrl(setting: LinkSetting | LoginSetting, values: Record<string, unknown>): string | null {
-  if (setting.url) return setting.url;
-  if (setting.urlKey) {
-    const value = values[setting.urlKey];
-    return typeof value === "string" && value ? value : null;
-  }
-  return null;
+  return resolveLoginActionUrl(setting, values);
 }
 
 function isLoggedIn(setting: LoginSetting, values: Record<string, unknown>): boolean {
@@ -919,25 +920,12 @@ function parseLocalStorageInput(
   return result;
 }
 
-function hasOAuthTokenPayload(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-
-  if (trimmed.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-      return ["access_token", "refresh_token", "id_token", "token_type"].some((key) => {
-        const tokenValue = parsed[key];
-        return typeof tokenValue === "string" && tokenValue.length > 0;
-      });
-    } catch {
-      return false;
-    }
-  }
-
-  return /(?:^|[?#&])(access_token|refresh_token|id_token|token_type)=/i.test(trimmed);
-}
-
+// OAuth / PKCE helpers (hasOAuthTokenPayload, isLikelyOAuthCallbackValue,
+// extractAuthorizationCode, withPkce, generateCodeVerifier, generateCodeChallenge,
+// bytesToBase64Url, looksLikeTokenExchangeText, detectCompressionFormats,
+// LOGIN_CODE_VERIFIER_SUFFIX) live in @nemu/core so mobile can share them.
+// Only the token-response decompression below is web-only: it relies on
+// DecompressionStream, which RN does not provide.
 async function decodeTokenExchangeResponse(buffer: ArrayBuffer): Promise<string> {
   const bytes = new Uint8Array(buffer);
   const plainText = new TextDecoder().decode(bytes);
@@ -959,32 +947,7 @@ async function decodeTokenExchangeResponse(buffer: ArrayBuffer): Promise<string>
   return plainText;
 }
 
-function looksLikeTokenExchangeText(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  if (hasOAuthTokenPayload(trimmed)) return true;
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return true;
-  if (/"error_description"\s*:|"error"\s*:/i.test(trimmed)) return true;
-  return false;
-}
-
-function detectCompressionFormats(bytes: Uint8Array): CompressionFormat[] {
-  if (bytes.length >= 2) {
-    if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
-      return ["gzip"];
-    }
-
-    const compressionMethod = bytes[0] & 0x0f;
-    const header = (bytes[0] << 8) | bytes[1];
-    if (compressionMethod === 8 && header % 31 === 0) {
-      return ["deflate"];
-    }
-  }
-
-  return ["gzip", "deflate"];
-}
-
-async function decompressBytes(bytes: Uint8Array, format: CompressionFormat): Promise<string> {
+async function decompressBytes(bytes: Uint8Array, format: SourceOauthCompressionFormat): Promise<string> {
   const buffer = bytes.buffer.slice(
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength
@@ -995,77 +958,6 @@ async function decompressBytes(bytes: Uint8Array, format: CompressionFormat): Pr
   }
   const decompressedStream = stream.pipeThrough(new DecompressionStream(format));
   return new Response(decompressedStream).text();
-}
-
-function isLikelyOAuthCallbackValue(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  if (hasOAuthTokenPayload(trimmed)) return true;
-  if (/(?:^|[?#&])code=/i.test(trimmed)) return true;
-
-  try {
-    const url = new URL(trimmed);
-    return Boolean(url.search || url.hash);
-  } catch {
-    return false;
-  }
-}
-
-async function withPkce(rawUrl: string): Promise<{ url: string; codeVerifier: string }> {
-  const url = new URL(rawUrl);
-  const codeVerifier = generateCodeVerifier();
-  const codeChallenge = await generateCodeChallenge(codeVerifier);
-  url.searchParams.set("code_challenge", codeChallenge);
-  url.searchParams.set("code_challenge_method", "S256");
-  url.searchParams.set("response_type", "code");
-  return {
-    url: url.toString(),
-    codeVerifier,
-  };
-}
-
-function generateCodeVerifier(): string {
-  const characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
-  const bytes = crypto.getRandomValues(new Uint8Array(64));
-  return Array.from(bytes, (byte) => characters[byte % characters.length]).join("");
-}
-
-async function generateCodeChallenge(codeVerifier: string): Promise<string> {
-  const encoded = new TextEncoder().encode(codeVerifier);
-  const digest = await crypto.subtle.digest("SHA-256", encoded);
-  return bytesToBase64Url(new Uint8Array(digest));
-}
-
-function bytesToBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-function extractAuthorizationCode(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  try {
-    const url = new URL(trimmed);
-    return url.searchParams.get("code");
-  } catch {
-    const codeMatch = trimmed.match(/(?:^|[?#&])code=([^&#]+)/i);
-    if (codeMatch?.[1]) {
-      return decodeURIComponent(codeMatch[1]);
-    }
-
-    if (!/[=?&#]/.test(trimmed)) {
-      return trimmed;
-    }
-
-    return null;
-  }
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {

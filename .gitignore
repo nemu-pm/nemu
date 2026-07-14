@@ -45,6 +45,7 @@ coverage
 bun.lockb
 
 # Editor directories and files
+.codex/
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json

@@ -415,7 +415,8 @@
     "keepDataDescription": "You can sign back in anytime to sync again.",
     "removeData": "Remove data from this device",
     "removeDataDescription": "Your cloud data will stay safe.",
-    "signingOut": "Signing out..."
+    "signingOut": "Signing out...",
+    "failed": "Couldn't sign out. Your local data was left unchanged."
   },
   "import": {
     "title": "Import Local Library",

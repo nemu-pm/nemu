@@ -72,7 +72,6 @@ async function searchJapaneseTitle(title: string, authors?: string[]): Promise<s
     const result = await withTimeout(
       generateText({
         model: getGoogle()(SEARCH_MODEL),
-        // @ts-expect-error - google.tools.googleSearch type is not fully compatible but works at runtime
         tools: { google_search: getGoogle().tools.googleSearch({}) },
         prompt: `Find the original Japanese title of the manga "${title}".${authorHint}
 
@@ -122,7 +121,6 @@ async function searchJapaneseDescription(japaneseTitle: string, romajiTitle?: st
     const result = await withTimeout(
       generateText({
         model: getGoogle()(SEARCH_MODEL),
-        // @ts-expect-error - google.tools.googleSearch type is not fully compatible but works at runtime
         tools: { google_search: getGoogle().tools.googleSearch({}) },
         prompt: `漫画${titleHint}の公式あらすじ・作品紹介を検索してください。
 
@@ -170,7 +168,6 @@ async function searchAuthorJapaneseName(englishName: string): Promise<string | n
     const result = await withTimeout(
       generateText({
         model: getGoogle()(SEARCH_MODEL),
-        // @ts-expect-error - google.tools.googleSearch type is not fully compatible but works at runtime
         tools: { google_search: getGoogle().tools.googleSearch({}) },
         prompt: `Find the original Japanese name of the manga author/artist "${englishName}".
 
@@ -218,7 +215,6 @@ async function searchChineseTitle(japaneseTitle: string): Promise<{ simplified: 
     const result = await withTimeout(
       generateText({
         model: getGoogle()(SEARCH_MODEL),
-        // @ts-expect-error - google.tools.googleSearch type is not fully compatible but works at runtime
         tools: { google_search: getGoogle().tools.googleSearch({}) },
         prompt: `搜索漫画「${japaneseTitle}」的中文标题。
 

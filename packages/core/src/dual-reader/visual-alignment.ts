@@ -1,5 +1,5 @@
 import FFT from 'fft.js';
-import { getAlignmentWasmModule, isAlignmentWasmReady, type KissFftModule } from './fft-wasm';
+import type { KissFftModule, FftWasmProvider } from './fft';
 import type { DhashInput } from './hash';
 import { computeGradient, downsampleToMax, resizeLuma, toLuma, type LumaImage } from './image';
 import { buildAlignmentOptions } from './alignment-options';
@@ -83,6 +83,12 @@ export type AlignmentOptions = {
   maxCoarseCandidates?: number;
   useScalePrior?: boolean;
   fftBackend?: FftBackend;
+  /**
+   * Injected wasm FFT module accessor. Web wires this to
+   * `src/lib/dual-reader/fft-wasm.ts`; mobile omits it so the pure-JS
+   * `fft.js` backend is used (no WebAssembly polyfill on RN).
+   */
+  wasmProvider?: FftWasmProvider;
   scoreMax?: number;
   useCoarseToFineScore?: boolean;
   useEdgeSampling?: boolean;
@@ -1213,8 +1219,11 @@ function buildScaleCandidates(min: number, max: number, step: number): number[] 
   return values;
 }
 
-function resolveFftBackend(requested: FftBackend): { backend: 'js' | 'wasm'; wasmReady: boolean } {
-  const wasmReady = isAlignmentWasmReady();
+function resolveFftBackend(
+  requested: FftBackend,
+  wasmProvider?: FftWasmProvider
+): { backend: 'js' | 'wasm'; wasmReady: boolean } {
+  const wasmReady = wasmProvider?.isReady() ?? false;
   if (requested === 'wasm') {
     return { backend: wasmReady ? 'wasm' : 'js', wasmReady };
   }
@@ -1383,8 +1392,8 @@ export function computeAlignmentTransform(input: {
   const maxCoarseCandidates = Math.max(1, Math.trunc(options.maxCoarseCandidates ?? 2));
   const useScalePrior = options.useScalePrior ?? true;
   const fftRequested = options.fftBackend ?? 'wasm';
-  const { backend: fftBackend, wasmReady } = resolveFftBackend(fftRequested);
-  const wasmModule = fftBackend === 'wasm' ? getAlignmentWasmModule() : null;
+  const { backend: fftBackend, wasmReady } = resolveFftBackend(fftRequested, options.wasmProvider);
+  const wasmModule = fftBackend === 'wasm' ? (options.wasmProvider?.getModule() ?? null) : null;
   const useCoarseToFineScore = options.useCoarseToFineScore ?? true;
   const scoreMaxDefault = Math.min(128, fineMax);
   const scoreMax = Math.max(48, Math.min(options.scoreMax ?? scoreMaxDefault, fineMax));
@@ -2219,12 +2228,3 @@ export function computeAlignmentTransform(input: {
   };
 }
 
-export function computeAlignmentFromInputs(input: {
-  primary: DhashInput;
-  secondary: DhashInput;
-  options?: AlignmentOptions;
-}): AlignmentResult {
-  const primary = toAlignmentImage(input.primary);
-  const secondary = toAlignmentImage(input.secondary);
-  return computeAlignmentTransform({ primary, secondary, options: input.options });
-}

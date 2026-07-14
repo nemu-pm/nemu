@@ -16,8 +16,12 @@ import { loadExtension, type LoadedExtension } from "@nemu.pm/tachiyomi-runtime/
 import { createTachiyomiBrowsableSource, SOURCE_SELECTION_KEY } from "./adapter";
 import { SERVICE_URL } from "@/config";
 import { Keys } from "@/data/keys";
-import { getSourceSettingsStore } from "@/stores/source-settings";
+import {
+  getSourceSettingsStore,
+  type SourceSettingsStore,
+} from "@/stores/source-settings";
 import { normalizeSourceLangs } from "../language";
+import { nextSyncTimestamp } from "@nemu/core";
 
 export const TACHIYOMI_LOCAL_REGISTRY_ID = "tachiyomi-local";
 
@@ -42,13 +46,19 @@ export class TachiyomiLocalRegistry implements SourceRegistryProvider {
 
   private installedSourceStore: InstalledSourceStore;
   private cacheStore: CacheStore;
+  private sourceSettingsStore: SourceSettingsStore;
   private extensions = new Map<string, LocalExtension>();
   private loadedSources = new Map<string, MangaSource>();
   private initialized = false;
 
-  constructor(installedSourceStore: InstalledSourceStore, cacheStore: CacheStore) {
+  constructor(
+    installedSourceStore: InstalledSourceStore,
+    cacheStore: CacheStore,
+    sourceSettingsStore: SourceSettingsStore = getSourceSettingsStore(),
+  ) {
     this.installedSourceStore = installedSourceStore;
     this.cacheStore = cacheStore;
+    this.sourceSettingsStore = sourceSettingsStore;
   }
 
   /**
@@ -135,13 +145,22 @@ export class TachiyomiLocalRegistry implements SourceRegistryProvider {
     if (!ext) {
       throw new Error(`Extension not found: ${sourceId}`);
     }
+    const languages = normalizeSourceLangs([ext.manifest.lang]);
     
     // Save to installed source store so it appears in installed sources
     await this.installedSourceStore.saveInstalledSource({
       id: Keys.source(TACHIYOMI_LOCAL_REGISTRY_ID, sourceId),
       registryId: TACHIYOMI_LOCAL_REGISTRY_ID,
+      sourceKind: "tachiyomi",
+      sourceId,
+      name: ext.manifest.name,
+      icon: ext.iconUrl?.startsWith("http") ? ext.iconUrl : undefined,
+      languages: languages.length > 0 ? languages : undefined,
+      contentRating: ext.manifest.nsfw ? 2 : 0,
+      hasAuthentication: ext.manifest.hasWebView,
+      hasCloudflare: ext.manifest.hasCloudflare,
       version: ext.manifest.version,
-      updatedAt: Date.now(),
+      updatedAt: nextSyncTimestamp(),
     });
   }
 
@@ -180,7 +199,7 @@ export class TachiyomiLocalRegistry implements SourceRegistryProvider {
       }
       
       // Determine which source to load
-      const settingsStore = getSourceSettingsStore();
+      const settingsStore = this.sourceSettingsStore;
       await settingsStore.getState().initialize();
       const savedSettings = settingsStore.getState().values.get(sourceKey) ?? {};
       const savedSourceId = savedSettings[SOURCE_SELECTION_KEY] as string | undefined;
@@ -194,7 +213,12 @@ export class TachiyomiLocalRegistry implements SourceRegistryProvider {
       }
       
       const asyncSource = ext.loadedExtension.getSource(selectedSourceId);
-      const source = await createTachiyomiBrowsableSource(asyncSource, sourceKey, this.cacheStore);
+      const source = await createTachiyomiBrowsableSource(
+        asyncSource,
+        sourceKey,
+        this.cacheStore,
+        settingsStore,
+      );
       this.loadedSources.set(sourceId, source);
       
       console.log(`[TachiyomiLocal] Loaded source: ${source.name} (${selectedSourceId})`);
@@ -235,4 +259,3 @@ export class TachiyomiLocalRegistry implements SourceRegistryProvider {
     await this.ensureInitialized();
   }
 }
-

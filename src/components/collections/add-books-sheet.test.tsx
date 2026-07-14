@@ -78,6 +78,10 @@ mock.module("@/components/ui/responsive-dialog", () => ({
   ResponsiveDialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
   ResponsiveDialogDescription: ({ children }: { children: React.ReactNode }) => <p>{children}</p>,
   ResponsiveDialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ResponsiveDialogTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ResponsiveDialogClose: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ResponsiveDialogNested: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ResponsiveDialogContext: React.createContext({}),
 }));
 
 mock.module("@/components/ui/button", () => ({

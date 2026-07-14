@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import type { DataServices, StoreHooks } from "@/sync/types";
 import { useConvexAuth } from "convex/react";
@@ -11,6 +19,7 @@ import {
   type ProfileId,
   type ServicesContainer,
 } from "@/sync/services";
+import { clearSourceSettingsProfile } from "@/stores/source-settings";
 
 const LAST_PROFILE_ID_KEY = "nemu:last-profile-id";
 
@@ -38,7 +47,7 @@ export function DataServicesProvider(props: { children: ReactNode }) {
   const profileId = profileOverride ?? autoProfileId;
 
   // Keep global debug refs in sync (used by diagnostics / signOut helpers).
-  useEffect(() => {
+  useLayoutEffect(() => {
     effectiveProfileIdRef.current = autoProfileId;
   }, [autoProfileId]);
 
@@ -57,6 +66,16 @@ export function DataServicesProvider(props: { children: ReactNode }) {
   }, [isAuthenticated, isLoading]);
 
   const container = useMemo(() => createServicesContainer(profileId), [profileId]);
+
+  useEffect(() => {
+    if (!profileId) return;
+    // Older builds stored source credentials in one unowned database. Once an
+    // authenticated container is committed, scrub that legacy/anonymous data;
+    // ownership cannot be safely inferred or migrated to this account.
+    void clearSourceSettingsProfile().catch((error) => {
+      console.error("[source-settings] Failed to scrub legacy credentials:", error);
+    });
+  }, [profileId]);
 
   // Dispose the previous container when profile changes (and on unmount).
   useEffect(() => {
@@ -110,4 +129,8 @@ export function useProgressStoreApi() {
   return useServicesContext().container.useProgressStore;
 }
 
-
+// This provider already owns and exports its context hooks by design.
+// eslint-disable-next-line react-refresh/only-export-components
+export function useSourceSettingsStoreApi() {
+  return useServicesContext().container.sourceSettingsStore;
+}

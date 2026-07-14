@@ -1,6 +1,7 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import type { LocalChapterProgress } from "@/data/schema";
 import { makeChapterProgressId } from "@/data/schema";
+import { nextSyncTimestamp } from "@nemu/core";
 
 /** Ops interface for history store (canonical progress tables) */
 export interface HistoryStoreOps {
@@ -82,6 +83,8 @@ export function createHistoryStore(ops: HistoryStoreOps): HistoryStore {
     saveProgress: async (registryId, sourceId, mangaId, chapterId, progress, total, chapterMeta) => {
       const id = makeChapterProgressId(registryId, sourceId, mangaId, chapterId);
       const existing = get().entries.get(id);
+      const lastReadAt = Date.now();
+      const updatedAt = nextSyncTimestamp(existing?.updatedAt);
       
       // High-water mark: keep highest progress seen, preserve completed state
       const entry: LocalChapterProgress = {
@@ -93,12 +96,12 @@ export function createHistoryStore(ops: HistoryStoreOps): HistoryStore {
         progress: existing ? Math.max(existing.progress, progress) : progress,
         total: existing ? Math.max(existing.total, total) : total,
         completed: existing?.completed ?? false,
-        lastReadAt: Date.now(),
+        lastReadAt,
         // Include chapter metadata (prefer new, fall back to existing)
         chapterNumber: chapterMeta?.chapterNumber ?? existing?.chapterNumber,
         volumeNumber: chapterMeta?.volumeNumber ?? existing?.volumeNumber,
         chapterTitle: chapterMeta?.chapterTitle ?? existing?.chapterTitle,
-        updatedAt: Date.now(),
+        updatedAt,
       };
 
       await ops.saveChapterProgress(entry);
@@ -111,6 +114,8 @@ export function createHistoryStore(ops: HistoryStoreOps): HistoryStore {
     markCompleted: async (registryId, sourceId, mangaId, chapterId, total?: number, chapterMeta?) => {
       const id = makeChapterProgressId(registryId, sourceId, mangaId, chapterId);
       const existing = get().entries.get(id);
+      const lastReadAt = Date.now();
+      const updatedAt = nextSyncTimestamp(existing?.updatedAt);
       
       // Use provided total, or existing, or 0
       const finalTotal = total ?? existing?.total ?? 0;
@@ -125,12 +130,12 @@ export function createHistoryStore(ops: HistoryStoreOps): HistoryStore {
         progress: finalTotal > 0 ? finalTotal - 1 : (existing?.progress ?? 0),
         total: finalTotal,
         completed: true,
-        lastReadAt: Date.now(),
+        lastReadAt,
         // Include chapter metadata
         chapterNumber: chapterMeta?.chapterNumber ?? existing?.chapterNumber,
         volumeNumber: chapterMeta?.volumeNumber ?? existing?.volumeNumber,
         chapterTitle: chapterMeta?.chapterTitle ?? existing?.chapterTitle,
-        updatedAt: Date.now(),
+        updatedAt,
       };
 
       await ops.saveChapterProgress(entry);

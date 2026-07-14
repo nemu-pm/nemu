@@ -24,6 +24,23 @@ import {
   ExternalIdsSchema,
 } from "./schema";
 import { z } from "zod";
+import {
+  mergeCollectionSnapshot,
+  mergeInstalledSources,
+  mergeLibrarySnapshot,
+  mergeChapterProgressBatchForSave,
+  mergeChapterProgressForSave,
+  mergeChapterProgressSnapshot,
+  mergeMangaProgressBatchForSave,
+  mergeMangaProgressForSave,
+  mergeMangaProgressSnapshot,
+  nextSyncTimestamp,
+  decideSyncGeneration,
+  type CollectionSnapshotMerge,
+  type LibrarySnapshotMerge,
+  type ProgressSnapshotMerge,
+  type SyncGenerationDecision,
+} from "@nemu/core";
 
 // ============================================================================
 // Legacy schemas (internal only - for migration)
@@ -133,6 +150,34 @@ const STORES = {
 const DEFAULT_SETTINGS: UserSettings = {
   installedSources: [],
 };
+const SYNC_GENERATION_SETTINGS_ID = "sync-generation";
+
+export interface AccountDataSnapshot {
+  libraryItems: LocalLibraryItem[];
+  sourceLinks: LocalSourceLink[];
+  chapterProgress: LocalChapterProgress[];
+  mangaProgress: LocalMangaProgress[];
+  collections: LocalCollection[];
+  collectionItems: LocalCollectionItem[];
+  settings: UserSettings;
+  syncGeneration: number | null;
+}
+
+export type MergeAccountDataSnapshotOptions = {
+  /**
+   * Restore the captured account's generation fence in the same transaction
+   * as its rows. Keep this false when copying data into the anonymous profile:
+   * cloud generations belong to one authenticated account only.
+   */
+  restoreSyncGeneration?: boolean;
+};
+
+function parseSyncGenerationRecord(record: unknown): number | null {
+  const generation = (record as { generation?: unknown } | undefined)?.generation;
+  return typeof generation === "number" && Number.isSafeInteger(generation) && generation >= 0
+    ? generation
+    : null;
+}
 
 /**
  * Window event used to surface IndexedDB lock / blocked upgrade to the UI layer.
@@ -341,6 +386,7 @@ function makeHistoryKey(
  */
 export class IndexedDBUserDataStore implements UserDataStore {
   private dbPromise: Promise<IDBDatabase> | null = null;
+  private syncWriteQueue: Promise<void> = Promise.resolve();
   private _profileId: string;
   private _dbName: string;
 
@@ -354,6 +400,23 @@ export class IndexedDBUserDataStore implements UserDataStore {
   constructor(profileId?: string) {
     this._profileId = profileId ?? "";
     this._dbName = this._profileId ? `${DEFAULT_DB_NAME}::${this._profileId}` : DEFAULT_DB_NAME;
+  }
+
+  /**
+   * Order a complete user-visible sync write phase against generation resets.
+   *
+   * Callers enqueue before their first local read. This gives a user action
+   * that began before a reset a stable place before that reset, while actions
+   * enqueued afterwards observe the new generation. The queue is intentionally
+   * per profile store; IndexedDB transactions provide the cross-instance guard.
+   */
+  runWithSyncWrite<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.syncWriteQueue.then(operation);
+    this.syncWriteQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   /**
@@ -793,6 +856,85 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
   // ============ SETTINGS ============
 
+  async getSyncGeneration(): Promise<number | null> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const request = db
+        .transaction(STORES.settings, "readonly")
+        .objectStore(STORES.settings)
+        .get(SYNC_GENERATION_SETTINGS_ID);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        resolve(parseSyncGenerationRecord(request.result));
+      };
+    });
+  }
+
+  async prepareSyncGeneration(
+    generation: number,
+    shouldContinue: () => boolean = () => true,
+  ): Promise<SyncGenerationDecision | null> {
+    return this.runWithSyncWrite(() =>
+      this.prepareSyncGenerationTransaction(generation, shouldContinue),
+    );
+  }
+
+  private async prepareSyncGenerationTransaction(
+    generation: number,
+    shouldContinue: () => boolean,
+  ): Promise<SyncGenerationDecision | null> {
+    if (!shouldContinue()) return null;
+    const db = await this.getDB();
+    if (!shouldContinue()) return null;
+    const syncedStores = [
+      STORES.library,
+      STORES.history,
+      STORES.libraryItems,
+      STORES.sourceLinks,
+      STORES.chapterProgress,
+      STORES.mangaProgress,
+      STORES.collections,
+      STORES.collectionItems,
+    ].filter((name) => db.objectStoreNames.contains(name));
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction([STORES.settings, ...syncedStores], "readwrite");
+      const settingsStore = tx.objectStore(STORES.settings);
+      const request = settingsStore.get(SYNC_GENERATION_SETTINGS_ID);
+      let result: SyncGenerationDecision | null = null;
+      request.onsuccess = () => {
+        if (!shouldContinue()) return;
+        const storedGeneration = parseSyncGenerationRecord(request.result);
+        const decision = decideSyncGeneration(storedGeneration, generation);
+        if (decision === "stale") {
+          result = decision;
+          return;
+        }
+        if (decision === "reset") {
+          const defaultRequest = settingsStore.get("default");
+          defaultRequest.onsuccess = () => {
+            if (!shouldContinue()) return;
+            for (const storeName of syncedStores) tx.objectStore(storeName).clear();
+            const settings = defaultRequest.result as Record<string, unknown> | undefined;
+            if (settings) {
+              settingsStore.put({ ...settings, installedSources: [] });
+            }
+            settingsStore.put({ id: SYNC_GENERATION_SETTINGS_ID, generation });
+            result = decision;
+          };
+          return;
+        }
+        if (decision !== "current") {
+          settingsStore.put({ id: SYNC_GENERATION_SETTINGS_ID, generation });
+        }
+        result = decision;
+      };
+      tx.onerror = () => reject(tx.error ?? new Error("Sync generation transaction failed."));
+      tx.onabort = () => reject(tx.error ?? new Error("Sync generation transaction aborted."));
+      tx.oncomplete = () => resolve(result);
+    });
+  }
+
   async getSettings(): Promise<UserSettings> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
@@ -837,27 +979,128 @@ export class IndexedDBUserDataStore implements UserDataStore {
   }
 
   async saveInstalledSource(source: InstalledSource): Promise<void> {
-    const settings = await this.getSettings();
-    // Ensure removed=false when installing (clears any existing tombstone)
-    const sourceToSave = { ...source, removed: false };
-    const existing = settings.installedSources.findIndex((s) => s.id === source.id);
-    if (existing >= 0) {
-      settings.installedSources[existing] = sourceToSave;
-    } else {
-      settings.installedSources.push(sourceToSave);
-    }
-    await this.saveSettings(settings);
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORES.settings, "readwrite");
+      const store = tx.objectStore(STORES.settings);
+      const request = store.get("default");
+      request.onsuccess = () => {
+        const parsed = UserSettingsSchema.safeParse(request.result);
+        const settings = parsed.success ? parsed.data : DEFAULT_SETTINGS;
+        const existing = settings.installedSources.find((item) => item.id === source.id);
+        const sourceToSave: InstalledSource = {
+          ...source,
+          updatedAt: source.updatedAt ?? nextSyncTimestamp(existing?.updatedAt),
+          removed: false,
+        };
+        store.put({
+          id: "default",
+          ...settings,
+          installedSources: [
+            ...settings.installedSources.filter((item) => item.id !== source.id),
+            sourceToSave,
+          ],
+        });
+      };
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+    });
   }
 
-  async removeInstalledSource(id: string): Promise<void> {
-    const settings = await this.getSettings();
-    const existing = settings.installedSources.find((s) => s.id === id);
-    if (existing) {
-      // Tombstone: mark as removed instead of deleting (for LWW sync)
-      existing.removed = true;
-      existing.updatedAt = Date.now();
-      await this.saveSettings(settings);
-    }
+  async removeInstalledSource(
+    id: string,
+    _registryId?: string,
+    updatedAt?: number,
+  ): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORES.settings, "readwrite");
+      const store = tx.objectStore(STORES.settings);
+      const request = store.get("default");
+      request.onsuccess = () => {
+        const parsed = UserSettingsSchema.safeParse(request.result);
+        const settings = parsed.success ? parsed.data : DEFAULT_SETTINGS;
+        const existing = settings.installedSources.find((source) => source.id === id);
+        if (!existing) return;
+        const removalTimestamp = updatedAt ?? nextSyncTimestamp(existing.updatedAt);
+        store.put({
+          id: "default",
+          ...settings,
+          installedSources: [
+            ...settings.installedSources.filter((source) => source.id !== id),
+            { ...existing, removed: true, updatedAt: removalTimestamp },
+          ],
+        });
+      };
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve();
+    });
+  }
+
+  async applyInstalledSourcesSnapshot(
+    cloudSources: InstalledSource[],
+    shouldContinue: () => boolean = () => true,
+    expectedGeneration?: number,
+  ): Promise<{ sources: InstalledSource[]; localSourcesToPush: InstalledSource[] } | null> {
+    if (!shouldContinue()) return null;
+    const db = await this.getDB();
+    if (!shouldContinue()) return null;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORES.settings, "readwrite");
+      const store = tx.objectStore(STORES.settings);
+      const request = store.get("default");
+      const generationRequest = store.get(SYNC_GENERATION_SETTINGS_ID);
+      let settingsReady = false;
+      let generationReady = expectedGeneration === undefined;
+      let generationMatches = expectedGeneration === undefined;
+      let result: {
+        sources: InstalledSource[];
+        localSourcesToPush: InstalledSource[];
+      } | null = null;
+
+      const mergeAndReplace = () => {
+        if (
+          result !== null ||
+          !settingsReady ||
+          !generationReady ||
+          !generationMatches ||
+          !shouldContinue()
+        ) return;
+        const parsed = UserSettingsSchema.safeParse(request.result);
+        const settings = parsed.success ? parsed.data : DEFAULT_SETTINGS;
+        const localSources = settings.installedSources;
+        const cloudById = new Map(cloudSources.map((source) => [source.id, source]));
+        const sources = mergeInstalledSources(localSources, cloudSources);
+        const localSourcesToPush = localSources.filter((local) => {
+          const cloud = cloudById.get(local.id);
+          if (!cloud) return true;
+          const localUpdatedAt = local.updatedAt ?? 0;
+          const cloudUpdatedAt = cloud.updatedAt ?? 0;
+          return localUpdatedAt > cloudUpdatedAt;
+        });
+        store.put({
+          id: "default",
+          ...settings,
+          installedSources: sources,
+        });
+        result = { sources, localSourcesToPush };
+      };
+      request.onsuccess = () => {
+        settingsReady = true;
+        mergeAndReplace();
+      };
+      generationRequest.onsuccess = () => {
+        if (expectedGeneration !== undefined) {
+          const value = (generationRequest.result as { generation?: unknown } | undefined)?.generation;
+          generationMatches = value === expectedGeneration;
+          generationReady = true;
+        }
+        mergeAndReplace();
+      };
+      tx.onerror = () => reject(tx.error ?? new Error("Installed-source snapshot transaction failed."));
+      tx.onabort = () => reject(tx.error ?? new Error("Installed-source snapshot transaction aborted."));
+      tx.oncomplete = () => resolve(result);
+    });
   }
 
   // ============ REGISTRIES (local only) ============
@@ -1028,10 +1271,20 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.libraryItems, "readwrite");
       const store = tx.objectStore(STORES.libraryItems);
-      const request = store.delete(libraryItemId);
+      const request = store.get(libraryItemId);
 
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
+      request.onsuccess = () => {
+        const parsed = LocalLibraryItemSchema.safeParse(request.result);
+        if (parsed.success) {
+          store.put({
+            ...parsed.data,
+            inLibrary: false,
+            updatedAt: nextSyncTimestamp(parsed.data.updatedAt),
+          } satisfies LocalLibraryItem);
+        }
+        resolve();
+      };
     });
   }
 
@@ -1060,7 +1313,10 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
-  async getSourceLinksForLibraryItem(libraryItemId: string): Promise<LocalSourceLink[]> {
+  async getSourceLinksForLibraryItem(
+    libraryItemId: string,
+    options?: { includeRemoved?: boolean },
+  ): Promise<LocalSourceLink[]> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
@@ -1088,7 +1344,11 @@ export class IndexedDBUserDataStore implements UserDataStore {
           return;
         }
         const parsed = LocalSourceLinkSchema.safeParse(cursor.value);
-        if (parsed.success && parsed.data.libraryItemId === libraryItemId) {
+        if (
+          parsed.success &&
+          parsed.data.libraryItemId === libraryItemId &&
+          (options?.includeRemoved || !parsed.data.removed)
+        ) {
           results.push(parsed.data);
         }
         cursor.continue();
@@ -1138,9 +1398,9 @@ export class IndexedDBUserDataStore implements UserDataStore {
    * This reduces windows of inconsistent local state where items exist but links
    * haven't been written yet (or vice versa).
    *
-   * NOTE: This intentionally does NOT clear stores; it is an upsert-only mirror of
-   * the cloud snapshot, preserving any local-only rows (e.g. offline writes) until
-   * Convex convergence completes.
+   * This low-level replacement helper mirrors the provided snapshot exactly.
+   * Sync callers that must preserve concurrent/local-only rows should use
+   * applyLibrarySnapshot(), which performs read + merge + replace atomically.
    */
   async saveLibrarySnapshot(items: LocalLibraryItem[], links: LocalSourceLink[]): Promise<void> {
     if (items.length === 0 && links.length === 0) return;
@@ -1172,12 +1432,110 @@ export class IndexedDBUserDataStore implements UserDataStore {
   }
 
   /**
-   * Delete a library item and all its source links.
-   * Used for hard-delete semantics in the local cache.
+   * Atomically read, merge, and replace the canonical library tables.
+   *
+   * IndexedDB serializes overlapping readwrite transactions. Keeping the read
+   * and replacement in this one transaction means a concurrent local write is
+   * either included in the merge or runs after it; it can never land in the
+   * old read -> merge -> clear gap and be silently erased.
    */
-  async deleteLibraryItemAndLinks(libraryItemId: string): Promise<void> {
+  async applyLibrarySnapshot(
+    cloudItems: LocalLibraryItem[],
+    cloudLinks: LocalSourceLink[],
+    shouldContinue: () => boolean = () => true,
+    expectedGeneration?: number,
+  ): Promise<LibrarySnapshotMerge<LocalLibraryItem, LocalSourceLink> | null> {
+    if (!shouldContinue()) return null;
     const db = await this.getDB();
-    const storeNames = [STORES.libraryItems, STORES.sourceLinks, STORES.collectionItems].filter((name) =>
+    if (!shouldContinue()) return null;
+    if (
+      !db.objectStoreNames.contains(STORES.libraryItems) ||
+      !db.objectStoreNames.contains(STORES.sourceLinks)
+    ) {
+      return null;
+    }
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(
+        [STORES.settings, STORES.libraryItems, STORES.sourceLinks],
+        "readwrite",
+      );
+      const settingsStore = tx.objectStore(STORES.settings);
+      const itemsStore = tx.objectStore(STORES.libraryItems);
+      const linksStore = tx.objectStore(STORES.sourceLinks);
+      const itemsRequest = itemsStore.getAll();
+      const linksRequest = linksStore.getAll();
+      const generationRequest = settingsStore.get(SYNC_GENERATION_SETTINGS_ID);
+      let itemsReady = false;
+      let linksReady = false;
+      let generationReady = expectedGeneration === undefined;
+      let generationMatches = expectedGeneration === undefined;
+      let localItems: LocalLibraryItem[] = [];
+      let localLinks: LocalSourceLink[] = [];
+      let result: LibrarySnapshotMerge<LocalLibraryItem, LocalSourceLink> | null = null;
+
+      const mergeAndReplace = () => {
+        if (
+          result !== null ||
+          !itemsReady ||
+          !linksReady ||
+          !generationReady ||
+          !generationMatches ||
+          !shouldContinue()
+        ) return;
+        result = mergeLibrarySnapshot(
+          localItems,
+          localLinks,
+          cloudItems,
+          cloudLinks,
+        );
+        itemsStore.clear();
+        linksStore.clear();
+        for (const item of result.items) itemsStore.put(item);
+        for (const link of result.links) linksStore.put(link);
+      };
+
+      itemsRequest.onsuccess = () => {
+        localItems = itemsRequest.result
+          .map((item) => {
+            const parsed = LocalLibraryItemSchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LocalLibraryItem => item !== null);
+        itemsReady = true;
+        mergeAndReplace();
+      };
+      linksRequest.onsuccess = () => {
+        localLinks = linksRequest.result
+          .map((link) => {
+            const parsed = LocalSourceLinkSchema.safeParse(link);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((link): link is LocalSourceLink => link !== null);
+        linksReady = true;
+        mergeAndReplace();
+      };
+      generationRequest.onsuccess = () => {
+        if (expectedGeneration !== undefined) {
+          const value = (generationRequest.result as { generation?: unknown } | undefined)?.generation;
+          generationMatches = value === expectedGeneration;
+          generationReady = true;
+        }
+        mergeAndReplace();
+      };
+      tx.onerror = () => reject(tx.error ?? new Error("Library snapshot transaction failed."));
+      tx.onabort = () => reject(tx.error ?? new Error("Library snapshot transaction aborted."));
+      tx.oncomplete = () => resolve(result);
+    });
+  }
+
+  /** Tombstone a library item and its memberships while retaining sync history. */
+  async deleteLibraryItemAndLinks(
+    libraryItemId: string,
+    updatedAt: number,
+  ): Promise<void> {
+    const db = await this.getDB();
+    const storeNames = [STORES.libraryItems, STORES.collectionItems].filter((name) =>
       db.objectStoreNames.contains(name)
     );
     if (storeNames.length === 0) return;
@@ -1188,29 +1546,17 @@ export class IndexedDBUserDataStore implements UserDataStore {
       tx.oncomplete = () => resolve();
 
       if (db.objectStoreNames.contains(STORES.libraryItems)) {
-        tx.objectStore(STORES.libraryItems).delete(libraryItemId);
-      }
-
-      if (db.objectStoreNames.contains(STORES.sourceLinks)) {
-        const store = tx.objectStore(STORES.sourceLinks);
-        let request: IDBRequest<IDBCursorWithValue | null>;
-        try {
-          const index = store.index("by_libraryItemId");
-          request = index.openCursor(IDBKeyRange.only(libraryItemId));
-        } catch {
-          request = store.openCursor();
-        }
+        const store = tx.objectStore(STORES.libraryItems);
+        const request = store.get(libraryItemId);
         request.onsuccess = () => {
-          const cursor = request.result;
-          if (!cursor) return;
-          const parsed = LocalSourceLinkSchema.safeParse(cursor.value);
-          if (parsed.success && parsed.data.libraryItemId === libraryItemId) {
-            try { cursor.delete(); } catch { /* ignore */ }
+          const parsed = LocalLibraryItemSchema.safeParse(request.result);
+          if (parsed.success) {
+            store.put({
+              ...parsed.data,
+              inLibrary: false,
+              updatedAt,
+            } satisfies LocalLibraryItem);
           }
-          cursor.continue();
-        };
-        request.onerror = () => {
-          // Let tx.onerror surface the real error; ignore here.
         };
       }
 
@@ -1227,7 +1573,13 @@ export class IndexedDBUserDataStore implements UserDataStore {
           if (!cursor) return;
           const parsed = LocalCollectionItemSchema.safeParse(cursor.value);
           if (parsed.success && parsed.data.libraryItemId === libraryItemId) {
-            try { cursor.delete(); } catch { /* ignore */ }
+            try {
+              cursor.update({
+                ...parsed.data,
+                removed: true,
+                updatedAt,
+              } satisfies LocalCollectionItem);
+            } catch { /* ignore */ }
           }
           cursor.continue();
         };
@@ -1238,7 +1590,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
-  async deleteSourceLink(id: string): Promise<void> {
+  async deleteSourceLink(id: string, updatedAt: number): Promise<void> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(STORES.sourceLinks)) {
@@ -1247,10 +1599,22 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.sourceLinks, "readwrite");
       const store = tx.objectStore(STORES.sourceLinks);
-      const request = store.delete(id);
-
+      const request = store.get(id);
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
+      request.onsuccess = () => {
+        const parsed = LocalSourceLinkSchema.safeParse(request.result);
+        if (!parsed.success) {
+          resolve();
+          return;
+        }
+        const putRequest = store.put({
+          ...parsed.data,
+          removed: true,
+          updatedAt,
+        } satisfies LocalSourceLink);
+        putRequest.onerror = () => reject(putRequest.error);
+        putRequest.onsuccess = () => resolve();
+      };
     });
   }
 
@@ -1291,6 +1655,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
     // Group source links by libraryItemId
     const linksByItem = new Map<string, LocalSourceLink[]>();
     for (const link of allLinks) {
+      if (link.removed) continue;
       const existing = linksByItem.get(link.libraryItemId) ?? [];
       existing.push(link);
       linksByItem.set(link.libraryItemId, existing);
@@ -1471,16 +1836,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
       getRequest.onerror = () => reject(getRequest.error);
       getRequest.onsuccess = () => {
         const existing = getRequest.result as LocalChapterProgress | undefined;
-        const merged: LocalChapterProgress = existing
-          ? {
-              ...entry,
-              progress: Math.max(existing.progress, entry.progress),
-              total: Math.max(existing.total, entry.total),
-              completed: existing.completed || entry.completed,
-              lastReadAt: Math.max(existing.lastReadAt, entry.lastReadAt),
-              updatedAt: Math.max(existing.updatedAt, entry.updatedAt),
-            }
-          : entry;
+        const merged = mergeChapterProgressForSave(existing, entry);
 
         const putRequest = store.put(merged);
         putRequest.onerror = () => reject(putRequest.error);
@@ -1499,14 +1855,76 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.chapterProgress, "readwrite");
       const store = tx.objectStore(STORES.chapterProgress);
-      
+
       tx.onerror = () => reject(tx.error);
       tx.oncomplete = () => resolve();
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const existing = request.result
+          .map((item) => {
+            const parsed = LocalChapterProgressSchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LocalChapterProgress => item !== null);
+        for (const entry of mergeChapterProgressBatchForSave(existing, entries)) {
+          store.put(entry);
+        }
+      };
+    });
+  }
 
-      // For batch, we do simple upserts without merge (caller is responsible for merging)
-      for (const entry of entries) {
-        store.put(entry);
-      }
+  /** Apply a cloud progress snapshot only if it still belongs to this generation. */
+  async applyChapterProgressSnapshot(
+    entries: LocalChapterProgress[],
+    expectedGeneration: number,
+    shouldContinue: () => boolean = () => true,
+  ): Promise<ProgressSnapshotMerge<LocalChapterProgress> | null> {
+    if (!shouldContinue()) return null;
+    const db = await this.getDB();
+    if (!db.objectStoreNames.contains(STORES.chapterProgress) || !shouldContinue()) return null;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction([STORES.settings, STORES.chapterProgress], "readwrite");
+      const settingsStore = tx.objectStore(STORES.settings);
+      const progressStore = tx.objectStore(STORES.chapterProgress);
+      const generationRequest = settingsStore.get(SYNC_GENERATION_SETTINGS_ID);
+      const progressRequest = progressStore.getAll();
+      let generationReady = false;
+      let generationMatches = false;
+      let progressReady = false;
+      let result: ProgressSnapshotMerge<LocalChapterProgress> | null = null;
+
+      const mergeAndSave = () => {
+        if (
+          result !== null ||
+          !generationReady ||
+          !progressReady ||
+          !generationMatches ||
+          !shouldContinue()
+        ) return;
+        const existing = progressRequest.result
+          .map((item) => {
+            const parsed = LocalChapterProgressSchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LocalChapterProgress => item !== null);
+        result = mergeChapterProgressSnapshot(existing, entries);
+        for (const entry of result.changed) {
+          progressStore.put(entry);
+        }
+      };
+      generationRequest.onsuccess = () => {
+        const value = (generationRequest.result as { generation?: unknown } | undefined)?.generation;
+        generationMatches = value === expectedGeneration;
+        generationReady = true;
+        mergeAndSave();
+      };
+      progressRequest.onsuccess = () => {
+        progressReady = true;
+        mergeAndSave();
+      };
+      tx.onerror = () => reject(tx.error ?? new Error("Chapter-progress snapshot transaction failed."));
+      tx.onabort = () => reject(tx.error ?? new Error("Chapter-progress snapshot transaction aborted."));
+      tx.oncomplete = () => resolve(result);
     });
   }
 
@@ -1619,10 +2037,10 @@ export class IndexedDBUserDataStore implements UserDataStore {
       getRequest.onerror = () => reject(getRequest.error);
       getRequest.onsuccess = () => {
         const existing = getRequest.result as LocalMangaProgress | undefined;
-        const shouldUpdate = !existing || entry.lastReadAt >= existing.lastReadAt;
+        const merged = mergeMangaProgressForSave(existing, entry);
         
-        if (shouldUpdate) {
-          const putRequest = store.put(entry);
+        if (merged === entry) {
+          const putRequest = store.put(merged);
           putRequest.onerror = () => reject(putRequest.error);
           putRequest.onsuccess = () => resolve();
         } else {
@@ -1642,13 +2060,76 @@ export class IndexedDBUserDataStore implements UserDataStore {
       }
       const tx = db.transaction(STORES.mangaProgress, "readwrite");
       const store = tx.objectStore(STORES.mangaProgress);
-      
+
       tx.onerror = () => reject(tx.error);
       tx.oncomplete = () => resolve();
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const existing = request.result
+          .map((item) => {
+            const parsed = LocalMangaProgressSchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LocalMangaProgress => item !== null);
+        for (const entry of mergeMangaProgressBatchForSave(existing, entries)) {
+          store.put(entry);
+        }
+      };
+    });
+  }
 
-      for (const entry of entries) {
-        store.put(entry);
-      }
+  /** Apply a cloud summary snapshot only if it still belongs to this generation. */
+  async applyMangaProgressSnapshot(
+    entries: LocalMangaProgress[],
+    expectedGeneration: number,
+    shouldContinue: () => boolean = () => true,
+  ): Promise<ProgressSnapshotMerge<LocalMangaProgress> | null> {
+    if (!shouldContinue()) return null;
+    const db = await this.getDB();
+    if (!db.objectStoreNames.contains(STORES.mangaProgress) || !shouldContinue()) return null;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction([STORES.settings, STORES.mangaProgress], "readwrite");
+      const settingsStore = tx.objectStore(STORES.settings);
+      const progressStore = tx.objectStore(STORES.mangaProgress);
+      const generationRequest = settingsStore.get(SYNC_GENERATION_SETTINGS_ID);
+      const progressRequest = progressStore.getAll();
+      let generationReady = false;
+      let generationMatches = false;
+      let progressReady = false;
+      let result: ProgressSnapshotMerge<LocalMangaProgress> | null = null;
+
+      const mergeAndSave = () => {
+        if (
+          result !== null ||
+          !generationReady ||
+          !progressReady ||
+          !generationMatches ||
+          !shouldContinue()
+        ) return;
+        const existing = progressRequest.result
+          .map((item) => {
+            const parsed = LocalMangaProgressSchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LocalMangaProgress => item !== null);
+        result = mergeMangaProgressSnapshot(existing, entries);
+        for (const entry of result.changed) {
+          progressStore.put(entry);
+        }
+      };
+      generationRequest.onsuccess = () => {
+        const value = (generationRequest.result as { generation?: unknown } | undefined)?.generation;
+        generationMatches = value === expectedGeneration;
+        generationReady = true;
+        mergeAndSave();
+      };
+      progressRequest.onsuccess = () => {
+        progressReady = true;
+        mergeAndSave();
+      };
+      tx.onerror = () => reject(tx.error ?? new Error("Manga-progress snapshot transaction failed."));
+      tx.onabort = () => reject(tx.error ?? new Error("Manga-progress snapshot transaction aborted."));
+      tx.oncomplete = () => resolve(result);
     });
   }
 
@@ -1694,6 +2175,23 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
+  async getCollection(collectionId: string): Promise<LocalCollection | null> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORES.collections)) {
+        resolve(null);
+        return;
+      }
+      const tx = db.transaction(STORES.collections, "readonly");
+      const request = tx.objectStore(STORES.collections).get(collectionId);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const parsed = LocalCollectionSchema.safeParse(request.result);
+        resolve(parsed.success ? parsed.data : null);
+      };
+    });
+  }
+
   async saveCollection(collection: LocalCollection): Promise<void> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
@@ -1710,7 +2208,7 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
-  async deleteCollection(collectionId: string): Promise<void> {
+  async deleteCollection(collectionId: string, updatedAt: number): Promise<void> {
     const db = await this.getDB();
     const storeNames = [STORES.collections, STORES.collectionItems].filter((name) =>
       db.objectStoreNames.contains(name)
@@ -1722,8 +2220,20 @@ export class IndexedDBUserDataStore implements UserDataStore {
       tx.onerror = () => reject(tx.error);
       tx.oncomplete = () => resolve();
 
+      const now = updatedAt;
       if (db.objectStoreNames.contains(STORES.collections)) {
-        tx.objectStore(STORES.collections).delete(collectionId);
+        const collectionsStore = tx.objectStore(STORES.collections);
+        const collectionRequest = collectionsStore.get(collectionId);
+        collectionRequest.onsuccess = () => {
+          const parsed = LocalCollectionSchema.safeParse(collectionRequest.result);
+          if (parsed.success) {
+            collectionsStore.put({
+              ...parsed.data,
+              removed: true,
+              updatedAt: now,
+            } satisfies LocalCollection);
+          }
+        };
       }
 
       if (db.objectStoreNames.contains(STORES.collectionItems)) {
@@ -1740,7 +2250,13 @@ export class IndexedDBUserDataStore implements UserDataStore {
           if (!cursor) return;
           const parsed = LocalCollectionItemSchema.safeParse(cursor.value);
           if (parsed.success && parsed.data.collectionId === collectionId) {
-            try { cursor.delete(); } catch { /* ignore */ }
+            try {
+              cursor.update({
+                ...parsed.data,
+                removed: true,
+                updatedAt: now,
+              } satisfies LocalCollectionItem);
+            } catch { /* ignore */ }
           }
           cursor.continue();
         };
@@ -1772,7 +2288,11 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
-  async addCollectionItems(collectionId: string, libraryItemIds: string[]): Promise<void> {
+  async addCollectionItems(
+    collectionId: string,
+    libraryItemIds: string[],
+    updatedAt?: number,
+  ): Promise<void> {
     if (libraryItemIds.length === 0) return;
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
@@ -1792,21 +2312,33 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
       const collectionRequest = collectionsStore.get(collectionId);
       collectionRequest.onsuccess = () => {
-        if (!collectionRequest.result) return;
-        const now = Date.now();
+        const collection = LocalCollectionSchema.safeParse(collectionRequest.result);
+        if (!collection.success || collection.data.removed) return;
         for (const libraryItemId of new Set(libraryItemIds)) {
-          itemsStore.put({
-            collectionId,
-            libraryItemId,
-            addedAt: now,
-            updatedAt: now,
-          } satisfies LocalCollectionItem);
+          const request = itemsStore.get([collectionId, libraryItemId]);
+          request.onsuccess = () => {
+            const existing = LocalCollectionItemSchema.safeParse(request.result);
+            const now = updatedAt ?? nextSyncTimestamp(
+              existing.success ? existing.data.updatedAt : undefined,
+            );
+            itemsStore.put({
+              collectionId,
+              libraryItemId,
+              addedAt: existing.success ? existing.data.addedAt : now,
+              updatedAt: now,
+              removed: false,
+            } satisfies LocalCollectionItem);
+          };
         }
       };
     });
   }
 
-  async removeCollectionItems(collectionId: string, libraryItemIds: string[]): Promise<void> {
+  async removeCollectionItems(
+    collectionId: string,
+    libraryItemIds: string[],
+    updatedAt?: number,
+  ): Promise<void> {
     if (libraryItemIds.length === 0) return;
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
@@ -1821,7 +2353,20 @@ export class IndexedDBUserDataStore implements UserDataStore {
       tx.oncomplete = () => resolve();
 
       for (const libraryItemId of new Set(libraryItemIds)) {
-        store.delete([collectionId, libraryItemId]);
+        const request = store.get([collectionId, libraryItemId]);
+        request.onsuccess = () => {
+          const existing = LocalCollectionItemSchema.safeParse(request.result);
+          const now = updatedAt ?? nextSyncTimestamp(
+            existing.success ? existing.data.updatedAt : undefined,
+          );
+          store.put({
+            collectionId,
+            libraryItemId,
+            addedAt: existing.success ? existing.data.addedAt : now,
+            updatedAt: now,
+            removed: true,
+          } satisfies LocalCollectionItem);
+        };
       }
     });
   }
@@ -1830,10 +2375,12 @@ export class IndexedDBUserDataStore implements UserDataStore {
     const [collections, items] = await Promise.all([this.getCollections(), this.getCollectionItems()]);
     const collectionIds = new Set(
       items
-        .filter((item) => item.libraryItemId === libraryItemId)
+        .filter((item) => !item.removed && item.libraryItemId === libraryItemId)
         .map((item) => item.collectionId)
     );
-    return collections.filter((collection) => collectionIds.has(collection.collectionId));
+    return collections.filter(
+      (collection) => !collection.removed && collectionIds.has(collection.collectionId),
+    );
   }
 
   async saveCollectionsSnapshot(
@@ -1866,6 +2413,97 @@ export class IndexedDBUserDataStore implements UserDataStore {
     });
   }
 
+  /** Atomic counterpart to applyLibrarySnapshot for collections + memberships. */
+  async applyCollectionsSnapshot(
+    cloudCollections: LocalCollection[],
+    cloudCollectionItems: LocalCollectionItem[],
+    shouldContinue: () => boolean = () => true,
+    expectedGeneration?: number,
+  ): Promise<CollectionSnapshotMerge<LocalCollection, LocalCollectionItem> | null> {
+    if (!shouldContinue()) return null;
+    const db = await this.getDB();
+    if (!shouldContinue()) return null;
+    if (
+      !db.objectStoreNames.contains(STORES.collections) ||
+      !db.objectStoreNames.contains(STORES.collectionItems)
+    ) {
+      return null;
+    }
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(
+        [STORES.settings, STORES.collections, STORES.collectionItems],
+        "readwrite",
+      );
+      const settingsStore = tx.objectStore(STORES.settings);
+      const collectionsStore = tx.objectStore(STORES.collections);
+      const itemsStore = tx.objectStore(STORES.collectionItems);
+      const collectionsRequest = collectionsStore.getAll();
+      const itemsRequest = itemsStore.getAll();
+      const generationRequest = settingsStore.get(SYNC_GENERATION_SETTINGS_ID);
+      let collectionsReady = false;
+      let itemsReady = false;
+      let generationReady = expectedGeneration === undefined;
+      let generationMatches = expectedGeneration === undefined;
+      let localCollections: LocalCollection[] = [];
+      let localItems: LocalCollectionItem[] = [];
+      let result: CollectionSnapshotMerge<LocalCollection, LocalCollectionItem> | null = null;
+
+      const mergeAndReplace = () => {
+        if (
+          result !== null ||
+          !collectionsReady ||
+          !itemsReady ||
+          !generationReady ||
+          !generationMatches ||
+          !shouldContinue()
+        ) return;
+        result = mergeCollectionSnapshot(
+          localCollections,
+          localItems,
+          cloudCollections,
+          cloudCollectionItems,
+        );
+        collectionsStore.clear();
+        itemsStore.clear();
+        for (const collection of result.collections) collectionsStore.put(collection);
+        for (const item of result.collectionItems) itemsStore.put(item);
+      };
+
+      collectionsRequest.onsuccess = () => {
+        localCollections = collectionsRequest.result
+          .map((collection) => {
+            const parsed = LocalCollectionSchema.safeParse(collection);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((collection): collection is LocalCollection => collection !== null);
+        collectionsReady = true;
+        mergeAndReplace();
+      };
+      itemsRequest.onsuccess = () => {
+        localItems = itemsRequest.result
+          .map((item) => {
+            const parsed = LocalCollectionItemSchema.safeParse(item);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((item): item is LocalCollectionItem => item !== null);
+        itemsReady = true;
+        mergeAndReplace();
+      };
+      generationRequest.onsuccess = () => {
+        if (expectedGeneration !== undefined) {
+          const value = (generationRequest.result as { generation?: unknown } | undefined)?.generation;
+          generationMatches = value === expectedGeneration;
+          generationReady = true;
+        }
+        mergeAndReplace();
+      };
+      tx.onerror = () => reject(tx.error ?? new Error("Collection snapshot transaction failed."));
+      tx.onabort = () => reject(tx.error ?? new Error("Collection snapshot transaction aborted."));
+      tx.oncomplete = () => resolve(result);
+    });
+  }
+
   /**
    * Clear user-scoped data from this device.
    *
@@ -1874,8 +2512,205 @@ export class IndexedDBUserDataStore implements UserDataStore {
    * Intentionally does NOT clear:
    * - registries (local-only app data)
    */
-  async clearAccountData(): Promise<void> {
+  async exportAccountDataSnapshot(): Promise<AccountDataSnapshot> {
+    const [
+      libraryItems,
+      sourceLinks,
+      chapterProgress,
+      mangaProgress,
+      collections,
+      collectionItems,
+      settings,
+      syncGeneration,
+    ] = await Promise.all([
+      this.getAllLibraryItems({ includeRemoved: true }),
+      this.getAllSourceLinks(),
+      this.getAllChapterProgress(),
+      this.getAllMangaProgress(),
+      this.getCollections(),
+      this.getCollectionItems(),
+      this.getSettings(),
+      this.getSyncGeneration(),
+    ]);
+    return {
+      libraryItems,
+      sourceLinks,
+      chapterProgress,
+      mangaProgress,
+      collections,
+      collectionItems,
+      settings,
+      syncGeneration,
+    };
+  }
+
+  /**
+   * Merge an account snapshot into this profile in one IndexedDB transaction.
+   *
+   * This is used by "sign out and keep data". A provider/profile switch may
+   * read either the complete old target state or the complete merged state,
+   * never the row-by-row partial copy that the previous implementation exposed.
+   */
+  async mergeAccountDataSnapshot(
+    snapshot: AccountDataSnapshot,
+    options: MergeAccountDataSnapshotOptions = {},
+  ): Promise<void> {
+    if (
+      snapshot.syncGeneration !== null &&
+      (!Number.isSafeInteger(snapshot.syncGeneration) ||
+        snapshot.syncGeneration < 0)
+    ) {
+      throw new Error("Account snapshot contains an invalid sync generation.");
+    }
     const db = await this.getDB();
+    const storeNames = [
+      STORES.settings,
+      STORES.libraryItems,
+      STORES.sourceLinks,
+      STORES.chapterProgress,
+      STORES.mangaProgress,
+      STORES.collections,
+      STORES.collectionItems,
+    ];
+    if (storeNames.some((name) => !db.objectStoreNames.contains(name))) {
+      throw new Error("Account data stores are unavailable after IndexedDB upgrade.");
+    }
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeNames, "readwrite");
+      const settingsStore = tx.objectStore(STORES.settings);
+      const libraryStore = tx.objectStore(STORES.libraryItems);
+      const linksStore = tx.objectStore(STORES.sourceLinks);
+      const chapterStore = tx.objectStore(STORES.chapterProgress);
+      const mangaStore = tx.objectStore(STORES.mangaProgress);
+      const collectionsStore = tx.objectStore(STORES.collections);
+      const collectionItemsStore = tx.objectStore(STORES.collectionItems);
+      const requests = {
+        settings: settingsStore.get("default"),
+        libraryItems: libraryStore.getAll(),
+        sourceLinks: linksStore.getAll(),
+        chapterProgress: chapterStore.getAll(),
+        mangaProgress: mangaStore.getAll(),
+        collections: collectionsStore.getAll(),
+        collectionItems: collectionItemsStore.getAll(),
+      };
+      let ready = 0;
+      let merged = false;
+
+      const parseMany = <T,>(values: unknown[], schema: z.ZodType<T>): T[] =>
+        values
+          .map((value) => {
+            const parsed = schema.safeParse(value);
+            return parsed.success ? parsed.data : null;
+          })
+          .filter((value): value is T => value !== null);
+
+      const mergeAndWrite = () => {
+        ready += 1;
+        if (ready !== Object.keys(requests).length || merged) return;
+        merged = true;
+
+        const existingSettingsResult = UserSettingsSchema.safeParse(requests.settings.result);
+        const existingSettings = existingSettingsResult.success
+          ? existingSettingsResult.data
+          : DEFAULT_SETTINGS;
+        const existingLibraryItems = parseMany(
+          requests.libraryItems.result,
+          LocalLibraryItemSchema,
+        );
+        const existingSourceLinks = parseMany(
+          requests.sourceLinks.result,
+          LocalSourceLinkSchema,
+        );
+        const existingChapterProgress = parseMany(
+          requests.chapterProgress.result,
+          LocalChapterProgressSchema,
+        );
+        const existingMangaProgress = parseMany(
+          requests.mangaProgress.result,
+          LocalMangaProgressSchema,
+        );
+        const existingCollections = parseMany(
+          requests.collections.result,
+          LocalCollectionSchema,
+        );
+        const existingCollectionItems = parseMany(
+          requests.collectionItems.result,
+          LocalCollectionItemSchema,
+        );
+
+        const library = mergeLibrarySnapshot(
+          existingLibraryItems,
+          existingSourceLinks,
+          snapshot.libraryItems,
+          snapshot.sourceLinks,
+        );
+        const collectionSnapshot = mergeCollectionSnapshot(
+          existingCollections,
+          existingCollectionItems,
+          snapshot.collections,
+          snapshot.collectionItems,
+        );
+        const settings: UserSettings = {
+          ...existingSettings,
+          ...snapshot.settings,
+          installedSources: mergeInstalledSources(
+            existingSettings.installedSources,
+            snapshot.settings.installedSources,
+          ),
+        };
+
+        libraryStore.clear();
+        linksStore.clear();
+        collectionsStore.clear();
+        collectionItemsStore.clear();
+        for (const item of library.items) libraryStore.put(item);
+        for (const link of library.links) linksStore.put(link);
+        for (const entry of mergeChapterProgressBatchForSave(
+          existingChapterProgress,
+          snapshot.chapterProgress,
+        )) chapterStore.put(entry);
+        for (const entry of mergeMangaProgressBatchForSave(
+          existingMangaProgress,
+          snapshot.mangaProgress,
+        )) mangaStore.put(entry);
+        for (const collection of collectionSnapshot.collections) {
+          collectionsStore.put(collection);
+        }
+        for (const item of collectionSnapshot.collectionItems) {
+          collectionItemsStore.put(item);
+        }
+        settingsStore.put({ id: "default", ...settings });
+        if (options.restoreSyncGeneration) {
+          if (snapshot.syncGeneration === null) {
+            settingsStore.delete(SYNC_GENERATION_SETTINGS_ID);
+          } else {
+            settingsStore.put({
+              id: SYNC_GENERATION_SETTINGS_ID,
+              generation: snapshot.syncGeneration,
+            });
+          }
+        }
+      };
+
+      for (const request of Object.values(requests)) {
+        request.onsuccess = mergeAndWrite;
+      }
+      tx.onerror = () => reject(tx.error ?? new Error("Account snapshot merge failed."));
+      tx.onabort = () => reject(tx.error ?? new Error("Account snapshot merge aborted."));
+      tx.oncomplete = () => resolve();
+    });
+  }
+
+  async clearAccountData(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      throw new DOMException("Account data clear was cancelled.", "AbortError");
+    }
+    const db = await this.getDB();
+
+    if (signal?.aborted) {
+      throw new DOMException("Account data clear was cancelled.", "AbortError");
+    }
 
     const candidates: string[] = [
       STORES.library,
@@ -1893,12 +2728,36 @@ export class IndexedDBUserDataStore implements UserDataStore {
 
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeNames, "readwrite");
-      tx.onerror = () => reject(tx.error);
-      tx.oncomplete = () => resolve();
+      const abort = () => {
+        try {
+          tx.abort();
+        } catch {
+          // The transaction already completed; its completion handler owns the result.
+        }
+      };
+      const cleanup = () => signal?.removeEventListener("abort", abort);
+      signal?.addEventListener("abort", abort, { once: true });
+      tx.onerror = () => {
+        cleanup();
+        reject(tx.error);
+      };
+      tx.onabort = () => {
+        cleanup();
+        reject(
+          signal?.aborted
+            ? new DOMException("Account data clear was cancelled.", "AbortError")
+            : (tx.error ?? new Error("Account data clear aborted.")),
+        );
+      };
+      tx.oncomplete = () => {
+        cleanup();
+        resolve();
+      };
 
       for (const name of storeNames) {
         tx.objectStore(name).clear();
       }
+      if (signal?.aborted) abort();
     });
   }
 

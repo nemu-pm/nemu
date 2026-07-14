@@ -71,44 +71,15 @@ export function getEntryEffectiveMetadata(entry: LibraryEntry): MangaMetadata {
   };
 }
 
-/**
- * Get effective cover for a library entry.
- * Priority: overrides.coverUrl > overrides.metadata.cover > item.metadata.cover
- */
-export function getEntryCover(entry: LibraryEntry): string | undefined {
-  return (
-    entry.item.overrides?.coverUrl ??
-    entry.item.overrides?.metadata?.cover ??
-    entry.item.metadata.cover
-  );
-}
-
-/**
- * Get effective title for a library entry.
- */
-export function getEntryTitle(entry: LibraryEntry): string {
-  return (
-    entry.item.overrides?.metadata?.title ?? entry.item.metadata.title
-  );
-}
-
-/**
- * Check if any source has updates (latest > acknowledged).
- */
-export function entryHasAnyUpdate(entry: LibraryEntry): boolean {
-  return entry.sources.some((source) => sourceHasUpdate(source));
-}
-
-/**
- * Check if a source has updates.
- */
-export function sourceHasUpdate(source: LocalSourceLink): boolean {
-  if (!source.latestChapter || !source.updateAckChapter) return false;
-  const latestNum = source.latestChapter.chapterNumber;
-  const ackNum = source.updateAckChapter.chapterNumber;
-  if (latestNum == null || ackNum == null) return false;
-  return latestNum > ackNum;
-}
+// Library view helpers are single-sourced in `@nemu/core/library` (structural
+// types accept both apps' concrete LibraryEntry/LocalSourceLink). Re-exported
+// here so existing `@/data/view` imports keep working unchanged.
+export {
+  getEntryCover,
+  getEntryTitle,
+  entryHasAnyUpdate,
+  sourceHasUpdate,
+} from "@nemu/core/library";
 
 /**
  * Get the first source (fallback when no history).

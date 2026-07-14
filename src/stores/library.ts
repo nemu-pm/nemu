@@ -8,6 +8,7 @@ import type {
 } from "@/data/schema";
 import { makeSourceLinkId } from "@/data/schema";
 import type { LibraryEntry } from "@/data/view";
+import { nextSyncTimestamp } from "@nemu/core";
 
 /** Generate a UUID for new library entries */
 function generateId(): string {
@@ -222,7 +223,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
     },
 
     add: async (input) => {
-      const now = Date.now();
+      const now = nextSyncTimestamp();
       const libraryItemId = generateId();
 
       const item: LocalLibraryItem = {
@@ -270,7 +271,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       // Check if source already exists
       if (entry.sources.some((s) => s.id === id)) return;
 
-      const now = Date.now();
+      const now = nextSyncTimestamp(entry.item.updatedAt);
       const source: LocalSourceLink = {
         id,
         libraryItemId,
@@ -333,7 +334,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       const updated: LocalLibraryItem = {
         ...entry.item,
         sourceOrder: sourceIds,
-        updatedAt: Date.now(),
+        updatedAt: nextSyncTimestamp(entry.item.updatedAt),
       };
 
       // Optimistic update: update state immediately
@@ -366,11 +367,15 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
         return;
       }
       
-      const now = Date.now();
       const existingSourceIds = new Set(targetEntry.sources.map((s) => s.id));
       
       // Filter sources that aren't already linked to target
       const sourcesToMove = sourceEntry.sources.filter((s) => !existingSourceIds.has(s.id));
+      const now = nextSyncTimestamp(
+        targetEntry.item.updatedAt,
+        sourceEntry.item.updatedAt,
+        ...sourcesToMove.map((source) => source.updatedAt),
+      );
       
       if (sourcesToMove.length === 0) {
         // All sources already exist in target - just delete source entry
@@ -449,7 +454,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
         ...entry.item,
         metadata,
         externalIds: externalIds ?? entry.item.externalIds,
-        updatedAt: Date.now(),
+        updatedAt: nextSyncTimestamp(entry.item.updatedAt),
       };
 
       try {
@@ -475,7 +480,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
           ...entry.item.overrides,
           metadata: { ...entry.item.overrides?.metadata, ...overrides },
         },
-        updatedAt: Date.now(),
+        updatedAt: nextSyncTimestamp(entry.item.updatedAt),
       };
 
       try {
@@ -501,7 +506,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
           ...entry.item.overrides,
           metadata: null, // Explicit clear
         } : undefined,
-        updatedAt: Date.now(),
+        updatedAt: nextSyncTimestamp(entry.item.updatedAt),
       };
 
       try {
@@ -527,7 +532,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
           ...entry.item.overrides,
           coverUrl,
         },
-        updatedAt: Date.now(),
+        updatedAt: nextSyncTimestamp(entry.item.updatedAt),
       };
 
       try {
@@ -571,7 +576,7 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
         externalIds: externalIds
           ? { ...entry.item.externalIds, ...externalIds }
           : entry.item.externalIds,
-        updatedAt: Date.now(),
+        updatedAt: nextSyncTimestamp(entry.item.updatedAt),
       };
 
       try {
@@ -597,12 +602,13 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       const source = entry.sources.find((s) => s.id === id);
       if (!source) return;
 
+      const now = nextSyncTimestamp(source.updatedAt);
       const updatedSource: LocalSourceLink = {
         ...source,
         latestChapter,
         updateAckChapter: latestChapter,
-        updateAckAt: Date.now(),
-        updatedAt: Date.now(),
+        updateAckAt: now,
+        updatedAt: now,
       };
 
       try {
@@ -634,13 +640,14 @@ export function createLibraryStore(ops: CanonicalLibraryOps): LibraryStore {
       const source = entry.sources.find((s) => s.id === id);
       if (!source) return;
 
+      const now = nextSyncTimestamp(source.updatedAt);
       const updatedSource: LocalSourceLink = {
         ...source,
         latestChapter,
-        latestFetchedAt: Date.now(),
+        latestFetchedAt: now,
         // Initialize ack if first time
         updateAckChapter: source.updateAckChapter ?? latestChapter,
-        updatedAt: Date.now(),
+        updatedAt: now,
       };
 
       try {

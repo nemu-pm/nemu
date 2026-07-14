@@ -16,7 +16,11 @@ export { useDataServices, useStores } from "@/data/services-provider";
 
 export function useSignOut() {
   const { localStore } = useDataServices();
-  return useCallback((keepData: boolean) => signOut(localStore, keepData), [localStore]);
+  return useCallback(
+    (keepData: boolean, signOutRemotely: () => Promise<void>) =>
+      signOut(localStore, keepData, signOutRemotely),
+    [localStore],
+  );
 }
 
 // ============================================================================

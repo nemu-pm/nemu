@@ -1,12 +1,25 @@
 /**
  * SyncSetup - All hooks, renders null (or portaled dialogs)
- * 
+ *
  * This component is a SIBLING to the app tree, not a parent.
  * When it re-renders, the app tree is unaffected.
  */
 
-import { useEffect, useState } from "react";
-import { useConvexAuth, useConvex, useQuery } from "convex/react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {
+  useConvexAuth,
+  useConvex,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import type { ConvexReactClient } from "convex/react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../convex/_generated/api";
@@ -19,17 +32,43 @@ import type {
   LocalCollection,
   LocalCollectionItem,
 } from "@/data/schema";
-import { makeSourceLinkId, makeChapterProgressId, makeMangaProgressId } from "@/data/schema";
+import { makeSourceLinkId } from "@/data/schema";
 import type { LibraryEntry } from "@/data/view";
-import { getSourceSettingsStore } from "@/stores/source-settings";
 import { getSyncStore } from "@/stores/sync";
 import { authClient } from "@/lib/auth-client";
-import { useDataServices, useProgressStoreApi, useProfileId, useStores } from "@/data/context";
+import { normalizeOAuthProvider } from "@/sync/oauth-provider";
+import {
+  useDataServices,
+  useProgressStoreApi,
+  useProfileId,
+  useSourceSettingsStoreApi,
+  useStores,
+} from "@/data/context";
+import {
+  areSyncAccountIdentitiesAligned,
+  mapCloudChapterProgress,
+  mapCloudCollectionItems,
+  mapCloudCollections,
+  mapCloudLibraryItems,
+  mapCloudMangaProgress,
+  mapCloudSourceLinks,
+  canonicalizeSyncSnapshotRecords,
+  completeSyncSnapshot,
+  decodeSyncSnapshotPage,
+  consistentSyncGeneration,
+  measureSyncSnapshotRows,
+  planSyncSnapshotPagination,
+  toCloudHistorySaveInput,
+  toCloudLibrarySaveInputBatches,
+} from "@nemu/core";
 import {
   convexRef,
-  isAuthenticatedRef,
-  sessionUserIdRef,
+  getSyncSubscriptionsStopped,
+  LOCAL_PROFILE_IMPORT_EVENT,
+  setSyncSubscriptionsStopped,
+  subscribeSyncSubscriptionsStopped,
   subscriptionStoppedRef,
+  updateObservedAuthSession,
 } from "./services";
 import {
   ResponsiveDialog,
@@ -40,10 +79,28 @@ import {
   ResponsiveDialogTitle,
 } from "@/components/ui/responsive-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  applyWebCollectionsSyncSnapshot,
+  applyWebChapterProgressSyncSnapshot,
+  applyWebInstalledSourcesSyncSnapshot,
+  applyWebLibrarySyncSnapshot,
+  isWebSyncRunCurrent,
+  type WebSyncRunIdentity,
+} from "./web-snapshot-sync";
+import {
+  convertLegacyHistoryEntry,
+  convertLegacyLibraryEntry,
+  deriveLegacyMangaProgress,
+} from "./legacy-import";
+import {
+  getImportOfferedSessionKey,
+  isWebImportOfferActionCurrent,
+  isWebImportOfferEligible,
+} from "./import-offer";
 
 const IDB_UI_EVENT_BUFFER_KEY = "nemu:idb-ui-event";
+const SYNC_SNAPSHOT_PAGE_SIZE = 128;
 const MOCK_BLOCK_STICKY_KEY = "nemu:idb-mock-blocked-sticky";
-const IMPORT_OFFERED_SESSION_KEY = "nemu:import-offered-session";
 const IMPORT_DECISION_KEY_PREFIX = "nemu:import-local-library:decision:";
 type ImportDecision = "skipped" | "imported";
 type IdbBlockedEventDetail = {
@@ -51,6 +108,31 @@ type IdbBlockedEventDetail = {
   requestedVersion?: number;
   kind: "blocked" | "versionchange";
 };
+type WebSyncApplyDomain =
+  | "library"
+  | "collections"
+  | "chapter-progress"
+  | "manga-progress"
+  | "settings";
+type WebImportActionToken = {
+  offerIdentity: WebSyncRunIdentity;
+};
+
+function wasImportOfferedThisSession(userId: string): boolean {
+  try {
+    return sessionStorage.getItem(getImportOfferedSessionKey(userId)) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function markImportOfferedThisSession(userId: string): void {
+  try {
+    sessionStorage.setItem(getImportOfferedSessionKey(userId), "true");
+  } catch {
+    // The identity guard still protects the offer when storage is unavailable.
+  }
+}
 
 function getImportDecision(userId: string): ImportDecision | null {
   try {
@@ -69,9 +151,22 @@ function setImportDecision(userId: string, decision: ImportDecision): void {
   }
 }
 
+async function prepareWebSnapshotGeneration(
+  localStore: IndexedDBUserDataStore,
+  generation: number,
+  shouldContinue: () => boolean,
+): Promise<boolean> {
+  if (!shouldContinue()) return false;
+  const decision = await localStore.prepareSyncGeneration(
+    generation,
+    shouldContinue,
+  );
+  return decision !== null && decision !== "stale" && shouldContinue();
+}
+
 export function SyncSetup() {
   const { t } = useTranslation();
-  
+
   const { isAuthenticated, isLoading } = useConvexAuth();
   const convex = useConvex();
   const syncStore = getSyncStore();
@@ -79,161 +174,780 @@ export function SyncSetup() {
   const { localStore } = useDataServices();
   const stores = useStores();
   const progressStore = useProgressStoreApi();
+  const sourceSettingsStore = useSourceSettingsStoreApi();
   const profileId = useProfileId();
+  const subscriptionsStopped = useSyncExternalStore(
+    subscribeSyncSubscriptionsStopped,
+    getSyncSubscriptionsStopped,
+    getSyncSubscriptionsStopped,
+  );
+  const syncGenerationRef = useRef(0);
+  const syncIdentityRef = useRef<WebSyncRunIdentity>({
+    generation: 0,
+    profileId,
+    userId: session?.user?.id,
+    authenticated: isAuthenticated,
+    localStore,
+  });
 
   const [signingOut, setSigningOut] = useState(false);
   const [isFirstSync, setIsFirstSync] = useState(true);
-  
+  const [syncApplyFailures, setSyncApplyFailures] = useState<Set<WebSyncApplyDomain>>(
+    () => new Set(),
+  );
+  const [syncApplyRetryRevision, setSyncApplyRetryRevision] = useState<
+    Record<WebSyncApplyDomain, number>
+  >({
+    library: 0,
+    collections: 0,
+    "chapter-progress": 0,
+    "manga-progress": 0,
+    settings: 0,
+  });
+  const syncApplyRetryTimersRef = useRef(
+    new Map<WebSyncApplyDomain, ReturnType<typeof setTimeout>>(),
+  );
+  const syncApplyRetryAttemptsRef = useRef(new Map<WebSyncApplyDomain, number>());
+  const chapterProgressRetryRevision = syncApplyRetryRevision["chapter-progress"];
+  const mangaProgressRetryRevision = syncApplyRetryRevision["manga-progress"];
+
+  const markSyncApplySucceeded = useCallback((domain: WebSyncApplyDomain) => {
+    const timer = syncApplyRetryTimersRef.current.get(domain);
+    if (timer) clearTimeout(timer);
+    syncApplyRetryTimersRef.current.delete(domain);
+    syncApplyRetryAttemptsRef.current.delete(domain);
+    setSyncApplyFailures((current) => {
+      if (!current.has(domain)) return current;
+      const next = new Set(current);
+      next.delete(domain);
+      return next;
+    });
+  }, []);
+
+  const markSyncApplyFailed = useCallback((
+    domain: WebSyncApplyDomain,
+    error: unknown,
+    shouldContinue: () => boolean,
+  ) => {
+    if (!shouldContinue()) return;
+    console.error(`[SyncSetup] Failed to apply ${domain} snapshot:`, error);
+    setSyncApplyFailures((current) => {
+      if (current.has(domain)) return current;
+      const next = new Set(current);
+      next.add(domain);
+      return next;
+    });
+    if (syncApplyRetryTimersRef.current.has(domain)) return;
+    const attempt = (syncApplyRetryAttemptsRef.current.get(domain) ?? 0) + 1;
+    syncApplyRetryAttemptsRef.current.set(domain, attempt);
+    const delayMs = Math.min(30_000, 1_000 * 2 ** Math.min(attempt - 1, 5));
+    const timer = setTimeout(() => {
+      syncApplyRetryTimersRef.current.delete(domain);
+      setSyncApplyRetryRevision((current) => ({
+        ...current,
+        [domain]: current[domain] + 1,
+      }));
+    }, delayMs);
+    syncApplyRetryTimersRef.current.set(domain, timer);
+  }, []);
+
+  useEffect(() => () => {
+    for (const timer of syncApplyRetryTimersRef.current.values()) clearTimeout(timer);
+    syncApplyRetryTimersRef.current.clear();
+  }, []);
+
   // Dialog states
   const [showSyncingDialog, setShowSyncingDialog] = useState(false);
-  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importOfferIdentity, setImportOfferIdentity] =
+    useState<WebSyncRunIdentity | null>(null);
+  const importOfferIdentityRef = useRef<WebSyncRunIdentity | null>(null);
+  const importActionTokenRef = useRef<WebImportActionToken | null>(null);
+  const [importActionIdentity, setImportActionIdentity] =
+    useState<WebSyncRunIdentity | null>(null);
   const [idbDialogOpen, setIdbDialogOpen] = useState(false);
-  const [idbBlocked, setIdbBlocked] = useState<IdbBlockedEventDetail | null>(null);
+  const [idbBlocked, setIdbBlocked] = useState<IdbBlockedEventDetail | null>(
+    null,
+  );
+
+  const publishImportOffer = useCallback((identity: WebSyncRunIdentity) => {
+    importOfferIdentityRef.current = identity;
+    setImportOfferIdentity(identity);
+  }, []);
+
+  const dismissImportOffer = useCallback(
+    (expectedIdentity: WebSyncRunIdentity): boolean => {
+      if (importOfferIdentityRef.current !== expectedIdentity) return false;
+      importOfferIdentityRef.current = null;
+      setImportOfferIdentity((current) =>
+        current === expectedIdentity ? null : current,
+      );
+      return true;
+    },
+    [],
+  );
+
+  const cancelImportOffer = useCallback(
+    (expectedIdentity: WebSyncRunIdentity): void => {
+      dismissImportOffer(expectedIdentity);
+      const actionToken = importActionTokenRef.current;
+      if (actionToken?.offerIdentity !== expectedIdentity) return;
+      importActionTokenRef.current = null;
+      setImportActionIdentity((current) =>
+        current === expectedIdentity ? null : current,
+      );
+    },
+    [dismissImportOffer],
+  );
+
+  const checkImportOfferEligibility = useCallback(
+    (
+      expectedIdentity: WebSyncRunIdentity,
+      defaultStore: IndexedDBUserDataStore,
+      profileStore: IndexedDBUserDataStore,
+      isCancelled: () => boolean,
+    ) =>
+      isWebImportOfferEligible({
+        expectedIdentity,
+        getCurrentIdentity: () => syncIdentityRef.current,
+        isCancelled,
+        getSubscriptionsStopped: () => subscriptionStoppedRef.current,
+        hasLegacyLibraryData: () => defaultStore.hasLibraryData(),
+        loadRemoteUserId: () => convex.query(api.auth.getCurrentUserId, {}),
+        loadRemoteGeneration: () =>
+          convex
+            .query(api.sync.generation, {})
+            .then((result) => result.generation),
+        // This is only an emptiness probe. Loading the entire account here
+        // would duplicate the foreground subscription and bypass its shared
+        // row/byte budget for large libraries.
+        loadFirstRemoteLibraryPage: (generation) =>
+          convex
+            .query(api.sync.libraryItemsAllV2, {
+              generation,
+              paginationOpts: { numItems: 1, cursor: null },
+            })
+            .then((firstPage) => ({
+              generation: firstPage.generation,
+              items: decodeSyncSnapshotPage(firstPage.page, generation),
+            })),
+        hasProfileLibraryData: () =>
+          profileStore
+            .getLibraryEntries()
+            .then((entries) => entries.length > 0),
+      }),
+    [convex],
+  );
 
   // Update module-level refs
-  useEffect(() => {
+  useLayoutEffect(() => {
     convexRef.current = convex as ConvexReactClient;
-    isAuthenticatedRef.current = isAuthenticated;
-    sessionUserIdRef.current = session?.user?.id;
-  }, [convex, isAuthenticated, session?.user?.id]);
+    updateObservedAuthSession(
+      isAuthenticated,
+      session?.user?.id,
+      (session as { session?: { id?: string } } | null)?.session?.id,
+    );
+  }, [convex, isAuthenticated, session]);
+
+  // A run is bound to one immutable account/profile/store identity. Every
+  // subscription effect below captures this generation and re-checks it after
+  // each await, preventing stale A work from mutating the current B session.
+  useLayoutEffect(() => {
+    syncGenerationRef.current += 1;
+    syncIdentityRef.current = {
+      generation: syncGenerationRef.current,
+      profileId,
+      userId: session?.user?.id,
+      authenticated: isAuthenticated,
+      localStore,
+    };
+  }, [isAuthenticated, localStore, profileId, session?.user?.id]);
+
+  // Invalidate a visible offer or in-flight confirmation as soon as its
+  // account/profile/store identity is no longer the selected one.
+  useLayoutEffect(() => {
+    const currentIdentity = syncIdentityRef.current;
+    const activeOffer = importOfferIdentityRef.current;
+    if (
+      activeOffer &&
+      !isWebImportOfferActionCurrent(
+        activeOffer,
+        activeOffer,
+        currentIdentity,
+        false,
+        subscriptionsStopped,
+      )
+    ) {
+      cancelImportOffer(activeOffer);
+    }
+
+    const actionToken = importActionTokenRef.current;
+    if (
+      actionToken &&
+      !isWebSyncRunCurrent(
+        actionToken.offerIdentity,
+        currentIdentity,
+        false,
+        subscriptionsStopped,
+      )
+    ) {
+      importActionTokenRef.current = null;
+      setImportActionIdentity((current) =>
+        current === actionToken.offerIdentity ? null : current,
+      );
+    }
+  }, [
+    cancelImportOffer,
+    isAuthenticated,
+    localStore,
+    profileId,
+    session?.user?.id,
+    subscriptionsStopped,
+  ]);
+
+  useEffect(
+    () => () => {
+      importActionTokenRef.current = null;
+    },
+    [],
+  );
 
   // Check if first sync
   useEffect(() => {
     let cancelled = false;
     setIsFirstSync(true);
-    localStore.hasSyncedData().then((hasSynced) => {
-      if (!cancelled) setIsFirstSync(!hasSynced);
-    }).catch(() => {});
-    return () => { cancelled = true; };
+    localStore
+      .hasSyncedData()
+      .then((hasSynced) => {
+        if (!cancelled) setIsFirstSync(!hasSynced);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [localStore]);
 
   // ============================================================================
   // Convex subscriptions
   // ============================================================================
-  const skipSubscriptions = !isAuthenticated || signingOut || subscriptionStoppedRef.current;
-  
-  const cloudLibraryItems = useQuery(api.sync.libraryItemsAll, skipSubscriptions ? "skip" : {});
-  const cloudSourceLinks = useQuery(api.sync.sourceLinksAll, skipSubscriptions ? "skip" : {});
-  const cloudCollections = useQuery(api.sync.collectionsAll, skipSubscriptions ? "skip" : {});
-  const cloudCollectionItems = useQuery(api.sync.collectionItemsAll, skipSubscriptions ? "skip" : {});
-  const cloudChapterProgress = useQuery(api.sync.chapterProgressAll, skipSubscriptions ? "skip" : {});
-  const cloudMangaProgress = useQuery(api.sync.mangaProgressAll, skipSubscriptions ? "skip" : {});
-  const cloudSettings = useQuery(api.settings.get, skipSubscriptions ? "skip" : {});
-
-  const isSyncing = isAuthenticated && (
-    cloudLibraryItems === undefined ||
-    cloudSourceLinks === undefined ||
-    cloudCollections === undefined ||
-    cloudCollectionItems === undefined ||
-    cloudSettings === undefined
+  const sessionUserId = session?.user?.id;
+  const skipAccountCheck =
+    !isAuthenticated || !sessionUserId || signingOut || subscriptionsStopped;
+  // Better Auth's session and Convex's websocket can briefly belong to
+  // different users during an account switch. Verify the server identity
+  // before any downloaded snapshot may touch the selected local profile.
+  const convexUser = useQuery(
+    api.auth.getCurrentUserId,
+    skipAccountCheck ? "skip" : {},
   );
+  const skipSubscriptions =
+    skipAccountCheck ||
+    !areSyncAccountIdentitiesAligned(sessionUserId, convexUser);
+
+  const cloudGeneration = useQuery(
+    api.sync.generation,
+    skipSubscriptions ? "skip" : {},
+  );
+  const snapshotArgs =
+    skipSubscriptions || cloudGeneration === undefined
+      ? ("skip" as const)
+      : { generation: cloudGeneration.generation };
+  const libraryPages = usePaginatedQuery(
+    api.sync.libraryItemsAllV2,
+    snapshotArgs,
+    { initialNumItems: SYNC_SNAPSHOT_PAGE_SIZE },
+  );
+  const sourceLinkPages = usePaginatedQuery(
+    api.sync.sourceLinksAllV2,
+    snapshotArgs,
+    { initialNumItems: SYNC_SNAPSHOT_PAGE_SIZE },
+  );
+  const collectionPages = usePaginatedQuery(
+    api.sync.collectionsAllV2,
+    snapshotArgs,
+    { initialNumItems: SYNC_SNAPSHOT_PAGE_SIZE },
+  );
+  const collectionItemPages = usePaginatedQuery(
+    api.sync.collectionItemsAllV2,
+    snapshotArgs,
+    { initialNumItems: SYNC_SNAPSHOT_PAGE_SIZE },
+  );
+  const chapterProgressPages = usePaginatedQuery(
+    api.sync.chapterProgressAllV2,
+    snapshotArgs,
+    { initialNumItems: SYNC_SNAPSHOT_PAGE_SIZE },
+  );
+  const mangaProgressPages = usePaginatedQuery(
+    api.sync.mangaProgressAllV2,
+    snapshotArgs,
+    { initialNumItems: SYNC_SNAPSHOT_PAGE_SIZE },
+  );
+  const settingsPages = usePaginatedQuery(api.settings.getV2, snapshotArgs, {
+    initialNumItems: SYNC_SNAPSHOT_PAGE_SIZE,
+  });
+
+  const snapshotPaginationPlan = useMemo(
+    () =>
+      planSyncSnapshotPagination([
+        {
+          key: "libraryItems",
+          ...measureSyncSnapshotRows(libraryPages.results),
+          status: libraryPages.status,
+        },
+        {
+          key: "sourceLinks",
+          ...measureSyncSnapshotRows(sourceLinkPages.results),
+          status: sourceLinkPages.status,
+        },
+        {
+          key: "collections",
+          ...measureSyncSnapshotRows(collectionPages.results),
+          status: collectionPages.status,
+        },
+        {
+          key: "collectionItems",
+          ...measureSyncSnapshotRows(collectionItemPages.results),
+          status: collectionItemPages.status,
+        },
+        {
+          key: "chapterProgress",
+          ...measureSyncSnapshotRows(chapterProgressPages.results),
+          status: chapterProgressPages.status,
+        },
+        {
+          key: "mangaProgress",
+          ...measureSyncSnapshotRows(mangaProgressPages.results),
+          status: mangaProgressPages.status,
+        },
+        {
+          key: "settings",
+          ...measureSyncSnapshotRows(settingsPages.results),
+          status: settingsPages.status,
+        },
+      ]),
+    [
+      chapterProgressPages.results,
+      chapterProgressPages.status,
+      collectionItemPages.results,
+      collectionItemPages.status,
+      collectionPages.results,
+      collectionPages.status,
+      libraryPages.results,
+      libraryPages.status,
+      mangaProgressPages.results,
+      mangaProgressPages.status,
+      settingsPages.results,
+      settingsPages.status,
+      sourceLinkPages.results,
+      sourceLinkPages.status,
+    ],
+  );
+
+  useEffect(() => {
+    if (snapshotPaginationPlan.status === "budget-exceeded") {
+      console.warn(
+        `[SyncSetup] Snapshot budget exceeded (${snapshotPaginationPlan.key}, ${snapshotPaginationPlan.totalRows} rows, ${snapshotPaginationPlan.totalEstimatedBytes} estimated bytes); skipping this sync round.`,
+      );
+      return;
+    }
+    if (snapshotPaginationPlan.status !== "load-more") return;
+    const loadMore = {
+      libraryItems: libraryPages.loadMore,
+      sourceLinks: sourceLinkPages.loadMore,
+      collections: collectionPages.loadMore,
+      collectionItems: collectionItemPages.loadMore,
+      chapterProgress: chapterProgressPages.loadMore,
+      mangaProgress: mangaProgressPages.loadMore,
+      settings: settingsPages.loadMore,
+    }[snapshotPaginationPlan.key];
+    loadMore(snapshotPaginationPlan.numItems);
+  }, [
+    chapterProgressPages,
+    collectionItemPages,
+    collectionPages,
+    libraryPages,
+    mangaProgressPages,
+    settingsPages,
+    snapshotPaginationPlan,
+    sourceLinkPages,
+  ]);
+
+  const syncSnapshotBudgetExceeded =
+    snapshotPaginationPlan.status === "budget-exceeded";
+  const generation = syncSnapshotBudgetExceeded
+    ? undefined
+    : cloudGeneration?.generation;
+  const cloudLibraryItems = useMemo(() => {
+    if (generation === undefined) return undefined;
+    const rows = completeSyncSnapshot(
+      libraryPages.results,
+      generation,
+      libraryPages.status,
+    );
+    return rows === null
+      ? undefined
+      : {
+          generation,
+          rows: canonicalizeSyncSnapshotRecords(
+            rows,
+            (row) => row.libraryItemId,
+            (row) => row.inLibrary === false,
+          ),
+        };
+  }, [generation, libraryPages.results, libraryPages.status]);
+  const cloudSourceLinks = useMemo(() => {
+    if (generation === undefined) return undefined;
+    const rows = completeSyncSnapshot(
+      sourceLinkPages.results,
+      generation,
+      sourceLinkPages.status,
+    );
+    return rows === null
+      ? undefined
+      : {
+          generation,
+          rows: canonicalizeSyncSnapshotRecords(
+            rows,
+            (row) =>
+              `${row.registryId}\u0000${row.sourceId}\u0000${row.sourceMangaId}`,
+            (row) => row.removed === true,
+          ),
+        };
+  }, [generation, sourceLinkPages.results, sourceLinkPages.status]);
+  const cloudCollections = useMemo(() => {
+    if (generation === undefined) return undefined;
+    const rows = completeSyncSnapshot(
+      collectionPages.results,
+      generation,
+      collectionPages.status,
+    );
+    return rows === null
+      ? undefined
+      : {
+          generation,
+          rows: canonicalizeSyncSnapshotRecords(
+            rows,
+            (row) => row.collectionId,
+            (row) => row.removed === true,
+          ),
+        };
+  }, [collectionPages.results, collectionPages.status, generation]);
+  const cloudCollectionItems = useMemo(() => {
+    if (generation === undefined) return undefined;
+    const rows = completeSyncSnapshot(
+      collectionItemPages.results,
+      generation,
+      collectionItemPages.status,
+    );
+    return rows === null
+      ? undefined
+      : {
+          generation,
+          rows: canonicalizeSyncSnapshotRecords(
+            rows,
+            (row) => `${row.collectionId}\u0000${row.libraryItemId}`,
+            (row) => row.removed === true,
+          ),
+        };
+  }, [collectionItemPages.results, collectionItemPages.status, generation]);
+  const cloudChapterProgress = useMemo(() => {
+    if (generation === undefined) return undefined;
+    const rows = completeSyncSnapshot(
+      chapterProgressPages.results,
+      generation,
+      chapterProgressPages.status,
+    );
+    return rows === null
+      ? undefined
+      : {
+          generation,
+          rows: canonicalizeSyncSnapshotRecords(
+            rows,
+            (row) =>
+              `${row.registryId}\u0000${row.sourceId}\u0000${row.sourceMangaId}\u0000${row.sourceChapterId}`,
+          ),
+        };
+  }, [chapterProgressPages.results, chapterProgressPages.status, generation]);
+  const cloudMangaProgress = useMemo(() => {
+    if (generation === undefined) return undefined;
+    const rows = completeSyncSnapshot(
+      mangaProgressPages.results,
+      generation,
+      mangaProgressPages.status,
+    );
+    return rows === null
+      ? undefined
+      : {
+          generation,
+          rows: canonicalizeSyncSnapshotRecords(
+            rows,
+            (row) =>
+              `${row.registryId}\u0000${row.sourceId}\u0000${row.sourceMangaId}`,
+          ),
+        };
+  }, [generation, mangaProgressPages.results, mangaProgressPages.status]);
+  const cloudSettings = useMemo(() => {
+    if (generation === undefined) return undefined;
+    const rows = completeSyncSnapshot(
+      settingsPages.results,
+      generation,
+      settingsPages.status,
+    );
+    if (rows === null) return undefined;
+    const installedSources = canonicalizeSyncSnapshotRecords(
+      rows.flatMap((row) => row.installedSources),
+      (source) => source.id,
+      (source) => source.removed === true,
+    );
+    return {
+      generation,
+      installedSources,
+      updatedAt: Math.max(0, ...rows.map((row) => row.updatedAt)),
+    };
+  }, [generation, settingsPages.results, settingsPages.status]);
+  const oauthProvider = useQuery(
+    api.auth.getOAuthProvider,
+    skipSubscriptions ? "skip" : {},
+  );
+
+  const snapshotGeneration = consistentSyncGeneration(
+    cloudLibraryItems,
+    cloudSourceLinks,
+    cloudCollections,
+    cloudCollectionItems,
+    cloudChapterProgress,
+    cloudMangaProgress,
+    cloudSettings,
+  );
+
+  const isSyncing =
+    isAuthenticated &&
+    !syncSnapshotBudgetExceeded &&
+    (cloudLibraryItems === undefined ||
+      cloudSourceLinks === undefined ||
+      cloudCollections === undefined ||
+      cloudCollectionItems === undefined ||
+      cloudChapterProgress === undefined ||
+      cloudMangaProgress === undefined ||
+      cloudSettings === undefined ||
+      snapshotGeneration === null);
 
   // Update sync status
   useEffect(() => {
-    syncStore.getState().setSyncStatus(isSyncing ? "syncing" : isAuthenticated ? "synced" : "offline");
-  }, [isAuthenticated, isSyncing, syncStore]);
+    syncStore
+      .getState()
+      .setSyncStatus(
+        syncSnapshotBudgetExceeded
+          || syncApplyFailures.size > 0
+          ? "offline"
+          : isSyncing
+            ? "syncing"
+            : isAuthenticated
+              ? "synced"
+              : "offline",
+      );
+  }, [
+    isAuthenticated,
+    isSyncing,
+    syncApplyFailures,
+    syncSnapshotBudgetExceeded,
+    syncStore,
+  ]);
 
   // Update syncing dialog
   useEffect(() => {
-    setShowSyncingDialog(isAuthenticated && isSyncing && !signingOut && isFirstSync);
+    setShowSyncingDialog(
+      isAuthenticated && isSyncing && !signingOut && isFirstSync,
+    );
   }, [isAuthenticated, isSyncing, signingOut, isFirstSync]);
 
   // Auth state tracking
-  useEffect(() => { syncStore.getState().setAuthState(isAuthenticated, isLoading); }, [isAuthenticated, isLoading, syncStore]);
+  useEffect(() => {
+    syncStore.getState().setAuthState(isAuthenticated, isLoading);
+  }, [isAuthenticated, isLoading, syncStore]);
+  useEffect(() => {
+    if (!isAuthenticated && !isLoading) {
+      // signOut() deliberately leaves this guard set while the remote auth
+      // request is in flight. Only resume after Convex auth confirms logout.
+      setSyncSubscriptionsStopped(false);
+    }
+  }, [isAuthenticated, isLoading]);
   useEffect(() => {
     if (session?.user) {
-      syncStore.getState().setUser({ id: session.user.id, name: session.user.name ?? null, email: session.user.email ?? "", image: session.user.image ?? null });
+      syncStore.getState().setUser({
+        id: session.user.id,
+        name: session.user.name ?? null,
+        email: session.user.email ?? "",
+        image: session.user.image ?? null,
+      });
     } else {
       syncStore.getState().setUser(null);
     }
   }, [session, syncStore]);
-  useEffect(() => { if (!isAuthenticated && signingOut) setSigningOut(false); }, [isAuthenticated, signingOut]);
+  useEffect(() => {
+    if (!isAuthenticated) {
+      syncStore.getState().setOAuthProvider(null);
+      return;
+    }
+    if (oauthProvider !== undefined) {
+      syncStore
+        .getState()
+        .setOAuthProvider(normalizeOAuthProvider(oauthProvider));
+    }
+  }, [isAuthenticated, oauthProvider, syncStore]);
+  useEffect(() => {
+    if (!isAuthenticated && signingOut) setSigningOut(false);
+  }, [isAuthenticated, signingOut]);
 
   // Apply cloud data to local IDB (and update zustand stores directly from snapshots).
   useEffect(() => {
     // Keep library_items + source_links consistent for UI joins:
     // apply both snapshots as a unit, then update the library store directly (no load()).
-    if (!cloudLibraryItems || !cloudSourceLinks || subscriptionStoppedRef.current) return;
+    if (
+      !cloudLibraryItems ||
+      !cloudSourceLinks ||
+      snapshotGeneration === null ||
+      subscriptionStoppedRef.current
+    )
+      return;
     let cancelled = false;
+    const expectedIdentity = syncIdentityRef.current;
+    const shouldContinue = () =>
+      isWebSyncRunCurrent(
+        expectedIdentity,
+        syncIdentityRef.current,
+        cancelled,
+        subscriptionStoppedRef.current,
+      );
     (async () => {
       try {
-        const items: LocalLibraryItem[] = cloudLibraryItems.map((item) => ({
-          libraryItemId: item.id,
-          metadata: item.metadata,
-          externalIds: item.externalIds,
-          inLibrary: item.inLibrary ?? true,
-          overrides: item.overrides,
-          sourceOrder: item.sourceOrder,
-          createdAt: item.createdAt,
-          updatedAt: item.updatedAt,
-        }));
-
-        const links: LocalSourceLink[] = cloudSourceLinks.map((link) => ({
-          id: makeSourceLinkId(link.registryId, link.sourceId, link.sourceMangaId),
-          libraryItemId: link.libraryItemId,
-          registryId: link.registryId,
-          sourceId: link.sourceId,
-          sourceMangaId: link.sourceMangaId,
-          latestChapter: link.latestChapter,
-          latestChapterSortKey: link.latestChapterSortKey,
-          latestFetchedAt: link.latestFetchedAt,
-          updateAckChapter: link.updateAckChapter,
-          updateAckChapterSortKey: link.updateAckChapterSortKey,
-          updateAckAt: link.updateAckAt,
-          createdAt: link.createdAt,
-          updatedAt: link.updatedAt,
-        }));
-
-        // Apply library snapshot in a single IDB transaction (reduces partial local state windows).
-        await localStore.saveLibrarySnapshot(items, links);
-
-        if (cancelled) return;
+        if (
+          !(await prepareWebSnapshotGeneration(
+            localStore,
+            snapshotGeneration,
+            shouldContinue,
+          ))
+        )
+          return;
+        const merged = await applyWebLibrarySyncSnapshot({
+          localStore,
+          convex: convex as ConvexReactClient,
+          cloudItems: mapCloudLibraryItems(
+            cloudLibraryItems.rows,
+          ) as LocalLibraryItem[],
+          cloudLinks: mapCloudSourceLinks(
+            cloudSourceLinks.rows,
+          ) as LocalSourceLink[],
+          generation: snapshotGeneration,
+          expectedUserId: expectedIdentity.userId!,
+          shouldContinue,
+        });
+        if (!merged || !shouldContinue()) return;
+        const [items, links] = await Promise.all([
+          localStore.getAllLibraryItems({ includeRemoved: true }),
+          localStore.getAllSourceLinks(),
+        ]);
+        if (!shouldContinue()) return;
         // Update Zustand store from snapshots (no IDB read, no load()).
         const linksByItem = new Map<string, LocalSourceLink[]>();
         for (const link of links) {
+          if (link.removed) continue;
           const arr = linksByItem.get(link.libraryItemId) ?? [];
           arr.push(link);
           linksByItem.set(link.libraryItemId, arr);
         }
 
         const entries: LibraryEntry[] = items
-          .map((it) => ({ item: it, sources: linksByItem.get(it.libraryItemId) ?? [] }))
-          .filter((e) => e.sources.length > 0);
+          .map((it) => ({
+            item: it,
+            sources: linksByItem.get(it.libraryItemId) ?? [],
+          }))
+          .filter((e) => e.item.inLibrary !== false && e.sources.length > 0);
 
-        stores.useLibraryStore.setState({ entries, loading: false, error: null });
+        if (!shouldContinue()) return;
+        stores.useLibraryStore.setState({
+          entries,
+          loading: false,
+          error: null,
+        });
+        markSyncApplySucceeded("library");
       } catch (e) {
-        console.error("[SyncSetup] Failed to apply library snapshot:", e);
+        markSyncApplyFailed("library", e, shouldContinue);
       }
     })();
 
-    return () => { cancelled = true; };
-  }, [cloudLibraryItems, cloudSourceLinks, localStore, stores]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cloudLibraryItems,
+    cloudSourceLinks,
+    convex,
+    isAuthenticated,
+    localStore,
+    markSyncApplyFailed,
+    markSyncApplySucceeded,
+    profileId,
+    session?.user?.id,
+    snapshotGeneration,
+    stores,
+    syncApplyRetryRevision.library,
+  ]);
 
   useEffect(() => {
-    if (!cloudCollections || !cloudCollectionItems || subscriptionStoppedRef.current) return;
+    if (
+      !cloudCollections ||
+      !cloudCollectionItems ||
+      snapshotGeneration === null ||
+      subscriptionStoppedRef.current
+    )
+      return;
     let cancelled = false;
+    const expectedIdentity = syncIdentityRef.current;
+    const shouldContinue = () =>
+      isWebSyncRunCurrent(
+        expectedIdentity,
+        syncIdentityRef.current,
+        cancelled,
+        subscriptionStoppedRef.current,
+      );
     (async () => {
       try {
-        const collections: LocalCollection[] = cloudCollections.map((collection) => ({
-          collectionId: collection.collectionId,
-          name: collection.name,
-          createdAt: collection.createdAt,
-          updatedAt: collection.updatedAt,
-        }));
-
-        const collectionItems: LocalCollectionItem[] = cloudCollectionItems.map((item) => ({
-          collectionId: item.collectionId,
-          libraryItemId: item.libraryItemId,
-          addedAt: item.addedAt,
-          updatedAt: item.updatedAt,
-        }));
-
-        await localStore.saveCollectionsSnapshot(collections, collectionItems);
-        if (cancelled) return;
+        if (
+          !(await prepareWebSnapshotGeneration(
+            localStore,
+            snapshotGeneration,
+            shouldContinue,
+          ))
+        )
+          return;
+        const merged = await applyWebCollectionsSyncSnapshot({
+          localStore,
+          convex: convex as ConvexReactClient,
+          cloudCollections: mapCloudCollections(
+            cloudCollections.rows,
+          ) as LocalCollection[],
+          cloudCollectionItems: mapCloudCollectionItems(
+            cloudCollectionItems.rows,
+          ) as LocalCollectionItem[],
+          generation: snapshotGeneration,
+          expectedUserId: expectedIdentity.userId!,
+          shouldContinue,
+        });
+        if (!merged || !shouldContinue()) return;
+        const [allCollections, collectionItems] = await Promise.all([
+          localStore.getCollections(),
+          localStore.getCollectionItems(),
+        ]);
+        if (!shouldContinue()) return;
+        const collections = allCollections.filter(
+          (collection) => !collection.removed,
+        );
 
         const membership = new Map<string, Set<string>>();
         for (const item of collectionItems) {
-          const existing = membership.get(item.collectionId) ?? new Set<string>();
+          if (item.removed) continue;
+          const existing =
+            membership.get(item.collectionId) ?? new Set<string>();
           existing.add(item.libraryItemId);
           membership.set(item.collectionId, existing);
         }
@@ -243,173 +957,318 @@ export function SyncSetup() {
           return a.collectionId.localeCompare(b.collectionId);
         });
 
+        if (!shouldContinue()) return;
         stores.useCollectionsStore.setState({
           collections,
           membership,
           loading: false,
           error: null,
         });
+        markSyncApplySucceeded("collections");
       } catch (e) {
-        console.error("[SyncSetup] Failed to apply collections snapshot:", e);
+        markSyncApplyFailed("collections", e, shouldContinue);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [cloudCollections, cloudCollectionItems, localStore, stores]);
+  }, [
+    cloudCollections,
+    cloudCollectionItems,
+    convex,
+    isAuthenticated,
+    localStore,
+    markSyncApplyFailed,
+    markSyncApplySucceeded,
+    profileId,
+    session?.user?.id,
+    snapshotGeneration,
+    stores,
+    syncApplyRetryRevision.collections,
+  ]);
 
   useEffect(() => {
-    if (!cloudChapterProgress || subscriptionStoppedRef.current) return;
+    if (
+      !cloudChapterProgress ||
+      snapshotGeneration === null ||
+      subscriptionStoppedRef.current
+    )
+      return;
+    let cancelled = false;
+    const expectedIdentity = syncIdentityRef.current;
+    const shouldContinue = () =>
+      isWebSyncRunCurrent(
+        expectedIdentity,
+        syncIdentityRef.current,
+        cancelled,
+        subscriptionStoppedRef.current,
+      );
     (async () => {
-      const batch: LocalChapterProgress[] = cloudChapterProgress.map((cp) => ({
-        id: makeChapterProgressId(cp.registryId, cp.sourceId, cp.sourceMangaId, cp.sourceChapterId),
-        registryId: cp.registryId,
-        sourceId: cp.sourceId,
-        sourceMangaId: cp.sourceMangaId,
-        sourceChapterId: cp.sourceChapterId,
-        libraryItemId: cp.libraryItemId,
-        progress: cp.progress,
-        total: cp.total,
-        completed: cp.completed,
-        lastReadAt: cp.lastReadAt,
-        chapterNumber: cp.chapterNumber,
-        volumeNumber: cp.volumeNumber,
-        chapterTitle: cp.chapterTitle,
-        updatedAt: cp.updatedAt,
-      }));
-      await localStore.saveChapterProgressBatch(batch);
-    })();
-  }, [cloudChapterProgress, localStore]);
-
-  useEffect(() => {
-    if (!cloudMangaProgress || subscriptionStoppedRef.current) return;
-    (async () => {
-      const batch: LocalMangaProgress[] = cloudMangaProgress.map((mp) => ({
-        id: makeMangaProgressId(mp.registryId, mp.sourceId, mp.sourceMangaId),
-        registryId: mp.registryId,
-        sourceId: mp.sourceId,
-        sourceMangaId: mp.sourceMangaId,
-        libraryItemId: mp.libraryItemId,
-        lastReadAt: mp.lastReadAt,
-        lastReadSourceChapterId: mp.lastReadSourceChapterId,
-        lastReadChapterNumber: mp.lastReadChapterNumber,
-        lastReadVolumeNumber: mp.lastReadVolumeNumber,
-        lastReadChapterTitle: mp.lastReadChapterTitle,
-        updatedAt: mp.updatedAt,
-      }));
-      await localStore.saveMangaProgressBatch(batch);
-      // Update reactive index directly (no load()).
-      const map = new Map<string, LocalMangaProgress>();
-      for (const entry of batch) map.set(entry.id, entry);
-      progressStore.setState({ index: map, loading: false });
-    })();
-  }, [cloudMangaProgress, localStore, progressStore]);
-
-  useEffect(() => {
-    if (!cloudSettings || subscriptionStoppedRef.current) return;
-    (async () => {
-      // Merge cloud installedSources with local using LWW (last-write-wins) by updatedAt.
-      // Tombstones (removed=true) are preserved and synced for multi-device uninstall.
-      const cloudSources = cloudSettings.installedSources ?? [];
-      const localSources = await localStore.getInstalledSources();
-      const localByKey = new Map(localSources.map((s) => [s.id, s]));
-      const cloudByKey = new Map(cloudSources.map((s) => [s.id, s]));
-      
-      const mergedSources: typeof localSources = [];
-      const seenIds = new Set<string>();
-      
-      // Process all sources from both sides, using LWW
-      const allIds = new Set([...localByKey.keys(), ...cloudByKey.keys()]);
-      for (const id of allIds) {
-        seenIds.add(id);
-        const localSrc = localByKey.get(id);
-        const cloudSrc = cloudByKey.get(id);
-        
-        if (localSrc && cloudSrc) {
-          // Both have it - use LWW by updatedAt
-          const cloudTime = cloudSrc.updatedAt ?? 0;
-          const localTime = localSrc.updatedAt ?? 0;
-          if (localTime > cloudTime) {
-            mergedSources.push(localSrc);
-          } else if (cloudTime > localTime) {
-            mergedSources.push(cloudSrc);
-          } else {
-            // Same updatedAt - prefer higher version, then local
-            mergedSources.push(localSrc.version >= cloudSrc.version ? localSrc : cloudSrc);
-          }
-        } else if (cloudSrc) {
-          // Cloud only - add (could be install from another device, or tombstone)
-          mergedSources.push(cloudSrc);
-        } else if (localSrc) {
-          // Local only - keep (install mutation in-flight, or tombstone)
-          mergedSources.push(localSrc);
-        }
+      try {
+        if (!shouldContinue()) return;
+        if (
+          !(await prepareWebSnapshotGeneration(
+            localStore,
+            snapshotGeneration,
+            shouldContinue,
+          ))
+        )
+          return;
+        const batch = mapCloudChapterProgress(
+          cloudChapterProgress.rows,
+        ) as LocalChapterProgress[];
+        if (!shouldContinue()) return;
+        const applied = await applyWebChapterProgressSyncSnapshot({
+          localStore,
+          convex,
+          cloudProgress: batch,
+          generation: snapshotGeneration,
+          expectedUserId: expectedIdentity.userId!,
+          shouldContinue,
+        });
+        if (applied && shouldContinue()) markSyncApplySucceeded("chapter-progress");
+      } catch (error) {
+        markSyncApplyFailed("chapter-progress", error, shouldContinue);
       }
-      
-      await localStore.saveSettings({ installedSources: mergedSources });
-      
-      // Update settings store - filter out tombstones for UI
-      const activeSources = mergedSources.filter((s) => !s.removed);
-      const installedIds = new Set(activeSources.map((s) => s.id));
-      stores.useSettingsStore.setState((state) => ({
-        installedSources: activeSources,
-        availableSources: state.availableSources.map((s) => ({
-          ...s,
-          installed: installedIds.has(`${s.registryId}:${s.id}`),
-        })),
-      }));
     })();
-  }, [cloudSettings, localStore, stores]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cloudChapterProgress,
+    convex,
+    isAuthenticated,
+    localStore,
+    markSyncApplyFailed,
+    markSyncApplySucceeded,
+    profileId,
+    session?.user?.id,
+    snapshotGeneration,
+    chapterProgressRetryRevision,
+  ]);
+
+  useEffect(() => {
+    if (
+      !cloudMangaProgress ||
+      snapshotGeneration === null ||
+      subscriptionStoppedRef.current
+    )
+      return;
+    let cancelled = false;
+    const expectedIdentity = syncIdentityRef.current;
+    const shouldContinue = () =>
+      isWebSyncRunCurrent(
+        expectedIdentity,
+        syncIdentityRef.current,
+        cancelled,
+        subscriptionStoppedRef.current,
+      );
+    (async () => {
+      try {
+        if (!shouldContinue()) return;
+        if (
+          !(await prepareWebSnapshotGeneration(
+            localStore,
+            snapshotGeneration,
+            shouldContinue,
+          ))
+        )
+          return;
+        const batch = mapCloudMangaProgress(
+          cloudMangaProgress.rows,
+        ) as LocalMangaProgress[];
+        if (!shouldContinue()) return;
+        const applied = await localStore.applyMangaProgressSnapshot(
+          batch,
+          snapshotGeneration,
+          shouldContinue,
+        );
+        if (!applied || !shouldContinue()) return;
+        // Update reactive index directly (no load()).
+        const map = new Map<string, LocalMangaProgress>();
+        for (const entry of applied.progress) map.set(entry.id, entry);
+        progressStore.setState({ index: map, loading: false });
+        markSyncApplySucceeded("manga-progress");
+      } catch (error) {
+        markSyncApplyFailed("manga-progress", error, shouldContinue);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cloudMangaProgress,
+    isAuthenticated,
+    localStore,
+    markSyncApplyFailed,
+    markSyncApplySucceeded,
+    profileId,
+    progressStore,
+    session?.user?.id,
+    snapshotGeneration,
+    mangaProgressRetryRevision,
+  ]);
+
+  useEffect(() => {
+    if (
+      !cloudSettings ||
+      snapshotGeneration === null ||
+      subscriptionStoppedRef.current
+    )
+      return;
+    let cancelled = false;
+    const expectedIdentity = syncIdentityRef.current;
+    const shouldContinue = () =>
+      isWebSyncRunCurrent(
+        expectedIdentity,
+        syncIdentityRef.current,
+        cancelled,
+        subscriptionStoppedRef.current,
+      );
+    (async () => {
+      try {
+        if (!shouldContinue()) return;
+        if (
+          !(await prepareWebSnapshotGeneration(
+            localStore,
+            snapshotGeneration,
+            shouldContinue,
+          ))
+        )
+          return;
+        const cloudSources = cloudSettings.installedSources ?? [];
+        const mergedSources = await applyWebInstalledSourcesSyncSnapshot({
+          localStore,
+          convex: convex as ConvexReactClient,
+          cloudSources,
+          generation: snapshotGeneration,
+          expectedUserId: expectedIdentity.userId!,
+          shouldContinue,
+        });
+        if (!mergedSources || !shouldContinue()) return;
+        const finalSources = await localStore.getInstalledSources();
+        if (!shouldContinue()) return;
+
+        // Update settings store - filter out tombstones for UI
+        const activeSources = finalSources.filter((s) => !s.removed);
+        const installedIds = new Set(activeSources.map((s) => s.id));
+        stores.useSettingsStore.setState((state) => ({
+          installedSources: activeSources,
+          availableSources: state.availableSources.map((s) => ({
+            ...s,
+            installed: installedIds.has(`${s.registryId}:${s.id}`),
+          })),
+        }));
+        markSyncApplySucceeded("settings");
+      } catch (error) {
+        markSyncApplyFailed("settings", error, shouldContinue);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cloudSettings,
+    convex,
+    isAuthenticated,
+    localStore,
+    markSyncApplyFailed,
+    markSyncApplySucceeded,
+    profileId,
+    session?.user?.id,
+    snapshotGeneration,
+    stores,
+    syncApplyRetryRevision.settings,
+  ]);
 
   // Reload stores whenever the provider swaps the profile container.
   useEffect(() => {
-    progressStore.getState().load();
-    Promise.all([
-      stores.useSettingsStore.getState().initialize(),
-      stores.useLibraryStore.getState().load(false),
-      stores.useCollectionsStore.getState().load(),
-    ]);
-    getSourceSettingsStore().getState().initialize();
-  }, [profileId, progressStore, stores]);
+    const reloadProfileStores = () => {
+      void Promise.all([
+        progressStore.getState().load(),
+        stores.useSettingsStore.getState().initialize(),
+        stores.useLibraryStore.getState().load(false),
+        stores.useCollectionsStore.getState().load(),
+        sourceSettingsStore.getState().initialize(),
+      ]).catch((error) => {
+        console.error("[sync] Failed to reload profile stores:", error);
+      });
+    };
+    reloadProfileStores();
+    window.addEventListener(LOCAL_PROFILE_IMPORT_EVENT, reloadProfileStores);
+    return () => {
+      window.removeEventListener(LOCAL_PROFILE_IMPORT_EVENT, reloadProfileStores);
+    };
+  }, [profileId, progressStore, sourceSettingsStore, stores]);
 
   // Import dialog logic
   useEffect(() => {
     if (!isAuthenticated || isLoading || !session?.user?.id) return;
 
+    const expectedIdentity = syncIdentityRef.current;
     const userId = session.user.id;
+    if (expectedIdentity.userId !== userId) return;
+
+    const activeOffer = importOfferIdentityRef.current;
+    if (activeOffer === expectedIdentity) return;
+    if (activeOffer) cancelImportOffer(activeOffer);
     if (getImportDecision(userId)) return;
-    if (sessionStorage.getItem(IMPORT_OFFERED_SESSION_KEY)) return;
+    if (wasImportOfferedThisSession(userId)) return;
 
-    (async () => {
-      try {
-        const defaultStore = new IndexedDBUserDataStore();
-        const hasLocalLegacy = await defaultStore.hasLibraryData();
-        if (!hasLocalLegacy) return;
+    let cancelled = false;
+    const defaultStore = new IndexedDBUserDataStore();
 
-        let cloudEmpty = false;
-        try {
-          const items = await convex.query(api.sync.libraryItemsAll, {});
-          cloudEmpty = items.length === 0;
-        } catch {
+    void checkImportOfferEligibility(
+      expectedIdentity,
+      defaultStore,
+      localStore,
+      () => cancelled,
+    )
+      .then((eligible) => {
+        if (!eligible) return;
+        if (
+          !isWebSyncRunCurrent(
+            expectedIdentity,
+            syncIdentityRef.current,
+            cancelled,
+            subscriptionStoppedRef.current,
+          )
+        ) {
           return;
         }
-        if (!cloudEmpty) return;
-
-        const currentEntries = await localStore.getLibraryEntries();
-        if (currentEntries.length > 0) return;
-
-        sessionStorage.setItem(IMPORT_OFFERED_SESSION_KEY, "true");
-        setShowImportDialog(true);
-      } catch (e) {
+        if (importOfferIdentityRef.current !== null) return;
+        markImportOfferedThisSession(userId);
+        publishImportOffer(expectedIdentity);
+      })
+      .catch((e) => {
+        if (cancelled) return;
         console.error("[SyncSetup] Import check failed:", e);
-      }
-    })();
-  }, [isAuthenticated, isLoading, session?.user?.id, convex, localStore]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cancelImportOffer,
+    checkImportOfferEligibility,
+    isAuthenticated,
+    isLoading,
+    localStore,
+    publishImportOffer,
+    session?.user?.id,
+    subscriptionsStopped,
+  ]);
 
   // IDB blocked dialog
-  const shouldDebugIdbUi = import.meta.env.DEV && typeof window !== "undefined" && window.location?.search?.includes("idbMockUpgrade=1");
-  const shouldForceIdbDialog = import.meta.env.DEV && typeof window !== "undefined" && window.location?.search?.includes("idbForceDialog=1");
+  const shouldDebugIdbUi =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    window.location?.search?.includes("idbMockUpgrade=1");
+  const shouldForceIdbDialog =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    window.location?.search?.includes("idbForceDialog=1");
 
   useEffect(() => {
     if (shouldDebugIdbUi) {
@@ -426,7 +1285,11 @@ export function SyncSetup() {
       }
     }
     if (shouldForceIdbDialog) {
-      setIdbBlocked({ dbName: "nemu-user", kind: "blocked", requestedVersion: 999 });
+      setIdbBlocked({
+        dbName: "nemu-user",
+        kind: "blocked",
+        requestedVersion: 999,
+      });
       setIdbDialogOpen(true);
     }
     const handler = (e: CustomEvent<IdbBlockedEventDetail>) => {
@@ -434,14 +1297,18 @@ export function SyncSetup() {
       setIdbDialogOpen(true);
       if (shouldDebugIdbUi) {
         try {
-          sessionStorage.setItem(IDB_UI_EVENT_BUFFER_KEY, JSON.stringify(e.detail));
+          sessionStorage.setItem(
+            IDB_UI_EVENT_BUFFER_KEY,
+            JSON.stringify(e.detail),
+          );
         } catch {
           // ignore storage failures
         }
       }
     };
     window.addEventListener(IDB_UI_EVENT, handler as EventListener);
-    return () => window.removeEventListener(IDB_UI_EVENT, handler as EventListener);
+    return () =>
+      window.removeEventListener(IDB_UI_EVENT, handler as EventListener);
   }, [shouldDebugIdbUi, shouldForceIdbDialog]);
 
   useEffect(() => {
@@ -456,94 +1323,205 @@ export function SyncSetup() {
 
   // Import handlers
   const handleImportLocal = async () => {
-    const userId = sessionUserIdRef.current;
-    if (!userId) return;
-    setShowImportDialog(false);
-    setImportDecision(userId, "imported");
+    const expectedIdentity = importOfferIdentity;
+    if (!expectedIdentity || importActionTokenRef.current !== null) return;
+    if (
+      !isWebImportOfferActionCurrent(
+        expectedIdentity,
+        importOfferIdentityRef.current,
+        syncIdentityRef.current,
+        false,
+        subscriptionStoppedRef.current,
+      )
+    ) {
+      cancelImportOffer(expectedIdentity);
+      return;
+    }
+
+    const userId = expectedIdentity.userId;
+    if (!userId || expectedIdentity.localStore !== localStore) {
+      cancelImportOffer(expectedIdentity);
+      return;
+    }
+
+    const actionToken: WebImportActionToken = {
+      offerIdentity: expectedIdentity,
+    };
+    importActionTokenRef.current = actionToken;
+    setImportActionIdentity(expectedIdentity);
+    const shouldContinue = () =>
+      importActionTokenRef.current === actionToken &&
+      isWebSyncRunCurrent(
+        actionToken.offerIdentity,
+        syncIdentityRef.current,
+        importActionTokenRef.current !== actionToken,
+        subscriptionStoppedRef.current,
+      );
+    let localImportCommitted = false;
 
     try {
       const defaultStore = new IndexedDBUserDataStore();
-      const legacyData = await defaultStore.getLibrary();
-      
-      for (const legacy of legacyData) {
-        const rawId = String(legacy.id ?? "");
-        const first = rawId.indexOf(":");
-        const second = first === -1 ? -1 : rawId.indexOf(":", first + 1);
-        if (first === -1 || second === -1) continue;
-
-        const registryId = rawId.slice(0, first);
-        const sourceId = rawId.slice(first + 1, second);
-        const sourceMangaId = rawId.slice(second + 1);
-        
-        const libraryItemId = crypto.randomUUID();
-        const now = Date.now();
-        
-        const item: LocalLibraryItem = {
-          libraryItemId,
-          metadata: legacy.metadata ?? { title: "Unknown" },
-          externalIds: legacy.externalIds,
-          inLibrary: true,
-          createdAt: legacy.addedAt ?? now,
-          updatedAt: now,
-        };
-        
-        if (legacy.overrides) {
-          item.overrides = { metadata: legacy.overrides };
-        }
-        if (legacy.coverCustom) {
-          item.overrides = { ...item.overrides, coverUrl: legacy.coverCustom };
-        }
-        
-        // Save directly to localStore (will sync to cloud via ops)
-        await localStore.saveLibraryItem(item);
-        
-        const sourceLink: LocalSourceLink = {
-          id: makeSourceLinkId(registryId, sourceId, sourceMangaId),
-          libraryItemId,
-          registryId,
-          sourceId,
-          sourceMangaId,
-          createdAt: now,
-          updatedAt: now,
-        };
-        
-        await localStore.saveSourceLink(sourceLink);
+      // Confirmation re-runs the complete offer predicate. A stale dialog, a
+      // newly populated cloud/local profile, or removed legacy data aborts
+      // before any import write can begin.
+      const stillEligible = await checkImportOfferEligibility(
+        expectedIdentity,
+        defaultStore,
+        localStore,
+        () => importActionTokenRef.current !== actionToken,
+      );
+      if (!shouldContinue()) return;
+      if (!stillEligible) {
+        cancelImportOffer(expectedIdentity);
+        return;
       }
-      
-      // Import history
-      const legacyHistory = await defaultStore.getAllLegacyHistory();
-      for (const entry of legacyHistory) {
-        await stores.useHistoryStore.getState().saveProgress(
-          entry.registryId,
-          entry.sourceId,
-          entry.mangaId,
-          entry.chapterId,
-          entry.progress,
-          entry.total,
-          {
-            chapterNumber: entry.chapterNumber,
-            volumeNumber: entry.volumeNumber,
-            chapterTitle: entry.chapterTitle,
+
+      const [legacyData, legacyHistory] = await Promise.all([
+        defaultStore.getLibrary(),
+        defaultStore.getAllLegacyHistory(),
+      ]);
+      if (!shouldContinue()) return;
+
+      // Preserve the legacy row id. The import spans several IndexedDB
+      // transactions, so a quota/connection failure can leave a durable prefix
+      // before the user retries. Stable ids make that retry an idempotent
+      // overwrite instead of duplicating already-imported library entries.
+      const importedLibrary = legacyData.map((legacy) =>
+        convertLegacyLibraryEntry(legacy),
+      );
+      const libraryItemBySource = new Map<string, string>();
+      for (const imported of importedLibrary) {
+        for (const link of imported.links) {
+          libraryItemBySource.set(link.id, imported.item.libraryItemId);
+        }
+      }
+      const importedHistory = legacyHistory.map((entry) =>
+        convertLegacyHistoryEntry(
+          entry,
+          libraryItemBySource.get(
+            makeSourceLinkId(entry.registryId, entry.sourceId, entry.mangaId),
+          ),
+        ),
+      );
+      const importedMangaProgress = deriveLegacyMangaProgress(importedHistory);
+
+      const writeResult = await localStore.runWithSyncWrite(async () => {
+        if (!shouldContinue()) return null;
+        for (const imported of importedLibrary) {
+          await localStore.saveLibraryItem(imported.item);
+          if (!shouldContinue()) return null;
+          for (const link of imported.links) {
+            await localStore.saveSourceLink(link);
+            if (!shouldContinue()) return null;
           }
+        }
+        await localStore.saveChapterProgressBatch(importedHistory);
+        if (!shouldContinue()) return null;
+        await localStore.saveMangaProgressBatch(importedMangaProgress);
+        if (!shouldContinue()) return null;
+        const generation = await localStore.getSyncGeneration();
+        if (!shouldContinue()) return null;
+        return { generation };
+      });
+      if (!shouldContinue() || writeResult === null) return;
+
+      // The account import is now durable locally. Mark it only after that
+      // boundary so an IndexedDB/quota failure can still be retried.
+      setImportDecision(userId, "imported");
+      localImportCommitted = true;
+      dismissImportOffer(expectedIdentity);
+
+      // Explicitly push the imported winners. Direct IndexedDB writes do not
+      // trigger the subscription effect by themselves; if transport fails,
+      // the durable local winners will be retried by a later snapshot round.
+      if (writeResult.generation !== null && shouldContinue()) {
+        try {
+          for (const imported of importedLibrary) {
+            if (!shouldContinue()) return;
+            for (const input of toCloudLibrarySaveInputBatches(
+              imported.item,
+              imported.links,
+            )) {
+              if (!shouldContinue()) return;
+              await convex.mutation(api.library.save, {
+                expectedUserId: userId,
+                ...input,
+                generation: writeResult.generation,
+              });
+            }
+          }
+          for (const entry of importedHistory) {
+            if (!shouldContinue()) return;
+            await convex.mutation(api.history.save, {
+              expectedUserId: userId,
+              ...toCloudHistorySaveInput(entry),
+              generation: writeResult.generation,
+            });
+            if (!shouldContinue()) return;
+          }
+        } catch (error) {
+          if (shouldContinue()) {
+            console.warn(
+              "[SyncSetup] Imported locally; cloud push will retry on a later sync:",
+              error,
+            );
+          }
+        }
+      }
+
+      if (!shouldContinue()) return;
+      await Promise.all([
+        stores.useLibraryStore.getState().load(false),
+        progressStore.getState().load(),
+      ]);
+      if (!shouldContinue()) return;
+    } catch (e) {
+      if (shouldContinue()) {
+        console.error(
+          localImportCommitted
+            ? "[SyncSetup] Post-import refresh failed:"
+            : "[SyncSetup] Import failed:",
+          e,
         );
       }
-      
-      stores.useLibraryStore.getState().load(false);
-    } catch (e) {
-      console.error("[SyncSetup] Import failed:", e);
+    } finally {
+      if (importActionTokenRef.current === actionToken) {
+        importActionTokenRef.current = null;
+      }
+      setImportActionIdentity((current) =>
+        current === expectedIdentity ? null : current,
+      );
     }
   };
 
   const handleSkipImport = () => {
-    const userId = sessionUserIdRef.current;
-    if (!userId) return;
-    setShowImportDialog(false);
+    const expectedIdentity = importOfferIdentity;
+    if (!expectedIdentity || importActionTokenRef.current !== null) return;
+    if (
+      !isWebImportOfferActionCurrent(
+        expectedIdentity,
+        importOfferIdentityRef.current,
+        syncIdentityRef.current,
+        false,
+        subscriptionStoppedRef.current,
+      )
+    ) {
+      cancelImportOffer(expectedIdentity);
+      return;
+    }
+    const userId = expectedIdentity.userId;
+    if (!userId) {
+      cancelImportOffer(expectedIdentity);
+      return;
+    }
     setImportDecision(userId, "skipped");
+    cancelImportOffer(expectedIdentity);
   };
 
-  const idbDescription = idbBlocked?.kind === "versionchange"
-    ? t("storage.idbLock.descriptionVersionChange")
-    : t("storage.idbLock.descriptionBlocked");
+  const idbDescription =
+    idbBlocked?.kind === "versionchange"
+      ? t("storage.idbLock.descriptionVersionChange")
+      : t("storage.idbLock.descriptionBlocked");
 
   // Render dialogs only (portals) - main app tree is unaffected by re-renders
   return (
@@ -553,7 +1531,9 @@ export function SyncSetup() {
         <ResponsiveDialogContent showCloseButton={false}>
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle>{t("sync.syncing")}</ResponsiveDialogTitle>
-            <ResponsiveDialogDescription>{t("sync.syncingDescription")}</ResponsiveDialogDescription>
+            <ResponsiveDialogDescription>
+              {t("sync.syncingDescription")}
+            </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <div className="flex justify-center py-4">
             <div className="relative">
@@ -563,34 +1543,63 @@ export function SyncSetup() {
           </div>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
-      
+
       {/* IDB blocked dialog */}
-      <ResponsiveDialog open={idbDialogOpen} onOpenChange={setIdbDialogOpen} dismissible={false}>
+      <ResponsiveDialog
+        open={idbDialogOpen}
+        onOpenChange={setIdbDialogOpen}
+        dismissible={false}
+      >
         <ResponsiveDialogContent showCloseButton={false}>
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle>{t("storage.idbLock.title")}</ResponsiveDialogTitle>
-            <ResponsiveDialogDescription>{idbDescription}</ResponsiveDialogDescription>
+            <ResponsiveDialogTitle>
+              {t("storage.idbLock.title")}
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>
+              {idbDescription}
+            </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <ResponsiveDialogFooter>
-            <Button onClick={() => window.location.reload()}>{t("storage.idbLock.reload")}</Button>
+            <Button onClick={() => window.location.reload()}>
+              {t("storage.idbLock.reload")}
+            </Button>
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
 
       {/* Import dialog */}
-      <ResponsiveDialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+      <ResponsiveDialog
+        open={importOfferIdentity !== null}
+        onOpenChange={(open) => {
+          if (!open && importOfferIdentity) {
+            cancelImportOffer(importOfferIdentity);
+          }
+        }}
+      >
         <ResponsiveDialogContent showCloseButton={false}>
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle>{t("import.title")}</ResponsiveDialogTitle>
-            <ResponsiveDialogDescription>{t("import.description")}</ResponsiveDialogDescription>
+            <ResponsiveDialogDescription>
+              {t("import.description")}
+            </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <ResponsiveDialogFooter>
-            <Button variant="outline" onClick={handleSkipImport}>{t("import.skip")}</Button>
-            <Button onClick={handleImportLocal}>{t("import.confirm")}</Button>
+            <Button
+              variant="outline"
+              onClick={handleSkipImport}
+              disabled={importActionIdentity === importOfferIdentity}
+            >
+              {t("import.skip")}
+            </Button>
+            <Button
+              onClick={handleImportLocal}
+              disabled={importActionIdentity === importOfferIdentity}
+            >
+              {t("import.confirm")}
+            </Button>
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
     </>
   );
 }
-

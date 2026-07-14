@@ -410,7 +410,8 @@
     "keepDataDescription": "いつでも再度サインインして同期できます。",
     "removeData": "このデバイスからデータを削除",
     "removeDataDescription": "クラウドデータは安全に保持されます。",
-    "signingOut": "サインアウト中..."
+    "signingOut": "サインアウト中...",
+    "failed": "サインアウトできませんでした。ローカルデータは変更されていません。"
   },
   "sourceSettings": {
     "loadingSettings": "設定を読み込み中...",

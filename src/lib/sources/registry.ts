@@ -6,6 +6,10 @@ import type { SourceRegistry } from "../../data/schema";
 import type { CacheStore } from "../../data/cache";
 import { AidokuUrlRegistry, AIDOKU_REGISTRIES, type InstalledSourceStore } from "./aidoku/url-registry";
 import { TachiyomiLocalRegistry, TACHIYOMI_LOCAL_REGISTRY_ID } from "./tachiyomi/local-registry";
+import {
+  getSourceSettingsStore,
+  type SourceSettingsStore,
+} from "@/stores/source-settings";
 
 // Re-export for convenience
 export type { InstalledSourceStore };
@@ -52,15 +56,18 @@ export class RegistryManager {
   private registryStore: RegistryMetadataStore;
   private installedSourceStore: InstalledSourceStore;
   private cacheStore: CacheStore;
+  private sourceSettingsStore: SourceSettingsStore;
 
   constructor(
     registryStore: RegistryMetadataStore,
     installedSourceStore: InstalledSourceStore,
-    cacheStore: CacheStore
+    cacheStore: CacheStore,
+    sourceSettingsStore: SourceSettingsStore = getSourceSettingsStore(),
   ) {
     this.registryStore = registryStore;
     this.installedSourceStore = installedSourceStore;
     this.cacheStore = cacheStore;
+    this.sourceSettingsStore = sourceSettingsStore;
     // Add default Aidoku registries
     for (const def of AIDOKU_REGISTRIES) {
       const registry = new AidokuUrlRegistry(
@@ -68,7 +75,8 @@ export class RegistryManager {
         def.name,
         def.indexUrl,
         this.installedSourceStore,
-        this.cacheStore
+        this.cacheStore,
+        this.sourceSettingsStore,
       );
       this.registries.set(def.id, registry);
     }
@@ -77,7 +85,11 @@ export class RegistryManager {
     if (import.meta.env.DEV && import.meta.env.VITE_TACHIYOMI_LOCAL_PATH) {
       this.registries.set(
         TACHIYOMI_LOCAL_REGISTRY_ID,
-        new TachiyomiLocalRegistry(this.installedSourceStore, this.cacheStore)
+        new TachiyomiLocalRegistry(
+          this.installedSourceStore,
+          this.cacheStore,
+          this.sourceSettingsStore,
+        )
       );
     }
   }
@@ -94,7 +106,8 @@ export class RegistryManager {
         def.name,
         def.indexUrl,
         this.installedSourceStore,
-        this.cacheStore
+        this.cacheStore,
+        this.sourceSettingsStore,
       );
       this.registries.set(def.id, registry);
     }
@@ -121,7 +134,8 @@ export class RegistryManager {
             registry.name,
             registry.url,
             this.installedSourceStore,
-            this.cacheStore
+            this.cacheStore,
+            this.sourceSettingsStore,
           )
         );
       }
@@ -151,7 +165,8 @@ export class RegistryManager {
           registry.name,
           registry.url,
           this.installedSourceStore,
-          this.cacheStore
+          this.cacheStore,
+          this.sourceSettingsStore,
         )
       );
     }

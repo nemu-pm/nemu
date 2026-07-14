@@ -50,7 +50,7 @@ import { usePageTitle } from "@/components/page-title";
 import { ManageCollectionMembershipSheet } from "@/components/collections/manage-collection-membership-sheet";
 
 /** Find the chapter with the highest chapter number */
-function findLatestChapter(chapters: Chapter[]): { id: string; title?: string; chapterNumber?: number; volumeNumber?: number } | null {
+function findLatestChapter(chapters: Chapter[]): { id: string; title?: string; chapterNumber?: number; volumeNumber?: number; lang?: string } | null {
   if (chapters.length === 0) return null;
   const latest = chapters.reduce((best, ch) => {
     const bestNum = best.chapterNumber ?? -Infinity;
@@ -62,6 +62,7 @@ function findLatestChapter(chapters: Chapter[]): { id: string; title?: string; c
     title: latest.title,
     chapterNumber: latest.chapterNumber,
     volumeNumber: latest.volumeNumber,
+    lang: latest.lang,
   };
 }
 

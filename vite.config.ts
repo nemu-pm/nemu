@@ -3,6 +3,21 @@ import fs from "fs"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig, loadEnv, type Plugin } from "vite"
+import { normalizeVaulCss } from "./scripts/normalize-vaul-css"
+
+const vendoredVaulCssPath = path.resolve(__dirname, "./vendor/vaul/src/style.css")
+
+function normalizeVendoredVaulCssPlugin(): Plugin {
+  return {
+    name: "normalize-vendored-vaul-css",
+    enforce: "pre",
+    transform(source, id) {
+      if (path.resolve(id.split("?", 1)[0]) !== vendoredVaulCssPath) return
+      const normalized = normalizeVaulCss(source)
+      return normalized === source ? undefined : { code: normalized, map: null }
+    },
+  }
+}
 
 /**
  * Plugin to serve local Tachiyomi extensions in development.
@@ -139,7 +154,12 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   
   return {
-  plugins: [react(), tailwindcss(), localExtensionsPlugin(env.VITE_TACHIYOMI_LOCAL_PATH)],
+  plugins: [
+    normalizeVendoredVaulCssPlugin(),
+    react(),
+    tailwindcss(),
+    localExtensionsPlugin(env.VITE_TACHIYOMI_LOCAL_PATH),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

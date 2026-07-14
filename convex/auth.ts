@@ -1,14 +1,57 @@
 import { createClient, type GenericCtx } from "@convex-dev/better-auth";
 import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
+import { expo } from "@better-auth/expo";
 import { components } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
-import { betterAuth } from "better-auth";
+import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import authConfig from "./auth.config";
 
 const siteUrl = process.env.SITE_URL!;
 const devUrl = process.env.DEV_URL;
+const mobileTrustedOrigins = [
+  "nemu://",
+  "nemu://*",
+  "pm.nemu.mobile://",
+  "pm.nemu.mobile://*",
+];
+
+const mobileOriginPrefixes = ["nemu://", "pm.nemu.mobile://"];
+
+// Better Auth's Expo plugin needs a server-side origin bridge for native apps,
+// where requests carry expo-origin instead of the browser Origin header.
+function mobileOriginBridge(): BetterAuthPlugin {
+  return {
+    id: "nemu-mobile-origin-bridge",
+    async onRequest(request, ctx) {
+      if (request.headers.get("origin")) return;
+
+      const expoOrigin = request.headers.get("expo-origin");
+      if (
+        !expoOrigin ||
+        !mobileOriginPrefixes.some((origin) => expoOrigin.startsWith(origin))
+      ) {
+        return;
+      }
+
+      const req = request.clone();
+      req.headers.set("origin", siteUrl || devUrl || new URL(request.url).origin);
+      const originalIsTrustedOrigin = ctx.isTrustedOrigin.bind(ctx);
+      ctx.isTrustedOrigin = (url, settings) => {
+        if (
+          typeof url === "string" &&
+          mobileOriginPrefixes.some((origin) => url.startsWith(origin))
+        ) {
+          return true;
+        }
+        return originalIsTrustedOrigin(url, settings);
+      };
+      ctx.skipOriginCheck = true;
+      return { request: req };
+    },
+  };
+}
 
 export const authComponent = createClient<DataModel>(components.betterAuth);
 
@@ -18,9 +61,12 @@ const appleConfigured = Boolean(
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   return betterAuth({
-    trustedOrigins: [siteUrl, devUrl, "https://appleid.apple.com"].filter(
-      Boolean
-    ) as string[],
+    trustedOrigins: [
+      siteUrl,
+      devUrl,
+      "https://appleid.apple.com",
+      ...mobileTrustedOrigins,
+    ].filter(Boolean) as string[],
     database: authComponent.adapter(ctx),
     socialProviders: {
       google: {
@@ -44,7 +90,12 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
         domain: ".nemu.pm",
       },
     },
-    plugins: [crossDomain({ siteUrl }), convex({ authConfig })],
+    plugins: [
+      mobileOriginBridge(),
+      expo({ disableOriginOverride: true }),
+      crossDomain({ siteUrl }),
+      convex({ authConfig }),
+    ],
   });
 };
 
@@ -53,6 +104,15 @@ export const getCurrentUser = query({
   handler: async (ctx) => {
     return authComponent.getAuthUser(ctx);
   },
+});
+
+/**
+ * Lightweight, non-throwing identity probe used to bind local sync profiles to
+ * the account actually authenticated on the Convex transport.
+ */
+export const getCurrentUserId = query({
+  args: {},
+  handler: async (ctx) => (await ctx.auth.getUserIdentity())?.subject ?? null,
 });
 
 /**

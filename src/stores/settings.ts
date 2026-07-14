@@ -5,6 +5,8 @@ import type { MangaSource } from "@/lib/sources/types";
 import type { RegistrySourceInfo, RegistryManager } from "@/lib/sources/registry";
 import type { InstalledSource as InstalledSourceSchema } from "@/data/schema";
 import { sourceInstallStore } from "./source-install";
+import { nextSyncTimestamp } from "@nemu/core";
+import { extractAix } from "@nemu.pm/aidoku-runtime";
 
 /** Minimal interface for settings store needs */
 export interface SettingsStoreOps {
@@ -276,7 +278,6 @@ export function createSettingsStore(
 
     installFromAix: async (file: File) => {
       const registryId = LOCAL_REGISTRY_ID;
-      const { extractAix } = await import("@nemu.pm/aidoku-runtime");
       const arrayBuffer = await file.arrayBuffer();
       
       // Extract to validate and get sourceId
@@ -294,7 +295,7 @@ export function createSettingsStore(
         id: Keys.source(registryId, sourceId),
         registryId,
         version: manifest.info?.version ?? 1,
-        updatedAt: Date.now(),
+        updatedAt: nextSyncTimestamp(),
       });
 
       // Reload installed sources

@@ -1,7 +1,11 @@
 import { createPluginAsyncStorage } from '../../types';
-import type { MultiDhash } from '@/lib/dual-reader/hash';
-import type { SerializedMultiDhash } from '@/lib/dual-reader/hash-serialization';
-import { deserializeMultiDhash, serializeMultiDhash } from '@/lib/dual-reader/hash-serialization';
+import type { MultiDhash } from '@nemu/core/dual-reader';
+import type { SerializedMultiDhash } from '@nemu/core/dual-reader';
+import {
+  DUAL_READER_DHASH_CACHE_VERSION,
+  deserializeMultiDhash,
+  serializeMultiDhash,
+} from '@nemu/core/dual-reader';
 
 const storage = createPluginAsyncStorage('dual-reader');
 
@@ -14,7 +18,7 @@ export interface DualReadHashCacheKey {
 }
 
 interface DualReadHashCacheValue {
-  version: 2;
+  version: number;
   hash: SerializedMultiDhash;
 }
 
@@ -23,11 +27,24 @@ function makeKey(key: DualReadHashCacheKey): string {
 }
 
 export async function getCachedDualReadHash(key: DualReadHashCacheKey): Promise<MultiDhash | null> {
-  const cached = await storage.get<DualReadHashCacheValue>(makeKey(key));
-  if (!cached || cached.version !== 2 || !cached.hash) return null;
-  return deserializeMultiDhash(cached.hash);
+  const cacheKey = makeKey(key);
+  const cached = await storage.get<DualReadHashCacheValue>(cacheKey);
+  if (!cached) return null;
+  if (cached.version !== DUAL_READER_DHASH_CACHE_VERSION || !cached.hash) {
+    await storage.remove(cacheKey);
+    return null;
+  }
+  try {
+    return deserializeMultiDhash(cached.hash);
+  } catch {
+    await storage.remove(cacheKey);
+    return null;
+  }
 }
 
 export async function setCachedDualReadHash(key: DualReadHashCacheKey, hash: MultiDhash): Promise<void> {
-  await storage.set(makeKey(key), { version: 2, hash: serializeMultiDhash(hash) });
+  await storage.set(makeKey(key), {
+    version: DUAL_READER_DHASH_CACHE_VERSION,
+    hash: serializeMultiDhash(hash),
+  });
 }

@@ -12,7 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useAuth, useDataServices } from "@/data/context";
-import { subscriptionStoppedRef, clearCloudData } from "@/sync/services";
+import {
+  clearCloudData,
+  setSyncSubscriptionsStopped,
+} from "@/sync/services";
+import { getSourceSettingsDatabaseName } from "@/stores/source-settings";
 
 interface ClearDataDialogProps {
   open: boolean;
@@ -33,8 +37,9 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
     const names = new Set<string>();
     names.add("nemu-cache");
     if (localStore?.dbName) names.add(localStore.dbName);
+    names.add(getSourceSettingsDatabaseName(localStore?.profileId || undefined));
     return names;
-  }, [localStore?.dbName]);
+  }, [localStore]);
 
   const handleOpenChange = (newOpen: boolean) => {
     // Prevent closing while loading
@@ -106,7 +111,7 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
     setLoading(true);
     try {
       // Stop any active subscriptions before clearing storage
-      subscriptionStoppedRef.current = true;
+      setSyncSubscriptionsStopped(true);
 
       if (mode === "cache") {
         // Clear cache store contents first (more reliable than deleteDatabase when connections are open),
@@ -127,7 +132,7 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
 
       // Clear cloud first if requested (before we nuke local auth state)
       if (clearCloud && isAuthenticated) {
-        await clearCloudData();
+        await clearCloudData(localStore);
       }
 
       // Clear all IndexedDB databases
@@ -175,6 +180,10 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
       location.reload();
     } catch (e) {
       console.error("Failed to clear data:", e);
+      // The app remains mounted when a destructive operation fails. Restore
+      // normal subscriptions instead of leaving this session permanently
+      // offline until a full reload.
+      setSyncSubscriptionsStopped(false);
       setLoading(false);
     }
   };
@@ -224,4 +233,3 @@ export function ClearDataDialog({ open, onOpenChange, mode }: ClearDataDialogPro
     </ResponsiveDialog>
   );
 }
-
