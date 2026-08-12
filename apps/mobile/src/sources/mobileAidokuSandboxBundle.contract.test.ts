@@ -258,6 +258,9 @@ describe("Android Aidoku sandbox bundle", () => {
       "WebAssembly.compile = async () => session.compiledModule",
     );
     expect(sandboxRuntime).toContain("source?.dispose()");
+    expect(sandboxRuntime).toContain('case "handle-basic-login"');
+    expect(sandboxRuntime).toContain('case "handle-web-login"');
+    expect(sandboxRuntime).toContain('case "handle-notification"');
     expect(manager).toContain("SANDBOX_MAX_REPLAY_ROUNDS = 32");
     expect(manager).toContain("SANDBOX_OPERATION_TIMEOUT_MS = 20_000L");
     expect(nativeModule).toContain("appContext.backgroundCoroutineScope.launch");

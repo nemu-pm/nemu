@@ -21,6 +21,15 @@ const homeComponent = (entries: number) => ({
 const homeLayout = (components: unknown[]) => ({ components });
 
 describe("mobile Aidoku output safety", () => {
+  test("accepts exact scalar operation results", () => {
+    expect(sanitizeMobileAidokuOutput("boolean", true)).toBe(true);
+    expect(sanitizeMobileAidokuOutput("void", null)).toBeNull();
+    expect(() => sanitizeMobileAidokuOutput("boolean", "yes")).toThrow(
+      "boolean",
+    );
+    expect(() => sanitizeMobileAidokuOutput("void", false)).toThrow("null");
+  });
+
   test("accepts and owns a legitimate MangaDex-like home result", () => {
     const input = {
       layout: homeLayout([

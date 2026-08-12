@@ -74,6 +74,16 @@ export type MobileAidokuExecutorSource = Omit<
    * signature as applied must await it — see the session cache. */
   updateSettings: (settings: Record<string, unknown>) => void | Promise<void>;
   getSettingsSchema?: () => Promise<string | null>;
+  handleBasicLogin?: (
+    key: string,
+    username: string,
+    password: string,
+  ) => Promise<boolean>;
+  handleWebLogin?: (
+    key: string,
+    cookies: Record<string, string>,
+  ) => Promise<boolean>;
+  handleNotification?: (notification: string) => Promise<void>;
 };
 
 export type MobileAidokuExecutorLoadInput = {

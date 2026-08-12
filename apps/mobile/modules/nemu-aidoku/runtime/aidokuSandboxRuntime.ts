@@ -155,6 +155,37 @@ function assertString(value: unknown, label: string, maxLength = 4_096): string 
   return value;
 }
 
+function normalizeStringMap(
+  value: unknown,
+  label: string,
+  maxEntries: number,
+  maxBytes: number,
+): Record<string, string> {
+  const entries = Object.entries(assertPlainRecord(value, label));
+  if (entries.length > maxEntries) {
+    throw new Error(`${label} has too many entries.`);
+  }
+  const normalized: Record<string, string> = {};
+  let totalBytes = 0;
+  for (const [rawKey, rawValue] of entries) {
+    if (typeof rawValue !== "string") {
+      throw new Error(`${label} contains an invalid value.`);
+    }
+    const key = rawKey.trim();
+    if (!key || /[\r\n]/.test(key) || /[\r\n]/.test(rawValue)) {
+      throw new Error(`${label} contains an invalid entry.`);
+    }
+    totalBytes +=
+      new TextEncoder().encode(key).byteLength +
+      new TextEncoder().encode(rawValue).byteLength;
+    if (totalBytes > maxBytes) {
+      throw new Error(`${label} exceeds the safety limit.`);
+    }
+    normalized[key] = rawValue;
+  }
+  return normalized;
+}
+
 function assertManga(value: unknown): Manga {
   const manga = assertPlainRecord(value, "Manga");
   assertString(manga.key, "Manga key", MAX_REQUEST_URL_LENGTH);
@@ -306,6 +337,11 @@ async function executeSourceOperation(
   operation: JsonRecord,
   imageBytes: Uint8Array | null,
 ): Promise<unknown> {
+  const actionSource = source as AidokuSource & {
+    handleBasicLogin(key: string, username: string, password: string): boolean;
+    handleWebLogin(key: string, cookies: Record<string, string>): boolean;
+    handleNotification(notification: string): void;
+  };
   switch (operation.kind) {
     case "capabilities":
       return sourceCapabilities(source, session);
@@ -340,6 +376,22 @@ async function executeSourceOperation(
       const layout = source.getHomeWithPartials((partial) => partials.push(partial));
       return { layout, partials };
     }
+    case "handle-basic-login":
+      return actionSource.handleBasicLogin(
+        assertString(operation.key, "Login key", 256),
+        assertString(operation.username, "Username", 16_384),
+        assertString(operation.password, "Password", 65_536),
+      );
+    case "handle-web-login":
+      return actionSource.handleWebLogin(
+        assertString(operation.key, "Login key", 256),
+        normalizeStringMap(operation.cookies, "Cookies", 128, 65_536),
+      );
+    case "handle-notification":
+      actionSource.handleNotification(
+        assertString(operation.notification, "Notification", 256),
+      );
+      return null;
     case "modify-image-request":
       return source.modifyImageRequest(
         assertString(operation.url, "Image URL", MAX_REQUEST_URL_LENGTH),

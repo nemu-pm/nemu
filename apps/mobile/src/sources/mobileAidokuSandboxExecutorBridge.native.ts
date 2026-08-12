@@ -180,6 +180,27 @@ function wrapSandboxSource({
     async handlesWebLogin() {
       return capabilities.handlesWebLogin;
     },
+    handleBasicLogin(key, username, password) {
+      return execute<boolean>("boolean", {
+        kind: "handle-basic-login",
+        key,
+        username,
+        password,
+      });
+    },
+    handleWebLogin(key, cookies) {
+      return execute<boolean>("boolean", {
+        kind: "handle-web-login",
+        key,
+        cookies,
+      });
+    },
+    async handleNotification(notification) {
+      await execute<null>("void", {
+        kind: "handle-notification",
+        notification,
+      });
+    },
     async getHome() {
       const response = await execute<SandboxHomeResult>("home", {
         kind: "home",

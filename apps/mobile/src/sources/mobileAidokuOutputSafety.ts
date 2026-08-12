@@ -16,6 +16,8 @@ const MOBILE_AIDOKU_IMAGE_REQUEST_MAX_HEADERS = 96;
 const MOBILE_AIDOKU_IMAGE_REQUEST_MAX_HEADER_BYTES = 64 * 1024;
 
 export type MobileAidokuOutputKind =
+  | "boolean"
+  | "void"
   | "capabilities"
   | "search"
   | "details"
@@ -332,6 +334,16 @@ function assertModifiedImageRequest(value: unknown): void {
 
 function assertKindLimits(kind: MobileAidokuOutputKind, value: unknown): void {
   switch (kind) {
+    case "boolean":
+      if (typeof value !== "boolean") {
+        throw new Error("Aidoku boolean output must be a boolean.");
+      }
+      return;
+    case "void":
+      if (value !== null) {
+        throw new Error("Aidoku void output must be null.");
+      }
+      return;
     case "capabilities":
       assertArrayLimit(
         assertPlainRecord(value, "Aidoku capabilities").staticListings,
