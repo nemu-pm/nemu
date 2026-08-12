@@ -1,0 +1,5 @@
+{
+  "ios": {
+    "NSPhotoLibraryUsageDescription": "Nemu lets you choose images from your photo library when updating manga covers."
+  }
+}

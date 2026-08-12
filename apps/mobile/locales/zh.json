@@ -1,0 +1,5 @@
+{
+  "ios": {
+    "NSPhotoLibraryUsageDescription": "Nemu 允许你在更新漫画封面时从照片图库中选择图片。"
+  }
+}

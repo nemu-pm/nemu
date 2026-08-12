@@ -2,7 +2,10 @@
   "expo": {
     "name": "Nemu",
     "slug": "nemu-mobile",
-    "scheme": "nemu",
+    "scheme": [
+      "nemu",
+      "neko"
+    ],
     "version": "0.1.0",
     "runtimeVersion": {
       "policy": "appVersion"
@@ -10,6 +13,11 @@
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
+    "locales": {
+      "en": "./locales/en.json",
+      "zh": "./locales/zh.json",
+      "ja": "./locales/ja.json"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "pm.nemu.mobile",
@@ -20,6 +28,7 @@
         ]
       },
       "infoPlist": {
+        "CFBundleAllowMixedLocalizations": true,
         "CFBundleURLTypes": [
           {
             "CFBundleURLSchemes": [
@@ -38,20 +47,6 @@
       "package": "pm.nemu.mobile",
       "versionCode": 1,
       "allowBackup": false,
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ],
-          "data": [
-            {
-              "scheme": "neko"
-            }
-          ]
-        }
-      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#fbfbfd"

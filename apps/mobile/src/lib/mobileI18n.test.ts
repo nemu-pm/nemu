@@ -6,6 +6,12 @@ import {
   getMobileStringsForAudit,
 } from "./mobileI18n";
 
+const INTENTIONAL_EMPTY_MOBILE_STRINGS = new Set([
+  "en:settings.aboutNemuAfterBrand",
+  "zh:settings.aboutNemuAfterBrand",
+  "ja:settings.aboutNemuBeforeBrand",
+]);
+
 function flattenStringLeaves(
   value: unknown,
   prefix = "",
@@ -44,6 +50,22 @@ describe("mobile i18n helpers", () => {
           interpolationKeys(englishValue),
         );
       }
+    }
+  });
+
+  test("rejects empty translations unless their paths are explicitly intentional", () => {
+    const catalogs = getMobileStringsForAudit();
+    for (const [language, catalog] of Object.entries(catalogs)) {
+      for (const [path, value] of flattenStringLeaves(catalog)) {
+        if (INTENTIONAL_EMPTY_MOBILE_STRINGS.has(`${language}:${path}`)) continue;
+        expect(`${language}:${path}:${value.trim()}`).not.toBe(`${language}:${path}:`);
+      }
+    }
+    for (const entry of INTENTIONAL_EMPTY_MOBILE_STRINGS) {
+      const separator = entry.indexOf(":");
+      const language = entry.slice(0, separator) as keyof typeof catalogs;
+      const path = entry.slice(separator + 1);
+      expect(flattenStringLeaves(catalogs[language]).get(path)).toBe("");
     }
   });
 
