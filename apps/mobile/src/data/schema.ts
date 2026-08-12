@@ -90,6 +90,17 @@ export type SourcePackageSetting = {
   action?: string;
   url?: string;
   urlKey?: string;
+  method?: "basic" | "web" | "oauth";
+  logoutTitle?: string;
+  localStorageKeys?: string[];
+  useEmail?: boolean;
+  external?: boolean;
+  destructive?: boolean;
+  confirmTitle?: string;
+  confirmMessage?: string;
+  callbackScheme?: string;
+  tokenUrl?: string;
+  pkce?: boolean;
   info?: string;
   icon?: {
     type?: "system" | "url";

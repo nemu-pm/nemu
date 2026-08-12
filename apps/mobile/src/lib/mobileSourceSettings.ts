@@ -118,14 +118,13 @@ export function isSourceSettingVisible(
 }
 
 export function isRenderableSourceSetting(setting: SourcePackageSetting): boolean {
-  return setting.type !== "button" && setting.type !== "link";
+  return Boolean(setting.type);
 }
 
 export function isEditableSourceSetting(setting: SourcePackageSetting): boolean {
   return (
     isRenderableSourceSetting(setting) &&
-    setting.type !== "group" &&
-    setting.type !== "page"
+    !["group", "page", "button", "link", "login"].includes(setting.type)
   );
 }
 
@@ -223,7 +222,24 @@ export function applyMobileSourceSettingChange(
   values: Record<string, unknown>;
   userValues: Record<string, unknown>;
 } {
-  const nextUserValues = { ...(userValues ?? {}), [key]: value };
+  return applyMobileSourceSettingsPatch(
+    settings,
+    userValues,
+    { [key]: value },
+  );
+}
+
+export function applyMobileSourceSettingsPatch(
+  settings: SourcePackageSetting[],
+  userValues: Record<string, unknown> | null | undefined,
+  patch: Record<string, unknown>,
+  deleteKeys: Iterable<string> = [],
+): {
+  values: Record<string, unknown>;
+  userValues: Record<string, unknown>;
+} {
+  const nextUserValues = { ...(userValues ?? {}), ...patch };
+  for (const key of deleteKeys) delete nextUserValues[key];
   return {
     values: mergeSourceSettingValues(settings, nextUserValues),
     userValues: nextUserValues,

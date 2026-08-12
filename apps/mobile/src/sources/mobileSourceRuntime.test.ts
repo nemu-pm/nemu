@@ -437,7 +437,7 @@ describe("mobile source runtime metadata", () => {
       status: "metadata-ready",
     });
     expect(operations.find((operation) => operation.key === "settings")).toMatchObject({
-      count: 2,
+      count: 3,
       status: "metadata-ready",
     });
     expect(operations.find((operation) => operation.key === "listings")).toMatchObject({

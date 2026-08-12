@@ -275,7 +275,7 @@ describe("mobile reader plugin helpers", () => {
         [linkOnlyPlugin, nestedSettingsPlugin],
         null,
       )?.id,
-    ).toBe("dual-reader");
+    ).toBe("japanese-learning");
   });
 
   test("keeps disabled explicit reader plugin settings target selectable", () => {

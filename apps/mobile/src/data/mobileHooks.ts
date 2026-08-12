@@ -83,7 +83,7 @@ import { getMobileStrings } from "@/lib/mobileI18n";
 import { finalizeMobileDataResetAuthProfile } from "@/lib/mobileDataManagement";
 import { unregisterMobileBackgroundSyncAsync } from "@/sync/mobileBackgroundSync";
 import {
-  applyMobileSourceSettingChange,
+  applyMobileSourceSettingsPatch,
   loadMobileSourceSettingsByKeys,
   mergeSourceSettingValues,
   normalizeMobileSourceSettingsKeys,
@@ -391,6 +391,10 @@ export function useSourceSettings(
   sourceKeys: Iterable<string | null | undefined> = EMPTY_SOURCE_SETTINGS_KEYS,
 ): LoadState<Record<string, unknown>> & {
   setSetting: (key: string, value: unknown) => Promise<void>;
+  setSettings: (
+    patch: Record<string, unknown>,
+    deleteKeys?: string[],
+  ) => Promise<void>;
   resetSettings: () => Promise<void>;
 } {
   const store = useMobileDataStore();
@@ -499,15 +503,18 @@ export function useSourceSettings(
     ignoreReloadError(reload);
   }, [reload, revision]);
 
-  const setSetting = useCallback(
-    async (key: string, value: unknown) => {
+  const setSettings = useCallback(
+    async (
+      patch: Record<string, unknown>,
+      deleteKeys: string[] = [],
+    ) => {
       if (!sourceKey) return;
       const operationSourceKey = sourceKey;
-      const { values, userValues } = applyMobileSourceSettingChange(
+      const { values, userValues } = applyMobileSourceSettingsPatch(
         schema,
         userDataRef.current,
-        key,
-        value,
+        patch,
+        deleteKeys,
       );
       const run = mutationRun.current + 1;
       mutationRun.current = run;
@@ -549,6 +556,11 @@ export function useSourceSettings(
       }
     },
     [schema, sourceKey, store],
+  );
+
+  const setSetting = useCallback(
+    (key: string, value: unknown) => setSettings({ [key]: value }),
+    [setSettings],
   );
 
   const resetSettings = useCallback(async () => {
@@ -604,6 +616,7 @@ export function useSourceSettings(
     error,
     reload,
     setSetting,
+    setSettings,
     resetSettings,
   };
 }

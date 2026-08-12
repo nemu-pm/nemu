@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  applyMobileSourceSettingsPatch,
   applyMobileSourceSettingChange,
   canRetryMobileSourceSettingsLoadError,
   canRunMobileSourceTextSettingBlurFeedback,
@@ -311,7 +312,7 @@ describe("mobile source settings helpers", () => {
           ],
         },
       ]),
-    ).toBe(1);
+    ).toBe(3);
   });
 
   test("extracts and merges defaults with user values", () => {
@@ -357,6 +358,29 @@ describe("mobile source settings helpers", () => {
       compact: false,
       webgpu: true,
       legacy: "kept",
+    });
+  });
+
+  test("applies multi-key patches and deletions as one value transition", () => {
+    expect(
+      applyMobileSourceSettingsPatch(
+        settings,
+        { quality: "low", legacy: "remove", untouched: 1 },
+        { enabled: false, quality: "high" },
+        ["legacy"],
+      ),
+    ).toEqual({
+      userValues: { quality: "high", untouched: 1, enabled: false },
+      values: {
+        enabled: false,
+        quality: "high",
+        blocked: ["spoiler"],
+        aliases: ["Main Alias"],
+        layout: 1,
+        compact: false,
+        webgpu: true,
+        untouched: 1,
+      },
     });
   });
 
@@ -420,9 +444,12 @@ describe("mobile source settings helpers", () => {
     ).toEqual(["enabled", "blocked", "aliases", "layout", "compact"]);
 
     expect(hasVisibleSourceSettingRows(settings, {}, {})).toBe(true);
-    expect(hasVisibleSourceSettingRows([{ key: "link", title: "Link", type: "link" }], {})).toBe(
-      false,
-    );
+    expect(
+      hasVisibleSourceSettingRows(
+        [{ key: "link", title: "Link", type: "link" }],
+        {},
+      ),
+    ).toBe(true);
   });
 
   test("describes empty and default values with localized labels", () => {
