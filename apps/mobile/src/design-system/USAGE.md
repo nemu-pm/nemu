@@ -4,9 +4,9 @@ Use `@/design-system` for new mobile UI. The package is the public entry point f
 
 ## Inventory
 
-- Foundations: `nemuTokens`, `radius`, `spacing`, `nemuText`, `nemuFontWeight`, `createNemuShadowStyle`, `getNemuButtonDepthVisual`, `createNemuButtonDepthStyle`, and native navigation helpers.
+- Foundations: `nemuTokens`, `radius`, `spacing`, `nemuText`, `nemuFontWeight`, `createNemuShadowStyle`, and native navigation helpers.
 - Button depth colors follow web `src/index.css` `.btn-nemu-*` classes via `nemuWebButtonPalette` / `nemuButtonDepth`.
-- Primitives in `src/design-system/components`: `NemuPressable`, `GlassSurface`, `NemuButton`, `NemuToolbarAction`, `NemuCard`, `NemuInlineEmptyState`, `NemuListRow`, `NemuNativeProgressView`, and `NemuNativeSwitch`.
+- Primitives in `src/design-system/components`: `NemuPressable`, `GlassSurface`, `NemuButton`, `NemuToolbarAction`, `NemuInlineEmptyState`, `NemuListRow`, `NemuNativeProgressView`, and `NemuNativeSwitch`.
 - Composites in `src/design-system/components`: `PageScaffold`, `PageHeader`, `MobileNativeSheetScaffold`, `MobileSheetScaffold` compatibility wrapper, and `MobileSheetBackdrop`.
 - Feature components: `MangaCard`, `SourceCard`, manga/source sheets, empty states, skeletons, and reader controls remain in `src/components` unless they become general primitives/patterns. Components exported by `@/design-system` must still be imported through the public entry point.
 
@@ -19,7 +19,7 @@ Use `@/design-system` for new mobile UI. The package is the public entry point f
 - Toolbar actions use Nemu purple by default through `NemuToolbarAction` depth styling. Do not hand-code white toolbar buttons with custom shadows in screens.
 - Use `PageScaffold` pull-to-refresh instead of adding a refresh toolbar button unless the action is not equivalent to drag-to-refresh.
 - Use `nemuText` and `nemuFontWeight`; never hard-code raw `fontWeight` values in screens or components.
-- Use `NemuCard`, `NemuListRow`, `NemuButton`, `MangaCard`, and `SourceCard` before adding local card, list row, button, manga, or source layouts.
+- Use `GlassSurface`, `NemuListRow`, `NemuButton`, `MangaCard`, and `SourceCard` before adding local card, list row, button, manga, or source layouts.
 - Use `NemuInlineEmptyState` for inline empty/loading/error placeholders inside sections. Avoid raw square `GlassSurface` placeholders in screens.
 - Sheets should use `MobileNativeSheetScaffold` for native-feeling bottom sheets. `MobileSheetScaffold` exists only as a compatibility wrapper over the native scaffold, and sheets should not add redundant Done buttons when drag/tap dismissal is the primary interaction.
 

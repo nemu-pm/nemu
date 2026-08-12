@@ -1,4 +1,4 @@
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { radius } from "@/design/tokens";
 import { useNemuTheme } from "@/design/useNemuTheme";
@@ -64,28 +64,7 @@ export function NemuToolbarAction({
   );
 }
 
-export function NemuToolbarActionGroup({
-  actions,
-}: {
-  actions: NemuToolbarActionProps[];
-}) {
-  if (actions.length === 0) return null;
-
-  return (
-    <View style={styles.group}>
-      {actions.map((action) => (
-        <NemuToolbarAction key={action.label} {...action} />
-      ))}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  group: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
   action: {
     width: 42,
     height: 42,

@@ -2,7 +2,6 @@ import type {
   ChapterSummary,
   InstalledSource,
   MangaMetadata,
-  SourcePackageSetting,
 } from "@/data/schema";
 import {
   type AidokuChapter,

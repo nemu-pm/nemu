@@ -5,7 +5,6 @@ import {
   type AccessibilityState,
   StyleSheet,
   Text,
-  View,
   type StyleProp,
   type TextStyle,
   type ViewStyle,
@@ -257,14 +256,6 @@ export function NemuButton({
   );
 }
 
-export function NemuIconButton(props: Omit<NemuButtonProps, "label"> & { icon: keyof typeof Ionicons.glyphMap }) {
-  return (
-    <View style={styles.iconButtonFrame}>
-      <NemuButton size="icon" {...props} />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   button: {
     flexDirection: "row",
@@ -278,9 +269,5 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.medium,
     letterSpacing: 0,
     textAlign: "center",
-  },
-  iconButtonFrame: {
-    width: 36,
-    height: 36,
   },
 });

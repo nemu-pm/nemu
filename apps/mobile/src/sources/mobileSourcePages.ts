@@ -1,7 +1,6 @@
 import type {
   ChapterSummary,
   InstalledSource,
-  SourcePackageSetting,
 } from "@/data/schema";
 import type { MobileImageUriOwnership } from "@/lib/mobileImageUriPolicy";
 import {

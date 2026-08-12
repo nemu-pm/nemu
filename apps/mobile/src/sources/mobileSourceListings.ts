@@ -1,4 +1,4 @@
-import type { InstalledSource, SourcePackageListing, SourcePackageSetting } from "@/data/schema";
+import type { InstalledSource, SourcePackageListing } from "@/data/schema";
 import { toSearchSourceDisplay, type SearchSourceDisplay } from "@/lib/mobileSearch";
 import { getMobileSourceListingLabel } from "@/lib/mobileSourceListingsPresentation";
 import {
