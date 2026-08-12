@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 const requireFromTest = createRequire(import.meta.url);
@@ -20,7 +22,7 @@ const { transformSync } = requireFromTest(babelCorePath) as {
 };
 
 describe("mobile JSC Babel compatibility", () => {
-  test("indexes generated Bundle Mode worklets synchronously in Metro", () => {
+  test("uses a stable content hash for generated Bundle Mode worklets", async () => {
     const repositoryRoot = path.join(import.meta.dir, "../../../..");
     const packageManifest = JSON.parse(
       readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
@@ -28,13 +30,42 @@ describe("mobile JSC Babel compatibility", () => {
     const patchPath = packageManifest.patchedDependencies?.["metro@0.84.4"];
 
     expect(patchPath).toBe("patches/metro@0.84.4.patch");
-    const metroPatch = readFileSync(
-      path.join(repositoryRoot, patchPath as string),
-      "utf8",
+    const dependencyGraphModule = requireFromTest(
+      path.join(
+        repositoryRoot,
+        "node_modules/metro/src/node-haste/DependencyGraph.js",
+      ),
+    ) as {
+      default: {
+        prototype: {
+          getOrComputeSha1: (filePath: string) => Promise<{ sha1: string }>;
+        };
+      };
+    };
+    const tempRoot = await mkdtemp(
+      path.join(os.tmpdir(), "nemu-worklet-hash-"),
     );
-    expect(metroPatch).toContain("react-native-worklets");
-    expect(metroPatch).toContain(".worklets");
-    expect(metroPatch).toContain("async getOrComputeSha1(mixedPath)");
+    const workletsDir = path.join(
+      tempRoot,
+      "react-native-worklets",
+      ".worklets",
+    );
+    const workletPath = path.join(workletsDir, "generated.js");
+    try {
+      await mkdir(workletsDir, { recursive: true });
+      await writeFile(workletPath, "first");
+      const getSha1 =
+        dependencyGraphModule.default.prototype.getOrComputeSha1;
+      const first = await getSha1.call({}, workletPath);
+      const unchanged = await getSha1.call({}, workletPath);
+      await writeFile(workletPath, "second");
+      const changed = await getSha1.call({}, workletPath);
+
+      expect(first.sha1).toBe(unchanged.sha1);
+      expect(changed.sha1).not.toBe(first.sha1);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   test("keeps Expo exports on JSC without adding deprecated config fields", () => {
@@ -71,9 +102,25 @@ describe("mobile JSC Babel compatibility", () => {
   test("registers the app and current Aidoku OAuth callback schemes", () => {
     const appConfig = JSON.parse(
       readFileSync(path.join(import.meta.dir, "../../app.json"), "utf8"),
-    ) as { expo: { scheme?: string | string[] } };
+    ) as {
+      expo: {
+        scheme?: string | string[];
+        ios?: {
+          infoPlist?: {
+            CFBundleURLTypes?: Array<{ CFBundleURLSchemes?: string[] }>;
+          };
+        };
+        android?: { scheme?: string | string[] };
+      };
+    };
 
     expect(appConfig.expo.scheme).toEqual(["nemu", "neko"]);
+    expect(
+      appConfig.expo.ios?.infoPlist?.CFBundleURLTypes?.flatMap(
+        (entry) => entry.CFBundleURLSchemes ?? [],
+      ),
+    ).toEqual(["nemu", "neko"]);
+    expect(appConfig.expo.android?.scheme).toBeUndefined();
   });
 
   test("links EAS from CI without hard-coding account metadata", () => {

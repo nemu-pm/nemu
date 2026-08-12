@@ -13,17 +13,14 @@ index 8222d8c69059bfb3fe444acba9f96ab2cc7bec0b..700ab7bd444fd2f4cc2cbf1546d1503a
  class DependencyGraph extends _events.default {
    #packageCache;
    #dependencyPlugin;
-@@ -197,6 +201,14 @@ class DependencyGraph extends _events.default {
+@@ -197,6 +201,11 @@ class DependencyGraph extends _events.default {
      return (0, _nullthrows.default)(this._fileSystem).getAllFiles();
    }
    async getOrComputeSha1(mixedPath) {
 +    if (mixedPath.includes(workletsDirPath)) {
 +      const createHash = require("crypto").createHash;
-+      return {
-+        sha1: createHash("sha1")
-+          .update(performance.now().toString())
-+          .digest("hex"),
-+      };
++      const contents = await _fs.default.promises.readFile(mixedPath);
++      return { sha1: createHash("sha1").update(contents).digest("hex") };
 +    }
      const result = await this._fileSystem.getOrComputeSha1(mixedPath);
      if (!result || !result.sha1) {
