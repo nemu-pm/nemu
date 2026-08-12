@@ -20,6 +20,23 @@ const { transformSync } = requireFromTest(babelCorePath) as {
 };
 
 describe("mobile JSC Babel compatibility", () => {
+  test("indexes generated Bundle Mode worklets synchronously in Metro", () => {
+    const repositoryRoot = path.join(import.meta.dir, "../../../..");
+    const packageManifest = JSON.parse(
+      readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
+    ) as { patchedDependencies?: Record<string, string> };
+    const patchPath = packageManifest.patchedDependencies?.["metro@0.84.4"];
+
+    expect(patchPath).toBe("patches/metro@0.84.4.patch");
+    const metroPatch = readFileSync(
+      path.join(repositoryRoot, patchPath as string),
+      "utf8",
+    );
+    expect(metroPatch).toContain("react-native-worklets");
+    expect(metroPatch).toContain(".worklets");
+    expect(metroPatch).toContain("async getOrComputeSha1(mixedPath)");
+  });
+
   test("keeps Expo exports on JSC without adding deprecated config fields", () => {
     const appConfig = JSON.parse(
       readFileSync(path.join(import.meta.dir, "../../app.json"), "utf8"),

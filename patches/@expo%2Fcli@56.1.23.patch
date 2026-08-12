@@ -1,8 +1,10 @@
 diff --git a/build/src/export/exportHermes.js b/build/src/export/exportHermes.js
-index 1e09d58..6d67d8a 100644
+index 9068adbcad970e9b1414aa2c41183462d76da584..2a16f616445afd5d39b61397cfc6ac7ce28deedc 100644
 --- a/build/src/export/exportHermes.js
 +++ b/build/src/export/exportHermes.js
-@@ -102,19 +102,21 @@ async function assertEngineMismatchAsync(projectRoot, exp, platform) {
+@@ -100,12 +100,14 @@ async function assertEngineMismatchAsync(projectRoot, exp, platform) {
+     await maybeThrowFromInconsistentEngineAsync(projectRoot, configFilePath, platform, isHermesManaged);
+ }
  function isEnableHermesManaged(expoConfig, platform) {
 +    var _expoConfig_extra;
 +    const configuredEngine = (_expoConfig_extra = expoConfig.extra) == null ? void 0 : _expoConfig_extra.nemuJsEngine;
@@ -16,7 +18,7 @@ index 1e09d58..6d67d8a 100644
              }
          case 'ios':
          case 'tvos':
-         case 'macos':
+@@ -113,7 +115,7 @@ function isEnableHermesManaged(expoConfig, platform) {
              {
                  var _expoConfig_ios;
                  // NOTE(@kitten): `jsEngine` was deprecated, but we're preserving the check
@@ -25,4 +27,3 @@ index 1e09d58..6d67d8a 100644
              }
          default:
              return false;
-     }

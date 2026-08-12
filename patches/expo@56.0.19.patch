@@ -12,11 +12,11 @@ index c712e48bb6ebcca32ece9dda9f236fc48ba65a77..76ce1985ddba8840c4d250aebe65dea0
        DefaultTurboModuleManagerDelegate.Builder(),
 @@ -78,7 +79,7 @@ object ExpoReactHostFactory {
        }
-
+ 
      override val jsRuntimeFactory: JSRuntimeFactory
 -      get() = HermesInstance()
 +      get() = providedJsRuntimeFactory ?: HermesInstance()
-
+ 
      override val reactPackages: List<ReactPackage>
        get() = packageList
 @@ -116,6 +117,7 @@ object ExpoReactHostFactory {
