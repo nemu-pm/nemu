@@ -2,10 +2,7 @@
   "expo": {
     "name": "Nemu",
     "slug": "nemu-mobile",
-    "scheme": [
-      "nemu",
-      "neko"
-    ],
+    "scheme": "nemu",
     "version": "0.1.0",
     "runtimeVersion": {
       "policy": "appVersion"
@@ -23,6 +20,14 @@
         ]
       },
       "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "nemu",
+              "neko"
+            ]
+          }
+        ],
         "NSPhotoLibraryUsageDescription": "Nemu lets you choose images from your photo library when updating manga covers.",
         "UIBackgroundModes": [
           "processing"
@@ -33,6 +38,20 @@
       "package": "pm.nemu.mobile",
       "versionCode": 1,
       "allowBackup": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "neko"
+            }
+          ]
+        }
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#fbfbfd"

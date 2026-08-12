@@ -78,7 +78,10 @@ export async function runMobileSourceOAuthLogin(
   const redirectUrl = resolveMobileSourceOAuthRedirectUrl(
     authRequestUrl,
     setting.callbackScheme,
-    Linking.createURL("oauth/callback"),
+    // The app intentionally registers both its own `nemu` scheme and the
+    // Aidoku-compatible `neko` scheme. Pick the app-owned fallback explicitly
+    // so Expo does not guess (and warn) when more than one scheme is present.
+    Linking.createURL("oauth/callback", { scheme: "nemu" }),
   );
 
   let result: WebBrowser.WebBrowserAuthSessionResult;
