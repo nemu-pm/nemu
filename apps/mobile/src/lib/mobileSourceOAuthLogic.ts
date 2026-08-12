@@ -115,6 +115,19 @@ const MOBILE_SOURCE_OAUTH_RESERVED_SCHEMES = new Set([
   "intent",
   "javascript",
 ]);
+const MOBILE_SOURCE_OAUTH_REGISTERED_CALLBACK_SCHEMES = new Set([
+  "nemu",
+  "neko",
+]);
+
+export function isMobileSourceOAuthCallbackSchemeSupported(
+  rawCallbackScheme: string | undefined,
+): boolean {
+  if (rawCallbackScheme === undefined) return true;
+  return MOBILE_SOURCE_OAUTH_REGISTERED_CALLBACK_SCHEMES.has(
+    rawCallbackScheme.trim(),
+  );
+}
 
 /**
  * Resolve the callback URL watched by the native auth session. Aidoku sources
@@ -221,6 +234,20 @@ export function classifyMobileSourceLoginCallback(
 ): MobileSourceLoginCallback {
   const trimmed = value.trim();
   if (!trimmed) return { kind: "invalid" };
+  try {
+    const parsed = new URL(trimmed);
+    const fragment = parsed.hash.startsWith("#")
+      ? parsed.hash.slice(1)
+      : parsed.hash;
+    const fragmentParams = new URLSearchParams(
+      fragment.startsWith("?") ? fragment.slice(1) : fragment,
+    );
+    if (parsed.searchParams.has("error") || fragmentParams.has("error")) {
+      return { kind: "invalid" };
+    }
+  } catch {
+    // Raw code/token payloads are classified below.
+  }
   if (hasOAuthTokenPayload(trimmed)) {
     return { kind: "token", value: trimmed };
   }

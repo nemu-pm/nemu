@@ -108,7 +108,6 @@ import { normalizeMobileSourceExternalUrl } from "@/lib/mobileSourceExternalUrl"
 import {
   resolveMobileSourceSettingAction,
   sourceLoginLogoutKeys,
-  sourceLoginStoragePatch,
   type MobileSourceLoginSubmission,
 } from "@/lib/mobileSourceSettingActions";
 import { getMobileSourceBrowseHref } from "@/lib/mobileSourceRoutes";
@@ -129,7 +128,11 @@ import {
 } from "@/sources/mobileSourceRuntime";
 import { defaultMobileSourceSessionCache } from "@/sources/mobileSourceExecutorCache";
 import {
+  completeMobileSourceLogin,
+  getMobileSourceLoginCapabilities,
+  resetMobileSourceRuntimeSettings,
   runMobileSourceSettingsOperation,
+  type MobileSourceLoginCapabilities,
   type MobileSourceSettingsOperation,
 } from "@/sources/mobileSourceSettingsExecutor";
 import { clearMobileAidokuSandboxDataForSource } from "@/sources/mobileAidokuSandboxData";
@@ -616,6 +619,7 @@ function MobileInstalledSourceSettingsSheet({
   onAction,
   onLogin,
   onLogout,
+  loginCapabilities,
 }: {
   source: InstalledSource;
   strings: MobileStrings;
@@ -638,6 +642,7 @@ function MobileInstalledSourceSettingsSheet({
     submission: MobileSourceLoginSubmission,
   ) => Promise<string | null>;
   onLogout: (setting: SourcePackageSetting) => void;
+  loginCapabilities: MobileSourceLoginCapabilities | null;
 }) {
   const { tokens } = useNemuTheme();
   const name = sourceName(source);
@@ -687,6 +692,7 @@ function MobileInstalledSourceSettingsSheet({
         onAction={onAction}
         onLogin={onLogin}
         onLogout={onLogout}
+        loginCapabilities={loginCapabilities}
       />
     </MobileNativeSheetScaffold>
   );
@@ -1208,6 +1214,34 @@ export function SettingsScreen({
     selectedSourceSchema,
     selectedSourceSettingsKeys,
   );
+  const [selectedSourceLoginCapabilities, setSelectedSourceLoginCapabilities] =
+    useState<MobileSourceLoginCapabilities | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setSelectedSourceLoginCapabilities(null);
+    if (!selectedRuntimeSource || selectedSourceSettings.loading) {
+      return () => {
+        active = false;
+      };
+    }
+
+    void getMobileSourceLoginCapabilities({
+      source: selectedRuntimeSource,
+      settings: selectedSourceSettings.data,
+    })
+      .then((capabilities) => {
+        if (active) setSelectedSourceLoginCapabilities(capabilities);
+      })
+      .catch(() => {
+        if (active) {
+          setSelectedSourceLoginCapabilities({ basic: false, web: false });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedRuntimeSource, selectedSourceSettings.data, selectedSourceSettings.loading]);
   const confirmationDetails = useMemo(() => {
     if (!confirmation) return null;
     if (confirmation.type === "uninstall-source") {
@@ -1564,31 +1598,23 @@ export function SettingsScreen({
     }
     setOperationError(null);
     try {
-      if (submission.method === "basic") {
-        const operationError = await executeSelectedSourceSettingOperation({
-          kind: "basic-login",
-          key: setting.key,
-          username: submission.username,
-          password: submission.password,
-        });
-        if (operationError) return operationError;
-      } else if (
-        submission.method === "web" &&
-        Object.keys(submission.cookies).length > 0
-      ) {
-        const operationError = await executeSelectedSourceSettingOperation({
-          kind: "web-login",
-          key: setting.key,
-          cookies: submission.cookies,
-        });
-        if (operationError) return operationError;
+      if (!selectedRuntimeSource) {
+        return strings.settings.sourceSettingsRuntimeUnavailable;
       }
-
-      const loginPatch = sourceLoginStoragePatch(setting, submission);
-      const staleCredentialKeys = sourceLoginLogoutKeys(setting).filter(
-        (key) => !Object.hasOwn(loginPatch, key),
-      );
-      await selectedSourceSettings.setSettings(loginPatch, staleCredentialKeys);
+      const result = await completeMobileSourceLogin({
+        source: selectedRuntimeSource,
+        schema: selectedSourceSchema,
+        setting,
+        submission,
+        currentSettings: selectedSourceSettings.data,
+        persistSettings: selectedSourceSettings.setSettings,
+      });
+      if (result.status === "rejected") {
+        return strings.settings.sourceSettingsCredentialsRejected;
+      }
+      if (result.status === "blocked") {
+        return strings.settings.sourceSettingsRuntimeUnavailable;
+      }
       await reloadSelectedSourceSettingScopes(setting);
       await hapticConfirm();
       return null;
@@ -2452,6 +2478,7 @@ export function SettingsScreen({
             selectedSourceKey,
             selectedSourceSettingsKeys,
           )}
+          loginCapabilities={selectedSourceLoginCapabilities}
           retryDisabled={!canRetrySelectedSourceSettingsError}
           retrying={retryingSelectedSourceSettings}
           onClose={() => {
@@ -2466,10 +2493,14 @@ export function SettingsScreen({
           }}
           onRetry={retrySelectedSourceSettings}
           onReset={() => {
-            if (!selectedSourceKey) return;
+            if (!selectedSourceKey || !selectedRuntimeSource) return;
             void runSettingsMutation(`source-settings-reset:${selectedSourceKey}`, async () => {
               try {
-                await selectedSourceSettings.resetSettings();
+                await resetMobileSourceRuntimeSettings({
+                  source: selectedRuntimeSource,
+                  clearSandbox: clearMobileAidokuSandboxDataForSource,
+                  resetProfileSettings: selectedSourceSettings.resetSettings,
+                });
                 await hapticConfirm();
               } catch (error) {
                 await reportSettingsError(error);

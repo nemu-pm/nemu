@@ -57,11 +57,13 @@ import {
 import {
   isMobileSourceLoggedIn,
   isMobileSourceLoginSetting,
+  isMobileSourceOAuthCallbackSchemeSupported,
   mobileSourceLoginMethod,
   runMobileSourceOAuthLogin,
   type MobileSourceLoginSetting,
 } from "@/lib/mobileSourceOAuth";
 import type { MobileSourceLoginSubmission } from "@/lib/mobileSourceSettingActions";
+import type { MobileSourceLoginCapabilities } from "@/sources/mobileSourceSettingsExecutor";
 
 const EMPTY_SETTING_FEATURES: MobileSourceSettingFeatureFlags = {};
 const SLIDER_VALUE_LABEL_WIDTH = 48;
@@ -79,6 +81,7 @@ type MobileSourceSettingsCardProps = {
   showEmpty?: boolean;
   disabled?: boolean;
   navigationResetKey?: string | number | null;
+  loginCapabilities?: MobileSourceLoginCapabilities | null;
   onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
   onAction?: (setting: SourcePackageSetting) => void;
   onLogin?: (
@@ -1078,6 +1081,7 @@ function SourceSettingLoginRow({
   onLogin,
   onLogout,
   onRequestLogin,
+  loginCapabilities,
 }: {
   setting: MobileSourceLoginSetting;
   values: Record<string, unknown>;
@@ -1089,13 +1093,18 @@ function SourceSettingLoginRow({
   ) => Promise<string | null> | string | null;
   onLogout: (setting: SourcePackageSetting) => void;
   onRequestLogin: (setting: SourcePackageSetting) => void;
+  loginCapabilities: MobileSourceLoginCapabilities | null;
 }) {
   const { tokens } = useNemuTheme();
   const loggedIn = isMobileSourceLoggedIn(setting, values);
   const method = mobileSourceLoginMethod(setting);
-  const canRunLogin = method === "oauth" || method === "basic" || method === "web";
+  const canRunLogin =
+    method === "oauth"
+      ? isMobileSourceOAuthCallbackSchemeSupported(setting.callbackScheme)
+      : loginCapabilities?.[method] === true;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const rowDisabled = disabled || loading || (!loggedIn && !canRunLogin);
 
   const statusText = error
     ? error
@@ -1112,7 +1121,7 @@ function SourceSettingLoginRow({
       : strings.settings.sourceSettingsLoginUnavailable;
 
   const handlePress = useCallback(async () => {
-    if (disabled || loading) return;
+    if (rowDisabled) return;
     setError(null);
 
     // Log out through the owner so confirmation and atomic cleanup stay
@@ -1156,9 +1165,8 @@ function SourceSettingLoginRow({
       setLoading(false);
     }
   }, [
-    disabled,
+    rowDisabled,
     canRunLogin,
-    loading,
     loggedIn,
     setting,
     values,
@@ -1174,7 +1182,7 @@ function SourceSettingLoginRow({
   return (
     <NemuPressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: disabled || loading }}
+      accessibilityState={{ disabled: rowDisabled }}
       accessibilityLabel={[
         setting.title,
         loggedIn
@@ -1185,12 +1193,12 @@ function SourceSettingLoginRow({
         .filter(Boolean)
         .join(", ")}
       onPress={handlePress}
-      disabled={disabled || loading}
+      disabled={rowDisabled}
       pressedScale={0.98}
       style={[
         styles.pageRow,
         { borderColor: tokens.border },
-        disabled && styles.disabledControl,
+        rowDisabled && styles.disabledControl,
       ]}
     >
       <View style={styles.settingText}>
@@ -1290,6 +1298,7 @@ function SourceSettingsList({
   onLogout,
   onRequestLogin,
   onPushPage,
+  loginCapabilities,
 }: {
   settings: SourcePackageSetting[];
   values: Record<string, unknown>;
@@ -1305,6 +1314,7 @@ function SourceSettingsList({
   onLogout?: (setting: SourcePackageSetting) => void;
   onRequestLogin: (setting: SourcePackageSetting) => void;
   onPushPage: (page: SourcePackageSetting) => void;
+  loginCapabilities: MobileSourceLoginCapabilities | null;
 }) {
   const { tokens } = useNemuTheme();
 
@@ -1345,6 +1355,7 @@ function SourceSettingsList({
                   onLogout={onLogout}
                   onRequestLogin={onRequestLogin}
                   onPushPage={onPushPage}
+                  loginCapabilities={loginCapabilities}
                 />
               </View>
               {setting.footer ? (
@@ -1384,6 +1395,7 @@ function SourceSettingsList({
               onLogin={onLogin ?? (() => null)}
               onLogout={onLogout ?? (() => undefined)}
               onRequestLogin={onRequestLogin}
+              loginCapabilities={loginCapabilities}
             />
           );
         }
@@ -1444,6 +1456,7 @@ function MobileSourceSettingsCardContent({
   onReset,
   retryDisabled = false,
   retrying = false,
+  loginCapabilities = null,
 }: MobileSourceSettingsCardProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -1662,6 +1675,7 @@ function MobileSourceSettingsCardContent({
                   if (disabled) return;
                   setPageStack([...activePageStack, page]);
                 }}
+                loginCapabilities={loginCapabilities}
               />
             </View>
           ) : (

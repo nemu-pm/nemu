@@ -12,6 +12,7 @@ import {
   mobileSourceLoginMethod,
   mobileSourceLoginVerifierKey,
   mobileSourceOAuthCallbackHasExpectedState,
+  isMobileSourceOAuthCallbackSchemeSupported,
   MOBILE_SOURCE_OAUTH_MAX_ENDPOINT_CHARS,
   normalizeMobileSourceOAuthHttpUrl,
   resolveMobileSourceOAuthRedirectUrl,
@@ -142,6 +143,20 @@ describe("classifyMobileSourceLoginCallback", () => {
       kind: "invalid",
     });
   });
+  test("state-only callback → invalid", () => {
+    expect(
+      classifyMobileSourceLoginCallback(
+        "nemu://oauth/callback?state=expected",
+      ),
+    ).toEqual({ kind: "invalid" });
+  });
+  test("OAuth error callback → invalid even when it also contains a code", () => {
+    expect(
+      classifyMobileSourceLoginCallback(
+        "nemu://oauth/callback?error=access_denied&code=ignored&state=expected",
+      ),
+    ).toEqual({ kind: "invalid" });
+  });
 });
 
 describe("buildMobileSourcePkceAuthUrl", () => {
@@ -170,6 +185,14 @@ describe("buildMobileSourcePkceAuthUrl", () => {
 });
 
 describe("mobile source OAuth URL and callback safety", () => {
+  test("accepts only callback schemes registered by the native binary", () => {
+    expect(isMobileSourceOAuthCallbackSchemeSupported(undefined)).toBe(true);
+    expect(isMobileSourceOAuthCallbackSchemeSupported("nemu")).toBe(true);
+    expect(isMobileSourceOAuthCallbackSchemeSupported("neko")).toBe(true);
+    expect(isMobileSourceOAuthCallbackSchemeSupported("other-app")).toBe(false);
+    expect(isMobileSourceOAuthCallbackSchemeSupported("javascript")).toBe(false);
+  });
+
   test("preserves the source's exact registered custom-scheme redirect", () => {
     const authUrl =
       "https://auth.example/authorize?redirect_uri=neko%3A%2F%2Fmangadex-auth";

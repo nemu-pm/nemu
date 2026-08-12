@@ -1,12 +1,13 @@
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { mobileNativeFetch } from "@/sources/mobileNativeHttp";
-import { hasOAuthTokenPayload, isLikelyOAuthCallbackValue } from "@nemu/core";
+import { hasOAuthTokenPayload } from "@nemu/core";
 import {
   buildMobileSourceOAuthExchangeBody,
   buildMobileSourceOAuthAuthRequest,
   classifyMobileSourceLoginCallback,
   isMobileSourceOAuthStoredValueWithinLimit,
+  isMobileSourceOAuthCallbackSchemeSupported,
   MOBILE_SOURCE_OAUTH_STORED_VALUE_MAX_BYTES,
   mobileSourceOAuthCallbackHasExpectedState,
   normalizeMobileSourceOAuthHttpUrl,
@@ -57,6 +58,9 @@ export async function runMobileSourceOAuthLogin(
 
   const endpoint = resolveMobileSourceOAuthLoginEndpoint(setting, values);
   if (!endpoint.ok) return endpoint;
+  if (!isMobileSourceOAuthCallbackSchemeSupported(setting.callbackScheme)) {
+    return { ok: false, code: "unsupported-platform" };
+  }
   const authUrl = endpoint.url;
 
   const usePkce = Boolean(setting.pkce);
@@ -110,9 +114,10 @@ export async function runMobileSourceOAuthLogin(
   }
 
   if (!usePkce) {
-    // Non-PKCE OAuth: store the raw callback value if it looks like one
-    // (mirrors web's `submitOAuthLogin` non-PKCE branch).
-    if (isLikelyOAuthCallbackValue(callbackUrl)) {
+    // Non-PKCE OAuth stores the complete callback only when it contains real
+    // credential material. A state-only or provider-error callback is not a
+    // successful login.
+    if (classifyMobileSourceLoginCallback(callbackUrl).kind !== "invalid") {
       return { ok: true, token: callbackUrl };
     }
     return { ok: false, code: "invalid-callback" };
