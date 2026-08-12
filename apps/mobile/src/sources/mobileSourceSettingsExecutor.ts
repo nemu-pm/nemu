@@ -209,37 +209,61 @@ export async function completeMobileSourceLogin({
     deleteKeys: string[],
   ) => Promise<void>;
 }): Promise<MobileSourceSettingsOperationResult> {
-  if (submission.method === "basic") {
-    const result = await runMobileSourceSettingsOperation({
-      cache,
-      source,
-      settings: currentSettings,
-      operation: {
-        kind: "basic-login",
-        key: setting.key,
-        username: submission.username,
-        password: submission.password,
-      },
-    });
-    if (result.status !== "complete") return result;
-  } else if (
-    submission.method === "web" &&
-    Object.keys(submission.cookies).length > 0
-  ) {
-    const result = await runMobileSourceSettingsOperation({
-      cache,
-      source,
-      settings: currentSettings,
-      operation: {
-        kind: "web-login",
-        key: setting.key,
-        cookies: submission.cookies,
-      },
-    });
-    if (result.status !== "complete") return result;
+  try {
+    let loginResult: MobileSourceSettingsOperationResult = {
+      status: "complete",
+    };
+    if (submission.method === "basic") {
+      loginResult = await runMobileSourceSettingsOperation({
+        cache,
+        source,
+        settings: currentSettings,
+        operation: {
+          kind: "basic-login",
+          key: setting.key,
+          username: submission.username,
+          password: submission.password,
+        },
+      });
+    } else if (
+      submission.method === "web" &&
+      Object.keys(submission.cookies).length > 0
+    ) {
+      loginResult = await runMobileSourceSettingsOperation({
+        cache,
+        source,
+        settings: currentSettings,
+        operation: {
+          kind: "web-login",
+          key: setting.key,
+          cookies: submission.cookies,
+        },
+      });
+    }
+    if (loginResult.status !== "complete") {
+      await clearNativeSourceState(cache, source, clearSandbox);
+      return loginResult;
+    }
+  } catch (error) {
+    try {
+      await clearNativeSourceState(cache, source, clearSandbox);
+    } catch {
+      // Preserve the handler error while still attempting fail-closed cleanup.
+    }
+    throw error;
   }
 
-  const patch = sourceLoginStoragePatch(setting, submission);
+  let patch: Record<string, unknown>;
+  try {
+    patch = sourceLoginStoragePatch(setting, submission);
+  } catch (error) {
+    try {
+      await clearNativeSourceState(cache, source, clearSandbox);
+    } catch {
+      // Preserve the validation error while still attempting cleanup.
+    }
+    throw error;
+  }
   const deleteKeys = sourceLoginLogoutKeys(setting).filter(
     (key) => !Object.hasOwn(patch, key),
   );
@@ -328,18 +352,18 @@ export async function completeMobileSourceLogout({
   }
 
   const notification = setting.notification?.trim();
-  if (!notification) return { status: "complete" };
-
-  try {
-    const result = await runMobileSourceSettingsOperation({
-      cache,
-      source,
-      settings: nextSettings,
-      operation: { kind: "notification", notification },
-    });
-    if (result.status === "complete") return result;
-  } catch {
-    // Clearing the source sandbox is the fail-closed logout path below.
+  if (notification) {
+    try {
+      const result = await runMobileSourceSettingsOperation({
+        cache,
+        source,
+        settings: nextSettings,
+        operation: { kind: "notification", notification },
+      });
+      if (result.status === "complete") return result;
+    } catch {
+      // Clearing the source sandbox is the fail-closed logout path below.
+    }
   }
 
   try {

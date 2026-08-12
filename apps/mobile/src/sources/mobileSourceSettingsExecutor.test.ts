@@ -327,6 +327,82 @@ describe("mobile source settings executor", () => {
     expect(removedSessions).toEqual(["aidoku-community:en.example"]);
   });
 
+  test("clears native state when a login handler mutates state before rejecting", async () => {
+    const nativeState: Record<string, unknown> = {};
+    const removedSessions: string[] = [];
+    const cache = readyCache(
+      {
+        async handleBasicLogin() {
+          nativeState.token = "rejected-token";
+          return false;
+        },
+      },
+      [],
+    );
+    cache.remove = (sourceKey) => removedSessions.push(sourceKey);
+
+    const result = await completeMobileSourceLogin({
+      cache,
+      source: runtimeSource,
+      schema: [{ key: "auth", type: "login", title: "Log in" }],
+      setting: { key: "auth", type: "login", title: "Log in" },
+      submission: {
+        method: "basic",
+        username: "reader",
+        password: "wrong",
+      },
+      currentSettings: {},
+      async clearSandbox() {
+        for (const key of Object.keys(nativeState)) delete nativeState[key];
+      },
+      async persistSettings() {
+        throw new Error("must not persist rejected credentials");
+      },
+    });
+
+    expect(result).toEqual({
+      status: "rejected",
+      reason: "credentials-rejected",
+    });
+    expect(nativeState).toEqual({});
+    expect(removedSessions).toEqual(["aidoku-community:en.example"]);
+  });
+
+  test("clears native state when a login handler mutates state before throwing", async () => {
+    const nativeState: Record<string, unknown> = {};
+
+    await expect(
+      completeMobileSourceLogin({
+        cache: readyCache(
+          {
+            async handleBasicLogin() {
+              nativeState.token = "partial-token";
+              throw new Error("handler failed");
+            },
+          },
+          [],
+        ),
+        source: runtimeSource,
+        schema: [{ key: "auth", type: "login", title: "Log in" }],
+        setting: { key: "auth", type: "login", title: "Log in" },
+        submission: {
+          method: "basic",
+          username: "reader",
+          password: "secret",
+        },
+        currentSettings: {},
+        async clearSandbox() {
+          for (const key of Object.keys(nativeState)) delete nativeState[key];
+        },
+        async persistSettings() {
+          throw new Error("must not persist failed credentials");
+        },
+      }),
+    ).rejects.toThrow("handler failed");
+
+    expect(nativeState).toEqual({});
+  });
+
   test("falls back to clearing native state when logout notification fails", async () => {
     const visibleSettings: Record<string, unknown> = {
       auth: "logged_in",
@@ -377,6 +453,37 @@ describe("mobile source settings executor", () => {
 
     expect(result).toEqual({ status: "complete" });
     expect(visibleSettings).toEqual({ theme: "dark" });
+    expect(nativeState).toEqual({});
+    expect(removedSessions).toEqual(["aidoku-community:en.example"]);
+  });
+
+  test("clears native state when logout has no notification", async () => {
+    const visibleSettings: Record<string, unknown> = {
+      auth: "logged_in",
+      "auth.username": "reader",
+    };
+    const nativeState: Record<string, unknown> = { token: "native-token" };
+    const removedSessions: string[] = [];
+    const cache = readyCache({}, []);
+    cache.remove = (sourceKey) => removedSessions.push(sourceKey);
+
+    const result = await completeMobileSourceLogout({
+      cache,
+      source: runtimeSource,
+      schema: [{ key: "auth", type: "login", title: "Log in" }],
+      setting: { key: "auth", type: "login", title: "Log in" },
+      currentSettings: { ...visibleSettings },
+      async clearSandbox() {
+        for (const key of Object.keys(nativeState)) delete nativeState[key];
+      },
+      async persistSettings(patch, deleteKeys) {
+        for (const key of deleteKeys) delete visibleSettings[key];
+        Object.assign(visibleSettings, patch);
+      },
+    });
+
+    expect(result).toEqual({ status: "complete" });
+    expect(visibleSettings).toEqual({});
     expect(nativeState).toEqual({});
     expect(removedSessions).toEqual(["aidoku-community:en.example"]);
   });
