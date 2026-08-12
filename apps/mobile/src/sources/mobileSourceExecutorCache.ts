@@ -98,7 +98,7 @@ export interface MobileSourceSessionCache {
   /** Evict one sourceKey (dispose deferred while pinned). Install/update/
    * uninstall/clear-cache flows MUST call this — a cache hit skips the package
    * loader entirely, so a stale session would keep running old-version WASM. */
-  remove(sourceKey: string): void;
+  remove(sourceKey: string, executionScope?: string): void;
   clear(): Promise<void>;
   peek(sourceKey: string): ReadySession | undefined;
   size(): number;
@@ -504,8 +504,11 @@ export function createMobileSourceSessionCache(
     }
   }
 
-  function remove(sourceKey: string): void {
-    const executionSourceKey = makeMobileSourceExecutionKey(sourceKey);
+  function remove(sourceKey: string, executionScope?: string): void {
+    const executionSourceKey = makeMobileSourceExecutionKey(
+      sourceKey,
+      executionScope,
+    );
     // Advance even when no settled entry exists so a pending factory cannot
     // resurrect the source after uninstall/update/explicit invalidation.
     invalidateKey(executionSourceKey);

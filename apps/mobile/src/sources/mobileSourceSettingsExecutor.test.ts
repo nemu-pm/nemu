@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { MobileAidokuExecutorSource } from "./mobileSourceExecutor";
 import type { MobileSourceSessionCache } from "./mobileSourceExecutorCache";
 import type { MobileRuntimeSource } from "./mobileSourceRuntime";
@@ -9,6 +9,10 @@ import {
   resetMobileSourceRuntimeSettings,
   runMobileSourceSettingsOperation,
 } from "./mobileSourceSettingsExecutor";
+import {
+  resetMobileSourceProfileScopeForTesting,
+  transitionMobileSourceProfile,
+} from "./mobileSourceProfileScope";
 
 const runtimeSource = {
   id: "aidoku-community:en.example",
@@ -45,6 +49,9 @@ function readyCache(
 }
 
 describe("mobile source settings executor", () => {
+  beforeEach(resetMobileSourceProfileScopeForTesting);
+  afterEach(resetMobileSourceProfileScopeForTesting);
+
   test("runs basic login in a settings-matched cached session", async () => {
     const calls: unknown[][] = [];
     const observedSettings: Record<string, unknown>[] = [];
@@ -403,6 +410,74 @@ describe("mobile source settings executor", () => {
     expect(nativeState).toEqual({});
   });
 
+  test("keeps an interleaved login inside its original profile scope", async () => {
+    const executionScopes: Array<string | undefined> = [];
+    const removedScopes: Array<string | undefined> = [];
+    const clearedScopes: Array<string | undefined> = [];
+    let persisted = false;
+    const cache = readyCache(
+      {
+        async handlesWebLogin() {
+          return false;
+        },
+        async handleBasicLogin() {
+          await transitionMobileSourceProfile("profile:b");
+          return true;
+        },
+        async handleNotification() {
+          throw new Error("must not notify the new profile");
+        },
+      },
+      [],
+    );
+    const withSession = cache.withSession.bind(cache);
+    cache.withSession = async (source, options, fn) => {
+      executionScopes.push(options.executionScope);
+      return withSession(source, options, fn);
+    };
+    cache.remove = (_sourceKey, executionScope) => {
+      removedScopes.push(executionScope);
+    };
+
+    await expect(
+      completeMobileSourceLogin({
+        cache,
+        source: runtimeSource,
+        schema: [
+          {
+            key: "auth",
+            type: "login",
+            title: "Log in",
+            notification: "login-changed",
+          },
+        ],
+        setting: {
+          key: "auth",
+          type: "login",
+          title: "Log in",
+          notification: "login-changed",
+        },
+        submission: {
+          method: "basic",
+          username: "account-a-reader",
+          password: "account-a-secret",
+        },
+        currentSettings: {},
+        async clearSandbox(_sourceKey, executionScope) {
+          clearedScopes.push(executionScope);
+        },
+        async persistSettings() {
+          persisted = true;
+        },
+      }),
+    ).rejects.toThrow("profile changed");
+
+    expect(executionScopes).toEqual(["local"]);
+    expect(removedScopes).toEqual(["local"]);
+    expect(clearedScopes).toEqual(["local"]);
+    expect(persisted).toBe(false);
+  });
+
   test("falls back to clearing native state when logout notification fails", async () => {
     const visibleSettings: Record<string, unknown> = {
       auth: "logged_in",
@@ -486,6 +561,67 @@ describe("mobile source settings executor", () => {
     expect(visibleSettings).toEqual({});
     expect(nativeState).toEqual({});
     expect(removedSessions).toEqual(["aidoku-community:en.example"]);
+  });
+
+  test("does not notify a new profile after an interleaved logout", async () => {
+    const executionScopes: Array<string | undefined> = [];
+    const visibleSettings: Record<string, unknown> = {
+      auth: "logged_in",
+      "auth.username": "account-a-reader",
+    };
+    let persistenceCalls = 0;
+    const cache = readyCache(
+      {
+        async handleNotification() {
+          throw new Error("must not notify the new profile");
+        },
+      },
+      [],
+    );
+    const withSession = cache.withSession.bind(cache);
+    cache.withSession = async (source, options, fn) => {
+      executionScopes.push(options.executionScope);
+      return withSession(source, options, fn);
+    };
+
+    await expect(
+      completeMobileSourceLogout({
+        cache,
+        source: runtimeSource,
+        schema: [
+          {
+            key: "auth",
+            type: "login",
+            title: "Log in",
+            notification: "login-changed",
+          },
+        ],
+        setting: {
+          key: "auth",
+          type: "login",
+          title: "Log in",
+          notification: "login-changed",
+        },
+        currentSettings: { ...visibleSettings },
+        async clearSandbox() {
+          throw new Error("must not clear the new profile");
+        },
+        async persistSettings(patch, deleteKeys) {
+          persistenceCalls += 1;
+          for (const key of deleteKeys) delete visibleSettings[key];
+          Object.assign(visibleSettings, patch);
+          if (persistenceCalls === 1) {
+            await transitionMobileSourceProfile("profile:b");
+          }
+        },
+      }),
+    ).rejects.toThrow("profile changed");
+
+    expect(executionScopes).toEqual([]);
+    expect(visibleSettings).toEqual({
+      auth: "logged_in",
+      "auth.username": "account-a-reader",
+    });
   });
 
   test("restores profile and native state when persisting a login fails partway", async () => {

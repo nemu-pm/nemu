@@ -164,6 +164,33 @@ describe("mobileSourceExecutorCache", () => {
     await cache.clear();
   });
 
+  test("explicit-scope removal cannot evict another account's session", async () => {
+    const calls: FactoryCalls = [];
+    let disposed = 0;
+    const cache = createMobileSourceSessionCache({
+      factory: makeFactory(calls, () => {
+        disposed += 1;
+      }),
+    });
+    const source = makeSource();
+
+    await cache.acquire(source, { settings: {}, executionScope: "profile:a" });
+    await cache.acquire(source, { settings: {}, executionScope: "profile:b" });
+    cache.remove("aidoku-community:en.example", "profile:a");
+    await Promise.resolve();
+
+    expect(disposed).toBe(1);
+    expect(cache.size()).toBe(1);
+    await cache.acquire(source, { settings: {}, executionScope: "profile:b" });
+    await cache.acquire(source, { settings: {}, executionScope: "profile:a" });
+    expect(calls.map((call) => call.executionScope)).toEqual([
+      "profile:a",
+      "profile:b",
+      "profile:a",
+    ]);
+    await cache.clear();
+  });
+
   test("updateSettings is called when settings signature changes and not when it matches", async () => {
     const calls: FactoryCalls = [];
     let updateCalls = 0;

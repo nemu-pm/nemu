@@ -30,6 +30,39 @@ export function getActiveMobileSourceProfileScope(): string {
   return activeProfileScope;
 }
 
+export class MobileSourceProfileChangedError extends Error {
+  readonly expectedScope: string;
+  readonly activeScope: string;
+
+  constructor(expectedScope: string, activeScope: string) {
+    super("The mobile source profile changed during this operation.");
+    this.name = "MobileSourceProfileChangedError";
+    this.expectedScope = expectedScope;
+    this.activeScope = activeScope;
+  }
+}
+
+export function assertActiveMobileSourceProfileScope(
+  expectedScope: string,
+): void {
+  const normalizedExpectedScope = normalizeProfileScope(expectedScope);
+  if (
+    pendingProfileTransitionCount > 0 ||
+    activeProfileScope !== normalizedExpectedScope
+  ) {
+    throw new MobileSourceProfileChangedError(
+      normalizedExpectedScope,
+      activeProfileScope,
+    );
+  }
+}
+
+export function isMobileSourceProfileChangedError(
+  error: unknown,
+): error is MobileSourceProfileChangedError {
+  return error instanceof MobileSourceProfileChangedError;
+}
+
 export function isMobileSourceProfileTransitionPending(): boolean {
   return pendingProfileTransitionCount > 0;
 }

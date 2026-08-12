@@ -13,6 +13,11 @@ import {
   type MobileSourceLoginSubmission,
 } from "@/lib/mobileSourceSettingActions";
 import { applyMobileSourceSettingsPatch } from "@/lib/mobileSourceSettings";
+import {
+  assertActiveMobileSourceProfileScope,
+  getActiveMobileSourceProfileScope,
+  isMobileSourceProfileChangedError,
+} from "./mobileSourceProfileScope";
 
 export type MobileSourceSettingsOperation =
   | {
@@ -38,7 +43,10 @@ export type MobileSourceLoginCapabilities = {
   web: boolean;
 };
 
-type ClearMobileSourceSandbox = (sourceKey: string) => Promise<void>;
+type ClearMobileSourceSandbox = (
+  sourceKey: string,
+  executionScope: string,
+) => Promise<void>;
 
 function getSettingsRollback(
   currentSettings: Record<string, unknown>,
@@ -57,15 +65,16 @@ async function clearNativeSourceState(
   cache: MobileSourceSessionCache,
   source: MobileRuntimeSource,
   clearSandbox: ClearMobileSourceSandbox,
+  executionScope: string,
 ): Promise<void> {
   const sourceKey = makeMobileRuntimeSourceKey(source);
   let cacheError: unknown;
   try {
-    cache.remove(sourceKey);
+    cache.remove(sourceKey, executionScope);
   } catch (error) {
     cacheError = error;
   }
-  await clearSandbox(sourceKey);
+  await clearSandbox(sourceKey, executionScope);
   if (cacheError) throw cacheError;
 }
 
@@ -88,10 +97,16 @@ async function compensateFailedLogin(
     deleteKeys: string[],
   ) => Promise<void>,
   rollback: { patch: Record<string, unknown>; deleteKeys: string[] },
+  executionScope: string,
 ): Promise<void> {
   let nativeError: unknown;
   try {
-    await clearNativeSourceState(cache, source, clearSandbox);
+    await clearNativeSourceState(
+      cache,
+      source,
+      clearSandbox,
+      executionScope,
+    );
   } catch (error) {
     nativeError = error;
   }
@@ -126,65 +141,71 @@ export async function runMobileSourceSettingsOperation({
   source,
   settings,
   operation,
+  executionScope,
 }: {
   cache?: MobileSourceSessionCache;
   source: MobileRuntimeSource;
   settings: Record<string, unknown>;
   operation: MobileSourceSettingsOperation;
+  executionScope?: string;
 }): Promise<MobileSourceSettingsOperationResult> {
-  return cache.withSession(source, { settings }, async (session) => {
-    if (session.status === "blocked") {
-      return { status: "blocked", detail: session.detail };
-    }
+  return cache.withSession(
+    source,
+    { settings, executionScope },
+    async (session) => {
+      if (session.status === "blocked") {
+        return { status: "blocked", detail: session.detail };
+      }
 
-    if (operation.kind === "basic-login") {
-      if (
-        !session.source.handleBasicLogin ||
-        !(await session.source.handlesBasicLogin())
-      ) {
+      if (operation.kind === "basic-login") {
+        if (
+          !session.source.handleBasicLogin ||
+          !(await session.source.handlesBasicLogin())
+        ) {
+          return {
+            status: "blocked",
+            detail: "This source runtime does not support basic login.",
+          };
+        }
+        const accepted = await session.source.handleBasicLogin(
+          operation.key,
+          operation.username,
+          operation.password,
+        );
+        return accepted
+          ? { status: "complete" }
+          : { status: "rejected", reason: "credentials-rejected" };
+      }
+
+      if (operation.kind === "web-login") {
+        if (
+          !session.source.handleWebLogin ||
+          !(await session.source.handlesWebLogin())
+        ) {
+          return {
+            status: "blocked",
+            detail: "This source runtime does not support web login.",
+          };
+        }
+        const accepted = await session.source.handleWebLogin(
+          operation.key,
+          operation.cookies,
+        );
+        return accepted
+          ? { status: "complete" }
+          : { status: "rejected", reason: "credentials-rejected" };
+      }
+
+      if (!session.source.handleNotification) {
         return {
           status: "blocked",
-          detail: "This source runtime does not support basic login.",
+          detail: "This source runtime does not support notifications.",
         };
       }
-      const accepted = await session.source.handleBasicLogin(
-        operation.key,
-        operation.username,
-        operation.password,
-      );
-      return accepted
-        ? { status: "complete" }
-        : { status: "rejected", reason: "credentials-rejected" };
-    }
-
-    if (operation.kind === "web-login") {
-      if (
-        !session.source.handleWebLogin ||
-        !(await session.source.handlesWebLogin())
-      ) {
-        return {
-          status: "blocked",
-          detail: "This source runtime does not support web login.",
-        };
-      }
-      const accepted = await session.source.handleWebLogin(
-        operation.key,
-        operation.cookies,
-      );
-      return accepted
-        ? { status: "complete" }
-        : { status: "rejected", reason: "credentials-rejected" };
-    }
-
-    if (!session.source.handleNotification) {
-      return {
-        status: "blocked",
-        detail: "This source runtime does not support notifications.",
-      };
-    }
-    await session.source.handleNotification(operation.notification);
-    return { status: "complete" };
-  });
+      await session.source.handleNotification(operation.notification);
+      return { status: "complete" };
+    },
+  );
 }
 
 export async function completeMobileSourceLogin({
@@ -209,6 +230,8 @@ export async function completeMobileSourceLogin({
     deleteKeys: string[],
   ) => Promise<void>;
 }): Promise<MobileSourceSettingsOperationResult> {
+  const executionScope = getActiveMobileSourceProfileScope();
+  assertActiveMobileSourceProfileScope(executionScope);
   try {
     let loginResult: MobileSourceSettingsOperationResult = {
       status: "complete",
@@ -224,6 +247,7 @@ export async function completeMobileSourceLogin({
           username: submission.username,
           password: submission.password,
         },
+        executionScope,
       });
     } else if (
       submission.method === "web" &&
@@ -238,15 +262,27 @@ export async function completeMobileSourceLogin({
           key: setting.key,
           cookies: submission.cookies,
         },
+        executionScope,
       });
     }
+    assertActiveMobileSourceProfileScope(executionScope);
     if (loginResult.status !== "complete") {
-      await clearNativeSourceState(cache, source, clearSandbox);
+      await clearNativeSourceState(
+        cache,
+        source,
+        clearSandbox,
+        executionScope,
+      );
       return loginResult;
     }
   } catch (error) {
     try {
-      await clearNativeSourceState(cache, source, clearSandbox);
+      await clearNativeSourceState(
+        cache,
+        source,
+        clearSandbox,
+        executionScope,
+      );
     } catch {
       // Preserve the handler error while still attempting fail-closed cleanup.
     }
@@ -258,7 +294,12 @@ export async function completeMobileSourceLogin({
     patch = sourceLoginStoragePatch(setting, submission);
   } catch (error) {
     try {
-      await clearNativeSourceState(cache, source, clearSandbox);
+      await clearNativeSourceState(
+        cache,
+        source,
+        clearSandbox,
+        executionScope,
+      );
     } catch {
       // Preserve the validation error while still attempting cleanup.
     }
@@ -280,14 +321,18 @@ export async function completeMobileSourceLogin({
   const notification = setting.notification?.trim();
   let result: MobileSourceSettingsOperationResult = { status: "complete" };
   try {
+    assertActiveMobileSourceProfileScope(executionScope);
     await persistSettings(patch, deleteKeys);
+    assertActiveMobileSourceProfileScope(executionScope);
     if (notification) {
       result = await runMobileSourceSettingsOperation({
         cache,
         source,
         settings: nextSettings,
         operation: { kind: "notification", notification },
+        executionScope,
       });
+      assertActiveMobileSourceProfileScope(executionScope);
     }
   } catch (error) {
     try {
@@ -297,6 +342,7 @@ export async function completeMobileSourceLogin({
         clearSandbox,
         persistSettings,
         rollback,
+        executionScope,
       );
     } catch {
       // Preserve the operation error; callers already surface a retryable
@@ -311,6 +357,7 @@ export async function completeMobileSourceLogin({
       clearSandbox,
       persistSettings,
       rollback,
+      executionScope,
     );
   }
   return result;
@@ -336,6 +383,8 @@ export async function completeMobileSourceLogout({
     deleteKeys: string[],
   ) => Promise<void>;
 }): Promise<MobileSourceSettingsOperationResult> {
+  const executionScope = getActiveMobileSourceProfileScope();
+  assertActiveMobileSourceProfileScope(executionScope);
   const deleteKeys = sourceLoginLogoutKeys(setting);
   const nextSettings = applyMobileSourceSettingsPatch(
     schema,
@@ -345,7 +394,9 @@ export async function completeMobileSourceLogout({
   ).values;
   const rollback = getSettingsRollback(currentSettings, deleteKeys);
   try {
+    assertActiveMobileSourceProfileScope(executionScope);
     await persistSettings({}, deleteKeys);
+    assertActiveMobileSourceProfileScope(executionScope);
   } catch (error) {
     await restoreSettings(persistSettings, rollback);
     throw error;
@@ -354,20 +405,42 @@ export async function completeMobileSourceLogout({
   const notification = setting.notification?.trim();
   if (notification) {
     try {
+      assertActiveMobileSourceProfileScope(executionScope);
       const result = await runMobileSourceSettingsOperation({
         cache,
         source,
         settings: nextSettings,
         operation: { kind: "notification", notification },
+        executionScope,
       });
+      assertActiveMobileSourceProfileScope(executionScope);
       if (result.status === "complete") return result;
-    } catch {
+    } catch (error) {
+      if (isMobileSourceProfileChangedError(error)) {
+        try {
+          await clearNativeSourceState(
+            cache,
+            source,
+            clearSandbox,
+            executionScope,
+          );
+        } finally {
+          await restoreSettings(persistSettings, rollback);
+        }
+        throw error;
+      }
       // Clearing the source sandbox is the fail-closed logout path below.
     }
   }
 
   try {
-    await clearNativeSourceState(cache, source, clearSandbox);
+    await clearNativeSourceState(
+      cache,
+      source,
+      clearSandbox,
+      executionScope,
+    );
+    assertActiveMobileSourceProfileScope(executionScope);
     return { status: "complete" };
   } catch (error) {
     await restoreSettings(persistSettings, rollback);
@@ -383,11 +456,14 @@ export async function resetMobileSourceRuntimeSettings({
 }: {
   cache?: MobileSourceSessionCache;
   source: MobileRuntimeSource;
-  clearSandbox: (sourceKey: string) => Promise<void>;
+  clearSandbox: ClearMobileSourceSandbox;
   resetProfileSettings: () => Promise<void>;
 }): Promise<void> {
+  const executionScope = getActiveMobileSourceProfileScope();
+  assertActiveMobileSourceProfileScope(executionScope);
   const sourceKey = makeMobileRuntimeSourceKey(source);
-  cache.remove(sourceKey);
-  await clearSandbox(sourceKey);
+  cache.remove(sourceKey, executionScope);
+  await clearSandbox(sourceKey, executionScope);
+  assertActiveMobileSourceProfileScope(executionScope);
   await resetProfileSettings();
 }
