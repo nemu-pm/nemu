@@ -3481,6 +3481,12 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
   },
 };
 
+export function getMobileStringsForAudit(): Readonly<
+  Record<AppLanguage, MobileStrings>
+> {
+  return mobileStrings;
+}
+
 export function getMobileStrings(language: unknown): MobileStrings {
   return mobileStrings[normalizeAppLanguage(language)];
 }

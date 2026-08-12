@@ -3,9 +3,57 @@ import {
   formatMobileSettingsCount,
   formatMobileString,
   getMobileStrings,
+  getMobileStringsForAudit,
 } from "./mobileI18n";
 
+function flattenStringLeaves(
+  value: unknown,
+  prefix = "",
+): Map<string, string> {
+  const output = new Map<string, string>();
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (typeof child === "string") {
+      output.set(path, child);
+    } else if (child && typeof child === "object") {
+      for (const [childPath, leaf] of flattenStringLeaves(child, path)) {
+        output.set(childPath, leaf);
+      }
+    }
+  }
+  return output;
+}
+
+function interpolationKeys(value: string): string[] {
+  return [...value.matchAll(/\{\{(\w+)\}\}/g)]
+    .map((match) => match[1]!)
+    .sort();
+}
+
 describe("mobile i18n helpers", () => {
+  test("keeps every locale structurally and parametrically identical", () => {
+    const catalogs = getMobileStringsForAudit();
+    const english = flattenStringLeaves(catalogs.en);
+    const englishPaths = [...english.keys()].sort();
+
+    for (const language of ["zh", "ja"] as const) {
+      const localized = flattenStringLeaves(catalogs[language]);
+      expect([...localized.keys()].sort()).toEqual(englishPaths);
+      for (const [path, englishValue] of english) {
+        expect(interpolationKeys(localized.get(path)!)).toEqual(
+          interpolationKeys(englishValue),
+        );
+      }
+    }
+  });
+
+  test("uses Simplified Chinese product terminology", () => {
+    const strings = getMobileStrings("zh");
+    expect(strings.nav.library).toBe("书架");
+    expect(strings.nav.settings).toBe("设置");
+    expect(strings.browse.searchRegistries).toBe("搜索源仓库");
+  });
+
   test("falls back to English for unsupported app languages", () => {
     expect(getMobileStrings("fr").nav.settings).toBe("Settings");
   });
