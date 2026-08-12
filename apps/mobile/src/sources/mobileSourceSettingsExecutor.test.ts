@@ -4,6 +4,7 @@ import type { MobileSourceSessionCache } from "./mobileSourceExecutorCache";
 import type { MobileRuntimeSource } from "./mobileSourceRuntime";
 import {
   completeMobileSourceLogin,
+  completeMobileSourceLogout,
   getMobileSourceLoginCapabilities,
   resetMobileSourceRuntimeSettings,
   runMobileSourceSettingsOperation,
@@ -239,6 +240,7 @@ describe("mobile source settings executor", () => {
         password: "secret",
       },
       currentSettings: {},
+      async clearSandbox() {},
       async persistSettings(patch, deleteKeys) {
         for (const key of deleteKeys) delete visibleSettings[key];
         Object.assign(visibleSettings, patch);
@@ -263,6 +265,191 @@ describe("mobile source settings executor", () => {
       }),
     ).toEqual({ status: "complete" });
     expect(persistedDefaults).toEqual({});
+  });
+
+  test("rolls back profile credentials and clears native state when login notification fails", async () => {
+    const visibleSettings: Record<string, unknown> = { theme: "dark" };
+    const nativeState: Record<string, unknown> = {};
+    const removedSessions: string[] = [];
+    const cache = readyCache(
+      {
+        async handleBasicLogin() {
+          nativeState.token = "native-token";
+          nativeState.just_logged_in = true;
+          return true;
+        },
+        async handleNotification() {
+          throw new Error("notification failed");
+        },
+      },
+      [],
+    );
+    cache.remove = (sourceKey) => {
+      removedSessions.push(sourceKey);
+    };
+
+    await expect(
+      completeMobileSourceLogin({
+        cache,
+        source: runtimeSource,
+        schema: [
+          {
+            key: "auth",
+            type: "login",
+            title: "Log in",
+            notification: "login-changed",
+          },
+        ],
+        setting: {
+          key: "auth",
+          type: "login",
+          title: "Log in",
+          notification: "login-changed",
+        },
+        submission: {
+          method: "basic",
+          username: "reader",
+          password: "secret",
+        },
+        currentSettings: { ...visibleSettings },
+        async clearSandbox() {
+          for (const key of Object.keys(nativeState)) delete nativeState[key];
+        },
+        async persistSettings(patch, deleteKeys) {
+          for (const key of deleteKeys) delete visibleSettings[key];
+          Object.assign(visibleSettings, patch);
+        },
+      }),
+    ).rejects.toThrow("notification failed");
+
+    expect(visibleSettings).toEqual({ theme: "dark" });
+    expect(nativeState).toEqual({});
+    expect(removedSessions).toEqual(["aidoku-community:en.example"]);
+  });
+
+  test("falls back to clearing native state when logout notification fails", async () => {
+    const visibleSettings: Record<string, unknown> = {
+      auth: "logged_in",
+      "auth.username": "reader",
+      "auth.password": "secret",
+      theme: "dark",
+    };
+    const nativeState: Record<string, unknown> = { token: "native-token" };
+    const removedSessions: string[] = [];
+    const cache = readyCache(
+      {
+        async handleNotification() {
+          throw new Error("notification failed");
+        },
+      },
+      [],
+    );
+    cache.remove = (sourceKey) => {
+      removedSessions.push(sourceKey);
+    };
+
+    const result = await completeMobileSourceLogout({
+      cache,
+      source: runtimeSource,
+      schema: [
+        {
+          key: "auth",
+          type: "login",
+          title: "Log in",
+          notification: "login-changed",
+        },
+      ],
+      setting: {
+        key: "auth",
+        type: "login",
+        title: "Log in",
+        notification: "login-changed",
+      },
+      currentSettings: { ...visibleSettings },
+      async clearSandbox() {
+        for (const key of Object.keys(nativeState)) delete nativeState[key];
+      },
+      async persistSettings(patch, deleteKeys) {
+        for (const key of deleteKeys) delete visibleSettings[key];
+        Object.assign(visibleSettings, patch);
+      },
+    });
+
+    expect(result).toEqual({ status: "complete" });
+    expect(visibleSettings).toEqual({ theme: "dark" });
+    expect(nativeState).toEqual({});
+    expect(removedSessions).toEqual(["aidoku-community:en.example"]);
+  });
+
+  test("restores profile and native state when persisting a login fails partway", async () => {
+    const visibleSettings: Record<string, unknown> = { theme: "dark" };
+    const nativeState: Record<string, unknown> = {};
+    let persistenceCalls = 0;
+
+    await expect(
+      completeMobileSourceLogin({
+        cache: readyCache(
+          {
+            async handleBasicLogin() {
+              nativeState.token = "native-token";
+              return true;
+            },
+          },
+          [],
+        ),
+        source: runtimeSource,
+        schema: [{ key: "auth", type: "login", title: "Log in" }],
+        setting: { key: "auth", type: "login", title: "Log in" },
+        submission: {
+          method: "basic",
+          username: "reader",
+          password: "secret",
+        },
+        currentSettings: { ...visibleSettings },
+        async clearSandbox() {
+          for (const key of Object.keys(nativeState)) delete nativeState[key];
+        },
+        async persistSettings(patch, deleteKeys) {
+          persistenceCalls += 1;
+          for (const key of deleteKeys) delete visibleSettings[key];
+          Object.assign(visibleSettings, patch);
+          if (persistenceCalls === 1) throw new Error("write failed");
+        },
+      }),
+    ).rejects.toThrow("write failed");
+
+    expect(visibleSettings).toEqual({ theme: "dark" });
+    expect(nativeState).toEqual({});
+  });
+
+  test("restores profile credentials when persisting logout fails partway", async () => {
+    const originalSettings: Record<string, unknown> = {
+      auth: "logged_in",
+      "auth.username": "reader",
+      "auth.password": "secret",
+      theme: "dark",
+    };
+    const visibleSettings = { ...originalSettings };
+    let persistenceCalls = 0;
+
+    await expect(
+      completeMobileSourceLogout({
+        cache: readyCache({}, []),
+        source: runtimeSource,
+        schema: [{ key: "auth", type: "login", title: "Log in" }],
+        setting: { key: "auth", type: "login", title: "Log in" },
+        currentSettings: originalSettings,
+        async clearSandbox() {},
+        async persistSettings(patch, deleteKeys) {
+          persistenceCalls += 1;
+          for (const key of deleteKeys) delete visibleSettings[key];
+          Object.assign(visibleSettings, patch);
+          if (persistenceCalls === 1) throw new Error("write failed");
+        },
+      }),
+    ).rejects.toThrow("write failed");
+
+    expect(visibleSettings).toEqual(originalSettings);
   });
 
   test("reset invalidates the live session and clears native persistence", async () => {

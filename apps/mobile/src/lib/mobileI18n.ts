@@ -687,6 +687,7 @@ export type MobileStrings = {
     cloudSyncPausedDetail: string;
     cloudSyncStorageUnavailable: string;
     cloudSyncStorageUnavailableDetail: string;
+    cloudSyncAuthenticationNetworkUnavailable: string;
     cloudSyncSignInFailed: string;
     cloudSyncSignInPrompt: string;
     cloudSyncSignedIn: string;
@@ -1606,6 +1607,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       cloudSyncStorageUnavailable: "Cloud sync storage unavailable",
       cloudSyncStorageUnavailableDetail:
         "Cloud sync is paused because Nemu could not read this account's local storage. No cloud snapshot was applied.",
+      cloudSyncAuthenticationNetworkUnavailable:
+        "Authentication requires a network connection.",
       cloudSyncSignInFailed: "Sign in failed.",
       cloudSyncSignInPrompt:
         "Sign in to sync your library and reading progress across devices.",
@@ -2496,6 +2499,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       cloudSyncStorageUnavailable: "云同步存储不可用",
       cloudSyncStorageUnavailableDetail:
         "Nemu 无法读取该账号的本地存储，因此云同步已暂停。没有应用任何云端快照。",
+      cloudSyncAuthenticationNetworkUnavailable: "身份验证需要网络连接。",
       cloudSyncSignInFailed: "登录失败。",
       cloudSyncSignInPrompt: "登录后可在设备间同步书架和阅读进度。",
       cloudSyncSignedIn: "已登录",
@@ -3445,6 +3449,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       cloudSyncStorageUnavailable: "クラウド同期ストレージを利用できません",
       cloudSyncStorageUnavailableDetail:
         "Nemu がこのアカウントのローカルストレージを読み取れないため、クラウド同期を一時停止しました。クラウドスナップショットは適用されていません。",
+      cloudSyncAuthenticationNetworkUnavailable:
+        "認証にはネットワーク接続が必要です。",
       cloudSyncSignInFailed: "サインインに失敗しました。",
       cloudSyncSignInPrompt:
         "サインインすると、ライブラリと読書進捗をデバイス間で同期できます。",

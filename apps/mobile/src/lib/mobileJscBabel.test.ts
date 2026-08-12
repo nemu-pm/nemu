@@ -105,6 +105,7 @@ describe("mobile JSC Babel compatibility", () => {
     ) as {
       expo: {
         scheme?: string | string[];
+        plugins?: Array<string | [string, ...unknown[]]>;
         ios?: {
           infoPlist?: {
             CFBundleURLTypes?: Array<{ CFBundleURLSchemes?: string[] }>;
@@ -114,13 +115,80 @@ describe("mobile JSC Babel compatibility", () => {
       };
     };
 
-    expect(appConfig.expo.scheme).toEqual(["nemu", "neko"]);
+    expect(appConfig.expo.scheme).toBe("nemu");
     expect(
       appConfig.expo.ios?.infoPlist?.CFBundleURLTypes?.flatMap(
         (entry) => entry.CFBundleURLSchemes ?? [],
       ),
     ).toEqual(["nemu", "neko"]);
     expect(appConfig.expo.android?.scheme).toBeUndefined();
+    expect(
+      appConfig.expo.plugins?.map((plugin) =>
+        Array.isArray(plugin) ? plugin[0] : plugin,
+      ),
+    ).toContain("./plugins/with-mobile-deep-link-schemes");
+
+    const deepLinkPlugin = requireFromTest(
+      path.join(
+        import.meta.dir,
+        "../../plugins/with-mobile-deep-link-schemes.cjs",
+      ),
+    ) as {
+      ensureAndroidDeepLinkScheme: (
+        manifest: Record<string, unknown>,
+        scheme: string,
+      ) => Record<string, unknown>;
+    };
+    const manifest = {
+      manifest: {
+        application: [
+          {
+            activity: [
+              {
+                $: { "android:name": ".MainActivity" },
+                "intent-filter": [
+                  {
+                    action: [{ $: { "android:name": "android.intent.action.VIEW" } }],
+                    category: [
+                      { $: { "android:name": "android.intent.category.BROWSABLE" } },
+                    ],
+                    data: [{ $: { "android:scheme": "nemu" } }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    expect(
+      deepLinkPlugin.ensureAndroidDeepLinkScheme(manifest, "neko"),
+    ).toEqual({
+      manifest: {
+        application: [
+          {
+            activity: [
+              {
+                $: { "android:name": ".MainActivity" },
+                "intent-filter": [
+                  {
+                    action: [{ $: { "android:name": "android.intent.action.VIEW" } }],
+                    category: [
+                      { $: { "android:name": "android.intent.category.BROWSABLE" } },
+                    ],
+                    data: [
+                      { $: { "android:scheme": "nemu" } },
+                      { $: { "android:scheme": "neko" } },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
   });
 
   test("links EAS from CI without hard-coding account metadata", () => {

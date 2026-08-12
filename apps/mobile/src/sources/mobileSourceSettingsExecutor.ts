@@ -38,6 +38,67 @@ export type MobileSourceLoginCapabilities = {
   web: boolean;
 };
 
+type ClearMobileSourceSandbox = (sourceKey: string) => Promise<void>;
+
+function getSettingsRollback(
+  currentSettings: Record<string, unknown>,
+  affectedKeys: Iterable<string>,
+): { patch: Record<string, unknown>; deleteKeys: string[] } {
+  const patch: Record<string, unknown> = {};
+  const deleteKeys: string[] = [];
+  for (const key of affectedKeys) {
+    if (Object.hasOwn(currentSettings, key)) patch[key] = currentSettings[key];
+    else deleteKeys.push(key);
+  }
+  return { patch, deleteKeys };
+}
+
+async function clearNativeSourceState(
+  cache: MobileSourceSessionCache,
+  source: MobileRuntimeSource,
+  clearSandbox: ClearMobileSourceSandbox,
+): Promise<void> {
+  const sourceKey = makeMobileRuntimeSourceKey(source);
+  let cacheError: unknown;
+  try {
+    cache.remove(sourceKey);
+  } catch (error) {
+    cacheError = error;
+  }
+  await clearSandbox(sourceKey);
+  if (cacheError) throw cacheError;
+}
+
+async function restoreSettings(
+  persistSettings: (
+    patch: Record<string, unknown>,
+    deleteKeys: string[],
+  ) => Promise<void>,
+  rollback: { patch: Record<string, unknown>; deleteKeys: string[] },
+): Promise<void> {
+  await persistSettings(rollback.patch, rollback.deleteKeys);
+}
+
+async function compensateFailedLogin(
+  cache: MobileSourceSessionCache,
+  source: MobileRuntimeSource,
+  clearSandbox: ClearMobileSourceSandbox,
+  persistSettings: (
+    patch: Record<string, unknown>,
+    deleteKeys: string[],
+  ) => Promise<void>,
+  rollback: { patch: Record<string, unknown>; deleteKeys: string[] },
+): Promise<void> {
+  let nativeError: unknown;
+  try {
+    await clearNativeSourceState(cache, source, clearSandbox);
+  } catch (error) {
+    nativeError = error;
+  }
+  await restoreSettings(persistSettings, rollback);
+  if (nativeError) throw nativeError;
+}
+
 export async function getMobileSourceLoginCapabilities({
   cache = defaultMobileSourceSessionCache,
   source,
@@ -133,6 +194,7 @@ export async function completeMobileSourceLogin({
   setting,
   submission,
   currentSettings,
+  clearSandbox,
   persistSettings,
 }: {
   cache?: MobileSourceSessionCache;
@@ -141,6 +203,7 @@ export async function completeMobileSourceLogin({
   setting: SourcePackageSetting;
   submission: MobileSourceLoginSubmission;
   currentSettings: Record<string, unknown>;
+  clearSandbox: ClearMobileSourceSandbox;
   persistSettings: (
     patch: Record<string, unknown>,
     deleteKeys: string[],
@@ -186,16 +249,106 @@ export async function completeMobileSourceLogin({
     patch,
     deleteKeys,
   ).values;
-  await persistSettings(patch, deleteKeys);
+  const rollback = getSettingsRollback(currentSettings, [
+    ...Object.keys(patch),
+    ...deleteKeys,
+  ]);
+  const notification = setting.notification?.trim();
+  let result: MobileSourceSettingsOperationResult = { status: "complete" };
+  try {
+    await persistSettings(patch, deleteKeys);
+    if (notification) {
+      result = await runMobileSourceSettingsOperation({
+        cache,
+        source,
+        settings: nextSettings,
+        operation: { kind: "notification", notification },
+      });
+    }
+  } catch (error) {
+    try {
+      await compensateFailedLogin(
+        cache,
+        source,
+        clearSandbox,
+        persistSettings,
+        rollback,
+      );
+    } catch {
+      // Preserve the operation error; callers already surface a retryable
+      // failure and the compensation attempted both native and profile state.
+    }
+    throw error;
+  }
+  if (result.status !== "complete") {
+    await compensateFailedLogin(
+      cache,
+      source,
+      clearSandbox,
+      persistSettings,
+      rollback,
+    );
+  }
+  return result;
+}
+
+export async function completeMobileSourceLogout({
+  cache = defaultMobileSourceSessionCache,
+  source,
+  schema,
+  setting,
+  currentSettings,
+  clearSandbox,
+  persistSettings,
+}: {
+  cache?: MobileSourceSessionCache;
+  source: MobileRuntimeSource;
+  schema: SourcePackageSetting[];
+  setting: SourcePackageSetting;
+  currentSettings: Record<string, unknown>;
+  clearSandbox: ClearMobileSourceSandbox;
+  persistSettings: (
+    patch: Record<string, unknown>,
+    deleteKeys: string[],
+  ) => Promise<void>;
+}): Promise<MobileSourceSettingsOperationResult> {
+  const deleteKeys = sourceLoginLogoutKeys(setting);
+  const nextSettings = applyMobileSourceSettingsPatch(
+    schema,
+    currentSettings,
+    {},
+    deleteKeys,
+  ).values;
+  const rollback = getSettingsRollback(currentSettings, deleteKeys);
+  try {
+    await persistSettings({}, deleteKeys);
+  } catch (error) {
+    await restoreSettings(persistSettings, rollback);
+    throw error;
+  }
 
   const notification = setting.notification?.trim();
   if (!notification) return { status: "complete" };
-  return runMobileSourceSettingsOperation({
-    cache,
-    source,
-    settings: nextSettings,
-    operation: { kind: "notification", notification },
-  });
+
+  try {
+    const result = await runMobileSourceSettingsOperation({
+      cache,
+      source,
+      settings: nextSettings,
+      operation: { kind: "notification", notification },
+    });
+    if (result.status === "complete") return result;
+  } catch {
+    // Clearing the source sandbox is the fail-closed logout path below.
+  }
+
+  try {
+    await clearNativeSourceState(cache, source, clearSandbox);
+    return { status: "complete" };
+  } catch (error) {
+    await restoreSettings(persistSettings, rollback);
+    throw error;
+  }
 }
 
 export async function resetMobileSourceRuntimeSettings({

@@ -2,10 +2,7 @@
   "expo": {
     "name": "Nemu",
     "slug": "nemu-mobile",
-    "scheme": [
-      "nemu",
-      "neko"
-    ],
+    "scheme": "nemu",
     "version": "0.1.0",
     "runtimeVersion": {
       "policy": "appVersion"
@@ -70,6 +67,7 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/with-mobile-deep-link-schemes",
       [
         "expo-image-picker",
         {

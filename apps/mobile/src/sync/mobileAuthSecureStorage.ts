@@ -23,7 +23,10 @@ export function createFailClosedMobileAuthFetch(
       return await fetchImpl(input, init);
     } catch {
       return new Response(
-        JSON.stringify({ message: "Authentication network unavailable." }),
+        JSON.stringify({
+          code: "MOBILE_AUTH_NETWORK_UNAVAILABLE",
+          message: "MOBILE_AUTH_NETWORK_UNAVAILABLE",
+        }),
         {
           status: init?.signal?.aborted ? 499 : 503,
           statusText: init?.signal?.aborted

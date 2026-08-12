@@ -37,7 +37,8 @@ describe("mobile auth secure storage", () => {
     expect(response.status).toBe(499);
     expect(response.statusText).toBe("Request Cancelled");
     expect(await response.json()).toEqual({
-      message: "Authentication network unavailable.",
+      code: "MOBILE_AUTH_NETWORK_UNAVAILABLE",
+      message: "MOBILE_AUTH_NETWORK_UNAVAILABLE",
     });
   });
 

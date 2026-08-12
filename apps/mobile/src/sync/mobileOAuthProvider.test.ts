@@ -6,9 +6,33 @@ import {
   completeMobileCloudSignOut,
   getMobileCloudSignOutResultAction,
   normalizeMobileOAuthProvider,
+  resolveMobileCloudSignInErrorDetail,
 } from "./mobileOAuthProvider";
 
 describe("normalizeMobileOAuthProvider", () => {
+  it("localizes offline sign-in failures without exposing the transport message", () => {
+    const localizedOffline = [
+      "Authentication requires a network connection.",
+      "身份验证需要网络连接。",
+      "認証にはネットワーク接続が必要です。",
+    ];
+
+    for (const detail of localizedOffline) {
+      expect(
+        resolveMobileCloudSignInErrorDetail(
+          {
+            status: 503,
+            message: "MOBILE_AUTH_NETWORK_UNAVAILABLE",
+          },
+          {
+            signInFailed: "fallback",
+            networkUnavailable: detail,
+          },
+        ),
+      ).toBe(detail);
+    }
+  });
+
   it("keeps supported OAuth providers", () => {
     expect(normalizeMobileOAuthProvider("google")).toBe("google");
     expect(normalizeMobileOAuthProvider("apple")).toBe("apple");

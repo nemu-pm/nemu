@@ -97,7 +97,6 @@ import {
   DEFAULT_READER_TWO_PAGE_MODE,
 } from "@/lib/mobileReaderSettings";
 import {
-  applyMobileSourceSettingsPatch,
   canRetryMobileSourceSettingsLoadError,
   countRenderableSourceSettings,
   getMobileSourceSettingsNavigationResetKey,
@@ -107,7 +106,6 @@ import {
 import { normalizeMobileSourceExternalUrl } from "@/lib/mobileSourceExternalUrl";
 import {
   resolveMobileSourceSettingAction,
-  sourceLoginLogoutKeys,
   type MobileSourceLoginSubmission,
 } from "@/lib/mobileSourceSettingActions";
 import { getMobileSourceBrowseHref } from "@/lib/mobileSourceRoutes";
@@ -129,6 +127,7 @@ import {
 import { defaultMobileSourceSessionCache } from "@/sources/mobileSourceExecutorCache";
 import {
   completeMobileSourceLogin,
+  completeMobileSourceLogout,
   getMobileSourceLoginCapabilities,
   resetMobileSourceRuntimeSettings,
   runMobileSourceSettingsOperation,
@@ -1607,6 +1606,7 @@ export function SettingsScreen({
         setting,
         submission,
         currentSettings: selectedSourceSettings.data,
+        clearSandbox: clearMobileAidokuSandboxDataForSource,
         persistSettings: selectedSourceSettings.setSettings,
       });
       if (result.status === "rejected") {
@@ -1692,25 +1692,18 @@ export function SettingsScreen({
       `source-settings-logout:${selectedSourceKey}:${setting.key}`,
       async () => {
         try {
-          const deleteKeys = sourceLoginLogoutKeys(setting);
-          const nextSettings = applyMobileSourceSettingsPatch(
-            selectedSourceSchema,
-            selectedSourceSettings.data,
-            {},
-            deleteKeys,
-          ).values;
-          await selectedSourceSettings.setSettings({}, deleteKeys);
-          setConfirmation(null);
-          if (setting.notification) {
-            const operationError = await executeSelectedSourceSettingOperation(
-              {
-                kind: "notification",
-                notification: setting.notification,
-              },
-              nextSettings,
-            );
-            if (operationError) throw new Error(operationError);
+          if (!selectedRuntimeSource) {
+            throw new Error(strings.settings.sourceSettingsRuntimeUnavailable);
           }
+          await completeMobileSourceLogout({
+            source: selectedRuntimeSource,
+            schema: selectedSourceSchema,
+            setting,
+            currentSettings: selectedSourceSettings.data,
+            clearSandbox: clearMobileAidokuSandboxDataForSource,
+            persistSettings: selectedSourceSettings.setSettings,
+          });
+          setConfirmation(null);
           await reloadSelectedSourceSettingScopes(setting);
           await hapticConfirm();
         } catch {

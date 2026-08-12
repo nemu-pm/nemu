@@ -44,6 +44,7 @@ import {
   completeMobileCloudSignOut,
   getMobileCloudSignOutResultAction,
   normalizeMobileOAuthProvider,
+  resolveMobileCloudSignInErrorDetail,
 } from "@/sync/mobileOAuthProvider";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { clearMobileAidokuSandboxDataForProfile } from "@/sources/mobileAidokuSandboxData";
@@ -637,8 +638,11 @@ function MobileCloudSyncConfiguredCard({
       if (result.error) {
         setError({
           title: strings.settings.cloudSyncSignInFailed,
-          detail:
-            result.error.message ?? strings.settings.cloudSyncSignInFailed,
+          detail: resolveMobileCloudSignInErrorDetail(result.error, {
+            signInFailed: strings.settings.cloudSyncSignInFailed,
+            networkUnavailable:
+              strings.settings.cloudSyncAuthenticationNetworkUnavailable,
+          }),
           accountId: errorAccountId,
         });
         await hapticError();

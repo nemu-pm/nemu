@@ -10,6 +10,21 @@ export type MobileCloudSignOutResultAction =
 
 export const normalizeMobileOAuthProvider = normalizeOAuthProvider;
 
+export function resolveMobileCloudSignInErrorDetail(
+  error: { code?: string; message?: string; status?: number } | null | undefined,
+  strings: { signInFailed: string; networkUnavailable: string },
+): string {
+  if (
+    error?.status === 499 ||
+    error?.status === 503 ||
+    error?.code === "MOBILE_AUTH_NETWORK_UNAVAILABLE" ||
+    error?.message === "MOBILE_AUTH_NETWORK_UNAVAILABLE"
+  ) {
+    return strings.networkUnavailable;
+  }
+  return strings.signInFailed;
+}
+
 export function canStartMobileOAuthSignIn(
   busyProvider: MobileOAuthProvider | null,
   signingOut: boolean,
