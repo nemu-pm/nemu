@@ -150,6 +150,21 @@ function normalizeRuntimeSetting(
   const action = asString(item.action);
   const url = asString(item.url);
   const urlKey = asString(item.urlKey);
+  const rawMethod = asString(item.method);
+  const method =
+    rawMethod === "basic" || rawMethod === "web" || rawMethod === "oauth"
+      ? rawMethod
+      : undefined;
+  const logoutTitle = asString(item.logoutTitle);
+  const localStorageKeys = asStringArray(item.localStorageKeys);
+  const useEmail = asBoolean(item.useEmail);
+  const external = asBoolean(item.external);
+  const destructive = asBoolean(item.destructive);
+  const confirmTitle = asString(item.confirmTitle);
+  const confirmMessage = asString(item.confirmMessage);
+  const callbackScheme = asString(item.callbackScheme);
+  const tokenUrl = asString(item.tokenUrl);
+  const pkce = asBoolean(item.pkce);
   const info = asString(item.info);
   const optionCount = values?.length ?? titles?.length;
 
@@ -173,6 +188,17 @@ function normalizeRuntimeSetting(
     ...(action ? { action } : {}),
     ...(url ? { url } : {}),
     ...(urlKey ? { urlKey } : {}),
+    ...(method ? { method } : {}),
+    ...(logoutTitle ? { logoutTitle } : {}),
+    ...(localStorageKeys ? { localStorageKeys } : {}),
+    ...(useEmail === undefined ? {} : { useEmail }),
+    ...(external === undefined ? {} : { external }),
+    ...(destructive === undefined ? {} : { destructive }),
+    ...(confirmTitle ? { confirmTitle } : {}),
+    ...(confirmMessage ? { confirmMessage } : {}),
+    ...(callbackScheme ? { callbackScheme } : {}),
+    ...(tokenUrl ? { tokenUrl } : {}),
+    ...(pkce === undefined ? {} : { pkce }),
     ...(info ? { info } : {}),
     ...(children.length ? { items: children } : {}),
   };
@@ -207,6 +233,12 @@ function normalizeRuntimeSetting(
     case "PreferenceScreen":
     case "page":
       return { ...base, type: "page" };
+    case "button":
+      return { ...base, type: "button" };
+    case "link":
+      return { ...base, type: "link" };
+    case "login":
+      return { ...base, type: "login" };
     case "segment":
     case "editable-list":
       return { ...base, type: rawType };

@@ -232,6 +232,21 @@ function normalizeSettings(value: unknown): SourcePackageSetting[] {
       const action = asString(item.action);
       const url = asString(item.url);
       const urlKey = asString(item.urlKey);
+      const rawMethod = asString(item.method);
+      const method =
+        rawMethod === "basic" || rawMethod === "web" || rawMethod === "oauth"
+          ? rawMethod
+          : undefined;
+      const logoutTitle = asString(item.logoutTitle);
+      const localStorageKeys = asStringArray(item.localStorageKeys);
+      const useEmail = asBoolean(item.useEmail);
+      const external = asBoolean(item.external);
+      const destructive = asBoolean(item.destructive);
+      const confirmTitle = asString(item.confirmTitle);
+      const confirmMessage = asString(item.confirmMessage);
+      const callbackScheme = asString(item.callbackScheme);
+      const tokenUrl = asString(item.tokenUrl);
+      const pkce = asBoolean(item.pkce);
       const info = asString(item.info);
       const icon = asObject(item.icon);
       const optionCount = optionValues?.length ?? optionTitles?.length;
@@ -255,6 +270,17 @@ function normalizeSettings(value: unknown): SourcePackageSetting[] {
       if (action) setting.action = action;
       if (url) setting.url = url;
       if (urlKey) setting.urlKey = urlKey;
+      if (method) setting.method = method;
+      if (logoutTitle) setting.logoutTitle = logoutTitle;
+      if (localStorageKeys) setting.localStorageKeys = localStorageKeys;
+      if (useEmail !== undefined) setting.useEmail = useEmail;
+      if (external !== undefined) setting.external = external;
+      if (destructive !== undefined) setting.destructive = destructive;
+      if (confirmTitle) setting.confirmTitle = confirmTitle;
+      if (confirmMessage) setting.confirmMessage = confirmMessage;
+      if (callbackScheme) setting.callbackScheme = callbackScheme;
+      if (tokenUrl) setting.tokenUrl = tokenUrl;
+      if (pkce !== undefined) setting.pkce = pkce;
       if (info) setting.info = info;
       if (icon) {
         const iconType = asString(icon.type);

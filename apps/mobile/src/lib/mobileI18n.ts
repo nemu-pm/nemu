@@ -753,6 +753,26 @@ export type MobileStrings = {
     sourceSettingsLoggedIn: string;
     sourceSettingsLoggedOut: string;
     sourceSettingsLoginFailed: string;
+    sourceSettingsUsername: string;
+    sourceSettingsEmail: string;
+    sourceSettingsPassword: string;
+    sourceSettingsCookies: string;
+    sourceSettingsCookiesPlaceholder: string;
+    sourceSettingsLocalStorage: string;
+    sourceSettingsLocalStoragePlaceholder: string;
+    sourceSettingsLocalStorageKeys: string;
+    sourceSettingsBasicLoginInstructions: string;
+    sourceSettingsWebLoginInstructions: string;
+    sourceSettingsSubmitLogin: string;
+    sourceSettingsInvalidLoginForm: string;
+    sourceSettingsCredentialsRejected: string;
+    sourceSettingsRuntimeUnavailable: string;
+    sourceSettingsInvalidLink: string;
+    sourceSettingsOpenLink: string;
+    sourceSettingsRunAction: string;
+    sourceSettingsActionFailed: string;
+    sourceSettingsActionConfirm: string;
+    sourceSettingsLogoutConfirm: string;
     sourceOAuthErrors: Record<MobileSourceOAuthErrorCode, string>;
     sourceUpdated: string;
     sourcesUpdated: string;
@@ -1657,6 +1677,30 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceSettingsLoggedIn: "Logged in",
       sourceSettingsLoggedOut: "Not signed in",
       sourceSettingsLoginFailed: "Login failed",
+      sourceSettingsUsername: "Username",
+      sourceSettingsEmail: "Email",
+      sourceSettingsPassword: "Password",
+      sourceSettingsCookies: "Cookies",
+      sourceSettingsCookiesPlaceholder: "session=abc; locale=en",
+      sourceSettingsLocalStorage: "Local storage",
+      sourceSettingsLocalStoragePlaceholder: '{"token":"value"}',
+      sourceSettingsLocalStorageKeys: "Allowed keys: {{keys}}",
+      sourceSettingsBasicLoginInstructions:
+        "Enter the credentials for this source. They are saved only after the source accepts them.",
+      sourceSettingsWebLoginInstructions:
+        "Paste cookies and, when requested, declared local-storage values as JSON.",
+      sourceSettingsSubmitLogin: "Continue",
+      sourceSettingsInvalidLoginForm: "Enter valid login information.",
+      sourceSettingsCredentialsRejected: "The source rejected these credentials.",
+      sourceSettingsRuntimeUnavailable:
+        "This source action is unavailable in the current mobile runtime.",
+      sourceSettingsInvalidLink: "This source provided an unsafe or invalid link.",
+      sourceSettingsOpenLink: "Open",
+      sourceSettingsRunAction: "Run",
+      sourceSettingsActionFailed: "The source action could not be completed.",
+      sourceSettingsActionConfirm: "Continue with this source action?",
+      sourceSettingsLogoutConfirm:
+        "Remove the saved credentials for this source from this device?",
       sourceOAuthErrors: {
         "missing-login-url": "This source does not provide a login URL.",
         "invalid-login-url": "This source provided an unsafe login URL.",
@@ -2518,6 +2562,28 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceSettingsLoggedIn: "已登录",
       sourceSettingsLoggedOut: "未登录",
       sourceSettingsLoginFailed: "登录失败",
+      sourceSettingsUsername: "用户名",
+      sourceSettingsEmail: "电子邮箱",
+      sourceSettingsPassword: "密码",
+      sourceSettingsCookies: "Cookie",
+      sourceSettingsCookiesPlaceholder: "session=abc; locale=zh",
+      sourceSettingsLocalStorage: "本地存储",
+      sourceSettingsLocalStoragePlaceholder: '{"token":"值"}',
+      sourceSettingsLocalStorageKeys: "允许的键：{{keys}}",
+      sourceSettingsBasicLoginInstructions:
+        "请输入此源的登录信息。仅在源接受后才会保存到设备。",
+      sourceSettingsWebLoginInstructions:
+        "请粘贴 Cookie；如源有要求，请以 JSON 填写声明的本地存储值。",
+      sourceSettingsSubmitLogin: "继续",
+      sourceSettingsInvalidLoginForm: "请输入有效的登录信息。",
+      sourceSettingsCredentialsRejected: "此源拒绝了这些登录信息。",
+      sourceSettingsRuntimeUnavailable: "当前移动端运行时无法执行此源操作。",
+      sourceSettingsInvalidLink: "此源提供了不安全或无效的链接。",
+      sourceSettingsOpenLink: "打开",
+      sourceSettingsRunAction: "运行",
+      sourceSettingsActionFailed: "无法完成此源操作。",
+      sourceSettingsActionConfirm: "继续执行此源操作？",
+      sourceSettingsLogoutConfirm: "从此设备移除此源已保存的登录信息？",
       sourceOAuthErrors: {
         "missing-login-url": "此源未提供登录 URL。",
         "invalid-login-url": "此源提供的登录 URL 不安全。",
@@ -3452,6 +3518,30 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceSettingsLoggedIn: "ログイン済み",
       sourceSettingsLoggedOut: "未ログイン",
       sourceSettingsLoginFailed: "ログイン失敗",
+      sourceSettingsUsername: "ユーザー名",
+      sourceSettingsEmail: "メールアドレス",
+      sourceSettingsPassword: "パスワード",
+      sourceSettingsCookies: "Cookie",
+      sourceSettingsCookiesPlaceholder: "session=abc; locale=ja",
+      sourceSettingsLocalStorage: "ローカルストレージ",
+      sourceSettingsLocalStoragePlaceholder: '{"token":"value"}',
+      sourceSettingsLocalStorageKeys: "許可されたキー：{{keys}}",
+      sourceSettingsBasicLoginInstructions:
+        "このソースの認証情報を入力してください。ソースが受け付けた後にのみ保存されます。",
+      sourceSettingsWebLoginInstructions:
+        "Cookie と、必要な場合は宣言済みローカルストレージ値を JSON で貼り付けてください。",
+      sourceSettingsSubmitLogin: "続ける",
+      sourceSettingsInvalidLoginForm: "有効なログイン情報を入力してください。",
+      sourceSettingsCredentialsRejected: "ソースがこの認証情報を拒否しました。",
+      sourceSettingsRuntimeUnavailable:
+        "現在のモバイルランタイムではこのソース操作を実行できません。",
+      sourceSettingsInvalidLink: "ソースが安全でない、または無効なリンクを返しました。",
+      sourceSettingsOpenLink: "開く",
+      sourceSettingsRunAction: "実行",
+      sourceSettingsActionFailed: "ソース操作を完了できませんでした。",
+      sourceSettingsActionConfirm: "このソース操作を続けますか？",
+      sourceSettingsLogoutConfirm:
+        "このデバイスから、このソースに保存された認証情報を削除しますか？",
       sourceOAuthErrors: {
         "missing-login-url": "このソースにはログイン URL がありません。",
         "invalid-login-url":

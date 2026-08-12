@@ -61,7 +61,7 @@ export function mobileSourceLoginMethod(
 export function canRunMobileSourceLoginMethod(
   setting: MobileSourceLoginSetting,
 ): boolean {
-  return mobileSourceLoginMethod(setting) === "oauth";
+  return ["basic", "web", "oauth"].includes(mobileSourceLoginMethod(setting));
 }
 
 /** Resolve the auth URL for a login setting (static `url` or `urlKey` value). */

@@ -20,6 +20,7 @@ import {
   tint,
 } from "@expo/ui/swift-ui/modifiers";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
+import { MobileSourceLoginSheet } from "@/components/MobileSourceLoginSheet";
 import {
   NemuNativeSwitch,
   radius,
@@ -54,12 +55,13 @@ import {
   type MobileSourceSettingFeatureFlags,
 } from "@/lib/mobileSourceSettings";
 import {
-  canRunMobileSourceLoginMethod,
   isMobileSourceLoggedIn,
   isMobileSourceLoginSetting,
+  mobileSourceLoginMethod,
   runMobileSourceOAuthLogin,
   type MobileSourceLoginSetting,
 } from "@/lib/mobileSourceOAuth";
+import type { MobileSourceLoginSubmission } from "@/lib/mobileSourceSettingActions";
 
 const EMPTY_SETTING_FEATURES: MobileSourceSettingFeatureFlags = {};
 const SLIDER_VALUE_LABEL_WIDTH = 48;
@@ -78,6 +80,12 @@ type MobileSourceSettingsCardProps = {
   disabled?: boolean;
   navigationResetKey?: string | number | null;
   onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+  onAction?: (setting: SourcePackageSetting) => void;
+  onLogin?: (
+    setting: SourcePackageSetting,
+    submission: MobileSourceLoginSubmission,
+  ) => Promise<string | null> | string | null;
+  onLogout?: (setting: SourcePackageSetting) => void;
   onRetry?: () => void;
   onReset?: () => void;
   retryDisabled?: boolean;
@@ -1067,17 +1075,25 @@ function SourceSettingLoginRow({
   values,
   strings,
   disabled,
-  onChange,
+  onLogin,
+  onLogout,
+  onRequestLogin,
 }: {
   setting: MobileSourceLoginSetting;
   values: Record<string, unknown>;
   strings: MobileStrings;
   disabled: boolean;
-  onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+  onLogin: (
+    setting: SourcePackageSetting,
+    submission: MobileSourceLoginSubmission,
+  ) => Promise<string | null> | string | null;
+  onLogout: (setting: SourcePackageSetting) => void;
+  onRequestLogin: (setting: SourcePackageSetting) => void;
 }) {
   const { tokens } = useNemuTheme();
   const loggedIn = isMobileSourceLoggedIn(setting, values);
-  const canRunLogin = canRunMobileSourceLoginMethod(setting);
+  const method = mobileSourceLoginMethod(setting);
+  const canRunLogin = method === "oauth" || method === "basic" || method === "web";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1099,10 +1115,11 @@ function SourceSettingLoginRow({
     if (disabled || loading) return;
     setError(null);
 
-    // Log out: clear the stored credential.
+    // Log out through the owner so confirmation and atomic cleanup stay
+    // outside this presentation component.
     if (loggedIn) {
       void hapticPress();
-      onChange(setting.key, "", setting);
+      onLogout(setting);
       return;
     }
 
@@ -1112,13 +1129,24 @@ function SourceSettingLoginRow({
       return;
     }
 
-    // Log in: run the OAuth (PKCE) flow in the system browser.
+    if (method !== "oauth") {
+      void hapticPress();
+      onRequestLogin(setting);
+      return;
+    }
+
+    // OAuth remains a system-browser flow; accepted output is delegated to
+    // the settings owner for persistence.
     setLoading(true);
     void hapticPress();
     try {
       const result = await runMobileSourceOAuthLogin({ setting, values });
       if (result.ok) {
-        onChange(setting.key, result.token, setting);
+        const loginError = await onLogin(setting, {
+          method: "oauth",
+          token: result.token,
+        });
+        if (loginError) setError(loginError);
       } else {
         setError(strings.settings.sourceOAuthErrors[result.code]);
       }
@@ -1134,7 +1162,10 @@ function SourceSettingLoginRow({
     loggedIn,
     setting,
     values,
-    onChange,
+    method,
+    onLogin,
+    onLogout,
+    onRequestLogin,
     strings.settings.sourceSettingsLoginFailed,
     strings.settings.sourceSettingsLoginUnsupported,
     strings.settings.sourceOAuthErrors,
@@ -1193,6 +1224,60 @@ function SourceSettingLoginRow({
   );
 }
 
+function SourceSettingActionRow({
+  setting,
+  strings,
+  disabled,
+  onPress,
+}: {
+  setting: SourcePackageSetting;
+  strings: MobileStrings;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const { tokens } = useNemuTheme();
+  const destructive = setting.destructive === true;
+  const actionLabel = setting.type === "link"
+    ? strings.settings.sourceSettingsOpenLink
+    : strings.settings.sourceSettingsRunAction;
+  const color = destructive ? tokens.danger : tokens.primary;
+  return (
+    <NemuPressable
+      accessibilityRole="button"
+      accessibilityLabel={[setting.title, setting.subtitle, actionLabel]
+        .filter(Boolean)
+        .join(", ")}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      pressedScale={0.98}
+      style={[
+        styles.pageRow,
+        { borderColor: tokens.border },
+        disabled && styles.disabledControl,
+      ]}
+    >
+      <View style={styles.settingText}>
+        <Text
+          numberOfLines={1}
+          style={[styles.settingTitle, { color: destructive ? tokens.danger : tokens.foreground }]}
+        >
+          {setting.title}
+        </Text>
+        {setting.subtitle ? (
+          <Text
+            numberOfLines={2}
+            style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
+          >
+            {setting.subtitle}
+          </Text>
+        ) : null}
+      </View>
+      <Text style={[styles.loginActionLabel, { color }]}>{actionLabel}</Text>
+    </NemuPressable>
+  );
+}
+
 function SourceSettingsList({
   settings,
   values,
@@ -1200,6 +1285,10 @@ function SourceSettingsList({
   features,
   disabled,
   onChange,
+  onAction,
+  onLogin,
+  onLogout,
+  onRequestLogin,
   onPushPage,
 }: {
   settings: SourcePackageSetting[];
@@ -1208,6 +1297,13 @@ function SourceSettingsList({
   features: MobileSourceSettingFeatureFlags;
   disabled: boolean;
   onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+  onAction?: (setting: SourcePackageSetting) => void;
+  onLogin?: (
+    setting: SourcePackageSetting,
+    submission: MobileSourceLoginSubmission,
+  ) => Promise<string | null> | string | null;
+  onLogout?: (setting: SourcePackageSetting) => void;
+  onRequestLogin: (setting: SourcePackageSetting) => void;
   onPushPage: (page: SourcePackageSetting) => void;
 }) {
   const { tokens } = useNemuTheme();
@@ -1244,6 +1340,10 @@ function SourceSettingsList({
                   features={features}
                   disabled={disabled}
                   onChange={onChange}
+                  onAction={onAction}
+                  onLogin={onLogin}
+                  onLogout={onLogout}
+                  onRequestLogin={onRequestLogin}
                   onPushPage={onPushPage}
                 />
               </View>
@@ -1280,8 +1380,22 @@ function SourceSettingsList({
               setting={setting}
               values={values}
               strings={strings}
-              disabled={disabled}
-              onChange={onChange}
+              disabled={disabled || !onLogin || !onLogout}
+              onLogin={onLogin ?? (() => null)}
+              onLogout={onLogout ?? (() => undefined)}
+              onRequestLogin={onRequestLogin}
+            />
+          );
+        }
+
+        if (setting.type === "button" || setting.type === "link") {
+          return (
+            <SourceSettingActionRow
+              key={key}
+              setting={setting}
+              strings={strings}
+              disabled={disabled || !onAction}
+              onPress={() => onAction?.(setting)}
             />
           );
         }
@@ -1323,6 +1437,9 @@ function MobileSourceSettingsCardContent({
   showEmpty = false,
   disabled = false,
   onChange,
+  onAction,
+  onLogin,
+  onLogout,
   onRetry,
   onReset,
   retryDisabled = false,
@@ -1333,6 +1450,9 @@ function MobileSourceSettingsCardContent({
   const strings = getMobileStrings(appLanguage);
   const [pageStack, setPageStack] = useState<SourcePackageSetting[]>([]);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
+  const [loginSetting, setLoginSetting] = useState<SourcePackageSetting | null>(null);
+  const [loginSubmitting, setLoginSubmitting] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const activePageStack = useMemo(
     () => validPageStack(settings, pageStack, values, features),
     [features, pageStack, settings, values],
@@ -1375,147 +1495,207 @@ function MobileSourceSettingsCardContent({
     setDismissedError(null);
     onRetry();
   }, [onRetry, retryDisabled]);
+  const handleLoginSubmission = useCallback(
+    async (submission: MobileSourceLoginSubmission) => {
+      if (!loginSetting || !onLogin || loginSubmitting) return;
+      setLoginSubmitting(true);
+      setLoginError(null);
+      try {
+        const nextError = await onLogin(loginSetting, submission);
+        if (nextError) {
+          setLoginError(nextError);
+        } else {
+          setLoginSetting(null);
+        }
+      } catch {
+        setLoginError(strings.settings.sourceSettingsLoginFailed);
+      } finally {
+        setLoginSubmitting(false);
+      }
+    }, [loginSetting, loginSubmitting, onLogin, strings.settings.sourceSettingsLoginFailed],
+  );
 
   if (!hasRootRows && !showEmpty) return null;
 
   return (
-    <View style={[styles.settingsShell, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-      <View style={styles.settingsContent}>
-      <View style={styles.settingsHeader}>
-        {currentPage ? (
-          <View style={styles.capabilityHeader}>
-            <NemuPressable
-              accessibilityRole="button"
-              accessibilityLabel={strings.settings.sourceSettingsBack}
-              accessibilityState={{ disabled }}
-              disabled={disabled}
-              onPress={() => setPageStack(activePageStack.slice(0, -1))}
-              pressedScale={0.94}
-              buttonDepth="secondary"
-              style={[
-                styles.backButton,
-                {
-                  opacity: disabled ? 0.62 : 1,
-                },
-              ]}
-            >
+    <>
+      <View
+        style={[
+          styles.settingsShell,
+          { backgroundColor: tokens.card, borderColor: tokens.border },
+        ]}
+      >
+        <View style={styles.settingsContent}>
+          <View style={styles.settingsHeader}>
+            {currentPage ? (
+              <View style={styles.capabilityHeader}>
+                <NemuPressable
+                  accessibilityRole="button"
+                  accessibilityLabel={strings.settings.sourceSettingsBack}
+                  accessibilityState={{ disabled }}
+                  disabled={disabled}
+                  onPress={() => setPageStack(activePageStack.slice(0, -1))}
+                  pressedScale={0.94}
+                  buttonDepth="secondary"
+                  style={[
+                    styles.backButton,
+                    {
+                      opacity: disabled ? 0.62 : 1,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="chevron-back"
+                    size={17}
+                    color={tokens.mutedForeground}
+                  />
+                </NemuPressable>
+                <View style={styles.settingsHeaderText}>
+                  <Text
+                    style={[styles.statusLabel, { color: tokens.foreground }]}
+                  >
+                    {currentPage.title}
+                  </Text>
+                  {!hideSubtitle ? (
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.settingsSubtitle,
+                        { color: tokens.mutedForeground },
+                      ]}
+                    >
+                      {currentPage.subtitle ?? titleLabel}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            ) : (
+              <View style={styles.capabilityHeader}>
+                <Ionicons
+                  name="options-outline"
+                  size={19}
+                  color={tokens.primary}
+                />
+                <View style={styles.settingsHeaderText}>
+                  <Text
+                    style={[styles.statusLabel, { color: tokens.foreground }]}
+                  >
+                    {titleLabel}
+                  </Text>
+                  {subtitleLabel ? (
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.settingsSubtitle,
+                        { color: tokens.mutedForeground },
+                      ]}
+                    >
+                      {subtitleLabel}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            )}
+            {!currentPage && onReset && editableSettings.length ? (
+              <NemuPressable
+                accessibilityRole="button"
+                accessibilityLabel={strings.settings.sourceSettingsResetLabel}
+                accessibilityState={{ disabled }}
+                disabled={disabled}
+                onPress={() => {
+                  if (disabled) return;
+                  setDismissedError(null);
+                  onReset();
+                }}
+                pressedScale={0.97}
+                buttonDepth="secondary"
+                style={[
+                  styles.resetButton,
+                  {
+                    opacity: disabled ? 0.62 : 1,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="refresh-outline"
+                  size={15}
+                  color={tokens.mutedForeground}
+                />
+                <Text
+                  style={[styles.resetText, { color: tokens.mutedForeground }]}
+                >
+                  {strings.settings.sourceSettingsReset}
+                </Text>
+              </NemuPressable>
+            ) : null}
+          </View>
+          {activeError ? (
+            <MobileInlineErrorBanner
+              title={strings.settings.settingsActionFailed}
+              detail={activeError}
+              actionLabel={onRetry ? strings.common.retry : undefined}
+              actionDisabled={retryDisabled}
+              actionLoading={retrying}
+              dismissLabel={strings.common.clear}
+              onActionPress={onRetry ? handleRetry : undefined}
+              onDismiss={() => setDismissedError(activeError)}
+              variant="embedded"
+            />
+          ) : null}
+          {hasCurrentRows ? (
+            <View style={styles.settingList}>
+              <SourceSettingsList
+                settings={currentSettings}
+                values={values}
+                strings={strings}
+                features={features}
+                disabled={disabled}
+                onChange={handleChange}
+                onAction={onAction}
+                onLogin={onLogin}
+                onLogout={onLogout}
+                onRequestLogin={(setting) => {
+                  setLoginError(null);
+                  setLoginSetting(setting);
+                }}
+                onPushPage={(page) => {
+                  if (disabled) return;
+                  setPageStack([...activePageStack, page]);
+                }}
+              />
+            </View>
+          ) : (
+            <View style={styles.emptyRow}>
               <Ionicons
-                name="chevron-back"
-                size={17}
+                name="settings-outline"
+                size={18}
                 color={tokens.mutedForeground}
               />
-            </NemuPressable>
-            <View style={styles.settingsHeaderText}>
-              <Text style={[styles.statusLabel, { color: tokens.foreground }]}>
-                {currentPage.title}
+              <Text
+                style={[styles.emptyText, { color: tokens.mutedForeground }]}
+              >
+                {emptyLabel}
               </Text>
-              {!hideSubtitle ? (
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.settingsSubtitle,
-                    { color: tokens.mutedForeground },
-                  ]}
-                >
-                  {currentPage.subtitle ?? titleLabel}
-                </Text>
-              ) : null}
             </View>
-          </View>
-        ) : (
-          <View style={styles.capabilityHeader}>
-            <Ionicons name="options-outline" size={19} color={tokens.primary} />
-            <View style={styles.settingsHeaderText}>
-              <Text style={[styles.statusLabel, { color: tokens.foreground }]}>
-                {titleLabel}
-              </Text>
-              {subtitleLabel ? (
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.settingsSubtitle,
-                    { color: tokens.mutedForeground },
-                  ]}
-                >
-                  {subtitleLabel}
-                </Text>
-              ) : null}
-            </View>
-          </View>
-        )}
-        {!currentPage && onReset && editableSettings.length ? (
-          <NemuPressable
-            accessibilityRole="button"
-            accessibilityLabel={strings.settings.sourceSettingsResetLabel}
-            accessibilityState={{ disabled }}
-            disabled={disabled}
-            onPress={() => {
-              if (disabled) return;
-              setDismissedError(null);
-              onReset();
-            }}
-            pressedScale={0.97}
-            buttonDepth="secondary"
-            style={[
-              styles.resetButton,
-              {
-                opacity: disabled ? 0.62 : 1,
-              },
-            ]}
-          >
-            <Ionicons
-              name="refresh-outline"
-              size={15}
-              color={tokens.mutedForeground}
-            />
-            <Text style={[styles.resetText, { color: tokens.mutedForeground }]}>
-              {strings.settings.sourceSettingsReset}
-            </Text>
-          </NemuPressable>
-        ) : null}
+          )}
+        </View>
       </View>
-      {activeError ? (
-        <MobileInlineErrorBanner
-          title={strings.settings.settingsActionFailed}
-          detail={activeError}
-          actionLabel={onRetry ? strings.common.retry : undefined}
-          actionDisabled={retryDisabled}
-          actionLoading={retrying}
-          dismissLabel={strings.common.clear}
-          onActionPress={onRetry ? handleRetry : undefined}
-          onDismiss={() => setDismissedError(activeError)}
-          variant="embedded"
+      {loginSetting ? (
+        <MobileSourceLoginSheet
+          key={loginSetting.key}
+          setting={loginSetting}
+          visible
+          submitting={loginSubmitting}
+          error={loginError}
+          onClose={() => {
+            if (!loginSubmitting) setLoginSetting(null);
+          }}
+          onSubmit={(submission) => {
+            void handleLoginSubmission(submission);
+          }}
         />
       ) : null}
-      {hasCurrentRows ? (
-        <View style={styles.settingList}>
-          <SourceSettingsList
-            settings={currentSettings}
-            values={values}
-            strings={strings}
-            features={features}
-            disabled={disabled}
-            onChange={handleChange}
-            onPushPage={(page) => {
-              if (disabled) return;
-              setPageStack([...activePageStack, page]);
-            }}
-          />
-        </View>
-      ) : (
-        <View style={styles.emptyRow}>
-          <Ionicons
-            name="settings-outline"
-            size={18}
-            color={tokens.mutedForeground}
-          />
-          <Text style={[styles.emptyText, { color: tokens.mutedForeground }]}>
-            {emptyLabel}
-          </Text>
-        </View>
-      )}
-      </View>
-    </View>
+    </>
   );
 }
 

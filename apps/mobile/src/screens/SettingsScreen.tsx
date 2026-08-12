@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Image,
+  Linking,
   Platform,
   StyleSheet,
   Text,
@@ -96,12 +97,20 @@ import {
   DEFAULT_READER_TWO_PAGE_MODE,
 } from "@/lib/mobileReaderSettings";
 import {
+  applyMobileSourceSettingsPatch,
   canRetryMobileSourceSettingsLoadError,
   countRenderableSourceSettings,
   getMobileSourceSettingsNavigationResetKey,
   makeMobileSourceKey,
   sourceSettingRequestsDataRefresh,
 } from "@/lib/mobileSourceSettings";
+import { normalizeMobileSourceExternalUrl } from "@/lib/mobileSourceExternalUrl";
+import {
+  resolveMobileSourceSettingAction,
+  sourceLoginLogoutKeys,
+  sourceLoginStoragePatch,
+  type MobileSourceLoginSubmission,
+} from "@/lib/mobileSourceSettingActions";
 import { getMobileSourceBrowseHref } from "@/lib/mobileSourceRoutes";
 import {
   canRetryMobileSettingsLoadError,
@@ -119,6 +128,10 @@ import {
   resolveMobileSourcePackageCacheKey,
 } from "@/sources/mobileSourceRuntime";
 import { defaultMobileSourceSessionCache } from "@/sources/mobileSourceExecutorCache";
+import {
+  runMobileSourceSettingsOperation,
+  type MobileSourceSettingsOperation,
+} from "@/sources/mobileSourceSettingsExecutor";
 import { clearMobileAidokuSandboxDataForSource } from "@/sources/mobileAidokuSandboxData";
 import {
   cacheImportedAixSourcePackage,
@@ -138,7 +151,9 @@ const EMPTY_SOURCE_SETTINGS: SourcePackageSetting[] = [];
 type SettingsConfirmation =
   | { type: "uninstall-source"; source: InstalledSource; name: string }
   | { type: "clear-cache" }
-  | { type: "clear-all-data" };
+  | { type: "clear-all-data" }
+  | { type: "source-logout"; setting: SourcePackageSetting }
+  | { type: "source-button"; setting: SourcePackageSetting };
 
 const readingModes: Array<{ mode: ReadingMode; labelKey: keyof MobileStrings["reader"] }> = [
   { mode: "rtl", labelKey: "rtl" },
@@ -598,6 +613,9 @@ function MobileInstalledSourceSettingsSheet({
   onRetry,
   onReset,
   onChange,
+  onAction,
+  onLogin,
+  onLogout,
 }: {
   source: InstalledSource;
   strings: MobileStrings;
@@ -614,6 +632,12 @@ function MobileInstalledSourceSettingsSheet({
   onRetry: () => void;
   onReset: () => void;
   onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+  onAction: (setting: SourcePackageSetting) => void;
+  onLogin: (
+    setting: SourcePackageSetting,
+    submission: MobileSourceLoginSubmission,
+  ) => Promise<string | null>;
+  onLogout: (setting: SourcePackageSetting) => void;
 }) {
   const { tokens } = useNemuTheme();
   const name = sourceName(source);
@@ -660,6 +684,9 @@ function MobileInstalledSourceSettingsSheet({
         onRetry={onRetry}
         onReset={onReset}
         onChange={onChange}
+        onAction={onAction}
+        onLogin={onLogin}
+        onLogout={onLogout}
       />
     </MobileNativeSheetScaffold>
   );
@@ -1150,6 +1177,10 @@ export function SettingsScreen({
     if (!selectedSourceId) return null;
     return displayedSources.find((source) => source.id === selectedSourceId) ?? null;
   }, [displayedSources, selectedSourceId]);
+  const selectedRuntimeSource = useMemo(
+    () => (selectedSource ? normalizeInstalledSource(selectedSource) : null),
+    [selectedSource],
+  );
 
   useEffect(() => {
     if (activeSection !== "sources" || !sourceParam) return;
@@ -1207,6 +1238,35 @@ export function SettingsScreen({
         loading: pendingClearMode === "cache" || dataManagement.clearingMode === "cache",
       };
     }
+    if (confirmation.type === "source-logout") {
+      return {
+        title:
+          confirmation.setting.logoutTitle ??
+          strings.settings.sourceSettingsLogout,
+        description: strings.settings.sourceSettingsLogoutConfirm,
+        subject: confirmation.setting.title,
+        iconName: "log-out-outline" as const,
+        confirmLabel: strings.settings.sourceSettingsLogout,
+        confirmAccessibilityLabel: strings.settings.sourceSettingsLogout,
+        destructive: true,
+        loading: settingsMutationKey !== null,
+      };
+    }
+    if (confirmation.type === "source-button") {
+      return {
+        title:
+          confirmation.setting.confirmTitle ?? confirmation.setting.title,
+        description:
+          confirmation.setting.confirmMessage ??
+          strings.settings.sourceSettingsActionConfirm,
+        subject: confirmation.setting.title,
+        iconName: "flash-outline" as const,
+        confirmLabel: strings.settings.sourceSettingsRunAction,
+        confirmAccessibilityLabel: confirmation.setting.title,
+        destructive: confirmation.setting.destructive === true,
+        loading: settingsMutationKey !== null,
+      };
+    }
     return {
       title: strings.settings.clearAllData,
       description: strings.settings.clearAllDataConfirm,
@@ -1216,7 +1276,14 @@ export function SettingsScreen({
       destructive: true,
       loading: pendingClearMode === "all" || dataManagement.clearingMode === "all",
     };
-  }, [confirmation, dataManagement.clearingMode, pendingClearMode, removingSourceId, strings]);
+  }, [
+    confirmation,
+    dataManagement.clearingMode,
+    pendingClearMode,
+    removingSourceId,
+    settingsMutationKey,
+    strings,
+  ]);
   const metadataLanguageSubtitle =
     metadataLanguagePreference === "auto"
       ? formatMobileString(strings.settings.metadataAutoFollows, {
@@ -1443,6 +1510,190 @@ export function SettingsScreen({
         await reportSettingsError(error);
       }
     });
+  };
+
+  const reloadSelectedSourceSettingScopes = async (
+    setting: SourcePackageSetting,
+  ) => {
+    const refreshes = new Set(setting.refreshes ?? []);
+    const tasks: Promise<unknown>[] = [];
+    if (refreshes.has("settings")) tasks.push(selectedSourceSettings.reload());
+    if (
+      refreshes.has("content") ||
+      refreshes.has("listings") ||
+      refreshes.has("filters")
+    ) {
+      tasks.push(sources.reload(), availableSources.reload());
+    }
+    await Promise.all(tasks);
+  };
+
+  const executeSelectedSourceSettingOperation = async (
+    operation: MobileSourceSettingsOperation,
+    settings: Record<string, unknown> = selectedSourceSettings.data,
+  ): Promise<string | null> => {
+    if (!selectedRuntimeSource) {
+      return strings.settings.sourceSettingsRuntimeUnavailable;
+    }
+    try {
+      const result = await runMobileSourceSettingsOperation({
+        source: selectedRuntimeSource,
+        settings,
+        operation,
+      });
+      if (result.status === "complete") return null;
+      if (result.status === "rejected") {
+        return strings.settings.sourceSettingsCredentialsRejected;
+      }
+      return strings.settings.sourceSettingsRuntimeUnavailable;
+    } catch {
+      return strings.settings.sourceSettingsActionFailed;
+    }
+  };
+
+  const loginToSelectedSource = async (
+    setting: SourcePackageSetting,
+    submission: MobileSourceLoginSubmission,
+  ): Promise<string | null> => {
+    if (!selectedSourceKey) {
+      return strings.settings.sourceSettingsRuntimeUnavailable;
+    }
+    const mutationKey = `source-settings-login:${selectedSourceKey}:${setting.key}`;
+    if (!beginSettingsMutation(mutationKey)) {
+      return strings.settings.sourceSettingsRuntimeUnavailable;
+    }
+    setOperationError(null);
+    try {
+      if (submission.method === "basic") {
+        const operationError = await executeSelectedSourceSettingOperation({
+          kind: "basic-login",
+          key: setting.key,
+          username: submission.username,
+          password: submission.password,
+        });
+        if (operationError) return operationError;
+      } else if (
+        submission.method === "web" &&
+        Object.keys(submission.cookies).length > 0
+      ) {
+        const operationError = await executeSelectedSourceSettingOperation({
+          kind: "web-login",
+          key: setting.key,
+          cookies: submission.cookies,
+        });
+        if (operationError) return operationError;
+      }
+
+      const loginPatch = sourceLoginStoragePatch(setting, submission);
+      const staleCredentialKeys = sourceLoginLogoutKeys(setting).filter(
+        (key) => !Object.hasOwn(loginPatch, key),
+      );
+      await selectedSourceSettings.setSettings(loginPatch, staleCredentialKeys);
+      await reloadSelectedSourceSettingScopes(setting);
+      await hapticConfirm();
+      return null;
+    } catch {
+      await hapticError();
+      return strings.settings.sourceSettingsActionFailed;
+    } finally {
+      finishSettingsMutation(mutationKey);
+    }
+  };
+
+  const runSelectedSourceButton = async (setting: SourcePackageSetting) => {
+    if (!selectedSourceKey) return;
+    const decision = resolveMobileSourceSettingAction(
+      setting,
+      selectedSourceSettings.data,
+    );
+    if (decision.kind !== "run-button") return;
+    await runSettingsMutation(
+      `source-settings-action:${selectedSourceKey}:${setting.key}`,
+      async () => {
+        const operationError = await executeSelectedSourceSettingOperation({
+          kind: "notification",
+          notification: decision.notification,
+        });
+        if (operationError) {
+          await reportSettingsError(new Error(operationError));
+          return;
+        }
+        await reloadSelectedSourceSettingScopes(setting);
+        setConfirmation(null);
+        await hapticConfirm();
+      },
+    );
+  };
+
+  const handleSelectedSourceAction = (setting: SourcePackageSetting) => {
+    const decision = resolveMobileSourceSettingAction(
+      setting,
+      selectedSourceSettings.data,
+    );
+    if (decision.kind === "invalid-link") {
+      void reportSettingsError(
+        new Error(strings.settings.sourceSettingsInvalidLink),
+      );
+      return;
+    }
+    if (decision.kind === "open-link") {
+      const url = normalizeMobileSourceExternalUrl(decision.url);
+      if (!url) {
+        void reportSettingsError(
+          new Error(strings.settings.sourceSettingsInvalidLink),
+        );
+        return;
+      }
+      void Linking.openURL(url).catch(() =>
+        reportSettingsError(
+          new Error(strings.settings.sourceSettingsInvalidLink),
+        ),
+      );
+      return;
+    }
+    if (decision.kind !== "run-button") return;
+    if (decision.confirmation) {
+      setOperationError(null);
+      setConfirmation({ type: "source-button", setting });
+      return;
+    }
+    void runSelectedSourceButton(setting);
+  };
+
+  const logoutFromSelectedSource = async (setting: SourcePackageSetting) => {
+    if (!selectedSourceKey) return;
+    await runSettingsMutation(
+      `source-settings-logout:${selectedSourceKey}:${setting.key}`,
+      async () => {
+        try {
+          const deleteKeys = sourceLoginLogoutKeys(setting);
+          const nextSettings = applyMobileSourceSettingsPatch(
+            selectedSourceSchema,
+            selectedSourceSettings.data,
+            {},
+            deleteKeys,
+          ).values;
+          await selectedSourceSettings.setSettings({}, deleteKeys);
+          setConfirmation(null);
+          if (setting.notification) {
+            const operationError = await executeSelectedSourceSettingOperation(
+              {
+                kind: "notification",
+                notification: setting.notification,
+              },
+              nextSettings,
+            );
+            if (operationError) throw new Error(operationError);
+          }
+          await reloadSelectedSourceSettingScopes(setting);
+          await hapticConfirm();
+        } catch {
+          await reportSettingsError(
+            new Error(strings.settings.sourceSettingsActionFailed),
+          );
+        }
+      },
+    );
   };
 
   const selectReadingMode = async (nextMode: ReadingMode) => {
@@ -1703,6 +1954,14 @@ export function SettingsScreen({
     }
     if (confirmation.type === "clear-cache") {
       void clearCache();
+      return;
+    }
+    if (confirmation.type === "source-logout") {
+      void logoutFromSelectedSource(confirmation.setting);
+      return;
+    }
+    if (confirmation.type === "source-button") {
+      void runSelectedSourceButton(confirmation.setting);
       return;
     }
     void clearAllData();
@@ -2188,14 +2447,23 @@ export function SettingsScreen({
           settings={selectedSourceSchema}
           values={selectedSourceSettings.data}
           loading={selectedSourceSettings.loading}
-          error={selectedSourceSettings.error}
+          error={selectedSourceSettings.error ?? operationError}
           navigationResetKey={getMobileSourceSettingsNavigationResetKey(
             selectedSourceKey,
             selectedSourceSettingsKeys,
           )}
           retryDisabled={!canRetrySelectedSourceSettingsError}
           retrying={retryingSelectedSourceSettings}
-          onClose={() => setSelectedSourceId(null)}
+          onClose={() => {
+            setSelectedSourceId(null);
+            setOperationError(null);
+            setConfirmation((current) =>
+              current?.type === "source-logout" ||
+              current?.type === "source-button"
+                ? null
+                : current,
+            );
+          }}
           onRetry={retrySelectedSourceSettings}
           onReset={() => {
             if (!selectedSourceKey) return;
@@ -2208,6 +2476,12 @@ export function SettingsScreen({
               }
             });
           }}
+          onAction={handleSelectedSourceAction}
+          onLogin={loginToSelectedSource}
+          onLogout={(setting) => {
+            setOperationError(null);
+            setConfirmation({ type: "source-logout", setting });
+          }}
           onChange={(key, value, setting) => {
             if (!selectedSourceKey) return;
             void runSettingsMutation(
@@ -2215,14 +2489,23 @@ export function SettingsScreen({
               async () => {
                 try {
                   await selectedSourceSettings.setSetting(key, value);
+                  if (setting.notification) {
+                    const operationError =
+                      await executeSelectedSourceSettingOperation(
+                        {
+                          kind: "notification",
+                          notification: setting.notification,
+                        },
+                        { ...selectedSourceSettings.data, [key]: value },
+                      );
+                    if (operationError) throw new Error(operationError);
+                  }
                   if (!sourceSettingRequestsDataRefresh(setting)) return;
-                  await Promise.all([
-                    selectedSourceSettings.reload(),
-                    sources.reload(),
-                    availableSources.reload(),
-                  ]);
-                } catch (error) {
-                  await reportSettingsError(error);
+                  await reloadSelectedSourceSettingScopes(setting);
+                } catch {
+                  await reportSettingsError(
+                    new Error(strings.settings.sourceSettingsActionFailed),
+                  );
                 }
               },
             );

@@ -66,10 +66,10 @@ describe("mobileSourceLoginMethod", () => {
     expect(mobileSourceLoginMethod(loginSetting())).toBe("basic");
   });
 
-  test("only OAuth source login can run in mobile today", () => {
+  test("supports every declared mobile source login method", () => {
     expect(canRunMobileSourceLoginMethod(loginSetting({ method: "oauth" }))).toBe(true);
-    expect(canRunMobileSourceLoginMethod(loginSetting({ method: "basic" }))).toBe(false);
-    expect(canRunMobileSourceLoginMethod(loginSetting({ method: "web" }))).toBe(false);
+    expect(canRunMobileSourceLoginMethod(loginSetting({ method: "basic" }))).toBe(true);
+    expect(canRunMobileSourceLoginMethod(loginSetting({ method: "web" }))).toBe(true);
   });
 });
 

@@ -1,5 +1,8 @@
 import type { SourcePackageSetting } from "@/data/schema";
-import { LOGIN_CODE_VERIFIER_SUFFIX } from "@nemu/core";
+import {
+  LOGIN_CODE_VERIFIER_SUFFIX,
+  resolveLoginActionUrl,
+} from "@nemu/core";
 
 export const LOGIN_USERNAME_SUFFIX = ".username";
 export const LOGIN_PASSWORD_SUFFIX = ".password";
@@ -18,6 +21,44 @@ export type MobileSourceLoginSubmission =
       localStorage: Record<string, string>;
     }
   | { method: "oauth"; token: string };
+
+export type MobileSourceSettingActionDecision =
+  | { kind: "none" }
+  | { kind: "invalid-link" }
+  | { kind: "open-link"; url: string }
+  | {
+      kind: "run-button";
+      notification: string;
+      confirmation: {
+        title: string;
+        message: string;
+        destructive: boolean;
+      } | null;
+    };
+
+export function resolveMobileSourceSettingAction(
+  setting: SourcePackageSetting,
+  values: Record<string, unknown>,
+): MobileSourceSettingActionDecision {
+  if (setting.type === "link") {
+    const url = resolveLoginActionUrl(setting, values);
+    return url ? { kind: "open-link", url } : { kind: "invalid-link" };
+  }
+  if (setting.type !== "button") return { kind: "none" };
+
+  const confirmation = setting.confirmTitle || setting.confirmMessage
+    ? {
+        title: setting.confirmTitle?.trim() || setting.title,
+        message: setting.confirmMessage?.trim() || setting.subtitle?.trim() || "",
+        destructive: setting.destructive === true,
+      }
+    : null;
+  return {
+    kind: "run-button",
+    notification: setting.notification?.trim() || setting.action?.trim() || setting.key,
+    confirmation,
+  };
+}
 
 function assertBoundedValue(value: string, label: string): string {
   if (!value || new TextEncoder().encode(value).byteLength > MAX_SESSION_VALUE_BYTES) {

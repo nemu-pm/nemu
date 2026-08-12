@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { SourcePackageSetting } from "@/data/schema";
 import {
   parseMobileSourceWebSession,
+  resolveMobileSourceSettingAction,
   sourceLoginLogoutKeys,
   sourceLoginStoragePatch,
 } from "./mobileSourceSettingActions";
@@ -78,5 +79,75 @@ describe("mobile source web-session parsing", () => {
     expect(() =>
       parseMobileSourceWebSession("bad\nname=value", "{}", []),
     ).toThrow("Cookie name is invalid.");
+  });
+});
+
+describe("mobile source setting action resolution", () => {
+  test("resolves static and value-backed links", () => {
+    expect(
+      resolveMobileSourceSettingAction(
+        {
+          key: "help",
+          title: "Help",
+          type: "link",
+          url: "https://example.com/help",
+        },
+        {},
+      ),
+    ).toEqual({ kind: "open-link", url: "https://example.com/help" });
+
+    expect(
+      resolveMobileSourceSettingAction(
+        {
+          key: "account",
+          title: "Account",
+          type: "link",
+          urlKey: "accountUrl",
+        },
+        { accountUrl: "https://example.com/account" },
+      ),
+    ).toEqual({
+      kind: "open-link",
+      url: "https://example.com/account",
+    });
+  });
+
+  test("resolves button notification and confirmation metadata", () => {
+    expect(
+      resolveMobileSourceSettingAction(
+        {
+          key: "refresh",
+          title: "Refresh",
+          type: "button",
+          action: "reload-source",
+          confirmTitle: "Refresh",
+          confirmMessage: "Continue?",
+        },
+        {},
+      ),
+    ).toEqual({
+      kind: "run-button",
+      notification: "reload-source",
+      confirmation: {
+        title: "Refresh",
+        message: "Continue?",
+        destructive: false,
+      },
+    });
+  });
+
+  test("rejects unresolved links and ignores non-actions", () => {
+    expect(
+      resolveMobileSourceSettingAction(
+        { key: "help", title: "Help", type: "link", urlKey: "missing" },
+        {},
+      ),
+    ).toEqual({ kind: "invalid-link" });
+    expect(
+      resolveMobileSourceSettingAction(
+        { key: "theme", title: "Theme", type: "select" },
+        {},
+      ),
+    ).toEqual({ kind: "none" });
   });
 });
