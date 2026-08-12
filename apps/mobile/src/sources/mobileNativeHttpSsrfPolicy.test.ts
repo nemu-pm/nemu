@@ -83,36 +83,79 @@ describe("native HTTP SSRF policy", () => {
     expect(proxy).not.toContain("allowFailover = true");
   });
 
-  test("runs the Swift address-vector executable when testing on macOS", () => {
-    if (process.platform !== "darwin") return;
+  test(
+    "runs the Swift native policy executables when testing on macOS",
+    () => {
+      if (process.platform !== "darwin") return;
 
-    const directory = mkdtempSync(path.join(tmpdir(), "nemu-address-policy-"));
-    const executable = path.join(directory, "address-policy-tests");
-    try {
-      const compile = spawnSync(
-        "xcrun",
-        [
-          "swiftc",
-          path.join(moduleRoot, "ios/NemuNativeHttpAddressPolicy.swift"),
-          path.join(moduleRoot, "ios/NemuNativeHttpLoopbackProxy.swift"),
-          path.join(
-            moduleRoot,
-            "runtime/iosTest/NemuNativeHttpAddressPolicyTests.swift",
-          ),
-          "-o",
-          executable,
-        ],
-        { encoding: "utf8" },
-      );
-      if (compile.status !== 0) {
-        throw new Error(compile.stderr || compile.stdout || "swiftc failed");
+      const directory = mkdtempSync(path.join(tmpdir(), "nemu-native-policy-"));
+      const addressExecutable = path.join(directory, "address-policy-tests");
+      const imageExecutable = path.join(directory, "image-policy-tests");
+      try {
+        const compileAddress = spawnSync(
+          "xcrun",
+          [
+            "swiftc",
+            path.join(moduleRoot, "ios/NemuNativeHttpAddressPolicy.swift"),
+            path.join(moduleRoot, "ios/NemuNativeHttpLoopbackProxy.swift"),
+            path.join(
+              moduleRoot,
+              "runtime/iosTest/NemuNativeHttpAddressPolicyTests.swift",
+            ),
+            "-framework",
+            "Network",
+            "-o",
+            addressExecutable,
+          ],
+          { encoding: "utf8" },
+        );
+        if (compileAddress.status !== 0) {
+          throw new Error(
+            compileAddress.stderr || compileAddress.stdout || "swiftc failed",
+          );
+        }
+        const runAddress = spawnSync(addressExecutable, [], {
+          encoding: "utf8",
+        });
+        if (runAddress.status !== 0) {
+          throw new Error(
+            runAddress.stderr ||
+              runAddress.stdout ||
+              "Swift policy test failed",
+          );
+        }
+
+        const compileImage = spawnSync(
+          "xcrun",
+          [
+            "swiftc",
+            path.join(moduleRoot, "ios/NemuImageMetadataPolicy.swift"),
+            path.join(
+              moduleRoot,
+              "runtime/iosTest/NemuImageMetadataPolicyTests.swift",
+            ),
+            "-framework",
+            "ImageIO",
+            "-o",
+            imageExecutable,
+          ],
+          { encoding: "utf8" },
+        );
+        if (compileImage.status !== 0) {
+          throw new Error(
+            compileImage.stderr || compileImage.stdout || "swiftc failed",
+          );
+        }
+        const runImage = spawnSync(imageExecutable, [], { encoding: "utf8" });
+        if (runImage.status !== 0) {
+          throw new Error(
+            runImage.stderr || runImage.stdout || "Swift policy test failed",
+          );
+        }
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
       }
-      const run = spawnSync(executable, [], { encoding: "utf8" });
-      if (run.status !== 0) {
-        throw new Error(run.stderr || run.stdout || "Swift policy test failed");
-      }
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
+    },
+    180_000,
+  );
 });

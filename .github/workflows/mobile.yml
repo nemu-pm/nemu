@@ -245,6 +245,24 @@ jobs:
       - name: Install CocoaPods
         working-directory: apps/mobile/ios
         run: pod install
+      - name: Test iOS native source policies
+        working-directory: apps/mobile
+        run: |
+          test_dir="$(mktemp -d)"
+          trap 'rm -rf "$test_dir"' EXIT
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuNativeHttpAddressPolicy.swift \
+            modules/nemu-aidoku/ios/NemuNativeHttpLoopbackProxy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuNativeHttpAddressPolicyTests.swift \
+            -framework Network \
+            -o "$test_dir/address-tests"
+          "$test_dir/address-tests"
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuImageMetadataPolicy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuImageMetadataPolicyTests.swift \
+            -framework ImageIO \
+            -o "$test_dir/image-tests"
+          "$test_dir/image-tests"
       - name: Build iOS Debug simulator app
         working-directory: apps/mobile/ios
         run: |
