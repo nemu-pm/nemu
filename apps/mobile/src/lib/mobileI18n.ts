@@ -1,4 +1,5 @@
 import type { AppLanguage } from "@/data/schema";
+import type { MobileSourceOAuthErrorCode } from "./mobileSourceOAuthLogic";
 import { normalizeAppLanguage } from "./mobileLanguageSettings";
 
 export type MobileStrings = {
@@ -18,6 +19,7 @@ export type MobileStrings = {
     collapse: string;
     create: string;
     done: string;
+    dragHandle: string;
     externalLinkFailed: string;
     externalLinkFailedDetail: string;
     expand: string;
@@ -751,6 +753,7 @@ export type MobileStrings = {
     sourceSettingsLoggedIn: string;
     sourceSettingsLoggedOut: string;
     sourceSettingsLoginFailed: string;
+    sourceOAuthErrors: Record<MobileSourceOAuthErrorCode, string>;
     sourceUpdated: string;
     sourcesUpdated: string;
     settingsActionFailed: string;
@@ -825,6 +828,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       collapse: "Collapse",
       create: "Create",
       done: "Done",
+      dragHandle: "Drag handle",
       externalLinkFailed: "Could not open link",
       externalLinkFailedDetail: "This link could not be opened on this device.",
       expand: "Expand",
@@ -1653,6 +1657,22 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceSettingsLoggedIn: "Logged in",
       sourceSettingsLoggedOut: "Not signed in",
       sourceSettingsLoginFailed: "Login failed",
+      sourceOAuthErrors: {
+        "missing-login-url": "This source does not provide a login URL.",
+        "invalid-login-url": "This source provided an unsafe login URL.",
+        "browser-open-failed": "The login page could not be opened.",
+        "unsupported-platform": "Source login is unavailable on this platform.",
+        cancelled: "Login was cancelled.",
+        "oversized-callback": "The source returned too much login data.",
+        "state-mismatch": "The login response did not match this attempt.",
+        "invalid-callback":
+          "The login response did not contain a valid token or code.",
+        "missing-token-endpoint":
+          "This source does not provide a token endpoint.",
+        "token-request-failed": "The token request could not be completed.",
+        "token-exchange-failed": "The source rejected the token exchange.",
+        "oversized-token": "The source returned too much token data.",
+      },
       sourceUpdated: "Updated source: {{name}}",
       sourcesUpdated: "Updated {{count}} sources: {{names}}",
       settingsActionFailed: "Settings action failed",
@@ -1732,6 +1752,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       collapse: "收起",
       create: "创建",
       done: "完成",
+      dragHandle: "拖动手柄",
       externalLinkFailed: "无法打开链接",
       externalLinkFailedDetail: "无法在此设备上打开此链接。",
       expand: "展开",
@@ -2497,6 +2518,20 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceSettingsLoggedIn: "已登录",
       sourceSettingsLoggedOut: "未登录",
       sourceSettingsLoginFailed: "登录失败",
+      sourceOAuthErrors: {
+        "missing-login-url": "此源未提供登录 URL。",
+        "invalid-login-url": "此源提供的登录 URL 不安全。",
+        "browser-open-failed": "无法打开登录页面。",
+        "unsupported-platform": "此平台无法使用源登录。",
+        cancelled: "登录已取消。",
+        "oversized-callback": "源返回的登录数据过大。",
+        "state-mismatch": "登录响应与本次尝试不匹配。",
+        "invalid-callback": "登录响应中没有有效的令牌或代码。",
+        "missing-token-endpoint": "此源未提供令牌端点。",
+        "token-request-failed": "无法完成令牌请求。",
+        "token-exchange-failed": "源拒绝了令牌交换。",
+        "oversized-token": "源返回的令牌数据过大。",
+      },
       sourceUpdated: "已更新源：{{name}}",
       sourcesUpdated: "已更新 {{count}} 个源：{{names}}",
       settingsActionFailed: "设置操作失败",
@@ -2572,6 +2607,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       collapse: "折りたたむ",
       create: "作成",
       done: "完了",
+      dragHandle: "ドラッグハンドル",
       externalLinkFailed: "リンクを開けませんでした",
       externalLinkFailedDetail: "このデバイスでリンクを開けませんでした。",
       expand: "展開",
@@ -3416,6 +3452,26 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceSettingsLoggedIn: "ログイン済み",
       sourceSettingsLoggedOut: "未ログイン",
       sourceSettingsLoginFailed: "ログイン失敗",
+      sourceOAuthErrors: {
+        "missing-login-url": "このソースにはログイン URL がありません。",
+        "invalid-login-url":
+          "このソースが指定したログイン URL は安全ではありません。",
+        "browser-open-failed": "ログインページを開けませんでした。",
+        "unsupported-platform":
+          "このプラットフォームではソースログインを利用できません。",
+        cancelled: "ログインをキャンセルしました。",
+        "oversized-callback":
+          "ソースから返されたログインデータが大きすぎます。",
+        "state-mismatch": "ログイン応答がこの試行と一致しません。",
+        "invalid-callback":
+          "ログイン応答に有効なトークンまたはコードがありません。",
+        "missing-token-endpoint":
+          "このソースにはトークンエンドポイントがありません。",
+        "token-request-failed": "トークン要求を完了できませんでした。",
+        "token-exchange-failed": "ソースがトークン交換を拒否しました。",
+        "oversized-token":
+          "ソースから返されたトークンデータが大きすぎます。",
+      },
       sourceUpdated: "ソースを更新しました: {{name}}",
       sourcesUpdated: "{{count}}個のソースを更新しました: {{names}}",
       settingsActionFailed: "設定操作に失敗しました",

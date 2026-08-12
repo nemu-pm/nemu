@@ -14,13 +14,12 @@ import type { MobileSourceOAuthLoginInput, MobileSourceOAuthLoginResult } from "
 
 // Base stub resolved by tsc, bun tests, and Expo web. Always rejects — the real
 // PKCE flow lives in `mobileSourceOAuth.native.ts` (resolved by Metro on native).
-// The `input` is read only to surface which setting was rejected, which also
-// keeps the parameter "used" for `no-unused-vars`.
 export async function runMobileSourceOAuthLogin(
   input: MobileSourceOAuthLoginInput,
 ): Promise<MobileSourceOAuthLoginResult> {
+  void input;
   return {
     ok: false,
-    error: `Source OAuth login is only supported in the native mobile app (setting: ${input.setting.key}).`,
+    code: "unsupported-platform",
   };
 }

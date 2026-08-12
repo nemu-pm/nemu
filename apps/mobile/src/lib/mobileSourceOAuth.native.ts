@@ -10,14 +10,13 @@ import {
   MOBILE_SOURCE_OAUTH_STORED_VALUE_MAX_BYTES,
   mobileSourceOAuthCallbackHasExpectedState,
   normalizeMobileSourceOAuthHttpUrl,
-  resolveMobileSourceLoginUrl,
+  resolveMobileSourceOAuthLoginEndpoint,
   type MobileSourceOAuthLoginInput,
   type MobileSourceOAuthLoginResult,
 } from "./mobileSourceOAuthLogic";
 import { registerMobileSourceProfileTransitionHandler } from "@/sources/mobileSourceProfileScope";
 
 const MOBILE_SOURCE_OAUTH_TOKEN_RESPONSE_MAX_BYTES = 128 * 1024;
-const MOBILE_SOURCE_OAUTH_ERROR_MAX_CHARS = 512;
 
 // Re-export the full pure-logic surface so importers of `mobileSourceOAuth`
 // get identical names on native and on web/test (where the base resolves).
@@ -69,22 +68,18 @@ export async function runMobileSourceOAuthLogin(
 ): Promise<MobileSourceOAuthLoginResult> {
   const { setting, values } = input;
 
-  const rawAuthUrl = resolveMobileSourceLoginUrl(setting, values);
-  const authUrl = rawAuthUrl
-    ? normalizeMobileSourceOAuthHttpUrl(rawAuthUrl)
-    : null;
-  if (!authUrl) {
-    return { ok: false, error: "No login URL configured for this source." };
-  }
+  const endpoint = resolveMobileSourceOAuthLoginEndpoint(setting, values);
+  if (!endpoint.ok) return endpoint;
+  const authUrl = endpoint.url;
 
   const usePkce = Boolean(setting.pkce);
   let authRequest;
   try {
     authRequest = buildMobileSourceOAuthAuthRequest(authUrl, usePkce);
-  } catch (error) {
+  } catch {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : "Invalid source login URL.",
+      code: "invalid-login-url",
     };
   }
   const {
@@ -101,23 +96,23 @@ export async function runMobileSourceOAuthLogin(
       // iOS source login must not inherit another app/profile browser session.
       preferEphemeralSession: true,
     });
-  } catch (error) {
+  } catch {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : "Failed to open login page.",
+      code: "browser-open-failed",
     };
   }
 
   if (result.type !== "success") {
-    return { ok: false, error: "Login was cancelled." };
+    return { ok: false, code: "cancelled" };
   }
 
   const callbackUrl = result.url;
   if (!isMobileSourceOAuthStoredValueWithinLimit(callbackUrl)) {
-    return { ok: false, error: "The source returned an oversized login callback." };
+    return { ok: false, code: "oversized-callback" };
   }
   if (!mobileSourceOAuthCallbackHasExpectedState(callbackUrl, state)) {
-    return { ok: false, error: "The login callback state did not match this attempt." };
+    return { ok: false, code: "state-mismatch" };
   }
 
   if (!usePkce) {
@@ -126,7 +121,7 @@ export async function runMobileSourceOAuthLogin(
     if (isLikelyOAuthCallbackValue(callbackUrl)) {
       return { ok: true, token: callbackUrl };
     }
-    return { ok: false, error: "The login callback was not recognized." };
+    return { ok: false, code: "invalid-callback" };
   }
 
   // PKCE OAuth: a returned token payload is stored directly; otherwise exchange
@@ -136,14 +131,14 @@ export async function runMobileSourceOAuthLogin(
     return { ok: true, token: classified.value };
   }
   if (classified.kind !== "code") {
-    return { ok: false, error: "The login callback did not include a token or code." };
+    return { ok: false, code: "invalid-callback" };
   }
 
   const tokenUrl = setting.tokenUrl
     ? normalizeMobileSourceOAuthHttpUrl(setting.tokenUrl)
     : null;
   if (!tokenUrl) {
-    return { ok: false, error: "This source does not provide a token endpoint." };
+    return { ok: false, code: "missing-token-endpoint" };
   }
 
   let response;
@@ -168,10 +163,10 @@ export async function runMobileSourceOAuthLogin(
       responseMode: "text",
       maxResponseBytes: MOBILE_SOURCE_OAUTH_TOKEN_RESPONSE_MAX_BYTES,
     });
-  } catch (error) {
+  } catch {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : "Token exchange request failed.",
+      code: "token-request-failed",
     };
   }
 
@@ -179,13 +174,11 @@ export async function runMobileSourceOAuthLogin(
   if (!response.ok || !hasOAuthTokenPayload(responseText)) {
     return {
       ok: false,
-      error:
-        responseText.slice(0, MOBILE_SOURCE_OAUTH_ERROR_MAX_CHARS) ||
-        "Token exchange failed.",
+      code: "token-exchange-failed",
     };
   }
   if (response.bytes.byteLength > MOBILE_SOURCE_OAUTH_STORED_VALUE_MAX_BYTES) {
-    return { ok: false, error: "The source returned an oversized token payload." };
+    return { ok: false, code: "oversized-token" };
   }
 
   return { ok: true, token: responseText };

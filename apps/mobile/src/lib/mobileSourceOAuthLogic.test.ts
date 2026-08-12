@@ -14,6 +14,7 @@ import {
   mobileSourceOAuthCallbackHasExpectedState,
   MOBILE_SOURCE_OAUTH_MAX_ENDPOINT_CHARS,
   normalizeMobileSourceOAuthHttpUrl,
+  resolveMobileSourceOAuthLoginEndpoint,
   resolveMobileSourceLoginUrl,
   type MobileSourceLoginSetting,
 } from "./mobileSourceOAuthLogic";
@@ -88,6 +89,32 @@ describe("resolveMobileSourceLoginUrl", () => {
   });
   test("null when neither provided", () => {
     expect(resolveMobileSourceLoginUrl(loginSetting(), {})).toBeNull();
+  });
+});
+
+describe("resolveMobileSourceOAuthLoginEndpoint", () => {
+  test("distinguishes missing, unsafe, and usable source endpoints", () => {
+    expect(resolveMobileSourceOAuthLoginEndpoint(loginSetting(), {})).toEqual({
+      ok: false,
+      code: "missing-login-url",
+    });
+    expect(
+      resolveMobileSourceOAuthLoginEndpoint(
+        loginSetting({ url: "nemu://credentials" }),
+        {},
+      ),
+    ).toEqual({
+      ok: false,
+      code: "invalid-login-url",
+    });
+    expect(
+      resolveMobileSourceOAuthLoginEndpoint(loginSetting({ urlKey: "endpoint" }), {
+        endpoint: "HTTPS://Example.COM/login",
+      }),
+    ).toEqual({
+      ok: true,
+      url: "https://example.com/login",
+    });
   });
 });
 

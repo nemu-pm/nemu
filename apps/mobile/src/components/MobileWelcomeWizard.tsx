@@ -685,7 +685,7 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
         >
           <View style={styles.androidHandleArea}>
             <View
-              accessibilityLabel="Drag handle"
+              accessibilityLabel={strings.common.dragHandle}
               style={[
                 styles.androidHandle,
                 { backgroundColor: tokens.mutedForeground },

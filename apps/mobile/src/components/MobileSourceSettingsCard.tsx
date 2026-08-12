@@ -1120,14 +1120,10 @@ function SourceSettingLoginRow({
       if (result.ok) {
         onChange(setting.key, result.token, setting);
       } else {
-        setError(result.error || strings.settings.sourceSettingsLoginFailed);
+        setError(strings.settings.sourceOAuthErrors[result.code]);
       }
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : strings.settings.sourceSettingsLoginFailed,
-      );
+    } catch {
+      setError(strings.settings.sourceSettingsLoginFailed);
     } finally {
       setLoading(false);
     }
@@ -1141,6 +1137,7 @@ function SourceSettingLoginRow({
     onChange,
     strings.settings.sourceSettingsLoginFailed,
     strings.settings.sourceSettingsLoginUnsupported,
+    strings.settings.sourceOAuthErrors,
   ]);
 
   return (

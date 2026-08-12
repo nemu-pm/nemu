@@ -54,6 +54,38 @@ describe("mobile i18n helpers", () => {
     expect(strings.browse.searchRegistries).toBe("搜索源仓库");
   });
 
+  test("localizes every stable source OAuth failure code", () => {
+    const settings = getMobileStrings("en").settings as unknown as {
+      sourceOAuthErrors?: Record<string, string>;
+    };
+    expect(settings.sourceOAuthErrors).toEqual({
+      "missing-login-url": "This source does not provide a login URL.",
+      "invalid-login-url": "This source provided an unsafe login URL.",
+      "browser-open-failed": "The login page could not be opened.",
+      "unsupported-platform": "Source login is unavailable on this platform.",
+      cancelled: "Login was cancelled.",
+      "oversized-callback": "The source returned too much login data.",
+      "state-mismatch": "The login response did not match this attempt.",
+      "invalid-callback": "The login response did not contain a valid token or code.",
+      "missing-token-endpoint": "This source does not provide a token endpoint.",
+      "token-request-failed": "The token request could not be completed.",
+      "token-exchange-failed": "The source rejected the token exchange.",
+      "oversized-token": "The source returned too much token data.",
+    });
+  });
+
+  test("localizes the drag-handle accessibility label", () => {
+    expect(
+      (getMobileStrings("en").common as { dragHandle?: string }).dragHandle,
+    ).toBe("Drag handle");
+    expect(
+      (getMobileStrings("zh").common as { dragHandle?: string }).dragHandle,
+    ).toBe("拖动手柄");
+    expect(
+      (getMobileStrings("ja").common as { dragHandle?: string }).dragHandle,
+    ).toBe("ドラッグハンドル");
+  });
+
   test("falls back to English for unsupported app languages", () => {
     expect(getMobileStrings("fr").nav.settings).toBe("Settings");
   });

@@ -72,6 +72,20 @@ export function resolveMobileSourceLoginUrl(
   return resolveLoginActionUrl(setting, values);
 }
 
+export type MobileSourceOAuthErrorCode =
+  | "missing-login-url"
+  | "invalid-login-url"
+  | "browser-open-failed"
+  | "unsupported-platform"
+  | "cancelled"
+  | "oversized-callback"
+  | "state-mismatch"
+  | "invalid-callback"
+  | "missing-token-endpoint"
+  | "token-request-failed"
+  | "token-exchange-failed"
+  | "oversized-token";
+
 /** Source manifests are untrusted. Browser and token endpoints must remain
  * ordinary network URLs, never custom/app/file schemes or credentialed URLs. */
 export function normalizeMobileSourceOAuthHttpUrl(rawUrl: string): string | null {
@@ -89,6 +103,26 @@ export function normalizeMobileSourceOAuthHttpUrl(rawUrl: string): string | null
   } catch {
     return null;
   }
+}
+
+export function resolveMobileSourceOAuthLoginEndpoint(
+  setting: MobileSourceLoginSetting,
+  values: Record<string, unknown>,
+):
+  | { ok: true; url: string }
+  | {
+      ok: false;
+      code: Extract<
+        MobileSourceOAuthErrorCode,
+        "missing-login-url" | "invalid-login-url"
+      >;
+    } {
+  const rawUrl = resolveMobileSourceLoginUrl(setting, values);
+  if (!rawUrl) return { ok: false, code: "missing-login-url" };
+  const url = normalizeMobileSourceOAuthHttpUrl(rawUrl);
+  return url
+    ? { ok: true, url }
+    : { ok: false, code: "invalid-login-url" };
 }
 
 export function isMobileSourceOAuthStoredValueWithinLimit(
@@ -206,4 +240,4 @@ export type MobileSourceOAuthLoginInput = {
 
 export type MobileSourceOAuthLoginResult =
   | { ok: true; token: string }
-  | { ok: false; error: string };
+  | { ok: false; code: MobileSourceOAuthErrorCode };
