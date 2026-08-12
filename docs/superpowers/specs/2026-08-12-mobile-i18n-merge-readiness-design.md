@@ -4,7 +4,7 @@ Date: 2026-08-12
 
 ## Objective
 
-Bring the Nemu mobile application to feature-complete Aidoku-first readiness with complete English, Traditional Chinese, and Japanese localization, minimal mobile-only architecture, verified iOS and Android simulator behavior, and reviewable pull requests that satisfy every merge gate. The pull requests must be ready to merge but must not be merged as part of this work.
+Bring the Nemu mobile application to feature-complete Aidoku-first readiness with complete English, Simplified Chinese, and Japanese localization, minimal mobile-only architecture, verified iOS and Android simulator behavior, and reviewable pull requests that satisfy every merge gate. The pull requests must be ready to merge but must not be merged as part of this work.
 
 This design intentionally excludes Tachiyomi native source execution and store-submission administration. Tachiyomi requires a separate native execution design, and store-account work is not required to demonstrate Aidoku-first feature completeness. Vercel preview failures are also excluded as an accepted environment-configuration limitation; the main deployment path is known to work and the preview organization is not accessible to the user.
 
@@ -13,7 +13,7 @@ This design intentionally excludes Tachiyomi native source execution and store-s
 The work reaches 100% only when all of the following are true:
 
 1. Every in-scope Aidoku workflow is represented in a feature inventory with an implementation, automated coverage, and iOS Simulator plus Android Emulator evidence.
-2. English, Traditional Chinese, and Japanese have identical translation-key coverage, valid interpolation, deterministic fallback behavior, and no unintended user-facing hardcoded strings.
+2. English, Simplified Chinese, and Japanese have identical translation-key coverage, valid interpolation, deterministic fallback behavior, and no unintended user-facing hardcoded strings.
 3. Language selection persists, takes effect without stale UI, survives restart, and is respected by onboarding, navigation, settings, errors, source discovery, reader controls, accessibility labels, and notifications owned by the app.
 4. Mobile-only code has no verified dead exports, duplicate helpers, obsolete compatibility paths, or duplicated state ownership. Cleanup must be evidence-driven and covered by existing or new tests.
 5. Shared pure logic lives in `@nemu/core`; mobile retains React Native presentation, device persistence, source sandboxing, and platform integration. No generic framework or abstraction is added without at least two current consumers.
