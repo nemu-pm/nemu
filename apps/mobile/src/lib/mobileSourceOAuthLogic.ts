@@ -105,6 +105,54 @@ export function normalizeMobileSourceOAuthHttpUrl(rawUrl: string): string | null
   }
 }
 
+const MOBILE_SOURCE_OAUTH_CALLBACK_SCHEME_PATTERN =
+  /^[a-z][a-z0-9+.-]*$/;
+const MOBILE_SOURCE_OAUTH_RESERVED_SCHEMES = new Set([
+  "data",
+  "file",
+  "http",
+  "https",
+  "intent",
+  "javascript",
+]);
+
+/**
+ * Resolve the callback URL watched by the native auth session. Aidoku sources
+ * can register an exact redirect URI in the authorization URL (for example,
+ * MangaDex uses `neko://mangadex-auth`), so preserve it when its scheme matches
+ * the declared callback scheme. Otherwise use the conventional callback host.
+ */
+export function resolveMobileSourceOAuthRedirectUrl(
+  authUrl: string,
+  rawCallbackScheme: string | undefined,
+  fallbackRedirectUrl: string,
+): string {
+  const callbackScheme = rawCallbackScheme?.trim();
+  if (
+    !callbackScheme ||
+    !MOBILE_SOURCE_OAUTH_CALLBACK_SCHEME_PATTERN.test(callbackScheme) ||
+    MOBILE_SOURCE_OAUTH_RESERVED_SCHEMES.has(callbackScheme)
+  ) {
+    return fallbackRedirectUrl;
+  }
+
+  try {
+    const redirectUri = new URL(authUrl).searchParams.get("redirect_uri");
+    if (
+      redirectUri &&
+      redirectUri.length <= MOBILE_SOURCE_OAUTH_MAX_ENDPOINT_CHARS &&
+      new URL(redirectUri).protocol === `${callbackScheme}:`
+    ) {
+      return redirectUri;
+    }
+  } catch {
+    // The authorization endpoint is validated separately. A malformed nested
+    // redirect should only fall back to the source scheme's conventional host.
+  }
+
+  return `${callbackScheme}://callback`;
+}
+
 export function resolveMobileSourceOAuthLoginEndpoint(
   setting: MobileSourceLoginSetting,
   values: Record<string, unknown>,

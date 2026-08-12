@@ -68,6 +68,14 @@ describe("mobile JSC Babel compatibility", () => {
     expect(isEnableHermesManaged(appConfig.expo, "android")).toBe(false);
   });
 
+  test("registers the app and current Aidoku OAuth callback schemes", () => {
+    const appConfig = JSON.parse(
+      readFileSync(path.join(import.meta.dir, "../../app.json"), "utf8"),
+    ) as { expo: { scheme?: string | string[] } };
+
+    expect(appConfig.expo.scheme).toEqual(["nemu", "neko"]);
+  });
+
   test("links EAS from CI without hard-coding account metadata", () => {
     const appConfig = JSON.parse(
       readFileSync(path.join(import.meta.dir, "../../app.json"), "utf8"),

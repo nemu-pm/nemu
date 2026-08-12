@@ -10,6 +10,7 @@ import {
   MOBILE_SOURCE_OAUTH_STORED_VALUE_MAX_BYTES,
   mobileSourceOAuthCallbackHasExpectedState,
   normalizeMobileSourceOAuthHttpUrl,
+  resolveMobileSourceOAuthRedirectUrl,
   resolveMobileSourceOAuthLoginEndpoint,
   type MobileSourceOAuthLoginInput,
   type MobileSourceOAuthLoginResult,
@@ -34,20 +35,6 @@ registerMobileSourceProfileTransitionHandler(
     }
   },
 );
-
-/**
- * Derive the redirect URL the browser auth session should watch for. Sources
- * that declare `callbackScheme` redirect back to that custom scheme; otherwise
- * fall back to the app's own linking URL (`nemu://`).
- */
-function resolveMobileSourceOAuthRedirectUrl(
-  callbackScheme: string | undefined,
-): string {
-  if (callbackScheme) {
-    return `${callbackScheme}://callback`;
-  }
-  return Linking.createURL("oauth/callback");
-}
 
 /**
  * Run an OAuth PKCE source login end-to-end:
@@ -88,7 +75,11 @@ export async function runMobileSourceOAuthLogin(
     state,
   } = authRequest;
 
-  const redirectUrl = resolveMobileSourceOAuthRedirectUrl(setting.callbackScheme);
+  const redirectUrl = resolveMobileSourceOAuthRedirectUrl(
+    authRequestUrl,
+    setting.callbackScheme,
+    Linking.createURL("oauth/callback"),
+  );
 
   let result: WebBrowser.WebBrowserAuthSessionResult;
   try {

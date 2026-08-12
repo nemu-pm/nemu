@@ -14,6 +14,7 @@ import {
   mobileSourceOAuthCallbackHasExpectedState,
   MOBILE_SOURCE_OAUTH_MAX_ENDPOINT_CHARS,
   normalizeMobileSourceOAuthHttpUrl,
+  resolveMobileSourceOAuthRedirectUrl,
   resolveMobileSourceOAuthLoginEndpoint,
   resolveMobileSourceLoginUrl,
   type MobileSourceLoginSetting,
@@ -169,6 +170,38 @@ describe("buildMobileSourcePkceAuthUrl", () => {
 });
 
 describe("mobile source OAuth URL and callback safety", () => {
+  test("preserves the source's exact registered custom-scheme redirect", () => {
+    const authUrl =
+      "https://auth.example/authorize?redirect_uri=neko%3A%2F%2Fmangadex-auth";
+    expect(
+      resolveMobileSourceOAuthRedirectUrl(authUrl, "neko", "nemu://oauth/callback"),
+    ).toBe("neko://mangadex-auth");
+  });
+
+  test("falls back safely when a callback scheme is absent or malformed", () => {
+    expect(
+      resolveMobileSourceOAuthRedirectUrl(
+        "https://auth.example/authorize",
+        undefined,
+        "nemu://oauth/callback",
+      ),
+    ).toBe("nemu://oauth/callback");
+    expect(
+      resolveMobileSourceOAuthRedirectUrl(
+        "https://auth.example/authorize",
+        "javascript",
+        "nemu://oauth/callback",
+      ),
+    ).toBe("nemu://oauth/callback");
+    expect(
+      resolveMobileSourceOAuthRedirectUrl(
+        "https://auth.example/authorize?redirect_uri=other%3A%2F%2Fcallback",
+        "neko",
+        "nemu://oauth/callback",
+      ),
+    ).toBe("neko://callback");
+  });
+
   test("accepts only credential-free http(s) endpoints", () => {
     expect(normalizeMobileSourceOAuthHttpUrl("HTTPS://Example.COM/auth"))
       .toBe("https://example.com/auth");
