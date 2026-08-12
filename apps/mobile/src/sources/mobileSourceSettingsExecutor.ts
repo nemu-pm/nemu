@@ -424,8 +424,9 @@ export async function completeMobileSourceLogout({
             clearSandbox,
             executionScope,
           );
-        } finally {
-          await restoreSettings(persistSettings, rollback);
+        } catch {
+          // Native logout has already started. Keep the profile logged out and
+          // preserve the profile-transition failure after best-effort cleanup.
         }
         throw error;
       }
@@ -433,19 +434,14 @@ export async function completeMobileSourceLogout({
     }
   }
 
-  try {
-    await clearNativeSourceState(
-      cache,
-      source,
-      clearSandbox,
-      executionScope,
-    );
-    assertActiveMobileSourceProfileScope(executionScope);
-    return { status: "complete" };
-  } catch (error) {
-    await restoreSettings(persistSettings, rollback);
-    throw error;
-  }
+  await clearNativeSourceState(
+    cache,
+    source,
+    clearSandbox,
+    executionScope,
+  );
+  assertActiveMobileSourceProfileScope(executionScope);
+  return { status: "complete" };
 }
 
 export async function resetMobileSourceRuntimeSettings({
@@ -464,6 +460,5 @@ export async function resetMobileSourceRuntimeSettings({
   const sourceKey = makeMobileRuntimeSourceKey(source);
   cache.remove(sourceKey, executionScope);
   await clearSandbox(sourceKey, executionScope);
-  assertActiveMobileSourceProfileScope(executionScope);
   await resetProfileSettings();
 }

@@ -87,7 +87,6 @@ describe("mobile source settings executor", () => {
       { async handleBasicLogin() { return false; } },
       [],
     );
-
     expect(
       await runMobileSourceSettingsOperation({
         cache,
@@ -624,6 +623,89 @@ describe("mobile source settings executor", () => {
     });
   });
 
+  test("keeps profile credentials deleted when the profile changes during native logout", async () => {
+    const visibleSettings: Record<string, unknown> = {
+      auth: "logged_in",
+      "auth.username": "account-a-reader",
+    };
+    const nativeState: Record<string, unknown> = { token: "account-a-token" };
+    const clearedScopes: string[] = [];
+    const cache = readyCache(
+      {
+        async handleNotification() {
+          delete nativeState.token;
+          await transitionMobileSourceProfile("profile:b");
+        },
+      },
+      [],
+    );
+    cache.remove = () => undefined;
+
+    await expect(
+      completeMobileSourceLogout({
+        cache,
+        source: runtimeSource,
+        schema: [
+          {
+            key: "auth",
+            type: "login",
+            title: "Log in",
+            notification: "login-changed",
+          },
+        ],
+        setting: {
+          key: "auth",
+          type: "login",
+          title: "Log in",
+          notification: "login-changed",
+        },
+        currentSettings: { ...visibleSettings },
+        async clearSandbox(_sourceKey, executionScope) {
+          clearedScopes.push(executionScope);
+          for (const key of Object.keys(nativeState)) delete nativeState[key];
+        },
+        async persistSettings(patch, deleteKeys) {
+          for (const key of deleteKeys) delete visibleSettings[key];
+          Object.assign(visibleSettings, patch);
+        },
+      }),
+    ).rejects.toThrow("profile changed");
+
+    expect(visibleSettings).toEqual({});
+    expect(nativeState).toEqual({});
+    expect(clearedScopes).toEqual(["local"]);
+  });
+
+  test("keeps profile credentials deleted when the profile changes during sandbox cleanup", async () => {
+    const visibleSettings: Record<string, unknown> = {
+      auth: "logged_in",
+      "auth.username": "account-a-reader",
+    };
+
+    const cache = readyCache({}, []);
+    cache.remove = () => undefined;
+
+    await expect(
+      completeMobileSourceLogout({
+        cache,
+        source: runtimeSource,
+        schema: [{ key: "auth", type: "login", title: "Log in" }],
+        setting: { key: "auth", type: "login", title: "Log in" },
+        currentSettings: { ...visibleSettings },
+        async clearSandbox(_sourceKey, executionScope) {
+          expect(executionScope).toBe("local");
+          await transitionMobileSourceProfile("profile:b");
+        },
+        async persistSettings(patch, deleteKeys) {
+          for (const key of deleteKeys) delete visibleSettings[key];
+          Object.assign(visibleSettings, patch);
+        },
+      }),
+    ).rejects.toThrow("profile changed");
+
+    expect(visibleSettings).toEqual({});
+  });
+
   test("restores profile and native state when persisting a login fails partway", async () => {
     const visibleSettings: Record<string, unknown> = { theme: "dark" };
     const nativeState: Record<string, unknown> = {};
@@ -727,6 +809,32 @@ describe("mobile source settings executor", () => {
       "reset-profile",
     ]);
     expect(persistedDefaults).toEqual({});
+  });
+
+  test("finishes the captured profile reset after a transition during native cleanup", async () => {
+    const effects: string[] = [];
+
+    await resetMobileSourceRuntimeSettings({
+      cache: {
+        remove(_sourceKey, executionScope) {
+          effects.push(`remove:${executionScope}`);
+        },
+      } as MobileSourceSessionCache,
+      source: runtimeSource,
+      async clearSandbox(_sourceKey, executionScope) {
+        effects.push(`clear:${executionScope}`);
+        await transitionMobileSourceProfile("profile:b");
+      },
+      async resetProfileSettings() {
+        effects.push("reset:local");
+      },
+    });
+
+    expect(effects).toEqual([
+      "remove:local",
+      "clear:local",
+      "reset:local",
+    ]);
   });
 
   test("preserves blocked-session detail and blocks missing handlers", async () => {
