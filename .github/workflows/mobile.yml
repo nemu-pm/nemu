@@ -119,6 +119,9 @@ jobs:
             ${{ runner.os }}-bun-
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Check Expo dependency alignment
+        working-directory: apps/mobile
+        run: bunx expo install --check
       - name: Typecheck mobile app
         run: bun run --cwd apps/mobile typecheck
       - name: Lint mobile app

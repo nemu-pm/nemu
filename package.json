@@ -169,10 +169,10 @@
     "swiper@12.2.0": "patches/swiper@12.2.0.patch",
     "vaul@1.1.2": "patches/vaul@1.1.2.patch",
     "react-native@0.85.3": "patches/react-native@0.85.3.patch",
-    "expo@56.0.19": "patches/expo@56.0.19.patch",
-    "expo-background-task@56.0.25": "patches/expo-background-task@56.0.25.patch",
-    "@expo/ui@56.0.25": "patches/@expo%2Fui@56.0.25.patch",
-    "@expo/cli@56.1.23": "patches/@expo%2Fcli@56.1.23.patch",
+    "expo@56.0.20": "patches/expo@56.0.20.patch",
+    "expo-background-task@56.0.26": "patches/expo-background-task@56.0.26.patch",
+    "@expo/ui@56.0.26": "patches/@expo%2Fui@56.0.26.patch",
+    "@expo/cli@56.1.24": "patches/@expo%2Fcli@56.1.24.patch",
     "metro@0.84.4": "patches/metro@0.84.4.patch"
   }
 }

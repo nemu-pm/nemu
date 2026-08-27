@@ -1,0 +1,19 @@
+diff --git a/android/src/main/java/expo/modules/backgroundtask/BackgroundTaskScheduler.kt b/android/src/main/java/expo/modules/backgroundtask/BackgroundTaskScheduler.kt
+index 74c5719139a2dd00300e36af02c9b2b685bf9519..f4cfc8cb27d08797c785468d4a2171148ff7ff0e 100644
+--- a/android/src/main/java/expo/modules/backgroundtask/BackgroundTaskScheduler.kt
++++ b/android/src/main/java/expo/modules/backgroundtask/BackgroundTaskScheduler.kt
+@@ -262,7 +262,13 @@ object BackgroundTaskScheduler {
+ 
+     return try {
+       val workInfos = workManager.getWorkInfosForUniqueWork(WORKER_IDENTIFIER).await()
+-      return workInfos.firstOrNull()
++      // Unique work can retain completed predecessors after APPEND schedules
++      // the next periodic run. Selecting the first historical item makes a
++      // cold headless registration miss the currently RUNNING/ENQUEUED work,
++      // replace the chain, and cancel the task that just launched the process.
++      return workInfos.firstOrNull {
++        it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED
++      } ?: workInfos.firstOrNull()
+     } catch (e: Exception) {
+       Log.d(TAG, "Calling getWorkInfosForUniqueWork failed with error " + e.message)
+       null
