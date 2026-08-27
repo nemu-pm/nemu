@@ -455,6 +455,8 @@
     "invalidLoginUrl": "This login action does not have a valid URL.",
     "popupBlocked": "The browser blocked the login window.",
     "openLoginFirst": "Open the login page first so Nemu can generate the PKCE verifier.",
+    "callbackStateMismatch": "This callback belongs to a different login attempt and was rejected. Open the login page again and paste the new callback.",
+    "callbackStateMissing": "Paste the full callback URL — Nemu needs the state value it contains to verify this login attempt.",
     "tokenExchangeFailed": "Failed to exchange the authorization code for a token.",
     "logoutConfirm": "Log out from this source?",
     "notificationFailed": "Failed to apply the source setting action."

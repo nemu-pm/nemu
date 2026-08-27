@@ -10,7 +10,11 @@ import { toast } from "sonner";
 import { parseSourceKey } from "@/data/keys";
 import { useSourceSettingsStoreApi, useStores } from "@/data/context";
 import { SettingsDialogWithPages } from "@/components/ui/settings-dialog";
-import { submitSourceBasicLogin, submitSourceWebLogin } from "@/components/source-settings-auth";
+import {
+  resolveSourceOAuthLogin,
+  submitSourceBasicLogin,
+  submitSourceWebLogin,
+} from "@/components/source-settings-auth";
 import {
   ResponsiveDialogNested,
   ResponsiveDialogContent,
@@ -35,11 +39,8 @@ import { proxyUrl } from "@/config";
 import { agentFetch, hasAgent } from "@/lib/agent";
 import {
   LOGIN_CODE_VERIFIER_SUFFIX,
-  buildOAuthTokenExchangeBody,
+  LOGIN_OAUTH_STATE_SUFFIX,
   detectCompressionFormats,
-  extractAuthorizationCode,
-  hasOAuthTokenPayload,
-  isLikelyOAuthCallbackValue,
   looksLikeTokenExchangeText,
   resolveLoginActionUrl,
   withPkce,
@@ -302,6 +303,17 @@ export function SourceSettings({
     window.open(url, "_blank", "noopener,noreferrer");
   }, [t]);
 
+  /**
+   * Drop the single-use PKCE verifier and OAuth state for a login setting.
+   * They are only meaningful between opening the authorization page and the
+   * token exchange, and both are persisted, so they must not linger after the
+   * flow ends (success or logout).
+   */
+  const clearPendingOAuthRequest = useCallback((setting: LoginSetting) => {
+    deleteSetting(sourceKey, `${setting.key}${LOGIN_CODE_VERIFIER_SUFFIX}`);
+    deleteSetting(sourceKey, `${setting.key}${LOGIN_OAUTH_STATE_SUFFIX}`);
+  }, [deleteSetting, sourceKey]);
+
   const handleLogout = useCallback((setting: LoginSetting) => {
     if (!window.confirm(t("sourceSettings.logoutConfirm"))) {
       return;
@@ -312,14 +324,14 @@ export function SourceSettings({
     deleteSetting(sourceKey, `${baseKey}${LOGIN_PASSWORD_SUFFIX}`);
     deleteSetting(sourceKey, `${baseKey}${LOGIN_COOKIE_KEYS_SUFFIX}`);
     deleteSetting(sourceKey, `${baseKey}${LOGIN_COOKIE_VALUES_SUFFIX}`);
-    deleteSetting(sourceKey, `${baseKey}${LOGIN_CODE_VERIFIER_SUFFIX}`);
+    clearPendingOAuthRequest(setting);
 
     for (const storageKey of setting.localStorageKeys ?? []) {
       deleteSetting(sourceKey, `${baseKey}${LOGIN_LOCAL_STORAGE_PREFIX}${storageKey}`);
     }
 
     deletePrimarySettingValue(setting);
-  }, [deletePrimarySettingValue, deleteSetting, sourceKey, t]);
+  }, [clearPendingOAuthRequest, deletePrimarySettingValue, deleteSetting, sourceKey, t]);
 
   const openBasicLogin = useCallback((setting: LoginSetting) => {
     setBasicLogin({
@@ -459,8 +471,9 @@ export function SourceSettings({
 
     let nextUrl = rawUrl;
     if ((setting.method ?? "basic") === "oauth" && setting.pkce) {
-      const { url, codeVerifier } = await withPkce(rawUrl);
+      const { url, codeVerifier, state } = await withPkce(rawUrl);
       setSetting(sourceKey, `${setting.key}${LOGIN_CODE_VERIFIER_SUFFIX}`, codeVerifier);
+      setSetting(sourceKey, `${setting.key}${LOGIN_OAUTH_STATE_SUFFIX}`, state);
       nextUrl = url;
     }
 
@@ -482,91 +495,63 @@ export function SourceSettings({
     setOAuthLogin((prev) => prev ? { ...prev, submitting: true, error: null } : prev);
 
     try {
-      let storedValue: string | null = null;
+      const liveSettings = store.getState().values.get(sourceKey) ?? {};
+      const result = await resolveSourceOAuthLogin({
+        submittedValue,
+        setting: oauthLogin.setting,
+        authUrl: resolveActionUrl(oauthLogin.setting, values),
+        storedCodeVerifier: String(liveSettings[`${oauthLogin.setting.key}${LOGIN_CODE_VERIFIER_SUFFIX}`] ?? ""),
+        storedState: String(liveSettings[`${oauthLogin.setting.key}${LOGIN_OAUTH_STATE_SUFFIX}`] ?? ""),
+        messages: {
+          invalidLoginUrl: t("sourceSettings.invalidLoginUrl"),
+          openLoginFirst: t("sourceSettings.openLoginFirst"),
+          invalidCallback: t("sourceSettings.invalidCallback"),
+          callbackStateMismatch: t("sourceSettings.callbackStateMismatch"),
+          callbackStateMissing: t("sourceSettings.callbackStateMissing"),
+          tokenExchangeFailed: t("sourceSettings.tokenExchangeFailed"),
+        },
+        exchangeToken: async ({ tokenUrl, body }) => {
+          const useAgentForTokenExchange = await hasAgent();
+          const requestInit: RequestInit = {
+            method: "POST",
+            headers: useAgentForTokenExchange
+              ? {
+                  "Content-Type": "application/x-www-form-urlencoded",
+                  "Accept-Encoding": "identity",
+                }
+              : {
+                  "Content-Type": "application/x-www-form-urlencoded",
+                  "x-proxy-accept-encoding": "identity",
+                },
+            body,
+          };
 
-      if (oauthLogin.setting.pkce && oauthLogin.setting.tokenUrl) {
-        if (hasOAuthTokenPayload(submittedValue)) {
-          storedValue = submittedValue;
-          setPrimarySettingValue(oauthLogin.setting, storedValue);
-          setOAuthLogin(null);
-          return;
-        }
-
-        const authUrl = resolveActionUrl(oauthLogin.setting, values);
-        if (!authUrl) {
-          throw new Error(t("sourceSettings.invalidLoginUrl"));
-        }
-
-        const liveSettings = store.getState().values.get(sourceKey) ?? {};
-        const codeVerifier = String(liveSettings[`${oauthLogin.setting.key}${LOGIN_CODE_VERIFIER_SUFFIX}`] ?? "");
-        if (!codeVerifier) {
-          throw new Error(t("sourceSettings.openLoginFirst"));
-        }
-
-        const code = extractAuthorizationCode(submittedValue);
-        if (!code) {
-          throw new Error(t("sourceSettings.invalidCallback"));
-        }
-
-        const authUrlObject = new URL(authUrl);
-        const body = buildOAuthTokenExchangeBody({
-          code,
-          codeVerifier,
-          redirectUri: authUrlObject.searchParams.get("redirect_uri"),
-          clientId: authUrlObject.searchParams.get("client_id"),
-        });
-
-        const useAgentForTokenExchange = await hasAgent();
-        const requestInit: RequestInit = {
-          method: "POST",
-          headers: useAgentForTokenExchange
-            ? {
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Accept-Encoding": "identity",
-              }
-            : {
-                "Content-Type": "application/x-www-form-urlencoded",
-                "x-proxy-accept-encoding": "identity",
-              },
-          body,
-        };
-
-        const tryReadTokenResponse = async (response: Response): Promise<string> => {
-          const responseBuffer = await response.arrayBuffer();
-          const responseText = await decodeTokenExchangeResponse(responseBuffer);
+          const response = await (
+            useAgentForTokenExchange
+              ? agentFetch(tokenUrl, requestInit)
+              : fetch(proxyUrl(tokenUrl), requestInit)
+          );
+          const responseText = await decodeTokenExchangeResponse(await response.arrayBuffer());
           if (!response.ok) {
             throw new Error(responseText || t("sourceSettings.tokenExchangeFailed"));
           }
-          if (!hasOAuthTokenPayload(responseText)) {
-            throw new Error(t("sourceSettings.tokenExchangeFailed"));
-          }
           return responseText;
-        };
+        },
+      });
 
-        const response = await (
-          useAgentForTokenExchange
-            ? agentFetch(oauthLogin.setting.tokenUrl, requestInit)
-            : fetch(proxyUrl(oauthLogin.setting.tokenUrl), requestInit)
-        );
-        storedValue = await tryReadTokenResponse(response);
-      } else if (!isLikelyOAuthCallbackValue(submittedValue)) {
-        throw new Error(t("sourceSettings.invalidCallback"));
-      } else {
-        storedValue = submittedValue;
-      }
+      // The verifier and state are single-use secrets for one authorization
+      // request. Drop them as soon as the flow ends so they never outlive it in
+      // the persisted (IndexedDB-backed) source settings.
+      clearPendingOAuthRequest(oauthLogin.setting);
 
-      if (!storedValue) {
-        throw new Error(t("sourceSettings.tokenExchangeFailed"));
-      }
-
-      setPrimarySettingValue(oauthLogin.setting, storedValue);
+      setPrimarySettingValue(oauthLogin.setting, result.storedValue);
       setOAuthLogin(null);
     } catch (error) {
       setOAuthLogin((prev) => prev ? { ...prev, error: getErrorMessage(error, t("sourceSettings.loginFailed")) } : prev);
     } finally {
       setOAuthLogin((prev) => prev ? { ...prev, submitting: false } : prev);
     }
-  }, [oauthLogin, setPrimarySettingValue, sourceKey, store, t, values]);
+  }, [clearPendingOAuthRequest, oauthLogin, setPrimarySettingValue, sourceKey, store, t, values]);
 
   const renderCustomSetting = useCallback<NonNullable<SettingsRendererProps["renderCustomSetting"]>>((setting, context) => {
     switch (setting.type) {
@@ -921,9 +906,11 @@ function parseLocalStorageInput(
 }
 
 // OAuth / PKCE helpers (hasOAuthTokenPayload, isLikelyOAuthCallbackValue,
-// extractAuthorizationCode, withPkce, generateCodeVerifier, generateCodeChallenge,
+// extractAuthorizationCode, extractOAuthState, verifyOAuthCallbackState,
+// withPkce, generateCodeVerifier, generateCodeChallenge, generateOAuthState,
 // bytesToBase64Url, looksLikeTokenExchangeText, detectCompressionFormats,
-// LOGIN_CODE_VERIFIER_SUFFIX) live in @nemu/core so mobile can share them.
+// LOGIN_CODE_VERIFIER_SUFFIX, LOGIN_OAUTH_STATE_SUFFIX) live in @nemu/core so
+// mobile can share them.
 // Only the token-response decompression below is web-only: it relies on
 // DecompressionStream, which RN does not provide.
 async function decodeTokenExchangeResponse(buffer: ArrayBuffer): Promise<string> {

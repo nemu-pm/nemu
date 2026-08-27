@@ -444,6 +444,8 @@
     "invalidLoginUrl": "このログイン操作には有効な URL がありません。",
     "popupBlocked": "ブラウザによりログインウィンドウがブロックされました。",
     "openLoginFirst": "先にログインページを開いて PKCE 検証子を生成してください。",
+    "callbackStateMismatch": "このコールバックは別のログイン試行のものであるため拒否しました。ログインページを開き直し、新しいコールバックを貼り付けてください。",
+    "callbackStateMissing": "コールバック URL 全体を貼り付けてください。ログイン試行の検証には URL に含まれる state 値が必要です。",
     "tokenExchangeFailed": "認証コードをトークンに交換できませんでした。",
     "logoutConfirm": "このソースからログアウトしますか？",
     "notificationFailed": "ソース設定の処理に失敗しました。"

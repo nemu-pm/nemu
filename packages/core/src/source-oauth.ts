@@ -8,14 +8,22 @@
  *
  * Everything in this module is pure logic with no platform I/O so it runs
  * identically under bun (web/mobile tests) and in both app runtimes. The
- * SHA-256 used for the S256 challenge is a self-contained pure-JS impl
- * (`sha256Bytes`) — RN has no `crypto.subtle`, and pulling in a native crypto
- * dep just for this would be disproportionate. It is validated against NIST
- * test vectors and the RFC 7636 example in `source-oauth.test.ts`.
+ * SHA-256 used for the S256 challenge prefers `crypto.subtle.digest` (web and
+ * any RN runtime with a Web Crypto polyfill) and falls back to a self-contained
+ * pure-JS impl (`sha256Bytes`) for engines without SubtleCrypto (bare JSC).
+ * Both paths are validated against NIST test vectors and the RFC 7636 example
+ * in `source-oauth.test.ts`.
  */
 
 /** Suffix appended to a login setting's key to store its PKCE code verifier. */
 export const LOGIN_CODE_VERIFIER_SUFFIX = ".codeVerifier";
+
+/**
+ * Suffix appended to a login setting's key to store the RFC 6749 §10.12 `state`
+ * value sent with the authorization request. It is compared against the state
+ * echoed back on the callback and discarded with the verifier afterwards.
+ */
+export const LOGIN_OAUTH_STATE_SUFFIX = ".oauthState";
 
 /** Compression formats the token-exchange response might be encoded with. */
 export type SourceOauthCompressionFormat = "gzip" | "deflate";
@@ -93,6 +101,48 @@ export function extractAuthorizationCode(value: string): string | null {
   }
 }
 
+/** Extract the `state` param from a callback URL or raw `state=` fragment. */
+export function extractOAuthState(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    const url = new URL(trimmed);
+    const fromQuery = url.searchParams.get("state");
+    if (fromQuery) return fromQuery;
+    const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+    const fromHash = new URLSearchParams(hash).get("state");
+    return fromHash || null;
+  } catch {
+    const stateMatch = trimmed.match(/(?:^|[?#&])state=([^&#]+)/i);
+    return stateMatch?.[1] ? decodeURIComponent(stateMatch[1]) : null;
+  }
+}
+
+/**
+ * Result of comparing a pasted/redirected callback against the `state` that was
+ * sent with the authorization request (RFC 6749 §10.12 CSRF protection).
+ *
+ * - `ok`        — states match, or no state was ever issued for this flow
+ *                 (a login started by an older build before state existed).
+ * - `missing`   — a state was issued but the callback carries none, e.g. the
+ *                 user pasted only the bare `code`.
+ * - `mismatch`  — the callback carries a different state. Never proceed: the
+ *                 response belongs to another (possibly attacker-initiated)
+ *                 authorization request.
+ */
+export type OAuthCallbackStateResult = "ok" | "missing" | "mismatch";
+
+export function verifyOAuthCallbackState(
+  callbackValue: string,
+  expectedState: string | null | undefined,
+): OAuthCallbackStateResult {
+  if (!expectedState) return "ok";
+  const actual = extractOAuthState(callbackValue);
+  if (actual === null) return "missing";
+  return actual === expectedState ? "ok" : "mismatch";
+}
+
 /**
  * Resolve the auth URL for a login/link setting: the static `url` if present,
  * otherwise the string value stored at `urlKey`. Returns null when neither
@@ -140,14 +190,49 @@ const PKCE_CODE_VERIFIER_ALPHABET =
  * module can run. Environments without a secure source fail closed.
  */
 export function generateCodeVerifier(): string {
+  return randomUnreservedString(64);
+}
+
+/**
+ * RFC 6749 §10.12: an opaque, unguessable value bound to the user agent that is
+ * echoed back on the callback. 32 chars from the same CSPRNG-backed 66-symbol
+ * alphabet is ~193 bits of entropy (32 × log2(66)), far above the
+ * "unguessable" bar.
+ */
+export function generateOAuthState(): string {
+  return randomUnreservedString(32);
+}
+
+// The 66-symbol alphabet does not divide 256 evenly, so `byte % 66` would
+// over-represent the first 58 symbols (modulo bias). Rejection sampling
+// instead: discard bytes at or above the largest multiple of 66 that fits in
+// a byte (3 × 66 = 198) and redraw, so every accepted byte maps to each
+// symbol exactly 3 times.
+const REJECTION_SAMPLING_LIMIT =
+  Math.floor(256 / PKCE_CODE_VERIFIER_ALPHABET.length) *
+  PKCE_CODE_VERIFIER_ALPHABET.length;
+
+function randomUnreservedString(length: number): string {
   const crypto = globalThis.crypto;
   if (!crypto || typeof crypto.getRandomValues !== "function") {
     throw new Error(
       "crypto.getRandomValues is not available in this JavaScript engine.",
     );
   }
-  const bytes = crypto.getRandomValues(new Uint8Array(64));
-  return Array.from(bytes, (byte) => PKCE_CODE_VERIFIER_ALPHABET[byte % PKCE_CODE_VERIFIER_ALPHABET.length]).join("");
+  const chars: string[] = [];
+  while (chars.length < length) {
+    const bytes = crypto.getRandomValues(
+      new Uint8Array(length - chars.length),
+    );
+    for (const byte of bytes) {
+      if (byte >= REJECTION_SAMPLING_LIMIT) continue;
+      chars.push(
+        PKCE_CODE_VERIFIER_ALPHABET[byte % PKCE_CODE_VERIFIER_ALPHABET.length],
+      );
+      if (chars.length === length) break;
+    }
+  }
+  return chars.join("");
 }
 
 /** Base64url (no padding) encode of a byte array — pure JS, no `btoa`. */
@@ -166,7 +251,32 @@ export function bytesToBase64Url(bytes: Uint8Array): string {
   return binary.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-// --- pure-JS SHA-256 (FIPS 180-4) ------------------------------------------
+// --- SHA-256 ---------------------------------------------------------------
+
+/**
+ * SHA-256 of a byte array.
+ *
+ * Prefers the platform's audited, constant-time SubtleCrypto implementation
+ * (browsers, Node/Bun, and any RN runtime with a Web Crypto polyfill) and only
+ * falls back to `sha256Bytes` when `crypto.subtle` is absent — bare JSC on
+ * React Native, which has no SubtleCrypto even with a `getRandomValues` shim.
+ */
+export async function sha256(data: Uint8Array): Promise<Uint8Array> {
+  const subtle = globalThis.crypto?.subtle;
+  if (subtle && typeof subtle.digest === "function") {
+    try {
+      // Hash a copy: `data` may be a view over a larger pooled buffer, and some
+      // engines reject SharedArrayBuffer-backed views.
+      const digest = await subtle.digest("SHA-256", new Uint8Array(data));
+      return new Uint8Array(digest);
+    } catch {
+      // Digest unavailable (e.g. insecure context): fall through to pure JS.
+    }
+  }
+  return sha256Bytes(data);
+}
+
+// --- pure-JS SHA-256 fallback (FIPS 180-4) ---------------------------------
 
 const SHA256_K = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -275,25 +385,38 @@ function utf8Encode(text: string): Uint8Array {
 }
 
 /** RFC 7636 S256 code challenge: base64url(SHA-256(codeVerifier)). */
-export function generateCodeChallenge(codeVerifier: string): string {
-  return bytesToBase64Url(sha256Bytes(utf8Encode(codeVerifier)));
+export async function generateCodeChallenge(codeVerifier: string): Promise<string> {
+  return bytesToBase64Url(await sha256(utf8Encode(codeVerifier)));
 }
 
+export type PkceAuthorizationRequest = {
+  url: string;
+  codeVerifier: string;
+  state: string;
+};
+
 /**
- * Append PKCE challenge params to an auth URL and return the modified URL plus
- * the generated code verifier (which the caller must persist keyed by
- * `${settingKey}${LOGIN_CODE_VERIFIER_SUFFIX}` and reuse at token exchange).
+ * Append PKCE challenge + `state` params to an auth URL and return the modified
+ * URL plus the values the caller must persist keyed by
+ * `${settingKey}${LOGIN_CODE_VERIFIER_SUFFIX}` / `${LOGIN_OAUTH_STATE_SUFFIX}`.
+ *
+ * The verifier is replayed at token exchange; the state is compared against the
+ * callback (see `verifyOAuthCallbackState`). Both must be deleted once the
+ * exchange succeeds.
  */
-export function withPkce(rawUrl: string): { url: string; codeVerifier: string } {
+export async function withPkce(rawUrl: string): Promise<PkceAuthorizationRequest> {
   const url = new URL(rawUrl);
   const codeVerifier = generateCodeVerifier();
-  const codeChallenge = generateCodeChallenge(codeVerifier);
+  const state = generateOAuthState();
+  const codeChallenge = await generateCodeChallenge(codeVerifier);
   url.searchParams.set("code_challenge", codeChallenge);
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("response_type", "code");
+  url.searchParams.set("state", state);
   return {
     url: url.toString(),
     codeVerifier,
+    state,
   };
 }
 

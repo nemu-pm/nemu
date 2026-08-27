@@ -444,6 +444,8 @@
     "invalidLoginUrl": "此登录操作没有有效的 URL。",
     "popupBlocked": "浏览器阻止了登录窗口。",
     "openLoginFirst": "请先打开登录页面，以便 Nemu 生成 PKCE 校验值。",
+    "callbackStateMismatch": "此回调属于另一次登录尝试，已被拒绝。请重新打开登录页面并粘贴新的回调。",
+    "callbackStateMissing": "请粘贴完整的回调 URL：Nemu 需要其中的 state 值来验证本次登录尝试。",
     "tokenExchangeFailed": "无法将授权码换取令牌。",
     "logoutConfirm": "要从此源登出吗？",
     "notificationFailed": "应用源设置操作失败。"
