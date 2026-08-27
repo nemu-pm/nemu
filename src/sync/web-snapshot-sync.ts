@@ -10,6 +10,7 @@ import type {
   LocalSourceLink,
 } from "@/data/schema";
 import {
+  chunkChapterProgressSaveInputs,
   chunkCollectionMutationItems,
   toCloudInstalledSource,
   toCloudHistorySaveInput,
@@ -395,12 +396,16 @@ export async function applyWebChapterProgressSyncSnapshot(options: {
   );
   if (!applied || !options.shouldContinue()) return null;
 
-  for (const progress of applied.localWinners) {
+  // A first sync can produce hundreds of local winners. One mutation per row
+  // made that hundreds of sequential round trips; `saveBatch` applies each
+  // chunk in a single server transaction using the same per-item logic.
+  const saveInputs = applied.localWinners.map(toCloudHistorySaveInput);
+  for (const items of chunkChapterProgressSaveInputs(saveInputs)) {
     if (!options.shouldContinue()) return null;
-    await options.convex.mutation(api.history.save, {
+    await options.convex.mutation(api.history.saveBatch, {
       expectedUserId: options.expectedUserId,
-      ...toCloudHistorySaveInput(progress),
       generation: options.generation,
+      items,
     });
   }
 

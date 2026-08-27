@@ -988,6 +988,31 @@ export function chunkCollectionMutationItems(
   return chunks;
 }
 
+/**
+ * `history.saveBatch` reuses the single-save logic per item, and each item
+ * performs several indexed reads plus writes to `chapter_progress` and
+ * `manga_progress`. Keep one transaction well inside Convex's per-mutation
+ * bounds; the server rejects anything larger rather than truncating silently.
+ */
+export const MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS = 32;
+
+/** Split a history push into `history.saveBatch`-sized transactions. */
+export function chunkChapterProgressSaveInputs<T>(
+  inputs: readonly T[],
+): T[][] {
+  const chunks: T[][] = [];
+  for (
+    let offset = 0;
+    offset < inputs.length;
+    offset += MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS
+  ) {
+    chunks.push(
+      inputs.slice(offset, offset + MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS),
+    );
+  }
+  return chunks;
+}
+
 /** A sync transport may proceed only when its session and server token agree. */
 export function areSyncAccountIdentitiesAligned(
   sessionUserId: string | null | undefined,

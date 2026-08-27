@@ -56,6 +56,37 @@ describe("collection mutation batching", () => {
   });
 });
 
+describe("chapter progress push batching", () => {
+  test("splits a history push into server-sized transactions", () => {
+    const inputs = Array.from({ length: 1_000 }, (_, index) => index);
+    const chunks = chunkChapterProgressSaveInputs(inputs);
+
+    expect(chunks).toHaveLength(
+      Math.ceil(1_000 / MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS),
+    );
+    expect(
+      chunks.every(
+        (chunk) => chunk.length <= MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS,
+      ),
+    ).toBe(true);
+    // Every row must survive exactly once and in order: a history push that
+    // silently dropped rows would look like a successful sync.
+    expect(chunks.flat()).toEqual(inputs);
+  });
+
+  test("produces no transactions for an empty push", () => {
+    expect(chunkChapterProgressSaveInputs([])).toEqual([]);
+  });
+
+  test("keeps a push below the bound in a single transaction", () => {
+    const inputs = Array.from(
+      { length: MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS },
+      (_, index) => index,
+    );
+    expect(chunkChapterProgressSaveInputs(inputs)).toEqual([inputs]);
+  });
+});
+
 describe("library source mutation batching", () => {
   const item: LocalLibraryItem = {
     libraryItemId: "library",
