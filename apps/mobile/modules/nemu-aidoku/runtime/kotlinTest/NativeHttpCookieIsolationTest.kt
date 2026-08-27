@@ -42,6 +42,32 @@ class NativeHttpCookieIsolationTest {
   }
 
   @Test
+  fun profileResetAlsoClearsTheSandboxJarsSourceRequestsActuallyUse() {
+    // `executeSandboxHttpRequest` and image-header decoration read from this
+    // store, so a profile switch that only cleared the direct-native store
+    // would keep serving the previous account's source login.
+    val store = AidokuSandboxCookieStore()
+    val oldProfileJar = store.get("source-key")
+    oldProfileJar.saveFromCookieHeader(url, "session=before-reset")
+    assertEquals(
+      "before-reset",
+      oldProfileJar.loadForRequest(url).single { it.name == "session" }.value
+    )
+
+    store.clear()
+
+    // A response still unwinding from the cancelled old-profile request must
+    // not be able to repopulate the jar it captured.
+    oldProfileJar.saveFromCookieHeader(url, "session=late-old-profile")
+    assertEquals(0, oldProfileJar.sizeForTesting())
+    assertTrue(oldProfileJar.loadForRequest(url).isEmpty())
+
+    val newProfileJar = store.get("source-key")
+    assertNotSame(oldProfileJar, newProfileJar)
+    assertTrue(newProfileJar.loadForRequest(url).isEmpty())
+  }
+
+  @Test
   fun directNativeCookieStoreIsBoundedAndRejectsUseAfterDestroy() {
     val store = NemuNativeHttpCookieStore(maxScopes = 32)
     repeat(33) { index -> store.get("profile/source-$index") }

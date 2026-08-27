@@ -50,6 +50,104 @@ internal object NemuNativeHttpAddressPolicy {
     if (!isPublicAddress(address.address)) throw blockedDestination()
   }
 
+  /**
+   * Validates a destination before OkHttp is allowed to build a route for it.
+   *
+   * OkHttp resolves IP-literal hosts itself and never calls [Dns.lookup] for
+   * them, so [NemuPublicAddressDns] cannot see `http://127.0.0.1/` at all. The
+   * only remaining guard is a network interceptor, which runs after the TCP
+   * connect and TLS handshake have already happened. Check literals here, in
+   * the application layer, so a private destination fails closed before any
+   * connection is attempted.
+   */
+  internal fun requirePublicDestination(hostname: String) {
+    val normalized = normalizeHostname(hostname)
+    if (isForbiddenHostname(normalized)) throw blockedDestination()
+    if (!isNumericHostname(normalized)) return
+    val literal = parseIpLiteral(normalized) ?: throw blockedDestination()
+    if (!isPublicAddress(literal)) throw blockedDestination()
+  }
+
+  /**
+   * A host that can only be an address literal. Anything numeric that is not a
+   * strict literal is rejected rather than resolved: no registry name is fully
+   * numeric, and platform resolvers have historically accepted octal, decimal
+   * and short-form spellings of loopback and link-local addresses.
+   */
+  internal fun isNumericHostname(hostname: String): Boolean {
+    if (hostname.isEmpty()) return false
+    if (hostname.contains(':')) return true
+    return hostname.all { it in '0'..'9' || it == '.' }
+  }
+
+  /** Address bytes for an IP literal, or `null` when [value] is not one. */
+  internal fun parseIpLiteral(value: String): ByteArray? {
+    if (value.isEmpty()) return null
+    return if (value.contains(':')) parseIpv6Literal(value) else parseIpv4Literal(value)
+  }
+
+  private fun parseIpv4Literal(value: String): ByteArray? {
+    val parts = value.split('.')
+    if (parts.size != 4) return null
+    val bytes = ByteArray(4)
+    parts.forEachIndexed { index, part ->
+      if (part.isEmpty() || part.length > 3) return null
+      if (!part.all { it in '0'..'9' }) return null
+      val octet = part.toInt()
+      if (octet > 255) return null
+      bytes[index] = octet.toByte()
+    }
+    return bytes
+  }
+
+  private fun parseIpv6Literal(value: String): ByteArray? {
+    // A scoped literal only ever names a local interface.
+    if (value.contains('%')) return null
+    val compression = value.indexOf("::")
+    if (compression >= 0 && compression != value.lastIndexOf("::")) return null
+    val headText = if (compression >= 0) value.substring(0, compression) else value
+    val tailText = if (compression >= 0) value.substring(compression + 2) else ""
+    if (headText.endsWith(':') || tailText.startsWith(':') || tailText.endsWith(':')) {
+      return null
+    }
+    if (compression < 0 && headText.startsWith(':')) return null
+
+    val headGroups = if (headText.isEmpty()) emptyList() else headText.split(':')
+    val tailGroups = if (tailText.isEmpty()) emptyList() else tailText.split(':')
+    val head = ipv6GroupBytes(
+      headGroups,
+      allowEmbeddedIpv4 = compression < 0
+    ) ?: return null
+    val tail = ipv6GroupBytes(
+      tailGroups,
+      allowEmbeddedIpv4 = true
+    ) ?: return null
+
+    if (compression < 0) return if (head.size == 16) head else null
+    val zeroes = 16 - head.size - tail.size
+    if (zeroes < 1) return null
+    return head + ByteArray(zeroes) + tail
+  }
+
+  private fun ipv6GroupBytes(groups: List<String>, allowEmbeddedIpv4: Boolean): ByteArray? {
+    val output = ArrayList<Byte>(16)
+    groups.forEachIndexed { index, group ->
+      if (group.contains('.')) {
+        if (!allowEmbeddedIpv4 || index != groups.size - 1) return null
+        val embedded = parseIpv4Literal(group) ?: return null
+        for (byte in embedded) output.add(byte)
+        return@forEachIndexed
+      }
+      if (group.isEmpty() || group.length > 4) return null
+      if (!group.all { it in '0'..'9' || it in 'a'..'f' }) return null
+      val parsed = group.toInt(16)
+      output.add(((parsed shr 8) and 0xff).toByte())
+      output.add((parsed and 0xff).toByte())
+    }
+    if (output.size > 16) return null
+    return output.toByteArray()
+  }
+
   internal fun isForbiddenHostname(hostname: String): Boolean {
     val normalized = normalizeHostname(hostname)
     if (normalized.isEmpty()) return true
@@ -187,6 +285,19 @@ internal object NemuPublicAddressDns : Dns {
     return NemuNativeHttpAddressPolicy.resolvePublicAddresses(hostname) {
       Dns.SYSTEM.lookup(it)
     }
+  }
+}
+
+/**
+ * Runs before OkHttp selects a route, so an IP-literal destination is refused
+ * without opening a socket. Application interceptors do not re-run for redirect
+ * hops; those stay covered by [NemuPublicAddressDns] and the connected-peer
+ * network interceptor below.
+ */
+internal class NemuPublicAddressPreflightInterceptor : Interceptor {
+  override fun intercept(chain: Interceptor.Chain): Response {
+    NemuNativeHttpAddressPolicy.requirePublicDestination(chain.request().url.host)
+    return chain.proceed(chain.request())
   }
 }
 

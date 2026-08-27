@@ -2,8 +2,10 @@ package pm.nemu.mobile.aidoku
 
 import java.net.InetAddress
 import java.net.UnknownHostException
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -124,6 +126,77 @@ class NemuNativeHttpAddressPolicyTest {
         listOf(public)
       }
     )
+  }
+
+  @Test
+  fun preflightBlocksIpLiteralHostsOkHttpWouldNeverResolveThroughDns() {
+    // OkHttp builds a route for a literal host itself, so the DNS policy above
+    // never sees these. Without the pre-flight the only check left runs after
+    // the socket and TLS handshake are already established.
+    assertBlockedDestination("127.0.0.1")
+    assertBlockedDestination("[::1]")
+    assertBlockedDestination("::1")
+    assertBlockedDestination("10.0.0.5")
+    assertBlockedDestination("192.168.1.1")
+    assertBlockedDestination("169.254.169.254")
+    assertBlockedDestination("[::ffff:169.254.169.254]")
+    assertBlockedDestination("[fe80::1]")
+    assertBlockedDestination("[fd00::1]")
+    assertBlockedDestination("100.100.100.200")
+  }
+
+  @Test
+  fun preflightRejectsNonLiteralNumericHostsInsteadOfResolvingThem() {
+    // Platform resolvers have accepted octal/decimal shorthands for loopback.
+    // A fully numeric host can never be a registry name, so fail closed.
+    assertBlockedDestination("2130706433")
+    assertBlockedDestination("0177.0.0.1")
+    assertBlockedDestination("127.1")
+    assertBlockedDestination("1.2.3.4.5")
+    assertBlockedDestination("999.1.1.1")
+    assertBlockedDestination("::ffff:127.0.0.1%1")
+    assertBlockedDestination("1::2::3")
+  }
+
+  @Test
+  fun preflightAllowsPublicLiteralsAndDefersRegistryNamesToDns() {
+    NemuNativeHttpAddressPolicy.requirePublicDestination("1.1.1.1")
+    NemuNativeHttpAddressPolicy.requirePublicDestination("[2606:4700:4700::1111]")
+    NemuNativeHttpAddressPolicy.requirePublicDestination("2606:4700:4700::1111")
+    // Names are validated by NemuPublicAddressDns once every answer is known.
+    NemuNativeHttpAddressPolicy.requirePublicDestination("source.example")
+    NemuNativeHttpAddressPolicy.requirePublicDestination("mangadex.org")
+  }
+
+  @Test
+  fun literalParserMatchesThePlatformForWellFormedAddresses() {
+    for (literal in listOf(
+      "1.1.1.1",
+      "255.255.255.255",
+      "0.0.0.0",
+      "2606:4700:4700::1111",
+      "::1",
+      "::",
+      "fe80::1",
+      "2001:db8:0:0:1:0:0:1",
+      "64:ff9b::1.2.3.4"
+    )) {
+      assertArrayEquals(
+        "$literal should parse like the platform",
+        InetAddress.getByName(literal).address,
+        NemuNativeHttpAddressPolicy.parseIpLiteral(literal)
+      )
+    }
+    assertNull(NemuNativeHttpAddressPolicy.parseIpLiteral("source.example"))
+  }
+
+  private fun assertBlockedDestination(hostname: String) {
+    assertThrows(
+      "$hostname should be blocked before any connection",
+      UnknownHostException::class.java
+    ) {
+      NemuNativeHttpAddressPolicy.requirePublicDestination(hostname)
+    }
   }
 
   private fun assertPublic(literal: String) {

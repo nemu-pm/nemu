@@ -129,8 +129,11 @@ class NemuAidokuModule : Module() {
     // Source packages are untrusted programs. Resolve only public destinations,
     // bypass process/system HTTP proxies that could relay private-network URLs,
     // and re-check the connected peer before every redirect hop sends bytes.
+    // The pre-flight runs first because OkHttp resolves IP-literal hosts itself
+    // and would otherwise reach the network interceptor only after connecting.
     .proxy(NEMU_NATIVE_HTTP_DIRECT_PROXY)
     .dns(NemuPublicAddressDns)
+    .addInterceptor(NemuPublicAddressPreflightInterceptor())
     .addInterceptor(AidokuExplicitCookiePolicyInterceptor())
     .addNetworkInterceptor(NemuPublicAddressNetworkInterceptor())
     .followRedirects(true)
@@ -422,9 +425,12 @@ class NemuAidokuModule : Module() {
   }
 
   private fun resetMobileSourceProfileAuthState(promise: Promise) {
-    // Cancel native source work before clearing both scoped and WebView cookie
-    // stores so a stale response cannot repopulate the next profile.
+    // Cancel native source work before clearing every scoped and WebView cookie
+    // store so a stale response cannot repopulate the next profile. The sandbox
+    // jars are the ones `executeSandboxHttpRequest` and image decoration use,
+    // so leaving them behind would carry a source login across the transition.
     nativeHttpCookieStore.clear()
+    sandboxCookieStore.clear()
     cancelInFlightWork()
 
     val settled = AtomicBoolean(false)

@@ -281,10 +281,17 @@ internal class AidokuSandboxCookieInterceptor(
   }
 }
 
-/** Keeps bounded, independently scoped sandbox cookie jars by source key. */
+/**
+ * Keeps bounded, independently scoped sandbox cookie jars by source key.
+ * Clearing the store advances a generation before dropping its map, mirroring
+ * [NemuNativeHttpCookieStore] so a sandbox response already unwinding from a
+ * cancelled old-profile request cannot repopulate an old jar or publish its
+ * cookies into the next profile.
+ */
 internal class AidokuSandboxCookieStore(
   private val maxSources: Int = 128
 ) {
+  private val generation = AtomicLong(0)
   private val jars = object : LinkedHashMap<String, NemuCookieJar>(16, 0.75f, true) {}
   private var closed = false
 
@@ -292,9 +299,11 @@ internal class AidokuSandboxCookieStore(
   fun get(sourceKey: String): NemuCookieJar {
     check(!closed) { "The Aidoku sandbox cookie store is closed." }
     jars[sourceKey]?.let { return it }
+    val jarGeneration = generation.get()
     val jar = NemuCookieJar(
       webViewCookiePolicy = AidokuWebViewCookiePolicy.CLEARANCE_ONLY,
-      persistClearanceToWebView = false
+      persistClearanceToWebView = false,
+      isActive = { generation.get() == jarGeneration }
     )
     jars[sourceKey] = jar
     while (jars.size > maxSources) {
@@ -306,9 +315,17 @@ internal class AidokuSandboxCookieStore(
     return jar
   }
 
+  /** Drops every source's sandbox cookies on an account/profile transition. */
+  @Synchronized
+  fun clear() {
+    generation.incrementAndGet()
+    jars.clear()
+  }
+
   @Synchronized
   fun close() {
     closed = true
+    generation.incrementAndGet()
     jars.clear()
   }
 

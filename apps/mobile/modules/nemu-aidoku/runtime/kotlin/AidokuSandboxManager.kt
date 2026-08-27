@@ -32,6 +32,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import kotlin.math.abs
@@ -427,6 +428,7 @@ internal class AidokuSandboxManager(
       val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(SANDBOX_OPERATION_TIMEOUT_MS)
       val outputFuture = CompletableFuture<ByteArray>()
       val port = createImageMessagePort(activeIsolate, portName, outputFuture)
+      var imageDataConsumed = false
       try {
         provideNamedData(activeIsolate, dataName, imageBytes)
         operation.put("kind", "process-page-image")
@@ -436,6 +438,7 @@ internal class AidokuSandboxManager(
         operation.put("outputPortName", portName)
 
         val result = JSONObject(executeOperationLocked(session, operation.toString(), deadline))
+        imageDataConsumed = true
         if (result.isNull("value")) return@submit null
         val value = result.getJSONObject("value")
         return@submit when (value.getString("kind")) {
@@ -454,6 +457,9 @@ internal class AidokuSandboxManager(
           else -> throw IllegalStateException("Invalid isolated Aidoku image result.")
         }
       } finally {
+        // A failed or timed-out round leaves its input pinned in the isolate
+        // until the isolate itself is closed; up to 8 MiB per image.
+        if (!imageDataConsumed) releaseNamedData(dataName)
         outputFuture.cancel(true)
         runCatching { port.close() }
       }
@@ -574,12 +580,23 @@ internal class AidokuSandboxManager(
     synchronized(this) {
       check(!closed) { "The isolated Aidoku runtime is closed." }
     }
-    return executor.submit<T> {
-      try {
-        block()
-      } catch (error: Throwable) {
-        if (error is TimeoutException) recycleIsolate()
-        throw error
+    return try {
+      executor.submit<T> {
+        try {
+          block()
+        } catch (error: Throwable) {
+          if (error is TimeoutException) recycleIsolate()
+          throw error
+        }
+      }
+    } catch (error: RejectedExecutionException) {
+      // `close()` raced in after the check above. Callers hand this Future to
+      // `settleSandboxPromise`, so throwing here would escape its try/catch and
+      // leave the JS promise pending forever. Fail the Future instead.
+      CompletableFuture<T>().apply {
+        completeExceptionally(
+          IllegalStateException("The isolated Aidoku runtime is closed.", error)
+        )
       }
     }
   }
@@ -673,16 +690,22 @@ internal class AidokuSandboxManager(
     provideNamedData(activeIsolate, dataName, bytes)
     val persistedSettingsJson = settingsStore.load(session.sourceKey)
     val imageProcessorTransportAvailable = isImageTransportSupported()
-    val output = evaluate(
-      "NemuAidokuSandbox.registerSession(" +
-        "${quote(session.id)},${quote(session.sourceKey)}," +
-        "${quote(session.expectedSourceId)},${session.expectedVersion},${quote(dataName)}," +
-        "JSON.parse(${quote(session.settingsJson)})," +
-        "JSON.parse(${quote(persistedSettingsJson)})," +
-        "$imageProcessorTransportAvailable)",
-      SANDBOX_BOOT_TIMEOUT_MS
-    )
-    requireStatus(output, "registered")
+    var consumed = false
+    try {
+      val output = evaluate(
+        "NemuAidokuSandbox.registerSession(" +
+          "${quote(session.id)},${quote(session.sourceKey)}," +
+          "${quote(session.expectedSourceId)},${session.expectedVersion},${quote(dataName)}," +
+          "JSON.parse(${quote(session.settingsJson)})," +
+          "JSON.parse(${quote(persistedSettingsJson)})," +
+          "$imageProcessorTransportAvailable)",
+        SANDBOX_BOOT_TIMEOUT_MS
+      )
+      requireStatus(output, "registered")
+      consumed = true
+    } finally {
+      if (!consumed) releaseNamedData(dataName)
+    }
     session.registeredGeneration = generation
   }
 
@@ -752,13 +775,25 @@ internal class AidokuSandboxManager(
 
             val dataName = "http-${UUID.randomUUID()}"
             provideNamedData(ensureRuntime(), dataName, response.bytes)
-            val append = evaluate(
-              "NemuAidokuSandbox.appendReplayResponse(" +
-                "${quote(operationId)},$cursor,${requestJson},${response.status}," +
-                "${JSONObject(response.headers)},${quote(dataName)})",
-              remainingMillis(deadline)
-            )
-            requireStatus(append, "appended")
+            var consumed = false
+            try {
+              // Source-authored request fields and server-authored response
+              // headers are untrusted text. Route them through the same
+              // quote() -> JSON.parse discipline as every other value instead
+              // of pasting them into the script as object literals.
+              val append = evaluate(
+                "NemuAidokuSandbox.appendReplayResponse(" +
+                  "${quote(operationId)},$cursor," +
+                  "JSON.parse(${quote(requestJson.toString())}),${response.status}," +
+                  "JSON.parse(${quote(JSONObject(response.headers).toString())})," +
+                  "${quote(dataName)})",
+                remainingMillis(deadline)
+              )
+              requireStatus(append, "appended")
+              consumed = true
+            } finally {
+              if (!consumed) releaseNamedData(dataName)
+            }
           }
           else -> throw IllegalStateException("Invalid isolated Aidoku runtime response.")
         }
@@ -1143,6 +1178,27 @@ internal class AidokuSandboxManager(
       throw IllegalStateException("Android System WebView cannot transfer AIX data safely.")
     }
     activeIsolate.provideNamedData(name, bytes)
+  }
+
+  /**
+   * Drops named data the isolate never consumed.
+   *
+   * AndroidX has no API to withdraw a provided buffer, and an unconsumed one is
+   * retained until the isolate closes, so a failing replay round could pin up
+   * to 16 MiB per attempt. Ask the isolate to consume and discard it instead.
+   * This is deliberately fire-and-forget: it must not block a failure path, and
+   * it must not count against the evaluation recycle budget or turn a rejected
+   * cleanup into a second runtime reset. A recycled isolate has already
+   * released everything, so there is nothing left to do.
+   */
+  private fun releaseNamedData(name: String) {
+    val activeIsolate = isolate ?: return
+    runCatching {
+      activeIsolate.evaluateJavaScriptAsync(
+        "android.consumeNamedDataAsArrayBuffer(${quote(name)}).then(" +
+          "function () {}, function () {});\"\""
+      )
+    }
   }
 
   private fun readPackageBytes(uriString: String): ByteArray {
