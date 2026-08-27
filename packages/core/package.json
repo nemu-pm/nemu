@@ -24,5 +24,8 @@
   "scripts": {
     "test": "bun test src",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fft.js": "^4.0.4"
   }
 }
