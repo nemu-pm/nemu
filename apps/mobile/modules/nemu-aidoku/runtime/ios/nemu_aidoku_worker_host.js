@@ -14,6 +14,13 @@
   let worker = null;
   let workerUrl = null;
   let nextCommandId = 0;
+  // Monotonic identity of the live Worker. The page may destroy and recreate a
+  // Worker on its own (watchdog, `onerror`, an oversized reply) while nothing
+  // is in flight, so no rejection reaches the native host. Every reply carries
+  // the epoch of the Worker that produced it; the host compares it against the
+  // epoch its sessions were registered under and re-registers on a mismatch
+  // instead of failing every later operation against an empty Worker.
+  let workerEpoch = 0;
   const pending = new Map();
 
   function boundedError(error) {
@@ -196,6 +203,8 @@ self.postMessage({ type: "booted" });
       new Blob([workerPrelude, runtimeSource, workerSuffix], { type: "text/javascript" }),
     );
     const nextWorker = new Worker(workerUrl);
+    workerEpoch += 1;
+    const epoch = workerEpoch;
     worker = nextWorker;
     nextWorker.onmessage = (event) => {
       const message = event.data;
@@ -210,7 +219,11 @@ self.postMessage({ type: "booted" });
       pending.delete(message.id);
       clearTimeout(state.timer);
       if (message.type === "result") {
-        const serialized = JSON.stringify({ value: message.value, namedData: message.namedData || {} });
+        const serialized = JSON.stringify({
+          value: message.value,
+          namedData: message.namedData || {},
+          epoch,
+        });
         if (
           serialized.length > MAX_RESULT_CHARACTERS ||
           new TextEncoder().encode(serialized).byteLength > MAX_RESULT_CHARACTERS

@@ -1981,6 +1981,10 @@ public class NemuAidokuModule: Module {
     let waitResult = semaphore.wait(timeout: .now() + timeoutSeconds)
     if waitResult == .timedOut {
       _ = coordinator.cancel(id: nativeRequestId)
+      // Mirror the async operations: cancelling leaves the ID in `prepared` and
+      // `cancelled`, and the late URLSession completion may never arrive to
+      // clear it. A JS retry that prepares the same ID would then be rejected.
+      coordinator.finish(id: nativeRequestId)
       return NemuNativeHttpResult(
         status: 0,
         headers: [:],
@@ -2147,6 +2151,10 @@ public class NemuAidokuModule: Module {
     let waitResult = semaphore.wait(timeout: .now() + timeoutSeconds)
     if waitResult == .timedOut {
       _ = coordinator.cancel(id: nativeRequestId)
+      // Mirror the async operations: cancelling leaves the ID in `prepared` and
+      // `cancelled`, and the late URLSession completion may never arrive to
+      // clear it. A JS retry that prepares the same ID would then be rejected.
+      coordinator.finish(id: nativeRequestId)
       return NemuNativeHttpResult(
         status: 0,
         headers: [:],

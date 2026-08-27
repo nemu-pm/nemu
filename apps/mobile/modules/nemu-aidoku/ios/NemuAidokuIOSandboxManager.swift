@@ -43,12 +43,13 @@ private struct NemuAidokuIOSandboxSession {
   let expectedSourceId: String
   let expectedVersion: Int
   var settingsJson: String
-  var registeredGeneration: Int = -1
+  var registration: NemuAidokuSandboxWorkerIdentity = .unregistered
 }
 
 private struct NemuAidokuIOSandboxWorkerReply {
   let value: String
   let namedData: [String: String]
+  let epoch: Int
 }
 
 private struct NemuAidokuIOSandboxOperationResult {
@@ -181,6 +182,9 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
   private let httpRequest: HttpRequestHandler
   private var sessions: [String: NemuAidokuIOSandboxSession] = [:]
   private var closed = false
+  // Identity of the Worker that produced the most recent reply. Only touched
+  // on `executor`, like `sessions`.
+  private var observedWorker = NemuAidokuSandboxWorkerIdentity.unregistered
 
   // Main-thread-only WebKit state.
   private var webView: WKWebView?
@@ -255,7 +259,7 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
         if var restored = previous {
           // registerSession overwrites the same worker ID. Cleanup below then
           // removes it, so a restored native descriptor must register again.
-          restored.registeredGeneration = -1
+          restored.registration = .unregistered
           self.sessions[sessionId] = restored
         } else {
           self.sessions.removeValue(forKey: sessionId)
@@ -281,10 +285,12 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
         throw Self.error("Aidoku session expired.")
       }
       try self.ensureSessionRegistered(sessionId)
-      return try self.executeOperationLocked(
-        sessionId: sessionId,
-        operationJson: operationJson
-      ).json
+      return try self.withLostRegistrationRetry(sessionId: sessionId) {
+        try self.executeOperationLocked(
+          sessionId: sessionId,
+          operationJson: operationJson
+        ).json
+      }
     }
   }
 
@@ -317,11 +323,15 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
       operation["imageWidth"] = dimensions.width
       operation["imageHeight"] = dimensions.height
       operation["outputPortName"] = outputName
-      let result = try self.executeOperationLocked(
-        sessionId: sessionId,
-        operationJson: try Self.jsonString(operation),
-        initialNamedData: [inputName: imageBytes.base64EncodedString()]
-      )
+      let imageOperationJson = try Self.jsonString(operation)
+      let encodedImage = imageBytes.base64EncodedString()
+      let result = try self.withLostRegistrationRetry(sessionId: sessionId) {
+        try self.executeOperationLocked(
+          sessionId: sessionId,
+          operationJson: imageOperationJson,
+          initialNamedData: [inputName: encodedImage]
+        )
+      }
       let parsed = try Self.jsonObject(result.json)
       guard let rawValue = parsed["value"], !(rawValue is NSNull) else { return nil }
       guard
@@ -365,12 +375,16 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
       session.settingsJson = settingsJson
       self.sessions[sessionId] = session
       try self.ensureSessionRegistered(sessionId)
-      return try self.invoke(
-        method: "updateSessionSettings",
-        args: [sessionId, try Self.jsonObject(settingsJson)],
-        namedData: [:],
-        timeoutSeconds: nemuIOSAidokuBootTimeoutSeconds
-      ).value
+      return try self.withLostRegistrationRetry(sessionId: sessionId) {
+        let reply = try self.invoke(
+          method: "updateSessionSettings",
+          args: [sessionId, try Self.jsonObject(settingsJson)],
+          namedData: [:],
+          timeoutSeconds: nemuIOSAidokuBootTimeoutSeconds
+        )
+        try Self.requireKnownSession(reply.value)
+        return reply.value
+      }
     }
   }
 
@@ -444,12 +458,55 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
     }
   }
 
+  /// Replays an operation once against a freshly registered session when the
+  /// runtime reports that our registration is gone. The page owns its Worker
+  /// lifetime and can recreate it while nothing is in flight, in which case no
+  /// rejection ever reaches `invoke` and nothing resets the runtime; without
+  /// this recovery every later operation for the source fails until the app
+  /// process restarts.
+  private func withLostRegistrationRetry<Value>(
+    sessionId: String,
+    _ body: () throws -> Value
+  ) throws -> Value {
+    do {
+      return try body()
+    } catch {
+      guard Self.isLostRegistration(error), sessions[sessionId] != nil else { throw error }
+      invalidateRegistration(sessionId)
+      try ensureSessionRegistered(sessionId)
+      return try body()
+    }
+  }
+
+  private func invalidateRegistration(_ sessionId: String) {
+    guard var session = sessions[sessionId] else { return }
+    session.registration = .unregistered
+    sessions[sessionId] = session
+  }
+
+  /// Records the Worker identity a reply came from. A new epoch means the page
+  /// recreated its Worker, so every session registered with the previous one
+  /// has to register again before it is used.
+  private func noteWorkerReply(generation: Int, epoch: Int) {
+    let identity = NemuAidokuSandboxWorkerIdentity(generation: generation, epoch: epoch)
+    guard identity.isRegistered, identity != observedWorker else { return }
+    observedWorker = identity
+    for (id, var session) in sessions where session.registration != identity {
+      session.registration = .unregistered
+      sessions[id] = session
+    }
+  }
+
   private func ensureSessionRegistered(_ sessionId: String) throws {
     guard var session = sessions[sessionId] else {
       throw Self.error("Aidoku session expired.")
     }
     let generation = try ensureRuntime()
-    if session.registeredGeneration == generation { return }
+    if !NemuAidokuSandboxSessionPolicy.requiresRegistration(
+      recorded: session.registration,
+      observed: observedWorker,
+      generation: generation
+    ) { return }
 
     let package = try Self.readPackageBytes(session.packageUri)
     let dataName = "aix-\(UUID().uuidString)"
@@ -475,8 +532,13 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
     }
     // The process may have terminated between the first ensureRuntime call
     // and invoke's own readiness check. Record the generation that actually
-    // accepted the package, not the stale pre-invoke snapshot.
-    session.registeredGeneration = activeGeneration
+    // accepted the package, not the stale pre-invoke snapshot. `noteWorkerReply`
+    // ran inside `invoke` and may have cleared this session, so write the fresh
+    // identity back afterwards.
+    session.registration = NemuAidokuSandboxWorkerIdentity(
+      generation: activeGeneration,
+      epoch: reply.epoch
+    )
     sessions[sessionId] = session
   }
 
@@ -502,6 +564,12 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
       namedData: [:],
       timeoutSeconds: remainingSeconds(deadline)
     )
+    // A different Worker answered than the one that accepted registerSession,
+    // so this session no longer exists inside it. Fail with the recoverable
+    // error before interpreting a reply the new Worker could not honour.
+    if begin.epoch >= 0, session.registration.epoch >= 0, begin.epoch != session.registration.epoch {
+      throw Self.lostRegistrationError("Aidoku session expired.")
+    }
     try Self.requireStatus(begin.value, expected: "started")
     guard let operationGeneration = currentReadyGeneration() else {
       throw Self.error("The isolated Aidoku WebContent process terminated during operation setup.")
@@ -583,10 +651,12 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
         )
         try Self.requireStatus(append.value, expected: "appended")
       case "error":
-        throw Self.error(
-          (parsed["detail"] as? String)?.prefix(2_048).description ??
-            "The isolated Aidoku runtime failed."
-        )
+        let detail = (parsed["detail"] as? String)?.prefix(2_048).description ??
+          "The isolated Aidoku runtime failed."
+        if NemuAidokuSandboxSessionPolicy.indicatesLostRegistration(status: parsed) {
+          throw Self.lostRegistrationError(detail)
+        }
+        throw Self.error(detail)
       default:
         throw Self.error("The isolated Aidoku runtime returned an invalid response.")
       }
@@ -610,10 +680,29 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
       )
       try Self.requireStatus(output.value, expected: "persisted")
     } catch {
-      // Disk is authoritative after commit. Reset the worker so the next
-      // registration imports that durable snapshot instead of rejecting an
-      // otherwise completed source operation.
-      resetRuntime()
+      // Disk is authoritative after commit, so the runtime has to import that
+      // snapshot again. Force re-registration for this source only: tearing the
+      // whole runtime down would drop every unrelated session for what is
+      // usually a per-source rejection. `invoke` already resets the runtime by
+      // itself for transport-level corruption.
+      NSLog(
+        "[NemuAidoku] Mirroring persisted Aidoku settings failed for %@: %@",
+        session.sourceKey,
+        String(describing: error)
+      )
+      invalidateRegistrations(sourceKey: session.sourceKey)
+      // The operation itself succeeded and its settings side effect is durable;
+      // the next operation re-registers and imports it. Anything else is a real
+      // failure for this session and must not be swallowed.
+      if Self.isLostRegistration(error) { return }
+      throw error
+    }
+  }
+
+  private func invalidateRegistrations(sourceKey: String) {
+    for (id, var session) in sessions where session.sourceKey == sourceKey {
+      session.registration = .unregistered
+      sessions[id] = session
     }
   }
 
@@ -621,10 +710,15 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
     _ completed: inout [String: Any],
     sourceKey: String
   ) {
+    // Page images are fetched by the JS image loader, not by the bounded native
+    // HTTP host, so this is the one source-controlled URL that never reaches
+    // `validatedRemoteHttpURL`. Attaching stored source cookies to a private or
+    // reserved destination would hand them to an SSRF target, so fail closed and
+    // leave the source's own headers untouched.
     guard
       var value = completed["value"] as? [String: Any],
       let urlString = value["url"] as? String,
-      URL(string: urlString) != nil
+      (try? NemuNativeHttpAddressPolicy.validatedURL(urlString)) != nil
     else { return }
     let rawHeaders = value["headers"] as? [String: Any] ?? [:]
     var headers = (try? Self.stringDictionary(
@@ -656,7 +750,7 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
     namedData: [String: String],
     timeoutSeconds: TimeInterval
   ) throws -> NemuAidokuIOSandboxWorkerReply {
-    _ = try ensureRuntime()
+    let generation = try ensureRuntime()
     let boundedTimeout = max(0.05, min(nemuIOSAidokuOperationTimeoutSeconds, timeoutSeconds))
     let command = try Self.jsonString([
       "method": method,
@@ -727,7 +821,9 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
     else {
       throw Self.error("The isolated Aidoku worker returned an invalid response.")
     }
-    return NemuAidokuIOSandboxWorkerReply(value: value, namedData: outputData)
+    let epoch = (envelope["epoch"] as? NSNumber)?.intValue ?? -1
+    noteWorkerReply(generation: generation, epoch: epoch)
+    return NemuAidokuIOSandboxWorkerReply(value: value, namedData: outputData, epoch: epoch)
   }
 
   private func ensureRuntime() throws -> Int {
@@ -929,11 +1025,23 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
   private static func requireStatus(_ json: String, expected: String) throws {
     let parsed = try jsonObject(json)
     guard parsed["status"] as? String == expected else {
-      throw error(
-        (parsed["detail"] as? String)?.prefix(2_048).description ??
-          "The isolated Aidoku runtime failed."
-      )
+      let detail = (parsed["detail"] as? String)?.prefix(2_048).description ??
+        "The isolated Aidoku runtime failed."
+      if NemuAidokuSandboxSessionPolicy.indicatesLostRegistration(status: parsed) {
+        throw lostRegistrationError(detail)
+      }
+      throw error(detail)
     }
+  }
+
+  /// Accepts any successful status but converts a lost registration into the
+  /// recoverable error so the caller can re-register and retry.
+  private static func requireKnownSession(_ json: String) throws {
+    let parsed = try jsonObject(json)
+    guard NemuAidokuSandboxSessionPolicy.indicatesLostRegistration(status: parsed) else { return }
+    throw lostRegistrationError(
+      (parsed["detail"] as? String)?.prefix(2_048).description ?? "Aidoku session expired."
+    )
   }
 
   private static func readPackageBytes(_ packageUri: String) throws -> Data {
@@ -1060,5 +1168,23 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
       code: 1,
       userInfo: [NSLocalizedDescriptionKey: detail]
     )
+  }
+
+  /// A recoverable failure: the runtime is healthy but no longer knows this
+  /// session, so registering again is enough.
+  private static func lostRegistrationError(_ detail: String) -> NSError {
+    NSError(
+      domain: "NemuAidokuIOSandbox",
+      code: lostRegistrationErrorCode,
+      userInfo: [NSLocalizedDescriptionKey: detail]
+    )
+  }
+
+  private static let lostRegistrationErrorCode = 2
+
+  private static func isLostRegistration(_ error: Error) -> Bool {
+    let nsError = error as NSError
+    return nsError.domain == "NemuAidokuIOSandbox" &&
+      nsError.code == lostRegistrationErrorCode
   }
 }
