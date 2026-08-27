@@ -39,9 +39,7 @@ The web path loads `@nemu.pm/tachiyomi-runtime/async`, which creates a Web Worke
 
 Expo documents web worker bundling as web-only: the native `Worker` API is not available in React Native or provided by the Expo SDK. Native mobile Tachiyomi parity therefore needs a dedicated Expo/native module, or another native-thread bridge, that can provide the same source execution, preferences, HTTP, image request, filter, listing, details, chapters, and page APIs exposed by the web adapter.
 
-The mobile app itself is not in this repository yet — it lands in a follow-up PR, which will document its own Tachiyomi bridge and any mobile-only environment variables. The constraint above is recorded here because it shapes what that PR can claim.
-
-Whatever that bridge ends up being, do not mark Tachiyomi as executable on mobile just because synced static metadata exists. Static settings, listings, and filters may be displayable, but live source operations must remain blocked until an actual mobile execution path is implemented and verified. On Android, that means a native Tachiyomi API/classloader bridge or a compiled-JavaScript package path. On iOS, Tachiyomi APK execution is treated as unsupported because APK extensions are Android packages; iOS support should come from compiled JavaScript packages or another portable package format.
+The mobile app therefore syncs and caches Tachiyomi package metadata but marks those sources as unsupported for live execution. Do not make them browseable merely because their static metadata or settings are available. On Android, enabling execution requires a native Tachiyomi API/classloader bridge or a compiled-JavaScript package path. On iOS, Tachiyomi APK execution remains unsupported because APK extensions are Android packages; iOS support should use compiled JavaScript packages or another portable package format.
 
 ## Why The External Build Pipelines Exist
 
