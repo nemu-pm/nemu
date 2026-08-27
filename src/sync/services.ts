@@ -800,7 +800,10 @@ function prepareLocalSignOut(
       // The anonymous provider may already have loaded while remote sign-out
       // was completing. Publish the atomic import so its Zustand views reload
       // immediately instead of remaining stale until a page refresh.
-      window.dispatchEvent(new Event(LOCAL_PROFILE_IMPORT_EVENT));
+      // Construct the event in the target window's own realm: dispatchEvent
+      // rejects events built by another realm's Event constructor.
+      const EventCtor = typeof window.Event === "function" ? window.Event : Event;
+      window.dispatchEvent(new EventCtor(LOCAL_PROFILE_IMPORT_EVENT));
     }
 
     // A different account may have signed in while the captured account was
