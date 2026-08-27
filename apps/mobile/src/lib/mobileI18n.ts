@@ -37,10 +37,14 @@ export type MobileStrings = {
     sourceCloudflareBlocked: string;
     sourceCloudflareBlockedDescription: string;
     sourceError: string;
+    sourceErrorDescription: string;
     sourceNetworkError: string;
     sourceNetworkErrorDescription: string;
     sourceRuntimeUnavailable: string;
     sourceRuntimeUnavailableDescription: string;
+    sourceUnsupported: string;
+    sourceUnsupportedBadge: string;
+    sourceUnsupportedTachiyomiDescription: string;
     uninstall: string;
     agentVerify: string;
     agentSheetOpening: string;
@@ -112,13 +116,19 @@ export type MobileStrings = {
     getStarted: string;
     installAndContinue: string;
     installing: string;
-    intro: string;
+    /**
+     * Pre-split display lines for the welcome copy. Each locale controls its
+     * own line breaks so CJK copy is not sliced on an English marker.
+     * Every locale must keep the same number of lines (i18n parity test).
+     */
+    introLines: [string, string, string];
     languageDescription: string;
     languageTitle: string;
     loadingSources: string;
     next: string;
     noRecommendedSources: string;
     selectRecommendedSource: string;
+    signIn: string;
     skip: string;
     sourceAlreadyInstalled: string;
     sourceInstallFailed: string;
@@ -128,8 +138,8 @@ export type MobileStrings = {
     sourcesTitle: string;
     startReading: string;
     syncHint: string;
+    /** Brand-aware title template. `{{brand}}` is rendered as styled "nemu". */
     title: string;
-    titlePrefix: string;
   };
   library: {
     addCompatibleSource: string;
@@ -203,10 +213,12 @@ export type MobileStrings = {
     close: string;
     cover: string;
     coverDescription: string;
+    coverFileMissing: string;
     coverPermissionDenied: string;
     coverPickFailed: string;
     coverPreview: string;
     coverSelected: string;
+    coverSizeUnavailable: string;
     coverTitle: string;
     coverUploadFailed: string;
     coverUploadUnavailable: string;
@@ -601,6 +613,19 @@ export type MobileStrings = {
     title: string;
     twoPageView: string;
     widenPageWidth: string;
+    // Added with the reading-loop / dismiss-trap fixes.
+    endOfChapterTitle: string;
+    endOfChapterNextLabel: string;
+    endOfChapterNextAction: string;
+    endOfChapterCaughtUpTitle: string;
+    endOfChapterCaughtUpDetail: string;
+    endOfChapterKeepReading: string;
+    endOfChapterDismiss: string;
+    errorDetailWithReason: string;
+    pageImageRetry: string;
+    noPagesTitle: string;
+    openSourceSettings: string;
+    sourceBlockedHint: string;
   };
   search: {
     addCompatibleSource: string;
@@ -777,6 +802,7 @@ export type MobileStrings = {
     sourceOAuthErrors: Record<MobileSourceOAuthErrorCode, string>;
     sourceUpdated: string;
     sourcesUpdated: string;
+    sourcesUpdatedTitle: string;
     settingsActionFailed: string;
     settingsActionFailedDetail: string;
     theme: string;
@@ -868,12 +894,18 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceCloudflareBlockedDescription:
         "This source requires Cloudflare verification, which is not securely available in this mobile build.",
       sourceError: "Source error",
+      sourceErrorDescription:
+        "This source could not complete the request. Try again in a moment.",
       sourceNetworkError: "Network error",
       sourceNetworkErrorDescription:
         "Nemu could not reach this source. Check your connection and try again.",
       sourceRuntimeUnavailable: "Source runtime unavailable",
       sourceRuntimeUnavailableDescription:
         "This build cannot run installed source packages yet. The current React Native JavaScript engine does not provide the complete WebAssembly runtime they require.",
+      sourceUnsupported: "Source not supported on mobile",
+      sourceUnsupportedBadge: "Unsupported",
+      sourceUnsupportedTachiyomiDescription:
+        "Tachiyomi sources are not supported on mobile yet. Use an Aidoku source instead.",
       uninstall: "Uninstall",
       agentVerify: "Verify",
       agentSheetOpening: "Starting Nemu Agent…",
@@ -894,7 +926,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       detailsLabel: "Details",
       messageLabel: "Message",
       retry: "Retry",
-      retrying: "Retrying...",
+      retrying: "Retrying…",
       title: "Something went wrong",
     },
     chapter: {
@@ -911,10 +943,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSourcesDescription: "Select a source from available registries",
       addSources: "Add Sources",
       allLanguages: "All",
-      chooseLanguages: "Choose Languages...",
+      chooseLanguages: "Choose Languages…",
       installAnyway: "Install Anyway",
       installingSource: "Installing Source",
-      installingSourceDescription: "Installing {{name}}...",
+      installingSourceDescription: "Installing {{name}}…",
       installingSourceDescriptionGeneric:
         "Please wait while the source is being installed.",
       installSourceNamed: "Install {{name}}",
@@ -950,16 +982,20 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       doneTitle: "You're all set!",
       getStarted: "Get Started",
       installAndContinue: "Install & Continue",
-      installing: "Installing...",
-      intro:
-        "A cross-platform manga reader that lets you discover and read manga from various Internet sources.\nLet's get you set up!",
+      installing: "Installing…",
+      introLines: [
+        "A cross-platform manga reader that lets you",
+        "discover and read manga from various Internet sources.",
+        "Let's get you set up!",
+      ],
       languageDescription: "Select your preferred app language",
       languageTitle: "Choose Language",
-      loadingSources: "Loading sources...",
+      loadingSources: "Loading sources…",
       next: "Next",
       noRecommendedSources:
         "Recommended sources are not available right now. You can add sources from Browse later.",
       selectRecommendedSource: "Select {{name}}",
+      signIn: "Sign In",
       skip: "Skip",
       sourceAlreadyInstalled: "Installed",
       sourceInstallFailed: "Source install failed",
@@ -971,8 +1007,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       startReading: "Start Reading",
       syncHint:
         "Sign in to sync your library and reading progress across all your devices.",
-      title: "Welcome to nemu",
-      titlePrefix: "Welcome to ",
+      title: "Welcome to {{brand}}",
     },
     library: {
       addCompatibleSource:
@@ -1054,11 +1089,14 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       cover: "Cover",
       coverDescription:
         "Paste an image URL to replace the source cover on this device.",
+      coverFileMissing: "The selected cover file no longer exists.",
       coverPermissionDenied:
         "Photo library access is required to choose a cover.",
       coverPickFailed: "Could not choose that image.",
       coverPreview: "Cover preview",
       coverSelected: "Selected image uploads on save.",
+      coverSizeUnavailable:
+        "The selected cover size could not be determined safely.",
       coverTitle: "Cover override",
       coverUploadFailed: "Cover upload failed.",
       coverUploadUnavailable:
@@ -1351,14 +1389,14 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       disabled: "Disabled",
       dualReadTargetAccessibility: "Dual-read {{source}}: {{detail}}",
       dualReadOverlayUnavailableTitle: "Unavailable for this chapter.",
-      dualReadOverlayUnavailableHint: "Open Dual Read... to realign chapters.",
+      dualReadOverlayUnavailableHint: "Open \"Dual Read…\" to realign chapters.",
       dualReadDialogTitle: "Dual Read",
       dualReadDialogDescription: "Choose a paired source and chapter pairing.",
       dualReadDialogNoLinkedSources: "No linked sources found for this manga.",
       dualReadDialogSecondarySource: "Paired source",
       dualReadDialogPrimaryChapter: "Current chapter",
       dualReadDialogSecondaryChapter: "Paired chapter",
-      dualReadDialogLoadingChapters: "Loading chapters...",
+      dualReadDialogLoadingChapters: "Loading chapters…",
       dualReadDialogChooseChapter: "Choose a chapter",
       dualReadDialogEnable: "Enable Dual Read",
       dualReadDialogDisable: "Disable Dual Read",
@@ -1369,7 +1407,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       dualReadPopoverSecondaryLabel: "Paired",
       dualReadPopoverChapterPair: "Chapter: {{primary}} <-> {{secondary}}",
       dualReadPopoverUnpaired: "Unpaired for this chapter",
-      dualReadPopoverLoadingPairing: "Loading chapter pairing...",
+      dualReadPopoverLoadingPairing: "Loading chapter pairing…",
       enabled: "Enabled",
       hideControls: "Hide reader controls",
       loadingChapterState: "Loading chapter state.",
@@ -1503,6 +1541,20 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       title: "Reader",
       twoPageView: "Two-page view",
       widenPageWidth: "Widen page width",
+      endOfChapterTitle: "End of chapter",
+      endOfChapterNextLabel: "Next: {{chapter}}",
+      endOfChapterNextAction: "Read next chapter",
+      endOfChapterCaughtUpTitle: "You're caught up",
+      endOfChapterCaughtUpDetail:
+        "This is the last chapter this source has right now.",
+      endOfChapterKeepReading: "Stay on this page",
+      endOfChapterDismiss: "Close end of chapter",
+      errorDetailWithReason: "{{message}} ({{reason}})",
+      pageImageRetry: "Retry this page",
+      noPagesTitle: "No pages loaded",
+      openSourceSettings: "Open source settings",
+      sourceBlockedHint:
+        "This source blocked the request. Reinstalling it or updating its settings may help.",
     },
     search: {
       addCompatibleSource: "Add a compatible source before searching.",
@@ -1537,7 +1589,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       searchInstalledSources: "Search installed sources",
       searchForManga: "Search for manga",
       searchUnavailable: "Search unavailable",
-      searching: "Searching...",
+      searching: "Searching…",
       searchingSelectedSources: "Searching selected source packages.",
       selectedOfSources: "{{selected}} of {{total}} sources",
       sourceAccessibility: "{{name}} source",
@@ -1625,14 +1677,14 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       editReaderPluginSettings: "Edit settings for {{name}}",
       editSourceSettings: "Edit settings for {{name}}",
       importSource: "Import AIX",
-      importingSource: "Importing...",
+      importingSource: "Importing…",
       installedSources: "Installed Sources",
       installedSourcesDescription:
         "Source packages, runtime settings, and local uninstall",
       language: "Language",
       languageDescription: "Prioritize sources for your app language",
       languageEnglish: "English",
-      languageChinese: "中文",
+      languageChinese: "简体中文",
       languageJapanese: "日本語",
       loading: "Loading settings",
       loadingReaderPlugins: "Loading reader plugins",
@@ -1722,6 +1774,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       },
       sourceUpdated: "Updated source: {{name}}",
       sourcesUpdated: "Updated {{count}} sources: {{names}}",
+      sourcesUpdatedTitle: "Sources updated",
       settingsActionFailed: "Settings action failed",
       settingsActionFailedDetail:
         "The settings change could not be saved on this device.",
@@ -1786,10 +1839,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       appIconLabel: "nemu 应用图标",
       close: "关闭关于 nemu",
       description:
-        "nemu 是一款跨平台漫画阅读器，让您能够从各种来源发现和阅读漫画。",
+        "nemu 是一款跨平台漫画阅读器，让你可以从各种来源发现和阅读漫画。",
       openSourceCode: "在 GitHub 打开 Nemu 源代码",
       sourceCode: "源代码",
-      tagline: "魔法の漫画リーダー",
+      tagline: "魔法般的漫画阅读器",
     },
     common: {
       add: "添加",
@@ -1803,7 +1856,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       externalLinkFailed: "无法打开链接",
       externalLinkFailedDetail: "无法在此设备上打开此链接。",
       expand: "展开",
-      goHome: "前往书库",
+      goHome: "前往书架",
       install: "安装",
       merge: "合并",
       moreTags: "还有 {{count}} 个标签",
@@ -1818,12 +1871,17 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceCloudflareBlockedDescription:
         "此源需要 Cloudflare 验证，但当前移动端构建无法安全提供该验证。",
       sourceError: "源错误",
+      sourceErrorDescription: "此源无法完成该请求。请稍后重试。",
       sourceNetworkError: "网络错误",
       sourceNetworkErrorDescription:
         "Nemu 无法连接到此源。请检查网络连接后重试。",
       sourceRuntimeUnavailable: "源运行时不可用",
       sourceRuntimeUnavailableDescription:
         "当前构建还不能运行已安装的源包。当前 React Native JavaScript 引擎未提供这些源所需的完整 WebAssembly 运行时。",
+      sourceUnsupported: "移动端暂不支持此源",
+      sourceUnsupportedBadge: "不支持",
+      sourceUnsupportedTachiyomiDescription:
+        "移动端暂不支持 Tachiyomi 源，请改用 Aidoku 源。",
       uninstall: "卸载",
       agentVerify: "验证",
       agentSheetOpening: "正在启动 Nemu Agent…",
@@ -1843,7 +1901,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       detailsLabel: "详情",
       messageLabel: "消息",
       retry: "重试",
-      retrying: "正在重试...",
+      retrying: "正在重试…",
       title: "出现了一些问题",
     },
     chapter: {
@@ -1860,10 +1918,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSourcesDescription: "从可用源仓库中选择一个源",
       addSources: "添加源",
       allLanguages: "全部",
-      chooseLanguages: "选择语言...",
+      chooseLanguages: "选择语言…",
       installAnyway: "仍然安装",
       installingSource: "正在安装源",
-      installingSourceDescription: "正在安装 {{name}}...",
+      installingSourceDescription: "正在安装 {{name}}…",
       installingSourceDescriptionGeneric: "请稍候，源正在安装中。",
       installSourceNamed: "安装 {{name}}",
       installed: "已安装",
@@ -1898,15 +1956,19 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       doneTitle: "设置完成！",
       getStarted: "开始使用",
       installAndContinue: "安装并继续",
-      installing: "安装中...",
-      intro:
-        "跨平台漫画阅读器，让你可以发现和阅读互联网上各种来源的漫画。\n让我们来完成初始设置吧！",
+      installing: "安装中…",
+      introLines: [
+        "跨平台漫画阅读器，",
+        "让你发现并阅读互联网上各种来源的漫画。",
+        "让我们来完成初始设置吧！",
+      ],
       languageDescription: "选择你偏好的应用语言",
       languageTitle: "选择语言",
-      loadingSources: "正在加载源...",
+      loadingSources: "正在加载源…",
       next: "下一步",
       noRecommendedSources: "当前无法加载推荐源。你之后可以在浏览中添加源。",
       selectRecommendedSource: "选择 {{name}}",
+      signIn: "登录",
       skip: "跳过",
       sourceAlreadyInstalled: "已安装",
       sourceInstallFailed: "源安装失败",
@@ -1916,11 +1978,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourcesTitle: "添加源",
       startReading: "开始阅读",
       syncHint: "登录以在所有设备间同步你的书架和阅读进度。",
-      title: "欢迎使用 nemu",
-      titlePrefix: "欢迎使用 ",
+      title: "欢迎使用 {{brand}}",
     },
     library: {
-      addCompatibleSource: "添加兼容源后即可开始构建您的 Nemu 书架。",
+      addCompatibleSource: "添加兼容源后即可开始构建你的 Nemu 书架。",
       addBooksAction: "添加书籍",
       addBooksDescription: "选择哪些书架作品属于 {{name}}。",
       addBooksEmpty: "书架还是空的。先添加漫画，再填充这个收藏。",
@@ -1991,10 +2052,12 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       close: "关闭元数据编辑器",
       cover: "封面",
       coverDescription: "粘贴图片 URL，以在此设备上替换源封面。",
+      coverFileMissing: "所选封面文件已不存在。",
       coverPermissionDenied: "需要照片图库权限才能选择封面。",
       coverPickFailed: "无法选择该图片。",
       coverPreview: "封面预览",
       coverSelected: "所选图片会在保存时上传。",
+      coverSizeUnavailable: "无法安全确定所选封面的大小。",
       coverTitle: "封面覆盖",
       coverUploadFailed: "封面上传失败。",
       coverUploadUnavailable: "上传封面前需要先配置云同步。",
@@ -2033,8 +2096,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       actionFailed: "漫画操作失败",
       actionFailedDetail: "无法在此设备上保存此漫画更改。",
       backToLibrary: "返回书架",
-      chapterCountLiveOne: "{{count}} 个实时章节",
-      chapterCountLiveOther: "{{count}} 个实时章节",
+      chapterCountLiveOne: "{{count}} 个最新章节",
+      chapterCountLiveOther: "{{count}} 个最新章节",
       chapterCountLocalOne: "{{count}} 个本地章节",
       chapterCountLocalOther: "{{count}} 个本地章节",
       chapters: "章节",
@@ -2156,7 +2219,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       nativeExecutor: "原生执行器",
       noLibraryMangaUsesSource: "书架中还没有漫画使用此源。",
       noLinkedMangaMatches: "没有已链接漫画匹配此搜索。",
-      noLiveMatches: "此源没有实时匹配结果。",
+      noLiveMatches: "此源没有找到最新匹配结果。",
       noLocalPackage: "没有本地 AIX 包",
       noMangaLoadedFromListing: "此列表尚未加载漫画。",
       noPackageListings: "此源未公开包列表。",
@@ -2256,10 +2319,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       currentChapter: "当前",
       description: "阅读方向、滚动和页面布局",
       disabled: "已停用",
-      dualReadTargetAccessibility: "双语阅读 {{source}}：{{detail}}",
+      dualReadTargetAccessibility: "双源阅读 {{source}}：{{detail}}",
       dualReadOverlayUnavailableTitle: "此章节不可用。",
-      dualReadOverlayUnavailableHint: "打开双语阅读… 重新对齐章节。",
-      dualReadDialogTitle: "双语阅读",
+      dualReadOverlayUnavailableHint: "打开“双源阅读…”以重新对齐章节。",
+      dualReadDialogTitle: "双源阅读",
       dualReadDialogDescription: "选择配对的源与章节配对。",
       dualReadDialogNoLinkedSources: "未找到此漫画的关联源。",
       dualReadDialogSecondarySource: "配对源",
@@ -2267,12 +2330,12 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       dualReadDialogSecondaryChapter: "配对章节",
       dualReadDialogLoadingChapters: "正在加载章节…",
       dualReadDialogChooseChapter: "选择一个章节",
-      dualReadDialogEnable: "启用双语阅读",
-      dualReadDialogDisable: "关闭双语阅读",
+      dualReadDialogEnable: "启用双源阅读",
+      dualReadDialogDisable: "关闭双源阅读",
       dualReadDialogCancel: "取消",
-      dualReadFabLabel: "双语阅读",
+      dualReadFabLabel: "双源阅读",
       dualReadPopoverNoLinkedSources: "未找到关联源。",
-      dualReadPopoverLinkSecondary: "关联另一个源以启用双语阅读。",
+      dualReadPopoverLinkSecondary: "关联另一个源以启用双源阅读。",
       dualReadPopoverSecondaryLabel: "已配对",
       dualReadPopoverChapterPair: "章节：{{primary}} <-> {{secondary}}",
       dualReadPopoverUnpaired: "此章节未配对",
@@ -2317,7 +2380,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       pluginDualReadDebugOverlay: "调试浮层",
       pluginDualReadDebugOverlayDescription: "显示调试浮层。",
       pluginDualReadDescription: "在两个源之间快速切换阅读同一漫画。",
-      pluginDualReadName: "双语阅读",
+      pluginDualReadName: "双源阅读",
       pluginJapaneseLearningAllLanguages: "对所有语言启用",
       pluginJapaneseLearningAllLanguagesDescription:
         "也为非日语漫画显示文字检测",
@@ -2405,6 +2468,18 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       title: "阅读器",
       twoPageView: "双页视图",
       widenPageWidth: "扩大页面宽度",
+      endOfChapterTitle: "本章结束",
+      endOfChapterNextLabel: "下一章：{{chapter}}",
+      endOfChapterNextAction: "阅读下一章",
+      endOfChapterCaughtUpTitle: "已看到最新",
+      endOfChapterCaughtUpDetail: "这是该来源目前提供的最后一章。",
+      endOfChapterKeepReading: "留在本页",
+      endOfChapterDismiss: "关闭章节结束提示",
+      errorDetailWithReason: "{{message}}（{{reason}}）",
+      pageImageRetry: "重试此页",
+      noPagesTitle: "未加载任何页面",
+      openSourceSettings: "打开来源设置",
+      sourceBlockedHint: "该来源拒绝了此请求。重新安装或更新其设置可能有帮助。",
     },
     search: {
       addCompatibleSource: "请先添加兼容源再搜索。",
@@ -2421,7 +2496,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       liveSearchNeedsCache: "请先选择或安装带缓存包的源，才能运行实时源搜索。",
       liveSourceResults: "实时源结果",
       liveSourceSearch: "实时源搜索",
-      noLiveMatches: "此源没有实时匹配结果。",
+      noLiveMatches: "此源没有找到最新匹配结果。",
       noSavedMatches: "此源没有已保存的匹配结果。",
       noSavedMatchesForQuery: "没有已保存漫画匹配“{{query}}”。",
       noSources: "无源",
@@ -2436,12 +2511,12 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       searchInstalledSources: "搜索已安装源",
       searchForManga: "搜索漫画",
       searchUnavailable: "搜索不可用",
-      searching: "搜索中...",
+      searching: "搜索中…",
       searchingSelectedSources: "正在搜索选中的源包。",
       selectedOfSources: "已选择 {{total}} 个源中的 {{selected}} 个",
       sourceAccessibility: "{{name}} 源",
       sourceSelectionHint: "切换此源。双击或长按仅搜索此源。",
-      updated: "更新",
+      updated: "已更新",
     },
     settings: {
       aboutNemuBeforeBrand: "关于 ",
@@ -2470,10 +2545,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       clearCache: "清除缓存",
       clearCacheConfirm:
         "要从此设备移除缓存的源包吗？已安装源和书架条目会保留。",
-      clearCacheDescription: "移除缓存的源包，不更改您的书架",
+      clearCacheDescription: "移除缓存的源包，不更改你的书架",
       clearCloudData: "同时删除云端数据",
       clearCloudDataDescription:
-        "从您的 Nemu 账号移除已同步的书架、收藏和阅读进度。",
+        "从你的 Nemu 账号移除已同步的书架、收藏和阅读进度。",
       cloudSync: "云同步",
       cloudSyncCheckingSession: "正在检查云会话",
       cloudSyncContinueWith: "通过 {{provider}} 继续",
@@ -2521,7 +2596,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       language: "语言",
       languageDescription: "按应用语言优先排列源",
       languageEnglish: "English",
-      languageChinese: "中文",
+      languageChinese: "简体中文",
       languageJapanese: "日本語",
       loading: "正在加载设置",
       loadingReaderPlugins: "正在加载阅读器插件",
@@ -2604,6 +2679,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       },
       sourceUpdated: "已更新源：{{name}}",
       sourcesUpdated: "已更新 {{count}} 个源：{{names}}",
+      sourcesUpdatedTitle: "源已更新",
       settingsActionFailed: "设置操作失败",
       settingsActionFailedDetail: "无法在此设备上保存此设置更改。",
       theme: "主题",
@@ -2696,12 +2772,18 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceCloudflareBlockedDescription:
         "このソースには Cloudflare 認証が必要ですが、現在のモバイルビルドでは安全に利用できません。",
       sourceError: "ソースエラー",
+      sourceErrorDescription:
+        "このソースはリクエストを完了できませんでした。しばらくしてからもう一度お試しください。",
       sourceNetworkError: "ネットワークエラー",
       sourceNetworkErrorDescription:
         "Nemu はこのソースに接続できませんでした。接続を確認してからもう一度お試しください。",
       sourceRuntimeUnavailable: "ソースランタイムを利用できません",
       sourceRuntimeUnavailableDescription:
         "このビルドではインストール済みソースパッケージをまだ実行できません。現在の React Native JavaScript エンジンには、これらのソースが必要とする完全な WebAssembly ランタイムがありません。",
+      sourceUnsupported: "モバイルでは非対応のソースです",
+      sourceUnsupportedBadge: "非対応",
+      sourceUnsupportedTachiyomiDescription:
+        "Tachiyomi のソースはモバイルではまだ対応していません。Aidoku のソースをご利用ください。",
       uninstall: "アンインストール",
       agentVerify: "認証",
       agentSheetOpening: "Nemu Agent を起動しています…",
@@ -2722,7 +2804,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       detailsLabel: "詳細",
       messageLabel: "メッセージ",
       retry: "再試行",
-      retrying: "再試行中...",
+      retrying: "再試行中…",
       title: "問題が発生しました",
     },
     chapter: {
@@ -2739,10 +2821,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSourcesDescription: "利用可能なレジストリからソースを選択",
       addSources: "ソースを追加",
       allLanguages: "すべて",
-      chooseLanguages: "言語を選択...",
+      chooseLanguages: "言語を選択…",
       installAnyway: "それでもインストール",
       installingSource: "ソースをインストール中",
-      installingSourceDescription: "{{name}}をインストール中...",
+      installingSourceDescription: "{{name}} をインストール中…",
       installingSourceDescriptionGeneric:
         "ソースをインストール中です。しばらくお待ちください。",
       installSourceNamed: "{{name}} をインストール",
@@ -2779,16 +2861,20 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       doneTitle: "準備完了！",
       getStarted: "始める",
       installAndContinue: "インストールして続ける",
-      installing: "インストール中...",
-      intro:
-        "様々なインターネットソースから漫画を発見して読むことができるクロスプラットフォーム漫画リーダーです。\nセットアップを始めましょう！",
+      installing: "インストール中…",
+      introLines: [
+        "様々なインターネットソースから漫画を見つけて読める、",
+        "クロスプラットフォームの漫画リーダーです。",
+        "セットアップを始めましょう！",
+      ],
       languageDescription: "お好みのアプリ言語を選択してください",
       languageTitle: "言語を選択",
-      loadingSources: "ソースを読み込み中...",
+      loadingSources: "ソースを読み込み中…",
       next: "次へ",
       noRecommendedSources:
         "おすすめソースを現在読み込めません。あとで「探す」から追加できます。",
       selectRecommendedSource: "{{name}} を選択",
+      signIn: "サインイン",
       skip: "スキップ",
       sourceAlreadyInstalled: "インストール済み",
       sourceInstallFailed: "ソースのインストールに失敗しました",
@@ -2800,8 +2886,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       startReading: "読み始める",
       syncHint:
         "サインインして、すべてのデバイスでライブラリと読書進捗を同期しましょう。",
-      title: "nemuへようこそ",
-      titlePrefix: "ようこそ ",
+      title: "{{brand}}へようこそ",
     },
     library: {
       addCompatibleSource:
@@ -2817,7 +2902,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       all: "すべて",
       closeAddBooks: "本の追加を閉じる",
       collectionEmpty:
-        "このコレクションは空です。本を追加して棚を埋めましょう。",
+        "このコレクションは空です。本を追加して埋めましょう。",
       collectionChipAccessibility: "{{name}}、{{countLabel}}",
       collectionMangaAccessibility: "{{title}}、{{sourceCountLabel}}",
       collectionName: "コレクション名",
@@ -2839,7 +2924,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       mangaSourceCountOther: "{{count}} 件のソース",
       new: "新規",
       newCollection: "新規コレクション",
-      newCollectionDescription: "集中して読むリスト用の棚を作成します。",
+      newCollectionDescription: "集中して読むためのコレクションを作成します。",
       noSources: "ソースがインストールされていません",
       noSourcesDescription: "ソースを追加して漫画の発見と閲覧を始めましょう",
       empty: "ライブラリは空です",
@@ -2852,7 +2937,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       removeCollectionNamed: "{{name}} を削除",
       renameCollection: "コレクション名を変更",
       renameCollectionAccessibility: "{{name}} の名前を変更",
-      renameDescription: "この棚をライブラリ全体で更新します。",
+      renameDescription: "このコレクション名をライブラリ全体で更新します。",
       startSearching: "検索を開始",
       updated: "更新あり",
       updateMembershipDescription: "本をタップして追加または削除します。",
@@ -2867,12 +2952,12 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       createCollection: "コレクションを作成",
       loading: "コレクションを読み込み中",
       newCollection: "新規コレクション",
-      newCollectionDescription: "棚を作成し、このタイトルに選択します。",
+      newCollectionDescription: "コレクションを作成し、このタイトルに設定します。",
       noCollections: "コレクションはまだありません。下で作成できます。",
       saving: "保存中",
       saveWithCount: "{{count}} 件を保存",
-      subtitle: "このタイトルの棚を選択",
-      subtitleForTitle: "{{title}} の棚を選択",
+      subtitle: "このタイトルのコレクションを選択",
+      subtitleForTitle: "{{title}} のコレクションを選択",
       title: "コレクション",
     },
     metadataEditor: {
@@ -2884,11 +2969,13 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       cover: "表紙",
       coverDescription:
         "画像 URL を貼り付けると、このデバイスのソース表紙を置き換えます。",
+      coverFileMissing: "選択した表紙ファイルが見つかりません。",
       coverPermissionDenied:
         "表紙を選ぶには写真ライブラリへのアクセスが必要です。",
       coverPickFailed: "この画像を選択できませんでした。",
       coverPreview: "表紙プレビュー",
       coverSelected: "選択した画像は保存時にアップロードされます。",
+      coverSizeUnavailable: "選択した表紙のサイズを安全に特定できませんでした。",
       coverTitle: "表紙の上書き",
       coverUploadFailed: "表紙のアップロードに失敗しました。",
       coverUploadUnavailable:
@@ -2929,8 +3016,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       actionFailed: "漫画の操作に失敗しました",
       actionFailedDetail: "このデバイスに漫画の変更を保存できませんでした。",
       backToLibrary: "ライブラリに戻る",
-      chapterCountLiveOne: "{{count}} 件のライブチャプター",
-      chapterCountLiveOther: "{{count}} 件のライブチャプター",
+      chapterCountLiveOne: "{{count}} 件の最新チャプター",
+      chapterCountLiveOther: "{{count}} 件の最新チャプター",
       chapterCountLocalOne: "{{count}} 件のローカルチャプター",
       chapterCountLocalOther: "{{count}} 件のローカルチャプター",
       chapters: "チャプター",
@@ -2951,7 +3038,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       manageSourcesHint: "この漫画にリンクされたソース管理を開きます。",
       nativeRuntimeRequired:
         "このソースの完全なチャプター一覧を取得するには、ネイティブランタイム実行が必要です。",
-      noChapters: "話なし",
+      noChapters: "チャプターなし",
       noChapterYet: "まだチャプターがありません",
       openChapter: "{{chapter}} を開く",
       readActionHint: "選択したチャプターをリーダーで開きます。",
@@ -3063,7 +3150,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       noLibraryMangaUsesSource:
         "このソースを使うライブラリ漫画はまだありません。",
       noLinkedMangaMatches: "この検索に一致するリンク済み漫画はありません。",
-      noLiveMatches: "このソースにライブ一致はありません。",
+      noLiveMatches: "このソースでは一致する作品が見つかりませんでした。",
       noLocalPackage: "ローカル AIX パッケージがありません",
       noMangaLoadedFromListing:
         "このリストからはまだ漫画を読み込んでいません。",
@@ -3142,7 +3229,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       searchSourceHint: "このソース内の検索を開きます。",
       searchSourcePlaceholder: "このソースを検索",
       searchThisSource: "このソースを検索しています。",
-      selectListingToBrowse: "このソースを探すリストを選択してください。",
+      selectListingToBrowse: "閲覧するリストを選択してください。",
       selectedFilterCount: "{{count}} 件を選択中",
       settingCountOne: "1 件の設定",
       settingCountOther: "{{count}} 件の設定",
@@ -3181,30 +3268,30 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       currentChapter: "現在",
       description: "読書方向、スクロール、ページレイアウト",
       disabled: "無効",
-      dualReadTargetAccessibility: "デュアル読み {{source}}: {{detail}}",
-      dualReadOverlayUnavailableTitle: "この章では利用できません。",
+      dualReadTargetAccessibility: "{{source}} で2ソース同時読み: {{detail}}",
+      dualReadOverlayUnavailableTitle: "このチャプターでは利用できません。",
       dualReadOverlayUnavailableHint:
-        "バイリンガルモード… を開いて章を再調整してください。",
-      dualReadDialogTitle: "バイリンガルモード",
-      dualReadDialogDescription: "ペアリングするソースと章を選択してください。",
+        "「2ソース同時読み…」を開いてチャプターを再調整してください。",
+      dualReadDialogTitle: "2ソース同時読み",
+      dualReadDialogDescription: "ペアリングするソースとチャプターを選択してください。",
       dualReadDialogNoLinkedSources:
         "この漫画のリンク済みソースが見つかりません。",
       dualReadDialogSecondarySource: "ペアソース",
-      dualReadDialogPrimaryChapter: "現在の章",
-      dualReadDialogSecondaryChapter: "ペア章",
-      dualReadDialogLoadingChapters: "章を読み込み中…",
-      dualReadDialogChooseChapter: "章を選択",
-      dualReadDialogEnable: "バイリンガルモードを有効化",
-      dualReadDialogDisable: "バイリンガルモードを無効化",
+      dualReadDialogPrimaryChapter: "現在のチャプター",
+      dualReadDialogSecondaryChapter: "ペアのチャプター",
+      dualReadDialogLoadingChapters: "チャプターを読み込み中…",
+      dualReadDialogChooseChapter: "チャプターを選択",
+      dualReadDialogEnable: "2ソース同時読みを有効化",
+      dualReadDialogDisable: "2ソース同時読みを無効化",
       dualReadDialogCancel: "キャンセル",
-      dualReadFabLabel: "バイリンガルモード",
+      dualReadFabLabel: "2ソース同時読み",
       dualReadPopoverNoLinkedSources: "リンク済みソースが見つかりません。",
       dualReadPopoverLinkSecondary:
-        "別のソースをリンクしてバイリンガルモードを有効化してください。",
+        "別のソースをリンクして2ソース同時読みを有効化してください。",
       dualReadPopoverSecondaryLabel: "ペア済み",
-      dualReadPopoverChapterPair: "章: {{primary}} <-> {{secondary}}",
-      dualReadPopoverUnpaired: "この章はペア未設定",
-      dualReadPopoverLoadingPairing: "章のペアリングを読み込み中…",
+      dualReadPopoverChapterPair: "チャプター: {{primary}} <-> {{secondary}}",
+      dualReadPopoverUnpaired: "このチャプターはペア未設定",
+      dualReadPopoverLoadingPairing: "チャプターのペアリングを読み込み中…",
       enabled: "有効",
       hideControls: "リーダー操作を隠す",
       loadingChapterState: "チャプター状態を読み込み中です。",
@@ -3248,12 +3335,12 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
         "デバッグオーバーレイを表示します。",
       pluginDualReadDescription:
         "2つのソースを素早く切り替えて同じマンガを読めます。",
-      pluginDualReadName: "バイリンガルモード",
+      pluginDualReadName: "2ソース同時読み",
       pluginJapaneseLearningAllLanguages: "すべての言語で有効",
       pluginJapaneseLearningAllLanguagesDescription:
         "日本語以外の漫画でもテキスト検出を表示します",
       pluginJapaneseLearningAlternativeReadings: "別の読み",
-      pluginJapaneseLearningAskSentence: "この文を質問",
+      pluginJapaneseLearningAskSentence: "この文について質問",
       pluginJapaneseLearningAskWords: "複数の単語を質問",
       pluginJapaneseLearningAutoDetectText: "テキスト自動検出",
       pluginJapaneseLearningAutoDetectTextDescription:
@@ -3331,7 +3418,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       previousChapter: "前のチャプター",
       previousPage: "前のページ",
       previousSpread: "前の見開き",
-      progressNotCompleted: "進捗は未完了",
+      progressNotCompleted: "進捗は未完了です",
       readerPagesIdle: "リーダーページはまだ読み込まれていません。",
       savingProgress: "進捗を保存中",
       scroll: "スクロール",
@@ -3343,6 +3430,20 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       title: "リーダー",
       twoPageView: "見開き表示",
       widenPageWidth: "ページ幅を広くする",
+      endOfChapterTitle: "チャプターの終わり",
+      endOfChapterNextLabel: "次：{{chapter}}",
+      endOfChapterNextAction: "次のチャプターを読む",
+      endOfChapterCaughtUpTitle: "最新まで読みました",
+      endOfChapterCaughtUpDetail:
+        "現在このソースで公開されている最後のチャプターです。",
+      endOfChapterKeepReading: "このページに留まる",
+      endOfChapterDismiss: "チャプター終了の表示を閉じる",
+      errorDetailWithReason: "{{message}}（{{reason}}）",
+      pageImageRetry: "このページを再試行",
+      noPagesTitle: "ページを読み込めませんでした",
+      openSourceSettings: "ソース設定を開く",
+      sourceBlockedHint:
+        "ソースがリクエストをブロックしました。再インストールまたは設定の更新をお試しください。",
     },
     search: {
       addCompatibleSource: "検索する前に互換ソースを追加してください。",
@@ -3361,7 +3462,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
         "ライブソース検索を実行する前に、キャッシュ済みパッケージのあるソースを選択またはインストールしてください。",
       liveSourceResults: "ライブソース結果",
       liveSourceSearch: "ライブソース検索",
-      noLiveMatches: "このソースにライブ一致はありません。",
+      noLiveMatches: "このソースでは一致する作品が見つかりませんでした。",
       noSavedMatches: "このソースに保存済みの一致はありません。",
       noSavedMatchesForQuery:
         "「{{query}}」に一致する保存済み漫画はありません。",
@@ -3380,13 +3481,13 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       searchInstalledSources: "インストール済みソースを検索",
       searchForManga: "漫画を検索",
       searchUnavailable: "検索を利用できません",
-      searching: "検索中...",
+      searching: "検索中…",
       searchingSelectedSources: "選択したソースパッケージを検索しています。",
       selectedOfSources: "{{total}} 個中 {{selected}} 個のソース",
       sourceAccessibility: "{{name}} ソース",
       sourceSelectionHint:
         "このソースの選択を切り替えます。ダブルタップまたは長押しでこのソースのみ検索します。",
-      updated: "更新済み",
+      updated: "更新あり",
     },
     settings: {
       aboutNemuBeforeBrand: "",
@@ -3475,7 +3576,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       language: "言語",
       languageDescription: "アプリ言語に合わせてソースを優先表示",
       languageEnglish: "English",
-      languageChinese: "中文",
+      languageChinese: "简体中文",
       languageJapanese: "日本語",
       loading: "設定を読み込み中",
       loadingReaderPlugins: "リーダープラグインを読み込み中",
@@ -3570,6 +3671,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       },
       sourceUpdated: "ソースを更新しました: {{name}}",
       sourcesUpdated: "{{count}}個のソースを更新しました: {{names}}",
+      sourcesUpdatedTitle: "ソースを更新しました",
       settingsActionFailed: "設定操作に失敗しました",
       settingsActionFailedDetail:
         "このデバイスに設定変更を保存できませんでした。",

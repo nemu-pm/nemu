@@ -61,7 +61,7 @@ describe("mobile reader plugin helpers", () => {
       "应用语言",
       "简明日语",
     ]);
-    expect(dualRead.name).toBe("双语阅读");
+    expect(dualRead.name).toBe("双源阅读");
     expect(dualRead.settings[0].items?.[0].title).toBe("调试浮层");
   });
 

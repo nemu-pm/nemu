@@ -149,7 +149,7 @@ describe("mobile manga detail presentation", () => {
       "1 local chapter",
     );
     expect(formatMobileMangaDetailChapterCount(3, true, zh)).toBe(
-      "3 个实时章节",
+      "3 个最新章节",
     );
   });
 

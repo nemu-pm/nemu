@@ -113,21 +113,66 @@ describe("mobile i18n helpers", () => {
   });
 
   test("keeps mobile welcome copy aligned with web without web-based wording", () => {
-    expect(getMobileStrings("en").welcome.intro).toBe(
-      "A cross-platform manga reader that lets you discover and read manga from various Internet sources.\nLet's get you set up!",
+    expect(getMobileStrings("en").welcome.introLines.join(" ")).toBe(
+      "A cross-platform manga reader that lets you discover and read manga from various Internet sources. Let's get you set up!",
     );
-    expect(getMobileStrings("en").welcome.intro).not.toContain("web-based");
-    expect(getMobileStrings("zh").welcome.intro).toBe(
-      "跨平台漫画阅读器，让你可以发现和阅读互联网上各种来源的漫画。\n让我们来完成初始设置吧！",
+    expect(getMobileStrings("en").welcome.introLines.join(" ")).not.toContain(
+      "web-based",
     );
-    expect(getMobileStrings("zh").welcome.intro).not.toContain("基于 Web");
-    expect(getMobileStrings("ja").welcome.intro).toBe(
-      "様々なインターネットソースから漫画を発見して読むことができるクロスプラットフォーム漫画リーダーです。\nセットアップを始めましょう！",
+    expect(getMobileStrings("zh").welcome.introLines.join("")).toBe(
+      "跨平台漫画阅读器，让你发现并阅读互联网上各种来源的漫画。让我们来完成初始设置吧！",
     );
-    expect(getMobileStrings("ja").welcome.intro).not.toContain("ウェブベース");
+    expect(getMobileStrings("zh").welcome.introLines.join("")).not.toContain(
+      "基于 Web",
+    );
+    expect(getMobileStrings("ja").welcome.introLines.join("")).toBe(
+      "様々なインターネットソースから漫画を見つけて読める、クロスプラットフォームの漫画リーダーです。セットアップを始めましょう！",
+    );
+    expect(getMobileStrings("ja").welcome.introLines.join("")).not.toContain(
+      "ウェブベース",
+    );
     expect(getMobileStrings("ja").welcome.doneDescription).toBe(
       "インストールしたソースから漫画を探索しましょう。",
     );
+  });
+
+  test("lets every locale place the brand token in its own welcome title", () => {
+    // The wizard splits on `{{brand}}` and renders "nemu" as a styled span, so
+    // each locale controls word order instead of getting an English prefix.
+    expect(getMobileStrings("en").welcome.title).toBe("Welcome to {{brand}}");
+    expect(getMobileStrings("zh").welcome.title).toBe("欢迎使用 {{brand}}");
+    expect(getMobileStrings("ja").welcome.title).toBe("{{brand}}へようこそ");
+    for (const language of ["en", "zh", "ja"] as const) {
+      expect(getMobileStrings(language).welcome.title).toContain("{{brand}}");
+      expect(getMobileStrings(language).welcome.introLines).toHaveLength(3);
+    }
+  });
+
+  test("keeps every Simplified Chinese string free of Japanese kana", () => {
+    // zh.about.tagline was once a byte-identical copy of the ja string; kana in
+    // the zh catalog is always a copy/paste slip.
+    const kana = /[\u3040-\u309f\u30a0-\u30ff]/;
+    const offenders: string[] = [];
+    for (const [path, value] of flattenStringLeaves(
+      getMobileStringsForAudit().zh,
+    )) {
+      if (kana.test(value)) offenders.push(`${path}: ${value}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("uses one name per locale for the dual-source reader plugin", () => {
+    const zh = getMobileStrings("zh");
+    const ja = getMobileStrings("ja");
+    expect(zh.reader.pluginDualReadName).toBe("双源阅读");
+    expect(ja.reader.pluginDualReadName).toBe("2ソース同時読み");
+    // "Dual read" is two sources, not two languages.
+    for (const catalog of [zh, ja]) {
+      const rendered = JSON.stringify(catalog.reader);
+      expect(rendered).not.toContain("双语阅读");
+      expect(rendered).not.toContain("バイリンガル");
+      expect(rendered).not.toContain("デュアル読み");
+    }
   });
 
   test("returns localized nav and settings labels", () => {
@@ -168,7 +213,7 @@ describe("mobile i18n helpers", () => {
       "built-in native networking",
     );
     expect(getMobileStrings("zh").browse.installingSourceDescription).toBe(
-      "正在安装 {{name}}...",
+      "正在安装 {{name}}…",
     );
     expect(getMobileStrings("zh").browse.warningCloudflare).toContain(
       "内置原生网络",
@@ -240,7 +285,7 @@ describe("mobile i18n helpers", () => {
           title: "Blue Lock",
         },
       ),
-    ).toBe("Blue Lock の棚を選択");
+    ).toBe("Blue Lock のコレクションを選択");
     expect(
       formatMobileString(
         getMobileStrings("zh").collectionMembership.saveWithCount,
@@ -301,7 +346,7 @@ describe("mobile i18n helpers", () => {
         name: "Dual Reader",
       }),
     ).toBe("启用 Dual Reader");
-    expect(getMobileStrings("zh").reader.pluginDualReadName).toBe("双语阅读");
+    expect(getMobileStrings("zh").reader.pluginDualReadName).toBe("双源阅读");
     expect(
       formatMobileString(getMobileStrings("en").settings.sourceSettingsSelectOption, {
         name: "Image quality",
@@ -452,7 +497,7 @@ describe("mobile i18n helpers", () => {
           detail: `${getMobileStrings("zh").reader.currentChapter} / 第 12 章`,
         },
       ),
-    ).toBe("双语阅读 MangaDex：当前 / 第 12 章");
+    ).toBe("双源阅读 MangaDex：当前 / 第 12 章");
     expect(
       formatMobileString(getMobileStrings("ja").reader.openPlugin, {
         name: "Dual Read",
