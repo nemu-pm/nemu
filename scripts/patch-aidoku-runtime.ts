@@ -387,22 +387,30 @@ async function main() {
     return;
   }
 
-  let touchedFiles = 0;
+  // Compute every replacement before writing anything. A mid-run mismatch used
+  // to leave node_modules half-patched, and the already-written files then look
+  // "already patched" on the next install, so the failure never self-corrects.
+  const pendingWrites: { filePath: string; content: string }[] = [];
 
   for (const patch of patches) {
     const filePath = path.join(runtimeDistDir, patch.file);
-    let content = await readFile(filePath, "utf8");
-    const original = content;
+    const original = await readFile(filePath, "utf8");
+    let content = original;
 
     for (const replacement of patch.replacements) {
       content = replaceOnce(content, replacement.before, replacement.after, patch.file, replacement.label);
     }
 
     if (content !== original) {
-      await writeFile(filePath, content, "utf8");
-      touchedFiles += 1;
+      pendingWrites.push({ filePath, content });
     }
   }
+
+  for (const { filePath, content } of pendingWrites) {
+    await writeFile(filePath, content, "utf8");
+  }
+
+  const touchedFiles = pendingWrites.length;
 
   console.log(
     touchedFiles > 0

@@ -4,16 +4,11 @@
   "version": "1.0.0",
   "type": "module",
   "workspaces": [
-    "apps/*",
     "packages/*"
   ],
   "scripts": {
     "postinstall": "bun scripts/patch-aidoku-runtime.ts && bun scripts/patch-vaul-css.ts",
     "dev": "concurrently \"vite --host\" \"convex dev\"",
-    "mobile:dev": "bun run --filter @nemu/mobile start",
-    "mobile:typecheck": "bun run --filter @nemu/mobile typecheck",
-    "generate:mobile-app-icon-glow": "bun scripts/generate-mobile-app-icon-glow.ts",
-    "generate:mobile-aidoku-sandbox": "bun scripts/patch-aidoku-runtime.ts && bun scripts/build-mobile-aidoku-sandbox.ts",
     "build": "tsx scripts/generate-apple-secret.ts && tsc -b && vite build",
     "lint": "eslint .",
     "core:typecheck": "tsc -p packages/core/tsconfig.json",
@@ -160,16 +155,7 @@
     "uuid": "14.0.1"
   },
   "patchedDependencies": {
-    "@expo/cli@56.1.19": "patches/@expo-cli@56.1.19.patch",
-    "@react-native-community/javascriptcore@0.2.0": "patches/react-native-community-javascriptcore@0.2.0.patch",
-    "expo-background-task@56.0.21": "patches/expo-background-task@56.0.21.patch",
-    "expo@56.0.15": "patches/expo@56.0.15.patch",
-    "expo-modules-jsi@56.0.12": "patches/expo-modules-jsi@56.0.12.patch",
-    "react-native-worklets@0.8.3": "patches/react-native-worklets@0.8.3.patch",
-    "expo-sqlite@56.0.5": "patches/expo-sqlite@56.0.5.patch",
     "swiper@12.2.0": "patches/swiper@12.2.0.patch",
-    "vaul@1.1.2": "patches/vaul@1.1.2.patch",
-    "react-native@0.85.3": "patches/react-native@0.85.3.patch",
-    "@expo/ui@56.0.21": "patches/@expo%2Fui@56.0.21.patch"
+    "vaul@1.1.2": "patches/vaul@1.1.2.patch"
   }
 }
