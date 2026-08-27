@@ -76,9 +76,11 @@ export function MobileSourceLoginSheet({
   return (
     <MobileSheetScaffold
       visible={visible && setting !== null}
-      onRequestClose={() => {
-        if (!submitting) onClose();
-      }}
+      // Swallowing the close while submitting would strand the caller's
+      // `visible` flag on a sheet that is already gone. Pan-down is disabled
+      // instead, which makes the scaffold render an explicit dismiss control.
+      onRequestClose={onClose}
+      dismissLabel={strings.common.cancel}
       backdropDisabled={submitting}
     >
       <View style={styles.header}>
@@ -150,7 +152,8 @@ export function MobileSourceLoginSheet({
         <NemuButton
           accessibilityLabel={strings.common.cancel}
           containerStyle={styles.actionButton}
-          disabled={submitting}
+          // Cancel stays live while the credentials are in flight — it is the
+          // sheet's escape route.
           hapticFeedback="none"
           label={strings.common.cancel}
           onPress={onClose}

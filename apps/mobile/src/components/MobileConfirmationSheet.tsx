@@ -48,8 +48,10 @@ export function MobileConfirmationSheet({
   const { tokens } = useNemuTheme();
   const accentColor = destructive ? tokens.danger : tokens.primary;
 
-  const closeFromBackdrop = () => {
-    if (loading) return;
+  // The sheet only reports a close once it has actually closed, so swallowing
+  // it while loading would leave the caller's `visible` flag stuck true with
+  // nothing on screen. Always let the dismissal through.
+  const handleRequestClose = () => {
     void hapticPress();
     onCancel();
   };
@@ -57,7 +59,11 @@ export function MobileConfirmationSheet({
   return (
     <MobileSheetScaffold
       visible={visible}
-      onRequestClose={closeFromBackdrop}
+      onRequestClose={handleRequestClose}
+      dismissLabel={cancelLabel}
+      // Pan-down stays off during an in-flight confirm so the sheet cannot be
+      // swiped away by accident, which is why the scaffold renders an explicit
+      // dismiss control instead — plus the Cancel button below.
       backdropDisabled={loading}
     >
       <View style={styles.header}>
@@ -90,7 +96,9 @@ export function MobileConfirmationSheet({
         <NemuButton
           accessibilityLabel={cancelLabel}
           containerStyle={styles.actionButton}
-          disabled={loading}
+          // Cancel stays live while the confirm is in flight — it is the
+          // sheet's escape route. Callers that can abort should do so; the
+          // rest let the operation settle in the background.
           hapticFeedback="none"
           label={cancelLabel}
           onPress={onCancel}

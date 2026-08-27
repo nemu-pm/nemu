@@ -23,6 +23,16 @@ Use `@/design-system` for new mobile UI. The package is the public entry point f
 - Use `NemuInlineEmptyState` for inline empty/loading/error placeholders inside sections. Avoid raw square `GlassSurface` placeholders in screens.
 - Sheets should use `MobileNativeSheetScaffold` for native-feeling bottom sheets. `MobileSheetScaffold` exists only as a compatibility wrapper over the native scaffold, and sheets should not add redundant Done buttons when drag/tap dismissal is the primary interaction.
 
+## Sheet Escape Routes
+
+**A sheet must always have at least one escape route.** A user who opens a sheet must always be able to leave it, including — especially — while an operation is in flight.
+
+- Drag-to-dismiss is the default escape route. `MobileNativeSheetScaffold` renders a dismiss control automatically whenever `enablePanDownToClose` is `false`, and a caller's `showDismissButton={false}` cannot override that. Do not try to build a sheet with neither.
+- `MobileSheetScaffold`'s `backdropDisabled` turns off pan-down-to-close, so it implies the mandatory dismiss control. Pass `dismissLabel` so that control reads as the right verb (usually Cancel).
+- Never gate the close handler on a busy flag (`if (loading) return;`). The sheet reports a close only *after* it has closed, so swallowing it strands the caller's `visible` flag on a sheet that is no longer on screen.
+- Keep Cancel enabled during in-flight work. Cancel should abort the operation where an abort path exists (pass an `AbortSignal` down); where none exists it should still dismiss and let the operation settle in the background, surfacing its result via a toast.
+- Android hardware back dismisses sheets — `MobileNativeSheetScaffold` installs the `BackHandler` for you. Screens must not register a competing handler that swallows back while a sheet is open.
+
 ## Migration Notes
 
 The current mobile codebase still has many local `StyleSheet.create` blocks because complex reader/source/search screens predate the design-system entry point. New work should migrate the touched surface into `@/design-system` first, then implement feature code against the shared component.

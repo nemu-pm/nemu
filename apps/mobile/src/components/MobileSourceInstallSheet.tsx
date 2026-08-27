@@ -3,31 +3,44 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import {
   MobileCachedImage,
   MobileNativeSheetScaffold,
+  NemuButton,
   radius,
   useNemuTheme,
 } from "@/design-system";
+import { useMobileLanguageSettings } from "@/data/mobileHooks";
+import { getMobileStrings } from "@/lib/mobileI18n";
 
 type MobileSourceInstallSheetProps = {
   visible: boolean;
   title: string;
   sourceIcon?: string;
+  /**
+   * Aborts the package download and dismisses the sheet. Without it the sheet
+   * would be a non-dismissible spinner over an unbounded download.
+   */
+  onCancel?: () => void;
 };
 
 export function MobileSourceInstallSheet({
   visible,
   title,
   sourceIcon,
+  onCancel,
 }: MobileSourceInstallSheetProps) {
   const { tokens } = useNemuTheme();
+  const { appLanguage } = useMobileLanguageSettings();
+  const strings = getMobileStrings(appLanguage);
 
   return (
     <MobileNativeSheetScaffold
       visible={visible}
-      onClose={() => {}}
+      onClose={onCancel ?? (() => {})}
       title={title}
-      showDismissButton={false}
+      dismissLabel={strings.common.cancel}
+      // Pan-down stays off so a stray swipe cannot abandon an install, which
+      // is exactly why the scaffold must render the dismiss control instead.
       enablePanDownToClose={false}
-      snapPoints={[240]}
+      snapPoints={[280]}
       contentBottomInset={24}
       contentStyle={styles.sheet}
       testID="SourceInstallSheet"
@@ -67,6 +80,16 @@ export function MobileSourceInstallSheet({
         </View>
         <ActivityIndicator color={tokens.primary} size="large" />
       </View>
+      {onCancel ? (
+        <NemuButton
+          accessibilityLabel={strings.common.cancel}
+          containerStyle={styles.cancelAction}
+          hapticFeedback="none"
+          label={strings.common.cancel}
+          onPress={onCancel}
+          variant="secondary"
+        />
+      ) : null}
     </MobileNativeSheetScaffold>
   );
 }
@@ -77,6 +100,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 22,
     paddingTop: 2,
+  },
+  cancelAction: {
+    alignSelf: "stretch",
   },
   progressCluster: {
     flexDirection: "row",

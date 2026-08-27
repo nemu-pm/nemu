@@ -12,6 +12,10 @@ type MobileSheetScaffoldProps = {
   onRequestClose: () => void;
   backdropOnPress?: () => void;
   backdropDisabled?: boolean;
+  /** Chrome title. Also gives the mandatory dismiss control something to sit beside. */
+  title?: string;
+  dismissLabel?: string;
+  showDismissButton?: boolean;
   frameMaxHeight?: DimensionValue;
   sheetMinHeight?: DimensionValue;
   contentStyle?: StyleProp<ViewStyle>;
@@ -33,6 +37,9 @@ export function MobileSheetScaffold({
   onRequestClose,
   backdropOnPress,
   backdropDisabled = false,
+  title,
+  dismissLabel,
+  showDismissButton,
   frameMaxHeight,
   sheetMinHeight,
   contentStyle,
@@ -44,8 +51,13 @@ export function MobileSheetScaffold({
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={backdropOnPress ?? onRequestClose}
+      title={title}
+      {...(dismissLabel ? { dismissLabel } : {})}
+      showDismissButton={showDismissButton}
       snapPoints={snapPoints}
       fillContent={Boolean(snapPoints)}
+      // A disabled backdrop also disables pan-down-to-close, which makes the
+      // native scaffold render its mandatory dismiss control.
       enablePanDownToClose={!backdropDisabled}
       contentStyle={[
         contentStyle ?? styles.sheet,

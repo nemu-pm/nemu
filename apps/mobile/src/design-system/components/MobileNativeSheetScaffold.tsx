@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import {
+  BackHandler,
+  Platform,
   StyleSheet,
   Text,
   View,
@@ -88,7 +90,13 @@ export function MobileNativeSheetScaffold({
     ? Math.min(Math.max(resolvedSnapPointHeight, 240), availableSheetHeight)
     : undefined;
   const shouldUseScrollView = scroll && Boolean(snapPoints?.length);
-  const shouldRenderDismissButton = showDismissButton ?? Boolean(title);
+  // Escape-route invariant: with pan-down-to-close disabled there is no
+  // gesture left that can dismiss the sheet, so a dismiss control is mandatory
+  // and a caller's `showDismissButton={false}` cannot opt out of it. See
+  // design-system/USAGE.md.
+  const dismissButtonRequired = !enablePanDownToClose;
+  const shouldRenderDismissButton =
+    dismissButtonRequired || (showDismissButton ?? Boolean(title));
   const shouldRenderChrome = Boolean(title) || shouldRenderDismissButton;
   const chromeHeight = shouldRenderChrome ? SHEET_CHROME_HEIGHT : 0;
   const boundedContentHeight = boundedSnapPointHeight
@@ -164,6 +172,21 @@ export function MobileNativeSheetScaffold({
       clearProgrammaticCloseTimer();
     };
   }, [clearProgrammaticCloseTimer]);
+
+  // Android's hardware back must dismiss the sheet instead of being swallowed
+  // by whatever screen is behind it (or popping that screen out from under an
+  // open sheet).
+  useEffect(() => {
+    if (Platform.OS !== "android" || !visible) return;
+    const subscription = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        requestSheetClose();
+        return true;
+      },
+    );
+    return () => subscription.remove();
+  }, [requestSheetClose, visible]);
 
   return (
     <BottomSheet
