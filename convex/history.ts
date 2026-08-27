@@ -20,6 +20,51 @@ import { requireSyncMutationContext } from "./syncCompatibility";
 const HISTORY_RETARGET_PAGE_ITEMS = 128;
 const HISTORY_RETARGET_CONFLICT = "HISTORY_RETARGET_CONFLICT";
 
+/**
+ * Each batched item performs the same indexed reads and the same
+ * `chapter_progress` + `manga_progress` writes as a single `save`. Bound the
+ * transaction rather than letting a large local backlog exceed Convex's
+ * per-mutation limits. Mirrors `MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS` in
+ * `@nemu/core`, which chunks the client side to the same size.
+ */
+const MAX_HISTORY_SAVE_BATCH_ITEMS = 32;
+const HISTORY_SAVE_BATCH_LIMIT_EXCEEDED = "SYNC_HISTORY_SAVE_BATCH_LIMIT_EXCEEDED";
+
+/**
+ * The per-item shape is byte-identical to `save`'s own arguments minus the
+ * mutation-context fields, so the web and mobile clients can feed the exact
+ * same payload to either endpoint.
+ */
+const historySaveItem = v.object({
+  registryId: v.string(),
+  sourceId: v.string(),
+  sourceMangaId: v.string(),
+  sourceChapterId: v.string(),
+  progress: v.number(),
+  total: v.number(),
+  completed: v.boolean(),
+  lastReadAt: v.number(),
+  chapterNumber: v.optional(v.number()),
+  volumeNumber: v.optional(v.number()),
+  chapterTitle: v.optional(v.string()),
+  updatedAt: v.optional(v.number()),
+});
+
+type HistorySaveItem = {
+  registryId: string;
+  sourceId: string;
+  sourceMangaId: string;
+  sourceChapterId: string;
+  progress: number;
+  total: number;
+  completed: boolean;
+  lastReadAt: number;
+  chapterNumber?: number;
+  volumeNumber?: number;
+  chapterTitle?: string;
+  updatedAt?: number;
+};
+
 type HistoryRetargetLock = {
   sourceLibraryItemId: string;
   targetLibraryItemId: string;
@@ -57,104 +102,142 @@ export const save = mutation({
     generation: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const { userId, generation, resolveClock } =
-      await requireSyncMutationContext(ctx, args);
-    const updatedAt = resolveClock(args.updatedAt, Date.now());
-    const progress = assertNonNegativeSafeInteger(args.progress, "progress");
-    const total = assertNonNegativeSafeInteger(args.total, "total");
-    const lastReadAt = resolveSyncClock(
-      args.lastReadAt,
-      generation,
-      Date.now(),
-    );
-    const chapterNumber = assertFiniteNumber(
-      args.chapterNumber,
-      "chapterNumber",
-    );
-    const volumeNumber = assertFiniteNumber(args.volumeNumber, "volumeNumber");
+    const context = await requireSyncMutationContext(ctx, args);
+    await saveChapterProgressItem(ctx, context, args);
+  },
+});
 
-    const existingRows = currentSyncGenerationRows(await ctx.db
-      .query("chapter_progress")
-      .withIndex("by_user_chapter", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("registryId", args.registryId)
-          .eq("sourceId", args.sourceId)
-          .eq("sourceMangaId", args.sourceMangaId)
-          .eq("sourceChapterId", args.sourceChapterId)
-      )
-      .collect(), generation);
-    const existing = newestLwwRecord(existingRows);
-    await pruneDuplicateRows(ctx.db, existingRows, existing);
-    const merged = mergeChapterProgressHighWater(existing, {
-      progress,
-      total,
-      completed: args.completed,
-      lastReadAt,
-      chapterNumber,
-      volumeNumber,
-      chapterTitle: args.chapterTitle,
-      updatedAt,
-    });
-
-    // Try to find libraryItemId from library_source_links
-    const sourceLinks = currentSyncGenerationRows(await ctx.db
-      .query("library_source_links")
-      .withIndex("by_user_source_manga", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("registryId", args.registryId)
-          .eq("sourceId", args.sourceId)
-          .eq("sourceMangaId", args.sourceMangaId)
-      )
-      .collect(), generation);
-    const sourceLink = newestLwwRecord(
-      sourceLinks,
-      (link) => link.removed === true,
-    );
-    const libraryItemId = sourceLink?.removed ? undefined : sourceLink?.libraryItemId;
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        ...merged,
-        libraryItemId,
-      });
-    } else {
-      await ctx.db.insert("chapter_progress", {
-        userId,
-        syncGeneration: storedSyncGeneration(generation),
-        registryId: args.registryId,
-        sourceId: args.sourceId,
-        sourceMangaId: args.sourceMangaId,
-        sourceChapterId: args.sourceChapterId,
-        libraryItemId,
-        ...merged,
-      });
+/**
+ * Save many chapter-progress entries in one transaction.
+ *
+ * Snapshot reconciliation can produce hundreds of local winners; one mutation
+ * per row turns a single sync round into hundreds of round trips. `save` is
+ * kept as-is for older clients and for one-off writes.
+ */
+export const saveBatch = mutation({
+  args: {
+    expectedUserId: v.optional(v.string()),
+    generation: v.optional(v.number()),
+    items: v.array(historySaveItem),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const context = await requireSyncMutationContext(ctx, args);
+    if (args.items.length > MAX_HISTORY_SAVE_BATCH_ITEMS) {
+      throw new Error(
+        `${HISTORY_SAVE_BATCH_LIMIT_EXCEEDED}: ${args.items.length} > ${MAX_HISTORY_SAVE_BATCH_ITEMS}`,
+      );
     }
+    for (const item of args.items) {
+      await saveChapterProgressItem(ctx, context, item);
+    }
+    return null;
+  },
+});
 
-    // Update manga_progress (materialized summary)
-    await updateMangaProgress(ctx, userId, generation, {
+/** The single-row body of `save`, reused verbatim by `saveBatch`. */
+async function saveChapterProgressItem(
+  ctx: MutationCtx,
+  context: SyncMutationContext,
+  args: HistorySaveItem,
+): Promise<void> {
+  const { userId, generation, resolveClock } = context;
+  const updatedAt = resolveClock(args.updatedAt, Date.now());
+  const progress = assertNonNegativeSafeInteger(args.progress, "progress");
+  const total = assertNonNegativeSafeInteger(args.total, "total");
+  const lastReadAt = resolveSyncClock(
+    args.lastReadAt,
+    generation,
+    Date.now(),
+  );
+  const chapterNumber = assertFiniteNumber(
+    args.chapterNumber,
+    "chapterNumber",
+  );
+  const volumeNumber = assertFiniteNumber(args.volumeNumber, "volumeNumber");
+
+  const existingRows = currentSyncGenerationRows(await ctx.db
+    .query("chapter_progress")
+    .withIndex("by_user_chapter", (q) =>
+      q
+        .eq("userId", userId)
+        .eq("registryId", args.registryId)
+        .eq("sourceId", args.sourceId)
+        .eq("sourceMangaId", args.sourceMangaId)
+        .eq("sourceChapterId", args.sourceChapterId)
+    )
+    .collect(), generation);
+  const existing = newestLwwRecord(existingRows);
+  await pruneDuplicateRows(ctx.db, existingRows, existing);
+  const merged = mergeChapterProgressHighWater(existing, {
+    progress,
+    total,
+    completed: args.completed,
+    lastReadAt,
+    chapterNumber,
+    volumeNumber,
+    chapterTitle: args.chapterTitle,
+    updatedAt,
+  });
+
+  // Try to find libraryItemId from library_source_links
+  const sourceLinks = currentSyncGenerationRows(await ctx.db
+    .query("library_source_links")
+    .withIndex("by_user_source_manga", (q) =>
+      q
+        .eq("userId", userId)
+        .eq("registryId", args.registryId)
+        .eq("sourceId", args.sourceId)
+        .eq("sourceMangaId", args.sourceMangaId)
+    )
+    .collect(), generation);
+  const sourceLink = newestLwwRecord(
+    sourceLinks,
+    (link) => link.removed === true,
+  );
+  const libraryItemId = sourceLink?.removed ? undefined : sourceLink?.libraryItemId;
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      ...merged,
+      libraryItemId,
+    });
+  } else {
+    await ctx.db.insert("chapter_progress", {
+      userId,
+      syncGeneration: storedSyncGeneration(generation),
       registryId: args.registryId,
       sourceId: args.sourceId,
       sourceMangaId: args.sourceMangaId,
       sourceChapterId: args.sourceChapterId,
-      // Feed the materialized summary the incoming read event, not the
-      // chapter-level high-water timestamp paired with this event's chapter.
-      lastReadAt,
-      chapterNumber,
-      volumeNumber,
-      chapterTitle: args.chapterTitle,
       libraryItemId,
-      updatedAt: merged.updatedAt,
+      ...merged,
     });
-  },
-});
+  }
+
+  // Update manga_progress (materialized summary)
+  await updateMangaProgress(ctx, userId, generation, {
+    registryId: args.registryId,
+    sourceId: args.sourceId,
+    sourceMangaId: args.sourceMangaId,
+    sourceChapterId: args.sourceChapterId,
+    // Feed the materialized summary the incoming read event, not the
+    // chapter-level high-water timestamp paired with this event's chapter.
+    lastReadAt,
+    chapterNumber,
+    volumeNumber,
+    chapterTitle: args.chapterTitle,
+    libraryItemId,
+    updatedAt: merged.updatedAt,
+  });
+}
 
 // ============================================================================
 // Helper functions
 // ============================================================================
 
 import type { MutationCtx } from "./_generated/server";
+import type { SyncMutationContext } from "./syncCompatibility";
 
 async function updateMangaProgress(
   ctx: MutationCtx,

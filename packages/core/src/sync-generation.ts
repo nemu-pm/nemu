@@ -416,7 +416,14 @@ export type SyncSnapshotSharedBudget = {
 export type BoundedSyncSnapshotFetchResult<T> =
   | { status: "complete"; rows: T[] }
   | { status: "generation-changed" }
-  | { status: "budget-exceeded" };
+  | { status: "budget-exceeded" }
+  /**
+   * The server answered, but not with a usable pagination protocol: a missing
+   * cursor, or one identical to the cursor just sent. Reporting this as a
+   * generation change makes callers restart forever against a page stream that
+   * can never advance, so it is a hard error instead.
+   */
+  | { status: "protocol-error" };
 
 /** A bounded one-shot page collector for headless/background clients. */
 export async function fetchBoundedSyncSnapshotPages<T>(
@@ -479,11 +486,13 @@ export async function fetchBoundedSyncSnapshotPages<T>(
     sharedBudget.usedEstimatedBytes += pageMeasurement.estimatedBytes;
     if (result.isDone) return { status: "complete", rows };
     if (!result.continueCursor || result.continueCursor === cursor) {
-      return { status: "generation-changed" };
+      return { status: "protocol-error" };
     }
     cursor = result.continueCursor;
   } while (cursor !== null);
-  return { status: "generation-changed" };
+  // `cursor` is only ever assigned a non-empty string above, so falling out of
+  // the loop means the cursor state itself became impossible.
+  return { status: "protocol-error" };
 }
 
 /** One-shot clients (background sync/import checks) fetch every page before

@@ -9,9 +9,10 @@ import type {
   LocalLibraryItem,
   LocalSourceLink,
 } from "@/data/schema";
-import type {
-  CollectionSnapshotMerge,
-  LibrarySnapshotMerge,
+import {
+  MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS,
+  type CollectionSnapshotMerge,
+  type LibrarySnapshotMerge,
 } from "@nemu/core";
 import {
   applyWebCollectionsSyncSnapshot,
@@ -127,20 +128,32 @@ describe("web snapshot sync run identity", () => {
       expectedUserId: "a",
       shouldContinue: () => true,
     })).resolves.toEqual(rows);
-    expect(calls.map((call) => call.name)).toEqual([
-      "history:save",
-      "history:save",
-    ]);
-    expect(calls[1]?.args).toMatchObject({
+    // One batched transaction rather than one round trip per row.
+    expect(calls.map((call) => call.name)).toEqual(["history:saveBatch"]);
+    expect(calls[0]?.args).toMatchObject({
+      expectedUserId: "a",
+      generation: 7,
+    });
+    const items = calls[0]?.args.items as Record<string, unknown>[];
+    expect(items).toHaveLength(2);
+    // The per-item shape must stay identical to `history.save`'s arguments so
+    // both endpoints accept exactly the same payload.
+    expect(items[1]).toMatchObject({
       sourceChapterId: "merged",
       progress: 10,
       updatedAt: 100,
-      generation: 7,
     });
+    expect(items[1]).not.toHaveProperty("generation");
+    expect(items[1]).not.toHaveProperty("expectedUserId");
   });
 
   test("stops chapter winner pushes after a profile switch", async () => {
-    const rows = [chapterProgress("first"), chapterProgress("second")];
+    // More winners than fit in one batch, so there is a second transaction the
+    // profile switch has to prevent.
+    const rows = Array.from(
+      { length: MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS + 1 },
+      (_, index) => chapterProgress(`chapter-${index}`),
+    );
     const firstStarted = deferred<void>();
     const releaseFirst = deferred<void>();
     let active = true;

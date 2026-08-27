@@ -66,7 +66,7 @@ export async function runMobileSourceOAuthLogin(
   const usePkce = Boolean(setting.pkce);
   let authRequest;
   try {
-    authRequest = buildMobileSourceOAuthAuthRequest(authUrl, usePkce);
+    authRequest = await buildMobileSourceOAuthAuthRequest(authUrl, usePkce);
   } catch {
     return {
       ok: false,

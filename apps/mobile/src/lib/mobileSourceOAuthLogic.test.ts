@@ -160,8 +160,8 @@ describe("classifyMobileSourceLoginCallback", () => {
 });
 
 describe("buildMobileSourcePkceAuthUrl", () => {
-  test("appends S256 challenge plus fresh state", () => {
-    const { url, codeVerifier, state } = buildMobileSourcePkceAuthUrl(
+  test("appends S256 challenge plus fresh state", async () => {
+    const { url, codeVerifier, state } = await buildMobileSourcePkceAuthUrl(
       "https://example.com/auth?client_id=cid",
     );
     expect(codeVerifier).toHaveLength(64);
@@ -173,8 +173,8 @@ describe("buildMobileSourcePkceAuthUrl", () => {
     expect(parsed.searchParams.get("state")).toBe(state);
   });
 
-  test("adds state and overrides source-provided state without PKCE", () => {
-    const request = buildMobileSourceOAuthAuthRequest(
+  test("adds state and overrides source-provided state without PKCE", async () => {
+    const request = await buildMobileSourceOAuthAuthRequest(
       "https://example.com/auth?state=source-controlled",
       false,
     );

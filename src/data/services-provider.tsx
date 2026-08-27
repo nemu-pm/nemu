@@ -19,7 +19,6 @@ import {
   type ProfileId,
   type ServicesContainer,
 } from "@/sync/services";
-import { clearSourceSettingsProfile } from "@/stores/source-settings";
 
 const LAST_PROFILE_ID_KEY = "nemu:last-profile-id";
 
@@ -55,27 +54,27 @@ export function DataServicesProvider(props: { children: ReactNode }) {
   useEffect(() => {
     if (!sessionProfileId) return;
     lastProfileIdRef.current = sessionProfileId;
-    try { localStorage.setItem(LAST_PROFILE_ID_KEY, sessionProfileId); } catch {}
+    try { localStorage.setItem(LAST_PROFILE_ID_KEY, sessionProfileId); } catch { /* storage unavailable */ }
   }, [sessionProfileId]);
 
   // Clear persisted profile on logout.
   useEffect(() => {
     if (isLoading || isAuthenticated) return;
     lastProfileIdRef.current = undefined;
-    try { localStorage.removeItem(LAST_PROFILE_ID_KEY); } catch {}
+    try { localStorage.removeItem(LAST_PROFILE_ID_KEY); } catch { /* storage unavailable */ }
   }, [isAuthenticated, isLoading]);
 
   const container = useMemo(() => createServicesContainer(profileId), [profileId]);
 
-  useEffect(() => {
-    if (!profileId) return;
-    // Older builds stored source credentials in one unowned database. Once an
-    // authenticated container is committed, scrub that legacy/anonymous data;
-    // ownership cannot be safely inferred or migrated to this account.
-    void clearSourceSettingsProfile().catch((error) => {
-      console.error("[source-settings] Failed to scrub legacy credentials:", error);
-    });
-  }, [profileId]);
+  // NOTE: signing in must not touch the anonymous source-settings database.
+  // Configuring source logins while signed out is a supported flow, and those
+  // credentials belong to the anonymous profile: `migrateFromLocalStorage` only
+  // runs there precisely so legacy unowned values are not leaked into the first
+  // account that happens to sign in. Anonymous *user* data is likewise never
+  // auto-merged into an account — it is offered through the explicit import
+  // dialog (see `src/sync/import-offer.ts`). Signing in therefore starts a
+  // fresh, empty per-account source-settings namespace and leaves the anonymous
+  // one intact for the next signed-out session.
 
   // Dispose the previous container when profile changes (and on unmount).
   useEffect(() => {

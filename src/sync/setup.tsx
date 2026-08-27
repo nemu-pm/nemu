@@ -97,6 +97,17 @@ import {
   isWebImportOfferActionCurrent,
   isWebImportOfferEligible,
 } from "./import-offer";
+import { syncApplyRetryDelayMs } from "./retry-backoff";
+import {
+  clearSyncRecoveryRequest,
+  getSyncRecoveryRequest,
+  reportSyncMutationError,
+  subscribeSyncRecovery,
+} from "./sync-error-recovery";
+import {
+  getSyncSnapshotRetryAttempt,
+  subscribeSyncSnapshotRetry,
+} from "./snapshot-retry";
 
 const IDB_UI_EVENT_BUFFER_KEY = "nemu:idb-ui-event";
 const SYNC_SNAPSHOT_PAGE_SIZE = 128;
@@ -164,7 +175,12 @@ async function prepareWebSnapshotGeneration(
   return decision !== null && decision !== "stale" && shouldContinue();
 }
 
-export function SyncSetup() {
+/**
+ * One snapshot run. Remounted (never re-rendered into) when a run has to start
+ * over, because the paginated snapshot subscriptions can only be re-driven
+ * from page one by fresh `usePaginatedQuery` state.
+ */
+function SyncSetupRun() {
   const { t } = useTranslation();
 
   const { isAuthenticated, isLoading } = useConvexAuth();
@@ -237,10 +253,14 @@ export function SyncSetup() {
       next.add(domain);
       return next;
     });
+    // A sync protocol error will fail identically on every retry. Publish it
+    // for the recovery effect instead of burning a backoff schedule on it.
+    const recovery = reportSyncMutationError(error);
+    if (recovery && recovery.kind !== "generation-mismatch") return;
     if (syncApplyRetryTimersRef.current.has(domain)) return;
     const attempt = (syncApplyRetryAttemptsRef.current.get(domain) ?? 0) + 1;
     syncApplyRetryAttemptsRef.current.set(domain, attempt);
-    const delayMs = Math.min(30_000, 1_000 * 2 ** Math.min(attempt - 1, 5));
+    const delayMs = syncApplyRetryDelayMs(attempt);
     const timer = setTimeout(() => {
       syncApplyRetryTimersRef.current.delete(domain);
       setSyncApplyRetryRevision((current) => ({
@@ -544,8 +564,11 @@ export function SyncSetup() {
 
   useEffect(() => {
     if (snapshotPaginationPlan.status === "budget-exceeded") {
+      // Reported through the sync status below as "limit-exceeded" rather than
+      // "offline": nothing here recovers on its own, and the round only runs
+      // again on a remount (next app start, or requestSyncSnapshotRetry()).
       console.warn(
-        `[SyncSetup] Snapshot budget exceeded (${snapshotPaginationPlan.key}, ${snapshotPaginationPlan.totalRows} rows, ${snapshotPaginationPlan.totalEstimatedBytes} estimated bytes); skipping this sync round.`,
+        `[SyncSetup] Snapshot budget exceeded (${snapshotPaginationPlan.key}, ${snapshotPaginationPlan.totalRows} rows, ${snapshotPaginationPlan.totalEstimatedBytes} estimated bytes); sync is paused until it is retried.`,
       );
       return;
     }
@@ -573,6 +596,66 @@ export function SyncSetup() {
 
   const syncSnapshotBudgetExceeded =
     snapshotPaginationPlan.status === "budget-exceeded";
+
+  // Sync protocol failures published by the mutation wrappers in
+  // `sync-error-recovery`. Each one needs a different answer: a generation
+  // mismatch self-heals by re-pulling, while a limit or upgrade failure is
+  // terminal for this run and only the status can tell the user the truth.
+  const syncRecovery = useSyncExternalStore(
+    subscribeSyncRecovery,
+    getSyncRecoveryRequest,
+    getSyncRecoveryRequest,
+  );
+  const syncRecoveryKind = syncRecovery?.kind ?? null;
+
+  useEffect(() => {
+    if (syncRecovery?.kind !== "generation-mismatch") return;
+    const { revision } = syncRecovery;
+    const expectedIdentity = syncIdentityRef.current;
+    let cancelled = false;
+    const shouldContinue = () =>
+      isWebSyncRunCurrent(
+        expectedIdentity,
+        syncIdentityRef.current,
+        cancelled,
+        subscriptionStoppedRef.current,
+      );
+    void (async () => {
+      try {
+        // The account was reset on another device. Adopt the server's
+        // generation, which drops local rows from the abandoned one and lets
+        // the snapshot subscriptions re-hydrate from page one.
+        const remote = await convex.query(api.sync.generation, {});
+        if (!shouldContinue()) return;
+        await prepareWebSnapshotGeneration(
+          localStore,
+          remote.generation,
+          shouldContinue,
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.error(
+            "[SyncSetup] Sync generation recovery failed; will retry on the next failed write:",
+            error,
+          );
+        }
+      } finally {
+        if (!cancelled) clearSyncRecoveryRequest(revision);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [convex, localStore, syncRecovery]);
+
+  // A fresh snapshot run supersedes whatever stopped the previous one.
+  useEffect(() => {
+    const pending = getSyncRecoveryRequest();
+    if (pending && pending.kind !== "generation-mismatch") {
+      clearSyncRecoveryRequest(pending.revision);
+    }
+  }, []);
+
   const generation = syncSnapshotBudgetExceeded
     ? undefined
     : cloudGeneration?.generation;
@@ -736,19 +819,23 @@ export function SyncSetup() {
     syncStore
       .getState()
       .setSyncStatus(
-        syncSnapshotBudgetExceeded
-          || syncApplyFailures.size > 0
-          ? "offline"
-          : isSyncing
-            ? "syncing"
-            : isAuthenticated
-              ? "synced"
-              : "offline",
+        syncRecoveryKind === "upgrade-required"
+          ? "upgrade-required"
+          : syncSnapshotBudgetExceeded || syncRecoveryKind === "limit-exceeded"
+            ? "limit-exceeded"
+            : syncApplyFailures.size > 0
+              ? "offline"
+              : isSyncing
+                ? "syncing"
+                : isAuthenticated
+                  ? "synced"
+                  : "offline",
       );
   }, [
     isAuthenticated,
     isSyncing,
     syncApplyFailures,
+    syncRecoveryKind,
     syncSnapshotBudgetExceeded,
     syncStore,
   ]);
@@ -1602,4 +1689,19 @@ export function SyncSetup() {
       </ResponsiveDialog>
     </>
   );
+}
+
+/**
+ * SyncSetup keys its run on the retry counter so `requestSyncSnapshotRetry()`
+ * (and every fresh app start) restarts a sync round that stopped on a hard
+ * limit. Without the remount, an exhausted snapshot budget disabled sync for
+ * the entire session with no way back.
+ */
+export function SyncSetup() {
+  const attempt = useSyncExternalStore(
+    subscribeSyncSnapshotRetry,
+    getSyncSnapshotRetryAttempt,
+    getSyncSnapshotRetryAttempt,
+  );
+  return <SyncSetupRun key={attempt} />;
 }

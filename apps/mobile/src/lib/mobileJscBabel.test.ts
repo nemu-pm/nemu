@@ -27,9 +27,16 @@ describe("mobile JSC Babel compatibility", () => {
     const packageManifest = JSON.parse(
       readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
     ) as { patchedDependencies?: Record<string, string> };
-    const patchPath = packageManifest.patchedDependencies?.["metro@0.84.4"];
+    // The patch declaration must track the actually installed metro version —
+    // patchedDependencies keys are version-exact and a drift silently drops
+    // the worklet hash patch.
+    const metroVersion = (
+      requireFromTest("metro/package.json") as { version: string }
+    ).version;
+    const patchPath =
+      packageManifest.patchedDependencies?.[`metro@${metroVersion}`];
 
-    expect(patchPath).toBe("patches/metro@0.84.4.patch");
+    expect(patchPath).toBe(`patches/metro@${metroVersion}.patch`);
     const dependencyGraphModule = requireFromTest(
       path.join(
         repositoryRoot,

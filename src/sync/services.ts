@@ -59,6 +59,7 @@ import {
 } from "./subscription-gate";
 import { orchestrateRemoteFirstSignOut } from "./sign-out-orchestration";
 import { getImportOfferedSessionKey } from "./import-offer";
+import { runSyncMutation } from "./sync-error-recovery";
 export {
   getSyncSubscriptionsStopped,
   setSyncSubscriptionsStopped,
@@ -229,11 +230,11 @@ function createCanonicalLibraryOps(
         for (const input of toCloudLibrarySaveInputBatches(latestItem, links)) {
           const currentContext = mutationContext(localStore, generation);
           if (!currentContext) return;
-          await currentContext.convex.mutation(api.library.save, {
+          await runSyncMutation(() => currentContext.convex.mutation(api.library.save, {
             expectedUserId: currentContext.expectedUserId,
             ...input,
             generation: currentContext.generation,
-          });
+          }));
         }
       }
     },
@@ -256,12 +257,12 @@ function createCanonicalLibraryOps(
 
       const context = mutationContext(localStore, generation);
       if (context) {
-        await context.convex.mutation(api.library.remove, {
+        await runSyncMutation(() => context.convex.mutation(api.library.remove, {
           expectedUserId: context.expectedUserId,
           libraryItemId,
           updatedAt,
           generation: context.generation,
-        });
+        }));
       }
     },
 
@@ -285,11 +286,11 @@ function createCanonicalLibraryOps(
         if (item && item.inLibrary !== false && latestLink) {
           const currentContext = mutationContext(localStore, generation);
           if (!currentContext) return;
-          await currentContext.convex.mutation(api.library.save, {
+          await runSyncMutation(() => currentContext.convex.mutation(api.library.save, {
             expectedUserId: currentContext.expectedUserId,
             ...toCloudLibrarySaveInput(item, [latestLink]),
             generation: currentContext.generation,
-          });
+          }));
         }
       }
     },
@@ -309,7 +310,7 @@ function createCanonicalLibraryOps(
 
       const context = mutationContext(localStore, generation);
       if (context) {
-        await context.convex.mutation(api.library.removeSourceLink, {
+        await runSyncMutation(() => context.convex.mutation(api.library.removeSourceLink, {
           expectedUserId: context.expectedUserId,
           registryId,
           sourceId,
@@ -318,7 +319,7 @@ function createCanonicalLibraryOps(
           createdAt: existing?.createdAt,
           updatedAt,
           generation: context.generation,
-        });
+        }));
       }
     },
   };
@@ -372,11 +373,11 @@ function createHistoryOps(localStore: IndexedDBUserDataStore): HistoryStoreOps {
 
       const context = mutationContext(localStore, generation);
       if (context) {
-        await context.convex.mutation(api.history.save, {
+        await runSyncMutation(() => context.convex.mutation(api.history.save, {
           expectedUserId: context.expectedUserId,
           ...toCloudHistorySaveInput(localProgress),
           generation: context.generation,
-        });
+        }));
       }
     },
 
@@ -432,11 +433,11 @@ function createSettingsOps(
         if (!latest || latest.removed) return;
         const currentContext = mutationContext(localStore, generation);
         if (!currentContext) return;
-        await currentContext.convex.mutation(api.settings.saveInstalledSource, {
+        await runSyncMutation(() => currentContext.convex.mutation(api.settings.saveInstalledSource, {
           expectedUserId: currentContext.expectedUserId,
           source: toCloudInstalledSource(latest),
           generation: currentContext.generation,
-        });
+        }));
       }
     },
 
@@ -452,13 +453,13 @@ function createSettingsOps(
       // Push tombstone to cloud
       const context = mutationContext(localStore, generation);
       if (context) {
-        await context.convex.mutation(api.settings.removeInstalledSource, {
+        await runSyncMutation(() => context.convex.mutation(api.settings.removeInstalledSource, {
           expectedUserId: context.expectedUserId,
           id,
           registryId,
           updatedAt,
           generation: context.generation,
-        });
+        }));
       }
     },
   };
@@ -492,7 +493,7 @@ function createCanonicalCollectionsOps(
         if (!latest) return;
         const currentContext = mutationContext(localStore, generation);
         if (!currentContext) return;
-        await currentContext.convex.mutation(api.collections.save, {
+        await runSyncMutation(() => currentContext.convex.mutation(api.collections.save, {
           expectedUserId: currentContext.expectedUserId,
           collectionId: latest.collectionId,
           name: latest.name,
@@ -500,7 +501,7 @@ function createCanonicalCollectionsOps(
           updatedAt: latest.updatedAt,
           removed: latest.removed,
           generation: currentContext.generation,
-        });
+        }));
       }
     },
 
@@ -524,12 +525,12 @@ function createCanonicalCollectionsOps(
 
       const context = mutationContext(localStore, generation);
       if (context) {
-        await context.convex.mutation(api.collections.remove, {
+        await runSyncMutation(() => context.convex.mutation(api.collections.remove, {
           expectedUserId: context.expectedUserId,
           collectionId,
           updatedAt,
           generation: context.generation,
-        });
+        }));
       }
     },
 
@@ -561,13 +562,13 @@ function createCanonicalCollectionsOps(
         const currentContext = mutationContext(localStore, generation);
         if (!currentContext) return;
         for (const batch of chunkCollectionMutationItems(libraryItemIds)) {
-          await currentContext.convex.mutation(api.collections.addItems, {
+          await runSyncMutation(() => currentContext.convex.mutation(api.collections.addItems, {
             expectedUserId: currentContext.expectedUserId,
             collectionId,
             libraryItemIds: batch,
             updatedAt,
             generation: currentContext.generation,
-          });
+          }));
         }
       }
     },
@@ -594,13 +595,13 @@ function createCanonicalCollectionsOps(
       const context = mutationContext(localStore, generation);
       if (context) {
         for (const batch of chunkCollectionMutationItems(libraryItemIds)) {
-          await context.convex.mutation(api.collections.removeItems, {
+          await runSyncMutation(() => context.convex.mutation(api.collections.removeItems, {
             expectedUserId: context.expectedUserId,
             collectionId,
             libraryItemIds: batch,
             updatedAt,
             generation: context.generation,
-          });
+          }));
         }
       }
     },

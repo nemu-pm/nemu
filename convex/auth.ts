@@ -21,6 +21,14 @@ const mobileOriginPrefixes = ["nemu://", "pm.nemu.mobile://"];
 
 // Better Auth's Expo plugin needs a server-side origin bridge for native apps,
 // where requests carry expo-origin instead of the browser Origin header.
+//
+// The origin-check bypass keyed on the `expo-origin` header is only safe
+// because `expo-origin` is NOT in the CORS `Access-Control-Allow-Headers`
+// allowlist (convex/http.ts), so a browser can never send it cross-origin —
+// and same-origin/browser requests always carry a real Origin header, which
+// takes the early return below. Adding `expo-origin` to that allowlist would
+// let any website forge the header and silently disable better-auth's origin
+// protection for the cookie endpoints.
 function mobileOriginBridge(): BetterAuthPlugin {
   return {
     id: "nemu-mobile-origin-bridge",

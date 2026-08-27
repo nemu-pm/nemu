@@ -1,3 +1,14 @@
+import {
+  chapterProgressHighWaterValues,
+  mergeChapterProgressHighWater,
+} from "./sync-lww";
+
+// The canonical LWW merge and the sync protocol error vocabulary are shared
+// with the Convex backend and the mobile client. Re-export them here so
+// `@nemu/core` stays the single import surface for every consumer.
+export * from "./sync-lww";
+export * from "./sync-errors";
+
 export type SourceKind = "aidoku" | "tachiyomi";
 
 /**
@@ -806,15 +817,33 @@ export function mergeChapterProgressForSave<
 ): TProgress {
   if (!existing) return incoming;
 
+  // `existing` is the stored local row; `incoming` is the arriving record —
+  // a cloud delivery during snapshot application, or a fresh local write.
+  // The arriving side owns metadata at an equal clock, which for a snapshot
+  // makes the server authoritative exactly as it is on its own side. The
+  // canonical merge expresses that as "existing keeps ties", so the arguments
+  // are swapped when delegating: both sides then land on the same winner, and
+  // the `??` backfill stops either from erasing a field the other lacks.
+  const merged = mergeChapterProgressHighWater(
+    chapterProgressHighWaterValues(incoming),
+    chapterProgressHighWaterValues(existing),
+  );
+  const owner = incoming.updatedAt >= existing.updatedAt ? incoming : existing;
+  const other = owner === incoming ? existing : incoming;
+
   return {
-    // Cloud snapshot delivery is authoritative at an equal logical clock;
-    // otherwise keep metadata from the strictly newer side.
-    ...(incoming.updatedAt >= existing.updatedAt ? incoming : existing),
-    progress: Math.max(existing.progress, incoming.progress),
-    total: Math.max(existing.total, incoming.total),
-    completed: existing.completed || incoming.completed,
-    lastReadAt: Math.max(existing.lastReadAt, incoming.lastReadAt),
-    updatedAt: Math.max(existing.updatedAt, incoming.updatedAt),
+    ...owner,
+    // The server derives this from source links and may not have resolved one
+    // yet; never let a cloud row without a link erase the local association.
+    libraryItemId: owner.libraryItemId ?? other.libraryItemId,
+    progress: merged.progress,
+    total: merged.total,
+    completed: merged.completed,
+    lastReadAt: merged.lastReadAt,
+    chapterNumber: merged.chapterNumber,
+    volumeNumber: merged.volumeNumber,
+    chapterTitle: merged.chapterTitle,
+    updatedAt: merged.updatedAt,
   };
 }
 
@@ -886,7 +915,15 @@ export function chapterProgressNeedsPush(
     local.total > cloud.total ||
     (local.completed && !cloud.completed) ||
     local.lastReadAt > cloud.lastReadAt ||
-    local.updatedAt > cloud.updatedAt
+    local.updatedAt > cloud.updatedAt ||
+    // Metadata the cloud row is missing can only reach the server through
+    // another push. Without this the merge backfills locally and the two sides
+    // stay permanently different while every convergence check reports "done".
+    // The server backfills the same field on receipt, so this settles in one
+    // extra round instead of looping.
+    (local.chapterNumber !== undefined && cloud.chapterNumber === undefined) ||
+    (local.volumeNumber !== undefined && cloud.volumeNumber === undefined) ||
+    (local.chapterTitle !== undefined && cloud.chapterTitle === undefined)
   );
 }
 
@@ -1008,6 +1045,31 @@ export function chunkCollectionMutationItems(
   const chunks: string[][] = [];
   for (let offset = 0; offset < uniqueIds.length; offset += MAX_COLLECTION_MUTATION_ITEMS) {
     chunks.push(uniqueIds.slice(offset, offset + MAX_COLLECTION_MUTATION_ITEMS));
+  }
+  return chunks;
+}
+
+/**
+ * `history.saveBatch` reuses the single-save logic per item, and each item
+ * performs several indexed reads plus writes to `chapter_progress` and
+ * `manga_progress`. Keep one transaction well inside Convex's per-mutation
+ * bounds; the server rejects anything larger rather than truncating silently.
+ */
+export const MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS = 32;
+
+/** Split a history push into `history.saveBatch`-sized transactions. */
+export function chunkChapterProgressSaveInputs<T>(
+  inputs: readonly T[],
+): T[][] {
+  const chunks: T[][] = [];
+  for (
+    let offset = 0;
+    offset < inputs.length;
+    offset += MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS
+  ) {
+    chunks.push(
+      inputs.slice(offset, offset + MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS),
+    );
   }
   return chunks;
 }

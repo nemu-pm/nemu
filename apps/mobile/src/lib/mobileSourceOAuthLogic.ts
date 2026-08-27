@@ -280,19 +280,19 @@ export function buildMobileSourceOAuthExchangeBody(params: {
 /** Build a state-bound auth request. PKCE adds its independent verifier and
  * S256 challenge; every request gets state so a colliding custom-scheme app
  * cannot complete another login attempt. */
-export function buildMobileSourceOAuthAuthRequest(
+export async function buildMobileSourceOAuthAuthRequest(
   rawUrl: string,
   usePkce: boolean,
-): {
+): Promise<{
   url: string;
   codeVerifier: string;
   state: string;
-} {
+}> {
   const normalizedUrl = normalizeMobileSourceOAuthHttpUrl(rawUrl);
   if (!normalizedUrl) throw new Error("Source OAuth URL must use http or https.");
   const state = generateCodeVerifier();
   const request = usePkce
-    ? withPkce(normalizedUrl)
+    ? await withPkce(normalizedUrl)
     : { url: normalizedUrl, codeVerifier: "" };
   const url = new URL(request.url);
   url.searchParams.set("state", state);
@@ -300,11 +300,11 @@ export function buildMobileSourceOAuthAuthRequest(
 }
 
 /** Backward-compatible pure helper used by focused PKCE tests/callers. */
-export function buildMobileSourcePkceAuthUrl(rawUrl: string): {
+export async function buildMobileSourcePkceAuthUrl(rawUrl: string): Promise<{
   url: string;
   codeVerifier: string;
   state: string;
-} {
+}> {
   return buildMobileSourceOAuthAuthRequest(rawUrl, true);
 }
 

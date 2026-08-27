@@ -69,7 +69,6 @@
     "embla-carousel-react": "^8.6.0",
     "emblor-maintained": "^1.4.11",
     "fflate": "^0.8.2",
-    "fft.js": "^4.0.4",
     "i18next": "^25.7.3",
     "input-otp": "^1.4.2",
     "ios-haptics": "^0.1.4",
@@ -173,6 +172,6 @@
     "expo-background-task@56.0.26": "patches/expo-background-task@56.0.26.patch",
     "@expo/ui@56.0.26": "patches/@expo%2Fui@56.0.26.patch",
     "@expo/cli@56.1.24": "patches/@expo%2Fcli@56.1.24.patch",
-    "metro@0.84.4": "patches/metro@0.84.4.patch"
+    "metro@0.84.5": "patches/metro@0.84.5.patch"
   }
 }

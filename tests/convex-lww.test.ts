@@ -1,12 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import {
   canonicalizeLwwRecords,
+  chapterProgressHighWaterValues,
   isAfterRemovalBarrier,
   maximumRemovalBarrier,
   mergeChapterProgressHighWater,
   newestLwwRecord,
   shouldApplyLww,
 } from "../convex/lww";
+import {
+  chapterProgressNeedsPush,
+  mergeChapterProgressForSave,
+  type LocalChapterProgress,
+} from "../packages/core/src/sync";
 import {
   currentSyncGenerationRows,
   nextSyncCleanupToken,
@@ -244,5 +250,194 @@ describe("Convex sync generation rollout", () => {
     expect(nextSyncCleanupToken(token, false)).toEqual({
       table: "manga_progress",
     });
+  });
+});
+
+/**
+ * The client and the server must resolve every chapter-progress merge the same
+ * way. They used to hold two hand-maintained copies of the rule and had
+ * already drifted: at an equal clock they disagreed about metadata ownership,
+ * and only the server backfilled a field the other side was missing, so a
+ * cloud row without a `chapterTitle` destroyed the local one permanently.
+ *
+ * `convex/lww.ts` now re-exports the canonical merge from `@nemu/core`, and
+ * this table pins the property that actually matters: applying a push on the
+ * server and applying the same pair on the client land on identical values.
+ */
+function progress(
+  overrides: Partial<LocalChapterProgress>,
+): LocalChapterProgress {
+  return {
+    id: "registry|source|manga|chapter",
+    registryId: "registry",
+    sourceId: "source",
+    sourceMangaId: "manga",
+    sourceChapterId: "chapter",
+    progress: 0,
+    total: 0,
+    completed: false,
+    lastReadAt: 0,
+    updatedAt: 0,
+    ...overrides,
+  };
+}
+
+const mergeAgreementCases: {
+  name: string;
+  local: LocalChapterProgress;
+  cloud: LocalChapterProgress;
+}[] = [
+  {
+    name: "equal clocks with competing metadata",
+    local: progress({
+      progress: 5,
+      total: 10,
+      lastReadAt: 100,
+      chapterTitle: "local",
+      updatedAt: 100,
+    }),
+    cloud: progress({
+      progress: 4,
+      total: 10,
+      lastReadAt: 100,
+      chapterTitle: "cloud",
+      updatedAt: 100,
+    }),
+  },
+  {
+    name: "equal clocks where the cloud row is missing metadata",
+    local: progress({
+      progress: 5,
+      total: 10,
+      lastReadAt: 100,
+      chapterNumber: 12,
+      volumeNumber: 2,
+      chapterTitle: "local title",
+      updatedAt: 100,
+    }),
+    cloud: progress({
+      progress: 5,
+      total: 10,
+      lastReadAt: 100,
+      updatedAt: 100,
+    }),
+  },
+  {
+    name: "local strictly newer",
+    local: progress({
+      progress: 9,
+      total: 12,
+      completed: true,
+      lastReadAt: 300,
+      chapterTitle: "local",
+      updatedAt: 300,
+    }),
+    cloud: progress({
+      progress: 3,
+      total: 10,
+      lastReadAt: 100,
+      chapterTitle: "cloud",
+      chapterNumber: 7,
+      updatedAt: 100,
+    }),
+  },
+  {
+    name: "cloud strictly newer but with a lower high-water page",
+    local: progress({
+      progress: 20,
+      total: 30,
+      completed: true,
+      lastReadAt: 500,
+      chapterTitle: "local",
+      updatedAt: 100,
+    }),
+    cloud: progress({
+      progress: 2,
+      total: 30,
+      lastReadAt: 50,
+      chapterTitle: "cloud",
+      updatedAt: 400,
+    }),
+  },
+  {
+    name: "cloud strictly newer and missing metadata the local row has",
+    local: progress({
+      progress: 1,
+      total: 10,
+      lastReadAt: 100,
+      chapterNumber: 3,
+      volumeNumber: 1,
+      chapterTitle: "local title",
+      updatedAt: 100,
+    }),
+    cloud: progress({ progress: 6, total: 10, lastReadAt: 200, updatedAt: 200 }),
+  },
+  {
+    name: "both sides missing all metadata",
+    local: progress({ progress: 1, total: 4, lastReadAt: 10, updatedAt: 10 }),
+    cloud: progress({ progress: 2, total: 4, lastReadAt: 20, updatedAt: 20 }),
+  },
+];
+
+describe("client and server chapter-progress merges agree", () => {
+  for (const { name, local, cloud } of mergeAgreementCases) {
+    test(name, () => {
+      // Server: the stored cloud row receives the client's pushed values.
+      const server = mergeChapterProgressHighWater(
+        chapterProgressHighWaterValues(cloud),
+        chapterProgressHighWaterValues(local),
+      );
+      // Client: the same pair, applied while consuming the cloud snapshot.
+      const client = chapterProgressHighWaterValues(
+        mergeChapterProgressForSave(local, cloud),
+      );
+      expect(client).toEqual(server);
+    });
+
+    test(`${name} converges after at most one extra push`, () => {
+      const merged = mergeChapterProgressForSave(local, cloud);
+      if (!chapterProgressNeedsPush(merged, cloud)) return;
+      // The push the client schedules must produce a cloud row it no longer
+      // wants to push, otherwise the two sides loop against each other.
+      const pushed = mergeChapterProgressHighWater(
+        chapterProgressHighWaterValues(cloud),
+        chapterProgressHighWaterValues(merged),
+      );
+      const nextCloud: LocalChapterProgress = { ...cloud, ...pushed };
+      const nextLocal = mergeChapterProgressForSave(merged, nextCloud);
+      expect(chapterProgressNeedsPush(nextLocal, nextCloud)).toBe(false);
+    });
+  }
+
+  test("never lets a cloud row without metadata erase the local value", () => {
+    const local = progress({
+      progress: 4,
+      total: 10,
+      lastReadAt: 100,
+      chapterNumber: 12,
+      volumeNumber: 2,
+      chapterTitle: "Chapter 12",
+      updatedAt: 100,
+    });
+    const cloud = progress({
+      progress: 4,
+      total: 10,
+      lastReadAt: 100,
+      updatedAt: 100,
+    });
+    const merged = mergeChapterProgressForSave(local, cloud);
+    expect(merged.chapterTitle).toBe("Chapter 12");
+    expect(merged.chapterNumber).toBe(12);
+    expect(merged.volumeNumber).toBe(2);
+    // ...and the backfill is re-pushed rather than left as silent divergence.
+    expect(chapterProgressNeedsPush(merged, cloud)).toBe(true);
+  });
+
+  test("keeps the server authoritative when both sides have metadata", () => {
+    const local = progress({ chapterTitle: "local", updatedAt: 100 });
+    const cloud = progress({ chapterTitle: "cloud", updatedAt: 100 });
+    const merged = mergeChapterProgressForSave(local, cloud);
+    expect(merged.chapterTitle).toBe("cloud");
+    expect(chapterProgressNeedsPush(merged, cloud)).toBe(false);
   });
 });
