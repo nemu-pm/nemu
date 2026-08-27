@@ -28,14 +28,33 @@ type Violation = {
   value: string;
 };
 
-async function findLiteralUserFacingAttributes(): Promise<Violation[]> {
-  const sourceRoot = path.join(import.meta.dir, "..");
+// Scans both the shared UI tree (src/) and the Expo Router route files
+// (app/); route wrappers get an "app/" display prefix in violation reports.
+const AUDIT_SOURCE_ROOTS = [
+  { root: path.join(import.meta.dir, ".."), prefix: "" },
+  { root: path.join(import.meta.dir, "..", "..", "app"), prefix: "app/" },
+] as const;
+
+async function* scanSourceFiles(): AsyncGenerator<{
+  relativePath: string;
+  filePath: string;
+}> {
   const glob = new Bun.Glob("**/*.tsx");
+  for (const { root, prefix } of AUDIT_SOURCE_ROOTS) {
+    for await (const scannedPath of glob.scan({ cwd: root })) {
+      yield {
+        relativePath: prefix + scannedPath,
+        filePath: path.join(root, scannedPath),
+      };
+    }
+  }
+}
+
+async function findLiteralUserFacingAttributes(): Promise<Violation[]> {
   const violations: Violation[] = [];
 
-  for await (const relativePath of glob.scan({ cwd: sourceRoot })) {
+  for await (const { relativePath, filePath } of scanSourceFiles()) {
     if (/\.(?:test|spec)\.tsx$/.test(relativePath)) continue;
-    const filePath = path.join(sourceRoot, relativePath);
     const sourceText = await Bun.file(filePath).text();
     const sourceFile = ts.createSourceFile(
       filePath,
@@ -80,18 +99,15 @@ async function findLiteralUserFacingAttributes(): Promise<Violation[]> {
 }
 
 async function findLiteralUserFacingText(): Promise<Violation[]> {
-  const sourceRoot = path.join(import.meta.dir, "..");
-  const glob = new Bun.Glob("**/*.tsx");
   const violations: Violation[] = [];
 
-  for await (const relativePath of glob.scan({ cwd: sourceRoot })) {
+  for await (const { relativePath, filePath } of scanSourceFiles()) {
     if (
       /\.(?:test|spec)\.tsx$/.test(relativePath) ||
       DEVELOPER_DIAGNOSTIC_FILES.has(relativePath)
     ) {
       continue;
     }
-    const filePath = path.join(sourceRoot, relativePath);
     const sourceText = await Bun.file(filePath).text();
     const sourceFile = ts.createSourceFile(
       filePath,
