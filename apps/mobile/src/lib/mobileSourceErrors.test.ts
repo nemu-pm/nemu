@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { getMobileStrings } from "./mobileI18n";
 import {
+  MOBILE_TACHIYOMI_UNSUPPORTED_MARKER,
+  describeMobileErrorDetail,
   extractMobileCloudflareUrl,
   getMobileRuntimeUnavailableDetail,
   getMobileSourceErrorRecoveryAction,
@@ -9,6 +11,7 @@ import {
   isMobileCloudflareError,
   isMobileNetworkSourceError,
   isMobileRuntimeUnavailableError,
+  isMobileTachiyomiUnsupportedError,
 } from "./mobileSourceErrors";
 
 describe("mobile source error presentation", () => {
@@ -151,21 +154,60 @@ describe("mobile source error presentation", () => {
     expect(
       getMobileSourceErrorSummary("Network request failed", strings),
     ).toBe("Network error");
+    // The summary line is always localized; the raw text stays reachable via
+    // the full presentation detail.
     expect(
       getMobileSourceErrorSummary("Unsupported source response", strings),
-    ).toBe("Unsupported source response");
+    ).toBe("Source error");
   });
 
-  test("keeps unknown source errors visible for debugging", () => {
+  test("leads unknown source errors with localized copy and keeps the raw text", () => {
     const presentation = getMobileSourceErrorPresentation(
       new Error("Unsupported source response"),
-      getMobileStrings("en"),
+      getMobileStrings("ja"),
     );
 
-    expect(presentation).toEqual({
-      kind: "source",
-      title: "Source error",
-      detail: "Unsupported source response",
-    });
+    expect(presentation.kind).toBe("source");
+    expect(presentation.title).toBe("ソースエラー");
+    // Localized copy first, raw exception text demoted to a second line.
+    expect(presentation.detail.split("\n")[0]).toBe(
+      "このソースはリクエストを完了できませんでした。しばらくしてからもう一度お試しください。",
+    );
+    expect(presentation.detail).toContain("Unsupported source response");
+  });
+
+  test("localizes the unsupported Tachiyomi runtime blocker", () => {
+    // Mirrors `MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL` without importing the
+    // sources barrel (it pulls native-only modules into this unit test).
+    const error = new Error(
+      `${MOBILE_TACHIYOMI_UNSUPPORTED_MARKER} Tachiyomi extensions need a native Tachiyomi bridge on mobile.`,
+    );
+
+    expect(isMobileTachiyomiUnsupportedError(error)).toBe(true);
+    const presentation = getMobileSourceErrorPresentation(
+      error,
+      getMobileStrings("zh"),
+    );
+    expect(presentation.kind).toBe("unsupported");
+    expect(presentation.title).toBe("移动端暂不支持此源");
+    expect(presentation.detail.split("\n")[0]).toBe(
+      "移动端暂不支持 Tachiyomi 源，请改用 Aidoku 源。",
+    );
+    expect(presentation.detail).toContain("native Tachiyomi bridge");
+    expect(presentation.detail).not.toContain(
+      MOBILE_TACHIYOMI_UNSUPPORTED_MARKER,
+    );
+  });
+
+  test("describeMobileErrorDetail keeps localized copy first", () => {
+    expect(describeMobileErrorDetail(new Error("boom"), "Localized")).toBe(
+      "Localized\nboom",
+    );
+    expect(describeMobileErrorDetail(new Error("   "), "Localized")).toBe(
+      "Localized",
+    );
+    expect(describeMobileErrorDetail(new Error("Localized"), "Localized")).toBe(
+      "Localized",
+    );
   });
 });

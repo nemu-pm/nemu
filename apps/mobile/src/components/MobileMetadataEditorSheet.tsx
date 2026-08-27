@@ -71,6 +71,7 @@ import {
 } from "@/lib/mobileI18n";
 import { resolveMobileMetadataEditorCoverSource } from "@/lib/mobileMetadataEditorCoverPreview";
 import {
+  describeMobileErrorDetail,
   getMobileSourceErrorPresentation,
   type MobileSourceErrorPresentation,
 } from "@/lib/mobileSourceErrors";
@@ -116,6 +117,26 @@ type MetadataTextFieldProps = {
   onChangeText: (value: string) => void;
   onReset?: () => void;
 };
+
+// Sentinel messages for app-authored cover-save failures. They never reach
+// the UI raw: the save catch maps them to localized metadataEditor copy (the
+// error-copy contract forbids surfacing app-authored English literals).
+const MOBILE_COVER_FILE_MISSING_ERROR = "mobile-cover-file-missing";
+const MOBILE_COVER_SIZE_UNAVAILABLE_ERROR = "mobile-cover-size-unavailable";
+
+function describeCoverSaveError(error: unknown, strings: MobileStrings): string {
+  const rawMessage = error instanceof Error ? error.message : "";
+  if (rawMessage === MOBILE_COVER_UPLOAD_UNAVAILABLE_ERROR)
+    return strings.metadataEditor.coverUploadUnavailable;
+  if (rawMessage === MOBILE_COVER_FILE_MISSING_ERROR)
+    return strings.metadataEditor.coverFileMissing;
+  if (rawMessage === MOBILE_COVER_SIZE_UNAVAILABLE_ERROR)
+    return strings.metadataEditor.coverSizeUnavailable;
+  return describeMobileErrorDetail(
+    error,
+    strings.metadataEditor.coverUploadFailed,
+  );
+}
 
 function sameForm(a: MobileMetadataFormValues, b: MobileMetadataFormValues): boolean {
   return (
@@ -491,7 +512,7 @@ export function MobileMetadataEditorSheet({
       }
     } catch (error) {
       setMatchResults([]);
-      setMatchError(error instanceof Error ? error.message : strings.metadataEditor.matchFailed);
+      setMatchError(describeMobileErrorDetail(error, strings.metadataEditor.matchFailed));
       await hapticError();
     } finally {
       matchLoadingRef.current = false;
@@ -524,7 +545,7 @@ export function MobileMetadataEditorSheet({
             metadataLanguage: effectiveMetadataLanguage,
           })
         );
-        setMatchError(error instanceof Error ? error.message : strings.metadataEditor.matchFailed);
+        setMatchError(describeMobileErrorDetail(error, strings.metadataEditor.matchFailed));
         await hapticError();
       } finally {
         matchApplyingRef.current = false;
@@ -561,7 +582,7 @@ export function MobileMetadataEditorSheet({
             metadataLanguage: effectiveMetadataLanguage,
           })
         );
-        setMatchError(error instanceof Error ? error.message : strings.metadataEditor.matchFailed);
+        setMatchError(describeMobileErrorDetail(error, strings.metadataEditor.matchFailed));
         await hapticError();
       } finally {
         matchApplyingRef.current = false;
@@ -640,7 +661,7 @@ export function MobileMetadataEditorSheet({
       await hapticConfirm();
     } catch (error) {
       setCoverError(
-        error instanceof Error ? error.message : strings.metadataEditor.coverPickFailed
+        describeMobileErrorDetail(error, strings.metadataEditor.coverPickFailed)
       );
       await hapticError();
     } finally {
@@ -671,10 +692,10 @@ export function MobileMetadataEditorSheet({
         const file = new ExpoFile(selectedCoverAsset.uri);
         const fileInfo = file.info();
         if (!fileInfo.exists) {
-          throw new Error("The selected cover file no longer exists.");
+          throw new Error(MOBILE_COVER_FILE_MISSING_ERROR);
         }
         if (typeof fileInfo.size !== "number") {
-          throw new Error("The selected cover size could not be determined safely.");
+          throw new Error(MOBILE_COVER_SIZE_UNAVAILABLE_ERROR);
         }
         assertMobileCoverUploadByteLength(fileInfo.size);
         const coverBytes = await file.bytes();
@@ -689,14 +710,7 @@ export function MobileMetadataEditorSheet({
         setSelectedCoverAsset(null);
         setCoverPreviewSourceId(null);
       } catch (error) {
-        const errorMessage =
-          error instanceof Error &&
-          error.message === MOBILE_COVER_UPLOAD_UNAVAILABLE_ERROR
-            ? strings.metadataEditor.coverUploadUnavailable
-            : error instanceof Error
-              ? error.message
-              : strings.metadataEditor.coverUploadFailed;
-        setCoverError(errorMessage);
+        setCoverError(describeCoverSaveError(error, strings));
         await hapticError();
         uploadingCoverRef.current = false;
         setUploadingCover(false);

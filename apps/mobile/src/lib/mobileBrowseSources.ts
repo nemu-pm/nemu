@@ -1,6 +1,10 @@
 import type { AppLanguage, InstalledSource } from "@/data/schema";
 import { makeSourceKey, type MobileRegistrySource } from "@/sources/aidokuRegistry";
-import { normalizeInstalledSource } from "@/sources/mobileSourceRuntime";
+import {
+  getMobileSourceKind,
+  isMobileUnsupportedSourceKind,
+  normalizeInstalledSource,
+} from "@/sources/mobileSourceRuntime";
 import {
   getMobileInstalledSourceRegistryKey,
   getMobileInstalledSourceRegistryKeys,
@@ -239,6 +243,18 @@ export function getMobileInstalledSourceRegistryDisplayName(
       registrySource,
     )?.name ?? registrySource.name
   );
+}
+
+/**
+ * True when an installed record points at a runtime this build cannot execute
+ * (today: Tachiyomi). Cloud sync can hand us these records from the web app, so
+ * every installed-source list has to be able to mark them instead of rendering
+ * a normal row that only fails once the user taps it.
+ */
+export function isMobileUnsupportedInstalledSource(
+  source: Pick<InstalledSource, "id" | "registryId" | "sourceKind">,
+): boolean {
+  return isMobileUnsupportedSourceKind(getMobileSourceKind(source));
 }
 
 export function mergeMobileInstalledSourceRegistryMetadata(

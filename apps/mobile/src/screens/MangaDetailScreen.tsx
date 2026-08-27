@@ -108,6 +108,7 @@ import {
   mergeSourceSettingValues,
 } from "@/lib/mobileSourceSettings";
 import {
+  describeMobileErrorDetail,
   getMobileSourceErrorPresentation,
   getMobileSourceErrorRecoveryAction,
   type MobileSourceErrorRecoveryAction,
@@ -436,7 +437,10 @@ export function MangaDetailScreen() {
       } catch (nextError) {
         if (!mounted) return;
         setError(
-          nextError instanceof Error ? nextError.message : String(nextError),
+          describeMobileErrorDetail(
+            nextError,
+            strings.mangaDetail.actionFailedDetail,
+          ),
         );
       } finally {
         if (mounted) setLoading(false);
@@ -447,7 +451,12 @@ export function MangaDetailScreen() {
     return () => {
       mounted = false;
     };
-  }, [applyLocalDetailState, idCandidates, reloadLocalDetailState]);
+  }, [
+    applyLocalDetailState,
+    idCandidates,
+    reloadLocalDetailState,
+    strings.mangaDetail.actionFailedDetail,
+  ]);
 
   const entry = state.entry;
   useEffect(() => {
@@ -1116,9 +1125,7 @@ export function MangaDetailScreen() {
         setMetadataEditorOpen(false);
       }
       setActionError(
-        error instanceof Error
-          ? error.message
-          : strings.mangaDetail.actionFailedDetail,
+        describeMobileErrorDetail(error, strings.mangaDetail.actionFailedDetail),
       );
       await hapticError();
     } finally {
@@ -1156,9 +1163,7 @@ export function MangaDetailScreen() {
         setRemoveConfirmOpen(false);
       }
       setActionError(
-        error instanceof Error
-          ? error.message
-          : strings.mangaDetail.actionFailedDetail,
+        describeMobileErrorDetail(error, strings.mangaDetail.actionFailedDetail),
       );
       await hapticError();
       removingRef.current = false;
@@ -1206,7 +1211,10 @@ export function MangaDetailScreen() {
       await hapticConfirm();
     } catch (nextError) {
       setError(
-        nextError instanceof Error ? nextError.message : String(nextError),
+        describeMobileErrorDetail(
+          nextError,
+          strings.mangaDetail.actionFailedDetail,
+        ),
       );
       await hapticError();
     } finally {

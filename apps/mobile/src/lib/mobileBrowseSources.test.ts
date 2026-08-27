@@ -14,6 +14,7 @@ import {
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
   groupMobileSourcesByLanguage,
+  isMobileUnsupportedInstalledSource,
   mergeMobileInstalledSourceRegistryMetadata,
   shouldRenderMobileBrowseSkeleton,
   type MobileBrowseLanguageSource,
@@ -577,6 +578,32 @@ describe("mobile browse source filtering", () => {
         installedCount: 0,
         availableCount: 0,
         hasError: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("flags installed sources whose runtime this build cannot execute", () => {
+    // Tachiyomi records reach mobile through cloud sync; browse and settings
+    // rows have to mark them instead of failing only once the user taps.
+    expect(
+      isMobileUnsupportedInstalledSource({
+        id: "tachiyomi-local:en.example",
+        registryId: "tachiyomi-local",
+        sourceKind: "tachiyomi",
+      }),
+    ).toBe(true);
+    expect(
+      isMobileUnsupportedInstalledSource({
+        id: "tachiyomi-local:en.example",
+        registryId: "",
+        sourceKind: undefined,
+      }),
+    ).toBe(true);
+    expect(
+      isMobileUnsupportedInstalledSource({
+        id: "aidoku-community:en.example",
+        registryId: "aidoku-community",
+        sourceKind: "aidoku",
       }),
     ).toBe(false);
   });

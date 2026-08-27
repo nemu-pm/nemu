@@ -35,6 +35,7 @@ import {
   type SourceCardModel,
 } from "@/design-system";
 import {
+  isMobileSourceInstallCancellation,
   useAvailableSources,
   useInstalledSources,
   useMobileLanguageSettings,
@@ -63,10 +64,12 @@ import {
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
   groupMobileSourcesByLanguage,
+  isMobileUnsupportedInstalledSource,
   mergeMobileInstalledSourceRegistryMetadata,
   shouldRenderMobileBrowseSkeleton,
 } from "@/lib/mobileBrowseSources";
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
+import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import { sortSourcesByLanguagePriority } from "@/lib/mobileLanguageSettings";
 import {
   markMobilePerformance,
@@ -96,6 +99,90 @@ type AvailableSourceSection = {
   label: string;
   data: MobileRegistrySource[];
 };
+
+/**
+ * Installed sources carry an `unsupported` flag so runtimes this build cannot
+ * execute (today: Tachiyomi, which can arrive through cloud sync) render as an
+ * explicit "unsupported" row instead of a normal one that only fails on tap.
+ */
+type InstalledSourceCardModel = SourceCardModel & { unsupported: boolean };
+
+/**
+ * Stand-in for `SourceCard` used by sources this build cannot run. It is not a
+ * gateway into browsing; it only routes to the source's settings so the user
+ * can uninstall it.
+ */
+function UnsupportedSourceRow({
+  source,
+  strings,
+  onPress,
+}: {
+  source: InstalledSourceCardModel;
+  strings: MobileStrings;
+  onPress: () => void;
+}) {
+  const { tokens } = useNemuTheme();
+  return (
+    <NemuPressable
+      accessibilityRole="button"
+      accessibilityLabel={`${source.name}. ${strings.common.sourceUnsupported}`}
+      accessibilityHint={strings.common.sourceUnsupportedTachiyomiDescription}
+      onPress={onPress}
+      pressedScale={0.985}
+      style={[
+        styles.unsupportedSourceRow,
+        { backgroundColor: tokens.muted, borderColor: tokens.border },
+      ]}
+    >
+      <View
+        style={[
+          styles.unsupportedSourceIcon,
+          { backgroundColor: tokens.card, borderColor: tokens.border },
+        ]}
+      >
+        <Ionicons
+          name="alert-circle-outline"
+          size={22}
+          color={tokens.mutedForeground}
+        />
+      </View>
+      <View style={styles.unsupportedSourceText}>
+        <View style={styles.unsupportedSourceTitleRow}>
+          <Text
+            numberOfLines={1}
+            style={[styles.unsupportedSourceTitle, { color: tokens.foreground }]}
+          >
+            {source.name}
+          </Text>
+          <View
+            style={[
+              styles.unsupportedSourceBadge,
+              { backgroundColor: tokens.card, borderColor: tokens.border },
+            ]}
+          >
+            <Text
+              style={[
+                styles.unsupportedSourceBadgeText,
+                { color: tokens.mutedForeground },
+              ]}
+            >
+              {strings.common.sourceUnsupportedBadge}
+            </Text>
+          </View>
+        </View>
+        <Text
+          numberOfLines={2}
+          style={[
+            styles.unsupportedSourceSubtitle,
+            { color: tokens.mutedForeground },
+          ]}
+        >
+          {strings.common.sourceUnsupportedTachiyomiDescription}
+        </Text>
+      </View>
+    </NemuPressable>
+  );
+}
 
 function sourceSettingsHref(source: SourceCardModel): Href {
   return {
@@ -159,9 +246,7 @@ function sourceActionErrorMessage(
   error: unknown,
   strings: MobileStrings,
 ): string {
-  return error instanceof Error
-    ? error.message
-    : strings.browse.sourcesUnavailable;
+  return describeMobileErrorDetail(error, strings.browse.sourcesUnavailable);
 }
 
 function waitForInstallSheetFrame() {
@@ -634,7 +719,7 @@ export function BrowseScreen() {
     );
   }, [available.data]);
 
-  const installedSources = useMemo<SourceCardModel[]>(() => {
+  const installedSources = useMemo<InstalledSourceCardModel[]>(() => {
     const merged = mergeMobileInstalledSourceRegistryMetadata(
       installed.data,
       available.data,
@@ -650,6 +735,7 @@ export function BrowseScreen() {
         icon: source.icon,
         languages: source.languages,
         subtitle: registryId,
+        unsupported: isMobileUnsupportedInstalledSource(source),
       };
     });
     return sortSourcesByLanguagePriority(cards, appLanguage);
@@ -787,6 +873,11 @@ export function BrowseScreen() {
       }
       await hapticConfirm();
     } catch (error) {
+      // A user-requested cancel is not a failure; just close the sheet.
+      if (isMobileSourceInstallCancellation(error)) {
+        setConfirmation(null);
+        return;
+      }
       await hapticError();
       if (
         getMobileSourceInstallResultAction({ succeeded: false }) ===
@@ -1005,7 +1096,7 @@ export function BrowseScreen() {
             sourceUpdateNotice &&
             sourceUpdateMessage ? (
               <MobileInlineErrorBanner
-                title={strings.search.updated}
+                title={strings.settings.sourcesUpdatedTitle}
                 detail={sourceUpdateMessage}
                 dismissLabel={strings.common.clear}
                 iconName="checkmark-circle-outline"
@@ -1050,15 +1141,26 @@ export function BrowseScreen() {
                           {label}
                         </Text>
                         <View style={styles.list}>
-                          {section.sources.map((source) => (
-                            <SourceCard
-                              key={source.id}
-                              item={source}
-                              onLongPress={() => {
-                                router.push(sourceSettingsHref(source));
-                              }}
-                            />
-                          ))}
+                          {section.sources.map((source) =>
+                            source.unsupported ? (
+                              <UnsupportedSourceRow
+                                key={source.id}
+                                source={source}
+                                strings={strings}
+                                onPress={() => {
+                                  router.push(sourceSettingsHref(source));
+                                }}
+                              />
+                            ) : (
+                              <SourceCard
+                                key={source.id}
+                                item={source}
+                                onLongPress={() => {
+                                  router.push(sourceSettingsHref(source));
+                                }}
+                              />
+                            ),
+                          )}
                         </View>
                       </View>
                     );
@@ -1279,6 +1381,7 @@ export function BrowseScreen() {
             : strings.browse.installingSourceDescriptionGeneric
         }
         sourceIcon={activeInstallSource?.icon}
+        onCancel={installer.cancelInstall}
       />
     </>
   );
@@ -1340,6 +1443,55 @@ const styles = StyleSheet.create({
   },
   sourceLanguageSection: {
     gap: 8,
+  },
+  unsupportedSourceRow: {
+    minHeight: 84,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 14,
+  },
+  unsupportedSourceIcon: {
+    width: 52,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  unsupportedSourceText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  unsupportedSourceTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  unsupportedSourceTitle: {
+    flexShrink: 1,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: nemuFontWeight.semibold,
+  },
+  unsupportedSourceBadge: {
+    borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  unsupportedSourceBadgeText: {
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: nemuFontWeight.medium,
+    textTransform: "uppercase",
+  },
+  unsupportedSourceSubtitle: {
+    fontSize: 11,
+    lineHeight: 15,
   },
   sourceLanguageHeader: {
     fontSize: 11,

@@ -1,13 +1,27 @@
 import type { InstalledSource, SourcePackageMetadata } from "@/data/schema";
+import { MOBILE_TACHIYOMI_UNSUPPORTED_MARKER } from "@/lib/mobileSourceErrors";
 import { mergeSourceSettingValues } from "@/lib/mobileSourceSettings";
 import { makeAixCacheKey, parseSourceKey } from "./aidokuRegistry";
 import { makeTachiyomiExtensionCacheKey } from "./sourcePackageCacheTypes";
 
 const MOBILE_TACHIYOMI_LOCAL_REGISTRY_ID = "tachiyomi-local";
-export const MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL =
-  "Tachiyomi extensions need a native Tachiyomi bridge on mobile because Expo/React Native does not provide the Web Worker runtime used by the web implementation.";
+/**
+ * Technical, untranslated detail kept for logs and diagnostics. The marker
+ * prefix lets `getMobileSourceErrorPresentation` show localized copy first and
+ * demote this sentence to the secondary detail line.
+ */
+export const MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL = `${MOBILE_TACHIYOMI_UNSUPPORTED_MARKER} Tachiyomi extensions need a native Tachiyomi bridge on mobile because Expo/React Native does not provide the Web Worker runtime used by the web implementation.`;
 
 export type MobileSourceKind = "aidoku" | "tachiyomi";
+
+/**
+ * Tachiyomi packages can be installed (and arrive through cloud sync) but this
+ * build has no runtime that can execute them. Browse/settings surfaces use this
+ * to render an "unsupported" row instead of a normal, tappable source.
+ */
+export function isMobileUnsupportedSourceKind(kind: MobileSourceKind): boolean {
+  return kind === "tachiyomi";
+}
 
 export type MobileSourcePackageLoadPlan =
   | {

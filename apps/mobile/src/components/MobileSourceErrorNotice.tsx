@@ -40,8 +40,13 @@ export function MobileSourceErrorNotice({
             {title}
           </Text>
         ) : null}
+        {/*
+          `detail` follows the mobile error-copy contract in
+          `mobileSourceErrors.ts`: localized copy on the first line, the raw
+          exception text on an optional second line. Allow room for both.
+        */}
         <Text
-          numberOfLines={3}
+          numberOfLines={4}
           style={[styles.noticeText, { color: tokens.mutedForeground }]}
         >
           {detail}

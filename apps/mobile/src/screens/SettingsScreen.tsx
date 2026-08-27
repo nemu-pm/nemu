@@ -84,12 +84,16 @@ import {
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
+import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import {
   getMobileInstalledSourceRegistryRef,
   getMobileInstalledSourceSettingsKeys,
 } from "@/lib/mobileInstalledSourceKeys";
 import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
-import { mergeMobileInstalledSourceRegistryMetadata } from "@/lib/mobileBrowseSources";
+import {
+  isMobileUnsupportedInstalledSource,
+  mergeMobileInstalledSourceRegistryMetadata,
+} from "@/lib/mobileBrowseSources";
 import {
   DEFAULT_READER_PAGE_PAIRING_MODE,
   DEFAULT_READER_PROCESS_PAGE_IMAGES,
@@ -287,6 +291,10 @@ function SourceManagementRow({
   const name = sourceName(source);
   const removeDisabled = disabled || removing;
   const canOpenSettings = !disabled;
+  // Tachiyomi records can arrive through cloud sync; this build cannot run
+  // them, so the row says so up front instead of failing on tap.
+  const unsupported = isMobileUnsupportedInstalledSource(source);
+  const browseDisabled = disabled || unsupported;
 
   return (
     <View
@@ -296,18 +304,22 @@ function SourceManagementRow({
       ]}
     >
       <NemuPressable
-        accessibilityLabel={formatMobileString(strings.settings.browseSource, { name })}
+        accessibilityLabel={
+          unsupported
+            ? `${name}. ${strings.common.sourceUnsupported}`
+            : formatMobileString(strings.settings.browseSource, { name })
+        }
         accessibilityRole="button"
-        accessibilityState={{ disabled }}
-        disabled={disabled}
-        hapticFeedback={disabled ? "none" : "press"}
+        accessibilityState={{ disabled: browseDisabled }}
+        disabled={browseDisabled}
+        hapticFeedback={browseDisabled ? "none" : "press"}
         onPress={() => {
-          if (disabled) return;
+          if (browseDisabled) return;
           onBrowse();
         }}
         pressedScale={0.985}
         containerStyle={styles.sourceMainContainer}
-        style={[styles.sourceMain, disabled && styles.disabledMain]}
+        style={[styles.sourceMain, browseDisabled && styles.disabledMain]}
       >
         <SourceIcon icon={source.icon} />
         <View style={styles.sourceText}>
@@ -320,9 +332,18 @@ function SourceManagementRow({
                 v{source.version}
               </Text>
             </View>
+            {unsupported ? (
+              <View style={[styles.versionBadge, { backgroundColor: tokens.muted }]}>
+                <Text style={[styles.versionText, { color: tokens.danger }]}>
+                  {strings.common.sourceUnsupportedBadge}
+                </Text>
+              </View>
+            ) : null}
           </View>
-          <Text numberOfLines={1} style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>
-            {sourceSubtitle(source)}
+          <Text numberOfLines={2} style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>
+            {unsupported
+              ? strings.common.sourceUnsupportedTachiyomiDescription
+              : sourceSubtitle(source)}
           </Text>
         </View>
       </NemuPressable>
@@ -1474,7 +1495,7 @@ export function SettingsScreen({
   const reportSettingsError = async (error: unknown) => {
     await hapticError();
     setOperationError(
-      error instanceof Error ? error.message : strings.settings.settingsActionFailedDetail,
+      describeMobileErrorDetail(error, strings.settings.settingsActionFailedDetail),
     );
   };
 
@@ -2032,7 +2053,7 @@ export function SettingsScreen({
         ) : null}
         {showSourceUpdateNotice && sourceUpdateNotice && sourceUpdateMessage ? (
           <MobileInlineErrorBanner
-            title={strings.search.updated}
+            title={strings.settings.sourcesUpdatedTitle}
             detail={sourceUpdateMessage}
             dismissLabel={strings.common.clear}
             iconName="checkmark-circle-outline"

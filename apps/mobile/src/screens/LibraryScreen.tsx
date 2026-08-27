@@ -56,6 +56,7 @@ import {
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
+import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import {
   getMobileInstalledSourceSettingsKeys,
   mobileInstalledSourceMatchesLink,
@@ -1212,7 +1213,7 @@ export function LibraryScreen({
   const reportCollectionError = async (error: unknown) => {
     await hapticError();
     setOperationError(
-      error instanceof Error ? error.message : strings.library.collectionActionFailedDetail,
+      describeMobileErrorDetail(error, strings.library.collectionActionFailedDetail),
     );
   };
 

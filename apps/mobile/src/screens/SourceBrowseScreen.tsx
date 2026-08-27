@@ -76,6 +76,7 @@ import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
 import { coerceMobileNativeSearchText } from "@/lib/mobileNativeSearchText";
 import {
+  describeMobileErrorDetail,
   getMobileRuntimeUnavailableDetail,
   getMobileSourceErrorPresentation,
 } from "@/lib/mobileSourceErrors";
@@ -1752,10 +1753,10 @@ export function SourceBrowseScreen() {
         cloudflareSheetRef.current?.reportError(error);
         setSourceBrowseMetadataState({
           status: "error",
-          detail:
-            error instanceof Error
-              ? error.message
-              : strings.sourceBrowse.sourceUnavailable,
+          detail: describeMobileErrorDetail(
+            error,
+            strings.sourceBrowse.sourceUnavailable,
+          ),
         });
       });
 
@@ -1872,10 +1873,10 @@ export function SourceBrowseScreen() {
         setSourceHomeState((current) => ({
           status: "error",
           home: current.home,
-          detail:
-            error instanceof Error
-              ? error.message
-              : strings.sourceBrowse.loadHomeFailed,
+          detail: describeMobileErrorDetail(
+            error,
+            strings.sourceBrowse.loadHomeFailed,
+          ),
         }));
       });
 
@@ -1940,10 +1941,10 @@ export function SourceBrowseScreen() {
         setSourceFiltersState({
           status: "error",
           filters: [],
-          detail:
-            error instanceof Error
-              ? error.message
-              : strings.sourceBrowse.loadFiltersFailed,
+          detail: describeMobileErrorDetail(
+            error,
+            strings.sourceBrowse.loadFiltersFailed,
+          ),
         });
       });
 
@@ -2027,10 +2028,10 @@ export function SourceBrowseScreen() {
         setSourceSearchState({
           status: "error",
           items: previousItems,
-          detail:
-            error instanceof Error
-              ? error.message
-              : strings.sourceBrowse.sourceSearchFailed,
+          detail: describeMobileErrorDetail(
+            error,
+            strings.sourceBrowse.sourceSearchFailed,
+          ),
         });
       } finally {
         if (loadingMore) {
@@ -2153,10 +2154,10 @@ export function SourceBrowseScreen() {
         setListingState({
           status: "error",
           items: previousItems,
-          detail:
-            error instanceof Error
-              ? error.message
-              : strings.sourceBrowse.listingLoadFailed,
+          detail: describeMobileErrorDetail(
+            error,
+            strings.sourceBrowse.listingLoadFailed,
+          ),
         });
       } finally {
         if (loadingMore) {
@@ -3262,7 +3263,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   liveText: {
-    height: 60,
+    // `minHeight` keeps the grid rows aligned while letting wrapped CJK titles
+    // grow instead of being clipped by a fixed box.
+    minHeight: 60,
     marginTop: 8,
     paddingHorizontal: 2,
   },

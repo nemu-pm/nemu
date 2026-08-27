@@ -6,11 +6,35 @@ import {
   readErrorUrl,
 } from "@nemu/core/sources";
 
+/**
+ * Mobile error-copy contract
+ * --------------------------
+ * A raw exception message is almost always untranslated English produced by a
+ * source package, the runtime, or a platform API. It must never be the first
+ * thing a zh/ja user reads. Every catch site in the app therefore follows one
+ * pattern:
+ *
+ *   1. the localized string is the primary copy, and
+ *   2. the raw message is appended by `describeMobileErrorDetail` as a
+ *      secondary line, only where the surface has room for a detail line
+ *      (`MobileSourceErrorNotice` / `MobileInlineErrorBanner` both do).
+ *
+ * Use `describeMobileErrorDetail(error, strings.x.somethingFailedDetail)`
+ * instead of `error instanceof Error ? error.message : strings.x...`.
+ */
 export type MobileSourceErrorKind =
   | "cloudflare"
   | "network"
   | "runtime"
+  | "unsupported"
   | "source";
+
+/**
+ * Stamped onto runtime details that describe a source this build cannot run at
+ * all. The presentation layer swaps in localized copy and keeps the technical
+ * sentence as the secondary detail line.
+ */
+export const MOBILE_TACHIYOMI_UNSUPPORTED_MARKER = "[tachiyomi-unsupported]";
 
 export type MobileSourceErrorPresentation = {
   kind: MobileSourceErrorKind;
@@ -26,6 +50,26 @@ export type MobileSourceErrorRecoveryAction = {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The single join used by the error-copy contract above: localized copy first,
+ * raw exception text second. Returns the localized string untouched when there
+ * is no extra information to show.
+ */
+export function describeMobileErrorDetail(
+  error: unknown,
+  localizedDetail: string,
+): string {
+  const raw = errorMessage(error)
+    .replace(MOBILE_TACHIYOMI_UNSUPPORTED_MARKER, "")
+    .trim();
+  if (!raw || raw === localizedDetail) return localizedDetail;
+  return `${localizedDetail}\n${raw}`;
+}
+
+export function isMobileTachiyomiUnsupportedError(error: unknown): boolean {
+  return errorMessage(error).includes(MOBILE_TACHIYOMI_UNSUPPORTED_MARKER);
 }
 
 export function isMobileCloudflareError(error: unknown): boolean {
@@ -83,6 +127,17 @@ export function getMobileSourceErrorPresentation(
     };
   }
 
+  if (isMobileTachiyomiUnsupportedError(error)) {
+    return {
+      kind: "unsupported",
+      title: strings.common.sourceUnsupported,
+      detail: describeMobileErrorDetail(
+        error,
+        strings.common.sourceUnsupportedTachiyomiDescription,
+      ),
+    };
+  }
+
   if (isMobileRuntimeUnavailableError(error)) {
     return {
       kind: "runtime",
@@ -102,7 +157,10 @@ export function getMobileSourceErrorPresentation(
   return {
     kind: "source",
     title: strings.common.sourceError,
-    detail: errorMessage(error),
+    detail: describeMobileErrorDetail(
+      error,
+      strings.common.sourceErrorDescription,
+    ),
   };
 }
 
@@ -110,8 +168,9 @@ export function getMobileSourceErrorSummary(
   error: unknown,
   strings: Pick<MobileStrings, "common">,
 ): string {
-  const presentation = getMobileSourceErrorPresentation(error, strings);
-  return presentation.kind === "source" ? presentation.detail : presentation.title;
+  // Compact rows only have room for one line, so they always get the localized
+  // title. The raw text stays reachable through the full presentation detail.
+  return getMobileSourceErrorPresentation(error, strings).title;
 }
 
 export function getMobileSourceErrorRecoveryAction(

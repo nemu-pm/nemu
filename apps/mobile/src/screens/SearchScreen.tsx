@@ -58,7 +58,10 @@ import {
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
 import { coerceMobileNativeSearchText } from "@/lib/mobileNativeSearchText";
-import { getMobileSourceErrorPresentation } from "@/lib/mobileSourceErrors";
+import {
+  describeMobileErrorDetail,
+  getMobileSourceErrorPresentation,
+} from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
 import {
   loadMobileSourceSettingsByKeys,
@@ -835,9 +838,10 @@ export function SearchScreen() {
       .catch((nextError) => {
         if (!mounted) return;
         setPreferenceError(
-          nextError instanceof Error
-            ? nextError.message
-            : strings.search.preferencesLoadFailedDetail,
+          describeMobileErrorDetail(
+            nextError,
+            strings.search.preferencesLoadFailedDetail,
+          ),
         );
         void hapticError();
       })
@@ -889,9 +893,10 @@ export function SearchScreen() {
           if (selectionSaveRun.current !== saveRun) return;
           setSelectedSourceIds(previousSelection);
           setPreferenceError(
-            nextError instanceof Error
-              ? nextError.message
-              : strings.search.preferencesSaveFailedDetail,
+            describeMobileErrorDetail(
+              nextError,
+              strings.search.preferencesSaveFailedDetail,
+            ),
           );
           void hapticError();
         })
@@ -1320,7 +1325,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   liveText: {
-    height: 60,
+    // `minHeight` keeps the grid rows aligned while letting wrapped CJK titles
+    // grow instead of being clipped by a fixed box.
+    minHeight: 60,
     marginTop: 8,
     paddingHorizontal: 2,
   },
