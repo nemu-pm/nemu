@@ -40,9 +40,13 @@ export function useSyncStatus() {
   const isAuthenticated = store((s) => s.isAuthenticated);
   return {
     status: syncStatus,
-    isOnline: syncStatus !== "offline",
+    // Only the two healthy states count as online. A limit or upgrade failure
+    // means nothing is flowing, so it must not read as a live connection.
+    isOnline: syncStatus === "syncing" || syncStatus === "synced",
     isSyncing: syncStatus === "syncing",
     isSynced: syncStatus === "synced",
+    isLimitExceeded: syncStatus === "limit-exceeded",
+    requiresReload: syncStatus === "upgrade-required",
     isAuthenticated,
   };
 }

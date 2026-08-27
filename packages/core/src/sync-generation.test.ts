@@ -268,6 +268,50 @@ describe("sync generation helpers", () => {
     expect(raceBudget.usedEstimatedBytes).toBe(0);
   });
 
+  test("reports a stuck cursor as a protocol error, not a generation change", async () => {
+    // A repeated or empty cursor means the page stream can never advance.
+    // Reporting it as a generation change made callers restart the whole
+    // bundle forever against a server that would answer identically.
+    const budget = { usedRows: 0, usedEstimatedBytes: 0 };
+    let calls = 0;
+    const result = await fetchBoundedSyncSnapshotPages<number>(
+      8,
+      async () => {
+        calls += 1;
+        return {
+          generation: 8,
+          page: [
+            { kind: "generation", generation: 8 },
+            { kind: "row", generation: 8, row: calls },
+          ],
+          continueCursor: "stuck",
+          isDone: false,
+        };
+      },
+      budget,
+    );
+    expect(result).toEqual({ status: "protocol-error" });
+    // The second fetch is the one that repeats the cursor; it must stop there.
+    expect(calls).toBe(2);
+  });
+
+  test("reports a missing continuation cursor as a protocol error", async () => {
+    const result = await fetchBoundedSyncSnapshotPages<number>(
+      8,
+      async () => ({
+        generation: 8,
+        page: [
+          { kind: "generation", generation: 8 },
+          { kind: "row", generation: 8, row: 1 },
+        ],
+        continueCursor: "",
+        isDone: false,
+      }),
+      { usedRows: 0, usedEstimatedBytes: 0 },
+    );
+    expect(result).toEqual({ status: "protocol-error" });
+  });
+
   test("bounded one-shot fetch fails closed at one estimated byte over budget", async () => {
     const largeRow = { payload: "x".repeat(256 * 1024) };
     const largeRowBytes = estimateSyncSnapshotRowBytes(largeRow);

@@ -36,6 +36,17 @@ export {
   useChapterProgressLoader,
 } from "./hooks";
 
+// Sync protocol error recovery
+export {
+  getSyncRecoveryRequest,
+  reportSyncMutationError,
+  subscribeSyncRecovery,
+  type SyncRecoveryRequest,
+} from "./sync-error-recovery";
+
+/** Restart a sync round that stopped on a hard limit (see SyncStatus). */
+export { requestSyncSnapshotRetry } from "./snapshot-retry";
+
 // Types
 export type { DataServices, StoreHooks, SyncStatus } from "./types";
 
