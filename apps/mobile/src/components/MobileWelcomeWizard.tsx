@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { router } from "expo-router";
 import {
   ActivityIndicator,
   BackHandler,
@@ -39,6 +40,7 @@ import {
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
+import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import {
   canSelectMobileWelcomeLanguageOption,
   canRunMobileWelcomePrimaryAction,
@@ -54,7 +56,7 @@ import { makeSourceKey, type MobileRegistrySource } from "@/sources/aidokuRegist
 
 const languageOptions: Array<{ value: AppLanguage; label: string }> = [
   { value: "en", label: "English" },
-  { value: "zh", label: "中文" },
+  { value: "zh", label: "简体中文" },
   { value: "ja", label: "日本語" },
 ];
 
@@ -64,18 +66,17 @@ function formatLanguages(languages?: string[]): string | undefined {
   return languages?.length ? languages.join(", ").toUpperCase() : undefined;
 }
 
-function getWelcomeIntroDisplayLines(intro: string) {
-  const lines = intro.split("\n");
-  const firstLine = lines[0];
-  const webBreakMarker = " that lets you discover ";
-  if (!firstLine.includes(webBreakMarker)) return lines;
+const BRAND_TOKEN = "{{brand}}";
 
-  const [beforeBreak, afterBreak] = firstLine.split(webBreakMarker);
-  return [
-    `${beforeBreak} that lets you`,
-    `discover ${afterBreak}`,
-    ...lines.slice(1),
-  ];
+/**
+ * `welcome.title` is a per-locale template so each language decides where the
+ * branded "nemu" sits ("Welcome to nemu", "欢迎使用 nemu", "nemuへようこそ").
+ * Splitting on the placeholder lets the brand keep its own text style.
+ */
+function splitWelcomeTitleAroundBrand(title: string): [string, string] {
+  const index = title.indexOf(BRAND_TOKEN);
+  if (index === -1) return [title, ""];
+  return [title.slice(0, index), title.slice(index + BRAND_TOKEN.length)];
 }
 
 function LanguageStep({
@@ -344,7 +345,17 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
     emitMobileDataChanged("settings");
   };
 
-  const completeWelcome = async () => {
+  // Persist completion as soon as the user reaches the final step. The wizard
+  // is safely re-enterable, but a force-quit on the "done" screen used to
+  // replay the whole flow even though setup had finished.
+  useEffect(() => {
+    if (step !== "done") return;
+    void markCompleted().catch(() => undefined);
+    // `markCompleted` only closes over `store`, which is stable for a mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  const completeWelcome = async (afterComplete?: () => void) => {
     if (!canRunMobileWelcomePrimaryAction(getGuardedActionState())) return;
 
     completeGuardRef.current = true;
@@ -363,10 +374,11 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
       } else {
         setSheetVisible(false);
       }
+      afterComplete?.();
     } catch (error) {
       await hapticError();
       setOperationError(
-        error instanceof Error ? error.message : strings.welcome.sourceInstallFailedDetail
+        describeMobileErrorDetail(error, strings.welcome.sourceInstallFailedDetail)
       );
     } finally {
       if (!completed) {
@@ -392,7 +404,7 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
     } catch (error) {
       await hapticError();
       setOperationError(
-        error instanceof Error ? error.message : strings.settings.settingsActionFailedDetail
+        describeMobileErrorDetail(error, strings.settings.settingsActionFailedDetail)
       );
     } finally {
       if (changingLanguageRef.current) {
@@ -434,7 +446,7 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
     } catch (error) {
       await hapticError();
       setOperationError(
-        error instanceof Error ? error.message : strings.welcome.sourceInstallFailedDetail
+        describeMobileErrorDetail(error, strings.welcome.sourceInstallFailedDetail)
       );
     } finally {
       installingRef.current = false;
@@ -451,6 +463,12 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
       return;
     }
     void completeWelcome();
+  };
+
+  const openCloudSync = () => {
+    void completeWelcome(() => {
+      router.navigate("/settings");
+    });
   };
 
   const primaryAction = () => {
@@ -497,7 +515,9 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
         Math.max(240, windowHeight - sheetTopPadding - 12),
       );
   const welcomeIntroWidth = Math.min(400, windowWidth - 40);
-  const welcomeIntroLines = getWelcomeIntroDisplayLines(strings.welcome.intro);
+  const welcomeIntroLines = strings.welcome.introLines;
+  const [welcomeTitleBeforeBrand, welcomeTitleAfterBrand] =
+    splitWelcomeTitleAroundBrand(strings.welcome.title);
 
   const content = (
     <>
@@ -520,10 +540,11 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
         >
           {step === "welcome" ? (
             <>
-              {strings.welcome.titlePrefix}
+              {welcomeTitleBeforeBrand}
               <Text style={[styles.brandWord, nemuBrandTextStyle, { color: tokens.primary }]}>
                 nemu
               </Text>
+              {welcomeTitleAfterBrand}
             </>
           ) : null}
           {step === "language" ? strings.welcome.languageTitle : null}
@@ -550,19 +571,22 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
 
       {step === "welcome" ? (
         <View
-          accessibilityLabel={strings.welcome.intro}
+          accessibilityLabel={welcomeIntroLines.join("\n")}
           accessible
           style={[
             styles.welcomeIntro,
             { width: welcomeIntroWidth },
           ]}
         >
-          {welcomeIntroLines.map((line) => (
+          {/*
+            Lines are pre-split per locale, so no font-shrinking hack is needed
+            to keep English on one line. CJK copy simply wraps when a device is
+            narrow enough to need it.
+          */}
+          {welcomeIntroLines.map((line, index) => (
             <Text
-              adjustsFontSizeToFit
-              key={line}
-              minimumFontScale={0.9}
-              numberOfLines={1}
+              key={`${index}-${line}`}
+              numberOfLines={2}
               style={[styles.body, styles.welcomeIntroLine, { color: tokens.mutedForeground }]}
             >
               {line}
@@ -637,7 +661,18 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
             hapticFeedback="none"
             onPress={skip}
           />
-        ) : null}
+        ) : (
+          // `syncHint` asks the user to sign in, so give that ask an actual
+          // affordance: finish the wizard, then land on the settings root that
+          // hosts the cloud-sync card.
+          <NemuButton
+            label={strings.welcome.signIn}
+            variant="ghost"
+            disabled={primaryDisabled}
+            hapticFeedback="none"
+            onPress={openCloudSync}
+          />
+        )}
         <NemuButton
           label={
             step === "welcome"
