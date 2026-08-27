@@ -591,7 +591,6 @@ function phaseCorrelationShiftJs(
     seeds,
   };
 }
-
 function createWasmFftConfig(
   wasm: KissFftModule,
   dims: [number, number],
@@ -2227,4 +2226,3 @@ export function computeAlignmentTransform(input: {
     debug: debugPayload,
   };
 }
-
