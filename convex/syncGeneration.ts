@@ -6,6 +6,12 @@ export const INVALID_SYNC_CLOCK = "INVALID_SYNC_CLOCK";
 export const INVALID_SYNC_GENERATION = "INVALID_SYNC_GENERATION";
 export const INVALID_SYNC_NUMBER = "INVALID_SYNC_NUMBER";
 export const SYNC_PAGINATED_SNAPSHOT_REQUIRED = "SYNC_PAGINATED_SNAPSHOT_REQUIRED";
+/**
+ * Reserved. `requireSyncMutationContext` no longer throws this — an unfenced
+ * payload takes the legacy grace path instead of losing the write — but the
+ * code stays part of the protocol vocabulary that clients classify, so a
+ * future mandatory-upgrade cutover has a name to throw.
+ */
 export const SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED =
   "SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED";
 export const SYNC_MUTATION_CONTEXT_REQUIRED = "SYNC_MUTATION_CONTEXT_REQUIRED";

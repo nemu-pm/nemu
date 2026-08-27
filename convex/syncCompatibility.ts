@@ -1,9 +1,9 @@
 import type { MutationCtx } from "./_generated/server";
-import { requireAuthForUser } from "./_lib";
+import { requireAuth, requireAuthForUser } from "./_lib";
 import {
+  getCurrentSyncGeneration,
   requireSyncGeneration,
   resolveSyncClock,
-  SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED,
   SYNC_MUTATION_CONTEXT_REQUIRED,
 } from "./syncGeneration";
 
@@ -57,11 +57,20 @@ export type SyncMutationContext = {
 /**
  * Account and generation fencing for queued sync mutations.
  *
- * Validators keep the two fields optional so a backend-first deployment does
- * not reject an old payload before this handler can return an actionable
- * upgrade error. Ownerless writes must never execute: Convex reconnect can
- * replay a queued payload on a newly authenticated transport, and the server
- * cannot recover the account that originally created such a payload.
+ * Validators keep the two fields optional because Convex deploys independently
+ * of the web bundle: for the whole window between a backend push and the last
+ * browser picking up new JS, every production client is still sending neither
+ * field. Rejecting those payloads would silently discard every write those
+ * clients make, so a payload with *both* fields absent takes the legacy path
+ * and executes with the semantics the pre-fencing backend had.
+ *
+ * The legacy path stays fail-closed for cross-account safety. The account is
+ * derived from the transport's own authentication, never from client input, so
+ * a queued payload replayed on a reconnected socket can only ever write to the
+ * account that socket is currently authenticated as — it can never be steered
+ * at another user's data. A *half*-populated payload is still rejected: it
+ * cannot be produced by any released client and would mean the caller believes
+ * it is fencing when it is not.
  */
 export async function requireSyncMutationContext(
   ctx: MutationCtx,
@@ -73,7 +82,22 @@ export async function requireSyncMutationContext(
   const expectedUserId = args.expectedUserId;
   const legacy = expectedUserId === undefined && args.generation === undefined;
   if (legacy) {
-    throw new Error(SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED);
+    const userId = await requireAuth(ctx);
+    // A legacy client cannot name a generation, so it writes into whichever
+    // one the account currently occupies. That matches the pre-fencing
+    // behaviour (writes always landed) and keeps its data visible to current
+    // clients, at the cost of an un-upgraded device being able to re-push
+    // into a generation created by a reset it never saw.
+    const generation = await getCurrentSyncGeneration(ctx, userId);
+    return {
+      userId,
+      generation,
+      legacy: true,
+      // Legacy payloads predate the logical clock requirement, so fall back to
+      // the server's wall clock instead of failing the write.
+      resolveClock: (clock, legacyNow) =>
+        resolveSyncClock(clock, 0, legacyNow),
+    };
   }
   if ((expectedUserId === undefined) !== (args.generation === undefined)) {
     throw new Error(SYNC_MUTATION_CONTEXT_REQUIRED);

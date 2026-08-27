@@ -38,28 +38,62 @@ function syncContextFor(subject: string | null, generations: number[]) {
 }
 
 describe("Convex legacy sync compatibility", () => {
-  test("rejects ownerless writes under every transport identity", async () => {
+  // Convex deploys independently of the web bundle, so for the whole rollout
+  // window every live client is still sending an argument object with neither
+  // fencing field. Rejecting those payloads discarded 100% of their writes.
+  test("accepts a legacy-shaped payload instead of discarding the write", async () => {
     await expect(
-      requireSyncMutationContext(
-        syncContextFor("account-a", [0]),
-        {},
-      ),
-    ).rejects.toThrow("SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED");
-    await expect(
-      requireSyncMutationContext(
-        syncContextFor("account-b", [0]),
-        {},
-      ),
-    ).rejects.toThrow("SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED");
+      requireSyncMutationContext(syncContextFor("account-a", [0]), {}),
+    ).resolves.toMatchObject({
+      userId: "account-a",
+      generation: 0,
+      legacy: true,
+    });
   });
 
-  test("rejects ownerless writes independently of account generation", async () => {
+  test("derives the legacy account from auth, never from client input", async () => {
+    // The payload carries no owner at all, so the only possible answer is the
+    // account the transport is authenticated as. A queued payload replayed on
+    // a reconnected socket can never be steered at another user's data.
+    const asA = await requireSyncMutationContext(
+      syncContextFor("account-a", [0]),
+      {},
+    );
+    const asB = await requireSyncMutationContext(
+      syncContextFor("account-b", [0]),
+      {},
+    );
+    expect(asA.userId).toBe("account-a");
+    expect(asB.userId).toBe("account-b");
+  });
+
+  test("refuses a legacy write with no authenticated transport", async () => {
     await expect(
-      requireSyncMutationContext(
-        syncContextFor("account-a", [1, 3, 2]),
-        {},
-      ),
-    ).rejects.toThrow("SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED");
+      requireSyncMutationContext(syncContextFor(null, [0]), {}),
+    ).rejects.toThrow("Not authenticated");
+  });
+
+  test("lands a legacy write in the account's current generation", async () => {
+    // A legacy client cannot name a generation, so it writes wherever the
+    // account currently is rather than into the abandoned generation zero.
+    await expect(
+      requireSyncMutationContext(syncContextFor("account-a", [1, 3, 2]), {}),
+    ).resolves.toMatchObject({
+      userId: "account-a",
+      generation: 3,
+      legacy: true,
+    });
+  });
+
+  test("falls back to the server clock for a legacy payload", async () => {
+    // Legacy payloads predate the logical clock requirement. Requiring one
+    // would reject the very writes this path exists to accept.
+    const legacy = await requireSyncMutationContext(
+      syncContextFor("account-a", [3]),
+      {},
+    );
+    expect(legacy.resolveClock(undefined, 42)).toBe(42);
+    expect(legacy.resolveClock(41, 42)).toBe(41);
   });
 
   test("rejects partially fenced mutation payloads", async () => {
