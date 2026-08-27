@@ -111,6 +111,43 @@ const RouterWithContext = memo(function RouterWithContext() {
   );
 });
 
+/**
+ * better-auth 1.6.23 × @convex-dev/better-auth 0.12.5 type mismatch.
+ *
+ * `ConvexBetterAuthProvider` declares `authClient: AuthClient`, and that
+ * `AuthClient` is one specific instantiation of better-auth's client generic:
+ * `ReturnType<typeof createAuthClient<BetterAuthClientPlugin & { plugins:
+ * (CrossDomainClient | ConvexClient | BetterAuthClientPlugin)[] }>>`
+ * (@convex-dev/better-auth/dist/react/index.d.ts). Ours is a different
+ * instantiation — `createAuthClient({ baseURL, plugins: [convexClient(),
+ * crossDomainClient()] })` in `@/lib/auth-client` — and better-auth derives the
+ * whole client type from the options object, so the two deeply-inferred types
+ * are structurally unrelated even though the runtime object is exactly what the
+ * provider consumes. Removing the cast requires an upstream change: the prop
+ * has to be widened (or the option type exported so callers can instantiate the
+ * same generic).
+ *
+ * Until then the cast stays, but not blind. `ProviderAuthClientContract` is
+ * what `ConvexBetterAuthProvider` actually calls on the client, checked with
+ * `satisfies`, so a release that renames or drops any of it fails `bun run
+ * typecheck` instead of silently handing the provider an incompatible object.
+ * The plugin-provided members it also calls (`convex.token`,
+ * `crossDomain.oneTimeToken.verify`, `updateSession`) cannot join that check:
+ * better-auth does not merge plugin endpoint/action types into
+ * `createAuthClient`'s return type — the same gap `getAuthHeaders()` documents
+ * in `@/lib/auth-client` for `getCookie`.
+ */
+type ProviderAuthClientMethod = (...args: never[]) => unknown
+
+interface ProviderAuthClientContract {
+  useSession: ProviderAuthClientMethod
+  getSession: ProviderAuthClientMethod
+}
+
+const convexProviderAuthClient = (
+  authClient satisfies ProviderAuthClientContract
+) as unknown as ConvexAuthClient
+
 // Profile namespacing orphaned every cache entry written by an older build.
 // Collect them once, off the startup critical path.
 const scheduleIdle: (callback: () => void) => void =
@@ -127,7 +164,7 @@ createRoot(document.getElementById("root")!).render(
           <ThemeSync />
           <ConvexBetterAuthProvider
             client={convex}
-            authClient={authClient as unknown as ConvexAuthClient}
+            authClient={convexProviderAuthClient}
           >
             <DataServicesProvider>
               <SyncSetup />
