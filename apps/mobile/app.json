@@ -34,6 +34,7 @@
             ]
           }
         ],
+        "ITSAppUsesNonExemptEncryption": false,
         "NSPhotoLibraryUsageDescription": "Nemu lets you choose images from your photo library when updating manga covers.",
         "UIBackgroundModes": [
           "processing"
@@ -45,7 +46,7 @@
       "versionCode": 1,
       "allowBackup": false,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#fbfbfd"
       },
       "permissions": [
@@ -109,7 +110,11 @@
           "image": "./assets/icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#fbfbfd"
+          "backgroundColor": "#fbfbfd",
+          "dark": {
+            "image": "./assets/icon.png",
+            "backgroundColor": "#090a0d"
+          }
         }
       ]
     ],

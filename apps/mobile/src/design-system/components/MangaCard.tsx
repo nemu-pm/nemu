@@ -157,7 +157,9 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.semibold,
   },
   textBlock: {
-    height: 60,
+    // A fixed height clips the title and subtitle at larger Dynamic Type
+    // sizes; reserve the same space but let the block grow.
+    minHeight: 60,
     marginTop: 8,
     paddingHorizontal: 2,
   },
