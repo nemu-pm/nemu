@@ -11,6 +11,7 @@ import {
 import { ThemeProvider, useTheme } from "next-themes"
 import { authClient } from "@/lib/auth-client"
 import { themeStore } from "@/stores/theme"
+import { sweepLegacyCacheEntriesOnce } from "@/data/cache"
 
 import "./index.css"
 import "./lib/i18n"
@@ -109,6 +110,14 @@ const RouterWithContext = memo(function RouterWithContext() {
     </>
   );
 });
+
+// Profile namespacing orphaned every cache entry written by an older build.
+// Collect them once, off the startup critical path.
+const scheduleIdle: (callback: () => void) => void =
+  typeof requestIdleCallback === "function"
+    ? (callback) => { requestIdleCallback(() => callback()) }
+    : (callback) => { setTimeout(callback, 5000) }
+scheduleIdle(() => { void sweepLegacyCacheEntriesOnce() })
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

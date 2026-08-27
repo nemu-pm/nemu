@@ -1,4 +1,5 @@
 import type { UserDataStore } from "./store";
+import { deleteProfileCacheEntries } from "./cache";
 import type {
   InstalledSource,
   SourceRegistry,
@@ -2724,8 +2725,27 @@ export class IndexedDBUserDataStore implements UserDataStore {
       STORES.collectionItems,
     ];
     const storeNames = candidates.filter((name) => db.objectStoreNames.contains(name));
-    if (storeNames.length === 0) return;
+    if (storeNames.length > 0) {
+      await this.clearAccountStores(db, storeNames, signal);
+    }
 
+    // Cached covers, pages and metadata for this profile can be authenticated
+    // source content, so removing the account's data from this device has to
+    // remove them too. Best-effort by design: the account stores above are
+    // already committed, and failing here would abort a sign-out over cache
+    // garbage that the next sweep can still collect.
+    try {
+      await deleteProfileCacheEntries(this._profileId || undefined);
+    } catch (error) {
+      console.error("[indexeddb] Failed to clear cached profile content:", error);
+    }
+  }
+
+  private clearAccountStores(
+    db: IDBDatabase,
+    storeNames: string[],
+    signal?: AbortSignal,
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeNames, "readwrite");
       const abort = () => {
