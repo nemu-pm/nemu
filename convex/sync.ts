@@ -19,6 +19,11 @@ import {
 import { requireAuth, requireAuthForUser } from "./_lib";
 import { canonicalizeLwwRecords } from "./lww";
 import {
+  makeChapterProgressId,
+  makeMangaProgressId,
+  makeSourceLinkId,
+} from "../packages/core/src/sync";
+import {
   currentSyncGenerationRows,
   getCurrentSyncGeneration,
   nextSyncCleanupToken,
@@ -88,7 +93,7 @@ async function libraryItemRows(ctx: QueryCtx, userId: string, generation: number
 
 function mapSourceLink(link: Doc<"library_source_links">) {
   return {
-    id: `${encodeURIComponent(link.registryId)}:${encodeURIComponent(link.sourceId)}:${encodeURIComponent(link.sourceMangaId)}`,
+    id: makeSourceLinkId(link.registryId, link.sourceId, link.sourceMangaId),
     libraryItemId: link.libraryItemId,
     registryId: link.registryId,
     sourceId: link.sourceId,
@@ -163,7 +168,12 @@ async function collectionItemRows(ctx: QueryCtx, userId: string, generation: num
 
 function mapChapterProgress(entry: Doc<"chapter_progress">) {
   return {
-    id: `${encodeURIComponent(entry.registryId)}:${encodeURIComponent(entry.sourceId)}:${encodeURIComponent(entry.sourceMangaId)}:${encodeURIComponent(entry.sourceChapterId)}`,
+    id: makeChapterProgressId(
+      entry.registryId,
+      entry.sourceId,
+      entry.sourceMangaId,
+      entry.sourceChapterId,
+    ),
     registryId: entry.registryId,
     sourceId: entry.sourceId,
     sourceMangaId: entry.sourceMangaId,
@@ -194,7 +204,7 @@ async function chapterProgressRows(ctx: QueryCtx, userId: string, generation: nu
 
 function mapMangaProgress(entry: Doc<"manga_progress">) {
   return {
-    id: `${encodeURIComponent(entry.registryId)}:${encodeURIComponent(entry.sourceId)}:${encodeURIComponent(entry.sourceMangaId)}`,
+    id: makeMangaProgressId(entry.registryId, entry.sourceId, entry.sourceMangaId),
     registryId: entry.registryId,
     sourceId: entry.sourceId,
     sourceMangaId: entry.sourceMangaId,
