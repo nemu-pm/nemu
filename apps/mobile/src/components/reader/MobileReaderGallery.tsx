@@ -34,6 +34,8 @@ import { visualPageIndexesForMobileReaderSpread } from "@/lib/mobileReaderSpread
 import type { MobileReaderPage } from "@/sources/mobileSourcePages";
 import type { ReaderScrollPageMetric } from "@/lib/mobileReaderProgress";
 import { readerDisplayIndexForViewableItems } from "@/lib/mobileReaderProgress";
+import { isReaderAdvancePastEndDrag } from "./readerEdgeDrag";
+import { readerTapZoneForPosition } from "./readerTapZones";
 
 type MobileReaderGalleryState = {
   status: string;
@@ -63,6 +65,12 @@ type MobileReaderGalleryProps = {
   onScrollingVisiblePageChange?: (pageIndex: number) => void;
   onScrollingSeekFailed?: (pageIndex: number) => void;
   onRetry?: () => void;
+  /** Steps one page in source order. Only wired in paged reading modes. */
+  onPageStep?: (direction: "previous" | "next") => void;
+  /** The reader tried to move past the final page of the chapter. */
+  onRequestAdvancePastEnd?: () => void;
+  /** Escape hatch for a source that refuses to serve pages. */
+  onOpenSourceSettings?: () => void;
   onToggleControls: () => void;
   pagedMode: boolean;
   pages: MobileReaderPage[];
@@ -122,6 +130,9 @@ export function MobileReaderGallery({
   onScrollingVisiblePageChange,
   onScrollingSeekFailed,
   onRetry,
+  onPageStep,
+  onRequestAdvancePastEnd,
+  onOpenSourceSettings,
   onToggleControls,
   pagedMode,
   pages,
@@ -148,7 +159,10 @@ export function MobileReaderGallery({
     null,
   );
   const lastTapEndAtRef = useRef(0);
+  const dragStartOffsetRef = useRef<number | null>(null);
   const onToggleControlsRef = useRef(onToggleControls);
+  const onPageStepRef = useRef(onPageStep);
+  const onRequestAdvancePastEndRef = useRef(onRequestAdvancePastEnd);
   const onScrollingVisiblePageChangeRef = useRef(
     onScrollingVisiblePageChange,
   );
@@ -256,9 +270,17 @@ export function MobileReaderGallery({
 
   useLayoutEffect(() => {
     onToggleControlsRef.current = onToggleControls;
+    onPageStepRef.current = onPageStep;
+    onRequestAdvancePastEndRef.current = onRequestAdvancePastEnd;
     onScrollingVisiblePageChangeRef.current = onScrollingVisiblePageChange;
     displayedPageCountRef.current = displayedPages.length;
-  }, [displayedPages.length, onScrollingVisiblePageChange, onToggleControls]);
+  }, [
+    displayedPages.length,
+    onPageStep,
+    onRequestAdvancePastEnd,
+    onScrollingVisiblePageChange,
+    onToggleControls,
+  ]);
 
   useLayoutEffect(() => {
     return () => {
@@ -320,6 +342,17 @@ export function MobileReaderGallery({
       time: Date.now(),
     };
   };
+  const isReaderLoading = loading || pagesState.status === "loading";
+  // The chrome toggle is the only way out of a black screen, so it must keep
+  // working while the chapter is in an error/blocked state. Only page turns
+  // need a ready gallery.
+  const readerStageTapEnabled = !isReaderLoading;
+  const readerPageTurnEnabled =
+    !isReaderLoading &&
+    pagesState.status === "ready" &&
+    pages.length > 0 &&
+    pagedMode &&
+    Boolean(onPageStep);
   const handleStageTouchEnd = (event: GestureResponderEvent) => {
     const start = touchStartRef.current;
     touchStartRef.current = null;
@@ -333,10 +366,20 @@ export function MobileReaderGallery({
     ) {
       return;
     }
-    // Defer the toggle past the double-tap window: the zoom Tap gesture only
-    // activates on the second tap, so an immediate toggle would flash the
-    // chrome on every double-tap zoom. A second qualifying tap cancels the
-    // pending toggle instead of scheduling another.
+    const zone = readerPageTurnEnabled
+      ? readerTapZoneForPosition({
+          x: touch.pageX,
+          width: readerPageWidth,
+          mode,
+          pagedMode,
+        })
+      : "toggle";
+    // Defer the action past the double-tap window: the zoom Tap gesture only
+    // activates on the second tap, so acting immediately would flash the
+    // chrome — or turn a page — under every double-tap zoom. Double-tap zoom
+    // covers the whole page frame including the edge zones, so page turns use
+    // the same window rather than an inconsistent mix of timings. A second
+    // qualifying tap cancels the pending action instead of scheduling another.
     const now = Date.now();
     const isSecondTap =
       now - lastTapEndAtRef.current <= READER_DOUBLE_TAP_WINDOW_MS;
@@ -348,12 +391,55 @@ export function MobileReaderGallery({
     if (isSecondTap) return;
     pendingToggleTimerRef.current = setTimeout(() => {
       pendingToggleTimerRef.current = null;
-      onToggleControlsRef.current();
+      if (zone === "toggle") {
+        onToggleControlsRef.current();
+        return;
+      }
+      onPageStepRef.current?.(zone);
     }, READER_DOUBLE_TAP_WINDOW_MS);
   };
-  const isReaderLoading = loading || pagesState.status === "loading";
-  const readerStageInteractionEnabled =
-    !isReaderLoading && pagesState.status === "ready";
+  const handleScrollBeginDrag = (
+    event: NativeSyntheticEvent<NativeScrollEvent>,
+  ) => {
+    const { contentOffset } = event.nativeEvent;
+    dragStartOffsetRef.current = pagedMode ? contentOffset.x : contentOffset.y;
+  };
+  const handleScrollEndDrag = (
+    event: NativeSyntheticEvent<NativeScrollEvent>,
+  ) => {
+    const startOffset = dragStartOffsetRef.current;
+    dragStartOffsetRef.current = null;
+    if (startOffset == null) return;
+    if (!onRequestAdvancePastEndRef.current) return;
+    if (pagesState.status !== "ready" || pages.length === 0) return;
+
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const endOffset = pagedMode ? contentOffset.x : contentOffset.y;
+    const maxOffset = pagedMode
+      ? contentSize.width - layoutMeasurement.width
+      : contentSize.height - layoutMeasurement.height;
+    if (
+      !isReaderAdvancePastEndDrag({
+        startOffset,
+        endOffset,
+        maxOffset,
+        mode,
+        pagedMode,
+      })
+    ) {
+      return;
+    }
+    onRequestAdvancePastEndRef.current();
+  };
+  // VoiceOver reads the stage as a single element; expose page turns as
+  // actions on that element rather than as separate focusable hit zones.
+  const stageAccessibilityActions = readerPageTurnEnabled
+    ? [
+        { name: "activate", label: accessibilityLabel },
+        { name: "nextPage", label: strings.reader.nextPage },
+        { name: "previousPage", label: strings.reader.previousPage },
+      ]
+    : undefined;
 
   return (
     <View
@@ -362,14 +448,27 @@ export function MobileReaderGallery({
       accessibilityLabel={
         pagesState.status === "ready" ? accessibilityLabel : undefined
       }
+      accessibilityActions={stageAccessibilityActions}
+      onAccessibilityAction={
+        stageAccessibilityActions
+          ? (event) => {
+              const action = event.nativeEvent.actionName;
+              if (action === "nextPage") {
+                onPageStepRef.current?.("next");
+                return;
+              }
+              if (action === "previousPage") {
+                onPageStepRef.current?.("previous");
+                return;
+              }
+              onToggleControlsRef.current();
+            }
+          : undefined
+      }
       pointerEvents={isReaderLoading ? "box-none" : "auto"}
       style={[styles.stageContainer, styles.stage, { backgroundColor }]}
-      onTouchStart={
-        readerStageInteractionEnabled ? handleStageTouchStart : undefined
-      }
-      onTouchEnd={
-        readerStageInteractionEnabled ? handleStageTouchEnd : undefined
-      }
+      onTouchStart={readerStageTapEnabled ? handleStageTouchStart : undefined}
+      onTouchEnd={readerStageTapEnabled ? handleStageTouchEnd : undefined}
     >
       {isReaderLoading ? (
         <View pointerEvents="none" style={styles.readerLoadingContainer}>
@@ -480,6 +579,8 @@ export function MobileReaderGallery({
           }
           onMomentumScrollEnd={onMomentumScrollEnd}
           onScroll={onScroll}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onScrollEndDrag={handleScrollEndDrag}
           onScrollToIndexFailed={handleScrollToIndexFailed}
           onViewableItemsChanged={
             pagedMode ? undefined : onViewableItemsChanged
@@ -536,13 +637,38 @@ export function MobileReaderGallery({
             <Text style={[styles.readerText, { color: tokens.mutedForeground }]}>
               {pagesState.detail}
             </Text>
-            {pagesState.status === "error" && onRetry ? (
-              <NemuButton
-                label={strings.common.retry}
-                variant="outline"
-                onPress={onRetry}
-              />
+            {pagesState.status === "blocked" ? (
+              <Text
+                style={[styles.readerText, { color: tokens.mutedForeground }]}
+              >
+                {strings.reader.sourceBlockedHint}
+              </Text>
             ) : null}
+            <View style={styles.readerStateActions}>
+              {/* A chapter that resolved to zero pages is just as stuck as an
+                  errored one, and a blocked source can recover once its
+                  settings change — offer the retry in all three cases. */}
+              {onRetry && pagesState.status !== "loading" ? (
+                <NemuButton
+                  accessibilityLabel={strings.common.retry}
+                  containerStyle={styles.readerStateAction}
+                  label={strings.common.retry}
+                  variant="outline"
+                  onPress={onRetry}
+                />
+              ) : null}
+              {onOpenSourceSettings &&
+              (pagesState.status === "blocked" ||
+                pagesState.status === "error") ? (
+                <NemuButton
+                  accessibilityLabel={strings.reader.openSourceSettings}
+                  containerStyle={styles.readerStateAction}
+                  label={strings.reader.openSourceSettings}
+                  variant="secondary"
+                  onPress={onOpenSourceSettings}
+                />
+              ) : null}
+            </View>
             <View style={[styles.progressPill, { backgroundColor: tokens.muted }]}>
               <Text
                 style={[
@@ -692,6 +818,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     textAlign: "center",
+  },
+  readerStateActions: {
+    alignSelf: "stretch",
+    gap: 8,
+  },
+  readerStateAction: {
+    alignSelf: "stretch",
   },
   progressPill: {
     minHeight: 30,

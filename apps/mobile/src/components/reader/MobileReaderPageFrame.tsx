@@ -1,7 +1,12 @@
 import type { ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { MobileCachedImage, nemuFontWeight } from "@/design-system";
+import {
+  MobileCachedImage,
+  NemuPressable,
+  nemuFontWeight,
+  radius,
+} from "@/design-system";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import type { MobileImageSize } from "@/lib/mobileJapaneseLearningOverlay";
 import type { MobileImageUriOwnership } from "@/lib/mobileImageUriPolicy";
@@ -23,6 +28,8 @@ type MobileReaderPageFrameProps = {
   onImageError: (error: string) => void;
   onImageLoad: (size: MobileImageSize) => void;
   onImageLoadStart: () => void;
+  /** Clears the latched failure and re-requests this page's image. */
+  onRetry?: () => void;
 };
 
 export function MobileReaderPageFrame({
@@ -38,7 +45,10 @@ export function MobileReaderPageFrame({
   onImageError,
   onImageLoad,
   onImageLoadStart,
+  onRetry,
 }: MobileReaderPageFrameProps) {
+  const canRetry = Boolean(error) && Boolean(onRetry);
+
   return (
     <View
       style={[
@@ -65,7 +75,9 @@ export function MobileReaderPageFrame({
       />
       {loading || error ? (
         <View
-          pointerEvents="none"
+          // A failed page must be recoverable: the overlay only stays inert
+          // while there is nothing to tap.
+          pointerEvents={canRetry ? "auto" : "none"}
           style={[
             styles.readerImageStatusOverlay,
             {
@@ -93,6 +105,33 @@ export function MobileReaderPageFrame({
               ? strings.reader.pageImageFailed
               : strings.reader.pageImageLoading}
           </Text>
+          {canRetry ? (
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityLabel={strings.reader.pageImageRetry}
+              hapticFeedback="press"
+              onPress={onRetry}
+              // Retrying must not also toggle the reader chrome, which the
+              // stage derives from bubbled touch events.
+              onTouchEnd={(event) => event.stopPropagation()}
+              pressedScale={0.97}
+              style={styles.readerImageRetryButton}
+            >
+              <Ionicons
+                name="refresh-outline"
+                size={16}
+                color={READER_IMAGE_STATUS_TEXT}
+              />
+              <Text
+                style={[
+                  styles.readerImageRetryText,
+                  { color: READER_IMAGE_STATUS_TEXT },
+                ]}
+              >
+                {strings.common.retry}
+              </Text>
+            </NemuPressable>
+          ) : null}
         </View>
       ) : null}
       {children}
@@ -125,5 +164,21 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: nemuFontWeight.medium,
     textAlign: "center",
+  },
+  readerImageRetryButton: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: READER_IMAGE_STATUS_ICON,
+    paddingHorizontal: 16,
+  },
+  readerImageRetryText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: nemuFontWeight.medium,
   },
 });

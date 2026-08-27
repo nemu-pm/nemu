@@ -13,6 +13,7 @@ import {
   readerProgressRatio,
   readerRoutePageForDisplayIndex,
   readerLogicalFrameIndexForVisualFrame,
+  readerPageArrivalForStep,
   readerScrollOffsetForLogicalFrame,
   readerSourceIndexForDisplayIndex,
   readerSourceStepTargetForDisplayIndex,
@@ -177,13 +178,130 @@ describe("mobile reader progress helpers", () => {
     expect(readerDisplayIndexForVisualProgressRatio(0.25, 5, "ltr")).toBe(1);
   });
 
-  test("matches web by completing when the last source page is seen", () => {
-    expect(shouldAutoCompleteMobileReaderChapter(4, 5, "ltr", false)).toBe(true);
-    expect(shouldAutoCompleteMobileReaderChapter(4, 5, "scrolling", false)).toBe(true);
-    expect(shouldAutoCompleteMobileReaderChapter(0, 5, "rtl", false)).toBe(false);
-    expect(shouldAutoCompleteMobileReaderChapter(4, 5, "rtl", false)).toBe(true);
-    expect(shouldAutoCompleteMobileReaderChapter(4, 5, "ltr", true)).toBe(false);
-    expect(shouldAutoCompleteMobileReaderChapter(0, 0, "ltr", false)).toBe(false);
+  test("classifies page changes as forward, backward, or neither", () => {
+    expect(readerPageArrivalForStep(3, 4, 5, "ltr")).toBe("forward");
+    expect(readerPageArrivalForStep(4, 3, 5, "ltr")).toBe("backward");
+    expect(readerPageArrivalForStep(3, 3, 5, "ltr")).toBe("initial");
+    // Reading mode changes visual direction, not the persisted source order.
+    expect(readerPageArrivalForStep(3, 4, 5, "rtl")).toBe("forward");
+    expect(readerPageArrivalForStep(4, 3, 5, "rtl")).toBe("backward");
+    expect(readerPageArrivalForStep(0, 4, 5, "scrolling")).toBe("forward");
+    // Out-of-range indices clamp before comparison.
+    expect(readerPageArrivalForStep(-3, 0, 5, "ltr")).toBe("initial");
+    expect(readerPageArrivalForStep(4, 99, 5, "ltr")).toBe("initial");
+    expect(readerPageArrivalForStep(1, 2, 0, "ltr")).toBe("initial");
+  });
+
+  test("auto-completes only after a forward turn onto the last page", () => {
+    const base = { pageCount: 5, mode: "ltr" as const, completed: false };
+
+    // Reading forward onto the final page completes the chapter.
+    expect(
+      shouldAutoCompleteMobileReaderChapter({
+        ...base,
+        displayIndex: 4,
+        arrival: "forward",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoCompleteMobileReaderChapter({
+        ...base,
+        mode: "scrolling",
+        displayIndex: 4,
+        arrival: "forward",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoCompleteMobileReaderChapter({
+        ...base,
+        mode: "rtl",
+        displayIndex: 4,
+        arrival: "forward",
+      }),
+    ).toBe(true);
+
+    // Opening the chapter at its last page via "previous chapter"
+    // (startAt: "end") must never complete it.
+    expect(
+      shouldAutoCompleteMobileReaderChapter({
+        ...base,
+        displayIndex: 4,
+        arrival: "initial",
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoCompleteMobileReaderChapter({
+        ...base,
+        mode: "rtl",
+        displayIndex: 4,
+        arrival: "initial",
+      }),
+    ).toBe(false);
+
+    // Resuming saved progress on the last page, then paging backward, also
+    // must not complete.
+    expect(
+      shouldAutoCompleteMobileReaderChapter({
+        ...base,
+        displayIndex: 4,
+        arrival: "backward",
+      }),
+    ).toBe(false);
+
+    // Not on the last page at all.
+    expect(
+      shouldAutoCompleteMobileReaderChapter({
+        ...base,
+        displayIndex: 3,
+        arrival: "forward",
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoCompleteMobileReaderChapter({
+        ...base,
+        mode: "rtl",
+        displayIndex: 0,
+        arrival: "forward",
+      }),
+    ).toBe(false);
+
+    // Already completed, or no pages loaded.
+    expect(
+      shouldAutoCompleteMobileReaderChapter({
+        ...base,
+        completed: true,
+        displayIndex: 4,
+        arrival: "forward",
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoCompleteMobileReaderChapter({
+        ...base,
+        pageCount: 0,
+        displayIndex: 0,
+        arrival: "forward",
+      }),
+    ).toBe(false);
+
+    // Single-page chapters have no forward turn available, so viewing the one
+    // page is what completes them.
+    expect(
+      shouldAutoCompleteMobileReaderChapter({
+        ...base,
+        pageCount: 1,
+        displayIndex: 0,
+        arrival: "initial",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoCompleteMobileReaderChapter({
+        ...base,
+        pageCount: 1,
+        completed: true,
+        displayIndex: 0,
+        arrival: "initial",
+      }),
+    ).toBe(false);
   });
 
   test("formats reader page values using source-order page numbers", () => {

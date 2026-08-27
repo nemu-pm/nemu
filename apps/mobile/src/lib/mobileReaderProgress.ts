@@ -259,14 +259,81 @@ export function readerDisplayIndexForVisualProgressRatio(
   return clampReaderPageIndex(sourceRatio * (pageCount - 1), pageCount);
 }
 
-export function shouldAutoCompleteMobileReaderChapter(
-  displayIndex: number,
+/**
+ * How the reader arrived at the page it is currently showing.
+ *
+ * - `initial`  — placed there by chapter entry, route restore, saved progress,
+ *                a scrubber seek, or any other jump that is not a page turn.
+ * - `forward`  — the reader advanced one step in source order during this
+ *                session (tap zone, swipe, accessibility action).
+ * - `backward` — the reader stepped back one page during this session.
+ */
+export type MobileReaderPageArrival = "initial" | "forward" | "backward";
+
+/**
+ * Classifies a page change as a forward/backward turn. Jumps that keep the
+ * page (or that are not steps at all) stay `initial` so they can never satisfy
+ * the auto-complete rule below.
+ */
+export function readerPageArrivalForStep(
+  previousDisplayIndex: number,
+  nextDisplayIndex: number,
   pageCount: number,
   mode: ReadingMode,
-  completed: boolean,
-): boolean {
+): MobileReaderPageArrival {
+  if (pageCount <= 0) return "initial";
+  const previousSourceIndex = readerSourceIndexForDisplayIndex(
+    previousDisplayIndex,
+    pageCount,
+    mode,
+  );
+  const nextSourceIndex = readerSourceIndexForDisplayIndex(
+    nextDisplayIndex,
+    pageCount,
+    mode,
+  );
+  if (nextSourceIndex > previousSourceIndex) return "forward";
+  if (nextSourceIndex < previousSourceIndex) return "backward";
+  return "initial";
+}
+
+/**
+ * A chapter is only auto-completed when the reader actually *paged onto* its
+ * last page during this session.
+ *
+ * Opening a chapter at its final page — which is exactly what "previous
+ * chapter" navigation does (`startAt: "end"`) — must not mark it read, and
+ * neither must resuming a chapter whose saved progress already sits on the
+ * final page. Requiring a fresh forward turn is the safe rule: the only cost is
+ * that a resumed last page needs one more (impossible) turn, which is why the
+ * reader keeps an explicit "Mark complete" action and why a chapter that ends
+ * while already flagged completed short-circuits at the top.
+ *
+ * Single-page chapters are the one exception: no forward turn exists inside
+ * them, so viewing the page *is* reading the chapter.
+ */
+export function shouldAutoCompleteMobileReaderChapter({
+  displayIndex,
+  pageCount,
+  mode,
+  completed,
+  arrival,
+}: {
+  displayIndex: number;
+  pageCount: number;
+  mode: ReadingMode;
+  completed: boolean;
+  arrival: MobileReaderPageArrival;
+}): boolean {
   if (completed || pageCount <= 0) return false;
-  return readerSourceIndexForDisplayIndex(displayIndex, pageCount, mode) >= pageCount - 1;
+  if (
+    readerSourceIndexForDisplayIndex(displayIndex, pageCount, mode) <
+    pageCount - 1
+  ) {
+    return false;
+  }
+  if (pageCount === 1) return true;
+  return arrival === "forward";
 }
 
 export function formatReaderPageValue(

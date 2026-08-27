@@ -6,8 +6,8 @@ import {
 } from "./mobileReaderPageWindow";
 
 describe("isMobileReaderPageNearViewport", () => {
-  test("bounds the plain ScrollView to at most five nearby image cells", () => {
-    expect(MOBILE_READER_PAGE_RENDER_WINDOW).toBe(2);
+  test("bounds the reader to at most seven nearby image cells", () => {
+    expect(MOBILE_READER_PAGE_RENDER_WINDOW).toBe(3);
   });
 
   test("keeps pages within the window mounted", () => {

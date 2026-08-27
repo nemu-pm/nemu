@@ -1,16 +1,16 @@
 /**
  * How many display indexes on either side of the current page keep their
  * `<Image>` mounted. RN `Image` fetches and decodes on mount regardless of
- * visibility and the reader gallery is a plain ScrollView (no virtualization),
- * so without a window a 100+ page chapter would hold ~100 decoded bitmaps.
- * Pages outside the window render an equal-size placeholder — frame sizes are
- * sticky once learned (`readerImageSizes`), so swapping causes no layout shift.
+ * visibility, so this bounds how many decoded bitmaps the reader holds even
+ * though the gallery's FlatList already virtualizes its cells. Pages outside
+ * the window render an equal-size placeholder — frame sizes are sticky once
+ * learned (`readerImageSizes`), so swapping causes no layout shift.
+ *
+ * Radius 3 keeps seven pages decoded, which covers a fast run of swipes in
+ * either direction while staying well under the ~100 MiB that radius 5 could
+ * reach on Android LMK-class devices.
  */
-// Keep this aligned with the processor's +/-2 near-page window. At radius 5 a
-// plain ScrollView could retain eleven decoded manga bitmaps at once (well over
-// 100 MiB for common pages), which is unnecessarily risky on Android LMK-class
-// devices. Five mounted pages still cover fast swipes in either direction.
-export const MOBILE_READER_PAGE_RENDER_WINDOW = 2;
+export const MOBILE_READER_PAGE_RENDER_WINDOW = 3;
 
 export function isMobileReaderPageNearViewport(
   displayIndex: number | undefined,

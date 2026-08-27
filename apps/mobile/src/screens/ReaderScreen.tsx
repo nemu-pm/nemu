@@ -14,6 +14,7 @@ import {
 import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams } from "expo-router";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   BackHandler,
   Modal,
@@ -46,6 +47,7 @@ import {
   type MobileReaderScrollHandle,
 } from "@/components/reader/MobileReaderGallery";
 import { MobileReaderPageFrame } from "@/components/reader/MobileReaderPageFrame";
+import { MobileReaderEndOfChapterOverlay } from "@/components/reader/MobileReaderEndOfChapterOverlay";
 import { JapaneseLearningPluginLauncherSheet } from "@/components/reader/japaneseLearning/JapaneseLearningPluginLauncherSheet";
 import { JapaneseLearningOcrResultSheet } from "@/components/reader/japaneseLearning/JapaneseLearningOcrResultSheet";
 import { JapaneseLearningNemuChatDrawer } from "@/components/reader/japaneseLearning/JapaneseLearningNemuChatDrawer";
@@ -128,7 +130,10 @@ import {
   readerLogicalFrameIndexForVisualFrame,
   readerScrollOffsetForLogicalFrame,
   readerSourceIndexForDisplayIndex,
+  readerSourceStepTargetForDisplayIndex,
+  readerPageArrivalForStep,
   shouldAutoCompleteMobileReaderChapter,
+  type MobileReaderPageArrival,
 } from "@/lib/mobileReaderProgress";
 import { getMobileReaderPageRenderPolicy } from "@/lib/mobileReaderPageWindow";
 import { isMobileReaderImageLoading } from "@/lib/mobileReaderImageStatus";
@@ -311,6 +316,28 @@ type JapaneseLearningTtsState =
   | { status: "error"; detail: string };
 
 const EMPTY_READER_SOURCE_LANGUAGES: string[] = [];
+/** How long the chrome stays up after a chapter opens before it fades away. */
+const READER_CHROME_AUTO_HIDE_MS = 3000;
+
+/**
+ * Localized copy first, raw exception text only as a parenthetical.
+ *
+ * Showing `error.message` as the primary message puts untranslated (often
+ * English, often internal) runtime text in front of the reader; the localized
+ * string is the one that explains what happened.
+ */
+function readerErrorDetail(
+  error: unknown,
+  localizedMessage: string,
+  strings: MobileStrings,
+): string {
+  const reason = error instanceof Error ? error.message.trim() : "";
+  if (!reason || reason === localizedMessage) return localizedMessage;
+  return formatMobileString(strings.reader.errorDetailWithReason, {
+    message: localizedMessage,
+    reason,
+  });
+}
 function JapaneseLearningDetectionOverlay({
   detections,
   imageSize,
@@ -478,8 +505,23 @@ function ZoomableReaderImageFrame({
     });
 
   const panGesture = Gesture.Pan()
-    .minPointers(2)
+    .minPointers(1)
     .averageTouches(true)
+    // Single-finger panning is what a zoomed page needs, but at scale 1 that
+    // same finger belongs to the gallery's page swipe. Manual activation lets
+    // the gesture claim the touch only while zoomed in, and fail immediately
+    // otherwise so the FlatList keeps its swipe.
+    .manualActivation(true)
+    .onTouchesMove((event, stateManager) => {
+      "worklet";
+      // Two fingers always pan (this is the pinch companion that already
+      // worked); one finger only pans once the page is actually zoomed.
+      if (event.numberOfTouches >= 2 || scale.value > 1) {
+        stateManager.activate();
+        return;
+      }
+      stateManager.fail();
+    })
     .onUpdate((event) => {
       if (scale.value <= 1) return;
       translateX.value = clampMobileReaderZoomOffset(
@@ -1129,6 +1171,15 @@ export function ReaderScreen() {
   const [selectedReaderPluginSettingsId, setSelectedReaderPluginSettingsId] =
     useState<string | null>(null);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  // How the reader reached `currentPageIndex`. Only a genuine forward turn may
+  // auto-complete a chapter — see shouldAutoCompleteMobileReaderChapter.
+  const [pageArrival, setPageArrival] =
+    useState<MobileReaderPageArrival>("initial");
+  const [endOfChapterPromptVisible, setEndOfChapterPromptVisible] =
+    useState(false);
+  const [readerImageRetryNonces, setReaderImageRetryNonces] = useState(
+    () => new Map<string, number>(),
+  );
   const [scrollWidthDraft, setScrollWidthDraft] = useState(scrollWidthPct);
   const [restoredReaderKey, setRestoredReaderKey] = useState("");
   const [pagesState, setPagesState] = useState<ReaderPagesState>({
@@ -1202,9 +1253,11 @@ export function ReaderScreen() {
     async (error: unknown) => {
       await hapticError();
       setReaderSettingsError(
-        error instanceof Error
-          ? error.message
-          : strings.settings.settingsActionFailedDetail,
+        readerErrorDetail(
+          error,
+          strings.settings.settingsActionFailedDetail,
+          strings,
+        ),
       );
     },
     [strings],
@@ -2137,10 +2190,11 @@ export function ReaderScreen() {
   );
 
   const goToPage = useCallback(
-    (nextIndex: number) => {
+    (nextIndex: number, arrival: MobileReaderPageArrival = "initial") => {
       if (pageCount <= 0) return;
       const nextPageIndex = clampReaderPageIndex(nextIndex, pageCount);
       readerProgrammaticScrollRef.current = nextPageIndex;
+      setPageArrival(arrival);
       setCurrentPageIndex(nextPageIndex);
       scrollToPageIndex(nextPageIndex, pagedMode);
       syncRoutePage(nextPageIndex);
@@ -2182,10 +2236,20 @@ export function ReaderScreen() {
       if (programmaticTarget === nextPageIndex) {
         readerProgrammaticScrollRef.current = null;
       }
+      setPageArrival(
+        programmaticTarget == null
+          ? readerPageArrivalForStep(
+              clampedPageIndex,
+              nextPageIndex,
+              pageCount,
+              mode,
+            )
+          : "initial",
+      );
       setCurrentPageIndex(nextPageIndex);
       syncRoutePage(nextPageIndex, { debounce: true });
     },
-    [pageCount, pagedMode, syncRoutePage],
+    [clampedPageIndex, mode, pageCount, pagedMode, syncRoutePage],
   );
 
   const onScrollingSeekFailed = useCallback(
@@ -2197,6 +2261,9 @@ export function ReaderScreen() {
         scrollingVisiblePageIndexRef.current,
         pageCount,
       );
+      // A failed seek lands wherever the list happened to be; that is not a
+      // page turn the reader performed.
+      setPageArrival("initial");
       setCurrentPageIndex(visiblePageIndex);
       syncRoutePage(visiblePageIndex);
     },
@@ -2214,6 +2281,10 @@ export function ReaderScreen() {
       }
       const page = options?.startAt === "end" ? Number.MAX_SAFE_INTEGER : 1;
       setActiveReaderPluginId(null);
+      setEndOfChapterPromptVisible(false);
+      // Entering a chapter is never a page turn, even when it lands on the
+      // final page (`startAt: "end"` from backward navigation).
+      setPageArrival("initial");
       router.replace(
         getMobileSourceReaderHref({
           registryId: routeRef.registryId,
@@ -2227,6 +2298,48 @@ export function ReaderScreen() {
     },
     [mangaId, routeRef.registryId, routeRef.sourceId, title],
   );
+
+  // The chapter that follows the current one in reading order, independent of
+  // which physical edge of the screen it lives on.
+  const nextChapterInReadingOrder = mode === "rtl" ? leftChapter : rightChapter;
+  const nextChapterLabel = useMemo(
+    () =>
+      nextChapterInReadingOrder
+        ? formatChapterTitle(nextChapterInReadingOrder, strings)
+        : null,
+    [nextChapterInReadingOrder, strings],
+  );
+
+  const showEndOfChapterPrompt = useCallback(() => {
+    setEndOfChapterPromptVisible(true);
+    void hapticSelection();
+  }, []);
+
+  /** One page forward/backward in source order, from a tap zone or a11y action. */
+  const stepReaderPage = useCallback(
+    (direction: "previous" | "next") => {
+      if (pageCount <= 0) return;
+      const targetPageIndex = readerSourceStepTargetForDisplayIndex(
+        clampedPageIndex,
+        pageCount,
+        mode,
+        direction,
+      );
+      if (targetPageIndex == null) {
+        // The last page is no longer a dead wall: offer the next chapter.
+        if (direction === "next") showEndOfChapterPrompt();
+        return;
+      }
+      goToPage(targetPageIndex, direction === "next" ? "forward" : "backward");
+    },
+    [clampedPageIndex, goToPage, mode, pageCount, showEndOfChapterPrompt],
+  );
+
+  const goToNextChapterFromPrompt = useCallback(() => {
+    setEndOfChapterPromptVisible(false);
+    if (!nextChapterInReadingOrder) return;
+    goToChapter(nextChapterInReadingOrder, { startAt: "start" });
+  }, [goToChapter, nextChapterInReadingOrder]);
 
   const startJapaneseLearningOcr = useCallback((options?: { silent?: boolean }) => {
     const silent = options?.silent === true;
@@ -2263,10 +2376,11 @@ export function ReaderScreen() {
         if (japaneseLearningOcrRunRef.current !== run) return;
         setJapaneseLearningOcrState({
           status: "error",
-          detail:
-            error instanceof Error
-              ? error.message
-              : strings.reader.pluginJapaneseLearningOcrFailed,
+          detail: readerErrorDetail(
+            error,
+            strings.reader.pluginJapaneseLearningOcrFailed,
+            strings,
+          ),
         });
         if (!silent) void hapticError();
       });
@@ -2323,6 +2437,22 @@ export function ReaderScreen() {
       return next;
     });
   }, []);
+  /**
+   * Clears a page's latched failure and bumps its nonce so the frame remounts
+   * and the image is requested again — a failed page must be recoverable
+   * without reloading the whole chapter.
+   */
+  const retryReaderImage = useCallback(
+    (pageId: string) => {
+      clearReaderImageError(pageId);
+      setReaderImageRetryNonces((current) => {
+        const next = new Map(current);
+        next.set(pageId, (current.get(pageId) ?? 0) + 1);
+        return next;
+      });
+    },
+    [clearReaderImageError],
+  );
   const setReaderImageLoadError = useCallback(
     (pageId: string, detail: string | undefined) => {
       setReaderImageErrors((current) => {
@@ -2384,10 +2514,11 @@ export function ReaderScreen() {
         setJapaneseLearningGrammarState({
           status: "error",
           text: clean,
-          detail:
-            error instanceof Error
-              ? error.message
-              : strings.reader.pluginJapaneseLearningGrammarFailed,
+          detail: readerErrorDetail(
+            error,
+            strings.reader.pluginJapaneseLearningGrammarFailed,
+            strings,
+          ),
         });
         void hapticError();
       });
@@ -2693,9 +2824,12 @@ export function ReaderScreen() {
             : transcript,
         );
       } catch (error) {
+        // Tool results are read by the model, not the reader, so this stays
+        // untranslated — but the stable summary still leads, with the raw
+        // reason appended rather than replacing it.
         return fail(
           error instanceof Error
-            ? error.message
+            ? `OCR processing failed or timed out. (${error.message})`
             : "OCR processing failed or timed out.",
         );
       }
@@ -3325,9 +3459,11 @@ export function ReaderScreen() {
       const detail =
         error instanceof Error && error.message === "auth_required"
           ? strings.reader.pluginJapaneseLearningSignInRequired
-          : error instanceof Error
-            ? error.message
-            : strings.reader.pluginJapaneseLearningTtsFailed;
+          : readerErrorDetail(
+              error,
+              strings.reader.pluginJapaneseLearningTtsFailed,
+              strings,
+            );
       // Clear the OCR spinner before the TTS-run guard, mirroring
       // askJapaneseLearningSentence — a stopped TTS run must not strand the
       // detection state in "loading".
@@ -3478,9 +3614,11 @@ export function ReaderScreen() {
           detail:
             error instanceof Error && error.message === "auth_required"
               ? strings.reader.pluginJapaneseLearningSignInRequired
-              : error instanceof Error
-                ? error.message
-                : strings.reader.pluginJapaneseLearningTtsFailed,
+              : readerErrorDetail(
+                  error,
+                  strings.reader.pluginJapaneseLearningTtsFailed,
+                  strings,
+                ),
         });
         void hapticError();
       });
@@ -3603,9 +3741,11 @@ export function ReaderScreen() {
           detail:
             error instanceof Error && error.message === "auth_required"
               ? strings.reader.pluginJapaneseLearningSignInRequired
-              : error instanceof Error
-                ? error.message
-                : strings.reader.pluginJapaneseLearningTtsFailed,
+              : readerErrorDetail(
+                  error,
+                  strings.reader.pluginJapaneseLearningTtsFailed,
+                  strings,
+                ),
         });
         void hapticError();
       });
@@ -3767,6 +3907,9 @@ export function ReaderScreen() {
     if (!restoreReaderKey || restoredReaderKey === restoreReaderKey) return;
     const nextPageIndex = readerRestorePageIndex;
     readerProgrammaticScrollRef.current = nextPageIndex;
+    // Restoring saved progress (or a route page) places the reader; it never
+    // counts as having read forward onto that page.
+    setPageArrival("initial");
     setCurrentPageIndex(nextPageIndex);
     const timeout = setTimeout(
       () => {
@@ -3805,8 +3948,11 @@ export function ReaderScreen() {
         ? Math.max(0, pageCount - 1)
         : readerSourceIndexForDisplayIndex(nextDisplayIndex, pageCount, mode);
       const nextTotal = Math.max(1, pageCount);
-      const completed =
-        complete || (pageCount > 0 && nextSourceIndex >= pageCount - 1);
+      // Never infer completion from the page position: opening a chapter at
+      // its last page (backward navigation, or resuming saved progress) would
+      // otherwise mark it read and sync that corruption. Completion is either
+      // explicit or already recorded.
+      const completed = complete || (state.chapterProgress?.completed ?? false);
       const progressSourceRef = state.sourceLink ?? routeSourceRef;
       const chapterProgress: LocalChapterProgress = {
         id: makeChapterProgressId(
@@ -3876,6 +4022,7 @@ export function ReaderScreen() {
       mode,
       pageCount,
       routeSourceRef,
+      state.chapterProgress?.completed,
       state.chapterProgress?.updatedAt,
       state.entry?.item.libraryItemId,
       state.mangaProgress?.updatedAt,
@@ -3903,12 +4050,13 @@ export function ReaderScreen() {
     if (pagesState.status !== "ready") return;
     if (!readerRestoreComplete) return;
     if (
-      !shouldAutoCompleteMobileReaderChapter(
-        visibleProgressPageIndex,
+      !shouldAutoCompleteMobileReaderChapter({
+        displayIndex: visibleProgressPageIndex,
         pageCount,
         mode,
         completed,
-      )
+        arrival: pageArrival,
+      })
     ) {
       return;
     }
@@ -3916,12 +4064,63 @@ export function ReaderScreen() {
   }, [
     completed,
     mode,
+    pageArrival,
     pageCount,
     pagesState.status,
     persistProgress,
     readerRestoreComplete,
     visibleProgressPageIndex,
   ]);
+
+  // The end-of-chapter prompt is about the final page; leaving it closes it.
+  useEffect(() => {
+    if (pageCount <= 0) return;
+    if (
+      readerSourceIndexForDisplayIndex(clampedPageIndex, pageCount, mode) >=
+      pageCount - 1
+    ) {
+      return;
+    }
+    setEndOfChapterPromptVisible(false);
+  }, [clampedPageIndex, mode, pageCount]);
+
+  // A black reader with hidden chrome and a swallowed back gesture is a
+  // dismiss trap. Any unreadable state brings the chrome back.
+  useEffect(() => {
+    if (pagesState.status !== "error" && pagesState.status !== "blocked") {
+      return;
+    }
+    setShowControls(true);
+  }, [pagesState.status]);
+
+  // Opening a chapter shows the chrome, then gets out of the way. Readers who
+  // asked for reduced motion keep it until they dismiss it themselves.
+  useEffect(() => {
+    if (!readerRestoreComplete) return;
+    if (pagesState.status !== "ready" || pageCount <= 0) return;
+    if (!showControls) return;
+
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    void AccessibilityInfo.isReduceMotionEnabled()
+      .then((reduceMotion) => {
+        if (cancelled || reduceMotion) return;
+        timeout = setTimeout(() => {
+          timeout = null;
+          setShowControls(false);
+        }, READER_CHROME_AUTO_HIDE_MS);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
+    };
+    // Deliberately keyed on the chapter rather than on `showControls`: this is
+    // the "just opened a chapter" auto-hide, not a general inactivity timer,
+    // so re-showing the chrome by hand must not re-arm it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapterId, pageCount, pagesState.status, readerRestoreComplete]);
 
   const onReaderMomentumEnd = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
@@ -3948,6 +4147,16 @@ export function ReaderScreen() {
       ) {
         void hapticSelection();
       }
+      if (programmaticTarget == null) {
+        setPageArrival(
+          readerPageArrivalForStep(
+            clampedPageIndex,
+            nextPageIndex,
+            pageCount,
+            mode,
+          ),
+        );
+      }
       setCurrentPageIndex(nextPageIndex);
       syncRoutePage(nextPageIndex);
       if (
@@ -3971,6 +4180,14 @@ export function ReaderScreen() {
     }
     if (programmaticTarget == null) {
       void hapticSelection();
+      setPageArrival(
+        readerPageArrivalForStep(
+          clampedPageIndex,
+          nextPageIndex,
+          pageCount,
+          mode,
+        ),
+      );
     }
     setCurrentPageIndex(nextPageIndex);
     syncRoutePage(nextPageIndex);
@@ -4061,8 +4278,11 @@ export function ReaderScreen() {
       error: imageError,
       hasNaturalSize: readerImageSizes.has(page.id),
     });
+    const retryNonce = readerImageRetryNonces.get(page.id) ?? 0;
     return (
       <ZoomableReaderImageFrame
+        // Remounting on retry is what re-issues the image request.
+        key={`${page.id}:${retryNonce}`}
         frameSize={readerImageFrameSize}
         pageId={page.id}
       >
@@ -4104,6 +4324,9 @@ export function ReaderScreen() {
           }}
           onImageError={(error) => {
             setReaderImageLoadError(page.id, error);
+          }}
+          onRetry={() => {
+            retryReaderImage(page.id);
           }}
         >
           {page.id === currentDisplayedPageKey ? (
@@ -4180,6 +4403,14 @@ export function ReaderScreen() {
         onRetry={() => {
           setPagesRefreshNonce((value) => value + 1);
         }}
+        onPageStep={stepReaderPage}
+        onRequestAdvancePastEnd={showEndOfChapterPrompt}
+        onOpenSourceSettings={() => {
+          router.push({
+            pathname: "/(tabs)/settings/[section]",
+            params: { section: "sources" },
+          });
+        }}
         onToggleControls={() => {
           setShowControls((value) => !value);
         }}
@@ -4196,6 +4427,16 @@ export function ReaderScreen() {
         strings={strings}
         title={title}
         windowHeight={window.height}
+      />
+
+      <MobileReaderEndOfChapterOverlay
+        visible={endOfChapterPromptVisible}
+        nextChapterLabel={nextChapterLabel}
+        strings={strings}
+        bottomInset={insets.bottom}
+        topInset={insets.top}
+        onGoToNextChapter={goToNextChapterFromPrompt}
+        onDismiss={() => setEndOfChapterPromptVisible(false)}
       />
 
       <MobileDualReaderRoot {...dualReaderContext} />
