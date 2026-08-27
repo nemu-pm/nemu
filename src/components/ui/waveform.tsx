@@ -928,7 +928,7 @@ export const LiveMicrophoneWaveform = ({
       if (scrubSourceRef.current) {
         try {
           scrubSourceRef.current.stop()
-        } catch {}
+        } catch { /* the node was already stopped */ }
       }
 
       const source = audioContextRef.current.createBufferSource()
@@ -971,7 +971,7 @@ export const LiveMicrophoneWaveform = ({
       if (sourceNodeRef.current) {
         try {
           sourceNodeRef.current.stop()
-        } catch {}
+        } catch { /* the node was already stopped */ }
       }
 
       const source = audioContextRef.current.createBufferSource()
@@ -1271,7 +1271,7 @@ export const LiveMicrophoneWaveform = ({
       if (scrubSourceRef.current) {
         try {
           scrubSourceRef.current.stop()
-        } catch {}
+        } catch { /* the node was already stopped */ }
       }
     }
 
