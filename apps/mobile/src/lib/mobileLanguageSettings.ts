@@ -12,6 +12,61 @@ export function normalizeAppLanguage(value: unknown): AppLanguage {
   return DEFAULT_APP_LANGUAGE;
 }
 
+/** Shape of a single `expo-localization` locale entry that we care about. */
+export type MobileDeviceLocale = {
+  languageCode?: string | null;
+  languageTag?: string | null;
+  languageScriptCode?: string | null;
+  regionCode?: string | null;
+};
+
+function matchDeviceLocale(locale: MobileDeviceLocale): AppLanguage | null {
+  const tag = (locale.languageTag ?? "").toLowerCase();
+  const code = (locale.languageCode ?? tag.split("-")[0] ?? "").toLowerCase();
+
+  if (code === "ja") return "ja";
+  if (code === "en") return "en";
+  if (code !== "zh") return null;
+
+  const script = (locale.languageScriptCode ?? "").toLowerCase();
+  const region = (locale.regionCode ?? "").toLowerCase();
+  // Traditional Chinese is not modelled yet, so zh-Hant devices (TW/HK/MO)
+  // fall back to English rather than being served Simplified copy.
+  // TODO: add a `zh-Hant` app language and route these here.
+  if (script === "hant" || ["tw", "hk", "mo"].includes(region)) return null;
+  if (script === "hans" || script === "") return "zh";
+  return null;
+}
+
+/**
+ * Best app language for a fresh install, derived from the device's ordered
+ * preferred-locale list. Returns `null` when nothing in the list maps to a
+ * language this app ships, so callers can keep the built-in default.
+ */
+export function resolveDeviceAppLanguage(
+  locales: ReadonlyArray<MobileDeviceLocale> | null | undefined,
+): AppLanguage | null {
+  for (const locale of locales ?? []) {
+    const match = matchDeviceLocale(locale);
+    if (match) return match;
+  }
+  return null;
+}
+
+/**
+ * A persisted choice always wins; the device locale is only a default for
+ * installs that have never stored one.
+ */
+export function resolveInitialAppLanguage(
+  persisted: unknown,
+  deviceLanguage: AppLanguage | null,
+): AppLanguage {
+  if (persisted === "en" || persisted === "zh" || persisted === "ja") {
+    return persisted;
+  }
+  return deviceLanguage ?? DEFAULT_APP_LANGUAGE;
+}
+
 export function normalizeMetadataLanguagePreference(
   value: unknown
 ): MetadataLanguagePreference {

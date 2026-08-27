@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getLocales } from "expo-localization";
 import { useMobileDataStore } from "./mobileDataContext";
 import type {
   AppLanguage,
@@ -64,6 +65,8 @@ import {
   getEffectiveMetadataLanguage,
   normalizeAppLanguage,
   normalizeMetadataLanguagePreference,
+  resolveDeviceAppLanguage,
+  resolveInitialAppLanguage,
 } from "@/lib/mobileLanguageSettings";
 import { findMobileSourceUpdates } from "@/lib/mobileSourceUpdates";
 import {
@@ -137,12 +140,15 @@ function makeLocalId(): string {
 async function saveMobileRegistrySourceInstall(
   store: MobileDataStore,
   source: MobileRegistrySource,
+  options: { signal?: AbortSignal } = {},
 ) {
   const key = makeSourceKey(source.registryId, source.id);
   const existing = (await store.getSyncSettings()).installedSources.find(
     (item) => item.id === key,
   );
-  const packageResult = await cacheSourcePackage(source);
+  const packageResult = await cacheSourcePackage(source, {
+    signal: options.signal,
+  });
   const packageKind = getSourcePackageKind(source);
   const packageMetadata =
     packageResult.metadata ?? source.packageMetadata ?? null;
@@ -994,6 +1000,23 @@ export function useReadingMode(): {
   };
 }
 
+/**
+ * Device locale, resolved once per process. `expo-localization` reads native
+ * settings synchronously; the guard keeps this safe under Jest/bun where the
+ * native module may be absent.
+ */
+let cachedDeviceAppLanguage: AppLanguage | null | undefined;
+
+function readDeviceAppLanguage(): AppLanguage | null {
+  if (cachedDeviceAppLanguage !== undefined) return cachedDeviceAppLanguage;
+  try {
+    cachedDeviceAppLanguage = resolveDeviceAppLanguage(getLocales());
+  } catch {
+    cachedDeviceAppLanguage = null;
+  }
+  return cachedDeviceAppLanguage;
+}
+
 export function useMobileLanguageSettings(): {
   appLanguage: AppLanguage;
   metadataLanguagePreference: MetadataLanguagePreference;
@@ -1005,8 +1028,9 @@ export function useMobileLanguageSettings(): {
 } {
   const store = useMobileDataStore();
   const revision = useMobileDataRevision(["settings"]);
-  const [appLanguage, setAppLanguageState] =
-    useState<AppLanguage>(DEFAULT_APP_LANGUAGE);
+  const [appLanguage, setAppLanguageState] = useState<AppLanguage>(
+    () => readDeviceAppLanguage() ?? DEFAULT_APP_LANGUAGE,
+  );
   const [metadataLanguagePreference, setMetadataLanguagePreferenceState] =
     useState<MetadataLanguagePreference>(DEFAULT_METADATA_LANGUAGE_PREFERENCE);
 
@@ -1016,7 +1040,11 @@ export function useMobileLanguageSettings(): {
       .getSettings()
       .then((settings) => {
         if (!mounted) return;
-        setAppLanguageState(normalizeAppLanguage(settings.appLanguage));
+        // A persisted choice always wins. Only fresh installs (no stored
+        // value) fall back to the device locale.
+        setAppLanguageState(
+          resolveInitialAppLanguage(settings.appLanguage, readDeviceAppLanguage()),
+        );
         setMetadataLanguagePreferenceState(
           normalizeMetadataLanguagePreference(
             settings.metadataLanguagePreference,
@@ -1340,13 +1368,38 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
   return { data, loading, error, reload, sourceUpdateNotice };
 }
 
+/**
+ * A source package is an unbounded download over whatever connection the phone
+ * happens to have. Bound it so a stalled cellular transfer cannot hold the
+ * install sheet open forever.
+ */
+export const MOBILE_SOURCE_INSTALL_TIMEOUT_MS = 60_000;
+
+export function isMobileSourceInstallCancellation(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 export function useSourceInstaller(): {
   installingKey: string | null;
   installSource: (source: MobileRegistrySource) => Promise<void>;
+  /** Aborts the in-flight package download, if any. */
+  cancelInstall: () => void;
   uninstallSource: (source: MobileRegistrySource) => Promise<void>;
 } {
   const store = useMobileDataStore();
   const [installingKey, setInstallingKey] = useState<string | null>(null);
+  const installAbortRef = useRef<AbortController | null>(null);
+
+  const cancelInstall = useCallback(() => {
+    installAbortRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      installAbortRef.current?.abort();
+      installAbortRef.current = null;
+    };
+  }, []);
 
   const installSource = useCallback(
     async (source: MobileRegistrySource) => {
@@ -1354,16 +1407,30 @@ export function useSourceInstaller(): {
       const startedAt = markMobilePerformance("source.install.action.start", {
         key,
       });
+      // A second install replaces the first; never leave an orphaned download
+      // running against a controller nobody can reach.
+      installAbortRef.current?.abort();
+      const controller = new AbortController();
+      installAbortRef.current = controller;
+      const timeout = setTimeout(() => {
+        controller.abort();
+      }, MOBILE_SOURCE_INSTALL_TIMEOUT_MS);
       setInstallingKey(key);
       try {
         await runAfterMobileInteractions(() =>
-          saveMobileRegistrySourceInstall(store, source),
+          saveMobileRegistrySourceInstall(store, source, {
+            signal: controller.signal,
+          }),
         );
         emitMobileDataChanged("settings");
         measureMobilePerformance("source.install.action.complete", startedAt, {
           key,
         });
       } finally {
+        clearTimeout(timeout);
+        if (installAbortRef.current === controller) {
+          installAbortRef.current = null;
+        }
         setInstallingKey(null);
       }
     },
@@ -1432,5 +1499,5 @@ export function useSourceInstaller(): {
     [store],
   );
 
-  return { installingKey, installSource, uninstallSource };
+  return { installingKey, installSource, cancelInstall, uninstallSource };
 }
