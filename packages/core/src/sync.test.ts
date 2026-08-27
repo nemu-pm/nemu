@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   areSyncAccountIdentitiesAligned,
+  chapterProgressNeedsPush,
+  chunkChapterProgressSaveInputs,
   chunkCollectionMutationItems,
+  MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS,
   MAX_LIBRARY_SOURCE_LINKS_PER_MUTATION,
   MAX_COLLECTION_MUTATION_ITEMS,
   makeChapterProgressId,
@@ -784,6 +787,60 @@ describe("progress helpers", () => {
       lastReadAt: 80,
       updatedAt: 80,
     });
+  });
+
+  test("backfills metadata the cloud row is missing instead of erasing it", () => {
+    // The cloud row wins ownership at an equal clock, but "wins" must not mean
+    // "overwrites with nothing": the server backfills the same way on receipt,
+    // so dropping the local title here diverged the two sides permanently.
+    const merged = mergeChapterProgressForSave(
+      chapterProgress({
+        chapterNumber: 2,
+        volumeNumber: 1,
+        chapterTitle: "Second",
+        updatedAt: 100,
+      }),
+      chapterProgress({
+        chapterNumber: undefined,
+        volumeNumber: undefined,
+        chapterTitle: undefined,
+        updatedAt: 100,
+      }),
+    );
+    expect(merged.chapterTitle).toBe("Second");
+    expect(merged.chapterNumber).toBe(2);
+    expect(merged.volumeNumber).toBe(1);
+  });
+
+  test("keeps the cloud row's metadata authoritative at an equal clock", () => {
+    const merged = mergeChapterProgressForSave(
+      chapterProgress({ chapterTitle: "local", updatedAt: 100 }),
+      chapterProgress({ chapterTitle: "cloud", updatedAt: 100 }),
+    );
+    expect(merged.chapterTitle).toBe("cloud");
+  });
+
+  test("keeps a local library link a cloud row has not resolved yet", () => {
+    const merged = mergeChapterProgressForSave(
+      chapterProgress({ libraryItemId: "library-1", updatedAt: 100 }),
+      chapterProgress({ libraryItemId: undefined, updatedAt: 200 }),
+    );
+    expect(merged.libraryItemId).toBe("library-1");
+  });
+
+  test("re-pushes metadata the cloud row is missing", () => {
+    // Without this the backfill only ever lives locally and every convergence
+    // check reports success while the two sides stay different forever.
+    const cloud = chapterProgress({ chapterTitle: undefined, updatedAt: 100 });
+    const local = chapterProgress({ chapterTitle: "Second", updatedAt: 100 });
+    expect(chapterProgressNeedsPush(local, cloud)).toBe(true);
+    expect(chapterProgressNeedsPush(local, local)).toBe(false);
+  });
+
+  test("does not push when only the cloud row has extra metadata", () => {
+    const local = chapterProgress({ chapterTitle: undefined, updatedAt: 100 });
+    const cloud = chapterProgress({ chapterTitle: "Second", updatedAt: 100 });
+    expect(chapterProgressNeedsPush(local, cloud)).toBe(false);
   });
 
   test("plans a 10k unchanged snapshot with zero writes or winner pushes", () => {
