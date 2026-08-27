@@ -507,6 +507,36 @@ describe("sync snapshot merge", () => {
       localLink.id,
       sharedLocalLink.id,
     ].sort());
+    expect(merged.changedItems).toEqual([cloudItem]);
+    expect(merged.changedLinks).toEqual([cloudLink]);
+  });
+
+  test("reports zero changed rows when the cloud snapshot matches local state", () => {
+    const item = libraryItem("shared", 20);
+    const link = sourceLink("shared", "shared-manga", 20);
+    const collectionRecord = collection("shared", 20);
+    const membership = collectionItem("shared", "manga-1", 20);
+
+    // Cloud-mapped rows may carry explicit undefined fields that storage JSON
+    // round-tripping drops locally; that alone is not a change.
+    const library = mergeLibrarySnapshot(
+      [item],
+      [link],
+      [{ ...item, overrides: undefined }],
+      [{ ...link, removed: undefined }],
+    );
+    expect(library.items).toHaveLength(1);
+    expect(library.changedItems).toEqual([]);
+    expect(library.changedLinks).toEqual([]);
+
+    const collections = mergeCollectionSnapshot(
+      [collectionRecord],
+      [membership],
+      [{ ...collectionRecord }],
+      [{ ...membership }],
+    );
+    expect(collections.changedCollections).toEqual([]);
+    expect(collections.changedCollectionItems).toEqual([]);
   });
 
   test("merges remote collection snapshots without orphan memberships", () => {
@@ -543,6 +573,11 @@ describe("sync snapshot merge", () => {
       "shared",
     ]);
     expect(merged.localCollectionItemsToPush).toEqual([localMembership]);
+    expect(merged.changedCollections).toEqual([cloudCollection]);
+    expect(merged.changedCollectionItems).toEqual([
+      cloudMembership,
+      orphanMembership,
+    ]);
   });
 
   test("keeps collection membership tombstones for LWW convergence", () => {

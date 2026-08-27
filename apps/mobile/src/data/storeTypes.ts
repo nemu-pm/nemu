@@ -15,11 +15,15 @@ import type {
 import type { ProgressSnapshotMerge, SyncGenerationDecision } from "@nemu/core";
 
 export type LibrarySnapshotApplyResult = {
+  changedItems: LocalLibraryItem[];
+  changedLinks: LocalSourceLink[];
   localItemsToPush: LocalLibraryItem[];
   localLinksToPush: LocalSourceLink[];
 };
 
 export type CollectionsSnapshotApplyResult = {
+  changedCollections: LocalCollection[];
+  changedCollectionItems: LocalCollectionItem[];
   localCollectionsToPush: LocalCollection[];
   localCollectionItemsToPush: LocalCollectionItem[];
 };

@@ -260,6 +260,8 @@ export type CloudHistorySaveInput = {
 export type LibrarySnapshotMerge<TItem extends LocalLibraryItem, TLink extends LocalSourceLink> = {
   items: TItem[];
   links: TLink[];
+  changedItems: TItem[];
+  changedLinks: TLink[];
   localItemsToPush: TItem[];
   localLinksToPush: TLink[];
 };
@@ -270,6 +272,8 @@ export type CollectionSnapshotMerge<
 > = {
   collections: TCollection[];
   collectionItems: TCollectionItem[];
+  changedCollections: TCollection[];
+  changedCollectionItems: TCollectionItem[];
   localCollectionsToPush: TCollection[];
   localCollectionItemsToPush: TCollectionItem[];
 };
@@ -577,14 +581,51 @@ function shouldUseLocalRecord(
   return local.updatedAt > cloud.updatedAt;
 }
 
+/**
+ * Structural equality for plain JSON-shaped snapshot records. Explicit
+ * `undefined` values and missing keys are treated as equal because local rows
+ * round-trip through storage JSON (which drops undefined) while cloud-mapped
+ * rows may carry them.
+ */
+function syncSnapshotValuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => syncSnapshotValuesEqual(value, right[index]))
+    );
+  }
+  if (
+    left &&
+    right &&
+    typeof left === "object" &&
+    typeof right === "object"
+  ) {
+    const leftRecord = left as Record<string, unknown>;
+    const rightRecord = right as Record<string, unknown>;
+    for (const key of new Set([
+      ...Object.keys(leftRecord),
+      ...Object.keys(rightRecord),
+    ])) {
+      if (!syncSnapshotValuesEqual(leftRecord[key], rightRecord[key]))
+        return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 function mergeRecordMap<T extends { updatedAt: number }>(
   localRecords: T[],
   cloudRecords: T[],
   keyOf: (record: T) => string,
-): { records: T[]; localWinners: T[] } {
+): { records: T[]; changed: T[]; localWinners: T[] } {
   const localById = new Map(localRecords.map((record) => [keyOf(record), record]));
   const cloudById = new Map(cloudRecords.map((record) => [keyOf(record), record]));
   const records: T[] = [];
+  const changed: T[] = [];
   const localWinners: T[] = [];
 
   for (const id of new Set([...localById.keys(), ...cloudById.keys()])) {
@@ -595,10 +636,11 @@ function mergeRecordMap<T extends { updatedAt: number }>(
       localWinners.push(local);
     } else if (cloud) {
       records.push(cloud);
+      if (!local || !syncSnapshotValuesEqual(local, cloud)) changed.push(cloud);
     }
   }
 
-  return { records, localWinners };
+  return { records, changed, localWinners };
 }
 
 export function mergeLibrarySnapshot<
@@ -623,6 +665,12 @@ export function mergeLibrarySnapshot<
   return {
     items: itemMerge.records,
     links,
+    changedItems: itemMerge.changed,
+    changedLinks: [
+      ...linkMerge.changed.filter((link) => retainedLinkIds.has(link.id)),
+      // Local links dropped because their library item no longer exists.
+      ...localLinks.filter((link) => !retainedLinkIds.has(link.id)),
+    ],
     localItemsToPush: itemMerge.localWinners,
     localLinksToPush: linkMerge.localWinners.filter((link) =>
       retainedLinkIds.has(link.id),
@@ -664,6 +712,19 @@ export function mergeCollectionSnapshot<
   return {
     collections: collectionMerge.records,
     collectionItems,
+    changedCollections: collectionMerge.changed,
+    changedCollectionItems: [
+      ...itemMerge.changed.filter((item) =>
+        retainedItemIds.has(makeCollectionItemId(item.collectionId, item.libraryItemId)),
+      ),
+      // Local memberships dropped because their collection no longer exists.
+      ...localCollectionItems.filter(
+        (item) =>
+          !retainedItemIds.has(
+            makeCollectionItemId(item.collectionId, item.libraryItemId),
+          ),
+      ),
+    ],
     localCollectionsToPush: collectionMerge.localWinners,
     localCollectionItemsToPush: itemMerge.localWinners.filter((item) =>
       retainedItemIds.has(makeCollectionItemId(item.collectionId, item.libraryItemId)),

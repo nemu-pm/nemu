@@ -883,6 +883,8 @@ class MobileSyncDataStore implements MobileDataStore {
     const merged = mergeLibrarySnapshot(localItems, localLinks, cloudItems, cloudLinks);
     await this.base.saveLibrarySnapshot(merged.items, merged.links);
     return {
+      changedItems: merged.changedItems,
+      changedLinks: merged.changedLinks,
       localItemsToPush: merged.localItemsToPush,
       localLinksToPush: merged.localLinksToPush,
     };
@@ -907,6 +909,8 @@ class MobileSyncDataStore implements MobileDataStore {
     );
     await this.base.saveCollectionsSnapshot(merged.collections, merged.collectionItems);
     return {
+      changedCollections: merged.changedCollections,
+      changedCollectionItems: merged.changedCollectionItems,
       localCollectionsToPush: merged.localCollectionsToPush,
       localCollectionItemsToPush: merged.localCollectionItemsToPush,
     };

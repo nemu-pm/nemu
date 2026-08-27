@@ -14,6 +14,7 @@ import {
   runWithMobileSyncSuspended,
   runWithMobileSyncWrite,
 } from "./mobileSyncRuntime";
+import { subscribeMobileDataChanges } from "@/data/mobileDataEvents";
 
 function runMobileBackgroundSyncOnce(
   deps: Omit<MobileBackgroundSyncDeps, "expectedUserId">,
@@ -234,12 +235,91 @@ describe("mobileBackgroundSyncRunner", () => {
     ]);
   });
 
+  test("emits library/collections changes only when the merge changed rows", async () => {
+    const scopes: string[] = [];
+    const unsubscribe = subscribeMobileDataChanges((scope) =>
+      scopes.push(scope),
+    );
+    const watched = () =>
+      scopes.filter((scope) => scope === "library" || scope === "collections");
+    try {
+      const unchangedStore = makeStore({
+        applyLibrarySnapshot: async () => ({
+          changedItems: [],
+          changedLinks: [],
+          localItemsToPush: [],
+          localLinksToPush: [],
+        }),
+        applyCollectionsSnapshot: async () => ({
+          changedCollections: [],
+          changedCollectionItems: [],
+          localCollectionsToPush: [],
+          localCollectionItemsToPush: [],
+        }),
+      });
+      const first = await runMobileBackgroundSyncOnce({
+        store: unchangedStore,
+        convex: makeConvex(),
+        now: () => 2_000_000,
+        force: true,
+      });
+      expect(first.ran).toBe(true);
+      expect(watched()).toEqual([]);
+
+      const changedStore = makeStore({
+        applyLibrarySnapshot: async () => ({
+          changedItems: [
+            {
+              libraryItemId: "a",
+              metadata: { title: "a" },
+              inLibrary: true,
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          ],
+          changedLinks: [],
+          localItemsToPush: [],
+          localLinksToPush: [],
+        }),
+        applyCollectionsSnapshot: async () => ({
+          changedCollections: [],
+          changedCollectionItems: [
+            {
+              collectionId: "c",
+              libraryItemId: "a",
+              addedAt: 1,
+              updatedAt: 2,
+              removed: false,
+            },
+          ],
+          localCollectionsToPush: [],
+          localCollectionItemsToPush: [],
+        }),
+      });
+      const second = await runMobileBackgroundSyncOnce({
+        store: changedStore,
+        convex: makeConvex(),
+        now: () => 2_100_000,
+        force: true,
+      });
+      expect(second.ran).toBe(true);
+      expect(watched()).toEqual(["library", "collections"]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   test("fetches every page before applying a foreground-compatible snapshot", async () => {
     const received: unknown[][] = [];
     const store = makeStore({
       applyLibrarySnapshot: async (items) => {
         received.push(items);
-        return { localItemsToPush: [], localLinksToPush: [] };
+        return {
+          changedItems: [],
+          changedLinks: [],
+          localItemsToPush: [],
+          localLinksToPush: [],
+        };
       },
     });
     const libraryItems = ["a", "b", "c"].map((id, index) => ({
@@ -273,7 +353,12 @@ describe("mobileBackgroundSyncRunner", () => {
       },
       applyLibrarySnapshot: async () => {
         writes.push("library");
-        return { localItemsToPush: [], localLinksToPush: [] };
+        return {
+          changedItems: [],
+          changedLinks: [],
+          localItemsToPush: [],
+          localLinksToPush: [],
+        };
       },
     });
     const result = await runMobileBackgroundSyncOnce({
@@ -298,7 +383,12 @@ describe("mobileBackgroundSyncRunner", () => {
       },
       applyLibrarySnapshot: async () => {
         writes.push("library");
-        return { localItemsToPush: [], localLinksToPush: [] };
+        return {
+          changedItems: [],
+          changedLinks: [],
+          localItemsToPush: [],
+          localLinksToPush: [],
+        };
       },
     });
     let confirmations = 0;
@@ -469,7 +559,12 @@ describe("mobileBackgroundSyncRunner", () => {
       },
       applyLibrarySnapshot: async () => {
         writes.push("library");
-        return { localItemsToPush: [], localLinksToPush: [] };
+        return {
+          changedItems: [],
+          changedLinks: [],
+          localItemsToPush: [],
+          localLinksToPush: [],
+        };
       },
       recordSyncSnapshotState: async (state) => {
         states.push(state);
@@ -520,11 +615,18 @@ describe("mobileBackgroundSyncRunner", () => {
         markLibraryEntered();
         await libraryGate;
         rows.push("library-generation-2");
-        return { localItemsToPush: [], localLinksToPush: [] };
+        return {
+          changedItems: [],
+          changedLinks: [],
+          localItemsToPush: [],
+          localLinksToPush: [],
+        };
       },
       applyCollectionsSnapshot: async () => {
         rows.push("stale-collections-generation-2");
         return {
+          changedCollections: [],
+          changedCollectionItems: [],
           localCollectionsToPush: [],
           localCollectionItemsToPush: [],
         };
@@ -862,7 +964,12 @@ describe("mobileBackgroundSyncRunner", () => {
     const store = makeStore({
       applyLibrarySnapshot: async () => {
         writes.push("library");
-        return { localItemsToPush: [], localLinksToPush: [] };
+        return {
+          changedItems: [],
+          changedLinks: [],
+          localItemsToPush: [],
+          localLinksToPush: [],
+        };
       },
     });
 
@@ -901,7 +1008,12 @@ describe("mobileBackgroundSyncRunner", () => {
     const store = makeStore({
       applyLibrarySnapshot: async () => {
         lateWrites.push("late-library-apply");
-        return { localItemsToPush: [], localLinksToPush: [] };
+        return {
+          changedItems: [],
+          changedLinks: [],
+          localItemsToPush: [],
+          localLinksToPush: [],
+        };
       },
     });
     const result = await runMobileBackgroundSyncOnce({

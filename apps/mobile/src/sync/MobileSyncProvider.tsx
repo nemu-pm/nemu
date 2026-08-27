@@ -1110,6 +1110,7 @@ function ConfiguredMobileSyncBridge() {
           expectedUserId,
         );
         if (!shouldContinue()) return;
+        let libraryChanged = false;
         let localItemsToPush: LocalLibraryItem[] = [];
         let localLinksToPush: LocalSourceLink[] = [];
         if (store.applyLibrarySnapshot) {
@@ -1125,6 +1126,8 @@ function ConfiguredMobileSyncBridge() {
             return store.applyLibrarySnapshot!(cloudItems, cloudLinks);
           });
           if (!winners) return;
+          libraryChanged =
+            winners.changedItems.length > 0 || winners.changedLinks.length > 0;
           localItemsToPush = winners.localItemsToPush;
           localLinksToPush = winners.localLinksToPush;
         } else {
@@ -1150,6 +1153,8 @@ function ConfiguredMobileSyncBridge() {
               return;
             await store.saveLibrarySnapshot(merged.items, merged.links);
           });
+          libraryChanged =
+            merged.changedItems.length > 0 || merged.changedLinks.length > 0;
           localItemsToPush = merged.localItemsToPush;
           localLinksToPush = merged.localLinksToPush;
         }
@@ -1178,6 +1183,7 @@ function ConfiguredMobileSyncBridge() {
         const mappedCloudCollectionItems = mapCloudCollectionItems(
           cloudCollectionItems.rows,
         );
+        let collectionsChanged = false;
         let localCollectionsToPush: ReturnType<typeof mapCloudCollections> = [];
         let localCollectionItemsToPush: LocalCollectionItem[] = [];
         if (store.applyCollectionsSnapshot) {
@@ -1196,6 +1202,9 @@ function ConfiguredMobileSyncBridge() {
             );
           });
           if (!winners) return;
+          collectionsChanged =
+            winners.changedCollections.length > 0 ||
+            winners.changedCollectionItems.length > 0;
           localCollectionsToPush = winners.localCollectionsToPush;
           localCollectionItemsToPush = winners.localCollectionItemsToPush;
         } else {
@@ -1224,6 +1233,9 @@ function ConfiguredMobileSyncBridge() {
               merged.collectionItems,
             );
           });
+          collectionsChanged =
+            merged.changedCollections.length > 0 ||
+            merged.changedCollectionItems.length > 0;
           localCollectionsToPush = merged.localCollectionsToPush;
           localCollectionItemsToPush = merged.localCollectionItemsToPush;
         }
@@ -1238,8 +1250,10 @@ function ConfiguredMobileSyncBridge() {
             expectedUserId,
           );
         if (shouldContinue()) {
-          emitMobileDataChanged("library");
-          emitMobileDataChanged("collections");
+          // Only notify subscribers when the merge actually changed rows —
+          // unchanged snapshots must not retrigger library/collection queries.
+          if (libraryChanged) emitMobileDataChanged("library");
+          if (collectionsChanged) emitMobileDataChanged("collections");
         }
       } catch (error) {
         console.error(

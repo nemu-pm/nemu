@@ -707,6 +707,8 @@ DELETE FROM sync_health;
     cloudItems: LocalLibraryItem[],
     cloudLinks: LocalSourceLink[],
   ): Promise<LibrarySnapshotApplyResult> {
+    let changedItems: LocalLibraryItem[] = [];
+    let changedLinks: LocalSourceLink[] = [];
     let localItemsToPush: LocalLibraryItem[] = [];
     let localLinksToPush: LocalSourceLink[] = [];
     // Read + merge + replace inside one queued transaction: a user write can
@@ -737,10 +739,12 @@ DELETE FROM sync_health;
       for (const link of merged.links) {
         await this.putSourceLink(txn, link);
       }
+      changedItems = merged.changedItems;
+      changedLinks = merged.changedLinks;
       localItemsToPush = merged.localItemsToPush;
       localLinksToPush = merged.localLinksToPush;
     });
-    return { localItemsToPush, localLinksToPush };
+    return { changedItems, changedLinks, localItemsToPush, localLinksToPush };
   }
 
   async removeLibraryItem(
@@ -991,6 +995,8 @@ DELETE FROM sync_health;
     cloudCollections: LocalCollection[],
     cloudCollectionItems: LocalCollectionItem[],
   ): Promise<CollectionsSnapshotApplyResult> {
+    let changedCollections: LocalCollection[] = [];
+    let changedCollectionItems: LocalCollectionItem[] = [];
     let localCollectionsToPush: LocalCollection[] = [];
     let localCollectionItemsToPush: LocalCollectionItem[] = [];
     // Same atomicity contract as applyLibrarySnapshot: read + merge + replace
@@ -1020,10 +1026,17 @@ DELETE FROM sync_health;
       for (const collectionItem of merged.collectionItems) {
         await this.putCollectionItem(txn, collectionItem);
       }
+      changedCollections = merged.changedCollections;
+      changedCollectionItems = merged.changedCollectionItems;
       localCollectionsToPush = merged.localCollectionsToPush;
       localCollectionItemsToPush = merged.localCollectionItemsToPush;
     });
-    return { localCollectionsToPush, localCollectionItemsToPush };
+    return {
+      changedCollections,
+      changedCollectionItems,
+      localCollectionsToPush,
+      localCollectionItemsToPush,
+    };
   }
 
   async saveCollection(collection: LocalCollection): Promise<void> {

@@ -329,15 +329,20 @@ async function pullAndMergeLibrary(
     // Atomic read+merge+write in one store write-queue slot (same primitive
     // as the foreground bridge); winners are intentionally discarded — see
     // the pull-only note below.
-    await runWithMobileSyncWrite(async () => {
+    const applied = await runWithMobileSyncWrite(async () => {
       if (!(await isSnapshotGenerationCurrent(deps, snapshot.generation)))
-        return;
-      await store.applyLibrarySnapshot!(
+        return null;
+      return store.applyLibrarySnapshot!(
         mapCloudLibraryItems(snapshot.libraryItems),
         mappedCloudLinks,
       );
     });
-    if (!shouldStop(deps)) emitMobileDataChanged("library");
+    if (
+      !shouldStop(deps) &&
+      applied &&
+      (applied.changedItems.length > 0 || applied.changedLinks.length > 0)
+    )
+      emitMobileDataChanged("library");
     return;
   }
 
@@ -357,7 +362,11 @@ async function pullAndMergeLibrary(
     if (!(await isSnapshotGenerationCurrent(deps, snapshot.generation))) return;
     await store.saveLibrarySnapshot(merged.items, merged.links);
   });
-  if (!shouldStop(deps)) emitMobileDataChanged("library");
+  if (
+    !shouldStop(deps) &&
+    (merged.changedItems.length > 0 || merged.changedLinks.length > 0)
+  )
+    emitMobileDataChanged("library");
 }
 
 // The foreground `MobileSyncBridge` does a "push local winners" pass after
@@ -384,15 +393,21 @@ async function pullAndMergeCollections(
   if (shouldStop(deps)) return;
 
   if (store.applyCollectionsSnapshot) {
-    await runWithMobileSyncWrite(async () => {
+    const applied = await runWithMobileSyncWrite(async () => {
       if (!(await isSnapshotGenerationCurrent(deps, snapshot.generation)))
-        return;
-      await store.applyCollectionsSnapshot!(
+        return null;
+      return store.applyCollectionsSnapshot!(
         mappedCloudCollections,
         mapCloudCollectionItems(snapshot.collectionItems),
       );
     });
-    if (!shouldStop(deps)) emitMobileDataChanged("collections");
+    if (
+      !shouldStop(deps) &&
+      applied &&
+      (applied.changedCollections.length > 0 ||
+        applied.changedCollectionItems.length > 0)
+    )
+      emitMobileDataChanged("collections");
     return;
   }
 
@@ -415,7 +430,12 @@ async function pullAndMergeCollections(
       merged.collectionItems,
     );
   });
-  if (!shouldStop(deps)) emitMobileDataChanged("collections");
+  if (
+    !shouldStop(deps) &&
+    (merged.changedCollections.length > 0 ||
+      merged.changedCollectionItems.length > 0)
+  )
+    emitMobileDataChanged("collections");
 }
 
 async function pullAndMergeProgress(
