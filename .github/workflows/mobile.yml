@@ -130,7 +130,25 @@ jobs:
         run: bun run --cwd apps/mobile test
       - name: Diagnose Expo dependencies
         working-directory: apps/mobile
-        run: bunx expo-doctor
+        # expo-doctor's Hermes V1 regression check is a known false positive
+        # here: the app ships the pinned third-party JSC (never Hermes V1),
+        # and the only upstream opt-out (expo-build-properties
+        # `useHermesV1: false`) forces a legacy hermes-compiler resolution
+        # this project deliberately avoids. Tolerate exactly that check —
+        # any other failure (or a doctor crash) still fails the step.
+        run: |
+          set +e
+          output="$(bunx expo-doctor 2>&1)"
+          status=$?
+          printf '%s\n' "$output"
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          printf '%s\n' "$output" | grep -q '✖.*Hermes V1 regressions' || exit "$status"
+          failures="$(printf '%s\n' "$output" | grep '✖' | grep -v 'Hermes V1 regressions' || true)"
+          if [ -n "$failures" ]; then
+            exit "$status"
+          fi
       - name: Validate Expo prebuild configuration
         working-directory: apps/mobile
         run: bunx expo config --type prebuild >/tmp/nemu-mobile-prebuild-config.txt
