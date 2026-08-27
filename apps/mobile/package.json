@@ -18,7 +18,7 @@
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "test": "bun test $(rg --files src | rg '\\.(test|spec)\\.(ts|tsx)$' | sed 's#^#./#')",
+    "test": "bun test",
     "build:ios:production": "eas build --platform ios --profile production",
     "build:android:production": "eas build --platform android --profile production"
   },
