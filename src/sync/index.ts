@@ -49,11 +49,3 @@ export { requestSyncSnapshotRetry } from "./snapshot-retry";
 
 // Types
 export type { DataServices, StoreHooks, SyncStatus } from "./types";
-
-// Transport types (kept for type compatibility)
-export type {
-  SyncLibraryItem,
-  SyncLibrarySourceLink,
-  SyncChapterProgress,
-  SyncMangaProgress,
-} from "./transport";
