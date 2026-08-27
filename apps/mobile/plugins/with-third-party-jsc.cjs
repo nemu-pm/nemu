@@ -10,6 +10,87 @@ const {
 } = require("expo/config-plugins");
 const fs = require("fs/promises");
 const path = require("path");
+const mobilePackageJson = require("../package.json");
+
+/**
+ * Every substitution below rewrites a generated native project file. A pattern
+ * that silently stops matching (an Expo template change, a React Native or
+ * Reanimated upgrade) would produce a project that still builds but is missing
+ * the third-party JSC wiring, and the failure would only surface much later as
+ * a runtime crash or a mis-linked engine. Fail the prebuild instead, with the
+ * same discipline as `scripts/patch-aidoku-runtime.ts`.
+ */
+function countMatches(source, find) {
+  if (typeof find === "string") {
+    return source.split(find).length - 1;
+  }
+  const flags = find.flags.includes("g") ? find.flags : `${find.flags}g`;
+  return (source.match(new RegExp(find.source, flags)) ?? []).length;
+}
+
+function describePattern(find) {
+  const text = typeof find === "string" ? find : String(find);
+  return text.length > 240 ? `${text.slice(0, 240)}…` : text;
+}
+
+/** Applies a substitution that must match exactly once. */
+function replaceOnceOrThrow(source, find, replace, label) {
+  const matches = countMatches(source, find);
+  if (matches !== 1) {
+    throw new Error(
+      `Nemu prebuild patch "${label}" ${
+        matches === 0 ? "found no match" : `matched ${matches} times`
+      }; expected exactly one.\nExpected snippet: ${describePattern(find)}`,
+    );
+  }
+  // A rewrite that produces identical text is fine (re-running prebuild over an
+  // already-migrated file); a pattern that no longer matches is not.
+  return source.replace(find, replace);
+}
+
+/**
+ * Applies a substitution that legitimately has nothing to match — normalizing
+ * an older template spelling, or removing a block a previous prebuild wrote.
+ * A non-global pattern still may not match more than once.
+ */
+function replaceOptional(source, find, replace, label) {
+  const matches = countMatches(source, find);
+  if (matches === 0) {
+    return source;
+  }
+  const isGlobal = typeof find !== "string" && find.flags.includes("g");
+  if (matches > 1 && !isGlobal) {
+    throw new Error(
+      `Nemu prebuild patch "${label}" matched ${matches} times; expected at most one.\nExpected snippet: ${describePattern(find)}`,
+    );
+  }
+  return source.replace(find, replace);
+}
+
+/**
+ * Native build flags must describe the versions actually installed. Read them
+ * from the app manifest instead of duplicating literals that drift silently on
+ * the next dependency bump.
+ */
+function exactDependencyVersion(name) {
+  const range = mobilePackageJson.dependencies?.[name];
+  if (typeof range !== "string") {
+    throw new Error(
+      `Nemu prebuild expects "${name}" to be a dependency of apps/mobile.`,
+    );
+  }
+  const version = range.replace(/^[\s^~>=<]*/, "").trim();
+  if (!/^\d+\.\d+\.\d+/.test(version)) {
+    throw new Error(
+      `Nemu prebuild cannot derive a native build flag from the "${name}" version range "${range}".`,
+    );
+  }
+  return version;
+}
+
+const REACT_NATIVE_MINOR = exactDependencyVersion("react-native").split(".")[1];
+const WORKLETS_VERSION = exactDependencyVersion("react-native-worklets");
+const REANIMATED_VERSION = exactDependencyVersion("react-native-reanimated");
 
 const IMPORT_LINE = "import ReactJSC";
 const FACTORY_METHOD = [
@@ -33,14 +114,13 @@ const RUBY_JSC_FILE_FLAGS = Object.entries(JSC_FILE_FLAGS)
   .map(([filename, flags]) => `'${filename}' => '${flags}'`)
   .join(", ");
 
+const RN_MINOR_CPP_FLAGS = `-DREACT_NATIVE_MINOR_VERSION=${REACT_NATIVE_MINOR}`;
 const WORKLETS_CPP_FLAGS =
-  "-DWORKLETS_VERSION=0.8.3 -DREACT_NATIVE_MINOR_VERSION=85 -DHERMES_V1_ENABLED";
-const RN_MINOR_CPP_FLAGS = "-DREACT_NATIVE_MINOR_VERSION=85";
+  `-DWORKLETS_VERSION=${WORKLETS_VERSION} ${RN_MINOR_CPP_FLAGS} -DHERMES_V1_ENABLED`;
 const RNSCREENS_CPP_FLAGS = "-DRNS_GAMMA_ENABLED=1 -DRCT_NEW_ARCH_ENABLED=1";
 const REANIMATED_CPP_FLAGS =
-  "-DREACT_NATIVE_MINOR_VERSION=85 -DREANIMATED_VERSION=4.3.1 -DRCT_NEW_ARCH_ENABLED=1";
-const GESTURE_HANDLER_CPP_FLAGS =
-  "-DREACT_NATIVE_MINOR_VERSION=85 -DRCT_NEW_ARCH_ENABLED=1";
+  `${RN_MINOR_CPP_FLAGS} -DREANIMATED_VERSION=${REANIMATED_VERSION} -DRCT_NEW_ARCH_ENABLED=1`;
+const GESTURE_HANDLER_CPP_FLAGS = `${RN_MINOR_CPP_FLAGS} -DRCT_NEW_ARCH_ENABLED=1`;
 const THIRD_PARTY_JSC_CPP_FLAGS = "-DUSE_THIRD_PARTY_JSC=1 -DUSE_HERMES=0";
 const IOS_ENV_LINES = [
   "ENV['USE_THIRD_PARTY_JSC'] ||= '1'",
@@ -68,6 +148,40 @@ const WORKLETS_PICK_FIRST = "**/libworklets.so";
 const ANDROID_GRADLE_JVM_ARGS = "-Xmx2048m -XX:MaxMetaspaceSize=1024m";
 const ANDROID_CAMERA_FEATURE = "android.hardware.camera";
 const ANDROID_CLEARTEXT_TRAFFIC_ATTRIBUTE = "android:usesCleartextTraffic";
+const ANDROID_NETWORK_SECURITY_CONFIG_ATTRIBUTE = "android:networkSecurityConfig";
+const ANDROID_NETWORK_SECURITY_CONFIG_NAME = "nemu_network_security_config";
+const ANDROID_NETWORK_SECURITY_CONFIG_RESOURCE = `@xml/${ANDROID_NETWORK_SECURITY_CONFIG_NAME}`;
+// Hosts Nemu itself owns or depends on for authentication and sync. `convex`
+// entries cover the deployment (`*.convex.cloud`) and HTTP action
+// (`*.convex.site`) domains via includeSubdomains.
+const ANDROID_FIRST_PARTY_HTTPS_ONLY_DOMAINS = [
+  "nemu.pm",
+  "convex.cloud",
+  "convex.site",
+];
+const ANDROID_NETWORK_SECURITY_CONFIG_XML = `<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Generated by plugins/with-third-party-jsc.cjs during prebuild. Do not edit.
+
+  Aidoku source packages may legitimately target public legacy HTTP origins, so
+  cleartext stays permitted by default; those requests are still confined by
+  Nemu's direct-proxy, DNS-answer, and connected-peer SSRF checks. First-party
+  authentication, sync, and API traffic must never be downgraded, so it is
+  pinned to HTTPS here rather than relying on an app-wide opt-in.
+-->
+<network-security-config>
+  <base-config cleartextTrafficPermitted="true">
+    <trust-anchors>
+      <certificates src="system" />
+    </trust-anchors>
+  </base-config>
+  <domain-config cleartextTrafficPermitted="false">
+${ANDROID_FIRST_PARTY_HTTPS_ONLY_DOMAINS.map(
+  (domain) => `    <domain includeSubdomains="true">${domain}</domain>`,
+).join("\n")}
+  </domain-config>
+</network-security-config>
+`;
 const ANDROID_HEADLESS_APP_LOADER_CLASS =
   "expo.modules.adapters.react.apploader.RNHeadlessAppLoader";
 const ANDROID_HEADLESS_APP_LOADER_PROGUARD_MARKER =
@@ -254,11 +368,40 @@ function ensureAndroidPublicSourceCleartextTraffic(androidManifest) {
   // debug device test cannot pass while the Play build fails. Source requests
   // remain behind Nemu's direct-proxy, DNS-answer, and connected-peer SSRF
   // checks; first-party auth and sync endpoints remain HTTPS-only.
+  //
+  // The generated network security config is what actually governs on the
+  // supported API floor (26+): it permits cleartext in its base config and
+  // denies it for first-party domains, and the platform ignores this attribute
+  // whenever a config is present. The attribute stays for older tooling and
+  // manifest readers that only understand the flag.
   application.$ = {
     ...application.$,
     [ANDROID_CLEARTEXT_TRAFFIC_ATTRIBUTE]: "true",
   };
   return androidManifest;
+}
+
+function ensureAndroidFirstPartyNetworkSecurityConfig(androidManifest) {
+  const application = androidManifest.manifest.application?.[0];
+  if (!application) {
+    throw new Error("Android manifest is missing its application element.");
+  }
+
+  application.$ = {
+    ...application.$,
+    [ANDROID_NETWORK_SECURITY_CONFIG_ATTRIBUTE]:
+      ANDROID_NETWORK_SECURITY_CONFIG_RESOURCE,
+  };
+  return androidManifest;
+}
+
+async function writeAndroidNetworkSecurityConfig(platformProjectRoot) {
+  const resourceDir = path.join(platformProjectRoot, "app/src/main/res/xml");
+  await fs.mkdir(resourceDir, { recursive: true });
+  await fs.writeFile(
+    path.join(resourceDir, `${ANDROID_NETWORK_SECURITY_CONFIG_NAME}.xml`),
+    ANDROID_NETWORK_SECURITY_CONFIG_XML,
+  );
 }
 
 function migrateAndroidSplashStyleContents(baseStyles, versionedStyles) {
@@ -267,20 +410,26 @@ function migrateAndroidSplashStyleContents(baseStyles, versionedStyles) {
     return { baseStyles, versionedStyles };
   }
 
-  const nextBaseStyles = baseStyles.replace(
+  const nextBaseStyles = replaceOnceOrThrow(
+    baseStyles,
     ANDROID_SPLASH_BEHAVIOR_PATTERN,
     "",
+    "remove API 33 splash behavior from the base style",
   );
   let nextVersionedStyles = versionedStyles ?? "<resources>\n</resources>\n";
   if (ANDROID_SPLASH_STYLE_PATTERN.test(nextVersionedStyles)) {
-    nextVersionedStyles = nextVersionedStyles.replace(
+    nextVersionedStyles = replaceOnceOrThrow(
+      nextVersionedStyles,
       ANDROID_SPLASH_STYLE_PATTERN,
       splashStyle,
+      "refresh the API 33 splash style clone",
     );
   } else {
-    nextVersionedStyles = nextVersionedStyles.replace(
+    nextVersionedStyles = replaceOnceOrThrow(
+      nextVersionedStyles,
       /\r?\n?<\/resources>/,
       `\n${splashStyle}\n</resources>`,
+      "append the API 33 splash style clone",
     );
   }
   if (!nextVersionedStyles.endsWith("\n")) {
@@ -348,19 +497,29 @@ function patchSwiftAppDelegate(contents) {
   let next = contents;
 
   if (!next.includes(IMPORT_LINE)) {
-    next = next.replace(/import React\n/, `import React\n${IMPORT_LINE}\n`);
-  }
-
-  if (!next.includes("createJSRuntimeFactory()")) {
-    next = next.replace(
-      /(class ReactNativeDelegate: ExpoReactNativeFactoryDelegate \{\n)/,
-      `$1${FACTORY_METHOD}`,
+    next = replaceOnceOrThrow(
+      next,
+      /import React\n/,
+      `import React\n${IMPORT_LINE}\n`,
+      "import ReactJSC into the Swift AppDelegate",
     );
   }
 
-  next = next.replace(
+  if (!next.includes("createJSRuntimeFactory()")) {
+    next = replaceOnceOrThrow(
+      next,
+      /(class ReactNativeDelegate: ExpoReactNativeFactoryDelegate \{\n)/,
+      `$1${FACTORY_METHOD}`,
+      "install the JSC runtime factory override",
+    );
+  }
+
+  // Only present when the template still declares the pre-Ref return type.
+  next = replaceOptional(
+    next,
     /override func createJSRuntimeFactory\(\) -> JSRuntimeFactory\s*\{/,
     "override func createJSRuntimeFactory() -> JSRuntimeFactoryRef {",
+    "normalize the JS runtime factory return type",
   );
 
   return next;
@@ -373,19 +532,29 @@ function patchPodfile(contents) {
   let next = contents;
   for (const envLine of IOS_ENV_LINES) {
     if (!next.includes(envLine)) {
-      next = next.replace(/^platform :ios/m, `${envLine}\nplatform :ios`);
+      next = replaceOnceOrThrow(
+        next,
+        /^platform :ios/m,
+        `${envLine}\nplatform :ios`,
+        `declare ${envLine.split(" ")[0]} above the iOS platform line`,
+      );
     }
   }
 
-  next = next.replace(
+  // Absent on a freshly generated Podfile; present when a previous prebuild
+  // already wrote the helper and it has to be replaced with the current one.
+  next = replaceOptional(
+    next,
     new RegExp(
       `\\ndef ${helperName}\\(installer\\)[\\s\\S]*?\\nend\\n+(?=target 'Nemu' do)`,
     ),
     "\n",
+    "drop a previously generated third-party JSC build-settings helper",
   );
 
   if (!next.includes(`def ${helperName}`)) {
-    next = next.replace(
+    next = replaceOnceOrThrow(
+      next,
       /(\nprepare_react_native_project!\n)/,
       `$1\n` +
         `def ${helperName}(installer)\n` +
@@ -449,8 +618,16 @@ function patchPodfile(contents) {
         `        end\n` +
         `        next unless flags\n` +
         `        compiler_flags = file.settings['COMPILER_FLAGS'].to_s\n` +
-        `        next if compiler_flags.include?(flags)\n` +
-        `        file.settings['COMPILER_FLAGS'] = "#{compiler_flags} #{flags}".strip\n` +
+        // Dedupe per flag, not on the joined string. A file can pick up flags
+        // from two rules (a JSC file map plus a per-pod C++ set), so a prebuild
+        // that already applied one of them would never match the joined string
+        // and would append the whole set again on every run.
+        `        existing_flags = compiler_flags.split(/\\s+/).reject(&:empty?)\n` +
+        `        added_flags = flags.split(/\\s+/).reject(&:empty?).reject do |flag|\n` +
+        `          existing_flags.include?(flag)\n` +
+        `        end\n` +
+        `        next if added_flags.empty?\n` +
+        `        file.settings['COMPILER_FLAGS'] = (existing_flags + added_flags).join(' ')\n` +
         `      end\n` +
         `    end\n` +
         `  end\n` +
@@ -487,17 +664,22 @@ function patchPodfile(contents) {
 
   // The patched ExpoModulesJSI standalone runtime uses React-jsc. Remove the
   // old direct Hermes pod so two JSI engines cannot interpose each other's C++
-  // symbols in the same process.
-  next = next.replace(
+  // symbols in the same process. Already gone once a previous prebuild removed
+  // it from a Podfile that is not regenerated.
+  next = replaceOptional(
+    next,
     /\n  pod 'hermes-engine', :podspec => "#\{config\[:reactNativePath\]\}\/sdks\/hermes-engine\/hermes-engine\.podspec"\n/g,
     "\n",
+    "remove the direct hermes-engine pod",
   );
 
   const helperCall = `    ${helperName}(installer)`;
   if (!next.includes(helperCall)) {
-    next = next.replace(
+    next = replaceOnceOrThrow(
+      next,
       /(  post_install do \|installer\|[\s\S]*?react_native_post_install\([\s\S]*?\n    \)\n)(  end\nend)/,
       `$1\n${helperCall}\n$2`,
+      "call the third-party JSC build-settings helper from post_install",
     );
   }
 
@@ -532,19 +714,27 @@ function patchKotlinMainApplication(contents) {
       "io.github.reactnativecommunity.javascriptcore.JSCRuntimeFactory",
     )
   ) {
-    next = next.replace(
+    next = replaceOnceOrThrow(
+      next,
       /(import expo\.modules\.ExpoReactHostFactory\n)/,
       `$1import io.github.reactnativecommunity.javascriptcore.JSCRuntimeFactory\n`,
+      "import JSCRuntimeFactory into MainApplication",
     );
   }
 
-  next = next.replace(
+  // Absent on a freshly generated MainApplication; present when a previous
+  // prebuild already inserted the argument that is re-added below.
+  next = replaceOptional(
+    next,
     /,?\s*\n\s*jsRuntimeFactory = JSCRuntimeFactory\(\)\s*/g,
     "\n",
+    "drop a previously inserted jsRuntimeFactory argument",
   );
-  next = next.replace(
+  next = replaceOnceOrThrow(
+    next,
     /(packageList =\s*\n\s*PackageList\(this\)\.packages\.apply \{[\s\S]*?\n\s*\})(\s*\n\s*\))/m,
     `$1,\n      jsRuntimeFactory = JSCRuntimeFactory()\n    )`,
+    "pass JSCRuntimeFactory to the Expo React host",
   );
 
   return next;
@@ -554,18 +744,22 @@ function patchAndroidSettingsGradle(contents) {
   let next = contents;
 
   if (!next.includes(ANDROID_JSC_INCLUDE_LINE)) {
-    next = next.replace(
+    next = replaceOnceOrThrow(
+      next,
       /(include ':app'\n)/,
       `$1${ANDROID_JSC_INCLUDE_LINE}\n`,
+      "include the JavaScriptCore Gradle project",
     );
   }
 
   if (!next.includes(ANDROID_JSC_PROJECT_DIR_LINE)) {
-    next = next.replace(
+    next = replaceOnceOrThrow(
+      next,
       new RegExp(
         `(${ANDROID_JSC_INCLUDE_LINE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n)`,
       ),
       `$1${ANDROID_JSC_PROJECT_DIR_LINE}\n`,
+      "resolve the JavaScriptCore Gradle project directory",
     );
   }
 
@@ -575,9 +769,11 @@ function patchAndroidSettingsGradle(contents) {
 function patchAndroidAppBuildGradle(contents) {
   let next = contents;
   if (!next.includes(ANDROID_JSC_APP_DEPENDENCY)) {
-    next = next.replace(
+    next = replaceOnceOrThrow(
+      next,
       /(implementation\("com\.facebook\.react:react-android"\)\n)/,
       `$1    ${ANDROID_JSC_APP_DEPENDENCY}\n`,
+      "add the JavaScriptCore project dependency to the app module",
     );
   }
 
@@ -678,6 +874,9 @@ function withThirdPartyJsc(config) {
     manifestConfig.modResults = ensureAndroidPublicSourceCleartextTraffic(
       manifestConfig.modResults,
     );
+    manifestConfig.modResults = ensureAndroidFirstPartyNetworkSecurityConfig(
+      manifestConfig.modResults,
+    );
     return manifestConfig;
   });
 
@@ -705,6 +904,9 @@ function withThirdPartyJsc(config) {
       await ensureAndroidHeadlessAppLoaderProguardRule(
         finalizedConfig.modRequest.platformProjectRoot,
       );
+      await writeAndroidNetworkSecurityConfig(
+        finalizedConfig.modRequest.platformProjectRoot,
+      );
       await migrateAndroidSplashStyle(
         finalizedConfig.modRequest.platformProjectRoot,
       );
@@ -720,5 +922,16 @@ module.exports.isCombinedAndroidCleanBuildRequest =
   isCombinedAndroidCleanBuildRequest;
 module.exports.ensureAndroidPublicSourceCleartextTraffic =
   ensureAndroidPublicSourceCleartextTraffic;
+module.exports.ensureAndroidFirstPartyNetworkSecurityConfig =
+  ensureAndroidFirstPartyNetworkSecurityConfig;
+module.exports.androidNetworkSecurityConfigXml =
+  ANDROID_NETWORK_SECURITY_CONFIG_XML;
 module.exports.migrateAndroidSplashStyleContents =
   migrateAndroidSplashStyleContents;
+module.exports.replaceOnceOrThrow = replaceOnceOrThrow;
+module.exports.replaceOptional = replaceOptional;
+module.exports.patchSwiftAppDelegate = patchSwiftAppDelegate;
+module.exports.patchPodfile = patchPodfile;
+module.exports.patchKotlinMainApplication = patchKotlinMainApplication;
+module.exports.patchAndroidSettingsGradle = patchAndroidSettingsGradle;
+module.exports.patchAndroidAppBuildGradle = patchAndroidAppBuildGradle;
