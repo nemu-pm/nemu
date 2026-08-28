@@ -244,6 +244,10 @@ jobs:
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+          # Some hosted runners keep the pre-existing device node's original
+          # mode even after the matching udev rule is triggered. Apply the
+          # intended mode directly so the emulator gate is deterministic.
+          sudo chmod 0666 /dev/kvm
           test -r /dev/kvm
           test -w /dev/kvm
       - name: Run Android long-strip instrumented tests
