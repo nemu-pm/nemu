@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { chapterProgressIntraPageState } from "@nemu/core";
 export {
   makeChapterProgressId,
   makeCollectionItemId,
@@ -119,6 +120,8 @@ export const LocalLibraryItemSchema = z.object({
 
   // Library membership state
   inLibrary: z.boolean().default(true),
+  /** Permanent local redirect left by a semantic merge. */
+  mergedIntoLibraryItemId: z.string().optional(),
 
   // User overrides
   overrides: UserOverridesSchema.optional(),
@@ -165,7 +168,7 @@ export const LocalSourceLinkSchema = z.object({
  * Local chapter progress (normalized, mirrors chapter_progress table).
  * Key: "${registryId}:${sourceId}:${sourceMangaId}:${sourceChapterId}"
  */
-export const LocalChapterProgressSchema = z.object({
+const LocalChapterProgressValueSchema = z.object({
   // Primary key (composite: registryId:sourceId:sourceMangaId:sourceChapterId)
   id: z.string(),
 
@@ -189,9 +192,37 @@ export const LocalChapterProgressSchema = z.object({
   volumeNumber: z.number().optional(),
   chapterTitle: z.string().optional(),
 
+  // Content-bound resume state for a single logical long-strip page.
+  intraPageProgress: z.number().finite().min(0).max(1).optional(),
+  intraPageContentIdentity: z.string().optional(),
+
   // Sync fields
   updatedAt: z.number(),
 });
+
+/**
+ * Preserve an otherwise valid persisted progress row when only its optional
+ * reader-position extension is malformed. Write/cloud boundaries validate the
+ * pair strictly; local recovery drops both halves together before parsing so a
+ * damaged extension can never hide the chapter's durable integer progress.
+ */
+export const LocalChapterProgressSchema = z.preprocess((value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const candidate = value as {
+    intraPageProgress?: number;
+    intraPageContentIdentity?: string;
+  };
+  const hasEitherIntraPageField =
+    candidate.intraPageProgress !== undefined ||
+    candidate.intraPageContentIdentity !== undefined;
+  if (!hasEitherIntraPageField || chapterProgressIntraPageState(candidate)) {
+    return value;
+  }
+  const sanitized = { ...(value as Record<string, unknown>) };
+  delete sanitized.intraPageProgress;
+  delete sanitized.intraPageContentIdentity;
+  return sanitized;
+}, LocalChapterProgressValueSchema);
 
 /**
  * Local manga progress (normalized, mirrors manga_progress table).

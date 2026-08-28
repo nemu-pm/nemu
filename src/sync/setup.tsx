@@ -37,6 +37,7 @@ import type { LibraryEntry } from "@/data/view";
 import { getSyncStore } from "@/stores/sync";
 import { authClient } from "@/lib/auth-client";
 import { normalizeOAuthProvider } from "@/sync/oauth-provider";
+import { safeErrorCategory } from "@/lib/error-diagnostic";
 import {
   useDataServices,
   useProgressStoreApi,
@@ -53,11 +54,14 @@ import {
   mapCloudMangaProgress,
   mapCloudSourceLinks,
   canonicalizeSyncSnapshotRecords,
+  clearSyncServerTimeObservation,
   completeSyncSnapshot,
   decodeSyncSnapshotPage,
   consistentSyncGeneration,
   measureSyncSnapshotRows,
   planSyncSnapshotPagination,
+  refreshSyncServerTime,
+  supportsChapterProgressIntraPageSync,
   toCloudHistorySaveInput,
   toCloudLibrarySaveInputBatches,
 } from "@nemu/core";
@@ -69,6 +73,7 @@ import {
   subscribeSyncSubscriptionsStopped,
   subscriptionStoppedRef,
   updateObservedAuthSession,
+  updateObservedSyncCapabilities,
 } from "./services";
 import {
   ResponsiveDialog,
@@ -128,10 +133,20 @@ type WebSyncApplyDomain =
 type WebImportActionToken = {
   offerIdentity: WebSyncRunIdentity;
 };
+type WebSyncClockGate = {
+  convex: ConvexReactClient;
+  localStore: IndexedDBUserDataStore;
+  profileId: string | undefined;
+  userId: string | undefined;
+  generation: number;
+  chapterProgressIntraPageVersion?: unknown;
+};
 
 function wasImportOfferedThisSession(userId: string): boolean {
   try {
-    return sessionStorage.getItem(getImportOfferedSessionKey(userId)) === "true";
+    return (
+      sessionStorage.getItem(getImportOfferedSessionKey(userId)) === "true"
+    );
   } catch {
     return false;
   }
@@ -208,9 +223,12 @@ function SyncSetupRun() {
 
   const [signingOut, setSigningOut] = useState(false);
   const [isFirstSync, setIsFirstSync] = useState(true);
-  const [syncApplyFailures, setSyncApplyFailures] = useState<Set<WebSyncApplyDomain>>(
-    () => new Set(),
+  const [syncClockGate, setSyncClockGate] = useState<WebSyncClockGate | null>(
+    null,
   );
+  const [syncApplyFailures, setSyncApplyFailures] = useState<
+    Set<WebSyncApplyDomain>
+  >(() => new Set());
   const [syncApplyRetryRevision, setSyncApplyRetryRevision] = useState<
     Record<WebSyncApplyDomain, number>
   >({
@@ -223,8 +241,11 @@ function SyncSetupRun() {
   const syncApplyRetryTimersRef = useRef(
     new Map<WebSyncApplyDomain, ReturnType<typeof setTimeout>>(),
   );
-  const syncApplyRetryAttemptsRef = useRef(new Map<WebSyncApplyDomain, number>());
-  const chapterProgressRetryRevision = syncApplyRetryRevision["chapter-progress"];
+  const syncApplyRetryAttemptsRef = useRef(
+    new Map<WebSyncApplyDomain, number>(),
+  );
+  const chapterProgressRetryRevision =
+    syncApplyRetryRevision["chapter-progress"];
   const mangaProgressRetryRevision = syncApplyRetryRevision["manga-progress"];
 
   const markSyncApplySucceeded = useCallback((domain: WebSyncApplyDomain) => {
@@ -240,41 +261,51 @@ function SyncSetupRun() {
     });
   }, []);
 
-  const markSyncApplyFailed = useCallback((
-    domain: WebSyncApplyDomain,
-    error: unknown,
-    shouldContinue: () => boolean,
-  ) => {
-    if (!shouldContinue()) return;
-    console.error(`[SyncSetup] Failed to apply ${domain} snapshot:`, error);
-    setSyncApplyFailures((current) => {
-      if (current.has(domain)) return current;
-      const next = new Set(current);
-      next.add(domain);
-      return next;
-    });
-    // A sync protocol error will fail identically on every retry. Publish it
-    // for the recovery effect instead of burning a backoff schedule on it.
-    const recovery = reportSyncMutationError(error);
-    if (recovery && recovery.kind !== "generation-mismatch") return;
-    if (syncApplyRetryTimersRef.current.has(domain)) return;
-    const attempt = (syncApplyRetryAttemptsRef.current.get(domain) ?? 0) + 1;
-    syncApplyRetryAttemptsRef.current.set(domain, attempt);
-    const delayMs = syncApplyRetryDelayMs(attempt);
-    const timer = setTimeout(() => {
-      syncApplyRetryTimersRef.current.delete(domain);
-      setSyncApplyRetryRevision((current) => ({
-        ...current,
-        [domain]: current[domain] + 1,
-      }));
-    }, delayMs);
-    syncApplyRetryTimersRef.current.set(domain, timer);
-  }, []);
+  const markSyncApplyFailed = useCallback(
+    (
+      domain: WebSyncApplyDomain,
+      error: unknown,
+      shouldContinue: () => boolean,
+    ) => {
+      if (!shouldContinue()) return;
+      console.error(
+        `[SyncSetup] Failed to apply ${domain} snapshot:`,
+        safeErrorCategory(error),
+      );
+      setSyncApplyFailures((current) => {
+        if (current.has(domain)) return current;
+        const next = new Set(current);
+        next.add(domain);
+        return next;
+      });
+      // A sync protocol error will fail identically on every retry. Publish it
+      // for the recovery effect instead of burning a backoff schedule on it.
+      const recovery = reportSyncMutationError(error);
+      if (recovery && recovery.kind !== "generation-mismatch") return;
+      if (syncApplyRetryTimersRef.current.has(domain)) return;
+      const attempt = (syncApplyRetryAttemptsRef.current.get(domain) ?? 0) + 1;
+      syncApplyRetryAttemptsRef.current.set(domain, attempt);
+      const delayMs = syncApplyRetryDelayMs(attempt);
+      const timer = setTimeout(() => {
+        syncApplyRetryTimersRef.current.delete(domain);
+        setSyncApplyRetryRevision((current) => ({
+          ...current,
+          [domain]: current[domain] + 1,
+        }));
+      }, delayMs);
+      syncApplyRetryTimersRef.current.set(domain, timer);
+    },
+    [],
+  );
 
-  useEffect(() => () => {
-    for (const timer of syncApplyRetryTimersRef.current.values()) clearTimeout(timer);
-    syncApplyRetryTimersRef.current.clear();
-  }, []);
+  useEffect(
+    () => () => {
+      for (const timer of syncApplyRetryTimersRef.current.values())
+        clearTimeout(timer);
+      syncApplyRetryTimersRef.current.clear();
+    },
+    [],
+  );
 
   // Dialog states
   const [showSyncingDialog, setShowSyncingDialog] = useState(false);
@@ -333,10 +364,19 @@ function SyncSetupRun() {
         getSubscriptionsStopped: () => subscriptionStoppedRef.current,
         hasLegacyLibraryData: () => defaultStore.hasLibraryData(),
         loadRemoteUserId: () => convex.query(api.auth.getCurrentUserId, {}),
-        loadRemoteGeneration: () =>
-          convex
-            .query(api.sync.generation, {})
-            .then((result) => result.generation),
+        loadRemoteGeneration: async () => {
+          const result = await refreshSyncServerTime(
+            () => convex.mutation(api.sync.observeGeneration, {}),
+            () =>
+              isWebSyncRunCurrent(
+                expectedIdentity,
+                syncIdentityRef.current,
+                isCancelled(),
+                subscriptionStoppedRef.current,
+              ),
+          );
+          return result?.generation ?? -1;
+        },
         // This is only an emptiness probe. Loading the entire account here
         // would duplicate the foreground subscription and bypass its shared
         // row/byte budget for large libraries.
@@ -372,6 +412,9 @@ function SyncSetupRun() {
   // subscription effect below captures this generation and re-checks it after
   // each await, preventing stale A work from mutating the current B session.
   useLayoutEffect(() => {
+    clearSyncServerTimeObservation();
+    updateObservedSyncCapabilities(null);
+    setSyncClockGate(null);
     syncGenerationRef.current += 1;
     syncIdentityRef.current = {
       generation: syncGenerationRef.current,
@@ -380,7 +423,7 @@ function SyncSetupRun() {
       authenticated: isAuthenticated,
       localStore,
     };
-  }, [isAuthenticated, localStore, profileId, session?.user?.id]);
+  }, [convex, isAuthenticated, localStore, profileId, session?.user?.id]);
 
   // Invalidate a visible offer or in-flight confirmation as soon as its
   // account/profile/store identity is no longer the selected one.
@@ -467,8 +510,105 @@ function SyncSetupRun() {
     api.sync.generation,
     skipSubscriptions ? "skip" : {},
   );
+  const cloudGenerationNumber = cloudGeneration?.generation;
+  const cloudChapterProgressIntraPageVersion =
+    cloudGeneration?.chapterProgressIntraPageVersion;
+  useEffect(() => {
+    updateObservedSyncCapabilities(null);
+    setSyncClockGate(null);
+    if (skipSubscriptions || cloudGenerationNumber === undefined) return;
+    const expectedIdentity = syncIdentityRef.current;
+    let cancelled = false;
+    const shouldContinue = () =>
+      isWebSyncRunCurrent(
+        expectedIdentity,
+        syncIdentityRef.current,
+        cancelled,
+        subscriptionStoppedRef.current,
+      );
+    const readiness = (async () => {
+      // Invalidate every warm view now. New-generation actions await this
+      // promise, which includes the fresh server-time observation and durable
+      // IndexedDB reset, while old in-flight actions lose their store token.
+      try {
+        // Convex can reuse a dependency-cached query result, including its old
+        // `serverNow`. A no-op authenticated mutation is the fresh round trip
+        // that makes the clock anchor trustworthy.
+        const observation = await refreshSyncServerTime(
+          () => convex.mutation(api.sync.observeGeneration, {}),
+          shouldContinue,
+        );
+        if (!observation || !shouldContinue()) return;
+        // Enqueue the durable reset and invalidate warm chapter state together
+        // before opening snapshot or mutation gates for this generation.
+        await localStore.prepareSyncGeneration(observation.generation);
+        if (!shouldContinue()) return;
+        const chapterProgressIntraPageVersion =
+          supportsChapterProgressIntraPageSync(
+            observation.chapterProgressIntraPageVersion,
+          ) &&
+          supportsChapterProgressIntraPageSync(
+            cloudChapterProgressIntraPageVersion,
+          )
+            ? observation.chapterProgressIntraPageVersion
+            : undefined;
+        const observedCapabilities = {
+          convex: convex as ConvexReactClient,
+          localStore,
+          profileId,
+          userId: sessionUserId,
+          generation: observation.generation,
+          chapterProgressIntraPageVersion,
+        };
+        updateObservedSyncCapabilities(observedCapabilities);
+        setSyncClockGate(observedCapabilities);
+      } catch (error) {
+        if (!cancelled) {
+          console.error(
+            "[SyncSetup] Fresh server-clock observation failed:",
+            safeErrorCategory(error),
+          );
+        }
+        throw error;
+      }
+    })();
+    stores.useLibraryStore
+      .getState()
+      .prepareSyncGeneration(cloudGenerationNumber, readiness);
+    stores.useCollectionsStore
+      .getState()
+      .prepareSyncGeneration(cloudGenerationNumber, readiness);
+    stores.useSettingsStore
+      .getState()
+      .prepareSyncGeneration(cloudGenerationNumber, readiness);
+    progressStore
+      .getState()
+      .prepareSyncGeneration(cloudGenerationNumber, readiness);
+    stores.useHistoryStore
+      .getState()
+      .prepareSyncGeneration(cloudGenerationNumber, readiness);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cloudGenerationNumber,
+    cloudChapterProgressIntraPageVersion,
+    convex,
+    localStore,
+    profileId,
+    progressStore,
+    sessionUserId,
+    skipSubscriptions,
+    stores,
+  ]);
+  const syncClockGateReady =
+    syncClockGate?.convex === convex &&
+    syncClockGate.localStore === localStore &&
+    syncClockGate.profileId === profileId &&
+    syncClockGate.userId === sessionUserId &&
+    syncClockGate.generation === cloudGenerationNumber;
   const snapshotArgs =
-    skipSubscriptions || cloudGeneration === undefined
+    skipSubscriptions || cloudGeneration === undefined || !syncClockGateReady
       ? ("skip" as const)
       : { generation: cloudGeneration.generation };
   const libraryPages = usePaginatedQuery(
@@ -625,8 +765,11 @@ function SyncSetupRun() {
         // The account was reset on another device. Adopt the server's
         // generation, which drops local rows from the abandoned one and lets
         // the snapshot subscriptions re-hydrate from page one.
-        const remote = await convex.query(api.sync.generation, {});
-        if (!shouldContinue()) return;
+        const remote = await refreshSyncServerTime(
+          () => convex.mutation(api.sync.observeGeneration, {}),
+          shouldContinue,
+        );
+        if (!remote || !shouldContinue()) return;
         await prepareWebSnapshotGeneration(
           localStore,
           remote.generation,
@@ -636,7 +779,7 @@ function SyncSetupRun() {
         if (!cancelled) {
           console.error(
             "[SyncSetup] Sync generation recovery failed; will retry on the next failed write:",
-            error,
+            safeErrorCategory(error),
           );
         }
       } finally {
@@ -656,9 +799,10 @@ function SyncSetupRun() {
     }
   }, []);
 
-  const generation = syncSnapshotBudgetExceeded
-    ? undefined
-    : cloudGeneration?.generation;
+  const generation =
+    syncSnapshotBudgetExceeded || !syncClockGateReady
+      ? undefined
+      : cloudGeneration?.generation;
   const cloudLibraryItems = useMemo(() => {
     if (generation === undefined) return undefined;
     const rows = completeSyncSnapshot(
@@ -819,17 +963,20 @@ function SyncSetupRun() {
     syncStore
       .getState()
       .setSyncStatus(
-        syncRecoveryKind === "upgrade-required"
-          ? "upgrade-required"
-          : syncSnapshotBudgetExceeded || syncRecoveryKind === "limit-exceeded"
-            ? "limit-exceeded"
-            : syncApplyFailures.size > 0
-              ? "offline"
-              : isSyncing
-                ? "syncing"
-                : isAuthenticated
-                  ? "synced"
-                  : "offline",
+        syncRecoveryKind === "clock-invalid"
+          ? "clock-invalid"
+          : syncRecoveryKind === "upgrade-required"
+            ? "upgrade-required"
+            : syncSnapshotBudgetExceeded ||
+                syncRecoveryKind === "limit-exceeded"
+              ? "limit-exceeded"
+              : syncApplyFailures.size > 0
+                ? "offline"
+                : isSyncing
+                  ? "syncing"
+                  : isAuthenticated
+                    ? "synced"
+                    : "offline",
       );
   }, [
     isAuthenticated,
@@ -843,9 +990,13 @@ function SyncSetupRun() {
   // Update syncing dialog
   useEffect(() => {
     setShowSyncingDialog(
-      isAuthenticated && isSyncing && !signingOut && isFirstSync,
+      isAuthenticated &&
+        isSyncing &&
+        !signingOut &&
+        isFirstSync &&
+        syncRecoveryKind === null,
     );
-  }, [isAuthenticated, isSyncing, signingOut, isFirstSync]);
+  }, [isAuthenticated, isSyncing, signingOut, isFirstSync, syncRecoveryKind]);
 
   // Auth state tracking
   useEffect(() => {
@@ -951,11 +1102,9 @@ function SyncSetupRun() {
           .filter((e) => e.item.inLibrary !== false && e.sources.length > 0);
 
         if (!shouldContinue()) return;
-        stores.useLibraryStore.setState({
-          entries,
-          loading: false,
-          error: null,
-        });
+        stores.useLibraryStore
+          .getState()
+          .replaceSyncSnapshot(entries, snapshotGeneration);
         markSyncApplySucceeded("library");
       } catch (e) {
         markSyncApplyFailed("library", e, shouldContinue);
@@ -984,6 +1133,7 @@ function SyncSetupRun() {
     if (
       !cloudCollections ||
       !cloudCollectionItems ||
+      !cloudLibraryItems ||
       snapshotGeneration === null ||
       subscriptionStoppedRef.current
     )
@@ -1016,6 +1166,9 @@ function SyncSetupRun() {
           cloudCollectionItems: mapCloudCollectionItems(
             cloudCollectionItems.rows,
           ) as LocalCollectionItem[],
+          cloudLibraryItems: mapCloudLibraryItems(
+            cloudLibraryItems.rows,
+          ) as LocalLibraryItem[],
           generation: snapshotGeneration,
           expectedUserId: expectedIdentity.userId!,
           shouldContinue,
@@ -1030,27 +1183,19 @@ function SyncSetupRun() {
           (collection) => !collection.removed,
         );
 
-        const membership = new Map<string, Set<string>>();
-        for (const item of collectionItems) {
-          if (item.removed) continue;
-          const existing =
-            membership.get(item.collectionId) ?? new Set<string>();
-          existing.add(item.libraryItemId);
-          membership.set(item.collectionId, existing);
-        }
-
         collections.sort((a, b) => {
           if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
           return a.collectionId.localeCompare(b.collectionId);
         });
 
         if (!shouldContinue()) return;
-        stores.useCollectionsStore.setState({
-          collections,
-          membership,
-          loading: false,
-          error: null,
-        });
+        stores.useCollectionsStore
+          .getState()
+          .replaceSyncSnapshot(
+            collections,
+            collectionItems,
+            snapshotGeneration,
+          );
         markSyncApplySucceeded("collections");
       } catch (e) {
         markSyncApplyFailed("collections", e, shouldContinue);
@@ -1063,6 +1208,7 @@ function SyncSetupRun() {
   }, [
     cloudCollections,
     cloudCollectionItems,
+    cloudLibraryItems,
     convex,
     isAuthenticated,
     localStore,
@@ -1112,9 +1258,15 @@ function SyncSetupRun() {
           cloudProgress: batch,
           generation: snapshotGeneration,
           expectedUserId: expectedIdentity.userId!,
+          chapterProgressIntraPageVersion:
+            syncClockGate?.chapterProgressIntraPageVersion,
           shouldContinue,
         });
-        if (applied && shouldContinue()) markSyncApplySucceeded("chapter-progress");
+        if (!applied || !shouldContinue()) return;
+        stores.useHistoryStore
+          .getState()
+          .replaceSyncSnapshot(applied, snapshotGeneration);
+        markSyncApplySucceeded("chapter-progress");
       } catch (error) {
         markSyncApplyFailed("chapter-progress", error, shouldContinue);
       }
@@ -1132,6 +1284,8 @@ function SyncSetupRun() {
     profileId,
     session?.user?.id,
     snapshotGeneration,
+    stores,
+    syncClockGate?.chapterProgressIntraPageVersion,
     chapterProgressRetryRevision,
   ]);
 
@@ -1173,9 +1327,9 @@ function SyncSetupRun() {
         );
         if (!applied || !shouldContinue()) return;
         // Update reactive index directly (no load()).
-        const map = new Map<string, LocalMangaProgress>();
-        for (const entry of applied.progress) map.set(entry.id, entry);
-        progressStore.setState({ index: map, loading: false });
+        progressStore
+          .getState()
+          .replaceSyncSnapshot(applied.progress, snapshotGeneration);
         markSyncApplySucceeded("manga-progress");
       } catch (error) {
         markSyncApplyFailed("manga-progress", error, shouldContinue);
@@ -1239,14 +1393,9 @@ function SyncSetupRun() {
 
         // Update settings store - filter out tombstones for UI
         const activeSources = finalSources.filter((s) => !s.removed);
-        const installedIds = new Set(activeSources.map((s) => s.id));
-        stores.useSettingsStore.setState((state) => ({
-          installedSources: activeSources,
-          availableSources: state.availableSources.map((s) => ({
-            ...s,
-            installed: installedIds.has(`${s.registryId}:${s.id}`),
-          })),
-        }));
+        stores.useSettingsStore
+          .getState()
+          .replaceInstalledSourcesSnapshot(activeSources, snapshotGeneration);
         markSyncApplySucceeded("settings");
       } catch (error) {
         markSyncApplyFailed("settings", error, shouldContinue);
@@ -1279,13 +1428,19 @@ function SyncSetupRun() {
         stores.useCollectionsStore.getState().load(),
         sourceSettingsStore.getState().initialize(),
       ]).catch((error) => {
-        console.error("[sync] Failed to reload profile stores:", error);
+        console.error(
+          "[sync] Failed to reload profile stores:",
+          safeErrorCategory(error),
+        );
       });
     };
     reloadProfileStores();
     window.addEventListener(LOCAL_PROFILE_IMPORT_EVENT, reloadProfileStores);
     return () => {
-      window.removeEventListener(LOCAL_PROFILE_IMPORT_EVENT, reloadProfileStores);
+      window.removeEventListener(
+        LOCAL_PROFILE_IMPORT_EVENT,
+        reloadProfileStores,
+      );
     };
   }, [profileId, progressStore, sourceSettingsStore, stores]);
 
@@ -1330,7 +1485,7 @@ function SyncSetupRun() {
       })
       .catch((e) => {
         if (cancelled) return;
-        console.error("[SyncSetup] Import check failed:", e);
+        console.error("[SyncSetup] Import check failed:", safeErrorCategory(e));
       });
 
     return () => {
@@ -1492,19 +1647,19 @@ function SyncSetupRun() {
       );
       const importedMangaProgress = deriveLegacyMangaProgress(importedHistory);
 
-      const writeResult = await localStore.runWithSyncWrite(async () => {
+      const writeResult = await localStore.runWithSyncWrite(async (lease) => {
         if (!shouldContinue()) return null;
         for (const imported of importedLibrary) {
-          await localStore.saveLibraryItem(imported.item);
+          await localStore.saveLibraryItem(imported.item, lease);
           if (!shouldContinue()) return null;
           for (const link of imported.links) {
-            await localStore.saveSourceLink(link);
+            await localStore.saveSourceLink(link, lease);
             if (!shouldContinue()) return null;
           }
         }
-        await localStore.saveChapterProgressBatch(importedHistory);
+        await localStore.saveChapterProgressBatch(importedHistory, lease);
         if (!shouldContinue()) return null;
-        await localStore.saveMangaProgressBatch(importedMangaProgress);
+        await localStore.saveMangaProgressBatch(importedMangaProgress, lease);
         if (!shouldContinue()) return null;
         const generation = await localStore.getSyncGeneration();
         if (!shouldContinue()) return null;
@@ -1541,7 +1696,14 @@ function SyncSetupRun() {
             if (!shouldContinue()) return;
             await convex.mutation(api.history.save, {
               expectedUserId: userId,
-              ...toCloudHistorySaveInput(entry),
+              ...toCloudHistorySaveInput(entry, {
+                includeIntraPageState:
+                  syncClockGateReady &&
+                  syncClockGate?.generation === writeResult.generation &&
+                  supportsChapterProgressIntraPageSync(
+                    syncClockGate.chapterProgressIntraPageVersion,
+                  ),
+              }),
               generation: writeResult.generation,
             });
             if (!shouldContinue()) return;
@@ -1550,7 +1712,7 @@ function SyncSetupRun() {
           if (shouldContinue()) {
             console.warn(
               "[SyncSetup] Imported locally; cloud push will retry on a later sync:",
-              error,
+              safeErrorCategory(error),
             );
           }
         }
@@ -1568,7 +1730,7 @@ function SyncSetupRun() {
           localImportCommitted
             ? "[SyncSetup] Post-import refresh failed:"
             : "[SyncSetup] Import failed:",
-          e,
+          safeErrorCategory(e),
         );
       }
     } finally {
@@ -1628,6 +1790,28 @@ function SyncSetupRun() {
               <div className="absolute inset-0 size-10 rounded-full border-4 border-t-primary animate-spin" />
             </div>
           </div>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
+      {/* Invalid clock dialog */}
+      <ResponsiveDialog
+        open={syncRecoveryKind === "clock-invalid"}
+        dismissible={false}
+      >
+        <ResponsiveDialogContent showCloseButton={false}>
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle>
+              {t("sync.clockInvalid.title")}
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>
+              {t("sync.clockInvalid.description")}
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          <ResponsiveDialogFooter>
+            <Button onClick={() => window.location.reload()}>
+              {t("sync.clockInvalid.reload")}
+            </Button>
+          </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
 

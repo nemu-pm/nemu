@@ -15,13 +15,17 @@ import {
   sha256,
   sha256Bytes,
   verifyOAuthCallbackState,
+  withOAuthState,
   withPkce,
   LOGIN_CODE_VERIFIER_SUFFIX,
+  LOGIN_OAUTH_REQUEST_SUFFIX,
   LOGIN_OAUTH_STATE_SUFFIX,
 } from "./source-oauth";
 
 function hexFromBytes(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
 }
 
 /**
@@ -59,7 +63,10 @@ const SHA256_PATHS: ReadonlyArray<{
     name: "sha256 (pure-JS fallback path)",
     digest: (data) => withoutSubtleCrypto(() => sha256(data)),
   },
-  { name: "sha256Bytes (pure JS, direct)", digest: async (data) => sha256Bytes(data) },
+  {
+    name: "sha256Bytes (pure JS, direct)",
+    digest: async (data) => sha256Bytes(data),
+  },
 ];
 
 for (const { name, digest } of SHA256_PATHS) {
@@ -75,8 +82,7 @@ for (const { name, digest } of SHA256_PATHS) {
       );
     });
     test("a message longer than one block (56 bytes → 2 padded blocks) → known NIST vector", async () => {
-      const input =
-        "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+      const input = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
       expect(hexFromBytes(await digest(new TextEncoder().encode(input)))).toBe(
         "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
       );
@@ -101,9 +107,9 @@ describe("generateCodeChallenge — S256 vector", () => {
     expect(await generateCodeChallenge(verifier)).toBe(expected);
   });
   test("the pure-JS fallback produces the identical challenge", async () => {
-    expect(await withoutSubtleCrypto(() => generateCodeChallenge(verifier))).toBe(
-      expected,
-    );
+    expect(
+      await withoutSubtleCrypto(() => generateCodeChallenge(verifier)),
+    ).toBe(expected);
   });
 });
 
@@ -172,7 +178,9 @@ describe("generateOAuthState", () => {
 
 describe("withPkce", () => {
   test("appends S256 challenge params and returns a verifier", async () => {
-    const { url, codeVerifier } = await withPkce("https://example.com/auth?client_id=cid");
+    const { url, codeVerifier } = await withPkce(
+      "https://example.com/auth?client_id=cid",
+    );
     expect(codeVerifier).toHaveLength(64);
     const parsed = new URL(url);
     expect(parsed.searchParams.get("code_challenge_method")).toBe("S256");
@@ -192,17 +200,42 @@ describe("withPkce", () => {
   test("a callback echoing the issued state validates", async () => {
     const { state } = await withPkce("https://example.com/auth");
     expect(
-      verifyOAuthCallbackState(`https://app/callback?code=c&state=${state}`, state),
+      verifyOAuthCallbackState(
+        `https://app/callback?code=c&state=${state}`,
+        state,
+      ),
     ).toBe("ok");
+  });
+});
+
+describe("withOAuthState", () => {
+  test("binds a non-PKCE authorization request to an unguessable state", () => {
+    const request = withOAuthState(
+      "https://example.com/auth?response_type=token&state=manifest-value",
+    );
+    expect(request.state).toHaveLength(32);
+    expect(new URL(request.url).searchParams.get("state")).toBe(request.state);
+    expect(request.state).not.toBe("manifest-value");
   });
 });
 
 describe("extractOAuthState", () => {
   test("from a callback URL query", () => {
-    expect(extractOAuthState("https://app/callback?code=c&state=abc")).toBe("abc");
+    expect(extractOAuthState("https://app/callback?code=c&state=abc")).toBe(
+      "abc",
+    );
   });
   test("from a callback URL hash fragment", () => {
-    expect(extractOAuthState("https://app/callback#access_token=t&state=abc")).toBe("abc");
+    expect(
+      extractOAuthState("https://app/callback#access_token=t&state=abc"),
+    ).toBe("abc");
+  });
+  test("rejects duplicate state parameters across query and fragment", () => {
+    expect(
+      extractOAuthState(
+        "https://app/callback?state=abc#access_token=t&state=abc",
+      ),
+    ).toBeNull();
   });
   test("from a bare state= fragment", () => {
     expect(extractOAuthState("code=c&state=abc")).toBe("abc");
@@ -219,27 +252,41 @@ describe("extractOAuthState", () => {
 
 describe("verifyOAuthCallbackState", () => {
   test("ok when the callback echoes the expected state", () => {
-    expect(verifyOAuthCallbackState("https://app/cb?code=c&state=s1", "s1")).toBe("ok");
+    expect(
+      verifyOAuthCallbackState("https://app/cb?code=c&state=s1", "s1"),
+    ).toBe("ok");
   });
   test("mismatch when a different state comes back", () => {
-    expect(verifyOAuthCallbackState("https://app/cb?code=c&state=evil", "s1")).toBe(
-      "mismatch",
-    );
+    expect(
+      verifyOAuthCallbackState("https://app/cb?code=c&state=evil", "s1"),
+    ).toBe("mismatch");
   });
   test("missing when the callback carries no state at all", () => {
-    expect(verifyOAuthCallbackState("https://app/cb?code=c", "s1")).toBe("missing");
+    expect(verifyOAuthCallbackState("https://app/cb?code=c", "s1")).toBe(
+      "missing",
+    );
     expect(verifyOAuthCallbackState("bare-code", "s1")).toBe("missing");
   });
   test("ok when no state was issued (flow started by an older build)", () => {
     expect(verifyOAuthCallbackState("https://app/cb?code=c", "")).toBe("ok");
     expect(verifyOAuthCallbackState("https://app/cb?code=c", null)).toBe("ok");
-    expect(verifyOAuthCallbackState("https://app/cb?code=c", undefined)).toBe("ok");
+    expect(verifyOAuthCallbackState("https://app/cb?code=c", undefined)).toBe(
+      "ok",
+    );
   });
   test("state comparison is exact (no prefix or case folding)", () => {
-    expect(verifyOAuthCallbackState("https://app/cb?code=c&state=s1x", "s1")).toBe(
-      "mismatch",
-    );
-    expect(verifyOAuthCallbackState("https://app/cb?code=c&state=S1", "s1")).toBe(
+    expect(
+      verifyOAuthCallbackState("https://app/cb?code=c&state=s1x", "s1"),
+    ).toBe("mismatch");
+    expect(
+      verifyOAuthCallbackState("https://app/cb?code=c&state=S1", "s1"),
+    ).toBe("mismatch");
+  });
+  test("duplicate state values fail closed even when both match", () => {
+    expect(
+      verifyOAuthCallbackState("https://app/cb?code=c&state=s1#state=s1", "s1"),
+    ).toBe("mismatch");
+    expect(verifyOAuthCallbackState("code=c&state=s1&state=s1", "s1")).toBe(
       "mismatch",
     );
   });
@@ -254,8 +301,19 @@ describe("hasOAuthTokenPayload", () => {
   test("JSON without token fields", () => {
     expect(hasOAuthTokenPayload('{"error":"bad"}')).toBe(false);
   });
+  test("token metadata without a credential", () => {
+    expect(hasOAuthTokenPayload('{"token_type":"bearer"}')).toBe(false);
+    expect(hasOAuthTokenPayload("token_type=bearer")).toBe(false);
+  });
   test("urlencoded access_token", () => {
-    expect(hasOAuthTokenPayload("access_token=abc&token_type=bearer")).toBe(true);
+    expect(hasOAuthTokenPayload("access_token=abc&token_type=bearer")).toBe(
+      true,
+    );
+  });
+  test("empty or ambiguous token values", () => {
+    expect(hasOAuthTokenPayload('{"access_token":"   "}')).toBe(false);
+    expect(hasOAuthTokenPayload("access_token=&token_type=bearer")).toBe(false);
+    expect(hasOAuthTokenPayload("access_token=a&access_token=b")).toBe(false);
   });
   test("empty", () => {
     expect(hasOAuthTokenPayload("   ")).toBe(false);
@@ -264,7 +322,11 @@ describe("hasOAuthTokenPayload", () => {
 
 describe("looksLikeTokenExchangeText", () => {
   test("error_description payload", () => {
-    expect(looksLikeTokenExchangeText('{"error":"invalid","error_description":"bad verifier"}')).toBe(true);
+    expect(
+      looksLikeTokenExchangeText(
+        '{"error":"invalid","error_description":"bad verifier"}',
+      ),
+    ).toBe(true);
   });
   test("bare JSON object", () => {
     expect(looksLikeTokenExchangeText('{"foo":1}')).toBe(true);
@@ -276,7 +338,9 @@ describe("looksLikeTokenExchangeText", () => {
 
 describe("isLikelyOAuthCallbackValue", () => {
   test("callback URL with code", () => {
-    expect(isLikelyOAuthCallbackValue("https://app/callback?code=xyz")).toBe(true);
+    expect(isLikelyOAuthCallbackValue("https://app/callback?code=xyz")).toBe(
+      true,
+    );
   });
   test("bare code=", () => {
     expect(isLikelyOAuthCallbackValue("code=xyz")).toBe(true);
@@ -287,11 +351,20 @@ describe("isLikelyOAuthCallbackValue", () => {
   test("plain string", () => {
     expect(isLikelyOAuthCallbackValue("nothing useful")).toBe(false);
   });
+  test("state-only and unrelated callback URLs are not credentials", () => {
+    expect(
+      isLikelyOAuthCallbackValue(
+        "https://app/callback?state=expected&error=access_denied",
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("extractAuthorizationCode", () => {
   test("from a callback URL", () => {
-    expect(extractAuthorizationCode("https://app/callback?code=abc123&state=s")).toBe("abc123");
+    expect(
+      extractAuthorizationCode("https://app/callback?code=abc123&state=s"),
+    ).toBe("abc123");
   });
   test("from a callback fragment", () => {
     expect(extractAuthorizationCode("https://app/callback#code=abc123&state=s")).toBe("abc123");
@@ -310,6 +383,20 @@ describe("extractAuthorizationCode", () => {
   test("from a bare code= fragment", () => {
     expect(extractAuthorizationCode("code=abc123")).toBe("abc123");
   });
+  test("from a callback URL hash fragment", () => {
+    expect(
+      extractAuthorizationCode(
+        "https://app/callback#code=abc123&state=expected",
+      ),
+    ).toBe("abc123");
+  });
+  test("rejects duplicate and empty authorization codes", () => {
+    expect(
+      extractAuthorizationCode("https://app/callback?code=first#code=second"),
+    ).toBeNull();
+    expect(extractAuthorizationCode("code=&code=second")).toBeNull();
+    expect(extractAuthorizationCode("code=")).toBeNull();
+  });
   test("a bare value with no separators is returned as-is", () => {
     expect(extractAuthorizationCode("abc123")).toBe("abc123");
   });
@@ -323,10 +410,17 @@ describe("extractAuthorizationCode", () => {
 
 describe("resolveLoginActionUrl", () => {
   test("static url wins", () => {
-    expect(resolveLoginActionUrl({ url: "https://a", urlKey: "k" }, { k: "https://b" })).toBe("https://a");
+    expect(
+      resolveLoginActionUrl(
+        { url: "https://a", urlKey: "k" },
+        { k: "https://b" },
+      ),
+    ).toBe("https://a");
   });
   test("urlKey resolves from values", () => {
-    expect(resolveLoginActionUrl({ urlKey: "k" }, { k: "https://b" })).toBe("https://b");
+    expect(resolveLoginActionUrl({ urlKey: "k" }, { k: "https://b" })).toBe(
+      "https://b",
+    );
   });
   test("null when urlKey missing/empty", () => {
     expect(resolveLoginActionUrl({ urlKey: "k" }, { k: "" })).toBeNull();
@@ -339,14 +433,21 @@ describe("resolveLoginActionUrl", () => {
 
 describe("detectCompressionFormats", () => {
   test("gzip magic bytes", () => {
-    expect(detectCompressionFormats(new Uint8Array([0x1f, 0x8b, 0x08]))).toEqual(["gzip"]);
+    expect(
+      detectCompressionFormats(new Uint8Array([0x1f, 0x8b, 0x08])),
+    ).toEqual(["gzip"]);
   });
   test("deflate header", () => {
     // 0x78 0x9c is a common zlib (deflate) header; (0x78 & 0x0f)===8, 0x789c % 31 === 0.
-    expect(detectCompressionFormats(new Uint8Array([0x78, 0x9c]))).toEqual(["deflate"]);
+    expect(detectCompressionFormats(new Uint8Array([0x78, 0x9c]))).toEqual([
+      "deflate",
+    ]);
   });
   test("unknown → tries both", () => {
-    expect(detectCompressionFormats(new Uint8Array([0x00, 0x00]))).toEqual(["gzip", "deflate"]);
+    expect(detectCompressionFormats(new Uint8Array([0x00, 0x00]))).toEqual([
+      "gzip",
+      "deflate",
+    ]);
   });
 });
 
@@ -369,7 +470,9 @@ describe("buildOAuthTokenExchangeBody", () => {
       redirectUri: "https://app/cb",
       clientId: "cid",
     });
-    expect(body).toContain("redirect_uri=" + encodeURIComponent("https://app/cb"));
+    expect(body).toContain(
+      "redirect_uri=" + encodeURIComponent("https://app/cb"),
+    );
     expect(body).toContain("client_id=cid");
   });
 });
@@ -377,6 +480,7 @@ describe("buildOAuthTokenExchangeBody", () => {
 describe("login setting suffixes", () => {
   test("are the documented suffixes", () => {
     expect(LOGIN_CODE_VERIFIER_SUFFIX).toBe(".codeVerifier");
+    expect(LOGIN_OAUTH_REQUEST_SUFFIX).toBe(".oauthRequest");
     expect(LOGIN_OAUTH_STATE_SUFFIX).toBe(".oauthState");
   });
 });

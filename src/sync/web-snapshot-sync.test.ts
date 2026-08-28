@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { ConvexReactClient } from "convex/react";
 import { getFunctionName } from "convex/server";
 import type {
@@ -10,7 +10,10 @@ import type {
   LocalSourceLink,
 } from "@/data/schema";
 import {
+  clearSyncServerTimeObservation,
   MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS,
+  MAX_SYNC_CLOCK_FUTURE_SKEW_MS,
+  observeSyncServerTime,
   type CollectionSnapshotMerge,
   type LibrarySnapshotMerge,
 } from "@nemu/core";
@@ -23,6 +26,8 @@ import {
   type WebSyncRunIdentity,
 } from "./web-snapshot-sync";
 
+afterEach(() => clearSyncServerTimeObservation());
+
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   const promise = new Promise<T>((next) => {
@@ -31,7 +36,10 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function libraryItem(libraryItemId: string, updatedAt: number): LocalLibraryItem {
+function libraryItem(
+  libraryItemId: string,
+  updatedAt: number,
+): LocalLibraryItem {
   return {
     libraryItemId,
     metadata: { title: libraryItemId },
@@ -62,7 +70,10 @@ function collection(collectionId: string, updatedAt: number): LocalCollection {
   };
 }
 
-function collectionItem(collectionId: string, updatedAt: number): LocalCollectionItem {
+function collectionItem(
+  collectionId: string,
+  updatedAt: number,
+): LocalCollectionItem {
   return {
     collectionId,
     libraryItemId: `${collectionId}-manga`,
@@ -91,6 +102,45 @@ function chapterProgress(
   };
 }
 
+const INTRA_PAGE_CONTENT_IDENTITY = `mobile-image:reader-page-state-v1:${"b".repeat(64)}`;
+
+async function captureChapterProgressSaveBatchItem(
+  chapterProgressIntraPageVersion?: unknown,
+): Promise<Record<string, unknown>> {
+  const winner = chapterProgress("segmented-page", {
+    intraPageProgress: 0.75,
+    intraPageContentIdentity: INTRA_PAGE_CONTENT_IDENTITY,
+  });
+  let item: Record<string, unknown> | undefined;
+  const store = {
+    applyChapterProgressSnapshot: async () => ({
+      progress: [winner],
+      changed: [winner],
+      localWinners: [winner],
+    }),
+  };
+  const convex = {
+    mutation: async (mutation: unknown, args: Record<string, unknown>) => {
+      expect(getFunctionName(mutation as never)).toBe("history:saveBatch");
+      item = (args.items as Record<string, unknown>[])[0];
+    },
+  } as unknown as Pick<ConvexReactClient, "mutation">;
+
+  await applyWebChapterProgressSyncSnapshot({
+    localStore: store,
+    convex,
+    cloudProgress: [],
+    generation: 7,
+    expectedUserId: "a",
+    ...(chapterProgressIntraPageVersion === undefined
+      ? {}
+      : { chapterProgressIntraPageVersion }),
+    shouldContinue: () => true,
+  });
+  expect(item).toBeDefined();
+  return item!;
+}
+
 function identity(
   generation: number,
   profileId: string,
@@ -101,6 +151,22 @@ function identity(
 }
 
 describe("web snapshot sync run identity", () => {
+  test("saveBatch omits intra-page state when the backend capability is absent", async () => {
+    const item = await captureChapterProgressSaveBatchItem();
+
+    expect(item).not.toHaveProperty("intraPageProgress");
+    expect(item).not.toHaveProperty("intraPageContentIdentity");
+  });
+
+  test("saveBatch includes intra-page state after observing capability v1", async () => {
+    const item = await captureChapterProgressSaveBatchItem(1);
+
+    expect(item).toMatchObject({
+      intraPageProgress: 0.75,
+      intraPageContentIdentity: INTRA_PAGE_CONTENT_IDENTITY,
+    });
+  });
+
   test("pushes local-only and equal-clock high-water chapter progress", async () => {
     const localOnly = chapterProgress("local-only", { progress: 3 });
     const cloud = chapterProgress("merged", { progress: 5 });
@@ -120,14 +186,16 @@ describe("web snapshot sync run identity", () => {
       },
     } as unknown as Pick<ConvexReactClient, "mutation">;
 
-    await expect(applyWebChapterProgressSyncSnapshot({
-      localStore: store,
-      convex,
-      cloudProgress: [cloud],
-      generation: 7,
-      expectedUserId: "a",
-      shouldContinue: () => true,
-    })).resolves.toEqual(rows);
+    await expect(
+      applyWebChapterProgressSyncSnapshot({
+        localStore: store,
+        convex,
+        cloudProgress: [cloud],
+        generation: 7,
+        expectedUserId: "a",
+        shouldContinue: () => true,
+      }),
+    ).resolves.toEqual(rows);
     // One batched transaction rather than one round trip per row.
     expect(calls.map((call) => call.name)).toEqual(["history:saveBatch"]);
     expect(calls[0]?.args).toMatchObject({
@@ -200,7 +268,9 @@ describe("web snapshot sync run identity", () => {
     };
     const mismatchedProfile = identity(1, "user:b", "a", localStore);
 
-    expect(isWebSyncRunCurrent(missingUser, missingUser, false, false)).toBeFalse();
+    expect(
+      isWebSyncRunCurrent(missingUser, missingUser, false, false),
+    ).toBeFalse();
     expect(
       isWebSyncRunCurrent(mismatchedProfile, mismatchedProfile, false, false),
     ).toBeFalse();
@@ -211,7 +281,8 @@ describe("web snapshot sync run identity", () => {
     const localStoreB = {};
     const expected = identity(1, "user:a", "a", localStoreA);
     let current = expected;
-    const applyDeferred = deferred<LibrarySnapshotMerge<LocalLibraryItem, LocalSourceLink>>();
+    const applyDeferred =
+      deferred<LibrarySnapshotMerge<LocalLibraryItem, LocalSourceLink>>();
     const mutations: unknown[][] = [];
     const store = {
       applyLibrarySnapshot: () => applyDeferred.promise,
@@ -308,12 +379,69 @@ describe("web snapshot sync run identity", () => {
     expect(mutationCount).toBe(1);
   });
 
+  test("pushes a local survivor before replaying its durable merge alias", async () => {
+    const target = libraryItem("target", 20);
+    const alias: LocalLibraryItem = {
+      ...libraryItem("source", 21),
+      inLibrary: false,
+      mergedIntoLibraryItemId: "target",
+    };
+    const link = sourceLink("target", 20);
+    const merged: LibrarySnapshotMerge<LocalLibraryItem, LocalSourceLink> = {
+      items: [alias, target],
+      links: [link],
+      changedItems: [],
+      changedLinks: [],
+      // Deliberately adversarial order: ID/key ordering is not a dependency
+      // guarantee and may put the retired source before its local-only target.
+      localItemsToPush: [alias, target],
+      localLinksToPush: [],
+    };
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const store = {
+      applyLibrarySnapshot: async () => merged,
+      getLibraryItem: async (id: string) =>
+        merged.items.find((item) => item.libraryItemId === id) ?? null,
+      getSourceLink: async (id: string) =>
+        merged.links.find((candidate) => candidate.id === id) ?? null,
+      getSourceLinksForLibraryItem: async (libraryItemId: string) =>
+        merged.links.filter(
+          (candidate) => candidate.libraryItemId === libraryItemId,
+        ),
+    };
+    const convex = {
+      mutation: async (mutation: unknown, args: Record<string, unknown>) => {
+        calls.push({ name: getFunctionName(mutation as never), args });
+      },
+    } as unknown as Pick<ConvexReactClient, "mutation">;
+
+    await applyWebLibrarySyncSnapshot({
+      localStore: store,
+      convex,
+      generation: 7,
+      expectedUserId: "a",
+      cloudItems: [],
+      cloudLinks: [],
+      shouldContinue: () => true,
+    });
+
+    expect(calls.map((call) => call.name)).toEqual([
+      "library:save",
+      "library:remove",
+    ]);
+    expect(calls[1]?.args).toMatchObject({
+      libraryItemId: "source",
+      mergeTargetLibraryItemId: "target",
+    });
+  });
+
   test("an account switch while collections apply is deferred prevents old winners from mutating Convex", async () => {
     const localStoreA = {};
     const localStoreB = {};
     const expected = identity(1, "user:a", "a", localStoreA);
     let current = expected;
-    const applyDeferred = deferred<CollectionSnapshotMerge<LocalCollection, LocalCollectionItem>>();
+    const applyDeferred =
+      deferred<CollectionSnapshotMerge<LocalCollection, LocalCollectionItem>>();
     let mutationCount = 0;
     const store = {
       applyCollectionsSnapshot: () => applyDeferred.promise,
@@ -340,7 +468,10 @@ describe("web snapshot sync run identity", () => {
     });
     current = identity(2, "user:b", "b", localStoreB);
     const localCollection = collection("local-winner", 20);
-    const localCollectionItem = collectionItem(localCollection.collectionId, 20);
+    const localCollectionItem = collectionItem(
+      localCollection.collectionId,
+      20,
+    );
     applyDeferred.resolve({
       collections: [localCollection],
       collectionItems: [localCollectionItem],
@@ -354,6 +485,119 @@ describe("web snapshot sync run identity", () => {
     expect(mutationCount).toBe(0);
   });
 
+  test("canonicalizes active collection rows from cloud aliases before IDB ordering can race", async () => {
+    const collectionRecord = collection("favorites", 10);
+    const active: LocalCollectionItem = {
+      collectionId: "favorites",
+      libraryItemId: "a",
+      addedAt: 10,
+      updatedAt: 10,
+      removed: false,
+    };
+    const tombstone = { ...active, removed: true, updatedAt: 11 };
+    const aliasA: LocalLibraryItem = {
+      ...libraryItem("a", 10),
+      inLibrary: false,
+      mergedIntoLibraryItemId: "b",
+    };
+    const aliasB: LocalLibraryItem = {
+      ...libraryItem("b", 11),
+      inLibrary: false,
+      mergedIntoLibraryItemId: "c",
+    };
+    const survivor = libraryItem("c", 12);
+    let appliedItems: LocalCollectionItem[] = [];
+    const store = {
+      applyCollectionsSnapshot: async (
+        _collections: LocalCollection[],
+        items: LocalCollectionItem[],
+      ) => {
+        appliedItems = items;
+        return {
+          collections: [collectionRecord],
+          collectionItems: items,
+          changedCollections: [],
+          changedCollectionItems: [],
+          localCollectionsToPush: [],
+          localCollectionItemsToPush: [],
+        };
+      },
+      getCollection: async () => collectionRecord,
+      getCollections: async () => [collectionRecord],
+      getCollectionItems: async () => appliedItems,
+    };
+    const convex = {
+      mutation: async () => null,
+    } as unknown as Pick<ConvexReactClient, "mutation">;
+
+    await applyWebCollectionsSyncSnapshot({
+      localStore: store,
+      convex,
+      cloudCollections: [collectionRecord],
+      cloudCollectionItems: [active, tombstone],
+      cloudLibraryItems: [aliasA, aliasB, survivor],
+      generation: 7,
+      expectedUserId: "a",
+      shouldContinue: () => true,
+    });
+
+    expect(appliedItems).toEqual([
+      { ...active, libraryItemId: "c" },
+      tombstone,
+    ]);
+  });
+
+  test("repairs poisoned collection clocks before snapshot winner pushes", async () => {
+    const serverNow = 1_700_000_000_000;
+    const poisoned = serverNow + MAX_SYNC_CLOCK_FUTURE_SKEW_MS + 1;
+    observeSyncServerTime(serverNow);
+    const parent = collection("poisoned", poisoned);
+    const member = collectionItem(parent.collectionId, poisoned);
+    const merged: CollectionSnapshotMerge<
+      LocalCollection,
+      LocalCollectionItem
+    > = {
+      collections: [parent],
+      collectionItems: [member],
+      changedCollections: [],
+      changedCollectionItems: [],
+      localCollectionsToPush: [parent],
+      localCollectionItemsToPush: [member],
+    };
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const store = {
+      applyCollectionsSnapshot: async () => merged,
+      getCollection: async () => parent,
+      getCollections: async () => [parent],
+      getCollectionItems: async () => [member],
+    };
+    const convex = {
+      mutation: async (mutation: unknown, args: Record<string, unknown>) => {
+        calls.push({ name: getFunctionName(mutation as never), args });
+      },
+    } as unknown as Pick<ConvexReactClient, "mutation">;
+
+    await applyWebCollectionsSyncSnapshot({
+      localStore: store,
+      convex,
+      generation: 7,
+      expectedUserId: "a",
+      cloudCollections: [],
+      cloudCollectionItems: [],
+      shouldContinue: () => true,
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toMatchObject({
+      name: "collections:save",
+      args: { createdAt: 0, updatedAt: 0 },
+    });
+    expect(calls[1]).toMatchObject({
+      name: "collections:addItems",
+      args: { updatedAt: 0 },
+    });
+  });
+
   test("a profile switch during a collection mutation loop prevents later mutations", async () => {
     const localStoreA = {};
     const localStoreB = {};
@@ -364,7 +608,10 @@ describe("web snapshot sync run identity", () => {
     let mutationCount = 0;
     const first = collection("first", 20);
     const second = collection("second", 20);
-    const merged: CollectionSnapshotMerge<LocalCollection, LocalCollectionItem> = {
+    const merged: CollectionSnapshotMerge<
+      LocalCollection,
+      LocalCollectionItem
+    > = {
       collections: [first, second],
       collectionItems: [],
       changedCollections: [],
@@ -375,7 +622,9 @@ describe("web snapshot sync run identity", () => {
     const store = {
       applyCollectionsSnapshot: async () => merged,
       getCollection: async (collectionId: string) =>
-        merged.collections.find((entry) => entry.collectionId === collectionId) ?? null,
+        merged.collections.find(
+          (entry) => entry.collectionId === collectionId,
+        ) ?? null,
       getCollections: async () => merged.collections,
       getCollectionItems: async () => merged.collectionItems,
     };
@@ -453,11 +702,14 @@ describe("web snapshot sync run identity", () => {
       shouldContinue: () => true,
     });
     await firstMutationStarted.promise;
-    items = [{ ...first }, {
-      ...second,
-      metadata: { title: "edited-while-first-push-waited" },
-      updatedAt: 30,
-    }];
+    items = [
+      { ...first },
+      {
+        ...second,
+        metadata: { title: "edited-while-first-push-waited" },
+        updatedAt: 30,
+      },
+    ];
     links = [links[0]!, { ...links[1]!, removed: true, updatedAt: 30 }];
     releaseFirstMutation.resolve();
 
@@ -477,7 +729,10 @@ describe("web snapshot sync run identity", () => {
     const first = collection("first", 20);
     const second = collection("second", 20);
     let collections = [first, second];
-    const merged: CollectionSnapshotMerge<LocalCollection, LocalCollectionItem> = {
+    const merged: CollectionSnapshotMerge<
+      LocalCollection,
+      LocalCollectionItem
+    > = {
       collections,
       collectionItems: [],
       changedCollections: [],
@@ -489,7 +744,8 @@ describe("web snapshot sync run identity", () => {
     const store = {
       applyCollectionsSnapshot: async () => merged,
       getCollection: async (collectionId: string) =>
-        collections.find((entry) => entry.collectionId === collectionId) ?? null,
+        collections.find((entry) => entry.collectionId === collectionId) ??
+        null,
       getCollections: async () => collections,
       getCollectionItems: async () => [],
     };
@@ -594,7 +850,9 @@ describe("web snapshot sync run identity", () => {
       libraryItem(`item-${index}`, 20),
     );
     const links = items.map((entry) => sourceLink(entry.libraryItemId, 20));
-    const itemsById = new Map(items.map((entry) => [entry.libraryItemId, entry]));
+    const itemsById = new Map(
+      items.map((entry) => [entry.libraryItemId, entry]),
+    );
     const linksById = new Map(links.map((entry) => [entry.id, entry]));
     const linksByItemId = new Map(
       links.map((entry) => [entry.libraryItemId, [entry]]),
@@ -651,7 +909,10 @@ describe("web snapshot sync run identity", () => {
       ...collectionItem(parent.collectionId, 20),
       libraryItemId: `item-${index}`,
     }));
-    const merged: CollectionSnapshotMerge<LocalCollection, LocalCollectionItem> = {
+    const merged: CollectionSnapshotMerge<
+      LocalCollection,
+      LocalCollectionItem
+    > = {
       collections: [parent],
       collectionItems: membership,
       changedCollections: [],
@@ -692,7 +953,10 @@ describe("web snapshot sync run identity", () => {
     const collections = Array.from({ length: 1_000 }, (_, index) =>
       collection(`collection-${index}`, 20),
     );
-    const merged: CollectionSnapshotMerge<LocalCollection, LocalCollectionItem> = {
+    const merged: CollectionSnapshotMerge<
+      LocalCollection,
+      LocalCollectionItem
+    > = {
       collections,
       collectionItems: [],
       changedCollections: [],
@@ -707,7 +971,10 @@ describe("web snapshot sync run identity", () => {
       applyCollectionsSnapshot: async () => merged,
       getCollection: async (collectionId: string) => {
         keyedCollectionReads += 1;
-        return collections.find((entry) => entry.collectionId === collectionId) ?? null;
+        return (
+          collections.find((entry) => entry.collectionId === collectionId) ??
+          null
+        );
       },
       getCollections: async () => {
         fullCollectionReads += 1;
@@ -716,7 +983,9 @@ describe("web snapshot sync run identity", () => {
       getCollectionItems: async () => [],
     };
     const convex = {
-      mutation: async () => { mutationCount += 1; },
+      mutation: async () => {
+        mutationCount += 1;
+      },
     } as unknown as Pick<ConvexReactClient, "mutation">;
 
     await applyWebCollectionsSyncSnapshot({

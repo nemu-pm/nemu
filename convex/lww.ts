@@ -11,21 +11,28 @@ export {
   shouldApplyLww,
   type ChapterProgressHighWaterValues,
 } from "../packages/core/src/sync-lww";
+import { shouldApplyLww } from "../packages/core/src/sync-lww";
+import {
+  isAcceptableSyncClock,
+  normalizeSyncClock,
+} from "../packages/core/src/sync-clock";
 
 export function isAfterRemovalBarrier(
   lastRemovedAt: number | undefined,
   incomingUpdatedAt: number,
 ): boolean {
-  return lastRemovedAt === undefined || incomingUpdatedAt > lastRemovedAt;
+  return shouldApplyLww(lastRemovedAt, incomingUpdatedAt);
 }
 
 export function maximumRemovalBarrier(
   records: readonly { lastRemovedAt?: number }[],
 ): number | undefined {
   let maximum: number | undefined;
+  const now = Date.now();
   for (const record of records) {
     if (
       record.lastRemovedAt !== undefined &&
+      isAcceptableSyncClock(record.lastRemovedAt, now) &&
       (maximum === undefined || record.lastRemovedAt > maximum)
     ) {
       maximum = record.lastRemovedAt;
@@ -39,9 +46,18 @@ export function newestLwwRecord<T extends { updatedAt?: number }>(
   isTombstone: (record: T) => boolean = () => false,
 ): T | undefined {
   let newest: T | undefined;
+  const now = Date.now();
   for (const record of records) {
-    const newestClock = newest?.updatedAt ?? Number.NEGATIVE_INFINITY;
-    const recordClock = record.updatedAt ?? Number.NEGATIVE_INFINITY;
+    const newestClock = normalizeSyncClock(
+      newest?.updatedAt,
+      now,
+      Number.NEGATIVE_INFINITY,
+    );
+    const recordClock = normalizeSyncClock(
+      record.updatedAt,
+      now,
+      Number.NEGATIVE_INFINITY,
+    );
     if (
       !newest ||
       recordClock > newestClock ||
@@ -65,11 +81,20 @@ export function canonicalizeLwwRecords<T extends { updatedAt?: number }>(
   isTombstone: (record: T) => boolean = () => false,
 ): T[] {
   const canonical = new Map<string, T>();
+  const now = Date.now();
   for (const record of records) {
     const key = keyOf(record);
     const existing = canonical.get(key);
-    const existingClock = existing?.updatedAt ?? Number.NEGATIVE_INFINITY;
-    const recordClock = record.updatedAt ?? Number.NEGATIVE_INFINITY;
+    const existingClock = normalizeSyncClock(
+      existing?.updatedAt,
+      now,
+      Number.NEGATIVE_INFINITY,
+    );
+    const recordClock = normalizeSyncClock(
+      record.updatedAt,
+      now,
+      Number.NEGATIVE_INFINITY,
+    );
     if (
       !existing ||
       recordClock > existingClock ||

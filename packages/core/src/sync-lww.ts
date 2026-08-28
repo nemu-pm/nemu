@@ -8,6 +8,12 @@
  * the two sides from settling into a permanent, invisible divergence.
  */
 
+import {
+  estimatedSyncServerTime,
+  isAcceptableSyncClock,
+  normalizeSyncClock,
+} from "./sync-clock";
+
 /**
  * A missing clock only exists on records written before logical timestamps
  * were required. Any explicitly timestamped write may replace such a record.
@@ -16,7 +22,13 @@ export function shouldApplyLww(
   existingUpdatedAt: number | undefined,
   incomingUpdatedAt: number,
 ): boolean {
-  return existingUpdatedAt === undefined || existingUpdatedAt < incomingUpdatedAt;
+  const now = estimatedSyncServerTime();
+  if (!isAcceptableSyncClock(incomingUpdatedAt, now)) return false;
+  return (
+    existingUpdatedAt === undefined ||
+    !isAcceptableSyncClock(existingUpdatedAt, now) ||
+    existingUpdatedAt < incomingUpdatedAt
+  );
 }
 
 export type ChapterProgressHighWaterValues = {
@@ -27,7 +39,9 @@ export type ChapterProgressHighWaterValues = {
   chapterNumber?: number;
   volumeNumber?: number;
   chapterTitle?: string;
+  /** Normalized position inside a single logical long-strip page. */
   intraPageProgress?: number;
+  /** Content-bound identity that makes `intraPageProgress` safe to restore. */
   intraPageContentIdentity?: string;
   updatedAt: number;
 };
@@ -43,10 +57,29 @@ export const CHAPTER_PROGRESS_INTRA_PAGE_CONTENT_IDENTITY_PREFIX =
 /** Backend capability version required before clients send the optional pair. */
 export const CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION = 1;
 
+/**
+ * Treat capability metadata as an untrusted protocol value. Older backends
+ * omit it entirely, and malformed/fractional versions must not opt a client
+ * into sending fields that the deployed mutation validator may not accept.
+ */
+export function supportsChapterProgressIntraPageSync(
+  version: unknown,
+): boolean {
+  return (
+    typeof version === "number" &&
+    Number.isSafeInteger(version) &&
+    version >= CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION
+  );
+}
+
 const CHAPTER_PROGRESS_INTRA_PAGE_CONTENT_IDENTITY_PATTERN =
   /^mobile-image:reader-page-state-v1:[0-9a-f]{64}$/;
 
-/** Keep the scroll fraction and its logical-page digest as one atomic value. */
+/**
+ * Return the reader's content-bound sub-page position only when the pair is
+ * canonical. The values must never be consumed independently: a percentage
+ * without the matching content digest could restore into a changed page.
+ */
 export function chapterProgressIntraPageState(
   record: Pick<
     ChapterProgressHighWaterValues,
@@ -87,45 +120,78 @@ export function mergeChapterProgressHighWater(
   existing: ChapterProgressHighWaterValues | undefined,
   incoming: ChapterProgressHighWaterValues,
 ): ChapterProgressHighWaterValues {
-  const incomingIntraPageState = chapterProgressIntraPageState(incoming);
+  const now = estimatedSyncServerTime();
+  const normalizedIncoming = {
+    ...incoming,
+    lastReadAt: normalizeSyncClock(incoming.lastReadAt, now),
+    updatedAt: normalizeSyncClock(incoming.updatedAt, now),
+  };
   if (!existing) {
+    const intraPageState = chapterProgressIntraPageState(normalizedIncoming);
     return {
-      progress: incoming.progress,
-      total: incoming.total,
-      completed: incoming.completed,
-      lastReadAt: incoming.lastReadAt,
-      chapterNumber: incoming.chapterNumber,
-      volumeNumber: incoming.volumeNumber,
-      chapterTitle: incoming.chapterTitle,
-      ...(incomingIntraPageState ?? {}),
-      updatedAt: incoming.updatedAt,
+      progress: normalizedIncoming.progress,
+      total: normalizedIncoming.total,
+      completed: normalizedIncoming.completed,
+      lastReadAt: normalizedIncoming.lastReadAt,
+      chapterNumber: normalizedIncoming.chapterNumber,
+      volumeNumber: normalizedIncoming.volumeNumber,
+      chapterTitle: normalizedIncoming.chapterTitle,
+      ...(intraPageState ?? {}),
+      updatedAt: normalizedIncoming.updatedAt,
     };
   }
+  const normalizedExisting = {
+    ...existing,
+    lastReadAt: normalizeSyncClock(existing.lastReadAt, now),
+    updatedAt: normalizeSyncClock(existing.updatedAt, now),
+  };
   const incomingOwnsMetadata = shouldApplyLww(
-    existing.updatedAt,
-    incoming.updatedAt,
+    normalizedExisting.updatedAt,
+    normalizedIncoming.updatedAt,
   );
   const metadataValue = <T>(
     existingValue: T | undefined,
     incomingValue: T | undefined,
-  ) => incomingOwnsMetadata
-    ? (incomingValue ?? existingValue)
-    : (existingValue ?? incomingValue);
-  const existingIntraPageState = chapterProgressIntraPageState(existing);
+  ) =>
+    incomingOwnsMetadata
+      ? (incomingValue ?? existingValue)
+      : (existingValue ?? incomingValue);
+  const existingIntraPageState =
+    chapterProgressIntraPageState(normalizedExisting);
+  const incomingIntraPageState =
+    chapterProgressIntraPageState(normalizedIncoming);
   const intraPageState = incomingOwnsMetadata
     ? (incomingIntraPageState ?? existingIntraPageState)
     : (existingIntraPageState ?? incomingIntraPageState);
 
   return {
-    progress: Math.max(existing.progress, incoming.progress),
-    total: Math.max(existing.total, incoming.total),
-    completed: existing.completed || incoming.completed,
-    lastReadAt: Math.max(existing.lastReadAt, incoming.lastReadAt),
-    chapterNumber: metadataValue(existing.chapterNumber, incoming.chapterNumber),
-    volumeNumber: metadataValue(existing.volumeNumber, incoming.volumeNumber),
-    chapterTitle: metadataValue(existing.chapterTitle, incoming.chapterTitle),
+    progress: Math.max(
+      normalizedExisting.progress,
+      normalizedIncoming.progress,
+    ),
+    total: Math.max(normalizedExisting.total, normalizedIncoming.total),
+    completed: normalizedExisting.completed || normalizedIncoming.completed,
+    lastReadAt: Math.max(
+      normalizedExisting.lastReadAt,
+      normalizedIncoming.lastReadAt,
+    ),
+    chapterNumber: metadataValue(
+      normalizedExisting.chapterNumber,
+      normalizedIncoming.chapterNumber,
+    ),
+    volumeNumber: metadataValue(
+      normalizedExisting.volumeNumber,
+      normalizedIncoming.volumeNumber,
+    ),
+    chapterTitle: metadataValue(
+      normalizedExisting.chapterTitle,
+      normalizedIncoming.chapterTitle,
+    ),
     ...(intraPageState ?? {}),
-    updatedAt: Math.max(existing.updatedAt, incoming.updatedAt),
+    updatedAt: Math.max(
+      normalizedExisting.updatedAt,
+      normalizedIncoming.updatedAt,
+    ),
   };
 }
 

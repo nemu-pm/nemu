@@ -109,6 +109,10 @@ describe("core settings safety", () => {
     );
     expect(formatted).toBe("x".repeat(MAX_SETTING_FORMATTED_VALUE_LENGTH));
     expect(sanitizeSettingDisplayText("safe\u202etext", 100)).toBe("safetext");
+    expect(sanitizeSettingDisplayText("safe\u0085\u200b\ufefftext", 100)).toBe(
+      "safetext",
+    );
+    expect(sanitizeSettingDisplayText("😀", 1)).toBe("");
   });
 
   test("preserves credential, timestamp, and string-list values within bounds", () => {

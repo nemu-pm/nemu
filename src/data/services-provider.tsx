@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- the provider and its profile-scoped hooks intentionally share one private context */
 import {
   createContext,
   useCallback,
@@ -16,9 +17,12 @@ import {
   effectiveProfileIdRef,
   lastProfileIdRef,
   makeProfileId,
+  retryPendingSignOutCleanups,
   type ProfileId,
   type ServicesContainer,
 } from "@/sync/services";
+import { resolvePendingSignOutCleanupRetryIdentity } from "@/sync/pending-signout-retry-identity";
+import { safeErrorCategory } from "@/lib/error-diagnostic";
 
 const LAST_PROFILE_ID_KEY = "nemu:last-profile-id";
 
@@ -37,13 +41,40 @@ const ServicesContext = createContext<ServicesContextValue | null>(null);
 export function DataServicesProvider(props: { children: ReactNode }) {
   const { children } = props;
   const { isAuthenticated, isLoading } = useConvexAuth();
-  const { data: session } = authClient.useSession();
-  const [profileOverride, setProfileOverride] = useState<ProfileId | null>(null);
+  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const [profileOverride, setProfileOverride] = useState<ProfileId | null>(
+    null,
+  );
 
   const sessionProfileId = makeProfileId(session?.user?.id);
   const autoProfileId =
-    sessionProfileId ?? ((isAuthenticated || isLoading) ? lastProfileIdRef.current : undefined);
+    sessionProfileId ??
+    (isAuthenticated || isLoading ? lastProfileIdRef.current : undefined);
   const profileId = profileOverride ?? autoProfileId;
+  const pendingCleanupRetryIdentity = resolvePendingSignOutCleanupRetryIdentity(
+    {
+      convexLoading: isLoading,
+      sessionPending,
+      convexAuthenticated: isAuthenticated,
+      sessionUserId: session?.user?.id,
+    },
+  );
+
+  // A remote-confirmed sign-out may have crashed between server logout and
+  // local profile removal. Resume only after both auth layers are settled and
+  // agree. Passing an exact active user makes that user's old marker
+  // self-cancel; signed-out or different-user markers safely resume cleanup.
+  useEffect(() => {
+    if (pendingCleanupRetryIdentity === null) return;
+    void retryPendingSignOutCleanups(pendingCleanupRetryIdentity).catch(
+      (error) => {
+        console.error(
+          "[sync] Pending sign-out recovery failed:",
+          safeErrorCategory(error),
+        );
+      },
+    );
+  }, [pendingCleanupRetryIdentity]);
 
   // Keep global debug refs in sync (used by diagnostics / signOut helpers).
   useLayoutEffect(() => {
@@ -54,17 +85,28 @@ export function DataServicesProvider(props: { children: ReactNode }) {
   useEffect(() => {
     if (!sessionProfileId) return;
     lastProfileIdRef.current = sessionProfileId;
-    try { localStorage.setItem(LAST_PROFILE_ID_KEY, sessionProfileId); } catch { /* storage unavailable */ }
+    try {
+      localStorage.setItem(LAST_PROFILE_ID_KEY, sessionProfileId);
+    } catch {
+      /* storage unavailable */
+    }
   }, [sessionProfileId]);
 
   // Clear persisted profile on logout.
   useEffect(() => {
     if (isLoading || isAuthenticated) return;
     lastProfileIdRef.current = undefined;
-    try { localStorage.removeItem(LAST_PROFILE_ID_KEY); } catch { /* storage unavailable */ }
+    try {
+      localStorage.removeItem(LAST_PROFILE_ID_KEY);
+    } catch {
+      /* storage unavailable */
+    }
   }, [isAuthenticated, isLoading]);
 
-  const container = useMemo(() => createServicesContainer(profileId), [profileId]);
+  const container = useMemo(
+    () => createServicesContainer(profileId),
+    [profileId],
+  );
 
   // NOTE: signing in must not touch the anonymous source-settings database.
   // Configuring source logins while signed out is a supported flow, and those
@@ -79,7 +121,11 @@ export function DataServicesProvider(props: { children: ReactNode }) {
   // Dispose the previous container when profile changes (and on unmount).
   useEffect(() => {
     return () => {
-      try { container.dispose(); } catch { /* ignore */ }
+      try {
+        container.dispose();
+      } catch {
+        /* ignore */
+      }
     };
   }, [container]);
 
@@ -89,16 +135,22 @@ export function DataServicesProvider(props: { children: ReactNode }) {
 
   const value = useMemo<ServicesContextValue>(
     () => ({ profileId, setProfileId, container }),
-    [profileId, setProfileId, container]
+    [profileId, setProfileId, container],
   );
 
-  return <ServicesContext.Provider value={value}>{children}</ServicesContext.Provider>;
+  return (
+    <ServicesContext.Provider value={value}>
+      {children}
+    </ServicesContext.Provider>
+  );
 }
 
 function useServicesContext(): ServicesContextValue {
   const ctx = useContext(ServicesContext);
   if (!ctx) {
-    throw new Error("DataServicesProvider missing (wrap app root with <DataServicesProvider />)");
+    throw new Error(
+      "DataServicesProvider missing (wrap app root with <DataServicesProvider />)",
+    );
   }
   return ctx;
 }
@@ -128,8 +180,6 @@ export function useProgressStoreApi() {
   return useServicesContext().container.useProgressStore;
 }
 
-// This provider already owns and exports its context hooks by design.
-// eslint-disable-next-line react-refresh/only-export-components
 export function useSourceSettingsStoreApi() {
   return useServicesContext().container.sourceSettingsStore;
 }

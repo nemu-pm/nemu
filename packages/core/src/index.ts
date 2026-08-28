@@ -5,5 +5,4 @@ export * from "./settings-display";
 export * from "./settings-values";
 export * from "./auth";
 export * from "./source-oauth";
-export * from "./dual-reader/index";
 export * from "./japanese-learning/prompts";

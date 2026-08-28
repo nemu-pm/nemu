@@ -3,34 +3,20 @@ import {
   chapterProgressHighWaterValues,
   mergeChapterProgressHighWater,
 } from "./sync-lww";
+import {
+  estimatedSyncServerTime,
+  isAcceptableSyncClock,
+  normalizeSyncClock,
+} from "./sync-clock";
 
 // The canonical LWW merge and the sync protocol error vocabulary are shared
 // with the Convex backend and the mobile client. Re-export them here so
 // `@nemu/core` stays the single import surface for every consumer.
 export * from "./sync-lww";
 export * from "./sync-errors";
+export * from "./sync-clock";
 
 export type SourceKind = "aidoku" | "tachiyomi";
-
-/**
- * Return a client-side sync clock that is strictly newer than every record
- * observed by the local write. This keeps LWW edits valid when the wall clock
- * moves backwards or a previously-synced record carries a future timestamp.
- *
- * Callers must only use this for local user writes. Cloud snapshot application
- * keeps the server-provided timestamp unchanged so equal cloud clocks remain
- * authoritative.
- */
-export function nextSyncTimestamp(
-  ...observed: Array<number | null | undefined>
-): number {
-  let next = Date.now();
-  for (const timestamp of observed) {
-    if (timestamp == null || !Number.isFinite(timestamp)) continue;
-    next = Math.max(next, timestamp + 1);
-  }
-  return next;
-}
 
 export type ChapterSummary = {
   id: string;
@@ -97,6 +83,8 @@ export type LocalLibraryItem = {
   metadata: MangaMetadata;
   externalIds?: ExternalIds;
   inLibrary: boolean;
+  /** Permanent redirect left by a semantic library-item merge. */
+  mergedIntoLibraryItemId?: string;
   overrides?: UserOverrides;
   sourceOrder?: string[];
   createdAt: number;
@@ -184,6 +172,8 @@ export type CloudLibraryItem = {
   metadata: MangaMetadata;
   externalIds?: ExternalIds;
   inLibrary?: boolean;
+  /** Permanent redirect left by a semantic library-item merge. */
+  mergedIntoLibraryItemId?: string;
   overrides?: UserOverrides;
   sourceOrder?: string[];
   createdAt: number;
@@ -284,7 +274,10 @@ export type CloudHistorySaveInput = {
   updatedAt: number;
 };
 
-export type LibrarySnapshotMerge<TItem extends LocalLibraryItem, TLink extends LocalSourceLink> = {
+export type LibrarySnapshotMerge<
+  TItem extends LocalLibraryItem,
+  TLink extends LocalSourceLink,
+> = {
   items: TItem[];
   links: TLink[];
   changedItems: TItem[];
@@ -339,6 +332,42 @@ export function makeCollectionItemId(
   return `${encodeURIComponent(collectionId)}:${encodeURIComponent(libraryItemId)}`;
 }
 
+export const MAX_LIBRARY_MERGE_ALIAS_HOPS = 32;
+
+/** Resolve one bounded, cycle-free semantic merge alias from an in-memory view. */
+export function resolveLibraryItemMergeAlias(
+  requestedLibraryItemId: string,
+  getTarget: (libraryItemId: string) => string | undefined,
+  maxHops = MAX_LIBRARY_MERGE_ALIAS_HOPS,
+): string {
+  if (
+    requestedLibraryItemId.length === 0 ||
+    !Number.isSafeInteger(maxHops) ||
+    maxHops < 0 ||
+    maxHops > MAX_LIBRARY_MERGE_ALIAS_HOPS
+  ) {
+    throw new Error("Invalid library merge alias.");
+  }
+  const seen = new Set<string>();
+  let libraryItemId = requestedLibraryItemId;
+  for (let hop = 0; hop <= maxHops; hop += 1) {
+    if (seen.has(libraryItemId)) {
+      throw new Error("Library merge alias cycle detected.");
+    }
+    seen.add(libraryItemId);
+    const target = getTarget(libraryItemId);
+    if (target === undefined) return libraryItemId;
+    if (target.length === 0 || target === libraryItemId) {
+      throw new Error("Invalid library merge alias.");
+    }
+    if (hop === maxHops) {
+      throw new Error("Library merge alias chain is too deep.");
+    }
+    libraryItemId = target;
+  }
+  throw new Error("Library merge alias chain is too deep.");
+}
+
 export function toCloudChapterSummary(
   chapter: ChapterSummary | null | undefined,
 ): CloudChapterSummary | undefined {
@@ -353,6 +382,7 @@ export function toCloudChapterSummary(
 }
 
 export function toCloudSourceLink(link: LocalSourceLink): CloudSourceLinkInput {
+  const now = estimatedSyncServerTime();
   return {
     registryId: link.registryId,
     sourceId: link.sourceId,
@@ -363,8 +393,8 @@ export function toCloudSourceLink(link: LocalSourceLink): CloudSourceLinkInput {
     updateAckChapter: toCloudChapterSummary(link.updateAckChapter),
     updateAckChapterSortKey: link.updateAckChapterSortKey,
     updateAckAt: link.updateAckAt,
-    createdAt: link.createdAt,
-    updatedAt: link.updatedAt,
+    createdAt: normalizeSyncClock(link.createdAt, now),
+    updatedAt: normalizeSyncClock(link.updatedAt, now),
     removed: link.removed,
   };
 }
@@ -374,10 +404,11 @@ export function toCloudLibrarySaveInput(
   links: LocalSourceLink[],
   sourcesMode: "merge" | "replace" = "merge",
 ): CloudLibrarySaveInput {
+  const now = estimatedSyncServerTime();
   return {
     libraryItemId: item.libraryItemId,
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
+    createdAt: normalizeSyncClock(item.createdAt, now),
+    updatedAt: normalizeSyncClock(item.updatedAt, now),
     metadata: item.metadata,
     overrides: item.overrides,
     externalIds: item.externalIds,
@@ -441,7 +472,7 @@ export function toCloudInstalledSource(
     hasCloudflare: source.hasCloudflare,
     downloadUrl: source.downloadUrl,
     version: source.version,
-    updatedAt: source.updatedAt ?? 0,
+    updatedAt: normalizeSyncClock(source.updatedAt),
     removed: source.removed,
   };
 }
@@ -450,10 +481,11 @@ export function toCloudHistorySaveInput(
   progress: LocalChapterProgress,
   options: { includeIntraPageState?: boolean } = {},
 ): CloudHistorySaveInput {
+  const now = estimatedSyncServerTime();
   const intraPageState =
-    options.includeIntraPageState === false
-      ? undefined
-      : chapterProgressIntraPageState(progress);
+    options.includeIntraPageState === true
+      ? chapterProgressIntraPageState(progress)
+      : undefined;
   return {
     registryId: progress.registryId,
     sourceId: progress.sourceId,
@@ -462,12 +494,12 @@ export function toCloudHistorySaveInput(
     progress: progress.progress,
     total: progress.total,
     completed: progress.completed,
-    lastReadAt: progress.lastReadAt,
+    lastReadAt: normalizeSyncClock(progress.lastReadAt, now),
     chapterNumber: progress.chapterNumber,
     volumeNumber: progress.volumeNumber,
     chapterTitle: progress.chapterTitle,
     ...(intraPageState ?? {}),
-    updatedAt: progress.updatedAt,
+    updatedAt: normalizeSyncClock(progress.updatedAt, now),
   };
 }
 
@@ -502,6 +534,9 @@ export function mapCloudLibraryItems<T extends CloudLibraryItem>(
     metadata: item.metadata,
     externalIds: item.externalIds,
     inLibrary: item.inLibrary ?? true,
+    ...(item.mergedIntoLibraryItemId === undefined
+      ? {}
+      : { mergedIntoLibraryItemId: item.mergedIntoLibraryItemId }),
     overrides: item.overrides,
     sourceOrder: item.sourceOrder,
     createdAt: item.createdAt,
@@ -615,7 +650,11 @@ function shouldUseLocalRecord(
 ): boolean {
   if (!local) return false;
   if (!cloud) return true;
-  return local.updatedAt > cloud.updatedAt;
+  const now = estimatedSyncServerTime();
+  return (
+    normalizeSyncClock(local.updatedAt, now) >
+    normalizeSyncClock(cloud.updatedAt, now)
+  );
 }
 
 /**
@@ -658,9 +697,34 @@ function mergeRecordMap<T extends { updatedAt: number }>(
   localRecords: T[],
   cloudRecords: T[],
   keyOf: (record: T) => string,
+  isTombstone: (record: T) => boolean = (record) =>
+    (record as T & { removed?: boolean }).removed === true,
 ): { records: T[]; changed: T[]; localWinners: T[] } {
-  const localById = new Map(localRecords.map((record) => [keyOf(record), record]));
-  const cloudById = new Map(cloudRecords.map((record) => [keyOf(record), record]));
+  const now = estimatedSyncServerTime();
+  const normalizeRecord = (record: T): T => ({
+    ...record,
+    updatedAt: normalizeSyncClock(record.updatedAt, now),
+  });
+  const toCanonicalMap = (input: T[]): Map<string, T> => {
+    const map = new Map<string, T>();
+    for (const rawRecord of input) {
+      const record = normalizeRecord(rawRecord);
+      const key = keyOf(record);
+      const existing = map.get(key);
+      if (
+        !existing ||
+        record.updatedAt > existing.updatedAt ||
+        (record.updatedAt === existing.updatedAt &&
+          !isTombstone(existing) &&
+          isTombstone(record))
+      ) {
+        map.set(key, record);
+      }
+    }
+    return map;
+  };
+  const localById = toCanonicalMap(localRecords);
+  const cloudById = toCanonicalMap(cloudRecords);
   const records: T[] = [];
   const changed: T[] = [];
   const localWinners: T[] = [];
@@ -680,6 +744,90 @@ function mergeRecordMap<T extends { updatedAt: number }>(
   return { records, changed, localWinners };
 }
 
+function mergeLibraryItemRecordMap<T extends LocalLibraryItem>(
+  localRecords: T[],
+  cloudRecords: T[],
+): { records: T[]; changed: T[]; localWinners: T[] } {
+  const now = estimatedSyncServerTime();
+  const normalizeRecord = (record: T): T => ({
+    ...record,
+    updatedAt: normalizeSyncClock(record.updatedAt, now),
+  });
+  const toCanonicalMap = (input: T[]): Map<string, T> => {
+    const map = new Map<string, T>();
+    for (const rawRecord of input) {
+      const record = normalizeRecord(rawRecord);
+      const existing = map.get(record.libraryItemId);
+      if (!existing) {
+        map.set(record.libraryItemId, record);
+        continue;
+      }
+      const existingAlias = existing.mergedIntoLibraryItemId;
+      const recordAlias = record.mergedIntoLibraryItemId;
+      if (
+        existingAlias !== undefined &&
+        recordAlias !== undefined &&
+        existingAlias !== recordAlias
+      ) {
+        throw new Error("Conflicting library merge aliases in sync snapshot.");
+      }
+      const aliasWins =
+        recordAlias !== undefined &&
+        (existingAlias === undefined || record.updatedAt > existing.updatedAt);
+      const ordinaryLwwWins =
+        recordAlias === undefined &&
+        existingAlias === undefined &&
+        (record.updatedAt > existing.updatedAt ||
+          (record.updatedAt === existing.updatedAt &&
+            existing.inLibrary !== false &&
+            record.inLibrary === false));
+      if (aliasWins || ordinaryLwwWins) {
+        map.set(record.libraryItemId, record);
+      }
+    }
+    return map;
+  };
+  const localById = toCanonicalMap(localRecords);
+  const cloudById = toCanonicalMap(cloudRecords);
+  const records: T[] = [];
+  const changed: T[] = [];
+  const localWinners: T[] = [];
+
+  for (const id of new Set([...localById.keys(), ...cloudById.keys()])) {
+    const local = localById.get(id);
+    const cloud = cloudById.get(id);
+    // A merge alias is an identity redirect, not a clock-ranked deletion. The
+    // server is authoritative when both sides have aliases; otherwise retain
+    // a local alias even against a later stale active cloud record and replay
+    // the semantic remove/merge operation.
+    if (cloud?.mergedIntoLibraryItemId !== undefined) {
+      records.push(cloud);
+      if (!local || !syncSnapshotValuesEqual(local, cloud)) changed.push(cloud);
+    } else if (local?.mergedIntoLibraryItemId !== undefined) {
+      records.push(local);
+      localWinners.push(local);
+    } else if (local && shouldUseLocalRecord(local, cloud)) {
+      records.push(local);
+      localWinners.push(local);
+    } else if (cloud) {
+      records.push(cloud);
+      if (!local || !syncSnapshotValuesEqual(local, cloud)) changed.push(cloud);
+    }
+  }
+
+  return { records, changed, localWinners };
+}
+
+function resolveSnapshotLibraryItemId<T extends LocalLibraryItem>(
+  libraryItemId: string,
+  itemsById: ReadonlyMap<string, T>,
+): string {
+  return resolveLibraryItemMergeAlias(
+    libraryItemId,
+    (current) => itemsById.get(current)?.mergedIntoLibraryItemId,
+  );
+}
+
 export function mergeLibrarySnapshot<
   TItem extends LocalLibraryItem,
   TLink extends LocalSourceLink,
@@ -689,14 +837,35 @@ export function mergeLibrarySnapshot<
   cloudItems: TItem[],
   cloudLinks: TLink[],
 ): LibrarySnapshotMerge<TItem, TLink> {
-  const itemMerge = mergeRecordMap(
-    localItems,
-    cloudItems,
-    (item) => item.libraryItemId,
+  const itemMerge = mergeLibraryItemRecordMap(localItems, cloudItems);
+  const itemsById = new Map(
+    itemMerge.records.map((item) => [item.libraryItemId, item]),
   );
+  for (const item of itemMerge.records) {
+    if (item.mergedIntoLibraryItemId === undefined) continue;
+    const terminalLibraryItemId = resolveSnapshotLibraryItemId(
+      item.libraryItemId,
+      itemsById,
+    );
+    if (!itemsById.has(terminalLibraryItemId)) {
+      throw new Error(
+        "Library merge alias target is missing from sync snapshot.",
+      );
+    }
+  }
   const itemIds = new Set(itemMerge.records.map((item) => item.libraryItemId));
-  const linkMerge = mergeRecordMap(localLinks, cloudLinks, (link) => link.id);
-  const links = linkMerge.records.filter((link) => itemIds.has(link.libraryItemId));
+  const canonicalizeLink = (link: TLink): TLink => ({
+    ...link,
+    libraryItemId: resolveSnapshotLibraryItemId(link.libraryItemId, itemsById),
+  });
+  const linkMerge = mergeRecordMap(
+    localLinks.map(canonicalizeLink),
+    cloudLinks.map(canonicalizeLink),
+    (link) => link.id,
+  );
+  const links = linkMerge.records.filter((link) =>
+    itemIds.has(link.libraryItemId),
+  );
   const retainedLinkIds = new Set(links.map((link) => link.id));
 
   return {
@@ -764,7 +933,9 @@ export function mergeCollectionSnapshot<
     ],
     localCollectionsToPush: collectionMerge.localWinners,
     localCollectionItemsToPush: itemMerge.localWinners.filter((item) =>
-      retainedItemIds.has(makeCollectionItemId(item.collectionId, item.libraryItemId)),
+      retainedItemIds.has(
+        makeCollectionItemId(item.collectionId, item.libraryItemId),
+      ),
     ),
   };
 }
@@ -810,25 +981,46 @@ export function mergeInstalledSources<
     const cloud = cloudById.get(id);
 
     if (!local) {
-      if (cloud) merged.push(cloud as unknown as TLocal);
+      if (cloud) {
+        merged.push({
+          ...cloud,
+          updatedAt: normalizeSyncClock(cloud.updatedAt),
+        } as unknown as TLocal);
+      }
       continue;
     }
     if (!cloud) {
-      merged.push(local);
+      merged.push({
+        ...local,
+        updatedAt: normalizeSyncClock(local.updatedAt),
+      });
       continue;
     }
 
-    const localUpdatedAt = local.updatedAt ?? 0;
-    const cloudUpdatedAt = cloud.updatedAt ?? 0;
+    const now = estimatedSyncServerTime();
+    const localUpdatedAt = normalizeSyncClock(local.updatedAt, now);
+    const cloudUpdatedAt = normalizeSyncClock(cloud.updatedAt, now);
     if (localUpdatedAt > cloudUpdatedAt) {
-      merged.push(local);
+      merged.push({ ...local, updatedAt: localUpdatedAt });
     } else if (cloudUpdatedAt > localUpdatedAt) {
-      merged.push(preserveLocalInstalledSourceFields(cloud, local, preserveLocalFields));
+      merged.push(
+        preserveLocalInstalledSourceFields(
+          { ...cloud, updatedAt: cloudUpdatedAt },
+          local,
+          preserveLocalFields,
+        ),
+      );
     } else {
       // The server keeps its existing value for equal logical clocks. Mirror
       // that authority locally so equal deliveries converge without an
       // endless re-push loop.
-      merged.push(preserveLocalInstalledSourceFields(cloud, local, preserveLocalFields));
+      merged.push(
+        preserveLocalInstalledSourceFields(
+          { ...cloud, updatedAt: cloudUpdatedAt },
+          local,
+          preserveLocalFields,
+        ),
+      );
     }
   }
 
@@ -837,17 +1029,15 @@ export function mergeInstalledSources<
 
 export function mergeChapterProgressForSave<
   TProgress extends LocalChapterProgress,
->(
-  existing: TProgress | null | undefined,
-  incoming: TProgress,
-): TProgress {
+>(existing: TProgress | null | undefined, incoming: TProgress): TProgress {
   if (!existing) {
+    const normalized = mergeChapterProgressHighWater(
+      undefined,
+      chapterProgressHighWaterValues(incoming),
+    );
     return {
       ...withoutChapterProgressIntraPageState(incoming),
-      ...mergeChapterProgressHighWater(
-        undefined,
-        chapterProgressHighWaterValues(incoming),
-      ),
+      ...normalized,
     };
   }
 
@@ -862,7 +1052,12 @@ export function mergeChapterProgressForSave<
     chapterProgressHighWaterValues(incoming),
     chapterProgressHighWaterValues(existing),
   );
-  const owner = incoming.updatedAt >= existing.updatedAt ? incoming : existing;
+  const now = estimatedSyncServerTime();
+  const owner =
+    normalizeSyncClock(incoming.updatedAt, now) >=
+    normalizeSyncClock(existing.updatedAt, now)
+      ? incoming
+      : existing;
   const other = owner === incoming ? existing : incoming;
 
   return {
@@ -879,7 +1074,7 @@ export function mergeChapterProgressForSave<
     chapterTitle: merged.chapterTitle,
     ...chapterProgressIntraPageState(merged),
     updatedAt: merged.updatedAt,
-  };
+  } as TProgress;
 }
 
 export function mergeMangaProgressForSave<TProgress extends LocalMangaProgress>(
@@ -889,11 +1084,31 @@ export function mergeMangaProgressForSave<TProgress extends LocalMangaProgress>(
   // updatedAt is the sync/LWW clock; lastReadAt is user-facing event data and
   // may move backwards when the device wall clock is corrected. Incoming wins
   // ties so cloud snapshot application remains authoritative on equal clocks.
-  if (!existing || incoming.updatedAt >= existing.updatedAt) {
-    return incoming;
+  const now = estimatedSyncServerTime();
+  const normalizedIncoming = {
+    ...incoming,
+    lastReadAt: normalizeSyncClock(incoming.lastReadAt, now),
+    updatedAt: normalizeSyncClock(incoming.updatedAt, now),
+  };
+  if (
+    !existing ||
+    normalizedIncoming.updatedAt >= normalizeSyncClock(existing.updatedAt, now)
+  ) {
+    return normalizedIncoming.lastReadAt === incoming.lastReadAt &&
+      normalizedIncoming.updatedAt === incoming.updatedAt
+      ? incoming
+      : normalizedIncoming;
   }
 
-  return existing;
+  const normalizedExisting = {
+    ...existing,
+    lastReadAt: normalizeSyncClock(existing.lastReadAt, now),
+    updatedAt: normalizeSyncClock(existing.updatedAt, now),
+  };
+  return normalizedExisting.lastReadAt === existing.lastReadAt &&
+    normalizedExisting.updatedAt === existing.updatedAt
+    ? existing
+    : normalizedExisting;
 }
 
 function mergeProgressBatchForSave<TProgress extends { id: string }>(
@@ -916,20 +1131,22 @@ function mergeProgressBatchForSave<TProgress extends { id: string }>(
 
 export function mergeChapterProgressBatchForSave<
   TProgress extends LocalChapterProgress,
->(
-  existing: TProgress[],
-  incoming: TProgress[],
-): TProgress[] {
-  return mergeProgressBatchForSave(existing, incoming, mergeChapterProgressForSave);
+>(existing: TProgress[], incoming: TProgress[]): TProgress[] {
+  return mergeProgressBatchForSave(
+    existing,
+    incoming,
+    mergeChapterProgressForSave,
+  );
 }
 
 export function mergeMangaProgressBatchForSave<
   TProgress extends LocalMangaProgress,
->(
-  existing: TProgress[],
-  incoming: TProgress[],
-): TProgress[] {
-  return mergeProgressBatchForSave(existing, incoming, mergeMangaProgressForSave);
+>(existing: TProgress[], incoming: TProgress[]): TProgress[] {
+  return mergeProgressBatchForSave(
+    existing,
+    incoming,
+    mergeMangaProgressForSave,
+  );
 }
 
 /** One linear snapshot plan: the final local view, rows that need storage
@@ -944,17 +1161,21 @@ export function chapterProgressNeedsPush(
   local: LocalChapterProgress,
   cloud: LocalChapterProgress | undefined,
 ): boolean {
+  const now = estimatedSyncServerTime();
   const localIntraPageState = chapterProgressIntraPageState(local);
   const cloudIntraPageState = cloud
     ? chapterProgressIntraPageState(cloud)
     : undefined;
   return (
     !cloud ||
+    !isAcceptableSyncClock(cloud.updatedAt, now) ||
+    !isAcceptableSyncClock(cloud.lastReadAt, now) ||
     local.progress > cloud.progress ||
     local.total > cloud.total ||
     (local.completed && !cloud.completed) ||
     local.lastReadAt > cloud.lastReadAt ||
-    local.updatedAt > cloud.updatedAt ||
+    normalizeSyncClock(local.updatedAt, now) >
+      normalizeSyncClock(cloud.updatedAt, now) ||
     // Metadata the cloud row is missing can only reach the server through
     // another push. Without this the merge backfills locally and the two sides
     // stay permanently different while every convergence check reports "done".
@@ -1023,24 +1244,24 @@ function mergeProgressSnapshot<TProgress extends { id: string }>(
   },
 ): ProgressSnapshotMerge<TProgress> {
   const originalById = new Map(existing.map((entry) => [entry.id, entry]));
-  const mergedById = new Map(originalById);
+  const mergedById = new Map(
+    existing.map((entry) => [entry.id, behaviors.mergeOne(undefined, entry)]),
+  );
   const cloudById = new Map<string, TProgress>();
-  const cloudIds = new Set<string>();
 
   for (const entry of cloud) {
-    cloudIds.add(entry.id);
     cloudById.set(entry.id, entry);
-    mergedById.set(entry.id, behaviors.mergeOne(mergedById.get(entry.id), entry));
+    mergedById.set(
+      entry.id,
+      behaviors.mergeOne(mergedById.get(entry.id), entry),
+    );
   }
 
   const progress = [...mergedById.values()];
-  const changed = [...cloudIds]
-    .map((id) => mergedById.get(id))
-    .filter((entry): entry is TProgress => Boolean(entry))
-    .filter((entry) => {
-      const original = originalById.get(entry.id);
-      return !original || !behaviors.equals(original, entry);
-    });
+  const changed = progress.filter((entry) => {
+    const original = originalById.get(entry.id);
+    return !original || !behaviors.equals(original, entry);
+  });
   const localWinners = progress.filter((entry) =>
     behaviors.needsPush(entry, cloudById.get(entry.id)),
   );
@@ -1049,10 +1270,7 @@ function mergeProgressSnapshot<TProgress extends { id: string }>(
 
 export function mergeChapterProgressSnapshot<
   TProgress extends LocalChapterProgress,
->(
-  existing: TProgress[],
-  cloud: TProgress[],
-): ProgressSnapshotMerge<TProgress> {
+>(existing: TProgress[], cloud: TProgress[]): ProgressSnapshotMerge<TProgress> {
   return mergeProgressSnapshot(existing, cloud, {
     mergeOne: mergeChapterProgressForSave,
     equals: chapterProgressEquals,
@@ -1060,15 +1278,22 @@ export function mergeChapterProgressSnapshot<
   });
 }
 
-export function mergeMangaProgressSnapshot<TProgress extends LocalMangaProgress>(
-  existing: TProgress[],
-  cloud: TProgress[],
-): ProgressSnapshotMerge<TProgress> {
+export function mergeMangaProgressSnapshot<
+  TProgress extends LocalMangaProgress,
+>(existing: TProgress[], cloud: TProgress[]): ProgressSnapshotMerge<TProgress> {
   return mergeProgressSnapshot(existing, cloud, {
     mergeOne: mergeMangaProgressForSave,
     equals: mangaProgressEquals,
-    needsPush: (local, cloudEntry) =>
-      !cloudEntry || local.updatedAt > cloudEntry.updatedAt,
+    needsPush: (local, cloudEntry) => {
+      const now = estimatedSyncServerTime();
+      return (
+        !cloudEntry ||
+        !isAcceptableSyncClock(cloudEntry.updatedAt, now) ||
+        !isAcceptableSyncClock(cloudEntry.lastReadAt, now) ||
+        normalizeSyncClock(local.updatedAt, now) >
+          normalizeSyncClock(cloudEntry.updatedAt, now)
+      );
+    },
   });
 }
 
@@ -1085,8 +1310,14 @@ export function chunkCollectionMutationItems(
 ): string[][] {
   const uniqueIds = [...new Set(libraryItemIds)];
   const chunks: string[][] = [];
-  for (let offset = 0; offset < uniqueIds.length; offset += MAX_COLLECTION_MUTATION_ITEMS) {
-    chunks.push(uniqueIds.slice(offset, offset + MAX_COLLECTION_MUTATION_ITEMS));
+  for (
+    let offset = 0;
+    offset < uniqueIds.length;
+    offset += MAX_COLLECTION_MUTATION_ITEMS
+  ) {
+    chunks.push(
+      uniqueIds.slice(offset, offset + MAX_COLLECTION_MUTATION_ITEMS),
+    );
   }
   return chunks;
 }
@@ -1100,9 +1331,7 @@ export function chunkCollectionMutationItems(
 export const MAX_CHAPTER_PROGRESS_SAVE_BATCH_ITEMS = 32;
 
 /** Split a history push into `history.saveBatch`-sized transactions. */
-export function chunkChapterProgressSaveInputs<T>(
-  inputs: readonly T[],
-): T[][] {
+export function chunkChapterProgressSaveInputs<T>(inputs: readonly T[]): T[][] {
   const chunks: T[][] = [];
   for (
     let offset = 0;
@@ -1121,5 +1350,7 @@ export function areSyncAccountIdentitiesAligned(
   sessionUserId: string | null | undefined,
   serverUserId: string | null | undefined,
 ): sessionUserId is string {
-  return Boolean(sessionUserId && serverUserId && sessionUserId === serverUserId);
+  return Boolean(
+    sessionUserId && serverUserId && sessionUserId === serverUserId,
+  );
 }

@@ -10,6 +10,7 @@
 
 export const SYNC_GENERATION_MISMATCH = "SYNC_GENERATION_MISMATCH";
 export const SYNC_CLOCK_REQUIRED = "SYNC_CLOCK_REQUIRED";
+export const INVALID_SYNC_CLOCK = "INVALID_SYNC_CLOCK";
 export const SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED =
   "SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED";
 export const SYNC_MUTATION_CONTEXT_REQUIRED = "SYNC_MUTATION_CONTEXT_REQUIRED";
@@ -22,6 +23,8 @@ export const AUTH_ACCOUNT_MISMATCH = "AUTH_ACCOUNT_MISMATCH";
 export type SyncErrorKind =
   /** The account was reset elsewhere; local state must be re-pulled. */
   | "generation-mismatch"
+  /** A client supplied a malformed or implausibly future logical clock. */
+  | "clock-invalid"
   /** This build predates a required protocol field; the bundle is too old. */
   | "upgrade-required"
   /** The account exceeded a server-side set limit and needs user action. */
@@ -81,6 +84,9 @@ export function classifySyncError(
       code: SYNC_GENERATION_MISMATCH,
       expectedGeneration: parseExpectedGeneration(message),
     };
+  }
+  if (message.includes(INVALID_SYNC_CLOCK)) {
+    return { kind: "clock-invalid", code: INVALID_SYNC_CLOCK };
   }
   if (message.includes(INSTALLED_SOURCE_SET_LIMIT_EXCEEDED)) {
     return {

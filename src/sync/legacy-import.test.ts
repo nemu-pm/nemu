@@ -7,12 +7,43 @@ import {
 } from "./legacy-import";
 
 describe("legacy account import", () => {
-  test("derives deterministic bounded clocks without consulting wall time", () => {
+  test("derives stable normal clocks and clamps corrupt future clocks", () => {
     expect(legacyImportTimestamp(10.9)).toBe(11);
     expect(legacyImportTimestamp(Number.NaN)).toBe(1);
-    expect(legacyImportTimestamp(Number.MAX_SAFE_INTEGER)).toBe(
-      Number.MAX_SAFE_INTEGER,
+    expect(legacyImportTimestamp(Number.MAX_SAFE_INTEGER, 1_000)).toBe(1);
+    expect(legacyImportTimestamp(1_001, 1_000)).toBe(1);
+  });
+
+  test("bounds legacy creation and read-event clocks as well as LWW clocks", () => {
+    const updatedAt = legacyImportTimestamp(Number.MAX_SAFE_INTEGER, 1_000);
+    const library = convertLegacyLibraryEntry(
+      {
+        id: "corrupt-library",
+        addedAt: Number.MAX_SAFE_INTEGER,
+        metadata: { title: "Title" },
+        sources: [{ registryId: "r", sourceId: "s", mangaId: "m" }],
+      },
+      "corrupt-library",
+      updatedAt,
     );
+    const chapter = convertLegacyHistoryEntry(
+      {
+        registryId: "r",
+        sourceId: "s",
+        mangaId: "m",
+        chapterId: "c",
+        progress: 1,
+        total: 10,
+        completed: false,
+        dateRead: Number.MAX_SAFE_INTEGER,
+      },
+      "corrupt-library",
+      updatedAt,
+    );
+
+    expect(library.item.createdAt).toBe(updatedAt - 1);
+    expect(library.links[0]?.createdAt).toBe(updatedAt - 1);
+    expect(chapter.lastReadAt).toBe(updatedAt - 1);
   });
 
   test("preserves every structured source and source acknowledgement", () => {

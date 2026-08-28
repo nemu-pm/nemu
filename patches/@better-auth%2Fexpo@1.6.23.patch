@@ -1,7 +1,7 @@
 diff --git a/dist/client.js b/dist/client.js
 --- a/dist/client.js
 +++ b/dist/client.js
-@@ -196,6 +196,6 @@ function normalizeCookieName(name) {
+@@ -197,6 +197,6 @@ function normalizeCookieName(name) {
  }
  /**
 -* Max characters written per `setItem`. Native secure stores silently reject
@@ -9,7 +9,7 @@ diff --git a/dist/client.js b/dist/client.js
  * oversized writes (iOS Keychain refuses values above ~2KB), losing the cookie,
  * so a larger value is split across keys here. Mirrors the server's
  * `chunkCookie`/`joinChunks` in `session-store.ts`; keep the two in sync.
-@@ -204,5 +204,25 @@ setupExpoOnlineManager();
+@@ -205,5 +205,25 @@ function normalizeCookieName(name) {
  */
  const STORAGE_VALUE_LIMIT = 1800;
 +const STORAGE_VALUE_ENCODER = new TextEncoder();

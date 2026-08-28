@@ -10,18 +10,20 @@ import {
   isCoreSettingVisible,
   mergeCoreSettingValues,
 } from "@nemu/core";
+import { sanitizeSettingsSchema } from "./sanitize";
+import { sanitizeSourceSettingValues } from "./values";
 
 /**
  * Extract default values from a settings schema
  * Recursively processes groups and pages
  */
 export function extractDefaults(settings: Setting[]): Record<string, unknown> {
-  return extractCoreSettingDefaults(settings);
+  return extractCoreSettingDefaults(sanitizeSettingsSchema(settings));
 }
 
 /**
  * Check if a setting should be visible based on conditional requirements
- * 
+ *
  * @param setting - The setting to check
  * @param values - Current settings values
  * @param features - Available feature flags (optional)
@@ -29,7 +31,7 @@ export function extractDefaults(settings: Setting[]): Record<string, unknown> {
 export function isSettingVisible(
   setting: Setting,
   values: Record<string, unknown>,
-  features: FeatureFlags = {}
+  features: FeatureFlags = {},
 ): boolean {
   return isCoreSettingVisible(setting, values, features);
 }
@@ -40,9 +42,12 @@ export function isSettingVisible(
  */
 export function mergeWithDefaults(
   schema: Setting[],
-  userValues: Record<string, unknown> = {}
+  userValues: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  return mergeCoreSettingValues(schema, userValues);
+  return mergeCoreSettingValues(
+    sanitizeSettingsSchema(schema),
+    sanitizeSourceSettingValues(userValues),
+  );
 }
 
 /**
@@ -52,11 +57,15 @@ export function mergeWithDefaults(
 export function validateRequired(
   _schema: Setting[],
   values: Record<string, unknown>,
-  requiredKeys: string[]
+  requiredKeys: string[],
 ): string[] {
   const missing: string[] = [];
   for (const key of requiredKeys) {
-    if (values[key] === undefined || values[key] === null || values[key] === "") {
+    if (
+      values[key] === undefined ||
+      values[key] === null ||
+      values[key] === ""
+    ) {
       missing.push(key);
     }
   }
@@ -67,5 +76,5 @@ export function validateRequired(
  * Get all setting keys from a schema (flattened)
  */
 export function getAllKeys(settings: Setting[]): string[] {
-  return getCoreSettingKeys(settings);
+  return getCoreSettingKeys(sanitizeSettingsSchema(settings));
 }

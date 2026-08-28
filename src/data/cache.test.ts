@@ -12,6 +12,10 @@ import {
   type CacheStoreMaintenance,
 } from "./cache";
 import { IndexedDBUserDataStore } from "./indexeddb";
+import {
+  ProfileWriteFence,
+  StaleProfileWriteError,
+} from "./profile-write-fence";
 
 class MemoryCacheStore implements CacheStore, CacheStoreMaintenance {
   readonly values = new Map<string, unknown>();
@@ -40,7 +44,9 @@ class MemoryCacheStore implements CacheStore, CacheStoreMaintenance {
     this.values.clear();
   }
 
-  async deleteMatchingKeys(predicate: (key: string) => boolean): Promise<number> {
+  async deleteMatchingKeys(
+    predicate: (key: string) => boolean,
+  ): Promise<number> {
     let deleted = 0;
     for (const key of [...this.values.keys()]) {
       if (predicate(key)) {
@@ -70,14 +76,19 @@ describe("ProfileScopedCacheStore", () => {
   test("keeps late writes from an old runtime in its original profile", async () => {
     const base = new MemoryCacheStore();
     const oldRuntimeCache = new ProfileScopedCacheStore(base, "user:account-a");
-    const activeRuntimeCache = new ProfileScopedCacheStore(base, "user:account-b");
+    const activeRuntimeCache = new ProfileScopedCacheStore(
+      base,
+      "user:account-b",
+    );
     const mangaKey = CacheKeys.manga("registry", "private-source", "manga");
 
     await activeRuntimeCache.setJson(mangaKey, { title: "Account B manga" });
     // This represents a request started by A resolving after B became active.
     await oldRuntimeCache.setJson(mangaKey, { title: "Late account A manga" });
 
-    expect(await activeRuntimeCache.getJson<{ title: string }>(mangaKey)).toEqual({
+    expect(
+      await activeRuntimeCache.getJson<{ title: string }>(mangaKey),
+    ).toEqual({
       title: "Account B manga",
     });
     expect(await oldRuntimeCache.getJson<{ title: string }>(mangaKey)).toEqual({
@@ -85,43 +96,95 @@ describe("ProfileScopedCacheStore", () => {
     });
   });
 
-  test("shares only account-independent AIX package artifacts", async () => {
+  test("isolates executable AIX packages when profile registry IDs collide", async () => {
     const base = new MemoryCacheStore();
     const accountA = new ProfileScopedCacheStore(base, "user:account-a");
     const accountB = new ProfileScopedCacheStore(base, "user:account-b");
     const packageKey = CacheKeys.aix("registry", "source");
-    const bytes = new Uint8Array([1, 2, 3]).buffer;
+    const accountABytes = new Uint8Array([1, 2, 3]).buffer;
+    const accountBBytes = new Uint8Array([4, 5, 6]).buffer;
 
-    await accountA.set(packageKey, bytes);
+    await accountA.set(packageKey, accountABytes);
+    await accountB.set(packageKey, accountBBytes);
 
-    expect(await accountB.get(packageKey)).toEqual(bytes);
-    expect([...base.values.keys()]).toEqual([packageKey]);
+    expect(await accountA.get(packageKey)).toEqual(accountABytes);
+    expect(await accountB.get(packageKey)).toEqual(accountBBytes);
+    expect([...base.values.keys()].sort()).toEqual([
+      `${profileCacheKeyPrefix("user:account-a")}${packageKey}`,
+      `${profileCacheKeyPrefix("user:account-b")}${packageKey}`,
+    ]);
+  });
+
+  test("does not let a retired source runtime recreate sensitive cache data", async () => {
+    const base = new MemoryCacheStore();
+    const profileId = `user:retired-cache-${Math.random()}`;
+    const staleRuntimeCache = new ProfileScopedCacheStore(base, profileId);
+    const key = CacheKeys.image("https://private.invalid/page.jpg");
+
+    await staleRuntimeCache.setJson(key, { secret: "before-clear" });
+    await new ProfileWriteFence(profileId).retire(async () => {
+      await deleteProfileCacheEntries(profileId, base);
+    });
+
+    expect(
+      await staleRuntimeCache.getJson<{ secret: string }>(key),
+    ).toBeNull();
+    await expect(
+      staleRuntimeCache.setJson(key, { secret: "must-not-return" }),
+    ).rejects.toBeInstanceOf(StaleProfileWriteError);
+    expect(
+      await staleRuntimeCache.getJson<{ secret: string }>(key),
+    ).toBeNull();
+
+    const freshRuntimeCache = new ProfileScopedCacheStore(base, profileId);
+    await expect(
+      freshRuntimeCache.setJson(key, { secret: "new-lifetime" }),
+    ).resolves.toBeUndefined();
+    expect(
+      await freshRuntimeCache.getJson<{ secret: string }>(key),
+    ).toEqual({
+      secret: "new-lifetime",
+    });
   });
 });
 
 describe("profileCacheKeyPrefix", () => {
   test("separates the anonymous profile from owned ones", () => {
     expect(profileCacheKeyPrefix(undefined)).toBe("profile-cache:anonymous:");
-    expect(profileCacheKeyPrefix("user:abc")).toBe("profile-cache:owned:user%3Aabc:");
+    expect(profileCacheKeyPrefix("user:abc")).toBe(
+      "profile-cache:owned:user%3Aabc:",
+    );
   });
 
   test("one profile's prefix never prefixes another's", () => {
     expect(
-      profileCacheKeyPrefix("user:ab").startsWith(profileCacheKeyPrefix("user:a")),
+      profileCacheKeyPrefix("user:ab").startsWith(
+        profileCacheKeyPrefix("user:a"),
+      ),
     ).toBe(false);
   });
 });
 
 describe("isLegacyUnscopedCacheKey", () => {
   test("flags pre-namespacing user content", () => {
-    expect(isLegacyUnscopedCacheKey(CacheKeys.image("https://host/page.jpg"))).toBe(true);
-    expect(isLegacyUnscopedCacheKey(CacheKeys.manga("registry", "source", "1"))).toBe(true);
+    expect(
+      isLegacyUnscopedCacheKey(CacheKeys.image("https://host/page.jpg")),
+    ).toBe(true);
+    expect(
+      isLegacyUnscopedCacheKey(CacheKeys.manga("registry", "source", "1")),
+    ).toBe(true);
   });
 
-  test("keeps shared source packages and namespaced entries", () => {
-    expect(isLegacyUnscopedCacheKey(CacheKeys.aix("registry", "source"))).toBe(false);
-    expect(isLegacyUnscopedCacheKey("profile-cache:anonymous:image:abc")).toBe(false);
-    expect(isLegacyUnscopedCacheKey("profile-cache:owned:user%3Aa:image:abc")).toBe(false);
+  test("flags legacy executable packages but keeps namespaced entries", () => {
+    expect(isLegacyUnscopedCacheKey(CacheKeys.aix("registry", "source"))).toBe(
+      true,
+    );
+    expect(isLegacyUnscopedCacheKey("profile-cache:anonymous:image:abc")).toBe(
+      false,
+    );
+    expect(
+      isLegacyUnscopedCacheKey("profile-cache:owned:user%3Aa:image:abc"),
+    ).toBe(false);
   });
 });
 
@@ -140,11 +203,10 @@ describe("deleteProfileCacheEntries", () => {
     await accountB.set(imageKey, bytes(3));
     await anonymous.set(imageKey, bytes(4));
 
-    expect(await deleteProfileCacheEntries("user:account-a", base)).toBe(1);
+    expect(await deleteProfileCacheEntries("user:account-a", base)).toBe(2);
 
     expect(await accountA.get(imageKey)).toBeNull();
-    // Account-independent source packages survive an account removal.
-    expect(await accountA.get(packageKey)).toEqual(bytes(2));
+    expect(await accountA.get(packageKey)).toBeNull();
     expect(await accountB.get(imageKey)).toEqual(bytes(3));
     expect(await anonymous.get(imageKey)).toEqual(bytes(4));
   });
@@ -180,11 +242,11 @@ describe("sweepLegacyCacheEntries", () => {
     await base.set(packageKey, bytes(3));
     await profile.set(legacyImage, bytes(4));
 
-    expect(await sweepLegacyCacheEntries(base)).toBe(2);
+    expect(await sweepLegacyCacheEntries(base)).toBe(3);
 
     expect(base.values.has(legacyImage)).toBe(false);
     expect(base.values.has(legacyManga)).toBe(false);
-    expect(base.values.has(packageKey)).toBe(true);
+    expect(base.values.has(packageKey)).toBe(false);
     expect(await profile.get(legacyImage)).toEqual(bytes(4));
   });
 });
@@ -222,7 +284,7 @@ describe("clearAccountData", () => {
     await new IndexedDBUserDataStore(profileId).clearAccountData();
 
     expect(await profileCache.get(imageKey)).toBeNull();
-    expect(await profileCache.get(packageKey)).toEqual(bytes(2));
+    expect(await profileCache.get(packageKey)).toBeNull();
   });
 
   test("clearing one profile leaves another profile's cache alone", async () => {

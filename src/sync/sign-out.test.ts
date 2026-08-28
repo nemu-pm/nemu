@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { IndexedDBUserDataStore } from "@/data/indexeddb";
+import type { ProfileWriteFenceLease } from "@/data/profile-write-fence";
 import { getSyncStore } from "@/stores/sync";
 import {
   authSessionIdRef,
@@ -8,6 +9,7 @@ import {
   effectiveProfileIdRef,
   isAuthenticatedRef,
   lastProfileIdRef,
+  retryPendingSignOutCleanups,
   sessionUserIdRef,
   signOut,
   updateObservedAuthSession,
@@ -18,6 +20,11 @@ import {
 } from "./subscription-gate";
 import { getImportOfferedSessionKey } from "./import-offer";
 import { getSourceSettingsStoreForProfile } from "@/stores/source-settings";
+import {
+  advancePendingSignOutCleanupToSourceSettings,
+  listPendingSignOutCleanups,
+  persistPendingSignOutCleanup,
+} from "./pending-signout-cleanup";
 
 const localStorageDescriptor = Object.getOwnPropertyDescriptor(
   globalThis,
@@ -64,6 +71,17 @@ function restoreGlobalStorage(
 }
 
 let sequence = 0;
+
+async function markersForProfile(profileId: string) {
+  return (await listPendingSignOutCleanups()).filter(
+    (marker) => marker.profileId === profileId,
+  );
+}
+
+function observeSignedOut(): void {
+  updateObservedAuthSession(false, undefined, undefined);
+  effectiveProfileIdRef.current = undefined;
+}
 
 beforeEach(() => {
   Object.defineProperty(globalThis, "localStorage", {
@@ -181,6 +199,7 @@ describe("web sign-out service", () => {
     expect(
       await localProfile.getAllLibraryItems({ includeRemoved: true }),
     ).toEqual([]);
+    expect(await markersForProfile(profileId)).toEqual([]);
     expect(getSyncSubscriptionsStopped()).toBe(false);
   });
 
@@ -331,10 +350,13 @@ describe("web sign-out service", () => {
       resumeClear = resolve;
     });
     const clearAccountData = store.clearAccountData.bind(store);
-    store.clearAccountData = async (signal?: AbortSignal) => {
+    store.clearAccountData = async (
+      signal?: AbortSignal,
+      lease?: ProfileWriteFenceLease,
+    ) => {
       markClearStarted();
       await clearCanResume;
-      return clearAccountData(signal);
+      return clearAccountData(signal, lease);
     };
 
     const signingOut = signOut(store, false, async () => undefined);
@@ -384,10 +406,13 @@ describe("web sign-out service", () => {
     });
     const clearSettings = sourceSettings.getState().clearAll;
     sourceSettings.setState({
-      clearAll: async (signal?: AbortSignal) => {
+      clearAll: async (
+        signal?: AbortSignal,
+        lease?: ProfileWriteFenceLease,
+      ) => {
         markSettingsClearStarted();
         await settingsClearCanResume;
-        return clearSettings(signal);
+        return clearSettings(signal, lease);
       },
     });
 
@@ -413,5 +438,377 @@ describe("web sign-out service", () => {
       refresh: "writable",
     });
     expect(getSyncSubscriptionsStopped()).toBe(false);
+  });
+
+  test("retries a remote-confirmed main-data clear from its durable stage-zero marker", async () => {
+    sequence += 1;
+    const userId = `signout-main-retry-${sequence}`;
+    const profileId = `user:${userId}`;
+    const store = new IndexedDBUserDataStore(profileId);
+    await store.prepareSyncGeneration(3);
+    await store.saveLibraryItem({
+      libraryItemId: "remove-on-retry",
+      metadata: { title: "Remove on retry" },
+      inLibrary: true,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    isAuthenticatedRef.current = true;
+    effectiveProfileIdRef.current = profileId;
+    sessionUserIdRef.current = userId;
+    authSessionIdRef.current = "session-before-main-failure";
+    authSessionRevisionRef.current = 1;
+
+    const clearAccountData = store.clearAccountData.bind(store);
+    let failMainClear = true;
+    store.clearAccountData = async (signal, lease) => {
+      if (failMainClear) {
+        failMainClear = false;
+        throw new Error("injected main clear failure");
+      }
+      return clearAccountData(signal, lease);
+    };
+    let remoteConfirmed = false;
+
+    await expect(
+      signOut(store, false, async () => {
+        remoteConfirmed = true;
+      }),
+    ).rejects.toThrow("injected main clear failure");
+
+    expect(remoteConfirmed).toBe(true);
+    expect(await markersForProfile(profileId)).toEqual([
+      expect.objectContaining({
+        cleanupStage: 0,
+        expectedGeneration: 3,
+      }),
+    ]);
+    expect(
+      await store.getAllLibraryItems({ includeRemoved: true }),
+    ).toHaveLength(1);
+
+    observeSignedOut();
+    const retry = await retryPendingSignOutCleanups();
+
+    expect(retry.completed).toContain(profileId);
+    expect(await markersForProfile(profileId)).toEqual([]);
+    expect(
+      await store.getAllLibraryItems({ includeRemoved: true }),
+    ).toEqual([]);
+  });
+
+  test("commits retirement and resumes at source settings after a partial clear", async () => {
+    sequence += 1;
+    const userId = `signout-source-retry-${sequence}`;
+    const profileId = `user:${userId}`;
+    const store = new IndexedDBUserDataStore(profileId);
+    await store.prepareSyncGeneration(4);
+    await store.saveLibraryItem({
+      libraryItemId: "main-clears-first",
+      metadata: { title: "Main clears first" },
+      inLibrary: true,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const sourceSettings = getSourceSettingsStoreForProfile(profileId);
+    sourceSettings.getState().setSetting("aidoku:private", "token", "secret");
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const clearSourceSettings = sourceSettings.getState().clearAll;
+    sourceSettings.setState({
+      clearAll: async () => {
+        throw new Error("injected source settings clear failure");
+      },
+    });
+    isAuthenticatedRef.current = true;
+    effectiveProfileIdRef.current = profileId;
+    sessionUserIdRef.current = userId;
+    authSessionIdRef.current = "session-before-source-failure";
+    authSessionRevisionRef.current = 1;
+
+    try {
+      await expect(
+        signOut(store, false, async () => undefined),
+      ).rejects.toThrow("injected source settings clear failure");
+    } finally {
+      sourceSettings.setState({ clearAll: clearSourceSettings });
+    }
+
+    expect(await markersForProfile(profileId)).toEqual([
+      expect.objectContaining({
+        cleanupStage: 1,
+        expectedGeneration: null,
+      }),
+    ]);
+    expect(
+      await store.getAllLibraryItems({ includeRemoved: true }),
+    ).toEqual([]);
+
+    observeSignedOut();
+    const retry = await retryPendingSignOutCleanups();
+    expect(retry.completed).toContain(profileId);
+    expect(await markersForProfile(profileId)).toEqual([]);
+
+    const freshSourceSettings = getSourceSettingsStoreForProfile(profileId);
+    await freshSourceSettings.getState().initialize();
+    expect(freshSourceSettings.getState().values.size).toBe(0);
+  });
+
+  test("same-user authentication supersedes recovery without deleting data", async () => {
+    sequence += 1;
+    const userId = `signout-retry-same-user-${sequence}`;
+    const profileId = `user:${userId}`;
+    const store = new IndexedDBUserDataStore(profileId);
+    await store.prepareSyncGeneration(2);
+    await store.saveLibraryItem({
+      libraryItemId: "same-user-survives",
+      metadata: { title: "Same user survives" },
+      inLibrary: true,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await persistPendingSignOutCleanup({
+      profileId,
+      userId,
+      keepData: false,
+      expectedGeneration: 2,
+      remoteConfirmedAt: 2_000,
+    });
+    updateObservedAuthSession(true, userId, "new-same-user-session");
+    effectiveProfileIdRef.current = profileId;
+
+    const retry = await retryPendingSignOutCleanups(userId);
+
+    expect(retry.superseded).toContain(profileId);
+    expect(
+      await store.getAllLibraryItems({ includeRemoved: true }),
+    ).toHaveLength(1);
+    expect(await markersForProfile(profileId)).toEqual([]);
+  });
+
+  test("an auth transition after retry snapshot aborts before merge or clear", async () => {
+    sequence += 1;
+    const userId = `signout-retry-auth-race-${sequence}`;
+    const profileId = `user:${userId}`;
+    const store = new IndexedDBUserDataStore(profileId);
+    await store.prepareSyncGeneration(5);
+    await store.saveLibraryItem({
+      libraryItemId: "snapshot-race-survives",
+      metadata: { title: "Snapshot race survives" },
+      inLibrary: true,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await persistPendingSignOutCleanup({
+      profileId,
+      userId,
+      keepData: true,
+      expectedGeneration: 5,
+      remoteConfirmedAt: 5_000,
+    });
+    observeSignedOut();
+
+    const exportSnapshot =
+      IndexedDBUserDataStore.prototype.exportAccountDataSnapshot;
+    IndexedDBUserDataStore.prototype.exportAccountDataSnapshot =
+      async function () {
+        const snapshot = await exportSnapshot.call(this);
+        if (this.profileId === profileId) {
+          updateObservedAuthSession(true, userId, "session-during-retry");
+          effectiveProfileIdRef.current = profileId;
+        }
+        return snapshot;
+      };
+
+    let retry;
+    try {
+      retry = await retryPendingSignOutCleanups();
+    } finally {
+      IndexedDBUserDataStore.prototype.exportAccountDataSnapshot =
+        exportSnapshot;
+    }
+
+    expect(retry.superseded).toContain(profileId);
+    expect(
+      await store.getAllLibraryItems({ includeRemoved: true }),
+    ).toHaveLength(1);
+    expect(await markersForProfile(profileId)).toEqual([]);
+  });
+
+  test("a generation mismatch cannot clear data from a newer profile lifetime", async () => {
+    sequence += 1;
+    const userId = `signout-retry-generation-${sequence}`;
+    const profileId = `user:${userId}`;
+    const store = new IndexedDBUserDataStore(profileId);
+    await store.prepareSyncGeneration(1);
+    await persistPendingSignOutCleanup({
+      profileId,
+      userId,
+      keepData: false,
+      expectedGeneration: 1,
+      remoteConfirmedAt: 1_000,
+    });
+    await store.prepareSyncGeneration(2);
+    await store.saveLibraryItem({
+      libraryItemId: "new-generation-survives",
+      metadata: { title: "New generation survives" },
+      inLibrary: true,
+      createdAt: 2,
+      updatedAt: 2,
+    });
+    observeSignedOut();
+
+    const retry = await retryPendingSignOutCleanups();
+
+    expect(retry.superseded).toContain(profileId);
+    expect(
+      await store.getAllLibraryItems({ includeRemoved: true }),
+    ).toEqual([
+      expect.objectContaining({ libraryItemId: "new-generation-survives" }),
+    ]);
+    expect(await markersForProfile(profileId)).toEqual([]);
+  });
+
+  test("a source-only marker never clears newly written main-profile data", async () => {
+    sequence += 1;
+    const userId = `signout-retry-source-only-${sequence}`;
+    const profileId = `user:${userId}`;
+    const store = new IndexedDBUserDataStore(profileId);
+    await store.prepareSyncGeneration(6);
+    const marker = await persistPendingSignOutCleanup({
+      profileId,
+      userId,
+      keepData: false,
+      expectedGeneration: 6,
+      remoteConfirmedAt: 6_000,
+    });
+    await store.clearAccountData();
+    await advancePendingSignOutCleanupToSourceSettings(marker);
+    await store.saveLibraryItem({
+      libraryItemId: "post-main-clear-survives",
+      metadata: { title: "Post-main-clear survives" },
+      inLibrary: true,
+      createdAt: 7,
+      updatedAt: 7,
+    });
+    observeSignedOut();
+
+    const retry = await retryPendingSignOutCleanups();
+
+    expect(retry.completed).toContain(profileId);
+    expect(
+      await store.getAllLibraryItems({ includeRemoved: true }),
+    ).toEqual([
+      expect.objectContaining({ libraryItemId: "post-main-clear-survives" }),
+    ]);
+  });
+
+  test("coalesces concurrent retries and clears an exact profile once", async () => {
+    sequence += 1;
+    const userId = `signout-retry-coalesced-${sequence}`;
+    const profileId = `user:${userId}`;
+    const store = new IndexedDBUserDataStore(profileId);
+    await store.prepareSyncGeneration(8);
+    await store.saveLibraryItem({
+      libraryItemId: "clear-once",
+      metadata: { title: "Clear once" },
+      inLibrary: true,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await persistPendingSignOutCleanup({
+      profileId,
+      userId,
+      keepData: false,
+      expectedGeneration: 8,
+      remoteConfirmedAt: 8_000,
+    });
+    observeSignedOut();
+
+    const clearAccountData = IndexedDBUserDataStore.prototype.clearAccountData;
+    let clearCalls = 0;
+    let markClearStarted!: () => void;
+    const clearStarted = new Promise<void>((resolve) => {
+      markClearStarted = resolve;
+    });
+    let resumeClear!: () => void;
+    const clearCanResume = new Promise<void>((resolve) => {
+      resumeClear = resolve;
+    });
+    IndexedDBUserDataStore.prototype.clearAccountData = async function (
+      signal,
+      lease,
+    ) {
+      if (this.profileId === profileId) {
+        clearCalls += 1;
+        markClearStarted();
+        await clearCanResume;
+      }
+      return clearAccountData.call(this, signal, lease);
+    };
+
+    let first!: ReturnType<typeof retryPendingSignOutCleanups>;
+    let second!: ReturnType<typeof retryPendingSignOutCleanups>;
+    try {
+      first = retryPendingSignOutCleanups();
+      await clearStarted;
+      second = retryPendingSignOutCleanups();
+      expect(second).toBe(first);
+      resumeClear();
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+      expect(secondResult).toEqual(firstResult);
+    } finally {
+      resumeClear?.();
+      IndexedDBUserDataStore.prototype.clearAccountData = clearAccountData;
+    }
+
+    expect(clearCalls).toBe(1);
+    expect(await markersForProfile(profileId)).toEqual([]);
+  });
+
+  test("cleans an old marker without touching the currently active different profile", async () => {
+    sequence += 1;
+    const oldUserId = `signout-retry-old-profile-${sequence}`;
+    const oldProfileId = `user:${oldUserId}`;
+    const newUserId = `signout-retry-current-profile-${sequence}`;
+    const newProfileId = `user:${newUserId}`;
+    const oldStore = new IndexedDBUserDataStore(oldProfileId);
+    const newStore = new IndexedDBUserDataStore(newProfileId);
+    await oldStore.prepareSyncGeneration(1);
+    await newStore.prepareSyncGeneration(9);
+    await oldStore.saveLibraryItem({
+      libraryItemId: "old-profile-clears",
+      metadata: { title: "Old profile clears" },
+      inLibrary: true,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await newStore.saveLibraryItem({
+      libraryItemId: "current-profile-survives",
+      metadata: { title: "Current profile survives" },
+      inLibrary: true,
+      createdAt: 9,
+      updatedAt: 9,
+    });
+    await persistPendingSignOutCleanup({
+      profileId: oldProfileId,
+      userId: oldUserId,
+      keepData: false,
+      expectedGeneration: 1,
+      remoteConfirmedAt: 1_000,
+    });
+    updateObservedAuthSession(true, newUserId, "current-different-session");
+    effectiveProfileIdRef.current = newProfileId;
+
+    const retry = await retryPendingSignOutCleanups(newUserId);
+
+    expect(retry.completed).toContain(oldProfileId);
+    expect(
+      await oldStore.getAllLibraryItems({ includeRemoved: true }),
+    ).toEqual([]);
+    expect(
+      await newStore.getAllLibraryItems({ includeRemoved: true }),
+    ).toEqual([
+      expect.objectContaining({ libraryItemId: "current-profile-survives" }),
+    ]);
   });
 });

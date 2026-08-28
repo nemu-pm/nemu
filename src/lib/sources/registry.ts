@@ -4,12 +4,20 @@
 import type { MangaSource } from "./types";
 import type { SourceRegistry } from "../../data/schema";
 import type { CacheStore } from "../../data/cache";
-import { AidokuUrlRegistry, AIDOKU_REGISTRIES, type InstalledSourceStore } from "./aidoku/url-registry";
-import { TachiyomiLocalRegistry, TACHIYOMI_LOCAL_REGISTRY_ID } from "./tachiyomi/local-registry";
+import {
+  AidokuUrlRegistry,
+  AIDOKU_REGISTRIES,
+  type InstalledSourceStore,
+} from "./aidoku/url-registry";
+import {
+  TachiyomiLocalRegistry,
+  TACHIYOMI_LOCAL_REGISTRY_ID,
+} from "./tachiyomi/local-registry";
 import {
   getSourceSettingsStore,
   type SourceSettingsStore,
 } from "@/stores/source-settings";
+import { safeErrorCategory } from "@/lib/error-diagnostic";
 
 // Re-export for convenience
 export type { InstalledSourceStore };
@@ -32,7 +40,10 @@ export interface RegistrySourceInfo {
 export interface SourceRegistryProvider {
   readonly info: SourceRegistry;
   listSources(): Promise<RegistrySourceInfo[]>;
-  installSource(sourceId: string): Promise<void>;
+  installSource(
+    sourceId: string,
+    expectedGeneration?: number | null,
+  ): Promise<void>;
   unloadSource(sourceId: string): void;
   getSource(sourceId: string): Promise<MangaSource | null>;
   isInstalled(sourceId: string): Promise<boolean>;
@@ -80,7 +91,7 @@ export class RegistryManager {
       );
       this.registries.set(def.id, registry);
     }
-    
+
     // Add Tachiyomi local registry (only in development mode with path configured)
     if (import.meta.env.DEV && import.meta.env.VITE_TACHIYOMI_LOCAL_PATH) {
       this.registries.set(
@@ -89,7 +100,7 @@ export class RegistryManager {
           this.installedSourceStore,
           this.cacheStore,
           this.sourceSettingsStore,
-        )
+        ),
       );
     }
   }
@@ -111,7 +122,7 @@ export class RegistryManager {
       );
       this.registries.set(def.id, registry);
     }
-    
+
     // Update Tachiyomi local registry if it exists
     if (import.meta.env.DEV && import.meta.env.VITE_TACHIYOMI_LOCAL_PATH) {
       const localRegistry = this.registries.get(TACHIYOMI_LOCAL_REGISTRY_ID);
@@ -136,7 +147,7 @@ export class RegistryManager {
             this.installedSourceStore,
             this.cacheStore,
             this.sourceSettingsStore,
-          )
+          ),
         );
       }
     }
@@ -167,7 +178,7 @@ export class RegistryManager {
           this.installedSourceStore,
           this.cacheStore,
           this.sourceSettingsStore,
-        )
+        ),
       );
     }
   }
@@ -192,7 +203,8 @@ export class RegistryManager {
    * Get a source by ID, searching all registries
    */
   async getSource(sourceId: string): Promise<MangaSource | null> {
-    const installed = await this.installedSourceStore.getInstalledSource(sourceId);
+    const installed =
+      await this.installedSourceStore.getInstalledSource(sourceId);
 
     if (installed) {
       const registry = this.registries.get(installed.registryId);
@@ -227,7 +239,10 @@ export class RegistryManager {
           results.push({ ...source, registryId });
         }
       } catch (e) {
-        console.error(`Failed to list sources from ${registryId}:`, e);
+        console.error(
+          "Failed to list sources from a registry:",
+          safeErrorCategory(e),
+        );
       }
     }
 

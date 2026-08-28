@@ -83,6 +83,8 @@ export interface MultiSelectSetting extends BaseSetting {
   titles?: string[];
   /** Default selected values */
   default?: string[];
+  /** Restrict the array-backed selection to one item (Aidoku legacy mode). */
+  single?: boolean;
 }
 
 /**

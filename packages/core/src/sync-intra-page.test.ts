@@ -60,12 +60,16 @@ describe("content-bound chapter intra-page progress", () => {
       intraPageProgress: 0.625,
       intraPageContentIdentity: IDENTITY_A,
     });
-    expect(toCloudHistorySaveInput(canonical)).toMatchObject({
+    expect(
+      toCloudHistorySaveInput(canonical, { includeIntraPageState: true }),
+    ).toMatchObject({
       intraPageProgress: 0.625,
       intraPageContentIdentity: IDENTITY_A,
     });
     expect(
-      mapCloudChapterProgress([toCloudHistorySaveInput(canonical)])[0],
+      mapCloudChapterProgress([
+        toCloudHistorySaveInput(canonical, { includeIntraPageState: true }),
+      ])[0],
     ).toMatchObject({
       intraPageProgress: 0.625,
       intraPageContentIdentity: IDENTITY_A,
@@ -75,9 +79,9 @@ describe("content-bound chapter intra-page progress", () => {
       intraPageProgress: 0.625,
       intraPageContentIdentity: "not-a-content-digest",
     });
-    expect(toCloudHistorySaveInput(malformed)).not.toHaveProperty(
-      "intraPageProgress",
-    );
+    expect(
+      toCloudHistorySaveInput(malformed, { includeIntraPageState: true }),
+    ).not.toHaveProperty("intraPageProgress");
     expect(mergeChapterProgressForSave(undefined, malformed)).not.toHaveProperty(
       "intraPageContentIdentity",
     );

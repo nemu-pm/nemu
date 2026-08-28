@@ -4,17 +4,27 @@
  * Schema is populated when source is created (on first use).
  * reloadSource is called when source selector changes.
  */
-import { useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { parseSourceKey } from "@/data/keys";
 import { useSourceSettingsStoreApi, useStores } from "@/data/context";
 import { SettingsDialogWithPages } from "@/components/ui/settings-dialog";
 import {
+  formatSourceSettingsError,
+  hasRequiredSourceOAuthProxyPolicy,
+  navigateSourceLoginPopup,
+  normalizeSourceLoginHttpsUrl,
+  openSourceLoginPopup,
+  parseSourceOAuthPendingRequest,
   resolveSourceOAuthLogin,
+  resolveSafeSourceExternalUrl,
+  serializeSourceOAuthPendingRequest,
+  SOURCE_OAUTH_CALLBACK_MAX_BYTES,
   submitSourceBasicLogin,
   submitSourceWebLogin,
 } from "@/components/source-settings-auth";
+import { resolveSettingsPagePath } from "@/components/source-settings-navigation";
 import {
   ResponsiveDialogNested,
   ResponsiveDialogContent,
@@ -30,19 +40,28 @@ import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowReloadHorizontalIcon } from "@hugeicons/core-free-icons";
-import type { Setting, PageSetting, ButtonSetting, LinkSetting, LoginSetting, SettingsRendererProps } from "@/lib/settings";
+import type {
+  Setting,
+  PageSetting,
+  ButtonSetting,
+  LinkSetting,
+  LoginSetting,
+  SettingsRendererProps,
+} from "@/lib/settings";
 import { extractDefaults, SettingsRenderer } from "@/lib/settings";
 import { SOURCE_SELECTION_KEY } from "@/lib/sources/tachiyomi/adapter";
 import type { MangaSource } from "@/lib/sources/types";
 import { hasAuthenticationHandlers } from "@/lib/sources/types";
-import { proxyUrl } from "@/config";
-import { agentFetch, hasAgent } from "@/lib/agent";
+import { oauthProxyV2Url, SERVICE_URL } from "@/config";
+import { safeErrorCategory } from "@/lib/error-diagnostic";
 import {
   LOGIN_CODE_VERIFIER_SUFFIX,
+  LOGIN_OAUTH_REQUEST_SUFFIX,
   LOGIN_OAUTH_STATE_SUFFIX,
   detectCompressionFormats,
   looksLikeTokenExchangeText,
   resolveLoginActionUrl,
+  withOAuthState,
   withPkce,
   type SourceOauthCompressionFormat,
 } from "@nemu/core";
@@ -53,6 +72,8 @@ const LOGIN_COOKIE_KEYS_SUFFIX = ".keys";
 const LOGIN_COOKIE_VALUES_SUFFIX = ".values";
 const LOGIN_LOCAL_STORAGE_PREFIX = ".ls.";
 const SETTING_EFFECT_DEBOUNCE_MS = 500;
+const SOURCE_OAUTH_TOKEN_MAX_BYTES = 64 * 1024;
+const SOURCE_OAUTH_PROXY_RESPONSE_MAX_BYTES = 128 * 1024;
 
 interface SourceSettingsProps {
   open: boolean;
@@ -63,11 +84,6 @@ interface SourceSettingsProps {
   sourceVersion?: number;
   /** Called when source needs to be reloaded (e.g., source selector change) */
   reloadSource?: () => Promise<void>;
-}
-
-interface PageStackItem {
-  title: string;
-  content: ReactNode;
 }
 
 interface BasicLoginState {
@@ -82,6 +98,7 @@ interface WebLoginState {
   setting: LoginSetting;
   cookiesText: string;
   localStorageText: string;
+  opening: boolean;
   submitting: boolean;
   error: string | null;
 }
@@ -89,6 +106,7 @@ interface WebLoginState {
 interface OAuthLoginState {
   setting: LoginSetting;
   callbackValue: string;
+  opening: boolean;
   submitting: boolean;
   error: string | null;
 }
@@ -108,8 +126,9 @@ export function SourceSettings({
   const store = useSourceSettingsStoreApi();
 
   const parsedSourceKey = useMemo(
-    () => (sourceKey ? parseSourceKey(sourceKey) : { registryId: "", sourceId: "" }),
-    [sourceKey]
+    () =>
+      sourceKey ? parseSourceKey(sourceKey) : { registryId: "", sourceId: "" },
+    [sourceKey],
   );
 
   const schema = store((s) => s.schemas.get(sourceKey) ?? null);
@@ -123,24 +142,29 @@ export function SourceSettings({
     return { ...defaults, ...userValues };
   }, [schema, userValues]);
 
-  const [pageStack, setPageStack] = useState<PageStackItem[]>([]);
+  const [pagePath, setPagePath] = useState<string[]>([]);
   const [basicLogin, setBasicLogin] = useState<BasicLoginState | null>(null);
   const [webLogin, setWebLogin] = useState<WebLoginState | null>(null);
   const [oauthLogin, setOAuthLogin] = useState<OAuthLoginState | null>(null);
 
   const sourceRef = useRef<MangaSource | null>(null);
-  const settingEffectTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const settingEffectTimersRef = useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
   const reloadingRef = useRef(false);
+  const loginOpeningRef = useRef(false);
 
   useEffect(() => {
     sourceRef.current = null;
+    loginOpeningRef.current = false;
+    setPagePath([]);
   }, [sourceKey]);
 
   useEffect(() => {
     return () => {
       clearPendingSettingEffects();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const clearPendingSettingEffects = useCallback(() => {
@@ -153,106 +177,114 @@ export function SourceSettings({
   const getLoadedSource = useCallback(async (): Promise<MangaSource | null> => {
     if (!parsedSourceKey.registryId || !parsedSourceKey.sourceId) return null;
     if (sourceRef.current) return sourceRef.current;
-    const source = await getSource(parsedSourceKey.registryId, parsedSourceKey.sourceId);
+    const source = await getSource(
+      parsedSourceKey.registryId,
+      parsedSourceKey.sourceId,
+    );
     sourceRef.current = source;
     return source;
   }, [getSource, parsedSourceKey.registryId, parsedSourceKey.sourceId]);
 
-  const scheduleSettingEffects = useCallback(async (setting: Setting, value: unknown) => {
-    if (!("key" in setting) || !setting.key) return;
-    const settingKey = setting.key;
+  const scheduleSettingEffects = useCallback(
+    async (setting: Setting, value: unknown) => {
+      if (!("key" in setting) || !setting.key) return;
+      const settingKey = setting.key;
 
-    const existingTimer = settingEffectTimersRef.current.get(settingKey);
-    if (existingTimer) clearTimeout(existingTimer);
+      const existingTimer = settingEffectTimersRef.current.get(settingKey);
+      if (existingTimer) clearTimeout(existingTimer);
 
-    const timer = setTimeout(async () => {
-      settingEffectTimersRef.current.delete(settingKey);
+      const timer = setTimeout(async () => {
+        settingEffectTimersRef.current.delete(settingKey);
 
-      try {
-        if ("notification" in setting && setting.notification) {
-          const source = await getLoadedSource();
-          if (source && hasAuthenticationHandlers(source)) {
-            await source.handleNotification(setting.notification);
+        try {
+          if ("notification" in setting && setting.notification) {
+            const source = await getLoadedSource();
+            if (source && hasAuthenticationHandlers(source)) {
+              await source.handleNotification(setting.notification);
+            }
           }
+        } catch (error) {
+          console.error(
+            "[source-settings] Failed to handle setting notification:",
+            safeErrorCategory(error),
+          );
+          toast.error(t("sourceSettings.notificationFailed"));
         }
-      } catch (error) {
-        console.error("[source-settings] Failed to handle setting notification:", error);
-        toast.error(t("sourceSettings.notificationFailed"));
-      }
 
-      const notificationName = ("notification" in setting && setting.notification) || ("key" in setting ? setting.key : null);
-      if (notificationName) {
-        window.dispatchEvent(
-          new CustomEvent(notificationName, {
-            detail: value,
-          })
-        );
-      }
+        const notificationName =
+          ("notification" in setting && setting.notification) ||
+          ("key" in setting ? setting.key : null);
+        if (notificationName) {
+          window.dispatchEvent(
+            new CustomEvent(notificationName, {
+              detail: value,
+            }),
+          );
+        }
 
-      if ("refreshes" in setting && setting.refreshes?.length) {
-        window.dispatchEvent(
-          new CustomEvent("nemu:source-settings-refresh", {
-            detail: {
-              sourceKey,
-              key: settingKey,
-              refreshes: setting.refreshes,
-              value,
-            },
-          })
-        );
-      }
-    }, SETTING_EFFECT_DEBOUNCE_MS);
+        if ("refreshes" in setting && setting.refreshes?.length) {
+          window.dispatchEvent(
+            new CustomEvent("nemu:source-settings-refresh", {
+              detail: {
+                sourceKey,
+                key: settingKey,
+                refreshes: setting.refreshes,
+                value,
+              },
+            }),
+          );
+        }
+      }, SETTING_EFFECT_DEBOUNCE_MS);
 
-    settingEffectTimersRef.current.set(settingKey, timer);
-  }, [getLoadedSource, sourceKey, t]);
+      settingEffectTimersRef.current.set(settingKey, timer);
+    },
+    [getLoadedSource, sourceKey, t],
+  );
 
-  const setPrimarySettingValue = useCallback((setting: Setting, value: unknown) => {
-    if (!("key" in setting) || !setting.key) return;
-    setSetting(sourceKey, setting.key, value);
-    void scheduleSettingEffects(setting, value);
-  }, [scheduleSettingEffects, setSetting, sourceKey]);
+  const setPrimarySettingValue = useCallback(
+    (setting: Setting, value: unknown) => {
+      if (!("key" in setting) || !setting.key) return;
+      setSetting(sourceKey, setting.key, value);
+      void scheduleSettingEffects(setting, value);
+    },
+    [scheduleSettingEffects, setSetting, sourceKey],
+  );
 
-  const deletePrimarySettingValue = useCallback((setting: Setting) => {
-    if (!("key" in setting) || !setting.key) return;
-    deleteSetting(sourceKey, setting.key);
-    void scheduleSettingEffects(setting, undefined);
-  }, [deleteSetting, scheduleSettingEffects, sourceKey]);
+  const deletePrimarySettingValue = useCallback(
+    (setting: Setting) => {
+      if (!("key" in setting) || !setting.key) return;
+      deleteSetting(sourceKey, setting.key);
+      void scheduleSettingEffects(setting, undefined);
+    },
+    [deleteSetting, scheduleSettingEffects, sourceKey],
+  );
 
-  const pushPage = useCallback((page: PageSetting) => {
-    setPageStack((prev) => [...prev, {
-      title: page.title,
-      content: (
-        <SettingsRenderer
-          schema={page.items}
-          values={values}
-          onChange={(key, value) => void updateSetting(key, value)}
-          onPushPage={pushPage}
-          renderCustomSetting={renderCustomSetting}
-        />
-      ),
-    }]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [values]);
-
-  const popPage = useCallback(() => {
-    setPageStack((prev) => prev.slice(0, -1));
+  const pushRootPage = useCallback((page: PageSetting) => {
+    setPagePath([page.key]);
   }, []);
 
-  const handleOpenChange = useCallback((nextOpen: boolean) => {
-    if (!nextOpen) {
-      clearPendingSettingEffects();
-      setPageStack([]);
-      setBasicLogin(null);
-      setWebLogin(null);
-      setOAuthLogin(null);
-    }
-    onOpenChange(nextOpen);
-  }, [clearPendingSettingEffects, onOpenChange]);
+  const popPage = useCallback(() => {
+    setPagePath((prev) => prev.slice(0, -1));
+  }, []);
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) {
+        clearPendingSettingEffects();
+        setPagePath([]);
+        setBasicLogin(null);
+        setWebLogin(null);
+        setOAuthLogin(null);
+      }
+      onOpenChange(nextOpen);
+    },
+    [clearPendingSettingEffects, onOpenChange],
+  );
 
   const handleReset = useCallback(() => {
     clearPendingSettingEffects();
     resetSettings(sourceKey);
-    setPageStack([]);
+    setPagePath([]);
     setBasicLogin(null);
     setWebLogin(null);
     setOAuthLogin(null);
@@ -273,35 +305,51 @@ export function SourceSettings({
     await promise;
   }, [reloadSource, t]);
 
-  const updateSetting = useCallback(async (key: string, value: unknown) => {
-    setSetting(sourceKey, key, value);
+  const updateSetting = useCallback(
+    async (key: string, value: unknown) => {
+      setSetting(sourceKey, key, value);
 
-    const setting = schema ? findSettingByKey(schema, key) : null;
-    if (setting && setting.type !== "button" && setting.type !== "link" && setting.type !== "login") {
-      await scheduleSettingEffects(setting, value);
-    }
+      const setting = schema ? findSettingByKey(schema, key) : null;
+      if (
+        setting &&
+        setting.type !== "button" &&
+        setting.type !== "link" &&
+        setting.type !== "login"
+      ) {
+        await scheduleSettingEffects(setting, value);
+      }
 
-    if (key === SOURCE_SELECTION_KEY) {
-      await reloadWithToast();
-    }
-  }, [reloadWithToast, scheduleSettingEffects, schema, setSetting, sourceKey]);
+      if (key === SOURCE_SELECTION_KEY) {
+        await reloadWithToast();
+      }
+    },
+    [reloadWithToast, scheduleSettingEffects, schema, setSetting, sourceKey],
+  );
 
-  const handleButtonSetting = useCallback(async (setting: ButtonSetting) => {
-    const confirmText = [setting.confirmTitle, setting.confirmMessage].filter(Boolean).join("\n\n");
-    if (confirmText && !window.confirm(confirmText)) {
-      return;
-    }
-    await scheduleSettingEffects(setting, undefined);
-  }, [scheduleSettingEffects]);
+  const handleButtonSetting = useCallback(
+    async (setting: ButtonSetting) => {
+      const confirmText = [setting.confirmTitle, setting.confirmMessage]
+        .filter(Boolean)
+        .join("\n\n");
+      if (confirmText && !window.confirm(confirmText)) {
+        return;
+      }
+      await scheduleSettingEffects(setting, undefined);
+    },
+    [scheduleSettingEffects],
+  );
 
-  const handleLinkSetting = useCallback((setting: LinkSetting, currentValues: Record<string, unknown>) => {
-    const url = resolveActionUrl(setting, currentValues);
-    if (!url) {
-      toast.error(t("sourceSettings.invalidLink"));
-      return;
-    }
-    window.open(url, "_blank", "noopener,noreferrer");
-  }, [t]);
+  const handleLinkSetting = useCallback(
+    (setting: LinkSetting, currentValues: Record<string, unknown>) => {
+      const url = resolveSafeSourceExternalUrl(setting, currentValues);
+      if (!url) {
+        toast.error(t("sourceSettings.invalidLink"));
+        return;
+      }
+      window.open(url, "_blank", "noopener,noreferrer");
+    },
+    [t],
+  );
 
   /**
    * Drop the single-use PKCE verifier and OAuth state for a login setting.
@@ -309,78 +357,111 @@ export function SourceSettings({
    * token exchange, and both are persisted, so they must not linger after the
    * flow ends (success or logout).
    */
-  const clearPendingOAuthRequest = useCallback((setting: LoginSetting) => {
-    deleteSetting(sourceKey, `${setting.key}${LOGIN_CODE_VERIFIER_SUFFIX}`);
-    deleteSetting(sourceKey, `${setting.key}${LOGIN_OAUTH_STATE_SUFFIX}`);
-  }, [deleteSetting, sourceKey]);
+  const clearPendingOAuthRequest = useCallback(
+    (setting: LoginSetting) => {
+      // The atomic envelope is the authorization-attempt commit marker. Retire
+      // it first so a crash during cleanup always fails closed.
+      deleteSetting(sourceKey, `${setting.key}${LOGIN_OAUTH_REQUEST_SUFFIX}`);
+      deleteSetting(sourceKey, `${setting.key}${LOGIN_CODE_VERIFIER_SUFFIX}`);
+      deleteSetting(sourceKey, `${setting.key}${LOGIN_OAUTH_STATE_SUFFIX}`);
+    },
+    [deleteSetting, sourceKey],
+  );
 
-  const handleLogout = useCallback((setting: LoginSetting) => {
-    if (!window.confirm(t("sourceSettings.logoutConfirm"))) {
-      return;
-    }
+  const handleLogout = useCallback(
+    (setting: LoginSetting) => {
+      if (!window.confirm(t("sourceSettings.logoutConfirm"))) {
+        return;
+      }
 
-    const baseKey = setting.key;
-    deleteSetting(sourceKey, `${baseKey}${LOGIN_USERNAME_SUFFIX}`);
-    deleteSetting(sourceKey, `${baseKey}${LOGIN_PASSWORD_SUFFIX}`);
-    deleteSetting(sourceKey, `${baseKey}${LOGIN_COOKIE_KEYS_SUFFIX}`);
-    deleteSetting(sourceKey, `${baseKey}${LOGIN_COOKIE_VALUES_SUFFIX}`);
-    clearPendingOAuthRequest(setting);
+      const baseKey = setting.key;
+      deleteSetting(sourceKey, `${baseKey}${LOGIN_USERNAME_SUFFIX}`);
+      deleteSetting(sourceKey, `${baseKey}${LOGIN_PASSWORD_SUFFIX}`);
+      deleteSetting(sourceKey, `${baseKey}${LOGIN_COOKIE_KEYS_SUFFIX}`);
+      deleteSetting(sourceKey, `${baseKey}${LOGIN_COOKIE_VALUES_SUFFIX}`);
+      clearPendingOAuthRequest(setting);
 
-    for (const storageKey of setting.localStorageKeys ?? []) {
-      deleteSetting(sourceKey, `${baseKey}${LOGIN_LOCAL_STORAGE_PREFIX}${storageKey}`);
-    }
+      for (const storageKey of setting.localStorageKeys ?? []) {
+        deleteSetting(
+          sourceKey,
+          `${baseKey}${LOGIN_LOCAL_STORAGE_PREFIX}${storageKey}`,
+        );
+      }
 
-    deletePrimarySettingValue(setting);
-  }, [clearPendingOAuthRequest, deletePrimarySettingValue, deleteSetting, sourceKey, t]);
+      deletePrimarySettingValue(setting);
+    },
+    [
+      clearPendingOAuthRequest,
+      deletePrimarySettingValue,
+      deleteSetting,
+      sourceKey,
+      t,
+    ],
+  );
 
-  const openBasicLogin = useCallback((setting: LoginSetting) => {
-    setBasicLogin({
-      setting,
-      username: String(values[`${setting.key}${LOGIN_USERNAME_SUFFIX}`] ?? ""),
-      password: String(values[`${setting.key}${LOGIN_PASSWORD_SUFFIX}`] ?? ""),
-      submitting: false,
-      error: null,
-    });
-  }, [values]);
+  const openBasicLogin = useCallback(
+    (setting: LoginSetting) => {
+      setBasicLogin({
+        setting,
+        username: String(
+          values[`${setting.key}${LOGIN_USERNAME_SUFFIX}`] ?? "",
+        ),
+        password: String(
+          values[`${setting.key}${LOGIN_PASSWORD_SUFFIX}`] ?? "",
+        ),
+        submitting: false,
+        error: null,
+      });
+    },
+    [values],
+  );
 
-  const openWebLogin = useCallback((setting: LoginSetting) => {
-    setWebLogin({
-      setting,
-      cookiesText: serializeStoredCookies(values, setting.key),
-      localStorageText: serializeStoredLocalStorage(values, setting),
-      submitting: false,
-      error: null,
-    });
-  }, [values]);
+  const openWebLogin = useCallback(
+    (setting: LoginSetting) => {
+      setWebLogin({
+        setting,
+        cookiesText: serializeStoredCookies(values, setting.key),
+        localStorageText: serializeStoredLocalStorage(values, setting),
+        opening: false,
+        submitting: false,
+        error: null,
+      });
+    },
+    [values],
+  );
 
   const openOAuthLogin = useCallback((setting: LoginSetting) => {
     setOAuthLogin({
       setting,
       callbackValue: "",
+      opening: false,
       submitting: false,
       error: null,
     });
   }, []);
 
-  const handleLoginSetting = useCallback((setting: LoginSetting, currentValues: Record<string, unknown>) => {
-    if (isLoggedIn(setting, currentValues)) {
-      handleLogout(setting);
-      return;
-    }
+  const handleLoginSetting = useCallback(
+    (setting: LoginSetting, currentValues: Record<string, unknown>) => {
+      if (isLoggedIn(setting, currentValues)) {
+        handleLogout(setting);
+        return;
+      }
 
-    switch (setting.method ?? "basic") {
-      case "web":
-        openWebLogin(setting);
-        break;
-      case "oauth":
-        openOAuthLogin(setting);
-        break;
-      case "basic":
-      default:
-        openBasicLogin(setting);
-        break;
-    }
-  }, [handleLogout, openBasicLogin, openOAuthLogin, openWebLogin]);
+      switch (setting.method ?? "basic") {
+        case "web":
+          openWebLogin(setting);
+          break;
+        case "oauth":
+          openOAuthLogin(setting);
+          break;
+        case "basic":
+        default:
+          openBasicLogin(setting);
+          break;
+      }
+    },
+    [handleLogout, openBasicLogin, openOAuthLogin, openWebLogin],
+  );
 
   const submitBasicLogin = useCallback(async () => {
     if (!basicLogin) return;
@@ -388,11 +469,17 @@ export function SourceSettings({
     const username = basicLogin.username.trim();
     const password = basicLogin.password;
     if (!username || !password) {
-      setBasicLogin((prev) => prev ? { ...prev, error: t("sourceSettings.missingCredentials") } : prev);
+      setBasicLogin((prev) =>
+        prev
+          ? { ...prev, error: t("sourceSettings.missingCredentials") }
+          : prev,
+      );
       return;
     }
 
-    setBasicLogin((prev) => prev ? { ...prev, submitting: true, error: null } : prev);
+    setBasicLogin((prev) =>
+      prev ? { ...prev, submitting: true, error: null } : prev,
+    );
 
     try {
       const source = await getLoadedSource();
@@ -401,28 +488,58 @@ export function SourceSettings({
         basicLogin.setting.key,
         username,
         password,
-        t("sourceSettings.loginFailed")
+        t("sourceSettings.loginFailed"),
       );
 
-      setSetting(sourceKey, `${basicLogin.setting.key}${LOGIN_USERNAME_SUFFIX}`, username);
-      setSetting(sourceKey, `${basicLogin.setting.key}${LOGIN_PASSWORD_SUFFIX}`, password);
+      setSetting(
+        sourceKey,
+        `${basicLogin.setting.key}${LOGIN_USERNAME_SUFFIX}`,
+        username,
+      );
+      setSetting(
+        sourceKey,
+        `${basicLogin.setting.key}${LOGIN_PASSWORD_SUFFIX}`,
+        password,
+      );
       setPrimarySettingValue(basicLogin.setting, "logged_in");
       setBasicLogin(null);
     } catch (error) {
-      setBasicLogin((prev) => prev ? { ...prev, error: getErrorMessage(error, t("sourceSettings.loginFailed")) } : prev);
+      setBasicLogin((prev) =>
+        prev
+          ? {
+              ...prev,
+              error: formatSourceSettingsError(
+                error,
+                t("sourceSettings.loginFailed"),
+              ),
+            }
+          : prev,
+      );
     } finally {
-      setBasicLogin((prev) => prev ? { ...prev, submitting: false } : prev);
+      setBasicLogin((prev) => (prev ? { ...prev, submitting: false } : prev));
     }
-  }, [basicLogin, getLoadedSource, setPrimarySettingValue, setSetting, sourceKey, t]);
+  }, [
+    basicLogin,
+    getLoadedSource,
+    setPrimarySettingValue,
+    setSetting,
+    sourceKey,
+    t,
+  ]);
 
   const submitWebLogin = useCallback(async () => {
     if (!webLogin) return;
 
-    setWebLogin((prev) => prev ? { ...prev, submitting: true, error: null } : prev);
+    setWebLogin((prev) =>
+      prev ? { ...prev, submitting: true, error: null } : prev,
+    );
 
     try {
       const cookies = parseCookieInput(webLogin.cookiesText);
-      const localStorageValues = parseLocalStorageInput(webLogin.localStorageText, webLogin.setting.localStorageKeys ?? []);
+      const localStorageValues = parseLocalStorageInput(
+        webLogin.localStorageText,
+        webLogin.setting.localStorageKeys ?? [],
+      );
       const hasCookies = Object.keys(cookies).length > 0;
       const hasLocalStorage = Object.keys(localStorageValues).length > 0;
 
@@ -435,14 +552,22 @@ export function SourceSettings({
         source,
         webLogin.setting.key,
         cookies,
-        t("sourceSettings.loginFailed")
+        t("sourceSettings.loginFailed"),
       );
 
       const cookieKeys = Object.keys(cookies);
       const cookieValues = cookieKeys.map((key) => cookies[key] ?? "");
 
-      setSetting(sourceKey, `${webLogin.setting.key}${LOGIN_COOKIE_KEYS_SUFFIX}`, cookieKeys);
-      setSetting(sourceKey, `${webLogin.setting.key}${LOGIN_COOKIE_VALUES_SUFFIX}`, cookieValues);
+      setSetting(
+        sourceKey,
+        `${webLogin.setting.key}${LOGIN_COOKIE_KEYS_SUFFIX}`,
+        cookieKeys,
+      );
+      setSetting(
+        sourceKey,
+        `${webLogin.setting.key}${LOGIN_COOKIE_VALUES_SUFFIX}`,
+        cookieValues,
+      );
 
       for (const storageKey of webLogin.setting.localStorageKeys ?? []) {
         const namespacedKey = `${webLogin.setting.key}${LOGIN_LOCAL_STORAGE_PREFIX}${storageKey}`;
@@ -457,51 +582,157 @@ export function SourceSettings({
       setPrimarySettingValue(webLogin.setting, "logged_in");
       setWebLogin(null);
     } catch (error) {
-      setWebLogin((prev) => prev ? { ...prev, error: getErrorMessage(error, t("sourceSettings.loginFailed")) } : prev);
+      setWebLogin((prev) =>
+        prev
+          ? {
+              ...prev,
+              error: formatSourceSettingsError(
+                error,
+                t("sourceSettings.loginFailed"),
+              ),
+            }
+          : prev,
+      );
     } finally {
-      setWebLogin((prev) => prev ? { ...prev, submitting: false } : prev);
+      setWebLogin((prev) => (prev ? { ...prev, submitting: false } : prev));
     }
-  }, [deleteSetting, getLoadedSource, setPrimarySettingValue, setSetting, sourceKey, t, webLogin]);
+  }, [
+    deleteSetting,
+    getLoadedSource,
+    setPrimarySettingValue,
+    setSetting,
+    sourceKey,
+    t,
+    webLogin,
+  ]);
 
-  const openLoginUrl = useCallback(async (setting: LoginSetting) => {
-    const rawUrl = resolveActionUrl(setting, values);
-    if (!rawUrl) {
-      throw new Error(t("sourceSettings.invalidLoginUrl"));
-    }
+  const openLoginUrl = useCallback(
+    async (setting: LoginSetting) => {
+      if (loginOpeningRef.current) return;
+      const rawUrl = resolveActionUrl(setting, values);
+      const nextLoginUrl = normalizeSourceLoginHttpsUrl(rawUrl);
+      if (!nextLoginUrl) {
+        throw new Error(t("sourceSettings.invalidLoginUrl"));
+      }
 
-    let nextUrl = rawUrl;
-    if ((setting.method ?? "basic") === "oauth" && setting.pkce) {
-      const { url, codeVerifier, state } = await withPkce(rawUrl);
-      setSetting(sourceKey, `${setting.key}${LOGIN_CODE_VERIFIER_SUFFIX}`, codeVerifier);
-      setSetting(sourceKey, `${setting.key}${LOGIN_OAUTH_STATE_SUFFIX}`, state);
-      nextUrl = url;
-    }
+      // This call intentionally occurs before the first await so browsers see
+      // it during the user's click activation. We retain the blank tab, sever
+      // its opener, perform async PKCE, then navigate it.
+      const popup = openSourceLoginPopup((url, target) =>
+        window.open(String(url), target),
+      );
+      if (!popup) {
+        throw new Error(t("sourceSettings.popupBlocked"));
+      }
 
-    const popup = window.open(nextUrl, "_blank", "noopener,noreferrer");
-    if (!popup) {
-      throw new Error(t("sourceSettings.popupBlocked"));
-    }
-  }, [setSetting, sourceKey, t, values]);
+      loginOpeningRef.current = true;
+      const isOAuth = (setting.method ?? "basic") === "oauth";
+      const setOpening = (opening: boolean) => {
+        const update = <T extends WebLoginState | OAuthLoginState>(
+          previous: T | null,
+        ): T | null =>
+          previous?.setting.key === setting.key
+            ? { ...previous, opening, error: null }
+            : previous;
+        if (isOAuth) setOAuthLogin(update);
+        else setWebLogin(update);
+      };
+      setOpening(true);
+
+      try {
+        let nextUrl = nextLoginUrl;
+        if (isOAuth) {
+          // Reopening starts a distinct attempt. Remove the prior commit marker
+          // before async work so an old callback cannot race the new flow.
+          clearPendingOAuthRequest(setting);
+
+          let state: string;
+          let codeVerifier: string | null;
+          if (setting.pkce) {
+            const prepared = await withPkce(nextLoginUrl);
+            nextUrl = prepared.url;
+            state = prepared.state;
+            codeVerifier = prepared.codeVerifier;
+          } else {
+            const prepared = withOAuthState(nextLoginUrl);
+            nextUrl = prepared.url;
+            state = prepared.state;
+            codeVerifier = null;
+          }
+
+          // Keep the documented compatibility keys for source runtimes, then
+          // write one atomic envelope last as the only UI-consumed commit
+          // marker. A partial persistence therefore cannot mix two attempts.
+          if (codeVerifier) {
+            setSetting(
+              sourceKey,
+              `${setting.key}${LOGIN_CODE_VERIFIER_SUFFIX}`,
+              codeVerifier,
+            );
+          } else {
+            deleteSetting(
+              sourceKey,
+              `${setting.key}${LOGIN_CODE_VERIFIER_SUFFIX}`,
+            );
+          }
+          setSetting(
+            sourceKey,
+            `${setting.key}${LOGIN_OAUTH_STATE_SUFFIX}`,
+            state,
+          );
+          setSetting(
+            sourceKey,
+            `${setting.key}${LOGIN_OAUTH_REQUEST_SUFFIX}`,
+            serializeSourceOAuthPendingRequest({
+              version: 1,
+              authUrl: nextLoginUrl,
+              state,
+              codeVerifier,
+            }),
+          );
+        }
+
+        if (!navigateSourceLoginPopup(popup, nextUrl)) {
+          if (isOAuth) clearPendingOAuthRequest(setting);
+          throw new Error(t("sourceSettings.popupBlocked"));
+        }
+      } catch (error) {
+        popup.close();
+        if (isOAuth) clearPendingOAuthRequest(setting);
+        throw error;
+      } finally {
+        loginOpeningRef.current = false;
+        setOpening(false);
+      }
+    },
+    [clearPendingOAuthRequest, deleteSetting, setSetting, sourceKey, t, values],
+  );
 
   const submitOAuthLogin = useCallback(async () => {
     if (!oauthLogin) return;
 
     const submittedValue = oauthLogin.callbackValue.trim();
     if (!submittedValue) {
-      setOAuthLogin((prev) => prev ? { ...prev, error: t("sourceSettings.missingCallback") } : prev);
+      setOAuthLogin((prev) =>
+        prev ? { ...prev, error: t("sourceSettings.missingCallback") } : prev,
+      );
       return;
     }
 
-    setOAuthLogin((prev) => prev ? { ...prev, submitting: true, error: null } : prev);
+    setOAuthLogin((prev) =>
+      prev ? { ...prev, submitting: true, error: null } : prev,
+    );
 
     try {
       const liveSettings = store.getState().values.get(sourceKey) ?? {};
       const result = await resolveSourceOAuthLogin({
         submittedValue,
         setting: oauthLogin.setting,
-        authUrl: resolveActionUrl(oauthLogin.setting, values),
-        storedCodeVerifier: String(liveSettings[`${oauthLogin.setting.key}${LOGIN_CODE_VERIFIER_SUFFIX}`] ?? ""),
-        storedState: String(liveSettings[`${oauthLogin.setting.key}${LOGIN_OAUTH_STATE_SUFFIX}`] ?? ""),
+        pendingRequest: parseSourceOAuthPendingRequest(
+          liveSettings[
+            `${oauthLogin.setting.key}${LOGIN_OAUTH_REQUEST_SUFFIX}`
+          ],
+        ),
         messages: {
           invalidLoginUrl: t("sourceSettings.invalidLoginUrl"),
           openLoginFirst: t("sourceSettings.openLoginFirst"),
@@ -511,29 +742,41 @@ export function SourceSettings({
           tokenExchangeFailed: t("sourceSettings.tokenExchangeFailed"),
         },
         exchangeToken: async ({ tokenUrl, body }) => {
-          const useAgentForTokenExchange = await hasAgent();
+          const hasRequiredPolicy = await hasRequiredSourceOAuthProxyPolicy(
+            fetch,
+            `${SERVICE_URL}/health`,
+          );
+          if (!hasRequiredPolicy) {
+            throw new Error(t("sourceSettings.proxyUpgradeRequired"));
+          }
+
           const requestInit: RequestInit = {
             method: "POST",
-            headers: useAgentForTokenExchange
-              ? {
-                  "Content-Type": "application/x-www-form-urlencoded",
-                  "Accept-Encoding": "identity",
-                }
-              : {
-                  "Content-Type": "application/x-www-form-urlencoded",
-                  "x-proxy-accept-encoding": "identity",
-                },
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              "x-proxy-accept-encoding": "identity",
+              // A 307/308 must never replay the authorization code and PKCE
+              // verifier to another origin or a cleartext downgrade.
+              "x-nemu-proxy-redirect": "manual",
+              "x-nemu-proxy-max-response-bytes": String(
+                SOURCE_OAUTH_PROXY_RESPONSE_MAX_BYTES,
+              ),
+            },
             body,
+            redirect: "error",
           };
 
-          const response = await (
-            useAgentForTokenExchange
-              ? agentFetch(tokenUrl, requestInit)
-              : fetch(proxyUrl(tokenUrl), requestInit)
+          // The versioned route is part of the secret boundary: a legacy
+          // Worker returns 404 without forwarding this code/verifier, even in
+          // a split or rolling deployment after a successful health check.
+          const response = await fetch(oauthProxyV2Url(tokenUrl), requestInit);
+          const responseText = await decodeTokenExchangeResponse(
+            await response.arrayBuffer(),
           );
-          const responseText = await decodeTokenExchangeResponse(await response.arrayBuffer());
           if (!response.ok) {
-            throw new Error(responseText || t("sourceSettings.tokenExchangeFailed"));
+            throw new Error(
+              responseText || t("sourceSettings.tokenExchangeFailed"),
+            );
           }
           return responseText;
         },
@@ -547,47 +790,107 @@ export function SourceSettings({
       setPrimarySettingValue(oauthLogin.setting, result.storedValue);
       setOAuthLogin(null);
     } catch (error) {
-      setOAuthLogin((prev) => prev ? { ...prev, error: getErrorMessage(error, t("sourceSettings.loginFailed")) } : prev);
+      setOAuthLogin((prev) =>
+        prev
+          ? {
+              ...prev,
+              error: formatSourceSettingsError(
+                error,
+                t("sourceSettings.loginFailed"),
+              ),
+            }
+          : prev,
+      );
     } finally {
-      setOAuthLogin((prev) => prev ? { ...prev, submitting: false } : prev);
+      setOAuthLogin((prev) => (prev ? { ...prev, submitting: false } : prev));
     }
-  }, [clearPendingOAuthRequest, oauthLogin, setPrimarySettingValue, sourceKey, store, t, values]);
+  }, [
+    clearPendingOAuthRequest,
+    oauthLogin,
+    setPrimarySettingValue,
+    sourceKey,
+    store,
+    t,
+  ]);
 
-  const renderCustomSetting = useCallback<NonNullable<SettingsRendererProps["renderCustomSetting"]>>((setting, context) => {
-    switch (setting.type) {
-      case "button":
-        return (
-          <SettingActionRow
-            title={setting.title}
-            subtitle={setting.subtitle}
-            destructive={setting.destructive}
-            onClick={() => void handleButtonSetting(setting)}
-          />
-        );
-      case "link":
-        return (
-          <SettingActionRow
-            title={setting.title}
-            subtitle={setting.subtitle}
-            actionLabel={t("sourceSettings.open")}
-            onClick={() => handleLinkSetting(setting, context.values)}
-          />
-        );
-      case "login":
-        return (
-          <SettingActionRow
-            title={setting.title}
-            subtitle={setting.subtitle}
-            actionLabel={isLoggedIn(setting, context.values)
-              ? (setting.logoutTitle ?? t("sourceSettings.logout"))
-              : t("sourceSettings.login")}
-            onClick={() => handleLoginSetting(setting, context.values)}
-          />
-        );
-      default:
-        return null;
+  const renderCustomSetting = useCallback<
+    NonNullable<SettingsRendererProps["renderCustomSetting"]>
+  >(
+    (setting, context) => {
+      switch (setting.type) {
+        case "button":
+          return (
+            <SettingActionRow
+              title={setting.title}
+              subtitle={setting.subtitle}
+              destructive={setting.destructive}
+              onClick={() => void handleButtonSetting(setting)}
+            />
+          );
+        case "link":
+          return (
+            <SettingActionRow
+              title={setting.title}
+              subtitle={setting.subtitle}
+              actionLabel={t("sourceSettings.open")}
+              onClick={() => handleLinkSetting(setting, context.values)}
+            />
+          );
+        case "login":
+          return (
+            <SettingActionRow
+              title={setting.title}
+              subtitle={setting.subtitle}
+              actionLabel={
+                isLoggedIn(setting, context.values)
+                  ? (setting.logoutTitle ?? t("sourceSettings.logout"))
+                  : t("sourceSettings.login")
+              }
+              onClick={() => handleLoginSetting(setting, context.values)}
+            />
+          );
+        default:
+          return null;
+      }
+    },
+    [handleButtonSetting, handleLinkSetting, handleLoginSetting, t],
+  );
+
+  const resolvedPageStack = useMemo(
+    () => resolveSettingsPagePath(schema ?? [], pagePath),
+    [pagePath, schema],
+  );
+
+  useEffect(() => {
+    if (resolvedPageStack.length !== pagePath.length) {
+      setPagePath((previous) => previous.slice(0, resolvedPageStack.length));
     }
-  }, [handleButtonSetting, handleLinkSetting, handleLoginSetting, t]);
+  }, [pagePath.length, resolvedPageStack.length]);
+
+  // Store only stable page keys. Every render resolves those keys against the
+  // latest schema so removed pages and their old action handlers disappear
+  // immediately after a source settings refresh.
+  const renderedPageStack = useMemo(
+    () =>
+      resolvedPageStack.map((page, index) => ({
+        title: page.title,
+        content: (
+          <SettingsRenderer
+            schema={page.items}
+            values={values}
+            onChange={(key, value) => void updateSetting(key, value)}
+            onPushPage={(childPage) =>
+              setPagePath((previous) => [
+                ...previous.slice(0, index + 1),
+                childPage.key,
+              ])
+            }
+            renderCustomSetting={renderCustomSetting}
+          />
+        ),
+      })),
+    [renderCustomSetting, resolvedPageStack, updateSetting, values],
+  );
 
   const isEmpty = !schema || schema.length === 0;
 
@@ -600,14 +903,21 @@ export function SourceSettings({
         title={sourceName}
         subtitle={parsedSourceKey.registryId}
         version={sourceVersion}
-        pageStack={pageStack}
-        onPushPage={(page) => setPageStack((prev) => [...prev, page])}
+        pageStack={renderedPageStack}
         onPopPage={popPage}
         empty={isEmpty}
         emptyMessage={t("sourceSettings.noSettings")}
         headerAction={
-          <Button variant="secondary" size="sm" onClick={handleReset} className="h-8 gap-1.5 shrink-0">
-            <HugeiconsIcon icon={ArrowReloadHorizontalIcon} className="size-4" />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleReset}
+            className="h-8 gap-1.5 shrink-0"
+          >
+            <HugeiconsIcon
+              icon={ArrowReloadHorizontalIcon}
+              className="size-4"
+            />
             {t("common.reset")}
           </Button>
         }
@@ -616,39 +926,58 @@ export function SourceSettings({
           schema={schema ?? []}
           values={values}
           onChange={(key, value) => void updateSetting(key, value)}
-          onPushPage={pushPage}
+          onPushPage={pushRootPage}
           renderCustomSetting={renderCustomSetting}
         />
       </SettingsDialogWithPages>
 
-      <ResponsiveDialogNested open={!!basicLogin} onOpenChange={(nextOpen) => !nextOpen && setBasicLogin(null)}>
+      <ResponsiveDialogNested
+        open={!!basicLogin}
+        onOpenChange={(nextOpen) => !nextOpen && setBasicLogin(null)}
+      >
         <ResponsiveDialogContent>
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle>{basicLogin?.setting.title ?? t("sourceSettings.login")}</ResponsiveDialogTitle>
-            <ResponsiveDialogDescription>{t("sourceSettings.basicLoginDescription")}</ResponsiveDialogDescription>
+            <ResponsiveDialogTitle>
+              {basicLogin?.setting.title ?? t("sourceSettings.login")}
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>
+              {t("sourceSettings.basicLoginDescription")}
+            </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="source-login-username">
-                {basicLogin?.setting.useEmail ? t("sourceSettings.email") : t("sourceSettings.username")}
+                {basicLogin?.setting.useEmail
+                  ? t("sourceSettings.email")
+                  : t("sourceSettings.username")}
               </Label>
               <Input
                 id="source-login-username"
                 value={basicLogin?.username ?? ""}
-                onChange={(event) => setBasicLogin((prev) => prev ? { ...prev, username: event.target.value } : prev)}
+                onChange={(event) =>
+                  setBasicLogin((prev) =>
+                    prev ? { ...prev, username: event.target.value } : prev,
+                  )
+                }
                 autoCapitalize="none"
                 autoCorrect="off"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="source-login-password">{t("sourceSettings.password")}</Label>
+              <Label htmlFor="source-login-password">
+                {t("sourceSettings.password")}
+              </Label>
               <Input
                 id="source-login-password"
                 type="password"
                 value={basicLogin?.password ?? ""}
-                onChange={(event) => setBasicLogin((prev) => prev ? { ...prev, password: event.target.value } : prev)}
+                onChange={(event) =>
+                  setBasicLogin((prev) =>
+                    prev ? { ...prev, password: event.target.value } : prev,
+                  )
+                }
               />
             </div>
 
@@ -661,36 +990,74 @@ export function SourceSettings({
             <Button variant="outline" onClick={() => setBasicLogin(null)}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={() => void submitBasicLogin()} disabled={basicLogin?.submitting}>
-              {basicLogin?.submitting ? <Spinner className="size-4" /> : t("sourceSettings.login")}
+            <Button
+              onClick={() => void submitBasicLogin()}
+              disabled={basicLogin?.submitting}
+            >
+              {basicLogin?.submitting ? (
+                <Spinner className="size-4" />
+              ) : (
+                t("sourceSettings.login")
+              )}
             </Button>
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialogNested>
 
-      <ResponsiveDialogNested open={!!webLogin} onOpenChange={(nextOpen) => !nextOpen && setWebLogin(null)}>
+      <ResponsiveDialogNested
+        open={!!webLogin}
+        onOpenChange={(nextOpen) => !nextOpen && setWebLogin(null)}
+      >
         <ResponsiveDialogContent className="sm:max-w-lg">
-            <ResponsiveDialogHeader>
-              <ResponsiveDialogTitle>{webLogin?.setting.title ?? t("sourceSettings.login")}</ResponsiveDialogTitle>
-              <ResponsiveDialogDescription>{t("sourceSettings.webLoginDescription")}</ResponsiveDialogDescription>
-            </ResponsiveDialogHeader>
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle>
+              {webLogin?.setting.title ?? t("sourceSettings.login")}
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>
+              {t("sourceSettings.webLoginDescription")}
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
 
           <div className="space-y-4">
             <Button
               variant="outline"
-              onClick={() => webLogin && void openLoginUrl(webLogin.setting).catch((error) => {
-                setWebLogin((prev) => prev ? { ...prev, error: getErrorMessage(error, t("sourceSettings.invalidLoginUrl")) } : prev);
-              })}
+              disabled={webLogin?.opening}
+              onClick={() =>
+                webLogin &&
+                void openLoginUrl(webLogin.setting).catch((error) => {
+                  setWebLogin((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          error: formatSourceSettingsError(
+                            error,
+                            t("sourceSettings.invalidLoginUrl"),
+                          ),
+                        }
+                      : prev,
+                  );
+                })
+              }
             >
-              {t("sourceSettings.openLoginPage")}
+              {webLogin?.opening ? (
+                <Spinner className="size-4" />
+              ) : (
+                t("sourceSettings.openLoginPage")
+              )}
             </Button>
 
             <div className="space-y-2">
-              <Label htmlFor="source-login-cookies">{t("sourceSettings.cookies")}</Label>
+              <Label htmlFor="source-login-cookies">
+                {t("sourceSettings.cookies")}
+              </Label>
               <Textarea
                 id="source-login-cookies"
                 value={webLogin?.cookiesText ?? ""}
-                onChange={(event) => setWebLogin((prev) => prev ? { ...prev, cookiesText: event.target.value } : prev)}
+                onChange={(event) =>
+                  setWebLogin((prev) =>
+                    prev ? { ...prev, cookiesText: event.target.value } : prev,
+                  )
+                }
                 rows={6}
                 placeholder='{"session": "value"}'
               />
@@ -698,11 +1065,19 @@ export function SourceSettings({
 
             {(webLogin?.setting.localStorageKeys?.length ?? 0) > 0 && (
               <div className="space-y-2">
-                <Label htmlFor="source-login-local-storage">{t("sourceSettings.localStorage")}</Label>
+                <Label htmlFor="source-login-local-storage">
+                  {t("sourceSettings.localStorage")}
+                </Label>
                 <Textarea
                   id="source-login-local-storage"
                   value={webLogin?.localStorageText ?? ""}
-                  onChange={(event) => setWebLogin((prev) => prev ? { ...prev, localStorageText: event.target.value } : prev)}
+                  onChange={(event) =>
+                    setWebLogin((prev) =>
+                      prev
+                        ? { ...prev, localStorageText: event.target.value }
+                        : prev,
+                    )
+                  }
                   rows={4}
                   placeholder='{"auth": "value"}'
                 />
@@ -718,38 +1093,85 @@ export function SourceSettings({
             <Button variant="outline" onClick={() => setWebLogin(null)}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={() => void submitWebLogin()} disabled={webLogin?.submitting}>
-              {webLogin?.submitting ? <Spinner className="size-4" /> : t("sourceSettings.saveSession")}
+            <Button
+              onClick={() => void submitWebLogin()}
+              disabled={webLogin?.submitting || webLogin?.opening}
+            >
+              {webLogin?.submitting ? (
+                <Spinner className="size-4" />
+              ) : (
+                t("sourceSettings.saveSession")
+              )}
             </Button>
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialogNested>
 
-      <ResponsiveDialogNested open={!!oauthLogin} onOpenChange={(nextOpen) => !nextOpen && setOAuthLogin(null)}>
+      <ResponsiveDialogNested
+        open={!!oauthLogin}
+        onOpenChange={(nextOpen) => !nextOpen && setOAuthLogin(null)}
+      >
         <ResponsiveDialogContent className="sm:max-w-lg">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle>{oauthLogin?.setting.title ?? t("sourceSettings.login")}</ResponsiveDialogTitle>
-            <ResponsiveDialogDescription>{t("sourceSettings.oauthLoginDescription")}</ResponsiveDialogDescription>
+            <ResponsiveDialogTitle>
+              {oauthLogin?.setting.title ?? t("sourceSettings.login")}
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>
+              {t("sourceSettings.oauthLoginDescription")}
+            </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
 
           <div className="space-y-4">
             <Button
               variant="outline"
-              onClick={() => oauthLogin && void openLoginUrl(oauthLogin.setting).catch((error) => {
-                setOAuthLogin((prev) => prev ? { ...prev, error: getErrorMessage(error, t("sourceSettings.invalidLoginUrl")) } : prev);
-              })}
+              disabled={oauthLogin?.opening}
+              onClick={() =>
+                oauthLogin &&
+                void openLoginUrl(oauthLogin.setting).catch((error) => {
+                  setOAuthLogin((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          error: formatSourceSettingsError(
+                            error,
+                            t("sourceSettings.invalidLoginUrl"),
+                          ),
+                        }
+                      : prev,
+                  );
+                })
+              }
             >
-              {t("sourceSettings.openLoginPage")}
+              {oauthLogin?.opening ? (
+                <Spinner className="size-4" />
+              ) : (
+                t("sourceSettings.openLoginPage")
+              )}
             </Button>
 
+            {oauthLogin?.setting.pkce && (
+              <p className="text-xs text-muted-foreground">
+                {t("sourceSettings.oauthRelayDisclosure")}
+              </p>
+            )}
+
             <div className="space-y-2">
-              <Label htmlFor="source-login-oauth">{t("sourceSettings.callbackOrToken")}</Label>
+              <Label htmlFor="source-login-oauth">
+                {t("sourceSettings.callbackOrToken")}
+              </Label>
               <Textarea
                 id="source-login-oauth"
                 value={oauthLogin?.callbackValue ?? ""}
-                onChange={(event) => setOAuthLogin((prev) => prev ? { ...prev, callbackValue: event.target.value } : prev)}
+                onChange={(event) =>
+                  setOAuthLogin((prev) =>
+                    prev
+                      ? { ...prev, callbackValue: event.target.value }
+                      : prev,
+                  )
+                }
                 rows={5}
-                placeholder="aidoku://callback?code=... or #access_token=..."
+                maxLength={SOURCE_OAUTH_CALLBACK_MAX_BYTES}
+                placeholder="aidoku://callback?code=...&state=..."
               />
             </div>
 
@@ -762,8 +1184,15 @@ export function SourceSettings({
             <Button variant="outline" onClick={() => setOAuthLogin(null)}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={() => void submitOAuthLogin()} disabled={oauthLogin?.submitting}>
-              {oauthLogin?.submitting ? <Spinner className="size-4" /> : t("sourceSettings.saveSession")}
+            <Button
+              onClick={() => void submitOAuthLogin()}
+              disabled={oauthLogin?.submitting || oauthLogin?.opening}
+            >
+              {oauthLogin?.submitting ? (
+                <Spinner className="size-4" />
+              ) : (
+                t("sourceSettings.saveSession")
+              )}
             </Button>
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
@@ -792,12 +1221,16 @@ function SettingActionRow({
       className="flex w-full items-center justify-between gap-4 px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
     >
       <div className="space-y-0.5">
-        <p className={`text-sm ${destructive ? "text-destructive" : ""}`}>{title}</p>
+        <p className={`text-sm ${destructive ? "text-destructive" : ""}`}>
+          {title}
+        </p>
         {subtitle && (
           <p className="text-xs text-muted-foreground">{subtitle}</p>
         )}
       </div>
-      <span className={`shrink-0 text-xs ${destructive ? "text-destructive" : "text-muted-foreground"}`}>
+      <span
+        className={`shrink-0 text-xs ${destructive ? "text-destructive" : "text-muted-foreground"}`}
+      >
         {actionLabel ?? "›"}
       </span>
     </button>
@@ -817,17 +1250,26 @@ function findSettingByKey(settings: Setting[], key: string): Setting | null {
   return null;
 }
 
-function resolveActionUrl(setting: LinkSetting | LoginSetting, values: Record<string, unknown>): string | null {
+function resolveActionUrl(
+  setting: LinkSetting | LoginSetting,
+  values: Record<string, unknown>,
+): string | null {
   return resolveLoginActionUrl(setting, values);
 }
 
-function isLoggedIn(setting: LoginSetting, values: Record<string, unknown>): boolean {
+function isLoggedIn(
+  setting: LoginSetting,
+  values: Record<string, unknown>,
+): boolean {
   const value = values[setting.key];
   if (typeof value === "string") return value.length > 0;
   return Boolean(value);
 }
 
-function serializeStoredCookies(values: Record<string, unknown>, key: string): string {
+function serializeStoredCookies(
+  values: Record<string, unknown>,
+  key: string,
+): string {
   const keys = values[`${key}${LOGIN_COOKIE_KEYS_SUFFIX}`];
   const rawValues = values[`${key}${LOGIN_COOKIE_VALUES_SUFFIX}`];
   if (!Array.isArray(keys) || !Array.isArray(rawValues)) return "";
@@ -844,10 +1286,14 @@ function serializeStoredCookies(values: Record<string, unknown>, key: string): s
     : "";
 }
 
-function serializeStoredLocalStorage(values: Record<string, unknown>, setting: LoginSetting): string {
+function serializeStoredLocalStorage(
+  values: Record<string, unknown>,
+  setting: LoginSetting,
+): string {
   const storage: Record<string, string> = {};
   for (const storageKey of setting.localStorageKeys ?? []) {
-    const value = values[`${setting.key}${LOGIN_LOCAL_STORAGE_PREFIX}${storageKey}`];
+    const value =
+      values[`${setting.key}${LOGIN_LOCAL_STORAGE_PREFIX}${storageKey}`];
     if (typeof value === "string" && value) {
       storage[storageKey] = value;
     }
@@ -864,7 +1310,7 @@ function parseCookieInput(input: string): Record<string, string> {
   if (trimmed.startsWith("{")) {
     const parsed = JSON.parse(trimmed) as Record<string, unknown>;
     return Object.fromEntries(
-      Object.entries(parsed).map(([key, value]) => [key, String(value ?? "")])
+      Object.entries(parsed).map(([key, value]) => [key, String(value ?? "")]),
     );
   }
 
@@ -886,7 +1332,7 @@ function parseCookieInput(input: string): Record<string, string> {
 
 function parseLocalStorageInput(
   input: string,
-  allowedKeys: string[]
+  allowedKeys: string[],
 ): Record<string, string> {
   const trimmed = input.trim();
   if (!trimmed) return {};
@@ -913,10 +1359,15 @@ function parseLocalStorageInput(
 // mobile can share them.
 // Only the token-response decompression below is web-only: it relies on
 // DecompressionStream, which RN does not provide.
-async function decodeTokenExchangeResponse(buffer: ArrayBuffer): Promise<string> {
+async function decodeTokenExchangeResponse(
+  buffer: ArrayBuffer,
+): Promise<string> {
   const bytes = new Uint8Array(buffer);
   const plainText = new TextDecoder().decode(bytes);
   if (looksLikeTokenExchangeText(plainText)) {
+    if (bytes.byteLength > SOURCE_OAUTH_TOKEN_MAX_BYTES) {
+      throw new Error("OAuth token response exceeds the safety limit.");
+    }
     return plainText;
   }
 
@@ -934,19 +1385,43 @@ async function decodeTokenExchangeResponse(buffer: ArrayBuffer): Promise<string>
   return plainText;
 }
 
-async function decompressBytes(bytes: Uint8Array, format: SourceOauthCompressionFormat): Promise<string> {
+async function decompressBytes(
+  bytes: Uint8Array,
+  format: SourceOauthCompressionFormat,
+): Promise<string> {
   const buffer = bytes.buffer.slice(
     bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength
+    bytes.byteOffset + bytes.byteLength,
   ) as ArrayBuffer;
   const stream = new Response(buffer).body;
   if (!stream) {
     throw new Error("Missing response body");
   }
-  const decompressedStream = stream.pipeThrough(new DecompressionStream(format));
-  return new Response(decompressedStream).text();
-}
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
+  const decompressedStream = stream.pipeThrough(
+    new DecompressionStream(format),
+  );
+  const reader = decompressedStream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > SOURCE_OAUTH_TOKEN_MAX_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("OAuth token response exceeds the safety limit.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(output);
 }

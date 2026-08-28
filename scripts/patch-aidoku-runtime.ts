@@ -8,6 +8,7 @@ type FilePatch = {
     label: string;
     before: string;
     after: string;
+    sentinel?: string;
   }>;
 };
 
@@ -341,11 +342,303 @@ const patches: FilePatch[] = [
     file: "async/common.js",
     replacements: [
       {
+        label: "bounded prototype-safe settings defaults",
+        sentinel: "const NEMU_SETTING_DEFAULT_LIMITS = Object.freeze({",
+        before: `/**
+ * Extract default values from settings.json structure
+ * Matches iOS Aidoku behavior from Source.swift
+ */
+export function extractSettingsDefaults(settingsJson) {
+    const defaults = {};
+    if (!settingsJson)
+        return defaults;
+    for (const item of settingsJson) {
+        if (typeof item !== "object" || item === null)
+            continue;
+        const settingItem = item;
+        // Handle group items (nested settings)
+        if (settingItem.type === "group" && Array.isArray(settingItem.items)) {
+            for (const subItem of settingItem.items) {
+                if (typeof subItem !== "object" || subItem === null)
+                    continue;
+                const setting = subItem;
+                if (setting.key && setting.default !== undefined) {
+                    defaults[setting.key] = setting.default;
+                }
+            }
+        }
+        // Handle top-level items with key and default
+        else if (settingItem.key && settingItem.default !== undefined) {
+            defaults[settingItem.key] = settingItem.default;
+        }
+    }
+    return defaults;
+}`,
+        after: `const NEMU_SETTING_DEFAULT_LIMITS = Object.freeze({
+    depth: 32,
+    nodes: 1024,
+    listItems: 256,
+    keyLength: 256,
+    stringLength: 4096,
+    schemaStringChars: 1048576,
+    absoluteNumber: 1000000000000,
+});
+const NEMU_SETTING_DEFAULT_TYPES = new Set([
+    "select",
+    "multi-select",
+    "multi-single-select",
+    "switch",
+    "slider",
+    "stepper",
+    "segment",
+    "text",
+    "editable-list",
+]);
+function nemuOwnDataValue(value, key) {
+    try {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        return descriptor && "value" in descriptor ? descriptor.value : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+function nemuAsArray(value) {
+    try {
+        return Array.isArray(value) ? value : null;
+    }
+    catch {
+        return null;
+    }
+}
+function nemuArrayLength(value) {
+    const length = nemuOwnDataValue(value, "length");
+    return Number.isSafeInteger(length) && length >= 0 ? length : 0;
+}
+function nemuArrayValue(value, index) {
+    return nemuOwnDataValue(value, String(index));
+}
+function nemuAsPlainRecord(value) {
+    if (!value || typeof value !== "object" || nemuAsArray(value))
+        return null;
+    try {
+        const prototype = Object.getPrototypeOf(value);
+        return prototype === Object.prototype || prototype === null ? value : null;
+    }
+    catch {
+        return null;
+    }
+}
+function nemuIsUnsafeKeyCodePoint(codePoint) {
+    return codePoint < 32 ||
+        (codePoint >= 127 && codePoint <= 159) ||
+        codePoint === 173 ||
+        codePoint === 1564 ||
+        codePoint === 8203 ||
+        codePoint === 8206 ||
+        codePoint === 8207 ||
+        (codePoint >= 8234 && codePoint <= 8238) ||
+        codePoint === 8288 ||
+        (codePoint >= 8294 && codePoint <= 8297) ||
+        codePoint === 65279;
+}
+function nemuSafeSettingKey(value) {
+    if (typeof value !== "string" ||
+        value.length === 0 ||
+        value.length > NEMU_SETTING_DEFAULT_LIMITS.keyLength ||
+        value.trim().length === 0) {
+        return null;
+    }
+    for (const character of value) {
+        if (nemuIsUnsafeKeyCodePoint(character.codePointAt(0) ?? 0))
+            return null;
+    }
+    return value;
+}
+function nemuFiniteSettingNumber(value) {
+    return typeof value === "number" &&
+        Number.isFinite(value) &&
+        Math.abs(value) <= NEMU_SETTING_DEFAULT_LIMITS.absoluteNumber
+        ? value
+        : null;
+}
+function nemuSanitizeStringDefault(value, remainingStringChars) {
+    if (typeof value !== "string" ||
+        value.length > NEMU_SETTING_DEFAULT_LIMITS.stringLength ||
+        value.length > remainingStringChars) {
+        return null;
+    }
+    return { value, stringChars: value.length };
+}
+function nemuSanitizeStringArrayDefault(value, remainingStringChars) {
+    const input = nemuAsArray(value);
+    if (!input)
+        return null;
+    const length = nemuArrayLength(input);
+    if (length > NEMU_SETTING_DEFAULT_LIMITS.listItems)
+        return null;
+    const output = [];
+    let stringChars = 0;
+    for (let index = 0; index < length; index += 1) {
+        const item = nemuArrayValue(input, index);
+        if (typeof item !== "string" ||
+            item.length > NEMU_SETTING_DEFAULT_LIMITS.stringLength ||
+            stringChars + item.length > remainingStringChars) {
+            return null;
+        }
+        output.push(item);
+        stringChars += item.length;
+    }
+    return { value: output, stringChars };
+}
+function nemuSanitizeSettingDefault(type, value, record, remainingStringChars) {
+    if (type === "select" || type === "text")
+        return nemuSanitizeStringDefault(value, remainingStringChars);
+    if (type === "multi-select" ||
+        type === "multi-single-select" ||
+        type === "editable-list") {
+        return nemuSanitizeStringArrayDefault(value, remainingStringChars);
+    }
+    if (type === "switch") {
+        return typeof value === "boolean" ? { value, stringChars: 0 } : null;
+    }
+    if (type === "segment") {
+        return typeof value === "number" &&
+            Number.isInteger(value) &&
+            value >= 0 &&
+            value <= NEMU_SETTING_DEFAULT_LIMITS.absoluteNumber
+            ? { value, stringChars: 0 }
+            : null;
+    }
+    if (type === "slider" || type === "stepper") {
+        const number = nemuFiniteSettingNumber(value);
+        if (number === null)
+            return null;
+        const rawMinimum = nemuFiniteSettingNumber(nemuOwnDataValue(record, "min")) ??
+            nemuFiniteSettingNumber(nemuOwnDataValue(record, "minimumValue")) ??
+            0;
+        const rawMaximum = nemuFiniteSettingNumber(nemuOwnDataValue(record, "max")) ??
+            nemuFiniteSettingNumber(nemuOwnDataValue(record, "maximumValue")) ??
+            100;
+        const minimum = Math.min(rawMinimum, rawMaximum);
+        const maximum = Math.max(rawMinimum, rawMaximum);
+        return {
+            value: Math.min(maximum, Math.max(minimum, number)),
+            stringChars: 0,
+        };
+    }
+    return null;
+}
+/**
+ * Extract only bounded, type-compatible defaults before source initialization.
+ * The result has no prototype; callers spread it into their own settings state.
+ */
+export function extractSettingsDefaults(settingsJson) {
+    const defaults = Object.create(null);
+    const root = nemuAsArray(settingsJson);
+    if (!root)
+        return defaults;
+    const seenRecords = new WeakSet();
+    const seenArrays = new WeakSet([root]);
+    const claimedKeys = new Set();
+    const stack = [{
+            input: root,
+            length: nemuArrayLength(root),
+            index: 0,
+            depth: 0,
+        }];
+    let inspectedNodes = 0;
+    let remainingStringChars = NEMU_SETTING_DEFAULT_LIMITS.schemaStringChars;
+    while (stack.length > 0 && inspectedNodes < NEMU_SETTING_DEFAULT_LIMITS.nodes) {
+        const frame = stack[stack.length - 1];
+        if (frame.index >= frame.length) {
+            stack.pop();
+            continue;
+        }
+        const rawNode = nemuArrayValue(frame.input, frame.index++);
+        inspectedNodes += 1;
+        const record = nemuAsPlainRecord(rawNode);
+        if (!record || seenRecords.has(record))
+            continue;
+        seenRecords.add(record);
+        const type = nemuOwnDataValue(record, "type");
+        if (type === "group" || type === "page") {
+            const children = nemuAsArray(nemuOwnDataValue(record, "items"));
+            if (children &&
+                frame.depth < NEMU_SETTING_DEFAULT_LIMITS.depth &&
+                !seenArrays.has(children)) {
+                seenArrays.add(children);
+                stack.push({
+                    input: children,
+                    length: nemuArrayLength(children),
+                    index: 0,
+                    depth: frame.depth + 1,
+                });
+            }
+            continue;
+        }
+        if (typeof type !== "string" || !NEMU_SETTING_DEFAULT_TYPES.has(type))
+            continue;
+        const key = nemuSafeSettingKey(nemuOwnDataValue(record, "key"));
+        if (!key || claimedKeys.has(key) || key.length > remainingStringChars)
+            continue;
+        const defaultValue = nemuOwnDataValue(record, "default");
+        if (defaultValue === undefined)
+            continue;
+        const sanitized = nemuSanitizeSettingDefault(type, defaultValue, record, remainingStringChars - key.length);
+        if (!sanitized)
+            continue;
+        Object.defineProperty(defaults, key, {
+            value: sanitized.value,
+            enumerable: true,
+            configurable: true,
+            writable: true,
+        });
+        claimedKeys.add(key);
+        remainingStringChars -= key.length + sanitized.stringChars;
+        if (remainingStringChars <= 0)
+            break;
+    }
+    return defaults;
+}`,
+      },
+      {
+        label: "single-choice array default normalization",
+        before: `    if (type === "multi-select" ||
+        type === "multi-single-select" ||
+        type === "editable-list") {
+        return nemuSanitizeStringArrayDefault(value, remainingStringChars);
+    }`,
+        after: `    if (type === "multi-select" ||
+        type === "multi-single-select" ||
+        type === "editable-list") {
+        const result = nemuSanitizeStringArrayDefault(value, remainingStringChars);
+        if (type !== "multi-single-select" || !result || result.value.length <= 1)
+            return result;
+        return {
+            value: result.value.slice(0, 1),
+            stringChars: result.value[0].length,
+        };
+    }`,
+      },
+      {
         label: "node async wrapper auth methods",
         before:
           "        async handlesWebLogin() {\n            return source.handlesWebLogin;\n        },\n        async getHome() {\n",
         after:
           "        async handlesWebLogin() {\n            return source.handlesWebLogin;\n        },\n        async handleBasicLogin(key, username, password) {\n            return cfRetry(() => source.handleBasicLogin(key, username, password));\n        },\n        async handleWebLogin(key, cookies) {\n            return cfRetry(() => source.handleWebLogin(key, cookies));\n        },\n        async handleNotification(notification) {\n            return cfRetry(() => source.handleNotification(notification));\n        },\n        async getHome() {\n",
+      },
+    ],
+  },
+  {
+    file: "async/common.d.ts",
+    replacements: [
+      {
+        label: "settings defaults unknown trust boundary type",
+        before:
+          "export declare function extractSettingsDefaults(settingsJson: unknown[] | undefined): Record<string, unknown>;",
+        after:
+          "export declare function extractSettingsDefaults(settingsJson: unknown): Record<string, unknown>;",
       },
     ],
   },
@@ -363,10 +656,19 @@ const patches: FilePatch[] = [
   },
 ];
 
-function replaceOnce(content: string, before: string, after: string, file: string, label: string): string {
-  if (content.includes(after)) return content;
+function replaceOnce(
+  content: string,
+  before: string,
+  after: string,
+  file: string,
+  label: string,
+  sentinel?: string,
+): string {
+  if (content.includes(sentinel ?? after)) return content;
   if (!content.includes(before)) {
-    throw new Error(`Failed to patch ${file} (${label}): expected snippet not found.`);
+    throw new Error(
+      `Failed to patch ${file} (${label}): expected snippet not found.`,
+    );
   }
   return content.replace(before, after);
 }
@@ -398,7 +700,14 @@ async function main() {
     let content = original;
 
     for (const replacement of patch.replacements) {
-      content = replaceOnce(content, replacement.before, replacement.after, patch.file, replacement.label);
+      content = replaceOnce(
+        content,
+        replacement.before,
+        replacement.after,
+        patch.file,
+        replacement.label,
+        replacement.sentinel,
+      );
     }
 
     if (content !== original) {
