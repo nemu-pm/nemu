@@ -185,6 +185,7 @@
   },
   "trustedDependencies": [
     "sharp",
+    "@shopify/react-native-skia",
     "msw",
     "esbuild",
     "canvas",

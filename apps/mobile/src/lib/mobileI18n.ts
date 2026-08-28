@@ -381,6 +381,7 @@ export type MobileStrings = {
     noLinkedMangaMatches: string;
     noLiveMatches: string;
     noLocalPackage: string;
+    noMangaInListing: string;
     noMangaLoadedFromListing: string;
     noPackageListings: string;
     noSourceHome: string;
@@ -1278,6 +1279,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       noLinkedMangaMatches: "No linked manga matches this search.",
       noLiveMatches: "No live matches from this source.",
       noLocalPackage: "No local AIX package",
+      noMangaInListing: "No manga found in this listing.",
       noMangaLoadedFromListing: "No manga loaded from this listing yet.",
       noPackageListings: "This source does not expose package listings.",
       noSourceHome: "No source home sections are available.",
@@ -2235,6 +2237,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       noLinkedMangaMatches: "没有已链接漫画匹配此搜索。",
       noLiveMatches: "此源没有找到最新匹配结果。",
       noLocalPackage: "没有本地 AIX 包",
+      noMangaInListing: "此列表中没有找到漫画。",
       noMangaLoadedFromListing: "此列表尚未加载漫画。",
       noPackageListings: "此源未公开包列表。",
       noSourceHome: "没有可用的源首页区块。",
@@ -3173,6 +3176,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       noLinkedMangaMatches: "この検索に一致するリンク済み漫画はありません。",
       noLiveMatches: "このソースでは一致する作品が見つかりませんでした。",
       noLocalPackage: "ローカル AIX パッケージがありません",
+      noMangaInListing: "このリストでは漫画が見つかりませんでした。",
       noMangaLoadedFromListing:
         "このリストからはまだ漫画を読み込んでいません。",
       noPackageListings: "このソースはパッケージリストを公開していません。",

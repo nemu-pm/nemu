@@ -144,6 +144,7 @@ import {
 } from "@/lib/mobileSourceRoutes";
 import type { NemuPressableHapticFeedback } from "@/lib/nemuPressable";
 import {
+  getMobileSourceListingEmptyTitle,
   getMobileSourceListingLabel,
   mergeMobileSourceListingTabs,
 } from "@/lib/mobileSourceListingsPresentation";
@@ -3020,7 +3021,10 @@ export function SourceBrowseScreen() {
               ) : (
                 <NemuInlineEmptyState
                   icon="albums-outline"
-                  title={strings.sourceBrowse.noMangaLoadedFromListing}
+                  title={getMobileSourceListingEmptyTitle(
+                    listingState.status === "ready" ? "ready" : "idle",
+                    strings.sourceBrowse,
+                  )}
                 />
               )
             ) : !sourceSearchActive &&

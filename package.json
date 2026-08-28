@@ -132,6 +132,7 @@
     "vite": "^7.3.6"
   },
   "trustedDependencies": [
+    "@shopify/react-native-skia",
     "canvas",
     "esbuild",
     "msw",

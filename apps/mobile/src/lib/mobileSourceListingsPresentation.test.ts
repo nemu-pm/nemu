@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { SourcePackageListing } from "@/data/schema";
 import {
+  getMobileSourceListingEmptyTitle,
   getMobileSourceListingLabel,
   mergeMobileSourceListingTabs,
 } from "./mobileSourceListingsPresentation";
@@ -9,6 +10,20 @@ const popular: SourcePackageListing = { id: "popular", name: "Popular" };
 const latest: SourcePackageListing = { id: "latest", name: "Latest" };
 
 describe("mobile source listing presentation", () => {
+  test("distinguishes a completed empty listing from one not loaded yet", () => {
+    const strings = {
+      noMangaInListing: "No manga found in this listing.",
+      noMangaLoadedFromListing: "No manga loaded from this listing yet.",
+    };
+
+    expect(getMobileSourceListingEmptyTitle("ready", strings)).toBe(
+      strings.noMangaInListing,
+    );
+    expect(getMobileSourceListingEmptyTitle("idle", strings)).toBe(
+      strings.noMangaLoadedFromListing,
+    );
+  });
+
   test("falls back to the manifest id when Aidoku omits a listing name", () => {
     expect(getMobileSourceListingLabel({ id: "Updates" })).toBe("Updates");
     expect(getMobileSourceListingLabel({ id: "Ranking", name: " " })).toBe(

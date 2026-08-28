@@ -6,6 +6,18 @@ export function getMobileSourceListingLabel(
   return listing.name?.trim() || listing.id;
 }
 
+export function getMobileSourceListingEmptyTitle(
+  status: "idle" | "ready",
+  strings: {
+    noMangaInListing: string;
+    noMangaLoadedFromListing: string;
+  },
+): string {
+  return status === "ready"
+    ? strings.noMangaInListing
+    : strings.noMangaLoadedFromListing;
+}
+
 export function mergeMobileSourceListingTabs(
   staticListings: SourcePackageListing[],
   selectedRuntimeListing: SourcePackageListing | null | undefined,
