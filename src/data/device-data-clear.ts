@@ -1,4 +1,7 @@
-import { IndexedDBUserDataStore } from "./indexeddb";
+import {
+  IndexedDBUserDataStore,
+  matchUserDataDatabaseProfile,
+} from "./indexeddb";
 import {
   retireDeviceDataProfiles,
   type DeviceDataProfileId,
@@ -8,6 +11,11 @@ import {
   getSourceSettingsDatabaseName,
 } from "@/stores/source-settings";
 import { listPendingSignOutCleanups } from "@/sync/pending-signout-cleanup";
+import {
+  isDeviceDataProfileId,
+  listDeviceProfileCatalog,
+} from "./device-profile-catalog";
+import { matchSourceSettingsDatabaseProfile } from "@/stores/source-settings";
 
 /** Databases that must be considered even when `indexedDB.databases()` is absent. */
 const ESSENTIAL_DEVICE_DATABASE_NAMES = [
@@ -15,6 +23,23 @@ const ESSENTIAL_DEVICE_DATABASE_NAMES = [
   "nemu-plugins",
   "nemu-security-state",
 ] as const;
+
+const ESSENTIAL_DEVICE_DATABASE_NAME_SET = new Set<string>(
+  ESSENTIAL_DEVICE_DATABASE_NAMES,
+);
+
+export function isNemuOwnedDatabaseName(name: unknown): name is string {
+  if (typeof name !== "string") return false;
+  if (ESSENTIAL_DEVICE_DATABASE_NAME_SET.has(name)) return true;
+  const matched =
+    matchUserDataDatabaseProfile(name) ??
+    matchSourceSettingsDatabaseProfile(name);
+  return Boolean(
+    matched &&
+      (matched.profileId === undefined ||
+        isDeviceDataProfileId(matched.profileId)),
+  );
+}
 
 export function getKnownDeviceDatabaseNames(
   activeStore?: IndexedDBUserDataStore | null,
@@ -55,8 +80,21 @@ export function getNonProfileDeviceDatabaseNames(
 ): Set<string> {
   const profileDatabaseNames = getProfileDatabaseNames(retiredProfiles);
   return new Set(
-    [...databaseNames].filter((name) => !profileDatabaseNames.has(name)),
+    [...databaseNames].filter(
+      (name) =>
+        isNemuOwnedDatabaseName(name) && !profileDatabaseNames.has(name),
+    ),
   );
+}
+
+/** Include authenticated profiles recorded on browsers without DB listing. */
+export function addCatalogProfileDatabaseNames(
+  databaseNames: Set<string>,
+): void {
+  const profileNames = getProfileDatabaseNames(
+    listDeviceProfileCatalog().map((entry) => entry.profileId),
+  );
+  for (const name of profileNames) databaseNames.add(name);
 }
 
 /**

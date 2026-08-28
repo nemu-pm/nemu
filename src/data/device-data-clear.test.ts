@@ -1,18 +1,21 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  addCatalogProfileDatabaseNames,
   addPendingCleanupProfileDatabaseNames,
   clearAllObjectStores,
   clearAndRetireDeviceProfiles,
   getKnownDeviceDatabaseNames,
   getNonProfileDeviceDatabaseNames,
   getProfileDatabaseNames,
+  isNemuOwnedDatabaseName,
 } from "./device-data-clear";
 import { IndexedDBUserDataStore } from "./indexeddb";
 import {
   ProfileWriteFence,
   StaleProfileWriteError,
 } from "./profile-write-fence";
+import { registerDeviceProfile } from "./device-profile-catalog";
 import { getSourceSettingsStoreForProfile } from "@/stores/source-settings";
 import {
   deletePendingSignOutCleanup,
@@ -58,6 +61,21 @@ afterEach(() => {
 });
 
 describe("device data clear", () => {
+  test("recognizes only exact Nemu database namespaces", () => {
+    expect(isNemuOwnedDatabaseName("nemu-cache")).toBe(true);
+    expect(isNemuOwnedDatabaseName("nemu-plugins")).toBe(true);
+    expect(isNemuOwnedDatabaseName("nemu-security-state")).toBe(true);
+    expect(isNemuOwnedDatabaseName("nemu-user")).toBe(true);
+    expect(isNemuOwnedDatabaseName("nemu-source-settings")).toBe(true);
+    expect(isNemuOwnedDatabaseName("nemu-user::user:alpha")).toBe(true);
+    expect(
+      isNemuOwnedDatabaseName("nemu-source-settings::user:alpha"),
+    ).toBe(true);
+    expect(isNemuOwnedDatabaseName("unrelated-origin-database")).toBe(false);
+    expect(isNemuOwnedDatabaseName("nemu-user::admin:foreign")).toBe(false);
+    expect(isNemuOwnedDatabaseName("nemu-cache-copy")).toBe(false);
+  });
+
   test("includes local, active, cache, plugin, and recovery databases without enumeration", () => {
     const activeStore = new IndexedDBUserDataStore("user:active");
     expect([...getKnownDeviceDatabaseNames(activeStore)].sort()).toEqual([
@@ -80,11 +98,24 @@ describe("device data clear", () => {
     expect(
       [
         ...getNonProfileDeviceDatabaseNames(
-          getKnownDeviceDatabaseNames(activeStore),
+          [
+            ...getKnownDeviceDatabaseNames(activeStore),
+            "unrelated-origin-database",
+          ],
           [undefined, "user:active"],
         ),
       ].sort(),
     ).toEqual(["nemu-cache", "nemu-plugins", "nemu-security-state"]);
+  });
+
+  test("includes cataloged profile databases when enumeration is unavailable", () => {
+    const profileId = `user:device-clear-catalog-${Math.random()}`;
+    registerDeviceProfile(profileId, 0);
+    const names = getKnownDeviceDatabaseNames();
+    expect(names.has(`nemu-user::${profileId}`)).toBe(false);
+    addCatalogProfileDatabaseNames(names);
+    expect(names).toContain(`nemu-user::${profileId}`);
+    expect(names).toContain(`nemu-source-settings::${profileId}`);
   });
 
   test("clears every object store and does not create a missing database", async () => {

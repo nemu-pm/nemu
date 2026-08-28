@@ -23,6 +23,8 @@ import {
 } from "@/sync/services";
 import { resolvePendingSignOutCleanupRetryIdentity } from "@/sync/pending-signout-retry-identity";
 import { safeErrorCategory } from "@/lib/error-diagnostic";
+import { recoverPendingDeviceDataWipe } from "./device-data-wipe";
+import { readPendingDeviceDataWipe } from "./device-data-wipe-journal";
 
 const LAST_PROFILE_ID_KEY = "nemu:last-profile-id";
 
@@ -45,6 +47,18 @@ export function DataServicesProvider(props: { children: ReactNode }) {
   const [profileOverride, setProfileOverride] = useState<ProfileId | null>(
     null,
   );
+  const [deviceWipeRecoveryState, setDeviceWipeRecoveryState] = useState<
+    "ready" | "recovering" | "failed"
+  >(() => {
+    if (typeof window === "undefined") return "ready";
+    try {
+      return readPendingDeviceDataWipe()?.remoteSignOutConfirmed
+        ? "recovering"
+        : "ready";
+    } catch {
+      return "failed";
+    }
+  });
 
   const sessionProfileId = makeProfileId(session?.user?.id);
   const autoProfileId =
@@ -65,7 +79,12 @@ export function DataServicesProvider(props: { children: ReactNode }) {
   // agree. Passing an exact active user makes that user's old marker
   // self-cancel; signed-out or different-user markers safely resume cleanup.
   useEffect(() => {
-    if (pendingCleanupRetryIdentity === null) return;
+    if (
+      pendingCleanupRetryIdentity === null ||
+      deviceWipeRecoveryState === "recovering"
+    ) {
+      return;
+    }
     void retryPendingSignOutCleanups(pendingCleanupRetryIdentity).catch(
       (error) => {
         console.error(
@@ -74,7 +93,38 @@ export function DataServicesProvider(props: { children: ReactNode }) {
         );
       },
     );
-  }, [pendingCleanupRetryIdentity]);
+  }, [deviceWipeRecoveryState, pendingCleanupRetryIdentity]);
+
+  useEffect(() => {
+    if (
+      deviceWipeRecoveryState !== "recovering" ||
+      pendingCleanupRetryIdentity === null
+    ) {
+      return;
+    }
+    let cancelled = false;
+    void recoverPendingDeviceDataWipe(
+      pendingCleanupRetryIdentity
+        ? makeProfileId(pendingCleanupRetryIdentity)
+        : undefined,
+    )
+      .then((result) => {
+        if (cancelled) return;
+        setDeviceWipeRecoveryState("ready");
+        if (result.status === "completed") window.location.reload();
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error(
+          "[data] Pending device-data wipe recovery failed:",
+          safeErrorCategory(error),
+        );
+        setDeviceWipeRecoveryState("failed");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceWipeRecoveryState, pendingCleanupRetryIdentity]);
 
   // Keep global debug refs in sync (used by diagnostics / signOut helpers).
   useLayoutEffect(() => {
@@ -137,6 +187,39 @@ export function DataServicesProvider(props: { children: ReactNode }) {
     () => ({ profileId, setProfileId, container }),
     [profileId, setProfileId, container],
   );
+
+  if (deviceWipeRecoveryState === "recovering") {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex min-h-dvh items-center justify-center p-6 text-center text-sm text-muted-foreground"
+      >
+        Finishing the requested device-data cleanup…
+      </div>
+    );
+  }
+
+  if (deviceWipeRecoveryState === "failed") {
+    return (
+      <div
+        role="alert"
+        className="flex min-h-dvh flex-col items-center justify-center gap-4 p-6 text-center"
+      >
+        <p className="max-w-md text-sm text-muted-foreground">
+          Nemu could not safely finish the pending device-data cleanup. Your
+          remaining data was left in place.
+        </p>
+        <button
+          type="button"
+          className="rounded-lg border px-3 py-2 text-sm font-medium"
+          onClick={() => window.location.reload()}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <ServicesContext.Provider value={value}>

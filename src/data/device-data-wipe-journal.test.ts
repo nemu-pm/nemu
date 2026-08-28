@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  cancelPendingDeviceDataWipe,
   checkpointPendingDeviceDataWipe,
+  createDeviceDataWipeClientStorageClearPlan,
   createPendingDeviceDataWipe,
   deletePendingDeviceDataWipe,
+  executeDeviceDataWipeClientStorageClearPlan,
   isPendingDeviceDataWipe,
   readPendingDeviceDataWipe,
   withDeviceDataWipeLock,
@@ -161,6 +164,7 @@ describe("device-data wipe journal", () => {
     expect(journal.databases).toEqual(["nemu-cache", "nemu-security-state"]);
     expect(journal.localStorageEntries.map((entry) => entry.key)).toEqual([
       "better-auth_cookie",
+      "nemu:device-profile-catalog:user%3Aalpha",
       "nemu:ordinary-state",
     ]);
     expect(journal.sessionStorageEntries.map((entry) => entry.key)).toEqual([
@@ -457,6 +461,86 @@ describe("device-data wipe journal", () => {
     localStorage.removeItem("nemu:pending-device-data-wipe");
     const completed = await completeJournal();
     deletePendingDeviceDataWipe(completed);
+    expect(readPendingDeviceDataWipe()).toBeNull();
+  });
+
+  test("compare-and-deletes only unchanged Nemu-owned client storage", async () => {
+    const cookies = new Map([
+      ["sidebar_state", "open"],
+      ["unrelated_cookie", "keep"],
+    ]);
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        get cookie() {
+          return [...cookies]
+            .map(([name, value]) => `${name}=${value}`)
+            .join("; ");
+        },
+        set cookie(raw: string) {
+          const [pair, ...attributes] = raw.split(";");
+          const separator = pair?.indexOf("=") ?? -1;
+          if (!pair || separator < 0) return;
+          const name = pair.slice(0, separator);
+          const value = pair.slice(separator + 1);
+          if (
+            attributes.some((attribute) =>
+              /^\s*max-age=0\s*$/i.test(attribute),
+            )
+          ) {
+            cookies.delete(name);
+          } else {
+            cookies.set(name, value);
+          }
+        },
+      },
+    });
+    localStorage.setItem("nemu:remove-me", "old-value");
+    localStorage.setItem("nemu:changed", "old-value");
+    localStorage.setItem("unrelated-state", "keep");
+    sessionStorage.setItem("nemu:session", "remove");
+
+    const journal = await createPendingDeviceDataWipe({
+      profiles: [{ profileId: null, expectedEpoch: 0 }],
+      databases: [],
+    });
+    localStorage.setItem("nemu:changed", "new-lifetime-value");
+    const plan = await createDeviceDataWipeClientStorageClearPlan(journal);
+
+    expect(plan.localStorageEntries.map((entry) => entry.key)).toEqual([
+      "nemu:remove-me",
+    ]);
+    expect(plan.sessionStorageEntries.map((entry) => entry.key)).toEqual([
+      "nemu:session",
+    ]);
+    expect(plan.cookies).toEqual([{ name: "sidebar_state", value: "open" }]);
+
+    // A last-moment write after planning is a new lifetime and must survive.
+    localStorage.setItem("nemu:remove-me", "raced-value");
+    executeDeviceDataWipeClientStorageClearPlan(plan);
+
+    expect(localStorage.getItem("nemu:remove-me")).toBe("raced-value");
+    expect(localStorage.getItem("nemu:changed")).toBe("new-lifetime-value");
+    expect(localStorage.getItem("unrelated-state")).toBe("keep");
+    expect(sessionStorage.getItem("nemu:session")).toBeNull();
+    expect(cookies.get("sidebar_state")).toBeUndefined();
+    expect(cookies.get("unrelated_cookie")).toBe("keep");
+    expect(readPendingDeviceDataWipe()).toEqual(journal);
+  });
+
+  test("cancels only the exact durable operation when authentication supersedes recovery", async () => {
+    const journal = await createPendingDeviceDataWipe({
+      profiles: [{ profileId: "user:alpha", expectedEpoch: 2 }],
+      databases: ["nemu-cache"],
+      initiatingProfileId: "user:alpha",
+    });
+    expect(() =>
+      cancelPendingDeviceDataWipe({
+        ...journal,
+        operationId: "different-operation",
+      }),
+    ).toThrow("journal changed");
+    cancelPendingDeviceDataWipe(journal);
     expect(readPendingDeviceDataWipe()).toBeNull();
   });
 

@@ -153,8 +153,7 @@ function isStorageKey(value: unknown): value is string {
       )) &&
     value !== JOURNAL_STORAGE_KEY &&
     !isProfileWriteFenceStorageKey(value) &&
-    !isDeviceProfileWipeGuardStorageKey(value) &&
-    !value.startsWith("nemu:device-profile-catalog:")
+    !isDeviceProfileWipeGuardStorageKey(value)
   );
 }
 
@@ -633,6 +632,144 @@ export function deletePendingDeviceDataWipe(
         cause: error,
       },
     );
+  }
+}
+
+function assertDurableJournalMatches(journal: PendingDeviceDataWipe): void {
+  const durable = readPendingDeviceDataWipe();
+  if (!durable || JSON.stringify(durable) !== JSON.stringify(journal)) {
+    throw new Error("Device-data wipe journal changed during recovery.");
+  }
+}
+
+/**
+ * Remove an otherwise valid pending operation after a newer authenticated
+ * session has superseded it. Authentication ownership must be established by
+ * the orchestration layer before calling this function.
+ */
+export function cancelPendingDeviceDataWipe(
+  journal: PendingDeviceDataWipe,
+): void {
+  assertDurableJournalMatches(journal);
+  try {
+    localStorage.removeItem(JOURNAL_STORAGE_KEY);
+    if (localStorage.getItem(JOURNAL_STORAGE_KEY) !== null) {
+      throw new Error("Device-data wipe journal cancellation failed.");
+    }
+  } catch (error) {
+    throw new Error("Superseded device-data wipe recovery could not be removed.", {
+      cause: error,
+    });
+  }
+}
+
+async function matchingStorageEntries(
+  storage: Storage | undefined,
+  kind: "localStorage" | "sessionStorage",
+  entries: DeviceDataWipeLocalStorageEntry[],
+): Promise<Array<{ key: string; value: string }>> {
+  if (!storage) return [];
+  const matching: Array<{ key: string; value: string }> = [];
+  for (const entry of entries) {
+    let before: string | null;
+    let after: string | null;
+    try {
+      before = storage.getItem(entry.key);
+      if (before === null) continue;
+      const fingerprint = await fingerprintValue(kind, entry.key, before);
+      after = storage.getItem(entry.key);
+      if (before === after && fingerprint === entry.fingerprint) {
+        matching.push({ key: entry.key, value: before });
+      }
+    } catch (error) {
+      throw new Error(`Cannot safely verify device ${kind} for removal.`, {
+        cause: error,
+      });
+    }
+  }
+  return matching;
+}
+
+/**
+ * Resolve the journal's fingerprints into compare-and-delete values. State
+ * created or changed after the original user action is intentionally omitted.
+ */
+export async function createDeviceDataWipeClientStorageClearPlan(
+  journal: PendingDeviceDataWipe,
+): Promise<DeviceDataWipeClientStorageClearPlan> {
+  assertDurableJournalMatches(journal);
+  const localStorageEntries = await matchingStorageEntries(
+    localStorage,
+    "localStorage",
+    journal.localStorageEntries,
+  );
+  const sessionStorageEntries = await matchingStorageEntries(
+    typeof sessionStorage === "undefined" ? undefined : sessionStorage,
+    "sessionStorage",
+    journal.sessionStorageEntries,
+  );
+  const currentCookies = new Map(
+    captureRawCookies().cookies.map((cookie) => [cookie.name, cookie.value]),
+  );
+  const cookies: Array<{ name: string; value: string }> = [];
+  for (const entry of journal.cookies) {
+    const value = currentCookies.get(entry.name);
+    if (
+      value !== undefined &&
+      (await fingerprintValue("cookie", entry.name, value)) === entry.fingerprint
+    ) {
+      cookies.push({ name: entry.name, value });
+    }
+  }
+  assertDurableJournalMatches(journal);
+  return { localStorageEntries, sessionStorageEntries, cookies };
+}
+
+function removeStorageEntries(
+  storage: Storage | undefined,
+  entries: Array<{ key: string; value: string }>,
+  kind: "localStorage" | "sessionStorage",
+): void {
+  if (!storage) return;
+  for (const entry of entries) {
+    try {
+      if (storage.getItem(entry.key) !== entry.value) continue;
+      storage.removeItem(entry.key);
+      if (storage.getItem(entry.key) === entry.value) {
+        throw new Error(`${kind} compare-and-delete verification failed.`);
+      }
+    } catch (error) {
+      throw new Error(`Cannot safely remove Nemu ${kind}.`, { cause: error });
+    }
+  }
+}
+
+function currentVisibleCookieValue(name: string): string | undefined {
+  return captureRawCookies().cookies.find((cookie) => cookie.name === name)
+    ?.value;
+}
+
+/** Execute a previously verified, Nemu-owned compare-and-delete plan. */
+export function executeDeviceDataWipeClientStorageClearPlan(
+  plan: DeviceDataWipeClientStorageClearPlan,
+): void {
+  removeStorageEntries(localStorage, plan.localStorageEntries, "localStorage");
+  removeStorageEntries(
+    typeof sessionStorage === "undefined" ? undefined : sessionStorage,
+    plan.sessionStorageEntries,
+    "sessionStorage",
+  );
+  if (typeof document === "undefined") return;
+  for (const cookie of plan.cookies) {
+    if (currentVisibleCookieValue(cookie.name) !== cookie.value) continue;
+    try {
+      document.cookie = `${cookie.name}=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
+      if (currentVisibleCookieValue(cookie.name) === cookie.value) {
+        throw new Error("Cookie compare-and-delete verification failed.");
+      }
+    } catch (error) {
+      throw new Error("Cannot safely remove a Nemu cookie.", { cause: error });
+    }
   }
 }
 

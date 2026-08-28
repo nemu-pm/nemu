@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ResponsiveDialog,
@@ -15,16 +15,10 @@ import { useAuth, useDataServices } from "@/data/context";
 import {
   clearCloudData,
   setSyncSubscriptionsStopped,
-  signOut,
 } from "@/sync/services";
-import {
-  addPendingCleanupProfileDatabaseNames,
-  clearAllObjectStores,
-  clearAndRetireDeviceProfiles,
-  getKnownDeviceDatabaseNames,
-  getNonProfileDeviceDatabaseNames,
-} from "@/data/device-data-clear";
-import { clearLocalStoragePreservingProfileWriteFences } from "@/data/profile-write-fence";
+import { clearAllObjectStores } from "@/data/device-data-clear";
+import { startDeviceDataWipe } from "@/data/device-data-wipe";
+import { readPendingDeviceDataWipe } from "@/data/device-data-wipe-journal";
 import { authClient } from "@/lib/auth-client";
 import { toast } from "sonner";
 
@@ -45,11 +39,6 @@ export function ClearDataDialog({
   const [clearCloud, setClearCloud] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const knownDbNames = useMemo(
-    () => getKnownDeviceDatabaseNames(localStore),
-    [localStore],
-  );
-
   const handleOpenChange = (newOpen: boolean) => {
     // Prevent closing while loading
     if (loading) return;
@@ -66,18 +55,9 @@ export function ClearDataDialog({
       setSyncSubscriptionsStopped(true);
 
       if (mode === "cache") {
-        // Clear cache store contents first (more reliable than deleteDatabase when connections are open),
-        // then best-effort delete the DB and reload to drop any workers holding connections.
-        try {
-          await clearAllObjectStores("nemu-cache");
-        } catch {
-          // ignore - cache is best-effort
-        }
-        try {
-          indexedDB.deleteDatabase("nemu-cache");
-        } catch {
-          // ignore
-        }
+        // Clear store contents in place; deleting the database can remain
+        // blocked indefinitely by another tab and is not needed for success.
+        await clearAllObjectStores("nemu-cache");
         location.reload();
         return;
       }
@@ -87,82 +67,38 @@ export function ClearDataDialog({
         await clearCloudData(localStore);
       }
 
-      // Capture every visible database before ending the remote session. The
-      // provider can switch to the anonymous profile as soon as sign-out is
-      // observed, but this destructive operation must retain its exact scope.
-      const dbNames = new Set<string>(knownDbNames);
-      if (typeof indexedDB.databases === "function") {
-        try {
-          const dbs = await indexedDB.databases();
-          for (const db of dbs) {
-            if (db.name) dbNames.add(db.name);
-          }
-        } catch {
-          // ignore and fall back to knownDbNames
-        }
-      }
-      // Recovery markers can name a signed-out profile that browser database
-      // enumeration did not return. Include those exact stores before the
-      // security-state database containing the markers is removed.
-      await addPendingCleanupProfileDatabaseNames(dbNames);
-
-      // End the server session before erasing local auth and account state.
-      // Otherwise an HttpOnly Better Auth cookie can immediately repopulate
-      // data the user explicitly asked to remove from this device. Reuse the
-      // durable remote-confirmed sign-out path so a crash or local storage
-      // failure after server confirmation remains recoverable on startup.
-      if (isAuthenticated) {
-        await signOut(localStore, false, async () => {
+      const result = await startDeviceDataWipe({
+        activeStore: localStore,
+        initiatingProfileId: isAuthenticated
+          ? localStore.profileId || undefined
+          : undefined,
+        // A previously interrupted operation may still need durable remote
+        // confirmation even after the auth hooks have observed signed-out
+        // state, so keep the idempotent callback available on every retry.
+        confirmRemoteSignOut: async () => {
           const result = await authClient.signOut();
           if (result.error) throw result.error;
-        });
-      }
-
-      const retiredProfiles = await clearAndRetireDeviceProfiles(
-        dbNames,
-        localStore,
-      );
-      const nonProfileDbNames = getNonProfileDeviceDatabaseNames(
-        dbNames,
-        retiredProfiles,
-      );
-
-      // Profile databases were cleared under their cross-tab retirement
-      // fences. Clear remaining app-owned databases (cache, plugins, security
-      // recovery state, and any legacy database discovered by the browser).
-      for (const name of nonProfileDbNames) {
-        await clearAllObjectStores(name);
-      }
-
-      // Keep lifetime barriers so suspended tabs cannot write into a profile
-      // that this tab just erased. Everything else is removed.
-      clearLocalStoragePreservingProfileWriteFences();
-      sessionStorage.clear();
-
-      // Clear cookies
-      document.cookie.split(";").forEach((c) => {
-        document.cookie =
-          c.trim().split("=")[0] +
-          "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+        },
       });
-
-      // Best-effort delete (may be blocked by other tabs/workers). Reload ensures in-memory state is reset.
-      for (const name of nonProfileDbNames) {
-        try {
-          indexedDB.deleteDatabase(name);
-        } catch {
-          // ignore
-        }
+      if (result.status !== "completed") {
+        throw new Error("Device-data cleanup still requires remote confirmation.");
       }
-
       location.reload();
     } catch (e) {
       console.error("Failed to clear data:", e);
       toast.error(t("clearData.failed"));
-      // The app remains mounted when a destructive operation fails. Restore
-      // normal subscriptions instead of leaving this session permanently
-      // offline until a full reload.
-      setSyncSubscriptionsStopped(false);
+      // Once remote sign-out is durably confirmed, keep sync stopped until the
+      // guarded recovery finishes. Before that boundary, the original session
+      // and profile remain valid and normal sync may safely resume.
+      let remoteSignOutConfirmed = false;
+      try {
+        remoteSignOutConfirmed =
+          readPendingDeviceDataWipe()?.remoteSignOutConfirmed === true;
+      } catch {
+        // Unreadable recovery state fails closed.
+        remoteSignOutConfirmed = true;
+      }
+      if (!remoteSignOutConfirmed) setSyncSubscriptionsStopped(false);
       setLoading(false);
     }
   };
@@ -207,6 +143,7 @@ export function ClearDataDialog({
 
         <ResponsiveDialogFooter>
           <Button
+            type="button"
             variant="outline"
             onClick={() => handleOpenChange(false)}
             disabled={loading}
@@ -214,6 +151,7 @@ export function ClearDataDialog({
             {t("common.cancel")}
           </Button>
           <Button
+            type="button"
             variant="destructive"
             onClick={handleClear}
             disabled={loading}
