@@ -28,4 +28,19 @@ describe("GitHub Actions supply-chain policy", () => {
 
     expect(mutableReferences).toEqual([]);
   });
+
+  test("requires KVM before running Android instrumentation on Linux", () => {
+    const mobileWorkflow = readFileSync(
+      path.join(WORKFLOW_DIRECTORY, "mobile.yml"),
+      "utf8",
+    );
+    const kvmSetup = mobileWorkflow.indexOf("- name: Enable KVM for the Android emulator");
+    const emulatorRun = mobileWorkflow.indexOf("uses: ReactiveCircus/android-emulator-runner@");
+
+    expect(kvmSetup).toBeGreaterThan(-1);
+    expect(emulatorRun).toBeGreaterThan(kvmSetup);
+    expect(mobileWorkflow).toContain("test -r /dev/kvm");
+    expect(mobileWorkflow).toContain("test -w /dev/kvm");
+    expect(mobileWorkflow).toContain("disable-linux-hw-accel: false");
+  });
 });

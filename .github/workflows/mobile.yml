@@ -229,6 +229,14 @@ jobs:
             :app:lintDebug \
             :app:lintRelease \
             -PreactNativeArchitectures=arm64-v8a
+      - name: Enable KVM for the Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
       - name: Run Android long-strip instrumented tests
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         timeout-minutes: 35
@@ -238,7 +246,8 @@ jobs:
           arch: x86_64
           profile: pixel_7
           disable-animations: true
-          emulator-boot-timeout: 900
+          disable-linux-hw-accel: false
+          emulator-boot-timeout: 600
           emulator-options: >-
             -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect
             -camera-back none -camera-front none
