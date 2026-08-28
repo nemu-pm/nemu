@@ -103,6 +103,9 @@ function assertDeviceWipeAccess(
   authorization?: DeviceProfileWipeGuard,
 ): void {
   if (!getDurableStorage()) return;
+  // Opaque non-device scopes are used by isolated stores/tests and can never
+  // be claimed by the validated whole-device wipe namespace.
+  if (profileId !== undefined && !isDeviceDataProfileId(profileId)) return;
   const pending = readDeviceProfileWipeGuard(profileId);
   if (!pending) return;
   if (
