@@ -461,6 +461,18 @@ describe("device-data wipe journal", () => {
   });
 
   test("serializes duplicate same-realm recovery attempts", async () => {
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: {
+        locks: {
+          request: <T>(
+            _name: string,
+            _options: LockOptions,
+            operation: () => Promise<T>,
+          ) => operation(),
+        },
+      },
+    });
     const calls: string[] = [];
     let signalFirstStarted!: () => void;
     const firstStarted = new Promise<void>((resolve) => {
