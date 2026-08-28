@@ -43,4 +43,27 @@ describe("GitHub Actions supply-chain policy", () => {
     expect(mobileWorkflow).toContain("test -w /dev/kvm");
     expect(mobileWorkflow).toContain("disable-linux-hw-accel: false");
   });
+
+  test("isolates Android release packaging from lint memory pressure", () => {
+    const mobileWorkflow = readFileSync(
+      path.join(WORKFLOW_DIRECTORY, "mobile.yml"),
+      "utf8",
+    );
+    const matrixStart = mobileWorkflow.indexOf(
+      "- name: Test, lint, and assemble Android native modules and app",
+    );
+    const matrixEnd = mobileWorkflow.indexOf(
+      "- name: Enable KVM for the Android emulator",
+      matrixStart,
+    );
+    const matrix = mobileWorkflow.slice(matrixStart, matrixEnd);
+    const gradleRuns = matrix.split("./gradlew").slice(1);
+
+    expect(gradleRuns).toHaveLength(3);
+    expect(gradleRuns[0]).not.toContain(":app:assembleRelease");
+    expect(gradleRuns[1]).toContain(":app:assembleRelease");
+    expect(gradleRuns[1]).not.toContain(":app:lint");
+    expect(gradleRuns[2]).toContain(":app:lintRelease");
+    expect(matrix.match(/-Xmx3g/g)).toHaveLength(3);
+  });
 });

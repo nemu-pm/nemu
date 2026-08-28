@@ -215,17 +215,26 @@ jobs:
       - name: Test, lint, and assemble Android native modules and app
         working-directory: apps/mobile/android
         run: |
-          # Bound parallel JVM-heavy R8/lint work so a hosted runner does not
-          # exhaust the 2 GB Gradle heap when the full matrix runs.
-          ./gradlew --no-daemon --console=plain --max-workers=2 \
+          # Keep R8/release packaging and lint in separate Gradle processes so
+          # their retained heaps cannot exhaust a hosted runner together.
+          # Two workers plus a bounded 3 GiB heap leave room for native and JS
+          # subprocesses while avoiding the previous 2 GiB packageRelease OOM.
+          ./gradlew --no-daemon --console=plain --stacktrace --max-workers=2 \
+            -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g" \
             clean \
             :nemu-aidoku:testDebugUnitTest \
             :nemu-aidoku:testReleaseUnitTest \
             :nemu-aidoku:assembleDebugAndroidTest \
+            :app:assembleDebug \
+            -PreactNativeArchitectures=arm64-v8a
+          ./gradlew --no-daemon --console=plain --stacktrace --max-workers=2 \
+            -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g" \
+            :app:assembleRelease \
+            -PreactNativeArchitectures=arm64-v8a
+          ./gradlew --no-daemon --console=plain --stacktrace --max-workers=2 \
+            -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g" \
             :nemu-aidoku:lintDebug \
             :nemu-aidoku:lintRelease \
-            :app:assembleDebug \
-            :app:assembleRelease \
             :app:lintDebug \
             :app:lintRelease \
             -PreactNativeArchitectures=arm64-v8a
