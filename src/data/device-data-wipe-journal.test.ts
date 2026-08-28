@@ -462,19 +462,24 @@ describe("device-data wipe journal", () => {
 
   test("serializes duplicate same-realm recovery attempts", async () => {
     const calls: string[] = [];
+    let signalFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      signalFirstStarted = resolve;
+    });
     let releaseFirst!: () => void;
     const firstGate = new Promise<void>((resolve) => {
       releaseFirst = resolve;
     });
     const first = withDeviceDataWipeLock(async () => {
       calls.push("first:start");
+      signalFirstStarted();
       await firstGate;
       calls.push("first:end");
     });
     const second = withDeviceDataWipeLock(async () => {
       calls.push("second");
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await firstStarted;
     expect(calls).toEqual(["first:start"]);
     releaseFirst();
     await Promise.all([first, second]);
