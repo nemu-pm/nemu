@@ -1,6 +1,10 @@
 import "fake-indexeddb/auto";
 import { describe, expect, test } from "bun:test";
-import { IndexedDBUserDataStore } from "./indexeddb";
+import {
+  IndexedDBUserDataStore,
+  matchUserDataDatabaseProfile,
+} from "./indexeddb";
+import { StaleProfileWriteError } from "./profile-write-fence";
 import type {
   InstalledSource,
   LocalCollection,
@@ -94,6 +98,17 @@ function mangaProgress(lastReadAt: number): LocalMangaProgress {
 }
 
 describe("IndexedDB atomic snapshot application", () => {
+  test("recognizes exactly the profile databases that participate in retirement", () => {
+    expect(matchUserDataDatabaseProfile("nemu-user")).toEqual({
+      profileId: undefined,
+    });
+    expect(matchUserDataDatabaseProfile("nemu-user::user:a")).toEqual({
+      profileId: "user:a",
+    });
+    expect(matchUserDataDatabaseProfile("nemu-user::")).toBeNull();
+    expect(matchUserDataDatabaseProfile("nemu-user-cache")).toBeNull();
+  });
+
   test("does zero IndexedDB puts for an unchanged 10k chapter snapshot", async () => {
     const store = createStore("chapter-progress-10k");
     await store.prepareSyncGeneration(7);
@@ -221,6 +236,24 @@ describe("IndexedDB atomic snapshot application", () => {
 
     expect(await store.getChapterProgressEntry("registry:source:manga:chapter"))
       .toMatchObject({ progress: 80, lastReadAt: 80, updatedAt: 80 });
+  });
+
+  test("returns the canonical chapter-progress row committed by the transaction", async () => {
+    const store = createStore("chapter-progress-canonical-return");
+    await store.saveChapterProgressEntry(chapterProgress(80, 80));
+
+    const saved = await store.saveChapterProgressEntry(chapterProgress(20, 20));
+    const stored = await store.getChapterProgressEntry(
+      "registry:source:manga:chapter",
+    );
+
+    expect(stored).not.toBeNull();
+    expect(saved).toEqual(stored!);
+    expect(saved).toMatchObject({
+      progress: 80,
+      lastReadAt: 80,
+      updatedAt: 80,
+    });
   });
 
   test("preserves a concurrent newer manga-progress write", async () => {
@@ -351,6 +384,27 @@ describe("IndexedDB atomic snapshot application", () => {
     expect(await store.getSyncGeneration()).toBe(2);
   });
 
+  test("rolls back a generation reset cancelled after transaction writes begin", async () => {
+    const store = createStore("generation-mid-transaction-cancel");
+    await store.prepareSyncGeneration(1);
+    const item = libraryItem("must-survive-cancel", 20);
+    await store.saveLibraryItem(item);
+    let guardCalls = 0;
+
+    const result = await store.prepareSyncGeneration(2, () => {
+      guardCalls += 1;
+      // The default-settings request has already scheduled the reset writes by
+      // this point in fake-indexeddb. The next cursor callback must abort the
+      // whole transaction instead of committing a partial clear.
+      return guardCalls <= 5;
+    });
+
+    expect(guardCalls).toBeGreaterThan(5);
+    expect(result).toBeNull();
+    expect(await store.getSyncGeneration()).toBe(1);
+    expect(await store.getLibraryItem(item.libraryItemId)).toEqual(item);
+  });
+
   test("clears stale offline rows independently on two device profiles", async () => {
     const deviceA = createStore("reset-device-a");
     const deviceB = createStore("reset-device-b");
@@ -424,10 +478,10 @@ describe("IndexedDB atomic snapshot application", () => {
     const started = new Promise<void>((resolve) => { markStarted = resolve; });
     const paused = new Promise<void>((resolve) => { releaseWrite = resolve; });
 
-    const oldWrite = store.runWithSyncWrite(async () => {
+    const oldWrite = store.runWithSyncWrite(async (lease) => {
       markStarted();
       await paused;
-      await store.saveChapterProgressEntry(chapterProgress(60, 60));
+      await store.saveChapterProgressEntry(chapterProgress(60, 60), lease);
       return store.getSyncGeneration();
     });
     await started;
@@ -445,12 +499,105 @@ describe("IndexedDB atomic snapshot application", () => {
     await store.prepareSyncGeneration(1);
     await store.prepareSyncGeneration(2);
 
-    const generation = await store.runWithSyncWrite(async () => {
-      await store.saveChapterProgressEntry(chapterProgress(70, 70));
+    const generation = await store.runWithSyncWrite(async (lease) => {
+      await store.saveChapterProgressEntry(chapterProgress(70, 70), lease);
       return store.getSyncGeneration();
     });
 
     expect(generation).toBe(2);
     expect(await store.getAllChapterProgress()).toEqual([chapterProgress(70, 70)]);
+  });
+
+  test("serializes reset and user writes across two store instances for one profile", async () => {
+    profileSequence += 1;
+    const profileId = `test:two-tab-reset:${profileSequence}`;
+    const tabA = new IndexedDBUserDataStore(profileId);
+    const tabB = new IndexedDBUserDataStore(profileId);
+    await tabA.prepareSyncGeneration(1);
+
+    let markOldWriteStarted!: () => void;
+    const oldWriteStarted = new Promise<void>((resolve) => {
+      markOldWriteStarted = resolve;
+    });
+    let releaseOldWrite!: () => void;
+    const oldWriteCanFinish = new Promise<void>((resolve) => {
+      releaseOldWrite = resolve;
+    });
+    const oldWrite = tabA.runWithSyncWrite(async (lease) => {
+      markOldWriteStarted();
+      await oldWriteCanFinish;
+      await tabA.saveLibraryItem(libraryItem("old-generation", 10), lease);
+      return tabA.getSyncGeneration();
+    });
+    await oldWriteStarted;
+
+    // These calls model two tabs enqueueing against the same profile. The
+    // post-reset action starts while the old write is paused, but queues after
+    // the reset and must therefore observe/preserve generation 2.
+    const reset = tabB.prepareSyncGeneration(2);
+    const postResetWrite = tabB.runWithSyncWrite(async (lease) => {
+      const generation = await tabB.getSyncGeneration();
+      await tabB.saveLibraryItem(libraryItem("new-generation", 20), lease);
+      return generation;
+    });
+    releaseOldWrite();
+
+    expect(await oldWrite).toBe(1);
+    expect(await reset).toBe("reset");
+    expect(await postResetWrite).toBe(2);
+    expect(
+      (await tabA.getAllLibraryItems({ includeRemoved: true })).map(
+        (item) => item.libraryItemId,
+      ),
+    ).toEqual(["new-generation"]);
+  });
+
+  test("retirement rejects stale tab writes and permits a fresh profile lifetime", async () => {
+    profileSequence += 1;
+    const profileId = `test:two-tab-retire:${profileSequence}`;
+    const staleTab = new IndexedDBUserDataStore(profileId);
+    const clearingTab = new IndexedDBUserDataStore(profileId);
+    await staleTab.saveLibraryItem(libraryItem("secret", 10));
+    await staleTab.saveRegistry({
+      id: "secret-registry",
+      name: "Secret registry",
+      type: "builtin",
+    });
+
+    await clearingTab.retireProfileWrites(async (lease) => {
+      await clearingTab.clearAccountData(undefined, lease);
+      await clearingTab.removeRegistry("secret-registry", lease);
+    });
+
+    await expect(
+      staleTab.saveLibraryItem(libraryItem("must-not-resurrect", 20)),
+    ).rejects.toBeInstanceOf(StaleProfileWriteError);
+    await expect(
+      staleTab.saveRegistry({
+        id: "must-not-resurrect-registry",
+        name: "Must not resurrect",
+        type: "builtin",
+      }),
+    ).rejects.toBeInstanceOf(StaleProfileWriteError);
+    expect(
+      await clearingTab.getAllLibraryItems({ includeRemoved: true }),
+    ).toEqual([]);
+    expect(await clearingTab.getRegistry("secret-registry")).toBeNull();
+
+    const freshTab = new IndexedDBUserDataStore(profileId);
+    await freshTab.saveLibraryItem(libraryItem("fresh-session", 30));
+    await freshTab.saveRegistry({
+      id: "fresh-registry",
+      name: "Fresh registry",
+      type: "builtin",
+    });
+    expect(
+      (await freshTab.getAllLibraryItems({ includeRemoved: true })).map(
+        (item) => item.libraryItemId,
+      ),
+    ).toEqual(["fresh-session"]);
+    expect(await freshTab.getRegistry("fresh-registry")).toMatchObject({
+      id: "fresh-registry",
+    });
   });
 });

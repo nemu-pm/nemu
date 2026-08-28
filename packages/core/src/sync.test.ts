@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   areSyncAccountIdentitiesAligned,
+  chapterProgressIntraPageState,
+  supportsChapterProgressIntraPageSync,
   chapterProgressNeedsPush,
   chunkChapterProgressSaveInputs,
   chunkCollectionMutationItems,
@@ -22,7 +24,9 @@ import {
   mergeLibrarySnapshot,
   mergeMangaProgressForSave,
   mergeMangaProgressSnapshot,
+  MAX_SYNC_CLOCK_FUTURE_SKEW_MS,
   nextSyncTimestamp,
+  SYNC_CLOCK_OUT_OF_RANGE,
   toCloudHistorySaveInput,
   toCloudInstalledSource,
   toCloudLibrarySaveInput,
@@ -42,7 +46,9 @@ describe("collection mutation batching", () => {
     const chunks = chunkCollectionMutationItems(ids);
 
     expect(chunks).toHaveLength(8);
-    expect(chunks.every((chunk) => chunk.length <= MAX_COLLECTION_MUTATION_ITEMS)).toBe(true);
+    expect(
+      chunks.every((chunk) => chunk.length <= MAX_COLLECTION_MUTATION_ITEMS),
+    ).toBe(true);
     expect(chunks.flat()).toHaveLength(2_048);
     expect(new Set(chunks.flat()).size).toBe(2_048);
   });
@@ -51,7 +57,9 @@ describe("collection mutation batching", () => {
     const chunks = chunkCollectionMutationItems(
       Array.from({ length: 10_000 }, (_, index) => `item-${index}`),
     );
-    expect(chunks).toHaveLength(Math.ceil(10_000 / MAX_COLLECTION_MUTATION_ITEMS));
+    expect(chunks).toHaveLength(
+      Math.ceil(10_000 / MAX_COLLECTION_MUTATION_ITEMS),
+    );
     expect(chunks.at(-1)).toHaveLength(16);
   });
 });
@@ -108,7 +116,9 @@ describe("library source mutation batching", () => {
   test("splits merge fanout while preserving one logical item clock", () => {
     const links = Array.from({ length: 600 }, (_, index) => link(index));
     const batches = toCloudLibrarySaveInputBatches(item, links);
-    expect(batches.map((batch) => batch.sources.length)).toEqual([256, 256, 88]);
+    expect(batches.map((batch) => batch.sources.length)).toEqual([
+      256, 256, 88,
+    ]);
     expect(
       batches.every(
         (batch) =>
@@ -130,8 +140,12 @@ describe("library source mutation batching", () => {
 
 describe("sync account identity", () => {
   test("allows only an exact non-empty session/server match", () => {
-    expect(areSyncAccountIdentitiesAligned("account-a", "account-a")).toBe(true);
-    expect(areSyncAccountIdentitiesAligned("account-a", "account-b")).toBe(false);
+    expect(areSyncAccountIdentitiesAligned("account-a", "account-a")).toBe(
+      true,
+    );
+    expect(areSyncAccountIdentitiesAligned("account-a", "account-b")).toBe(
+      false,
+    );
     expect(areSyncAccountIdentitiesAligned("account-a", undefined)).toBe(false);
     expect(areSyncAccountIdentitiesAligned(undefined, "account-a")).toBe(false);
   });
@@ -153,6 +167,22 @@ describe("nextSyncTimestamp", () => {
     Date.now = () => 700;
     try {
       expect(nextSyncTimestamp(undefined, null, Number.NaN, 500)).toBe(700);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  test("repairs previously poisoned clocks and fails at the valid ceiling", () => {
+    const originalNow = Date.now;
+    Date.now = () => 1_000;
+    try {
+      expect(nextSyncTimestamp(Number.MAX_SAFE_INTEGER)).toBe(1_000);
+      expect(() =>
+        nextSyncTimestamp(1_000 + MAX_SYNC_CLOCK_FUTURE_SKEW_MS),
+      ).toThrow(SYNC_CLOCK_OUT_OF_RANGE);
+      expect(nextSyncTimestamp(999 + MAX_SYNC_CLOCK_FUTURE_SKEW_MS)).toBe(
+        1_000 + MAX_SYNC_CLOCK_FUTURE_SKEW_MS,
+      );
     } finally {
       Date.now = originalNow;
     }
@@ -233,7 +263,10 @@ const MOBILE_INSTALLED_SOURCE_LOCAL_FIELDS = [
   "packageMetadata",
 ] as const;
 
-function libraryItem(libraryItemId: string, updatedAt: number): LocalLibraryItem {
+function libraryItem(
+  libraryItemId: string,
+  updatedAt: number,
+): LocalLibraryItem {
   return {
     libraryItemId,
     metadata: { title: libraryItemId },
@@ -316,7 +349,19 @@ function chapterProgress(
   };
 }
 
+const INTRA_PAGE_IDENTITY_A = `mobile-image:reader-page-state-v1:${"a".repeat(64)}`;
+const INTRA_PAGE_IDENTITY_B = `mobile-image:reader-page-state-v1:${"b".repeat(64)}`;
+
 describe("sync cloud mapping", () => {
+  test("accepts only safe integer intra-page capability versions", () => {
+    expect(supportsChapterProgressIntraPageSync(undefined)).toBe(false);
+    expect(supportsChapterProgressIntraPageSync(0)).toBe(false);
+    expect(supportsChapterProgressIntraPageSync(1.5)).toBe(false);
+    expect(supportsChapterProgressIntraPageSync("1")).toBe(false);
+    expect(supportsChapterProgressIntraPageSync(1)).toBe(true);
+    expect(supportsChapterProgressIntraPageSync(2)).toBe(true);
+  });
+
   test("maps cloud library and source snapshots into local ids", () => {
     expect(
       mapCloudLibraryItems([
@@ -339,6 +384,22 @@ describe("sync cloud mapping", () => {
         updatedAt: 2,
       },
     ]);
+    expect(
+      mapCloudLibraryItems([
+        {
+          id: "source",
+          metadata: { title: "Source" },
+          inLibrary: false,
+          mergedIntoLibraryItemId: "target",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ])[0],
+    ).toMatchObject({
+      libraryItemId: "source",
+      inLibrary: false,
+      mergedIntoLibraryItemId: "target",
+    });
 
     expect(
       mapCloudSourceLinks([
@@ -365,21 +426,42 @@ describe("sync cloud mapping", () => {
   });
 
   test("maps cloud progress snapshots into generated local ids", () => {
-    expect(
-      mapCloudChapterProgress([
-        {
-          registryId: "aidoku-community",
-          sourceId: "en.example",
-          sourceMangaId: "manga-1",
-          sourceChapterId: "chapter-1",
-          progress: 7,
-          total: 10,
-          completed: false,
-          lastReadAt: 4,
-          updatedAt: 5,
-        },
-      ])[0]?.id,
-    ).toBe("aidoku-community:en.example:manga-1:chapter-1");
+    const mapped = mapCloudChapterProgress([
+      {
+        registryId: "aidoku-community",
+        sourceId: "en.example",
+        sourceMangaId: "manga-1",
+        sourceChapterId: "chapter-1",
+        progress: 7,
+        total: 10,
+        completed: false,
+        lastReadAt: 4,
+        intraPageProgress: 0.625,
+        intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+        updatedAt: 5,
+      },
+    ])[0];
+    expect(mapped?.id).toBe("aidoku-community:en.example:manga-1:chapter-1");
+    expect(mapped).toMatchObject({
+      intraPageProgress: 0.625,
+      intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+    });
+    const malformed = mapCloudChapterProgress([
+      {
+        registryId: "aidoku-community",
+        sourceId: "en.example",
+        sourceMangaId: "manga-1",
+        sourceChapterId: "chapter-malformed",
+        progress: 7,
+        total: 10,
+        completed: false,
+        lastReadAt: 4,
+        intraPageProgress: 0.5,
+        updatedAt: 5,
+      },
+    ])[0];
+    expect(malformed).not.toHaveProperty("intraPageProgress");
+    expect(malformed).not.toHaveProperty("intraPageContentIdentity");
 
     expect(
       mapCloudMangaProgress([
@@ -502,9 +584,129 @@ describe("sync cloud serialization", () => {
       updatedAt: 11,
     });
   });
+
+  test("serializes only canonical content-bound intra-page state", () => {
+    expect(
+      toCloudHistorySaveInput(
+        chapterProgress({
+          intraPageProgress: 0.625,
+          intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+        }),
+        { includeIntraPageState: true },
+      ),
+    ).toMatchObject({
+      intraPageProgress: 0.625,
+      intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+    });
+
+    const malformed = toCloudHistorySaveInput(
+      chapterProgress({
+        intraPageProgress: 0.625,
+        intraPageContentIdentity:
+          "mobile-image:reader-page-state-v1:not-a-digest",
+      }),
+      { includeIntraPageState: true },
+    );
+    expect(malformed).not.toHaveProperty("intraPageProgress");
+    expect(malformed).not.toHaveProperty("intraPageContentIdentity");
+
+    const legacyBackendPayload = toCloudHistorySaveInput(
+      chapterProgress({
+        intraPageProgress: 0.625,
+        intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+      }),
+    );
+    expect(legacyBackendPayload).not.toHaveProperty("intraPageProgress");
+    expect(legacyBackendPayload).not.toHaveProperty("intraPageContentIdentity");
+  });
 });
 
 describe("sync snapshot merge", () => {
+  test("keeps irreversible merge aliases ahead of later stale active clocks", () => {
+    const target = libraryItem("target", 20);
+    const localAlias: LocalLibraryItem = {
+      ...libraryItem("source", 10),
+      inLibrary: false,
+      mergedIntoLibraryItemId: "target",
+    };
+    const staleCloudSource = libraryItem("source", 9_999);
+    const staleLink = sourceLink("source", "stale-source", 10_000);
+
+    const merged = mergeLibrarySnapshot(
+      [target, localAlias],
+      [staleLink],
+      [target, staleCloudSource],
+      [],
+    );
+
+    expect(
+      merged.items.find((item) => item.libraryItemId === "source"),
+    ).toMatchObject({
+      inLibrary: false,
+      mergedIntoLibraryItemId: "target",
+    });
+    expect(merged.localItemsToPush).toContainEqual(localAlias);
+    expect(merged.links).toEqual([{ ...staleLink, libraryItemId: "target" }]);
+  });
+
+  test("uses the cloud alias as authority and resolves finite alias chains", () => {
+    const cloudAlias: LocalLibraryItem = {
+      ...libraryItem("a", 10),
+      inLibrary: false,
+      mergedIntoLibraryItemId: "b",
+    };
+    const chainedAlias: LocalLibraryItem = {
+      ...libraryItem("b", 11),
+      inLibrary: false,
+      mergedIntoLibraryItemId: "c",
+    };
+    const survivor = libraryItem("c", 12);
+    const localActive = libraryItem("a", 9_999);
+    const link = sourceLink("a", "a-manga", 9_999);
+
+    const merged = mergeLibrarySnapshot(
+      [localActive],
+      [link],
+      [cloudAlias, chainedAlias, survivor],
+      [],
+    );
+
+    expect(merged.items.find((item) => item.libraryItemId === "a")).toEqual(
+      cloudAlias,
+    );
+    expect(merged.localItemsToPush).toEqual([]);
+    expect(merged.links).toEqual([{ ...link, libraryItemId: "c" }]);
+  });
+
+  test("rejects cyclic merge aliases in a sync snapshot", () => {
+    const aliasA: LocalLibraryItem = {
+      ...libraryItem("a", 10),
+      inLibrary: false,
+      mergedIntoLibraryItemId: "b",
+    };
+    const aliasB: LocalLibraryItem = {
+      ...libraryItem("b", 11),
+      inLibrary: false,
+      mergedIntoLibraryItemId: "a",
+    };
+
+    expect(() => mergeLibrarySnapshot([aliasA, aliasB], [], [], [])).toThrow(
+      "cycle",
+    );
+  });
+
+  test("rejects an alias whose terminal target is absent from a complete snapshot", () => {
+    const alias: LocalLibraryItem = {
+      ...libraryItem("source", 10),
+      inLibrary: false,
+      mergedIntoLibraryItemId: "missing",
+    };
+
+    expect(() => mergeLibrarySnapshot([alias], [], [], [])).toThrow(
+      "target is missing",
+    );
+  });
+
   test("merges remote library snapshots without dropping newer local rows", () => {
     const localItem = libraryItem("local", 10);
     const cloudItem = libraryItem("cloud", 12);
@@ -527,20 +729,18 @@ describe("sync snapshot merge", () => {
       "local",
       "shared",
     ]);
-    expect(merged.items.find((item) => item.libraryItemId === "shared")?.updatedAt).toBe(20);
-    expect(merged.links.map((link) => link.id).sort()).toEqual([
-      cloudLink.id,
-      localLink.id,
-      sharedLocalLink.id,
-    ].sort());
-    expect(merged.localItemsToPush.map((item) => item.libraryItemId).sort()).toEqual([
-      "local",
-      "shared",
-    ]);
-    expect(merged.localLinksToPush.map((link) => link.id).sort()).toEqual([
-      localLink.id,
-      sharedLocalLink.id,
-    ].sort());
+    expect(
+      merged.items.find((item) => item.libraryItemId === "shared")?.updatedAt,
+    ).toBe(20);
+    expect(merged.links.map((link) => link.id).sort()).toEqual(
+      [cloudLink.id, localLink.id, sharedLocalLink.id].sort(),
+    );
+    expect(
+      merged.localItemsToPush.map((item) => item.libraryItemId).sort(),
+    ).toEqual(["local", "shared"]);
+    expect(merged.localLinksToPush.map((link) => link.id).sort()).toEqual(
+      [localLink.id, sharedLocalLink.id].sort(),
+    );
   });
 
   test("merges remote collection snapshots without orphan memberships", () => {
@@ -559,23 +759,22 @@ describe("sync snapshot merge", () => {
       [cloudMembership],
     );
 
-    expect(merged.collections.map((entry) => entry.collectionId).sort()).toEqual([
-      "cloud",
-      "local",
-      "shared",
-    ]);
     expect(
-      merged.collectionItems.map((item) =>
-        makeCollectionItemId(item.collectionId, item.libraryItemId),
-      ).sort(),
+      merged.collections.map((entry) => entry.collectionId).sort(),
+    ).toEqual(["cloud", "local", "shared"]);
+    expect(
+      merged.collectionItems
+        .map((item) =>
+          makeCollectionItemId(item.collectionId, item.libraryItemId),
+        )
+        .sort(),
     ).toEqual([
       makeCollectionItemId("cloud", "manga-3"),
       makeCollectionItemId("local", "manga-1"),
     ]);
-    expect(merged.localCollectionsToPush.map((entry) => entry.collectionId).sort()).toEqual([
-      "local",
-      "shared",
-    ]);
+    expect(
+      merged.localCollectionsToPush.map((entry) => entry.collectionId).sort(),
+    ).toEqual(["local", "shared"]);
     expect(merged.localCollectionItemsToPush).toEqual([localMembership]);
   });
 
@@ -700,7 +899,10 @@ describe("installed source merge", () => {
   });
 
   test("preserves configured local-only source fields when cloud metadata wins", () => {
-    const [merged] = mergeInstalledSources<MobileInstalledSource, InstalledSource>(
+    const [merged] = mergeInstalledSources<
+      MobileInstalledSource,
+      InstalledSource
+    >(
       [
         {
           id: "aidoku-community:en.example",
@@ -789,6 +991,112 @@ describe("installed source merge", () => {
 });
 
 describe("progress helpers", () => {
+  test("accepts only an exact, finite content-bound intra-page pair", () => {
+    expect(
+      chapterProgressIntraPageState({
+        intraPageProgress: 0,
+        intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+      }),
+    ).toEqual({
+      intraPageProgress: 0,
+      intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+    });
+    expect(
+      chapterProgressIntraPageState({
+        intraPageProgress: 1,
+        intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+      }),
+    ).toBeDefined();
+
+    for (const candidate of [
+      {
+        intraPageProgress: -0.001,
+        intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+      },
+      {
+        intraPageProgress: 1.001,
+        intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+      },
+      {
+        intraPageProgress: Number.NaN,
+        intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+      },
+      { intraPageProgress: 0.5, intraPageContentIdentity: undefined },
+      {
+        intraPageProgress: 0.5,
+        intraPageContentIdentity: INTRA_PAGE_IDENTITY_A.toUpperCase(),
+      },
+    ]) {
+      expect(chapterProgressIntraPageState(candidate)).toBeUndefined();
+    }
+  });
+
+  test("merges intra-page progress as one LWW-owned pair", () => {
+    const older = chapterProgress({
+      intraPageProgress: 0.25,
+      intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+      updatedAt: 100,
+    });
+    const newer = chapterProgress({
+      intraPageProgress: 0.75,
+      intraPageContentIdentity: INTRA_PAGE_IDENTITY_B,
+      updatedAt: 200,
+    });
+    expect(mergeChapterProgressForSave(older, newer)).toMatchObject({
+      intraPageProgress: 0.75,
+      intraPageContentIdentity: INTRA_PAGE_IDENTITY_B,
+    });
+
+    // A newer legacy or malformed client may omit the pair, but it must never
+    // combine one half from each device. Preserve the older valid pair as a
+    // compatibility backfill; the reader still verifies the content digest.
+    expect(
+      mergeChapterProgressForSave(
+        older,
+        chapterProgress({
+          intraPageProgress: 0.9,
+          intraPageContentIdentity: undefined,
+          updatedAt: 300,
+        }),
+      ),
+    ).toMatchObject({
+      intraPageProgress: 0.25,
+      intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+    });
+  });
+
+  test("gives the cloud pair equal-clock authority and converges one backfill push", () => {
+    const local = chapterProgress({
+      intraPageProgress: 0.25,
+      intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+      updatedAt: 100,
+    });
+    const cloud = chapterProgress({
+      intraPageProgress: 0.75,
+      intraPageContentIdentity: INTRA_PAGE_IDENTITY_B,
+      updatedAt: 100,
+    });
+    expect(mergeChapterProgressForSave(local, cloud)).toMatchObject({
+      intraPageProgress: 0.75,
+      intraPageContentIdentity: INTRA_PAGE_IDENTITY_B,
+    });
+
+    const legacyCloud = chapterProgress({
+      intraPageProgress: undefined,
+      intraPageContentIdentity: undefined,
+      updatedAt: 100,
+    });
+    const merged = mergeChapterProgressForSave(local, legacyCloud);
+    expect(chapterProgressNeedsPush(merged, legacyCloud)).toBe(true);
+    const pushedCloud = mergeChapterProgressForSave(legacyCloud, merged);
+    const convergedLocal = mergeChapterProgressForSave(merged, pushedCloud);
+    expect(chapterProgressNeedsPush(convergedLocal, pushedCloud)).toBe(false);
+    expect(convergedLocal).toMatchObject({
+      intraPageProgress: 0.25,
+      intraPageContentIdentity: INTRA_PAGE_IDENTITY_A,
+    });
+  });
+
   test("derives manga progress from chapter progress", () => {
     expect(mangaProgressFromChapterProgress(chapterProgress())).toEqual({
       id: "aidoku-community:en.example:manga-1",
@@ -808,8 +1116,20 @@ describe("progress helpers", () => {
   test("merges chapter progress with high-water semantics", () => {
     expect(
       mergeChapterProgressForSave(
-        chapterProgress({ progress: 8, total: 10, completed: true, lastReadAt: 80, updatedAt: 80 }),
-        chapterProgress({ progress: 3, total: 12, completed: false, lastReadAt: 30, updatedAt: 30 }),
+        chapterProgress({
+          progress: 8,
+          total: 10,
+          completed: true,
+          lastReadAt: 80,
+          updatedAt: 80,
+        }),
+        chapterProgress({
+          progress: 3,
+          total: 12,
+          completed: false,
+          lastReadAt: 30,
+          updatedAt: 30,
+        }),
       ),
     ).toMatchObject({
       progress: 8,

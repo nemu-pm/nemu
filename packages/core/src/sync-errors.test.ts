@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   AUTH_ACCOUNT_MISMATCH,
   classifySyncError,
+  INVALID_SYNC_CLOCK,
   INSTALLED_SOURCE_SET_LIMIT_EXCEEDED,
   isTerminalSyncError,
   SYNC_CLOCK_REQUIRED,
@@ -65,6 +66,15 @@ describe("sync error classification", () => {
       kind: "limit-exceeded",
       code: INSTALLED_SOURCE_SET_LIMIT_EXCEEDED,
     });
+  });
+
+  test("surfaces an invalid device clock as terminal and actionable", () => {
+    const error = convexError(`${INVALID_SYNC_CLOCK}: updatedAt`);
+    expect(classifySyncError(error)).toEqual({
+      kind: "clock-invalid",
+      code: INVALID_SYNC_CLOCK,
+    });
+    expect(isTerminalSyncError(error)).toBe(true);
   });
 
   test("recognises a write replayed under a different account", () => {

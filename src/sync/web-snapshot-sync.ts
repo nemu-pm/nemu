@@ -12,6 +12,9 @@ import type {
 import {
   chunkChapterProgressSaveInputs,
   chunkCollectionMutationItems,
+  normalizeSyncClock,
+  resolveLibraryItemMergeAlias,
+  supportsChapterProgressIntraPageSync,
   toCloudInstalledSource,
   toCloudHistorySaveInput,
   toCloudLibrarySaveInput,
@@ -53,9 +56,7 @@ export function isWebSyncRunCurrent(
 async function pushLocalLibraryWinners(
   localStore: Pick<
     IndexedDBUserDataStore,
-    | "getLibraryItem"
-    | "getSourceLink"
-    | "getSourceLinksForLibraryItem"
+    "getLibraryItem" | "getSourceLink" | "getSourceLinksForLibraryItem"
   >,
   convex: MutationClient,
   merged: LibrarySnapshotMerge<LocalLibraryItem, LocalSourceLink>,
@@ -66,7 +67,14 @@ async function pushLocalLibraryWinners(
   const pushedLinkIds = new Set<string>();
   const removedLibraryItemIds = new Set<string>();
 
-  for (const candidate of merged.localItemsToPush) {
+  // Active survivors must exist before a local merge alias is replayed as a
+  // semantic remove. Snapshot order is not a dependency contract (and IDB
+  // key order can put the retired id first), so make the relation explicit.
+  const orderedItemCandidates = [...merged.localItemsToPush].sort(
+    (left, right) =>
+      Number(left.inLibrary === false) - Number(right.inLibrary === false),
+  );
+  for (const candidate of orderedItemCandidates) {
     if (!shouldContinue()) return;
     const item = await localStore.getLibraryItem(candidate.libraryItemId);
     if (!shouldContinue()) return;
@@ -75,7 +83,8 @@ async function pushLocalLibraryWinners(
       await convex.mutation(api.library.remove, {
         expectedUserId,
         libraryItemId: item.libraryItemId,
-        updatedAt: item.updatedAt,
+        mergeTargetLibraryItemId: item.mergedIntoLibraryItemId,
+        updatedAt: normalizeSyncClock(item.updatedAt),
         generation,
       });
       removedLibraryItemIds.add(item.libraryItemId);
@@ -116,7 +125,8 @@ async function pushLocalLibraryWinners(
       await convex.mutation(api.library.remove, {
         expectedUserId,
         libraryItemId: item.libraryItemId,
-        updatedAt: item.updatedAt,
+        mergeTargetLibraryItemId: item.mergedIntoLibraryItemId,
+        updatedAt: normalizeSyncClock(item.updatedAt),
         generation,
       });
       continue;
@@ -144,7 +154,8 @@ async function pushLocalCollectionWinners(
   if (
     merged.localCollectionsToPush.length === 0 &&
     merged.localCollectionItemsToPush.length === 0
-  ) return;
+  )
+    return;
   for (const candidate of merged.localCollectionsToPush) {
     if (!shouldContinue()) return;
     const collection = await localStore.getCollection(candidate.collectionId);
@@ -154,7 +165,7 @@ async function pushLocalCollectionWinners(
       await convex.mutation(api.collections.remove, {
         expectedUserId,
         collectionId: collection.collectionId,
-        updatedAt: collection.updatedAt,
+        updatedAt: normalizeSyncClock(collection.updatedAt),
         generation,
       });
       removedCollectionIds.add(collection.collectionId);
@@ -163,8 +174,8 @@ async function pushLocalCollectionWinners(
         expectedUserId,
         collectionId: collection.collectionId,
         name: collection.name,
-        createdAt: collection.createdAt,
-        updatedAt: collection.updatedAt,
+        createdAt: normalizeSyncClock(collection.createdAt),
+        updatedAt: normalizeSyncClock(collection.updatedAt),
         removed: false,
         generation,
       });
@@ -179,7 +190,10 @@ async function pushLocalCollectionWinners(
   ]);
   if (!shouldContinue()) return;
   const collectionsById = new Map(
-    currentCollections.map((collection) => [collection.collectionId, collection]),
+    currentCollections.map((collection) => [
+      collection.collectionId,
+      collection,
+    ]),
   );
   const itemsById = new Map(
     currentCollectionItems.map((item) => [
@@ -212,12 +226,13 @@ async function pushLocalCollectionWinners(
       }
       continue;
     }
-    const groupKey = `${item.collectionId}\u0000${item.removed === true ? "remove" : "add"}\u0000${item.updatedAt}`;
+    const updatedAt = normalizeSyncClock(item.updatedAt);
+    const groupKey = `${item.collectionId}\u0000${item.removed === true ? "remove" : "add"}\u0000${updatedAt}`;
     const group = membershipGroups.get(groupKey) ?? {
       collectionId: item.collectionId,
       libraryItemIds: [],
       removed: item.removed === true,
-      updatedAt: item.updatedAt,
+      updatedAt,
     };
     group.libraryItemIds.push(item.libraryItemId);
     membershipGroups.set(groupKey, group);
@@ -228,7 +243,7 @@ async function pushLocalCollectionWinners(
     await convex.mutation(api.collections.remove, {
       expectedUserId,
       collectionId: collection.collectionId,
-      updatedAt: collection.updatedAt,
+      updatedAt: normalizeSyncClock(collection.updatedAt),
       generation,
     });
   }
@@ -270,7 +285,7 @@ async function pushLocalInstalledSourceWinners(
         expectedUserId,
         id: source.id,
         registryId: source.registryId,
-        updatedAt: source.updatedAt ?? 0,
+        updatedAt: normalizeSyncClock(source.updatedAt),
         generation,
       });
     } else {
@@ -328,14 +343,36 @@ export async function applyWebCollectionsSyncSnapshot(options: {
   convex: MutationClient;
   cloudCollections: LocalCollection[];
   cloudCollectionItems: LocalCollectionItem[];
+  /** Complete library snapshot for alias-safe collection canonicalization. */
+  cloudLibraryItems?: LocalLibraryItem[];
   generation: number;
   expectedUserId: string;
   shouldContinue: () => boolean;
-}): Promise<CollectionSnapshotMerge<LocalCollection, LocalCollectionItem> | null> {
+}): Promise<CollectionSnapshotMerge<
+  LocalCollection,
+  LocalCollectionItem
+> | null> {
   if (!options.shouldContinue()) return null;
+  const cloudLibraryItemsById = new Map(
+    (options.cloudLibraryItems ?? []).map((item) => [item.libraryItemId, item]),
+  );
+  const canonicalizeMembership = (
+    membership: LocalCollectionItem,
+  ): LocalCollectionItem => {
+    if (membership.removed || cloudLibraryItemsById.size === 0) {
+      return membership;
+    }
+    const libraryItemId = resolveLibraryItemMergeAlias(
+      membership.libraryItemId,
+      (current) => cloudLibraryItemsById.get(current)?.mergedIntoLibraryItemId,
+    );
+    return libraryItemId === membership.libraryItemId
+      ? membership
+      : { ...membership, libraryItemId };
+  };
   const merged = await options.localStore.applyCollectionsSnapshot(
     options.cloudCollections,
-    options.cloudCollectionItems,
+    options.cloudCollectionItems.map(canonicalizeMembership),
     options.shouldContinue,
     options.generation,
   );
@@ -386,6 +423,7 @@ export async function applyWebChapterProgressSyncSnapshot(options: {
   cloudProgress: LocalChapterProgress[];
   generation: number;
   expectedUserId: string;
+  chapterProgressIntraPageVersion?: unknown;
   shouldContinue: () => boolean;
 }): Promise<LocalChapterProgress[] | null> {
   if (!options.shouldContinue()) return null;
@@ -399,7 +437,12 @@ export async function applyWebChapterProgressSyncSnapshot(options: {
   // A first sync can produce hundreds of local winners. One mutation per row
   // made that hundreds of sequential round trips; `saveBatch` applies each
   // chunk in a single server transaction using the same per-item logic.
-  const saveInputs = applied.localWinners.map(toCloudHistorySaveInput);
+  const includeIntraPageState = supportsChapterProgressIntraPageSync(
+    options.chapterProgressIntraPageVersion,
+  );
+  const saveInputs = applied.localWinners.map((progress) =>
+    toCloudHistorySaveInput(progress, { includeIntraPageState }),
+  );
   for (const items of chunkChapterProgressSaveInputs(saveInputs)) {
     if (!options.shouldContinue()) return null;
     await options.convex.mutation(api.history.saveBatch, {

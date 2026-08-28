@@ -6,7 +6,9 @@ import { requireAuth } from "./_lib";
 import {
   canonicalizeLwwRecords,
   newestLwwRecord,
-  shouldApplyLww, pruneDuplicateRows } from "./lww";
+  shouldApplyLww,
+  pruneDuplicateRows,
+} from "./lww";
 import {
   currentSyncGenerationRows,
   getCurrentSyncGeneration,
@@ -17,6 +19,7 @@ import {
   assertInstalledSourceSetAdmission,
   compactInstalledSourceTombstone,
 } from "./settingsLimits";
+import { normalizeSyncClock } from "../packages/core/src/sync-clock";
 
 const DEFAULT_SETTINGS = {
   installedSources: [] as [],
@@ -80,7 +83,12 @@ function mergeInstalledSources(
     accepted = true;
   }
   return {
-    sources: [...byId.values()].map(compactInstalledSourceTombstone),
+    sources: [...byId.values()].map((source) =>
+      compactInstalledSourceTombstone({
+        ...source,
+        updatedAt: normalizeSyncClock(source.updatedAt),
+      }),
+    ),
     accepted,
   };
 }
@@ -96,18 +104,30 @@ function canonicalInstalledSources(
 }
 
 function maxSourceClock(sources: readonly InstalledSourceRecord[]): number {
+  const now = Date.now();
   return sources.reduce(
-    (maximum, source) => Math.max(maximum, source.updatedAt ?? 0),
+    (maximum, source) =>
+      Math.max(maximum, normalizeSyncClock(source.updatedAt, now)),
     0,
   );
 }
 
+function maxAcceptableClock(
+  ...clocks: Array<number | null | undefined>
+): number {
+  const now = Date.now();
+  return Math.max(0, ...clocks.map((clock) => normalizeSyncClock(clock, now)));
+}
+
 async function readSettings(ctx: QueryCtx, userId: string) {
   const generation = await getCurrentSyncGeneration(ctx, userId);
-  const settingsRows = currentSyncGenerationRows(await ctx.db
-    .query("settings")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect(), generation);
+  const settingsRows = currentSyncGenerationRows(
+    await ctx.db
+      .query("settings")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect(),
+    generation,
+  );
 
   if (settingsRows.length === 0) {
     return { ...DEFAULT_SETTINGS, updatedAt: 0 };
@@ -121,8 +141,8 @@ async function readSettings(ctx: QueryCtx, userId: string) {
 
   return {
     installedSources,
-    updatedAt: Math.max(
-      ...settingsRows.map((settings) => settings.updatedAt ?? 0),
+    updatedAt: maxAcceptableClock(
+      ...settingsRows.map((settings) => settings.updatedAt),
       maxSourceClock(installedSources),
     ),
   };
@@ -166,10 +186,7 @@ export const getV2 = query({
         ...args.paginationOpts,
         numItems: Math.max(
           1,
-          Math.min(
-            SNAPSHOT_PAGE_MAX_ITEMS,
-            requestedItems,
-          ),
+          Math.min(SNAPSHOT_PAGE_MAX_ITEMS, requestedItems),
         ),
       });
     return {
@@ -206,10 +223,13 @@ export const save = mutation({
       ...source,
       updatedAt: resolveClock(source.updatedAt, legacyNow),
     }));
-    const matches = currentSyncGenerationRows(await ctx.db
-      .query("settings")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect(), generation);
+    const matches = currentSyncGenerationRows(
+      await ctx.db
+        .query("settings")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect(),
+      generation,
+    );
     const existing = newestLwwRecord(matches);
     const storedSources = matches.flatMap((entry) => entry.installedSources);
     const merged = mergeInstalledSources(storedSources, incomingSources);
@@ -225,8 +245,8 @@ export const save = mutation({
       await ctx.db.patch(existing._id, {
         installedSources: merged.sources,
         updatedAt: merged.accepted
-          ? Math.max(existing.updatedAt ?? 0, mergedClock, updatedAt)
-          : Math.max(existing.updatedAt ?? 0, mergedClock),
+          ? maxAcceptableClock(existing.updatedAt, mergedClock, updatedAt)
+          : maxAcceptableClock(existing.updatedAt, mergedClock),
       });
     } else {
       await ctx.db.insert("settings", {
@@ -254,16 +274,16 @@ export const saveInstalledSource = mutation({
       updatedAt: resolveClock(args.source.updatedAt, Date.now()),
       removed: false,
     };
-    const matches = currentSyncGenerationRows(await ctx.db
-      .query("settings")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect(), generation);
+    const matches = currentSyncGenerationRows(
+      await ctx.db
+        .query("settings")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect(),
+      generation,
+    );
     const existing = newestLwwRecord(matches);
     const storedSources = matches.flatMap((entry) => entry.installedSources);
-    const merged = mergeInstalledSources(
-      storedSources,
-      [source],
-    );
+    const merged = mergeInstalledSources(storedSources, [source]);
     assertInstalledSourceSetAdmission(
       canonicalInstalledSources(storedSources),
       merged.sources,
@@ -278,8 +298,12 @@ export const saveInstalledSource = mutation({
       await ctx.db.patch(existing._id, {
         installedSources: merged.sources,
         updatedAt: merged.accepted
-          ? Math.max(existing.updatedAt ?? 0, mergedClock, source.updatedAt)
-          : Math.max(existing.updatedAt ?? 0, mergedClock),
+          ? maxAcceptableClock(
+              existing.updatedAt,
+              mergedClock,
+              source.updatedAt,
+            )
+          : maxAcceptableClock(existing.updatedAt, mergedClock),
       });
     } else {
       await ctx.db.insert("settings", {
@@ -305,10 +329,13 @@ export const removeInstalledSource = mutation({
     const { userId, generation, resolveClock } =
       await requireSyncMutationContext(ctx, args);
     const updatedAt = resolveClock(args.updatedAt, Date.now());
-    const matches = currentSyncGenerationRows(await ctx.db
-      .query("settings")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect(), generation);
+    const matches = currentSyncGenerationRows(
+      await ctx.db
+        .query("settings")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect(),
+      generation,
+    );
     const existing = newestLwwRecord(matches);
     const storedSources = matches.flatMap((entry) => entry.installedSources);
     const current = newestLwwRecord(
@@ -335,8 +362,8 @@ export const removeInstalledSource = mutation({
       await ctx.db.patch(existing._id, {
         installedSources: merged.sources,
         updatedAt: merged.accepted
-          ? Math.max(existing.updatedAt ?? 0, mergedClock, updatedAt)
-          : Math.max(existing.updatedAt ?? 0, mergedClock),
+          ? maxAcceptableClock(existing.updatedAt, mergedClock, updatedAt)
+          : maxAcceptableClock(existing.updatedAt, mergedClock),
       });
     } else {
       await ctx.db.insert("settings", {

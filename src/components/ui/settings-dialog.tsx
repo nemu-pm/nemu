@@ -191,8 +191,6 @@ interface SettingsDialogWithPagesProps {
   version?: string | number
   /** Page stack - array of { title, content } */
   pageStack: SettingsPage[]
-  /** Push a new page onto the stack */
-  onPushPage: (page: SettingsPage) => void
   /** Pop the current page from the stack */
   onPopPage: () => void
   /** Root content (shown when pageStack is empty) */

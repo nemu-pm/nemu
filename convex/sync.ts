@@ -12,13 +12,12 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import {
-  paginationOptsValidator,
-  type PaginationOptions,
-} from "convex/server";
+import { paginationOptsValidator, type PaginationOptions } from "convex/server";
 import { requireAuth, requireAuthForUser } from "./_lib";
 import { canonicalizeLwwRecords } from "./lww";
+import { newestLibraryMergeAwareItem } from "./libraryMerge";
 import {
+  CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION,
   makeChapterProgressId,
   makeMangaProgressId,
   makeSourceLinkId,
@@ -31,6 +30,7 @@ import {
   type SyncCleanupTable,
   type SyncCleanupToken,
 } from "./syncGeneration";
+import { chapterProgressIntraPageState } from "../packages/core/src/sync-lww";
 import { beginSyncReset } from "./syncReset";
 import {
   legacyVisibleCollectionItemRows,
@@ -39,13 +39,51 @@ import {
   legacyVisibleSourceLinkRows,
 } from "./syncCompatibility";
 
+const syncGenerationObservationValidator = v.object({
+  generation: v.number(),
+  serverNow: v.number(),
+  chapterProgressIntraPageVersion: v.number(),
+});
+
+export async function readSyncGenerationObservation(
+  ctx: QueryCtx | MutationCtx,
+): Promise<{
+  generation: number;
+  serverNow: number;
+  chapterProgressIntraPageVersion: number;
+}> {
+  const userId = await requireAuth(ctx);
+  return {
+    generation: await getCurrentSyncGeneration(ctx, userId),
+    serverNow: Date.now(),
+    chapterProgressIntraPageVersion:
+      CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION,
+  };
+}
+
+/** Reactive generation metadata. Deliberately omit wall time: a dependency-
+ * cached query is not a fresh clock source. */
 export const generation = query({
   args: {},
-  returns: v.object({ generation: v.number() }),
+  returns: v.object({
+    generation: v.number(),
+    chapterProgressIntraPageVersion: v.number(),
+  }),
   handler: async (ctx) => {
     const userId = await requireAuth(ctx);
-    return { generation: await getCurrentSyncGeneration(ctx, userId) };
+    return {
+      generation: await getCurrentSyncGeneration(ctx, userId),
+      chapterProgressIntraPageVersion:
+        CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION,
+    };
   },
+});
+
+/** Authenticated, uncached clock round trip used before client sync writes. */
+export const observeGeneration = mutation({
+  args: {},
+  returns: syncGenerationObservationValidator,
+  handler: readSyncGenerationObservation,
 });
 
 const SNAPSHOT_PAGE_MAX_ITEMS = 128;
@@ -58,10 +96,7 @@ function boundedSnapshotPagination(
     : 1;
   return {
     ...paginationOpts,
-    numItems: Math.max(
-      1,
-      Math.min(SNAPSHOT_PAGE_MAX_ITEMS, requestedItems),
-    ),
+    numItems: Math.max(1, Math.min(SNAPSHOT_PAGE_MAX_ITEMS, requestedItems)),
   };
 }
 
@@ -72,6 +107,9 @@ function mapLibraryItem(item: Doc<"library_items">) {
     metadata: item.metadata,
     externalIds: item.externalIds,
     inLibrary: item.inLibrary,
+    ...(item.mergedIntoLibraryItemId === undefined
+      ? {}
+      : { mergedIntoLibraryItemId: item.mergedIntoLibraryItemId }),
     overrides: item.overrides,
     sourceOrder: item.sourceOrder,
     createdAt: item.createdAt,
@@ -79,16 +117,28 @@ function mapLibraryItem(item: Doc<"library_items">) {
   };
 }
 
-async function libraryItemRows(ctx: QueryCtx, userId: string, generation: number) {
-  const items = currentSyncGenerationRows(await ctx.db
-    .query("library_items")
-    .withIndex("by_user_item", (q) => q.eq("userId", userId))
-    .collect(), generation);
-  return canonicalizeLwwRecords(
-    items,
-    (item) => item.libraryItemId,
-    (item) => item.inLibrary === false,
-  ).map(mapLibraryItem);
+async function libraryItemRows(
+  ctx: QueryCtx,
+  userId: string,
+  generation: number,
+) {
+  const items = currentSyncGenerationRows(
+    await ctx.db
+      .query("library_items")
+      .withIndex("by_user_item", (q) => q.eq("userId", userId))
+      .collect(),
+    generation,
+  );
+  const rowsByItem = new Map<string, Doc<"library_items">[]>();
+  for (const item of items) {
+    const rows = rowsByItem.get(item.libraryItemId) ?? [];
+    rows.push(item);
+    rowsByItem.set(item.libraryItemId, rows);
+  }
+  return [...rowsByItem.values()]
+    .map(newestLibraryMergeAwareItem)
+    .filter((item): item is Doc<"library_items"> => item !== undefined)
+    .map(mapLibraryItem);
 }
 
 function mapSourceLink(link: Doc<"library_source_links">) {
@@ -110,14 +160,22 @@ function mapSourceLink(link: Doc<"library_source_links">) {
   };
 }
 
-async function sourceLinkRows(ctx: QueryCtx, userId: string, generation: number) {
-  const links = currentSyncGenerationRows(await ctx.db
-    .query("library_source_links")
-    .withIndex("by_user_item", (q) => q.eq("userId", userId))
-    .collect(), generation);
+async function sourceLinkRows(
+  ctx: QueryCtx,
+  userId: string,
+  generation: number,
+) {
+  const links = currentSyncGenerationRows(
+    await ctx.db
+      .query("library_source_links")
+      .withIndex("by_user_item", (q) => q.eq("userId", userId))
+      .collect(),
+    generation,
+  );
   return canonicalizeLwwRecords(
     links,
-    (link) => `${link.registryId}\u0000${link.sourceId}\u0000${link.sourceMangaId}`,
+    (link) =>
+      `${link.registryId}\u0000${link.sourceId}\u0000${link.sourceMangaId}`,
     (link) => link.removed === true,
   ).map(mapSourceLink);
 }
@@ -132,11 +190,18 @@ function mapCollection(collection: Doc<"collections">) {
   };
 }
 
-async function collectionRows(ctx: QueryCtx, userId: string, generation: number) {
-  const collections = currentSyncGenerationRows(await ctx.db
-    .query("collections")
-    .withIndex("by_user_updated", (q) => q.eq("userId", userId))
-    .collect(), generation);
+async function collectionRows(
+  ctx: QueryCtx,
+  userId: string,
+  generation: number,
+) {
+  const collections = currentSyncGenerationRows(
+    await ctx.db
+      .query("collections")
+      .withIndex("by_user_updated", (q) => q.eq("userId", userId))
+      .collect(),
+    generation,
+  );
   return canonicalizeLwwRecords(
     collections,
     (collection) => collection.collectionId,
@@ -154,11 +219,18 @@ function mapCollectionItem(item: Doc<"collection_items">) {
   };
 }
 
-async function collectionItemRows(ctx: QueryCtx, userId: string, generation: number) {
-  const items = currentSyncGenerationRows(await ctx.db
-    .query("collection_items")
-    .withIndex("by_user_updated", (q) => q.eq("userId", userId))
-    .collect(), generation);
+async function collectionItemRows(
+  ctx: QueryCtx,
+  userId: string,
+  generation: number,
+) {
+  const items = currentSyncGenerationRows(
+    await ctx.db
+      .query("collection_items")
+      .withIndex("by_user_updated", (q) => q.eq("userId", userId))
+      .collect(),
+    generation,
+  );
   return canonicalizeLwwRecords(
     items,
     (item) => `${item.collectionId}\u0000${item.libraryItemId}`,
@@ -167,6 +239,7 @@ async function collectionItemRows(ctx: QueryCtx, userId: string, generation: num
 }
 
 function mapChapterProgress(entry: Doc<"chapter_progress">) {
+  const intraPageState = chapterProgressIntraPageState(entry);
   return {
     id: makeChapterProgressId(
       entry.registryId,
@@ -186,15 +259,23 @@ function mapChapterProgress(entry: Doc<"chapter_progress">) {
     chapterNumber: entry.chapterNumber,
     volumeNumber: entry.volumeNumber,
     chapterTitle: entry.chapterTitle,
+    ...(intraPageState ?? {}),
     updatedAt: entry.updatedAt,
   };
 }
 
-async function chapterProgressRows(ctx: QueryCtx, userId: string, generation: number) {
-  const progress = currentSyncGenerationRows(await ctx.db
-    .query("chapter_progress")
-    .withIndex("by_user_updated", (q) => q.eq("userId", userId))
-    .collect(), generation);
+async function chapterProgressRows(
+  ctx: QueryCtx,
+  userId: string,
+  generation: number,
+) {
+  const progress = currentSyncGenerationRows(
+    await ctx.db
+      .query("chapter_progress")
+      .withIndex("by_user_updated", (q) => q.eq("userId", userId))
+      .collect(),
+    generation,
+  );
   return canonicalizeLwwRecords(
     progress,
     (entry) =>
@@ -204,7 +285,11 @@ async function chapterProgressRows(ctx: QueryCtx, userId: string, generation: nu
 
 function mapMangaProgress(entry: Doc<"manga_progress">) {
   return {
-    id: makeMangaProgressId(entry.registryId, entry.sourceId, entry.sourceMangaId),
+    id: makeMangaProgressId(
+      entry.registryId,
+      entry.sourceId,
+      entry.sourceMangaId,
+    ),
     registryId: entry.registryId,
     sourceId: entry.sourceId,
     sourceMangaId: entry.sourceMangaId,
@@ -218,11 +303,18 @@ function mapMangaProgress(entry: Doc<"manga_progress">) {
   };
 }
 
-async function mangaProgressRows(ctx: QueryCtx, userId: string, generation: number) {
-  const progress = currentSyncGenerationRows(await ctx.db
-    .query("manga_progress")
-    .withIndex("by_user_updated", (q) => q.eq("userId", userId))
-    .collect(), generation);
+async function mangaProgressRows(
+  ctx: QueryCtx,
+  userId: string,
+  generation: number,
+) {
+  const progress = currentSyncGenerationRows(
+    await ctx.db
+      .query("manga_progress")
+      .withIndex("by_user_updated", (q) => q.eq("userId", userId))
+      .collect(),
+    generation,
+  );
   return canonicalizeLwwRecords(
     progress,
     (entry) =>
@@ -239,7 +331,9 @@ async function libraryItemPage(
   const result = await ctx.db
     .query("library_items")
     .withIndex("by_user_sync_generation", (q) =>
-      q.eq("userId", userId).eq("syncGeneration", storedSyncGeneration(generation)),
+      q
+        .eq("userId", userId)
+        .eq("syncGeneration", storedSyncGeneration(generation)),
     )
     .paginate(boundedSnapshotPagination(paginationOpts));
   return { ...result, page: result.page.map(mapLibraryItem) };
@@ -254,7 +348,9 @@ async function sourceLinkPage(
   const result = await ctx.db
     .query("library_source_links")
     .withIndex("by_user_sync_generation", (q) =>
-      q.eq("userId", userId).eq("syncGeneration", storedSyncGeneration(generation)),
+      q
+        .eq("userId", userId)
+        .eq("syncGeneration", storedSyncGeneration(generation)),
     )
     .paginate(boundedSnapshotPagination(paginationOpts));
   return { ...result, page: result.page.map(mapSourceLink) };
@@ -269,7 +365,9 @@ async function collectionPage(
   const result = await ctx.db
     .query("collections")
     .withIndex("by_user_sync_generation", (q) =>
-      q.eq("userId", userId).eq("syncGeneration", storedSyncGeneration(generation)),
+      q
+        .eq("userId", userId)
+        .eq("syncGeneration", storedSyncGeneration(generation)),
     )
     .paginate(boundedSnapshotPagination(paginationOpts));
   return { ...result, page: result.page.map(mapCollection) };
@@ -284,7 +382,9 @@ async function collectionItemPage(
   const result = await ctx.db
     .query("collection_items")
     .withIndex("by_user_sync_generation", (q) =>
-      q.eq("userId", userId).eq("syncGeneration", storedSyncGeneration(generation)),
+      q
+        .eq("userId", userId)
+        .eq("syncGeneration", storedSyncGeneration(generation)),
     )
     .paginate(boundedSnapshotPagination(paginationOpts));
   return { ...result, page: result.page.map(mapCollectionItem) };
@@ -299,7 +399,9 @@ async function chapterProgressPage(
   const result = await ctx.db
     .query("chapter_progress")
     .withIndex("by_user_sync_generation", (q) =>
-      q.eq("userId", userId).eq("syncGeneration", storedSyncGeneration(generation)),
+      q
+        .eq("userId", userId)
+        .eq("syncGeneration", storedSyncGeneration(generation)),
     )
     .paginate(boundedSnapshotPagination(paginationOpts));
   return { ...result, page: result.page.map(mapChapterProgress) };
@@ -314,7 +416,9 @@ async function mangaProgressPage(
   const result = await ctx.db
     .query("manga_progress")
     .withIndex("by_user_sync_generation", (q) =>
-      q.eq("userId", userId).eq("syncGeneration", storedSyncGeneration(generation)),
+      q
+        .eq("userId", userId)
+        .eq("syncGeneration", storedSyncGeneration(generation)),
     )
     .paginate(boundedSnapshotPagination(paginationOpts));
   return { ...result, page: result.page.map(mapMangaProgress) };
@@ -410,7 +514,9 @@ function versionedSnapshotQuery<T>(
       if (currentGeneration !== args.generation) {
         return {
           generation: currentGeneration,
-          page: [{ kind: "generation" as const, generation: currentGeneration }],
+          page: [
+            { kind: "generation" as const, generation: currentGeneration },
+          ],
           continueCursor: "",
           isDone: true,
         };
@@ -478,32 +584,60 @@ async function cleanupPage(
 ): Promise<Array<{ _id: Id<SyncCleanupTable> }>> {
   switch (table) {
     case "library_items": {
-      return ctx.db.query(table).withIndex("by_user_sync_generation", (q) =>
-        q.eq("userId", userId).lt("syncGeneration", targetGeneration)).take(CLEANUP_PAGE_SIZE);
+      return ctx.db
+        .query(table)
+        .withIndex("by_user_sync_generation", (q) =>
+          q.eq("userId", userId).lt("syncGeneration", targetGeneration),
+        )
+        .take(CLEANUP_PAGE_SIZE);
     }
     case "library_source_links": {
-      return ctx.db.query(table).withIndex("by_user_sync_generation", (q) =>
-        q.eq("userId", userId).lt("syncGeneration", targetGeneration)).take(CLEANUP_PAGE_SIZE);
+      return ctx.db
+        .query(table)
+        .withIndex("by_user_sync_generation", (q) =>
+          q.eq("userId", userId).lt("syncGeneration", targetGeneration),
+        )
+        .take(CLEANUP_PAGE_SIZE);
     }
     case "collections": {
-      return ctx.db.query(table).withIndex("by_user_sync_generation", (q) =>
-        q.eq("userId", userId).lt("syncGeneration", targetGeneration)).take(CLEANUP_PAGE_SIZE);
+      return ctx.db
+        .query(table)
+        .withIndex("by_user_sync_generation", (q) =>
+          q.eq("userId", userId).lt("syncGeneration", targetGeneration),
+        )
+        .take(CLEANUP_PAGE_SIZE);
     }
     case "collection_items": {
-      return ctx.db.query(table).withIndex("by_user_sync_generation", (q) =>
-        q.eq("userId", userId).lt("syncGeneration", targetGeneration)).take(CLEANUP_PAGE_SIZE);
+      return ctx.db
+        .query(table)
+        .withIndex("by_user_sync_generation", (q) =>
+          q.eq("userId", userId).lt("syncGeneration", targetGeneration),
+        )
+        .take(CLEANUP_PAGE_SIZE);
     }
     case "chapter_progress": {
-      return ctx.db.query(table).withIndex("by_user_sync_generation", (q) =>
-        q.eq("userId", userId).lt("syncGeneration", targetGeneration)).take(CLEANUP_PAGE_SIZE);
+      return ctx.db
+        .query(table)
+        .withIndex("by_user_sync_generation", (q) =>
+          q.eq("userId", userId).lt("syncGeneration", targetGeneration),
+        )
+        .take(CLEANUP_PAGE_SIZE);
     }
     case "manga_progress": {
-      return ctx.db.query(table).withIndex("by_user_sync_generation", (q) =>
-        q.eq("userId", userId).lt("syncGeneration", targetGeneration)).take(CLEANUP_PAGE_SIZE);
+      return ctx.db
+        .query(table)
+        .withIndex("by_user_sync_generation", (q) =>
+          q.eq("userId", userId).lt("syncGeneration", targetGeneration),
+        )
+        .take(CLEANUP_PAGE_SIZE);
     }
     case "settings": {
-      return ctx.db.query(table).withIndex("by_user_sync_generation", (q) =>
-        q.eq("userId", userId).lt("syncGeneration", targetGeneration)).take(CLEANUP_PAGE_SIZE);
+      return ctx.db
+        .query(table)
+        .withIndex("by_user_sync_generation", (q) =>
+          q.eq("userId", userId).lt("syncGeneration", targetGeneration),
+        )
+        .take(CLEANUP_PAGE_SIZE);
     }
   }
 }
@@ -524,10 +658,7 @@ async function runCleanupStep(
     targetGeneration,
   );
   for (const row of rows) await ctx.db.delete(row._id);
-  return nextSyncCleanupToken(
-    cleanupToken,
-    rows.length === CLEANUP_PAGE_SIZE,
-  );
+  return nextSyncCleanupToken(cleanupToken, rows.length === CLEANUP_PAGE_SIZE);
 }
 
 /** Atomically advances the account generation. Old rows become unreachable

@@ -40,8 +40,5 @@ jobs:
         run: bun run typecheck
       - name: Lint shared core and web
         run: bun run lint
-      # `scripts/generate-apple-secret.ts` exits successfully when
-      # APPLE_TEAM_ID / APPLE_KEY_ID / APPLE_CLIENT_ID are absent, so the build
-      # step needs no secrets on CI.
       - name: Build web app
         run: bun run build

@@ -23,8 +23,8 @@ bun test --coverage               # with coverage
 
 bunx convex codegen               # regenerate committed Convex bindings
 
-bun run build                     # generate-apple-secret + tsc -b + vite build
-bun run deploy                    # generate-apple-secret + convex deploy
+bun run build                     # pure local/CI web build: tsc -b + vite build
+bun run deploy                    # generate Apple secret, then deploy Convex
 ```
 
 ### Lint / typecheck gotchas
@@ -32,7 +32,7 @@ bun run deploy                    # generate-apple-secret + convex deploy
 - **Root `bun run test` covers the web suite plus `@nemu/core`.** Root `bun test` is rooted at `src/`; the `bun run test` script chains `bun test ./tests` (repository contract tests) and `bun run core:test`, so the shared sync/settings/sources/library tests run alongside the web suite.
 - **Full lint is a CI gate.** `.github/workflows/ci.yml` runs `bun install --frozen-lockfile`, then `bun run test`, `bun run typecheck`, `bun run lint`, and `bun run build` on every pull request and on pushes to `master`. Targeted lint is useful while iterating, but full `bun run lint` must pass before merge. `--frozen-lockfile` also means a dependency change is only mergeable with a matching `bun.lock` update committed.
 - **Tests need the vaul submodule.** `bun install` plus `git submodule update --init` (for `vendor/vaul`) are both required or tests fail on missing `vaul`/`zustand`. The `vaul` import is path-aliased to `./vendor/vaul/src` in all tsconfigs.
-- **bun `mock.module` leaks across files in one run.** When mocking a module in a test, the mock must export *every* named export of the real module, or later test files in the same run break with "export not found".
+- **bun `mock.module` leaks across files in one run.** When mocking a module in a test, the mock must export _every_ named export of the real module, or later test files in the same run break with "export not found".
 - `bun run typecheck` covers three projects (`packages/core`, app, `convex/`); `bun run core:typecheck` isolates just the shared core package.
 - Keep commit authorship human-owned. Do not add AI-tool `Co-Authored-By` trailers.
 
@@ -53,7 +53,7 @@ This is the core architecture; understanding it is required before changing data
 
 - **Profile-scoped services.** `createServicesContainer(profileId)` (`src/sync/services.ts`) builds the per-profile Zustand stores + data providers. A `ProfileId` is derived from the Convex/Better Auth user id (or a local fallback). The active container is owned by `DataServicesProvider` (`src/data/services-provider.tsx`) and consumed via `useDataServices` / `useStores` / `useProfileId` from `src/data/context.tsx`.
 - **Local-first writes.** All reads/writes hit IndexedDB immediately (`src/data/indexeddb.ts`, `src/data/schema.ts`, `src/data/keys.ts`). Stores: library, collections, progress, cache, source settings, plugin data.
-- **Convex is canonical cloud state**, mirrored in via sync. `SyncSetup` (`src/sync/setup.tsx`) is a *sibling* to the app tree (not a parent) so its re-renders don't disturb the app. It bridges Convex subscriptions into local IndexedDB + in-memory stores. Cloud↔local mapping lives in `@nemu/core` (`mapCloud*`, `merge*Snapshot`, `toCloudLibrarySaveInput`).
+- **Convex is canonical cloud state**, mirrored in via sync. `SyncSetup` (`src/sync/setup.tsx`) is a _sibling_ to the app tree (not a parent) so its re-renders don't disturb the app. It bridges Convex subscriptions into local IndexedDB + in-memory stores. Cloud↔local mapping lives in `@nemu/core` (`mapCloud*`, `merge*Snapshot`, `toCloudLibrarySaveInput`).
 - **Convex HTTP actions** also provide a fallback proxy path (`convex/http.ts`, `convex/proxy.ts`) for APIs that block the worker proxy.
 - **Tombstone / soft-delete model.** Library items (`inLibrary: false`), source links, collections, collection items, and installed sources (`removed: true`) keep deletion tombstones so last-write-wins snapshots converge across devices. Reads filter tombstones from normal UI surfaces; sync and bulk-merge paths must retain them. A newer explicit save/reinstall may revive a tombstone, but unrelated snapshot hydration must not.
 
@@ -82,8 +82,51 @@ Until then, treat `@nemu/core` as the seam: when logic will be needed by both cl
 ## Deployment / Environment
 
 - Frontend proxy base is `https://service.nemu.pm` (`src/config.ts`); the worker source is in `services/proxy/`.
-- `bun run deploy` generates the Apple secret then deploys Convex.
+- `bun run deploy` does not deploy that Worker. Follow the Worker-first policy-v2
+  rollout, smoke, and rollback runbook in `services/proxy/README.md` before
+  shipping a frontend that uses `/oauth-proxy-v2`.
+- `bun run build` is deterministic and must not mutate deployment state. `bun run deploy` explicitly generates the Apple secret before deploying Convex.
 - Key env vars (`.env.local`): `CONVEX_DEPLOYMENT`, `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_TACHIYOMI_LOCAL_PATH`. Preview deploys need correctly scoped staging credentials; treat a failed preview as a deployment blocker until its cause is verified.
+
+The source proxy treats destinations and headers as untrusted. It accepts only
+credential-free HTTP(S) targets on the default ports, lexically rejects local,
+metadata, private, and reserved names, rejects every IP literal for Bun/Worker
+parity, and revalidates at most five
+redirect hops. The Worker enables Cloudflare's `global_fetch_strictly_public`
+compatibility boundary so same-zone subrequests cannot bypass mapped Workers
+or Cloudflare security. Do not describe lexical validation alone as a DNS
+guarantee: an operator exposing the Bun development runtime must additionally
+use a trusted `ALLOWED_DOMAINS` list and outbound egress controls that block
+private/reserved resolved addresses. `bun run service` binds only to
+`127.0.0.1` by default and refuses a non-loopback bind without an allowlist.
+
+The proxy strips credential-like headers on cross-origin redirects, refuses
+HTTPS downgrades and cross-origin request-body replay, never relays
+proxy-domain cookies, and bounds request/response bodies. Target headers must
+be passed with the `x-proxy-` prefix; direct `Cookie`/`Authorization` headers
+belong to the proxy origin and are intentionally discarded. Security-sensitive
+callers can set `x-nemu-proxy-redirect: manual` to refuse every target redirect
+and `x-nemu-proxy-max-response-bytes` to request a smaller response cap (the
+service-wide cap still wins). Shared GET caching is memory-bounded and limited
+to unauthenticated responses that explicitly declare `Cache-Control: public`
+and never carry `Set-Cookie`.
+
+OAuth token exchanges use the independently versioned `/oauth-proxy-v2`
+profile. It accepts only HTTPS form POSTs, refuses every redirect, and enforces
+fixed 64 KiB request and 128 KiB response caps regardless of client headers.
+
+### Legacy sync write cutoff
+
+Generation-fenced clients send both `expectedUserId` and `generation` with sync mutations. Older clients send neither. The Convex deployment keeps accepting that legacy shape while `SYNC_LEGACY_WRITE_CUTOFF_AT` is unset, and emits `legacy-sync-write-grace` events under the `[sync-compat]` log prefix so the remaining legacy traffic is observable.
+
+1. Deploy the generation-fenced backend before the matching clients.
+2. Keep the variable unset through the supported client rollout window and monitor `[sync-compat]` grace events.
+3. After every supported client version is generation-aware, set an explicit ISO-8601 or epoch-millisecond cutoff on each deployment. For production, use `npx convex env set --prod SYNC_LEGACY_WRITE_CUTOFF_AT '2026-09-01T00:00:00Z'` with the actual approved cutoff.
+4. Verify that legacy traffic produces `legacy-sync-write-rejected` and clients surface the upgrade-required path. A malformed configured value fails closed and emits `legacy-sync-cutoff-invalid`; correct it rather than removing the cutoff.
+
+At and after the cutoff, unfenced mutations fail with `SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED`. Removing the variable re-enables legacy writes, so do that only as an explicit rollback after evaluating the reset/delete resurrection risk. Convex environment variables are deployment-scoped; configure and verify development, preview, and production independently.
+
+Logical sync clocks are anchored by the authenticated `sync:observeGeneration` mutation before snapshot or mutation gates open. Do not anchor from `sync:generation.serverNow`: reactive Convex query results are dependency-cached and are not fresh time samples. Clear the in-memory anchor whenever the backend, authenticated account, or local profile changes, and route every server-validated outbound clock through the shared normalization helpers. `INVALID_SYNC_CLOCK` is terminal for its payload and must surface the clock-correction UI rather than enter a retry loop.
 
 ## Cross-Repo Aidoku Work
 

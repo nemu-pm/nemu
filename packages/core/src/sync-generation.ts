@@ -1,3 +1,5 @@
+import { estimatedSyncServerTime, normalizeSyncClock } from "./sync-clock";
+
 export type SyncGenerationSnapshot = {
   generation: number;
 };
@@ -385,15 +387,16 @@ export function canonicalizeSyncSnapshotRecords<
   isRemoved: (record: T) => boolean = () => false,
 ): T[] {
   const canonical = new Map<string, T>();
+  const now = estimatedSyncServerTime();
   for (const record of records) {
     const key = keyOf(record);
     const current = canonical.get(key);
+    const recordClock = normalizeSyncClock(record.updatedAt, now);
+    const currentClock = normalizeSyncClock(current?.updatedAt, now);
     if (
       !current ||
-      (record.updatedAt ?? 0) > (current.updatedAt ?? 0) ||
-      ((record.updatedAt ?? 0) === (current.updatedAt ?? 0) &&
-        isRemoved(record) &&
-        !isRemoved(current))
+      recordClock > currentClock ||
+      (recordClock === currentClock && isRemoved(record) && !isRemoved(current))
     ) {
       canonical.set(key, record);
     }

@@ -46,6 +46,11 @@ afterAll(() => {
 const { getSourceSettingsStore, getSourceSettingsStoreForProfile } = await import(
   "@/stores/source-settings"
 );
+const { IndexedDBUserDataStore } = await import("@/data/indexeddb");
+const {
+  listPendingSignOutCleanups,
+  persistPendingSignOutCleanup,
+} = await import("@/sync/pending-signout-cleanup");
 const { DataServicesProvider } = await import("./services-provider");
 
 describe("DataServicesProvider — anonymous source credentials", () => {
@@ -80,5 +85,44 @@ describe("DataServicesProvider — anonymous source credentials", () => {
     expect(getSourceSettingsStoreForProfile(`user:${SIGNED_IN_USER_ID}`)).not.toBe(
       getSourceSettingsStore(),
     );
+  });
+
+  test("settled same-user startup supersedes its marker without clearing data", async () => {
+    const profileId = `user:${SIGNED_IN_USER_ID}`;
+    const store = new IndexedDBUserDataStore(profileId);
+    await store.saveLibraryItem({
+      libraryItemId: "survives-startup-supersession",
+      metadata: { title: "Survives startup supersession" },
+      inLibrary: true,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await persistPendingSignOutCleanup({
+      profileId,
+      userId: SIGNED_IN_USER_ID,
+      keepData: false,
+      expectedGeneration: null,
+      remoteConfirmedAt: 1_000,
+    });
+
+    render(
+      <DataServicesProvider>
+        <div>same user signed in again</div>
+      </DataServicesProvider>,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(
+      (await listPendingSignOutCleanups()).filter(
+        (marker) => marker.profileId === profileId,
+      ),
+    ).toEqual([]);
+    expect(
+      await store.getAllLibraryItems({ includeRemoved: true }),
+    ).toEqual([
+      expect.objectContaining({
+        libraryItemId: "survives-startup-supersession",
+      }),
+    ]);
   });
 });

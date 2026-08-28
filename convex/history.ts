@@ -5,7 +5,9 @@ import { requireAuth, requireAuthForUser } from "./_lib";
 import {
   mergeChapterProgressHighWater,
   newestLwwRecord,
-  shouldApplyLww, pruneDuplicateRows } from "./lww";
+  pruneDuplicateRows,
+  shouldApplyLww,
+} from "./lww";
 import {
   assertFiniteNumber,
   assertNonNegativeSafeInteger,
@@ -16,9 +18,14 @@ import {
   storedSyncGeneration,
 } from "./syncGeneration";
 import { requireSyncMutationContext } from "./syncCompatibility";
+import { normalizeSyncClock } from "../packages/core/src/sync-clock";
+import { chapterProgressIntraPageState } from "../packages/core/src/sync-lww";
+import { resolveLibraryMergeAlias } from "./libraryMerge";
 
 const HISTORY_RETARGET_PAGE_ITEMS = 128;
 const HISTORY_RETARGET_CONFLICT = "HISTORY_RETARGET_CONFLICT";
+export const HISTORY_RETARGET_LEASE_MS = 5 * 60 * 1_000;
+export const HISTORY_RETARGET_MAX_RECOVERY_ATTEMPTS = 3;
 
 /**
  * Each batched item performs the same indexed reads and the same
@@ -28,7 +35,8 @@ const HISTORY_RETARGET_CONFLICT = "HISTORY_RETARGET_CONFLICT";
  * `@nemu/core`, which chunks the client side to the same size.
  */
 const MAX_HISTORY_SAVE_BATCH_ITEMS = 32;
-const HISTORY_SAVE_BATCH_LIMIT_EXCEEDED = "SYNC_HISTORY_SAVE_BATCH_LIMIT_EXCEEDED";
+const HISTORY_SAVE_BATCH_LIMIT_EXCEEDED =
+  "SYNC_HISTORY_SAVE_BATCH_LIMIT_EXCEEDED";
 
 /**
  * The per-item shape is byte-identical to `save`'s own arguments minus the
@@ -47,6 +55,8 @@ const historySaveItem = v.object({
   chapterNumber: v.optional(v.number()),
   volumeNumber: v.optional(v.number()),
   chapterTitle: v.optional(v.string()),
+  intraPageProgress: v.optional(v.number()),
+  intraPageContentIdentity: v.optional(v.string()),
   updatedAt: v.optional(v.number()),
 });
 
@@ -62,6 +72,8 @@ type HistorySaveItem = {
   chapterNumber?: number;
   volumeNumber?: number;
   chapterTitle?: string;
+  intraPageProgress?: number;
+  intraPageContentIdentity?: string;
   updatedAt?: number;
 };
 
@@ -69,18 +81,81 @@ type HistoryRetargetLock = {
   sourceLibraryItemId: string;
   targetLibraryItemId: string;
   updatedAt: number;
+  operationId?: string;
+  leaseExpiresAt?: number;
+  recoveryAttempts?: number;
 };
 
-function isMatchingHistoryRetargetLock(
+function isSameHistoryRetarget(
   lock: HistoryRetargetLock | undefined,
   sourceLibraryItemId: string,
   targetLibraryItemId: string,
 ): lock is HistoryRetargetLock {
   return Boolean(
     lock &&
-      lock.sourceLibraryItemId === sourceLibraryItemId &&
-      lock.targetLibraryItemId === targetLibraryItemId,
+    lock.sourceLibraryItemId === sourceLibraryItemId &&
+    lock.targetLibraryItemId === targetLibraryItemId,
   );
+}
+
+function isHistoryRetargetLockOwner(
+  lock: HistoryRetargetLock | undefined,
+  args: {
+    sourceLibraryItemId: string;
+    targetLibraryItemId: string;
+    updatedAt: number;
+    operationId?: string;
+  },
+): lock is HistoryRetargetLock {
+  return Boolean(
+    isSameHistoryRetarget(
+      lock,
+      args.sourceLibraryItemId,
+      args.targetLibraryItemId,
+    ) &&
+    lock.updatedAt === args.updatedAt &&
+    lock.operationId === args.operationId,
+  );
+}
+
+function historyRetargetLeaseIsActive(
+  lock: HistoryRetargetLock,
+  now: number,
+): boolean {
+  return (
+    lock.operationId !== undefined &&
+    Number.isSafeInteger(lock.leaseExpiresAt) &&
+    lock.leaseExpiresAt! > now
+  );
+}
+
+function newHistoryRetargetOperationId(args: {
+  generation: number;
+  sourceLibraryItemId: string;
+  targetLibraryItemId: string;
+  updatedAt: number;
+  startedAt: number;
+}): string {
+  return JSON.stringify([
+    args.generation,
+    args.sourceLibraryItemId,
+    args.targetLibraryItemId,
+    args.updatedAt,
+    args.startedAt,
+  ]);
+}
+
+function uniqueHistoryRetargetOperationId(
+  args: Parameters<typeof newHistoryRetargetOperationId>[0],
+  previousOperationIds: ReadonlySet<string>,
+): string {
+  const base = newHistoryRetargetOperationId(args);
+  let operationId = base;
+  let suffix = 0;
+  while (previousOperationIds.has(operationId)) {
+    operationId = `${base}:${++suffix}`;
+  }
+  return operationId;
 }
 
 /** Save/update a chapter progress entry */
@@ -98,6 +173,8 @@ export const save = mutation({
     chapterNumber: v.optional(v.number()),
     volumeNumber: v.optional(v.number()),
     chapterTitle: v.optional(v.string()),
+    intraPageProgress: v.optional(v.number()),
+    intraPageContentIdentity: v.optional(v.string()),
     updatedAt: v.optional(v.number()),
     generation: v.optional(v.number()),
   },
@@ -145,28 +222,32 @@ async function saveChapterProgressItem(
   const updatedAt = resolveClock(args.updatedAt, Date.now());
   const progress = assertNonNegativeSafeInteger(args.progress, "progress");
   const total = assertNonNegativeSafeInteger(args.total, "total");
-  const lastReadAt = resolveSyncClock(
-    args.lastReadAt,
-    generation,
-    Date.now(),
-  );
-  const chapterNumber = assertFiniteNumber(
-    args.chapterNumber,
-    "chapterNumber",
-  );
+  const lastReadAt = resolveSyncClock(args.lastReadAt, generation, Date.now());
+  const chapterNumber = assertFiniteNumber(args.chapterNumber, "chapterNumber");
   const volumeNumber = assertFiniteNumber(args.volumeNumber, "volumeNumber");
+  const intraPageState = chapterProgressIntraPageState(args);
+  if (
+    !intraPageState &&
+    (args.intraPageProgress !== undefined ||
+      args.intraPageContentIdentity !== undefined)
+  ) {
+    throw new Error("INVALID_SYNC_READER_POSITION");
+  }
 
-  const existingRows = currentSyncGenerationRows(await ctx.db
-    .query("chapter_progress")
-    .withIndex("by_user_chapter", (q) =>
-      q
-        .eq("userId", userId)
-        .eq("registryId", args.registryId)
-        .eq("sourceId", args.sourceId)
-        .eq("sourceMangaId", args.sourceMangaId)
-        .eq("sourceChapterId", args.sourceChapterId)
-    )
-    .collect(), generation);
+  const existingRows = currentSyncGenerationRows(
+    await ctx.db
+      .query("chapter_progress")
+      .withIndex("by_user_chapter", (q) =>
+        q
+          .eq("userId", userId)
+          .eq("registryId", args.registryId)
+          .eq("sourceId", args.sourceId)
+          .eq("sourceMangaId", args.sourceMangaId)
+          .eq("sourceChapterId", args.sourceChapterId),
+      )
+      .collect(),
+    generation,
+  );
   const existing = newestLwwRecord(existingRows);
   await pruneDuplicateRows(ctx.db, existingRows, existing);
   const merged = mergeChapterProgressHighWater(existing, {
@@ -177,30 +258,41 @@ async function saveChapterProgressItem(
     chapterNumber,
     volumeNumber,
     chapterTitle: args.chapterTitle,
+    ...(intraPageState ?? {}),
     updatedAt,
   });
 
   // Try to find libraryItemId from library_source_links
-  const sourceLinks = currentSyncGenerationRows(await ctx.db
-    .query("library_source_links")
-    .withIndex("by_user_source_manga", (q) =>
-      q
-        .eq("userId", userId)
-        .eq("registryId", args.registryId)
-        .eq("sourceId", args.sourceId)
-        .eq("sourceMangaId", args.sourceMangaId)
-    )
-    .collect(), generation);
+  const sourceLinks = currentSyncGenerationRows(
+    await ctx.db
+      .query("library_source_links")
+      .withIndex("by_user_source_manga", (q) =>
+        q
+          .eq("userId", userId)
+          .eq("registryId", args.registryId)
+          .eq("sourceId", args.sourceId)
+          .eq("sourceMangaId", args.sourceMangaId),
+      )
+      .collect(),
+    generation,
+  );
   const sourceLink = newestLwwRecord(
     sourceLinks,
     (link) => link.removed === true,
   );
-  const libraryItemId = sourceLink?.removed ? undefined : sourceLink?.libraryItemId;
+  const libraryItemId = sourceLink?.removed
+    ? undefined
+    : sourceLink?.libraryItemId;
 
   if (existing) {
     await ctx.db.patch(existing._id, {
       ...merged,
       libraryItemId,
+      // Convex patch omission preserves an old field. Spell both halves out
+      // so a legacy/corrupt partial pair is deleted atomically when the
+      // canonical merge has no valid content-bound position.
+      intraPageProgress: merged.intraPageProgress,
+      intraPageContentIdentity: merged.intraPageContentIdentity,
     });
   } else {
     await ctx.db.insert("chapter_progress", {
@@ -254,27 +346,33 @@ async function updateMangaProgress(
     chapterTitle?: string;
     libraryItemId?: string;
     updatedAt: number;
-  }
+  },
 ) {
-  const existingRows = currentSyncGenerationRows(await ctx.db
-    .query("manga_progress")
-    .withIndex("by_user_source_manga", (q) =>
-      q
-        .eq("userId", userId)
-        .eq("registryId", data.registryId)
-        .eq("sourceId", data.sourceId)
-        .eq("sourceMangaId", data.sourceMangaId)
-    )
-    .collect(), generation);
+  const existingRows = currentSyncGenerationRows(
+    await ctx.db
+      .query("manga_progress")
+      .withIndex("by_user_source_manga", (q) =>
+        q
+          .eq("userId", userId)
+          .eq("registryId", data.registryId)
+          .eq("sourceId", data.sourceId)
+          .eq("sourceMangaId", data.sourceMangaId),
+      )
+      .collect(),
+    generation,
+  );
   const existing = newestLwwRecord(existingRows);
   await pruneDuplicateRows(ctx.db, existingRows, existing);
 
   if (existing) {
+    const now = Date.now();
+    const existingLastReadAt = normalizeSyncClock(existing.lastReadAt, now);
+    const existingUpdatedAt = normalizeSyncClock(existing.updatedAt, now);
     const eventWins =
-      data.lastReadAt > existing.lastReadAt ||
-      (data.lastReadAt === existing.lastReadAt &&
-        shouldApplyLww(existing.updatedAt, data.updatedAt));
-    const mergedUpdatedAt = Math.max(existing.updatedAt, data.updatedAt);
+      data.lastReadAt > existingLastReadAt ||
+      (data.lastReadAt === existingLastReadAt &&
+        shouldApplyLww(existingUpdatedAt, data.updatedAt));
+    const mergedUpdatedAt = Math.max(existingUpdatedAt, data.updatedAt);
     if (eventWins) {
       await ctx.db.patch(existing._id, {
         lastReadAt: data.lastReadAt,
@@ -314,61 +412,6 @@ async function updateMangaProgress(
   }
 }
 
-/** Remove history for a manga */
-export const removeMangaHistory = mutation({
-  args: {
-    expectedUserId: v.optional(v.string()),
-    registryId: v.string(),
-    sourceId: v.string(),
-    sourceMangaId: v.string(),
-    updatedAt: v.optional(v.number()),
-    generation: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const { userId, generation, resolveClock } =
-      await requireSyncMutationContext(ctx, args);
-    const updatedAt = resolveClock(args.updatedAt, Date.now());
-
-    // Delete chapter_progress entries
-    const chapterRows = currentSyncGenerationRows(await ctx.db
-      .query("chapter_progress")
-      .withIndex("by_user_source_manga", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("registryId", args.registryId)
-          .eq("sourceId", args.sourceId)
-          .eq("sourceMangaId", args.sourceMangaId)
-      )
-      .collect(), generation);
-    const mangaRows = currentSyncGenerationRows(await ctx.db
-      .query("manga_progress")
-      .withIndex("by_user_source_manga", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("registryId", args.registryId)
-          .eq("sourceId", args.sourceId)
-          .eq("sourceMangaId", args.sourceMangaId)
-      )
-      .collect(), generation);
-    if (
-      [...chapterRows, ...mangaRows].some(
-        (row) => !shouldApplyLww(row.updatedAt, updatedAt),
-      )
-    ) {
-      return;
-    }
-
-    for (const row of chapterRows) {
-      await ctx.db.delete(row._id);
-    }
-    // Delete every duplicate materialized summary only after the logical
-    // delete is newer than every canonical/provisional progress row.
-    for (const row of mangaRows) {
-      await ctx.db.delete(row._id);
-    }
-  },
-});
-
 /** Move history rows from a merged-away library item to the surviving item. */
 export const retargetLibraryItem = mutation({
   args: {
@@ -380,33 +423,52 @@ export const retargetLibraryItem = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireAuthForUser(ctx, args.expectedUserId);
-    const generation = await requireSyncGeneration(ctx, userId, args.generation);
+    const generation = await requireSyncGeneration(
+      ctx,
+      userId,
+      args.generation,
+    );
     if (args.sourceLibraryItemId === args.targetLibraryItemId) return null;
 
-    let updatedAt = resolveSyncClock(args.updatedAt, generation, Date.now());
-    const [sourceItems, targetItems] = await Promise.all([
-      ctx.db
-        .query("library_items")
-        .withIndex("by_user_item", (q) =>
-          q.eq("userId", userId).eq("libraryItemId", args.sourceLibraryItemId),
-        )
-        .collect(),
-      ctx.db
-        .query("library_items")
-        .withIndex("by_user_item", (q) =>
-          q.eq("userId", userId).eq("libraryItemId", args.targetLibraryItemId),
-        )
-        .collect(),
+    const [resolvedSource, resolvedTarget] = await Promise.all([
+      resolveLibraryMergeAlias(
+        ctx,
+        userId,
+        generation,
+        args.sourceLibraryItemId,
+      ),
+      resolveLibraryMergeAlias(
+        ctx,
+        userId,
+        generation,
+        args.targetLibraryItemId,
+      ),
     ]);
+    if (resolvedSource.chain.length > 1) {
+      if (resolvedSource.libraryItemId === resolvedTarget.libraryItemId) {
+        return null;
+      }
+      throw new Error(HISTORY_RETARGET_CONFLICT);
+    }
+    const sourceLibraryItemId = args.sourceLibraryItemId;
+    const targetLibraryItemId = resolvedTarget.libraryItemId;
+    if (sourceLibraryItemId === targetLibraryItemId) {
+      throw new Error(HISTORY_RETARGET_CONFLICT);
+    }
+
+    const now = Date.now();
+    let updatedAt = resolveSyncClock(args.updatedAt, generation, now);
+    const sourceItems = resolvedSource.rows;
+    const targetItems = resolvedTarget.rows;
     const currentItems = [
       ...currentSyncGenerationRows(sourceItems, generation),
       ...currentSyncGenerationRows(targetItems, generation),
     ];
     const hasSource = currentItems.some(
-      (item) => item.libraryItemId === args.sourceLibraryItemId,
+      (item) => item.libraryItemId === sourceLibraryItemId,
     );
     const hasTarget = currentItems.some(
-      (item) => item.libraryItemId === args.targetLibraryItemId,
+      (item) => item.libraryItemId === targetLibraryItemId,
     );
     if (!hasSource || !hasTarget) {
       // A legitimate offline-only item may never have reached this account's
@@ -417,29 +479,64 @@ export const retargetLibraryItem = mutation({
 
     const activeLocks = currentItems
       .map((item) => item.historyRetargetLock)
-      .filter((lock): lock is HistoryRetargetLock => lock !== undefined);
+      .filter(
+        (lock): lock is HistoryRetargetLock =>
+          lock !== undefined && historyRetargetLeaseIsActive(lock, now),
+      );
     if (
       activeLocks.some(
         (lock) =>
-          !isMatchingHistoryRetargetLock(
+          !isSameHistoryRetarget(
             lock,
-            args.sourceLibraryItemId,
-            args.targetLibraryItemId,
+            sourceLibraryItemId,
+            targetLibraryItemId,
           ),
       )
     ) {
       throw new Error(HISTORY_RETARGET_CONFLICT);
     }
+    const activeOperationIds = new Set(
+      activeLocks.map((lock) => lock.operationId),
+    );
+    if (activeOperationIds.size > 1) {
+      throw new Error(HISTORY_RETARGET_CONFLICT);
+    }
     const matchingClock = activeLocks.reduce<number | undefined>(
       (maximum, lock) =>
-        maximum === undefined ? lock.updatedAt : Math.max(maximum, lock.updatedAt),
+        maximum === undefined
+          ? lock.updatedAt
+          : Math.max(maximum, lock.updatedAt),
       undefined,
     );
     if (matchingClock !== undefined) updatedAt = matchingClock;
+    const operationId =
+      activeLocks[0]?.operationId ??
+      uniqueHistoryRetargetOperationId(
+        {
+          generation,
+          sourceLibraryItemId,
+          targetLibraryItemId,
+          updatedAt,
+          startedAt: now,
+        },
+        new Set(
+          currentItems.flatMap((item) =>
+            item.historyRetargetLock?.operationId
+              ? [item.historyRetargetLock.operationId]
+              : [],
+          ),
+        ),
+      );
     const historyRetargetLock = {
-      sourceLibraryItemId: args.sourceLibraryItemId,
-      targetLibraryItemId: args.targetLibraryItemId,
+      sourceLibraryItemId,
+      targetLibraryItemId,
       updatedAt,
+      operationId,
+      leaseExpiresAt: now + HISTORY_RETARGET_LEASE_MS,
+      recoveryAttempts: activeLocks.reduce(
+        (maximum, lock) => Math.max(maximum, lock.recoveryAttempts ?? 0),
+        0,
+      ),
     };
     for (const item of currentItems) {
       if (
@@ -447,7 +544,11 @@ export const retargetLibraryItem = mutation({
           historyRetargetLock.sourceLibraryItemId &&
         item.historyRetargetLock?.targetLibraryItemId ===
           historyRetargetLock.targetLibraryItemId &&
-        item.historyRetargetLock?.updatedAt === historyRetargetLock.updatedAt
+        item.historyRetargetLock?.updatedAt === historyRetargetLock.updatedAt &&
+        item.historyRetargetLock?.operationId ===
+          historyRetargetLock.operationId &&
+        item.historyRetargetLock?.leaseExpiresAt ===
+          historyRetargetLock.leaseExpiresAt
       ) {
         continue;
       }
@@ -456,11 +557,24 @@ export const retargetLibraryItem = mutation({
     await ctx.scheduler.runAfter(0, internal.history.retargetLibraryItemPage, {
       userId,
       generation,
-      sourceLibraryItemId: args.sourceLibraryItemId,
-      targetLibraryItemId: args.targetLibraryItemId,
+      sourceLibraryItemId,
+      targetLibraryItemId,
       updatedAt,
+      operationId,
       phase: "chapter_progress",
     });
+    await ctx.scheduler.runAfter(
+      HISTORY_RETARGET_LEASE_MS,
+      internal.history.recoverRetargetLibraryItem,
+      {
+        userId,
+        generation,
+        sourceLibraryItemId,
+        targetLibraryItemId,
+        updatedAt,
+        operationId,
+      },
+    );
     return null;
   },
 });
@@ -472,10 +586,10 @@ export const retargetLibraryItemPage = internalMutation({
     sourceLibraryItemId: v.string(),
     targetLibraryItemId: v.string(),
     updatedAt: v.number(),
-    phase: v.union(
-      v.literal("chapter_progress"),
-      v.literal("manga_progress"),
-    ),
+    // Optional so a scheduled page created by the pre-lease deployment can
+    // execute once and either finish or be fenced by a new operation.
+    operationId: v.optional(v.string()),
+    phase: v.union(v.literal("chapter_progress"), v.literal("manga_progress")),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -487,7 +601,7 @@ export const retargetLibraryItemPage = internalMutation({
     const [sourceItems, targetItems] = await Promise.all([
       ctx.db
         .query("library_items")
-      .withIndex("by_user_item", (q) =>
+        .withIndex("by_user_item", (q) =>
           q
             .eq("userId", args.userId)
             .eq("libraryItemId", args.sourceLibraryItemId),
@@ -502,17 +616,40 @@ export const retargetLibraryItemPage = internalMutation({
         )
         .collect(),
     ]);
-    const lockIsActive = [...sourceItems, ...targetItems]
-      .filter((item) => item.syncGeneration === storedSyncGeneration(args.generation))
-      .some(
-        (item) =>
-          isMatchingHistoryRetargetLock(
-            item.historyRetargetLock,
-            args.sourceLibraryItemId,
-            args.targetLibraryItemId,
-          ) && item.historyRetargetLock.updatedAt === args.updatedAt,
+    const currentSourceItems = sourceItems.filter(
+      (item) => item.syncGeneration === storedSyncGeneration(args.generation),
+    );
+    const currentTargetItems = targetItems.filter(
+      (item) => item.syncGeneration === storedSyncGeneration(args.generation),
+    );
+    const currentItems = [...currentSourceItems, ...currentTargetItems];
+    const ownsEveryLock =
+      currentSourceItems.length > 0 &&
+      currentTargetItems.length > 0 &&
+      currentItems.every((item) =>
+        isHistoryRetargetLockOwner(item.historyRetargetLock, args),
       );
-    if (!lockIsActive) return null;
+    if (!ownsEveryLock) return null;
+
+    const now = Date.now();
+    const leaseExpiresAt = Math.min(
+      ...currentItems.map(
+        (item) => item.historyRetargetLock?.leaseExpiresAt ?? 0,
+      ),
+    );
+    if (
+      args.operationId !== undefined &&
+      leaseExpiresAt <= now + HISTORY_RETARGET_LEASE_MS / 2
+    ) {
+      for (const item of currentItems) {
+        await ctx.db.patch(item._id, {
+          historyRetargetLock: {
+            ...item.historyRetargetLock!,
+            leaseExpiresAt: now + HISTORY_RETARGET_LEASE_MS,
+          },
+        });
+      }
+    }
 
     const rows = await ctx.db
       .query(args.phase)
@@ -531,30 +668,163 @@ export const retargetLibraryItemPage = internalMutation({
     }
 
     if (rows.length === HISTORY_RETARGET_PAGE_ITEMS) {
-      await ctx.scheduler.runAfter(0, internal.history.retargetLibraryItemPage, args);
+      await ctx.scheduler.runAfter(
+        0,
+        internal.history.retargetLibraryItemPage,
+        args,
+      );
       return null;
     }
     if (args.phase === "chapter_progress") {
-      await ctx.scheduler.runAfter(0, internal.history.retargetLibraryItemPage, {
-        ...args,
-        phase: "manga_progress",
-      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.history.retargetLibraryItemPage,
+        {
+          ...args,
+          phase: "manga_progress",
+        },
+      );
       return null;
     }
 
     for (const item of [...sourceItems, ...targetItems]) {
       if (
         item.syncGeneration === storedSyncGeneration(args.generation) &&
-        isMatchingHistoryRetargetLock(
-          item.historyRetargetLock,
-          args.sourceLibraryItemId,
-          args.targetLibraryItemId,
-        ) &&
-        item.historyRetargetLock.updatedAt === args.updatedAt
+        isHistoryRetargetLockOwner(item.historyRetargetLock, args)
       ) {
         await ctx.db.patch(item._id, { historyRetargetLock: undefined });
       }
     }
+    return null;
+  },
+});
+
+/**
+ * Lease watchdog for a retarget operation.
+ *
+ * A scheduled mutation can stop permanently after a developer error. The
+ * watchdog restarts an expired operation from the first idempotent page, but
+ * only while its operation id still owns every lock. A newer public takeover
+ * therefore fences both this watchdog and any page it previously scheduled.
+ * After a bounded number of failed leases the watchdog releases its own locks
+ * so a permanent deployment bug cannot block future repairs indefinitely.
+ */
+export const recoverRetargetLibraryItem = internalMutation({
+  args: {
+    userId: v.string(),
+    generation: v.number(),
+    sourceLibraryItemId: v.string(),
+    targetLibraryItemId: v.string(),
+    updatedAt: v.number(),
+    operationId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (
+      (await getCurrentSyncGeneration(ctx, args.userId)) !== args.generation
+    ) {
+      return null;
+    }
+
+    const [sourceItems, targetItems] = await Promise.all([
+      ctx.db
+        .query("library_items")
+        .withIndex("by_user_item", (q) =>
+          q
+            .eq("userId", args.userId)
+            .eq("libraryItemId", args.sourceLibraryItemId),
+        )
+        .collect(),
+      ctx.db
+        .query("library_items")
+        .withIndex("by_user_item", (q) =>
+          q
+            .eq("userId", args.userId)
+            .eq("libraryItemId", args.targetLibraryItemId),
+        )
+        .collect(),
+    ]);
+    const currentSourceItems = currentSyncGenerationRows(
+      sourceItems,
+      args.generation,
+    );
+    const currentTargetItems = currentSyncGenerationRows(
+      targetItems,
+      args.generation,
+    );
+    const currentItems = [...currentSourceItems, ...currentTargetItems];
+    const ownedItems = currentItems.filter((item) =>
+      isHistoryRetargetLockOwner(item.historyRetargetLock, args),
+    );
+    const ownsEveryLock =
+      currentSourceItems.length > 0 &&
+      currentTargetItems.length > 0 &&
+      ownedItems.length === currentItems.length;
+
+    if (!ownsEveryLock) {
+      // A replacement operation may own the other rows, or one side may have
+      // been removed. Release only this watchdog's exact operation; never
+      // clear a newer owner's lock.
+      for (const item of ownedItems) {
+        await ctx.db.patch(item._id, { historyRetargetLock: undefined });
+      }
+      return null;
+    }
+
+    const now = Date.now();
+    const leaseExpiresAt = Math.min(
+      ...ownedItems.map(
+        (item) => item.historyRetargetLock!.leaseExpiresAt ?? 0,
+      ),
+    );
+    if (leaseExpiresAt > now) {
+      await ctx.scheduler.runAfter(
+        leaseExpiresAt - now,
+        internal.history.recoverRetargetLibraryItem,
+        args,
+      );
+      return null;
+    }
+
+    const recoveryAttempts =
+      ownedItems.reduce(
+        (maximum, item) =>
+          Math.max(maximum, item.historyRetargetLock!.recoveryAttempts ?? 0),
+        0,
+      ) + 1;
+    if (recoveryAttempts > HISTORY_RETARGET_MAX_RECOVERY_ATTEMPTS) {
+      for (const item of ownedItems) {
+        await ctx.db.patch(item._id, { historyRetargetLock: undefined });
+      }
+      console.error(
+        "[history-retarget] recovery exhausted",
+        JSON.stringify({
+          generation: args.generation,
+          recoveryAttempts,
+        }),
+      );
+      return null;
+    }
+
+    const renewedLeaseExpiresAt = now + HISTORY_RETARGET_LEASE_MS;
+    for (const item of ownedItems) {
+      await ctx.db.patch(item._id, {
+        historyRetargetLock: {
+          ...item.historyRetargetLock!,
+          leaseExpiresAt: renewedLeaseExpiresAt,
+          recoveryAttempts,
+        },
+      });
+    }
+    await ctx.scheduler.runAfter(0, internal.history.retargetLibraryItemPage, {
+      ...args,
+      phase: "chapter_progress",
+    });
+    await ctx.scheduler.runAfter(
+      HISTORY_RETARGET_LEASE_MS,
+      internal.history.recoverRetargetLibraryItem,
+      args,
+    );
     return null;
   },
 });

@@ -1,16 +1,17 @@
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { isAcceptableSyncClock } from "../packages/core/src/sync-clock";
+import { INVALID_SYNC_CLOCK } from "../packages/core/src/sync-errors";
+
+export { INVALID_SYNC_CLOCK };
 
 export const SYNC_GENERATION_MISMATCH = "SYNC_GENERATION_MISMATCH";
 export const SYNC_CLOCK_REQUIRED = "SYNC_CLOCK_REQUIRED";
-export const INVALID_SYNC_CLOCK = "INVALID_SYNC_CLOCK";
 export const INVALID_SYNC_GENERATION = "INVALID_SYNC_GENERATION";
 export const INVALID_SYNC_NUMBER = "INVALID_SYNC_NUMBER";
 export const SYNC_PAGINATED_SNAPSHOT_REQUIRED = "SYNC_PAGINATED_SNAPSHOT_REQUIRED";
 /**
- * Reserved. `requireSyncMutationContext` no longer throws this — an unfenced
- * payload takes the legacy grace path instead of losing the write — but the
- * code stays part of the protocol vocabulary that clients classify, so a
- * future mandatory-upgrade cutover has a name to throw.
+ * Thrown for unfenced payloads after the configured legacy-write cutoff. The
+ * shared client protocol classifies it as a terminal upgrade requirement.
  */
 export const SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED =
   "SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED";
@@ -110,13 +111,13 @@ export function resolveSyncClock(
   legacyNow: number,
 ): number {
   if (clock !== undefined) {
-    if (!Number.isSafeInteger(clock) || clock < 0) {
+    if (!isAcceptableSyncClock(clock, legacyNow)) {
       throw new Error(INVALID_SYNC_CLOCK);
     }
     return clock;
   }
   if (generation === 0) {
-    if (!Number.isSafeInteger(legacyNow) || legacyNow < 0) {
+    if (!isAcceptableSyncClock(legacyNow, legacyNow)) {
       throw new Error(INVALID_SYNC_CLOCK);
     }
     return legacyNow;

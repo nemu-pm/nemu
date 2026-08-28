@@ -77,7 +77,12 @@
   },
   "sync": {
     "syncing": "同期中",
-    "syncingDescription": "ライブラリと設定を同期しています..."
+    "syncingDescription": "ライブラリと設定を同期しています...",
+    "clockInvalid": {
+      "title": "端末の日時を確認してください",
+      "description": "同期の日時が許容範囲外です。端末の日付、時刻、タイムゾーンを自動設定にしてから、nemuを再読み込みしてください。",
+      "reload": "再読み込み"
+    }
   },
   "nav": {
     "library": "ライブラリ",
@@ -280,7 +285,6 @@
     "sourceCode": "ソースコード"
   },
   "settings": {
-    "about": "",
     "aboutNemu": "nemuについて",
     "loading": "設定を読み込み中...",
     "sourceUpdated": "ソースを更新しました: {{name}}",
@@ -315,6 +319,8 @@
     "metadataLanguageAuto": "自動",
     "uninstallSource": "ソースをアンインストール",
     "uninstallSourceDescription": "「{{name}}」をアンインストールしてもよろしいですか？ソースは削除されますが、ライブラリデータは保持されます。",
+    "configureSource": "{{name}}を設定",
+    "uninstallSourceLabel": "{{name}}をアンインストール",
     "uninstall": "アンインストール",
     "plugins": "プラグイン",
     "noPlugins": "プラグインがインストールされていません。",
@@ -395,7 +401,8 @@
     "clearAllDescription": "ライブラリ、設定、インストール済みソースを含むすべてのローカルデータを削除します。ページは再読み込みされます。",
     "alsoDeleteCloud": "クラウドデータも削除",
     "alsoDeleteCloudDescription": "同期されたライブラリと進捗を完全に削除します。この操作は元に戻せません。",
-    "clearing": "クリア中..."
+    "clearing": "クリア中...",
+    "failed": "すべてのデータをクリアできませんでした。一部のローカルデータはすでに削除されている可能性があります。他のNemuタブを閉じて、もう一度お試しください。"
   },
   "signIn": {
     "title": "サインイン",
@@ -429,24 +436,26 @@
     "password": "パスワード",
     "basicLoginDescription": "このソースのアカウント認証情報を入力してください。",
     "webLoginDescription": "ログインページを開き、必要な Cookie と/または Local Storage の値を貼り付けてください。",
-    "oauthLoginDescription": "認証ページを開いてログインを完了し、コールバック URL、認証コード、またはトークンを貼り付けてください。カスタムアプリ URL に戻るプロバイダでは、ブラウザから最終コールバック URL またはコードをコピーして貼り付けてください。",
+    "oauthLoginDescription": "認証ページを開いてログインを完了し、state を含む完全なコールバック URL またはコールバックパラメータ一式を貼り付けてください。ログイン試行を検証できない単独のコードやトークンは拒否されます。",
     "openLoginPage": "ログインページを開く",
     "cookies": "Cookie",
     "localStorage": "Local Storage JSON",
-    "callbackOrToken": "コールバック URL・コード・トークン",
+    "callbackOrToken": "完全なコールバック応答",
     "missingCredentials": "ユーザー名とパスワードの両方を入力してください。",
-    "missingCallback": "コールバック URL、認証コード、またはトークンを貼り付けてください。",
+    "missingCallback": "state を含む完全なコールバック URL またはコールバックパラメータ一式を貼り付けてください。",
     "loginFailed": "ログインに失敗しました。",
     "invalidCookies": "Cookie は JSON または name=value 形式で貼り付けてください。",
     "invalidSessionData": "Cookie または必要な Local Storage JSON を貼り付けてください。",
-    "invalidCallback": "入力された値から認証コードを取得できませんでした。",
+    "invalidCallback": "入力された値を完全な認証応答として検証できませんでした。",
     "invalidLink": "この設定には有効な URL がありません。",
     "invalidLoginUrl": "このログイン操作には有効な URL がありません。",
     "popupBlocked": "ブラウザによりログインウィンドウがブロックされました。",
-    "openLoginFirst": "先にログインページを開いて PKCE 検証子を生成してください。",
+    "openLoginFirst": "先に認証ページを開き、検証可能なログイン試行を開始してください。",
     "callbackStateMismatch": "このコールバックは別のログイン試行のものであるため拒否しました。ログインページを開き直し、新しいコールバックを貼り付けてください。",
     "callbackStateMissing": "コールバック URL 全体を貼り付けてください。ログイン試行の検証には URL に含まれる state 値が必要です。",
     "tokenExchangeFailed": "認証コードをトークンに交換できませんでした。",
+    "proxyUpgradeRequired": "安全なログインリレーを利用できないか、更新が必要です。認証コードは送信されていません。時間をおいて再試行してください。",
+    "oauthRelayDisclosure": "この PKCE ログインでは、Nemu のセキュリティ強化済みリレーを通じて、認証コードと一回限りの検証子をプロバイダへ送信します。現在のローカル Agent は必要な OAuth 保護をまだ強制できないため使用されません。",
     "logoutConfirm": "このソースからログアウトしますか？",
     "notificationFailed": "ソース設定の処理に失敗しました。"
   },
@@ -486,9 +495,9 @@
   "plugin": {
     "japaneseLearning": {
       "name": "日本語学習",
-      "description": "漫画ページの文を検出して、Nemuくんと一緒に日本語を学びましょう",  
+      "description": "漫画ページの文を検出して、Nemuくんと一緒に日本語を学びましょう",
       "detection": "検出",
-      "autoDetect": "テキスト自動検出", 
+      "autoDetect": "テキスト自動検出",
       "autoDetectSubtitle": "表示中のページでテキストを自動検出します",
       "localInference": "ローカル推論",
       "localInferenceSubtitle": "ブラウザ内でテキスト検出を実行します。WebGPUが必要です。",

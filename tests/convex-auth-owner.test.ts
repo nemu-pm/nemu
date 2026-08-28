@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { requireAuthForUser } from "../convex/_lib";
-import { requireSyncMutationContext } from "../convex/syncCompatibility";
+import {
+  requireSyncMutationContext,
+  resolveLegacySyncWritePolicy,
+} from "../convex/syncCompatibility";
 
 function contextFor(subject: string | null) {
   return {
@@ -94,6 +97,86 @@ describe("Convex legacy sync compatibility", () => {
     );
     expect(legacy.resolveClock(undefined, 42)).toBe(42);
     expect(legacy.resolveClock(41, 42)).toBe(41);
+  });
+
+  test("keeps rollout compatibility by default and supports a bounded cutoff", () => {
+    expect(resolveLegacySyncWritePolicy(undefined, 1_000)).toEqual({
+      allow: true,
+      cutoffAt: null,
+      reason: "compatibility-default",
+    });
+    expect(resolveLegacySyncWritePolicy("2000", 1_000)).toEqual({
+      allow: true,
+      cutoffAt: 2_000,
+      reason: "before-cutoff",
+    });
+    expect(resolveLegacySyncWritePolicy("1970-01-01T00:00:02.000Z", 2_000)).toEqual({
+      allow: false,
+      cutoffAt: 2_000,
+      reason: "cutoff-reached",
+    });
+    expect(resolveLegacySyncWritePolicy("not-a-date", 1_000)).toEqual({
+      allow: false,
+      cutoffAt: null,
+      reason: "invalid-cutoff",
+    });
+    expect(resolveLegacySyncWritePolicy("   ", 1_000)).toEqual({
+      allow: false,
+      cutoffAt: null,
+      reason: "invalid-cutoff",
+    });
+  });
+
+  test("emits grace telemetry before cutoff and rejects with upgrade-required at cutoff", async () => {
+    const events: unknown[] = [];
+    await expect(
+      requireSyncMutationContext(
+        syncContextFor("account-a", [3]),
+        {},
+        {
+          cutoffValue: "2000",
+          now: 1_999,
+          onLegacyTelemetry: (event) => events.push(event),
+        },
+      ),
+    ).resolves.toMatchObject({ legacy: true, generation: 3 });
+    await expect(
+      requireSyncMutationContext(
+        syncContextFor("account-a", [3]),
+        {},
+        {
+          cutoffValue: "2000",
+          now: 2_000,
+          onLegacyTelemetry: (event) => events.push(event),
+        },
+      ),
+    ).rejects.toThrow("SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED");
+    expect(events).toEqual([
+      {
+        event: "legacy-sync-write-grace",
+        generation: 3,
+        cutoffAt: 2_000,
+      },
+      {
+        event: "legacy-sync-write-rejected",
+        generation: 3,
+        cutoffAt: 2_000,
+      },
+    ]);
+  });
+
+  test("fails closed on an explicitly invalid cutoff configuration", async () => {
+    await expect(
+      requireSyncMutationContext(
+        syncContextFor("account-a", [1]),
+        {},
+        {
+          cutoffValue: "tomorrow-ish",
+          now: 1_000,
+          onLegacyTelemetry: () => undefined,
+        },
+      ),
+    ).rejects.toThrow("SYNC_LEGACY_CLIENT_UPGRADE_REQUIRED");
   });
 
   test("rejects partially fenced mutation payloads", async () => {

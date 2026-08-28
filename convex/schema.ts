@@ -49,6 +49,27 @@ const historyRetargetLock = v.object({
   sourceLibraryItemId: v.string(),
   targetLibraryItemId: v.string(),
   updatedAt: v.number(),
+  // Optional while old locks/scheduled jobs drain across a backend deploy.
+  operationId: v.optional(v.string()),
+  leaseExpiresAt: v.optional(v.number()),
+  recoveryAttempts: v.optional(v.number()),
+});
+
+const removalCascadeLock = v.object({
+  removedAt: v.number(),
+  operationId: v.string(),
+  // Present only when library removal is completing a semantic merge.
+  mergeTargetLibraryItemId: v.optional(v.string()),
+  // Optional while locks written by an earlier rolling deployment drain.
+  operationVersion: v.optional(v.number()),
+  status: v.union(
+    v.literal("active"),
+    v.literal("completed"),
+    v.literal("exhausted"),
+  ),
+  leaseExpiresAt: v.optional(v.number()),
+  recoveryAttempts: v.number(),
+  finishedAt: v.optional(v.number()),
 });
 
 // User overrides (no clocks)
@@ -123,9 +144,17 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     lastRemovedAt: v.optional(v.number()),
+    // Permanent canonical redirect left by an irreversible library merge.
+    // Server mutation paths resolve this bounded chain before accepting
+    // relationship writes; clients do not need it in their sync projection.
+    mergedIntoLibraryItemId: v.optional(v.string()),
     // Short-lived server-owned lock while a durable history retarget is
     // draining bounded pages. It is not part of the client sync projection.
     historyRetargetLock: v.optional(historyRetargetLock),
+    // Server-owned durable state for the paginated collection-membership
+    // removal cascade. Terminal records fence delayed workers and let a later
+    // retry allocate a distinct operation id.
+    membershipRemovalCascade: v.optional(removalCascadeLock),
   })
     .index("by_user", ["userId"])
     .index("by_user_sync_generation", ["userId", "syncGeneration"])
@@ -173,6 +202,8 @@ export default defineSchema({
     updatedAt: v.number(),
     removed: v.optional(v.boolean()),
     lastRemovedAt: v.optional(v.number()),
+    // Server-owned durable state for the paginated membership removal.
+    membershipRemovalCascade: v.optional(removalCascadeLock),
   })
     .index("by_user", ["userId"])
     .index("by_user_sync_generation", ["userId", "syncGeneration"])
@@ -221,6 +252,8 @@ export default defineSchema({
     chapterNumber: v.optional(v.number()),
     volumeNumber: v.optional(v.number()),
     chapterTitle: v.optional(v.string()),
+    intraPageProgress: v.optional(v.number()),
+    intraPageContentIdentity: v.optional(v.string()),
 
     // Sync fields
     updatedAt: v.number(),

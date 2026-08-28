@@ -7,7 +7,9 @@ import {
   isAfterRemovalBarrier,
   maximumRemovalBarrier,
   newestLwwRecord,
-  shouldApplyLww, pruneDuplicateRows } from "./lww";
+  shouldApplyLww,
+  pruneDuplicateRows,
+} from "./lww";
 import {
   currentSyncGenerationRows,
   getCurrentSyncGeneration,
@@ -15,6 +17,19 @@ import {
 } from "./syncGeneration";
 import { requireSyncMutationContext } from "./syncCompatibility";
 import { beginSyncReset } from "./syncReset";
+import {
+  finishRemovalCascade,
+  isRemovalCascadeOwner,
+  newRemovalCascadeLock,
+  REMOVAL_CASCADE_LEASE_MS,
+  REMOVAL_CASCADE_MAX_RECOVERY_ATTEMPTS,
+  removalCascadeLeaseIsActive,
+  type RemovalCascadeLock,
+} from "./removalCascade";
+import {
+  newestLibraryMergeAwareItem,
+  resolveLibraryMergeAlias,
+} from "./libraryMerge";
 
 const metadataValidator = v.object({
   title: v.string(),
@@ -67,6 +82,9 @@ const sourceLinkValidator = v.object({
 
 const MAX_LIBRARY_SOURCE_LINKS = 256;
 const LIBRARY_MEMBERSHIP_CASCADE_PAGE_ITEMS = 128;
+export const LIBRARY_MEMBERSHIP_CASCADE_LEASE_MS = REMOVAL_CASCADE_LEASE_MS;
+export const LIBRARY_MEMBERSHIP_CASCADE_MAX_RECOVERY_ATTEMPTS =
+  REMOVAL_CASCADE_MAX_RECOVERY_ATTEMPTS;
 
 function requireBoundedSourceLinks<T>(sources: T[]): T[] {
   if (sources.length > MAX_LIBRARY_SOURCE_LINKS) {
@@ -102,22 +120,24 @@ export const save = mutation({
     const legacyNow = Date.now();
     const updatedAt = resolveClock(args.updatedAt, legacyNow);
     const createdAt = resolveClock(args.createdAt, legacyNow);
-    const sources: SourceLinkInput[] = requireBoundedSourceLinks(args.sources).map((source) => ({
+    const sources: SourceLinkInput[] = requireBoundedSourceLinks(
+      args.sources,
+    ).map((source) => ({
       ...source,
       createdAt: resolveClock(source.createdAt, legacyNow),
       updatedAt: resolveClock(source.updatedAt, legacyNow),
     }));
 
-    const existingItems = currentSyncGenerationRows(await ctx.db
-      .query("library_items")
-      .withIndex("by_user_item", (q) =>
-        q.eq("userId", userId).eq("libraryItemId", args.libraryItemId),
-      )
-      .collect(), generation);
-    const existing = newestLwwRecord(
-      existingItems,
-      (item) => item.inLibrary === false,
+    const existingItems = currentSyncGenerationRows(
+      await ctx.db
+        .query("library_items")
+        .withIndex("by_user_item", (q) =>
+          q.eq("userId", userId).eq("libraryItemId", args.libraryItemId),
+        )
+        .collect(),
+      generation,
     );
+    const existing = newestLibraryMergeAwareItem(existingItems);
     const parentLastRemovedAt = maximumRemovalBarrier(existingItems);
 
     if (existing && parentLastRemovedAt !== existing.lastRemovedAt) {
@@ -125,6 +145,20 @@ export const save = mutation({
     }
 
     await pruneDuplicateRows(ctx.db, existingItems, existing);
+
+    if (existing?.mergedIntoLibraryItemId !== undefined) {
+      // A merge is an identity operation, not an ordinary LWW deletion. A
+      // stale offline device may carry a later clock, but it must never revive
+      // the old item or move globally keyed source links away from the
+      // survivor. Resolve here to fail closed on a corrupt alias chain.
+      await resolveLibraryMergeAlias(
+        ctx,
+        userId,
+        generation,
+        args.libraryItemId,
+      );
+      return null;
+    }
 
     if (existing) {
       const mode = args.sourcesMode ?? "merge";
@@ -168,7 +202,10 @@ export const save = mutation({
         );
         for (const link of canonicalLinks) {
           const key = sourceLinkKey(link);
-          if (incomingKeys.has(key) || !shouldApplyLww(link.updatedAt, updatedAt)) {
+          if (
+            incomingKeys.has(key) ||
+            !shouldApplyLww(link.updatedAt, updatedAt)
+          ) {
             continue;
           }
           replacementTombstones.push({
@@ -292,16 +329,19 @@ async function writeSourceLinks(
     if (!isAfterRemovalBarrier(parentLastRemovedAt, source.updatedAt)) {
       continue;
     }
-    const sourceMatches = currentSyncGenerationRows(await ctx.db
-      .query("library_source_links")
-      .withIndex("by_user_source_manga", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("registryId", source.registryId)
-          .eq("sourceId", source.sourceId)
-          .eq("sourceMangaId", source.sourceMangaId),
-      )
-      .collect(), generation);
+    const sourceMatches = currentSyncGenerationRows(
+      await ctx.db
+        .query("library_source_links")
+        .withIndex("by_user_source_manga", (q) =>
+          q
+            .eq("userId", userId)
+            .eq("registryId", source.registryId)
+            .eq("sourceId", source.sourceId)
+            .eq("sourceMangaId", source.sourceMangaId),
+        )
+        .collect(),
+      generation,
+    );
     const existing = newestLwwRecord(
       sourceMatches,
       (link) => link.removed === true,
@@ -366,24 +406,44 @@ export const remove = mutation({
   args: {
     expectedUserId: v.optional(v.string()),
     libraryItemId: v.string(),
+    /** Merge-only survivor; omitted for an ordinary library deletion. */
+    mergeTargetLibraryItemId: v.optional(v.string()),
     updatedAt: v.optional(v.number()),
     generation: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const { userId, generation, resolveClock } =
       await requireSyncMutationContext(ctx, args);
-    const updatedAt = resolveClock(args.updatedAt, Date.now());
+    const now = Date.now();
+    const updatedAt = resolveClock(args.updatedAt, now);
 
-    const libraryItems = currentSyncGenerationRows(await ctx.db
-      .query("library_items")
-      .withIndex("by_user_item", (q) =>
-        q.eq("userId", userId).eq("libraryItemId", args.libraryItemId),
-      )
-      .collect(), generation);
-    const libraryItem = newestLwwRecord(
-      libraryItems,
-      (item) => item.inLibrary === false,
+    let mergeTargetLibraryItemId: string | undefined;
+    if (args.mergeTargetLibraryItemId !== undefined) {
+      const target = await resolveLibraryMergeAlias(
+        ctx,
+        userId,
+        generation,
+        args.mergeTargetLibraryItemId,
+      );
+      if (target.libraryItemId === args.libraryItemId) {
+        throw new Error("Library merge target must differ from its source.");
+      }
+      if (!target.item || target.item.inLibrary === false) {
+        throw new Error("Library merge target is missing or removed.");
+      }
+      mergeTargetLibraryItemId = target.libraryItemId;
+    }
+
+    const libraryItems = currentSyncGenerationRows(
+      await ctx.db
+        .query("library_items")
+        .withIndex("by_user_item", (q) =>
+          q.eq("userId", userId).eq("libraryItemId", args.libraryItemId),
+        )
+        .collect(),
+      generation,
     );
+    const libraryItem = newestLibraryMergeAwareItem(libraryItems);
     const lastRemovedAt = maximumRemovalBarrier(libraryItems);
 
     if (libraryItem && lastRemovedAt !== libraryItem.lastRemovedAt) {
@@ -392,25 +452,101 @@ export const remove = mutation({
 
     await pruneDuplicateRows(ctx.db, libraryItems, libraryItem);
 
-    let removalAccepted = false;
+    if (
+      mergeTargetLibraryItemId === undefined &&
+      libraryItem?.mergedIntoLibraryItemId !== undefined
+    ) {
+      const existingAlias = await resolveLibraryMergeAlias(
+        ctx,
+        userId,
+        generation,
+        args.libraryItemId,
+      );
+      if (!existingAlias.item || existingAlias.item.inLibrary === false) {
+        throw new Error("Library merge target is missing or removed.");
+      }
+      mergeTargetLibraryItemId = existingAlias.libraryItemId;
+    }
+
+    let cascadeLock: RemovalCascadeLock | undefined;
     if (libraryItem && shouldApplyLww(libraryItem.updatedAt, updatedAt)) {
+      cascadeLock = newRemovalCascadeLock({
+        scope: "library-item",
+        generation,
+        parentId: args.libraryItemId,
+        removedAt: updatedAt,
+        startedAt: now,
+        mergeTargetLibraryItemId,
+        previousLock: libraryItem.membershipRemovalCascade,
+      });
       await ctx.db.patch(libraryItem._id, {
         inLibrary: false,
         updatedAt,
+        ...(mergeTargetLibraryItemId === undefined
+          ? {}
+          : { mergedIntoLibraryItemId: mergeTargetLibraryItemId }),
         lastRemovedAt:
           lastRemovedAt === undefined
             ? updatedAt
             : Math.max(lastRemovedAt, updatedAt),
+        membershipRemovalCascade: cascadeLock,
       });
-      removalAccepted = true;
     } else if (
       libraryItem?.inLibrary === false &&
       libraryItem.updatedAt === updatedAt
     ) {
-      // An idempotent retry can restart the durable membership cascade if a
-      // previous deployment introduced a developer error in its worker.
-      removalAccepted = true;
+      const existingLock = libraryItem.membershipRemovalCascade;
+      const sameMergeTarget =
+        existingLock?.mergeTargetLibraryItemId === mergeTargetLibraryItemId;
+      if (
+        existingLock?.mergeTargetLibraryItemId !== undefined &&
+        !sameMergeTarget
+      ) {
+        throw new Error(
+          "Library removal operation already belongs to another merge target.",
+        );
+      }
+      if (
+        existingLock?.removedAt === updatedAt &&
+        existingLock.status === "completed" &&
+        sameMergeTarget
+      ) {
+        return;
+      }
+      cascadeLock =
+        existingLock?.removedAt === updatedAt &&
+        sameMergeTarget &&
+        removalCascadeLeaseIsActive(existingLock, now)
+          ? existingLock
+          : newRemovalCascadeLock({
+              scope: "library-item",
+              generation,
+              parentId: args.libraryItemId,
+              removedAt: updatedAt,
+              startedAt: now,
+              mergeTargetLibraryItemId,
+              previousLock: existingLock,
+            });
+      if (
+        cascadeLock !== existingLock ||
+        libraryItem.mergedIntoLibraryItemId !== mergeTargetLibraryItemId
+      ) {
+        await ctx.db.patch(libraryItem._id, {
+          membershipRemovalCascade: cascadeLock,
+          ...(mergeTargetLibraryItemId === undefined
+            ? {}
+            : { mergedIntoLibraryItemId: mergeTargetLibraryItemId }),
+        });
+      }
     } else if (!libraryItem) {
+      cascadeLock = newRemovalCascadeLock({
+        scope: "library-item",
+        generation,
+        parentId: args.libraryItemId,
+        removedAt: updatedAt,
+        startedAt: now,
+        mergeTargetLibraryItemId,
+      });
       await ctx.db.insert("library_items", {
         userId,
         syncGeneration: storedSyncGeneration(generation),
@@ -420,11 +556,19 @@ export const remove = mutation({
         createdAt: updatedAt,
         updatedAt,
         lastRemovedAt: updatedAt,
+        ...(mergeTargetLibraryItemId === undefined
+          ? {}
+          : { mergedIntoLibraryItemId: mergeTargetLibraryItemId }),
+        membershipRemovalCascade: cascadeLock,
       });
-      removalAccepted = true;
     }
 
-    if (!removalAccepted) return;
+    if (!cascadeLock) return;
+
+    const mergeTargetArgs =
+      mergeTargetLibraryItemId === undefined
+        ? {}
+        : { mergeTargetLibraryItemId };
 
     await ctx.scheduler.runAfter(
       0,
@@ -434,6 +578,20 @@ export const remove = mutation({
         generation,
         libraryItemId: args.libraryItemId,
         removedAt: updatedAt,
+        operationId: cascadeLock.operationId,
+        ...mergeTargetArgs,
+      },
+    );
+    await ctx.scheduler.runAfter(
+      Math.max(0, cascadeLock.leaseExpiresAt! - now),
+      internal.library.recoverLibraryItemMembershipCascade,
+      {
+        userId,
+        generation,
+        libraryItemId: args.libraryItemId,
+        removedAt: updatedAt,
+        operationId: cascadeLock.operationId,
+        ...mergeTargetArgs,
       },
     );
   },
@@ -444,7 +602,11 @@ export const cascadeLibraryItemMemberships = internalMutation({
     userId: v.string(),
     generation: v.number(),
     libraryItemId: v.string(),
+    mergeTargetLibraryItemId: v.optional(v.string()),
     removedAt: v.number(),
+    // Optional while scheduled continuations from the pre-lease deployment
+    // drain. Such a worker is adopted into a fresh, fenced operation below.
+    operationId: v.optional(v.string()),
     cursor: v.optional(v.string()),
   },
   returns: v.null(),
@@ -454,6 +616,124 @@ export const cascadeLibraryItemMemberships = internalMutation({
     ) {
       return null;
     }
+    const libraryItems = currentSyncGenerationRows(
+      await ctx.db
+        .query("library_items")
+        .withIndex("by_user_item", (q) =>
+          q.eq("userId", args.userId).eq("libraryItemId", args.libraryItemId),
+        )
+        .collect(),
+      args.generation,
+    );
+    const libraryItem = newestLibraryMergeAwareItem(libraryItems);
+    if (!libraryItem) return null;
+
+    if (args.operationId === undefined) {
+      // A continuation created by the pre-watchdog deployment has no durable
+      // owner. Adopt only the current removal barrier, restart from page zero,
+      // and let a newer/terminal operation fence this stale job.
+      if (maximumRemovalBarrier(libraryItems) !== args.removedAt) return null;
+      const existingLock = libraryItem.membershipRemovalCascade;
+      if (existingLock && existingLock.removedAt >= args.removedAt) {
+        return null;
+      }
+      const now = Date.now();
+      const cascadeLock = newRemovalCascadeLock({
+        scope: "library-item",
+        generation: args.generation,
+        parentId: args.libraryItemId,
+        removedAt: args.removedAt,
+        startedAt: now,
+        mergeTargetLibraryItemId: args.mergeTargetLibraryItemId,
+        previousLock: existingLock,
+      });
+      await ctx.db.patch(libraryItem._id, {
+        membershipRemovalCascade: cascadeLock,
+      });
+      const mergeTargetArgs =
+        args.mergeTargetLibraryItemId === undefined
+          ? {}
+          : { mergeTargetLibraryItemId: args.mergeTargetLibraryItemId };
+      await ctx.scheduler.runAfter(
+        0,
+        internal.library.cascadeLibraryItemMemberships,
+        {
+          userId: args.userId,
+          generation: args.generation,
+          libraryItemId: args.libraryItemId,
+          removedAt: args.removedAt,
+          operationId: cascadeLock.operationId,
+          ...mergeTargetArgs,
+        },
+      );
+      await ctx.scheduler.runAfter(
+        REMOVAL_CASCADE_LEASE_MS,
+        internal.library.recoverLibraryItemMembershipCascade,
+        {
+          userId: args.userId,
+          generation: args.generation,
+          libraryItemId: args.libraryItemId,
+          removedAt: args.removedAt,
+          operationId: cascadeLock.operationId,
+          ...mergeTargetArgs,
+        },
+      );
+      return null;
+    }
+
+    if (
+      !isRemovalCascadeOwner(libraryItem.membershipRemovalCascade, {
+        removedAt: args.removedAt,
+        operationId: args.operationId,
+        mergeTargetLibraryItemId: args.mergeTargetLibraryItemId,
+      })
+    ) {
+      return null;
+    }
+
+    const now = Date.now();
+    let cascadeLock = libraryItem.membershipRemovalCascade;
+    if (
+      (cascadeLock.leaseExpiresAt ?? 0) <=
+      now + REMOVAL_CASCADE_LEASE_MS / 2
+    ) {
+      cascadeLock = {
+        ...cascadeLock,
+        leaseExpiresAt: now + REMOVAL_CASCADE_LEASE_MS,
+      };
+      await ctx.db.patch(libraryItem._id, {
+        membershipRemovalCascade: cascadeLock,
+      });
+    }
+
+    let mergeTarget:
+      | { libraryItemId: string; updatedAt: number; lastRemovedAt?: number }
+      | undefined;
+    if (args.mergeTargetLibraryItemId !== undefined) {
+      if (args.mergeTargetLibraryItemId === args.libraryItemId) return null;
+      const resolvedTarget = await resolveLibraryMergeAlias(
+        ctx,
+        args.userId,
+        args.generation,
+        args.mergeTargetLibraryItemId,
+      );
+      if (
+        resolvedTarget.libraryItemId === args.libraryItemId ||
+        !resolvedTarget.item ||
+        resolvedTarget.item.inLibrary === false
+      ) {
+        // Keep the durable lock active. The watchdog can retry if a preceding
+        // target-save mutation is merely delayed, but never delete the source
+        // memberships when there is no valid survivor to receive them.
+        return null;
+      }
+      mergeTarget = {
+        libraryItemId: resolvedTarget.libraryItemId,
+        updatedAt: resolvedTarget.item.updatedAt,
+        lastRemovedAt: maximumRemovalBarrier(resolvedTarget.rows),
+      };
+    }
+
     const page = await ctx.db
       .query("collection_items")
       .withIndex("by_user_generation_item", (q) =>
@@ -468,27 +748,101 @@ export const cascadeLibraryItemMemberships = internalMutation({
       });
     const collectionIds = new Set(page.page.map((item) => item.collectionId));
     for (const collectionId of collectionIds) {
-      const matches = currentSyncGenerationRows(await ctx.db
-        .query("collection_items")
-        .withIndex("by_user_collection_item", (q) =>
-          q
-            .eq("userId", args.userId)
-            .eq("collectionId", collectionId)
-            .eq("libraryItemId", args.libraryItemId),
-        )
-        .collect(), args.generation);
-      const newest = newestLwwRecord(
-        matches,
-        (item) => item.removed === true,
+      const matches = currentSyncGenerationRows(
+        await ctx.db
+          .query("collection_items")
+          .withIndex("by_user_collection_item", (q) =>
+            q
+              .eq("userId", args.userId)
+              .eq("collectionId", collectionId)
+              .eq("libraryItemId", args.libraryItemId),
+          )
+          .collect(),
+        args.generation,
       );
+      const newest = newestLwwRecord(matches, (item) => item.removed === true);
       await pruneDuplicateRows(ctx.db, matches, newest);
-      if (!newest || !shouldApplyLww(newest.updatedAt, args.removedAt)) {
+      if (!newest) {
         continue;
       }
-      await ctx.db.patch(newest._id, {
-        removed: true,
-        updatedAt: args.removedAt,
-      });
+
+      if (mergeTarget && newest.removed !== true) {
+        const collectionRows = currentSyncGenerationRows(
+          await ctx.db
+            .query("collections")
+            .withIndex("by_user_collection", (q) =>
+              q.eq("userId", args.userId).eq("collectionId", collectionId),
+            )
+            .collect(),
+          args.generation,
+        );
+        const collection = newestLwwRecord(
+          collectionRows,
+          (item) => item.removed === true,
+        );
+        if (collection && collection.removed !== true) {
+          const transferAt = Math.max(
+            args.removedAt,
+            newest.updatedAt,
+            mergeTarget.updatedAt,
+            collection.updatedAt,
+          );
+          const collectionLastRemovedAt = maximumRemovalBarrier(collectionRows);
+          if (
+            isAfterRemovalBarrier(mergeTarget.lastRemovedAt, transferAt) &&
+            isAfterRemovalBarrier(collectionLastRemovedAt, transferAt)
+          ) {
+            const targetMatches = currentSyncGenerationRows(
+              await ctx.db
+                .query("collection_items")
+                .withIndex("by_user_collection_item", (q) =>
+                  q
+                    .eq("userId", args.userId)
+                    .eq("collectionId", collectionId)
+                    .eq("libraryItemId", mergeTarget!.libraryItemId),
+                )
+                .collect(),
+              args.generation,
+            );
+            const targetMembership = newestLwwRecord(
+              targetMatches,
+              (item) => item.removed === true,
+            );
+            await pruneDuplicateRows(ctx.db, targetMatches, targetMembership);
+            if (!targetMembership) {
+              await ctx.db.insert("collection_items", {
+                userId: args.userId,
+                syncGeneration: storedSyncGeneration(args.generation),
+                collectionId,
+                libraryItemId: mergeTarget.libraryItemId,
+                addedAt: newest.addedAt,
+                updatedAt: transferAt,
+                removed: false,
+              });
+            } else if (shouldApplyLww(targetMembership.updatedAt, transferAt)) {
+              await ctx.db.patch(targetMembership._id, {
+                addedAt: Math.min(targetMembership.addedAt, newest.addedAt),
+                updatedAt: transferAt,
+                removed: false,
+              });
+            }
+          }
+        }
+
+        // A merge is structural, so it consumes even a source membership that
+        // arrived after the client's merge clock. Transfer at the newest safe
+        // server-known clock, then tombstone the old foreign key in the same
+        // transaction.
+        await ctx.db.patch(newest._id, {
+          removed: true,
+          updatedAt: Math.max(newest.updatedAt, args.removedAt),
+        });
+      } else if (shouldApplyLww(newest.updatedAt, args.removedAt)) {
+        await ctx.db.patch(newest._id, {
+          removed: true,
+          updatedAt: args.removedAt,
+        });
+      }
     }
     if (!page.isDone) {
       await ctx.scheduler.runAfter(
@@ -496,7 +850,110 @@ export const cascadeLibraryItemMemberships = internalMutation({
         internal.library.cascadeLibraryItemMemberships,
         { ...args, cursor: page.continueCursor },
       );
+      return null;
     }
+    await ctx.db.patch(libraryItem._id, {
+      membershipRemovalCascade: finishRemovalCascade(
+        cascadeLock,
+        "completed",
+        now,
+      ),
+    });
+    return null;
+  },
+});
+
+/**
+ * Restarts a failed page chain only while this exact operation owns the
+ * parent. Exhaustion leaves the deletion barrier and a terminal marker intact:
+ * the removed parent remains hidden, stale children cannot be resurrected,
+ * and an explicit idempotent retry can allocate a fresh operation.
+ */
+export const recoverLibraryItemMembershipCascade = internalMutation({
+  args: {
+    userId: v.string(),
+    generation: v.number(),
+    libraryItemId: v.string(),
+    mergeTargetLibraryItemId: v.optional(v.string()),
+    removedAt: v.number(),
+    operationId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (
+      (await getCurrentSyncGeneration(ctx, args.userId)) !== args.generation
+    ) {
+      return null;
+    }
+    const libraryItems = currentSyncGenerationRows(
+      await ctx.db
+        .query("library_items")
+        .withIndex("by_user_item", (q) =>
+          q.eq("userId", args.userId).eq("libraryItemId", args.libraryItemId),
+        )
+        .collect(),
+      args.generation,
+    );
+    const libraryItem = newestLibraryMergeAwareItem(libraryItems);
+    const cascadeLock = libraryItem?.membershipRemovalCascade;
+    if (
+      !libraryItem ||
+      !isRemovalCascadeOwner(cascadeLock, {
+        removedAt: args.removedAt,
+        operationId: args.operationId,
+        mergeTargetLibraryItemId: args.mergeTargetLibraryItemId,
+      })
+    ) {
+      return null;
+    }
+
+    const now = Date.now();
+    if ((cascadeLock.leaseExpiresAt ?? 0) > now) {
+      await ctx.scheduler.runAfter(
+        cascadeLock.leaseExpiresAt! - now,
+        internal.library.recoverLibraryItemMembershipCascade,
+        args,
+      );
+      return null;
+    }
+
+    const recoveryAttempts = cascadeLock.recoveryAttempts + 1;
+    if (recoveryAttempts > REMOVAL_CASCADE_MAX_RECOVERY_ATTEMPTS) {
+      await ctx.db.patch(libraryItem._id, {
+        membershipRemovalCascade: finishRemovalCascade(
+          { ...cascadeLock, recoveryAttempts },
+          "exhausted",
+          now,
+        ),
+      });
+      console.error(
+        "[library-membership-cascade] recovery exhausted",
+        JSON.stringify({
+          generation: args.generation,
+          recoveryAttempts,
+        }),
+      );
+      return null;
+    }
+
+    const renewedLock: RemovalCascadeLock = {
+      ...cascadeLock,
+      leaseExpiresAt: now + REMOVAL_CASCADE_LEASE_MS,
+      recoveryAttempts,
+    };
+    await ctx.db.patch(libraryItem._id, {
+      membershipRemovalCascade: renewedLock,
+    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.library.cascadeLibraryItemMemberships,
+      args,
+    );
+    await ctx.scheduler.runAfter(
+      REMOVAL_CASCADE_LEASE_MS,
+      internal.library.recoverLibraryItemMembershipCascade,
+      args,
+    );
     return null;
   },
 });
@@ -522,28 +979,37 @@ export const removeSourceLink = mutation({
         ? updatedAt
         : resolveClock(args.createdAt, legacyNow);
 
-    const links = currentSyncGenerationRows(await ctx.db
-      .query("library_source_links")
-      .withIndex("by_user_source_manga", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("registryId", args.registryId)
-          .eq("sourceId", args.sourceId)
-          .eq("sourceMangaId", args.sourceMangaId),
-      )
-      .collect(), generation);
-    const link = newestLwwRecord(links, (candidate) => candidate.removed === true);
+    const links = currentSyncGenerationRows(
+      await ctx.db
+        .query("library_source_links")
+        .withIndex("by_user_source_manga", (q) =>
+          q
+            .eq("userId", userId)
+            .eq("registryId", args.registryId)
+            .eq("sourceId", args.sourceId)
+            .eq("sourceMangaId", args.sourceMangaId),
+        )
+        .collect(),
+      generation,
+    );
+    const link = newestLwwRecord(
+      links,
+      (candidate) => candidate.removed === true,
+    );
 
     await pruneDuplicateRows(ctx.db, links, link);
 
     const parentLibraryItemId = args.libraryItemId ?? link?.libraryItemId;
     if (parentLibraryItemId) {
-      const parents = currentSyncGenerationRows(await ctx.db
-        .query("library_items")
-        .withIndex("by_user_item", (q) =>
-          q.eq("userId", userId).eq("libraryItemId", parentLibraryItemId),
-        )
-        .collect(), generation);
+      const parents = currentSyncGenerationRows(
+        await ctx.db
+          .query("library_items")
+          .withIndex("by_user_item", (q) =>
+            q.eq("userId", userId).eq("libraryItemId", parentLibraryItemId),
+          )
+          .collect(),
+        generation,
+      );
       const parentLastRemovedAt = maximumRemovalBarrier(parents);
       if (!isAfterRemovalBarrier(parentLastRemovedAt, updatedAt)) {
         return;

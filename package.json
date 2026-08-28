@@ -9,7 +9,7 @@
   "scripts": {
     "postinstall": "bun scripts/patch-aidoku-runtime.ts && bun scripts/patch-vaul-css.ts",
     "dev": "concurrently \"vite --host\" \"convex dev\"",
-    "build": "tsx scripts/generate-apple-secret.ts && tsc -b && vite build",
+    "build": "tsc -b && vite build",
     "lint": "eslint .",
     "core:typecheck": "tsc -p packages/core/tsconfig.json",
     "core:test": "bun run --cwd packages/core test",
@@ -17,7 +17,7 @@
     "preview": "vite preview",
     "test": "bun test && bun test ./tests && bun run core:test",
     "test:coverage": "bun test --coverage && bun test ./tests --coverage && bun run core:test --coverage",
-    "service": "bun service/dev.ts",
+    "service": "bun services/proxy/dev.ts",
     "generate:apple-secret": "tsx scripts/generate-apple-secret.ts",
     "predeploy": "bun run generate:apple-secret",
     "deploy": "bun run predeploy && convex deploy"
@@ -72,7 +72,7 @@
     "kissfft-wasm": "^2.0.1",
     "lucide-react": "^0.562.0",
     "motion": "^12.23.26",
-    "nanoid": "^5.1.6",
+    "nanoid": "^5.1.16",
     "next-themes": "^0.4.6",
     "opencc-js": "^1.0.5",
     "p-memoize": "^8.0.0",
@@ -94,6 +94,7 @@
     "tokenlens": "^1.3.1",
     "tw-animate-css": "^1.4.0",
     "use-stick-to-bottom": "^1.1.1",
+    "vaul": "1.1.2",
     "wavesurfer.js": "^7.12.1",
     "zod": "^4.2.1",
     "zustand": "^5.0.9"
@@ -126,7 +127,6 @@
     "vite": "^7.3.6"
   },
   "trustedDependencies": [
-    "@shopify/react-native-skia",
     "canvas",
     "esbuild",
     "msw",
@@ -137,20 +137,20 @@
     "@hono/node-server": "1.19.13",
     "defu": "6.1.7",
     "diff": "8.0.4",
-    "dompurify": "3.4.11",
+    "dompurify": "3.4.13",
     "fast-uri": "3.1.2",
     "flatted": "3.4.2",
     "hono": "4.12.29",
     "js-yaml": "4.3.0",
     "lodash": "4.18.1",
     "lodash-es": "4.18.1",
-    "mermaid": "11.16.0",
+    "mermaid": "11.16.1",
     "postcss": "8.5.16",
     "qs": "6.15.3",
     "rollup": "4.62.2",
     "seroval": "1.5.5",
     "shell-quote": "1.9.0",
-    "undici": "7.28.0",
+    "undici": "7.29.0",
     "uuid": "14.0.1"
   },
   "patchedDependencies": {

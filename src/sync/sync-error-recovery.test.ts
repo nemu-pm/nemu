@@ -56,6 +56,18 @@ describe("sync mutation error recovery", () => {
     expect(getSyncRecoveryRequest()?.kind).toBe("limit-exceeded");
   });
 
+  test("stops retrying a clock-invalid write and publishes recovery guidance", async () => {
+    await expect(
+      runSyncMutation(async () => {
+        throw convexError("INVALID_SYNC_CLOCK");
+      }),
+    ).resolves.toBeUndefined();
+    expect(getSyncRecoveryRequest()).toMatchObject({
+      kind: "clock-invalid",
+      code: "INVALID_SYNC_CLOCK",
+    });
+  });
+
   test("re-throws an ordinary failure so existing retries still apply", async () => {
     await expect(
       runSyncMutation(async () => {

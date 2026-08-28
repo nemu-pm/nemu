@@ -6,7 +6,7 @@ import { createServicesContainer } from "./services";
 let sequence = 0;
 
 describe("web services cache profile isolation", () => {
-  test("A -> B switches miss user content while sharing source packages", async () => {
+  test("A -> B switches isolate user content and executable source packages", async () => {
     sequence += 1;
     const accountA = createServicesContainer(`user:cache-a:${sequence}`);
     const accountB = createServicesContainer(`user:cache-b:${sequence}`);
@@ -21,7 +21,7 @@ describe("web services cache profile isolation", () => {
       expect(
         await accountB.cacheStore.getJson<{ title: string }>(homeKey),
       ).toBeNull();
-      expect(await accountB.cacheStore.get(packageKey)).toEqual(packageBytes);
+      expect(await accountB.cacheStore.get(packageKey)).toBeNull();
     } finally {
       accountA.dispose();
       accountB.dispose();

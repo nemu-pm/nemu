@@ -2,6 +2,8 @@
  * Cache store for local-only data (WASMs, metadata, images, JSON)
  * Can be cleared without losing user data
  */
+import { ProfileWriteFence } from "./profile-write-fence";
+
 export interface CacheStore {
   get(key: string): Promise<ArrayBuffer | null>;
   set(key: string, data: ArrayBuffer): Promise<void>;
@@ -12,16 +14,6 @@ export interface CacheStore {
 }
 
 const PROFILE_CACHE_PREFIX = "profile-cache";
-
-/**
- * Source packages are executable, account-independent artifacts. Keeping them
- * shared avoids downloading/compiling the same package again after an account
- * switch. Everything else may contain authenticated source data and must stay
- * inside the profile that created it.
- */
-function isSharedSourcePackageKey(key: string): boolean {
-  return key.startsWith("aix:");
-}
 
 /** Key prefix owning every user-content cache entry of one data profile. */
 export function profileCacheKeyPrefix(profileId: string | undefined): string {
@@ -41,10 +33,11 @@ function profileCacheKey(profileId: string | undefined, key: string): string {
  * (`image:…`, `manga:…`, `chapters:…`, …). Nothing reads them any more — the
  * profile-scoped store only ever looks under `profile-cache:…` — so they are
  * unreachable bytes that must be swept instead of leaking authenticated source
- * content forward forever. Shared source packages (`aix:…`) are still live.
+ * content forward forever. Executable AIX packages are profile-owned too:
+ * custom/private registries can reuse public IDs, so sharing by ID would let
+ * one account supply bytes that another account later executes.
  */
 export function isLegacyUnscopedCacheKey(key: string): boolean {
-  if (isSharedSourcePackageKey(key)) return false;
   return !key.startsWith(`${PROFILE_CACHE_PREFIX}:`);
 }
 
@@ -67,19 +60,16 @@ export interface CacheStoreMaintenance {
 export class ProfileScopedCacheStore implements CacheStore {
   private readonly store: CacheStore;
   private readonly profileId: string | undefined;
+  private readonly writeFence: ProfileWriteFence;
 
-  constructor(
-    store: CacheStore,
-    profileId: string | undefined,
-  ) {
+  constructor(store: CacheStore, profileId: string | undefined) {
     this.store = store;
     this.profileId = profileId;
+    this.writeFence = new ProfileWriteFence(profileId);
   }
 
   private key(key: string): string {
-    return isSharedSourcePackageKey(key)
-      ? key
-      : profileCacheKey(this.profileId, key);
+    return profileCacheKey(this.profileId, key);
   }
 
   get(key: string): Promise<ArrayBuffer | null> {
@@ -87,7 +77,7 @@ export class ProfileScopedCacheStore implements CacheStore {
   }
 
   set(key: string, data: ArrayBuffer): Promise<void> {
-    return this.store.set(this.key(key), data);
+    return this.writeFence.run(() => this.store.set(this.key(key), data));
   }
 
   getJson<T>(key: string): Promise<T | null> {
@@ -95,11 +85,11 @@ export class ProfileScopedCacheStore implements CacheStore {
   }
 
   setJson<T>(key: string, data: T): Promise<void> {
-    return this.store.setJson(this.key(key), data);
+    return this.writeFence.run(() => this.store.setJson(this.key(key), data));
   }
 
   delete(key: string): Promise<void> {
-    return this.store.delete(this.key(key));
+    return this.writeFence.run(() => this.store.delete(this.key(key)));
   }
 
   /** Explicit cache clearing remains device-wide, matching the existing UI. */
@@ -221,7 +211,9 @@ export class IndexedDBCacheStore implements CacheStore, CacheStoreMaintenance {
    * Delete every entry whose key satisfies `predicate`, in one transaction.
    * Resolves with the number of deleted entries.
    */
-  async deleteMatchingKeys(predicate: (key: string) => boolean): Promise<number> {
+  async deleteMatchingKeys(
+    predicate: (key: string) => boolean,
+  ): Promise<number> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readwrite");
@@ -241,8 +233,10 @@ export class IndexedDBCacheStore implements CacheStore, CacheStoreMaintenance {
         cursor.continue();
       };
 
-      tx.onerror = () => reject(tx.error ?? new Error("Cache key sweep failed."));
-      tx.onabort = () => reject(tx.error ?? new Error("Cache key sweep aborted."));
+      tx.onerror = () =>
+        reject(tx.error ?? new Error("Cache key sweep failed."));
+      tx.onabort = () =>
+        reject(tx.error ?? new Error("Cache key sweep aborted."));
       tx.oncomplete = () => resolve(deleted);
     });
   }
@@ -260,8 +254,8 @@ function defaultMaintenanceStore(): CacheStoreMaintenance {
  *
  * Cached pages, covers and metadata for an authenticated profile can be
  * authenticated source content, so removing an account from this device has to
- * remove them too. Shared source packages (`aix:…`) are account-independent and
- * intentionally survive.
+ * remove them too, including executable source packages from private/custom
+ * registries.
  */
 export function deleteProfileCacheEntries(
   profileId: string | undefined,
@@ -271,7 +265,9 @@ export function deleteProfileCacheEntries(
   return store.deleteMatchingKeys((key) => key.startsWith(prefix));
 }
 
-const LEGACY_SWEEP_FLAG = "nemu:cache-legacy-sweep:v1";
+// v2 additionally removes legacy unscoped AIX executables; v1 treated them as
+// globally shareable and therefore cannot suppress this security sweep.
+const LEGACY_SWEEP_FLAG = "nemu:cache-legacy-sweep:v2";
 let legacySweepPromise: Promise<number> | null = null;
 
 /**
@@ -310,7 +306,9 @@ export function sweepLegacyCacheEntriesOnce(
         // ignore
       }
       if (deleted > 0) {
-        console.log(`[cache] Removed ${deleted} un-namespaced legacy cache entries.`);
+        console.log(
+          `[cache] Removed ${deleted} un-namespaced legacy cache entries.`,
+        );
       }
       return deleted;
     })

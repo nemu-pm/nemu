@@ -4,7 +4,7 @@
  * Used by: source settings, plugin settings
  */
 
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type {
   Setting,
   GroupSetting,
@@ -19,6 +19,9 @@ import type {
   FeatureFlags,
 } from "./types";
 import { isSettingVisible } from "./schema";
+import { MAX_SETTING_LIST_ITEMS, sanitizeSettingsSchema } from "./sanitize";
+import { formatSettingDisplayValue } from "./display";
+import { sanitizeSourceSettingValues } from "./values";
 import {
   SettingsGroup,
   SettingsSelect,
@@ -51,7 +54,7 @@ export interface SettingsRendererProps {
       onChange: (key: string, value: unknown) => void;
       onPushPage?: (page: PageSetting) => void;
       features: FeatureFlags;
-    }
+    },
   ) => ReactNode | null | undefined;
 }
 
@@ -66,13 +69,22 @@ export function SettingsRenderer({
   features = {},
   renderCustomSetting,
 }: SettingsRendererProps) {
+  const safeSchema = useMemo(() => sanitizeSettingsSchema(schema), [schema]);
+  const safeValues = useMemo(
+    () => sanitizeSourceSettingValues(values),
+    [values],
+  );
   return (
     <>
-      {schema.map((setting, index) => (
+      {safeSchema.map((setting, index) => (
         <SettingItem
-          key={setting.type === "group" ? `group-${index}` : (setting as { key: string }).key || index}
+          key={
+            setting.type === "group"
+              ? `group-${index}`
+              : (setting as { key: string }).key || index
+          }
           setting={setting}
-          values={values}
+          values={safeValues}
           onChange={onChange}
           onPushPage={onPushPage}
           features={features}
@@ -92,7 +104,14 @@ interface SettingItemProps {
   renderCustomSetting?: SettingsRendererProps["renderCustomSetting"];
 }
 
-function SettingItem({ setting, values, onChange, onPushPage, features, renderCustomSetting }: SettingItemProps) {
+function SettingItem({
+  setting,
+  values,
+  onChange,
+  onPushPage,
+  features,
+  renderCustomSetting,
+}: SettingItemProps) {
   if (!isSettingVisible(setting, values, features)) return null;
 
   switch (setting.type) {
@@ -108,28 +127,77 @@ function SettingItem({ setting, values, onChange, onPushPage, features, renderCu
         />
       );
     case "select":
-      return <SelectControl setting={setting} value={values[setting.key] as string | undefined} onChange={onChange} />;
+      return (
+        <SelectControl
+          setting={setting}
+          value={values[setting.key] as string | undefined}
+          onChange={onChange}
+        />
+      );
     case "multi-select":
-      return <MultiSelectControl setting={setting} value={values[setting.key] as string[] | undefined} onChange={onChange} />;
+      return (
+        <MultiSelectControl
+          setting={setting}
+          value={values[setting.key] as string[] | undefined}
+          onChange={onChange}
+        />
+      );
     case "switch":
-      return <SwitchControl setting={setting} value={values[setting.key] as boolean | undefined} onChange={onChange} />;
+      return (
+        <SwitchControl
+          setting={setting}
+          value={values[setting.key] as boolean | undefined}
+          onChange={onChange}
+        />
+      );
     case "slider":
-      return <SliderControl setting={setting} value={values[setting.key] as number | undefined} onChange={onChange} />;
+      return (
+        <SliderControl
+          setting={setting}
+          value={values[setting.key] as number | undefined}
+          onChange={onChange}
+        />
+      );
     case "segment":
-      return <SegmentControl setting={setting} value={values[setting.key] as number | undefined} onChange={onChange} />;
+      return (
+        <SegmentControl
+          setting={setting}
+          value={values[setting.key] as number | undefined}
+          onChange={onChange}
+        />
+      );
     case "text":
-      return <TextControl setting={setting} value={values[setting.key] as string | undefined} onChange={onChange} />;
+      return (
+        <TextControl
+          setting={setting}
+          value={values[setting.key] as string | undefined}
+          onChange={onChange}
+        />
+      );
     case "page":
-      return onPushPage ? <SettingsPageLink title={setting.title} onClick={() => onPushPage(setting)} /> : null;
+      return onPushPage ? (
+        <SettingsPageLink
+          title={setting.title}
+          onClick={() => onPushPage(setting)}
+        />
+      ) : null;
     case "editable-list":
-      return <EditableListControl setting={setting} value={values[setting.key] as string[] | undefined} onChange={onChange} />;
+      return (
+        <EditableListControl
+          setting={setting}
+          value={values[setting.key] as string[] | undefined}
+          onChange={onChange}
+        />
+      );
     default:
-      return renderCustomSetting?.(setting, {
-        values,
-        onChange,
-        onPushPage,
-        features,
-      }) ?? null;
+      return (
+        renderCustomSetting?.(setting, {
+          values,
+          onChange,
+          onPushPage,
+          features,
+        }) ?? null
+      );
   }
 }
 
@@ -154,14 +222,21 @@ function GroupControl({
 }) {
   return (
     <SettingsGroup title={setting.title} footer={setting.footer}>
-      <SettingsRenderer
-        schema={setting.items}
-        values={values}
-        onChange={onChange}
-        onPushPage={onPushPage}
-        features={features}
-        renderCustomSetting={renderCustomSetting}
-      />
+      {setting.items.map((child, index) => (
+        <SettingItem
+          key={
+            child.type === "group"
+              ? `group-${index}`
+              : (child as { key: string }).key || index
+          }
+          setting={child}
+          values={values}
+          onChange={onChange}
+          onPushPage={onPushPage}
+          features={features}
+          renderCustomSetting={renderCustomSetting}
+        />
+      ))}
     </SettingsGroup>
   );
 }
@@ -176,7 +251,10 @@ function SelectControl({
   onChange: (key: string, value: unknown) => void;
 }) {
   const settingValues = setting.values ?? [];
-  const currentValue = value ?? setting.default ?? settingValues[0] ?? "";
+  const currentValue =
+    typeof value === "string" && settingValues.includes(value)
+      ? value
+      : (setting.default ?? settingValues[0] ?? "");
   const options = settingValues.map((val, i) => ({
     value: val,
     label: setting.titles?.[i] ?? val,
@@ -203,7 +281,17 @@ function MultiSelectControl({
   onChange: (key: string, value: unknown) => void;
 }) {
   const settingValues = setting.values ?? [];
-  const currentValue = value ?? setting.default ?? [];
+  const candidateValue = Array.isArray(value)
+    ? value
+        .slice(0, MAX_SETTING_LIST_ITEMS)
+        .filter(
+          (item): item is string =>
+            typeof item === "string" && settingValues.includes(item),
+        )
+    : (setting.default ?? []);
+  const currentValue = setting.single
+    ? candidateValue.slice(0, 1)
+    : candidateValue;
   const options = settingValues.map((val, i) => ({
     value: val,
     label: setting.titles?.[i] ?? val,
@@ -214,7 +302,17 @@ function MultiSelectControl({
       label={setting.title}
       value={currentValue}
       options={options}
-      onChange={(v) => onChange(setting.key, v)}
+      onChange={(v) => {
+        if (!setting.single) {
+          onChange(setting.key, v);
+          return;
+        }
+        // Aidoku's multi-single-select stores an array but behaves like a
+        // radio group: selecting a new value replaces the old one, and the
+        // current choice is not toggled off by tapping it again.
+        if (v.length === 0 && currentValue.length > 0) return;
+        onChange(setting.key, v.slice(-1));
+      }}
     />
   );
 }
@@ -228,7 +326,8 @@ function SwitchControl({
   value: boolean | undefined;
   onChange: (key: string, value: unknown) => void;
 }) {
-  const currentValue = value ?? setting.default ?? false;
+  const currentValue =
+    typeof value === "boolean" ? value : (setting.default ?? false);
 
   return (
     <SettingsSwitch
@@ -249,10 +348,13 @@ function SliderControl({
   value: number | undefined;
   onChange: (key: string, value: unknown) => void;
 }) {
-  const currentValue = value ?? setting.default ?? setting.min;
+  const currentValue =
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.min(setting.max, Math.max(setting.min, value))
+      : (setting.default ?? setting.min);
 
   // Use slider if formatValue is provided (more visual), otherwise stepper
-  if (setting.formatValue) {
+  if (setting.formatValue && setting.max > setting.min) {
     return (
       <SettingsSlider
         label={setting.title}
@@ -261,7 +363,9 @@ function SliderControl({
         min={setting.min}
         max={setting.max}
         step={setting.step}
-        formatValue={setting.formatValue}
+        formatValue={(value) =>
+          formatSettingDisplayValue(setting.formatValue, value)
+        }
         onChange={(v) => onChange(setting.key, v)}
       />
     );
@@ -290,7 +394,13 @@ function SegmentControl({
   onChange: (key: string, value: unknown) => void;
 }) {
   const settingValues = setting.values ?? setting.options ?? [];
-  const currentIndex = value ?? setting.default ?? 0;
+  const currentIndex =
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value < settingValues.length
+      ? value
+      : (setting.default ?? 0);
   const options = settingValues.map((val, i) => setting.titles?.[i] ?? val);
 
   return (
@@ -312,7 +422,8 @@ function TextControl({
   value: string | undefined;
   onChange: (key: string, value: unknown) => void;
 }) {
-  const currentValue = value ?? setting.default ?? "";
+  const currentValue =
+    typeof value === "string" ? value : (setting.default ?? "");
 
   return (
     <SettingsText
@@ -335,7 +446,11 @@ function EditableListControl({
   value: string[] | undefined;
   onChange: (key: string, value: unknown) => void;
 }) {
-  const currentValue = value ?? setting.default ?? [];
+  const currentValue = Array.isArray(value)
+    ? value
+        .slice(0, MAX_SETTING_LIST_ITEMS)
+        .filter((item): item is string => typeof item === "string")
+    : (setting.default ?? []);
 
   return (
     <SettingsEditableList

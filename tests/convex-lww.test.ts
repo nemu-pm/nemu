@@ -10,6 +10,7 @@ import {
 } from "../convex/lww";
 import {
   chapterProgressNeedsPush,
+  MAX_SYNC_CLOCK_FUTURE_SKEW_MS,
   mergeChapterProgressForSave,
   type LocalChapterProgress,
 } from "../packages/core/src/sync";
@@ -55,6 +56,22 @@ describe("Convex logical last-write-wins ordering", () => {
 
   test("allows timestamped writes to migrate legacy clockless records", () => {
     expect(shouldApplyLww(undefined, 0)).toBe(true);
+  });
+
+  test("lets a valid write repair clocks poisoned by older clients", () => {
+    expect(shouldApplyLww(Number.MAX_SAFE_INTEGER, 200)).toBe(true);
+    expect(
+      newestLwwRecord([
+        { id: "poisoned", updatedAt: Number.MAX_SAFE_INTEGER },
+        { id: "valid", updatedAt: 200 },
+      ])?.id,
+    ).toBe("valid");
+    expect(
+      maximumRemovalBarrier([
+        { lastRemovedAt: Number.MAX_SAFE_INTEGER },
+        { lastRemovedAt: 200 },
+      ]),
+    ).toBe(200);
   });
 
   test("canonicalization keeps a tombstone when duplicate clocks tie", () => {
@@ -145,6 +162,38 @@ describe("Convex logical last-write-wins ordering", () => {
       ).completed,
     ).toBe(true);
   });
+
+  test("repairs poisoned chapter clocks while preserving high-water progress", () => {
+    expect(
+      mergeChapterProgressHighWater(
+        {
+          progress: 9,
+          total: 10,
+          completed: false,
+          lastReadAt: Number.MAX_SAFE_INTEGER,
+          chapterTitle: "poisoned",
+          updatedAt: Number.MAX_SAFE_INTEGER,
+        },
+        {
+          progress: 5,
+          total: 10,
+          completed: true,
+          lastReadAt: 200,
+          chapterTitle: "repaired",
+          updatedAt: 200,
+        },
+      ),
+    ).toEqual({
+      progress: 9,
+      total: 10,
+      completed: true,
+      lastReadAt: 200,
+      chapterNumber: undefined,
+      volumeNumber: undefined,
+      chapterTitle: "repaired",
+      updatedAt: 200,
+    });
+  });
 });
 
 describe("Convex sync generation rollout", () => {
@@ -159,7 +208,7 @@ describe("Convex sync generation rollout", () => {
     );
   });
 
-  test("rejects non-finite, fractional, negative, and overflowing clocks", () => {
+  test("rejects malformed, overflowing, and far-future clocks", () => {
     for (const invalid of [
       Number.NaN,
       Number.POSITIVE_INFINITY,
@@ -167,13 +216,20 @@ describe("Convex sync generation rollout", () => {
       -1,
       1.5,
       Number.MAX_SAFE_INTEGER + 1,
+      1234 + MAX_SYNC_CLOCK_FUTURE_SKEW_MS + 1,
     ]) {
       expect(() => resolveSyncClock(invalid, 0, 1234)).toThrow(
         INVALID_SYNC_CLOCK,
       );
     }
-    expect(resolveSyncClock(Number.MAX_SAFE_INTEGER, 0, 1234)).toBe(
-      Number.MAX_SAFE_INTEGER,
+    expect(
+      resolveSyncClock(1234 + MAX_SYNC_CLOCK_FUTURE_SKEW_MS, 0, 1234),
+    ).toBe(1234 + MAX_SYNC_CLOCK_FUTURE_SKEW_MS);
+    expect(() => resolveSyncClock(Number.MAX_SAFE_INTEGER, 0, 1234)).toThrow(
+      INVALID_SYNC_CLOCK,
+    );
+    expect(() => resolveSyncClock(1234, 0, Number.MAX_SAFE_INTEGER)).toThrow(
+      INVALID_SYNC_CLOCK,
     );
   });
 
@@ -184,9 +240,9 @@ describe("Convex sync generation rollout", () => {
     expect(() => resolveSyncGeneration(-1, -1)).toThrow(
       INVALID_SYNC_GENERATION,
     );
-    expect(() => nextSyncGeneration(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)).toThrow(
-      INVALID_SYNC_GENERATION,
-    );
+    expect(() =>
+      nextSyncGeneration(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
+    ).toThrow(INVALID_SYNC_GENERATION);
   });
 
   test("rejects invalid numeric progress and metadata inputs", () => {
@@ -197,21 +253,17 @@ describe("Convex sync generation rollout", () => {
       INVALID_SYNC_NUMBER,
     );
     expect(assertNonNegativeSafeInteger(0, "progress")).toBe(0);
-    expect(() => assertFiniteNumber(Number.POSITIVE_INFINITY, "chapter")).toThrow(
-      INVALID_SYNC_NUMBER,
-    );
+    expect(() =>
+      assertFiniteNumber(Number.POSITIVE_INFINITY, "chapter"),
+    ).toThrow(INVALID_SYNC_NUMBER);
     expect(assertFiniteNumber(1.5, "chapter")).toBe(1.5);
   });
 
   test("rejects stale clients after reset and advances only exact generation", () => {
     expect(nextSyncGeneration(0, undefined)).toBe(1);
     expect(nextSyncGeneration(1, 1)).toBe(2);
-    expect(() => nextSyncGeneration(1, 0)).toThrow(
-      SYNC_GENERATION_MISMATCH,
-    );
-    expect(() => resolveSyncGeneration(2, 1)).toThrow(
-      SYNC_GENERATION_MISMATCH,
-    );
+    expect(() => nextSyncGeneration(1, 0)).toThrow(SYNC_GENERATION_MISMATCH);
+    expect(() => resolveSyncGeneration(2, 1)).toThrow(SYNC_GENERATION_MISMATCH);
   });
 
   test("treats legacy rows as gen-0 and excludes them after reset", () => {
@@ -370,7 +422,12 @@ const mergeAgreementCases: {
       chapterTitle: "local title",
       updatedAt: 100,
     }),
-    cloud: progress({ progress: 6, total: 10, lastReadAt: 200, updatedAt: 200 }),
+    cloud: progress({
+      progress: 6,
+      total: 10,
+      lastReadAt: 200,
+      updatedAt: 200,
+    }),
   },
   {
     name: "both sides missing all metadata",

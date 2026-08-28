@@ -25,6 +25,13 @@ export const LOGIN_CODE_VERIFIER_SUFFIX = ".codeVerifier";
  */
 export const LOGIN_OAUTH_STATE_SUFFIX = ".oauthState";
 
+/**
+ * Suffix for the atomic, versioned authorization-attempt envelope used by the
+ * web client. The envelope binds the state, verifier, and exact authorization
+ * URL together so a crash or rapid restart cannot mix fields from two flows.
+ */
+export const LOGIN_OAUTH_REQUEST_SUFFIX = ".oauthRequest";
+
 /** Compression formats the token-exchange response might be encoded with. */
 export type SourceOauthCompressionFormat = "gzip" | "deflate";
 
@@ -35,20 +42,27 @@ export type SourceOauthCompressionFormat = "gzip" | "deflate";
 export function hasOAuthTokenPayload(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
+  const tokenKeys = ["access_token", "refresh_token", "id_token"] as const;
 
   if (trimmed.startsWith("{")) {
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-      return ["access_token", "refresh_token", "id_token", "token_type"].some((key) => {
+      return tokenKeys.some((key) => {
         const tokenValue = parsed[key];
-        return typeof tokenValue === "string" && tokenValue.length > 0;
+        return typeof tokenValue === "string" && tokenValue.trim().length > 0;
       });
     } catch {
       return false;
     }
   }
 
-  return /(?:^|[?#&])(access_token|refresh_token|id_token|token_type)=/i.test(trimmed);
+  const valuesByKey = tokenKeys.map((key) =>
+    oauthCallbackParameterValues(trimmed, key),
+  );
+  if (valuesByKey.some((values) => values.length > 1)) return false;
+  return valuesByKey.some(
+    (values) => values.length === 1 && values[0].trim().length > 0,
+  );
 }
 
 export function looksLikeTokenExchangeText(value: string): boolean {
@@ -69,54 +83,55 @@ export function isLikelyOAuthCallbackValue(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
   if (hasOAuthTokenPayload(trimmed)) return true;
-  if (/(?:^|[?#&])code=/i.test(trimmed)) return true;
+  return (
+    /(?:^|[?#&])code=/i.test(trimmed) &&
+    extractAuthorizationCode(trimmed) !== null
+  );
+}
+
+function oauthCallbackParameterValues(
+  value: string,
+  parameter: string,
+): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
 
   try {
     const url = new URL(trimmed);
-    return Boolean(url.search || url.hash);
+    const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+    const fragment = new URLSearchParams(
+      hash.startsWith("?") ? hash.slice(1) : hash,
+    );
+    return [
+      ...url.searchParams.getAll(parameter),
+      ...fragment.getAll(parameter),
+    ];
   } catch {
-    return false;
+    const raw = trimmed.replace(/^[?#]/, "");
+    return new URLSearchParams(raw).getAll(parameter);
   }
 }
 
-/** Extract the `code` query param from a callback URL or raw `code=` fragment. */
+/**
+ * Extract exactly one non-empty `code` from the callback query/fragment or a
+ * raw `code=` value. Duplicate parameters are rejected instead of letting two
+ * layers disagree about which attacker-controlled value wins.
+ */
 export function extractAuthorizationCode(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
 
-  try {
-    const url = new URL(trimmed);
-    return url.searchParams.get("code");
-  } catch {
-    const codeMatch = trimmed.match(/(?:^|[?#&])code=([^&#]+)/i);
-    if (codeMatch?.[1]) {
-      return decodeURIComponent(codeMatch[1]);
-    }
+  const codes = oauthCallbackParameterValues(trimmed, "code");
+  if (codes.length === 1 && codes[0]) return codes[0];
+  if (codes.length > 0) return null;
 
-    if (!/[=?&#]/.test(trimmed)) {
-      return trimmed;
-    }
-
-    return null;
-  }
+  return !/[=?&#]/.test(trimmed) ? trimmed : null;
 }
 
-/** Extract the `state` param from a callback URL or raw `state=` fragment. */
+/** Extract exactly one non-empty `state` from a callback URL/raw fragment. */
 export function extractOAuthState(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  try {
-    const url = new URL(trimmed);
-    const fromQuery = url.searchParams.get("state");
-    if (fromQuery) return fromQuery;
-    const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
-    const fromHash = new URLSearchParams(hash).get("state");
-    return fromHash || null;
-  } catch {
-    const stateMatch = trimmed.match(/(?:^|[?#&])state=([^&#]+)/i);
-    return stateMatch?.[1] ? decodeURIComponent(stateMatch[1]) : null;
-  }
+  const states = oauthCallbackParameterValues(value, "state");
+  return states.length === 1 && states[0] ? states[0] : null;
 }
 
 /**
@@ -138,9 +153,9 @@ export function verifyOAuthCallbackState(
   expectedState: string | null | undefined,
 ): OAuthCallbackStateResult {
   if (!expectedState) return "ok";
-  const actual = extractOAuthState(callbackValue);
-  if (actual === null) return "missing";
-  return actual === expectedState ? "ok" : "mismatch";
+  const states = oauthCallbackParameterValues(callbackValue, "state");
+  if (states.length === 0) return "missing";
+  return states.length === 1 && states[0] === expectedState ? "ok" : "mismatch";
 }
 
 /**
@@ -203,6 +218,19 @@ export function generateOAuthState(): string {
   return randomUnreservedString(32);
 }
 
+export type OAuthAuthorizationRequest = {
+  url: string;
+  state: string;
+};
+
+/** Attach RFC 6749 `state` to an authorization request independently of PKCE. */
+export function withOAuthState(rawUrl: string): OAuthAuthorizationRequest {
+  const url = new URL(rawUrl);
+  const state = generateOAuthState();
+  url.searchParams.set("state", state);
+  return { url: url.toString(), state };
+}
+
 // The 66-symbol alphabet does not divide 256 evenly, so `byte % 66` would
 // over-represent the first 58 symbols (modulo bias). Rejection sampling
 // instead: discard bytes at or above the largest multiple of 66 that fits in
@@ -221,9 +249,7 @@ function randomUnreservedString(length: number): string {
   }
   const chars: string[] = [];
   while (chars.length < length) {
-    const bytes = crypto.getRandomValues(
-      new Uint8Array(length - chars.length),
-    );
+    const bytes = crypto.getRandomValues(new Uint8Array(length - chars.length));
     for (const byte of bytes) {
       if (byte >= REJECTION_SAMPLING_LIMIT) continue;
       chars.push(
@@ -237,7 +263,8 @@ function randomUnreservedString(length: number): string {
 
 /** Base64url (no padding) encode of a byte array — pure JS, no `btoa`. */
 export function bytesToBase64Url(bytes: Uint8Array): string {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   let binary = "";
   for (let i = 0; i < bytes.length; i += 3) {
     const b0 = bytes[i];
@@ -245,7 +272,8 @@ export function bytesToBase64Url(bytes: Uint8Array): string {
     const b2 = i + 2 < bytes.length ? bytes[i + 2] : -1;
     binary += alphabet[b0 >> 2];
     binary += alphabet[((b0 & 0x03) << 4) | (b1 >= 0 ? b1 >> 4 : 0)];
-    binary += b1 >= 0 ? alphabet[((b1 & 0x0f) << 2) | (b2 >= 0 ? b2 >> 6 : 0)] : "=";
+    binary +=
+      b1 >= 0 ? alphabet[((b1 & 0x0f) << 2) | (b2 >= 0 ? b2 >> 6 : 0)] : "=";
     binary += b2 >= 0 ? alphabet[b2 & 0x3f] : "=";
   }
   return binary.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -279,14 +307,17 @@ export async function sha256(data: Uint8Array): Promise<Uint8Array> {
 // --- pure-JS SHA-256 fallback (FIPS 180-4) ---------------------------------
 
 const SHA256_K = new Uint32Array([
-  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+  0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+  0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+  0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+  0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+  0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+  0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+  0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+  0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ]);
 
 function rotr(x: number, n: number): number {
@@ -308,7 +339,8 @@ export function sha256Bytes(data: Uint8Array): Uint8Array {
   view.setUint32(paddedLength - 8, Math.floor(bitLength / 0x100000000), false);
 
   const h = new Uint32Array([
-    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c,
+    0x1f83d9ab, 0x5be0cd19,
   ]);
   const w = new Uint32Array(64);
 
@@ -378,14 +410,20 @@ function utf8Encode(text: string): Uint8Array {
     else if (code < 0x800) {
       bytes.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
     } else {
-      bytes.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+      bytes.push(
+        0xe0 | (code >> 12),
+        0x80 | ((code >> 6) & 0x3f),
+        0x80 | (code & 0x3f),
+      );
     }
   }
   return new Uint8Array(bytes);
 }
 
 /** RFC 7636 S256 code challenge: base64url(SHA-256(codeVerifier)). */
-export async function generateCodeChallenge(codeVerifier: string): Promise<string> {
+export async function generateCodeChallenge(
+  codeVerifier: string,
+): Promise<string> {
   return bytesToBase64Url(await sha256(utf8Encode(codeVerifier)));
 }
 
@@ -404,19 +442,20 @@ export type PkceAuthorizationRequest = {
  * callback (see `verifyOAuthCallbackState`). Both must be deleted once the
  * exchange succeeds.
  */
-export async function withPkce(rawUrl: string): Promise<PkceAuthorizationRequest> {
-  const url = new URL(rawUrl);
+export async function withPkce(
+  rawUrl: string,
+): Promise<PkceAuthorizationRequest> {
+  const authorization = withOAuthState(rawUrl);
+  const url = new URL(authorization.url);
   const codeVerifier = generateCodeVerifier();
-  const state = generateOAuthState();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
   url.searchParams.set("code_challenge", codeChallenge);
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("state", state);
   return {
     url: url.toString(),
     codeVerifier,
-    state,
+    state: authorization.state,
   };
 }
 

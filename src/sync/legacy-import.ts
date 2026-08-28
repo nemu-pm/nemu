@@ -8,23 +8,33 @@ import type {
   MangaMetadata,
 } from "@/data/schema";
 import {
+  boundedLegacySyncTimestamp,
   makeChapterProgressId,
   makeSourceLinkId,
   mangaProgressFromChapterProgress,
 } from "@nemu/core";
 
 /**
- * A migration retry must reproduce the same LWW clock. Date.now() would turn a
- * partially imported prefix into a newer user edit on every retry, so derive a
- * stable post-legacy timestamp from the row itself instead.
+ * Normal migration retries reproduce the same LWW clock from the legacy row.
+ * Corrupt/future values receive the oldest valid clock so imports cannot race
+ * the server at a client-derived future ceiling. Only that repair case
+ * consults the current time.
  */
-export function legacyImportTimestamp(observedAt: number): number {
-  if (!Number.isFinite(observedAt)) return 1;
-  const bounded = Math.min(
-    Number.MAX_SAFE_INTEGER - 1,
-    Math.max(0, Math.floor(observedAt)),
-  );
-  return bounded + 1;
+export function legacyImportTimestamp(
+  observedAt: number,
+  now = Date.now(),
+): number {
+  return boundedLegacySyncTimestamp(observedAt, now);
+}
+
+/** Keep legacy event/creation clocks integer and no newer than their LWW row. */
+function legacyImportEventTimestamp(
+  observedAt: number,
+  updatedAt: number,
+): number {
+  const maximum = Math.max(0, Math.floor(updatedAt) - 1);
+  if (!Number.isFinite(observedAt)) return 0;
+  return Math.min(maximum, Math.max(0, Math.floor(observedAt)));
 }
 
 export type LegacyLibraryImportInput = {
@@ -63,21 +73,25 @@ export function convertLegacyLibraryEntry(
   libraryItemId = legacy.id,
   updatedAt = legacyImportTimestamp(legacy.addedAt),
 ): { item: LocalLibraryItem; links: LocalSourceLink[] } {
-  const links = legacy.sources.map((source) => ({
-    id: makeSourceLinkId(
-      source.registryId,
-      source.sourceId,
-      source.mangaId,
-    ),
-    libraryItemId,
-    registryId: source.registryId,
-    sourceId: source.sourceId,
-    sourceMangaId: source.mangaId,
-    latestChapter: source.latestChapter,
-    updateAckChapter: source.updateAcknowledged,
-    createdAt: legacy.addedAt,
-    updatedAt,
-  } satisfies LocalSourceLink));
+  const createdAt = legacyImportEventTimestamp(legacy.addedAt, updatedAt);
+  const links = legacy.sources.map(
+    (source) =>
+      ({
+        id: makeSourceLinkId(
+          source.registryId,
+          source.sourceId,
+          source.mangaId,
+        ),
+        libraryItemId,
+        registryId: source.registryId,
+        sourceId: source.sourceId,
+        sourceMangaId: source.mangaId,
+        latestChapter: source.latestChapter,
+        updateAckChapter: source.updateAcknowledged,
+        createdAt,
+        updatedAt,
+      }) satisfies LocalSourceLink,
+  );
 
   const item: LocalLibraryItem = {
     libraryItemId,
@@ -85,7 +99,7 @@ export function convertLegacyLibraryEntry(
     externalIds: legacy.externalIds,
     inLibrary: true,
     sourceOrder: links.map((link) => link.id),
-    createdAt: legacy.addedAt,
+    createdAt,
     updatedAt,
   };
   if (legacy.overrides || legacy.coverCustom) {
@@ -103,6 +117,7 @@ export function convertLegacyHistoryEntry(
   libraryItemId?: string,
   updatedAt = legacyImportTimestamp(legacy.dateRead),
 ): LocalChapterProgress {
+  const lastReadAt = legacyImportEventTimestamp(legacy.dateRead, updatedAt);
   return {
     id: makeChapterProgressId(
       legacy.registryId,
@@ -118,7 +133,7 @@ export function convertLegacyHistoryEntry(
     progress: legacy.progress,
     total: legacy.total,
     completed: legacy.completed,
-    lastReadAt: legacy.dateRead,
+    lastReadAt,
     chapterNumber: legacy.chapterNumber,
     volumeNumber: legacy.volumeNumber,
     chapterTitle: legacy.chapterTitle,
