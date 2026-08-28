@@ -2,9 +2,11 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import type { NativeKVStore } from "./contracts";
 import {
   clearMobileDataProfileCleanupPending,
+  clearRetainedMobileDataProfile,
   getMobileDataProfileSnapshot,
   loadMobileDataProfile,
   markMobileDataProfileCleanupPending,
+  MOBILE_LOCAL_FULL_RESET_PROFILE_ID,
   resetMobileDataProfileForTesting,
   retainMobileDataProfile,
   setMobileDataProfileStorageForTesting,
@@ -12,6 +14,8 @@ import {
 import {
   completePendingMobileDataProfileCleanup,
   MOBILE_LOCAL_DATA_CLEANUP_UNAVAILABLE,
+  isMobileDataProfileCleanupPreparedInProcess,
+  prepareMobileDataProfileCleanupBeforeSignOut,
   removeMobileDataProfileAfterSignOut,
   resetMobileDataProfileCleanupForTesting,
 } from "./mobileDataProfileCleanup";
@@ -99,6 +103,189 @@ describe("post-sign-out mobile data profile cleanup", () => {
     await expect(loadMobileDataProfile()).resolves.toMatchObject({
       retainedProfileId: "user:account-a",
       pendingCleanupProfileId: "user:account-a",
+    });
+  });
+
+  test("persists and resumes the exact full-device reset scope", async () => {
+    await markMobileDataProfileCleanupPending("user:account-a", "all");
+    expect(
+      JSON.parse(
+        storage.values.get("nemu.mobile.pending-profile-cleanup") ?? "null",
+      ),
+    ).toEqual({
+      version: 1,
+      profileId: "user:account-a",
+      mode: "all",
+      remoteSignOutConfirmed: true,
+    });
+
+    await setMobileDataProfileStorageForTesting(storage);
+    await expect(loadMobileDataProfile()).resolves.toMatchObject({
+      retainedProfileId: "user:account-a",
+      pendingCleanupProfileId: "user:account-a",
+      pendingCleanupMode: "all",
+    });
+
+    const calls: string[] = [];
+    await completePendingMobileDataProfileCleanup({
+      profileId: "user:account-a",
+      clearSandboxData: async () => {
+        calls.push("sandbox");
+      },
+      clearAccountData: async () => {
+        calls.push("account");
+      },
+      clearAllData: async () => {
+        calls.push("all");
+      },
+    });
+
+    expect(calls).toEqual(["sandbox", "all"]);
+    expect(getMobileDataProfileSnapshot()).toMatchObject({
+      retainedProfileId: null,
+      pendingCleanupProfileId: null,
+      pendingCleanupMode: null,
+    });
+  });
+
+  test("fails closed when full-reset recovery lacks its all-data clearer", async () => {
+    await markMobileDataProfileCleanupPending("user:account-a", "all");
+    let accountClears = 0;
+
+    await expect(
+      completePendingMobileDataProfileCleanup({
+        profileId: "user:account-a",
+        clearSandboxData: async () => undefined,
+        clearAccountData: async () => {
+          accountClears += 1;
+        },
+      }),
+    ).rejects.toThrow(MOBILE_LOCAL_DATA_CLEANUP_UNAVAILABLE);
+
+    expect(accountClears).toBe(0);
+    expect(getMobileDataProfileSnapshot()).toMatchObject({
+      retainedProfileId: "user:account-a",
+      pendingCleanupProfileId: "user:account-a",
+      pendingCleanupMode: "all",
+    });
+  });
+
+  test("prepares before sign-out and cancels only when sign-out fails", async () => {
+    let clearCalls = 0;
+
+    await expect(
+      prepareMobileDataProfileCleanupBeforeSignOut({
+        profileId: "user:account-a",
+        mode: "all",
+        signOutAndUnregister: async () => {
+          expect(
+            isMobileDataProfileCleanupPreparedInProcess("user:account-a"),
+          ).toBe(true);
+          expect(getMobileDataProfileSnapshot()).toMatchObject({
+            pendingCleanupProfileId: "user:account-a",
+            pendingCleanupMode: "all",
+            pendingCleanupRemoteSignOutConfirmed: false,
+          });
+          throw new Error("synthetic offline sign-out");
+        },
+        clearSandboxData: async () => {
+          clearCalls += 1;
+        },
+        clearAccountData: async () => {
+          clearCalls += 1;
+        },
+        clearAllData: async () => {
+          clearCalls += 1;
+        },
+      }),
+    ).rejects.toThrow("synthetic offline sign-out");
+
+    expect(clearCalls).toBe(0);
+    expect(
+      isMobileDataProfileCleanupPreparedInProcess("user:account-a"),
+    ).toBe(false);
+    expect(getMobileDataProfileSnapshot()).toMatchObject({
+      retainedProfileId: "user:account-a",
+      pendingCleanupProfileId: null,
+      pendingCleanupMode: null,
+      pendingCleanupRemoteSignOutConfirmed: null,
+    });
+  });
+
+  test("retains a confirmed marker when post-sign-out clearing fails", async () => {
+    await expect(
+      prepareMobileDataProfileCleanupBeforeSignOut({
+        profileId: "user:account-a",
+        mode: "all",
+        signOutAndUnregister: async (onConfirmed) => onConfirmed(),
+        clearSandboxData: async () => undefined,
+        clearAccountData: async () => undefined,
+        clearAllData: async () => {
+          throw new Error("synthetic clear failure");
+        },
+      }),
+    ).rejects.toThrow(MOBILE_LOCAL_DATA_CLEANUP_UNAVAILABLE);
+
+    expect(getMobileDataProfileSnapshot()).toMatchObject({
+      retainedProfileId: "user:account-a",
+      pendingCleanupProfileId: "user:account-a",
+      pendingCleanupMode: "all",
+      pendingCleanupRemoteSignOutConfirmed: true,
+    });
+  });
+
+  test("releases volatile ownership when the confirmation checkpoint fails", async () => {
+    await expect(
+      prepareMobileDataProfileCleanupBeforeSignOut({
+        profileId: "user:account-a",
+        mode: "all",
+        signOutAndUnregister: async (onConfirmed) => {
+          storage.failSetKey = "nemu.mobile.pending-profile-cleanup";
+          await onConfirmed();
+        },
+        clearSandboxData: async () => undefined,
+        clearAccountData: async () => undefined,
+        clearAllData: async () => undefined,
+      }),
+    ).rejects.toThrow("injected secure write failure");
+
+    expect(getMobileDataProfileSnapshot()).toMatchObject({
+      retainedProfileId: "user:account-a",
+      pendingCleanupProfileId: "user:account-a",
+      pendingCleanupMode: "all",
+      pendingCleanupRemoteSignOutConfirmed: false,
+      pendingCleanupLocallyOwned: false,
+    });
+  });
+
+  test("journals and completes a signed-out local full reset", async () => {
+    await clearRetainedMobileDataProfile("user:account-a");
+    const calls: string[] = [];
+
+    await removeMobileDataProfileAfterSignOut({
+      profileId: MOBILE_LOCAL_FULL_RESET_PROFILE_ID,
+      mode: "all",
+      clearSandboxData: async (scope) => {
+        calls.push(`sandbox:${scope}`);
+      },
+      clearAccountData: async () => {
+        calls.push("account");
+      },
+      clearAllData: async () => {
+        expect(getMobileDataProfileSnapshot()).toMatchObject({
+          retainedProfileId: null,
+          pendingCleanupProfileId: MOBILE_LOCAL_FULL_RESET_PROFILE_ID,
+          pendingCleanupMode: "all",
+        });
+        calls.push("all");
+      },
+    });
+
+    expect(calls).toEqual(["sandbox:local", "all"]);
+    expect(getMobileDataProfileSnapshot()).toMatchObject({
+      retainedProfileId: null,
+      pendingCleanupProfileId: null,
+      pendingCleanupMode: null,
     });
   });
 

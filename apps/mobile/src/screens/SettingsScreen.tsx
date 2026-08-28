@@ -101,12 +101,6 @@ import {
   mergeMobileInstalledSourceRegistryMetadata,
 } from "@/lib/mobileBrowseSources";
 import {
-  DEFAULT_READER_PAGE_PAIRING_MODE,
-  DEFAULT_READER_PROCESS_PAGE_IMAGES,
-  DEFAULT_READER_SCROLL_WIDTH_PCT,
-  DEFAULT_READER_TWO_PAGE_MODE,
-} from "@/lib/mobileReaderSettings";
-import {
   canRetryMobileSourceSettingsLoadError,
   countRenderableSourceSettings,
   getMobileSourceSettingsNavigationResetKey,
@@ -1287,14 +1281,7 @@ export function SettingsScreen({
     sourceId?: string | string[];
   }>();
   const { tokens, themePreference, setThemePreference } = useNemuTheme();
-  const {
-    mode,
-    setMode,
-    setScrollWidthPct,
-    setTwoPageMode,
-    setPagePairingMode,
-    setProcessPageImages,
-  } = useReadingMode();
+  const { mode, setMode } = useReadingMode();
   const {
     appLanguage,
     effectiveMetadataLanguage,
@@ -2171,16 +2158,10 @@ export function SettingsScreen({
       setSelectedSourceId(null);
       setSelectedPluginId(null);
       setClearCloudData(false);
-      await sources.reload();
-      await setMode("rtl");
-      await setScrollWidthPct(DEFAULT_READER_SCROLL_WIDTH_PCT);
-      await setTwoPageMode(DEFAULT_READER_TWO_PAGE_MODE);
-      await setPagePairingMode(DEFAULT_READER_PAGE_PAIRING_MODE);
-      await setProcessPageImages(DEFAULT_READER_PROCESS_PAGE_IMAGES);
-      await setThemePreference("system");
-      await setAppLanguage("en");
-      await setMetadataLanguagePreference("auto");
-      await readerPlugins.reload();
+      // The data provider may switch profiles as soon as the durable reset
+      // completes. Revision subscribers will reload defaults from the newly
+      // mounted store; writing defaults through this closing screen could
+      // resurrect rows in the just-cleared profile.
       if (
         getMobileSettingsMutationResultAction({ succeeded: true }) ===
         "close-confirmation"

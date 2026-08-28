@@ -51,13 +51,16 @@ function profileCleanupPendingError(): Error {
  * arrives afterward is rejected, so no late async task can repopulate the
  * cleared profile database.
  *
- * clearAccountData itself is intentionally not in the blocked set: it is the
- * only write that must remain available while the privacy fence is active.
+ * clearAccountData itself is intentionally not in the blocked set. A full
+ * clear is admitted only when the durable marker preserves the user's exact
+ * all-device scope; an account-only fence cannot erase device registries.
  */
 export function createMobileDataProfileGuardedStore(
   store: MobileDataStore,
   isCleanupPending: () => boolean = () =>
     Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
+  isFullCleanupPending: () => boolean = () =>
+    getMobileDataProfileSnapshot().pendingCleanupMode === "all",
 ): MobileDataStore {
   const wrappedMethods = new Map<PropertyKey, unknown>();
 
@@ -70,7 +73,10 @@ export function createMobileDataProfileGuardedStore(
       const wrapped = (...args: unknown[]) => {
         if (
           ACCOUNT_MUTATION_METHODS.has(property as keyof MobileDataStore) &&
-          isCleanupPending()
+          isCleanupPending() &&
+          !(
+            property === "clearAllUserData" && isFullCleanupPending()
+          )
         ) {
           return Promise.reject(profileCleanupPendingError());
         }

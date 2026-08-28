@@ -15,6 +15,9 @@ import { createMobileSyncDataStore } from "@/sync/mobileSyncDataStore";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 import {
+  cancelPreparedMobileDataProfileCleanup,
+  confirmMobileDataProfileCleanupSignOut,
+  getMobileDataProfileCleanupStartupAction,
   getMobileDataProfileRuntimeScope,
   getMobileDataProfileSnapshot,
   loadMobileDataProfile,
@@ -34,6 +37,7 @@ import {
 import { clearMobileAidokuSandboxDataForProfile } from "@/sources/mobileAidokuSandboxData";
 import { MobilePendingDataCleanupScreen } from "@/components/MobilePendingDataCleanupScreen";
 import { emitMobileDataChanged } from "./mobileDataEvents";
+import { clearAllMobileDeviceData } from "./mobileDeviceDataClear";
 import { sanitizeMobileErrorDiagnostic } from "@/lib/mobileSourceErrors";
 import {
   MOBILE_PERFORMANCE_MARKS,
@@ -138,10 +142,14 @@ function MobileSourceProfileBoundary({
 }
 
 function MobilePendingDataCleanupBoundary({
+  authSettled,
+  authenticatedProfileId,
   children,
   profileId,
   store,
 }: {
+  authSettled: boolean;
+  authenticatedProfileId: string | null;
   children: ReactNode;
   profileId: string | null;
   store: MobileDataStore;
@@ -152,6 +160,10 @@ function MobilePendingDataCleanupBoundary({
     getMobileDataProfileSnapshot,
   );
   const pendingProfileId = profileState.pendingCleanupProfileId ?? null;
+  const startupAction = getMobileDataProfileCleanupStartupAction(profileState, {
+    settled: authSettled,
+    authenticatedProfileId,
+  });
   const [attempt, setAttempt] = useState(0);
   const [cleanupState, setCleanupState] = useState<{
     profileId: string | null;
@@ -177,11 +189,27 @@ function MobilePendingDataCleanupBoundary({
         cancelled = true;
       };
     }
-    void completePendingMobileDataProfileCleanup({
-      profileId: pendingProfileId,
-      clearSandboxData: clearMobileAidokuSandboxDataForProfile,
-      clearAccountData: () => store.clearAccountData(),
-    })
+    if (startupAction === "wait") {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const recover = async () => {
+      if (startupAction === "cancel") {
+        await cancelPreparedMobileDataProfileCleanup(pendingProfileId);
+        return;
+      }
+      if (startupAction === "confirm") {
+        await confirmMobileDataProfileCleanupSignOut(pendingProfileId);
+      }
+      await completePendingMobileDataProfileCleanup({
+        profileId: pendingProfileId,
+        clearSandboxData: clearMobileAidokuSandboxDataForProfile,
+        clearAccountData: () => store.clearAccountData(),
+        clearAllData: () => clearAllMobileDeviceData(store),
+      });
+    };
+    void recover()
       .then(() => {
         if (!cancelled) emitMobileDataChanged("all");
       })
@@ -198,6 +226,7 @@ function MobilePendingDataCleanupBoundary({
     pendingProfileId,
     profileId,
     profileState.retainedProfileId,
+    startupAction,
     store,
   ]);
 
@@ -216,9 +245,13 @@ function MobilePendingDataCleanupBoundary({
 }
 
 function MobileDataStoreProvider({
+  authSettled,
+  authenticatedProfileId,
   children,
   profileId,
 }: {
+  authSettled: boolean;
+  authenticatedProfileId: string | null;
   children: ReactNode;
   profileId: string | null;
 }) {
@@ -241,7 +274,12 @@ function MobileDataStoreProvider({
 
   return (
     <MobileDataContext.Provider value={{ store }}>
-      <MobilePendingDataCleanupBoundary profileId={profileId} store={store}>
+      <MobilePendingDataCleanupBoundary
+        authSettled={authSettled}
+        authenticatedProfileId={authenticatedProfileId}
+        profileId={profileId}
+        store={store}
+      >
         {children}
       </MobilePendingDataCleanupBoundary>
     </MobileDataContext.Provider>
@@ -249,10 +287,14 @@ function MobileDataStoreProvider({
 }
 
 function MobileSQLiteDataProvider({
+  authSettled,
+  authenticatedProfileId,
   children,
   databaseName,
   profileId,
 }: {
+  authSettled: boolean;
+  authenticatedProfileId: string | null;
   children: ReactNode;
   databaseName: string;
   profileId: string | null;
@@ -263,7 +305,11 @@ function MobileSQLiteDataProvider({
       databaseName={databaseName}
       onInit={migrateNativeDatabase}
     >
-      <MobileDataStoreProvider profileId={profileId}>
+      <MobileDataStoreProvider
+        authSettled={authSettled}
+        authenticatedProfileId={authenticatedProfileId}
+        profileId={profileId}
+      >
         {children}
       </MobileDataStoreProvider>
     </SQLiteProvider>
@@ -271,7 +317,8 @@ function MobileSQLiteDataProvider({
 }
 
 function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
-  const { data: session } = mobileAuthClient.useSession();
+  const { data: session, isPending: sessionPending } =
+    mobileAuthClient.useSession();
   const profileState = useSyncExternalStore(
     subscribeMobileDataProfile,
     getMobileDataProfileSnapshot,
@@ -392,6 +439,8 @@ function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
   return (
     <MobileSourceProfileBoundary profileId={selection.profileId}>
       <MobileSQLiteDataProvider
+        authSettled={!sessionPending}
+        authenticatedProfileId={sessionProfileId}
         databaseName={selection.databaseName}
         profileId={selection.profileId}
       >
@@ -406,6 +455,8 @@ export function MobileDataProvider({ children }: { children: ReactNode }) {
     return (
       <MobileSourceProfileBoundary profileId={null}>
         <MobileSQLiteDataProvider
+          authSettled={true}
+          authenticatedProfileId={null}
           databaseName={MOBILE_DATABASE_NAME}
           profileId={null}
         >

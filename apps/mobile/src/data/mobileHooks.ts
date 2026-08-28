@@ -84,9 +84,9 @@ import {
   type MobileReaderPluginState,
 } from "@/lib/mobileReaderPlugins";
 import { getMobileStrings } from "@/lib/mobileI18n";
-import { finalizeMobileDataResetAuthProfile } from "@/lib/mobileDataManagement";
 import { sanitizeMobileErrorDiagnostic } from "@/lib/mobileSourceErrors";
 import { unregisterMobileBackgroundSyncAsync } from "@/sync/mobileBackgroundSync";
+import { signOutAndUnregisterMobileBackgroundSync } from "@/sync/mobileBackgroundSyncLifecycle";
 import {
   applyMobileSourceSettingsPatch,
   loadMobileSourceSettingsByKeys,
@@ -109,8 +109,16 @@ import {
   runWithMobileSyncSuspended,
 } from "@/sync/mobileSyncRuntime";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
-import { clearRetainedMobileDataProfile } from "./mobileDataProfile";
-import { getMobileDataProfileSnapshot } from "./mobileDataProfile";
+import {
+  getMobileDataProfileSnapshot,
+  MOBILE_LOCAL_FULL_RESET_PROFILE_ID,
+} from "./mobileDataProfile";
+import {
+  MOBILE_LOCAL_DATA_CLEANUP_UNAVAILABLE,
+  prepareMobileDataProfileCleanupBeforeSignOut,
+  removeMobileDataProfileAfterSignOut,
+} from "./mobileDataProfileCleanup";
+import { clearAllMobileDeviceData } from "./mobileDeviceDataClear";
 import {
   assertMobileSourceInstallActive,
   persistMobileRegistrySourceInstall,
@@ -1193,22 +1201,38 @@ export function useMobileDataManagement(): {
       try {
         await runWithMobileSyncSuspended(async () => {
           if (options?.clearCloud) {
-            await clearMobileCloudData(store);
+            const cleared = await clearMobileCloudData(store);
+            if (!cleared) {
+              throw new Error("Cloud data could not be cleared safely.");
+            }
           }
-          await clearCachedSourcePackages();
-          await defaultMobileSourceSessionCache.clear();
-          await clearMobileAidokuSandboxDataForProfile();
-          await clearMobileImageCache();
-          await clearMobileJapaneseLearningTtsCache();
-          await clearMobileDualReaderDhashCache();
-          clearMobileSourceImageRequestCache();
-          await store.clearAllUserData();
-          await finalizeMobileDataResetAuthProfile({
-            isAuthenticated: () => mobileIsAuthenticatedRef.current,
-            signOut: () => mobileAuthClient.signOut(),
-            unregisterBackgroundSync: unregisterMobileBackgroundSyncAsync,
-            clearRetainedProfile: clearRetainedMobileDataProfile,
-          });
+          if (mobileIsAuthenticatedRef.current) {
+            const profileId = getMobileDataProfileSnapshot().retainedProfileId;
+            if (!profileId) {
+              throw new Error(MOBILE_LOCAL_DATA_CLEANUP_UNAVAILABLE);
+            }
+            await prepareMobileDataProfileCleanupBeforeSignOut({
+              profileId,
+              mode: "all",
+              signOutAndUnregister: (onSignOutConfirmed) =>
+                signOutAndUnregisterMobileBackgroundSync({
+                  signOut: () => mobileAuthClient.signOut(),
+                  unregister: unregisterMobileBackgroundSyncAsync,
+                  onSignOutConfirmed,
+                }),
+              clearSandboxData: clearMobileAidokuSandboxDataForProfile,
+              clearAccountData: () => store.clearAccountData(),
+              clearAllData: () => clearAllMobileDeviceData(store),
+            });
+          } else {
+            await removeMobileDataProfileAfterSignOut({
+              profileId: MOBILE_LOCAL_FULL_RESET_PROFILE_ID,
+              mode: "all",
+              clearSandboxData: clearMobileAidokuSandboxDataForProfile,
+              clearAccountData: () => store.clearAccountData(),
+              clearAllData: () => clearAllMobileDeviceData(store),
+            });
+          }
           emitMobileDataChanged("all");
         });
       } finally {

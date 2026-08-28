@@ -51,6 +51,40 @@ describe("mobile data profile store guard", () => {
     expect(calls).toEqual(["read", "clear"]);
   });
 
+  test("allows a full clear only when the durable fence has all-device scope", async () => {
+    let fullClears = 0;
+    const guarded = createMobileDataProfileGuardedStore(
+      fakeStore({
+        clearAllUserData: async () => {
+          fullClears += 1;
+        },
+      }),
+      () => true,
+      () => true,
+    );
+
+    await expect(guarded.clearAllUserData()).resolves.toBeUndefined();
+    expect(fullClears).toBe(1);
+  });
+
+  test("keeps a full clear blocked behind an account-only fence", async () => {
+    let fullClears = 0;
+    const guarded = createMobileDataProfileGuardedStore(
+      fakeStore({
+        clearAllUserData: async () => {
+          fullClears += 1;
+        },
+      }),
+      () => true,
+      () => false,
+    );
+
+    await expect(guarded.clearAllUserData()).rejects.toThrow(
+      MOBILE_DATA_PROFILE_CLEANUP_PENDING,
+    );
+    expect(fullClears).toBe(0);
+  });
+
   test("lets a mutation that entered before the fence finish ahead of cleanup", async () => {
     let pending = false;
     let releaseSave!: () => void;

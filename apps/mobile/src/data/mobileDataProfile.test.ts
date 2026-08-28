@@ -3,6 +3,7 @@ import {
   clearRetainedMobileDataProfile,
   markMobileDataProfileCleanupPending,
   getMobileDataProfileSnapshot,
+  getMobileDataProfileCleanupStartupAction,
   getMobileDataProfileRuntimeScope,
   getMobileProfileDatabaseName,
   isMobileDataProfileCleanupPendingError,
@@ -264,5 +265,43 @@ describe("mobile data profiles", () => {
     await result.catch((error) => {
       expect(isMobileDataProfileCleanupPendingError(error)).toBe(true);
     });
+  });
+
+  test("waits for settled auth before deciding an unconfirmed reset marker", async () => {
+    await retainMobileDataProfile("user:account-a");
+    await markMobileDataProfileCleanupPending(
+      "user:account-a",
+      "all",
+      false,
+    );
+    const pending = getMobileDataProfileSnapshot();
+
+    expect(
+      getMobileDataProfileCleanupStartupAction(pending, {
+        settled: false,
+        authenticatedProfileId: null,
+      }),
+    ).toBe("wait");
+    expect(
+      getMobileDataProfileCleanupStartupAction(
+        { ...pending, pendingCleanupLocallyOwned: true },
+        {
+          settled: true,
+          authenticatedProfileId: "user:account-a",
+        },
+      ),
+    ).toBe("wait");
+    expect(
+      getMobileDataProfileCleanupStartupAction(pending, {
+        settled: true,
+        authenticatedProfileId: "user:account-a",
+      }),
+    ).toBe("cancel");
+    expect(
+      getMobileDataProfileCleanupStartupAction(pending, {
+        settled: true,
+        authenticatedProfileId: null,
+      }),
+    ).toBe("confirm");
   });
 });

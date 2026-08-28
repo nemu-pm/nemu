@@ -12,8 +12,12 @@ const LEGACY_DATABASE_OWNER_KEY = "nemu.mobile.legacy-database-owner";
 // only inside SecureStore (alongside the existing retained/legacy profile
 // records); filenames, native scopes, UI, errors, and logs use no account PII.
 const PENDING_PROFILE_CLEANUP_KEY = "nemu.mobile.pending-profile-cleanup";
+const PENDING_PROFILE_CLEANUP_VERSION = 1;
 export const MOBILE_DATA_PROFILE_CLEANUP_PENDING =
   "MOBILE_DATA_PROFILE_CLEANUP_PENDING";
+export const MOBILE_LOCAL_FULL_RESET_PROFILE_ID = "local";
+
+export type MobileDataProfileCleanupMode = "account" | "all";
 
 function dataProfileCleanupPendingError(): Error {
   return new Error(MOBILE_DATA_PROFILE_CLEANUP_PENDING);
@@ -38,12 +42,39 @@ export type MobileDataProfileSnapshot = {
    * snapshots source-compatible while every runtime snapshot publishes it.
    */
   pendingCleanupProfileId?: string | null;
+  /** The exact user-approved scope for an interrupted cleanup. */
+  pendingCleanupMode?: MobileDataProfileCleanupMode | null;
+  /** False only while a prepared authenticated reset still awaits sign-out. */
+  pendingCleanupRemoteSignOutConfirmed?: boolean | null;
+  /** Volatile ownership that prevents startup recovery racing a live request. */
+  pendingCleanupLocallyOwned?: boolean;
 };
 
 export type MobileDataProfileSelection = {
   profileId: string | null;
   databaseName: string;
 };
+
+export type MobileDataProfileCleanupStartupAction =
+  | "none"
+  | "wait"
+  | "cancel"
+  | "confirm"
+  | "continue";
+
+/** Decide an unconfirmed crash marker only after native auth has settled. */
+export function getMobileDataProfileCleanupStartupAction(
+  state: MobileDataProfileSnapshot,
+  auth: {
+    settled: boolean;
+    authenticatedProfileId: string | null;
+  },
+): MobileDataProfileCleanupStartupAction {
+  if (!state.pendingCleanupProfileId) return "none";
+  if (state.pendingCleanupRemoteSignOutConfirmed !== false) return "continue";
+  if (state.pendingCleanupLocallyOwned || !auth.settled) return "wait";
+  return auth.authenticatedProfileId ? "cancel" : "confirm";
+}
 
 let storage: NativeKVStore = new SecureNativeKVStore();
 const listeners = new Set<() => void>();
@@ -52,6 +83,9 @@ let snapshot: MobileDataProfileSnapshot = {
   retainedProfileId: null,
   legacyDatabaseOwner: null,
   pendingCleanupProfileId: null,
+  pendingCleanupMode: null,
+  pendingCleanupRemoteSignOutConfirmed: null,
+  pendingCleanupLocallyOwned: false,
 };
 let loadPromise: Promise<MobileDataProfileSnapshot> | null = null;
 let profileMutationQueue: Promise<unknown> = Promise.resolve();
@@ -88,6 +122,68 @@ export function normalizeStoredMobileDataProfile(
 export function makeMobileProfileId(userId: string | null | undefined): string | null {
   const normalized = userId?.trim();
   return normalized ? `user:${normalized}` : null;
+}
+
+function decodePendingCleanup(value: string | null): {
+  profileId: string | null;
+  mode: MobileDataProfileCleanupMode | null;
+  remoteSignOutConfirmed: boolean | null;
+} {
+  if (!value) {
+    return {
+      profileId: null,
+      mode: null,
+      remoteSignOutConfirmed: null,
+    };
+  }
+  // Older builds stored only the profile id. Preserve that exact account-only
+  // recovery contract when upgrading with an interrupted sign-out.
+  if (!value.startsWith("{")) {
+    return {
+      profileId: value,
+      mode: "account",
+      remoteSignOutConfirmed: true,
+    };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw dataProfileCleanupPendingError();
+  }
+  const record = parsed as Record<string, unknown> | null;
+  if (
+    !record ||
+    Object.keys(record).sort().join(",") !==
+      "mode,profileId,remoteSignOutConfirmed,version" ||
+    record.version !== PENDING_PROFILE_CLEANUP_VERSION ||
+    typeof record.profileId !== "string" ||
+    !record.profileId.trim() ||
+    (record.mode !== "account" && record.mode !== "all") ||
+    typeof record.remoteSignOutConfirmed !== "boolean"
+  ) {
+    throw dataProfileCleanupPendingError();
+  }
+  return {
+    profileId: record.profileId,
+    mode: record.mode,
+    remoteSignOutConfirmed: record.remoteSignOutConfirmed,
+  };
+}
+
+function encodePendingCleanup(
+  profileId: string,
+  mode: MobileDataProfileCleanupMode,
+  remoteSignOutConfirmed: boolean,
+): string {
+  return mode === "account" && remoteSignOutConfirmed
+    ? profileId
+    : JSON.stringify({
+        version: PENDING_PROFILE_CLEANUP_VERSION,
+        profileId,
+        mode,
+        remoteSignOutConfirmed,
+      });
 }
 
 function stableProfileHash(value: string): string {
@@ -167,8 +263,9 @@ export async function loadMobileDataProfile(): Promise<MobileDataProfileSnapshot
       .then(async ([
         retainedProfileId,
         storedLegacyDatabaseOwner,
-        pendingCleanupProfileId,
+        storedPendingCleanup,
       ]) => {
+        const pendingCleanup = decodePendingCleanup(storedPendingCleanup);
         const normalized = normalizeStoredMobileDataProfile(
           retainedProfileId,
           storedLegacyDatabaseOwner,
@@ -182,7 +279,11 @@ export async function loadMobileDataProfile(): Promise<MobileDataProfileSnapshot
         return publish({
           loaded: true,
           ...normalized,
-          pendingCleanupProfileId: pendingCleanupProfileId || null,
+          pendingCleanupProfileId: pendingCleanup.profileId,
+          pendingCleanupMode: pendingCleanup.mode,
+          pendingCleanupRemoteSignOutConfirmed:
+            pendingCleanup.remoteSignOutConfirmed,
+          pendingCleanupLocallyOwned: false,
         });
       })
       .catch((error) => {
@@ -260,8 +361,17 @@ export async function clearRetainedMobileDataProfile(
  */
 export async function markMobileDataProfileCleanupPending(
   profileId: string,
+  mode: MobileDataProfileCleanupMode = "account",
+  remoteSignOutConfirmed = true,
+  locallyOwned = false,
 ): Promise<MobileDataProfileSnapshot> {
-  return persistMobileDataProfileCleanupPending(profileId, false);
+  return persistMobileDataProfileCleanupPending(
+    profileId,
+    false,
+    mode,
+    remoteSignOutConfirmed,
+    locallyOwned,
+  );
 }
 
 /**
@@ -272,22 +382,61 @@ export async function markMobileDataProfileCleanupPending(
  */
 export async function ensureMobileDataProfileCleanupPendingPersisted(
   profileId: string,
+  mode?: MobileDataProfileCleanupMode,
 ): Promise<MobileDataProfileSnapshot> {
-  return persistMobileDataProfileCleanupPending(profileId, true);
+  return persistMobileDataProfileCleanupPending(profileId, true, mode);
 }
 
 function persistMobileDataProfileCleanupPending(
   profileId: string,
   allowClearedRetainedProfile: boolean,
+  requestedMode?: MobileDataProfileCleanupMode,
+  requestedRemoteSignOutConfirmed?: boolean,
+  requestedLocallyOwned?: boolean,
 ): Promise<MobileDataProfileSnapshot> {
   if (!profileId.trim()) throw new Error("A mobile data profile is required.");
   const task = profileMutationQueue.then(async () => {
     const current = await loadMobileDataProfile();
+    const currentMode = current.pendingCleanupMode ?? "account";
+    if (
+      current.pendingCleanupProfileId &&
+      requestedMode &&
+      currentMode !== requestedMode
+    ) {
+      throw new Error("The pending mobile data removal scope changed.");
+    }
+    const currentRemoteSignOutConfirmed =
+      current.pendingCleanupRemoteSignOutConfirmed ?? true;
+    if (
+      current.pendingCleanupProfileId &&
+      requestedRemoteSignOutConfirmed !== undefined &&
+      currentRemoteSignOutConfirmed !== requestedRemoteSignOutConfirmed
+    ) {
+      throw new Error("The pending mobile sign-out phase changed.");
+    }
+    const mode = current.pendingCleanupProfileId
+      ? currentMode
+      : requestedMode ?? "account";
+    const remoteSignOutConfirmed = current.pendingCleanupProfileId
+      ? currentRemoteSignOutConfirmed
+      : requestedRemoteSignOutConfirmed ?? true;
+    const locallyOwned = current.pendingCleanupProfileId
+      ? current.pendingCleanupLocallyOwned === true
+      : requestedLocallyOwned === true;
+    const isLocalFullReset =
+      profileId === MOBILE_LOCAL_FULL_RESET_PROFILE_ID &&
+      mode === "all" &&
+      current.retainedProfileId === null;
     const isMarkerOnlyRetry =
       allowClearedRetainedProfile &&
       current.retainedProfileId === null &&
-      current.pendingCleanupProfileId === profileId;
-    if (current.retainedProfileId !== profileId && !isMarkerOnlyRetry) {
+      current.pendingCleanupProfileId === profileId &&
+      !isLocalFullReset;
+    if (
+      current.retainedProfileId !== profileId &&
+      !isMarkerOnlyRetry &&
+      !isLocalFullReset
+    ) {
       throw new Error("The active mobile data profile changed during cleanup.");
     }
     if (
@@ -300,9 +449,90 @@ function persistMobileDataProfileCleanupPending(
       ...current,
       loaded: true,
       pendingCleanupProfileId: profileId,
+      pendingCleanupMode: mode,
+      pendingCleanupRemoteSignOutConfirmed: remoteSignOutConfirmed,
+      pendingCleanupLocallyOwned: locallyOwned,
     });
-    await storage.setString(PENDING_PROFILE_CLEANUP_KEY, profileId);
+    await storage.setString(
+      PENDING_PROFILE_CLEANUP_KEY,
+      encodePendingCleanup(profileId, mode, remoteSignOutConfirmed),
+    );
     return pending;
+  });
+  profileMutationQueue = task.catch(() => undefined);
+  return task;
+}
+
+/** Checkpoint the exact prepared reset after the server revokes its session. */
+export async function confirmMobileDataProfileCleanupSignOut(
+  expectedProfileId: string,
+): Promise<MobileDataProfileSnapshot> {
+  const task = profileMutationQueue.then(async () => {
+    const current = await loadMobileDataProfile();
+    if (
+      current.pendingCleanupProfileId !== expectedProfileId ||
+      !current.pendingCleanupMode
+    ) {
+      throw new Error("The prepared mobile data reset changed.");
+    }
+    if (current.pendingCleanupRemoteSignOutConfirmed === true) return current;
+    const confirmed = {
+      ...current,
+      pendingCleanupRemoteSignOutConfirmed: true,
+    };
+    await storage.setString(
+      PENDING_PROFILE_CLEANUP_KEY,
+      encodePendingCleanup(
+        expectedProfileId,
+        current.pendingCleanupMode,
+        true,
+      ),
+    );
+    return publish(confirmed);
+  });
+  profileMutationQueue = task.catch(() => undefined);
+  return task;
+}
+
+/** Cancel only a still-unconfirmed reset when the original session survived. */
+export async function cancelPreparedMobileDataProfileCleanup(
+  expectedProfileId: string,
+): Promise<MobileDataProfileSnapshot> {
+  const task = profileMutationQueue.then(async () => {
+    const current = await loadMobileDataProfile();
+    if (current.pendingCleanupProfileId !== expectedProfileId) return current;
+    if (current.pendingCleanupRemoteSignOutConfirmed !== false) {
+      throw new Error("A confirmed mobile data cleanup cannot be cancelled.");
+    }
+    await storage.remove(PENDING_PROFILE_CLEANUP_KEY);
+    return publish({
+      ...current,
+      pendingCleanupProfileId: null,
+      pendingCleanupMode: null,
+      pendingCleanupRemoteSignOutConfirmed: null,
+      pendingCleanupLocallyOwned: false,
+    });
+  });
+  profileMutationQueue = task.catch(() => undefined);
+  return task;
+}
+
+/** Release volatile ownership so the mounted recovery boundary can decide. */
+export async function releaseMobileDataProfileCleanupOwnership(
+  expectedProfileId: string,
+): Promise<MobileDataProfileSnapshot> {
+  const task = profileMutationQueue.then(async () => {
+    const current = await loadMobileDataProfile();
+    if (
+      current.pendingCleanupProfileId !== expectedProfileId ||
+      !current.pendingCleanupLocallyOwned
+    ) {
+      return current;
+    }
+    return publish({
+      ...current,
+      pendingCleanupLocallyOwned: false,
+    });
   });
   profileMutationQueue = task.catch(() => undefined);
   return task;
@@ -321,6 +551,9 @@ export async function clearMobileDataProfileCleanupPending(
       ...current,
       loaded: true,
       pendingCleanupProfileId: null,
+      pendingCleanupMode: null,
+      pendingCleanupRemoteSignOutConfirmed: null,
+      pendingCleanupLocallyOwned: false,
     });
   });
   profileMutationQueue = task.catch(() => undefined);
@@ -362,6 +595,9 @@ export async function resetMobileDataProfileForTesting(): Promise<void> {
     retainedProfileId: null,
     legacyDatabaseOwner: null,
     pendingCleanupProfileId: null,
+    pendingCleanupMode: null,
+    pendingCleanupRemoteSignOutConfirmed: null,
+    pendingCleanupLocallyOwned: false,
   });
 }
 
@@ -377,5 +613,8 @@ export async function setMobileDataProfileStorageForTesting(
     retainedProfileId: null,
     legacyDatabaseOwner: null,
     pendingCleanupProfileId: null,
+    pendingCleanupMode: null,
+    pendingCleanupRemoteSignOutConfirmed: null,
+    pendingCleanupLocallyOwned: false,
   });
 }
