@@ -47,6 +47,26 @@ export function shouldScrollMobileWelcomeContent({
   return platform !== "web" || step === "sources";
 }
 
+export function shouldUseContentSizedMobileWelcomeSheet({
+  platform,
+  step,
+  fontScale,
+  availableHeight,
+}: {
+  platform: "android" | "ios" | "web";
+  step: MobileWelcomeStep;
+  fontScale: number;
+  availableHeight: number;
+}): boolean {
+  if (platform !== "ios" || step === "sources") return false;
+
+  // Native fitted sheets are the cleanest presentation for the short steps,
+  // but they stop being safe once large Dynamic Type or a compact-height
+  // viewport can make the content taller than the available presentation.
+  // Those cases keep the explicit, scrollable detent instead.
+  return fontScale <= 1.5 && availableHeight >= 520;
+}
+
 export type MobileWelcomeActionState = {
   step: MobileWelcomeStep;
   installing: boolean;

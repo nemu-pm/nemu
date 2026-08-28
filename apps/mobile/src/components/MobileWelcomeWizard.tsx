@@ -52,6 +52,7 @@ import {
   getMobileWelcomePendingSourceInstallCount,
   shouldBlockMobileWelcomeUnderlyingContent,
   shouldScrollMobileWelcomeContent,
+  shouldUseContentSizedMobileWelcomeSheet,
   type MobileWelcomeStep,
 } from "@/lib/mobileWelcome";
 import { makeSourceKey, type MobileRegistrySource } from "@/sources/aidokuRegistry";
@@ -319,7 +320,11 @@ function MobileWelcomeWizardContent({
 }) {
   const { tokens } = useNemuTheme();
   const insets = useSafeAreaInsets();
-  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const {
+    fontScale,
+    height: windowHeight,
+    width: windowWidth,
+  } = useWindowDimensions();
   const store = useMobileDataStore();
   const completionWriteCoordinator = useMemo(
     () => createMobileWelcomeCompletionWriteCoordinator(),
@@ -598,6 +603,12 @@ function MobileWelcomeWizardContent({
         nativePreferredHeight,
         Math.max(240, windowHeight - sheetTopPadding - 12),
       );
+  const useContentSizedNativeSheet = shouldUseContentSizedMobileWelcomeSheet({
+    platform: "ios",
+    step,
+    fontScale,
+    availableHeight: windowHeight - sheetTopPadding - 12,
+  });
   const welcomeIntroWidth = Math.min(400, windowWidth - 40);
   const welcomeIntroLines = strings.welcome.introLines;
   const [welcomeTitleBeforeBrand, welcomeTitleAfterBrand] =
@@ -866,8 +877,11 @@ function MobileWelcomeWizardContent({
     <MobileNativeSheetScaffold
       visible={sheetVisible}
       onClose={onCompleted}
-      snapPoints={[nativeSheetHeight]}
-      scroll={shouldScrollMobileWelcomeContent({ platform: "ios", step })}
+      snapPoints={useContentSizedNativeSheet ? undefined : [nativeSheetHeight]}
+      scroll={
+        !useContentSizedNativeSheet &&
+        shouldScrollMobileWelcomeContent({ platform: "ios", step })
+      }
       enablePanDownToClose={false}
       backgroundColor={tokens.background}
       testID="MobileWelcomeWizard"

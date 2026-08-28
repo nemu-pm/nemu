@@ -15,6 +15,7 @@ import {
   mobileWelcomeSourceKey,
   shouldScrollMobileWelcomeContent,
   shouldBlockMobileWelcomeUnderlyingContent,
+  shouldUseContentSizedMobileWelcomeSheet,
 } from "./mobileWelcome";
 
 function source(registryId: string, id: string, name = id): MobileRegistrySource {
@@ -92,6 +93,52 @@ describe("mobile welcome helpers", () => {
     expect(
       shouldScrollMobileWelcomeContent({ platform: "web", step: "sources" }),
     ).toBe(true);
+  });
+
+  test("content-sizes short iOS steps only when the viewport can safely fit them", () => {
+    for (const step of ["welcome", "language", "done"] as const) {
+      expect(
+        shouldUseContentSizedMobileWelcomeSheet({
+          platform: "ios",
+          step,
+          fontScale: 1,
+          availableHeight: 800,
+        }),
+      ).toBe(true);
+    }
+
+    expect(
+      shouldUseContentSizedMobileWelcomeSheet({
+        platform: "ios",
+        step: "sources",
+        fontScale: 1,
+        availableHeight: 800,
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseContentSizedMobileWelcomeSheet({
+        platform: "ios",
+        step: "welcome",
+        fontScale: 1.6,
+        availableHeight: 800,
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseContentSizedMobileWelcomeSheet({
+        platform: "ios",
+        step: "welcome",
+        fontScale: 1,
+        availableHeight: 519,
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseContentSizedMobileWelcomeSheet({
+        platform: "android",
+        step: "welcome",
+        fontScale: 1,
+        availableHeight: 800,
+      }),
+    ).toBe(false);
   });
 
   test("hides the underlying navigation tree only while onboarding is visible", () => {
