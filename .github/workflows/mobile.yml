@@ -242,18 +242,10 @@ jobs:
           emulator-options: >-
             -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect
             -camera-back none -camera-front none
-          script: |
-            mkdir -p apps/mobile/android/build/reports
-            cd apps/mobile/android
-            set +e
-            ./gradlew --no-daemon --console=plain --max-workers=2 \
-              :nemu-aidoku:connectedDebugAndroidTest \
-              -PreactNativeArchitectures=x86_64 \
-              > build/reports/nemu-connected-android-test.log 2>&1
-            status=$?
-            cat build/reports/nemu-connected-android-test.log
-            adb logcat -d > build/reports/nemu-connected-android-logcat.txt 2>&1 || true
-            exit "$status"
+          # The action executes multiline input one line at a time, so shell
+          # state such as `cd`, `$?`, and `set +e` does not persist. Keep the
+          # stateful report capture in one checked-in script instead.
+          script: ./scripts/run-mobile-android-instrumented-tests.sh
       - name: Verify Android release source network policy
         working-directory: apps/mobile/android
         run: |
