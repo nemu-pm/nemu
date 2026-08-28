@@ -6,13 +6,13 @@ import { usePathname, type ErrorBoundaryProps } from "expo-router";
 import {
   ActivityIndicator,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   useColorScheme,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   createNemuShadowStyle,
   nemuTokens,
