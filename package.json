@@ -164,16 +164,16 @@
   "patchedDependencies": {
     "@better-auth/expo@1.6.23": "patches/@better-auth%2Fexpo@1.6.23.patch",
     "@react-native-community/javascriptcore@0.2.0": "patches/react-native-community-javascriptcore@0.2.0.patch",
-    "expo-modules-jsi@56.0.12": "patches/expo-modules-jsi@56.0.12.patch",
+    "expo-modules-jsi@56.0.13": "patches/expo-modules-jsi@56.0.13.patch",
     "react-native-worklets@0.8.3": "patches/react-native-worklets@0.8.3.patch",
-    "expo-sqlite@56.0.5": "patches/expo-sqlite@56.0.5.patch",
+    "expo-sqlite@56.0.6": "patches/expo-sqlite@56.0.6.patch",
     "swiper@12.2.0": "patches/swiper@12.2.0.patch",
     "vaul@1.1.2": "patches/vaul@1.1.2.patch",
     "react-native@0.85.3": "patches/react-native@0.85.3.patch",
-    "expo@56.0.20": "patches/expo@56.0.20.patch",
-    "expo-background-task@56.0.26": "patches/expo-background-task@56.0.26.patch",
+    "expo@56.0.21": "patches/expo@56.0.21.patch",
+    "expo-background-task@56.0.27": "patches/expo-background-task@56.0.27.patch",
     "@expo/ui@56.0.26": "patches/@expo%2Fui@56.0.26.patch",
-    "@expo/cli@56.1.24": "patches/@expo%2Fcli@56.1.24.patch",
+    "@expo/cli@56.1.25": "patches/@expo%2Fcli@56.1.25.patch",
     "metro@0.84.5": "patches/metro@0.84.5.patch",
     "image-size@1.2.1": "patches/image-size@1.2.1.patch"
   }
