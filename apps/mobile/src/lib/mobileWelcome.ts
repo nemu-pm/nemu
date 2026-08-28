@@ -23,6 +23,20 @@ export function shouldBlockMobileWelcomeUnderlyingContent({
   return !checking && visible;
 }
 
+export function getMobileWelcomeUnderlyingContentState(blocked: boolean): {
+  accessibilityElementsHidden: boolean;
+  ariaHidden: boolean;
+  importantForAccessibility: "auto" | "no-hide-descendants";
+  pointerEvents: "auto" | "none";
+} {
+  return {
+    accessibilityElementsHidden: blocked,
+    ariaHidden: blocked,
+    importantForAccessibility: blocked ? "no-hide-descendants" : "auto",
+    pointerEvents: blocked ? "none" : "auto",
+  };
+}
+
 export function shouldScrollMobileWelcomeContent({
   platform,
   step,
@@ -39,7 +53,34 @@ export type MobileWelcomeActionState = {
   completing: boolean;
   changingLanguage: boolean;
   sourcesLoading: boolean;
+  startupBlocked?: boolean;
 };
+
+export type MobileWelcomeCompletionWriteCoordinator = {
+  run: (write: () => Promise<void>) => Promise<void>;
+};
+
+/**
+ * Coalesces every successful completion request for one wizard mount. A failed
+ * write is released so the visible final actions can retry it.
+ */
+export function createMobileWelcomeCompletionWriteCoordinator(
+): MobileWelcomeCompletionWriteCoordinator {
+  let completion: Promise<void> | null = null;
+
+  return {
+    run(write) {
+      if (completion) return completion;
+
+      const next = write();
+      completion = next;
+      void next.catch(() => {
+        if (completion === next) completion = null;
+      });
+      return next;
+    },
+  };
+}
 
 const ENGLISH_SOURCES: MobileWelcomeSourceRef[] = [
   { registryId: "aidoku-community", sourceId: "multi.mangaplus" },
@@ -96,6 +137,19 @@ export function getMobileWelcomeDefaultSelection(
   return getMobileWelcomeRecommendedSources(language).map(mobileWelcomeSourceKey);
 }
 
+export function getMobileWelcomePendingSourceInstallCount(
+  sources: MobileRegistrySource[],
+  selectedSourceKeys: ReadonlySet<string>,
+  installedSourceKeys: ReadonlySet<string>,
+): number {
+  return sources.reduce((count, source) => {
+    const key = makeSourceKey(source.registryId, source.id);
+    return selectedSourceKeys.has(key) && !installedSourceKeys.has(key)
+      ? count + 1
+      : count;
+  }, 0);
+}
+
 export function buildMobileWelcomeInstalledSourceKeySet(
   sources: InstalledSource[],
 ): Set<string> {
@@ -113,6 +167,7 @@ export function buildMobileWelcomeInstalledSourceKeySet(
 export function canRunMobileWelcomePrimaryAction(
   state: MobileWelcomeActionState,
 ): boolean {
+  if (state.startupBlocked) return false;
   if (state.completing) return false;
   if (state.installing) return false;
   if (state.changingLanguage) return false;
@@ -125,10 +180,15 @@ export function canRunMobileWelcomePrimaryAction(
 export function canRunMobileWelcomeSkipAction(
   state: Pick<
     MobileWelcomeActionState,
-    "installing" | "completing" | "changingLanguage"
+    "installing" | "completing" | "changingLanguage" | "startupBlocked"
   >,
 ): boolean {
-  return !state.installing && !state.completing && !state.changingLanguage;
+  return (
+    !state.startupBlocked &&
+    !state.installing &&
+    !state.completing &&
+    !state.changingLanguage
+  );
 }
 
 export function canSelectMobileWelcomeLanguageOption({

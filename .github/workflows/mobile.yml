@@ -122,6 +122,15 @@ jobs:
             ${{ runner.os }}-bun-
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Audit production dependencies
+        run: |
+          # image-size 1.2.1 has no upstream release containing the two
+          # security fixes yet. Prove the vendored patch is active before
+          # suppressing only those version-based advisory matches.
+          bun test ./apps/mobile/src/lib/imageSizeSecurity.test.ts
+          bun audit --production \
+            --ignore GHSA-w3rx-r6r6-pgpr \
+            --ignore GHSA-5p2g-fcmc-qvqq
       - name: Check Expo dependency alignment
         working-directory: apps/mobile
         run: bunx expo install --check
@@ -172,6 +181,10 @@ jobs:
     if: needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Expo reads NODE_ENV during prebuild and again while Gradle bundles JS.
+      # Keep both phases on the same deterministic production configuration.
+      NODE_ENV: production
     steps:
       - uses: actions/checkout@v4
         with:
@@ -208,6 +221,7 @@ jobs:
             clean \
             :nemu-aidoku:testDebugUnitTest \
             :nemu-aidoku:testReleaseUnitTest \
+            :nemu-aidoku:assembleDebugAndroidTest \
             :nemu-aidoku:lintDebug \
             :nemu-aidoku:lintRelease \
             :app:assembleDebug \
@@ -215,20 +229,65 @@ jobs:
             :app:lintDebug \
             :app:lintRelease \
             -PreactNativeArchitectures=arm64-v8a
+      - name: Run Android long-strip instrumented tests
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        timeout-minutes: 35
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-boot-timeout: 900
+          emulator-options: >-
+            -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect
+            -camera-back none -camera-front none
+          script: |
+            mkdir -p apps/mobile/android/build/reports
+            cd apps/mobile/android
+            set +e
+            ./gradlew --no-daemon --console=plain --max-workers=2 \
+              :nemu-aidoku:connectedDebugAndroidTest \
+              -PreactNativeArchitectures=x86_64 \
+              > build/reports/nemu-connected-android-test.log 2>&1
+            status=$?
+            cat build/reports/nemu-connected-android-test.log
+            adb logcat -d > build/reports/nemu-connected-android-logcat.txt 2>&1 || true
+            exit "$status"
       - name: Verify Android release source network policy
         working-directory: apps/mobile/android
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print \
+            app/build/outputs/apk/debug/app-debug.apk \
+            > /tmp/nemu-android-debug-manifest.xml
+          ! grep -Fq 'android.permission.SYSTEM_ALERT_WINDOW' /tmp/nemu-android-debug-manifest.xml
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print \
             app/build/outputs/apk/release/app-release.apk \
-            | grep -F 'android:usesCleartextTraffic="true"'
+            > /tmp/nemu-android-release-manifest.xml
+          grep -F 'android:usesCleartextTraffic="true"' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.CAMERA' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.POST_NOTIFICATIONS' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.READ_EXTERNAL_STORAGE' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.RECORD_AUDIO' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.FOREGROUND_SERVICE' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.SYSTEM_ALERT_WINDOW' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.USE_BIOMETRIC' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.USE_FINGERPRINT' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.WRITE_EXTERNAL_STORAGE' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'expo.modules.audio.service.AudioControlsService' /tmp/nemu-android-release-manifest.xml
       - name: Upload Android failure reports
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: android-native-reports-${{ github.run_attempt }}
           path: |
+            apps/mobile/android/build/reports/**
             apps/mobile/android/**/build/reports/**
             apps/mobile/android/**/build/test-results/**
+            apps/mobile/modules/nemu-aidoku/android/build/reports/**
+            apps/mobile/modules/nemu-aidoku/android/build/test-results/**
+            apps/mobile/modules/nemu-aidoku/android/build/outputs/androidTest-results/**
           if-no-files-found: ignore
           retention-days: 7
 
@@ -270,6 +329,18 @@ jobs:
       - name: Generate iOS native project
         working-directory: apps/mobile
         run: bunx expo prebuild --platform ios --no-install
+      - name: Verify generated iOS privacy manifest
+        working-directory: apps/mobile
+        run: |
+          privacy_manifest="ios/Nemu/PrivacyInfo.xcprivacy"
+          test -f "$privacy_manifest"
+          plutil -convert xml1 -o /tmp/nemu-privacy-manifest.xml "$privacy_manifest"
+          grep -Fq '<string>NSPrivacyAccessedAPICategoryUserDefaults</string>' /tmp/nemu-privacy-manifest.xml
+          grep -Fq '<string>CA92.1</string>' /tmp/nemu-privacy-manifest.xml
+          plutil -extract UIBackgroundModes xml1 -o /tmp/nemu-background-modes.xml ios/Nemu/Info.plist
+          grep -Fq '<string>processing</string>' /tmp/nemu-background-modes.xml
+          ! grep -Fq '<string>audio</string>' /tmp/nemu-background-modes.xml
+          ! grep -Fq '<key>NSMicrophoneUsageDescription</key>' ios/Nemu/Info.plist
       - name: Install CocoaPods
         working-directory: apps/mobile/ios
         run: pod install
@@ -285,6 +356,26 @@ jobs:
             -framework Network \
             -o "$test_dir/address-tests"
           "$test_dir/address-tests"
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuNativeHttpHeaderPolicy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuNativeHttpHeaderPolicyTests.swift \
+            -o "$test_dir/header-tests"
+          "$test_dir/header-tests"
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuNativeHttpRequestHeaderPolicy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuNativeHttpRequestHeaderPolicyTests.swift \
+            -o "$test_dir/request-header-tests"
+          "$test_dir/request-header-tests"
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuNativeHttpRedirectPolicy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuNativeHttpRedirectPolicyTests.swift \
+            -o "$test_dir/redirect-tests"
+          "$test_dir/redirect-tests"
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuAidokuSandboxSessionPolicy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuAidokuSandboxSessionPolicyTests.swift \
+            -o "$test_dir/session-tests"
+          "$test_dir/session-tests"
           xcrun swiftc \
             modules/nemu-aidoku/ios/NemuImageMetadataPolicy.swift \
             modules/nemu-aidoku/runtime/iosTest/NemuImageMetadataPolicyTests.swift \

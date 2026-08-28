@@ -4,6 +4,16 @@ import path from "node:path";
 import { getMobileReaderHardwareBackAction } from "./mobileReaderBackBehavior";
 
 describe("mobile reader hardware back behavior", () => {
+  test("dismisses the modal end prompt before plugins, chrome, or navigation", () => {
+    expect(
+      getMobileReaderHardwareBackAction({
+        hasActivePlugin: true,
+        hasEndOfChapterPrompt: true,
+        showControls: false,
+      }),
+    ).toBe("dismiss-end-prompt");
+  });
+
   test("closes the active plugin before changing reader chrome", () => {
     expect(
       getMobileReaderHardwareBackAction({

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { zipSync, strToU8 } from "fflate";
-import { extractAixMetadata } from "./aixMetadata";
+import { extractAixMetadata, MOBILE_AIX_METADATA_LIMITS } from "./aixMetadata";
 import { MOBILE_AIX_PACKAGE_LIMITS } from "./sourcePackageSafety";
 
 function makeAix(
@@ -31,7 +31,9 @@ function patchCentralDirectoryEntry(
     const nameLength = view.getUint16(offset + 28, true);
     const extraLength = view.getUint16(offset + 30, true);
     const commentLength = view.getUint16(offset + 32, true);
-    const name = decoder.decode(next.subarray(offset + 46, offset + 46 + nameLength));
+    const name = decoder.decode(
+      next.subarray(offset + 46, offset + 46 + nameLength),
+    );
     if (name === path) {
       patch(view, offset);
       return next;
@@ -203,6 +205,7 @@ describe("extractAixMetadata", () => {
           title: "Refresh account",
           type: "button",
           action: "refresh-account",
+          notification: "refresh-account",
           destructive: true,
           confirmTitle: "Refresh?",
           confirmMessage: "Existing state will be replaced.",
@@ -240,6 +243,68 @@ describe("extractAixMetadata", () => {
       filters: [{ title: "Title", type: "text" }],
       hasWasm: true,
     });
+  });
+
+  test("bounds metadata collections, strings, options, and source URLs", () => {
+    const bytes = makeAix({
+      "Payload/source.json": JSON.stringify({
+        info: {
+          id: "en.bounded",
+          name: `Bounded\u202e${"x".repeat(
+            MOBILE_AIX_METADATA_LIMITS.maxStringLength,
+          )}`,
+          languages: Array.from(
+            { length: MOBILE_AIX_METADATA_LIMITS.maxOptionItems + 20 },
+            (_, index) => `lang-${index}`,
+          ),
+          urls: [
+            "http://example.com/source",
+            "https://example.com/source",
+            "ftp://example.com/source",
+            "https://user:pass@example.com/source",
+            `https://example.com/${"x".repeat(
+              MOBILE_AIX_METADATA_LIMITS.maxUrlLength,
+            )}`,
+          ],
+        },
+        listings: Array.from(
+          { length: MOBILE_AIX_METADATA_LIMITS.maxCollectionItems + 20 },
+          (_, index) => ({ id: `listing-${index}`, name: `Listing ${index}` }),
+        ),
+        filters: [
+          {
+            id: "genre",
+            title: "Genre",
+            type: "select",
+            options: Array.from(
+              { length: MOBILE_AIX_METADATA_LIMITS.maxOptionItems + 20 },
+              (_, index) => `Option ${index}`,
+            ),
+          },
+        ],
+      }),
+    });
+
+    const metadata = extractAixMetadata(bytes);
+    expect(metadata.name).toBe("en.bounded");
+    expect(metadata.languages).toHaveLength(
+      MOBILE_AIX_METADATA_LIMITS.maxOptionItems,
+    );
+    expect(metadata.urls).toEqual([
+      "http://example.com/source",
+      "https://example.com/source",
+    ]);
+    expect(metadata.listings).toHaveLength(
+      MOBILE_AIX_METADATA_LIMITS.maxCollectionItems,
+    );
+    expect(metadata.filters).toEqual([
+      {
+        id: "genre",
+        title: "Genre",
+        type: "select",
+        optionCount: MOBILE_AIX_METADATA_LIMITS.maxOptionItems,
+      },
+    ]);
   });
 
   test("rejects an oversized compressed package before parsing ZIP data", () => {
@@ -312,7 +377,11 @@ describe("extractAixMetadata", () => {
       }),
       "Payload/main.wasm": new Uint8Array([0, 97, 115, 109]),
     };
-    for (let index = 0; index < MOBILE_AIX_PACKAGE_LIMITS.maxEntries; index += 1) {
+    for (
+      let index = 0;
+      index < MOBILE_AIX_PACKAGE_LIMITS.maxEntries;
+      index += 1
+    ) {
       files[`Payload/empty-${index}.txt`] = new Uint8Array(0);
     }
 

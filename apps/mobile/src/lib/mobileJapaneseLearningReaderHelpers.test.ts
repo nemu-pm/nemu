@@ -134,11 +134,21 @@ describe("mobileJapaneseLearningChatErrorDetail", () => {
       mobileJapaneseLearningChatErrorDetail(new Error("context_too_long"), strings),
     ).toBe("Chat failed");
   });
-  test("other Error → its message", () => {
-    expect(mobileJapaneseLearningChatErrorDetail(new Error("boom"), strings)).toBe("boom");
+  test("other Error → localized copy followed by sanitized diagnostics", () => {
+    expect(mobileJapaneseLearningChatErrorDetail(new Error("boom"), strings)).toBe(
+      "Chat failed\nboom",
+    );
+    expect(
+      mobileJapaneseLearningChatErrorDetail(
+        new Error("password=secret"),
+        strings,
+      ),
+    ).toBe("Chat failed\npassword=[redacted]");
   });
-  test("non-Error → chat failed copy", () => {
-    expect(mobileJapaneseLearningChatErrorDetail("nope", strings)).toBe("Chat failed");
+  test("non-Error → localized copy followed by diagnostics", () => {
+    expect(mobileJapaneseLearningChatErrorDetail("nope", strings)).toBe(
+      "Chat failed\nnope",
+    );
   });
 });
 

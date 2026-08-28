@@ -81,7 +81,9 @@ async function findLiteralUserFacingAttributes(): Promise<Violation[]> {
         if (value && !ALLOWED_LITERAL_VALUES.has(value)) {
           violations.push({
             file: relativePath,
-            line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+            line:
+              sourceFile.getLineAndCharacterOfPosition(node.getStart()).line +
+              1,
             attribute: attributeName,
             value,
           });
@@ -93,9 +95,151 @@ async function findLiteralUserFacingAttributes(): Promise<Violation[]> {
     visit(sourceFile);
   }
 
-  return violations.sort((left, right) =>
-    left.file.localeCompare(right.file) || left.line - right.line,
+  return violations.sort(
+    (left, right) =>
+      left.file.localeCompare(right.file) || left.line - right.line,
   );
+}
+
+type LocalDisplayedHelper =
+  | ts.FunctionDeclaration
+  | ts.FunctionExpression
+  | ts.ArrowFunction;
+
+function findLiteralUserFacingTextInSource(
+  relativePath: string,
+  sourceText: string,
+): Violation[] {
+  const violations: Violation[] = [];
+  const sourceFile = ts.createSourceFile(
+    relativePath,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+
+  const record = (node: ts.Node, value: string, attribute: string) => {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    if (
+      normalized &&
+      /\p{L}/u.test(normalized) &&
+      !ALLOWED_LITERAL_VALUES.has(normalized)
+    ) {
+      violations.push({
+        file: relativePath,
+        line:
+          sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+        attribute,
+        value: normalized,
+      });
+    }
+  };
+
+  // A literal returned by a local formatter is just as user-facing as a literal
+  // written directly inside <Text>. Resolve simple local helpers so wrappers do
+  // not become an accidental escape hatch from this audit.
+  const localDisplayedHelpers = new Map<string, LocalDisplayedHelper>();
+  const collectLocalDisplayedHelpers = (node: ts.Node): void => {
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      localDisplayedHelpers.set(node.name.text, node);
+    } else if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      (ts.isFunctionExpression(node.initializer) ||
+        ts.isArrowFunction(node.initializer))
+    ) {
+      localDisplayedHelpers.set(node.name.text, node.initializer);
+    }
+    ts.forEachChild(node, collectLocalDisplayedHelpers);
+  };
+  collectLocalDisplayedHelpers(sourceFile);
+
+  const visitedDisplayedHelpers = new Set<string>();
+
+  function visitDisplayedHelper(name: string): void {
+    if (visitedDisplayedHelpers.has(name)) return;
+    const helper = localDisplayedHelpers.get(name);
+    if (!helper?.body) return;
+    visitedDisplayedHelpers.add(name);
+
+    if (!ts.isBlock(helper.body)) {
+      visitDisplayedExpression(helper.body, "helper-return");
+      return;
+    }
+
+    const visitReturns = (node: ts.Node): void => {
+      if (
+        node !== helper.body &&
+        (ts.isFunctionDeclaration(node) ||
+          ts.isFunctionExpression(node) ||
+          ts.isArrowFunction(node))
+      ) {
+        return;
+      }
+      if (ts.isReturnStatement(node) && node.expression) {
+        visitDisplayedExpression(node.expression, "helper-return");
+        return;
+      }
+      ts.forEachChild(node, visitReturns);
+    };
+    visitReturns(helper.body);
+  }
+
+  function visitDisplayedExpression(
+    expressionNode: ts.Expression,
+    attribute = "children-expression",
+  ): void {
+    if (
+      ts.isStringLiteral(expressionNode) ||
+      ts.isNoSubstitutionTemplateLiteral(expressionNode)
+    ) {
+      record(expressionNode, expressionNode.text, attribute);
+      return;
+    }
+    if (ts.isTemplateExpression(expressionNode)) {
+      record(expressionNode.head, expressionNode.head.text, attribute);
+      for (const span of expressionNode.templateSpans) {
+        record(span.literal, span.literal.text, attribute);
+      }
+      return;
+    }
+    if (ts.isConditionalExpression(expressionNode)) {
+      visitDisplayedExpression(expressionNode.whenTrue, attribute);
+      visitDisplayedExpression(expressionNode.whenFalse, attribute);
+      return;
+    }
+    if (ts.isParenthesizedExpression(expressionNode)) {
+      visitDisplayedExpression(expressionNode.expression, attribute);
+      return;
+    }
+    if (
+      ts.isCallExpression(expressionNode) &&
+      ts.isIdentifier(expressionNode.expression)
+    ) {
+      visitDisplayedHelper(expressionNode.expression.text);
+    }
+  }
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxText(node) && ts.isJsxElement(node.parent)) {
+      const tag = node.parent.openingElement.tagName.getText(sourceFile);
+      if (tag === "Text") record(node, node.text, "children");
+    }
+    if (
+      ts.isJsxExpression(node) &&
+      ts.isJsxElement(node.parent) &&
+      node.parent.openingElement.tagName.getText(sourceFile) === "Text" &&
+      node.expression
+    ) {
+      visitDisplayedExpression(node.expression);
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return violations;
 }
 
 async function findLiteralUserFacingText(): Promise<Violation[]> {
@@ -109,71 +253,14 @@ async function findLiteralUserFacingText(): Promise<Violation[]> {
       continue;
     }
     const sourceText = await Bun.file(filePath).text();
-    const sourceFile = ts.createSourceFile(
-      filePath,
-      sourceText,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TSX,
+    violations.push(
+      ...findLiteralUserFacingTextInSource(relativePath, sourceText),
     );
-
-    const record = (node: ts.Node, value: string, attribute: string) => {
-      const normalized = value.replace(/\s+/g, " ").trim();
-      if (
-        normalized &&
-        /\p{L}/u.test(normalized) &&
-        !ALLOWED_LITERAL_VALUES.has(normalized)
-      ) {
-        violations.push({
-          file: relativePath,
-          line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
-          attribute,
-          value: normalized,
-        });
-      }
-    };
-
-    const visit = (node: ts.Node): void => {
-      if (ts.isJsxText(node) && ts.isJsxElement(node.parent)) {
-        const tag = node.parent.openingElement.tagName.getText(sourceFile);
-        if (tag === "Text") record(node, node.text, "children");
-      }
-      if (
-        ts.isJsxExpression(node) &&
-        ts.isJsxElement(node.parent) &&
-        node.parent.openingElement.tagName.getText(sourceFile) === "Text" &&
-        node.expression
-      ) {
-        const visitDisplayedExpression = (expressionNode: ts.Expression): void => {
-          if (
-            ts.isStringLiteral(expressionNode) ||
-            ts.isNoSubstitutionTemplateLiteral(expressionNode)
-          ) {
-            record(expressionNode, expressionNode.text, "children-expression");
-            return;
-          }
-          if (ts.isTemplateExpression(expressionNode)) {
-            record(expressionNode.head, expressionNode.head.text, "children-expression");
-            for (const span of expressionNode.templateSpans) {
-              record(span.literal, span.literal.text, "children-expression");
-            }
-            return;
-          }
-          if (ts.isConditionalExpression(expressionNode)) {
-            visitDisplayedExpression(expressionNode.whenTrue);
-            visitDisplayedExpression(expressionNode.whenFalse);
-          }
-        };
-        visitDisplayedExpression(node.expression);
-      }
-      ts.forEachChild(node, visit);
-    };
-
-    visit(sourceFile);
   }
 
-  return violations.sort((left, right) =>
-    left.file.localeCompare(right.file) || left.line - right.line,
+  return violations.sort(
+    (left, right) =>
+      left.file.localeCompare(right.file) || left.line - right.line,
   );
 }
 
@@ -184,6 +271,27 @@ describe("mobile i18n source audit", () => {
 
   test("does not hardcode user-facing JSX text outside developer diagnostics", async () => {
     expect(await findLiteralUserFacingText()).toEqual([]);
+  });
+
+  test("detects hardcoded text returned by a displayed local helper", () => {
+    const violations = findLiteralUserFacingTextInSource(
+      "components/Fixture.tsx",
+      `
+        function statusText(enabled: boolean) {
+          return enabled ? "On" : "Off";
+        }
+        export function Fixture() {
+          return <Text>{statusText(true)}</Text>;
+        }
+      `,
+    );
+
+    expect(
+      violations.map(({ attribute, value }) => ({ attribute, value })),
+    ).toEqual([
+      { attribute: "helper-return", value: "On" },
+      { attribute: "helper-return", value: "Off" },
+    ]);
   });
 
   test("localizes native permission prompts for every app language", async () => {
@@ -209,7 +317,10 @@ describe("mobile i18n source audit", () => {
       const localePath = appConfig.expo.locales?.[language];
       expect(localePath).toBeTruthy();
       const locale = JSON.parse(
-        await readFile(path.join(import.meta.dir, "../..", localePath!), "utf8"),
+        await readFile(
+          path.join(import.meta.dir, "../..", localePath!),
+          "utf8",
+        ),
       ) as { ios?: { NSPhotoLibraryUsageDescription?: string } };
       const prompt = locale.ios?.NSPhotoLibraryUsageDescription?.trim() ?? "";
       expect(prompt.length).toBeGreaterThan(0);

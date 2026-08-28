@@ -12,19 +12,41 @@ private const val AIDOKU_COOKIE_MAX_COUNT = 512
 private const val AIDOKU_COOKIE_MAX_CHARACTERS = 256 * 1024
 private const val CLOUDFLARE_CLEARANCE_COOKIE = "cf_clearance"
 
-internal fun isAidokuCrossOriginSensitiveHeader(name: String): Boolean {
-  val normalized = name.lowercase()
-  return normalized == "authorization" ||
-    normalized == "proxy-authorization" ||
-    normalized == "better-auth-cookie" ||
-    normalized == "api-key" ||
-    normalized == "x-api-key" ||
-    normalized.endsWith("-auth-cookie") ||
-    normalized.endsWith("-auth-token") ||
-    normalized.endsWith("-access-token") ||
-    normalized.endsWith("-session-token") ||
-    normalized.endsWith("-api-key")
-}
+private val AIDOKU_CROSS_ORIGIN_SAFE_HEADERS = setOf(
+  "accept",
+  "accept-charset",
+  "accept-encoding",
+  "accept-language",
+  "cache-control",
+  "connection",
+  "content-encoding",
+  "content-language",
+  "content-length",
+  "content-type",
+  "date",
+  "expect",
+  "host",
+  "if-match",
+  "if-modified-since",
+  "if-none-match",
+  "if-range",
+  "if-unmodified-since",
+  "pragma",
+  "range",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "user-agent"
+)
+
+/**
+ * Source packages can invent credential header names (for example `X-Auth`).
+ * Treat every non-protocol header as secret on a cross-origin redirect rather
+ * than trying to recognize secrets by name.
+ */
+internal fun isAidokuCrossOriginSensitiveHeader(name: String): Boolean =
+  name.lowercase() !in AIDOKU_CROSS_ORIGIN_SAFE_HEADERS
 
 internal enum class AidokuWebViewCookiePolicy {
   NONE,

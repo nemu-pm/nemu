@@ -55,7 +55,7 @@ import {
 import {
   createMobileSyncBudgetExceededState,
   createMobileSyncHealthyState,
-} from "./mobileSyncSnapshotState";
+} from "./mobileSyncSnapshotStatus";
 
 export type MobileSyncClient = Pick<ConvexReactClient, "query" | "mutation">;
 

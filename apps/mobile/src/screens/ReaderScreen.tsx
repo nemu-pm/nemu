@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -104,6 +105,7 @@ import {
 } from "@/lib/mobileSourceSettings";
 import {
   getMobileSourceErrorPresentation,
+  sanitizeMobileErrorDiagnostic,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
 import {
@@ -135,8 +137,32 @@ import {
   shouldAutoCompleteMobileReaderChapter,
   type MobileReaderPageArrival,
 } from "@/lib/mobileReaderProgress";
+import {
+  mobileReaderProgressPersistenceKey,
+  normalizeMobileReaderIntraPageState,
+  persistMobileReaderCompletionBeforeNavigation,
+} from "@/lib/mobileReaderProgressPersistence";
 import { getMobileReaderPageRenderPolicy } from "@/lib/mobileReaderPageWindow";
 import { isMobileReaderImageLoading } from "@/lib/mobileReaderImageStatus";
+import {
+  getMobileReaderImageFrameSize,
+  isMobileReaderLongStripLogicalPage,
+  shouldUseMobileReaderLongStripPresentation,
+} from "@/lib/mobileReaderLongStripPresentation";
+import {
+  canUseMobileReaderWholeImageTools,
+  getMobileReaderLogicalPageIdentity,
+  getMobileReaderSegmentFrames,
+  getMobileReaderSegmentedCacheDiscriminator,
+  MOBILE_READER_SEGMENTED_CAPABILITIES,
+  shouldCompleteSingleImageReaderPage,
+  type MobileReaderSegmentFrame,
+} from "@/lib/mobileReaderSegmentedImage";
+import {
+  invalidateCachedMobileImage,
+  retainCachedMobileImageAsset,
+  type MobileCachedSegmentedImageAsset,
+} from "@/lib/mobileImageCache";
 import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
@@ -256,6 +282,8 @@ import {
 import { sortMobileSourceLinks } from "@/lib/mobileSourceLinks";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 
+const ReaderStatusBar = memo(StatusBar);
+
 type ReaderPagesState =
   | { status: "idle"; pages: MobileReaderPage[]; detail: string }
   | { status: "loading"; pages: MobileReaderPage[]; detail: string }
@@ -268,8 +296,26 @@ type ReaderPagesState =
       chapter: ChapterSummary;
       pageProcessor?: MobileReaderPageProcessor;
     }
-  | { status: "blocked"; pages: MobileReaderPage[]; detail: string; title?: string }
-  | { status: "error"; pages: MobileReaderPage[]; detail: string; title?: string };
+  | {
+      status: "blocked";
+      pages: MobileReaderPage[];
+      detail: string;
+      title?: string;
+    }
+  | {
+      status: "error";
+      pages: MobileReaderPage[];
+      detail: string;
+      title?: string;
+    };
+
+type MobileReaderPersistProgressOptions = {
+  silent?: boolean;
+  throwOnError?: boolean;
+  updateState?: boolean;
+  intraPageProgress?: number;
+  intraPageContentIdentity?: string;
+};
 
 type JapaneseLearningOcrState =
   | { status: "idle" }
@@ -331,7 +377,7 @@ function readerErrorDetail(
   localizedMessage: string,
   strings: MobileStrings,
 ): string {
-  const reason = error instanceof Error ? error.message.trim() : "";
+  const reason = sanitizeMobileErrorDiagnostic(error) ?? "";
   if (!reason || reason === localizedMessage) return localizedMessage;
   return formatMobileString(strings.reader.errorDetailWithReason, {
     message: localizedMessage,
@@ -631,7 +677,7 @@ function ReaderPluginSettingsSheet({
   const selectedPlugin = useMemo(
     () =>
       selectedPluginId
-        ? plugins.find((plugin) => plugin.id === selectedPluginId) ?? null
+        ? (plugins.find((plugin) => plugin.id === selectedPluginId) ?? null)
         : null,
     [plugins, selectedPluginId],
   );
@@ -652,7 +698,12 @@ function ReaderPluginSettingsSheet({
         backgroundColor={`${tokens.background}CC`}
         onPress={onClose}
       />
-      <View style={[styles.pluginSettingsSheetFrame, { bottom: insets.bottom + 10 }]}>
+      <View
+        style={[
+          styles.pluginSettingsSheetFrame,
+          { bottom: insets.bottom + 10 },
+        ]}
+      >
         <GlassSurface
           style={styles.pluginSheetShell}
           contentStyle={styles.pluginSettingsSheet}
@@ -859,9 +910,12 @@ function ReaderPluginSettingsSheet({
                   values={selectedPlugin.values}
                   loading={loading}
                   error={error}
-                  title={formatMobileString(strings.settings.sourceSettingsTitle, {
-                    name: selectedPlugin.name,
-                  })}
+                  title={formatMobileString(
+                    strings.settings.sourceSettingsTitle,
+                    {
+                      name: selectedPlugin.name,
+                    },
+                  )}
                   subtitle={selectedPlugin.description}
                   navigationResetKey={selectedPlugin.id}
                   emptyMessage={strings.settings.noPluginSettings}
@@ -904,7 +958,9 @@ function ReaderPluginSettingsSheet({
             >
               <View style={styles.pluginSettingsList}>
                 {plugins.map((plugin) => {
-                  const settingsCount = countRenderableSourceSettings(plugin.settings);
+                  const settingsCount = countRenderableSourceSettings(
+                    plugin.settings,
+                  );
                   return (
                     <View
                       key={plugin.id}
@@ -926,7 +982,9 @@ function ReaderPluginSettingsSheet({
                           disabled: busy || !plugin.enabled,
                         }}
                         disabled={busy || !plugin.enabled}
-                        hapticFeedback={busy || !plugin.enabled ? "none" : "press"}
+                        hapticFeedback={
+                          busy || !plugin.enabled ? "none" : "press"
+                        }
                         onPress={() => {
                           onSelectPlugin(plugin.id);
                         }}
@@ -993,11 +1051,11 @@ function ReaderPluginSettingsSheet({
                         )}
                         accessibilityState={{
                           disabled:
-                            busy ||
-                            !plugin.enabled ||
-                            settingsCount === 0,
+                            busy || !plugin.enabled || settingsCount === 0,
                         }}
-                        disabled={busy || !plugin.enabled || settingsCount === 0}
+                        disabled={
+                          busy || !plugin.enabled || settingsCount === 0
+                        }
                         onPress={() => onSelectPlugin(plugin.id)}
                         pressedScale={0.94}
                         style={[
@@ -1005,9 +1063,7 @@ function ReaderPluginSettingsSheet({
                           {
                             backgroundColor: tokens.card,
                             opacity:
-                              busy ||
-                              !plugin.enabled ||
-                              settingsCount === 0
+                              busy || !plugin.enabled || settingsCount === 0
                                 ? 0.54
                                 : 1,
                           },
@@ -1049,7 +1105,9 @@ function ReaderPluginSettingsSheet({
                           true: `${tokens.primary}66`,
                         }}
                         thumbColor={
-                          plugin.enabled ? tokens.primary : tokens.mutedForeground
+                          plugin.enabled
+                            ? tokens.primary
+                            : tokens.mutedForeground
                         }
                         ios_backgroundColor={tokens.muted}
                       />
@@ -1095,12 +1153,7 @@ export function ReaderScreen() {
       chapterNumber: parseMobileReaderRouteNumber(params.chapterNumber),
       volumeNumber: parseMobileReaderRouteNumber(params.volumeNumber),
     }),
-    [
-      chapterId,
-      params.chapterNumber,
-      params.chapterTitle,
-      params.volumeNumber,
-    ],
+    [chapterId, params.chapterNumber, params.chapterTitle, params.volumeNumber],
   );
   const { scheme } = useNemuTheme();
   const insets = useSafeAreaInsets();
@@ -1124,6 +1177,11 @@ export function ReaderScreen() {
   const installedReaderSources = useInstalledSources();
   const readerScrollRef = useRef<MobileReaderScrollHandle | null>(null);
   const routeSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const intraPageProgressSaveTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const progressPersistenceQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const progressPersistenceClockRef = useRef(0);
   const readerProgrammaticScrollRef = useRef<number | null>(null);
   const scrollingPageMetricsRef = useRef<ReaderScrollPageMetric[]>([]);
   const scrollingVisiblePageIndexRef = useRef(0);
@@ -1132,9 +1190,9 @@ export function ReaderScreen() {
   const japaneseLearningAutoOcrPageRef = useRef("");
   const japaneseLearningChatRunRef = useRef(0);
   const japaneseLearningChatMessageIdRef = useRef(0);
-  const japaneseLearningChatMessagesRef = useRef<JapaneseLearningChatThreadMessage[]>(
-    [],
-  );
+  const japaneseLearningChatMessagesRef = useRef<
+    JapaneseLearningChatThreadMessage[]
+  >([]);
   const japaneseLearningChatTtsAutoPlayRef = useRef<{
     enabled: boolean;
     currentId: string | null;
@@ -1150,9 +1208,9 @@ export function ReaderScreen() {
   const japaneseLearningGrammarRunRef = useRef(0);
   const japaneseLearningTtsRunRef = useRef(0);
   const japaneseLearningTtsPlayerRef = useRef<AudioPlayer | null>(null);
-  const japaneseLearningLifecycleRef = useRef<
-    ReturnType<typeof createMobileJapaneseLearningScreenLifecycle> | null
-  >(null);
+  const japaneseLearningLifecycleRef = useRef<ReturnType<
+    typeof createMobileJapaneseLearningScreenLifecycle
+  > | null>(null);
   if (!japaneseLearningLifecycleRef.current) {
     japaneseLearningLifecycleRef.current =
       createMobileJapaneseLearningScreenLifecycle();
@@ -1177,6 +1235,13 @@ export function ReaderScreen() {
     useState<MobileReaderPageArrival>("initial");
   const [endOfChapterPromptVisible, setEndOfChapterPromptVisible] =
     useState(false);
+  const [endOfChapterProgressSaving, setEndOfChapterProgressSaving] =
+    useState(false);
+  const [endOfChapterProgressSaved, setEndOfChapterProgressSaved] =
+    useState(false);
+  const [endOfChapterProgressError, setEndOfChapterProgressError] = useState<
+    string | null
+  >(null);
   const [readerImageRetryNonces, setReaderImageRetryNonces] = useState(
     () => new Map<string, number>(),
   );
@@ -1207,20 +1272,36 @@ export function ReaderScreen() {
     selectedJapaneseLearningGrammarTokenIndex,
     setSelectedJapaneseLearningGrammarTokenIndex,
   ] = useState<number | null>(null);
-  const [japaneseLearningSelectedDetectionOrder, setJapaneseLearningSelectedDetectionOrder] =
-    useState<number | null>(null);
+  const [
+    japaneseLearningSelectedDetectionOrder,
+    setJapaneseLearningSelectedDetectionOrder,
+  ] = useState<number | null>(null);
   // Japanese Learning 3-surface visibility (mirrors web: launcher sheet,
   // OCR result drawer, chat drawer, transcript sheet).
   const [japaneseLearningLauncherVisible, setJapaneseLearningLauncherVisible] =
     useState(false);
   const [japaneseLearningOcrSheetVisible, setJapaneseLearningOcrSheetVisible] =
     useState(false);
-  const [japaneseLearningChatDrawerVisible, setJapaneseLearningChatDrawerVisible] =
-    useState(false);
-  const [japaneseLearningTranscriptVisible, setJapaneseLearningTranscriptVisible] =
-    useState(false);
+  const [
+    japaneseLearningChatDrawerVisible,
+    setJapaneseLearningChatDrawerVisible,
+  ] = useState(false);
+  const [
+    japaneseLearningTranscriptVisible,
+    setJapaneseLearningTranscriptVisible,
+  ] = useState(false);
   const [readerImageSizes, setReaderImageSizes] = useState(
     () => new Map<string, MobileImageSize>(),
+  );
+  const [readerSegmentedImages, setReaderSegmentedImages] = useState(
+    () => new Map<string, MobileCachedSegmentedImageAsset>(),
+  );
+  const [
+    segmentedLogicalEndReachedIdentity,
+    setSegmentedLogicalEndReachedIdentity,
+  ] = useState<string | null>(null);
+  const [loadedReaderSegments, setLoadedReaderSegments] = useState(
+    () => new Set<string>(),
   );
   const [readerImageErrors, setReaderImageErrors] = useState(
     () => new Map<string, string>(),
@@ -1232,7 +1313,9 @@ export function ReaderScreen() {
     mangaProgress: null,
   });
   const [sourceMangaTitle, setSourceMangaTitle] = useState<string | null>(null);
-  const [readerSettingsError, setReaderSettingsError] = useState<string | null>(null);
+  const [readerSettingsError, setReaderSettingsError] = useState<string | null>(
+    null,
+  );
   const [
     dismissedReaderPluginSettingsError,
     setDismissedReaderPluginSettingsError,
@@ -1241,13 +1324,28 @@ export function ReaderScreen() {
     useState<string | null>(null);
   const readerPluginSettingsBusyKeyRef = useRef<string | null>(null);
   const readerPagesRequestRunRef = useRef(0);
+  const persistProgressRef = useRef<
+    (
+      complete: boolean,
+      nextDisplayIndex?: number,
+      options?: MobileReaderPersistProgressOptions,
+    ) => Promise<void>
+  >(async () => undefined);
+  const pendingIntraPageProgressRef = useRef<{
+    contentIdentity: string;
+    displayIndex: number;
+    persist: typeof persistProgressRef.current;
+    progress: number;
+  } | null>(null);
   const readerFirstPageRequestRef = useRef<{
     key: string;
     startedAt: number;
     measured: boolean;
   } | null>(null);
   const [pagesRefreshNonce, setPagesRefreshNonce] = useState(0);
-  const cloudflareSheetRef = useRef<{ reportError: (error: unknown) => boolean } | null>(null);
+  const cloudflareSheetRef = useRef<{
+    reportError: (error: unknown) => boolean;
+  } | null>(null);
 
   const reportReaderSettingsError = useCallback(
     async (error: unknown) => {
@@ -1401,7 +1499,7 @@ export function ReaderScreen() {
   const selectedInstalledSource = useMemo(
     () =>
       installedReaderSources.data.find((item) =>
-        mobileInstalledSourceMatchesRoute(item, registryId, sourceId)
+        mobileInstalledSourceMatchesRoute(item, registryId, sourceId),
       ) ?? null,
     [installedReaderSources.data, registryId, sourceId],
   );
@@ -1418,19 +1516,44 @@ export function ReaderScreen() {
       ),
     [mangaId, routeRef.registryId, routeRef.sourceId],
   );
+  const readerPageIdentityFor = useCallback(
+    (page: MobileReaderPage) =>
+      getMobileReaderLogicalPageIdentity({
+        registryId: routeRef.registryId,
+        sourceId: routeRef.sourceId,
+        mangaId,
+        chapterId,
+        pageId: page.id,
+        imageUri: page.imageUri,
+        headers: page.headers,
+      }),
+    [chapterId, mangaId, routeRef.registryId, routeRef.sourceId],
+  );
+  const readerSegmentedCacheKeyFor = useCallback(
+    (page: MobileReaderPage) =>
+      getMobileReaderSegmentedCacheDiscriminator({
+        registryId: routeRef.registryId,
+        sourceId: routeRef.sourceId,
+        mangaId,
+        chapterId,
+        pageId: page.id,
+      }),
+    [chapterId, mangaId, routeRef.registryId, routeRef.sourceId],
+  );
   const navigateBack = useCallback(() => {
     const action = getMobileSourceReaderBackAction({
       canGoBack: router.canGoBack(),
       registryId: routeRef.registryId,
       sourceId: routeRef.sourceId,
       mangaId,
+      mangaTitle: routeMangaTitle,
     });
     if (action.type === "back") {
       router.back();
       return;
     }
     router.replace(action.href);
-  }, [mangaId, routeRef.registryId, routeRef.sourceId]);
+  }, [mangaId, routeMangaTitle, routeRef.registryId, routeRef.sourceId]);
 
   const resetReaderPluginSettings = useCallback(
     (plugin: MobileReaderPluginState) => {
@@ -1615,29 +1738,95 @@ export function ReaderScreen() {
   }, [displayedPages]);
   const currentDisplayedPage = displayedPages[clampedPageIndex] ?? null;
   const currentDisplayedPageKey = currentDisplayedPage?.id ?? "";
+  const currentDisplayedPageIdentity = currentDisplayedPage
+    ? readerPageIdentityFor(currentDisplayedPage)
+    : "";
+  const savedIntraPageState = normalizeMobileReaderIntraPageState({
+    intraPageProgress: state.chapterProgress?.intraPageProgress,
+    intraPageContentIdentity: state.chapterProgress?.intraPageContentIdentity,
+  });
+  const initialLongStripScrollProgress =
+    savedIntraPageState?.intraPageContentIdentity ===
+    currentDisplayedPageIdentity
+      ? savedIntraPageState.intraPageProgress
+      : undefined;
+  const currentSegmentedImage = currentDisplayedPage
+    ? (readerSegmentedImages.get(currentDisplayedPageIdentity) ?? null)
+    : null;
+  const currentLogicalEndIdentity = currentDisplayedPageIdentity
+    ? `${currentDisplayedPageIdentity}:${currentSegmentedImage?.generation ?? "single"}`
+    : "";
+  const segmentedLogicalEndReached =
+    Boolean(currentLogicalEndIdentity) &&
+    segmentedLogicalEndReachedIdentity === currentLogicalEndIdentity;
+  const currentImageMetadataReady =
+    !currentDisplayedPage?.imageUri ||
+    readerImageSizes.has(currentDisplayedPageIdentity);
+  const currentWholeImageToolsAvailable = canUseMobileReaderWholeImageTools({
+    hasImage: Boolean(currentDisplayedPage?.imageUri),
+    naturalSizeKnown: currentImageMetadataReady,
+    segmented: Boolean(currentSegmentedImage),
+  });
   useEffect(() => {
-    const pageIds = new Set(pages.map((page) => page.id));
+    setLoadedReaderSegments(new Set());
+  }, [chapterId, currentSegmentedImage?.generation]);
+  useEffect(
+    () => retainCachedMobileImageAsset(currentSegmentedImage),
+    [currentSegmentedImage],
+  );
+  useEffect(() => {
+    const pageIdentities = new Set(pages.map(readerPageIdentityFor));
     setReaderImageSizes((current) => {
-      if ([...current.keys()].every((pageId) => pageIds.has(pageId))) {
+      if (
+        [...current.keys()].every((identity) => pageIdentities.has(identity))
+      ) {
         return current;
       }
       const next = new Map<string, MobileImageSize>();
-      current.forEach((size, pageId) => {
-        if (pageIds.has(pageId)) next.set(pageId, size);
+      current.forEach((size, identity) => {
+        if (pageIdentities.has(identity)) next.set(identity, size);
       });
       return next;
     });
     setReaderImageErrors((current) => {
-      if ([...current.keys()].every((pageId) => pageIds.has(pageId))) {
+      if (
+        [...current.keys()].every((identity) =>
+          [...pageIdentities].some(
+            (pageIdentity) =>
+              identity === pageIdentity ||
+              identity.startsWith(`${pageIdentity}:segment:`),
+          ),
+        )
+      ) {
         return current;
       }
       const next = new Map<string, string>();
-      current.forEach((error, pageId) => {
-        if (pageIds.has(pageId)) next.set(pageId, error);
+      current.forEach((error, identity) => {
+        if (
+          [...pageIdentities].some(
+            (pageIdentity) =>
+              identity === pageIdentity ||
+              identity.startsWith(`${pageIdentity}:segment:`),
+          )
+        ) {
+          next.set(identity, error);
+        }
       });
       return next;
     });
-  }, [pages]);
+    setReaderSegmentedImages((current) => {
+      if (
+        [...current.keys()].every((identity) => pageIdentities.has(identity))
+      ) {
+        return current;
+      }
+      const next = new Map<string, MobileCachedSegmentedImageAsset>();
+      current.forEach((asset, identity) => {
+        if (pageIdentities.has(identity)) next.set(identity, asset);
+      });
+      return next;
+    });
+  }, [pages, readerPageIdentityFor]);
   const readerChapters = useMemo(
     () => (pagesState.status === "ready" ? pagesState.chapters : []),
     [pagesState],
@@ -1657,9 +1846,26 @@ export function ReaderScreen() {
   const leftChapter = chapterNavigation.leftChapter;
   const rightChapter = chapterNavigation.rightChapter;
   const pagedMode = mode !== "scrolling";
+  const currentSinglePageNaturalSize =
+    pageCount === 1 && displayedPages[0]
+      ? readerImageSizes.get(readerPageIdentityFor(displayedPages[0]))
+      : null;
+  const isLongStripLogicalPage = isMobileReaderLongStripLogicalPage({
+    pageCount,
+    naturalSize: currentSinglePageNaturalSize,
+  });
+  const useLongStripPresentation = shouldUseMobileReaderLongStripPresentation({
+    pagedMode,
+    pageCount,
+    naturalSize: currentSinglePageNaturalSize,
+  });
+  // Keep the reader setting itself paged. Only this gallery instance changes
+  // its geometry after the single page's intrinsic dimensions prove that
+  // viewport-contain would make it unreadably narrow.
+  const galleryPagedMode = pagedMode && !useLongStripPresentation;
   const readerPageWidth = Math.max(280, window.width);
   const isWideReader = window.width / Math.max(1, window.height) > 1;
-  const twoPageSupported = isWideReader && pagedMode && pageCount > 1;
+  const twoPageSupported = isWideReader && galleryPagedMode && pageCount > 1;
   const isTwoPageMode = twoPageSupported && twoPageMode;
   const showPagePairingControls = shouldShowReaderPagePairingControls({
     twoPageSupported,
@@ -1701,6 +1907,13 @@ export function ReaderScreen() {
       : Math.max(240, Math.min(720, readerPageWidth - 24))
     : Math.min(readerPageWidth, 720) *
       readerScrollWidthScale(activeScrollWidthPct);
+  const segmentedImageFrames = useMemo(
+    () =>
+      currentSegmentedImage && pageCount === 1
+        ? getMobileReaderSegmentFrames(currentSegmentedImage, readerImageWidth)
+        : [],
+    [currentSegmentedImage, pageCount, readerImageWidth],
+  );
   const scrollingPageExtent = readerImageWidth * 1.5 + 10;
   const scrollingPageOffsetForIndex = useCallback(
     (pageIndex: number): number => {
@@ -1748,7 +1961,7 @@ export function ReaderScreen() {
     : pageCount;
   const readerInitialContentOffset = useMemo(
     () => ({
-      x: pagedMode
+      x: galleryPagedMode
         ? readerScrollOffsetForLogicalFrame(
             readerRestoreFrameIndex,
             readerRestoreFrameCount,
@@ -1756,11 +1969,13 @@ export function ReaderScreen() {
             mode,
           )
         : 0,
-      y: pagedMode ? 0 : scrollingPageOffsetForIndex(readerRestorePageIndex),
+      y: galleryPagedMode
+        ? 0
+        : scrollingPageOffsetForIndex(readerRestorePageIndex),
     }),
     [
+      galleryPagedMode,
       mode,
-      pagedMode,
       readerPageWidth,
       readerRestoreFrameCount,
       readerRestoreFrameIndex,
@@ -1770,23 +1985,33 @@ export function ReaderScreen() {
   );
   const restoreReaderKey =
     pagesState.status === "ready"
-      // routePage must NOT be part of this key: syncRoutePage rewrites the
-      // route param after every page change, and re-arming the restore effect
-      // from that echo snaps the scrolling-mode viewport to the page top.
-      ? `${readyFetchedAt}:${chapterId}:${mode}:${pageCount}:${isTwoPageMode ? pagePairingMode : "single"}`
+      ? // routePage must NOT be part of this key: syncRoutePage rewrites the
+        // route param after every page change, and re-arming the restore effect
+        // from that echo snaps the scrolling-mode viewport to the page top.
+        `${readyFetchedAt}:${chapterId}:${mode}:${pageCount}:${isTwoPageMode ? pagePairingMode : "single"}`
       : "";
   const readerScrollMountKey =
     pagesState.status === "ready"
       ? `${chapterId}:${readyFetchedAt}:${mode}:${
-          pagedMode
+          galleryPagedMode
             ? `${Math.round(readerPageWidth)}:${
                 isTwoPageMode ? pagePairingMode : "single"
               }`
-            : "scrolling"
+            : currentSegmentedImage
+              ? `segmented:${currentSegmentedImage.generation}:${Math.round(readerImageWidth)}`
+              : isLongStripLogicalPage
+                ? `long-strip:single:${Math.round(readerImageWidth)}`
+                : "scrolling"
         }`
       : "loading";
   const readerRestoreComplete =
     Boolean(restoreReaderKey) && restoredReaderKey === restoreReaderKey;
+  const silentProgressPersistenceKey = readerRestoreComplete
+    ? mobileReaderProgressPersistenceKey(
+        restoreReaderKey,
+        visibleProgressPageIndex,
+      )
+    : "";
   const showReaderChrome = showControls;
   const showReaderBottomChrome =
     showReaderChrome && pagesState.status === "ready" && pageCount > 0;
@@ -1797,8 +2022,7 @@ export function ReaderScreen() {
     : Math.max(insets.top + 8, 12);
   const readerCompactControlsHeight = 82;
   const readerScrollTopInset = insets.top + 80;
-  const readerScrollBottomInset =
-    insets.bottom + readerCompactControlsHeight;
+  const readerScrollBottomInset = insets.bottom + readerCompactControlsHeight;
   const readerBottomPadding = showReaderBottomChrome
     ? insets.bottom + readerCompactControlsHeight
     : Math.max(insets.bottom + 18, 24);
@@ -1857,7 +2081,10 @@ export function ReaderScreen() {
     [store],
   );
   const saveReaderSourcePackageHydration = useCallback(
-    async (sourceRecord: InstalledSource, hydration: MobileSourcePackageHydration) => {
+    async (
+      sourceRecord: InstalledSource,
+      hydration: MobileSourcePackageHydration,
+    ) => {
       const hydratedSource = applyMobileSourcePackageHydration(
         sourceRecord,
         hydration,
@@ -1946,7 +2173,9 @@ export function ReaderScreen() {
   // `startSession`/`cleanupRuntime` plugin lifecycle hooks.
   const dualReadSessionKey = `${registryId}:${sourceId}:${mangaId}`;
   const startDualReadSession = useMobileDualReaderStore((s) => s.startSession);
-  const cleanupDualReadRuntime = useMobileDualReaderStore((s) => s.cleanupRuntime);
+  const cleanupDualReadRuntime = useMobileDualReaderStore(
+    (s) => s.cleanupRuntime,
+  );
   const dualReadEnabled = useMobileDualReaderStore((s) => s.enabled);
   const openDualReadConfig = useCallback(() => {
     getMobileDualReadStore().getState().setConfigOpen(true);
@@ -1985,8 +2214,9 @@ export function ReaderScreen() {
   );
   const japaneseLearningReaderPlugin = useMemo(
     () =>
-      enabledReaderPlugins.find((plugin) => plugin.id === "japanese-learning") ??
-      null,
+      enabledReaderPlugins.find(
+        (plugin) => plugin.id === "japanese-learning",
+      ) ?? null,
     [enabledReaderPlugins],
   );
 
@@ -2009,8 +2239,18 @@ export function ReaderScreen() {
       () => {
         const action = getMobileReaderHardwareBackAction({
           hasActivePlugin: Boolean(activeReaderPlugin),
+          hasEndOfChapterPrompt: endOfChapterPromptVisible,
           showControls,
         });
+
+        if (action === "dismiss-end-prompt") {
+          if (endOfChapterProgressSaving) return true;
+          setEndOfChapterPromptVisible(false);
+          setEndOfChapterProgressSaved(false);
+          setEndOfChapterProgressError(null);
+          void hapticPress();
+          return true;
+        }
 
         if (action === "close-plugin") {
           setActiveReaderPluginId(null);
@@ -2035,7 +2275,13 @@ export function ReaderScreen() {
     );
 
     return () => subscription.remove();
-  }, [activeReaderPlugin, navigateBack, showControls]);
+  }, [
+    activeReaderPlugin,
+    endOfChapterProgressSaving,
+    endOfChapterPromptVisible,
+    navigateBack,
+    showControls,
+  ]);
 
   useEffect(() => {
     japaneseLearningChatMessagesRef.current = japaneseLearningChatMessages;
@@ -2076,6 +2322,17 @@ export function ReaderScreen() {
   }, [chapterId, currentDisplayedPageKey, registryId, sourceId]);
 
   useEffect(() => {
+    if (!currentSegmentedImage) return;
+    japaneseLearningLifecycleRef.current?.abort("ocr");
+    japaneseLearningOcrRunRef.current += 1;
+    japaneseLearningAutoOcrPageRef.current = currentDisplayedPageIdentity;
+    setJapaneseLearningOcrState({
+      status: "error",
+      detail: strings.reader.pluginJapaneseLearningNoImage,
+    });
+  }, [currentDisplayedPageIdentity, currentSegmentedImage, strings]);
+
+  useEffect(() => {
     return () => {
       void clearMobileReaderImageMemoryCache();
       japaneseLearningLifecycleRef.current?.abortAll();
@@ -2101,17 +2358,17 @@ export function ReaderScreen() {
         mode,
       );
       readerScrollRef.current?.scrollTo({
-        x: pagedMode ? xOffset : 0,
-        y: pagedMode ? 0 : scrollingPageOffsetForIndex(nextPageIndex),
-        index: pagedMode ? undefined : nextPageIndex,
+        x: galleryPagedMode ? xOffset : 0,
+        y: galleryPagedMode ? 0 : scrollingPageOffsetForIndex(nextPageIndex),
+        index: galleryPagedMode ? undefined : nextPageIndex,
         animated,
       });
     },
     [
+      galleryPagedMode,
       isTwoPageMode,
       mode,
       pageCount,
-      pagedMode,
       readerPageWidth,
       readerSpreads,
       scrollingPageOffsetForIndex,
@@ -2196,7 +2453,7 @@ export function ReaderScreen() {
       readerProgrammaticScrollRef.current = nextPageIndex;
       setPageArrival(arrival);
       setCurrentPageIndex(nextPageIndex);
-      scrollToPageIndex(nextPageIndex, pagedMode);
+      scrollToPageIndex(nextPageIndex, galleryPagedMode);
       syncRoutePage(nextPageIndex);
       // Paged mode clears the ref from onMomentumScrollEnd — but scrolling to
       // the already-displayed page fires no momentum event, which would strand
@@ -2205,7 +2462,13 @@ export function ReaderScreen() {
         readerProgrammaticScrollRef.current = null;
       }
     },
-    [clampedPageIndex, pageCount, pagedMode, scrollToPageIndex, syncRoutePage],
+    [
+      clampedPageIndex,
+      galleryPagedMode,
+      pageCount,
+      scrollToPageIndex,
+      syncRoutePage,
+    ],
   );
 
   const onScrollingPageLayout = useCallback(
@@ -2217,7 +2480,7 @@ export function ReaderScreen() {
 
   const onScrollingVisiblePageChange = useCallback(
     (pageIndex: number) => {
-      if (pagedMode || pageCount <= 0) return;
+      if (galleryPagedMode || pageCount <= 0) return;
       const nextPageIndex = clampReaderPageIndex(pageIndex, pageCount);
       const programmaticTarget = readerProgrammaticScrollRef.current;
       if (scrollingVisiblePageIndexRef.current === nextPageIndex) {
@@ -2227,10 +2490,7 @@ export function ReaderScreen() {
         return;
       }
       scrollingVisiblePageIndexRef.current = nextPageIndex;
-      if (
-        programmaticTarget != null &&
-        nextPageIndex !== programmaticTarget
-      ) {
+      if (programmaticTarget != null && nextPageIndex !== programmaticTarget) {
         return;
       }
       if (programmaticTarget === nextPageIndex) {
@@ -2249,7 +2509,7 @@ export function ReaderScreen() {
       setCurrentPageIndex(nextPageIndex);
       syncRoutePage(nextPageIndex, { debounce: true });
     },
-    [clampedPageIndex, mode, pageCount, pagedMode, syncRoutePage],
+    [clampedPageIndex, galleryPagedMode, mode, pageCount, syncRoutePage],
   );
 
   const onScrollingSeekFailed = useCallback(
@@ -2282,6 +2542,9 @@ export function ReaderScreen() {
       const page = options?.startAt === "end" ? Number.MAX_SAFE_INTEGER : 1;
       setActiveReaderPluginId(null);
       setEndOfChapterPromptVisible(false);
+      setEndOfChapterProgressSaving(false);
+      setEndOfChapterProgressSaved(false);
+      setEndOfChapterProgressError(null);
       // Entering a chapter is never a page turn, even when it lands on the
       // final page (`startAt: "end"` from backward navigation).
       setPageArrival("initial");
@@ -2310,10 +2573,39 @@ export function ReaderScreen() {
     [nextChapterInReadingOrder, strings],
   );
 
+  const persistEndOfChapterCompletion = useCallback(async () => {
+    setEndOfChapterProgressSaving(true);
+    setEndOfChapterProgressError(null);
+    try {
+      return await persistMobileReaderCompletionBeforeNavigation({
+        persist: () =>
+          persistProgressRef.current(true, clampedPageIndex, {
+            silent: true,
+            throwOnError: true,
+          }),
+        navigate: () => setEndOfChapterProgressSaved(true),
+        reportError: (error) => {
+          setEndOfChapterProgressError(
+            readerErrorDetail(
+              error,
+              strings.reader.progressNotCompleted,
+              strings,
+            ),
+          );
+          void hapticError();
+        },
+      });
+    } finally {
+      setEndOfChapterProgressSaving(false);
+    }
+  }, [clampedPageIndex, strings]);
+
   const showEndOfChapterPrompt = useCallback(() => {
+    setEndOfChapterProgressSaved(false);
     setEndOfChapterPromptVisible(true);
     void hapticSelection();
-  }, []);
+    void persistEndOfChapterCompletion();
+  }, [persistEndOfChapterCompletion]);
 
   /** One page forward/backward in source order, from a tap zone or a11y action. */
   const stepReaderPage = useCallback(
@@ -2336,55 +2628,104 @@ export function ReaderScreen() {
   );
 
   const goToNextChapterFromPrompt = useCallback(() => {
-    setEndOfChapterPromptVisible(false);
-    if (!nextChapterInReadingOrder) return;
-    goToChapter(nextChapterInReadingOrder, { startAt: "start" });
-  }, [goToChapter, nextChapterInReadingOrder]);
-
-  const startJapaneseLearningOcr = useCallback((options?: { silent?: boolean }) => {
-    const silent = options?.silent === true;
-    if (!currentDisplayedPage) {
-      setJapaneseLearningOcrState({
-        status: "error",
-        detail: strings.reader.pluginJapaneseLearningNoImage,
-      });
-      if (!silent) void hapticError();
+    if (endOfChapterProgressSaving) return;
+    const navigateAfterPersistence = () => {
+      if (nextChapterInReadingOrder) {
+        setEndOfChapterPromptVisible(false);
+        goToChapter(nextChapterInReadingOrder, { startAt: "start" });
+      }
+    };
+    if (endOfChapterProgressSaved) {
+      navigateAfterPersistence();
       return;
     }
+    void persistEndOfChapterCompletion().then((persisted) => {
+      if (persisted) navigateAfterPersistence();
+    });
+  }, [
+    endOfChapterProgressSaving,
+    endOfChapterProgressSaved,
+    goToChapter,
+    nextChapterInReadingOrder,
+    persistEndOfChapterCompletion,
+  ]);
 
-    if (!currentDisplayedPage.text?.trim() && !currentDisplayedPage.imageUri) {
-      setJapaneseLearningOcrState({
-        status: "error",
-        detail: strings.reader.pluginJapaneseLearningNoImage,
-      });
-      if (!silent) void hapticError();
-      return;
-    }
-
-    setJapaneseLearningOcrState({ status: "loading" });
-    setJapaneseLearningSelectedDetectionOrder(null);
-    const run = japaneseLearningOcrRunRef.current + 1;
-    japaneseLearningOcrRunRef.current = run;
-    const signal = japaneseLearningLifecycleRef.current!.begin("ocr");
-    void runMobileJapaneseLearningOcr(currentDisplayedPage, { signal })
-      .then((result) => {
-        if (japaneseLearningOcrRunRef.current !== run) return;
-        setJapaneseLearningOcrState({ status: "ready", result });
-        if (!silent) void hapticConfirm();
-      })
-      .catch((error) => {
-        if (japaneseLearningOcrRunRef.current !== run) return;
+  const startJapaneseLearningOcr = useCallback(
+    (options?: { silent?: boolean }) => {
+      const silent = options?.silent === true;
+      if (!currentDisplayedPage) {
         setJapaneseLearningOcrState({
           status: "error",
-          detail: readerErrorDetail(
-            error,
-            strings.reader.pluginJapaneseLearningOcrFailed,
-            strings,
-          ),
+          detail: strings.reader.pluginJapaneseLearningNoImage,
         });
         if (!silent) void hapticError();
-      });
-  }, [currentDisplayedPage, strings]);
+        return;
+      }
+
+      if (
+        currentSegmentedImage &&
+        !MOBILE_READER_SEGMENTED_CAPABILITIES.japaneseLearningImageTools
+      ) {
+        setJapaneseLearningOcrState({
+          status: "error",
+          detail: strings.reader.pluginJapaneseLearningNoImage,
+        });
+        if (!silent) void hapticError();
+        return;
+      }
+
+      if (
+        !currentDisplayedPage.text?.trim() &&
+        !currentDisplayedPage.imageUri
+      ) {
+        setJapaneseLearningOcrState({
+          status: "error",
+          detail: strings.reader.pluginJapaneseLearningNoImage,
+        });
+        if (!silent) void hapticError();
+        return;
+      }
+
+      if (currentDisplayedPage.imageUri && !currentImageMetadataReady) {
+        setJapaneseLearningOcrState({
+          status: "error",
+          detail: strings.reader.pluginJapaneseLearningNoImage,
+        });
+        if (!silent) void hapticError();
+        return;
+      }
+
+      setJapaneseLearningOcrState({ status: "loading" });
+      setJapaneseLearningSelectedDetectionOrder(null);
+      const run = japaneseLearningOcrRunRef.current + 1;
+      japaneseLearningOcrRunRef.current = run;
+      const signal = japaneseLearningLifecycleRef.current!.begin("ocr");
+      void runMobileJapaneseLearningOcr(currentDisplayedPage, { signal })
+        .then((result) => {
+          if (japaneseLearningOcrRunRef.current !== run) return;
+          setJapaneseLearningOcrState({ status: "ready", result });
+          if (!silent) void hapticConfirm();
+        })
+        .catch((error) => {
+          if (japaneseLearningOcrRunRef.current !== run) return;
+          setJapaneseLearningOcrState({
+            status: "error",
+            detail: readerErrorDetail(
+              error,
+              strings.reader.pluginJapaneseLearningOcrFailed,
+              strings,
+            ),
+          });
+          if (!silent) void hapticError();
+        });
+    },
+    [
+      currentDisplayedPage,
+      currentImageMetadataReady,
+      currentSegmentedImage,
+      strings,
+    ],
+  );
 
   const runJapaneseLearningOcr = useCallback(() => {
     startJapaneseLearningOcr();
@@ -2394,10 +2735,15 @@ export function ReaderScreen() {
     if (japaneseLearningReaderPlugin?.values.autoDetect !== true) return;
     if (japaneseLearningOcrState.status !== "idle") return;
     if (!currentDisplayedPage) return;
-    if (!currentDisplayedPage.text?.trim() && !currentDisplayedPage.imageUri) return;
+    if (!currentDisplayedPage.text?.trim() && !currentDisplayedPage.imageUri)
+      return;
+    if (currentDisplayedPage.imageUri && !currentImageMetadataReady) return;
 
     const pageKey = `${readyFetchedAt}:${currentDisplayedPageKey}`;
-    if (!currentDisplayedPageKey || japaneseLearningAutoOcrPageRef.current === pageKey) {
+    if (
+      !currentDisplayedPageKey ||
+      japaneseLearningAutoOcrPageRef.current === pageKey
+    ) {
       return;
     }
     japaneseLearningAutoOcrPageRef.current = pageKey;
@@ -2405,6 +2751,7 @@ export function ReaderScreen() {
   }, [
     currentDisplayedPage,
     currentDisplayedPageKey,
+    currentImageMetadataReady,
     japaneseLearningOcrState.status,
     japaneseLearningReaderPlugin?.values.autoDetect,
     readyFetchedAt,
@@ -2477,8 +2824,7 @@ export function ReaderScreen() {
 
       const run = japaneseLearningGrammarRunRef.current + 1;
       japaneseLearningGrammarRunRef.current = run;
-      const signal =
-        japaneseLearningLifecycleRef.current!.begin("grammar");
+      const signal = japaneseLearningLifecycleRef.current!.begin("grammar");
       setJapaneseLearningGrammarActionNotice(null);
       setSelectedJapaneseLearningGrammarTokenIndex(null);
       setJapaneseLearningGrammarState({
@@ -2528,7 +2874,9 @@ export function ReaderScreen() {
 
   const japaneseLearningGrammarContext = useMemo(() => {
     if (japaneseLearningGrammarState.status !== "ready") return undefined;
-    return serializeMobileGrammarTokens(japaneseLearningGrammarState.result.tokens);
+    return serializeMobileGrammarTokens(
+      japaneseLearningGrammarState.result.tokens,
+    );
   }, [japaneseLearningGrammarState]);
 
   const getJapaneseLearningSentenceText = useCallback(() => {
@@ -2581,8 +2929,9 @@ export function ReaderScreen() {
         japaneseLearningLifecycleRef.current!.begin("tts-prefetch");
       void generateMobileJapaneseLearningTts(text, {
         getAuthCookie: () =>
-          (mobileAuthClient as unknown as { getCookie?: () => string }).getCookie?.() ??
-          "",
+          (
+            mobileAuthClient as unknown as { getCookie?: () => string }
+          ).getCookie?.() ?? "",
         source: "voice",
         signal,
       }).catch(() => undefined);
@@ -2621,7 +2970,9 @@ export function ReaderScreen() {
         const visibleUserIndex = current
           .map((message, index) => ({ message, index }))
           .reverse()
-          .find(({ message }) => message.role === "user" && !message.hidden)?.index;
+          .find(
+            ({ message }) => message.role === "user" && !message.hidden,
+          )?.index;
 
         if (visibleUserIndex == null) {
           return [...current, snapshotMessage];
@@ -2654,7 +3005,9 @@ export function ReaderScreen() {
         });
       };
 
-      const updateAssistantMessage = (message: JapaneseLearningChatThreadMessage) => {
+      const updateAssistantMessage = (
+        message: JapaneseLearningChatThreadMessage,
+      ) => {
         setJapaneseLearningChatMessages((current) => {
           const index = current.findIndex((item) => item.id === message.id);
           if (index < 0) return [...current, message];
@@ -2744,7 +3097,8 @@ export function ReaderScreen() {
           },
           onContextSnapshot: upsertJapaneseLearningChatContextSnapshot,
         } satisfies MobileJapaneseLearningChatStreamCallbacks,
-        getLastAssistantMessageId: () => lastAssistantMessageId ?? streamingMessageId,
+        getLastAssistantMessageId: () =>
+          lastAssistantMessageId ?? streamingMessageId,
       };
     },
     [
@@ -2825,11 +3179,12 @@ export function ReaderScreen() {
         );
       } catch (error) {
         // Tool results are read by the model, not the reader, so this stays
-        // untranslated — but the stable summary still leads, with the raw
+        // untranslated — but the stable summary still leads, with a sanitized
         // reason appended rather than replacing it.
+        const reason = sanitizeMobileErrorDiagnostic(error);
         return fail(
-          error instanceof Error
-            ? `OCR processing failed or timed out. (${error.message})`
+          reason
+            ? `OCR processing failed or timed out. (${reason})`
             : "OCR processing failed or timed out.",
         );
       }
@@ -2850,7 +3205,10 @@ export function ReaderScreen() {
         return false;
       }
 
-      if (!currentDisplayedPage.text?.trim() && !currentDisplayedPage.imageUri) {
+      if (
+        !currentDisplayedPage.text?.trim() &&
+        !currentDisplayedPage.imageUri
+      ) {
         setJapaneseLearningChatState({
           status: "error",
           detail: strings.reader.pluginJapaneseLearningNoImage,
@@ -2898,7 +3256,8 @@ export function ReaderScreen() {
                 ? japaneseLearningOcrState.result.detections
                     .find(
                       (detection) =>
-                        detection.order === japaneseLearningSelectedDetectionOrder,
+                        detection.order ===
+                        japaneseLearningSelectedDetectionOrder,
                     )
                     ?.text.trim()
                 : undefined;
@@ -2936,8 +3295,9 @@ export function ReaderScreen() {
           ephemeralContext: japaneseLearningGrammarContext,
           executeTool: executeJapaneseLearningChatTool,
           getAuthCookie: () =>
-            (mobileAuthClient as unknown as { getCookie?: () => string }).getCookie?.() ??
-            "",
+            (
+              mobileAuthClient as unknown as { getCookie?: () => string }
+            ).getCookie?.() ?? "",
           mangaGenres: state.entry?.item.metadata.tags,
           mangaTitle: title,
           messages: mobileJapaneseLearningChatRequestMessages(nextMessages),
@@ -3213,8 +3573,9 @@ export function ReaderScreen() {
           ephemeralContext: japaneseLearningGrammarContext,
           executeTool: executeJapaneseLearningChatTool,
           getAuthCookie: () =>
-            (mobileAuthClient as unknown as { getCookie?: () => string }).getCookie?.() ??
-            "",
+            (
+              mobileAuthClient as unknown as { getCookie?: () => string }
+            ).getCookie?.() ?? "",
           mangaGenres: state.entry?.item.metadata.tags,
           mangaTitle: title,
           messages: mobileJapaneseLearningChatRequestMessages(nextMessages),
@@ -3372,8 +3733,7 @@ export function ReaderScreen() {
 
     const ttsRun = japaneseLearningTtsRunRef.current + 1;
     japaneseLearningTtsRunRef.current = ttsRun;
-    const signal =
-      japaneseLearningLifecycleRef.current!.begin("tts-playback");
+    const signal = japaneseLearningLifecycleRef.current!.begin("tts-playback");
     setJapaneseLearningTtsState({
       status: "loading",
       text: "",
@@ -3409,7 +3769,8 @@ export function ReaderScreen() {
         ocrResult,
         japaneseLearningSelectedDetectionOrder,
       );
-      if (!transcript) throw new Error(strings.reader.pluginJapaneseLearningNoText);
+      if (!transcript)
+        throw new Error(strings.reader.pluginJapaneseLearningNoText);
       if (japaneseLearningTtsRunRef.current !== ttsRun) return;
       setJapaneseLearningTtsState({
         status: "loading",
@@ -3419,34 +3780,35 @@ export function ReaderScreen() {
 
       const audio = await generateMobileJapaneseLearningTts(transcript, {
         getAuthCookie: () =>
-          (mobileAuthClient as unknown as { getCookie?: () => string }).getCookie?.() ??
-          "",
+          (
+            mobileAuthClient as unknown as { getCookie?: () => string }
+          ).getCookie?.() ?? "",
         source: "sentence",
         signal,
       });
       if (japaneseLearningTtsRunRef.current !== ttsRun) return;
 
       await setAudioModeAsync({ playsInSilentMode: true });
-      if (
-        signal.aborted ||
-        japaneseLearningTtsRunRef.current !== ttsRun
-      ) {
+      if (signal.aborted || japaneseLearningTtsRunRef.current !== ttsRun) {
         return;
       }
       japaneseLearningTtsPlayerRef.current?.remove();
       const player = createAudioPlayer({ uri: audio.uri });
       japaneseLearningTtsPlayerRef.current = player;
-      const subscription = player.addListener("playbackStatusUpdate", (status) => {
-        if (japaneseLearningTtsRunRef.current !== ttsRun) return;
-        if (status.didJustFinish) {
-          subscription.remove();
-          player.remove();
-          if (japaneseLearningTtsPlayerRef.current === player) {
-            japaneseLearningTtsPlayerRef.current = null;
+      const subscription = player.addListener(
+        "playbackStatusUpdate",
+        (status) => {
+          if (japaneseLearningTtsRunRef.current !== ttsRun) return;
+          if (status.didJustFinish) {
+            subscription.remove();
+            player.remove();
+            if (japaneseLearningTtsPlayerRef.current === player) {
+              japaneseLearningTtsPlayerRef.current = null;
+            }
+            setJapaneseLearningTtsState({ status: "idle" });
           }
-          setJapaneseLearningTtsState({ status: "idle" });
-        }
-      });
+        },
+      );
       player.play();
       setJapaneseLearningTtsState({
         status: "playing",
@@ -3542,18 +3904,16 @@ export function ReaderScreen() {
       void (async () => {
         const audio = await generateMobileJapaneseLearningTts(transcript, {
           getAuthCookie: () =>
-            (mobileAuthClient as unknown as { getCookie?: () => string }).getCookie?.() ??
-            "",
+            (
+              mobileAuthClient as unknown as { getCookie?: () => string }
+            ).getCookie?.() ?? "",
           source: "transcript",
           signal,
         });
         if (japaneseLearningTtsRunRef.current !== ttsRun) return;
 
         await setAudioModeAsync({ playsInSilentMode: true });
-        if (
-          signal.aborted ||
-          japaneseLearningTtsRunRef.current !== ttsRun
-        ) {
+        if (signal.aborted || japaneseLearningTtsRunRef.current !== ttsRun) {
           return;
         }
         japaneseLearningTtsPlayerRef.current?.remove();
@@ -3653,18 +4013,16 @@ export function ReaderScreen() {
       void (async () => {
         const audio = await generateMobileJapaneseLearningTts(text, {
           getAuthCookie: () =>
-            (mobileAuthClient as unknown as { getCookie?: () => string }).getCookie?.() ??
-            "",
+            (
+              mobileAuthClient as unknown as { getCookie?: () => string }
+            ).getCookie?.() ?? "",
           source: "voice",
           signal,
         });
         if (japaneseLearningTtsRunRef.current !== ttsRun) return;
 
         await setAudioModeAsync({ playsInSilentMode: true });
-        if (
-          signal.aborted ||
-          japaneseLearningTtsRunRef.current !== ttsRun
-        ) {
+        if (signal.aborted || japaneseLearningTtsRunRef.current !== ttsRun) {
           return;
         }
         japaneseLearningTtsPlayerRef.current?.remove();
@@ -3701,7 +4059,7 @@ export function ReaderScreen() {
                             item.kind === "voice" &&
                             !item.isError,
                         )
-                  : undefined;
+                    : undefined;
                 if (nextMessage) {
                   playJapaneseLearningChatTtsRef.current?.(nextMessage, {
                     autoPlayNext: true,
@@ -3779,7 +4137,11 @@ export function ReaderScreen() {
 
       playJapaneseLearningChatTts(message);
     },
-    [japaneseLearningTtsState, playJapaneseLearningChatTts, stopJapaneseLearningTts],
+    [
+      japaneseLearningTtsState,
+      playJapaneseLearningChatTts,
+      stopJapaneseLearningTts,
+    ],
   );
 
   useEffect(() => {
@@ -3819,7 +4181,7 @@ export function ReaderScreen() {
       try {
         const installedSources = await store.getInstalledSources();
         const installedSource = installedSources.find((item) =>
-          mobileInstalledSourceMatchesRoute(item, registryId, sourceId)
+          mobileInstalledSourceMatchesRoute(item, registryId, sourceId),
         );
 
         if (!installedSource) {
@@ -3844,7 +4206,8 @@ export function ReaderScreen() {
           },
         );
 
-        if (cancelled || readerPagesRequestRunRef.current !== requestRun) return;
+        if (cancelled || readerPagesRequestRunRef.current !== requestRun)
+          return;
         if (refreshed.status === "blocked") {
           setPagesState({
             status: "blocked",
@@ -3911,13 +4274,10 @@ export function ReaderScreen() {
     // counts as having read forward onto that page.
     setPageArrival("initial");
     setCurrentPageIndex(nextPageIndex);
-    const timeout = setTimeout(
-      () => {
-        scrollToPageIndex(nextPageIndex, false);
-        setRestoredReaderKey(restoreReaderKey);
-      },
-      0,
-    );
+    const timeout = setTimeout(() => {
+      scrollToPageIndex(nextPageIndex, false);
+      setRestoredReaderKey(restoreReaderKey);
+    }, 0);
     syncRoutePage(nextPageIndex);
     return () => clearTimeout(timeout);
   }, [
@@ -3934,82 +4294,122 @@ export function ReaderScreen() {
     async (
       complete: boolean,
       nextDisplayIndex = clampedPageIndex,
-      options?: { silent?: boolean },
+      options?: MobileReaderPersistProgressOptions,
     ) => {
-      if (!options?.silent) setSaving(true);
-      const updatedAt = nextSyncTimestamp(
-        state.chapterProgress?.updatedAt,
-        state.mangaProgress?.updatedAt,
-      );
-      // Keep the user-facing read clock monotonic with the sync clock even if
-      // the device wall clock moves backwards while the reader is open.
-      const lastReadAt = updatedAt;
-      const nextSourceIndex = complete
-        ? Math.max(0, pageCount - 1)
-        : readerSourceIndexForDisplayIndex(nextDisplayIndex, pageCount, mode);
-      const nextTotal = Math.max(1, pageCount);
-      // Never infer completion from the page position: opening a chapter at
-      // its last page (backward navigation, or resuming saved progress) would
-      // otherwise mark it read and sync that corruption. Completion is either
-      // explicit or already recorded.
-      const completed = complete || (state.chapterProgress?.completed ?? false);
-      const progressSourceRef = state.sourceLink ?? routeSourceRef;
-      const chapterProgress: LocalChapterProgress = {
-        id: makeChapterProgressId(
-          progressSourceRef.registryId,
-          progressSourceRef.sourceId,
-          progressSourceRef.sourceMangaId,
-          chapterId,
-        ),
-        registryId: progressSourceRef.registryId,
-        sourceId: progressSourceRef.sourceId,
-        sourceMangaId: progressSourceRef.sourceMangaId,
-        sourceChapterId: chapterId,
-        libraryItemId: state.entry?.item.libraryItemId,
-        progress: nextSourceIndex,
-        total: nextTotal,
-        completed,
-        lastReadAt,
-        chapterNumber: chapter.chapterNumber,
-        volumeNumber: chapter.volumeNumber,
-        chapterTitle: chapter.title,
-        updatedAt,
-      };
-      const mangaProgress: LocalMangaProgress = {
-        id: makeMangaProgressId(
-          progressSourceRef.registryId,
-          progressSourceRef.sourceId,
-          progressSourceRef.sourceMangaId,
-        ),
-        registryId: progressSourceRef.registryId,
-        sourceId: progressSourceRef.sourceId,
-        sourceMangaId: progressSourceRef.sourceMangaId,
-        libraryItemId: state.entry?.item.libraryItemId,
-        lastReadAt,
-        lastReadSourceChapterId: chapterId,
-        lastReadChapterNumber: chapter.chapterNumber,
-        lastReadVolumeNumber: chapter.volumeNumber,
-        lastReadChapterTitle: chapter.title,
-        updatedAt,
-      };
-
+      const priorPersistence = progressPersistenceQueueRef.current;
+      let releasePersistence: () => void = () => undefined;
+      progressPersistenceQueueRef.current = new Promise<void>((resolve) => {
+        releasePersistence = resolve;
+      });
+      await priorPersistence.catch(() => undefined);
       try {
-        await store.saveChapterProgress(chapterProgress);
-        await store.saveMangaProgress(mangaProgress);
-        setState((current) => ({
-          ...current,
-          chapterProgress,
-          mangaProgress,
-        }));
-        emitMobileDataChanged("progress");
-        if (complete && !options?.silent) {
-          await hapticConfirm();
-          await load();
+        if (!options?.silent) setSaving(true);
+        const updatedAt = nextSyncTimestamp(
+          state.chapterProgress?.updatedAt,
+          state.mangaProgress?.updatedAt,
+          progressPersistenceClockRef.current,
+        );
+        progressPersistenceClockRef.current = updatedAt;
+        // Keep the user-facing read clock monotonic with the sync clock even if
+        // the device wall clock moves backwards while the reader is open.
+        const lastReadAt = updatedAt;
+        const nextSourceIndex = complete
+          ? Math.max(0, pageCount - 1)
+          : readerSourceIndexForDisplayIndex(nextDisplayIndex, pageCount, mode);
+        const nextTotal = Math.max(1, pageCount);
+        // Never infer completion from the page position: opening a chapter at
+        // its last page (backward navigation, or resuming saved progress) would
+        // otherwise mark it read and sync that corruption. Completion is either
+        // explicit or already recorded.
+        const completed =
+          complete || (state.chapterProgress?.completed ?? false);
+        const intraPageState =
+          normalizeMobileReaderIntraPageState({
+            intraPageProgress: options?.intraPageProgress,
+            intraPageContentIdentity: options?.intraPageContentIdentity,
+          }) ??
+          normalizeMobileReaderIntraPageState({
+            intraPageProgress: state.chapterProgress?.intraPageProgress,
+            intraPageContentIdentity:
+              state.chapterProgress?.intraPageContentIdentity,
+          });
+        const progressSourceRef = state.sourceLink ?? routeSourceRef;
+        const chapterProgress: LocalChapterProgress = {
+          id: makeChapterProgressId(
+            progressSourceRef.registryId,
+            progressSourceRef.sourceId,
+            progressSourceRef.sourceMangaId,
+            chapterId,
+          ),
+          registryId: progressSourceRef.registryId,
+          sourceId: progressSourceRef.sourceId,
+          sourceMangaId: progressSourceRef.sourceMangaId,
+          sourceChapterId: chapterId,
+          libraryItemId: state.entry?.item.libraryItemId,
+          progress: nextSourceIndex,
+          total: nextTotal,
+          completed,
+          lastReadAt,
+          chapterNumber: chapter.chapterNumber,
+          volumeNumber: chapter.volumeNumber,
+          chapterTitle: chapter.title,
+          ...(intraPageState ?? {}),
+          updatedAt,
+        };
+        const mangaProgress: LocalMangaProgress = {
+          id: makeMangaProgressId(
+            progressSourceRef.registryId,
+            progressSourceRef.sourceId,
+            progressSourceRef.sourceMangaId,
+          ),
+          registryId: progressSourceRef.registryId,
+          sourceId: progressSourceRef.sourceId,
+          sourceMangaId: progressSourceRef.sourceMangaId,
+          libraryItemId: state.entry?.item.libraryItemId,
+          lastReadAt,
+          lastReadSourceChapterId: chapterId,
+          lastReadChapterNumber: chapter.chapterNumber,
+          lastReadVolumeNumber: chapter.volumeNumber,
+          lastReadChapterTitle: chapter.title,
+          updatedAt,
+        };
+
+        try {
+          await store.saveChapterProgress(chapterProgress);
+          await store.saveMangaProgress(mangaProgress);
+          if (options?.updateState !== false) {
+            const [savedChapterProgress, savedMangaProgress] =
+              await Promise.all([
+                store.getChapterProgress(
+                  chapterProgress.registryId,
+                  chapterProgress.sourceId,
+                  chapterProgress.sourceMangaId,
+                  chapterProgress.sourceChapterId,
+                ),
+                store.getMangaProgress(),
+              ]);
+            setState((current) => ({
+              ...current,
+              chapterProgress: savedChapterProgress ?? chapterProgress,
+              mangaProgress:
+                savedMangaProgress.find(
+                  (entry) => entry.id === mangaProgress.id,
+                ) ?? mangaProgress,
+            }));
+          }
+          emitMobileDataChanged("progress");
+          if (complete && !options?.silent) {
+            await hapticConfirm();
+            await load();
+          }
+        } catch (error) {
+          if (!options?.silent) await hapticError();
+          if (options?.throwOnError) throw error;
+        } finally {
+          if (!options?.silent) setSaving(false);
         }
-      } catch {
-        if (!options?.silent) await hapticError();
       } finally {
-        if (!options?.silent) setSaving(false);
+        releasePersistence();
       }
     },
     [
@@ -4023,6 +4423,8 @@ export function ReaderScreen() {
       pageCount,
       routeSourceRef,
       state.chapterProgress?.completed,
+      state.chapterProgress?.intraPageContentIdentity,
+      state.chapterProgress?.intraPageProgress,
       state.chapterProgress?.updatedAt,
       state.entry?.item.libraryItemId,
       state.mangaProgress?.updatedAt,
@@ -4032,23 +4434,93 @@ export function ReaderScreen() {
   );
 
   useEffect(() => {
-    if (pagesState.status !== "ready" || pageCount <= 0) return;
-    if (!readerRestoreComplete) return;
+    persistProgressRef.current = persistProgress;
+  }, [persistProgress]);
+
+  const flushPendingIntraPageProgress = useCallback((updateState: boolean) => {
+    if (intraPageProgressSaveTimerRef.current) {
+      clearTimeout(intraPageProgressSaveTimerRef.current);
+      intraPageProgressSaveTimerRef.current = null;
+    }
+    const pending = pendingIntraPageProgressRef.current;
+    pendingIntraPageProgressRef.current = null;
+    if (!pending) return;
+    void pending.persist(false, pending.displayIndex, {
+      silent: true,
+      updateState,
+      intraPageProgress: pending.progress,
+      intraPageContentIdentity: pending.contentIdentity,
+    });
+  }, []);
+
+  const persistLongStripScrollProgress = useCallback(
+    (contentIdentity: string, progress: number) => {
+      if (contentIdentity !== currentDisplayedPageIdentity) return;
+      const normalized = normalizeMobileReaderIntraPageState({
+        intraPageProgress: progress,
+        intraPageContentIdentity: contentIdentity,
+      });
+      if (!normalized) return;
+      if (intraPageProgressSaveTimerRef.current) {
+        clearTimeout(intraPageProgressSaveTimerRef.current);
+      }
+      pendingIntraPageProgressRef.current = {
+        contentIdentity: normalized.intraPageContentIdentity,
+        displayIndex: clampedPageIndex,
+        persist: persistProgressRef.current,
+        progress: normalized.intraPageProgress,
+      };
+      intraPageProgressSaveTimerRef.current = setTimeout(
+        () => {
+          flushPendingIntraPageProgress(true);
+        },
+        normalized.intraPageProgress >= 0.999 ? 0 : 500,
+      );
+    },
+    [
+      clampedPageIndex,
+      currentDisplayedPageIdentity,
+      flushPendingIntraPageProgress,
+    ],
+  );
+
+  useEffect(() => {
+    return () => flushPendingIntraPageProgress(false);
+  }, [currentDisplayedPageIdentity, flushPendingIntraPageProgress]);
+
+  useEffect(() => {
+    if (!silentProgressPersistenceKey) return;
     const timeout = setTimeout(() => {
-      void persistProgress(false, visibleProgressPageIndex, { silent: true });
+      // persistProgress captures the saved timestamps that this write advances.
+      // Calling the latest implementation through a ref prevents that
+      // timestamp-only state update from re-arming this debounce forever.
+      void persistProgressRef.current(false, visibleProgressPageIndex, {
+        silent: true,
+      });
     }, 500);
     return () => clearTimeout(timeout);
-  }, [
-    pageCount,
-    pagesState.status,
-    persistProgress,
-    readerRestoreComplete,
-    visibleProgressPageIndex,
-  ]);
+  }, [silentProgressPersistenceKey, visibleProgressPageIndex]);
 
   useEffect(() => {
     if (pagesState.status !== "ready") return;
     if (!readerRestoreComplete) return;
+    if (
+      pageCount === 1 &&
+      !shouldCompleteSingleImageReaderPage({
+        hasImage: Boolean(displayedPages[0]?.imageUri),
+        naturalSizeKnown:
+          !displayedPages[0]?.imageUri ||
+          Boolean(
+            displayedPages[0] &&
+            readerImageSizes.has(readerPageIdentityFor(displayedPages[0])),
+          ),
+        longStripPresentation:
+          isLongStripLogicalPage || Boolean(currentSegmentedImage),
+        reachedLogicalEnd: segmentedLogicalEndReached,
+      })
+    ) {
+      return;
+    }
     if (
       !shouldAutoCompleteMobileReaderChapter({
         displayIndex: visibleProgressPageIndex,
@@ -4063,12 +4535,19 @@ export function ReaderScreen() {
     void persistProgress(true, visibleProgressPageIndex, { silent: true });
   }, [
     completed,
+    displayedPages,
     mode,
     pageArrival,
     pageCount,
     pagesState.status,
     persistProgress,
     readerRestoreComplete,
+    readerImageSizes,
+    readerPageIdentityFor,
+    currentSegmentedImage,
+    isLongStripLogicalPage,
+    segmentedLogicalEndReached,
+    useLongStripPresentation,
     visibleProgressPageIndex,
   ]);
 
@@ -4082,6 +4561,8 @@ export function ReaderScreen() {
       return;
     }
     setEndOfChapterPromptVisible(false);
+    setEndOfChapterProgressSaved(false);
+    setEndOfChapterProgressError(null);
   }, [clampedPageIndex, mode, pageCount]);
 
   // A black reader with hidden chrome and a swallowed back gesture is a
@@ -4126,7 +4607,7 @@ export function ReaderScreen() {
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
     const programmaticTarget = readerProgrammaticScrollRef.current;
-    if (pagedMode) {
+    if (galleryPagedMode) {
       const frameCount = isTwoPageMode ? readerSpreads.length : pageCount;
       const visualFrameIndex = readerDisplayIndexFromOffset(
         event.nativeEvent.contentOffset.x,
@@ -4141,10 +4622,7 @@ export function ReaderScreen() {
       const nextPageIndex = isTwoPageMode
         ? firstPageIndexForMobileReaderSpread(readerSpreads, nextFrameIndex)
         : nextFrameIndex;
-      if (
-        programmaticTarget == null &&
-        nextPageIndex !== clampedPageIndex
-      ) {
+      if (programmaticTarget == null && nextPageIndex !== clampedPageIndex) {
         void hapticSelection();
       }
       if (programmaticTarget == null) {
@@ -4159,10 +4637,7 @@ export function ReaderScreen() {
       }
       setCurrentPageIndex(nextPageIndex);
       syncRoutePage(nextPageIndex);
-      if (
-        programmaticTarget != null &&
-        nextPageIndex === programmaticTarget
-      ) {
+      if (programmaticTarget != null && nextPageIndex === programmaticTarget) {
         readerProgrammaticScrollRef.current = null;
       }
       return;
@@ -4204,20 +4679,20 @@ export function ReaderScreen() {
 
   const getReaderImageFrameSize = useCallback(
     (page: MobileReaderPage): MobileImageSize => {
-      const naturalSize = readerImageSizes.get(page.id);
-      const naturalRatio =
-        naturalSize && naturalSize.width > 0 && naturalSize.height > 0
-          ? naturalSize.height / naturalSize.width
-          : 1.45;
-      const naturalHeight = readerImageWidth * naturalRatio;
-      return {
-        width: readerImageWidth,
-        height: pagedMode
-          ? Math.min(Math.max(220, naturalHeight), readerMaxPagedImageHeight)
-          : Math.max(220, naturalHeight),
-      };
+      return getMobileReaderImageFrameSize({
+        imageWidth: readerImageWidth,
+        naturalSize: readerImageSizes.get(readerPageIdentityFor(page)),
+        clampHeightToPagedViewport: galleryPagedMode,
+        maximumPagedHeight: readerMaxPagedImageHeight,
+      });
     },
-    [pagedMode, readerImageSizes, readerImageWidth, readerMaxPagedImageHeight],
+    [
+      galleryPagedMode,
+      readerImageSizes,
+      readerImageWidth,
+      readerMaxPagedImageHeight,
+      readerPageIdentityFor,
+    ],
   );
   const japaneseLearningOverlayDetections =
     japaneseLearningOcrState.status === "ready" &&
@@ -4233,7 +4708,31 @@ export function ReaderScreen() {
           japaneseLearningTtsState.duration ?? 0,
         )
       : null;
+  const measureReaderFirstContent = (page: MobileReaderPage) => {
+    const performanceRequest = readerFirstPageRequestRef.current;
+    const performanceKey = `${registryId}:${sourceId}:${mangaId}:${chapterId}`;
+    if (
+      page.id !== currentDisplayedPageKey ||
+      performanceRequest?.key !== performanceKey ||
+      performanceRequest.measured
+    ) {
+      return;
+    }
+    performanceRequest.measured = true;
+    measureMobilePerformance(
+      MOBILE_PERFORMANCE_MARKS.readerFirstPage,
+      performanceRequest.startedAt,
+      {
+        registryId,
+        sourceId,
+        chapterId,
+        pageIndex: clampedPageIndex,
+        processed: page.imageProcessing === "ready",
+      },
+    );
+  };
   const renderReaderImage = (page: MobileReaderPage) => {
+    const pageIdentity = readerPageIdentityFor(page);
     const renderPolicy = getMobileReaderPageRenderPolicy({
       currentPageIndex: clampedPageIndex,
       displayIndex: readerDisplayIndexByPageId.get(page.id),
@@ -4273,21 +4772,24 @@ export function ReaderScreen() {
         </View>
       );
     }
-    const imageError = readerImageErrors.get(page.id);
+    const imageError = readerImageErrors.get(pageIdentity);
     const imageLoading = isMobileReaderImageLoading({
       error: imageError,
-      hasNaturalSize: readerImageSizes.has(page.id),
+      hasNaturalSize: readerImageSizes.has(pageIdentity),
     });
-    const retryNonce = readerImageRetryNonces.get(page.id) ?? 0;
+    const retryNonce = readerImageRetryNonces.get(pageIdentity) ?? 0;
+    const segmentedCacheKey = readerSegmentedCacheKeyFor(page);
     return (
       <ZoomableReaderImageFrame
         // Remounting on retry is what re-issues the image request.
-        key={`${page.id}:${retryNonce}`}
+        key={`${pageIdentity}:${retryNonce}`}
         frameSize={readerImageFrameSize}
         pageId={page.id}
       >
         <MobileReaderPageFrame
+          allowLongStripSegments={pageCount === 1}
           backgroundColor={readerBackgroundColor}
+          cacheKey={pageCount === 1 ? segmentedCacheKey : undefined}
           frameSize={readerImageFrameSize}
           headers={page.headers}
           imageUri={imageUri}
@@ -4296,61 +4798,122 @@ export function ReaderScreen() {
           error={imageError}
           strings={strings}
           onImageLoadStart={() => {
-            clearReaderImageError(page.id);
+            clearReaderImageError(pageIdentity);
           }}
           onImageLoad={({ width, height }) => {
-            clearReaderImageError(page.id);
-            setReaderImageNaturalSize(page.id, { width, height });
-            const performanceRequest = readerFirstPageRequestRef.current;
-            const performanceKey = `${registryId}:${sourceId}:${mangaId}:${chapterId}`;
-            if (
-              page.id === currentDisplayedPageKey &&
-              performanceRequest?.key === performanceKey &&
-              !performanceRequest.measured
-            ) {
-              performanceRequest.measured = true;
-              measureMobilePerformance(
-                MOBILE_PERFORMANCE_MARKS.readerFirstPage,
-                performanceRequest.startedAt,
-                {
-                  registryId,
-                  sourceId,
-                  chapterId,
-                  pageIndex: clampedPageIndex,
-                  processed: page.imageProcessing === "ready",
-                },
-              );
-            }
+            clearReaderImageError(pageIdentity);
+            setReaderImageNaturalSize(pageIdentity, { width, height });
+            measureReaderFirstContent(page);
           }}
           onImageError={(error) => {
-            setReaderImageLoadError(page.id, error);
+            setReaderImageLoadError(pageIdentity, error);
+          }}
+          onSegmentedImage={(asset) => {
+            if (!asset) {
+              setReaderSegmentedImages((current) => {
+                if (!current.has(pageIdentity)) return current;
+                const next = new Map(current);
+                next.delete(pageIdentity);
+                return next;
+              });
+              return;
+            }
+            clearReaderImageError(pageIdentity);
+            setReaderSegmentedImages((current) => {
+              if (current.get(pageIdentity)?.generation === asset.generation) {
+                return current;
+              }
+              const next = new Map(current);
+              next.set(pageIdentity, asset);
+              return next;
+            });
+            // Aggregate metadata is the logical page size. Individual tile
+            // load callbacks below never write into this page-scoped map.
+            setReaderImageNaturalSize(pageIdentity, {
+              width: asset.width,
+              height: asset.height,
+            });
           }}
           onRetry={() => {
-            retryReaderImage(page.id);
+            retryReaderImage(pageIdentity);
           }}
         >
           {page.id === currentDisplayedPageKey ? (
             <JapaneseLearningDetectionOverlay
               detections={japaneseLearningOverlayDetections}
               frameSize={readerImageFrameSize}
-              imageSize={readerImageSizes.get(page.id) ?? null}
+              imageSize={readerImageSizes.get(pageIdentity) ?? null}
               activeOrder={activeJapaneseLearningTranscriptOrder}
               selectedOrder={japaneseLearningSelectedDetectionOrder}
               strings={strings}
               onSelectDetection={selectJapaneseLearningDetection}
             />
           ) : null}
-          <MobileDualReaderOverlay
-            isGlobal={page.id === currentDisplayedPageKey}
-            readingMode={mode}
-            frameSize={readerImageFrameSize}
-            primaryNaturalSize={readerImageSizes.get(page.id) ?? null}
-            chapterId={chapter?.id ?? null}
-            localIndex={page.index}
-            strings={strings}
-          />
+          {pageCount !== 1 || readerImageSizes.has(pageIdentity) ? (
+            <MobileDualReaderOverlay
+              isGlobal={page.id === currentDisplayedPageKey}
+              readingMode={mode}
+              frameSize={readerImageFrameSize}
+              primaryNaturalSize={readerImageSizes.get(pageIdentity) ?? null}
+              chapterId={chapter?.id ?? null}
+              localIndex={page.index}
+              strings={strings}
+            />
+          ) : null}
         </MobileReaderPageFrame>
       </ZoomableReaderImageFrame>
+    );
+  };
+
+  const renderReaderImageSegment = (frame: MobileReaderSegmentFrame) => {
+    const page = currentDisplayedPage;
+    const asset = currentSegmentedImage;
+    if (!page || !asset) return null;
+    const segmentKey = `${asset.generation}:${frame.index}`;
+    const pageIdentity = readerPageIdentityFor(page);
+    const errorKey = `${pageIdentity}:segment:${frame.index}`;
+    const cacheKey = readerSegmentedCacheKeyFor(page);
+    return (
+      <MobileReaderPageFrame
+        backgroundColor={readerBackgroundColor}
+        frameSize={{ width: frame.width, height: frame.height }}
+        imageUri={frame.segment.uri}
+        imageUriOwnership="app"
+        imageResizeMode="stretch"
+        loading={!loadedReaderSegments.has(segmentKey)}
+        error={readerImageErrors.get(errorKey)}
+        strings={strings}
+        onImageLoadStart={() => clearReaderImageError(errorKey)}
+        onImageLoad={() => {
+          clearReaderImageError(errorKey);
+          setLoadedReaderSegments((current) => {
+            if (current.has(segmentKey)) return current;
+            const next = new Set(current);
+            next.add(segmentKey);
+            return next;
+          });
+          measureReaderFirstContent(page);
+          // Deliberately do not write this tile's dimensions into
+          // readerImageSizes[page.id]; that map owns aggregate page metadata.
+        }}
+        onImageError={(error) => setReaderImageLoadError(errorKey, error)}
+        onRetry={() => {
+          void invalidateCachedMobileImage(
+            { uri: page.imageUri, headers: page.headers },
+            cacheKey,
+          )
+            .catch(() => undefined)
+            .finally(() => {
+              setReaderSegmentedImages((current) => {
+                const next = new Map(current);
+                next.delete(pageIdentity);
+                return next;
+              });
+              clearReaderImageError(errorKey);
+              retryReaderImage(pageIdentity);
+            });
+        }}
+      />
     );
   };
 
@@ -4366,13 +4929,14 @@ export function ReaderScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: readerBackgroundColor }]}>
-      <StatusBar
+      <ReaderStatusBar
         hidden={!showControls}
         animated
         hideTransitionAnimation="fade"
         style={readerStatusBarStyle}
       />
       <MobileReaderGallery
+        accessibilityHidden={endOfChapterPromptVisible}
         accessibilityLabel={formatReaderStageAccessibilityLabel(
           clampedPageIndex,
           pageCount,
@@ -4382,11 +4946,11 @@ export function ReaderScreen() {
         )}
         backgroundColor={readerBackgroundColor}
         bottomPadding={
-          pagedMode ? readerBottomPadding : readerScrollBottomInset
+          galleryPagedMode ? readerBottomPadding : readerScrollBottomInset
         }
         chapter={chapter}
         chromeTopPadding={
-          pagedMode ? readerChromeTopPadding : readerScrollTopInset
+          galleryPagedMode ? readerChromeTopPadding : readerScrollTopInset
         }
         completed={completed}
         displayedPages={displayedPages}
@@ -4394,6 +4958,13 @@ export function ReaderScreen() {
         scrollMountKey={readerScrollMountKey}
         isTwoPageMode={isTwoPageMode}
         loading={loading}
+        longStripPresentationMode={isLongStripLogicalPage}
+        longStripContentIdentity={
+          isLongStripLogicalPage || currentSegmentedImage
+            ? currentDisplayedPageIdentity
+            : undefined
+        }
+        initialLongStripScrollProgress={initialLongStripScrollProgress}
         mode={mode}
         onMomentumScrollEnd={onReaderMomentumEnd}
         onScroll={onReaderScroll}
@@ -4405,6 +4976,12 @@ export function ReaderScreen() {
         }}
         onPageStep={stepReaderPage}
         onRequestAdvancePastEnd={showEndOfChapterPrompt}
+        onSegmentedLogicalEndReached={() => {
+          if (currentLogicalEndIdentity) {
+            setSegmentedLogicalEndReachedIdentity(currentLogicalEndIdentity);
+          }
+        }}
+        onLongStripScrollProgressChange={persistLongStripScrollProgress}
         onOpenSourceSettings={() => {
           router.push({
             pathname: "/(tabs)/settings/[section]",
@@ -4414,13 +4991,18 @@ export function ReaderScreen() {
         onToggleControls={() => {
           setShowControls((value) => !value);
         }}
-        pagedMode={pagedMode}
+        pagedMode={galleryPagedMode}
+        pageTurnAccessibilityEnabled={
+          pagedMode || isLongStripLogicalPage || Boolean(currentSegmentedImage)
+        }
         pages={pages}
         pagesState={pagesState}
         readerImageWidth={readerImageWidth}
         readerPageWidth={readerPageWidth}
         readerScrollRef={readerScrollRef}
         renderImage={renderReaderImage}
+        renderImageSegment={renderReaderImageSegment}
+        segmentedImageFrames={segmentedImageFrames}
         sourcePageForDisplayIndex={sourcePageForDisplayIndex}
         spreads={readerSpreads}
         stateTopPadding={readerStateTopPadding}
@@ -4429,19 +5011,14 @@ export function ReaderScreen() {
         windowHeight={window.height}
       />
 
-      <MobileReaderEndOfChapterOverlay
-        visible={endOfChapterPromptVisible}
-        nextChapterLabel={nextChapterLabel}
-        strings={strings}
-        bottomInset={insets.bottom}
-        topInset={insets.top}
-        onGoToNextChapter={goToNextChapterFromPrompt}
-        onDismiss={() => setEndOfChapterPromptVisible(false)}
-      />
+      {!endOfChapterPromptVisible &&
+      currentWholeImageToolsAvailable &&
+      (!currentSegmentedImage ||
+        MOBILE_READER_SEGMENTED_CAPABILITIES.dualReaderOverlay) ? (
+        <MobileDualReaderRoot {...dualReaderContext} />
+      ) : null}
 
-      <MobileDualReaderRoot {...dualReaderContext} />
-
-      {japaneseLearningReaderPlugin ? (
+      {japaneseLearningReaderPlugin && !endOfChapterPromptVisible ? (
         <>
           <JapaneseLearningPluginLauncherSheet
             visible={japaneseLearningLauncherVisible}
@@ -4450,19 +5027,28 @@ export function ReaderScreen() {
             pluginIcon={japaneseLearningReaderPlugin.icon}
             enabled={japaneseLearningReaderPlugin.enabled}
             values={{
-              autoDetect: japaneseLearningReaderPlugin.values.autoDetect === true,
+              autoDetect:
+                japaneseLearningReaderPlugin.values.autoDetect === true,
               enableForAllLanguages:
-                japaneseLearningReaderPlugin.values.enableForAllLanguages === true,
+                japaneseLearningReaderPlugin.values.enableForAllLanguages ===
+                true,
               minConfidence:
-                typeof japaneseLearningReaderPlugin.values.minConfidence === "number"
+                typeof japaneseLearningReaderPlugin.values.minConfidence ===
+                "number"
                   ? japaneseLearningReaderPlugin.values.minConfidence
                   : 0.5,
               nemuResponseMode:
-                typeof japaneseLearningReaderPlugin.values.nemuResponseMode === "string"
+                typeof japaneseLearningReaderPlugin.values.nemuResponseMode ===
+                "string"
                   ? japaneseLearningReaderPlugin.values.nemuResponseMode
                   : "app",
             }}
             ocrLoading={japaneseLearningOcrState.status === "loading"}
+            ocrUnavailableDetail={
+              currentSegmentedImage
+                ? strings.reader.pluginJapaneseLearningNoImage
+                : undefined
+            }
             chatLoading={japaneseLearningChatState.status === "loading"}
             onClose={() => setJapaneseLearningLauncherVisible(false)}
             onDetectText={() => {
@@ -4598,7 +5184,8 @@ export function ReaderScreen() {
                   : undefined,
             }}
             minConfidence={
-              typeof japaneseLearningReaderPlugin.values.minConfidence === "number"
+              typeof japaneseLearningReaderPlugin.values.minConfidence ===
+              "number"
                 ? japaneseLearningReaderPlugin.values.minConfidence
                 : 0.5
             }
@@ -4610,7 +5197,7 @@ export function ReaderScreen() {
       ) : null}
 
       <ReaderPluginSettingsSheet
-        visible={readerPluginSettingsOpen}
+        visible={readerPluginSettingsOpen && !endOfChapterPromptVisible}
         plugins={readerPlugins.data}
         selectedPluginId={selectedReaderPluginSettingsId}
         loading={readerPlugins.loading}
@@ -4643,7 +5230,7 @@ export function ReaderScreen() {
       />
 
       <ReaderDisplaySettingsPopover
-        visible={readerDisplaySettingsOpen}
+        visible={readerDisplaySettingsOpen && !endOfChapterPromptVisible}
         mode={mode}
         activeScrollWidthPct={activeScrollWidthPct}
         isTwoPageMode={isTwoPageMode}
@@ -4694,7 +5281,7 @@ export function ReaderScreen() {
         }}
       />
 
-      {showReaderChrome ? (
+      {showReaderChrome && !endOfChapterPromptVisible ? (
         <View pointerEvents="box-none" style={styles.readerChromeLayer}>
           <Animated.View
             entering={readerTopBarEntering}
@@ -4707,55 +5294,55 @@ export function ReaderScreen() {
               style={styles.readerChromePanelShell}
             >
               <View style={styles.readerTopPanel}>
-              <NemuPressable
-                accessibilityRole="button"
-                accessibilityLabel={strings.common.back}
-                onPress={() => {
-                  navigateBack();
-                }}
-                style={[
-                  styles.readerChromeIconButton,
-                  { backgroundColor: "transparent" },
-                ]}
-              >
-                <Ionicons
-                  name="chevron-back-outline"
-                  size={22}
-                  color={readerChromeColors.secondaryText}
-                />
-              </NemuPressable>
-              <View style={styles.readerTopTitleBlock}>
-                <Text
-                  numberOfLines={1}
+                <NemuPressable
+                  accessibilityRole="button"
+                  accessibilityLabel={strings.common.back}
+                  onPress={() => {
+                    navigateBack();
+                  }}
                   style={[
-                    styles.topTitleText,
-                    { color: readerChromeColors.primaryText },
+                    styles.readerChromeIconButton,
+                    { backgroundColor: "transparent" },
                   ]}
                 >
-                  {title}
-                </Text>
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.topSubtitleText,
-                    { color: readerChromeColors.secondaryText },
-                  ]}
-                >
-                  {chapterTitle}
-                </Text>
-              </View>
-              {pageCount ? (
-                <Text
-                  style={[
-                    styles.readerTopPageCount,
-                    { color: readerChromeColors.secondaryText },
-                  ]}
-                >
-                  {sourcePageNumber} / {Math.max(1, pageCount)}
-                </Text>
-              ) : (
-                <View style={styles.readerTopPageCountPlaceholder} />
-              )}
+                  <Ionicons
+                    name="chevron-back-outline"
+                    size={22}
+                    color={readerChromeColors.secondaryText}
+                  />
+                </NemuPressable>
+                <View style={styles.readerTopTitleBlock}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.topTitleText,
+                      { color: readerChromeColors.primaryText },
+                    ]}
+                  >
+                    {title}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.topSubtitleText,
+                      { color: readerChromeColors.secondaryText },
+                    ]}
+                  >
+                    {chapterTitle}
+                  </Text>
+                </View>
+                {pageCount ? (
+                  <Text
+                    style={[
+                      styles.readerTopPageCount,
+                      { color: readerChromeColors.secondaryText },
+                    ]}
+                  >
+                    {sourcePageNumber} / {Math.max(1, pageCount)}
+                  </Text>
+                ) : (
+                  <View style={styles.readerTopPageCountPlaceholder} />
+                )}
               </View>
             </ReaderChromePanel>
           </Animated.View>
@@ -4772,267 +5359,275 @@ export function ReaderScreen() {
                 style={styles.readerChromePanelShell}
               >
                 <View style={styles.readerBottomPanel}>
-                {readerSettingsError ? (
-                  <MobileInlineErrorBanner
-                    title={strings.settings.settingsActionFailed}
-                    detail={readerSettingsError}
-                    dismissLabel={strings.common.clear}
-                    onDismiss={() => setReaderSettingsError(null)}
-                    variant="embedded"
-                  />
-                ) : null}
+                  {readerSettingsError ? (
+                    <MobileInlineErrorBanner
+                      title={strings.settings.settingsActionFailed}
+                      detail={readerSettingsError}
+                      dismissLabel={strings.common.clear}
+                      onDismiss={() => setReaderSettingsError(null)}
+                      variant="embedded"
+                    />
+                  ) : null}
 
-                <View style={styles.readerBottomChromeRow}>
-                  <NemuPressable
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      leftChapter
-                        ? formatChapterAccessibilityLabel(
-                            mode === "rtl" ? "next" : "previous",
-                            leftChapter,
-                            strings,
-                          )
-                        : mode === "rtl"
-                          ? strings.reader.noNextChapter
-                          : strings.reader.noPreviousChapter
-                    }
-                    accessibilityState={{ disabled: !leftChapter }}
-                    disabled={!leftChapter}
-                    onPress={() => {
-                      if (!leftChapter) return;
-                      goToChapter(leftChapter, {
-                        startAt: mode === "rtl" ? "start" : "end",
-                      });
-                    }}
-                    pressedScale={0.98}
-                    style={[
-                      styles.readerChromeIconButton,
-                      { backgroundColor: "transparent" },
-                    ]}
-                  >
-                    <Ionicons
-                      name="play-skip-back-outline"
-                      size={17}
-                      color={
+                  <View style={styles.readerBottomChromeRow}>
+                    <NemuPressable
+                      accessibilityRole="button"
+                      accessibilityLabel={
                         leftChapter
-                          ? readerChromeColors.secondaryText
-                          : readerChromeColors.disabled
+                          ? formatChapterAccessibilityLabel(
+                              mode === "rtl" ? "next" : "previous",
+                              leftChapter,
+                              strings,
+                            )
+                          : mode === "rtl"
+                            ? strings.reader.noNextChapter
+                            : strings.reader.noPreviousChapter
                       }
-                    />
-                  </NemuPressable>
+                      accessibilityState={{ disabled: !leftChapter }}
+                      disabled={!leftChapter}
+                      onPress={() => {
+                        if (!leftChapter) return;
+                        goToChapter(leftChapter, {
+                          startAt: mode === "rtl" ? "start" : "end",
+                        });
+                      }}
+                      pressedScale={0.98}
+                      style={[
+                        styles.readerChromeIconButton,
+                        { backgroundColor: "transparent" },
+                      ]}
+                    >
+                      <Ionicons
+                        name="play-skip-back-outline"
+                        size={17}
+                        color={
+                          leftChapter
+                            ? readerChromeColors.secondaryText
+                            : readerChromeColors.disabled
+                        }
+                      />
+                    </NemuPressable>
 
-                  <View style={styles.readerChromeScrubber}>
-                    <MobileReaderScrubber
-                      pageIndex={clampedPageIndex}
-                      pageCount={pageCount}
-                      mode={mode}
-                      strings={strings}
-                      onChange={goToPage}
-                    />
-                  </View>
+                    <View style={styles.readerChromeScrubber}>
+                      <MobileReaderScrubber
+                        pageIndex={clampedPageIndex}
+                        pageCount={pageCount}
+                        mode={mode}
+                        strings={strings}
+                        onChange={goToPage}
+                      />
+                    </View>
 
-                  <NemuPressable
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      rightChapter
-                        ? formatChapterAccessibilityLabel(
-                            mode === "rtl" ? "previous" : "next",
-                            rightChapter,
-                            strings,
-                          )
-                        : mode === "rtl"
-                          ? strings.reader.noPreviousChapter
-                          : strings.reader.noNextChapter
-                    }
-                    accessibilityState={{ disabled: !rightChapter }}
-                    disabled={!rightChapter}
-                    onPress={() => {
-                      if (!rightChapter) return;
-                      goToChapter(rightChapter, {
-                        startAt: mode === "rtl" ? "end" : "start",
-                      });
-                    }}
-                    pressedScale={0.98}
-                    style={[
-                      styles.readerChromeIconButton,
-                      { backgroundColor: "transparent" },
-                    ]}
-                  >
-                    <Ionicons
-                      name="play-skip-forward-outline"
-                      size={17}
-                      color={
+                    <NemuPressable
+                      accessibilityRole="button"
+                      accessibilityLabel={
                         rightChapter
-                          ? readerChromeColors.secondaryText
-                          : readerChromeColors.disabled
+                          ? formatChapterAccessibilityLabel(
+                              mode === "rtl" ? "previous" : "next",
+                              rightChapter,
+                              strings,
+                            )
+                          : mode === "rtl"
+                            ? strings.reader.noPreviousChapter
+                            : strings.reader.noNextChapter
                       }
-                    />
-                  </NemuPressable>
+                      accessibilityState={{ disabled: !rightChapter }}
+                      disabled={!rightChapter}
+                      onPress={() => {
+                        if (!rightChapter) return;
+                        goToChapter(rightChapter, {
+                          startAt: mode === "rtl" ? "end" : "start",
+                        });
+                      }}
+                      pressedScale={0.98}
+                      style={[
+                        styles.readerChromeIconButton,
+                        { backgroundColor: "transparent" },
+                      ]}
+                    >
+                      <Ionicons
+                        name="play-skip-forward-outline"
+                        size={17}
+                        color={
+                          rightChapter
+                            ? readerChromeColors.secondaryText
+                            : readerChromeColors.disabled
+                        }
+                      />
+                    </NemuPressable>
 
-                  {enabledReaderPlugins.map((plugin) => {
-                    if (plugin.id === "japanese-learning") {
-                      const selected = activeReaderPluginId === plugin.id;
-                      const ocrLoading =
-                        japaneseLearningOcrState.status === "loading";
-                      const chatLoading =
-                        japaneseLearningChatState.status === "loading";
+                    {enabledReaderPlugins.map((plugin) => {
+                      if (plugin.id === "japanese-learning") {
+                        const selected = activeReaderPluginId === plugin.id;
+                        const ocrLoading =
+                          japaneseLearningOcrState.status === "loading";
+                        const chatLoading =
+                          japaneseLearningChatState.status === "loading";
 
+                        return (
+                          <View
+                            key={plugin.id}
+                            style={styles.readerPluginActionGroup}
+                          >
+                            <NemuPressable
+                              accessibilityRole="button"
+                              accessibilityLabel={
+                                strings.reader.pluginJapaneseLearningDetectText
+                              }
+                              accessibilityState={{
+                                selected,
+                                disabled: Boolean(currentSegmentedImage),
+                              }}
+                              disabled={Boolean(currentSegmentedImage)}
+                              onPress={openJapaneseLearningDetectionTool}
+                              pressedScale={0.98}
+                              style={[
+                                styles.readerChromeIconButton,
+                                {
+                                  backgroundColor:
+                                    selected &&
+                                    japaneseLearningOcrState.status !== "idle"
+                                      ? readerChromeColors.hover
+                                      : "transparent",
+                                },
+                              ]}
+                            >
+                              {ocrLoading ? (
+                                <ActivityIndicator
+                                  size="small"
+                                  color={readerChromeColors.secondaryText}
+                                />
+                              ) : (
+                                <Ionicons
+                                  name="scan-outline"
+                                  size={18}
+                                  color={
+                                    selected &&
+                                    japaneseLearningOcrState.status !== "idle"
+                                      ? readerChromeColors.primaryText
+                                      : readerChromeColors.secondaryText
+                                  }
+                                />
+                              )}
+                            </NemuPressable>
+                            <NemuPressable
+                              accessibilityRole="button"
+                              accessibilityLabel={
+                                strings.reader.pluginJapaneseLearningNemuChat
+                              }
+                              accessibilityState={{ selected }}
+                              onPress={openJapaneseLearningChatTool}
+                              pressedScale={0.98}
+                              style={[
+                                styles.readerChromeIconButton,
+                                {
+                                  backgroundColor:
+                                    selected &&
+                                    (japaneseLearningChatMessages.length > 0 ||
+                                      japaneseLearningChatState.status !==
+                                        "idle")
+                                      ? readerChromeColors.hover
+                                      : "transparent",
+                                },
+                              ]}
+                            >
+                              {chatLoading ? (
+                                <ActivityIndicator
+                                  size="small"
+                                  color={readerChromeColors.secondaryText}
+                                />
+                              ) : (
+                                <Ionicons
+                                  name="chatbubbles-outline"
+                                  size={18}
+                                  color={
+                                    selected &&
+                                    (japaneseLearningChatMessages.length > 0 ||
+                                      japaneseLearningChatState.status !==
+                                        "idle")
+                                      ? readerChromeColors.primaryText
+                                      : readerChromeColors.secondaryText
+                                  }
+                                />
+                              )}
+                            </NemuPressable>
+                          </View>
+                        );
+                      }
+
+                      const selected = dualReadEnabled;
+                      const canSelect = canSelectMobileReaderPluginOption({
+                        selected,
+                        disabled: false,
+                      });
                       return (
-                        <View
+                        <NemuPressable
                           key={plugin.id}
-                          style={styles.readerPluginActionGroup}
+                          accessibilityRole="button"
+                          accessibilityLabel={formatMobileString(
+                            strings.reader.openPlugin,
+                            { name: plugin.name },
+                          )}
+                          accessibilityState={{ selected }}
+                          hapticFeedback={canSelect ? "press" : "none"}
+                          onPress={() => {
+                            if (canSelect) {
+                              openDualReadConfig();
+                            }
+                          }}
+                          pressedScale={0.98}
+                          style={[
+                            styles.readerChromeIconButton,
+                            {
+                              backgroundColor: selected
+                                ? readerChromeColors.hover
+                                : "transparent",
+                            },
+                          ]}
                         >
-                          <NemuPressable
-                            accessibilityRole="button"
-                            accessibilityLabel={
-                              strings.reader.pluginJapaneseLearningDetectText
+                          <Ionicons
+                            name={plugin.icon}
+                            size={18}
+                            color={
+                              selected
+                                ? readerChromeColors.primaryText
+                                : readerChromeColors.secondaryText
                             }
-                            accessibilityState={{ selected }}
-                            onPress={openJapaneseLearningDetectionTool}
-                            pressedScale={0.98}
-                            style={[
-                              styles.readerChromeIconButton,
-                              {
-                                backgroundColor:
-                                  selected &&
-                                  japaneseLearningOcrState.status !== "idle"
-                                    ? readerChromeColors.hover
-                                    : "transparent",
-                              },
-                            ]}
-                          >
-                            {ocrLoading ? (
-                              <ActivityIndicator
-                                size="small"
-                                color={readerChromeColors.secondaryText}
-                              />
-                            ) : (
-                              <Ionicons
-                                name="scan-outline"
-                                size={18}
-                                color={
-                                  selected &&
-                                  japaneseLearningOcrState.status !== "idle"
-                                    ? readerChromeColors.primaryText
-                                    : readerChromeColors.secondaryText
-                                }
-                              />
-                            )}
-                          </NemuPressable>
-                          <NemuPressable
-                            accessibilityRole="button"
-                            accessibilityLabel={
-                              strings.reader.pluginJapaneseLearningNemuChat
-                            }
-                            accessibilityState={{ selected }}
-                            onPress={openJapaneseLearningChatTool}
-                            pressedScale={0.98}
-                            style={[
-                              styles.readerChromeIconButton,
-                              {
-                                backgroundColor:
-                                  selected &&
-                                  (japaneseLearningChatMessages.length > 0 ||
-                                    japaneseLearningChatState.status !== "idle")
-                                    ? readerChromeColors.hover
-                                    : "transparent",
-                              },
-                            ]}
-                          >
-                            {chatLoading ? (
-                              <ActivityIndicator
-                                size="small"
-                                color={readerChromeColors.secondaryText}
-                              />
-                            ) : (
-                              <Ionicons
-                                name="chatbubbles-outline"
-                                size={18}
-                                color={
-                                  selected &&
-                                  (japaneseLearningChatMessages.length > 0 ||
-                                    japaneseLearningChatState.status !== "idle")
-                                    ? readerChromeColors.primaryText
-                                    : readerChromeColors.secondaryText
-                                }
-                              />
-                            )}
-                          </NemuPressable>
-                        </View>
+                          />
+                        </NemuPressable>
                       );
-                    }
+                    })}
 
-                    const selected = dualReadEnabled;
-                    const canSelect = canSelectMobileReaderPluginOption({
-                      selected,
-                      disabled: false,
-                    });
-                    return (
-                      <NemuPressable
-                        key={plugin.id}
-                        accessibilityRole="button"
-                        accessibilityLabel={formatMobileString(
-                          strings.reader.openPlugin,
-                          { name: plugin.name },
-                        )}
-                        accessibilityState={{ selected }}
-                        hapticFeedback={canSelect ? "press" : "none"}
-                        onPress={() => {
-                          if (canSelect) {
-                            openDualReadConfig();
-                          }
-                        }}
-                        pressedScale={0.98}
-                        style={[
-                          styles.readerChromeIconButton,
-                          {
-                            backgroundColor: selected
-                              ? readerChromeColors.hover
-                              : "transparent",
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name={plugin.icon}
-                          size={18}
-                          color={
-                            selected
-                              ? readerChromeColors.primaryText
-                              : readerChromeColors.secondaryText
-                          }
-                        />
-                      </NemuPressable>
-                    );
-                  })}
-
-                  <NemuPressable
-                    accessibilityRole="button"
-                    accessibilityLabel={strings.reader.title}
-                    accessibilityState={{ selected: readerDisplaySettingsOpen }}
-                    onPress={() => {
-                      setReaderDisplaySettingsOpen(true);
-                    }}
-                    pressedScale={0.98}
-                    style={[
-                      styles.readerChromeIconButton,
-                      {
-                        backgroundColor: readerDisplaySettingsOpen
-                          ? readerChromeColors.hover
-                          : "transparent",
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name="settings-outline"
-                      size={20}
-                      color={
-                        readerDisplaySettingsOpen
-                          ? readerChromeColors.primaryText
-                          : readerChromeColors.secondaryText
-                      }
-                    />
-                  </NemuPressable>
-                </View>
+                    <NemuPressable
+                      accessibilityRole="button"
+                      accessibilityLabel={strings.reader.title}
+                      accessibilityState={{
+                        selected: readerDisplaySettingsOpen,
+                      }}
+                      onPress={() => {
+                        setReaderDisplaySettingsOpen(true);
+                      }}
+                      pressedScale={0.98}
+                      style={[
+                        styles.readerChromeIconButton,
+                        {
+                          backgroundColor: readerDisplaySettingsOpen
+                            ? readerChromeColors.hover
+                            : "transparent",
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name="settings-outline"
+                        size={20}
+                        color={
+                          readerDisplaySettingsOpen
+                            ? readerChromeColors.primaryText
+                            : readerChromeColors.secondaryText
+                        }
+                      />
+                    </NemuPressable>
+                  </View>
                 </View>
               </ReaderChromePanel>
             </Animated.View>
@@ -5040,11 +5635,27 @@ export function ReaderScreen() {
         </View>
       ) : null}
       <MobileNemuAgentSheet
-        visible={cloudflareSheet.visible}
+        visible={cloudflareSheet.visible && !endOfChapterPromptVisible}
         status={cloudflareSheet.status}
         url={cloudflareSheet.url}
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
+      />
+      <MobileReaderEndOfChapterOverlay
+        visible={endOfChapterPromptVisible}
+        nextChapterLabel={nextChapterLabel}
+        strings={strings}
+        bottomInset={insets.bottom}
+        topInset={insets.top}
+        busy={endOfChapterProgressSaving}
+        error={endOfChapterProgressError}
+        onGoToNextChapter={goToNextChapterFromPrompt}
+        onDismiss={() => {
+          if (endOfChapterProgressSaving) return;
+          setEndOfChapterPromptVisible(false);
+          setEndOfChapterProgressSaved(false);
+          setEndOfChapterProgressError(null);
+        }}
       />
     </View>
   );

@@ -74,6 +74,18 @@ export type MobileDataStore = {
   ): Promise<boolean>;
   getSettings(): Promise<UserSettings>;
   getSyncSettings(): Promise<UserSettings>;
+  /**
+   * Atomically updates local scalar preferences from the latest durable
+   * settings row. The updater cannot mutate installed sources; those have
+   * their own row-level/tombstone APIs.
+   */
+  updateSettings(
+    updater: (current: UserSettings) => UserSettings,
+  ): Promise<UserSettings>;
+  /**
+   * Replaces scalar settings only. Installed sources are deliberately ignored
+   * and must be changed through their row-level APIs.
+   */
   saveSettings(settings: UserSettings, expectedGeneration?: number): Promise<void>;
   clearPackageCacheReferences(): Promise<void>;
   clearAllUserData(): Promise<void>;

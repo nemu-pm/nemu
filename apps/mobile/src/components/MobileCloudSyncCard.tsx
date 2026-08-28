@@ -27,7 +27,9 @@ import {
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
+import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
+import { isMobileAuthStorageUnavailable } from "@/sync/mobileAuthSecureStorage";
 import { unregisterMobileBackgroundSyncAsync } from "@/sync/mobileBackgroundSync";
 import { signOutAndUnregisterMobileBackgroundSync } from "@/sync/mobileBackgroundSyncLifecycle";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
@@ -48,12 +50,14 @@ import {
 } from "@/sync/mobileOAuthProvider";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { clearMobileAidokuSandboxDataForProfile } from "@/sources/mobileAidokuSandboxData";
-import { getActiveMobileSourceProfileScope } from "@/sources/mobileSourceProfileScope";
 import {
-  clearRetainedMobileDataProfile,
   makeMobileProfileId,
   retainMobileDataProfile,
 } from "@/data/mobileDataProfile";
+import {
+  MOBILE_LOCAL_DATA_CLEANUP_UNAVAILABLE,
+  removeMobileDataProfileAfterSignOut,
+} from "@/data/mobileDataProfileCleanup";
 import {
   emitMobileDataChanged,
   useMobileDataRevision,
@@ -547,10 +551,10 @@ function MobileCloudSyncConfiguredCard({
       if (mobileSessionUserIdRef.current !== expectedUserId) return;
       setError({
         title: strings.settings.cloudSyncRetryFailed,
-        detail:
-          nextError instanceof Error
-            ? nextError.message
-            : strings.settings.cloudSyncRetryFailed,
+        detail: describeMobileErrorDetail(
+          nextError,
+          strings.settings.cloudSyncRetryFailed,
+        ),
         accountId: expectedUserId,
       });
       await hapticError();
@@ -604,10 +608,10 @@ function MobileCloudSyncConfiguredCard({
       }
       setRecoveryError({
         title: strings.settings.cloudSyncEraseFailed,
-        detail:
-          nextError instanceof Error
-            ? nextError.message
-            : strings.settings.cloudSyncEraseFailed,
+        detail: describeMobileErrorDetail(
+          nextError,
+          strings.settings.cloudSyncEraseFailed,
+        ),
       });
       await hapticError();
     } finally {
@@ -642,6 +646,8 @@ function MobileCloudSyncConfiguredCard({
             signInFailed: strings.settings.cloudSyncSignInFailed,
             networkUnavailable:
               strings.settings.cloudSyncAuthenticationNetworkUnavailable,
+            storageUnavailable:
+              strings.settings.cloudSyncAuthenticationStorageUnavailable,
           }),
           accountId: errorAccountId,
         });
@@ -652,10 +658,12 @@ function MobileCloudSyncConfiguredCard({
     } catch (nextError) {
       setError({
         title: strings.settings.cloudSyncSignInFailed,
-        detail:
-          nextError instanceof Error
-            ? nextError.message
-            : strings.settings.cloudSyncSignInFailed,
+        detail: isMobileAuthStorageUnavailable(nextError)
+          ? strings.settings.cloudSyncAuthenticationStorageUnavailable
+          : describeMobileErrorDetail(
+              nextError,
+              strings.settings.cloudSyncSignInFailed,
+            ),
         accountId: errorAccountId,
       });
       await hapticError();
@@ -669,7 +677,6 @@ function MobileCloudSyncConfiguredCard({
 
   const signOut = async (keepData: boolean) => {
     const errorAccountId = user?.id ?? null;
-    const sourceProfileScope = getActiveMobileSourceProfileScope();
     if (
       !canStartMobileCloudSignOut(
         busyProviderRef.current ?? busyProvider,
@@ -686,8 +693,9 @@ function MobileCloudSyncConfiguredCard({
       await runWithMobileSyncSuspended(async () => {
         await completeMobileCloudSignOut({
           keepData,
-          signOutAndUnregister: () =>
+          signOutAndUnregister: (onSignOutConfirmed) =>
             signOutAndUnregisterMobileBackgroundSync({
+              onSignOutConfirmed,
               signOut: () => mobileAuthClient.signOut(),
               unregister: unregisterMobileBackgroundSyncAsync,
             }),
@@ -696,9 +704,15 @@ function MobileCloudSyncConfiguredCard({
             if (profileId) await retainMobileDataProfile(profileId);
           },
           clearLocalData: async () => {
-            await clearMobileAidokuSandboxDataForProfile(sourceProfileScope);
-            await store.clearAccountData();
-            await clearRetainedMobileDataProfile();
+            const profileId = makeMobileProfileId(errorAccountId);
+            if (!profileId) {
+              throw new Error(MOBILE_LOCAL_DATA_CLEANUP_UNAVAILABLE);
+            }
+            await removeMobileDataProfileAfterSignOut({
+              profileId,
+              clearSandboxData: clearMobileAidokuSandboxDataForProfile,
+              clearAccountData: () => store.clearAccountData(),
+            });
             emitMobileDataChanged("all");
           },
         });
@@ -719,10 +733,12 @@ function MobileCloudSyncConfiguredCard({
       }
       setError({
         title: strings.settings.cloudSyncSignOutFailed,
-        detail:
-          nextError instanceof Error
-            ? nextError.message
-            : strings.settings.cloudSyncSignOutFailed,
+        detail: isMobileAuthStorageUnavailable(nextError)
+          ? strings.settings.cloudSyncAuthenticationStorageUnavailable
+          : describeMobileErrorDetail(
+              nextError,
+              strings.settings.cloudSyncSignOutFailed,
+            ),
         accountId: errorAccountId,
       });
       await hapticError();
@@ -869,6 +885,7 @@ function MobileCloudSyncConfiguredCard({
               style={styles.syncPausedBlock}
             >
               <MobileInlineErrorBanner
+                announce={false}
                 actionDisabled={retryingSync || signingOut}
                 actionLabel={strings.settings.cloudSyncRetry}
                 actionLoading={retryingSync}
@@ -904,6 +921,7 @@ function MobileCloudSyncConfiguredCard({
           {visibleSyncSnapshotReadError ? (
             <View accessibilityLiveRegion="polite">
               <MobileInlineErrorBanner
+                announce={false}
                 actionLabel={strings.settings.cloudSyncRetry}
                 title={visibleSyncSnapshotReadError.title}
                 detail={visibleSyncSnapshotReadError.detail}

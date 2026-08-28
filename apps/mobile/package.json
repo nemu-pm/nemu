@@ -18,7 +18,7 @@
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "test": "bun test",
+    "test": "bun test --test-name-pattern '^(?!.*(?:checked-in bundle reproducible|Swift native policy executables)).*$' && bun test ./src/sources/mobileAidokuSandboxBundle.contract.test.ts ./src/sources/mobileNativeHttpSsrfPolicy.test.ts --test-name-pattern '(checked-in bundle reproducible|Swift native policy executables)'",
     "build:ios:production": "eas build --platform ios --profile production",
     "build:android:production": "eas build --platform android --profile production"
   },

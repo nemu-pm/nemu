@@ -5,6 +5,7 @@ import {
   type AidokuRegistryDefinition,
 } from "@nemu/core/sources";
 import { sha256Bytes } from "@nemu/core";
+import { throwIfMobileNativeHttpAborted } from "./mobileNativeHttpAbort";
 
 // Re-export the shared type so existing `import { type AidokuRegistryDefinition
 // } from "./aidokuRegistry"` call sites (incl. the test fixture) keep working.
@@ -55,9 +56,8 @@ export function makeAixCacheKey(registryId: string, sourceId: string): string {
 }
 
 function sha256Hex(value: string): string {
-  return Array.from(
-    sha256Bytes(new TextEncoder().encode(value)),
-    (byte) => byte.toString(16).padStart(2, "0"),
+  return Array.from(sha256Bytes(new TextEncoder().encode(value)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
   ).join("");
 }
 
@@ -77,12 +77,9 @@ export function makeAixArtifactCacheKey({
   sourceId: string;
   version: number;
 }): string {
-  return `aix:${sha256Hex(JSON.stringify([
-    registryId,
-    sourceId,
-    version,
-    artifactIdentity,
-  ]))}`;
+  return `aix:${sha256Hex(
+    JSON.stringify([registryId, sourceId, version, artifactIdentity]),
+  )}`;
 }
 
 /** True only for immutable, content-identity-bound AIX cache keys. */
@@ -98,9 +95,13 @@ function decodeSourceKeyPart(part: string): string {
   }
 }
 
-export function parseSourceKey(key: string): { registryId: string; sourceId: string } {
+export function parseSourceKey(key: string): {
+  registryId: string;
+  sourceId: string;
+} {
   const index = key.indexOf(":");
-  if (index < 0) return { registryId: "unknown", sourceId: decodeSourceKeyPart(key) };
+  if (index < 0)
+    return { registryId: "unknown", sourceId: decodeSourceKeyPart(key) };
   return {
     registryId: decodeSourceKeyPart(key.slice(0, index)),
     sourceId: decodeSourceKeyPart(key.slice(index + 1)),
@@ -135,6 +136,14 @@ function absoluteUrl(baseUrl: string, path: unknown): string | undefined {
   }
 }
 
+function absoluteExecutableUrl(
+  baseUrl: string,
+  path: unknown,
+): string | undefined {
+  const url = absoluteUrl(baseUrl, path);
+  return url && new URL(url).protocol === "https:" ? url : undefined;
+}
+
 function normalizeLanguages(source: RegistryIndexSource): string[] | undefined {
   const rawLanguages = Array.isArray(source.languages)
     ? source.languages
@@ -154,7 +163,10 @@ function normalizeLanguages(source: RegistryIndexSource): string[] | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function readBoolean(source: RegistryIndexSource, keys: string[]): boolean | undefined {
+function readBoolean(
+  source: RegistryIndexSource,
+  keys: string[],
+): boolean | undefined {
   for (const key of keys) {
     if (source[key] === true) return true;
     if (source[key] === false) return false;
@@ -187,11 +199,14 @@ function readSources(data: unknown): RegistryIndexSource[] {
 }
 
 export async function fetchAidokuRegistrySources(
-  registry: AidokuRegistryDefinition
+  registry: AidokuRegistryDefinition,
+  options: { signal?: AbortSignal } = {},
 ): Promise<MobileRegistrySource[]> {
   const response = await mobileNativeFetch(registry.indexUrl, {
     responseMode: "text",
     maxResponseBytes: MOBILE_AIDOKU_REGISTRY_MAX_RESPONSE_BYTES,
+    requireHttps: true,
+    signal: options.signal,
   });
   if (!response.ok) {
     throw new Error(`Failed to fetch ${registry.name}: ${response.status}`);
@@ -223,10 +238,13 @@ export async function fetchAidokuRegistrySources(
       if (!id || !name) return null;
 
       const iconPath =
-        source.iconURL ?? (typeof source.icon === "string" ? `icons/${source.icon}` : undefined);
+        source.iconURL ??
+        (typeof source.icon === "string" ? `icons/${source.icon}` : undefined);
       const downloadPath =
         source.downloadURL ??
-        (typeof source.file === "string" ? `sources/${source.file}` : undefined);
+        (typeof source.file === "string"
+          ? `sources/${source.file}`
+          : undefined);
       const rating =
         typeof source.contentRating === "number"
           ? source.contentRating
@@ -240,7 +258,10 @@ export async function fetchAidokuRegistrySources(
         "requiresAuthentication",
         "hasWebView",
       ]);
-      const hasCloudflare = readBoolean(source, ["hasCloudflare", "cloudflare"]);
+      const hasCloudflare = readBoolean(source, [
+        "hasCloudflare",
+        "cloudflare",
+      ]);
 
       return {
         id,
@@ -249,7 +270,7 @@ export async function fetchAidokuRegistrySources(
         name,
         version,
         icon: absoluteUrl(baseUrl, iconPath),
-        downloadUrl: absoluteUrl(baseUrl, downloadPath),
+        downloadUrl: absoluteExecutableUrl(baseUrl, downloadPath),
         languages: normalizeLanguages(source),
         contentRating: rating,
         ...(hasAuthentication == null ? {} : { hasAuthentication }),
@@ -260,22 +281,33 @@ export async function fetchAidokuRegistrySources(
 }
 
 export async function fetchAllAidokuRegistrySources(
-  registries: AidokuRegistryDefinition[] = AIDOKU_REGISTRIES
+  registries: AidokuRegistryDefinition[] = AIDOKU_REGISTRIES,
+  options: { signal?: AbortSignal } = {},
 ): Promise<MobileRegistrySource[]> {
-  const results = await Promise.allSettled(registries.map(fetchAidokuRegistrySources));
+  throwIfMobileNativeHttpAborted(options.signal);
+  const results = await Promise.allSettled(
+    registries.map((registry) =>
+      fetchAidokuRegistrySources(registry, options),
+    ),
+  );
+  throwIfMobileNativeHttpAborted(options.signal);
   const sources: MobileRegistrySource[] = [];
-  const errors: string[] = [];
+  const errors = new Set<string>();
 
   for (const result of results) {
     if (result.status === "fulfilled") {
       sources.push(...result.value);
     } else {
-      errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+      errors.add(
+        result.reason instanceof Error
+          ? result.reason.message
+          : String(result.reason),
+      );
     }
   }
 
-  if (sources.length === 0 && errors.length > 0) {
-    throw new Error(errors.join("\n"));
+  if (sources.length === 0 && errors.size > 0) {
+    throw new Error([...errors].join("\n"));
   }
 
   return sources.sort((a, b) => {

@@ -27,11 +27,12 @@ Use `@/design-system` for new mobile UI. The package is the public entry point f
 
 **A sheet must always have at least one escape route.** A user who opens a sheet must always be able to leave it, including — especially — while an operation is in flight.
 
-- Drag-to-dismiss is the default escape route. `MobileNativeSheetScaffold` renders a dismiss control automatically whenever `enablePanDownToClose` is `false`, and a caller's `showDismissButton={false}` cannot override that. Do not try to build a sheet with neither.
-- `MobileSheetScaffold`'s `backdropDisabled` turns off pan-down-to-close, so it implies the mandatory dismiss control. Pass `dismissLabel` so that control reads as the right verb (usually Cancel).
+- Drag-to-dismiss is the default escape route. `MobileNativeSheetScaffold` never invents a user-facing label: pass a localized `dismissLabel` to request an explicit chrome action, including whenever `enablePanDownToClose` is `false`. `showDismissButton={false}` explicitly hides that action. Busy flows may hide the chrome action and must keep their own guarded close semantics.
+- Android's hardware Back action follows the same policy. When both pan dismissal and the chrome action are disabled, Back is consumed without closing the busy sheet; it cannot become an unguarded escape around the caller's state machine.
+- `MobileSheetScaffold`'s `backdropDisabled` turns off pan-down-to-close, so callers must provide a localized `dismissLabel` when the sheet should retain a chrome escape (usually Cancel).
 - Never gate the close handler on a busy flag (`if (loading) return;`). The sheet reports a close only *after* it has closed, so swallowing it strands the caller's `visible` flag on a sheet that is no longer on screen.
 - Keep Cancel enabled during in-flight work. Cancel should abort the operation where an abort path exists (pass an `AbortSignal` down); where none exists it should still dismiss and let the operation settle in the background, surfacing its result via a toast.
-- Android hardware back dismisses sheets — `MobileNativeSheetScaffold` installs the `BackHandler` for you. Screens must not register a competing handler that swallows back while a sheet is open.
+- Android hardware back follows the caller-approved close policy — `MobileNativeSheetScaffold` installs the `BackHandler` for you, dismissing only when pan-close or an explicit visible dismiss action permits it. Guarded sheets consume back without closing. Screens must not register a competing handler while a sheet is open.
 
 ## Migration Notes
 

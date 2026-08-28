@@ -1,6 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import type { ComponentProps } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, type ComponentProps } from "react";
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  Platform,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import {
   GlassSurface,
   NemuPressable,
@@ -21,6 +28,8 @@ type MobileInlineErrorBannerProps = {
   dismissLabel?: string;
   iconName?: IoniconName;
   onDismiss?: () => void;
+  /** Disable only when an owning live region already announces this message. */
+  announce?: boolean;
   tone?: "danger" | "success";
   variant?: "glass" | "embedded";
 };
@@ -35,17 +44,37 @@ export function MobileInlineErrorBanner({
   dismissLabel,
   iconName = "alert-circle-outline",
   onDismiss,
+  announce = true,
   tone = "danger",
   variant = "glass",
 }: MobileInlineErrorBannerProps) {
   const { tokens } = useNemuTheme();
   const accentColor = tone === "success" ? tokens.success : tokens.danger;
+  const announcement = `${title}. ${detail}`;
+  const lastAnnouncementRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!announce || Platform.OS !== "ios") {
+      lastAnnouncementRef.current = null;
+      return;
+    }
+    if (lastAnnouncementRef.current === announcement) return;
+    lastAnnouncementRef.current = announcement;
+    AccessibilityInfo.announceForAccessibility(announcement);
+  }, [announce, announcement]);
+
   const content = (
     <>
       <View style={[styles.icon, { backgroundColor: `${accentColor}18` }]}>
         <Ionicons name={iconName} size={18} color={accentColor} />
       </View>
-      <View style={styles.textBlock}>
+      <View
+        accessible={announce || undefined}
+        accessibilityLabel={announce ? announcement : undefined}
+        accessibilityLiveRegion={announce ? "polite" : undefined}
+        accessibilityRole={announce ? "alert" : undefined}
+        style={styles.textBlock}
+      >
         <Text style={[styles.title, { color: tokens.foreground }]}>
           {title}
         </Text>

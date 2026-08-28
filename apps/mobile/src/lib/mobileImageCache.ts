@@ -7,6 +7,37 @@ export type MobileImageCacheSource = {
   headers?: Record<string, string>;
 };
 
+export type MobileCachedImageFileAsset = Readonly<{
+  kind: "file";
+  uri: string;
+}>;
+export type MobileCachedImageSegment = Readonly<{
+  uri: string;
+  byteLength: number;
+  width: number;
+  height: number;
+  mimeType: "image/jpeg" | "image/png";
+}>;
+export type MobileCachedSegmentedImageAsset = Readonly<{
+  kind: "segmented-image";
+  manifestVersion: 1;
+  generation: string;
+  manifestUri: string;
+  byteLength: number;
+  width: number;
+  height: number;
+  segments: ReadonlyArray<MobileCachedImageSegment>;
+}>;
+export type MobileCachedImageAsset =
+  | MobileCachedImageFileAsset
+  | MobileCachedSegmentedImageAsset;
+export function retainCachedMobileImageAsset(
+  asset: MobileCachedImageAsset | null | undefined,
+): () => void {
+  void asset;
+  return () => undefined;
+}
+
 // Expo web relies on the browser's network boundary and has no native file
 // cache. Native overrides this to require a policy-checked local file before a
 // remote URL may reach React Native's image decoder.
@@ -32,6 +63,22 @@ export function getCachedMobileImageUriSync(
   return null;
 }
 
+export function getCachedMobileImageAssetSync(
+  source: MobileImageCacheSource | null | undefined,
+  cacheKey?: string,
+  executionScope = getActiveMobileSourceProfileScope(),
+): MobileCachedImageAsset | null {
+  const uri = getCachedMobileImageUriSync(source, cacheKey, executionScope);
+  return uri ? { kind: "file", uri } : null;
+}
+
+export function getCachedMobileImageAssetByStorageKeySync(
+  _storageKey: string,
+): MobileCachedImageAsset | null {
+  void _storageKey;
+  return null;
+}
+
 export async function resolveCachedMobileImageUri(
   _source: MobileImageCacheSource | null | undefined,
   _cacheKey?: string,
@@ -43,6 +90,21 @@ export async function resolveCachedMobileImageUri(
   void _executionScope;
   void _options;
   return null;
+}
+
+export async function resolveCachedMobileImageAsset(
+  source: MobileImageCacheSource | null | undefined,
+  cacheKey?: string,
+  executionScope = getActiveMobileSourceProfileScope(),
+  options: MobileImageCacheResolveOptions = {},
+): Promise<MobileCachedImageAsset | null> {
+  const uri = await resolveCachedMobileImageUri(
+    source,
+    cacheKey,
+    executionScope,
+    options,
+  );
+  return uri ? { kind: "file", uri } : null;
 }
 
 export async function invalidateCachedMobileImage(

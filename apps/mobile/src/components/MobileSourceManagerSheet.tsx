@@ -94,11 +94,15 @@ import {
   loadMobileSourceSettingsByKeys,
   mergeSourceSettingValues,
 } from "@/lib/mobileSourceSettings";
-import { getMobileSourceErrorPresentation } from "@/lib/mobileSourceErrors";
+import {
+  describeMobileErrorDetail,
+  getMobileSourceErrorPresentation,
+} from "@/lib/mobileSourceErrors";
 import {
   buildMobileLiveSearchProgressGroups,
   buildMobileSourceTitlePool,
   getMobileSearchQueryForSource,
+  presentMobileLiveSearchGroup,
   searchMobileSource,
   type MobileLiveSearchDisplayGroup,
   type MobileLiveSearchGroup,
@@ -796,7 +800,10 @@ export function MobileSourceManagerSheet({
   const reportSourceActionError = async (error: unknown) => {
     await hapticError();
     setActionError(
-      error instanceof Error ? error.message : strings.sourceManager.sourceActionFailedDetail,
+      describeMobileErrorDetail(
+        error,
+        strings.sourceManager.sourceActionFailedDetail,
+      ),
     );
   };
 
@@ -943,7 +950,8 @@ export function MobileSourceManagerSheet({
           };
         });
         if (addSearchRunRef.current !== runId) return;
-        completedGroups.set(group.source.id, group);
+        const displayGroup = presentMobileLiveSearchGroup(group, strings);
+        completedGroups.set(displayGroup.source.id, displayGroup);
         setAddSearchState({
           status: "ready",
           query,

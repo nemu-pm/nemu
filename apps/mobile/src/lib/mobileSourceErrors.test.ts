@@ -3,6 +3,7 @@ import { getMobileStrings } from "./mobileI18n";
 import {
   MOBILE_TACHIYOMI_UNSUPPORTED_MARKER,
   describeMobileErrorDetail,
+  extractMobileCloudflareDisplayUrl,
   extractMobileCloudflareUrl,
   getMobileRuntimeUnavailableDetail,
   getMobileSourceErrorRecoveryAction,
@@ -12,6 +13,8 @@ import {
   isMobileNetworkSourceError,
   isMobileRuntimeUnavailableError,
   isMobileTachiyomiUnsupportedError,
+  redactMobileCloudflareUrlForDisplay,
+  sanitizeMobileErrorDiagnostic,
 } from "./mobileSourceErrors";
 
 describe("mobile source error presentation", () => {
@@ -31,8 +34,10 @@ describe("mobile source error presentation", () => {
       "This source requires Cloudflare verification, which is not securely available in this mobile build.",
     );
     expect(presentation.detail).not.toContain("verification window");
-    expect(presentation.url).toBe("https://example.com/read");
-    expect(getMobileSourceErrorRecoveryAction(presentation, getMobileStrings("en"))).toEqual({
+    expect(presentation.displayUrl).toBe("https://example.com/read");
+    expect(
+      getMobileSourceErrorRecoveryAction(presentation, getMobileStrings("en")),
+    ).toEqual({
       type: "open-settings",
       label: "Open Settings",
     });
@@ -48,6 +53,58 @@ describe("mobile source error presentation", () => {
     ).toBe("cloudflare");
   });
 
+  test("presents TLS certificate failures as localized network errors", () => {
+    const error = new Error("Unacceptable certificate: CN=Example Root");
+    const presentation = getMobileSourceErrorPresentation(
+      error,
+      getMobileStrings("zh"),
+    );
+
+    expect(isMobileNetworkSourceError(error)).toBe(true);
+    expect(presentation.kind).toBe("network");
+    expect(presentation.title).toBe("网络错误");
+    expect(presentation.detail).not.toContain("Unacceptable certificate");
+  });
+
+  test("preserves challenge parameters operationally but redacts display URLs", () => {
+    const error = new Error(
+      "Cloudflare blocked https://example.test/read?ray=abc&return=%2Ftitle#challenge",
+    );
+
+    expect(extractMobileCloudflareUrl(error)).toBe(
+      "https://example.test/read?ray=abc&return=%2Ftitle#challenge",
+    );
+    expect(extractMobileCloudflareDisplayUrl(error)).toBe(
+      "https://example.test/read",
+    );
+    expect(
+      getMobileSourceErrorPresentation(error, getMobileStrings("en"))
+        .displayUrl,
+    ).toBe("https://example.test/read");
+  });
+
+  test("rejects unsafe operational challenge URLs before native verification", () => {
+    const credentialed = new Error(
+      "Cloudflare blocked https://user:pass@example.test/read?ray=abc#challenge",
+    );
+    const insecure = Object.assign(new Error("Cloudflare blocked"), {
+      url: "http://example.test/read?ray=abc",
+    });
+    const untrusted = Object.assign(new Error("Cloudflare blocked"), {
+      url: "javascript:alert(1)",
+    });
+
+    expect(extractMobileCloudflareUrl(credentialed)).toBeUndefined();
+    expect(extractMobileCloudflareDisplayUrl(credentialed)).toBe(
+      "https://example.test/read",
+    );
+    expect(extractMobileCloudflareUrl(insecure)).toBeUndefined();
+    expect(extractMobileCloudflareUrl(untrusted)).toBeUndefined();
+    expect(
+      redactMobileCloudflareUrlForDisplay("http://example.test/read?secret=x"),
+    ).toBeUndefined();
+  });
+
   test("classifies network failures without leaking raw fetch exceptions", () => {
     const error = new Error("Network request failed");
     const presentation = getMobileSourceErrorPresentation(
@@ -61,7 +118,9 @@ describe("mobile source error presentation", () => {
     expect(presentation.detail).toBe(
       "Nemu could not reach this source. Check your connection and try again.",
     );
-    expect(getMobileSourceErrorRecoveryAction(presentation, getMobileStrings("en"))).toBeNull();
+    expect(
+      getMobileSourceErrorRecoveryAction(presentation, getMobileStrings("en")),
+    ).toBeNull();
   });
 
   test("classifies React Native WebAssembly runtime blockers without leaking engine text", () => {
@@ -79,7 +138,9 @@ describe("mobile source error presentation", () => {
     expect(presentation.detail).toContain("WebAssembly");
     expect(presentation.detail).not.toContain("Hermes");
     expect(presentation.detail).not.toContain("does not expose");
-    expect(getMobileSourceErrorRecoveryAction(presentation, getMobileStrings("en"))).toBeNull();
+    expect(
+      getMobileSourceErrorRecoveryAction(presentation, getMobileStrings("en")),
+    ).toBeNull();
   });
 
   test("classifies a stale installed native bridge as a runtime blocker", () => {
@@ -128,7 +189,7 @@ describe("mobile source error presentation", () => {
     ).toMatchObject({
       kind: "cloudflare",
       title: "Cloudflare protection detected",
-      url: "https://example.com/manga",
+      displayUrl: "https://example.com/manga",
     });
 
     expect(
@@ -151,9 +212,9 @@ describe("mobile source error presentation", () => {
         strings,
       ),
     ).toBe("Cloudflare protection detected");
-    expect(
-      getMobileSourceErrorSummary("Network request failed", strings),
-    ).toBe("Network error");
+    expect(getMobileSourceErrorSummary("Network request failed", strings)).toBe(
+      "Network error",
+    );
     // The summary line is always localized; the raw text stays reachable via
     // the full presentation detail.
     expect(
@@ -161,7 +222,7 @@ describe("mobile source error presentation", () => {
     ).toBe("Source error");
   });
 
-  test("leads unknown source errors with localized copy and keeps the raw text", () => {
+  test("leads unknown source errors with localized copy and a safe diagnostic", () => {
     const presentation = getMobileSourceErrorPresentation(
       new Error("Unsupported source response"),
       getMobileStrings("ja"),
@@ -209,5 +270,39 @@ describe("mobile source error presentation", () => {
     expect(describeMobileErrorDetail(new Error("Localized"), "Localized")).toBe(
       "Localized",
     );
+  });
+
+  test("sanitizes optional user-visible diagnostics", () => {
+    const detail = sanitizeMobileErrorDiagnostic(
+      new Error(
+        "Request https://user:pass@example.test/path?access_token=secret#fragment failed; Authorization: Bearer abc.def\npassword=hunter2 token=plain-token api_key=plain-key",
+      ),
+    );
+
+    expect(detail).toContain("https://example.test/path");
+    expect(detail).toContain("Authorization: [redacted]");
+    expect(detail).toContain("password=[redacted]");
+    expect(detail).not.toContain("user:pass");
+    expect(detail).not.toContain("access_token=secret");
+    expect(detail).not.toContain("abc.def");
+    expect(detail).not.toContain("hunter2");
+    expect(detail).not.toContain("plain-token");
+    expect(detail).not.toContain("plain-key");
+  });
+
+  test("bounds optional user-visible diagnostics", () => {
+    const detail = sanitizeMobileErrorDiagnostic(new Error("x".repeat(800)));
+    expect(detail?.length).toBe(500);
+    expect(detail?.endsWith("…")).toBe(true);
+  });
+
+  test("ignores malformed thrown values that cannot be stringified", () => {
+    expect(
+      sanitizeMobileErrorDiagnostic({
+        toString() {
+          throw new Error("stringification failed");
+        },
+      }),
+    ).toBeNull();
   });
 });

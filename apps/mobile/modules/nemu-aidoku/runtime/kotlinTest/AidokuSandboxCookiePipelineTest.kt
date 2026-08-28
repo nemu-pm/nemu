@@ -141,6 +141,12 @@ class AidokuSandboxCookiePipelineTest {
           .header("Cookie", "session=source-secret")
           .header("Better-Auth-Cookie", "app-session-secret")
           .header("X-Api-Key", "source-api-secret")
+          .header("X-CSRF-Token", "csrf-secret")
+          .header("Vendor-Credential", "vendor-secret")
+          .header("X-Auth", "unrecognized-secret")
+          .header("Authentication", "also-secret")
+          .header("X-Api-Version", "private-custom-value")
+          .header("Accept", "application/json")
           .build()
       ).execute().close()
 
@@ -154,6 +160,12 @@ class AidokuSandboxCookiePipelineTest {
       assertNull(redirectedRequest?.getHeader("Cookie"))
       assertNull(redirectedRequest?.getHeader("Better-Auth-Cookie"))
       assertNull(redirectedRequest?.getHeader("X-Api-Key"))
+      assertNull(redirectedRequest?.getHeader("X-CSRF-Token"))
+      assertNull(redirectedRequest?.getHeader("Vendor-Credential"))
+      assertNull(redirectedRequest?.getHeader("X-Auth"))
+      assertNull(redirectedRequest?.getHeader("Authentication"))
+      assertNull(redirectedRequest?.getHeader("X-Api-Version"))
+      assertEquals("application/json", redirectedRequest?.getHeader("Accept"))
     } finally {
       redirectTarget.shutdown()
     }

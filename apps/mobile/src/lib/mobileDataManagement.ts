@@ -33,6 +33,7 @@ export async function clearMobileAuthSessionAfterDataReset({
 }: MobileAuthSessionClearer): Promise<boolean> {
   if (!isAuthenticated()) return false;
   await signOutAndUnregisterMobileBackgroundSync({
+    onSignOutConfirmed: async () => undefined,
     signOut,
     unregister: unregisterBackgroundSync,
   });

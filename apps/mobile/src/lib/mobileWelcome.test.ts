@@ -6,8 +6,11 @@ import {
   canRunMobileWelcomePrimaryAction,
   canRunMobileWelcomeSkipAction,
   canSelectMobileWelcomeLanguageOption,
+  createMobileWelcomeCompletionWriteCoordinator,
   getMobileWelcomeAvailableSources,
   getMobileWelcomeDefaultSelection,
+  getMobileWelcomePendingSourceInstallCount,
+  getMobileWelcomeUnderlyingContentState,
   getMobileWelcomeRecommendedSources,
   mobileWelcomeSourceKey,
   shouldScrollMobileWelcomeContent,
@@ -37,6 +40,47 @@ function installedSource(
 }
 
 describe("mobile welcome helpers", () => {
+  test("coalesces successful completion writes and only retries failures", async () => {
+    const coordinator = createMobileWelcomeCompletionWriteCoordinator();
+    let writeCount = 0;
+    let resolveFirstWrite: (() => void) | undefined;
+    const firstWriteResult = new Promise<void>((resolve) => {
+      resolveFirstWrite = resolve;
+    });
+
+    const first = coordinator.run(() => {
+      writeCount += 1;
+      return firstWriteResult;
+    });
+    const concurrent = coordinator.run(async () => {
+      writeCount += 1;
+    });
+
+    expect(concurrent).toBe(first);
+    expect(writeCount).toBe(1);
+    resolveFirstWrite?.();
+    await first;
+
+    const afterSuccess = coordinator.run(async () => {
+      writeCount += 1;
+    });
+    expect(afterSuccess).toBe(first);
+    await afterSuccess;
+    expect(writeCount).toBe(1);
+
+    const retryCoordinator = createMobileWelcomeCompletionWriteCoordinator();
+    await expect(
+      retryCoordinator.run(async () => {
+        writeCount += 1;
+        throw new Error("write failed");
+      }),
+    ).rejects.toThrow("write failed");
+    await retryCoordinator.run(async () => {
+      writeCount += 1;
+    });
+    expect(writeCount).toBe(3);
+  });
+
   test("keeps every native onboarding step reachable at large text sizes", () => {
     for (const step of ["welcome", "language", "sources", "done"] as const) {
       expect(shouldScrollMobileWelcomeContent({ platform: "android", step })).toBe(true);
@@ -60,6 +104,21 @@ describe("mobile welcome helpers", () => {
     expect(
       shouldBlockMobileWelcomeUnderlyingContent({ checking: false, visible: false }),
     ).toBe(false);
+  });
+
+  test("makes the underlying navigation tree inert while onboarding owns focus", () => {
+    expect(getMobileWelcomeUnderlyingContentState(true)).toEqual({
+      accessibilityElementsHidden: true,
+      ariaHidden: true,
+      importantForAccessibility: "no-hide-descendants",
+      pointerEvents: "none",
+    });
+    expect(getMobileWelcomeUnderlyingContentState(false)).toEqual({
+      accessibilityElementsHidden: false,
+      ariaHidden: false,
+      importantForAccessibility: "auto",
+      pointerEvents: "auto",
+    });
   });
 
   test("matches web recommended source order by app language", () => {
@@ -105,6 +164,30 @@ describe("mobile welcome helpers", () => {
     ]);
   });
 
+  test("counts only selected sources that still need installation", () => {
+    const available = [
+      source("aidoku-community", "multi.mangadex"),
+      source("aidoku-community", "multi.mangaplus"),
+    ];
+    expect(
+      getMobileWelcomePendingSourceInstallCount(
+        available,
+        new Set([
+          "aidoku-community:multi.mangadex",
+          "aidoku-community:multi.mangaplus",
+        ]),
+        new Set(["aidoku-community:multi.mangadex"]),
+      ),
+    ).toBe(1);
+    expect(
+      getMobileWelcomePendingSourceInstallCount(
+        available,
+        new Set(),
+        new Set(),
+      ),
+    ).toBe(0);
+  });
+
   test("marks recommended sources installed across stored source aliases", () => {
     const keys = buildMobileWelcomeInstalledSourceKeySet([
       installedSource("en.legacy", { sourceId: "manifest.id" }),
@@ -119,6 +202,24 @@ describe("mobile welcome helpers", () => {
   });
 
   test("gates welcome actions while native work is running", () => {
+    expect(
+      canRunMobileWelcomePrimaryAction({
+        step: "welcome",
+        installing: false,
+        completing: false,
+        changingLanguage: false,
+        sourcesLoading: false,
+        startupBlocked: true,
+      }),
+    ).toBe(false);
+    expect(
+      canRunMobileWelcomeSkipAction({
+        installing: false,
+        completing: false,
+        changingLanguage: false,
+        startupBlocked: true,
+      }),
+    ).toBe(false);
     expect(
       canRunMobileWelcomePrimaryAction({
         step: "welcome",

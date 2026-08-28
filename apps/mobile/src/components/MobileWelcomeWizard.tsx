@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { router } from "expo-router";
 import {
   ActivityIndicator,
-  BackHandler,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -46,8 +46,10 @@ import {
   canRunMobileWelcomePrimaryAction,
   canRunMobileWelcomeSkipAction,
   buildMobileWelcomeInstalledSourceKeySet,
+  createMobileWelcomeCompletionWriteCoordinator,
   getMobileWelcomeAvailableSources,
   getMobileWelcomeDefaultSelection,
+  getMobileWelcomePendingSourceInstallCount,
   shouldBlockMobileWelcomeUnderlyingContent,
   shouldScrollMobileWelcomeContent,
   type MobileWelcomeStep,
@@ -234,26 +236,47 @@ export function MobileWelcomeWizard({
   const store = useMobileDataStore();
   const [visible, setVisible] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [startupError, setStartupError] = useState<unknown | null>(null);
+  const [retryingStartup, setRetryingStartup] = useState(false);
+  const settingsReadRunRef = useRef(0);
+
+  const readWelcomeCompletion = useCallback(
+    async (initial: boolean) => {
+      const run = settingsReadRunRef.current + 1;
+      settingsReadRunRef.current = run;
+      if (initial) setChecking(true);
+      else setRetryingStartup(true);
+
+      try {
+        const settings = await store.getSettings();
+        if (settingsReadRunRef.current !== run) return;
+        setStartupError(null);
+        setVisible(settings.mobileWelcomeCompleted !== true);
+      } catch (error) {
+        if (settingsReadRunRef.current !== run) return;
+        // Fail closed: storage failures keep setup modal and recoverable rather
+        // than silently bypassing onboarding.
+        // JavaScript permits rejecting with nullish/falsy values. Keep the
+        // recovery banner and action gate present even for those malformed
+        // failures instead of accidentally treating them as "no error".
+        setStartupError(error || new Error());
+        setVisible(true);
+      } finally {
+        if (settingsReadRunRef.current === run) {
+          if (initial) setChecking(false);
+          else setRetryingStartup(false);
+        }
+      }
+    },
+    [store],
+  );
 
   useEffect(() => {
-    let mounted = true;
-    store
-      .getSettings()
-      .then((settings) => {
-        if (!mounted) return;
-        setVisible(settings.mobileWelcomeCompleted !== true);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setVisible(false);
-      })
-      .finally(() => {
-        if (mounted) setChecking(false);
-      });
+    void readWelcomeCompletion(true);
     return () => {
-      mounted = false;
+      settingsReadRunRef.current += 1;
     };
-  }, [store]);
+  }, [readWelcomeCompletion]);
 
   useEffect(() => {
     // Hide the underlying navigation tree only while the modal wizard really
@@ -266,14 +289,42 @@ export function MobileWelcomeWizard({
 
   if (checking || !visible) return null;
 
-  return <MobileWelcomeWizardContent onCompleted={() => setVisible(false)} />;
+  return (
+    <MobileWelcomeWizardContent
+      onCompleted={() => setVisible(false)}
+      onRetryStartup={() => {
+        void readWelcomeCompletion(false);
+      }}
+      startupError={startupError}
+      startupRetrying={retryingStartup}
+    />
+  );
 }
 
-function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }) {
+type MobileWelcomeOperationError = {
+  title: string;
+  detail: string;
+};
+
+function MobileWelcomeWizardContent({
+  onCompleted,
+  onRetryStartup,
+  startupError,
+  startupRetrying,
+}: {
+  onCompleted: () => void;
+  onRetryStartup: () => void;
+  startupError: unknown | null;
+  startupRetrying: boolean;
+}) {
   const { tokens } = useNemuTheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const store = useMobileDataStore();
+  const completionWriteCoordinator = useMemo(
+    () => createMobileWelcomeCompletionWriteCoordinator(),
+    [],
+  );
   const availableSources = useAvailableSources();
   const installedSources = useInstalledSources();
   const installer = useSourceInstaller();
@@ -290,10 +341,12 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
   const [changingLanguage, setChangingLanguage] = useState(false);
   const changingLanguageRef = useRef(false);
   const [skipConfirm, setSkipConfirm] = useState(false);
-  const [operationError, setOperationError] = useState<string | null>(null);
+  const [operationError, setOperationError] =
+    useState<MobileWelcomeOperationError | null>(null);
   const [sheetVisible, setSheetVisible] = useState(true);
 
   const strings = getMobileStrings(selectedLanguage);
+  const startupBlocked = startupError !== null || startupRetrying;
   const recommendedSources = useMemo(
     () => getMobileWelcomeAvailableSources(selectedLanguage, availableSources.data),
     [availableSources.data, selectedLanguage]
@@ -302,22 +355,33 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
     () => buildMobileWelcomeInstalledSourceKeySet(installedSources.data),
     [installedSources.data]
   );
+  const pendingSourceInstallCount = useMemo(
+    () =>
+      getMobileWelcomePendingSourceInstallCount(
+        recommendedSources,
+        selectedSourceKeys,
+        installedKeys,
+      ),
+    [installedKeys, recommendedSources, selectedSourceKeys],
+  );
   const actionState = {
     step,
     installing,
     completing,
     changingLanguage,
     sourcesLoading: availableSources.loading,
+    startupBlocked,
   };
   const primaryDisabled = !canRunMobileWelcomePrimaryAction(actionState);
   const skipDisabled = !canRunMobileWelcomeSkipAction(actionState);
-  const actionBusy = installing || completing || changingLanguage;
+  const actionBusy = installing || completing || changingLanguage || startupBlocked;
   const getGuardedActionState = () => ({
     step,
     installing: installingRef.current || installing,
     completing: completeGuardRef.current || completing,
     changingLanguage: changingLanguageRef.current || changingLanguage,
     sourcesLoading: availableSources.loading,
+    startupBlocked,
   });
 
   useEffect(() => {
@@ -330,30 +394,38 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
     );
   }, [availableSources.data, selectedLanguage]);
 
-  useEffect(() => {
-    if (Platform.OS !== "android") return;
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => true);
-    return () => subscription.remove();
-  }, []);
-
-  const markCompleted = async () => {
-    const settings = await store.getSettings();
-    await store.saveSettings({
-      ...settings,
-      mobileWelcomeCompleted: true,
-    });
-    emitMobileDataChanged("settings");
-  };
+  const markCompleted = useCallback(
+    () =>
+      completionWriteCoordinator.run(async () => {
+        await store.updateSettings((settings) => ({
+          ...settings,
+          mobileWelcomeCompleted: true,
+        }));
+        emitMobileDataChanged("settings");
+      }),
+    [completionWriteCoordinator, store],
+  );
 
   // Persist completion as soon as the user reaches the final step. The wizard
   // is safely re-enterable, but a force-quit on the "done" screen used to
   // replay the whole flow even though setup had finished.
   useEffect(() => {
     if (step !== "done") return;
-    void markCompleted().catch(() => undefined);
-    // `markCompleted` only closes over `store`, which is stable for a mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
+    void markCompleted().catch((error) => {
+      setOperationError({
+        title: strings.settings.settingsActionFailed,
+        detail: describeMobileErrorDetail(
+          error,
+          strings.settings.settingsActionFailedDetail,
+        ),
+      });
+    });
+  }, [
+    markCompleted,
+    step,
+    strings.settings.settingsActionFailed,
+    strings.settings.settingsActionFailedDetail,
+  ]);
 
   const completeWelcome = async (afterComplete?: () => void) => {
     if (!canRunMobileWelcomePrimaryAction(getGuardedActionState())) return;
@@ -377,9 +449,13 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
       afterComplete?.();
     } catch (error) {
       await hapticError();
-      setOperationError(
-        describeMobileErrorDetail(error, strings.welcome.sourceInstallFailedDetail)
-      );
+      setOperationError({
+        title: strings.settings.settingsActionFailed,
+        detail: describeMobileErrorDetail(
+          error,
+          strings.settings.settingsActionFailedDetail,
+        ),
+      });
     } finally {
       if (!completed) {
         completeGuardRef.current = false;
@@ -403,9 +479,13 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
       await setAppLanguage(language);
     } catch (error) {
       await hapticError();
-      setOperationError(
-        describeMobileErrorDetail(error, strings.settings.settingsActionFailedDetail)
-      );
+      setOperationError({
+        title: strings.settings.settingsActionFailed,
+        detail: describeMobileErrorDetail(
+          error,
+          strings.settings.settingsActionFailedDetail,
+        ),
+      });
     } finally {
       if (changingLanguageRef.current) {
         changingLanguageRef.current = false;
@@ -445,9 +525,13 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
       await hapticConfirm();
     } catch (error) {
       await hapticError();
-      setOperationError(
-        describeMobileErrorDetail(error, strings.welcome.sourceInstallFailedDetail)
-      );
+      setOperationError({
+        title: strings.welcome.sourceInstallFailed,
+        detail: describeMobileErrorDetail(
+          error,
+          strings.welcome.sourceInstallFailedDetail,
+        ),
+      });
     } finally {
       installingRef.current = false;
       setInstalling(false);
@@ -559,10 +643,23 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
         </Text>
       </View>
 
-      {operationError ? (
+      {startupError ? (
         <MobileInlineErrorBanner
-          title={strings.welcome.sourceInstallFailed}
-          detail={operationError}
+          title={strings.settings.settingsActionFailed}
+          detail={describeMobileErrorDetail(
+            startupError,
+            strings.settings.settingsActionFailedDetail,
+          )}
+          actionLabel={strings.common.retry}
+          actionDisabled={startupRetrying}
+          actionLoading={startupRetrying}
+          onActionPress={onRetryStartup}
+          variant="embedded"
+        />
+      ) : operationError ? (
+        <MobileInlineErrorBanner
+          title={operationError.title}
+          detail={operationError.detail}
           dismissLabel={strings.common.clear}
           onDismiss={() => setOperationError(null)}
           variant="embedded"
@@ -682,7 +779,9 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
                 : step === "sources"
                   ? installing
                     ? strings.welcome.installing
-                    : strings.welcome.installAndContinue
+                    : pendingSourceInstallCount > 0
+                      ? strings.welcome.installAndContinue
+                      : strings.welcome.continueWithoutInstalling
                   : strings.welcome.startReading
           }
           variant="default"
@@ -701,56 +800,65 @@ function MobileWelcomeWizardContent({ onCompleted }: { onCompleted: () => void }
       step,
     });
     return (
-      <View
-        accessibilityViewIsModal
-        importantForAccessibility="yes"
-        style={styles.androidOverlay}
-        testID="MobileWelcomeWizard"
+      <Modal
+        hardwareAccelerated
+        navigationBarTranslucent
+        onRequestClose={() => undefined}
+        statusBarTranslucent
+        transparent
+        visible
       >
-        <View pointerEvents="none" style={styles.androidBackdrop} />
         <View
-          style={[
-            styles.androidSheet,
-            {
-              backgroundColor: tokens.background,
-              maxHeight: windowHeight - sheetTopPadding,
-            },
-            isSourceStep ? { height: sourceSheetHeight } : null,
-          ]}
+          accessibilityViewIsModal
+          importantForAccessibility="yes"
+          style={styles.androidOverlay}
+          testID="MobileWelcomeWizard"
         >
-          <View style={styles.androidHandleArea}>
-            <View
-              accessibilityLabel={strings.common.dragHandle}
-              style={[
-                styles.androidHandle,
-                { backgroundColor: tokens.mutedForeground },
-              ]}
-            />
-          </View>
-          {scrollContent ? (
-            <ScrollView
-              alwaysBounceVertical={false}
-              contentContainerStyle={[
-                styles.sheetContent,
-                { paddingBottom: Math.max(insets.bottom, 18) },
-              ]}
-              keyboardShouldPersistTaps="handled"
-              style={isSourceStep ? styles.androidScroll : undefined}
-            >
-              {content}
-            </ScrollView>
-          ) : (
-            <View
-              style={[
-                styles.sheetContent,
-                { paddingBottom: Math.max(insets.bottom, 18) },
-              ]}
-            >
-              {content}
+          <View pointerEvents="none" style={styles.androidBackdrop} />
+          <View
+            style={[
+              styles.androidSheet,
+              {
+                backgroundColor: tokens.background,
+                maxHeight: windowHeight - sheetTopPadding,
+              },
+              isSourceStep ? { height: sourceSheetHeight } : null,
+            ]}
+          >
+            <View style={styles.androidHandleArea}>
+              <View
+                accessibilityLabel={strings.common.dragHandle}
+                style={[
+                  styles.androidHandle,
+                  { backgroundColor: tokens.mutedForeground },
+                ]}
+              />
             </View>
-          )}
+            {scrollContent ? (
+              <ScrollView
+                alwaysBounceVertical={false}
+                contentContainerStyle={[
+                  styles.sheetContent,
+                  { paddingBottom: Math.max(insets.bottom, 18) },
+                ]}
+                keyboardShouldPersistTaps="handled"
+                style={isSourceStep ? styles.androidScroll : undefined}
+              >
+                {content}
+              </ScrollView>
+            ) : (
+              <View
+                style={[
+                  styles.sheetContent,
+                  { paddingBottom: Math.max(insets.bottom, 18) },
+                ]}
+              >
+                {content}
+              </View>
+            )}
+          </View>
         </View>
-      </View>
+      </Modal>
     );
   }
 

@@ -98,6 +98,10 @@ import {
   loadMobileSourceSettingsByKeys,
   mergeSourceSettingValues,
 } from "@/lib/mobileSourceSettings";
+import {
+  scheduleMobileIdleTask,
+  type MobileIdleTaskHandle,
+} from "@/lib/mobileIdleTask";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import type { MobileSourceImageRequest } from "@/sources/mobileSourceImages";
 import { makeMobileRuntimeSourceKey, normalizeInstalledSource } from "@/sources/mobileSourceRuntime";
@@ -106,49 +110,6 @@ type LibraryScreenProps = {
   collectionId?: string | null;
   mode?: "library" | "collection";
 };
-
-type MobileIdleDeadline = {
-  didTimeout: boolean;
-  timeRemaining: () => number;
-};
-
-type MobileIdleScheduler = (
-  callback: (deadline: MobileIdleDeadline) => void,
-  options?: { timeout?: number },
-) => unknown;
-
-type MobileIdleCanceller = (handle: unknown) => void;
-
-function scheduleLibraryIdleTask(task: () => void): () => void {
-  let cancelled = false;
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  let idleHandle: unknown = null;
-  const idleScheduler = (
-    globalThis as { requestIdleCallback?: MobileIdleScheduler }
-  ).requestIdleCallback;
-
-  const run = () => {
-    if (!cancelled) task();
-  };
-
-  if (typeof idleScheduler === "function") {
-    idleHandle = idleScheduler(run, { timeout: 700 });
-  } else {
-    timeoutHandle = setTimeout(run, 0);
-  }
-
-  return () => {
-    cancelled = true;
-    if (idleHandle != null) {
-      (
-        globalThis as { cancelIdleCallback?: MobileIdleCanceller }
-      ).cancelIdleCallback?.(idleHandle);
-    }
-    if (timeoutHandle != null) {
-      clearTimeout(timeoutHandle);
-    }
-  };
-}
 
 function toMangaCard(
   entry: LibraryEntry,
@@ -1307,12 +1268,12 @@ export function LibraryScreen({
   );
 
   useEffect(() => {
-    let cancelInitialRefresh: (() => void) | null = null;
+    let initialRefreshTask: MobileIdleTaskHandle | null = null;
     let interval: ReturnType<typeof setInterval> | null = null;
 
     const stopRefreshSchedule = () => {
-      cancelInitialRefresh?.();
-      cancelInitialRefresh = null;
+      initialRefreshTask?.cancel();
+      initialRefreshTask = null;
       if (interval) {
         clearInterval(interval);
         interval = null;
@@ -1330,8 +1291,8 @@ export function LibraryScreen({
       // gesture/transition settle. Foreground resumes use the explicit
       // catch-up decision below and therefore do not schedule a duplicate.
       if (scheduleInitial) {
-        cancelInitialRefresh = scheduleLibraryIdleTask(() => {
-          cancelInitialRefresh = null;
+        initialRefreshTask = scheduleMobileIdleTask(() => {
+          initialRefreshTask = null;
           void refreshLatestChapters();
         });
       }

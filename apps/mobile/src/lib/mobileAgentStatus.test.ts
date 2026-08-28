@@ -14,6 +14,7 @@ mock.module("@/sources/mobileNativeHttp", () => ({
 import {
   canCheckMobileAgentStatus,
   fetchMobileAgentStatus,
+  getMobileAgentCapability,
   isMobileAgentActionBusy,
 } from "./mobileAgentStatus";
 
@@ -22,6 +23,7 @@ describe("mobile agent status", () => {
     getMobileNativeHttpStatusMock.mockReset();
     getMobileNativeHttpStatusMock.mockImplementation(() => ({
       available: true,
+      supportsCloudflareSolver: false,
       version: "built-in",
       platform: "ios",
       detail: "Native source networking is available.",
@@ -31,6 +33,7 @@ describe("mobile agent status", () => {
   test("reads built-in native source networking status", async () => {
     await expect(fetchMobileAgentStatus()).resolves.toEqual({
       available: true,
+      supportsCloudflareSolver: false,
       version: "built-in",
       platform: "ios",
       detail: "Native source networking is available.",
@@ -47,9 +50,22 @@ describe("mobile agent status", () => {
 
     await expect(fetchMobileAgentStatus()).resolves.toEqual({
       available: true,
+      supportsCloudflareSolver: false,
       version: undefined,
       platform: undefined,
       detail: undefined,
+    });
+  });
+
+  test("reports Cloudflare verification only from the explicit native capability", async () => {
+    getMobileNativeHttpStatusMock.mockImplementation(() => ({
+      available: true,
+      supportsCloudflareSolver: true,
+    }));
+
+    await expect(fetchMobileAgentStatus()).resolves.toMatchObject({
+      available: true,
+      supportsCloudflareSolver: true,
     });
   });
 
@@ -60,10 +76,32 @@ describe("mobile agent status", () => {
 
     await expect(fetchMobileAgentStatus()).resolves.toEqual({
       available: false,
+      supportsCloudflareSolver: false,
       platform: "unknown",
       detail: "native module missing",
       version: undefined,
     });
+  });
+
+  test("distinguishes native networking from Cloudflare verification", () => {
+    expect(
+      getMobileAgentCapability({
+        available: true,
+        supportsCloudflareSolver: false,
+      }),
+    ).toBe("native-networking");
+    expect(
+      getMobileAgentCapability({
+        available: true,
+        supportsCloudflareSolver: true,
+      }),
+    ).toBe("cloudflare-verification");
+    expect(
+      getMobileAgentCapability({
+        available: false,
+        supportsCloudflareSolver: true,
+      }),
+    ).toBe("unavailable");
   });
 
   test("gates status refresh while native work is active", () => {

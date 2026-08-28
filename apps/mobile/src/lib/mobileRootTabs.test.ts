@@ -16,7 +16,10 @@ describe("mobile root tabs", () => {
     expect(isMobileRootTabSelected("/index/", "/library")).toBe(true);
     expect(isMobileRootTabSelected("/library", "/library")).toBe(true);
     expect(isMobileRootTabSelected("/library/", "/library")).toBe(true);
-    expect(isMobileRootTabSelected("/library/item-1", "/library")).toBe(false);
+    expect(isMobileRootTabSelected("/library/item-1", "/library")).toBe(true);
+    expect(
+      isMobileRootTabSelected("/library/collection/favorites", "/library"),
+    ).toBe(true);
     expect(isMobileRootTabSelected("/browse", "/browse")).toBe(true);
     expect(isMobileRootTabSelected("/browse/", "/browse")).toBe(true);
     expect(isMobileRootTabSelected("/browse/aidoku/mangadex", "/browse")).toBe(
@@ -25,6 +28,18 @@ describe("mobile root tabs", () => {
     expect(isMobileRootTabSelected("/settings/sources", "/settings")).toBe(
       true,
     );
+    expect(
+      isMobileRootTabSelected(
+        "/sources/aidoku/mangadex/blue-lock",
+        "/browse",
+      ),
+    ).toBe(true);
+    expect(
+      isMobileRootTabSelected(
+        "/sources/aidoku/mangadex/blue-lock",
+        "/search",
+      ),
+    ).toBe(false);
   });
 
   test("allows root tab navigation only when it would change the route", () => {

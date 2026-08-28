@@ -11,15 +11,15 @@ function stableHeaderTuples(
   if (!headers) return [];
   return Object.entries(headers)
     .map(([key, value]): [string, string] => [key.toLowerCase(), value])
-    .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
-      leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue),
+    .sort(
+      ([leftKey, leftValue], [rightKey, rightValue]) =>
+        leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue),
     );
 }
 
 function sha256Hex(value: string): string {
-  return Array.from(
-    sha256Bytes(new TextEncoder().encode(value)),
-    (byte) => byte.toString(16).padStart(2, "0"),
+  return Array.from(sha256Bytes(new TextEncoder().encode(value)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
   ).join("");
 }
 
@@ -35,7 +35,11 @@ export function makeMobileImageCacheStorageKey(
   cacheKey?: string,
 ): string {
   const contentIdentity = JSON.stringify([
-    cacheKey ?? source.uri ?? "",
+    // `cacheKey` is a pipeline/consumer discriminator, never a replacement
+    // for content identity. Aidoku page ids commonly repeat between chapters;
+    // omitting the URI could serve a different chapter's private image.
+    source.uri ?? "",
+    cacheKey ?? "",
     stableHeaderTuples(source.headers),
   ]);
   return `mobile-image:${executionScope}:${sha256Hex(contentIdentity)}`;

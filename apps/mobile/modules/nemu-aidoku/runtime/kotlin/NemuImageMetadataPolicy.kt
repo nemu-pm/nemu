@@ -13,6 +13,14 @@ internal data class NemuImageDimensionPolicy(
   val maxPixels: Int
 )
 
+internal class NemuImageDimensionLimitException(
+  val dimensions: NemuImageDimensions,
+  val policy: NemuImageDimensionPolicy
+) : IOException(
+  "Image dimensions ${dimensions.width}x${dimensions.height} exceed the " +
+    "${policy.maxDimension}px / ${policy.maxPixels} pixel safety limit."
+)
+
 /**
  * Allocation boundary for untrusted image files.
  *
@@ -96,10 +104,7 @@ internal object NemuImageMetadataPolicy {
         pixelCount <= 0L ||
         pixelCount > policy.maxPixels.toLong()
       ) {
-        throw IOException(
-          "Image dimensions exceed the ${policy.maxDimension}px / " +
-            "${policy.maxPixels} pixel safety limit."
-        )
+        throw NemuImageDimensionLimitException(dimension, policy)
       }
     }
     return dimensions.maxByOrNull { it.width * it.height }

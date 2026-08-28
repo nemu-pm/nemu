@@ -15,8 +15,13 @@ import {
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import SegmentedControl from "@expo/ui/community/segmented-control";
-import { Host as SwiftHost, Picker as SwiftPicker, Text as SwiftText } from "@expo/ui/swift-ui";
 import {
+  Host as SwiftHost,
+  Picker as SwiftPicker,
+  Text as SwiftText,
+} from "@expo/ui/swift-ui";
+import {
+  accessibilityHidden as swiftAccessibilityHidden,
   disabled as swiftDisabled,
   pickerStyle,
   tag,
@@ -76,15 +81,16 @@ import {
   hapticPress,
   hapticSelection,
 } from "@/lib/haptics";
-import {
-  canRunMobileSwitchSelectionFeedback,
-} from "@/lib/mobileAccessibility";
+import { canRunMobileSwitchSelectionFeedback } from "@/lib/mobileAccessibility";
 import {
   formatMobileString,
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
-import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
+import {
+  describeMobileErrorDetail,
+  getMobileSourceErrorPresentation,
+} from "@/lib/mobileSourceErrors";
 import {
   getMobileInstalledSourceRegistryRef,
   getMobileInstalledSourceSettingsKeys,
@@ -107,6 +113,7 @@ import {
   makeMobileSourceKey,
   sourceSettingRequestsDataRefresh,
 } from "@/lib/mobileSourceSettings";
+import { removeMobileSourceAfterSettingsCleanup } from "@/lib/mobileSourceUninstall";
 import { normalizeMobileSourceExternalUrl } from "@/lib/mobileSourceExternalUrl";
 import {
   resolveMobileSourceSettingAction,
@@ -133,6 +140,7 @@ import {
   completeMobileSourceLogin,
   completeMobileSourceLogout,
   getMobileSourceLoginCapabilities,
+  isMobileSourceLoginCancellation,
   resetMobileSourceRuntimeSettings,
   runMobileSourceSettingsOperation,
   type MobileSourceLoginCapabilities,
@@ -161,13 +169,19 @@ type SettingsConfirmation =
   | { type: "source-logout"; setting: SourcePackageSetting }
   | { type: "source-button"; setting: SourcePackageSetting };
 
-const readingModes: Array<{ mode: ReadingMode; labelKey: keyof MobileStrings["reader"] }> = [
+const readingModes: Array<{
+  mode: ReadingMode;
+  labelKey: keyof MobileStrings["reader"];
+}> = [
   { mode: "rtl", labelKey: "rtl" },
   { mode: "ltr", labelKey: "ltr" },
   { mode: "scrolling", labelKey: "scroll" },
 ];
 
-function sourceParts(source: InstalledSource): { registryId: string; sourceId: string } {
+function sourceParts(source: InstalledSource): {
+  registryId: string;
+  sourceId: string;
+} {
   return getMobileInstalledSourceRegistryRef(source);
 }
 
@@ -201,7 +215,9 @@ function SourceIcon({ icon }: { icon?: string }) {
   const iconUri = icon && !failed ? icon : null;
 
   return (
-    <View style={[styles.sourceIcon, { backgroundColor: tokens.sourceIconGlass }]}>
+    <View
+      style={[styles.sourceIcon, { backgroundColor: tokens.sourceIconGlass }]}
+    >
       {iconUri ? (
         <MobileCachedImage
           uriOwnership="source"
@@ -210,7 +226,11 @@ function SourceIcon({ icon }: { icon?: string }) {
           onError={() => setFailed(true)}
         />
       ) : (
-        <Ionicons name="globe-outline" size={22} color={tokens.mutedForeground} />
+        <Ionicons
+          name="globe-outline"
+          size={22}
+          color={tokens.mutedForeground}
+        />
       )}
     </View>
   );
@@ -231,7 +251,9 @@ function sourceSettingsKey(source: InstalledSource): string {
   return makeMobileSourceKey(registryId, sourceId);
 }
 
-function appLanguageModes(strings: MobileStrings): Array<{ value: AppLanguage; label: string }> {
+function appLanguageModes(
+  strings: MobileStrings,
+): Array<{ value: AppLanguage; label: string }> {
   return [
     { value: "en", label: strings.settings.languageEnglish },
     { value: "zh", label: strings.settings.languageChinese },
@@ -239,7 +261,9 @@ function appLanguageModes(strings: MobileStrings): Array<{ value: AppLanguage; l
   ];
 }
 
-function themeModes(strings: MobileStrings): Array<{ value: ThemePreference; label: string }> {
+function themeModes(
+  strings: MobileStrings,
+): Array<{ value: ThemePreference; label: string }> {
   return [
     { value: "system", label: strings.settings.themeSystem },
     { value: "light", label: strings.settings.themeLight },
@@ -248,7 +272,7 @@ function themeModes(strings: MobileStrings): Array<{ value: ThemePreference; lab
 }
 
 function metadataLanguageModes(
-  strings: MobileStrings
+  strings: MobileStrings,
 ): Array<{ value: MetadataLanguagePreference; label: string }> {
   return [
     { value: "auto", label: strings.settings.metadataLanguageAuto },
@@ -297,12 +321,7 @@ function SourceManagementRow({
   const browseDisabled = disabled || unsupported;
 
   return (
-    <View
-      style={[
-        styles.sourceEmbeddedRow,
-        { borderColor: tokens.border },
-      ]}
-    >
+    <View style={[styles.sourceEmbeddedRow, { borderColor: tokens.border }]}>
       <NemuPressable
         accessibilityLabel={
           unsupported
@@ -324,23 +343,39 @@ function SourceManagementRow({
         <SourceIcon icon={source.icon} />
         <View style={styles.sourceText}>
           <View style={styles.sourceTitleRow}>
-            <Text numberOfLines={1} style={[styles.rowTitle, styles.sourceTitle, { color: tokens.foreground }]}>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.rowTitle,
+                styles.sourceTitle,
+                { color: tokens.foreground },
+              ]}
+            >
               {name}
             </Text>
-            <View style={[styles.versionBadge, { backgroundColor: tokens.muted }]}>
-              <Text style={[styles.versionText, { color: tokens.mutedForeground }]}>
+            <View
+              style={[styles.versionBadge, { backgroundColor: tokens.muted }]}
+            >
+              <Text
+                style={[styles.versionText, { color: tokens.mutedForeground }]}
+              >
                 v{source.version}
               </Text>
             </View>
             {unsupported ? (
-              <View style={[styles.versionBadge, { backgroundColor: tokens.muted }]}>
+              <View
+                style={[styles.versionBadge, { backgroundColor: tokens.muted }]}
+              >
                 <Text style={[styles.versionText, { color: tokens.danger }]}>
                   {strings.common.sourceUnsupportedBadge}
                 </Text>
               </View>
             ) : null}
           </View>
-          <Text numberOfLines={2} style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>
+          <Text
+            numberOfLines={2}
+            style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}
+          >
             {unsupported
               ? strings.common.sourceUnsupportedTachiyomiDescription
               : sourceSubtitle(source)}
@@ -350,7 +385,10 @@ function SourceManagementRow({
       <View style={styles.sourceActions}>
         <NemuPressable
           accessibilityRole="button"
-          accessibilityLabel={formatMobileString(strings.settings.editSourceSettings, { name })}
+          accessibilityLabel={formatMobileString(
+            strings.settings.editSourceSettings,
+            { name },
+          )}
           accessibilityState={{ disabled }}
           disabled={disabled}
           hapticFeedback={canOpenSettings ? "press" : "none"}
@@ -375,14 +413,23 @@ function SourceManagementRow({
         </NemuPressable>
         <NemuPressable
           accessibilityRole="button"
-          accessibilityLabel={formatMobileString(strings.settings.uninstallSourceNamed, { name })}
-          accessibilityState={{ disabled: removeDisabled, busy: removing || undefined }}
+          accessibilityLabel={formatMobileString(
+            strings.settings.uninstallSourceNamed,
+            { name },
+          )}
+          accessibilityState={{
+            disabled: removeDisabled,
+            busy: removing || undefined,
+          }}
           disabled={removeDisabled}
           onPress={onRemove}
           pressedScale={0.94}
           style={[
             styles.iconButton,
-            { backgroundColor: tokens.muted, opacity: removeDisabled ? 0.65 : 1 },
+            {
+              backgroundColor: tokens.muted,
+              opacity: removeDisabled ? 0.65 : 1,
+            },
           ]}
         >
           {removing ? (
@@ -408,7 +455,12 @@ function ReaderPluginIcon({ plugin }: { plugin: MobileReaderPluginState }) {
 
   if (source && !failed) {
     return (
-      <View style={[styles.pluginArtwork, { backgroundColor: tokens.sourceIconGlass }]}>
+      <View
+        style={[
+          styles.pluginArtwork,
+          { backgroundColor: tokens.sourceIconGlass },
+        ]}
+      >
         <ResolvedSettingsImage
           accessibilityLabel={plugin.name}
           source={source}
@@ -420,7 +472,12 @@ function ReaderPluginIcon({ plugin }: { plugin: MobileReaderPluginState }) {
   }
 
   return (
-    <View style={[styles.pluginArtwork, { backgroundColor: tokens.sourceIconGlass }]}>
+    <View
+      style={[
+        styles.pluginArtwork,
+        { backgroundColor: tokens.sourceIconGlass },
+      ]}
+    >
       <Ionicons
         name={plugin.icon}
         size={24}
@@ -457,10 +514,16 @@ function ReaderPluginManagementRow({
       <View style={[styles.pluginMain, !plugin.enabled && styles.disabledMain]}>
         <ReaderPluginIcon plugin={plugin} />
         <View style={styles.sourceText}>
-          <Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.foreground }]}>
+          <Text
+            numberOfLines={1}
+            style={[styles.rowTitle, { color: tokens.foreground }]}
+          >
             {plugin.name}
           </Text>
-          <Text numberOfLines={2} style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>
+          <Text
+            numberOfLines={2}
+            style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}
+          >
             {plugin.description}
           </Text>
         </View>
@@ -469,9 +532,12 @@ function ReaderPluginManagementRow({
         {hasSettings ? (
           <NemuPressable
             accessibilityRole="button"
-            accessibilityLabel={formatMobileString(strings.settings.editReaderPluginSettings, {
-              name: plugin.name,
-            })}
+            accessibilityLabel={formatMobileString(
+              strings.settings.editReaderPluginSettings,
+              {
+                name: plugin.name,
+              },
+            )}
             accessibilityState={{ disabled: selectDisabled }}
             disabled={selectDisabled}
             hapticFeedback={canOpenSettings ? "press" : "none"}
@@ -494,9 +560,12 @@ function ReaderPluginManagementRow({
           </NemuPressable>
         ) : null}
         <NemuNativeSwitch
-          accessibilityLabel={formatMobileString(strings.settings.readerPluginSwitch, {
-            name: plugin.name,
-          })}
+          accessibilityLabel={formatMobileString(
+            strings.settings.readerPluginSwitch,
+            {
+              name: plugin.name,
+            },
+          )}
           disabled={disabled}
           value={plugin.enabled}
           onValueChange={(nextValue) => {
@@ -523,7 +592,8 @@ function ReaderPluginManagementRow({
         style={[
           styles.pluginEmbeddedRow,
           { borderColor: tokens.border },
-          selected && plugin.enabled && { backgroundColor: `${tokens.primary}08` },
+          selected &&
+            plugin.enabled && { backgroundColor: `${tokens.primary}08` },
         ]}
       >
         {rowContent}
@@ -535,7 +605,8 @@ function ReaderPluginManagementRow({
     <SettingsSurface
       style={[
         styles.pluginRowShell,
-        selected && plugin.enabled && { backgroundColor: `${tokens.primary}08` },
+        selected &&
+          plugin.enabled && { backgroundColor: `${tokens.primary}08` },
       ]}
       contentStyle={styles.pluginRow}
     >
@@ -569,7 +640,11 @@ function MobileReaderPluginSettingsSheet({
   onClose: () => void;
   onRetry: () => void;
   onReset: () => void;
-  onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+  onChange: (
+    key: string,
+    value: unknown,
+    setting: SourcePackageSetting,
+  ) => void;
 }) {
   const { tokens } = useNemuTheme();
 
@@ -586,13 +661,19 @@ function MobileReaderPluginSettingsSheet({
         <View style={styles.readerPluginSheetTitleBlock}>
           <Text
             numberOfLines={1}
-            style={[styles.readerPluginSheetTitle, { color: tokens.foreground }]}
+            style={[
+              styles.readerPluginSheetTitle,
+              { color: tokens.foreground },
+            ]}
           >
             {plugin.name}
           </Text>
           <Text
             numberOfLines={2}
-            style={[styles.readerPluginSheetSubtitle, { color: tokens.mutedForeground }]}
+            style={[
+              styles.readerPluginSheetSubtitle,
+              { color: tokens.mutedForeground },
+            ]}
           >
             {plugin.description}
           </Text>
@@ -655,11 +736,16 @@ function MobileInstalledSourceSettingsSheet({
   onClose: () => void;
   onRetry: () => void;
   onReset: () => void;
-  onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+  onChange: (
+    key: string,
+    value: unknown,
+    setting: SourcePackageSetting,
+  ) => void;
   onAction: (setting: SourcePackageSetting) => void;
   onLogin: (
     setting: SourcePackageSetting,
     submission: MobileSourceLoginSubmission,
+    options?: { signal?: AbortSignal },
   ) => Promise<string | null>;
   onLogout: (setting: SourcePackageSetting) => void;
   loginCapabilities: MobileSourceLoginCapabilities | null;
@@ -680,13 +766,19 @@ function MobileInstalledSourceSettingsSheet({
         <View style={styles.readerPluginSheetTitleBlock}>
           <Text
             numberOfLines={1}
-            style={[styles.readerPluginSheetTitle, { color: tokens.foreground }]}
+            style={[
+              styles.readerPluginSheetTitle,
+              { color: tokens.foreground },
+            ]}
           >
             {name}
           </Text>
           <Text
             numberOfLines={1}
-            style={[styles.readerPluginSheetSubtitle, { color: tokens.mutedForeground }]}
+            style={[
+              styles.readerPluginSheetSubtitle,
+              { color: tokens.mutedForeground },
+            ]}
           >
             {sourceSubtitle(source)}
           </Text>
@@ -764,14 +856,23 @@ function ClearCloudDataOption({
         ]}
       >
         {checked ? (
-          <Ionicons name="checkmark" size={13} color={tokens.primaryForeground} />
+          <Ionicons
+            name="checkmark"
+            size={13}
+            color={tokens.primaryForeground}
+          />
         ) : null}
       </View>
       <View style={styles.cloudClearCopy}>
         <Text style={[styles.cloudClearTitle, { color: tokens.foreground }]}>
           {strings.settings.clearCloudData}
         </Text>
-        <Text style={[styles.cloudClearDescription, { color: tokens.mutedForeground }]}>
+        <Text
+          style={[
+            styles.cloudClearDescription,
+            { color: tokens.mutedForeground },
+          ]}
+        >
           {strings.settings.clearCloudDataDescription}
         </Text>
       </View>
@@ -839,7 +940,13 @@ function PressableSettingsSurface({
   children: ReactNode;
   contentStyle?: StyleProp<ViewStyle>;
   disabled?: boolean;
-  hapticFeedback?: "press" | "selection" | "confirm" | "warning" | "error" | "none";
+  hapticFeedback?:
+    | "press"
+    | "selection"
+    | "confirm"
+    | "warning"
+    | "error"
+    | "none";
   onPress: () => void;
   pressedScale?: number;
   style?: StyleProp<ViewStyle>;
@@ -892,32 +999,59 @@ function SettingsSegmentedPicker<Value extends string>({
 
   if (Platform.OS === "ios") {
     return (
-      <SwiftHost
-        colorScheme={scheme}
-        matchContents={{ horizontal: false, vertical: true }}
-        style={styles.nativeSegmentedHost}
-      >
-        <SwiftPicker
-          label={accessibilityLabel}
-          modifiers={[
-            pickerStyle("segmented"),
-            tint(tokens.primary),
-            ...(disabled ? [swiftDisabled(true)] : []),
-          ]}
-          selection={value}
-          onSelectionChange={(nextValue) => {
-            const nextOption = options.find((option) => option.value === nextValue);
-            if (!nextOption) return;
-            selectValue(nextOption.value);
-          }}
+      <View style={styles.nativeSegmentedIOSContainer}>
+        <SwiftHost
+          colorScheme={scheme}
+          matchContents={{ horizontal: false, vertical: true }}
+          style={styles.nativeSegmentedHost}
         >
+          <SwiftPicker
+            label={accessibilityLabel}
+            modifiers={[
+              swiftAccessibilityHidden(),
+              pickerStyle("segmented"),
+              tint(tokens.primary),
+              ...(disabled ? [swiftDisabled(true)] : []),
+            ]}
+            selection={value}
+            onSelectionChange={(nextValue) => {
+              const nextOption = options.find(
+                (option) => option.value === nextValue,
+              );
+              if (!nextOption) return;
+              selectValue(nextOption.value);
+            }}
+          >
+            {options.map((option) => (
+              <SwiftText key={option.value} modifiers={[tag(option.value)]}>
+                {option.label}
+              </SwiftText>
+            ))}
+          </SwiftPicker>
+        </SwiftHost>
+        <View style={styles.nativeSegmentedAccessibilityOverlay}>
           {options.map((option) => (
-            <SwiftText key={option.value} modifiers={[tag(option.value)]}>
-              {option.label}
-            </SwiftText>
+            <NemuPressable
+              key={option.value}
+              accessibilityLabel={option.label}
+              accessibilityRole="tab"
+              accessibilityState={{
+                disabled,
+                selected: option.value === value,
+              }}
+              containerStyle={styles.nativeSegmentedAccessibilityOption}
+              disabled={disabled}
+              hapticFeedback="none"
+              hitSlop={0}
+              pressedScale={1}
+              style={styles.nativeSegmentedAccessibilityOption}
+              onPress={() => selectValue(option.value)}
+            >
+              <View />
+            </NemuPressable>
           ))}
-        </SwiftPicker>
-      </SwiftHost>
+        </View>
+      </View>
     );
   }
 
@@ -981,7 +1115,11 @@ function SettingsMenuRow({
             {subtitle}
           </Text>
         </View>
-        <Ionicons name="chevron-forward-outline" size={18} color={tokens.mutedForeground} />
+        <Ionicons
+          name="chevron-forward-outline"
+          size={18}
+          color={tokens.mutedForeground}
+        />
       </View>
     </PressableSettingsSurface>
   );
@@ -1010,11 +1148,13 @@ function SegmentedSetting<Value extends string>({
         <Text style={[styles.settingTitle, { color: tokens.foreground }]}>
           {title}
         </Text>
-        <Text style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}>
+        <Text
+          style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
+        >
           {subtitle}
         </Text>
       </View>
-      <View accessibilityRole="tablist" style={styles.nativeSegmentedShell}>
+      <View style={styles.nativeSegmentedShell}>
         <SettingsSegmentedPicker
           accessibilityLabel={title}
           disabled={disabled}
@@ -1055,7 +1195,9 @@ function DataActionRow({
         <Text style={[styles.settingTitle, { color: tokens.foreground }]}>
           {title}
         </Text>
-        <Text style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}>
+        <Text
+          style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
+        >
           {subtitle}
         </Text>
       </View>
@@ -1109,7 +1251,11 @@ function AboutSettingsRow({
     >
       <View style={styles.aboutRow}>
         <View style={styles.aboutIcon}>
-          <Ionicons name="information-circle-outline" size={19} color={tokens.mutedForeground} />
+          <Ionicons
+            name="information-circle-outline"
+            size={19}
+            color={tokens.mutedForeground}
+          />
         </View>
         <Text
           maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
@@ -1121,7 +1267,11 @@ function AboutSettingsRow({
           </Text>
           {strings.settings.aboutNemuAfterBrand}
         </Text>
-        <Ionicons name="chevron-forward-outline" size={17} color={tokens.mutedForeground} />
+        <Ionicons
+          name="chevron-forward-outline"
+          size={17}
+          color={tokens.mutedForeground}
+        />
       </View>
     </PressableSettingsSurface>
   );
@@ -1153,11 +1303,14 @@ export function SettingsScreen({
     setMetadataLanguagePreference,
   } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
-  const appLanguageOptions = useMemo(() => appLanguageModes(strings), [strings]);
+  const appLanguageOptions = useMemo(
+    () => appLanguageModes(strings),
+    [strings],
+  );
   const themeOptions = useMemo(() => themeModes(strings), [strings]);
   const metadataLanguageOptions = useMemo(
     () => metadataLanguageModes(strings),
-    [strings]
+    [strings],
   );
   const dataManagement = useMobileDataManagement();
   const readerPlugins = useMobileReaderPlugins();
@@ -1170,18 +1323,25 @@ export function SettingsScreen({
   const removingSourceIdRef = useRef<string | null>(null);
   const [refreshingSources, setRefreshingSources] = useState(false);
   const refreshGuardRef = useRef(false);
-  const [pendingClearMode, setPendingClearMode] = useState<MobileDataClearMode | null>(null);
+  const [pendingClearMode, setPendingClearMode] =
+    useState<MobileDataClearMode | null>(null);
   const pendingClearModeRef = useRef<MobileDataClearMode | null>(null);
-  const [settingsMutationKey, setSettingsMutationKey] = useState<string | null>(null);
+  const [settingsMutationKey, setSettingsMutationKey] = useState<string | null>(
+    null,
+  );
   const settingsMutationKeyRef = useRef<string | null>(null);
-  const [confirmation, setConfirmation] = useState<SettingsConfirmation | null>(null);
+  const [confirmation, setConfirmation] = useState<SettingsConfirmation | null>(
+    null,
+  );
   const [aboutOpen, setAboutOpen] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [clearCloudData, setClearCloudData] = useState(false);
   const [agentCardY, setAgentCardY] = useState<number | null>(null);
   const settingsScrollRef = useRef<ScrollView | null>(null);
   const agentFocusAppliedRef = useRef(false);
-  const focusParam = Array.isArray(params.focus) ? params.focus[0] : params.focus;
+  const focusParam = Array.isArray(params.focus)
+    ? params.focus[0]
+    : params.focus;
   const sourceParam = Array.isArray(params.sourceId)
     ? params.sourceId[0]
     : params.sourceId;
@@ -1194,14 +1354,16 @@ export function SettingsScreen({
     () =>
       mergeMobileInstalledSourceRegistryMetadata(
         sources.data,
-        availableSources.data
+        availableSources.data,
       ),
-    [availableSources.data, sources.data]
+    [availableSources.data, sources.data],
   );
 
   const selectedSource = useMemo(() => {
     if (!selectedSourceId) return null;
-    return displayedSources.find((source) => source.id === selectedSourceId) ?? null;
+    return (
+      displayedSources.find((source) => source.id === selectedSourceId) ?? null
+    );
   }, [displayedSources, selectedSourceId]);
   const selectedRuntimeSource = useMemo(
     () => (selectedSource ? normalizeInstalledSource(selectedSource) : null),
@@ -1210,7 +1372,9 @@ export function SettingsScreen({
 
   useEffect(() => {
     if (activeSection !== "sources" || !sourceParam) return;
-    const routedSource = displayedSources.find((source) => source.id === sourceParam);
+    const routedSource = displayedSources.find(
+      (source) => source.id === sourceParam,
+    );
     if (!routedSource) return;
     setSelectedSourceId(routedSource.id);
     router.setParams({ sourceId: undefined });
@@ -1218,15 +1382,23 @@ export function SettingsScreen({
 
   const selectedPlugin = useMemo(() => {
     if (!selectedPluginId) return null;
-    const plugin = readerPlugins.data.find((item) => item.id === selectedPluginId);
+    const plugin = readerPlugins.data.find(
+      (item) => item.id === selectedPluginId,
+    );
     if (!plugin?.enabled) return null;
     if (countRenderableSourceSettings(plugin.settings) <= 0) return null;
     return plugin;
   }, [readerPlugins.data, selectedPluginId]);
-  const selectedSourceSchema = selectedSource?.packageMetadata?.settings ?? EMPTY_SOURCE_SETTINGS;
-  const selectedSourceKey = selectedSource ? sourceSettingsKey(selectedSource) : null;
+  const selectedSourceSchema =
+    selectedSource?.packageMetadata?.settings ?? EMPTY_SOURCE_SETTINGS;
+  const selectedSourceKey = selectedSource
+    ? sourceSettingsKey(selectedSource)
+    : null;
   const selectedSourceSettingsKeys = useMemo(
-    () => (selectedSource ? getMobileInstalledSourceSettingsKeys(selectedSource) : []),
+    () =>
+      selectedSource
+        ? getMobileInstalledSourceSettingsKeys(selectedSource)
+        : [],
     [selectedSource],
   );
   const selectedSourceSettings = useSourceSettings(
@@ -1261,21 +1433,28 @@ export function SettingsScreen({
     return () => {
       active = false;
     };
-  }, [selectedRuntimeSource, selectedSourceSettings.data, selectedSourceSettings.loading]);
+  }, [
+    selectedRuntimeSource,
+    selectedSourceSettings.data,
+    selectedSourceSettings.loading,
+  ]);
   const confirmationDetails = useMemo(() => {
     if (!confirmation) return null;
     if (confirmation.type === "uninstall-source") {
       return {
         title: strings.settings.uninstallSource,
-        description: formatMobileString(strings.settings.uninstallSourceConfirm, {
-          name: confirmation.name,
-        }),
+        description: formatMobileString(
+          strings.settings.uninstallSourceConfirm,
+          {
+            name: confirmation.name,
+          },
+        ),
         subject: confirmation.name,
         iconName: "trash-outline" as const,
         confirmLabel: strings.common.uninstall,
         confirmAccessibilityLabel: formatMobileString(
           strings.settings.uninstallSourceNamed,
-          { name: confirmation.name }
+          { name: confirmation.name },
         ),
         destructive: true,
         loading: removingSourceId === confirmation.source.id,
@@ -1289,7 +1468,9 @@ export function SettingsScreen({
         confirmLabel: strings.common.clear,
         confirmAccessibilityLabel: strings.settings.clearCache,
         destructive: false,
-        loading: pendingClearMode === "cache" || dataManagement.clearingMode === "cache",
+        loading:
+          pendingClearMode === "cache" ||
+          dataManagement.clearingMode === "cache",
       };
     }
     if (confirmation.type === "source-logout") {
@@ -1308,8 +1489,7 @@ export function SettingsScreen({
     }
     if (confirmation.type === "source-button") {
       return {
-        title:
-          confirmation.setting.confirmTitle ?? confirmation.setting.title,
+        title: confirmation.setting.confirmTitle ?? confirmation.setting.title,
         description:
           confirmation.setting.confirmMessage ??
           strings.settings.sourceSettingsActionConfirm,
@@ -1328,7 +1508,8 @@ export function SettingsScreen({
       confirmLabel: strings.settings.clearAllLocalData,
       confirmAccessibilityLabel: strings.settings.clearAllData,
       destructive: true,
-      loading: pendingClearMode === "all" || dataManagement.clearingMode === "all",
+      loading:
+        pendingClearMode === "all" || dataManagement.clearingMode === "all",
     };
   }, [
     confirmation,
@@ -1363,7 +1544,8 @@ export function SettingsScreen({
   const settingsActionState: MobileSettingsActionState = {
     refreshingSources,
     removingSource: removingSourceId !== null,
-    clearingData: pendingClearMode !== null || dataManagement.clearingMode !== null,
+    clearingData:
+      pendingClearMode !== null || dataManagement.clearingMode !== null,
     changingSettings: settingsMutationKey !== null,
   };
   const settingsActionBusy = isMobileSettingsActionBusy(settingsActionState);
@@ -1406,6 +1588,13 @@ export function SettingsScreen({
   const showAvailableSourcesError =
     Boolean(availableSources.error) &&
     availableSources.error !== dismissedAvailableSourcesError;
+  const availableSourcesErrorPresentation = useMemo(
+    () =>
+      availableSources.error
+        ? getMobileSourceErrorPresentation(availableSources.error, strings)
+        : null,
+    [availableSources.error, strings],
+  );
   const settingsSkeletonState = {
     installedSourcesLoading: sources.loading,
     installedSourcesCount: sources.data.length,
@@ -1434,7 +1623,8 @@ export function SettingsScreen({
           : activeSection === "data"
             ? strings.settings.dataManagement
             : strings.nav.settings;
-  const showRefreshAction = activeSection === null || activeSection === "sources";
+  const showRefreshAction =
+    activeSection === null || activeSection === "sources";
 
   useEffect(() => {
     if (focusParam !== "agent") {
@@ -1445,7 +1635,12 @@ export function SettingsScreen({
       router.replace(settingsSectionHref("data", { focus: "agent" }));
       return;
     }
-    if (showSettingsSkeleton || agentCardY === null || agentFocusAppliedRef.current) return;
+    if (
+      showSettingsSkeleton ||
+      agentCardY === null ||
+      agentFocusAppliedRef.current
+    )
+      return;
 
     agentFocusAppliedRef.current = true;
     requestAnimationFrame(() => {
@@ -1458,7 +1653,8 @@ export function SettingsScreen({
 
   const getGuardedSettingsActionState = (): MobileSettingsActionState => ({
     refreshingSources: refreshGuardRef.current || refreshingSources,
-    removingSource: removingSourceIdRef.current !== null || removingSourceId !== null,
+    removingSource:
+      removingSourceIdRef.current !== null || removingSourceId !== null,
     clearingData:
       pendingClearModeRef.current !== null ||
       pendingClearMode !== null ||
@@ -1495,7 +1691,10 @@ export function SettingsScreen({
   const reportSettingsError = async (error: unknown) => {
     await hapticError();
     setOperationError(
-      describeMobileErrorDetail(error, strings.settings.settingsActionFailedDetail),
+      describeMobileErrorDetail(
+        error,
+        strings.settings.settingsActionFailedDetail,
+      ),
     );
   };
 
@@ -1556,14 +1755,17 @@ export function SettingsScreen({
 
   const retrySelectedSourceSettings = () => {
     if (!selectedSourceKey || !canRetrySelectedSourceSettingsError) return;
-    void runSettingsMutation(`source-settings-reload:${selectedSourceKey}`, async () => {
-      try {
-        await selectedSourceSettings.reload();
-        await hapticConfirm();
-      } catch (error) {
-        await reportSettingsError(error);
-      }
-    });
+    void runSettingsMutation(
+      `source-settings-reload:${selectedSourceKey}`,
+      async () => {
+        try {
+          await selectedSourceSettings.reload();
+          await hapticConfirm();
+        } catch (error) {
+          await reportSettingsError(error);
+        }
+      },
+    );
   };
 
   const reloadSelectedSourceSettingScopes = async (
@@ -1608,6 +1810,7 @@ export function SettingsScreen({
   const loginToSelectedSource = async (
     setting: SourcePackageSetting,
     submission: MobileSourceLoginSubmission,
+    options: { signal?: AbortSignal } = {},
   ): Promise<string | null> => {
     if (!selectedSourceKey) {
       return strings.settings.sourceSettingsRuntimeUnavailable;
@@ -1629,6 +1832,7 @@ export function SettingsScreen({
         currentSettings: selectedSourceSettings.data,
         clearSandbox: clearMobileAidokuSandboxDataForSource,
         persistSettings: selectedSourceSettings.setSettings,
+        signal: options.signal,
       });
       if (result.status === "rejected") {
         return strings.settings.sourceSettingsCredentialsRejected;
@@ -1636,10 +1840,17 @@ export function SettingsScreen({
       if (result.status === "blocked") {
         return strings.settings.sourceSettingsRuntimeUnavailable;
       }
-      await reloadSelectedSourceSettingScopes(setting);
-      await hapticConfirm();
+      // Credential persistence is the commit point. Resolve immediately so
+      // the owner closes the sheet as a success; keeping Cancel visible during
+      // an ancillary refresh would falsely imply the committed login can still
+      // be cancelled. Refresh failures surface through the Settings error path.
+      void reloadSelectedSourceSettingScopes(setting).catch((error) =>
+        reportSettingsError(error),
+      );
+      void hapticConfirm();
       return null;
-    } catch {
+    } catch (error) {
+      if (isMobileSourceLoginCancellation(error)) throw error;
       await hapticError();
       return strings.settings.sourceSettingsActionFailed;
     } finally {
@@ -1770,7 +1981,7 @@ export function SettingsScreen({
   };
 
   const selectMetadataLanguagePreference = async (
-    nextPreference: MetadataLanguagePreference
+    nextPreference: MetadataLanguagePreference,
   ) => {
     if (nextPreference === metadataLanguagePreference) return;
     await runSettingsMutation("metadata-language", async () => {
@@ -1856,21 +2067,27 @@ export function SettingsScreen({
         resolveMobileSourcePackageCacheKey(normalizeInstalledSource(source)),
       );
       clearMobileSourceImageRequestCache();
-      await store.removeInstalledSource(source.id, source.registryId);
-      await Promise.all(
-        getMobileInstalledSourceSettingsKeys(source).map((key) =>
-          store.resetSourceSettings(key)
-        )
-      );
+      await removeMobileSourceAfterSettingsCleanup({
+        settingsKeys: getMobileInstalledSourceSettingsKeys(source),
+        resetSourceSettings: (key) => store.resetSourceSettings(key),
+        removeInstalledSource: () =>
+          store.removeInstalledSource(source.id, source.registryId),
+      });
       emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
       if (selectedSourceId === source.id) setSelectedSourceId(null);
       await sources.reload();
-      if (getMobileSettingsMutationResultAction({ succeeded: true }) === "close-confirmation") {
+      if (
+        getMobileSettingsMutationResultAction({ succeeded: true }) ===
+        "close-confirmation"
+      ) {
         setConfirmation(null);
       }
       await hapticConfirm();
     } catch (error) {
-      if (getMobileSettingsMutationResultAction({ succeeded: false }) === "close-confirmation") {
+      if (
+        getMobileSettingsMutationResultAction({ succeeded: false }) ===
+        "close-confirmation"
+      ) {
         setConfirmation(null);
       }
       await reportSettingsError(error);
@@ -1878,20 +2095,22 @@ export function SettingsScreen({
       if (removingSourceIdRef.current === source.id) {
         removingSourceIdRef.current = null;
       }
-      setRemovingSourceId((current) => (current === source.id ? null : current));
+      setRemovingSourceId((current) =>
+        current === source.id ? null : current,
+      );
     }
   };
 
   const toggleReaderPlugin = async (
     plugin: MobileReaderPluginState,
-    enabled: boolean
+    enabled: boolean,
   ) => {
     await runSettingsMutation(`reader-plugin:${plugin.id}`, async () => {
       void hapticPress();
       try {
         await readerPlugins.setPluginEnabled(plugin.id, enabled);
         setSelectedPluginId((current) =>
-          enabled ? plugin.id : current === plugin.id ? null : current
+          enabled ? plugin.id : current === plugin.id ? null : current,
         );
       } catch (error) {
         await reportSettingsError(error);
@@ -1917,12 +2136,18 @@ export function SettingsScreen({
     try {
       await dataManagement.clearCache();
       await sources.reload();
-      if (getMobileSettingsMutationResultAction({ succeeded: true }) === "close-confirmation") {
+      if (
+        getMobileSettingsMutationResultAction({ succeeded: true }) ===
+        "close-confirmation"
+      ) {
         setConfirmation(null);
       }
       await hapticConfirm();
     } catch (error) {
-      if (getMobileSettingsMutationResultAction({ succeeded: false }) === "close-confirmation") {
+      if (
+        getMobileSettingsMutationResultAction({ succeeded: false }) ===
+        "close-confirmation"
+      ) {
         setConfirmation(null);
       }
       await reportSettingsError(error);
@@ -1956,12 +2181,18 @@ export function SettingsScreen({
       await setAppLanguage("en");
       await setMetadataLanguagePreference("auto");
       await readerPlugins.reload();
-      if (getMobileSettingsMutationResultAction({ succeeded: true }) === "close-confirmation") {
+      if (
+        getMobileSettingsMutationResultAction({ succeeded: true }) ===
+        "close-confirmation"
+      ) {
         setConfirmation(null);
       }
       await hapticConfirm();
     } catch (error) {
-      if (getMobileSettingsMutationResultAction({ succeeded: false }) === "close-confirmation") {
+      if (
+        getMobileSettingsMutationResultAction({ succeeded: false }) ===
+        "close-confirmation"
+      ) {
         setConfirmation(null);
       }
       await reportSettingsError(error);
@@ -2009,592 +2240,766 @@ export function SettingsScreen({
 
   return (
     <>
-    <Stack.Screen options={{ title: settingsTitle }} />
-    <PageScaffold
-      nativeHeader
-      onRefresh={
-        showRefreshAction
-          ? () => {
-              void refreshSources();
-            }
-          : undefined
-      }
-      refreshDisabled={settingsActionBusy}
-      refreshLabel={strings.settings.refreshSources}
-      refreshing={refreshingSources}
-      scrollRef={settingsScrollRef}
-    >
-      <View style={styles.list}>
-        {showSettingsSkeleton ? (
-          <MobileSettingsSkeleton accessibilityLabel={strings.settings.loading} />
-        ) : (
-          <>
-        {operationError ? (
-          <MobileInlineErrorBanner
-            title={strings.settings.settingsActionFailed}
-            detail={operationError}
-            dismissLabel={strings.common.clear}
-            onDismiss={() => setOperationError(null)}
-          />
-        ) : null}
-        {showAvailableSourcesError && availableSources.error ? (
-          <MobileInlineErrorBanner
-            title={strings.browse.sourcesUnavailable}
-            detail={availableSources.error}
-            actionLabel={strings.common.retry}
-            actionDisabled={!canRetryAvailableSourcesError}
-            actionLoading={retryingAvailableSources}
-            dismissLabel={strings.common.clear}
-            onActionPress={retryAvailableSources}
-            onDismiss={() =>
-              setDismissedAvailableSourcesError(availableSources.error)
-            }
-          />
-        ) : null}
-        {showSourceUpdateNotice && sourceUpdateNotice && sourceUpdateMessage ? (
-          <MobileInlineErrorBanner
-            title={strings.settings.sourcesUpdatedTitle}
-            detail={sourceUpdateMessage}
-            dismissLabel={strings.common.clear}
-            iconName="checkmark-circle-outline"
-            tone="success"
-            onDismiss={() =>
-              setDismissedSourceUpdateNoticeId(sourceUpdateNotice.id)
-            }
-          />
-        ) : null}
-
-        {activeSection === null ? (
-          <>
-            <MobileCloudSyncCard />
-            <View style={styles.menuGroup}>
-              <SettingsMenuRow
-                icon="book-outline"
-                title={strings.reader.title}
-                subtitle={strings.reader.description}
-                disabled={settingsActionBusy}
-                onPress={() => router.push(settingsSectionHref("reader"))}
-              />
-              <SettingsMenuRow
-                icon="server-outline"
-                title={strings.settings.installedSources}
-                subtitle={strings.settings.installedSourcesDescription}
-                disabled={settingsActionBusy}
-                onPress={() => router.push(settingsSectionHref("sources"))}
-              />
-              <SettingsMenuRow
-                icon="color-palette-outline"
-                title={strings.settings.appearance}
-                subtitle={strings.settings.appearanceDescription}
-                disabled={settingsActionBusy}
-                onPress={() => router.push(settingsSectionHref("appearance"))}
-              />
-              <SettingsMenuRow
-                icon="folder-open-outline"
-                title={strings.settings.dataManagement}
-                subtitle={strings.settings.dataManagementDescription}
-                disabled={settingsActionBusy}
-                onPress={() => router.push(settingsSectionHref("data"))}
-              />
-            </View>
-            <AboutSettingsRow strings={strings} onPress={() => setAboutOpen(true)} />
-          </>
-        ) : null}
-
-        {activeSection === "reader" ? (
-          <>
-        <SettingsSurface style={styles.rowShell} contentStyle={styles.readerRow}>
-          <View style={styles.readerHeader}>
-            <View style={styles.iconFrame}>
-              <Ionicons name="book-outline" size={20} color={tokens.primary} />
-            </View>
-            <View style={styles.rowText}>
-              <Text style={[styles.rowTitle, { color: tokens.foreground }]}>
-                {strings.reader.title}
-              </Text>
-              <Text style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>
-                {strings.reader.description}
-              </Text>
-            </View>
-          </View>
-          <View accessibilityRole="tablist" style={styles.nativeSegmentedShell}>
-            <SettingsSegmentedPicker
-              accessibilityLabel={strings.reader.title}
-              disabled={settingsActionBusy}
-              options={readingModes.map((item) => ({
-                value: item.mode,
-                label: strings.reader[item.labelKey],
-              }))}
-              value={mode}
-              onSelect={(nextMode) => {
-                if (
-                  !canRunMobileSettingsSelection({
-                    selected: nextMode === mode,
-                    disabled: settingsActionBusy,
-                  })
-                ) {
-                  return;
-                }
-                void selectReadingMode(nextMode);
-              }}
-            />
-          </View>
-        </SettingsSurface>
-
-        <SettingsSurface
-          style={styles.pluginSectionShell}
-          contentStyle={styles.pluginSectionCard}
-        >
-          <View style={styles.readerHeader}>
-            <View style={styles.iconFrame}>
-              <Ionicons name="options-outline" size={20} color={tokens.primary} />
-            </View>
-            <View style={styles.rowText}>
-              <Text style={[styles.rowTitle, { color: tokens.foreground }]}>
-                {strings.settings.plugins}
-              </Text>
-              <Text style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>
-                {strings.settings.pluginsDescription}
-              </Text>
-            </View>
-          </View>
-          {readerPlugins.error ? (
-            <View style={styles.emptyRow}>
-              <Ionicons name="alert-circle-outline" size={22} color={tokens.danger} />
-              <Text style={[styles.emptyText, { color: tokens.mutedForeground }]}>
-                {readerPlugins.error}
-              </Text>
-              <NemuPressable
-                accessibilityRole="button"
-                accessibilityLabel={strings.common.retry}
-                accessibilityState={{
-                  disabled: !canRetryReaderPluginsError,
-                  busy: retryingReaderPlugins || undefined,
-                }}
-                disabled={!canRetryReaderPluginsError}
-                hapticFeedback={canRetryReaderPluginsError ? "press" : "none"}
-                onPress={retryReaderPlugins}
-                style={[
-                  styles.iconButton,
-                  {
-                    backgroundColor: tokens.muted,
-                    opacity: canRetryReaderPluginsError ? 1 : 0.58,
-                  },
-                ]}
-              >
-                {retryingReaderPlugins ? (
-                  <ActivityIndicator size="small" color={tokens.primary} />
-                ) : (
-                  <Ionicons
-                    name="refresh-outline"
-                    size={17}
-                    color={tokens.primary}
-                  />
-                )}
-              </NemuPressable>
-            </View>
-          ) : readerPlugins.loading && !readerPlugins.data.length ? (
-            <View style={styles.emptyRow}>
-              <ActivityIndicator size="small" color={tokens.primary} />
-              <Text style={[styles.emptyText, { color: tokens.mutedForeground }]}>
-                {strings.settings.loadingReaderPlugins}
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.pluginEmbeddedList}>
-              {readerPlugins.data.map((plugin) => (
-                <ReaderPluginManagementRow
-                  key={plugin.id}
-                  plugin={plugin}
-                  strings={strings}
-                  selected={selectedPluginId === plugin.id}
-                  disabled={settingsActionBusy}
-                  embedded
-                  onSelect={() => {
-                    if (settingsActionBusy) return;
-                    setSelectedPluginId(plugin.id);
-                  }}
-                  onToggle={(enabled) => {
-                    void toggleReaderPlugin(plugin, enabled);
-                  }}
-                />
-              ))}
-            </View>
-          )}
-        </SettingsSurface>
-
-          </>
-        ) : null}
-
-        {activeSection === "appearance" ? (
-        <SettingsSurface style={styles.rowShell} contentStyle={styles.appearanceRow}>
-          <View style={styles.readerHeader}>
-            <View style={styles.iconFrame}>
-              <Ionicons name="color-palette-outline" size={20} color={tokens.primary} />
-            </View>
-            <View style={styles.rowText}>
-              <Text style={[styles.rowTitle, { color: tokens.foreground }]}>
-                {strings.settings.appearance}
-              </Text>
-              <Text style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>
-                {strings.settings.appearanceDescription}
-              </Text>
-            </View>
-          </View>
-          <SegmentedSetting
-            title={strings.settings.language}
-            subtitle={strings.settings.languageDescription}
-            options={appLanguageOptions}
-            value={appLanguage}
-            disabled={settingsActionBusy}
-            onSelect={(value) => {
-              void selectAppLanguage(value);
-            }}
-          />
-          <SegmentedSetting
-            title={strings.settings.theme}
-            subtitle={strings.settings.themeDescription}
-            options={themeOptions}
-            value={themePreference}
-            disabled={settingsActionBusy}
-            onSelect={(value) => {
-              void selectThemePreference(value);
-            }}
-          />
-          <SegmentedSetting
-            title={strings.settings.metadataLanguage}
-            subtitle={metadataLanguageSubtitle}
-            options={metadataLanguageOptions}
-            value={metadataLanguagePreference}
-            disabled={settingsActionBusy}
-            onSelect={(value) => {
-              void selectMetadataLanguagePreference(value);
-            }}
-          />
-        </SettingsSurface>
-        ) : null}
-
-        {activeSection === "sources" ? (
-          <>
-        <SettingsSurface
-          style={styles.sourceSectionShell}
-          contentStyle={styles.sourceSectionCard}
-        >
-          <View style={styles.readerHeader}>
-            <View style={styles.iconFrame}>
-              <Ionicons name="server-outline" size={20} color={tokens.primary} />
-            </View>
-            <View style={styles.rowText}>
-              <Text style={[styles.rowTitle, { color: tokens.foreground }]}>
-                {strings.settings.installedSources}
-              </Text>
-              <Text style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>
-                {strings.settings.installedSourcesDescription}
-              </Text>
-            </View>
-            <View style={styles.sourceHeaderActions}>
-              <NemuButton
-                accessibilityLabel={strings.settings.importSource}
-                disabled={settingsActionBusy}
-                icon="document-attach-outline"
-                label={importingSource ? strings.settings.importingSource : strings.settings.importSource}
-                loading={importingSource}
-                onPress={importSourcePackage}
-                size="sm"
-                variant="secondary"
-              />
-              <NemuButton
-                accessibilityLabel={strings.settings.addSource}
-                disabled={settingsActionBusy}
-                icon="add-outline"
-                label={strings.common.add}
-                onPress={() => {
-                  if (settingsActionBusy) return;
-                  router.push("/browse");
-                }}
-                size="sm"
-                variant="default"
-              />
-            </View>
-          </View>
-          {sourcesSectionLoading ? (
-            <View style={styles.emptyRow}>
-              <ActivityIndicator size="small" color={tokens.primary} />
-              <Text style={[styles.emptyText, { color: tokens.mutedForeground }]}>
-                {strings.settings.loading}
-              </Text>
-            </View>
-          ) : sources.error ? (
-            <View style={styles.emptyRow}>
-              <Ionicons name="alert-circle-outline" size={22} color={tokens.danger} />
-              <Text style={[styles.emptyText, { color: tokens.mutedForeground }]}>
-                {sources.error}
-              </Text>
-              <NemuPressable
-                accessibilityRole="button"
-                accessibilityLabel={strings.common.retry}
-                accessibilityState={{
-                  disabled: !canRetryInstalledSourcesError,
-                  busy: retryingInstalledSources || undefined,
-                }}
-                disabled={!canRetryInstalledSourcesError}
-                hapticFeedback={canRetryInstalledSourcesError ? "press" : "none"}
-                onPress={retryInstalledSources}
-                style={[
-                  styles.iconButton,
-                  {
-                    backgroundColor: tokens.muted,
-                    opacity: canRetryInstalledSourcesError ? 1 : 0.58,
-                  },
-                ]}
-              >
-                {retryingInstalledSources ? (
-                  <ActivityIndicator size="small" color={tokens.primary} />
-                ) : (
-                  <Ionicons
-                    name="refresh-outline"
-                    size={17}
-                    color={tokens.primary}
-                  />
-                )}
-              </NemuPressable>
-            </View>
-          ) : displayedSources.length ? (
-            <View style={styles.sourceList}>
-              {displayedSources.map((source) => (
-                <SourceManagementRow
-                  key={source.id}
-                  source={source}
-                  strings={strings}
-                  removing={removingSourceId === source.id}
-                  disabled={settingsActionBusy}
-                  onSettings={() => {
-                    if (settingsActionBusy) return;
-                    setSelectedSourceId(source.id);
-                  }}
-                  onBrowse={() => openSource(source)}
-                  onRemove={() => confirmRemoveSource(source)}
-                />
-              ))}
-            </View>
-          ) : (
-            <View style={styles.emptyRow}>
-              <Ionicons name="server-outline" size={22} color={tokens.mutedForeground} />
-              <Text style={[styles.emptyText, { color: tokens.mutedForeground }]}>
-                {strings.settings.noSourceManagement}
-              </Text>
-            </View>
-          )}
-        </SettingsSurface>
-          </>
-        ) : null}
-
-        {activeSection === "data" ? (
-          <>
-        <SettingsSurface style={styles.rowShell} contentStyle={styles.dataManagementCard}>
-          <View style={styles.readerHeader}>
-            <View style={styles.iconFrame}>
-              <Ionicons name="server-outline" size={20} color={tokens.primary} />
-            </View>
-            <View style={styles.rowText}>
-              <Text style={[styles.rowTitle, { color: tokens.foreground }]}>
-                {strings.settings.dataManagement}
-              </Text>
-              <Text style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>
-                {strings.settings.dataManagementDescription}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.dataActions}>
-            <DataActionRow
-              icon="refresh-outline"
-              title={strings.settings.clearCache}
-              subtitle={strings.settings.clearCacheDescription}
-              actionLabel={strings.common.clear}
-              busy={pendingClearMode === "cache" || dataManagement.clearingMode === "cache"}
-              disabled={settingsActionBusy}
-              onPress={confirmClearCache}
-            />
-            <DataActionRow
-              icon="trash-outline"
-              title={strings.settings.clearAllData}
-              subtitle={strings.settings.clearAllDataDescription}
-              actionLabel={strings.common.clear}
-              busy={pendingClearMode === "all" || dataManagement.clearingMode === "all"}
-              disabled={settingsActionBusy}
-              destructive
-              onPress={confirmClearAllData}
-            />
-          </View>
-        </SettingsSurface>
-
-        <View
-          onLayout={(event) => {
-            setAgentCardY(event.nativeEvent.layout.y);
-          }}
-        >
-          <MobileAgentStatusCard />
-        </View>
-          </>
-        ) : null}
-          </>
-        )}
-      </View>
-      {confirmationDetails ? (
-        <MobileConfirmationSheet
-          visible
-          title={confirmationDetails.title}
-          description={confirmationDetails.description}
-          subject={confirmationDetails.subject}
-          iconName={confirmationDetails.iconName}
-          cancelLabel={strings.common.cancel}
-          confirmLabel={confirmationDetails.confirmLabel}
-          confirmAccessibilityLabel={confirmationDetails.confirmAccessibilityLabel}
-          loading={confirmationDetails.loading}
-          destructive={confirmationDetails.destructive}
-          onCancel={() => {
-            setClearCloudData(false);
-            setConfirmation(null);
-          }}
-          onConfirm={runConfirmedAction}
-        >
-          {operationError ? (
-            <MobileInlineErrorBanner
-              title={strings.settings.settingsActionFailed}
-              detail={operationError}
-              dismissLabel={strings.common.clear}
-              onDismiss={() => setOperationError(null)}
-            />
-          ) : null}
-          {confirmation?.type === "clear-all-data" && mobileSyncConfig.configured ? (
-            <ClearCloudDataOption
-              checked={clearCloudData}
-              disabled={confirmationDetails.loading}
-              strings={strings}
-              onToggle={() => {
-                setClearCloudData((current) => !current);
-              }}
-            />
-          ) : null}
-        </MobileConfirmationSheet>
-      ) : null}
-      {selectedSource ? (
-        <MobileInstalledSourceSettingsSheet
-          source={selectedSource}
-          strings={strings}
-          visible={activeSection === "sources"}
-          disabled={settingsActionBusy}
-          settings={selectedSourceSchema}
-          values={selectedSourceSettings.data}
-          loading={selectedSourceSettings.loading}
-          error={selectedSourceSettings.error ?? operationError}
-          navigationResetKey={getMobileSourceSettingsNavigationResetKey(
-            selectedSourceKey,
-            selectedSourceSettingsKeys,
-          )}
-          loginCapabilities={selectedSourceLoginCapabilities}
-          retryDisabled={!canRetrySelectedSourceSettingsError}
-          retrying={retryingSelectedSourceSettings}
-          onClose={() => {
-            setSelectedSourceId(null);
-            setOperationError(null);
-            setConfirmation((current) =>
-              current?.type === "source-logout" ||
-              current?.type === "source-button"
-                ? null
-                : current,
-            );
-          }}
-          onRetry={retrySelectedSourceSettings}
-          onReset={() => {
-            if (!selectedSourceKey || !selectedRuntimeSource) return;
-            void runSettingsMutation(`source-settings-reset:${selectedSourceKey}`, async () => {
-              try {
-                await resetMobileSourceRuntimeSettings({
-                  source: selectedRuntimeSource,
-                  clearSandbox: clearMobileAidokuSandboxDataForSource,
-                  resetProfileSettings: selectedSourceSettings.resetSettings,
-                });
-                await hapticConfirm();
-              } catch (error) {
-                await reportSettingsError(error);
+      <Stack.Screen options={{ title: settingsTitle }} />
+      <PageScaffold
+        nativeHeader
+        onRefresh={
+          showRefreshAction
+            ? () => {
+                void refreshSources();
               }
-            });
-          }}
-          onAction={handleSelectedSourceAction}
-          onLogin={loginToSelectedSource}
-          onLogout={(setting) => {
-            setOperationError(null);
-            setConfirmation({ type: "source-logout", setting });
-          }}
-          onChange={(key, value, setting) => {
-            if (!selectedSourceKey) return;
-            void runSettingsMutation(
-              `source-settings-value:${selectedSourceKey}:${key}`,
-              async () => {
-                try {
-                  await selectedSourceSettings.setSetting(key, value);
-                  if (setting.notification) {
-                    const operationError =
-                      await executeSelectedSourceSettingOperation(
-                        {
-                          kind: "notification",
-                          notification: setting.notification,
-                        },
-                        { ...selectedSourceSettings.data, [key]: value },
-                      );
-                    if (operationError) throw new Error(operationError);
+            : undefined
+        }
+        refreshDisabled={settingsActionBusy}
+        refreshLabel={strings.settings.refreshSources}
+        refreshing={refreshingSources}
+        scrollRef={settingsScrollRef}
+      >
+        <View style={styles.list}>
+          {showSettingsSkeleton ? (
+            <MobileSettingsSkeleton
+              accessibilityLabel={strings.settings.loading}
+            />
+          ) : (
+            <>
+              {operationError ? (
+                <MobileInlineErrorBanner
+                  title={strings.settings.settingsActionFailed}
+                  detail={operationError}
+                  dismissLabel={strings.common.clear}
+                  onDismiss={() => setOperationError(null)}
+                />
+              ) : null}
+              {showAvailableSourcesError &&
+              availableSources.error &&
+              availableSourcesErrorPresentation ? (
+                <MobileInlineErrorBanner
+                  title={availableSourcesErrorPresentation.title}
+                  detail={availableSourcesErrorPresentation.detail}
+                  actionLabel={strings.common.retry}
+                  actionDisabled={!canRetryAvailableSourcesError}
+                  actionLoading={retryingAvailableSources}
+                  dismissLabel={strings.common.clear}
+                  onActionPress={retryAvailableSources}
+                  onDismiss={() =>
+                    setDismissedAvailableSourcesError(availableSources.error)
                   }
-                  if (!sourceSettingRequestsDataRefresh(setting)) return;
-                  await reloadSelectedSourceSettingScopes(setting);
-                } catch {
-                  await reportSettingsError(
-                    new Error(strings.settings.sourceSettingsActionFailed),
-                  );
-                }
-              },
-            );
-          }}
+                />
+              ) : null}
+              {showSourceUpdateNotice &&
+              sourceUpdateNotice &&
+              sourceUpdateMessage ? (
+                <MobileInlineErrorBanner
+                  title={strings.settings.sourcesUpdatedTitle}
+                  detail={sourceUpdateMessage}
+                  dismissLabel={strings.common.clear}
+                  iconName="checkmark-circle-outline"
+                  tone="success"
+                  onDismiss={() =>
+                    setDismissedSourceUpdateNoticeId(sourceUpdateNotice.id)
+                  }
+                />
+              ) : null}
+
+              {activeSection === null ? (
+                <>
+                  <MobileCloudSyncCard />
+                  <View style={styles.menuGroup}>
+                    <SettingsMenuRow
+                      icon="book-outline"
+                      title={strings.reader.title}
+                      subtitle={strings.reader.description}
+                      disabled={settingsActionBusy}
+                      onPress={() => router.push(settingsSectionHref("reader"))}
+                    />
+                    <SettingsMenuRow
+                      icon="server-outline"
+                      title={strings.settings.installedSources}
+                      subtitle={strings.settings.installedSourcesDescription}
+                      disabled={settingsActionBusy}
+                      onPress={() =>
+                        router.push(settingsSectionHref("sources"))
+                      }
+                    />
+                    <SettingsMenuRow
+                      icon="color-palette-outline"
+                      title={strings.settings.appearance}
+                      subtitle={strings.settings.appearanceDescription}
+                      disabled={settingsActionBusy}
+                      onPress={() =>
+                        router.push(settingsSectionHref("appearance"))
+                      }
+                    />
+                    <SettingsMenuRow
+                      icon="folder-open-outline"
+                      title={strings.settings.dataManagement}
+                      subtitle={strings.settings.dataManagementDescription}
+                      disabled={settingsActionBusy}
+                      onPress={() => router.push(settingsSectionHref("data"))}
+                    />
+                  </View>
+                  <AboutSettingsRow
+                    strings={strings}
+                    onPress={() => setAboutOpen(true)}
+                  />
+                </>
+              ) : null}
+
+              {activeSection === "reader" ? (
+                <>
+                  <SettingsSurface
+                    style={styles.rowShell}
+                    contentStyle={styles.readerRow}
+                  >
+                    <View style={styles.readerHeader}>
+                      <View style={styles.iconFrame}>
+                        <Ionicons
+                          name="book-outline"
+                          size={20}
+                          color={tokens.primary}
+                        />
+                      </View>
+                      <View style={styles.rowText}>
+                        <Text
+                          style={[
+                            styles.rowTitle,
+                            { color: tokens.foreground },
+                          ]}
+                        >
+                          {strings.reader.title}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.rowSubtitle,
+                            { color: tokens.mutedForeground },
+                          ]}
+                        >
+                          {strings.reader.description}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.nativeSegmentedShell}>
+                      <SettingsSegmentedPicker
+                        accessibilityLabel={strings.reader.title}
+                        disabled={settingsActionBusy}
+                        options={readingModes.map((item) => ({
+                          value: item.mode,
+                          label: strings.reader[item.labelKey],
+                        }))}
+                        value={mode}
+                        onSelect={(nextMode) => {
+                          if (
+                            !canRunMobileSettingsSelection({
+                              selected: nextMode === mode,
+                              disabled: settingsActionBusy,
+                            })
+                          ) {
+                            return;
+                          }
+                          void selectReadingMode(nextMode);
+                        }}
+                      />
+                    </View>
+                  </SettingsSurface>
+
+                  <SettingsSurface
+                    style={styles.pluginSectionShell}
+                    contentStyle={styles.pluginSectionCard}
+                  >
+                    <View style={styles.readerHeader}>
+                      <View style={styles.iconFrame}>
+                        <Ionicons
+                          name="options-outline"
+                          size={20}
+                          color={tokens.primary}
+                        />
+                      </View>
+                      <View style={styles.rowText}>
+                        <Text
+                          style={[
+                            styles.rowTitle,
+                            { color: tokens.foreground },
+                          ]}
+                        >
+                          {strings.settings.plugins}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.rowSubtitle,
+                            { color: tokens.mutedForeground },
+                          ]}
+                        >
+                          {strings.settings.pluginsDescription}
+                        </Text>
+                      </View>
+                    </View>
+                    {readerPlugins.error ? (
+                      <View style={styles.emptyRow}>
+                        <Ionicons
+                          name="alert-circle-outline"
+                          size={22}
+                          color={tokens.danger}
+                        />
+                        <Text
+                          style={[
+                            styles.emptyText,
+                            { color: tokens.mutedForeground },
+                          ]}
+                        >
+                          {describeMobileErrorDetail(
+                            readerPlugins.error,
+                            strings.settings.settingsActionFailedDetail,
+                          )}
+                        </Text>
+                        <NemuPressable
+                          accessibilityRole="button"
+                          accessibilityLabel={strings.common.retry}
+                          accessibilityState={{
+                            disabled: !canRetryReaderPluginsError,
+                            busy: retryingReaderPlugins || undefined,
+                          }}
+                          disabled={!canRetryReaderPluginsError}
+                          hapticFeedback={
+                            canRetryReaderPluginsError ? "press" : "none"
+                          }
+                          onPress={retryReaderPlugins}
+                          style={[
+                            styles.iconButton,
+                            {
+                              backgroundColor: tokens.muted,
+                              opacity: canRetryReaderPluginsError ? 1 : 0.58,
+                            },
+                          ]}
+                        >
+                          {retryingReaderPlugins ? (
+                            <ActivityIndicator
+                              size="small"
+                              color={tokens.primary}
+                            />
+                          ) : (
+                            <Ionicons
+                              name="refresh-outline"
+                              size={17}
+                              color={tokens.primary}
+                            />
+                          )}
+                        </NemuPressable>
+                      </View>
+                    ) : readerPlugins.loading && !readerPlugins.data.length ? (
+                      <View style={styles.emptyRow}>
+                        <ActivityIndicator
+                          size="small"
+                          color={tokens.primary}
+                        />
+                        <Text
+                          style={[
+                            styles.emptyText,
+                            { color: tokens.mutedForeground },
+                          ]}
+                        >
+                          {strings.settings.loadingReaderPlugins}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={styles.pluginEmbeddedList}>
+                        {readerPlugins.data.map((plugin) => (
+                          <ReaderPluginManagementRow
+                            key={plugin.id}
+                            plugin={plugin}
+                            strings={strings}
+                            selected={selectedPluginId === plugin.id}
+                            disabled={settingsActionBusy}
+                            embedded
+                            onSelect={() => {
+                              if (settingsActionBusy) return;
+                              setSelectedPluginId(plugin.id);
+                            }}
+                            onToggle={(enabled) => {
+                              void toggleReaderPlugin(plugin, enabled);
+                            }}
+                          />
+                        ))}
+                      </View>
+                    )}
+                  </SettingsSurface>
+                </>
+              ) : null}
+
+              {activeSection === "appearance" ? (
+                <SettingsSurface
+                  style={styles.rowShell}
+                  contentStyle={styles.appearanceRow}
+                >
+                  <View style={styles.readerHeader}>
+                    <View style={styles.iconFrame}>
+                      <Ionicons
+                        name="color-palette-outline"
+                        size={20}
+                        color={tokens.primary}
+                      />
+                    </View>
+                    <View style={styles.rowText}>
+                      <Text
+                        style={[styles.rowTitle, { color: tokens.foreground }]}
+                      >
+                        {strings.settings.appearance}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.rowSubtitle,
+                          { color: tokens.mutedForeground },
+                        ]}
+                      >
+                        {strings.settings.appearanceDescription}
+                      </Text>
+                    </View>
+                  </View>
+                  <SegmentedSetting
+                    title={strings.settings.language}
+                    subtitle={strings.settings.languageDescription}
+                    options={appLanguageOptions}
+                    value={appLanguage}
+                    disabled={settingsActionBusy}
+                    onSelect={(value) => {
+                      void selectAppLanguage(value);
+                    }}
+                  />
+                  <SegmentedSetting
+                    title={strings.settings.theme}
+                    subtitle={strings.settings.themeDescription}
+                    options={themeOptions}
+                    value={themePreference}
+                    disabled={settingsActionBusy}
+                    onSelect={(value) => {
+                      void selectThemePreference(value);
+                    }}
+                  />
+                  <SegmentedSetting
+                    title={strings.settings.metadataLanguage}
+                    subtitle={metadataLanguageSubtitle}
+                    options={metadataLanguageOptions}
+                    value={metadataLanguagePreference}
+                    disabled={settingsActionBusy}
+                    onSelect={(value) => {
+                      void selectMetadataLanguagePreference(value);
+                    }}
+                  />
+                </SettingsSurface>
+              ) : null}
+
+              {activeSection === "sources" ? (
+                <>
+                  <SettingsSurface
+                    style={styles.sourceSectionShell}
+                    contentStyle={styles.sourceSectionCard}
+                  >
+                    <View style={styles.readerHeader}>
+                      <View style={styles.iconFrame}>
+                        <Ionicons
+                          name="server-outline"
+                          size={20}
+                          color={tokens.primary}
+                        />
+                      </View>
+                      <View style={styles.rowText}>
+                        <Text
+                          style={[
+                            styles.rowTitle,
+                            { color: tokens.foreground },
+                          ]}
+                        >
+                          {strings.settings.installedSources}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.rowSubtitle,
+                            { color: tokens.mutedForeground },
+                          ]}
+                        >
+                          {strings.settings.installedSourcesDescription}
+                        </Text>
+                      </View>
+                      <View style={styles.sourceHeaderActions}>
+                        <NemuButton
+                          accessibilityLabel={strings.settings.importSource}
+                          disabled={settingsActionBusy}
+                          icon="document-attach-outline"
+                          label={
+                            importingSource
+                              ? strings.settings.importingSource
+                              : strings.settings.importSource
+                          }
+                          loading={importingSource}
+                          onPress={importSourcePackage}
+                          size="sm"
+                          variant="secondary"
+                        />
+                        <NemuButton
+                          accessibilityLabel={strings.settings.addSource}
+                          disabled={settingsActionBusy}
+                          icon="add-outline"
+                          label={strings.common.add}
+                          onPress={() => {
+                            if (settingsActionBusy) return;
+                            router.push("/browse");
+                          }}
+                          size="sm"
+                          variant="default"
+                        />
+                      </View>
+                    </View>
+                    {sourcesSectionLoading ? (
+                      <View style={styles.emptyRow}>
+                        <ActivityIndicator
+                          size="small"
+                          color={tokens.primary}
+                        />
+                        <Text
+                          style={[
+                            styles.emptyText,
+                            { color: tokens.mutedForeground },
+                          ]}
+                        >
+                          {strings.settings.loading}
+                        </Text>
+                      </View>
+                    ) : sources.error ? (
+                      <View style={styles.emptyRow}>
+                        <Ionicons
+                          name="alert-circle-outline"
+                          size={22}
+                          color={tokens.danger}
+                        />
+                        <Text
+                          style={[
+                            styles.emptyText,
+                            { color: tokens.mutedForeground },
+                          ]}
+                        >
+                          {describeMobileErrorDetail(
+                            sources.error,
+                            strings.browse.sourcesUnavailable,
+                          )}
+                        </Text>
+                        <NemuPressable
+                          accessibilityRole="button"
+                          accessibilityLabel={strings.common.retry}
+                          accessibilityState={{
+                            disabled: !canRetryInstalledSourcesError,
+                            busy: retryingInstalledSources || undefined,
+                          }}
+                          disabled={!canRetryInstalledSourcesError}
+                          hapticFeedback={
+                            canRetryInstalledSourcesError ? "press" : "none"
+                          }
+                          onPress={retryInstalledSources}
+                          style={[
+                            styles.iconButton,
+                            {
+                              backgroundColor: tokens.muted,
+                              opacity: canRetryInstalledSourcesError ? 1 : 0.58,
+                            },
+                          ]}
+                        >
+                          {retryingInstalledSources ? (
+                            <ActivityIndicator
+                              size="small"
+                              color={tokens.primary}
+                            />
+                          ) : (
+                            <Ionicons
+                              name="refresh-outline"
+                              size={17}
+                              color={tokens.primary}
+                            />
+                          )}
+                        </NemuPressable>
+                      </View>
+                    ) : displayedSources.length ? (
+                      <View style={styles.sourceList}>
+                        {displayedSources.map((source) => (
+                          <SourceManagementRow
+                            key={source.id}
+                            source={source}
+                            strings={strings}
+                            removing={removingSourceId === source.id}
+                            disabled={settingsActionBusy}
+                            onSettings={() => {
+                              if (settingsActionBusy) return;
+                              setSelectedSourceId(source.id);
+                            }}
+                            onBrowse={() => openSource(source)}
+                            onRemove={() => confirmRemoveSource(source)}
+                          />
+                        ))}
+                      </View>
+                    ) : (
+                      <View style={styles.emptyRow}>
+                        <Ionicons
+                          name="server-outline"
+                          size={22}
+                          color={tokens.mutedForeground}
+                        />
+                        <Text
+                          style={[
+                            styles.emptyText,
+                            { color: tokens.mutedForeground },
+                          ]}
+                        >
+                          {strings.settings.noSourceManagement}
+                        </Text>
+                      </View>
+                    )}
+                  </SettingsSurface>
+                </>
+              ) : null}
+
+              {activeSection === "data" ? (
+                <>
+                  <SettingsSurface
+                    style={styles.rowShell}
+                    contentStyle={styles.dataManagementCard}
+                  >
+                    <View style={styles.readerHeader}>
+                      <View style={styles.iconFrame}>
+                        <Ionicons
+                          name="server-outline"
+                          size={20}
+                          color={tokens.primary}
+                        />
+                      </View>
+                      <View style={styles.rowText}>
+                        <Text
+                          style={[
+                            styles.rowTitle,
+                            { color: tokens.foreground },
+                          ]}
+                        >
+                          {strings.settings.dataManagement}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.rowSubtitle,
+                            { color: tokens.mutedForeground },
+                          ]}
+                        >
+                          {strings.settings.dataManagementDescription}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.dataActions}>
+                      <DataActionRow
+                        icon="refresh-outline"
+                        title={strings.settings.clearCache}
+                        subtitle={strings.settings.clearCacheDescription}
+                        actionLabel={strings.common.clear}
+                        busy={
+                          pendingClearMode === "cache" ||
+                          dataManagement.clearingMode === "cache"
+                        }
+                        disabled={settingsActionBusy}
+                        onPress={confirmClearCache}
+                      />
+                      <DataActionRow
+                        icon="trash-outline"
+                        title={strings.settings.clearAllData}
+                        subtitle={strings.settings.clearAllDataDescription}
+                        actionLabel={strings.common.clear}
+                        busy={
+                          pendingClearMode === "all" ||
+                          dataManagement.clearingMode === "all"
+                        }
+                        disabled={settingsActionBusy}
+                        destructive
+                        onPress={confirmClearAllData}
+                      />
+                    </View>
+                  </SettingsSurface>
+
+                  <View
+                    onLayout={(event) => {
+                      setAgentCardY(event.nativeEvent.layout.y);
+                    }}
+                  >
+                    <MobileAgentStatusCard />
+                  </View>
+                </>
+              ) : null}
+            </>
+          )}
+        </View>
+        {confirmationDetails ? (
+          <MobileConfirmationSheet
+            visible
+            title={confirmationDetails.title}
+            description={confirmationDetails.description}
+            subject={confirmationDetails.subject}
+            iconName={confirmationDetails.iconName}
+            cancelLabel={strings.common.cancel}
+            confirmLabel={confirmationDetails.confirmLabel}
+            confirmAccessibilityLabel={
+              confirmationDetails.confirmAccessibilityLabel
+            }
+            loading={confirmationDetails.loading}
+            destructive={confirmationDetails.destructive}
+            onCancel={() => {
+              setClearCloudData(false);
+              setConfirmation(null);
+            }}
+            onConfirm={runConfirmedAction}
+          >
+            {operationError ? (
+              <MobileInlineErrorBanner
+                title={strings.settings.settingsActionFailed}
+                detail={operationError}
+                dismissLabel={strings.common.clear}
+                onDismiss={() => setOperationError(null)}
+              />
+            ) : null}
+            {confirmation?.type === "clear-all-data" &&
+            mobileSyncConfig.configured ? (
+              <ClearCloudDataOption
+                checked={clearCloudData}
+                disabled={confirmationDetails.loading}
+                strings={strings}
+                onToggle={() => {
+                  setClearCloudData((current) => !current);
+                }}
+              />
+            ) : null}
+          </MobileConfirmationSheet>
+        ) : null}
+        {selectedSource ? (
+          <MobileInstalledSourceSettingsSheet
+            source={selectedSource}
+            strings={strings}
+            visible={activeSection === "sources"}
+            disabled={settingsActionBusy}
+            settings={selectedSourceSchema}
+            values={selectedSourceSettings.data}
+            loading={selectedSourceSettings.loading}
+            error={selectedSourceSettings.error ?? operationError}
+            navigationResetKey={getMobileSourceSettingsNavigationResetKey(
+              selectedSourceKey,
+              selectedSourceSettingsKeys,
+            )}
+            loginCapabilities={selectedSourceLoginCapabilities}
+            retryDisabled={!canRetrySelectedSourceSettingsError}
+            retrying={retryingSelectedSourceSettings}
+            onClose={() => {
+              setSelectedSourceId(null);
+              setOperationError(null);
+              setConfirmation((current) =>
+                current?.type === "source-logout" ||
+                current?.type === "source-button"
+                  ? null
+                  : current,
+              );
+            }}
+            onRetry={retrySelectedSourceSettings}
+            onReset={() => {
+              if (!selectedSourceKey || !selectedRuntimeSource) return;
+              void runSettingsMutation(
+                `source-settings-reset:${selectedSourceKey}`,
+                async () => {
+                  try {
+                    await resetMobileSourceRuntimeSettings({
+                      source: selectedRuntimeSource,
+                      clearSandbox: clearMobileAidokuSandboxDataForSource,
+                      resetProfileSettings:
+                        selectedSourceSettings.resetSettings,
+                    });
+                    await hapticConfirm();
+                  } catch (error) {
+                    await reportSettingsError(error);
+                  }
+                },
+              );
+            }}
+            onAction={handleSelectedSourceAction}
+            onLogin={loginToSelectedSource}
+            onLogout={(setting) => {
+              setOperationError(null);
+              setConfirmation({ type: "source-logout", setting });
+            }}
+            onChange={(key, value, setting) => {
+              if (!selectedSourceKey) return;
+              void runSettingsMutation(
+                `source-settings-value:${selectedSourceKey}:${key}`,
+                async () => {
+                  try {
+                    await selectedSourceSettings.setSetting(key, value);
+                    if (setting.notification) {
+                      const operationError =
+                        await executeSelectedSourceSettingOperation(
+                          {
+                            kind: "notification",
+                            notification: setting.notification,
+                          },
+                          { ...selectedSourceSettings.data, [key]: value },
+                        );
+                      if (operationError) throw new Error(operationError);
+                    }
+                    if (!sourceSettingRequestsDataRefresh(setting)) return;
+                    await reloadSelectedSourceSettingScopes(setting);
+                  } catch {
+                    await reportSettingsError(
+                      new Error(strings.settings.sourceSettingsActionFailed),
+                    );
+                  }
+                },
+              );
+            }}
+          />
+        ) : null}
+        {selectedPlugin ? (
+          <MobileReaderPluginSettingsSheet
+            plugin={selectedPlugin}
+            strings={strings}
+            visible={activeSection === "reader"}
+            disabled={settingsActionBusy}
+            loading={readerPlugins.loading}
+            error={readerPlugins.error}
+            retryDisabled={!canRetryReaderPluginSettingsError}
+            retrying={retryingReaderPlugins}
+            onClose={() => setSelectedPluginId(null)}
+            onRetry={retryReaderPlugins}
+            onReset={() => {
+              void runSettingsMutation(
+                `reader-plugin-reset:${selectedPlugin.id}`,
+                async () => {
+                  try {
+                    await readerPlugins.resetPluginValues(selectedPlugin.id);
+                    await hapticConfirm();
+                  } catch (error) {
+                    await reportSettingsError(error);
+                  }
+                },
+              );
+            }}
+            onChange={(key, value) => {
+              void runSettingsMutation(
+                `reader-plugin-value:${selectedPlugin.id}:${key}`,
+                async () => {
+                  try {
+                    await readerPlugins.setPluginValue(
+                      selectedPlugin.id,
+                      key,
+                      value,
+                    );
+                  } catch {
+                    await hapticError();
+                  }
+                },
+              );
+            }}
+          />
+        ) : null}
+        <MobileAboutSheet
+          visible={aboutOpen}
+          onClose={() => setAboutOpen(false)}
         />
-      ) : null}
-      {selectedPlugin ? (
-        <MobileReaderPluginSettingsSheet
-          plugin={selectedPlugin}
-          strings={strings}
-          visible={activeSection === "reader"}
-          disabled={settingsActionBusy}
-          loading={readerPlugins.loading}
-          error={readerPlugins.error}
-          retryDisabled={!canRetryReaderPluginSettingsError}
-          retrying={retryingReaderPlugins}
-          onClose={() => setSelectedPluginId(null)}
-          onRetry={retryReaderPlugins}
-          onReset={() => {
-            void runSettingsMutation(`reader-plugin-reset:${selectedPlugin.id}`, async () => {
-              try {
-                await readerPlugins.resetPluginValues(selectedPlugin.id);
-                await hapticConfirm();
-              } catch (error) {
-                await reportSettingsError(error);
-              }
-            });
-          }}
-          onChange={(key, value) => {
-            void runSettingsMutation(
-              `reader-plugin-value:${selectedPlugin.id}:${key}`,
-              async () => {
-                try {
-                  await readerPlugins.setPluginValue(selectedPlugin.id, key, value);
-                } catch {
-                  await hapticError();
-                }
-              },
-            );
-          }}
-        />
-      ) : null}
-      <MobileAboutSheet visible={aboutOpen} onClose={() => setAboutOpen(false)} />
-    </PageScaffold>
+      </PageScaffold>
     </>
   );
 }
@@ -2765,6 +3170,21 @@ const styles = StyleSheet.create({
   nativeSegmentedShell: {
     minHeight: 34,
     justifyContent: "center",
+  },
+  nativeSegmentedIOSContainer: {
+    minHeight: 34,
+    position: "relative",
+  },
+  nativeSegmentedAccessibilityOverlay: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    flexDirection: "row",
+  },
+  nativeSegmentedAccessibilityOption: {
+    flex: 1,
   },
   nativeSegmentedHost: {
     width: "100%",

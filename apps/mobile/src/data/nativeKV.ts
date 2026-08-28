@@ -11,8 +11,17 @@
 
 import type { NativeKVStore } from "./contracts";
 
+export type SecureNativeKVStoreOptions = {
+  keychainService?: string;
+  deviceOnly?: boolean;
+};
+
 export class SecureNativeKVStore implements NativeKVStore {
   private readonly values = new Map<string, string>();
+
+  constructor(options: SecureNativeKVStoreOptions = {}) {
+    void options;
+  }
 
   private assertValidKey(key: string): void {
     if (!key || !/^[A-Za-z0-9._-]+$/.test(key)) {

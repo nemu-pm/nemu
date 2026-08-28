@@ -17,8 +17,13 @@ export interface JapaneseLearningPluginValues {
   nemuResponseMode: string;
 }
 
-function pluginValueText(value: unknown): string {
-  if (typeof value === "boolean") return value ? "On" : "Off";
+function pluginValueText(
+  value: unknown,
+  labels: Pick<MobileStrings["reader"], "pluginValueOn" | "pluginValueOff">,
+): string {
+  if (typeof value === "boolean") {
+    return value ? labels.pluginValueOn : labels.pluginValueOff;
+  }
   if (typeof value === "number") return `${Math.round(value * 100)}%`;
   if (typeof value === "string") return value;
   return String(value);
@@ -32,6 +37,7 @@ interface PluginLauncherSheetProps {
   enabled: boolean;
   values: JapaneseLearningPluginValues;
   ocrLoading: boolean;
+  ocrUnavailableDetail?: string;
   chatLoading: boolean;
   onClose: () => void;
   onDetectText: () => void;
@@ -55,6 +61,7 @@ export function JapaneseLearningPluginLauncherSheet({
   enabled,
   values,
   ocrLoading,
+  ocrUnavailableDetail,
   chatLoading,
   onClose,
   onDetectText,
@@ -62,7 +69,11 @@ export function JapaneseLearningPluginLauncherSheet({
   onOpenSettings,
 }: PluginLauncherSheetProps) {
   const { tokens } = useNemuTheme();
-  const canRunChat = canRunMobileJapaneseLearningChatAction(chatLoading, ocrLoading);
+  const canRunChat = canRunMobileJapaneseLearningChatAction(
+    chatLoading,
+    ocrLoading,
+  );
+  const canRunOcr = !ocrLoading && !ocrUnavailableDetail;
 
   return (
     <MobileSheetScaffold
@@ -75,10 +86,17 @@ export function JapaneseLearningPluginLauncherSheet({
       {/* Header */}
       <View style={styles.header}>
         <View style={[styles.iconBadge, { backgroundColor: tokens.primary }]}>
-          <Ionicons name={pluginIcon} size={20} color={tokens.primaryForeground} />
+          <Ionicons
+            name={pluginIcon}
+            size={20}
+            color={tokens.primaryForeground}
+          />
         </View>
         <View style={styles.titleBlock}>
-          <Text style={[styles.title, { color: tokens.foreground }]} numberOfLines={1}>
+          <Text
+            style={[styles.title, { color: tokens.foreground }]}
+            numberOfLines={1}
+          >
             {pluginName}
           </Text>
           <Text
@@ -95,7 +113,11 @@ export function JapaneseLearningPluginLauncherSheet({
           pressedScale={0.94}
           style={[styles.closeButton, { backgroundColor: tokens.muted }]}
         >
-          <Ionicons name="close-outline" size={20} color={tokens.mutedForeground} />
+          <Ionicons
+            name="close-outline"
+            size={20}
+            color={tokens.mutedForeground}
+          />
         </NemuPressable>
       </View>
 
@@ -126,7 +148,7 @@ export function JapaneseLearningPluginLauncherSheet({
               numberOfLines={1}
               style={[styles.statusValue, { color: tokens.foreground }]}
             >
-              {pluginValueText(value)}
+              {pluginValueText(value, strings.reader)}
             </Text>
           </View>
         ))}
@@ -136,29 +158,45 @@ export function JapaneseLearningPluginLauncherSheet({
       <NemuPressable
         accessibilityRole="button"
         accessibilityLabel={strings.reader.pluginJapaneseLearningDetectText}
-        accessibilityState={{ disabled: ocrLoading }}
-        disabled={ocrLoading}
+        accessibilityState={{ disabled: !canRunOcr }}
+        disabled={!canRunOcr}
         onPress={onDetectText}
         pressedScale={0.98}
         style={[
           styles.primaryAction,
           {
             backgroundColor: tokens.primary,
-            opacity: ocrLoading ? 0.72 : 1,
+            opacity: canRunOcr ? 1 : 0.72,
           },
         ]}
       >
         {ocrLoading ? (
           <ActivityIndicator size="small" color={tokens.primaryForeground} />
         ) : (
-          <Ionicons name="scan-outline" size={17} color={tokens.primaryForeground} />
+          <Ionicons
+            name="scan-outline"
+            size={17}
+            color={tokens.primaryForeground}
+          />
         )}
-        <Text style={[styles.primaryActionText, { color: tokens.primaryForeground }]}>
+        <Text
+          style={[
+            styles.primaryActionText,
+            { color: tokens.primaryForeground },
+          ]}
+        >
           {ocrLoading
             ? strings.reader.pluginJapaneseLearningDetectingText
             : strings.reader.pluginJapaneseLearningDetectText}
         </Text>
       </NemuPressable>
+      {ocrUnavailableDetail ? (
+        <Text
+          style={[styles.unavailableDetail, { color: tokens.mutedForeground }]}
+        >
+          {ocrUnavailableDetail}
+        </Text>
+      ) : null}
 
       {/* Secondary action: Nemu Chat */}
       <NemuPressable
@@ -180,9 +218,16 @@ export function JapaneseLearningPluginLauncherSheet({
         {chatLoading ? (
           <ActivityIndicator size="small" color={tokens.foreground} />
         ) : (
-          <Ionicons name="chatbubbles-outline" size={17} color={tokens.foreground} />
+          <Ionicons
+            name="chatbubbles-outline"
+            size={17}
+            color={tokens.foreground}
+          />
         )}
-        <Text style={[styles.secondaryActionText, { color: tokens.foreground }]} numberOfLines={1}>
+        <Text
+          style={[styles.secondaryActionText, { color: tokens.foreground }]}
+          numberOfLines={1}
+        >
           {chatLoading
             ? strings.reader.pluginJapaneseLearningChatThinking
             : strings.reader.pluginJapaneseLearningNemuChat}
@@ -203,8 +248,15 @@ export function JapaneseLearningPluginLauncherSheet({
           },
         ]}
       >
-        <Ionicons name="settings-outline" size={16} color={tokens.mutedForeground} />
-        <Text style={[styles.settingsText, { color: tokens.mutedForeground }]} numberOfLines={1}>
+        <Ionicons
+          name="settings-outline"
+          size={16}
+          color={tokens.mutedForeground}
+        />
+        <Text
+          style={[styles.settingsText, { color: tokens.mutedForeground }]}
+          numberOfLines={1}
+        >
           {strings.settings.pluginSettings}
         </Text>
       </NemuPressable>
@@ -286,6 +338,11 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  unavailableDetail: {
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center",
   },
   secondaryActionText: {
     fontSize: 15,

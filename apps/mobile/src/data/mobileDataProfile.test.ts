@@ -1,9 +1,11 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import {
   clearRetainedMobileDataProfile,
+  markMobileDataProfileCleanupPending,
   getMobileDataProfileSnapshot,
   getMobileDataProfileRuntimeScope,
   getMobileProfileDatabaseName,
+  isMobileDataProfileCleanupPendingError,
   makeMobileProfileId,
   normalizeStoredMobileDataProfile,
   resetMobileDataProfileForTesting,
@@ -153,6 +155,23 @@ describe("mobile data profiles", () => {
     });
   });
 
+  test("keeps a fenced profile mounted for cleanup across a concurrent sign-in", () => {
+    expect(
+      resolveMobileDataProfileSelection(
+        {
+          loaded: true,
+          retainedProfileId: "user:account-a",
+          legacyDatabaseOwner: "user:account-a",
+          pendingCleanupProfileId: "user:account-a",
+        },
+        "user:account-b",
+      ),
+    ).toEqual({
+      profileId: "user:account-a",
+      databaseName: MOBILE_DATABASE_NAME,
+    });
+  });
+
   test("opens an unowned legacy database locally but waits to assign the first account", () => {
     const freshState = {
       loaded: true,
@@ -232,5 +251,18 @@ describe("mobile data profiles", () => {
     expect(background.profileId).toBe("user:account-b");
     expect(background.databaseName).not.toBe(MOBILE_DATABASE_NAME);
     expect(getMobileDataProfileSnapshot().retainedProfileId).toBe("user:account-a");
+  });
+
+  test("prevents a headless task from opening a profile fenced for removal", async () => {
+    await retainMobileDataProfile("user:account-a");
+    await markMobileDataProfileCleanupPending("user:account-a");
+
+    const result = resolveMobileDataProfileForUser("account-a", {
+      retain: false,
+    });
+    await expect(result).rejects.toThrow("MOBILE_DATA_PROFILE_CLEANUP_PENDING");
+    await result.catch((error) => {
+      expect(isMobileDataProfileCleanupPendingError(error)).toBe(true);
+    });
   });
 });

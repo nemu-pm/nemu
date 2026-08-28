@@ -14,6 +14,13 @@ export type NemuAidokuHttpRequest = {
   timeoutMs?: number | null;
   responseMode?: NemuAidokuHttpResponseMode | null;
   maxResponseBytes?: number | null;
+  /**
+   * Require the initial request and every followed redirect to remain HTTPS.
+   * Use for requests whose body contains one-time credentials (for example an
+   * OAuth authorization code and PKCE verifier). Ordinary source traffic keeps
+   * its existing HTTP compatibility when this is absent.
+   */
+  requireHttps?: boolean | null;
 };
 
 export type NemuAidokuHttpResponse = {
@@ -36,16 +43,33 @@ export type NemuAidokuHttpFileRequest = {
   headers: Record<string, string>;
   timeoutMs?: number | null;
   maxResponseBytes: number;
+  /** Require the initial URL and every redirect to remain HTTPS. */
+  requireHttps?: boolean | null;
   /** Optional, paired decoded-image limits. Omit both for non-image files. */
   maxImageDimension?: number | null;
   maxImagePixels?: number | null;
+  /** Android-only opt-in for a bounded manifest of static portrait-strip tiles. */
+  allowLongStripSegments?: boolean | null;
+};
+
+export type NemuAidokuHttpImageSegment = {
+  fileUri: string;
+  byteLength: number;
+  width: number;
+  height: number;
+  mimeType: "image/jpeg" | "image/png";
 };
 
 export type NemuAidokuHttpFileResponse = {
   status: number;
   headers: Record<string, string>;
+  kind?: "file" | "segmented-image" | null;
   fileUri?: string | null;
   byteLength?: number | null;
+  manifestVersion?: number | null;
+  imageWidth?: number | null;
+  imageHeight?: number | null;
+  imageSegments?: NemuAidokuHttpImageSegment[] | null;
   error?: string | null;
 };
 

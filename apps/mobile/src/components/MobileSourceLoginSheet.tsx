@@ -1,5 +1,12 @@
-import { useState } from "react";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import {
+  AccessibilityInfo,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import {
   GlassSurface,
   MobileSheetScaffold,
@@ -41,6 +48,7 @@ export function MobileSourceLoginSheet({
   const [cookiesText, setCookiesText] = useState("");
   const [localStorageText, setLocalStorageText] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
+  const lastAnnouncedErrorRef = useRef<string | null>(null);
   const method = setting?.method ?? "basic";
   const isWeb = method === "web";
 
@@ -73,12 +81,22 @@ export function MobileSourceLoginSheet({
     ? strings.settings.sourceSettingsEmail
     : strings.settings.sourceSettingsUsername;
 
+  useEffect(() => {
+    if (!visible || !activeError || Platform.OS !== "ios") {
+      lastAnnouncedErrorRef.current = null;
+      return;
+    }
+    if (lastAnnouncedErrorRef.current === activeError) return;
+    lastAnnouncedErrorRef.current = activeError;
+    AccessibilityInfo.announceForAccessibility(activeError);
+  }, [activeError, visible]);
+
   return (
     <MobileSheetScaffold
       visible={visible && setting !== null}
       // Swallowing the close while submitting would strand the caller's
       // `visible` flag on a sheet that is already gone. Pan-down is disabled
-      // instead, which makes the scaffold render an explicit dismiss control.
+      // instead, while the localized label keeps the explicit Cancel route.
       onRequestClose={onClose}
       dismissLabel={strings.common.cancel}
       backdropDisabled={submitting}
@@ -145,7 +163,13 @@ export function MobileSourceLoginSheet({
       )}
 
       {activeError ? (
-        <Text style={[styles.error, { color: tokens.danger }]}>{activeError}</Text>
+        <Text
+          accessibilityLiveRegion="polite"
+          accessibilityRole="alert"
+          style={[styles.error, { color: tokens.danger }]}
+        >
+          {activeError}
+        </Text>
       ) : null}
 
       <View style={styles.actions}>

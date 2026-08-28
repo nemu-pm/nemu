@@ -31,7 +31,7 @@ export function isMobileRootTabSelected(
   href: MobileRootTabHref,
 ): boolean {
   const normalizedPathname = normalizedComparablePathname(pathname);
-  if (href === "/library") return normalizedPathname === "/library";
+  if (normalizedPathname.startsWith("/sources/")) return href === "/browse";
   return normalizedPathname === href || normalizedPathname.startsWith(`${href}/`);
 }
 

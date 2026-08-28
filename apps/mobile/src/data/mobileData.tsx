@@ -6,6 +6,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
+import * as SplashScreen from "expo-splash-screen";
 import { SQLiteProvider, useSQLiteContext } from "expo-sqlite";
 import { MobileDataContext } from "./mobileDataContext";
 import { MOBILE_DATABASE_NAME, migrateNativeDatabase } from "./nativeDatabase";
@@ -22,11 +23,18 @@ import {
   retainMobileDataProfile,
   subscribeMobileDataProfile,
 } from "./mobileDataProfile";
+import { completePendingMobileDataProfileCleanup } from "./mobileDataProfileCleanup";
+import { createMobileDataProfileGuardedStore } from "./mobileDataProfileStoreGuard";
+import type { MobileDataStore } from "./storeTypes";
 import {
   getActiveMobileSourceProfileScope,
   isMobileSourceProfileTransitionPending,
   transitionMobileSourceProfile,
 } from "@/sources/mobileSourceProfileScope";
+import { clearMobileAidokuSandboxDataForProfile } from "@/sources/mobileAidokuSandboxData";
+import { MobilePendingDataCleanupScreen } from "@/components/MobilePendingDataCleanupScreen";
+import { emitMobileDataChanged } from "./mobileDataEvents";
+import { sanitizeMobileErrorDiagnostic } from "@/lib/mobileSourceErrors";
 import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
@@ -129,10 +137,100 @@ function MobileSourceProfileBoundary({
   return children;
 }
 
-function MobileDataStoreProvider({ children }: { children: ReactNode }) {
+function MobilePendingDataCleanupBoundary({
+  children,
+  profileId,
+  store,
+}: {
+  children: ReactNode;
+  profileId: string | null;
+  store: MobileDataStore;
+}) {
+  const profileState = useSyncExternalStore(
+    subscribeMobileDataProfile,
+    getMobileDataProfileSnapshot,
+    getMobileDataProfileSnapshot,
+  );
+  const pendingProfileId = profileState.pendingCleanupProfileId ?? null;
+  const [attempt, setAttempt] = useState(0);
+  const [cleanupState, setCleanupState] = useState<{
+    profileId: string | null;
+    running: boolean;
+  }>({ profileId: null, running: false });
+
+  useEffect(() => {
+    if (!pendingProfileId) return;
+    let cancelled = false;
+    // This boundary replaces every route while removal is pending, so the old
+    // account's library never flashes after the auth session disappears.
+    void SplashScreen.hideAsync().catch(() => undefined);
+    if (
+      profileState.retainedProfileId === pendingProfileId &&
+      profileId !== pendingProfileId
+    ) {
+      void Promise.resolve().then(() => {
+        if (!cancelled) {
+          setCleanupState({ profileId: pendingProfileId, running: false });
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    void completePendingMobileDataProfileCleanup({
+      profileId: pendingProfileId,
+      clearSandboxData: clearMobileAidokuSandboxDataForProfile,
+      clearAccountData: () => store.clearAccountData(),
+    })
+      .then(() => {
+        if (!cancelled) emitMobileDataChanged("all");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCleanupState({ profileId: pendingProfileId, running: false });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    attempt,
+    pendingProfileId,
+    profileId,
+    profileState.retainedProfileId,
+    store,
+  ]);
+
+  if (!pendingProfileId) return children;
+  return (
+    <MobilePendingDataCleanupScreen
+      running={
+        cleanupState.profileId !== pendingProfileId || cleanupState.running
+      }
+      onRetry={() => {
+        setCleanupState({ profileId: pendingProfileId, running: true });
+        setAttempt((current) => current + 1);
+      }}
+    />
+  );
+}
+
+function MobileDataStoreProvider({
+  children,
+  profileId,
+}: {
+  children: ReactNode;
+  profileId: string | null;
+}) {
   const db = useSQLiteContext();
   const baseStore = useMemo(() => new NativeUserDataStore(db), [db]);
-  const store = useMemo(() => createMobileSyncDataStore(baseStore), [baseStore]);
+  const store = useMemo(
+    () =>
+      createMobileDataProfileGuardedStore(
+        createMobileSyncDataStore(baseStore),
+      ),
+    [baseStore],
+  );
   const databaseMarkedRef = useRef(false);
 
   useEffect(() => {
@@ -143,7 +241,9 @@ function MobileDataStoreProvider({ children }: { children: ReactNode }) {
 
   return (
     <MobileDataContext.Provider value={{ store }}>
-      {children}
+      <MobilePendingDataCleanupBoundary profileId={profileId} store={store}>
+        {children}
+      </MobilePendingDataCleanupBoundary>
     </MobileDataContext.Provider>
   );
 }
@@ -151,9 +251,11 @@ function MobileDataStoreProvider({ children }: { children: ReactNode }) {
 function MobileSQLiteDataProvider({
   children,
   databaseName,
+  profileId,
 }: {
   children: ReactNode;
   databaseName: string;
+  profileId: string | null;
 }) {
   return (
     <SQLiteProvider
@@ -161,7 +263,9 @@ function MobileSQLiteDataProvider({
       databaseName={databaseName}
       onInit={migrateNativeDatabase}
     >
-      <MobileDataStoreProvider>{children}</MobileDataStoreProvider>
+      <MobileDataStoreProvider profileId={profileId}>
+        {children}
+      </MobileDataStoreProvider>
     </SQLiteProvider>
   );
 }
@@ -174,6 +278,8 @@ function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
     getMobileDataProfileSnapshot,
   );
   const sessionProfileId = makeMobileProfileId(session?.user?.id);
+  const pendingCleanupProfileId =
+    profileState.pendingCleanupProfileId ?? null;
   const [profilePersistenceError, setProfilePersistenceError] = useState<{
     profileId: string;
     error: Error;
@@ -191,7 +297,10 @@ function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setProfileLoadError(null);
       })
       .catch((error) => {
-        console.error("[MobileData] Failed to load the active data profile:", error);
+        console.error(
+          "[MobileData] Failed to load the active data profile:",
+          sanitizeMobileErrorDiagnostic(error) ?? "Unknown storage error.",
+        );
         if (!cancelled) {
           setProfileLoadError(
             error instanceof Error
@@ -215,7 +324,7 @@ function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
         setProfileRequestProfileId(sessionProfileId);
       }
     });
-    if (!sessionProfileId) return () => {
+    if (!sessionProfileId || pendingCleanupProfileId) return () => {
       cancelled = true;
     };
 
@@ -227,7 +336,10 @@ function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
         }
       })
       .catch((error) => {
-        console.error("[MobileData] Failed to retain the active data profile:", error);
+        console.error(
+          "[MobileData] Failed to retain the active data profile:",
+          sanitizeMobileErrorDiagnostic(error) ?? "Unknown storage error.",
+        );
         if (!cancelled) {
           setProfilePersistenceError({
             profileId: sessionProfileId,
@@ -241,7 +353,7 @@ function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [sessionProfileId]);
+  }, [pendingCleanupProfileId, sessionProfileId]);
 
   const selection = resolveMobileDataProfileSelection(
     profileState,
@@ -267,6 +379,7 @@ function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
   if (profileLoadError) throw profileLoadError;
   if (!profileState.loaded) return null;
   if (
+    !pendingCleanupProfileId &&
     profilePersistenceError?.profileId === sessionProfileId &&
     profileRequestProfileId === sessionProfileId
   ) {
@@ -278,7 +391,10 @@ function ProfiledMobileDataProvider({ children }: { children: ReactNode }) {
   if (!selection) return null;
   return (
     <MobileSourceProfileBoundary profileId={selection.profileId}>
-      <MobileSQLiteDataProvider databaseName={selection.databaseName}>
+      <MobileSQLiteDataProvider
+        databaseName={selection.databaseName}
+        profileId={selection.profileId}
+      >
         {children}
       </MobileSQLiteDataProvider>
     </MobileSourceProfileBoundary>
@@ -289,7 +405,10 @@ export function MobileDataProvider({ children }: { children: ReactNode }) {
   if (!mobileSyncConfig.configured) {
     return (
       <MobileSourceProfileBoundary profileId={null}>
-        <MobileSQLiteDataProvider databaseName={MOBILE_DATABASE_NAME}>
+        <MobileSQLiteDataProvider
+          databaseName={MOBILE_DATABASE_NAME}
+          profileId={null}
+        >
           {children}
         </MobileSQLiteDataProvider>
       </MobileSourceProfileBoundary>

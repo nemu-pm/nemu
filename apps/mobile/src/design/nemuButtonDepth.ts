@@ -37,7 +37,7 @@ const depthVariantPaletteKey: Record<
   elevated: "elevated",
 };
 
-function primaryPressedColor(tokens: NemuTokens, dark: boolean): string {
+function primaryPressedColor(dark: boolean): string {
   // Web: oklch(from var(--primary) calc(l + 0.05|0.08) c h)
   return dark ? "#6f91fd" : "#6689ff";
 }
@@ -58,7 +58,7 @@ export function getNemuButtonDepthVisual({
   const dark = scheme === "dark";
   const tokenOverrides = {
     primary: tokens.primary,
-    primaryPressed: primaryPressedColor(tokens, dark),
+    primaryPressed: primaryPressedColor(dark),
   };
 
   switch (variant) {

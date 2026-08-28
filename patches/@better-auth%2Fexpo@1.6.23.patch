@@ -1,0 +1,75 @@
+diff --git a/dist/client.js b/dist/client.js
+--- a/dist/client.js
++++ b/dist/client.js
+@@ -196,6 +196,6 @@ function normalizeCookieName(name) {
+ }
+ /**
+-* Max characters written per `setItem`. Native secure stores silently reject
++* Max UTF-8 bytes written per `setItem`. Native secure stores silently reject
+ * oversized writes (iOS Keychain refuses values above ~2KB), losing the cookie,
+ * so a larger value is split across keys here. Mirrors the server's
+ * `chunkCookie`/`joinChunks` in `session-store.ts`; keep the two in sync.
+@@ -204,5 +204,25 @@ setupExpoOnlineManager();
+ */
+ const STORAGE_VALUE_LIMIT = 1800;
++const STORAGE_VALUE_ENCODER = new TextEncoder();
++const getStorageValueSize = (value) => STORAGE_VALUE_ENCODER.encode(value).byteLength;
++const chunkStorageValue = (value) => {
++	const chunks = [];
++	let start = 0;
++	let end = 0;
++	let chunkBytes = 0;
++	for (const symbol of value) {
++		const symbolBytes = getStorageValueSize(symbol);
++		if (chunkBytes > 0 && chunkBytes + symbolBytes > STORAGE_VALUE_LIMIT) {
++			chunks.push(value.slice(start, end));
++			start = end;
++			chunkBytes = 0;
++		}
++		end += symbol.length;
++		chunkBytes += symbolBytes;
++	}
++	if (end > start) chunks.push(value.slice(start, end));
++	return chunks;
++};
+ /**
+ * Marks a base key whose value is split across `<key>.0..N` chunks. The leading
+ * control char can't start a JSON value (so it never collides) and, unlike NUL,
+@@ -229,17 +249,17 @@ function storageAdapter(storage) {
+ 		setItem: async (name, value) => {
+ 			const key = normalizeCookieName(name);
+ 			try {
+-				if (value.length <= STORAGE_VALUE_LIMIT) {
++				if (getStorageValueSize(value) <= STORAGE_VALUE_LIMIT) {
+ 					await storage.setItem(key, value);
+ 					return;
+ 				}
+ 				await storage.setItem(key, "");
+-				const count = Math.ceil(value.length / STORAGE_VALUE_LIMIT);
++				const chunks = chunkStorageValue(value);
++				const count = chunks.length;
+ 				for (let i = 0; i < count; i++) {
+-					const start = i * STORAGE_VALUE_LIMIT;
+-					await storage.setItem(`${key}.${i}`, value.slice(start, start + STORAGE_VALUE_LIMIT));
++					await storage.setItem(`${key}.${i}`, chunks[i]);
+ 				}
+ 				await storage.setItem(key, `${CHUNK_MARKER}${count}`);
+-			} catch (error) {
+-				console.error(`[better-auth/expo] failed to persist "${key}" to storage`, error);
++			} catch {
++				throw new Error("MOBILE_AUTH_STORAGE_UNAVAILABLE");
+ 			}
+diff --git a/dist/client.d.ts b/dist/client.d.ts
+--- a/dist/client.d.ts
++++ b/dist/client.d.ts
+@@ -97,8 +97,8 @@ declare function storageAdapter(storage: {
+    * per-write limit. The base key is cleared before the chunks are rewritten
+    * and set to the marker last, as the commit point, so a write interrupted
+    * partway through reads as absent rather than a mix of old and new chunks.
+-   * Failures are logged, not thrown: persistence is best-effort and must not
+-   * break the request.
++   * Failures reject with a stable sanitized error. Authentication must not be
++   * reported as successful when the resulting session was not persisted.
+    */
+   setItem: (name: string, value: string) => Promise<void>;
+ };

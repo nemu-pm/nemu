@@ -44,6 +44,26 @@ describe("mobile error boundary helpers", () => {
     );
   });
 
+  test("redacts secrets from displayed and copied crash diagnostics", () => {
+    const error = new Error(
+      "Request https://example.test/path?token=secret failed; password=hunter2",
+    );
+    error.name = "AuthError password=name-secret";
+    error.stack = `Error: ${error.message}\n    at ReaderScreen`;
+    const report = formatMobileErrorLog({
+      error,
+      routePath: "/sources/item?session=private",
+      timestamp: "2026-06-07T12:00:00.000Z",
+    });
+
+    expect(formatMobileErrorSummary(error)).not.toContain("secret");
+    expect(report).not.toContain("secret");
+    expect(report).not.toContain("hunter2");
+    expect(report).not.toContain("name-secret");
+    expect(report).not.toContain("private");
+    expect(report).toContain("[redacted]");
+  });
+
   test("resolves provider-free error boundary language from device locales", () => {
     expect(resolveMobileErrorBoundaryLanguage("zh-Hans-CN")).toBe("zh");
     expect(resolveMobileErrorBoundaryLanguage("ja_JP")).toBe("ja");

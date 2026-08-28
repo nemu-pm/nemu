@@ -8,6 +8,7 @@ import {
   normalizeMobileOAuthProvider,
   resolveMobileCloudSignInErrorDetail,
 } from "./mobileOAuthProvider";
+import { signOutAndUnregisterMobileBackgroundSync } from "./mobileBackgroundSyncLifecycle";
 
 describe("normalizeMobileOAuthProvider", () => {
   it("localizes offline sign-in failures without exposing the transport message", () => {
@@ -27,10 +28,27 @@ describe("normalizeMobileOAuthProvider", () => {
           {
             signInFailed: "fallback",
             networkUnavailable: detail,
+            storageUnavailable: "storage unavailable",
           },
         ),
       ).toBe(detail);
     }
+  });
+
+  it("surfaces a localized retry message when auth storage cannot persist", () => {
+    expect(
+      resolveMobileCloudSignInErrorDetail(
+        { message: "MOBILE_AUTH_STORAGE_UNAVAILABLE" },
+        {
+          signInFailed: "fallback",
+          networkUnavailable: "offline",
+          storageUnavailable:
+            "Nemu could not securely save this sign-in. Check device storage and try again.",
+        },
+      ),
+    ).toBe(
+      "Nemu could not securely save this sign-in. Check device storage and try again.",
+    );
   });
 
   it("keeps supported OAuth providers", () => {
@@ -80,8 +98,9 @@ describe("normalizeMobileOAuthProvider", () => {
 
     await completeMobileCloudSignOut({
       keepData: false,
-      signOutAndUnregister: async () => {
+      signOutAndUnregister: async (onSignOutConfirmed) => {
         calls.push("sign-out");
+        await onSignOutConfirmed();
       },
       retainLocalData: async () => {
         calls.push("retain");
@@ -111,5 +130,37 @@ describe("normalizeMobileOAuthProvider", () => {
     ).rejects.toThrow("offline");
 
     expect(clearCalls).toBe(0);
+  });
+
+  it("honors the selected local disposition after confirmed sign-out cleanup", async () => {
+    const calls: string[] = [];
+
+    await completeMobileCloudSignOut({
+      keepData: false,
+      signOutAndUnregister: (onSignOutConfirmed) =>
+        signOutAndUnregisterMobileBackgroundSync({
+          onSignOutConfirmed,
+          signOut: async () => {
+            calls.push("confirmed-sign-out");
+            return { data: { success: true }, error: null };
+          },
+          unregister: async () => {
+            calls.push("unregister-failed");
+            throw new Error("OS scheduler unavailable");
+          },
+        }),
+      retainLocalData: async () => {
+        calls.push("retain");
+      },
+      clearLocalData: async () => {
+        calls.push("clear");
+      },
+    });
+
+    expect(calls).toEqual([
+      "confirmed-sign-out",
+      "clear",
+      "unregister-failed",
+    ]);
   });
 });

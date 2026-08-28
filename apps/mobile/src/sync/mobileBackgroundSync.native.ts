@@ -22,7 +22,10 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../../convex/_generated/api";
 import { NativeUserDataStore } from "@/data/nativeStore";
 import { migrateNativeDatabase } from "@/data/nativeDatabase";
-import { resolveMobileDataProfileForUser } from "@/data/mobileDataProfile";
+import {
+  isMobileDataProfileCleanupPendingError,
+  resolveMobileDataProfileForUser,
+} from "@/data/mobileDataProfile";
 import type { MobileDataStore } from "@/data/storeTypes";
 import { createMobileSyncDataStore } from "./mobileSyncDataStore";
 import { mobileAuthClient } from "./mobileAuthClient";
@@ -38,6 +41,8 @@ import {
   runMobileBackgroundSyncOnce,
   type MobileSyncClient,
 } from "./mobileBackgroundSyncRunner";
+import { createMobileBackgroundSyncFetch } from "./mobileBackgroundSyncTransport";
+import { mobileNativeFetch } from "@/sources/mobileNativeHttp";
 
 type HeadlessMobileSyncContext = {
   store: MobileDataStore;
@@ -119,6 +124,7 @@ async function createHeadlessMobileSyncContext(options: {
     });
     if (signal.aborted) return null;
   } catch (error) {
+    if (isMobileDataProfileCleanupPendingError(error)) return null;
     // During a foreground account transition the provider may not have
     // durably selected the new profile yet. Skip this opportunistic task and
     // let the foreground effect finish instead of claiming the legacy DB here.
@@ -130,11 +136,7 @@ async function createHeadlessMobileSyncContext(options: {
   if (finalSession.data?.user?.id !== userId) return null;
   const convex = new ConvexHttpClient(mobileSyncConfig.convexUrl, {
     auth: token,
-    fetch: ((input: RequestInfo | URL, init?: RequestInit) =>
-      globalThis.fetch(input, {
-        ...init,
-        signal,
-      })) as unknown as typeof globalThis.fetch,
+    fetch: createMobileBackgroundSyncFetch(mobileNativeFetch, signal),
   });
   // Session reads and token issuance are separate requests. Confirm the fixed
   // token's actual Convex subject before opening or mutating this profile DB.

@@ -19,8 +19,8 @@ describe("mobile library detail refresh helpers", () => {
         {
           title: "Fresh Title",
           description: "Fresh description",
-        }
-      )
+        },
+      ),
     ).toEqual({
       title: "Fresh Title",
       cover: "stored-cover",
@@ -67,7 +67,7 @@ describe("mobile library detail refresh helpers", () => {
         chapters: [{ id: "c12", chapterNumber: 12 }],
         latestChapter: { id: "c12", chapterNumber: 12 },
         fetchedAt: 500,
-      })
+      }),
     ).toEqual({
       item: {
         libraryItemId: "item-1",
@@ -96,5 +96,38 @@ describe("mobile library detail refresh helpers", () => {
         updatedAt: 500,
       },
     });
+  });
+
+  test("does not replace a stored title with a runtime path or opaque id", () => {
+    const sourceLink: LocalSourceLink = {
+      id: "aidoku-community:ja.example:/manga/example-raw/",
+      libraryItemId: "item-1",
+      registryId: "aidoku-community",
+      sourceId: "ja.example",
+      sourceMangaId: "/manga/example-raw/",
+      createdAt: 100,
+      updatedAt: 100,
+    };
+    const entry: LibraryEntry = {
+      item: {
+        libraryItemId: "item-1",
+        metadata: { title: "/Blush-DC.: Himitsu" },
+        inLibrary: true,
+        createdAt: 100,
+        updatedAt: 100,
+      },
+      sources: [sourceLink],
+    };
+
+    for (const runtimeTitle of ["/manga/別名-raw/", "/manga/example-raw/"]) {
+      const applied = applyMobileSourceDetailsRefresh(entry, sourceLink, {
+        status: "ready",
+        runtime: "native-aidoku",
+        metadata: { title: runtimeTitle },
+        chapters: [],
+        fetchedAt: 500,
+      });
+      expect(applied.item.metadata.title).toBe("/Blush-DC.: Himitsu");
+    }
   });
 });

@@ -3,6 +3,7 @@ import type {
   LibraryEntry,
   LocalSourceLink,
 } from "@/data/schema";
+import { sanitizeMobileErrorDiagnostic } from "./mobileSourceErrors";
 import { makeChapterSortKey } from "@/lib/mobileLibraryDetails";
 import {
   refreshMobileSourceLatestChapter,
@@ -284,7 +285,10 @@ export async function refreshMobileLibraryLatestChapters({
             sourceLink,
             checkedAt
           );
-          console.warn("[MobileLibrary] Failed to refresh latest chapter", error);
+          console.warn(
+            "[MobileLibrary] Failed to refresh latest chapter",
+            sanitizeMobileErrorDiagnostic(error) ?? "Unknown source error.",
+          );
         }
       })
     );

@@ -110,6 +110,7 @@ export type MobileStrings = {
   };
   welcome: {
     confirmSkip: string;
+    continueWithoutInstalling: string;
     description: string;
     doneDescription: string;
     doneTitle: string;
@@ -214,7 +215,6 @@ export type MobileStrings = {
     cover: string;
     coverDescription: string;
     coverFileMissing: string;
-    coverPermissionDenied: string;
     coverPickFailed: string;
     coverPreview: string;
     coverSelected: string;
@@ -527,6 +527,7 @@ export type MobileStrings = {
     pageValue: string;
     pageWidth: string;
     pageWidthValue: string;
+    longStripProgress: string;
     pluginAllLanguages: string;
     pluginAutoDetect: string;
     pluginConfidence: string;
@@ -677,6 +678,7 @@ export type MobileStrings = {
     agentNotRunning: string;
     agentProtectedCompatibility: string;
     agentReady: string;
+    agentVerificationUnavailable: string;
     agentRefresh: string;
     agentRefreshStatus: string;
     agentVersion: string;
@@ -713,6 +715,7 @@ export type MobileStrings = {
     cloudSyncStorageUnavailable: string;
     cloudSyncStorageUnavailableDetail: string;
     cloudSyncAuthenticationNetworkUnavailable: string;
+    cloudSyncAuthenticationStorageUnavailable: string;
     cloudSyncSignInFailed: string;
     cloudSyncSignInPrompt: string;
     cloudSyncSignedIn: string;
@@ -723,6 +726,8 @@ export type MobileStrings = {
     cloudSyncSignOutTitle: string;
     cloudSyncUnavailable: string;
     cloudSyncUnavailableDetail: string;
+    localDataCleanupTitle: string;
+    localDataCleanupDescription: string;
     dataManagement: string;
     dataManagementDescription: string;
     editReaderPluginSettings: string;
@@ -977,6 +982,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
     },
     welcome: {
       confirmSkip: "Are you sure?",
+      continueWithoutInstalling: "Continue",
       description: "Your manga reading companion",
       doneDescription: "Start exploring manga from your installed sources.",
       doneTitle: "You're all set!",
@@ -1090,8 +1096,6 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       coverDescription:
         "Paste an image URL to replace the source cover on this device.",
       coverFileMissing: "The selected cover file no longer exists.",
-      coverPermissionDenied:
-        "Photo library access is required to choose a cover.",
       coverPickFailed: "Could not choose that image.",
       coverPreview: "Cover preview",
       coverSelected: "Selected image uploads on save.",
@@ -1389,7 +1393,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       disabled: "Disabled",
       dualReadTargetAccessibility: "Dual-read {{source}}: {{detail}}",
       dualReadOverlayUnavailableTitle: "Unavailable for this chapter.",
-      dualReadOverlayUnavailableHint: "Open \"Dual Read…\" to realign chapters.",
+      dualReadOverlayUnavailableHint: 'Open "Dual Read…" to realign chapters.',
       dualReadDialogTitle: "Dual Read",
       dualReadDialogDescription: "Choose a paired source and chapter pairing.",
       dualReadDialogNoLinkedSources: "No linked sources found for this manga.",
@@ -1442,6 +1446,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       pageValue: "Page {{page}} of {{total}}",
       pageWidth: "Page width",
       pageWidthValue: "{{percent}}% page width",
+      longStripProgress: "{{percent}}% through this page",
       pluginAllLanguages: "All Languages",
       pluginAutoDetect: "Auto Detect",
       pluginConfidence: "Confidence",
@@ -1605,13 +1610,15 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       appearance: "Appearance",
       appearanceDescription: "Language, theme, and metadata preferences",
       agent: "Nemu Agent",
-      agentBuiltInEnabled: "Built-in Nemu Agent Enabled",
-      agentConnected: "Connected",
+      agentBuiltInEnabled: "Protected-source verification ready",
+      agentConnected: "Native source networking available",
       agentDescription:
         "Built-in native networking is unavailable in this build",
       agentNotRunning: "Unavailable",
       agentProtectedCompatibility: "Protected-site compatibility",
-      agentReady: "Native networking is ready for protected sources",
+      agentReady: "Native networking and Cloudflare verification are available",
+      agentVerificationUnavailable:
+        "Cloudflare verification is unavailable in this build",
       agentRefresh: "Refresh",
       agentRefreshStatus: "Refresh Nemu Agent status",
       agentVersion: "v{{version}}",
@@ -1661,6 +1668,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
         "Cloud sync is paused because Nemu could not read this account's local storage. No cloud snapshot was applied.",
       cloudSyncAuthenticationNetworkUnavailable:
         "Authentication requires a network connection.",
+      cloudSyncAuthenticationStorageUnavailable:
+        "Nemu could not securely save this sign-in. Check device storage and try again.",
       cloudSyncSignInFailed: "Sign in failed.",
       cloudSyncSignInPrompt:
         "Sign in to sync your library and reading progress across devices.",
@@ -1672,6 +1681,9 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       cloudSyncSignOutTitle: "Sign Out",
       cloudSyncUnavailable: "Unavailable",
       cloudSyncUnavailableDetail: "Cloud sync is unavailable in this build.",
+      localDataCleanupTitle: "Finish removing device data",
+      localDataCleanupDescription:
+        "You are signed out. Your account data stays hidden until Nemu finishes removing it from this device.",
       dataManagement: "Data Management",
       dataManagementDescription: "Cache and local device storage",
       editReaderPluginSettings: "Edit settings for {{name}}",
@@ -1746,10 +1758,12 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
         "Paste cookies and, when requested, declared local-storage values as JSON.",
       sourceSettingsSubmitLogin: "Continue",
       sourceSettingsInvalidLoginForm: "Enter valid login information.",
-      sourceSettingsCredentialsRejected: "The source rejected these credentials.",
+      sourceSettingsCredentialsRejected:
+        "The source rejected these credentials.",
       sourceSettingsRuntimeUnavailable:
         "This source action is unavailable in the current mobile runtime.",
-      sourceSettingsInvalidLink: "This source provided an unsafe or invalid link.",
+      sourceSettingsInvalidLink:
+        "This source provided an unsafe or invalid link.",
       sourceSettingsOpenLink: "Open",
       sourceSettingsRunAction: "Run",
       sourceSettingsActionFailed: "The source action could not be completed.",
@@ -1951,6 +1965,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
     },
     welcome: {
       confirmSkip: "确定跳过？",
+      continueWithoutInstalling: "继续",
       description: "你的漫画阅读伴侣",
       doneDescription: "开始探索已安装源中的漫画吧。",
       doneTitle: "设置完成！",
@@ -2053,7 +2068,6 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       cover: "封面",
       coverDescription: "粘贴图片 URL，以在此设备上替换源封面。",
       coverFileMissing: "所选封面文件已不存在。",
-      coverPermissionDenied: "需要照片图库权限才能选择封面。",
       coverPickFailed: "无法选择该图片。",
       coverPreview: "封面预览",
       coverSelected: "所选图片会在保存时上传。",
@@ -2373,6 +2387,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       pageValue: "第 {{page}} 页，共 {{total}} 页",
       pageWidth: "页面宽度",
       pageWidthValue: "{{percent}}% 页面宽度",
+      longStripProgress: "本页阅读进度 {{percent}}%",
       pluginAllLanguages: "所有语言",
       pluginAutoDetect: "自动检测",
       pluginConfidence: "置信度",
@@ -2526,12 +2541,13 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       appearance: "外观",
       appearanceDescription: "语言、主题和元数据偏好",
       agent: "Nemu Agent",
-      agentBuiltInEnabled: "内置 Nemu Agent 已启用",
-      agentConnected: "已连接",
+      agentBuiltInEnabled: "受保护网站验证已就绪",
+      agentConnected: "原生源网络已可用",
       agentDescription: "当前构建无法使用内置原生网络能力",
       agentNotRunning: "不可用",
       agentProtectedCompatibility: "受保护网站兼容性",
-      agentReady: "原生网络已可用于受保护的源",
+      agentReady: "原生网络和 Cloudflare 验证已可用",
+      agentVerificationUnavailable: "当前构建无法使用 Cloudflare 验证",
       agentRefresh: "刷新",
       agentRefreshStatus: "刷新 Nemu Agent 状态",
       agentVersion: "v{{version}}",
@@ -2575,6 +2591,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       cloudSyncStorageUnavailableDetail:
         "Nemu 无法读取该账号的本地存储，因此云同步已暂停。没有应用任何云端快照。",
       cloudSyncAuthenticationNetworkUnavailable: "身份验证需要网络连接。",
+      cloudSyncAuthenticationStorageUnavailable:
+        "Nemu 无法在此设备上安全保存登录信息。请检查设备存储后重试。",
       cloudSyncSignInFailed: "登录失败。",
       cloudSyncSignInPrompt: "登录后可在设备间同步书架和阅读进度。",
       cloudSyncSignedIn: "已登录",
@@ -2585,6 +2603,9 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       cloudSyncSignOutTitle: "退出登录",
       cloudSyncUnavailable: "不可用",
       cloudSyncUnavailableDetail: "此构建不支持云同步。",
+      localDataCleanupTitle: "完成移除本机数据",
+      localDataCleanupDescription:
+        "你已退出登录。Nemu 完成从此设备移除账号数据前，这些数据会保持隐藏。",
       dataManagement: "数据管理",
       dataManagementDescription: "缓存和本机设备存储",
       editReaderPluginSettings: "编辑 {{name}} 的设置",
@@ -2856,6 +2877,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
     },
     welcome: {
       confirmSkip: "本当にスキップしますか？",
+      continueWithoutInstalling: "続ける",
       description: "あなたの漫画リーディングコンパニオン",
       doneDescription: "インストールしたソースから漫画を探索しましょう。",
       doneTitle: "準備完了！",
@@ -2901,8 +2923,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSource: "ソースを追加",
       all: "すべて",
       closeAddBooks: "本の追加を閉じる",
-      collectionEmpty:
-        "このコレクションは空です。本を追加して埋めましょう。",
+      collectionEmpty: "このコレクションは空です。本を追加して埋めましょう。",
       collectionChipAccessibility: "{{name}}、{{countLabel}}",
       collectionMangaAccessibility: "{{title}}、{{sourceCountLabel}}",
       collectionName: "コレクション名",
@@ -2952,7 +2973,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       createCollection: "コレクションを作成",
       loading: "コレクションを読み込み中",
       newCollection: "新規コレクション",
-      newCollectionDescription: "コレクションを作成し、このタイトルに設定します。",
+      newCollectionDescription:
+        "コレクションを作成し、このタイトルに設定します。",
       noCollections: "コレクションはまだありません。下で作成できます。",
       saving: "保存中",
       saveWithCount: "{{count}} 件を保存",
@@ -2970,12 +2992,11 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       coverDescription:
         "画像 URL を貼り付けると、このデバイスのソース表紙を置き換えます。",
       coverFileMissing: "選択した表紙ファイルが見つかりません。",
-      coverPermissionDenied:
-        "表紙を選ぶには写真ライブラリへのアクセスが必要です。",
       coverPickFailed: "この画像を選択できませんでした。",
       coverPreview: "表紙プレビュー",
       coverSelected: "選択した画像は保存時にアップロードされます。",
-      coverSizeUnavailable: "選択した表紙のサイズを安全に特定できませんでした。",
+      coverSizeUnavailable:
+        "選択した表紙のサイズを安全に特定できませんでした。",
       coverTitle: "表紙の上書き",
       coverUploadFailed: "表紙のアップロードに失敗しました。",
       coverUploadUnavailable:
@@ -3273,7 +3294,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       dualReadOverlayUnavailableHint:
         "「2ソース同時読み…」を開いてチャプターを再調整してください。",
       dualReadDialogTitle: "2ソース同時読み",
-      dualReadDialogDescription: "ペアリングするソースとチャプターを選択してください。",
+      dualReadDialogDescription:
+        "ペアリングするソースとチャプターを選択してください。",
       dualReadDialogNoLinkedSources:
         "この漫画のリンク済みソースが見つかりません。",
       dualReadDialogSecondarySource: "ペアソース",
@@ -3326,6 +3348,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       pageValue: "{{total}} ページ中 {{page}} ページ",
       pageWidth: "ページ幅",
       pageWidthValue: "ページ幅 {{percent}}%",
+      longStripProgress: "このページの {{percent}}% まで読みました",
       pluginAllLanguages: "すべての言語",
       pluginAutoDetect: "自動検出",
       pluginConfidence: "信頼度",
@@ -3497,12 +3520,14 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       appearance: "外観",
       appearanceDescription: "言語、テーマ、メタデータ設定",
       agent: "Nemu Agent",
-      agentBuiltInEnabled: "内蔵 Nemu Agent が有効",
-      agentConnected: "接続済み",
+      agentBuiltInEnabled: "保護サイトの認証を利用できます",
+      agentConnected: "ネイティブソース通信を利用できます",
       agentDescription: "このビルドでは内蔵ネイティブ通信を利用できません",
       agentNotRunning: "利用不可",
       agentProtectedCompatibility: "保護サイト互換性",
-      agentReady: "ネイティブ通信で保護されたソースに対応できます",
+      agentReady: "ネイティブ通信と Cloudflare 認証を利用できます",
+      agentVerificationUnavailable:
+        "このビルドでは Cloudflare 認証を利用できません",
       agentRefresh: "更新",
       agentRefreshStatus: "Nemu Agent の状態を更新",
       agentVersion: "v{{version}}",
@@ -3552,6 +3577,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
         "Nemu がこのアカウントのローカルストレージを読み取れないため、クラウド同期を一時停止しました。クラウドスナップショットは適用されていません。",
       cloudSyncAuthenticationNetworkUnavailable:
         "認証にはネットワーク接続が必要です。",
+      cloudSyncAuthenticationStorageUnavailable:
+        "Nemu はこの端末にサインイン情報を安全に保存できませんでした。端末のストレージを確認して、もう一度お試しください。",
       cloudSyncSignInFailed: "サインインに失敗しました。",
       cloudSyncSignInPrompt:
         "サインインすると、ライブラリと読書進捗をデバイス間で同期できます。",
@@ -3564,6 +3591,9 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       cloudSyncUnavailable: "利用不可",
       cloudSyncUnavailableDetail:
         "このビルドではクラウド同期を利用できません。",
+      localDataCleanupTitle: "端末データの削除を完了",
+      localDataCleanupDescription:
+        "サインアウト済みです。Nemu がこの端末からアカウントデータを削除し終えるまで、そのデータは非表示になります。",
       dataManagement: "データ管理",
       dataManagementDescription: "キャッシュとローカルデバイスストレージ",
       editReaderPluginSettings: "{{name}} の設定を編集",
@@ -3642,7 +3672,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceSettingsCredentialsRejected: "ソースがこの認証情報を拒否しました。",
       sourceSettingsRuntimeUnavailable:
         "現在のモバイルランタイムではこのソース操作を実行できません。",
-      sourceSettingsInvalidLink: "ソースが安全でない、または無効なリンクを返しました。",
+      sourceSettingsInvalidLink:
+        "ソースが安全でない、または無効なリンクを返しました。",
       sourceSettingsOpenLink: "開く",
       sourceSettingsRunAction: "実行",
       sourceSettingsActionFailed: "ソース操作を完了できませんでした。",
@@ -3666,8 +3697,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
           "このソースにはトークンエンドポイントがありません。",
         "token-request-failed": "トークン要求を完了できませんでした。",
         "token-exchange-failed": "ソースがトークン交換を拒否しました。",
-        "oversized-token":
-          "ソースから返されたトークンデータが大きすぎます。",
+        "oversized-token": "ソースから返されたトークンデータが大きすぎます。",
       },
       sourceUpdated: "ソースを更新しました: {{name}}",
       sourcesUpdated: "{{count}}個のソースを更新しました: {{names}}",

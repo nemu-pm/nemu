@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  InteractionManager,
   LayoutAnimation,
   ScrollView,
   StyleSheet,
@@ -18,7 +17,12 @@ import {
   type MultiSelectValue,
 } from "@/sources/aidokuContract";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import {
+  Stack,
+  router,
+  useFocusEffect,
+  useLocalSearchParams,
+} from "expo-router";
 import type { SearchBarCommands } from "react-native-screens";
 import { nextSyncTimestamp } from "@nemu/core";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
@@ -60,6 +64,10 @@ import {
 } from "@/design-system";
 import { hapticConfirm, hapticError, hapticPress } from "@/lib/haptics";
 import {
+  markMobilePerformance,
+  measureMobilePerformance,
+} from "@/lib/mobilePerformance";
+import {
   formatMobileString,
   getMobileStrings,
   type MobileStrings,
@@ -75,6 +83,10 @@ import {
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
 import { coerceMobileNativeSearchText } from "@/lib/mobileNativeSearchText";
+import {
+  createMobileIdleTaskCoordinator,
+  type MobileIdleTaskCoordinator,
+} from "@/lib/mobileIdleTask";
 import {
   describeMobileErrorDetail,
   getMobileRuntimeUnavailableDetail,
@@ -325,8 +337,7 @@ type SourceHomeState =
 function filterSourceBrowseControls(filters: Filter[]): Filter[] {
   return filters.filter(
     (filter) =>
-      filter.type !== FilterType.Title &&
-      filter.type !== FilterType.Author,
+      filter.type !== FilterType.Title && filter.type !== FilterType.Author,
   );
 }
 
@@ -1193,25 +1204,6 @@ function SourceFilterPanel({
 
 export function SourceBrowseScreen() {
   const sourceProfileScope = getActiveMobileSourceProfileScope();
-  const [renderSourceBrowseContent, setRenderSourceBrowseContent] =
-    useState(true);
-  const inactiveReleaseTaskRef = useRef<
-    ReturnType<typeof InteractionManager.runAfterInteractions> | null
-  >(null);
-  useFocusEffect(
-    useCallback(() => {
-      inactiveReleaseTaskRef.current?.cancel();
-      inactiveReleaseTaskRef.current = null;
-      setRenderSourceBrowseContent(true);
-      return () => {
-        inactiveReleaseTaskRef.current =
-          InteractionManager.runAfterInteractions(() => {
-            inactiveReleaseTaskRef.current = null;
-            setRenderSourceBrowseContent(false);
-          });
-      };
-    }, []),
-  );
   const params = useLocalSearchParams<{
     registryId: string;
     sourceId: string;
@@ -1220,7 +1212,9 @@ export function SourceBrowseScreen() {
   }>();
   const registryId = normalizeMobileSourceRouteParam(params.registryId);
   const sourceId = normalizeMobileSourceRouteParam(params.sourceId);
-  const routeSourceSearchQuery = normalizeMobileSourceBrowseRouteQuery(params.q);
+  const routeSourceSearchQuery = normalizeMobileSourceBrowseRouteQuery(
+    params.q,
+  );
   const routeSourceSearchActive = hasMobileSourceBrowseRouteQuery(params.q);
   const routeSourceListingTab = normalizeMobileSourceBrowseRouteTab(params.tab);
   const { tokens } = useNemuTheme();
@@ -1241,8 +1235,7 @@ export function SourceBrowseScreen() {
   const listingRequestRef = useRef(0);
   const listingItemsRef = useRef<MobileLiveSearchManga[]>([]);
   const listingPaginationRef = useRef({ hasMore: false, loading: false });
-  const [listingLoadMoreInFlight, setListingLoadMoreInFlight] =
-    useState(false);
+  const [listingLoadMoreInFlight, setListingLoadMoreInFlight] = useState(false);
   const listingLoadMoreInFlightRef = useRef(false);
   const [listingTabsViewportWidth, setListingTabsViewportWidth] = useState(0);
   const [listingTabsContentWidth, setListingTabsContentWidth] = useState(0);
@@ -1257,13 +1250,23 @@ export function SourceBrowseScreen() {
   const sourceHomeResultKeyRef = useRef<string | null>(null);
   const [refreshingSource, setRefreshingSource] = useState(false);
   const refreshSourceGuardRef = useRef(false);
-  const cloudflareSheetRef = useRef<{ reportError: (error: unknown) => boolean } | null>(null);
+  const cloudflareSheetRef = useRef<{
+    reportError: (error: unknown) => boolean;
+  } | null>(null);
   const sourceSearchInputRef = useRef<SearchBarCommands | null>(null);
+  const sourceSearchIdleTasksRef = useRef<MobileIdleTaskCoordinator | null>(
+    null,
+  );
+  if (sourceSearchIdleTasksRef.current === null) {
+    sourceSearchIdleTasksRef.current = createMobileIdleTaskCoordinator();
+  }
+  const sourceSearchIdleTasks = sourceSearchIdleTasksRef.current;
   const [sourceSearchQuery, setSourceSearchQuery] = useState(
     routeSourceSearchQuery,
   );
-  const [submittedSourceSearchQuery, setSubmittedSourceSearchQuery] =
-    useState(routeSourceSearchQuery);
+  const [submittedSourceSearchQuery, setSubmittedSourceSearchQuery] = useState(
+    routeSourceSearchQuery,
+  );
   const [sourceFilterValues, setSourceFilterValues] = useState<FilterValue[]>(
     [],
   );
@@ -1290,12 +1293,13 @@ export function SourceBrowseScreen() {
   const store = useMobileDataStore();
   const installed = useInstalledSources();
 
-  useEffect(
-    () => () => {
-      inactiveReleaseTaskRef.current?.cancel();
-      inactiveReleaseTaskRef.current = null;
-    },
-    [],
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        sourceSearchIdleTasks.cancel();
+      },
+      [sourceSearchIdleTasks],
+    ),
   );
 
   useEffect(() => {
@@ -1309,7 +1313,7 @@ export function SourceBrowseScreen() {
 
   const installedSource = useMemo(() => {
     return installed.data.find((item) =>
-      mobileInstalledSourceMatchesRoute(item, registryId, sourceId)
+      mobileInstalledSourceMatchesRoute(item, registryId, sourceId),
     );
   }, [installed.data, registryId, sourceId]);
   const installedSourceRef = useRef(installedSource);
@@ -1325,18 +1329,23 @@ export function SourceBrowseScreen() {
   );
   const [sourceBrowseMetadataState, setSourceBrowseMetadataState] =
     useState<SourceBrowseMetadataState>({ status: "idle" });
+  const sourceBrowseMetadataRequestKeyRef = useRef<string | null>(null);
   const runtimePackageMetadata =
     sourceBrowseMetadataState.status === "ready" &&
     listingSourceDisplay?.id === sourceBrowseMetadataState.result.source.id
       ? sourceBrowseMetadataState.result.packageMetadata
       : null;
-  const packageMetadata = runtimePackageMetadata ?? source?.packageMetadata ?? null;
+  const packageMetadata =
+    runtimePackageMetadata ?? source?.packageMetadata ?? null;
   const settingsSchema = packageMetadata?.settings ?? EMPTY_SOURCE_SETTINGS;
   const sourceKey = source
     ? makeMobileSourceKey(source.registryId, source.sourceId)
     : null;
   const sourceSettingsKeys = useMemo(
-    () => (installedSource ? getMobileInstalledSourceSettingsKeys(installedSource) : []),
+    () =>
+      installedSource
+        ? getMobileInstalledSourceSettingsKeys(installedSource)
+        : [],
     [installedSource],
   );
   const sourceSettings = useSourceSettings(
@@ -1474,24 +1483,21 @@ export function SourceBrowseScreen() {
       Boolean(packageMetadata?.filters.length),
     filtersErrored: sourceFiltersState.status === "error",
   });
-  const routeSelectedListingId = useMemo(
-    () => {
-      if (routeSourceListingTab !== null && !sourceHomeProviderKnown) {
-        return null;
-      }
-      return getMobileSourceBrowseListingIdForRouteTab(
-        routeSourceListingTab,
-        listings,
-        sourceHasHomeProvider,
-      );
-    },
-    [
-      listings,
+  const routeSelectedListingId = useMemo(() => {
+    if (routeSourceListingTab !== null && !sourceHomeProviderKnown) {
+      return null;
+    }
+    return getMobileSourceBrowseListingIdForRouteTab(
       routeSourceListingTab,
+      listings,
       sourceHasHomeProvider,
-      sourceHomeProviderKnown,
-    ],
-  );
+    );
+  }, [
+    listings,
+    routeSourceListingTab,
+    sourceHasHomeProvider,
+    sourceHomeProviderKnown,
+  ]);
   const routeTabSelectionPending =
     routeSourceListingTab !== null && !sourceHomeProviderKnown;
   const routeTabTargetsHome =
@@ -1499,8 +1505,7 @@ export function SourceBrowseScreen() {
     sourceExpectsHomeTab &&
     routeSourceListingTab === 0;
   const defaultSelectedListingId = useMemo(
-    () =>
-      getDefaultMobileSourceBrowseListingId(listings, sourceExpectsHomeTab),
+    () => getDefaultMobileSourceBrowseListingId(listings, sourceExpectsHomeTab),
     [listings, sourceExpectsHomeTab],
   );
   const sourceHomeSelected =
@@ -1509,12 +1514,9 @@ export function SourceBrowseScreen() {
   const canSelectSourceHomeTab = canSelectMobileSourceBrowseTab({
     selected: sourceHomeSelected,
   });
-  const showSourceHomeTab =
-    showListingTabBar && sourceHasHomeProvider;
+  const showSourceHomeTab = showListingTabBar && sourceHasHomeProvider;
   const sourceHomeTabSelected =
-    !sourceSearchActive &&
-    !selectedListing &&
-    sourceHomeSelected;
+    !sourceSearchActive && !selectedListing && sourceHomeSelected;
   const sourceHomeTabCanSelect =
     sourceHomeProviderKnown && canSelectSourceHomeTab;
   const sourceHomeDisplay =
@@ -1525,9 +1527,7 @@ export function SourceBrowseScreen() {
     sourceBrowseMetadataState.status === "blocked"
       ? sourceBrowseMetadataState.result.detail
       : null,
-    sourceHomeState.status === "blocked"
-      ? sourceHomeState.result.detail
-      : null,
+    sourceHomeState.status === "blocked" ? sourceHomeState.result.detail : null,
     sourceFiltersState.status === "blocked"
       ? sourceFiltersState.result.detail
       : null,
@@ -1563,8 +1563,7 @@ export function SourceBrowseScreen() {
   useEffect(() => {
     listingItemsRef.current = listingState.items;
     listingPaginationRef.current = {
-      hasMore:
-        listingState.status === "ready" && listingState.result.hasMore,
+      hasMore: listingState.status === "ready" && listingState.result.hasMore,
       loading: listingState.status === "loading",
     };
   }, [listingState]);
@@ -1696,17 +1695,24 @@ export function SourceBrowseScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    const requestSource = installedSourceRef.current;
 
-    if (!installedSource || sourceSettings.loading) {
+    if (
+      !requestSource ||
+      sourceSettings.loading ||
+      sourceHomeGenerationKey === null ||
+      sourceBrowseMetadataRequestKeyRef.current === sourceHomeGenerationKey
+    ) {
       return () => {
         cancelled = true;
       };
     }
+    sourceBrowseMetadataRequestKeyRef.current = sourceHomeGenerationKey;
 
     setSourceBrowseMetadataState({ status: "loading" });
 
     void withSourceOperationTimeout(
-      fetchMobileSourceBrowseMetadata(installedSource, {
+      fetchMobileSourceBrowseMetadata(requestSource, {
         getSourceSettings: resolveExecutorSourceSettings,
       }),
       strings.sourceBrowse.sourceOperationTimedOut,
@@ -1728,19 +1734,19 @@ export function SourceBrowseScreen() {
         setSourceFiltersState(sourceFiltersFromBrowseMetadata(result));
         if (
           !sameSourcePackageMetadata(
-            installedSource.packageMetadata,
+            requestSource.packageMetadata,
             result.packageMetadata,
           )
         ) {
           void (async () => {
             const saved = await store.saveInstalledSourceIfCurrent?.(
               {
-                ...installedSource,
+                ...requestSource,
                 packageMetadata: result.packageMetadata,
-                updatedAt: nextSyncTimestamp(installedSource.updatedAt),
+                updatedAt: nextSyncTimestamp(requestSource.updatedAt),
                 removed: false,
               },
-              installedSource.updatedAt,
+              requestSource.updatedAt,
             );
             if (saved) {
               emitMobileSettingsDataChanged();
@@ -1764,9 +1770,11 @@ export function SourceBrowseScreen() {
       cancelled = true;
     };
   }, [
-    installedSource,
     resolveExecutorSourceSettings,
-    runtimeRefreshKey,
+    // Live-query rows are value-equivalent but not referentially stable. Key
+    // the request to the fields that can actually change source execution so
+    // setting metadata state cannot recursively restart its own effect.
+    sourceHomeGenerationKey,
     sourceSettings.loading,
     strings,
     store,
@@ -1825,6 +1833,10 @@ export function SourceBrowseScreen() {
     let cancelled = false;
     const requestId = sourceHomeRequestRef.current + 1;
     sourceHomeRequestRef.current = requestId;
+    const requestStartedAt = markMobilePerformance(
+      "mobile.source.home.request.start",
+      { requestId },
+    );
 
     setSourceHomeState((current) => ({
       status: "loading",
@@ -1847,7 +1859,19 @@ export function SourceBrowseScreen() {
       strings.sourceBrowse.sourceOperationTimedOut,
     )
       .then((result) => {
-        if (cancelled || sourceHomeRequestRef.current !== requestId) return;
+        if (cancelled || sourceHomeRequestRef.current !== requestId) {
+          measureMobilePerformance(
+            "mobile.source.home.request.stale",
+            requestStartedAt,
+            { requestId, status: result.status },
+          );
+          return;
+        }
+        measureMobilePerformance(
+          "mobile.source.home.request.complete",
+          requestStartedAt,
+          { requestId, status: result.status },
+        );
         if (result.status === "blocked") {
           sourceHomeResultKeyRef.current = resultKey;
           setSourceHomeState({
@@ -1865,7 +1889,19 @@ export function SourceBrowseScreen() {
         });
       })
       .catch((error) => {
-        if (cancelled || sourceHomeRequestRef.current !== requestId) return;
+        if (cancelled || sourceHomeRequestRef.current !== requestId) {
+          measureMobilePerformance(
+            "mobile.source.home.request.stale-failure",
+            requestStartedAt,
+            { requestId },
+          );
+          return;
+        }
+        measureMobilePerformance(
+          "mobile.source.home.request.failed",
+          requestStartedAt,
+          { requestId },
+        );
         if (isMobileSourceOperationTimeoutError(error)) {
           sourceHomeRequestRef.current += 1;
         }
@@ -1882,6 +1918,11 @@ export function SourceBrowseScreen() {
 
     return () => {
       cancelled = true;
+      measureMobilePerformance(
+        "mobile.source.home.request.cancelled",
+        requestStartedAt,
+        { requestId },
+      );
       if (sourceHomeRequestRef.current === requestId) {
         sourceHomeRequestRef.current += 1;
       }
@@ -1992,15 +2033,11 @@ export function SourceBrowseScreen() {
 
       try {
         const result = await withSourceOperationTimeout(
-          searchMobileSource(
-            installedSource,
-            sourceSearchTerm,
-            {
-              page,
-              filters: compactMobileSourceFilterValues(sourceFilterValues),
-              getSourceSettings: resolveExecutorSourceSettings,
-            },
-          ),
+          searchMobileSource(installedSource, sourceSearchTerm, {
+            page,
+            filters: compactMobileSourceFilterValues(sourceFilterValues),
+            getSourceSettings: resolveExecutorSourceSettings,
+          }),
           strings.sourceBrowse.sourceOperationTimedOut,
         );
         if (sourceSearchRequestRef.current !== requestId) return;
@@ -2111,14 +2148,10 @@ export function SourceBrowseScreen() {
 
       try {
         const result = await withSourceOperationTimeout(
-          fetchMobileSourceListing(
-            installedSource,
-            selectedListing,
-            {
-              page,
-              getSourceSettings: resolveExecutorSourceSettings,
-            },
-          ),
+          fetchMobileSourceListing(installedSource, selectedListing, {
+            page,
+            getSourceSettings: resolveExecutorSourceSettings,
+          }),
           strings.sourceBrowse.sourceOperationTimedOut,
         );
 
@@ -2206,57 +2239,60 @@ export function SourceBrowseScreen() {
           registryId: sourceDisplay.registryId,
           sourceId: sourceDisplay.rawSourceId,
           mangaId: manga.id,
+          mangaTitle: manga.title,
         }),
       );
     },
     [],
   );
 
-  const submitSourceSearchText = useCallback((text: string, options?: { haptic?: boolean }) => {
-    const nextQuery = normalizeMobileSourceBrowseRouteQuery(text);
-    const nextRouteQuery = nextQuery || (sourceFilterCount > 0 ? " " : undefined);
-    const shouldRunFeedback = shouldRunMobileSourceBrowseSearchSubmitFeedback({
-      query: text,
-      routeQuery: routeSourceSearchQuery,
-      routeSearchActive: routeSourceSearchActive,
-      activeFilterCount: sourceFilterCount,
-    });
-    setSourceSearchQuery(nextQuery);
-    setSubmittedSourceSearchQuery(nextQuery);
-    if (
-      nextQuery !== routeSourceSearchQuery ||
-      Boolean(nextRouteQuery) !== routeSourceSearchActive
-    ) {
-      router.setParams({
-        q: nextRouteQuery,
-      });
-    }
-    if (options?.haptic && shouldRunFeedback) void hapticPress();
-  }, [
-    routeSourceSearchActive,
-    routeSourceSearchQuery,
-    sourceFilterCount,
-  ]);
+  const submitSourceSearchText = useCallback(
+    (text: string, options?: { haptic?: boolean }) => {
+      const nextQuery = normalizeMobileSourceBrowseRouteQuery(text);
+      const nextRouteQuery =
+        nextQuery || (sourceFilterCount > 0 ? " " : undefined);
+      const shouldRunFeedback = shouldRunMobileSourceBrowseSearchSubmitFeedback(
+        {
+          query: text,
+          routeQuery: routeSourceSearchQuery,
+          routeSearchActive: routeSourceSearchActive,
+          activeFilterCount: sourceFilterCount,
+        },
+      );
+      setSourceSearchQuery(nextQuery);
+      setSubmittedSourceSearchQuery(nextQuery);
+      if (
+        nextQuery !== routeSourceSearchQuery ||
+        Boolean(nextRouteQuery) !== routeSourceSearchActive
+      ) {
+        router.setParams({
+          q: nextRouteQuery,
+        });
+      }
+      if (options?.haptic && shouldRunFeedback) void hapticPress();
+    },
+    [routeSourceSearchActive, routeSourceSearchQuery, sourceFilterCount],
+  );
 
   const clearSourceSearch = useCallback(() => {
     sourceSearchInputRef.current?.clearText();
     router.setParams({ q: undefined });
-    InteractionManager.runAfterInteractions(() => {
+    sourceSearchIdleTasks.schedule(() => {
       setSourceSearchQuery("");
       setSubmittedSourceSearchQuery("");
       setSourceFilterValues([]);
       setSourceFilterPanelOpen(false);
     });
-  }, []);
+  }, [sourceSearchIdleTasks]);
 
   const enterSourceSearch = useCallback(() => {
     setSourceSearchQuery("");
     setSubmittedSourceSearchQuery("");
     router.setParams({ q: " " });
-    InteractionManager.runAfterInteractions(() => {
+    sourceSearchIdleTasks.schedule(() => {
       sourceSearchInputRef.current?.focus();
     });
-  }, []);
+  }, [sourceSearchIdleTasks]);
 
   useEffect(() => {
     if (!sourceSearchActive) return;
@@ -2345,7 +2381,8 @@ export function SourceBrowseScreen() {
         filter,
         value,
       );
-      const nextQuery = normalizeMobileSourceBrowseRouteQuery(sourceSearchQuery);
+      const nextQuery =
+        normalizeMobileSourceBrowseRouteQuery(sourceSearchQuery);
       setSourceFilterValues(next);
       setSubmittedSourceSearchQuery(nextQuery);
       router.setParams({
@@ -2358,7 +2395,8 @@ export function SourceBrowseScreen() {
   const applySourceFilters = useCallback(
     (values: FilterValue[]) => {
       const nextValues = compactMobileSourceFilterValues(values);
-      const nextQuery = normalizeMobileSourceBrowseRouteQuery(sourceSearchQuery);
+      const nextQuery =
+        normalizeMobileSourceBrowseRouteQuery(sourceSearchQuery);
       setSourceFilterValues(nextValues);
       setSubmittedSourceSearchQuery(nextQuery);
       setSourceFilterPanelOpen(false);
@@ -2384,7 +2422,8 @@ export function SourceBrowseScreen() {
   const handleHomeFilterPress = useCallback(
     (values: FilterValue[]) => {
       const nextValues = compactMobileSourceFilterValues(values);
-      const nextQuery = normalizeMobileSourceBrowseRouteQuery(sourceSearchQuery);
+      const nextQuery =
+        normalizeMobileSourceBrowseRouteQuery(sourceSearchQuery);
       setSourceFilterValues(nextValues);
       setSubmittedSourceSearchQuery(nextQuery);
       router.setParams({
@@ -2435,7 +2474,10 @@ export function SourceBrowseScreen() {
     hasError: Boolean(error),
   });
   const screenTitle = source?.name ?? sourceId ?? strings.sourceBrowse.source;
-  const nativeHeaderOptions = createNemuNativeScreenOptions(tokens, screenTitle);
+  const nativeHeaderOptions = createNemuNativeScreenOptions(
+    tokens,
+    screenTitle,
+  );
   const nativeHeaderActions: NemuNativeHeaderAction[] =
     source && !sourceSearchActive
       ? [
@@ -2488,7 +2530,11 @@ export function SourceBrowseScreen() {
         ? sourceSearchState.result.source
         : listingSourceDisplay;
     }
-    if (!sourceSearchActive && showExecutableSourceSections && selectedListing) {
+    if (
+      !sourceSearchActive &&
+      showExecutableSourceSections &&
+      selectedListing
+    ) {
       return listingState.status === "ready"
         ? listingState.result.source
         : listingSourceDisplay;
@@ -2520,18 +2566,13 @@ export function SourceBrowseScreen() {
         </View>
       );
     },
-    [listingGridSourceDisplay, installedSource, strings, handleListingMangaPress],
+    [
+      listingGridSourceDisplay,
+      installedSource,
+      strings,
+      handleListingMangaPress,
+    ],
   );
-
-  if (!renderSourceBrowseContent) {
-    return (
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[styles.inactiveScreen, { backgroundColor: tokens.background }]}
-      />
-    );
-  }
 
   if (showSourceNotInstalled) {
     return (
@@ -2655,231 +2696,247 @@ export function SourceBrowseScreen() {
                 <View
                   style={[
                     styles.previewSection,
-                    listingGridItems.length > 0 ? styles.gridHeaderSpacing : null,
+                    listingGridItems.length > 0
+                      ? styles.gridHeaderSpacing
+                      : null,
                   ]}
                 >
-              {showSourceSearchControls ? (
-                <View style={styles.sourceSearchControls}>
-                  {sourceFilters.length ? (
-                    <NemuPressable
-                      accessibilityRole="button"
-                      accessibilityLabel={strings.sourceBrowse.openAllFilters}
-                      onPress={openSourceFilterPanel}
+                  {showSourceSearchControls ? (
+                    <View style={styles.sourceSearchControls}>
+                      {sourceFilters.length ? (
+                        <NemuPressable
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            strings.sourceBrowse.openAllFilters
+                          }
+                          onPress={openSourceFilterPanel}
+                          style={[
+                            styles.iconButton,
+                            { backgroundColor: tokens.muted },
+                          ]}
+                        >
+                          <Ionicons
+                            name="options-outline"
+                            size={17}
+                            color={tokens.mutedForeground}
+                          />
+                        </NemuPressable>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  {sourceFilterCount > 0 ? (
+                    <Text
                       style={[
-                        styles.iconButton,
-                        { backgroundColor: tokens.muted },
+                        styles.filterSummary,
+                        { color: tokens.mutedForeground },
                       ]}
                     >
-                      <Ionicons
-                        name="options-outline"
-                        size={17}
-                        color={tokens.mutedForeground}
-                      />
-                    </NemuPressable>
+                      {formatSourceBrowseCount(
+                        sourceFilterCount,
+                        strings.sourceBrowse.activeFilterCountOne,
+                        strings.sourceBrowse.activeFilterCountOther,
+                      )}
+                    </Text>
                   ) : null}
-                </View>
-              ) : null}
 
-              {sourceFilterCount > 0 ? (
-                <Text
-                  style={[
-                    styles.filterSummary,
-                    { color: tokens.mutedForeground },
-                  ]}
-                >
-                  {formatSourceBrowseCount(
-                    sourceFilterCount,
-                    strings.sourceBrowse.activeFilterCountOne,
-                    strings.sourceBrowse.activeFilterCountOther,
-                  )}
-                </Text>
-              ) : null}
-
-              {sourceFilters.length ? (
-                <View style={styles.sourceFilterList}>
-                  {inlineSourceFilters.map((filter, index) => (
-                    <SourceFilterControl
-                      key={`${filter.name}:${filter.type}:${index}`}
-                      filter={filter}
-                      value={sourceFilterValueMap.get(filterValueKey(filter))}
-                      onChange={changeSourceFilter}
+                  {sourceFilters.length ? (
+                    <View style={styles.sourceFilterList}>
+                      {inlineSourceFilters.map((filter, index) => (
+                        <SourceFilterControl
+                          key={`${filter.name}:${filter.type}:${index}`}
+                          filter={filter}
+                          value={sourceFilterValueMap.get(
+                            filterValueKey(filter),
+                          )}
+                          onChange={changeSourceFilter}
+                          strings={strings}
+                        />
+                      ))}
+                      {sourceFilters.length > inlineSourceFilters.length ? (
+                        <NemuPressable
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            strings.sourceBrowse.openAllFilters
+                          }
+                          onPress={openSourceFilterPanel}
+                          style={[
+                            styles.allFiltersButton,
+                            { backgroundColor: tokens.muted },
+                          ]}
+                        >
+                          <Ionicons
+                            name="options-outline"
+                            size={18}
+                            color={tokens.mutedForeground}
+                          />
+                          <Text
+                            style={[
+                              styles.allFiltersText,
+                              { color: tokens.mutedForeground },
+                            ]}
+                          >
+                            {formatMobileString(
+                              strings.sourceBrowse.allFilters,
+                              {
+                                count: sourceFilters.length,
+                              },
+                            )}
+                          </Text>
+                        </NemuPressable>
+                      ) : null}
+                    </View>
+                  ) : sourceFiltersState.status === "blocked" &&
+                    packageMetadata?.filters.length ? (
+                    <SourceBrowseBlockedNotice
+                      detail={sourceFiltersState.result.detail}
                       strings={strings}
                     />
-                  ))}
-                  {sourceFilters.length > inlineSourceFilters.length ? (
-                    <NemuPressable
-                      accessibilityRole="button"
-                      accessibilityLabel={strings.sourceBrowse.openAllFilters}
-                      onPress={openSourceFilterPanel}
-                      style={[
-                        styles.allFiltersButton,
-                        { backgroundColor: tokens.muted },
-                      ]}
-                    >
-                      <Ionicons
-                        name="options-outline"
-                        size={18}
-                        color={tokens.mutedForeground}
-                      />
-                      <Text
-                        style={[
-                          styles.allFiltersText,
-                          { color: tokens.mutedForeground },
-                        ]}
-                      >
-                        {formatMobileString(strings.sourceBrowse.allFilters, {
-                          count: sourceFilters.length,
-                        })}
-                      </Text>
-                    </NemuPressable>
-                  ) : null}
-                </View>
-              ) : sourceFiltersState.status === "blocked" &&
-                packageMetadata?.filters.length ? (
-                <SourceBrowseBlockedNotice
-                  detail={sourceFiltersState.result.detail}
-                  strings={strings}
-                />
-              ) : sourceFiltersState.status === "error" ? (
-                <NemuInlineEmptyState
-                  icon="alert-circle-outline"
-                  title={sourceFiltersState.detail}
-                  tone="danger"
-                />
-              ) : null}
-
-              {sourceFilterPanelOpen ? (
-                <SourceFilterPanel
-                  filters={sourceFilters}
-                  values={sourceFilterValues}
-                  onClose={closeSourceFilterPanel}
-                  onApply={applySourceFilters}
-                  strings={strings}
-                />
-              ) : null}
-
-            </View>
-          ) : null}
-
-          {!sourceSearchActive && showExecutableSourceSections && showListingTabBar ? (
-            <View
-              style={[
-                styles.previewSection,
-                listingGridAttached ? styles.previewSectionListingGrid : null,
-              ]}
-            >
-              <View
-                style={[
-                  styles.listingTabsFrame,
-                  listingGridAttached ? styles.listingTabsFrameGridAttached : null,
-                ]}
-              >
-                <ScrollView
-                  accessibilityRole="tablist"
-                  horizontal
-                  onContentSizeChange={(width) =>
-                    setListingTabsContentWidth(width)
-                  }
-                  onLayout={(event) =>
-                    setListingTabsViewportWidth(event.nativeEvent.layout.width)
-                  }
-                  onScroll={(event) =>
-                    setListingTabsScrollX(event.nativeEvent.contentOffset.x)
-                  }
-                  scrollEventThrottle={16}
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.listingTabsScroller}
-                  contentContainerStyle={styles.listingTabs}
-                >
-                  {showSourceHomeTab ? (
-                    <SourceListingTab
-                      accessibilityLabel={strings.sourceBrowse.sourceHome}
-                      canSelect={sourceHomeTabCanSelect}
-                      icon={
-                        sourceHomeTabSelected ? "home" : "home-outline"
-                      }
-                      label={strings.sourceBrowse.sourceHome}
-                      onPress={() => {
-                        if (!sourceHomeTabCanSelect) return;
-                        selectSourceHome();
-                      }}
-                      selected={sourceHomeTabSelected}
+                  ) : sourceFiltersState.status === "error" ? (
+                    <NemuInlineEmptyState
+                      icon="alert-circle-outline"
+                      title={sourceFiltersState.detail}
+                      tone="danger"
                     />
                   ) : null}
-                  {visibleListings.map((listing) => {
-                    const selected = listing.id === selectedListing?.id;
-                    const canSelect = canSelectMobileSourceBrowseTab({
-                      selected,
-                    });
-                    return (
-                      <SourceListingTab
-                        key={listing.id}
-                        accessibilityLabel={getMobileSourceListingLabel(listing)}
-                        canSelect={canSelect}
-                        label={getMobileSourceListingLabel(listing)}
-                        onPress={() => {
-                          if (!canSelect) return;
-                          selectSourceListing(listing);
-                        }}
-                        selected={selected}
-                      />
-                    );
-                  })}
-                </ScrollView>
-                {showListingTabsLeadingFade ? (
-                  <LinearGradient
-                    pointerEvents="none"
-                    colors={[
-                      listingTabFadeColor,
-                      listingTabFadeTransparent,
-                    ]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[
-                      styles.listingTabsFade,
-                      styles.listingTabsFadeLeading,
-                    ]}
-                  />
-                ) : null}
-                {showListingTabsTrailingFade ? (
-                  <LinearGradient
-                    pointerEvents="none"
-                    colors={[
-                      listingTabFadeTransparent,
-                      listingTabFadeColor,
-                    ]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[
-                      styles.listingTabsFade,
-                      styles.listingTabsFadeTrailing,
-                    ]}
-                  />
-                ) : null}
-              </View>
 
-              {showSourceHomeSection &&
-              sourceHomeHasComponents &&
-              sourceHome &&
-              sourceHomeDisplay ? (
-                <View style={styles.previewSection}>
-                  <SourceHomeView
-                    home={sourceHome}
-                    source={sourceHomeDisplay}
-                    importingKey={null}
-                    strings={strings}
-                    onPressManga={handleListingMangaPress}
-                    onListingPress={handleHomeListingPress}
-                    onFilterPress={handleHomeFilterPress}
-                    installedSource={installedSource}
-                  />
+                  {sourceFilterPanelOpen ? (
+                    <SourceFilterPanel
+                      filters={sourceFilters}
+                      values={sourceFilterValues}
+                      onClose={closeSourceFilterPanel}
+                      onApply={applySourceFilters}
+                      strings={strings}
+                    />
+                  ) : null}
                 </View>
               ) : null}
 
-            </View>
-          ) : null}
+              {!sourceSearchActive &&
+              showExecutableSourceSections &&
+              showListingTabBar ? (
+                <View
+                  style={[
+                    styles.previewSection,
+                    listingGridAttached
+                      ? styles.previewSectionListingGrid
+                      : null,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.listingTabsFrame,
+                      listingGridAttached
+                        ? styles.listingTabsFrameGridAttached
+                        : null,
+                    ]}
+                  >
+                    <ScrollView
+                      accessibilityRole="tablist"
+                      horizontal
+                      onContentSizeChange={(width) =>
+                        setListingTabsContentWidth(width)
+                      }
+                      onLayout={(event) =>
+                        setListingTabsViewportWidth(
+                          event.nativeEvent.layout.width,
+                        )
+                      }
+                      onScroll={(event) =>
+                        setListingTabsScrollX(event.nativeEvent.contentOffset.x)
+                      }
+                      scrollEventThrottle={16}
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.listingTabsScroller}
+                      contentContainerStyle={styles.listingTabs}
+                    >
+                      {showSourceHomeTab ? (
+                        <SourceListingTab
+                          accessibilityLabel={strings.sourceBrowse.sourceHome}
+                          canSelect={sourceHomeTabCanSelect}
+                          icon={sourceHomeTabSelected ? "home" : "home-outline"}
+                          label={strings.sourceBrowse.sourceHome}
+                          onPress={() => {
+                            if (!sourceHomeTabCanSelect) return;
+                            selectSourceHome();
+                          }}
+                          selected={sourceHomeTabSelected}
+                        />
+                      ) : null}
+                      {visibleListings.map((listing) => {
+                        const selected = listing.id === selectedListing?.id;
+                        const canSelect = canSelectMobileSourceBrowseTab({
+                          selected,
+                        });
+                        return (
+                          <SourceListingTab
+                            key={listing.id}
+                            accessibilityLabel={getMobileSourceListingLabel(
+                              listing,
+                            )}
+                            canSelect={canSelect}
+                            label={getMobileSourceListingLabel(listing)}
+                            onPress={() => {
+                              if (!canSelect) return;
+                              selectSourceListing(listing);
+                            }}
+                            selected={selected}
+                          />
+                        );
+                      })}
+                    </ScrollView>
+                    {showListingTabsLeadingFade ? (
+                      <LinearGradient
+                        pointerEvents="none"
+                        colors={[
+                          listingTabFadeColor,
+                          listingTabFadeTransparent,
+                        ]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={[
+                          styles.listingTabsFade,
+                          styles.listingTabsFadeLeading,
+                        ]}
+                      />
+                    ) : null}
+                    {showListingTabsTrailingFade ? (
+                      <LinearGradient
+                        pointerEvents="none"
+                        colors={[
+                          listingTabFadeTransparent,
+                          listingTabFadeColor,
+                        ]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={[
+                          styles.listingTabsFade,
+                          styles.listingTabsFadeTrailing,
+                        ]}
+                      />
+                    ) : null}
+                  </View>
 
-        </View>
+                  {showSourceHomeSection &&
+                  sourceHomeHasComponents &&
+                  sourceHome &&
+                  sourceHomeDisplay ? (
+                    <View style={styles.previewSection}>
+                      <SourceHomeView
+                        home={sourceHome}
+                        source={sourceHomeDisplay}
+                        importingKey={null}
+                        strings={strings}
+                        onPressManga={handleListingMangaPress}
+                        onListingPress={handleHomeListingPress}
+                        onFilterPress={handleHomeFilterPress}
+                        installedSource={installedSource}
+                      />
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
           }
           ListFooterComponent={
             source && sourceSearchActive && showSourceSearchLoadMore ? (
@@ -3014,9 +3071,6 @@ export function SourceBrowseScreen() {
 }
 
 const styles = StyleSheet.create({
-  inactiveScreen: {
-    flex: 1,
-  },
   sections: {
     gap: 14,
   },

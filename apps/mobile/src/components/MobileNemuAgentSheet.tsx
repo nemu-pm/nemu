@@ -11,7 +11,11 @@ import {
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { hapticPress } from "@/lib/haptics";
 import { getMobileStrings } from "@/lib/mobileI18n";
-import type { NemuAgentSheetStatus } from "@/lib/nemuAgentSheetReducer";
+import { redactMobileCloudflareUrlForDisplay } from "@/lib/mobileSourceErrors";
+import {
+  shouldOfferNemuAgentVerificationAction,
+  type NemuAgentSheetStatus,
+} from "@/lib/nemuAgentSheetReducer";
 import NemuAidoku from "../../modules/nemu-aidoku/src/NemuAidokuModule";
 
 type MobileNemuAgentSheetProps = {
@@ -57,12 +61,16 @@ export function MobileNemuAgentSheet({
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const secureVerificationAvailable = supportsSecureCloudflareVerification();
+  const displayUrl = url ? redactMobileCloudflareUrlForDisplay(url) : undefined;
 
   const visual = statusVisual(status, strings, secureVerificationAvailable);
   const accentColor = toneColor(visual.tone, tokens);
   const inFlight = INFLIGHT_STATUSES.has(status);
-  const showAction = secureVerificationAvailable &&
-    (status === "needs-verification" || status === "failed");
+  const showAction = shouldOfferNemuAgentVerificationAction(
+    status,
+    secureVerificationAvailable,
+    Boolean(url),
+  );
   const actionLabel = status === "failed" ? strings.common.retry : strings.common.agentVerify;
 
   const closeFromBackdrop = () => {
@@ -111,10 +119,10 @@ export function MobileNemuAgentSheet({
         </Text>
       </View>
 
-      {url ? (
+      {displayUrl ? (
         <View style={[styles.subjectPill, { backgroundColor: tokens.muted }]}>
           <Text numberOfLines={2} style={[styles.subjectText, { color: tokens.foreground }]}>
-            {url}
+            {displayUrl}
           </Text>
         </View>
       ) : null}
@@ -137,7 +145,7 @@ export function MobileNemuAgentSheet({
             onPress={handleVerify}
             variant="default"
           />
-        ) : (
+        ) : secureVerificationAvailable && url ? (
           <NemuButton
             accessibilityLabel={strings.common.agentVerify}
             containerStyle={styles.actionButton}
@@ -148,7 +156,7 @@ export function MobileNemuAgentSheet({
             onPress={handleVerify}
             variant="default"
           />
-        )}
+        ) : null}
       </View>
     </MobileSheetScaffold>
   );

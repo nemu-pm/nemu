@@ -11,6 +11,7 @@ type MobileSourceRouteRef = {
 
 type MobileSourceMangaRouteRef = MobileSourceRouteRef & {
   mangaId: string;
+  mangaTitle?: string | null;
 };
 
 type MobileSourceReaderRouteRef = MobileSourceMangaRouteRef & {
@@ -24,7 +25,7 @@ export type MobileSourceMangaBackAction =
   | { type: "replace"; href: Href };
 
 function firstRouteParam(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }
 
 function decodeRouteParam(value: string): string | null {
@@ -111,8 +112,18 @@ export function getMobileSourceMangaHref({
   registryId,
   sourceId,
   mangaId,
+  mangaTitle,
 }: MobileSourceMangaRouteRef): Href {
-  return `/sources/${encodeRouteSegment(registryId)}/${encodeRouteSegment(sourceId)}/${encodeRouteSegment(mangaId)}` as Href;
+  const path = `/sources/${encodeRouteSegment(registryId)}/${encodeRouteSegment(sourceId)}/${encodeRouteSegment(mangaId)}`;
+  const resolvedMangaTitle = normalizeMobileReaderRouteLabel(
+    mangaTitle,
+    mangaId,
+  );
+  return (
+    resolvedMangaTitle
+      ? `${path}?mangaTitle=${encodeURIComponent(resolvedMangaTitle)}`
+      : path
+  ) as Href;
 }
 
 export function getMobileSourceMangaBackAction({
@@ -132,13 +143,19 @@ export function getMobileSourceReaderBackAction({
   registryId,
   sourceId,
   mangaId,
+  mangaTitle,
 }: MobileSourceMangaRouteRef & {
   canGoBack: boolean;
 }): MobileSourceMangaBackAction {
   if (canGoBack) return { type: "back" };
   return {
     type: "replace",
-    href: getMobileSourceMangaHref({ registryId, sourceId, mangaId }),
+    href: getMobileSourceMangaHref({
+      registryId,
+      sourceId,
+      mangaId,
+      mangaTitle,
+    }),
   };
 }
 
@@ -177,13 +194,17 @@ export function getMobileSourceReaderHref({
     Number.isFinite(chapter.chapterNumber) &&
     Math.abs(chapter.chapterNumber ?? 0) <= MOBILE_READER_ROUTE_NUMBER_MAX_ABS
   ) {
-    query.push(`chapterNumber=${encodeURIComponent(String(chapter.chapterNumber))}`);
+    query.push(
+      `chapterNumber=${encodeURIComponent(String(chapter.chapterNumber))}`,
+    );
   }
   if (
     Number.isFinite(chapter.volumeNumber) &&
     Math.abs(chapter.volumeNumber ?? 0) <= MOBILE_READER_ROUTE_NUMBER_MAX_ABS
   ) {
-    query.push(`volumeNumber=${encodeURIComponent(String(chapter.volumeNumber))}`);
+    query.push(
+      `volumeNumber=${encodeURIComponent(String(chapter.volumeNumber))}`,
+    );
   }
   return (query.length > 0 ? `${path}?${query.join("&")}` : path) as Href;
 }

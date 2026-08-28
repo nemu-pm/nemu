@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  View,
+  type ImageProps,
+} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   MobileCachedImage,
@@ -10,6 +16,7 @@ import {
 import type { MobileStrings } from "@/lib/mobileI18n";
 import type { MobileImageSize } from "@/lib/mobileJapaneseLearningOverlay";
 import type { MobileImageUriOwnership } from "@/lib/mobileImageUriPolicy";
+import type { MobileCachedSegmentedImageAsset } from "@/lib/mobileImageCache";
 
 const READER_IMAGE_STATUS_BACKGROUND = "rgba(0,0,0,0.58)";
 const READER_IMAGE_STATUS_TEXT = "rgba(255,255,255,0.86)";
@@ -23,6 +30,9 @@ type MobileReaderPageFrameProps = {
   headers?: Record<string, string>;
   imageUri: string;
   imageUriOwnership: MobileImageUriOwnership;
+  imageResizeMode?: ImageProps["resizeMode"];
+  allowLongStripSegments?: boolean;
+  cacheKey?: string;
   loading: boolean;
   strings: MobileStrings;
   onImageError: (error: string) => void;
@@ -30,6 +40,7 @@ type MobileReaderPageFrameProps = {
   onImageLoadStart: () => void;
   /** Clears the latched failure and re-requests this page's image. */
   onRetry?: () => void;
+  onSegmentedImage?: (asset: MobileCachedSegmentedImageAsset | null) => void;
 };
 
 export function MobileReaderPageFrame({
@@ -40,12 +51,16 @@ export function MobileReaderPageFrame({
   headers,
   imageUri,
   imageUriOwnership,
+  imageResizeMode = "contain",
+  allowLongStripSegments,
+  cacheKey,
   loading,
   strings,
   onImageError,
   onImageLoad,
   onImageLoadStart,
   onRetry,
+  onSegmentedImage,
 }: MobileReaderPageFrameProps) {
   const canRetry = Boolean(error) && Boolean(onRetry);
 
@@ -61,6 +76,8 @@ export function MobileReaderPageFrame({
       ]}
     >
       <MobileCachedImage
+        allowLongStripSegments={allowLongStripSegments}
+        cacheKey={cacheKey}
         fallback={null}
         uriOwnership={imageUriOwnership}
         source={{ uri: imageUri, headers }}
@@ -70,7 +87,8 @@ export function MobileReaderPageFrame({
           onImageLoad({ width, height });
         }}
         onError={onImageError}
-        resizeMode="contain"
+        onSegmentedImage={onSegmentedImage}
+        resizeMode={imageResizeMode}
         style={styles.readerImage}
       />
       {loading || error ? (

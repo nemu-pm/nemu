@@ -39,6 +39,7 @@ import {
   isActiveMobileSyncStore,
   isMobileSyncEpochCurrent,
   isMobileSyncSuspended,
+  mobileChapterProgressIntraPageSyncSupportedRef,
   mobileConvexRef,
   mobileIsAuthenticatedRef,
   mobileSessionUserIdRef,
@@ -59,6 +60,34 @@ function cloudClient(
   return convex && expectedUserId ? { convex, expectedUserId } : null;
 }
 
+/**
+ * Mobile writes are local-first. Starting an immediate Convex push improves
+ * freshness, but the public data-store promise must not stay pending while a
+ * device is offline: durable rows/tombstones and the sync provider remain the
+ * source of retry truth. Re-resolve the account/epoch in the microtask and
+ * absorb transport failures without exposing server details or creating an
+ * unhandled rejection.
+ */
+function enqueueMobileCloudMutation(
+  expectedEpoch: number,
+  owningStore: object,
+  operation: (context: {
+    convex: ConvexReactClient;
+    expectedUserId: string;
+  }) => Promise<unknown>,
+): void {
+  void Promise.resolve()
+    .then(async () => {
+      const context = cloudClient(expectedEpoch, owningStore);
+      if (!context) return;
+      await operation(context);
+    })
+    .catch(() => {
+      // Reconciliation retries from durable local state. Do not leak a
+      // backend/network error through foreground UI or the global console.
+    });
+}
+
 async function saveCloudChapterProgress(
   context: { convex: ConvexReactClient; expectedUserId: string },
   progress: LocalChapterProgress,
@@ -66,7 +95,10 @@ async function saveCloudChapterProgress(
 ): Promise<void> {
   await context.convex.mutation(api.history.save, {
     expectedUserId: context.expectedUserId,
-    ...toCloudHistorySaveInput(progress),
+    ...toCloudHistorySaveInput(progress, {
+      includeIntraPageState:
+        mobileChapterProgressIntraPageSyncSupportedRef.current,
+    }),
     generation,
   });
 }
@@ -117,15 +149,15 @@ export async function retargetMobileCloudHistoryLibraryItem(
     await runLocalSyncMutation(store, async () => undefined)
   ).generation;
   if (generation === null) return;
-  const context = cloudClient(syncEpoch, store);
-  if (!context) return;
-  await context.convex.mutation(api.history.retargetLibraryItem, {
-    expectedUserId: context.expectedUserId,
-    sourceLibraryItemId,
-    targetLibraryItemId,
-    updatedAt: Date.now(),
-    generation,
-  });
+  enqueueMobileCloudMutation(syncEpoch, store, (context) =>
+    context.convex.mutation(api.history.retargetLibraryItem, {
+      expectedUserId: context.expectedUserId,
+      sourceLibraryItemId,
+      targetLibraryItemId,
+      updatedAt: Date.now(),
+      generation,
+    }),
+  );
 }
 
 class MobileSyncDataStore implements MobileDataStore {
@@ -159,6 +191,12 @@ class MobileSyncDataStore implements MobileDataStore {
 
   getSyncSettings(): Promise<UserSettings> {
     return this.base.getSyncSettings();
+  }
+
+  async updateSettings(
+    updater: (current: UserSettings) => UserSettings,
+  ): Promise<UserSettings> {
+    return runWithMobileSyncWrite(() => this.base.updateSettings(updater));
   }
 
   async saveSettings(settings: UserSettings): Promise<void> {
@@ -221,14 +259,15 @@ class MobileSyncDataStore implements MobileDataStore {
     );
     if (!result.saved) return;
     if (generation === null) return;
-    const context = cloudClient(syncEpoch, this);
-    if (!context) return;
-    if (!result.latest || result.latest.removed) return;
-    await context.convex.mutation(api.settings.saveInstalledSource, {
-      expectedUserId: context.expectedUserId,
-      source: toCloudInstalledSource(result.latest),
-      generation,
-    });
+    const latest = result.latest;
+    if (!latest || latest.removed) return;
+    enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+      context.convex.mutation(api.settings.saveInstalledSource, {
+        expectedUserId: context.expectedUserId,
+        source: toCloudInstalledSource(latest),
+        generation,
+      }),
+    );
   }
 
   async saveInstalledSourceIfCurrent(
@@ -267,13 +306,15 @@ class MobileSyncDataStore implements MobileDataStore {
     );
     if (!result.saved) return false;
     if (generation === null) return true;
-    const context = cloudClient(syncEpoch, this);
-    if (!context || !result.latest || result.latest.removed) return true;
-    await context.convex.mutation(api.settings.saveInstalledSource, {
-      expectedUserId: context.expectedUserId,
-      source: toCloudInstalledSource(result.latest),
-      generation,
-    });
+    const latest = result.latest;
+    if (!latest || latest.removed) return true;
+    enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+      context.convex.mutation(api.settings.saveInstalledSource, {
+        expectedUserId: context.expectedUserId,
+        source: toCloudInstalledSource(latest),
+        generation,
+      }),
+    );
     return true;
   }
 
@@ -296,15 +337,16 @@ class MobileSyncDataStore implements MobileDataStore {
       },
     );
     if (generation === null) return;
-    const context = cloudClient(syncEpoch, this);
-    if (!context || !registryId) return;
-    await context.convex.mutation(api.settings.removeInstalledSource, {
-      expectedUserId: context.expectedUserId,
-      id,
-      registryId,
-      updatedAt,
-      generation,
-    });
+    if (!registryId) return;
+    enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+      context.convex.mutation(api.settings.removeInstalledSource, {
+        expectedUserId: context.expectedUserId,
+        id,
+        registryId,
+        updatedAt,
+        generation,
+      }),
+    );
   }
 
   getSourceSettings(sourceKey: string): Promise<LocalSourceSettings | null> {
@@ -397,13 +439,13 @@ class MobileSyncDataStore implements MobileDataStore {
       value.latestItem,
       value.links,
     )) {
-      const context = cloudClient(syncEpoch, this);
-      if (!context) return;
-      await context.convex.mutation(api.library.save, {
-        expectedUserId: context.expectedUserId,
-        ...input,
-        generation,
-      });
+      enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+        context.convex.mutation(api.library.save, {
+          expectedUserId: context.expectedUserId,
+          ...input,
+          generation,
+        }),
+      );
     }
   }
 
@@ -439,14 +481,14 @@ class MobileSyncDataStore implements MobileDataStore {
       },
     );
     if (generation === null) return;
-    const context = cloudClient(syncEpoch, this);
-    if (!context) return;
-    await context.convex.mutation(api.library.remove, {
-      expectedUserId: context.expectedUserId,
-      libraryItemId,
-      updatedAt,
-      generation,
-    });
+    enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+      context.convex.mutation(api.library.remove, {
+        expectedUserId: context.expectedUserId,
+        libraryItemId,
+        updatedAt,
+        generation,
+      }),
+    );
   }
 
   async saveSourceLink(link: LocalSourceLink): Promise<void> {
@@ -473,16 +515,17 @@ class MobileSyncDataStore implements MobileDataStore {
     );
     if (generation === null) return;
     const { item, latestLink } = value;
-    const context = cloudClient(syncEpoch, this);
-    if (!context || !item || !latestLink) return;
+    if (!item || !latestLink) return;
     // library.save unconditionally patches inLibrary: true — pushing a link
     // for a tombstoned item would resurrect it in every device's library.
     if (item.inLibrary === false) return;
-    await context.convex.mutation(api.library.save, {
-      expectedUserId: context.expectedUserId,
-      ...toCloudLibrarySaveInput(item, [latestLink]),
-      generation,
-    });
+    enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+      context.convex.mutation(api.library.save, {
+        expectedUserId: context.expectedUserId,
+        ...toCloudLibrarySaveInput(item, [latestLink]),
+        generation,
+      }),
+    );
   }
 
   async removeSourceLink(
@@ -513,18 +556,18 @@ class MobileSyncDataStore implements MobileDataStore {
     );
     if (generation === null) return;
     const { existing, updatedAt } = value;
-    const context = cloudClient(syncEpoch, this);
-    if (!context) return;
-    await context.convex.mutation(api.library.removeSourceLink, {
-      expectedUserId: context.expectedUserId,
-      registryId,
-      sourceId,
-      sourceMangaId,
-      libraryItemId: existing?.libraryItemId,
-      createdAt: existing?.createdAt,
-      updatedAt,
-      generation,
-    });
+    enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+      context.convex.mutation(api.library.removeSourceLink, {
+        expectedUserId: context.expectedUserId,
+        registryId,
+        sourceId,
+        sourceMangaId,
+        libraryItemId: existing?.libraryItemId,
+        createdAt: existing?.createdAt,
+        updatedAt,
+        generation,
+      }),
+    );
   }
 
   getChapterProgress(
@@ -569,9 +612,9 @@ class MobileSyncDataStore implements MobileDataStore {
       },
     );
     if (generation === null) return;
-    const context = cloudClient(syncEpoch, this);
-    if (!context) return;
-    await saveCloudChapterProgress(context, savedProgress, generation);
+    enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+      saveCloudChapterProgress(context, savedProgress, generation),
+    );
   }
 
   async saveChapterProgressBatch(
@@ -598,10 +641,10 @@ class MobileSyncDataStore implements MobileDataStore {
       },
     );
     if (generation === null) return;
-    const context = cloudClient(syncEpoch, this);
-    if (!context) return;
     for (const item of savedProgress) {
-      await saveCloudChapterProgress(context, item, generation);
+      enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+        saveCloudChapterProgress(context, item, generation),
+      );
     }
   }
 
@@ -708,18 +751,18 @@ class MobileSyncDataStore implements MobileDataStore {
       },
     );
     if (generation === null) return;
-    const context = cloudClient(syncEpoch, this);
-    if (!context) return;
     if (!latest) return;
-    await context.convex.mutation(api.collections.save, {
-      expectedUserId: context.expectedUserId,
-      collectionId: latest.collectionId,
-      name: latest.name,
-      createdAt: latest.createdAt,
-      updatedAt: latest.updatedAt,
-      removed: latest.removed,
-      generation,
-    });
+    enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+      context.convex.mutation(api.collections.save, {
+        expectedUserId: context.expectedUserId,
+        collectionId: latest.collectionId,
+        name: latest.name,
+        createdAt: latest.createdAt,
+        updatedAt: latest.updatedAt,
+        removed: latest.removed,
+        generation,
+      }),
+    );
   }
 
   async removeCollection(collectionId: string): Promise<void> {
@@ -748,14 +791,14 @@ class MobileSyncDataStore implements MobileDataStore {
       },
     );
     if (generation === null) return;
-    const context = cloudClient(syncEpoch, this);
-    if (!context) return;
-    await context.convex.mutation(api.collections.remove, {
-      expectedUserId: context.expectedUserId,
-      collectionId,
-      updatedAt,
-      generation,
-    });
+    enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+      context.convex.mutation(api.collections.remove, {
+        expectedUserId: context.expectedUserId,
+        collectionId,
+        updatedAt,
+        generation,
+      }),
+    );
   }
 
   async addCollectionItems(
@@ -792,16 +835,16 @@ class MobileSyncDataStore implements MobileDataStore {
     if (local.value === null) return;
     const { generation, value: updatedAt } = local;
     if (generation === null) return;
-    const context = cloudClient(syncEpoch, this);
-    if (!context) return;
     for (const batch of chunkCollectionMutationItems(libraryItemIds)) {
-      await context.convex.mutation(api.collections.addItems, {
-        expectedUserId: context.expectedUserId,
-        collectionId,
-        libraryItemIds: batch,
-        updatedAt,
-        generation,
-      });
+      enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+        context.convex.mutation(api.collections.addItems, {
+          expectedUserId: context.expectedUserId,
+          collectionId,
+          libraryItemIds: batch,
+          updatedAt,
+          generation,
+        }),
+      );
     }
   }
 
@@ -833,16 +876,16 @@ class MobileSyncDataStore implements MobileDataStore {
       },
     );
     if (generation === null) return;
-    const context = cloudClient(syncEpoch, this);
-    if (!context) return;
     for (const batch of chunkCollectionMutationItems(libraryItemIds)) {
-      await context.convex.mutation(api.collections.removeItems, {
-        expectedUserId: context.expectedUserId,
-        collectionId,
-        libraryItemIds: batch,
-        updatedAt,
-        generation,
-      });
+      enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+        context.convex.mutation(api.collections.removeItems, {
+          expectedUserId: context.expectedUserId,
+          collectionId,
+          libraryItemIds: batch,
+          updatedAt,
+          generation,
+        }),
+      );
     }
   }
 
@@ -952,8 +995,17 @@ class MobileSyncDataStore implements MobileDataStore {
     if (this.base.applyInstalledSourcesSnapshot) {
       return this.base.applyInstalledSourcesSnapshot(sources);
     }
-    const settings = await this.base.getSyncSettings();
-    await this.base.saveSettings({ ...settings, installedSources: sources });
+    // Compatibility path for test/fake stores that predate the atomic snapshot
+    // API. Installed sources never travel through scalar saveSettings.
+    for (const source of sources) {
+      const existing = (await this.base.getSyncSettings()).installedSources.find(
+        (candidate) => candidate.id === source.id,
+      );
+      if (existing && (existing.updatedAt ?? 0) > (source.updatedAt ?? 0)) {
+        continue;
+      }
+      await this.base.saveInstalledSource(source);
+    }
   }
 
   private async prepareLocalChapterProgress(

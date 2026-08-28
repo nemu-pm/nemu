@@ -79,18 +79,40 @@ export function isLikelyOAuthCallbackValue(value: string): boolean {
   }
 }
 
-/** Extract the `code` query param from a callback URL or raw `code=` fragment. */
+/**
+ * Extract exactly one non-empty authorization code from a callback URL or raw
+ * parameter string. Query + fragment parameters are one namespace for OAuth:
+ * duplicates are ambiguous even when one value is empty, so fail closed.
+ */
 export function extractAuthorizationCode(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
 
   try {
     const url = new URL(trimmed);
-    return url.searchParams.get("code");
+    const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+    const hashParams = new URLSearchParams(
+      hash.startsWith("?") ? hash.slice(1) : hash,
+    );
+    const codes = [
+      ...url.searchParams.entries(),
+      ...hashParams.entries(),
+    ]
+      .filter(([key]) => key.toLowerCase() === "code")
+      .map(([, code]) => code);
+    return codes.length === 1 && codes[0].length > 0 ? codes[0] : null;
   } catch {
-    const codeMatch = trimmed.match(/(?:^|[?#&])code=([^&#]+)/i);
-    if (codeMatch?.[1]) {
-      return decodeURIComponent(codeMatch[1]);
+    const rawCodes = [
+      ...trimmed.matchAll(/(?:^|[?#&])code=([^&#]*)/gi),
+    ].map((match) => match[1]);
+    if (rawCodes.length > 0) {
+      if (rawCodes.length !== 1 || rawCodes[0].length === 0) return null;
+      try {
+        const code = decodeURIComponent(rawCodes[0]);
+        return code.length > 0 ? code : null;
+      } catch {
+        return null;
+      }
     }
 
     if (!/[=?&#]/.test(trimmed)) {

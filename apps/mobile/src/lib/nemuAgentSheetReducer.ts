@@ -1,22 +1,17 @@
 import {
   extractMobileCloudflareUrl,
   isMobileCloudflareError,
+  validateMobileCloudflareOperationalUrl,
 } from "@/lib/mobileSourceErrors";
 
 /**
- * Nemu Agent sheet state machine — live Cloudflare-bypass progress.
+ * Nemu Agent sheet state machine for Cloudflare-classified source failures.
  *
- * The inline Cloudflare solve inside the synchronous Aidoku runtime HTTP call
- * stays as a transparent fast-path (it can't be made async — that's the
- * runtime contract, and RN has no Web Workers). What this sheet drives is the
- * *on-demand* retry that runs when a source op surfaces a Cloudflare-classified
- * failure: the user taps "Verify", `NemuAidoku.solveCloudflare(url)` runs the
- * native WebView challenge flow **off the JS thread** (an Expo `AsyncFunction`
- * with a Promise — non-blocking), and emits the lifecycle events declared in
- * `NemuAidokuCfEventsMap` as it progresses. Because the solve no longer blocks
- * the JS thread, the sheet can render those events live — opening → waiting →
- * captcha → success/failed — mirroring the web Nemu Agent flow, just
- * in-process and native instead of out-of-process.
+ * The lifecycle can represent a future native verification implementation,
+ * but the current iOS and Android builds report that capability as unavailable.
+ * Presentation code must therefore gate every Verify/Retry affordance on the
+ * explicit native flag and use this state machine only to explain the blocked
+ * source until such a capability exists.
  *
  * This module is pure (no React, no expo, no native imports) so it can be
  * unit-tested in the bun runner without pulling in react-native. The React
@@ -63,6 +58,18 @@ const INFLIGHT_STATUSES: ReadonlySet<NemuAgentSheetStatus> = new Set([
   "success",
 ]);
 
+export function shouldOfferNemuAgentVerificationAction(
+  status: NemuAgentSheetStatus,
+  secureVerificationAvailable: boolean,
+  challengeUrlAvailable: boolean,
+): boolean {
+  return (
+    secureVerificationAvailable &&
+    challengeUrlAvailable &&
+    (status === "needs-verification" || status === "failed")
+  );
+}
+
 /**
  * Pure reducer. Transitions:
  * - `report-error` opens the sheet (only for Cloudflare-classified errors) in
@@ -70,8 +77,8 @@ const INFLIGHT_STATUSES: ReadonlySet<NemuAgentSheetStatus> = new Set([
  * - `start` advances from a rest state (`needs-verification`/`failed`) into
  *   `opening`; ignored while a solve is already in-flight so a double-tap or
  *   stray event can't restart the flow.
- * - `event` maps a native lifecycle event onto the matching status, keeping the
- *   most recent url. Terminal events (`success`/`failed`) always win.
+ * - `event` maps a native lifecycle event onto the matching status, accepting
+ *   only a validated HTTPS url. Terminal events (`success`/`failed`) always win.
  * - `dismiss` hides and resets the sheet.
  */
 export function reduceNemuAgentSheet(
@@ -95,7 +102,9 @@ export function reduceNemuAgentSheet(
     }
     case "event": {
       if (!state.visible) return state;
-      const nextUrl = action.url ?? state.url;
+      const nextUrl = action.url
+        ? (validateMobileCloudflareOperationalUrl(action.url) ?? state.url)
+        : state.url;
       switch (action.event) {
         case "nemuAidokuCfSolveStart":
           if (state.status !== "opening") return state;

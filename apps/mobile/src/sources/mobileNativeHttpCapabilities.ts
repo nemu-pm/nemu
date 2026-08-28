@@ -1,6 +1,6 @@
 import type { NemuAidokuHttpClientStatus } from "../../modules/nemu-aidoku/src/NemuAidoku.types";
 
-export const MOBILE_NATIVE_HTTP_REQUIRED_ABI_VERSION = 5;
+export const MOBILE_NATIVE_HTTP_REQUIRED_ABI_VERSION = 6;
 
 type MobileNativeHttpModuleCapabilities = {
   prepareHttpRequest?: unknown;

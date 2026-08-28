@@ -23,10 +23,44 @@ function cleanEnvValue(value: string | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-export function deriveConvexSiteUrl(convexUrl: string | null | undefined): string | null {
-  if (!convexUrl) return null;
-  if (!convexUrl.includes(".convex.cloud")) return null;
-  return convexUrl.replace(".convex.cloud", ".convex.site");
+function normalizeSyncOrigin(
+  rawUrl: string | null | undefined,
+): string | null {
+  const value = rawUrl?.trim();
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+export function deriveConvexSiteUrl(
+  convexUrl: string | null | undefined,
+): string | null {
+  const normalized = normalizeSyncOrigin(convexUrl);
+  if (!normalized) return null;
+  const parsed = new URL(normalized);
+  if (
+    !parsed.hostname.endsWith(".convex.cloud") ||
+    parsed.hostname.length <= ".convex.cloud".length
+  ) {
+    return null;
+  }
+  const deployment = parsed.hostname.slice(0, -".convex.cloud".length);
+  return `https://${deployment}.convex.site`;
 }
 
 export function resolveExpoScheme(
@@ -44,12 +78,15 @@ export function getMobileSyncConfig(
   env: SyncEnv = getDefaultMobileSyncEnv(),
   scheme: string | string[] | null | undefined = env.EXPO_PUBLIC_APP_SCHEME
 ): MobileSyncConfig {
-  const convexUrl =
+  const convexUrl = normalizeSyncOrigin(
     cleanEnvValue(env.EXPO_PUBLIC_CONVEX_URL) ??
-    cleanEnvValue(env.VITE_CONVEX_URL);
+      cleanEnvValue(env.VITE_CONVEX_URL),
+  );
   const siteUrl =
-    cleanEnvValue(env.EXPO_PUBLIC_CONVEX_SITE_URL) ??
-    cleanEnvValue(env.VITE_CONVEX_SITE_URL) ??
+    normalizeSyncOrigin(
+      cleanEnvValue(env.EXPO_PUBLIC_CONVEX_SITE_URL) ??
+        cleanEnvValue(env.VITE_CONVEX_SITE_URL),
+    ) ??
     deriveConvexSiteUrl(convexUrl);
   const resolvedScheme = resolveExpoScheme(scheme);
 

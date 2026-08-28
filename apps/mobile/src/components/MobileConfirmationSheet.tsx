@@ -62,8 +62,8 @@ export function MobileConfirmationSheet({
       onRequestClose={handleRequestClose}
       dismissLabel={cancelLabel}
       // Pan-down stays off during an in-flight confirm so the sheet cannot be
-      // swiped away by accident, which is why the scaffold renders an explicit
-      // dismiss control instead — plus the Cancel button below.
+      // swiped away by accident. The caller-provided label keeps an explicit
+      // chrome Cancel route in addition to the Cancel button below.
       backdropDisabled={loading}
     >
       <View style={styles.header}>

@@ -1,14 +1,16 @@
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
+import { Platform } from "react-native";
 import { mobileNativeFetch } from "@/sources/mobileNativeHttp";
 import { hasOAuthTokenPayload } from "@nemu/core";
 import {
   buildMobileSourceOAuthExchangeBody,
   buildMobileSourceOAuthAuthRequest,
+  canStartMobileSourceOAuthFlow,
   classifyMobileSourceLoginCallback,
   isMobileSourceOAuthStoredValueWithinLimit,
+  isMobileSourceOAuthCallbackAllowed,
   isMobileSourceOAuthCallbackSchemeSupported,
-  MOBILE_SOURCE_OAUTH_STORED_VALUE_MAX_BYTES,
   mobileSourceOAuthCallbackHasExpectedState,
   normalizeMobileSourceOAuthHttpUrl,
   resolveMobileSourceOAuthRedirectUrl,
@@ -43,9 +45,10 @@ registerMobileSourceProfileTransitionHandler(
  *  2. if PKCE, append the S256 challenge and remember the verifier;
  *  3. open a system browser auth session (`expo-web-browser`) with a redirect
  *     URL the app can capture;
- *  4. classify the returned redirect — a full token payload is stored directly,
- *     an authorization `code` is exchanged at the source's `tokenUrl` for a
- *     token (PKCE) or stored verbatim (non-PKCE, mirroring web).
+ *  4. classify the returned redirect — PKCE accepts only an authorization
+ *     `code` and exchanges it at the source's HTTPS `tokenUrl`; legacy direct
+ *     token callbacks are retained only where the platform auth session keeps
+ *     the private-use redirect inside this app.
  *
  * NOTE: whether the browser session can actually capture the redirect depends
  * on the source's `redirect_uri`/`callbackScheme` semantics, which vary per
@@ -64,6 +67,25 @@ export async function runMobileSourceOAuthLogin(
   const authUrl = endpoint.url;
 
   const usePkce = Boolean(setting.pkce);
+  const platform =
+    Platform.OS === "android"
+      ? "android"
+      : Platform.OS === "ios"
+        ? "ios"
+        : "other";
+  if (!canStartMobileSourceOAuthFlow({ usePkce, platform })) {
+    return { ok: false, code: "unsupported-platform" };
+  }
+  const tokenUrl =
+    usePkce && setting.tokenUrl
+      ? normalizeMobileSourceOAuthHttpUrl(setting.tokenUrl)
+      : null;
+  // Fail before opening a browser when this PKCE attempt cannot complete. This
+  // also ensures a cleartext or credentialed token endpoint is never deferred
+  // until after the user has already authenticated.
+  if (usePkce && !tokenUrl) {
+    return { ok: false, code: "missing-token-endpoint" };
+  }
   let authRequest;
   try {
     authRequest = await buildMobileSourceOAuthAuthRequest(authUrl, usePkce);
@@ -113,29 +135,31 @@ export async function runMobileSourceOAuthLogin(
     return { ok: false, code: "state-mismatch" };
   }
 
+  const classified = classifyMobileSourceLoginCallback(callbackUrl);
+  if (
+    !isMobileSourceOAuthCallbackAllowed({
+      kind: classified.kind,
+      usePkce,
+      platform,
+    })
+  ) {
+    return { ok: false, code: "invalid-callback" };
+  }
+
   if (!usePkce) {
     // Non-PKCE OAuth stores the complete callback only when it contains real
     // credential material. A state-only or provider-error callback is not a
     // successful login.
-    if (classifyMobileSourceLoginCallback(callbackUrl).kind !== "invalid") {
-      return { ok: true, token: callbackUrl };
-    }
-    return { ok: false, code: "invalid-callback" };
+    return { ok: true, token: callbackUrl };
   }
 
-  // PKCE OAuth: a returned token payload is stored directly; otherwise exchange
-  // the authorization code for a token at the source's token endpoint.
-  const classified = classifyMobileSourceLoginCallback(callbackUrl);
-  if (classified.kind === "token") {
-    return { ok: true, token: classified.value };
-  }
+  // PKCE OAuth always exchanges its verifier-bound authorization code at the
+  // source's authenticated token endpoint. Implicit/hybrid token fields never
+  // bypass that exchange.
   if (classified.kind !== "code") {
     return { ok: false, code: "invalid-callback" };
   }
 
-  const tokenUrl = setting.tokenUrl
-    ? normalizeMobileSourceOAuthHttpUrl(setting.tokenUrl)
-    : null;
   if (!tokenUrl) {
     return { ok: false, code: "missing-token-endpoint" };
   }
@@ -161,6 +185,10 @@ export async function runMobileSourceOAuthLogin(
       body,
       responseMode: "text",
       maxResponseBytes: MOBILE_SOURCE_OAUTH_TOKEN_RESPONSE_MAX_BYTES,
+      // The authorization code and PKCE verifier are single-use credentials.
+      // Keep them off any HTTPS -> HTTP redirect while preserving general
+      // source-network compatibility for callers that do not opt in.
+      requireHttps: true,
     });
   } catch {
     return {
@@ -176,7 +204,10 @@ export async function runMobileSourceOAuthLogin(
       code: "token-exchange-failed",
     };
   }
-  if (response.bytes.byteLength > MOBILE_SOURCE_OAUTH_STORED_VALUE_MAX_BYTES) {
+  // `responseMode: "text"` intentionally omits the base64 byte payload, so
+  // `response.bytes` is empty on native. Bound the actual UTF-8 string that
+  // will be persisted instead of relying on that transport optimization.
+  if (!isMobileSourceOAuthStoredValueWithinLimit(responseText)) {
     return { ok: false, code: "oversized-token" };
   }
 

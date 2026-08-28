@@ -1,5 +1,9 @@
 export type MobileBackgroundRegistrationAction = "register" | "none";
 
+export type MobileBackgroundSignOutResult = {
+  backgroundSyncUnregisterScheduled: boolean;
+};
+
 type MobileAuthSignOutResponse = {
   data?: {
     success?: unknown;
@@ -45,19 +49,40 @@ function assertSuccessfulMobileAuthSignOut(result: unknown): void {
 }
 
 /**
- * Unregisters OS background work only after Better Auth has explicitly
- * confirmed a successful sign-out response. A rejected request, a resolved
- * fetch error, or a malformed response leaves the persisted registration in
- * place so an offline auth probe cannot permanently disable future fetches.
+ * Attempts to unregister OS background work only after Better Auth has
+ * explicitly confirmed a successful sign-out response. A rejected request, a
+ * resolved fetch error, or a malformed response leaves the persisted
+ * registration in place. Once sign-out is confirmed, unregister is best
+ * effort and detached: the user's selected local-data disposition runs first,
+ * and neither an OS scheduler failure nor a stalled OS promise can block it.
  */
 export async function signOutAndUnregisterMobileBackgroundSync({
+  onSignOutConfirmed,
   signOut,
   unregister,
 }: {
+  onSignOutConfirmed: () => Promise<void>;
   signOut: () => Promise<unknown>;
   unregister: () => Promise<void>;
-}): Promise<void> {
+}): Promise<MobileBackgroundSignOutResult> {
   const result = await signOut();
   assertSuccessfulMobileAuthSignOut(result);
-  await unregister();
+
+  let dispositionError: unknown = null;
+  try {
+    await onSignOutConfirmed();
+  } catch (error) {
+    dispositionError = error;
+  }
+
+  // Invoke after the disposition so "Remove Data" can durably fence the old
+  // profile before any scheduler API wait. Swallow synchronous and asynchronous
+  // scheduler failures; a revoked auth session makes a retained task a no-op.
+  try {
+    void unregister().catch(() => undefined);
+  } catch {
+    // Best effort by contract.
+  }
+  if (dispositionError) throw dispositionError;
+  return { backgroundSyncUnregisterScheduled: true };
 }

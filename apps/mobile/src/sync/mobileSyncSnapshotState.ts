@@ -14,34 +14,10 @@ import {
   runMobileBackgroundSyncOnce,
   type MobileBackgroundSyncResult,
 } from "./mobileBackgroundSyncRunner";
-
-type SnapshotStateBase = Omit<
-  MobileSyncSnapshotState,
-  "status" | "observedAt"
-> & {
-  observedAt?: number;
-};
-
-export function createMobileSyncBudgetExceededState(
-  input: SnapshotStateBase,
-): MobileSyncSnapshotState {
-  return {
-    ...input,
-    status: "budget-exceeded",
-    observedAt: input.observedAt ?? Date.now(),
-  };
-}
-
-export function createMobileSyncHealthyState(
-  input: Pick<SnapshotStateBase, "generation" | "origin" | "observedAt">,
-): MobileSyncSnapshotState {
-  return {
-    status: "healthy",
-    generation: input.generation,
-    origin: input.origin,
-    observedAt: input.observedAt ?? Date.now(),
-  };
-}
+export {
+  createMobileSyncBudgetExceededState,
+  createMobileSyncHealthyState,
+} from "./mobileSyncSnapshotStatus";
 
 /** Persist first, then publish a payload-free refresh signal. Consumers always
  * re-read their currently mounted profile store, so an old account's late

@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   Button as SwiftButton,
@@ -32,9 +39,7 @@ import {
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import type { SourcePackageSetting } from "@/data/schema";
 import { hapticPress, hapticSelection } from "@/lib/haptics";
-import {
-  canRunMobileSwitchSelectionFeedback,
-} from "@/lib/mobileAccessibility";
+import { canRunMobileSwitchSelectionFeedback } from "@/lib/mobileAccessibility";
 import {
   formatMobileString,
   getMobileStrings,
@@ -45,10 +50,12 @@ import {
   canSelectMobileSourceSettingOption,
   describeSourceSettingValue,
   flattenVisibleEditableSourceSettings,
+  formatSourceSettingSliderValue,
   formatSourceSettingAccessibilityLabel,
   getSourceSegmentIndex,
   getSourceSegmentOptions,
   getSourceSettingOptions,
+  getSourceSettingValue,
   hasVisibleSourceSettingRows,
   isRenderableSourceSetting,
   isSourceSettingVisible,
@@ -63,7 +70,17 @@ import {
   type MobileSourceLoginSetting,
 } from "@/lib/mobileSourceOAuth";
 import type { MobileSourceLoginSubmission } from "@/lib/mobileSourceSettingActions";
-import type { MobileSourceLoginCapabilities } from "@/sources/mobileSourceSettingsExecutor";
+import {
+  isMobileSourceLoginCancellation,
+  type MobileSourceLoginCapabilities,
+} from "@/sources/mobileSourceSettingsExecutor";
+import { sanitizeMobileSourceSettings } from "@/sources/mobileSourceSettingsSafety";
+import {
+  MAX_SOURCE_SETTING_VALUE_ARRAY_ITEMS,
+  MAX_SOURCE_SETTING_VALUE_STRING_LENGTH,
+  MAX_SOURCE_SETTING_VALUES_STRING_CHARS,
+  sanitizeSourceSettingValues,
+} from "@nemu/core";
 
 const EMPTY_SETTING_FEATURES: MobileSourceSettingFeatureFlags = {};
 const SLIDER_VALUE_LABEL_WIDTH = 48;
@@ -82,11 +99,16 @@ type MobileSourceSettingsCardProps = {
   disabled?: boolean;
   navigationResetKey?: string | number | null;
   loginCapabilities?: MobileSourceLoginCapabilities | null;
-  onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+  onChange: (
+    key: string,
+    value: unknown,
+    setting: SourcePackageSetting,
+  ) => void;
   onAction?: (setting: SourcePackageSetting) => void;
   onLogin?: (
     setting: SourcePackageSetting,
     submission: MobileSourceLoginSubmission,
+    options?: { signal?: AbortSignal },
   ) => Promise<string | null> | string | null;
   onLogout?: (setting: SourcePackageSetting) => void;
   onRetry?: () => void;
@@ -99,7 +121,7 @@ function settingValue(
   setting: SourcePackageSetting,
   values: Record<string, unknown>,
 ): unknown {
-  return values[setting.key] ?? setting.default;
+  return getSourceSettingValue(setting, values);
 }
 
 function numericSettingValue(
@@ -107,7 +129,7 @@ function numericSettingValue(
   values: Record<string, unknown>,
 ): number {
   const value = settingValue(setting, values);
-  if (typeof value === "number") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
   const parsed = typeof value === "string" ? Number(value) : Number.NaN;
   return Number.isFinite(parsed) ? parsed : (setting.min ?? 0);
 }
@@ -117,7 +139,10 @@ function stringListSettingValue(
   values: Record<string, unknown>,
 ): string[] {
   const value = settingValue(setting, values);
-  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is string => typeof item === "string" && item.length > 0,
+  );
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -131,8 +156,7 @@ function snapSliderValue(
   step: number,
 ): number {
   const snapped = Math.round((value - min) / step) * step + min;
-  const decimals = Math.max(0, String(step).split(".")[1]?.length ?? 0);
-  return Number(clampNumber(snapped, min, max).toFixed(decimals));
+  return Number(clampNumber(snapped, min, max).toPrecision(15));
 }
 
 function SourceSettingSlider({
@@ -154,10 +178,7 @@ function SourceSettingSlider({
   const step = setting.step ?? 1;
   const range = max > min ? max - min : 1;
   const progress = clampNumber((value - min) / range, 0, 1);
-  const formatted =
-    typeof setting.formatValue === "function"
-      ? setting.formatValue(value)
-      : String(value);
+  const formatted = formatSourceSettingSliderValue(setting, value);
   const sliderValueLeft = trackWidth
     ? clampNumber(
         progress * trackWidth - SLIDER_VALUE_LABEL_WIDTH / 2,
@@ -229,10 +250,7 @@ function SourceSettingSlider({
             }
           }
         }}
-        accessibilityActions={[
-          { name: "increment" },
-          { name: "decrement" },
-        ]}
+        accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
         onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
         onMoveShouldSetResponder={() => !disabled}
         onStartShouldSetResponder={() => !disabled}
@@ -245,7 +263,10 @@ function SourceSettingSlider({
         onResponderRelease={() => {
           if (!disabled) void hapticPress();
         }}
-        style={[styles.sliderTrackTouchTarget, disabled && styles.disabledControl]}
+        style={[
+          styles.sliderTrackTouchTarget,
+          disabled && styles.disabledControl,
+        ]}
       >
         <View style={[styles.sliderTrack, { backgroundColor: tokens.muted }]}>
           <View
@@ -368,7 +389,8 @@ function SourceSettingSelectMenu({
     const actions: MenuAction[] = options.map((option) => ({
       id: option.value,
       title: option.label,
-      titleColor: option.value === selectedValue ? tokens.primary : tokens.foreground,
+      titleColor:
+        option.value === selectedValue ? tokens.primary : tokens.foreground,
       state: option.value === selectedValue ? "on" : "off",
     }));
     const trigger = (
@@ -492,7 +514,8 @@ function validPageStack(
   let currentSettings = settings;
 
   for (const page of stack) {
-    if (!settingsTreeContainsPage(currentSettings, page, values, features)) break;
+    if (!settingsTreeContainsPage(currentSettings, page, values, features))
+      break;
     validStack.push(page);
     currentSettings = page.items ?? [];
   }
@@ -528,7 +551,11 @@ function SourceSettingControl({
   values: Record<string, unknown>;
   strings: MobileStrings;
   disabled: boolean;
-  onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+  onChange: (
+    key: string,
+    value: unknown,
+    setting: SourcePackageSetting,
+  ) => void;
 }) {
   const { tokens } = useNemuTheme();
   const options = getSourceSettingOptions(setting);
@@ -655,7 +682,14 @@ function SourceSettingControl({
   }
 
   if (setting.type === "multi-select" && options.length > 0) {
-    const selectedValues = Array.isArray(value) ? value.map(String) : [];
+    const optionValues = new Set(options.map((option) => option.value));
+    const supportedSelectedValues = stringListSettingValue(
+      setting,
+      values,
+    ).filter((item) => optionValues.has(item));
+    const selectedValues = setting.single
+      ? supportedSelectedValues.slice(0, 1)
+      : supportedSelectedValues;
     return (
       <View style={styles.settingOptions}>
         {options.map((option, index) => {
@@ -670,11 +704,17 @@ function SourceSettingControl({
                   option: option.label,
                 },
               )}
-              accessibilityRole="checkbox"
+              accessibilityRole={setting.single ? "radio" : "checkbox"}
               accessibilityState={{ checked: selected, disabled }}
               disabled={disabled}
-              hapticFeedback={disabled ? "none" : "selection"}
+              hapticFeedback={
+                disabled || (setting.single && selected) ? "none" : "selection"
+              }
               onPress={() => {
+                if (setting.single) {
+                  if (!selected) setValue([option.value]);
+                  return;
+                }
                 const next = selected
                   ? selectedValues.filter((item) => item !== option.value)
                   : [...selectedValues, option.value];
@@ -711,10 +751,10 @@ function SourceSettingControl({
   }
 
   if (setting.type === "slider") {
-    const current = numericSettingValue(setting, values);
     const step = setting.step ?? 1;
     const min = setting.min ?? 0;
     const max = setting.max ?? 100;
+    const current = clampNumber(numericSettingValue(setting, values), min, max);
     if (typeof setting.formatValue === "function") {
       return (
         <SourceSettingSlider
@@ -795,9 +835,19 @@ function SourceSettingControl({
   if (setting.type === "editable-list") {
     const currentItems = stringListSettingValue(setting, values);
     const trimmedDraft = draftListItem.trim();
+    const remainingListStringChars = Math.max(
+      0,
+      MAX_SOURCE_SETTING_VALUES_STRING_CHARS -
+        setting.key.length -
+        currentItems.reduce((total, item) => total + item.length, 0),
+    );
+    const listIsFull =
+      currentItems.length >= MAX_SOURCE_SETTING_VALUE_ARRAY_ITEMS ||
+      remainingListStringChars === 0;
+    const draftIsTooLong = trimmedDraft.length > remainingListStringChars;
     const addDraftItem = (options?: { haptic?: boolean }) => {
       if (disabled) return;
-      if (!trimmedDraft) return;
+      if (!trimmedDraft || listIsFull || draftIsTooLong) return;
       setValue([...currentItems, trimmedDraft]);
       setDraftListItem("");
       if (options?.haptic) void hapticPress();
@@ -819,6 +869,10 @@ function SourceSettingControl({
               autoCapitalize="none"
               autoCorrect={false}
               editable={!disabled}
+              maxLength={Math.min(
+                MAX_SOURCE_SETTING_VALUE_STRING_LENGTH,
+                remainingListStringChars,
+              )}
               returnKeyType="done"
               value={draftListItem}
               onChangeText={setDraftListItem}
@@ -837,15 +891,21 @@ function SourceSettingControl({
               strings,
               `${strings.common.add} ${setting.title}`,
             )}
-            accessibilityState={{ disabled: disabled || !trimmedDraft }}
-            disabled={disabled || !trimmedDraft}
+            accessibilityState={{
+              disabled:
+                disabled || !trimmedDraft || listIsFull || draftIsTooLong,
+            }}
+            disabled={disabled || !trimmedDraft || listIsFull || draftIsTooLong}
             onPress={() => addDraftItem()}
             pressedScale={0.94}
             buttonDepth="primary"
             style={[
               styles.editableListAddButton,
               {
-                opacity: !disabled && trimmedDraft ? 1 : 0.58,
+                opacity:
+                  !disabled && trimmedDraft && !listIsFull && !draftIsTooLong
+                    ? 1
+                    : 0.58,
               },
             ]}
           >
@@ -898,7 +958,10 @@ function SourceSettingControl({
           </View>
         ) : (
           <Text
-            style={[styles.editableListEmpty, { color: tokens.mutedForeground }]}
+            style={[
+              styles.editableListEmpty,
+              { color: tokens.mutedForeground },
+            ]}
           >
             {strings.settings.sourceSettingsNone}
           </Text>
@@ -923,6 +986,7 @@ function SourceSettingControl({
           autoCapitalize="none"
           autoCorrect={false}
           editable={!disabled}
+          maxLength={MAX_SOURCE_SETTING_VALUE_STRING_LENGTH}
           returnKeyType="done"
           value={textValue}
           onChangeText={(nextValue) => {
@@ -934,12 +998,13 @@ function SourceSettingControl({
             textCurrentValueRef.current = textValue;
           }}
           onBlur={() => {
-            const shouldRunFeedback =
-              canRunMobileSourceTextSettingBlurFeedback({
+            const shouldRunFeedback = canRunMobileSourceTextSettingBlurFeedback(
+              {
                 initialValue: textFocusValueRef.current,
                 currentValue: textCurrentValueRef.current ?? textValue,
                 disabled,
-              });
+              },
+            );
             textFocusValueRef.current = null;
             textCurrentValueRef.current = null;
             if (shouldRunFeedback) void hapticPress();
@@ -977,7 +1042,11 @@ function SourceSettingRow({
   values: Record<string, unknown>;
   strings: MobileStrings;
   disabled: boolean;
-  onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+  onChange: (
+    key: string,
+    value: unknown,
+    setting: SourcePackageSetting,
+  ) => void;
 }) {
   const { tokens } = useNemuTheme();
   const isSlider = setting.type === "slider";
@@ -1003,7 +1072,8 @@ function SourceSettingRow({
           numberOfLines={2}
           style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
         >
-          {setting.subtitle ?? describeSourceSettingValue(setting, values, strings)}
+          {setting.subtitle ??
+            describeSourceSettingValue(setting, values, strings)}
         </Text>
       </View>
       <SourceSettingControl
@@ -1068,7 +1138,11 @@ function SourceSettingsPageRow({
           </Text>
         ) : null}
       </View>
-      <Ionicons name="chevron-forward" size={17} color={tokens.mutedForeground} />
+      <Ionicons
+        name="chevron-forward"
+        size={17}
+        color={tokens.mutedForeground}
+      />
     </NemuPressable>
   );
 }
@@ -1090,6 +1164,7 @@ function SourceSettingLoginRow({
   onLogin: (
     setting: SourcePackageSetting,
     submission: MobileSourceLoginSubmission,
+    options?: { signal?: AbortSignal },
   ) => Promise<string | null> | string | null;
   onLogout: (setting: SourcePackageSetting) => void;
   onRequestLogin: (setting: SourcePackageSetting) => void;
@@ -1104,16 +1179,26 @@ function SourceSettingLoginRow({
       : loginCapabilities?.[method] === true;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const oauthAbortRef = useRef<AbortController | null>(null);
+  const oauthRequestRef = useRef(0);
   const rowDisabled = disabled || loading || (!loggedIn && !canRunLogin);
+
+  useEffect(() => {
+    return () => {
+      oauthRequestRef.current += 1;
+      oauthAbortRef.current?.abort();
+      oauthAbortRef.current = null;
+    };
+  }, []);
 
   const statusText = error
     ? error
     : !loggedIn && !canRunLogin
       ? strings.settings.sourceSettingsLoginUnsupported
-    : setting.subtitle ??
-      (loggedIn
-        ? strings.settings.sourceSettingsLoggedIn
-        : strings.settings.sourceSettingsLoggedOut);
+      : (setting.subtitle ??
+        (loggedIn
+          ? strings.settings.sourceSettingsLoggedIn
+          : strings.settings.sourceSettingsLoggedOut));
   const actionLabel = loggedIn
     ? strings.settings.sourceSettingsLogout
     : canRunLogin
@@ -1121,7 +1206,7 @@ function SourceSettingLoginRow({
       : strings.settings.sourceSettingsLoginUnavailable;
 
   const handlePress = useCallback(async () => {
-    if (rowDisabled) return;
+    if (rowDisabled || oauthAbortRef.current) return;
     setError(null);
 
     // Log out through the owner so confirmation and atomic cleanup stay
@@ -1145,24 +1230,56 @@ function SourceSettingLoginRow({
     }
 
     // OAuth remains a system-browser flow; accepted output is delegated to
-    // the settings owner for persistence.
+    // the settings owner for persistence. The browser API itself is not
+    // abortable, so fence its result and propagate cancellation into the
+    // credential-validation/persistence transaction.
+    const requestId = oauthRequestRef.current + 1;
+    oauthRequestRef.current = requestId;
+    const controller = new AbortController();
+    oauthAbortRef.current = controller;
     setLoading(true);
     void hapticPress();
     try {
       const result = await runMobileSourceOAuthLogin({ setting, values });
+      if (
+        controller.signal.aborted ||
+        oauthRequestRef.current !== requestId
+      ) {
+        return;
+      }
       if (result.ok) {
-        const loginError = await onLogin(setting, {
-          method: "oauth",
-          token: result.token,
-        });
+        const loginError = await onLogin(
+          setting,
+          {
+            method: "oauth",
+            token: result.token,
+          },
+          { signal: controller.signal },
+        );
+        if (
+          controller.signal.aborted ||
+          oauthRequestRef.current !== requestId
+        ) {
+          return;
+        }
         if (loginError) setError(loginError);
       } else {
         setError(strings.settings.sourceOAuthErrors[result.code]);
       }
-    } catch {
+    } catch (nextError) {
+      if (
+        controller.signal.aborted ||
+        isMobileSourceLoginCancellation(nextError) ||
+        oauthRequestRef.current !== requestId
+      ) {
+        return;
+      }
       setError(strings.settings.sourceSettingsLoginFailed);
     } finally {
-      setLoading(false);
+      if (oauthRequestRef.current === requestId) {
+        oauthAbortRef.current = null;
+        setLoading(false);
+      }
     }
   }, [
     rowDisabled,
@@ -1245,9 +1362,10 @@ function SourceSettingActionRow({
 }) {
   const { tokens } = useNemuTheme();
   const destructive = setting.destructive === true;
-  const actionLabel = setting.type === "link"
-    ? strings.settings.sourceSettingsOpenLink
-    : strings.settings.sourceSettingsRunAction;
+  const actionLabel =
+    setting.type === "link"
+      ? strings.settings.sourceSettingsOpenLink
+      : strings.settings.sourceSettingsRunAction;
   const color = destructive ? tokens.danger : tokens.primary;
   return (
     <NemuPressable
@@ -1268,7 +1386,10 @@ function SourceSettingActionRow({
       <View style={styles.settingText}>
         <Text
           numberOfLines={1}
-          style={[styles.settingTitle, { color: destructive ? tokens.danger : tokens.foreground }]}
+          style={[
+            styles.settingTitle,
+            { color: destructive ? tokens.danger : tokens.foreground },
+          ]}
         >
           {setting.title}
         </Text>
@@ -1305,11 +1426,16 @@ function SourceSettingsList({
   strings: MobileStrings;
   features: MobileSourceSettingFeatureFlags;
   disabled: boolean;
-  onChange: (key: string, value: unknown, setting: SourcePackageSetting) => void;
+  onChange: (
+    key: string,
+    value: unknown,
+    setting: SourcePackageSetting,
+  ) => void;
   onAction?: (setting: SourcePackageSetting) => void;
   onLogin?: (
     setting: SourcePackageSetting,
     submission: MobileSourceLoginSubmission,
+    options?: { signal?: AbortSignal },
   ) => Promise<string | null> | string | null;
   onLogout?: (setting: SourcePackageSetting) => void;
   onRequestLogin: (setting: SourcePackageSetting) => void;
@@ -1338,7 +1464,10 @@ function SourceSettingsList({
             <View key={key} style={styles.settingGroup}>
               <Text
                 numberOfLines={1}
-                style={[styles.settingGroupTitle, { color: tokens.mutedForeground }]}
+                style={[
+                  styles.settingGroupTitle,
+                  { color: tokens.mutedForeground },
+                ]}
               >
                 {setting.title}
               </Text>
@@ -1463,36 +1592,49 @@ function MobileSourceSettingsCardContent({
   const strings = getMobileStrings(appLanguage);
   const [pageStack, setPageStack] = useState<SourcePackageSetting[]>([]);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
-  const [loginSetting, setLoginSetting] = useState<SourcePackageSetting | null>(null);
+  const [loginSetting, setLoginSetting] = useState<SourcePackageSetting | null>(
+    null,
+  );
   const [loginSubmitting, setLoginSubmitting] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const loginAbortRef = useRef<AbortController | null>(null);
+  const loginRequestRef = useRef(0);
+  const safeSettings = useMemo(
+    () => sanitizeMobileSourceSettings(settings),
+    [settings],
+  );
+  const safeValues = useMemo(
+    () => sanitizeSourceSettingValues(values),
+    [values],
+  );
   const activePageStack = useMemo(
-    () => validPageStack(settings, pageStack, values, features),
-    [features, pageStack, settings, values],
+    () => validPageStack(safeSettings, pageStack, safeValues, features),
+    [features, pageStack, safeSettings, safeValues],
   );
   const currentPage =
     activePageStack.length > 0
       ? activePageStack[activePageStack.length - 1]
       : undefined;
-  const currentSettings = currentPage?.items ?? settings;
+  const currentSettings = currentPage?.items ?? safeSettings;
   const editableSettings = useMemo(
-    () => flattenVisibleEditableSourceSettings(settings, values, features),
-    [features, settings, values],
+    () =>
+      flattenVisibleEditableSourceSettings(safeSettings, safeValues, features),
+    [features, safeSettings, safeValues],
   );
   const hasRootRows = useMemo(
-    () => hasVisibleSourceSettingRows(settings, values, features),
-    [features, settings, values],
+    () => hasVisibleSourceSettingRows(safeSettings, safeValues, features),
+    [features, safeSettings, safeValues],
   );
   const hasCurrentRows = useMemo(
-    () => hasVisibleSourceSettingRows(currentSettings, values, features),
-    [currentSettings, features, values],
+    () => hasVisibleSourceSettingRows(currentSettings, safeValues, features),
+    [currentSettings, features, safeValues],
   );
   const titleLabel = title ?? strings.settings.sourceSettingsDefaultTitle;
   const subtitleLabel = hideSubtitle
     ? null
     : loading
-    ? strings.settings.sourceSettingsLoadingValues
-    : (subtitle ?? strings.settings.sourceSettingsSavedOnDevice);
+      ? strings.settings.sourceSettingsLoadingValues
+      : (subtitle ?? strings.settings.sourceSettingsSavedOnDevice);
   const emptyLabel = emptyMessage ?? strings.settings.sourceSettingsEmpty;
   const activeError = error && error !== dismissedError ? error : null;
   const handleChange = useCallback(
@@ -1508,24 +1650,71 @@ function MobileSourceSettingsCardContent({
     setDismissedError(null);
     onRetry();
   }, [onRetry, retryDisabled]);
+  const closeLoginSheet = useCallback(() => {
+    loginRequestRef.current += 1;
+    loginAbortRef.current?.abort();
+    loginAbortRef.current = null;
+    setLoginSubmitting(false);
+    setLoginError(null);
+    setLoginSetting(null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      loginRequestRef.current += 1;
+      loginAbortRef.current?.abort();
+      loginAbortRef.current = null;
+    };
+  }, []);
+
   const handleLoginSubmission = useCallback(
     async (submission: MobileSourceLoginSubmission) => {
       if (!loginSetting || !onLogin || loginSubmitting) return;
+      const activeSetting = loginSetting;
+      const requestId = loginRequestRef.current + 1;
+      loginRequestRef.current = requestId;
+      loginAbortRef.current?.abort();
+      const controller = new AbortController();
+      loginAbortRef.current = controller;
       setLoginSubmitting(true);
       setLoginError(null);
       try {
-        const nextError = await onLogin(loginSetting, submission);
+        const nextError = await onLogin(activeSetting, submission, {
+          signal: controller.signal,
+        });
+        if (
+          controller.signal.aborted ||
+          loginRequestRef.current !== requestId
+        ) {
+          return;
+        }
         if (nextError) {
           setLoginError(nextError);
         } else {
           setLoginSetting(null);
         }
-      } catch {
+      } catch (error) {
+        if (
+          controller.signal.aborted ||
+          isMobileSourceLoginCancellation(error) ||
+          loginRequestRef.current !== requestId
+        ) {
+          return;
+        }
         setLoginError(strings.settings.sourceSettingsLoginFailed);
       } finally {
-        setLoginSubmitting(false);
+        if (loginRequestRef.current === requestId) {
+          loginAbortRef.current = null;
+          setLoginSubmitting(false);
+        }
       }
-    }, [loginSetting, loginSubmitting, onLogin, strings.settings.sourceSettingsLoginFailed],
+    },
+    [
+      loginSetting,
+      loginSubmitting,
+      onLogin,
+      strings.settings.sourceSettingsLoginFailed,
+    ],
   );
 
   if (!hasRootRows && !showEmpty) return null;
@@ -1659,7 +1848,7 @@ function MobileSourceSettingsCardContent({
             <View style={styles.settingList}>
               <SourceSettingsList
                 settings={currentSettings}
-                values={values}
+                values={safeValues}
                 strings={strings}
                 features={features}
                 disabled={disabled}
@@ -1668,7 +1857,11 @@ function MobileSourceSettingsCardContent({
                 onLogin={onLogin}
                 onLogout={onLogout}
                 onRequestLogin={(setting) => {
+                  loginRequestRef.current += 1;
+                  loginAbortRef.current?.abort();
+                  loginAbortRef.current = null;
                   setLoginError(null);
+                  setLoginSubmitting(false);
                   setLoginSetting(setting);
                 }}
                 onPushPage={(page) => {
@@ -1701,9 +1894,7 @@ function MobileSourceSettingsCardContent({
           visible
           submitting={loginSubmitting}
           error={loginError}
-          onClose={() => {
-            if (!loginSubmitting) setLoginSetting(null);
-          }}
+          onClose={closeLoginSheet}
           onSubmit={(submission) => {
             void handleLoginSubmission(submission);
           }}

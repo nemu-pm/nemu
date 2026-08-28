@@ -27,6 +27,7 @@ import {
   clearCachedSourcePackage,
   clearCachedSourcePackages,
 } from "@/sources/sourcePackageCache";
+import { runMobileCacheClearSteps } from "./mobileCacheClear";
 import { getSourcePackageKind } from "@/sources/sourcePackageCacheTypes";
 import {
   makeMobileRuntimeSourceKey,
@@ -84,6 +85,7 @@ import {
 } from "@/lib/mobileReaderPlugins";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import { finalizeMobileDataResetAuthProfile } from "@/lib/mobileDataManagement";
+import { sanitizeMobileErrorDiagnostic } from "@/lib/mobileSourceErrors";
 import { unregisterMobileBackgroundSyncAsync } from "@/sync/mobileBackgroundSync";
 import {
   applyMobileSourceSettingsPatch,
@@ -91,6 +93,7 @@ import {
   mergeSourceSettingValues,
   normalizeMobileSourceSettingsKeys,
 } from "@/lib/mobileSourceSettings";
+import { removeMobileSourceAfterSettingsCleanup } from "@/lib/mobileSourceUninstall";
 import {
   emitMobileDataChanged,
   emitMobileSettingsDataChanged,
@@ -107,6 +110,11 @@ import {
 } from "@/sync/mobileSyncRuntime";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { clearRetainedMobileDataProfile } from "./mobileDataProfile";
+import { getMobileDataProfileSnapshot } from "./mobileDataProfile";
+import {
+  assertMobileSourceInstallActive,
+  persistMobileRegistrySourceInstall,
+} from "./mobileSourceInstallPersistence";
 import { nextSyncTimestamp } from "@nemu/core";
 
 type LoadState<T> = {
@@ -126,7 +134,10 @@ export type MobileSourceUpdateNotice = {
 };
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  // Hook errors are rendered by several top-level screens as optional
+  // diagnostics beneath localized recovery copy. Normalize them once so a
+  // native/store exception cannot leak credentials through any of those paths.
+  return sanitizeMobileErrorDiagnostic(error) ?? "Error";
 }
 
 function ignoreReloadError(reload: () => Promise<void>) {
@@ -140,37 +151,35 @@ function makeLocalId(): string {
 async function saveMobileRegistrySourceInstall(
   store: MobileDataStore,
   source: MobileRegistrySource,
-  options: { signal?: AbortSignal } = {},
-) {
+  options: { signal?: AbortSignal; updateOnly?: boolean } = {},
+): Promise<boolean> {
   const key = makeSourceKey(source.registryId, source.id);
-  const existing = (await store.getSyncSettings()).installedSources.find(
-    (item) => item.id === key,
+  const isAccountMutationBlocked = () =>
+    Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId);
+  assertMobileSourceInstallActive(
+    options.signal,
+    isAccountMutationBlocked,
+  );
+  const existing = findMobileInstalledSourceForRegistrySource(
+    (await store.getSyncSettings()).installedSources,
+    source,
+  );
+  assertMobileSourceInstallActive(
+    options.signal,
+    isAccountMutationBlocked,
   );
   const packageResult = await cacheSourcePackage(source, {
     signal: options.signal,
   });
+  assertMobileSourceInstallActive(
+    options.signal,
+    isAccountMutationBlocked,
+  );
   const packageKind = getSourcePackageKind(source);
   const packageMetadata =
     packageResult.metadata ?? source.packageMetadata ?? null;
-  await store.saveRegistry(
-    packageKind === "tachiyomi-extension"
-      ? {
-          id: source.registryId,
-          name: source.registryName,
-          type: "builtin",
-        }
-      : {
-          id: source.registryId,
-          name: source.registryName,
-          type: "url",
-          url:
-            AIDOKU_REGISTRIES.find(
-              (registry) => registry.id === source.registryId,
-            )?.indexUrl ?? "",
-        },
-  );
-  await store.saveInstalledSource({
-    id: key,
+  const installedSource: InstalledSource = {
+    id: existing?.id ?? key,
     registryId: source.registryId,
     sourceKind: packageKind === "tachiyomi-extension" ? "tachiyomi" : "aidoku",
     sourceId: packageMetadata?.sourceId ?? source.id,
@@ -191,16 +200,47 @@ async function saveMobileRegistrySourceInstall(
     version: packageMetadata?.version ?? source.version,
     updatedAt: nextSyncTimestamp(existing?.updatedAt),
     removed: false,
+  };
+  const persisted = await persistMobileRegistrySourceInstall({
+    store,
+    registry:
+      packageKind === "tachiyomi-extension"
+      ? {
+          id: source.registryId,
+          name: source.registryName,
+          type: "builtin",
+        }
+      : {
+          id: source.registryId,
+          name: source.registryName,
+          type: "url",
+          url:
+            AIDOKU_REGISTRIES.find(
+              (registry) => registry.id === source.registryId,
+            )?.indexUrl ?? "",
+        },
+    source: installedSource,
+    signal: options.signal,
+    updateOnly: options.updateOnly,
+    expectedInstalledUpdatedAt: existing?.updatedAt,
+    isAccountMutationBlocked,
   });
+  if (!persisted) return false;
   // A live cached session would keep executing the previous version's WASM —
   // session-cache hits bypass the package loader's version check entirely.
   defaultMobileSourceSessionCache.remove(key);
+  if (existing) {
+    defaultMobileSourceSessionCache.remove(
+      makeMobileRuntimeSourceKey(normalizeInstalledSource(existing)),
+    );
+  }
   const runtimeSourceId = packageMetadata?.sourceId ?? source.id;
   if (runtimeSourceId !== source.id) {
     defaultMobileSourceSessionCache.remove(
       makeSourceKey(source.registryId, runtimeSourceId),
     );
   }
+  return true;
 }
 
 export function useLibraryEntries(): LoadState<LibraryEntry[]> {
@@ -503,17 +543,20 @@ export function useSourceSettings(
         setLoading(false);
       }
     }
-  }, [schema, sourceKey, sourceSettingsKeys, sourceSettingsLoadSignature, store]);
+  }, [
+    schema,
+    sourceKey,
+    sourceSettingsKeys,
+    sourceSettingsLoadSignature,
+    store,
+  ]);
 
   useEffect(() => {
     ignoreReloadError(reload);
   }, [reload, revision]);
 
   const setSettings = useCallback(
-    async (
-      patch: Record<string, unknown>,
-      deleteKeys: string[] = [],
-    ) => {
+    async (patch: Record<string, unknown>, deleteKeys: string[] = []) => {
       if (!sourceKey) return;
       const operationSourceKey = sourceKey;
       const { values, userValues } = applyMobileSourceSettingsPatch(
@@ -878,8 +921,10 @@ export function useReadingMode(): {
       modeRun.current = run;
       setModeState(nextMode);
       try {
-        const settings = await store.getSettings();
-        await store.saveSettings({ ...settings, readingMode: nextMode });
+        await store.updateSettings((settings) => ({
+          ...settings,
+          readingMode: nextMode,
+        }));
         savedMode.current = nextMode;
         emitMobileDataChanged("settings");
       } catch (error) {
@@ -900,11 +945,10 @@ export function useReadingMode(): {
       scrollWidthRun.current = run;
       setScrollWidthPctState(nextValue);
       try {
-        const settings = await store.getSettings();
-        await store.saveSettings({
+        await store.updateSettings((settings) => ({
           ...settings,
           readerScrollWidthPct: nextValue,
-        });
+        }));
         savedScrollWidthPct.current = nextValue;
         emitMobileDataChanged("settings");
       } catch (error) {
@@ -924,8 +968,10 @@ export function useReadingMode(): {
       twoPageRun.current = run;
       setTwoPageModeState(enabled);
       try {
-        const settings = await store.getSettings();
-        await store.saveSettings({ ...settings, readerTwoPageMode: enabled });
+        await store.updateSettings((settings) => ({
+          ...settings,
+          readerTwoPageMode: enabled,
+        }));
         savedTwoPageMode.current = enabled;
         emitMobileDataChanged("settings");
       } catch (error) {
@@ -945,11 +991,10 @@ export function useReadingMode(): {
       pagePairingRun.current = run;
       setPagePairingModeState(nextMode);
       try {
-        const settings = await store.getSettings();
-        await store.saveSettings({
+        await store.updateSettings((settings) => ({
           ...settings,
           readerPagePairingMode: nextMode,
-        });
+        }));
         savedPagePairingMode.current = nextMode;
         emitMobileDataChanged("settings");
       } catch (error) {
@@ -969,11 +1014,10 @@ export function useReadingMode(): {
       pageImageProcessingRun.current = run;
       setProcessPageImagesState(enabled);
       try {
-        const settings = await store.getSettings();
-        await store.saveSettings({
+        await store.updateSettings((settings) => ({
           ...settings,
           readerProcessPageImages: enabled,
-        });
+        }));
         savedProcessPageImages.current = enabled;
         emitMobileDataChanged("settings");
       } catch (error) {
@@ -1043,7 +1087,10 @@ export function useMobileLanguageSettings(): {
         // A persisted choice always wins. Only fresh installs (no stored
         // value) fall back to the device locale.
         setAppLanguageState(
-          resolveInitialAppLanguage(settings.appLanguage, readDeviceAppLanguage()),
+          resolveInitialAppLanguage(
+            settings.appLanguage,
+            readDeviceAppLanguage(),
+          ),
         );
         setMetadataLanguagePreferenceState(
           normalizeMetadataLanguagePreference(
@@ -1063,8 +1110,10 @@ export function useMobileLanguageSettings(): {
       if (nextLanguage === appLanguage) return;
       setAppLanguageState(nextLanguage);
       try {
-        const settings = await store.getSettings();
-        await store.saveSettings({ ...settings, appLanguage: nextLanguage });
+        await store.updateSettings((settings) => ({
+          ...settings,
+          appLanguage: nextLanguage,
+        }));
         emitMobileDataChanged("settings");
       } catch (error) {
         setAppLanguageState(appLanguage);
@@ -1080,11 +1129,10 @@ export function useMobileLanguageSettings(): {
       if (nextPreference === metadataLanguagePreference) return;
       setMetadataLanguagePreferenceState(nextPreference);
       try {
-        const settings = await store.getSettings();
-        await store.saveSettings({
+        await store.updateSettings((settings) => ({
           ...settings,
           metadataLanguagePreference: nextPreference,
-        });
+        }));
         emitMobileDataChanged("settings");
       } catch (error) {
         setMetadataLanguagePreferenceState(metadataLanguagePreference);
@@ -1119,14 +1167,21 @@ export function useMobileDataManagement(): {
   const clearCache = useCallback(async () => {
     setClearingMode("cache");
     try {
-      await clearCachedSourcePackages();
-      await defaultMobileSourceSessionCache.clear();
-      await clearMobileImageCache();
-      await clearMobileJapaneseLearningTtsCache();
-      await clearMobileDualReaderDhashCache();
-      clearMobileSourceImageRequestCache();
-      await store.clearPackageCacheReferences();
-      emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
+      try {
+        await runMobileCacheClearSteps([
+          clearCachedSourcePackages,
+          () => defaultMobileSourceSessionCache.clear(),
+          clearMobileImageCache,
+          clearMobileJapaneseLearningTtsCache,
+          clearMobileDualReaderDhashCache,
+          clearMobileSourceImageRequestCache,
+          () => store.clearPackageCacheReferences(),
+        ]);
+      } finally {
+        // Earlier steps may have succeeded even if another backend failed.
+        // Refresh dependents so the UI never keeps stale package/settings data.
+        emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
+      }
     } finally {
       setClearingMode(null);
     }
@@ -1217,13 +1272,9 @@ export function useMobileReaderPlugins(): LoadState<
         ),
       );
       try {
-        const settings = await store.getSettings();
-        const nextSettings = setMobileReaderPluginEnabled(
-          settings,
-          pluginId,
-          enabled,
+        await store.updateSettings((settings) =>
+          setMobileReaderPluginEnabled(settings, pluginId, enabled),
         );
-        await store.saveSettings(nextSettings);
         emitMobileDataChanged("settings");
       } catch (nextError) {
         const message = errorMessage(nextError);
@@ -1250,14 +1301,9 @@ export function useMobileReaderPlugins(): LoadState<
         ),
       );
       try {
-        const settings = await store.getSettings();
-        const nextSettings = setMobileReaderPluginValue(
-          settings,
-          pluginId,
-          key,
-          value,
+        await store.updateSettings((settings) =>
+          setMobileReaderPluginValue(settings, pluginId, key, value),
         );
-        await store.saveSettings(nextSettings);
         emitMobileDataChanged("settings");
       } catch (nextError) {
         const message = errorMessage(nextError);
@@ -1277,9 +1323,9 @@ export function useMobileReaderPlugins(): LoadState<
       mutationRun.current = run;
       setError(null);
       try {
-        const settings = await store.getSettings();
-        const nextSettings = resetMobileReaderPluginValues(settings, pluginId);
-        await store.saveSettings(nextSettings);
+        const nextSettings = await store.updateSettings((settings) =>
+          resetMobileReaderPluginValues(settings, pluginId),
+        );
         emitMobileDataChanged("settings");
         setData(getMobileReaderPluginStates(nextSettings, strings));
       } catch (nextError) {
@@ -1314,13 +1360,27 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
   const [error, setError] = useState<string | null>(null);
   const [sourceUpdateNotice, setSourceUpdateNotice] =
     useState<MobileSourceUpdateNotice | null>(null);
+  const reloadAbortRef = useRef<AbortController | null>(null);
+  const reloadRunRef = useRef(0);
 
   const reload = useCallback(async () => {
+    reloadAbortRef.current?.abort();
+    const controller = new AbortController();
+    const run = reloadRunRef.current + 1;
+    reloadRunRef.current = run;
+    reloadAbortRef.current = controller;
+    const isCurrent = () =>
+      reloadAbortRef.current === controller && reloadRunRef.current === run;
     try {
       setLoading(true);
       setError(null);
       setSourceUpdateNotice(null);
-      const sources = await fetchAllAidokuRegistrySources();
+      const sources = await fetchAllAidokuRegistrySources(AIDOKU_REGISTRIES, {
+        signal: controller.signal,
+      });
+      assertMobileSourceInstallActive(controller.signal, () =>
+        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
+      );
       await Promise.all(
         AIDOKU_REGISTRIES.map((registry) =>
           store.saveRegistry({
@@ -1331,21 +1391,35 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
           }),
         ),
       );
+      assertMobileSourceInstallActive(controller.signal, () =>
+        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
+      );
       emitMobileDataChanged("registries");
       const installedSources = await store.getInstalledSources();
+      assertMobileSourceInstallActive(controller.signal, () =>
+        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
+      );
       const updateSources = findMobileSourceUpdates(installedSources, sources);
       const updatedNames: string[] = [];
       for (const source of updateSources) {
         try {
-          await saveMobileRegistrySourceInstall(store, source);
-          updatedNames.push(source.name);
+          const saved = await saveMobileRegistrySourceInstall(store, source, {
+            signal: controller.signal,
+            updateOnly: true,
+          });
+          if (saved) updatedNames.push(source.name);
         } catch (nextError) {
+          if (isMobileSourceInstallCancellation(nextError)) throw nextError;
           console.warn(
             `[MobileSources] Failed to update ${source.registryId}:${source.id}:`,
-            nextError,
+            errorMessage(nextError),
           );
         }
       }
+      assertMobileSourceInstallActive(controller.signal, () =>
+        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
+      );
+      if (!isCurrent()) return;
       if (updatedNames.length > 0) {
         emitMobileDataChanged("settings");
         setSourceUpdateNotice({ id: Date.now(), names: updatedNames });
@@ -1354,15 +1428,25 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
       }
       setData(sources);
     } catch (nextError) {
-      setError(errorMessage(nextError));
+      if (isCurrent() && !isMobileSourceInstallCancellation(nextError)) {
+        setError(errorMessage(nextError));
+      }
       throw nextError;
     } finally {
-      setLoading(false);
+      if (isCurrent()) {
+        reloadAbortRef.current = null;
+        setLoading(false);
+      }
     }
   }, [store]);
 
   useEffect(() => {
     ignoreReloadError(reload);
+    return () => {
+      reloadAbortRef.current?.abort();
+      reloadAbortRef.current = null;
+      reloadRunRef.current += 1;
+    };
   }, [reload]);
 
   return { data, loading, error, reload, sourceUpdateNotice };
@@ -1471,18 +1555,19 @@ export function useSourceInstaller(): {
               : key,
           );
           clearMobileSourceImageRequestCache();
-          await store.removeInstalledSource(
-            removeId,
-            existing?.registryId ?? source.registryId,
-          );
           const settingsKeys = existing
             ? getMobileInstalledSourceSettingsKeys(existing)
             : [key];
-          await Promise.all(
-            settingsKeys.map((settingsKey) =>
+          await removeMobileSourceAfterSettingsCleanup({
+            settingsKeys,
+            resetSourceSettings: (settingsKey) =>
               store.resetSourceSettings(settingsKey),
-            ),
-          );
+            removeInstalledSource: () =>
+              store.removeInstalledSource(
+                removeId,
+                existing?.registryId ?? source.registryId,
+              ),
+          });
         });
         emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
         measureMobilePerformance(

@@ -22,6 +22,11 @@ import type {
   MobileAidokuExecutorLoadResult,
   MobileAidokuExecutorSource,
 } from "./mobileSourceExecutor";
+import {
+  markMobilePerformance,
+  measureMobilePerformance,
+} from "@/lib/mobilePerformance";
+import { getMobileImageUriPolicy } from "@/lib/mobileImageUriPolicy";
 
 type SandboxCapabilities = {
   id: string;
@@ -117,17 +122,37 @@ function wrapSandboxSource({
     operation: Record<string, unknown>,
   ): Promise<T> => {
     if (disposed) throw new Error("The source session has already been disposed.");
+    const operationKind =
+      typeof operation.kind === "string" ? operation.kind : "unknown";
     const operationJson = stringifyMobileAidokuSandboxValue(
       operation,
       "Aidoku operation",
     );
-    const response = await withMobileSourceOperationTimeout(
-      NemuAidokuModule.executeAidokuSandboxOperation(sessionId, operationJson),
-    );
-    return sanitizeMobileAidokuOutput(
-      outputKind,
-      parseMobileAidokuSandboxResponse<T>(response),
-    );
+    const startedAt = markMobilePerformance("mobile.aidoku.operation.start", {
+      operation: operationKind,
+    });
+    try {
+      const response = await withMobileSourceOperationTimeout(
+        NemuAidokuModule.executeAidokuSandboxOperation(sessionId, operationJson),
+      );
+      const output = sanitizeMobileAidokuOutput(
+        outputKind,
+        parseMobileAidokuSandboxResponse<T>(response),
+      );
+      measureMobilePerformance("mobile.aidoku.operation.complete", startedAt, {
+        operation: operationKind,
+      });
+      return output;
+    } catch (error) {
+      measureMobilePerformance("mobile.aidoku.operation.failed", startedAt, {
+        operation: operationKind,
+        category:
+          error instanceof Error && error.name
+            ? error.name
+            : "unknown-error",
+      });
+      throw error;
+    }
   };
 
   return {
@@ -215,6 +240,12 @@ function wrapSandboxSource({
       return response.layout;
     },
     modifyImageRequest(url) {
+      if (
+        !capabilities.hasImageRequestProvider ||
+        !getMobileImageUriPolicy(url, "source").allowed
+      ) {
+        return Promise.resolve({ url, headers: {} });
+      }
       return execute<{ url: string; headers: Record<string, string> }>(
         "modify-image-request",
         {

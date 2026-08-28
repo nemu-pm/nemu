@@ -17,8 +17,28 @@ function mirrorEnv(target, source) {
 
 function deriveConvexSiteUrl(convexUrl) {
   const value = clean(convexUrl);
-  if (!value || !value.includes(".convex.cloud")) return undefined;
-  return value.replace(".convex.cloud", ".convex.site");
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value);
+    const suffix = ".convex.cloud";
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash ||
+      !parsed.hostname.endsWith(suffix) ||
+      parsed.hostname.length <= suffix.length
+    ) {
+      return undefined;
+    }
+    const deployment = parsed.hostname.slice(0, -suffix.length);
+    return `https://${deployment}.convex.site`;
+  } catch {
+    return undefined;
+  }
 }
 
 module.exports = function loadRootEnv() {

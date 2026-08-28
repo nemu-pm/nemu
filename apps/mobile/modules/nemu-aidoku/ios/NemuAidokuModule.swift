@@ -90,6 +90,9 @@ struct NemuAidokuHttpRequest: Record {
 
   @Field
   var maxResponseBytes: Int?
+
+  @Field
+  var requireHttps: Bool = false
 }
 
 struct NemuAidokuHttpFileRequest: Record, @unchecked Sendable {
@@ -112,10 +115,19 @@ struct NemuAidokuHttpFileRequest: Record, @unchecked Sendable {
   var maxResponseBytes: Int = 0
 
   @Field
+  var requireHttps: Bool = false
+
+  @Field
   var maxImageDimension: Int?
 
   @Field
   var maxImagePixels: Int?
+
+  // Android alone may return a segmented manifest. Keeping the defaulted
+  // field explicit makes Expo Record decoding stable while iOS deliberately
+  // continues its single-file fail-closed behavior.
+  @Field
+  var allowLongStripSegments: Bool = false
 }
 
 private struct NemuNativeHttpResult {
@@ -182,6 +194,7 @@ private struct NemuExplicitCookiePolicy {
   let originalHost: String?
   let originalScheme: String?
   let originalPort: Int?
+  let requireHttps: Bool
 
   func isSameOrigin(_ redirectUrl: URL?) -> Bool {
     guard
@@ -226,12 +239,18 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
     self.persistsResponseCookies = persistsResponseCookies
   }
 
-  func register(task: URLSessionTask, explicitHeader: String?, originalUrl: URL?) {
+  func register(
+    task: URLSessionTask,
+    explicitHeader: String?,
+    originalUrl: URL?,
+    requireHttps: Bool
+  ) {
     let policy = NemuExplicitCookiePolicy(
       header: explicitHeader,
       originalHost: originalUrl?.host?.lowercased(),
       originalScheme: originalUrl?.scheme?.lowercased(),
-      originalPort: NemuNativeHttpAddressPolicy.effectivePort(for: originalUrl)
+      originalPort: NemuNativeHttpAddressPolicy.effectivePort(for: originalUrl),
+      requireHttps: requireHttps
     )
     lock.lock()
     policies[task.taskIdentifier] = policy
@@ -507,18 +526,20 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
     lock.lock()
     let policy = policies[task.taskIdentifier]
     lock.unlock()
+    guard NemuNativeHttpRedirectPolicy.allows(
+      redirectURL,
+      requireHttps: policy?.requireHttps == true
+    ) else {
+      completionHandler(nil)
+      return
+    }
     var redirectedRequest = request
     if policy?.isSameOrigin(request.url) != true {
       // Foundation normally strips Authorization across origins, but source
       // packages can supply arbitrary headers. Enforce this independently for
       // every redirect, including Nemu's session bridge header.
-      for name in [
-        "Authorization",
-        "Better-Auth-Cookie",
-        "Proxy-Authorization",
-      ] {
-        redirectedRequest.setValue(nil, forHTTPHeaderField: name)
-      }
+      redirectedRequest = NemuNativeHttpHeaderPolicy
+        .strippingCrossOriginSecrets(from: redirectedRequest)
     }
     let explicitHeader = policy?.header(for: request.url)
     let mergedHeader = NemuAidokuCookieMerge.mergedHeader(
@@ -560,11 +581,17 @@ private final class NemuHttpSessionContext: @unchecked Sendable {
     }
   }
 
-  func registerRedirectPolicy(task: URLSessionTask, explicitHeader: String?, originalUrl: URL?) {
+  func registerRedirectPolicy(
+    task: URLSessionTask,
+    explicitHeader: String?,
+    originalUrl: URL?,
+    requireHttps: Bool = false
+  ) {
     redirectDelegate?.register(
       task: task,
       explicitHeader: explicitHeader,
-      originalUrl: originalUrl
+      originalUrl: originalUrl,
+      requireHttps: requireHttps
     )
   }
 
@@ -917,12 +944,14 @@ private final class NemuNativeHttpAsyncOperation: @unchecked Sendable {
     timeoutSeconds: Double,
     allowBackground: Bool,
     explicitCookieHeader: String?,
-    originalUrl: URL?
+    originalUrl: URL?,
+    requireHttps: Bool = false
   ) {
     sessionContext.registerRedirectPolicy(
       task: task,
       explicitHeader: explicitCookieHeader,
-      originalUrl: originalUrl
+      originalUrl: originalUrl,
+      requireHttps: requireHttps
     )
     lock.lock()
     self.task = task
@@ -1021,12 +1050,14 @@ private final class NemuNativeHttpFileAsyncOperation: @unchecked Sendable {
     task: URLSessionTask,
     timeoutSeconds: Double,
     explicitCookieHeader: String?,
-    originalUrl: URL?
+    originalUrl: URL?,
+    requireHttps: Bool
   ) {
     sessionContext.registerRedirectPolicy(
       task: task,
       explicitHeader: explicitCookieHeader,
-      originalUrl: originalUrl
+      originalUrl: originalUrl,
+      requireHttps: requireHttps
     )
     lock.lock()
     self.task = task
@@ -1127,7 +1158,7 @@ public class NemuAidokuModule: Module {
     Function("getHttpClientStatus") {
       return [
         "available": true,
-        "abiVersion": 5,
+        "abiVersion": 6,
         "supportsRequestLifecycle": true,
         "supportsCloudflareSolver": false,
         "version": nemuNativeHttpVersion,
@@ -1320,12 +1351,22 @@ public class NemuAidokuModule: Module {
     let explicitCookieHeader = request.headers.first {
       $0.key.caseInsensitiveCompare("Cookie") == .orderedSame
     }?.value
-    let urlRequest = buildRequest(
-      url: url,
-      request: bridgeRequest,
-      timeoutSeconds: timeoutSeconds,
-      cookieStorage: sessionContext.cookieStorage
-    )
+    let urlRequest: URLRequest
+    do {
+      urlRequest = try buildRequest(
+        url: url,
+        request: bridgeRequest,
+        timeoutSeconds: timeoutSeconds,
+        cookieStorage: sessionContext.cookieStorage
+      )
+    } catch {
+      return NemuAidokuIOSandboxHTTPResponse(
+        status: 0,
+        headers: [:],
+        data: Data(),
+        error: error.localizedDescription
+      )
+    }
     let result = performRequest(
       urlRequest,
       timeoutSeconds: timeoutSeconds,
@@ -1396,6 +1437,16 @@ public class NemuAidokuModule: Module {
         ))
         return
       }
+      guard NemuNativeHttpRedirectPolicy.allows(
+        url,
+        requireHttps: request.requireHttps
+      ) else {
+        promiseBox.promise.resolve(Self.fileResponse(
+          status: 0,
+          error: NemuNativeHttpRedirectPolicy.blockedMessage
+        ))
+        return
+      }
       guard request.maxResponseBytes > 0 else {
         promiseBox.promise.resolve(Self.fileResponse(
           status: 0,
@@ -1450,15 +1501,25 @@ public class NemuAidokuModule: Module {
       bridgeRequest.timeoutMs = request.timeoutMs
       bridgeRequest.responseMode = "bytes"
       bridgeRequest.maxResponseBytes = request.maxResponseBytes
+      bridgeRequest.requireHttps = request.requireHttps
       let explicitCookieHeader = request.headers.first {
         $0.key.caseInsensitiveCompare("Cookie") == .orderedSame
       }?.value
-      let urlRequest = Self.buildRequest(
-        url: url,
-        request: bridgeRequest,
-        timeoutSeconds: timeoutSeconds,
-        cookieStorage: sessionContext.cookieStorage
-      )
+      let urlRequest: URLRequest
+      do {
+        urlRequest = try Self.buildRequest(
+          url: url,
+          request: bridgeRequest,
+          timeoutSeconds: timeoutSeconds,
+          cookieStorage: sessionContext.cookieStorage
+        )
+      } catch {
+        promiseBox.promise.resolve(Self.fileResponse(
+          status: 0,
+          error: error.localizedDescription
+        ))
+        return
+      }
       let trimmedRequestId = request.requestId?.trimmingCharacters(
         in: .whitespacesAndNewlines
       )
@@ -1564,7 +1625,8 @@ public class NemuAidokuModule: Module {
         task: task,
         timeoutSeconds: timeoutSeconds,
         explicitCookieHeader: explicitCookieHeader,
-        originalUrl: urlRequest.url
+        originalUrl: urlRequest.url,
+        requireHttps: request.requireHttps
       )
     }
   }
@@ -1578,6 +1640,16 @@ public class NemuAidokuModule: Module {
       promise.resolve(response(
         status: 0,
         error: destination.error
+      ))
+      return
+    }
+    guard NemuNativeHttpRedirectPolicy.allows(
+      url,
+      requireHttps: request.requireHttps
+    ) else {
+      promise.resolve(response(
+        status: 0,
+        error: NemuNativeHttpRedirectPolicy.blockedMessage
       ))
       return
     }
@@ -1605,12 +1677,18 @@ public class NemuAidokuModule: Module {
     let explicitCookieHeader = request.headers.first {
       $0.key.caseInsensitiveCompare("Cookie") == .orderedSame
     }?.value
-    let urlRequest = buildRequest(
-      url: url,
-      request: request,
-      timeoutSeconds: timeoutSeconds,
-      cookieStorage: sessionContext.cookieStorage
-    )
+    let urlRequest: URLRequest
+    do {
+      urlRequest = try buildRequest(
+        url: url,
+        request: request,
+        timeoutSeconds: timeoutSeconds,
+        cookieStorage: sessionContext.cookieStorage
+      )
+    } catch {
+      promise.resolve(response(status: 0, error: error.localizedDescription))
+      return
+    }
     let responseMode = request.responseMode
     let promiseBox = NemuNativeHttpPromiseBox(promise)
     performRequestAsync(
@@ -1620,7 +1698,8 @@ public class NemuAidokuModule: Module {
       requestId: request.requestId,
       allowBackground: true,
       sessionContext: sessionContext,
-      explicitCookieHeader: explicitCookieHeader
+      explicitCookieHeader: explicitCookieHeader,
+      requireHttps: request.requireHttps
     ) { result in
       promiseBox.promise.resolve(
         response(
@@ -1640,6 +1719,7 @@ public class NemuAidokuModule: Module {
     allowBackground: Bool,
     sessionContext: NemuHttpSessionContext,
     explicitCookieHeader: String?,
+    requireHttps: Bool,
     completion: @escaping @Sendable (NemuNativeHttpResult) -> Void
   ) {
     let coordinator = NemuSyncHttpCoordinator.shared
@@ -1749,7 +1829,8 @@ public class NemuAidokuModule: Module {
         timeoutSeconds: timeoutSeconds,
         allowBackground: allowBackground,
         explicitCookieHeader: explicitCookieHeader,
-        originalUrl: urlRequest.url
+        originalUrl: urlRequest.url,
+        requireHttps: requireHttps
       )
       return
     }
@@ -1771,7 +1852,8 @@ public class NemuAidokuModule: Module {
       timeoutSeconds: timeoutSeconds,
       allowBackground: allowBackground,
       explicitCookieHeader: explicitCookieHeader,
-      originalUrl: urlRequest.url
+      originalUrl: urlRequest.url,
+      requireHttps: requireHttps
     )
   }
 
@@ -1793,6 +1875,15 @@ public class NemuAidokuModule: Module {
     let destination = validatedRemoteHttpURL(request.url)
     guard let url = destination.url else {
       return response(status: 0, error: destination.error)
+    }
+    guard NemuNativeHttpRedirectPolicy.allows(
+      url,
+      requireHttps: request.requireHttps
+    ) else {
+      return response(
+        status: 0,
+        error: NemuNativeHttpRedirectPolicy.blockedMessage
+      )
     }
     let trimmedCookieScope = request.cookieScope?.trimmingCharacters(
       in: .whitespacesAndNewlines
@@ -1817,12 +1908,17 @@ public class NemuAidokuModule: Module {
     let explicitCookieHeader = request.headers.first {
       $0.key.caseInsensitiveCompare("Cookie") == .orderedSame
     }?.value
-    let urlRequest = buildRequest(
-      url: url,
-      request: request,
-      timeoutSeconds: timeoutSeconds,
-      cookieStorage: sessionContext.cookieStorage
-    )
+    let urlRequest: URLRequest
+    do {
+      urlRequest = try buildRequest(
+        url: url,
+        request: request,
+        timeoutSeconds: timeoutSeconds,
+        cookieStorage: sessionContext.cookieStorage
+      )
+    } catch {
+      return response(status: 0, error: error.localizedDescription)
+    }
     // Never present or wait for a Cloudflare WebView inline. Aidoku's WASM
     // host import must return synchronously; waiting here freezes the RN JS
     // thread. aidoku-runtime classifies the response and the Nemu Agent sheet
@@ -1835,7 +1931,8 @@ public class NemuAidokuModule: Module {
         requestId: request.requestId,
         allowBackground: allowBackground,
         sessionContext: sessionContext,
-        explicitCookieHeader: explicitCookieHeader
+        explicitCookieHeader: explicitCookieHeader,
+        requireHttps: request.requireHttps
       ),
       handledCloudflare: false,
       responseMode: request.responseMode
@@ -1847,17 +1944,15 @@ public class NemuAidokuModule: Module {
     request: NemuAidokuHttpRequest,
     timeoutSeconds: Double,
     cookieStorage: HTTPCookieStorage
-  ) -> URLRequest {
+  ) throws -> URLRequest {
     var urlRequest = URLRequest(url: url)
     urlRequest.httpMethod = request.method.isEmpty ? "GET" : request.method
     urlRequest.timeoutInterval = timeoutSeconds
 
-    for (key, value) in request.headers where
-      !key.isEmpty &&
-      key.caseInsensitiveCompare("Proxy-Authorization") != .orderedSame
-    {
-      urlRequest.setValue(value, forHTTPHeaderField: key)
-    }
+    try NemuNativeHttpRequestHeaderPolicy.apply(
+      request.headers,
+      to: &urlRequest
+    )
     if !hasHeader(urlRequest, "User-Agent") {
       urlRequest.setValue(nemuMobileUserAgent, forHTTPHeaderField: "User-Agent")
     }
@@ -1882,7 +1977,8 @@ public class NemuAidokuModule: Module {
     requestId: String? = nil,
     allowBackground: Bool,
     sessionContext: NemuHttpSessionContext,
-    explicitCookieHeader: String?
+    explicitCookieHeader: String?,
+    requireHttps: Bool = false
   ) -> NemuNativeHttpResult {
     if let maxResponseBytes, maxResponseBytes >= 0 {
       return performBoundedDownloadRequest(
@@ -1892,7 +1988,8 @@ public class NemuAidokuModule: Module {
         requestId: requestId,
         allowBackground: allowBackground,
         sessionContext: sessionContext,
-        explicitCookieHeader: explicitCookieHeader
+        explicitCookieHeader: explicitCookieHeader,
+        requireHttps: requireHttps
       )
     }
 
@@ -1959,7 +2056,8 @@ public class NemuAidokuModule: Module {
     sessionContext.registerRedirectPolicy(
       task: task,
       explicitHeader: explicitCookieHeader,
-      originalUrl: urlRequest.url
+      originalUrl: urlRequest.url,
+      requireHttps: requireHttps
     )
     defer { sessionContext.unregisterRedirectPolicy(task: task) }
 
@@ -2006,7 +2104,8 @@ public class NemuAidokuModule: Module {
     requestId: String? = nil,
     allowBackground: Bool,
     sessionContext: NemuHttpSessionContext,
-    explicitCookieHeader: String?
+    explicitCookieHeader: String?,
+    requireHttps: Bool
   ) -> NemuNativeHttpResult {
     let coordinator = NemuSyncHttpCoordinator.shared
     if !allowBackground && !coordinator.isAppActive() {
@@ -2129,7 +2228,8 @@ public class NemuAidokuModule: Module {
     sessionContext.registerRedirectPolicy(
       task: task,
       explicitHeader: explicitCookieHeader,
-      originalUrl: urlRequest.url
+      originalUrl: urlRequest.url,
+      requireHttps: requireHttps
     )
     defer { sessionContext.unregisterRedirectPolicy(task: task) }
 

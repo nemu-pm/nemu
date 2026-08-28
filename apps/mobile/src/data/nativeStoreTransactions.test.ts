@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { SQLiteDatabase } from "expo-sqlite";
-import type { LocalChapterProgress, LocalMangaProgress } from "./schema";
+import type {
+  InstalledSource,
+  LocalChapterProgress,
+  LocalMangaProgress,
+  UserSettings,
+} from "./schema";
 import { NativeUserDataStore } from "./nativeStore";
 
 type TransactionExecutor = Pick<
@@ -9,6 +14,62 @@ type TransactionExecutor = Pick<
 >;
 
 describe("NativeUserDataStore transactions", () => {
+  test("atomically composes concurrent scalar updates without rewriting source rows", async () => {
+    let settings: UserSettings = { installedSources: [] };
+    const tombstone: InstalledSource = {
+      id: "aidoku-community:en.example",
+      registryId: "aidoku-community",
+      version: 1,
+      updatedAt: 2,
+      removed: true,
+    };
+    let installedSourceWrites = 0;
+    const txn = {
+      execAsync: async () => undefined,
+      getAllAsync: async (sql: string) =>
+        sql.includes("installed_sources") ? [] : [],
+      getFirstAsync: async (sql: string) =>
+        sql.includes("settings") ? { json: JSON.stringify(settings) } : null,
+      runAsync: async (sql: string, ...args: unknown[]) => {
+        if (sql.includes("settings (id, json")) {
+          settings = JSON.parse(String(args[1])) as UserSettings;
+        }
+        if (sql.includes("installed_sources")) installedSourceWrites += 1;
+        return {} as never;
+      },
+    } as unknown as TransactionExecutor;
+    const db = {
+      withExclusiveTransactionAsync: async (
+        task: (executor: TransactionExecutor) => Promise<void>,
+      ) => task(txn),
+    } as unknown as SQLiteDatabase;
+    const store = new NativeUserDataStore(db);
+
+    await Promise.all([
+      store.updateSettings((current) => ({
+        ...current,
+        themePreference: "dark",
+      })),
+      store.updateSettings((current) => ({
+        ...current,
+        appLanguage: "ja",
+      })),
+    ]);
+    await store.saveSettings({
+      ...settings,
+      installedSources: [{ ...tombstone, removed: false, updatedAt: 1 }],
+      readingMode: "rtl",
+    });
+
+    expect(settings).toMatchObject({
+      installedSources: [],
+      themePreference: "dark",
+      appLanguage: "ja",
+      readingMode: "rtl",
+    });
+    expect(installedSourceWrites).toBe(0);
+  });
+
   test("runs reset writes on the executor from an exclusive transaction", async () => {
     let exclusiveTransactions = 0;
     let legacyTransactions = 0;

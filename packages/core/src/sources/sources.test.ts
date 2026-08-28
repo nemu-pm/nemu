@@ -47,7 +47,9 @@ describe("lcsLength", () => {
 describe("isCloudflareErrorMessage", () => {
   test("detects cloudflare message patterns (case-insensitive)", () => {
     expect(isCloudflareErrorMessage("Cloudflare blocked: x")).toBe(true);
-    expect(isCloudflareErrorMessage("cloudflare challenge detected")).toBe(true);
+    expect(isCloudflareErrorMessage("cloudflare challenge detected")).toBe(
+      true,
+    );
     expect(isCloudflareErrorMessage("under cloudflare protection")).toBe(true);
   });
 
@@ -84,27 +86,52 @@ describe("readErrorUrl", () => {
 describe("extractCfUrlFromMessage", () => {
   test("extracts 'for <url>' form", () => {
     expect(
-      extractCfUrlFromMessage("Cloudflare challenge detected for https://x.test/list (status 403)"),
+      extractCfUrlFromMessage(
+        "Cloudflare challenge detected for https://x.test/list (status 403)",
+      ),
     ).toBe("https://x.test/list");
   });
 
   test("extracts 'blocked: <url>' / 'blocked <url>' form", () => {
-    expect(extractCfUrlFromMessage("Cloudflare blocked: https://x.test")).toBe("https://x.test");
-    expect(extractCfUrlFromMessage("blocked https://x.test")).toBe("https://x.test");
+    expect(extractCfUrlFromMessage("Cloudflare blocked: https://x.test")).toBe(
+      "https://x.test",
+    );
+    expect(extractCfUrlFromMessage("blocked https://x.test")).toBe(
+      "https://x.test",
+    );
   });
 
   test("returns undefined when no url present", () => {
-    expect(extractCfUrlFromMessage("cloudflare challenge detected")).toBeUndefined();
+    expect(
+      extractCfUrlFromMessage("cloudflare challenge detected"),
+    ).toBeUndefined();
   });
 });
 
 describe("isNetworkSourceError", () => {
   test("detects network failure messages", () => {
     expect(isNetworkSourceError(new Error("fetch failed"))).toBe(true);
-    expect(isNetworkSourceError(new Error("Network request failed"))).toBe(true);
+    expect(isNetworkSourceError(new Error("Network request failed"))).toBe(
+      true,
+    );
     expect(isNetworkSourceError(new Error("NetworkError: boom"))).toBe(true);
     expect(isNetworkSourceError(new Error("request timed out"))).toBe(true);
     expect(isNetworkSourceError(new Error("timeout"))).toBe(true);
+    expect(
+      isNetworkSourceError(
+        new Error("Unacceptable certificate: CN=Example Root"),
+      ),
+    ).toBe(true);
+    expect(
+      isNetworkSourceError(
+        new Error("SSLHandshakeException: Trust anchor not found"),
+      ),
+    ).toBe(true);
+    expect(
+      isNetworkSourceError(
+        new Error("ERR_CERT_DATE_INVALID: certificate is not yet valid"),
+      ),
+    ).toBe(true);
   });
 
   test("accepts non-Error values (lenient stringification)", () => {

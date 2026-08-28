@@ -10,6 +10,7 @@ import {
   extractSourceSettingDefaults,
   flattenSourceSettings,
   flattenVisibleEditableSourceSettings,
+  formatSourceSettingSliderValue,
   formatSourceSettingAccessibilityLabel,
   getMobileSourceSettingsNavigationResetKey,
   getSourceSegmentOptions,
@@ -99,7 +100,7 @@ const settings: SourcePackageSetting[] = [
 describe("mobile source settings helpers", () => {
   test("builds stable source keys", () => {
     expect(makeMobileSourceKey("aidoku-community", "en.example")).toBe(
-      "aidoku-community:en.example"
+      "aidoku-community:en.example",
     );
   });
 
@@ -111,10 +112,7 @@ describe("mobile source settings helpers", () => {
         "",
         undefined,
       ]),
-    ).toEqual([
-      "aidoku-community:manifest.id",
-      "aidoku-community:registry-id",
-    ]);
+    ).toEqual(["aidoku-community:manifest.id", "aidoku-community:registry-id"]);
   });
 
   test("keeps encoded source settings aliases alongside decoded keys", () => {
@@ -134,11 +132,10 @@ describe("mobile source settings helpers", () => {
 
   test("builds source settings navigation reset keys from source aliases", () => {
     expect(
-      getMobileSourceSettingsNavigationResetKey(" aidoku-community:manifest.id ", [
-        "aidoku-community:registry-id",
-        "aidoku-community:manifest.id",
-        "",
-      ]),
+      getMobileSourceSettingsNavigationResetKey(
+        " aidoku-community:manifest.id ",
+        ["aidoku-community:registry-id", "aidoku-community:manifest.id", ""],
+      ),
     ).toBe("aidoku-community:manifest.id|aidoku-community:registry-id");
     expect(getMobileSourceSettingsNavigationResetKey(null, [])).toBe("");
   });
@@ -208,9 +205,9 @@ describe("mobile source settings helpers", () => {
     expect(canStartMobileSourceSettingsAction({ ...idle, loading: true })).toBe(
       false,
     );
-    expect(canStartMobileSourceSettingsAction({ ...idle, mutating: true })).toBe(
-      false,
-    );
+    expect(
+      canStartMobileSourceSettingsAction({ ...idle, mutating: true }),
+    ).toBe(false);
   });
 
   test("gates source settings load-error retries while values load or mutate", () => {
@@ -286,7 +283,9 @@ describe("mobile source settings helpers", () => {
   });
 
   test("flattens nested source settings without group rows", () => {
-    expect(flattenSourceSettings(settings).map((setting) => setting.key)).toEqual([
+    expect(
+      flattenSourceSettings(settings).map((setting) => setting.key),
+    ).toEqual([
       "enabled",
       "quality",
       "blocked",
@@ -306,8 +305,18 @@ describe("mobile source settings helpers", () => {
           title: "Group",
           type: "group",
           items: [
-            { key: "site", title: "Website", type: "link", url: "https://example.com" },
-            { key: "refresh", title: "Refresh", type: "button", action: "refresh" },
+            {
+              key: "site",
+              title: "Website",
+              type: "link",
+              url: "https://example.com",
+            },
+            {
+              key: "refresh",
+              title: "Refresh",
+              type: "button",
+              action: "refresh",
+            },
             { key: "token", title: "Token", type: "text" },
           ],
         },
@@ -385,7 +394,9 @@ describe("mobile source settings helpers", () => {
   });
 
   test("describes selected values with display titles", () => {
-    expect(getSourceSettingOptions(settings[0].items?.[1] as SourcePackageSetting)).toEqual([
+    expect(
+      getSourceSettingOptions(settings[0].items?.[1] as SourcePackageSetting),
+    ).toEqual([
       { value: "low", label: "Low" },
       { value: "high", label: "High" },
     ]);
@@ -397,11 +408,15 @@ describe("mobile source settings helpers", () => {
         strings,
       ),
     ).toBe("High");
-    expect(describeSourceSettingValue(settings[1], { blocked: ["horror"] }, strings)).toBe(
-      "Horror",
-    );
     expect(
-      describeSourceSettingValue(settings[2], { aliases: ["Alias A", "Alias B"] }, strings),
+      describeSourceSettingValue(settings[1], { blocked: ["horror"] }, strings),
+    ).toBe("Horror");
+    expect(
+      describeSourceSettingValue(
+        settings[2],
+        { aliases: ["Alias A", "Alias B"] },
+        strings,
+      ),
     ).toBe("Alias A, Alias B");
 
     const segmentSetting = settings[3].items?.[0] as SourcePackageSetting;
@@ -409,10 +424,12 @@ describe("mobile source settings helpers", () => {
       { label: "Grid", value: 0 },
       { label: "List", value: 1 },
     ]);
-    expect(describeSourceSettingValue(segmentSetting, {}, strings)).toBe("List");
-    expect(describeSourceSettingValue(segmentSetting, { layout: 0 }, strings)).toBe(
-      "Grid",
+    expect(describeSourceSettingValue(segmentSetting, {}, strings)).toBe(
+      "List",
     );
+    expect(
+      describeSourceSettingValue(segmentSetting, { layout: 0 }, strings),
+    ).toBe("Grid");
   });
 
   test("applies web-compatible visibility rules", () => {
@@ -420,12 +437,22 @@ describe("mobile source settings helpers", () => {
     const compactSetting = settings[3].items?.[1] as SourcePackageSetting;
     const featureSetting = settings[3].items?.[2] as SourcePackageSetting;
 
-    expect(isSourceSettingVisible(qualitySetting, { enabled: true })).toBe(true);
-    expect(isSourceSettingVisible(qualitySetting, { enabled: false })).toBe(false);
-    expect(isSourceSettingVisible(compactSetting, { enabled: true })).toBe(false);
-    expect(isSourceSettingVisible(compactSetting, { enabled: false })).toBe(true);
+    expect(isSourceSettingVisible(qualitySetting, { enabled: true })).toBe(
+      true,
+    );
+    expect(isSourceSettingVisible(qualitySetting, { enabled: false })).toBe(
+      false,
+    );
+    expect(isSourceSettingVisible(compactSetting, { enabled: true })).toBe(
+      false,
+    );
+    expect(isSourceSettingVisible(compactSetting, { enabled: false })).toBe(
+      true,
+    );
     expect(isSourceSettingVisible(featureSetting, {}, {})).toBe(false);
-    expect(isSourceSettingVisible(featureSetting, {}, { webgpu: true })).toBe(true);
+    expect(isSourceSettingVisible(featureSetting, {}, { webgpu: true })).toBe(
+      true,
+    );
   });
 
   test("finds visible editable rows without flattening page links in the UI", () => {
@@ -452,6 +479,50 @@ describe("mobile source settings helpers", () => {
     ).toBe(true);
   });
 
+  test("bounds visible traversal and never invokes hostile schema accessors", () => {
+    let getterCalls = 0;
+    const accessor = { key: "accessor", title: "Accessor" };
+    Object.defineProperty(accessor, "type", {
+      get() {
+        getterCalls += 1;
+        return "text";
+      },
+    });
+    const cyclic: SourcePackageSetting[] = [];
+    cyclic.push({
+      key: "group",
+      title: "Group",
+      type: "group",
+      items: cyclic,
+    });
+    const revoked = Proxy.revocable(
+      { key: "revoked", title: "Revoked", type: "text" },
+      {},
+    );
+    revoked.revoke();
+
+    expect(() =>
+      flattenVisibleEditableSourceSettings(
+        [accessor as SourcePackageSetting, revoked.proxy, ...cyclic],
+        {},
+      ),
+    ).not.toThrow();
+    expect(
+      flattenVisibleEditableSourceSettings(
+        [accessor as SourcePackageSetting, revoked.proxy, ...cyclic],
+        {},
+      ),
+    ).toEqual([]);
+    expect(() =>
+      formatSourceSettingAccessibilityLabel(
+        accessor as SourcePackageSetting,
+        {},
+        strings,
+      ),
+    ).not.toThrow();
+    expect(getterCalls).toBe(0);
+  });
+
   test("describes empty and default values with localized labels", () => {
     const zh = getMobileStrings("zh");
     const switchSetting = settings[0].items?.[0] as SourcePackageSetting;
@@ -461,8 +532,12 @@ describe("mobile source settings helpers", () => {
       type: "text",
     };
 
-    expect(describeSourceSettingValue(switchSetting, { enabled: false }, zh)).toBe("关闭");
-    expect(describeSourceSettingValue(settings[1], { blocked: [] }, zh)).toBe("无");
+    expect(
+      describeSourceSettingValue(switchSetting, { enabled: false }, zh),
+    ).toBe("关闭");
+    expect(describeSourceSettingValue(settings[1], { blocked: [] }, zh)).toBe(
+      "无",
+    );
     expect(describeSourceSettingValue(textSetting, {}, zh)).toBe("默认");
   });
 
@@ -477,10 +552,18 @@ describe("mobile source settings helpers", () => {
     };
 
     expect(
-      formatSourceSettingAccessibilityLabel(qualitySetting, { quality: "low" }, strings),
+      formatSourceSettingAccessibilityLabel(
+        qualitySetting,
+        { quality: "low" },
+        strings,
+      ),
     ).toBe("Quality, Low");
     expect(
-      formatSourceSettingAccessibilityLabel(compactSetting, { compact: true }, strings),
+      formatSourceSettingAccessibilityLabel(
+        compactSetting,
+        { compact: true },
+        strings,
+      ),
     ).toBe("Compact layout, Uses dense rows, On");
     expect(
       formatSourceSettingAccessibilityLabel(
@@ -492,8 +575,70 @@ describe("mobile source settings helpers", () => {
     ).toBe("Decrease Quality, High");
   });
 
+  test("fails closed when source slider formatters throw or return unsafe output", () => {
+    const slider: SourcePackageSetting = {
+      key: "limit",
+      title: "Limit",
+      type: "slider",
+      formatValue() {
+        throw new Error("source formatter failed");
+      },
+    };
+    expect(formatSourceSettingSliderValue(slider, 25)).toBe("25");
+
+    slider.formatValue = (() => 10_000) as never;
+    expect(formatSourceSettingSliderValue(slider, 25)).toBe("25");
+    slider.formatValue = () => `\u202e\u0000${"x".repeat(2_000)}`;
+    expect(formatSourceSettingSliderValue(slider, 25)).toBe("x".repeat(256));
+  });
+
+  test("drops unsafe persisted values at the mobile merge boundary", () => {
+    let getterCalls = 0;
+    const userValues: Record<string, unknown> = {
+      quality: "low",
+      nested: { secret: "unsafe" },
+      list: ["safe", 1],
+      timestamp: 9_999_999_999_999,
+    };
+    Object.defineProperty(userValues, "accessor", {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return "unsafe";
+      },
+    });
+
+    expect(mergeSourceSettingValues(settings, userValues)).toEqual({
+      enabled: true,
+      quality: "low",
+      blocked: ["spoiler"],
+      aliases: ["Main Alias"],
+      layout: 1,
+      compact: false,
+      webgpu: true,
+      timestamp: 9_999_999_999_999,
+    });
+    expect(getterCalls).toBe(0);
+
+    expect(
+      mergeSourceSettingValues(
+        [
+          {
+            key: "unsafe-default",
+            title: "Unsafe",
+            type: "text",
+            default: { nested: true } as never,
+          },
+        ],
+        null,
+      ),
+    ).toEqual({});
+  });
+
   test("detects settings that request source data refresh", () => {
-    expect(sourceSettingRequestsDataRefresh(settings[0].items?.[0])).toBe(false);
+    expect(sourceSettingRequestsDataRefresh(settings[0].items?.[0])).toBe(
+      false,
+    );
     const refreshSetting: SourcePackageSetting = {
       key: "__selected_source_id__",
       title: "Source",

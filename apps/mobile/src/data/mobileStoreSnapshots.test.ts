@@ -208,13 +208,14 @@ describe("mobile sync snapshot store contract", () => {
       version: 1,
       updatedAt: 1,
     });
+    const staleSettings = await store.getSettings();
     await store.removeInstalledSource(
       "aidoku-community:en.example",
       "aidoku-community",
     );
 
     await store.saveSettings({
-      ...(await store.getSettings()),
+      ...staleSettings,
       themePreference: "dark",
     });
 
@@ -224,6 +225,74 @@ describe("mobile sync snapshot store contract", () => {
         removed: true,
       },
     ]);
+  });
+
+  test("atomically composes concurrent scalar settings updates", async () => {
+    const store = new WebUserDataStore();
+
+    await Promise.all([
+      store.updateSettings((settings) => ({
+        ...settings,
+        themePreference: "dark",
+      })),
+      store.updateSettings((settings) => ({
+        ...settings,
+        appLanguage: "ja",
+      })),
+    ]);
+
+    expect(await store.getSettings()).toMatchObject({
+      themePreference: "dark",
+      appLanguage: "ja",
+    });
+  });
+
+  test("applies installed-source snapshots without clobbering newer web rows or scalar settings", async () => {
+    const store = new WebUserDataStore();
+    await store.updateSettings((settings) => ({
+      ...settings,
+      themePreference: "dark",
+    }));
+    await store.saveInstalledSource({
+      id: "aidoku-community:newer",
+      registryId: "aidoku-community",
+      version: 3,
+      updatedAt: 30,
+      removed: true,
+    });
+
+    await store.applyInstalledSourcesSnapshot([
+      {
+        id: "aidoku-community:newer",
+        registryId: "aidoku-community",
+        version: 2,
+        updatedAt: 20,
+      },
+      {
+        id: "aidoku-community:cloud",
+        registryId: "aidoku-community",
+        version: 1,
+        updatedAt: 10,
+      },
+    ]);
+
+    expect(await store.getSettings()).toMatchObject({
+      installedSources: [{ id: "aidoku-community:cloud" }],
+      themePreference: "dark",
+    });
+    expect(await store.getSyncSettings()).toMatchObject({
+      installedSources: expect.arrayContaining([
+        expect.objectContaining({
+          id: "aidoku-community:newer",
+          removed: true,
+          version: 3,
+        }),
+        expect.objectContaining({
+          id: "aidoku-community:cloud",
+          removed: false,
+        }),
+      ]),
+    });
   });
 
   test("isolates Expo web state by hashed account profile", async () => {

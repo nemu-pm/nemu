@@ -13,6 +13,9 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.os.DeadObjectException
 import android.os.RemoteException
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import androidx.javascriptengine.IsolateStartupParameters
 import androidx.javascriptengine.JavaScriptIsolate
 import androidx.javascriptengine.JavaScriptSandbox
@@ -26,6 +29,8 @@ import java.io.File
 import java.io.IOException
 import java.io.OutputStream
 import java.net.URI
+import java.nio.charset.StandardCharsets
+import java.security.KeyStore
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
@@ -35,6 +40,10 @@ import java.util.concurrent.Future
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.json.JSONArray
@@ -46,8 +55,8 @@ internal const val NEMU_AIDOKU_SANDBOX_MAX_EVALUATIONS = 1_024
 
 private const val SANDBOX_MAX_SESSIONS = 32
 private const val SANDBOX_MAX_SETTINGS_JSON_LENGTH = 256 * 1024
-private const val SANDBOX_MAX_PERSISTED_SETTINGS_PER_SOURCE = 64 * 1024
-private const val SANDBOX_MAX_PERSISTED_SETTINGS_TOTAL = 512 * 1024
+private const val SANDBOX_MAX_PERSISTED_SETTINGS_BYTES_PER_SOURCE = 64 * 1024
+private const val SANDBOX_MAX_PERSISTED_SETTINGS_TOTAL_BYTES = 512 * 1024
 private const val SANDBOX_MAX_PERSISTED_SOURCES = 128
 // MangaDex's current home implementation deterministically performs twelve
 // requests (multiple curated lists plus partial sections). The operation time
@@ -63,6 +72,10 @@ private const val SANDBOX_OPERATION_TIMEOUT_MS = 20_000L
 private const val SANDBOX_HTTP_TIMEOUT_MS = 12_000
 private const val SANDBOX_ASSET = "nemu_aidoku_sandbox.js"
 private const val SANDBOX_SETTINGS_FILE = "nemu_aidoku_runtime_settings_v1"
+private const val SANDBOX_SETTINGS_KEY_ALIAS =
+  "pm.nemu.mobile.aidoku.runtime-settings.v2"
+private const val SANDBOX_SETTINGS_ENVELOPE_VERSION = 1
+private const val SANDBOX_SETTINGS_ENVELOPE_PREFIX = "nemu-aidoku-secure-v1:"
 private const val SANDBOX_IMAGE_MAX_BYTES = 8 * 1024 * 1024
 private const val SANDBOX_IMAGE_MAX_DIMENSION = 8_192
 private const val SANDBOX_IMAGE_MAX_PIXELS = 12_000_000L
@@ -189,18 +202,30 @@ private class AidokuSandboxSettingsStore(context: Context) {
     SANDBOX_SETTINGS_FILE,
     Context.MODE_PRIVATE
   )
+  private var cachedKey: SecretKey? = null
 
   @Synchronized
   @SuppressLint("ApplySharedPref", "UseKtx")
   fun load(sourceKey: String): String {
     val stored = preferences.getString(sourceKey, null) ?: return "{}"
     return try {
-      check(stored.length <= SANDBOX_MAX_PERSISTED_SETTINGS_PER_SOURCE)
-      JSONObject(stored)
-      stored
-    } catch (_: Throwable) {
-      preferences.edit().remove(sourceKey).commit()
-      "{}"
+      val decrypted = decryptEnvelope(sourceKey, stored)
+      val plaintext = decrypted ?: stored
+      check(utf8Size(plaintext) <= SANDBOX_MAX_PERSISTED_SETTINGS_BYTES_PER_SOURCE)
+      JSONObject(plaintext)
+      if (decrypted == null) {
+        // One-time migration from the original plaintext SharedPreferences
+        // value. Synchronous replacement happens before returning it to the
+        // sandbox so a successful operation never leaves credentials raw.
+        storeEncrypted(sourceKey, plaintext)
+      }
+      plaintext
+    } catch (error: Exception) {
+      // Loading is not an explicit destructive action. Preserve both legacy
+      // plaintext and encrypted values when migration, KeyStore access, or
+      // decryption fails: a transient platform failure must not silently erase
+      // source credentials, and a later retry may still recover them.
+      throw IllegalStateException("Secure Aidoku settings are unavailable.", error)
     }
   }
 
@@ -210,7 +235,7 @@ private class AidokuSandboxSettingsStore(context: Context) {
     require(sourceKey.isNotBlank() && sourceKey.length <= 512) {
       "Invalid Aidoku settings source key."
     }
-    require(patchJson.length <= SANDBOX_MAX_PERSISTED_SETTINGS_PER_SOURCE) {
+    require(utf8Size(patchJson) <= SANDBOX_MAX_PERSISTED_SETTINGS_BYTES_PER_SOURCE) {
       "Aidoku settings patch exceeds the safety limit."
     }
     val patch = JSONObject(patchJson)
@@ -223,27 +248,24 @@ private class AidokuSandboxSettingsStore(context: Context) {
     }
     require(current.length() <= 128) { "Aidoku persisted settings exceed the key limit." }
     val serialized = current.toString()
-    require(serialized.length <= SANDBOX_MAX_PERSISTED_SETTINGS_PER_SOURCE) {
+    require(utf8Size(serialized) <= SANDBOX_MAX_PERSISTED_SETTINGS_BYTES_PER_SOURCE) {
       "Aidoku persisted settings exceed the safety limit."
     }
 
-    val previous = preferences.getString(sourceKey, null)
-    val existingSources = preferences.all.values.count { it is String }
-    require(previous != null || existingSources < SANDBOX_MAX_PERSISTED_SOURCES) {
+    val plaintextEntries = preferences.all.keys.associateWith { key -> load(key) }
+    val previous = plaintextEntries[sourceKey]
+    require(previous != null || plaintextEntries.size < SANDBOX_MAX_PERSISTED_SOURCES) {
       "Too many Aidoku sources have persisted runtime settings."
     }
-    val aggregateLength = preferences.all.values.sumOf {
-      (it as? String)?.length ?: 0
-    } - (previous?.length ?: 0) + serialized.length
-    require(aggregateLength <= SANDBOX_MAX_PERSISTED_SETTINGS_TOTAL) {
+    val aggregateBytes = plaintextEntries.values.sumOf { utf8Size(it) } -
+      (previous?.let { utf8Size(it) } ?: 0) + utf8Size(serialized)
+    require(aggregateBytes <= SANDBOX_MAX_PERSISTED_SETTINGS_TOTAL_BYTES) {
       "Aidoku persisted settings exceed the aggregate safety limit."
     }
     // This patch is part of the completed source operation. A synchronous
     // commit is intentional: reporting success before apply() reaches disk
     // would lose a source-authored setting if Android kills the process.
-    check(preferences.edit().putString(sourceKey, serialized).commit()) {
-      "Failed to persist Aidoku source settings."
-    }
+    storeEncrypted(sourceKey, serialized)
     return serialized
   }
 
@@ -260,8 +282,97 @@ private class AidokuSandboxSettingsStore(context: Context) {
     val editor = preferences.edit()
     matchingKeys.forEach(editor::remove)
     check(editor.commit()) { "Failed to clear Aidoku source settings." }
+    if (preferences.all.isEmpty()) deleteEncryptionKey()
     return matchingKeys.size
   }
+
+  private fun storeEncrypted(sourceKey: String, plaintext: String) {
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(Cipher.ENCRYPT_MODE, encryptionKey())
+    cipher.updateAAD(sourceKey.toByteArray(StandardCharsets.UTF_8))
+    val envelope = SANDBOX_SETTINGS_ENVELOPE_PREFIX + JSONObject()
+      .put("nemuEncryptedSettings", SANDBOX_SETTINGS_ENVELOPE_VERSION)
+      .put("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+      .put(
+        "ciphertext",
+        Base64.encodeToString(
+          cipher.doFinal(plaintext.toByteArray(StandardCharsets.UTF_8)),
+          Base64.NO_WRAP
+        )
+      )
+      .toString()
+    check(preferences.edit().putString(sourceKey, envelope).commit()) {
+      "Failed to persist secure Aidoku source settings."
+    }
+  }
+
+  private fun decryptEnvelope(sourceKey: String, stored: String): String? {
+    if (stored.length > SANDBOX_MAX_PERSISTED_SETTINGS_BYTES_PER_SOURCE * 2) {
+      throw IllegalArgumentException("Encrypted Aidoku settings exceed the safety limit.")
+    }
+    if (!stored.startsWith(SANDBOX_SETTINGS_ENVELOPE_PREFIX)) return null
+    val envelope = JSONObject(stored.removePrefix(SANDBOX_SETTINGS_ENVELOPE_PREFIX))
+    require(
+      envelope.has("nemuEncryptedSettings") &&
+        envelope.has("iv") &&
+        envelope.has("ciphertext")
+    ) { "Invalid secure Aidoku settings envelope." }
+    require(
+      envelope.optInt("nemuEncryptedSettings", -1) ==
+        SANDBOX_SETTINGS_ENVELOPE_VERSION
+    ) { "Unsupported secure Aidoku settings version." }
+    val iv = Base64.decode(envelope.getString("iv"), Base64.DEFAULT)
+    val ciphertext = Base64.decode(
+      envelope.getString("ciphertext"),
+      Base64.DEFAULT
+    )
+    require(iv.size == 12 && ciphertext.size >= 16) {
+      "Invalid secure Aidoku settings envelope."
+    }
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(Cipher.DECRYPT_MODE, encryptionKey(), GCMParameterSpec(128, iv))
+    cipher.updateAAD(sourceKey.toByteArray(StandardCharsets.UTF_8))
+    return String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
+  }
+
+  private fun encryptionKey(): SecretKey {
+    cachedKey?.let { return it }
+    val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    val existing = (keyStore.getEntry(
+      SANDBOX_SETTINGS_KEY_ALIAS,
+      null
+    ) as? KeyStore.SecretKeyEntry)?.secretKey
+    if (existing != null) {
+      cachedKey = existing
+      return existing
+    }
+    val generator = KeyGenerator.getInstance(
+      KeyProperties.KEY_ALGORITHM_AES,
+      "AndroidKeyStore"
+    )
+    generator.init(
+      KeyGenParameterSpec.Builder(
+        SANDBOX_SETTINGS_KEY_ALIAS,
+        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+      )
+        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+        .setRandomizedEncryptionRequired(true)
+        .build()
+    )
+    return generator.generateKey().also { cachedKey = it }
+  }
+
+  private fun deleteEncryptionKey() {
+    val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    if (keyStore.containsAlias(SANDBOX_SETTINGS_KEY_ALIAS)) {
+      keyStore.deleteEntry(SANDBOX_SETTINGS_KEY_ALIAS)
+    }
+    cachedKey = null
+  }
+
+  private fun utf8Size(value: String): Int =
+    value.toByteArray(StandardCharsets.UTF_8).size
 }
 
 private class BoundedImageOutputStream(

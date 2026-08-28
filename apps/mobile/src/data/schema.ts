@@ -75,6 +75,8 @@ export type SourcePackageSetting = {
   optionCount?: number;
   values?: string[];
   titles?: string[];
+  /** Array-backed single-choice mode used by Aidoku multi-single-select. */
+  single?: boolean;
   default?: string | string[] | number | boolean;
   min?: number;
   max?: number;
@@ -277,6 +279,10 @@ export type LocalChapterProgress = {
   chapterNumber?: number;
   volumeNumber?: number;
   chapterTitle?: string;
+  /** Normalized position inside a single logical long-strip page. */
+  intraPageProgress?: number;
+  /** Content identity that must match before `intraPageProgress` is restored. */
+  intraPageContentIdentity?: string;
   updatedAt: number;
 };
 

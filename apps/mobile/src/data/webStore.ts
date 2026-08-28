@@ -83,6 +83,10 @@ const DEFAULT_STATE: WebState = {
   pendingSyncDeletions: [],
 };
 
+function scalarSettings(settings: UserSettings): UserSettings {
+  return { ...settings, installedSources: [] };
+}
+
 const volatileSyncSnapshotStates = new Map<string, MobileSyncSnapshotState>();
 
 export function resetMobileWebSyncSnapshotStateForTesting(): void {
@@ -283,18 +287,33 @@ export class WebUserDataStore implements MobileDataStore {
     };
   }
 
+  async updateSettings(
+    updater: (current: UserSettings) => UserSettings,
+  ): Promise<UserSettings> {
+    let updated: UserSettings | null = null;
+    this.updateState((state) => {
+      const current = {
+        ...state.settings,
+        installedSources: state.installedSources.filter(
+          (source) => !source.removed,
+        ),
+      };
+      const candidate = updater(current);
+      updated = {
+        ...scalarSettings(candidate),
+        installedSources: current.installedSources,
+      };
+      return { ...state, settings: scalarSettings(updated) };
+    });
+    if (!updated) throw new Error("Settings update did not run.");
+    return updated;
+  }
+
   async saveSettings(settings: UserSettings): Promise<void> {
     this.updateState((state) => {
-      const incomingIds = new Set(
-        settings.installedSources.map((source) => source.id),
-      );
-      const retainedTombstones = state.installedSources.filter(
-        (source) => source.removed && !incomingIds.has(source.id),
-      );
       return {
         ...state,
-        settings,
-        installedSources: [...settings.installedSources, ...retainedTombstones],
+        settings: scalarSettings(settings),
       };
     });
   }
@@ -384,6 +403,28 @@ export class WebUserDataStore implements MobileDataStore {
       version: existing?.version ?? 0,
       updatedAt: updatedAt ?? nextSyncTimestamp(existing?.updatedAt),
       removed: true,
+    });
+  }
+
+  async applyInstalledSourcesSnapshot(
+    sources: InstalledSource[],
+  ): Promise<void> {
+    this.updateState((state) => {
+      const installedSources = new Map(
+        state.installedSources.map((source) => [source.id, source]),
+      );
+      for (const source of sources) {
+        const existing = installedSources.get(source.id);
+        if (existing && (existing.updatedAt ?? 0) > (source.updatedAt ?? 0)) {
+          continue;
+        }
+        installedSources.set(source.id, {
+          ...source,
+          updatedAt: source.updatedAt ?? nextSyncTimestamp(existing?.updatedAt),
+          removed: source.removed ?? false,
+        });
+      }
+      return { ...state, installedSources: [...installedSources.values()] };
     });
   }
 

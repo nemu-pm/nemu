@@ -1,5 +1,14 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef } from "react";
+import {
+  AccessibilityInfo,
+  findNodeHandle,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import {
   GlassSurface,
   NemuButton,
@@ -16,6 +25,8 @@ type MobileReaderEndOfChapterOverlayProps = {
   strings: MobileStrings;
   bottomInset: number;
   topInset: number;
+  busy?: boolean;
+  error?: string | null;
   onGoToNextChapter: () => void;
   onDismiss: () => void;
 };
@@ -33,16 +44,32 @@ export function MobileReaderEndOfChapterOverlay({
   strings,
   bottomInset,
   topInset,
+  busy = false,
+  error = null,
   onGoToNextChapter,
   onDismiss,
 }: MobileReaderEndOfChapterOverlayProps) {
   const { tokens } = useNemuTheme();
+  const modalHeadingRef = useRef<View | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    const frame = requestAnimationFrame(() => {
+      const tag = findNodeHandle(modalHeadingRef.current);
+      if (tag != null) AccessibilityInfo.setAccessibilityFocus(tag);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [visible]);
+
   if (!visible) return null;
 
   const caughtUp = nextChapterLabel === null;
 
   return (
     <View
+      accessibilityLiveRegion="polite"
+      accessibilityViewIsModal
+      importantForAccessibility="yes"
       style={[
         styles.root,
         { paddingTop: topInset + 24, paddingBottom: bottomInset + 24 },
@@ -51,58 +78,95 @@ export function MobileReaderEndOfChapterOverlay({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={strings.reader.endOfChapterDismiss}
+        disabled={busy}
         onPress={onDismiss}
         style={styles.scrim}
       />
-      <GlassSurface style={styles.card} contentStyle={styles.cardContent}>
-        <View
-          style={[
-            styles.iconShell,
-            { backgroundColor: `${tokens.primary}18` },
-          ]}
-        >
-          <Ionicons
-            name={caughtUp ? "checkmark-done-outline" : "arrow-forward-outline"}
-            size={22}
-            color={tokens.primary}
-          />
-        </View>
-        <Text style={[styles.title, { color: tokens.foreground }]}>
-          {caughtUp
-            ? strings.reader.endOfChapterCaughtUpTitle
-            : strings.reader.endOfChapterTitle}
-        </Text>
-        <Text
-          numberOfLines={3}
-          style={[styles.detail, { color: tokens.mutedForeground }]}
-        >
-          {caughtUp
-            ? strings.reader.endOfChapterCaughtUpDetail
-            : formatMobileString(strings.reader.endOfChapterNextLabel, {
-                chapter: nextChapterLabel,
-              })}
-        </Text>
-        <View style={styles.actions}>
-          {caughtUp ? null : (
+      <ScrollView
+        alwaysBounceVertical={false}
+        bounces={false}
+        contentContainerStyle={styles.cardScrollContent}
+        contentInsetAdjustmentBehavior="never"
+        showsVerticalScrollIndicator
+        style={styles.cardScroll}
+      >
+        <GlassSurface style={styles.card} contentStyle={styles.cardContent}>
+          <View
+            ref={modalHeadingRef}
+            accessible
+            accessibilityRole="header"
+            importantForAccessibility="yes"
+            style={styles.heading}
+          >
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={[
+                styles.iconShell,
+                { backgroundColor: `${tokens.primary}18` },
+              ]}
+            >
+              <Ionicons
+                name={
+                  caughtUp ? "checkmark-done-outline" : "arrow-forward-outline"
+                }
+                size={22}
+                color={tokens.primary}
+              />
+            </View>
+            <Text style={[styles.title, { color: tokens.foreground }]}>
+              {caughtUp
+                ? strings.reader.endOfChapterCaughtUpTitle
+                : strings.reader.endOfChapterTitle}
+            </Text>
+            <Text style={[styles.detail, { color: tokens.mutedForeground }]}>
+              {caughtUp
+                ? strings.reader.endOfChapterCaughtUpDetail
+                : formatMobileString(strings.reader.endOfChapterNextLabel, {
+                    chapter: nextChapterLabel,
+                  })}
+            </Text>
+          </View>
+          {error ? (
+            <Text
+              accessibilityLiveRegion="assertive"
+              accessibilityRole="alert"
+              style={[styles.error, { color: tokens.danger }]}
+            >
+              {error}
+            </Text>
+          ) : null}
+          <View style={styles.actions}>
+            {caughtUp && !error ? null : (
+              <NemuButton
+                accessibilityLabel={
+                  caughtUp
+                    ? strings.common.retry
+                    : strings.reader.endOfChapterNextAction
+                }
+                containerStyle={styles.action}
+                disabled={busy}
+                hapticFeedback="press"
+                label={
+                  caughtUp ? strings.common.retry : strings.reader.nextChapter
+                }
+                loading={busy}
+                onPress={onGoToNextChapter}
+                variant="default"
+              />
+            )}
             <NemuButton
-              accessibilityLabel={strings.reader.endOfChapterNextAction}
+              accessibilityLabel={strings.reader.endOfChapterKeepReading}
               containerStyle={styles.action}
-              hapticFeedback="press"
-              label={strings.reader.nextChapter}
-              onPress={onGoToNextChapter}
-              variant="default"
+              disabled={busy}
+              hapticFeedback="none"
+              label={strings.reader.endOfChapterKeepReading}
+              onPress={onDismiss}
+              variant="secondary"
             />
-          )}
-          <NemuButton
-            accessibilityLabel={strings.reader.endOfChapterKeepReading}
-            containerStyle={styles.action}
-            hapticFeedback="none"
-            label={strings.reader.endOfChapterKeepReading}
-            onPress={onDismiss}
-            variant="secondary"
-          />
-        </View>
-      </GlassSurface>
+          </View>
+        </GlassSurface>
+      </ScrollView>
     </View>
   );
 }
@@ -117,6 +181,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 24,
+    // Reader chrome uses z/elevation 20. This modal must remain the final
+    // touch and focus surface on both platform compositors.
+    zIndex: 100,
+    elevation: 100,
   },
   scrim: {
     position: "absolute",
@@ -126,15 +194,31 @@ const styles = StyleSheet.create({
     left: 0,
     backgroundColor: "rgba(0,0,0,0.6)",
   },
-  card: {
+  cardScroll: {
     width: "100%",
     maxWidth: 380,
+    maxHeight: "100%",
+    flexShrink: 1,
+  },
+  cardScrollContent: {
+    flexGrow: 0,
+  },
+  card: {
+    width: "100%",
     borderRadius: radius.xl,
   },
   cardContent: {
+    // GlassSurface's default flex: 1 content needs an explicit intrinsic-size
+    // override when its shell has no fixed height. Without this, Android Yoga
+    // can collapse the modal card to a thin bar and clip every text/action.
+    flex: 0,
     alignItems: "center",
     gap: 10,
     padding: 22,
+  },
+  heading: {
+    alignItems: "center",
+    gap: 10,
   },
   iconShell: {
     width: 42,
@@ -150,6 +234,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   detail: {
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  error: {
+    alignSelf: "stretch",
     fontSize: 13,
     lineHeight: 19,
     textAlign: "center",

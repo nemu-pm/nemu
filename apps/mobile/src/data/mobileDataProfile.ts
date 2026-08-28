@@ -8,11 +8,36 @@ import type { NativeKVStore } from "./contracts";
 
 const LAST_PROFILE_ID_KEY = "nemu.mobile.last-profile-id";
 const LEGACY_DATABASE_OWNER_KEY = "nemu.mobile.legacy-database-owner";
+// The key is deliberately identity-free. Its raw profile-id value is stored
+// only inside SecureStore (alongside the existing retained/legacy profile
+// records); filenames, native scopes, UI, errors, and logs use no account PII.
+const PENDING_PROFILE_CLEANUP_KEY = "nemu.mobile.pending-profile-cleanup";
+export const MOBILE_DATA_PROFILE_CLEANUP_PENDING =
+  "MOBILE_DATA_PROFILE_CLEANUP_PENDING";
+
+function dataProfileCleanupPendingError(): Error {
+  return new Error(MOBILE_DATA_PROFILE_CLEANUP_PENDING);
+}
+
+export function isMobileDataProfileCleanupPendingError(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof Error &&
+    error.message === MOBILE_DATA_PROFILE_CLEANUP_PENDING
+  );
+}
 
 export type MobileDataProfileSnapshot = {
   loaded: boolean;
   retainedProfileId: string | null;
   legacyDatabaseOwner: string | null;
+  /**
+   * Account profile whose explicit "remove from device" cleanup must finish
+   * before its database can be exposed again. Optional keeps older test/data
+   * snapshots source-compatible while every runtime snapshot publishes it.
+   */
+  pendingCleanupProfileId?: string | null;
 };
 
 export type MobileDataProfileSelection = {
@@ -26,6 +51,7 @@ let snapshot: MobileDataProfileSnapshot = {
   loaded: false,
   retainedProfileId: null,
   legacyDatabaseOwner: null,
+  pendingCleanupProfileId: null,
 };
 let loadPromise: Promise<MobileDataProfileSnapshot> | null = null;
 let profileMutationQueue: Promise<unknown> = Promise.resolve();
@@ -107,16 +133,25 @@ export function resolveMobileDataProfileSelection(
   sessionProfileId: string | null,
 ): MobileDataProfileSelection | null {
   if (!state.loaded) return null;
-  if (sessionProfileId && state.retainedProfileId !== sessionProfileId) {
+  // A confirmed removal fence owns profile selection until cleanup completes.
+  // A concurrently observed/new auth session must wait rather than replacing
+  // the only database connection capable of finishing the old profile's wipe.
+  const selectableSessionProfileId = state.pendingCleanupProfileId
+    ? null
+    : sessionProfileId;
+  if (
+    selectableSessionProfileId &&
+    state.retainedProfileId !== selectableSessionProfileId
+  ) {
     return null;
   }
 
-  const profileId = sessionProfileId ?? state.retainedProfileId;
+  const profileId = selectableSessionProfileId ?? state.retainedProfileId;
   return {
     profileId,
     databaseName: getMobileProfileDatabaseName(
       profileId,
-      state.legacyDatabaseOwner ?? sessionProfileId,
+      state.legacyDatabaseOwner ?? selectableSessionProfileId,
     ),
   };
 }
@@ -127,8 +162,13 @@ export async function loadMobileDataProfile(): Promise<MobileDataProfileSnapshot
     loadPromise = Promise.all([
       storage.getString(LAST_PROFILE_ID_KEY),
       storage.getString(LEGACY_DATABASE_OWNER_KEY),
+      storage.getString(PENDING_PROFILE_CLEANUP_KEY),
     ])
-      .then(async ([retainedProfileId, storedLegacyDatabaseOwner]) => {
+      .then(async ([
+        retainedProfileId,
+        storedLegacyDatabaseOwner,
+        pendingCleanupProfileId,
+      ]) => {
         const normalized = normalizeStoredMobileDataProfile(
           retainedProfileId,
           storedLegacyDatabaseOwner,
@@ -139,7 +179,11 @@ export async function loadMobileDataProfile(): Promise<MobileDataProfileSnapshot
             normalized.legacyDatabaseOwner,
           );
         }
-        return publish({ loaded: true, ...normalized });
+        return publish({
+          loaded: true,
+          ...normalized,
+          pendingCleanupProfileId: pendingCleanupProfileId || null,
+        });
       })
       .catch((error) => {
         // SecureStore can fail transiently. Let the next caller retry instead
@@ -156,6 +200,9 @@ export async function retainMobileDataProfile(
 ): Promise<MobileDataProfileSnapshot> {
   const task = profileMutationQueue.then(async () => {
     const current = await loadMobileDataProfile();
+    if (current.pendingCleanupProfileId) {
+      throw dataProfileCleanupPendingError();
+    }
     const legacyDatabaseOwner = current.legacyDatabaseOwner ?? profileId;
     // Persist ownership first. If the process dies between these writes, an
     // owner without a retained profile routes signed-out state to the
@@ -183,14 +230,97 @@ export async function retainMobileDataProfile(
   return task;
 }
 
-export async function clearRetainedMobileDataProfile(): Promise<MobileDataProfileSnapshot> {
+export async function clearRetainedMobileDataProfile(
+  expectedProfileId?: string,
+): Promise<MobileDataProfileSnapshot> {
   const task = profileMutationQueue.then(async () => {
     const current = await loadMobileDataProfile();
+    if (
+      expectedProfileId &&
+      current.retainedProfileId !== null &&
+      current.retainedProfileId !== expectedProfileId
+    ) {
+      throw new Error("The active mobile data profile changed during cleanup.");
+    }
     await storage.remove(LAST_PROFILE_ID_KEY);
     return publish({
       ...current,
       loaded: true,
       retainedProfileId: null,
+    });
+  });
+  profileMutationQueue = task.catch(() => undefined);
+  return task;
+}
+
+/**
+ * Durably fences an explicit account-data removal after remote sign-out has
+ * been confirmed. Publish first so even a transient SecureStore write failure
+ * hides the profile for the rest of this process while cleanup is attempted.
+ */
+export async function markMobileDataProfileCleanupPending(
+  profileId: string,
+): Promise<MobileDataProfileSnapshot> {
+  return persistMobileDataProfileCleanupPending(profileId, false);
+}
+
+/**
+ * Re-persists an existing in-memory/durable cleanup fence before any
+ * destructive retry. This is intentionally valid after the retained profile
+ * has already been cleared: a prior run may have completed data removal and
+ * failed only while deleting the final marker.
+ */
+export async function ensureMobileDataProfileCleanupPendingPersisted(
+  profileId: string,
+): Promise<MobileDataProfileSnapshot> {
+  return persistMobileDataProfileCleanupPending(profileId, true);
+}
+
+function persistMobileDataProfileCleanupPending(
+  profileId: string,
+  allowClearedRetainedProfile: boolean,
+): Promise<MobileDataProfileSnapshot> {
+  if (!profileId.trim()) throw new Error("A mobile data profile is required.");
+  const task = profileMutationQueue.then(async () => {
+    const current = await loadMobileDataProfile();
+    const isMarkerOnlyRetry =
+      allowClearedRetainedProfile &&
+      current.retainedProfileId === null &&
+      current.pendingCleanupProfileId === profileId;
+    if (current.retainedProfileId !== profileId && !isMarkerOnlyRetry) {
+      throw new Error("The active mobile data profile changed during cleanup.");
+    }
+    if (
+      current.pendingCleanupProfileId &&
+      current.pendingCleanupProfileId !== profileId
+    ) {
+      throw new Error("Another mobile account data removal is still pending.");
+    }
+    const pending = publish({
+      ...current,
+      loaded: true,
+      pendingCleanupProfileId: profileId,
+    });
+    await storage.setString(PENDING_PROFILE_CLEANUP_KEY, profileId);
+    return pending;
+  });
+  profileMutationQueue = task.catch(() => undefined);
+  return task;
+}
+
+/** Clears only the matching cleanup fence so a stale task cannot unblock a
+ * different account's removal. */
+export async function clearMobileDataProfileCleanupPending(
+  expectedProfileId: string,
+): Promise<MobileDataProfileSnapshot> {
+  const task = profileMutationQueue.then(async () => {
+    const current = await loadMobileDataProfile();
+    if (current.pendingCleanupProfileId !== expectedProfileId) return current;
+    await storage.remove(PENDING_PROFILE_CLEANUP_KEY);
+    return publish({
+      ...current,
+      loaded: true,
+      pendingCleanupProfileId: null,
     });
   });
   profileMutationQueue = task.catch(() => undefined);
@@ -206,6 +336,9 @@ export async function resolveMobileDataProfileForUser(
   const state = options.retain === false
     ? await loadMobileDataProfile()
     : await retainMobileDataProfile(profileId);
+  if (state.pendingCleanupProfileId) {
+    throw dataProfileCleanupPendingError();
+  }
   if (!state.legacyDatabaseOwner && state.retainedProfileId !== profileId) {
     throw new Error("The mobile data profile has not been durably assigned yet.");
   }
@@ -220,6 +353,7 @@ export async function resetMobileDataProfileForTesting(): Promise<void> {
   await Promise.all([
     storage.remove(LAST_PROFILE_ID_KEY),
     storage.remove(LEGACY_DATABASE_OWNER_KEY),
+    storage.remove(PENDING_PROFILE_CLEANUP_KEY),
   ]);
   loadPromise = null;
   profileMutationQueue = Promise.resolve();
@@ -227,6 +361,7 @@ export async function resetMobileDataProfileForTesting(): Promise<void> {
     loaded: false,
     retainedProfileId: null,
     legacyDatabaseOwner: null,
+    pendingCleanupProfileId: null,
   });
 }
 
@@ -241,5 +376,6 @@ export async function setMobileDataProfileStorageForTesting(
     loaded: false,
     retainedProfileId: null,
     legacyDatabaseOwner: null,
+    pendingCleanupProfileId: null,
   });
 }

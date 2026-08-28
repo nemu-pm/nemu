@@ -372,7 +372,10 @@ function buildEntities(text: string, properNouns: string[]) {
 
 function parsePartOfSpeech(pos: string | undefined): string[] {
   assertMobileJapaneseLearningGrammarField(pos, "Ichiran part of speech");
-  const cleaned = pos?.replaceAll("[", "").replaceAll("]", "").trim();
+  // Hermes implements replaceAll, but the app deliberately supports the
+  // JavaScriptCore runtime too. Keep this parsing path on ES2019 primitives so
+  // source responses cannot crash JSC before the reader is usable.
+  const cleaned = pos?.split("[").join("").split("]").join("").trim();
   if (!cleaned) return [];
   const parts = cleaned
     .split(",")
@@ -600,7 +603,7 @@ function convertWordInfo(
     };
   }
 
-  const reading = extractReading(preferred, word).replaceAll("\f", "");
+  const reading = extractReading(preferred, word).split("\f").join("");
   const conjugations = preferred.conj ?? [];
   const alternatives = preferred.alternative ?? [];
   const components = preferred.components ?? [];

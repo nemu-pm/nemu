@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { strToU8, zipSync } from "fflate";
 import type { InstalledSource } from "@/data/schema";
-import { fetchMobileSourceHome } from "./mobileSourceHome";
+import {
+  compactFinalMobileSourceHome,
+  fetchMobileSourceHome,
+} from "./mobileSourceHome";
 import type {
   HomeLayout,
   MobileAidokuExecutorBridge,
@@ -216,6 +219,47 @@ function makeExecutorSource(
 describe("mobile source home", () => {
   beforeEach(async () => {
     await defaultMobileSourceSessionCache.clear();
+  });
+
+  test("removes finalized placeholder components but keeps actionable listings", () => {
+    expect(
+      compactFinalMobileSourceHome({
+        components: [
+          { title: "Empty feature", value: { type: "bigScroller", entries: [] } },
+          { title: "Empty links", value: { type: "links", links: [] } },
+          { title: "Empty filters", value: { type: "filters", items: [] } },
+          {
+            title: "Latest",
+            value: {
+              type: "mangaList",
+              ranking: false,
+              entries: [],
+              listing: { id: "latest", name: "Latest" },
+            },
+          },
+        ],
+      }),
+    ).toEqual({
+      components: [
+        {
+          title: "Latest",
+          value: {
+            type: "mangaList",
+            ranking: false,
+            entries: [],
+            listing: { id: "latest", name: "Latest" },
+          },
+        },
+      ],
+    });
+    expect(
+      compactFinalMobileSourceHome({
+        components: [
+          { value: { type: "imageScroller", links: [] } },
+          { value: { type: "scroller", entries: [] } },
+        ],
+      }),
+    ).toBeNull();
   });
 
   test("fetches home with partial updates and retains the cached executor session", async () => {

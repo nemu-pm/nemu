@@ -15,6 +15,18 @@ import {
   type SourceComponents,
 } from "@nemu.pm/aidoku-runtime";
 import {
+  MAX_ABSOLUTE_CORE_SETTING_NUMBER,
+  MAX_CORE_SETTING_DEPTH,
+  MAX_CORE_SETTING_KEY_LENGTH,
+  MAX_CORE_SETTING_LIST_ITEMS,
+  MAX_CORE_SETTING_NODES,
+  MAX_CORE_SETTING_SCHEMA_STRING_CHARS,
+  MAX_CORE_SETTING_STRING_LENGTH,
+  MAX_CORE_SETTING_URL_LENGTH,
+  isUnsafeSettingTextCodePoint,
+  sanitizeSourceSettingValues,
+} from "@nemu/core";
+import {
   createAidokuSandboxCanvasModule,
   decodeAidokuSandboxCanvasPlan,
   SANDBOX_IMAGE_MAX_COMPRESSED_BYTES,
@@ -148,8 +160,16 @@ function assertPlainRecord(value: unknown, label: string): JsonRecord {
   return value as JsonRecord;
 }
 
-function assertString(value: unknown, label: string, maxLength = 4_096): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > maxLength) {
+function assertString(
+  value: unknown,
+  label: string,
+  maxLength = 4_096,
+): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maxLength
+  ) {
     throw new Error(`${label} is invalid.`);
   }
   return value;
@@ -230,13 +250,21 @@ function normalizeHeaders(value: unknown): Record<string, string> {
   }
 
   return Object.fromEntries(
-    Object.entries(normalized).sort(([left], [right]) => left.localeCompare(right)),
+    Object.entries(normalized).sort(([left], [right]) =>
+      left.localeCompare(right),
+    ),
   );
 }
 
-function normalizeRequest(request: HttpRequest | JsonRecord): NormalizedRequest {
+function normalizeRequest(
+  request: HttpRequest | JsonRecord,
+): NormalizedRequest {
   const input = assertPlainRecord(request, "Aidoku HTTP request");
-  const url = assertString(input.url, "Aidoku HTTP URL", MAX_REQUEST_URL_LENGTH);
+  const url = assertString(
+    input.url,
+    "Aidoku HTTP URL",
+    MAX_REQUEST_URL_LENGTH,
+  );
   const parsed = new URL(url);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("Aidoku HTTP requests must use http or https.");
@@ -258,7 +286,22 @@ function normalizeRequest(request: HttpRequest | JsonRecord): NormalizedRequest 
   };
 }
 
-function sameRequest(left: NormalizedRequest, right: NormalizedRequest): boolean {
+function isRemoteHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      Boolean(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function sameRequest(
+  left: NormalizedRequest,
+  right: NormalizedRequest,
+): boolean {
   return (
     left.url === right.url &&
     left.method === right.method &&
@@ -267,45 +310,433 @@ function sameRequest(left: NormalizedRequest, right: NormalizedRequest): boolean
   );
 }
 
-function extractSettingsDefaults(
-  settingsJson: unknown[] | undefined,
-): JsonRecord {
-  const defaults: JsonRecord = {};
-  if (!settingsJson) return defaults;
+function ownDataValue(value: object, key: PropertyKey): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor && "value" in descriptor ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
-  const visit = (item: unknown) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return;
-    const setting = item as JsonRecord;
-    if (setting.type === "group" && Array.isArray(setting.items)) {
-      for (const child of setting.items) visit(child);
-      return;
+function firstOwnDataValue(value: object, keys: readonly string[]): unknown {
+  for (const key of keys) {
+    const candidate = ownDataValue(value, key);
+    if (candidate !== undefined) return candidate;
+  }
+  return undefined;
+}
+
+function asOwnArray(value: unknown): readonly unknown[] | null {
+  try {
+    return Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function ownArrayLength(value: readonly unknown[]): number {
+  const length = ownDataValue(value, "length");
+  return Number.isSafeInteger(length) && (length as number) >= 0
+    ? (length as number)
+    : 0;
+}
+
+function ownArrayValue(value: readonly unknown[], index: number): unknown {
+  return ownDataValue(value, String(index));
+}
+
+function asPlainDataRecord(value: unknown): JsonRecord | null {
+  if (!value || typeof value !== "object" || asOwnArray(value)) return null;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null
+      ? (value as JsonRecord)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeSettingDefaultKey(value: unknown): string | null {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > MAX_CORE_SETTING_KEY_LENGTH ||
+    value.trim().length === 0
+  ) {
+    return null;
+  }
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (
+      codePoint < 0x20 ||
+      codePoint === 0x7f ||
+      codePoint === 0x200c ||
+      codePoint === 0x200d ||
+      isUnsafeSettingTextCodePoint(codePoint)
+    ) {
+      return null;
     }
-    if (typeof setting.key === "string" && setting.default !== undefined) {
-      defaults[setting.key] = setting.default;
+  }
+  return value;
+}
+
+function finiteSettingDefaultNumber(value: unknown): number | null {
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    Math.abs(value) <= MAX_ABSOLUTE_CORE_SETTING_NUMBER
+    ? value
+    : null;
+}
+
+type SanitizedSettingDefault = { value: unknown };
+type SettingDefaultBudget = { remainingStringChars: number };
+
+function sanitizeStringDefault(
+  value: unknown,
+  budget: SettingDefaultBudget,
+): SanitizedSettingDefault | null {
+  if (
+    typeof value !== "string" ||
+    value.length > MAX_CORE_SETTING_STRING_LENGTH ||
+    value.length > budget.remainingStringChars
+  ) {
+    return null;
+  }
+  budget.remainingStringChars -= value.length;
+  return { value };
+}
+
+function sanitizeStringArrayDefault(
+  value: unknown,
+  budget: SettingDefaultBudget,
+): SanitizedSettingDefault | null {
+  const input = asOwnArray(value);
+  if (!input) return null;
+  const length = ownArrayLength(input);
+  if (length > MAX_CORE_SETTING_LIST_ITEMS) return null;
+  const output: string[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const item = ownArrayValue(input, index);
+    if (
+      typeof item !== "string" ||
+      item.length > MAX_CORE_SETTING_STRING_LENGTH ||
+      item.length > budget.remainingStringChars
+    ) {
+      return null;
     }
+    output.push(item);
+    budget.remainingStringChars -= item.length;
+  }
+  return { value: output };
+}
+
+function ownStringOptions(
+  record: JsonRecord,
+  budget: SettingDefaultBudget,
+): string[] | null {
+  let raw: readonly unknown[] | null = null;
+  for (const key of [
+    "values",
+    "entryValues",
+    "options",
+    "titles",
+    "entries",
+    "labels",
+  ]) {
+    raw = asOwnArray(ownDataValue(record, key));
+    if (raw) break;
+  }
+  if (!raw) return null;
+  const length = ownArrayLength(raw);
+  if (length > MAX_CORE_SETTING_LIST_ITEMS) return null;
+  const output: string[] = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < length; index += 1) {
+    const item = ownArrayValue(raw, index);
+    if (
+      typeof item !== "string" ||
+      item.length > MAX_CORE_SETTING_STRING_LENGTH
+    ) {
+      continue;
+    }
+    if (item.length > budget.remainingStringChars) return null;
+    budget.remainingStringChars -= item.length;
+    if (seen.has(item)) continue;
+    seen.add(item);
+    output.push(item);
+  }
+  return output;
+}
+
+function normalizedSettingDefaultType(value: unknown): string | null {
+  switch (value) {
+    case "ListPreference":
+      return "select";
+    case "MultiSelectListPreference":
+      return "multi-select";
+    case "SwitchPreference":
+    case "SwitchPreferenceCompat":
+    case "CheckBoxPreference":
+      return "switch";
+    case "EditTextPreference":
+      return "text";
+    case "SeekBarPreference":
+      return "slider";
+    case "select":
+    case "multi-select":
+    case "multi-single-select":
+    case "switch":
+    case "slider":
+    case "stepper":
+    case "segment":
+    case "text":
+    case "editable-list":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function isSettingContainerType(value: unknown): boolean {
+  return (
+    value === "group" ||
+    value === "category" ||
+    value === "PreferenceCategory" ||
+    value === "page" ||
+    value === "PreferenceScreen"
+  );
+}
+
+function sanitizeSettingDefault(
+  type: string,
+  value: unknown,
+  record: JsonRecord,
+  budget: SettingDefaultBudget,
+): SanitizedSettingDefault | null {
+  if (type === "text") {
+    return sanitizeStringDefault(value, budget);
+  }
+  if (type === "select") {
+    const result = sanitizeStringDefault(value, budget);
+    const options = ownStringOptions(record, budget);
+    return result && options?.includes(result.value as string) ? result : null;
+  }
+  if (type === "editable-list") {
+    return sanitizeStringArrayDefault(value, budget);
+  }
+  if (type === "multi-select" || type === "multi-single-select") {
+    const result = sanitizeStringArrayDefault(value, budget);
+    const options = ownStringOptions(record, budget);
+    if (!result || !options) return null;
+    const optionSet = new Set(options);
+    const supported = (result.value as string[]).filter((item) =>
+      optionSet.has(item),
+    );
+    if (supported.length !== (result.value as string[]).length) return null;
+    if (type === "multi-single-select" && supported.length > 1) {
+      return {
+        value: supported.slice(0, 1),
+      };
+    }
+    return result;
+  }
+  if (type === "switch") {
+    return typeof value === "boolean" ? { value } : null;
+  }
+  if (type === "segment") {
+    const options = ownStringOptions(record, budget);
+    if (!options) return null;
+    if (
+      typeof value === "number" &&
+      Number.isInteger(value) &&
+      value >= 0 &&
+      value < options.length
+    ) {
+      return { value };
+    }
+    if (typeof value === "string") {
+      const index = options.indexOf(value);
+      return index >= 0 ? { value: index } : null;
+    }
+    return null;
+  }
+  if (type === "slider" || type === "stepper") {
+    const number = finiteSettingDefaultNumber(value);
+    if (number === null) return null;
+    const rawMinimum =
+      finiteSettingDefaultNumber(
+        firstOwnDataValue(record, ["min", "minimum", "minimumValue"]),
+      ) ?? 0;
+    const rawMaximum =
+      finiteSettingDefaultNumber(
+        firstOwnDataValue(record, ["max", "maximum", "maximumValue"]),
+      ) ?? 100;
+    const minimum = Math.min(rawMinimum, rawMaximum);
+    const maximum = Math.max(rawMinimum, rawMaximum);
+    return {
+      value: Math.min(maximum, Math.max(minimum, number)),
+    };
+  }
+  return null;
+}
+
+/** Extract bounded, type-compatible settings defaults before source
+ * initialization. The null-prototype result makes prototype-looking keys data. */
+export function extractMobileAidokuSettingsDefaults(
+  settingsJson: unknown,
+): JsonRecord {
+  const defaults = Object.create(null) as JsonRecord;
+  const root = asOwnArray(settingsJson);
+  if (!root) return defaults;
+
+  const seenRecords = new WeakSet<object>();
+  const seenArrays = new WeakSet<object>();
+  seenArrays.add(root);
+  const claimedKeys = new Set<string>();
+  const stack: Array<{
+    input: readonly unknown[];
+    length: number;
+    index: number;
+    depth: number;
+  }> = [{ input: root, length: ownArrayLength(root), index: 0, depth: 0 }];
+  let inspectedNodes = 0;
+  const budget: SettingDefaultBudget = {
+    remainingStringChars: MAX_CORE_SETTING_SCHEMA_STRING_CHARS,
   };
-  for (const item of settingsJson) visit(item);
+
+  while (
+    stack.length > 0 &&
+    inspectedNodes < MAX_CORE_SETTING_NODES &&
+    budget.remainingStringChars > 0
+  ) {
+    const frame = stack[stack.length - 1]!;
+    if (frame.index >= frame.length) {
+      stack.pop();
+      continue;
+    }
+    const rawNode = ownArrayValue(frame.input, frame.index++);
+    inspectedNodes += 1;
+    const record = asPlainDataRecord(rawNode);
+    if (!record || seenRecords.has(record)) continue;
+    seenRecords.add(record);
+
+    const rawType = ownDataValue(record, "type");
+    if (isSettingContainerType(rawType)) {
+      const children = asOwnArray(
+        firstOwnDataValue(record, ["items", "preferences", "children"]),
+      );
+      if (
+        children &&
+        frame.depth < MAX_CORE_SETTING_DEPTH &&
+        !seenArrays.has(children)
+      ) {
+        seenArrays.add(children);
+        stack.push({
+          input: children,
+          length: ownArrayLength(children),
+          index: 0,
+          depth: frame.depth + 1,
+        });
+      }
+      continue;
+    }
+    const type = normalizedSettingDefaultType(rawType);
+    if (!type) continue;
+    const key = safeSettingDefaultKey(firstOwnDataValue(record, ["key", "id"]));
+    if (
+      !key ||
+      claimedKeys.has(key) ||
+      key.length > budget.remainingStringChars
+    ) {
+      continue;
+    }
+    const rawDefault = firstOwnDataValue(record, ["defaultValue", "default"]);
+    if (rawDefault === undefined) continue;
+    budget.remainingStringChars -= key.length;
+    const sanitized = sanitizeSettingDefault(type, rawDefault, record, budget);
+    if (!sanitized) continue;
+    Object.defineProperty(defaults, key, {
+      value: sanitized.value,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    claimedKeys.add(key);
+  }
   return defaults;
 }
 
-function applyManifestDefaults(settings: JsonRecord, manifest: SourceManifest): void {
+function safeManifestUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > MAX_CORE_SETTING_URL_LENGTH) {
+    return null;
+  }
+  try {
+    const parsed = new URL(value.trim());
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      parsed.hostname &&
+      !parsed.username &&
+      !parsed.password
+      ? parsed.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeManifestStrings(
+  value: unknown,
+  normalize: (item: unknown) => string | null,
+): string[] {
+  const input = asOwnArray(value);
+  if (!input) return [];
+  const length = Math.min(ownArrayLength(input), MAX_CORE_SETTING_LIST_ITEMS);
+  const output: string[] = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < length; index += 1) {
+    const item = normalize(ownArrayValue(input, index));
+    if (!item || seen.has(item)) continue;
+    seen.add(item);
+    output.push(item);
+  }
+  return output;
+}
+
+function applyManifestDefaults(
+  settings: JsonRecord,
+  manifest: SourceManifest,
+): void {
+  const info = asPlainDataRecord(manifest.info);
+  const config = asPlainDataRecord(manifest.config);
+  const urls = safeManifestStrings(
+    info ? ownDataValue(info, "urls") : undefined,
+    safeManifestUrl,
+  );
+  const languages = safeManifestStrings(
+    info ? ownDataValue(info, "languages") : undefined,
+    (value) => safeSettingDefaultKey(value),
+  );
   if (
-    manifest.config?.allowsBaseUrlSelect &&
-    manifest.info.urls?.length &&
+    config &&
+    ownDataValue(config, "allowsBaseUrlSelect") === true &&
+    urls.length > 0 &&
     settings.url === undefined
   ) {
-    settings.url = manifest.info.urls[0];
+    settings.url = urls[0];
   }
-  if (manifest.info.languages?.length && settings.languages === undefined) {
+  if (languages.length > 0 && settings.languages === undefined) {
     settings.languages =
-      manifest.config?.languageSelectType === "multi"
-        ? [...manifest.info.languages]
-        : [manifest.info.languages[0]];
+      config && ownDataValue(config, "languageSelectType") === "multi"
+        ? languages
+        : [languages[0]];
   }
 }
 
 function resolveDefaultSettings(session: SandboxSession): JsonRecord {
-  const resolved = extractSettingsDefaults(session.components.settingsJson);
+  const resolved = extractMobileAidokuSettingsDefaults(
+    session.components.settingsJson,
+  );
   applyManifestDefaults(resolved, session.components.manifest);
   return resolved;
 }
@@ -349,7 +780,9 @@ async function executeSourceOperation(
       return source.getSearchMangaList(
         operation.query == null ? null : String(operation.query),
         Number(operation.page),
-        (Array.isArray(operation.filters) ? operation.filters : []) as FilterValue[],
+        (Array.isArray(operation.filters)
+          ? operation.filters
+          : []) as FilterValue[],
       );
     case "details":
       return source.getMangaDetails(assertManga(operation.manga));
@@ -373,7 +806,9 @@ async function executeSourceOperation(
       );
     case "home": {
       const partials: HomeLayout[] = [];
-      const layout = source.getHomeWithPartials((partial) => partials.push(partial));
+      const layout = source.getHomeWithPartials((partial) =>
+        partials.push(partial),
+      );
       return { layout, partials };
     }
     case "handle-basic-login":
@@ -392,15 +827,33 @@ async function executeSourceOperation(
         assertString(operation.notification, "Notification", 256),
       );
       return null;
-    case "modify-image-request":
+    case "modify-image-request": {
+      const url = assertString(
+        operation.url,
+        "Image URL",
+        MAX_REQUEST_URL_LENGTH,
+      );
+      if (!source.hasImageRequestProvider || !isRemoteHttpUrl(url)) {
+        return {
+          url,
+          headers: {},
+        };
+      }
       return source.modifyImageRequest(
-        assertString(operation.url, "Image URL", MAX_REQUEST_URL_LENGTH),
+        url,
         operation.context == null
           ? null
-          : (assertPlainRecord(operation.context, "Image context") as Record<string, string>),
+          : (assertPlainRecord(operation.context, "Image context") as Record<
+              string,
+              string
+            >),
       );
+    }
     case "process-page-image": {
-      if (!source.hasImageProcessor || !session.imageProcessorTransportAvailable) {
+      if (
+        !source.hasImageProcessor ||
+        !session.imageProcessorTransportAvailable
+      ) {
         return null;
       }
       if (!imageBytes) throw new Error("Aidoku image input is unavailable.");
@@ -412,7 +865,11 @@ async function executeSourceOperation(
               string,
               string
             >),
-        assertString(operation.requestUrl, "Image request URL", MAX_REQUEST_URL_LENGTH),
+        assertString(
+          operation.requestUrl,
+          "Image request URL",
+          MAX_REQUEST_URL_LENGTH,
+        ),
         normalizeHeaders(operation.requestHeaders ?? {}),
         Number(operation.responseCode),
         normalizeHeaders(operation.responseHeaders ?? {}),
@@ -456,7 +913,11 @@ function createReplayBridge(state: SandboxOperation): {
 async function runOperation(state: SandboxOperation): Promise<string> {
   const session = sessions.get(state.sessionId);
   if (!session) {
-    return result({ status: "error", code: "session-missing", detail: "Aidoku session expired." });
+    return result({
+      status: "error",
+      code: "session-missing",
+      detail: "Aidoku session expired.",
+    });
   }
 
   const originalDateNow = Date.now;
@@ -505,7 +966,8 @@ async function runOperation(state: SandboxOperation): Promise<string> {
     // elapsed time. Replays therefore get stable request timestamps without
     // turning timeout/sleep loops into infinite CPU spins.
     replayClockStartedAt = originalDateNow();
-    Date.now = () => state.startedAt + (originalDateNow() - replayClockStartedAt);
+    Date.now = () =>
+      state.startedAt + (originalDateNow() - replayClockStartedAt);
     source.initialize();
     const value = await executeSourceOperation(
       source,
@@ -517,7 +979,8 @@ async function runOperation(state: SandboxOperation): Promise<string> {
       return result({
         status: "error",
         code: "non-deterministic-replay",
-        detail: "Aidoku source did not consume every recorded HTTP replay response.",
+        detail:
+          "Aidoku source did not consume every recorded HTTP replay response.",
       });
     }
     const settingsPatch = settingsTransaction.encodedPatch();
@@ -584,7 +1047,10 @@ async function consumeNamedBytes(name: string): Promise<Uint8Array> {
 }
 
 async function postImageBytes(name: string, bytes: Uint8Array): Promise<void> {
-  if (typeof android === "undefined" || typeof android.getNamedPort !== "function") {
+  if (
+    typeof android === "undefined" ||
+    typeof android.getNamedPort !== "function"
+  ) {
     throw new Error("Android image message-port bridge is unavailable.");
   }
   const owned = new Uint8Array(new ArrayBuffer(bytes.byteLength));
@@ -616,19 +1082,23 @@ export const NemuAidokuSandbox = {
         throw new Error("Expected Aidoku source version is invalid.");
       }
       assertString(dataName, "Named data ID", 256);
-      const nextUserSettings = assertPlainRecord(userSettings, "Source settings");
+      if (!asPlainDataRecord(userSettings)) {
+        throw new Error("Source settings must be a plain object.");
+      }
+      const nextUserSettings = sanitizeSourceSettingValues(userSettings);
       if (JSON.stringify(nextUserSettings).length > MAX_SETTINGS_JSON_LENGTH) {
         throw new Error("Aidoku settings exceed the safety limit.");
       }
-      const nextPersistedSettings = decodeSandboxPersistedSettings(
-        persistedSettings,
-      );
+      const nextPersistedSettings =
+        decodeSandboxPersistedSettings(persistedSettings);
       if (typeof imageProcessorTransportAvailable !== "boolean") {
         throw new Error("Aidoku image-processor capability is invalid.");
       }
       const bytes = await consumeNamedBytes(dataName);
       if (bytes.byteLength === 0 || bytes.byteLength > MAX_AIX_PACKAGE_BYTES) {
-        throw new Error("AIX package exceeds the isolated runtime safety limit.");
+        throw new Error(
+          "AIX package exceeds the isolated runtime safety limit.",
+        );
       }
       if (!sessions.has(sessionId) && sessions.size >= MAX_SESSIONS) {
         throw new Error("Too many isolated Aidoku sessions are active.");
@@ -650,9 +1120,12 @@ export const NemuAidokuSandbox = {
           filtersJson: extracted.filtersJson,
         }),
       ).byteLength;
-      const memoryByteLength = preparedWasm.bytes.byteLength + metadataByteLength;
+      const memoryByteLength =
+        preparedWasm.bytes.byteLength + metadataByteLength;
       if (memoryByteLength > MAX_SESSION_BYTES_TOTAL) {
-        throw new Error("AIX package expands beyond the isolated runtime memory limit.");
+        throw new Error(
+          "AIX package expands beyond the isolated runtime memory limit.",
+        );
       }
       const previousByteLength = sessions.get(sessionId)?.memoryByteLength ?? 0;
       const nextTotalByteLength =
@@ -663,7 +1136,9 @@ export const NemuAidokuSandbox = {
         previousByteLength +
         memoryByteLength;
       if (nextTotalByteLength > MAX_SESSION_BYTES_TOTAL) {
-        throw new Error("Active AIX packages exceed the isolated runtime memory limit.");
+        throw new Error(
+          "Active AIX packages exceed the isolated runtime memory limit.",
+        );
       }
       const compiledModule = await WebAssembly.compile(preparedWasm.bytes);
       sessions.set(sessionId, {
@@ -683,7 +1158,11 @@ export const NemuAidokuSandbox = {
       });
       return result({ status: "registered" });
     } catch (error) {
-      return result({ status: "error", code: "registration-failed", detail: boundedErrorMessage(error) });
+      return result({
+        status: "error",
+        code: "registration-failed",
+        detail: boundedErrorMessage(error),
+      });
     }
   },
 
@@ -719,14 +1198,22 @@ export const NemuAidokuSandbox = {
       });
       return result({ status: "started" });
     } catch (error) {
-      return result({ status: "error", code: "operation-rejected", detail: boundedErrorMessage(error) });
+      return result({
+        status: "error",
+        code: "operation-rejected",
+        detail: boundedErrorMessage(error),
+      });
     }
   },
 
   async executeOperation(operationId: string): Promise<string> {
     const state = operations.get(operationId);
     if (!state) {
-      return result({ status: "error", code: "operation-missing", detail: "Aidoku operation expired." });
+      return result({
+        status: "error",
+        code: "operation-missing",
+        detail: "Aidoku operation expired.",
+      });
     }
     return runOperation(state);
   },
@@ -745,24 +1232,32 @@ export const NemuAidokuSandbox = {
       if (!Number.isSafeInteger(cursor) || cursor !== state.replay.length) {
         throw new Error("Aidoku replay cursor is invalid.");
       }
-      const request = normalizeRequest(assertPlainRecord(rawRequest, "Aidoku HTTP request"));
+      const request = normalizeRequest(
+        assertPlainRecord(rawRequest, "Aidoku HTTP request"),
+      );
       if (
         !state.pendingRequest ||
         state.pendingRequest.cursor !== cursor ||
         !sameRequest(state.pendingRequest.request, request)
       ) {
-        throw new Error("Aidoku replay response does not match the pending request.");
+        throw new Error(
+          "Aidoku replay response does not match the pending request.",
+        );
       }
       if (!Number.isSafeInteger(status) || status < 0 || status > 999) {
         throw new Error("Aidoku HTTP response status is invalid.");
       }
       const responseHeaders = normalizeHeaders(headers);
-      const bytes = await consumeNamedBytes(assertString(dataName, "Named data ID", 256));
+      const bytes = await consumeNamedBytes(
+        assertString(dataName, "Named data ID", 256),
+      );
       if (bytes.byteLength > MAX_REPLAY_RESPONSE_BYTES) {
         throw new Error("Aidoku HTTP response exceeds the safety limit.");
       }
       if (state.replayByteLength + bytes.byteLength > MAX_REPLAY_BYTES_TOTAL) {
-        throw new Error("Aidoku HTTP replay data exceeds the memory safety limit.");
+        throw new Error(
+          "Aidoku HTTP replay data exceeds the memory safety limit.",
+        );
       }
       state.replay.push({
         request,
@@ -772,7 +1267,11 @@ export const NemuAidokuSandbox = {
       state.pendingRequest = null;
       return result({ status: "appended" });
     } catch (error) {
-      return result({ status: "error", code: "replay-rejected", detail: boundedErrorMessage(error) });
+      return result({
+        status: "error",
+        code: "replay-rejected",
+        detail: boundedErrorMessage(error),
+      });
     }
   },
 
@@ -780,14 +1279,21 @@ export const NemuAidokuSandbox = {
     try {
       const session = sessions.get(sessionId);
       if (!session) throw new Error("Aidoku session expired.");
-      const nextSettings = assertPlainRecord(settings, "Source settings");
+      if (!asPlainDataRecord(settings)) {
+        throw new Error("Source settings must be a plain object.");
+      }
+      const nextSettings = sanitizeSourceSettingValues(settings);
       if (JSON.stringify(nextSettings).length > MAX_SETTINGS_JSON_LENGTH) {
         throw new Error("Aidoku settings exceed the safety limit.");
       }
       session.userSettings = { ...nextSettings };
       return result({ status: "updated" });
     } catch (error) {
-      return result({ status: "error", code: "settings-rejected", detail: boundedErrorMessage(error) });
+      return result({
+        status: "error",
+        code: "settings-rejected",
+        detail: boundedErrorMessage(error),
+      });
     }
   },
 

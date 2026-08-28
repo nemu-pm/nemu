@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -261,6 +260,9 @@ describe("Android Aidoku sandbox bundle", () => {
     expect(sandboxRuntime).toContain('case "handle-basic-login"');
     expect(sandboxRuntime).toContain('case "handle-web-login"');
     expect(sandboxRuntime).toContain('case "handle-notification"');
+    expect(sandboxRuntime).toContain(
+      "if (!source.hasImageRequestProvider || !isRemoteHttpUrl(url))",
+    );
     expect(manager).toContain("SANDBOX_MAX_REPLAY_ROUNDS = 32");
     expect(manager).toContain("SANDBOX_OPERATION_TIMEOUT_MS = 20_000L");
     expect(nativeModule).toContain("appContext.backgroundCoroutineScope.launch");
@@ -279,6 +281,12 @@ describe("Android Aidoku sandbox bundle", () => {
     expect(sandboxBridge).toContain("processAidokuSandboxImage(");
     expect(sandboxBridge).toContain("sanitizeMobileAidokuOutput(");
     expect(sandboxBridge).toContain("SANDBOX_SESSION_CREATE_TIMEOUT_MS = 40_000");
+    expect(sandboxBridge).toContain(
+      "!capabilities.hasImageRequestProvider ||",
+    );
+    expect(sandboxBridge).toContain(
+      '!getMobileImageUriPolicy(url, "source").allowed',
+    );
   });
 
   test("keeps the checked-in bundle reproducible from the TypeScript runtime", () => {
@@ -294,9 +302,9 @@ describe("Android Aidoku sandbox bundle", () => {
       "node_modules/.bin/esbuild",
     );
     try {
-      const result = spawnSync(
-        esbuildPath,
+      const result = Bun.spawnSync(
         [
+          esbuildPath,
           entry,
           "--bundle",
           "--platform=browser",
@@ -308,10 +316,10 @@ describe("Android Aidoku sandbox bundle", () => {
           "--log-level=silent",
           `--outfile=${outputPath}`,
         ],
-        { cwd: mobileRoot, encoding: "utf8" },
+        { cwd: mobileRoot, stderr: "pipe", stdout: "pipe" },
       );
 
-      expect(result.status, result.stderr).toBe(0);
+      expect(result.exitCode, result.stderr.toString()).toBe(0);
       expect(readFileSync(outputPath, "utf8")).toBe(
         readFileSync(bundlePath, "utf8"),
       );

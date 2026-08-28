@@ -38,6 +38,7 @@ import { formatChapterTitle } from "@/lib/formatChapter";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import type { SearchSourceDisplay } from "@/lib/mobileSearch";
+import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import { normalizeMobileSourceExternalUrl } from "@/lib/mobileSourceExternalUrl";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import { getMobileSourceHomeImageScrollerCardSize } from "@/lib/mobileSourceHomeImageScroller";
@@ -240,9 +241,10 @@ function sourceHomeActionErrorMessage(
   error: unknown,
   strings: MobileStrings,
 ): string {
-  return error instanceof Error
-    ? error.message
-    : strings.sourceBrowse.openLinkFailedDetail;
+  return describeMobileErrorDetail(
+    error,
+    strings.sourceBrowse.openLinkFailedDetail,
+  );
 }
 
 function SectionHeader({

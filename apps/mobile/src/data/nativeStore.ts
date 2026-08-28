@@ -42,6 +42,13 @@ import {
   type LibrarySnapshotApplyResult,
   type PendingSyncDeletion,
 } from "./storeTypes";
+import {
+  createMobileSourceSettingsVault,
+  decodeLegacyMobileSourceSettings,
+  decodeMobileSourceSettingsVaultMarker,
+  encodeMobileSourceSettingsVaultMarker,
+  type MobileSourceSettingsVault,
+} from "./mobileSourceSettingsVault";
 
 type JsonRow = {
   json: string;
@@ -70,6 +77,10 @@ type SQLiteExecutor = Pick<
 const DEFAULT_SETTINGS: UserSettings = {
   installedSources: [],
 };
+
+function scalarSettings(settings: UserSettings): UserSettings {
+  return { ...settings, installedSources: [] };
+}
 
 let nativeStoreWriteQueue: Promise<unknown> = Promise.resolve();
 
@@ -112,7 +123,16 @@ function sortSourcesForEntry(
 }
 
 export class NativeUserDataStore {
-  constructor(private readonly db: SQLiteDatabase) {}
+  private readonly sourceSettingsVault: MobileSourceSettingsVault;
+
+  constructor(
+    private readonly db: SQLiteDatabase,
+    sourceSettingsVault?: MobileSourceSettingsVault,
+  ) {
+    this.sourceSettingsVault =
+      sourceSettingsVault ??
+      createMobileSourceSettingsVault(db.databasePath);
+  }
 
   private async runWrite<T>(operation: () => Promise<T>): Promise<T> {
     const task = nativeStoreWriteQueue.then(operation);
@@ -418,17 +438,47 @@ DELETE FROM sync_health;
     };
   }
 
+  async updateSettings(
+    updater: (current: UserSettings) => UserSettings,
+  ): Promise<UserSettings> {
+    let updated = DEFAULT_SETTINGS;
+    await this.runTransaction(async (txn) => {
+      const [row, installedSources] = await Promise.all([
+        txn.getFirstAsync<JsonRow>(
+          "SELECT json FROM settings WHERE id = ?",
+          "user",
+        ),
+        txn.getAllAsync<JsonRow>(
+          "SELECT json FROM installed_sources WHERE removed = 0 ORDER BY updatedAt DESC, id ASC",
+        ),
+      ]);
+      const current = {
+        ...(decodeJson<UserSettings>(row) ?? DEFAULT_SETTINGS),
+        installedSources: decodeJsonRows<InstalledSource>(installedSources),
+      };
+      const candidate = updater(current);
+      updated = {
+        ...scalarSettings(candidate),
+        installedSources: current.installedSources,
+      };
+      await txn.runAsync(
+        "INSERT OR REPLACE INTO settings (id, json, updatedAt) VALUES (?, ?, ?)",
+        "user",
+        encodeJson(scalarSettings(updated)),
+        Date.now(),
+      );
+    });
+    return updated;
+  }
+
   async saveSettings(settings: UserSettings): Promise<void> {
     await this.runTransaction(async (txn) => {
       await txn.runAsync(
         "INSERT OR REPLACE INTO settings (id, json, updatedAt) VALUES (?, ?, ?)",
         "user",
-        encodeJson(settings),
+        encodeJson(scalarSettings(settings)),
         Date.now(),
       );
-      for (const source of settings.installedSources) {
-        await this.putInstalledSource(txn, source);
-      }
     });
   }
 
@@ -448,8 +498,12 @@ DELETE FROM sync_health;
   }
 
   async clearAllUserData(): Promise<void> {
-    await this.runTransaction(async (txn) => {
-      await txn.execAsync(`
+    await this.runWrite(async () => {
+      // Clear platform-secure credentials before their SQLite references. If
+      // database deletion then fails, the remaining markers fail closed.
+      await this.sourceSettingsVault.clearAll();
+      await this.db.withExclusiveTransactionAsync(async (txn) => {
+        await txn.execAsync(`
 DELETE FROM settings;
 DELETE FROM installed_sources;
 DELETE FROM source_settings;
@@ -464,12 +518,15 @@ DELETE FROM pending_sync_deletions;
 DELETE FROM sync_state;
 DELETE FROM sync_health;
 `);
+      });
     });
   }
 
   async clearAccountData(): Promise<void> {
-    await this.runTransaction(async (txn) => {
-      await txn.execAsync(`
+    await this.runWrite(async () => {
+      await this.sourceSettingsVault.clearAll();
+      await this.db.withExclusiveTransactionAsync(async (txn) => {
+        await txn.execAsync(`
 DELETE FROM settings;
 DELETE FROM installed_sources;
 DELETE FROM source_settings;
@@ -483,6 +540,7 @@ DELETE FROM pending_sync_deletions;
 DELETE FROM sync_state;
 DELETE FROM sync_health;
 `);
+      });
     });
   }
 
@@ -555,7 +613,18 @@ DELETE FROM sync_health;
       "SELECT json FROM source_settings WHERE sourceKey = ?",
       sourceKey,
     );
-    return decodeJson<LocalSourceSettings>(row);
+    if (!row) return null;
+    const marker = decodeMobileSourceSettingsVaultMarker(row.json);
+    if (marker) {
+      return this.sourceSettingsVault.get(marker.ref, sourceKey);
+    }
+
+    // Defensive lazy migration for stores created by tests or callers that did
+    // not run the database initializer. Production performs this eagerly in
+    // `migrateNativeDatabase` so plaintext is removed before UI mount.
+    const legacy = decodeLegacyMobileSourceSettings(row.json, sourceKey);
+    await this.saveSourceSettings(legacy);
+    return legacy;
   }
 
   async saveSourceSettings(settings: LocalSourceSettings): Promise<void> {
@@ -563,23 +632,83 @@ DELETE FROM sync_health;
       ...settings,
       updatedAt: settings.updatedAt ?? Date.now(),
     };
-    await this.runWrite(() =>
-      this.db.runAsync(
-        "INSERT OR REPLACE INTO source_settings (sourceKey, updatedAt, json) VALUES (?, ?, ?)",
+    await this.runWrite(async () => {
+      const previousRow = await this.db.getFirstAsync<JsonRow>(
+        "SELECT json FROM source_settings WHERE sourceKey = ?",
         updated.sourceKey,
-        updated.updatedAt,
-        encodeJson(updated),
-      ),
-    );
+      );
+      const previousMarker = previousRow
+        ? decodeMobileSourceSettingsVaultMarker(previousRow.json)
+        : null;
+      const previousSettings = previousMarker
+        ? await this.sourceSettingsVault.get(
+            previousMarker.ref,
+            updated.sourceKey,
+          )
+        : null;
+      const ref = await this.sourceSettingsVault.put(updated);
+      const marker = encodeMobileSourceSettingsVaultMarker(ref);
+      try {
+        await this.db.runAsync(
+          "INSERT OR REPLACE INTO source_settings (sourceKey, updatedAt, json) VALUES (?, ?, ?)",
+          updated.sourceKey,
+          updated.updatedAt,
+          marker,
+        );
+      } catch (writeError) {
+        // Native persistence can report failure after committing. Read the
+        // marker back before deciding whether to roll the secure value back.
+        const committedRow = await this.db
+          .getFirstAsync<JsonRow & { updatedAt: number }>(
+            "SELECT json, updatedAt FROM source_settings WHERE sourceKey = ?",
+            updated.sourceKey,
+          )
+          .catch(() => null);
+        if (
+          committedRow?.json === marker &&
+          committedRow.updatedAt === updated.updatedAt
+        ) {
+          return;
+        }
+
+        try {
+          if (
+            previousMarker &&
+            previousSettings &&
+            previousMarker.ref === ref
+          ) {
+            await this.sourceSettingsVault.put(previousSettings);
+          } else {
+            await this.sourceSettingsVault.remove(ref);
+          }
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [writeError, rollbackError],
+            "Mobile source settings could not be committed or rolled back safely.",
+          );
+        }
+        throw writeError;
+      }
+    });
   }
 
   async resetSourceSettings(sourceKey: string): Promise<void> {
-    await this.runWrite(() =>
-      this.db.runAsync(
+    await this.runWrite(async () => {
+      const row = await this.db.getFirstAsync<JsonRow>(
+        "SELECT json FROM source_settings WHERE sourceKey = ?",
+        sourceKey,
+      );
+      if (row) {
+        const marker = decodeMobileSourceSettingsVaultMarker(row.json);
+        if (marker && this.sourceSettingsVault.isValidRef(marker.ref)) {
+          await this.sourceSettingsVault.remove(marker.ref);
+        }
+      }
+      await this.db.runAsync(
         "DELETE FROM source_settings WHERE sourceKey = ?",
         sourceKey,
-      ),
-    );
+      );
+    });
   }
 
   async getRegistries(): Promise<SourceRegistry[]> {

@@ -1,11 +1,18 @@
 import { getMobileNativeHttpStatus } from "@/sources/mobileNativeHttp";
+import { sanitizeMobileErrorDiagnostic } from "./mobileSourceErrors";
 
 export type MobileAgentStatus = {
   available: boolean;
+  supportsCloudflareSolver: boolean;
   version?: string;
   platform?: string;
   detail?: string;
 };
+
+export type MobileAgentCapability =
+  | "unavailable"
+  | "native-networking"
+  | "cloudflare-verification";
 
 export type MobileAgentActionState = {
   checkingStatus: boolean;
@@ -20,6 +27,8 @@ export async function fetchMobileAgentStatus(): Promise<MobileAgentStatus> {
     const status = getMobileNativeHttpStatus();
     return {
       available: status.available,
+      supportsCloudflareSolver:
+        status.available && status.supportsCloudflareSolver === true,
       version: optionalString(status.version),
       platform: optionalString(status.platform),
       detail: optionalString(status.detail),
@@ -27,10 +36,22 @@ export async function fetchMobileAgentStatus(): Promise<MobileAgentStatus> {
   } catch (error) {
     return {
       available: false,
+      supportsCloudflareSolver: false,
       platform: "unknown",
-      detail: error instanceof Error ? error.message : "Native source networking is unavailable.",
+      detail:
+        sanitizeMobileErrorDiagnostic(error) ??
+        "Native source networking is unavailable.",
     };
   }
+}
+
+export function getMobileAgentCapability(
+  status: MobileAgentStatus,
+): MobileAgentCapability {
+  if (!status.available) return "unavailable";
+  return status.supportsCloudflareSolver
+    ? "cloudflare-verification"
+    : "native-networking";
 }
 
 export function isMobileAgentActionBusy(state: MobileAgentActionState): boolean {

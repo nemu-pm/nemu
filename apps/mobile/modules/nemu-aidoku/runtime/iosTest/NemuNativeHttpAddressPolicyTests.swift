@@ -217,10 +217,20 @@ enum NemuNativeHttpAddressPolicyTests {
       )
     }
 
-    precondition(
-      NemuNativeHttpLoopbackProxy.shared.port != nil,
-      "The authenticated proxy must bind only loopback before source sessions start."
+    // A hermetic test process may be denied permission to bind even loopback.
+    // Verify the deterministic fail-closed configuration rather than making
+    // the policy suite depend on host sandbox networking privileges.
+    let proxyConfiguration = URLSessionConfiguration.ephemeral
+    NemuNativeHttpLoopbackProxy.shared.hardenLegacy(
+      proxyConfiguration,
+      configuredPort: 47_123
     )
+    let proxyDictionary = proxyConfiguration.connectionProxyDictionary ?? [:]
+    precondition(proxyDictionary["HTTPProxy"] as? String == "127.0.0.1")
+    precondition(proxyDictionary["HTTPSProxy"] as? String == "127.0.0.1")
+    precondition(proxyDictionary["HTTPPort"] as? Int == 47_123)
+    precondition(proxyDictionary["HTTPSPort"] as? Int == 47_123)
+    precondition(proxyDictionary["ProxyAutoConfigEnable"] as? Bool == false)
   }
 
   private static func expectPublic(_ literal: String) {

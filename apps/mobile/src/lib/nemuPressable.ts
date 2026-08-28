@@ -21,6 +21,41 @@ export type NemuPressableResolvedAccessibility = {
   disabled: boolean;
 };
 
+export type NemuButtonAccessibilityInput = {
+  accessibilityState?: AccessibilityState;
+  disabled?: boolean | null;
+  loading?: boolean | null;
+};
+
+export type NemuButtonResolvedAccessibility = {
+  accessibilityState: AccessibilityState;
+  disabled: boolean;
+};
+
+/**
+ * Keep transient native accessibility flags explicit. React Native can retain
+ * Android's previous `busy: true` state when the next prop merely omits the
+ * key, causing an enabled button to remain announced as busy after loading.
+ */
+export function resolveNemuButtonAccessibility({
+  accessibilityState,
+  disabled,
+  loading,
+}: NemuButtonAccessibilityInput): NemuButtonResolvedAccessibility {
+  const resolvedDisabled = Boolean(
+    disabled || loading || accessibilityState?.disabled,
+  );
+
+  return {
+    accessibilityState: {
+      ...accessibilityState,
+      disabled: resolvedDisabled,
+      busy: Boolean(loading || accessibilityState?.busy),
+    },
+    disabled: resolvedDisabled,
+  };
+}
+
 export function resolveNemuPressableAccessibility({
   accessibilityRole,
   accessibilityState,

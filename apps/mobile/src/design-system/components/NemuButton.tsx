@@ -17,10 +17,8 @@ import {
   type NemuButtonDepthVariant,
 } from "@/design/nemuButtonDepth";
 import type { NemuPressableHapticFeedback } from "@/lib/nemuPressable";
-import {
-  nemuFontWeight,
-  nemuMaxFontSizeMultiplier,
-} from "@/design/typography";
+import { resolveNemuButtonAccessibility } from "@/lib/nemuPressable";
+import { nemuFontWeight, nemuMaxFontSizeMultiplier } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { NemuPressable } from "./NemuPressable";
 
@@ -195,7 +193,14 @@ export function NemuButton({
 }: NemuButtonProps) {
   const { scheme, tokens } = useNemuTheme();
   const [pressed, setPressed] = useState(false);
-  const resolvedDisabled = Boolean(disabled || loading);
+  const {
+    accessibilityState: resolvedAccessibilityState,
+    disabled: resolvedDisabled,
+  } = resolveNemuButtonAccessibility({
+    accessibilityState,
+    disabled,
+    loading,
+  });
   const resolvedVariant = resolveButtonVariant(variant, tone);
   const depthVariant = variantDepthMap[resolvedVariant];
   const visual = getNemuButtonDepthVisual({
@@ -213,14 +218,11 @@ export function NemuButton({
       accessibilityRole={accessibilityRole ?? "button"}
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityHint={accessibilityHint}
-      accessibilityState={{
-        ...accessibilityState,
-        disabled: resolvedDisabled || accessibilityState?.disabled,
-        busy: loading || accessibilityState?.busy || undefined,
-      }}
+      accessibilityState={resolvedAccessibilityState}
       disabled={resolvedDisabled}
       hapticFeedback={
-        hapticFeedback ?? (resolvedVariant === "destructive" ? "warning" : "press")
+        hapticFeedback ??
+        (resolvedVariant === "destructive" ? "warning" : "press")
       }
       onPress={onPress}
       pressedScale={0.97}
@@ -238,7 +240,9 @@ export function NemuButton({
       ]}
       testID={testID}
     >
-      {loading ? <ActivityIndicator size="small" color={foregroundColor} /> : null}
+      {loading ? (
+        <ActivityIndicator size="small" color={foregroundColor} />
+      ) : null}
       {!loading && icon === "add-outline" ? (
         <NemuWebPlusIcon size={iconSize} color={foregroundColor} />
       ) : !loading && icon ? (

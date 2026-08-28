@@ -75,6 +75,7 @@ import {
   normalizeMobileSearchRouteQuery,
   normalizeSearchSelectionForSources,
   resolveSearchSourcePressSelection,
+  selectMobileLiveSearchSources,
   shouldRenderMobileSearchSkeleton,
   shouldRunMobileSearchSubmitFeedback,
   shouldShowMobileSearchNoSourcesEmpty,
@@ -87,6 +88,8 @@ import {
 } from "@/lib/mobileSearch";
 import {
   buildMobileLiveSearchProgressGroups,
+  MOBILE_LIVE_SEARCH_SOURCE_CONCURRENCY,
+  presentMobileLiveSearchGroup,
   searchMobileSource,
   type MobileLiveSearchDisplayGroup,
   type MobileLiveSearchGroup,
@@ -297,12 +300,25 @@ function SourceFilterBar({
         {sources.map((source) => (
           <MobileSourceChip
             key={source.id}
-            accessibilityHint={strings.search.sourceSelectionHint}
-            accessibilityLabel={formatMobileString(strings.search.sourceAccessibility, {
-              name: source.name,
-            })}
+            accessibilityHint={
+              source.unsupported
+                ? strings.common.sourceUnsupportedTachiyomiDescription
+                : strings.search.sourceSelectionHint
+            }
+            accessibilityLabel={
+              source.unsupported
+                ? `${source.name}. ${strings.common.sourceUnsupported}`
+                : formatMobileString(strings.search.sourceAccessibility, {
+                    name: source.name,
+                  })
+            }
             accessibilityRole="checkbox"
-            disabled={disabled}
+            badge={
+              source.unsupported
+                ? strings.common.sourceUnsupportedBadge
+                : undefined
+            }
+            disabled={disabled || source.unsupported}
             icon={source.icon}
             label={source.name}
             onPress={() => handleSourcePress(source.id)}
@@ -633,16 +649,17 @@ export function SearchScreen() {
     [selectedSourceIds, sources]
   );
   const selectedCount = effectiveSelectedSourceIds?.length ?? sources.length;
-  const selectedSourceIdSet = useMemo(
-    () => (effectiveSelectedSourceIds ? new Set(effectiveSelectedSourceIds) : null),
-    [effectiveSelectedSourceIds],
+  const selectedLiveSources = useMemo(
+    () => selectMobileLiveSearchSources(sources, effectiveSelectedSourceIds),
+    [effectiveSelectedSourceIds, sources],
+  );
+  const selectedLiveSourceIdSet = useMemo(
+    () => new Set(selectedLiveSources.map((source) => source.id)),
+    [selectedLiveSources],
   );
   const selectedInstalledSources = useMemo(
-    () =>
-      selectedSourceIdSet
-        ? installed.data.filter((source) => selectedSourceIdSet.has(source.id))
-        : installed.data,
-    [installed.data, selectedSourceIdSet],
+    () => installed.data.filter((source) => selectedLiveSourceIdSet.has(source.id)),
+    [installed.data, selectedLiveSourceIdSet],
   );
   const showSourceFilter = sources.length > 1;
   const resultItemWidth = useMemo(
@@ -713,18 +730,24 @@ export function SearchScreen() {
     savingSelection: selectionSaving,
   });
   const liveSearchKey = useMemo(() => {
-    if (!trimmedQuery || selectedCount === 0 || installed.loading || !settingsLoaded) return null;
+    if (
+      !trimmedQuery ||
+      selectedInstalledSources.length === 0 ||
+      installed.loading ||
+      !settingsLoaded
+    ) {
+      return null;
+    }
     const selectionKey = effectiveSelectedSourceIds?.join(",") ?? "*";
-    const sourceKey = installed.data
+    const sourceKey = selectedInstalledSources
       .map((source) => `${source.id}:${source.updatedAt ?? 0}:${source.packageCacheKey ?? ""}`)
       .join("|");
     return `${sourceProfileScope}:${trimmedQuery}:${selectionKey}:${sourceKey}:${searchRefreshNonce}`;
   }, [
     effectiveSelectedSourceIds,
-    installed.data,
     installed.loading,
     searchRefreshNonce,
-    selectedCount,
+    selectedInstalledSources,
     settingsLoaded,
     sourceProfileScope,
     trimmedQuery,
@@ -732,10 +755,12 @@ export function SearchScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     if (!liveSearchKey) {
       setLiveSearchResult(null);
       return () => {
         cancelled = true;
+        controller.abort();
       };
     }
 
@@ -744,6 +769,7 @@ export function SearchScreen() {
       setLiveSearchResult(cachedResult);
       return () => {
         cancelled = true;
+        controller.abort();
       };
     }
 
@@ -757,7 +783,7 @@ export function SearchScreen() {
           groups: buildMobileLiveSearchProgressGroups(
             selectedInstalledSources,
             Array.from(completedGroups.values()),
-            compareTitles
+            compareTitles,
           ),
         },
       };
@@ -766,42 +792,75 @@ export function SearchScreen() {
         writeLiveSearchCache(result);
       }
     };
-    const getSourceSettings = async (_sourceKey: string, source: InstalledSource) => {
+    const getSourceSettings = async (
+      _sourceKey: string,
+      source: InstalledSource,
+    ) => {
       const normalized = normalizeInstalledSource(source);
       const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
       const saved = await loadMobileSourceSettingsByKeys(store, [
         runtimeSourceKey,
         ...getMobileInstalledSourceSettingsKeys(source),
       ]);
-      return mergeSourceSettingValues(source.packageMetadata?.settings ?? [], saved?.values);
+      return mergeSourceSettingValues(
+        source.packageMetadata?.settings ?? [],
+        saved?.values,
+      );
     };
 
     publishProgress();
 
     void (async () => {
-      for (const source of selectedInstalledSources) {
-        if (cancelled) break;
-        const group = await searchMobileSource(source, trimmedQuery, {
-          getSourceSettings,
-        }).catch((nextError): MobileLiveSearchGroup => {
-          const presentation = getMobileSourceErrorPresentation(nextError, strings);
-          cloudflareSheetRef.current?.reportError(nextError);
-          return {
-            status: "blocked",
-            source: toSearchSourceDisplay(source),
-            reason: "search-failed",
-            title: presentation.title,
-            detail: presentation.detail,
-          };
-        });
-        if (cancelled) break;
-        completedGroups.set(source.id, group);
-        publishProgress();
-      }
+      let nextSourceIndex = 0;
+      const searchNextSource = async () => {
+        while (!cancelled) {
+          const source = selectedInstalledSources[nextSourceIndex];
+          nextSourceIndex += 1;
+          if (!source) return;
+          const group = await searchMobileSource(source, trimmedQuery, {
+            getSourceSettings,
+            signal: controller.signal,
+          }).catch((nextError): MobileLiveSearchGroup => {
+            const presentation = getMobileSourceErrorPresentation(
+              nextError,
+              strings,
+            );
+            // A prior query may reject after its effect has been replaced.
+            // Never let that stale failure open an auth/bypass sheet over the
+            // current query (or after this screen has unmounted).
+            if (!cancelled && !controller.signal.aborted) {
+              cloudflareSheetRef.current?.reportError(nextError);
+            }
+            return {
+              status: "blocked",
+              source: toSearchSourceDisplay(source),
+              reason: "search-failed",
+              title: presentation.title,
+              detail: presentation.detail,
+            };
+          });
+          if (cancelled) break;
+          const displayGroup = presentMobileLiveSearchGroup(group, strings);
+          completedGroups.set(source.id, displayGroup);
+          publishProgress();
+        }
+      };
+      await Promise.all(
+        Array.from(
+          {
+            length: Math.min(
+              MOBILE_LIVE_SEARCH_SOURCE_CONCURRENCY,
+              selectedInstalledSources.length,
+            ),
+          },
+          () => searchNextSource(),
+        ),
+      );
     })();
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     liveSearchKey,
@@ -855,11 +914,10 @@ export function SearchScreen() {
 
   const saveSelection = useCallback(
     async (selection: SearchSourceSelection) => {
-      const settings = await store.getSettings();
-      await store.saveSettings({
+      await store.updateSettings((settings) => ({
         ...settings,
         searchSelectedSourceIds: selection ?? undefined,
-      });
+      }));
       emitMobileDataChanged("settings");
     },
     [store]
@@ -943,6 +1001,7 @@ export function SearchScreen() {
           registryId: source.registryId,
           sourceId: source.rawSourceId,
           mangaId: manga.id,
+          mangaTitle: manga.title,
         }),
       );
     },

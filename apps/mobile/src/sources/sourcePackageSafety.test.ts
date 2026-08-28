@@ -7,6 +7,7 @@ import {
   assertAixCompressedByteLength,
   assertBase64DecodedByteLimit,
   assertSourcePackageCompressedByteLength,
+  assertSecureSourcePackageDownloadUrl,
   assertTachiyomiRawRuntimeByteLength,
   isCachedSourcePackageFileInfoValid,
   sourcePackageCompressedByteLimit,
@@ -62,10 +63,12 @@ describe("source package safety limits", () => {
   });
 
   test("rejects oversized base64 before decoded byte allocation", () => {
-    expect(() => assertBase64DecodedByteLimit("AAAA", 3, "response")).not.toThrow();
-    expect(() => assertBase64DecodedByteLimit("AAAAAA==", 3, "response")).toThrow(
-      /response exceeds the 3 byte safety limit/,
-    );
+    expect(() =>
+      assertBase64DecodedByteLimit("AAAA", 3, "response"),
+    ).not.toThrow();
+    expect(() =>
+      assertBase64DecodedByteLimit("AAAAAA==", 3, "response"),
+    ).toThrow(/response exceeds the 3 byte safety limit/);
   });
 
   test("validates cached packages from metadata without accepting empty or oversized files", () => {
@@ -92,5 +95,23 @@ describe("source package safety limits", () => {
         exists: false,
       }),
     ).toBe(false);
+  });
+
+  test("accepts only credential-free HTTPS executable package URLs", () => {
+    expect(
+      assertSecureSourcePackageDownloadUrl(
+        "https://packages.example.test/source.aix",
+      ),
+    ).toBe("https://packages.example.test/source.aix");
+    for (const value of [
+      "http://packages.example.test/source.aix",
+      "https://user:secret@packages.example.test/source.aix",
+      "file:///tmp/source.aix",
+      "not a url",
+    ]) {
+      expect(() => assertSecureSourcePackageDownloadUrl(value)).toThrow(
+        "require a valid HTTPS URL",
+      );
+    }
   });
 });

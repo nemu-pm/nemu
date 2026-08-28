@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   canRunNemuPressableHaptic,
+  resolveNemuButtonAccessibility,
   resolveNemuPressableAccessibility,
 } from "./nemuPressable";
 
@@ -77,5 +78,42 @@ describe("NemuPressable helpers", () => {
     expect(canRunNemuPressableHaptic("confirm", true)).toBe(false);
     expect(canRunNemuPressableHaptic("warning", true)).toBe(false);
     expect(canRunNemuPressableHaptic("error", true)).toBe(false);
+  });
+
+  test("explicitly clears a completed button's native busy state", () => {
+    expect(
+      resolveNemuButtonAccessibility({
+        accessibilityState: { selected: true },
+        loading: false,
+      }),
+    ).toEqual({
+      accessibilityState: {
+        selected: true,
+        disabled: false,
+        busy: false,
+      },
+      disabled: false,
+    });
+  });
+
+  test("keeps loading and caller-disabled button states coherent", () => {
+    expect(
+      resolveNemuButtonAccessibility({
+        accessibilityState: { busy: false },
+        loading: true,
+      }),
+    ).toEqual({
+      accessibilityState: { busy: true, disabled: true },
+      disabled: true,
+    });
+    expect(
+      resolveNemuButtonAccessibility({
+        accessibilityState: { disabled: true },
+        loading: false,
+      }),
+    ).toEqual({
+      accessibilityState: { disabled: true, busy: false },
+      disabled: true,
+    });
   });
 });

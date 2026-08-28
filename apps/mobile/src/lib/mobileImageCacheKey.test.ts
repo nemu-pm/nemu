@@ -4,15 +4,15 @@ import { makeMobileImageCacheStorageKey } from "./mobileImageCacheKey";
 describe("mobile image cache account key", () => {
   test("is stable for reordered headers within one profile", () => {
     expect(
-      makeMobileImageCacheStorageKey(
-        "profile:a",
-        { uri: "https://private.example/cover", headers: { B: "2", A: "1" } },
-      ),
+      makeMobileImageCacheStorageKey("profile:a", {
+        uri: "https://private.example/cover",
+        headers: { B: "2", A: "1" },
+      }),
     ).toBe(
-      makeMobileImageCacheStorageKey(
-        "profile:a",
-        { uri: "https://private.example/cover", headers: { A: "1", B: "2" } },
-      ),
+      makeMobileImageCacheStorageKey("profile:a", {
+        uri: "https://private.example/cover",
+        headers: { A: "1", B: "2" },
+      }),
     );
   });
 
@@ -57,5 +57,19 @@ describe("mobile image cache account key", () => {
     expect(first).not.toBe(second);
     expect(first).toMatch(/^mobile-image:profile:a:[a-f0-9]{64}$/);
     expect(second).toMatch(/^mobile-image:profile:b:[a-f0-9]{64}$/);
+  });
+
+  test("keeps source URI identity when a repeated page-id discriminator is present", () => {
+    const first = makeMobileImageCacheStorageKey(
+      "profile:a",
+      { uri: "https://private.example/chapter-a/page-0.jpg" },
+      "page-0:reader-segments-v1",
+    );
+    const second = makeMobileImageCacheStorageKey(
+      "profile:a",
+      { uri: "https://private.example/chapter-b/page-0.jpg" },
+      "page-0:reader-segments-v1",
+    );
+    expect(first).not.toBe(second);
   });
 });

@@ -1,5 +1,6 @@
 import Foundation
 import ImageIO
+import Security
 import WebKit
 
 // WKWebView's public API has no zero-copy native-to-Worker ArrayBuffer path.
@@ -75,32 +76,44 @@ private final class NemuAidokuIOSandboxValueBox<Value>: @unchecked Sendable {
 }
 
 private final class NemuAidokuIOSandboxSettingsStore {
-  private let defaultsKey = "nemu_aidoku_runtime_settings_v1"
-  private let maxSourceCharacters = 64 * 1024
-  private let maxTotalCharacters = 512 * 1024
+  private let legacyDefaultsKey = "nemu_aidoku_runtime_settings_v1"
+  private let keychainService = "pm.nemu.mobile.aidoku.runtime-settings.v2"
+  private let maxSourceBytes = 64 * 1024
+  private let maxTotalBytes = 512 * 1024
   private let maxSources = 128
-  private let defaults = UserDefaults.standard
 
-  func load(sourceKey: String) -> String {
-    guard
-      let stored = defaults.dictionary(forKey: defaultsKey) as? [String: String],
-      let value = stored[sourceKey],
-      value.count <= maxSourceCharacters,
-      (try? Self.object(from: value)) != nil
-    else {
-      return "{}"
+  func load(sourceKey: String) throws -> String {
+    try Self.validateSourceKey(sourceKey)
+    if let value = try keychainValue(sourceKey: sourceKey) {
+      guard value.utf8.count <= maxSourceBytes else {
+        throw Self.error("Secure Aidoku settings exceed the safety limit.")
+      }
+      _ = try Self.object(from: value)
+      // A crash can happen after the Keychain write but before UserDefaults
+      // flushes its deletion. Repeat the scrub on every secure read so a
+      // successful partial migration cannot leave plaintext indefinitely.
+      removeLegacy(keys: [sourceKey])
+      return value
     }
-    return value
+
+    // One-time migration from the original UserDefaults implementation. Never
+    // delete the plaintext copy until Keychain confirms the replacement.
+    guard let legacy = legacyEntries()[sourceKey] else { return "{}" }
+    guard legacy.utf8.count <= maxSourceBytes else {
+      throw Self.error("Legacy Aidoku settings exceed the safety limit.")
+    }
+    _ = try Self.object(from: legacy)
+    try setKeychainValue(legacy, sourceKey: sourceKey)
+    removeLegacy(keys: [sourceKey])
+    return legacy
   }
 
   func commitPatch(sourceKey: String, patch: [String: Any]) throws -> String {
-    guard !sourceKey.isEmpty, sourceKey.count <= 512 else {
-      throw Self.error("Invalid Aidoku settings source key.")
-    }
+    try Self.validateSourceKey(sourceKey)
     guard patch.count <= 128 else {
       throw Self.error("Aidoku settings patch exceeds the key limit.")
     }
-    var current = (try? Self.object(from: load(sourceKey: sourceKey))) ?? [:]
+    var current = try Self.object(from: load(sourceKey: sourceKey))
     for (key, value) in patch {
       guard !key.isEmpty, key.count <= 256 else {
         throw Self.error("Aidoku persisted setting key is invalid.")
@@ -111,19 +124,20 @@ private final class NemuAidokuIOSandboxSettingsStore {
       throw Self.error("Aidoku persisted settings exceed the key limit.")
     }
     let serialized = try Self.jsonString(current)
-    guard serialized.count <= maxSourceCharacters else {
+    guard serialized.utf8.count <= maxSourceBytes else {
       throw Self.error("Aidoku persisted settings exceed the safety limit.")
     }
 
-    var stored = defaults.dictionary(forKey: defaultsKey) as? [String: String] ?? [:]
+    var stored = try keychainEntries()
     if stored[sourceKey] == nil && stored.count >= maxSources {
       throw Self.error("Too many Aidoku sources have persisted runtime settings.")
     }
     stored[sourceKey] = serialized
-    guard stored.values.reduce(0, { $0 + $1.count }) <= maxTotalCharacters else {
+    guard stored.values.reduce(0, { $0 + $1.utf8.count }) <= maxTotalBytes else {
       throw Self.error("Aidoku persisted settings exceed the aggregate safety limit.")
     }
-    defaults.set(stored, forKey: defaultsKey)
+    try setKeychainValue(serialized, sourceKey: sourceKey)
+    removeLegacy(keys: [sourceKey])
     return serialized
   }
 
@@ -131,17 +145,148 @@ private final class NemuAidokuIOSandboxSettingsStore {
     guard !key.isEmpty, key.count <= 512 else {
       throw Self.error("Invalid Aidoku settings key.")
     }
-    var stored = defaults.dictionary(forKey: defaultsKey) as? [String: String] ?? [:]
-    let matchingKeys = stored.keys.filter { matchPrefix ? $0.hasPrefix(key) : $0 == key }
-    for key in matchingKeys {
-      stored.removeValue(forKey: key)
+    let secureKeys = try keychainEntries().keys.filter {
+      matchPrefix ? $0.hasPrefix(key) : $0 == key
     }
-    if stored.isEmpty {
-      defaults.removeObject(forKey: defaultsKey)
+    let legacyKeys = legacyEntries().keys.filter {
+      matchPrefix ? $0.hasPrefix(key) : $0 == key
+    }
+    for sourceKey in secureKeys {
+      try removeKeychainValue(sourceKey: sourceKey)
+    }
+    removeLegacy(keys: legacyKeys)
+    return Set(secureKeys).union(legacyKeys).count
+  }
+
+  private func keychainValue(sourceKey: String) throws -> String? {
+    var query = keychainQuery(sourceKey: sourceKey)
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
+    var result: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    if status == errSecItemNotFound { return nil }
+    guard status == errSecSuccess, let data = result as? Data,
+      let value = String(data: data, encoding: .utf8)
+    else {
+      throw Self.keychainError("read", status: status)
+    }
+    return value
+  }
+
+  private func keychainEntries() throws -> [String: String] {
+    var query = keychainQuery(sourceKey: nil)
+    query[kSecReturnAttributes as String] = true
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitAll
+    var result: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    if status == errSecItemNotFound { return [:] }
+    guard status == errSecSuccess else {
+      throw Self.keychainError("enumerate", status: status)
+    }
+    let items: [[String: Any]]
+    if let many = result as? [[String: Any]] {
+      items = many
+    } else if let one = result as? [String: Any] {
+      items = [one]
     } else {
-      defaults.set(stored, forKey: defaultsKey)
+      throw Self.error("Secure Aidoku settings returned an invalid result.")
     }
-    return matchingKeys.count
+    var entries: [String: String] = [:]
+    for item in items {
+      guard
+        let sourceKey = item[kSecAttrAccount as String] as? String,
+        let data = item[kSecValueData as String] as? Data,
+        let value = String(data: data, encoding: .utf8),
+        entries[sourceKey] == nil
+      else {
+        throw Self.error("Secure Aidoku settings returned an invalid entry.")
+      }
+      entries[sourceKey] = value
+    }
+    return entries
+  }
+
+  private func setKeychainValue(_ value: String, sourceKey: String) throws {
+    guard let data = value.data(using: .utf8) else {
+      throw Self.error("Aidoku settings are not UTF-8.")
+    }
+    let query = keychainQuery(sourceKey: sourceKey)
+    let updated = SecItemUpdate(
+      query as CFDictionary,
+      [kSecValueData as String: data] as CFDictionary
+    )
+    if updated == errSecSuccess { return }
+    guard updated == errSecItemNotFound else {
+      throw Self.keychainError("update", status: updated)
+    }
+    var attributes = query
+    attributes[kSecValueData as String] = data
+    attributes[kSecAttrAccessible as String] =
+      kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+    let added = SecItemAdd(attributes as CFDictionary, nil)
+    guard added == errSecSuccess else {
+      throw Self.keychainError("write", status: added)
+    }
+  }
+
+  private func removeKeychainValue(sourceKey: String) throws {
+    let status = SecItemDelete(keychainQuery(sourceKey: sourceKey) as CFDictionary)
+    guard status == errSecSuccess || status == errSecItemNotFound else {
+      throw Self.keychainError("delete", status: status)
+    }
+  }
+
+  private func keychainQuery(sourceKey: String?) -> [String: Any] {
+    var query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: keychainService,
+      kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+    ]
+    if let sourceKey { query[kSecAttrAccount as String] = sourceKey }
+    return query
+  }
+
+  private func legacyEntries() -> [String: String] {
+    guard let raw = UserDefaults.standard.dictionary(forKey: legacyDefaultsKey) else {
+      return [:]
+    }
+    var entries: [String: String] = [:]
+    var removedMalformedValue = false
+    for (key, value) in raw {
+      guard let string = value as? String else {
+        removedMalformedValue = true
+        continue
+      }
+      entries[key] = string
+    }
+    // Casting the entire dictionary to `[String: String]` made one malformed
+    // value hide every valid legacy credential from migration. Scrub corrupt
+    // values immediately and retain only entries that can still be migrated.
+    if removedMalformedValue {
+      if entries.isEmpty {
+        UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+      } else {
+        UserDefaults.standard.set(entries, forKey: legacyDefaultsKey)
+      }
+    }
+    return entries
+  }
+
+  private func removeLegacy<S: Sequence>(keys: S) where S.Element == String {
+    var stored = legacyEntries()
+    for key in keys { stored.removeValue(forKey: key) }
+    if stored.isEmpty {
+      UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+    } else {
+      UserDefaults.standard.set(stored, forKey: legacyDefaultsKey)
+    }
+  }
+
+  private static func validateSourceKey(_ sourceKey: String) throws {
+    guard !sourceKey.isEmpty, sourceKey.count <= 512 else {
+      throw error("Invalid Aidoku settings source key.")
+    }
   }
 
   private static func object(from json: String) throws -> [String: Any] {
@@ -164,6 +309,11 @@ private final class NemuAidokuIOSandboxSettingsStore {
 
   private static func error(_ detail: String) -> NSError {
     NSError(domain: "NemuAidokuIOSandbox", code: 1, userInfo: [NSLocalizedDescriptionKey: detail])
+  }
+
+  private static func keychainError(_ operation: String, status: OSStatus) -> NSError {
+    let detail = SecCopyErrorMessageString(status, nil) as String? ?? "OSStatus \(status)"
+    return error("Failed to \(operation) secure Aidoku settings: \(detail)")
   }
 }
 
@@ -510,7 +660,7 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
 
     let package = try Self.readPackageBytes(session.packageUri)
     let dataName = "aix-\(UUID().uuidString)"
-    let persisted = settingsStore.load(sourceKey: session.sourceKey)
+    let persisted = try settingsStore.load(sourceKey: session.sourceKey)
     let reply = try invoke(
       method: "registerSession",
       args: [

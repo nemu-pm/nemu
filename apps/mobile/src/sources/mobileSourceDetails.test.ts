@@ -8,6 +8,7 @@ import {
   refreshMobileSourceDetails,
   refreshMobileSourceLatestChapter,
   refreshMobileSourceMetadata,
+  resolveMobileSourceMangaMetadataTitle,
   sortChapterSummaries,
 } from "./mobileSourceDetails";
 import type {
@@ -26,13 +27,15 @@ function makeAixPackage(): Uint8Array {
           version: 2,
           languages: ["en"],
         },
-      })
+      }),
     ),
     "Payload/main.wasm": new Uint8Array([0, 97, 115, 109]),
   });
 }
 
-function installedSource(overrides: Partial<InstalledSource> = {}): InstalledSource {
+function installedSource(
+  overrides: Partial<InstalledSource> = {},
+): InstalledSource {
   return {
     id: "aidoku-community:en.example",
     registryId: "aidoku-community",
@@ -54,7 +57,9 @@ function installedSource(overrides: Partial<InstalledSource> = {}): InstalledSou
   };
 }
 
-function makeExecutorSource(onDispose?: () => void): MobileAidokuExecutorSource {
+function makeExecutorSource(
+  onDispose?: () => void,
+): MobileAidokuExecutorSource {
   return {
     id: "en.example",
     async getSearchMangaList() {
@@ -140,12 +145,55 @@ describe("mobile source details refresh", () => {
           authors: ["A"],
           artists: ["B", "A"],
         },
-        "fallback"
-      )
+        "fallback",
+      ),
     ).toEqual({
       title: "Blue Lock",
       authors: ["A", "B"],
     });
+  });
+
+  test("uses a known listing title only for path-like runtime presentation", () => {
+    expect(
+      resolveMobileSourceMangaMetadataTitle(
+        "/manga/後宮真贋判定人-raw/",
+        "/manga/koukyuu-raw/",
+        "後宮真贋判定人",
+      ),
+    ).toBe("後宮真贋判定人");
+    expect(
+      resolveMobileSourceMangaMetadataTitle(
+        "https://example.test/manga/example",
+        "example",
+        "Friendly listing title",
+      ),
+    ).toBe("Friendly listing title");
+    expect(
+      resolveMobileSourceMangaMetadataTitle(
+        "Author / Title",
+        "example",
+        "Listing title",
+      ),
+    ).toBe("Author / Title");
+    expect(
+      resolveMobileSourceMangaMetadataTitle(
+        "/manga/runtime-title/",
+        "example",
+        "/Blush-DC.: Himitsu",
+      ),
+    ).toBe("/Blush-DC.: Himitsu");
+
+    // The untrusted route/listing hint is deliberately absent from runtime
+    // normalization, so background refreshes cannot persist it.
+    expect(
+      mapAidokuMangaToMetadata(
+        {
+          key: "example",
+          title: "/manga/runtime-title/",
+        },
+        "example",
+      ).title,
+    ).toBe("example");
   });
 
   test("sorts chapter summaries by latest chapter number first", () => {
@@ -154,7 +202,7 @@ describe("mobile source details refresh", () => {
         { id: "c1", chapterNumber: 1 },
         { id: "c10", chapterNumber: 10 },
         { id: "c2", chapterNumber: 2 },
-      ]).map((chapter) => chapter.id)
+      ]).map((chapter) => chapter.id),
     ).toEqual(["c10", "c2", "c1"]);
   });
 
@@ -165,7 +213,7 @@ describe("mobile source details refresh", () => {
         title: "Start",
         chapterNumber: 1,
         lang: "ja",
-      })
+      }),
     ).toEqual({
       id: "c1",
       title: "Start",
@@ -196,7 +244,7 @@ describe("mobile source details refresh", () => {
         },
         sessionCache: createMobileSourceSessionCache(),
         now: () => 1234,
-      })
+      }),
     ).resolves.toMatchObject({
       status: "ready",
       runtime: "native-aidoku",
@@ -249,7 +297,7 @@ describe("mobile source details refresh", () => {
         },
         sessionCache: createMobileSourceSessionCache(),
         now: () => 2468,
-      })
+      }),
     ).resolves.toEqual({
       status: "ready",
       runtime: "native-aidoku",
@@ -273,7 +321,7 @@ describe("mobile source details refresh", () => {
           readBytes: async () => makeAixPackage(),
         },
         sessionCache: createMobileSourceSessionCache(),
-      })
+      }),
     ).resolves.toMatchObject({
       status: "blocked",
       reason: "native-bridge-missing",
@@ -310,7 +358,7 @@ describe("mobile source details refresh", () => {
         },
         sessionCache: createMobileSourceSessionCache(),
         now: () => 5678,
-      })
+      }),
     ).resolves.toEqual({
       status: "ready",
       runtime: "native-aidoku",
@@ -351,7 +399,7 @@ describe("mobile source details refresh", () => {
         },
         sessionCache: createMobileSourceSessionCache(),
         now: () => 4321,
-      })
+      }),
     ).resolves.toEqual({
       status: "ready",
       runtime: "native-aidoku",

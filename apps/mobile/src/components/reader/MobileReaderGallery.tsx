@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -36,6 +37,15 @@ import type { ReaderScrollPageMetric } from "@/lib/mobileReaderProgress";
 import { readerDisplayIndexForViewableItems } from "@/lib/mobileReaderProgress";
 import { isReaderAdvancePastEndDrag } from "./readerEdgeDrag";
 import { readerTapZoneForPosition } from "./readerTapZones";
+import {
+  getMobileReaderLogicalOffsetForProgress,
+  getMobileReaderLogicalAccessibilityPercent,
+  getMobileReaderLogicalScrollProgress,
+  getMobileReaderMeasuredScrollMetrics,
+  isMobileReaderLogicalEndReached,
+  mobileReaderSegmentedNextAction,
+  type MobileReaderSegmentFrame,
+} from "@/lib/mobileReaderSegmentedImage";
 
 type MobileReaderGalleryState = {
   status: string;
@@ -45,6 +55,7 @@ type MobileReaderGalleryState = {
 
 type MobileReaderGalleryProps = {
   accessibilityLabel: string;
+  accessibilityHidden?: boolean;
   backgroundColor: string;
   bottomPadding: number;
   chapter: ChapterSummary;
@@ -55,6 +66,9 @@ type MobileReaderGalleryProps = {
   scrollMountKey: string;
   isTwoPageMode: boolean;
   loading: boolean;
+  longStripPresentationMode?: boolean;
+  longStripContentIdentity?: string;
+  initialLongStripScrollProgress?: number;
   mode: ReadingMode;
   onMomentumScrollEnd: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
@@ -69,16 +83,28 @@ type MobileReaderGalleryProps = {
   onPageStep?: (direction: "previous" | "next") => void;
   /** The reader tried to move past the final page of the chapter. */
   onRequestAdvancePastEnd?: () => void;
+  onSegmentedLogicalEndReached?: () => void;
+  onLongStripScrollProgressChange?: (
+    contentIdentity: string,
+    progress: number,
+  ) => void;
   /** Escape hatch for a source that refuses to serve pages. */
   onOpenSourceSettings?: () => void;
   onToggleControls: () => void;
   pagedMode: boolean;
+  /**
+   * Keeps page-turn screen-reader actions when a paged chapter uses a
+   * vertically scrollable presentation for one extreme long strip.
+   */
+  pageTurnAccessibilityEnabled?: boolean;
   pages: MobileReaderPage[];
   pagesState: MobileReaderGalleryState;
   readerImageWidth: number;
   readerPageWidth: number;
   readerScrollRef: RefObject<MobileReaderScrollHandle | null>;
   renderImage: (page: MobileReaderPage) => ReactNode;
+  renderImageSegment?: (frame: MobileReaderSegmentFrame) => ReactNode;
+  segmentedImageFrames?: ReadonlyArray<MobileReaderSegmentFrame>;
   sourcePageForDisplayIndex: (displayIndex: number) => number;
   spreads: number[][];
   stateTopPadding: number;
@@ -98,7 +124,8 @@ export type MobileReaderScrollHandle = {
 
 type MobileReaderGalleryItem =
   | { kind: "spread"; spread: number[] }
-  | { kind: "page"; page: MobileReaderPage; index: number };
+  | { kind: "page"; page: MobileReaderPage; index: number }
+  | { kind: "segment"; frame: MobileReaderSegmentFrame };
 
 const READER_TAP_MAX_DISTANCE = 10;
 const READER_TAP_MAX_DURATION_MS = 360;
@@ -113,6 +140,7 @@ const READER_VIEWABILITY_CONFIG = Object.freeze({
 
 export function MobileReaderGallery({
   accessibilityLabel,
+  accessibilityHidden = false,
   backgroundColor,
   bottomPadding,
   chapter,
@@ -123,6 +151,9 @@ export function MobileReaderGallery({
   scrollMountKey,
   isTwoPageMode,
   loading,
+  longStripPresentationMode = false,
+  longStripContentIdentity,
+  initialLongStripScrollProgress,
   mode,
   onMomentumScrollEnd,
   onScroll,
@@ -132,15 +163,20 @@ export function MobileReaderGallery({
   onRetry,
   onPageStep,
   onRequestAdvancePastEnd,
+  onSegmentedLogicalEndReached,
+  onLongStripScrollProgressChange,
   onOpenSourceSettings,
   onToggleControls,
   pagedMode,
+  pageTurnAccessibilityEnabled,
   pages,
   pagesState,
   readerImageWidth,
   readerPageWidth,
   readerScrollRef,
   renderImage,
+  renderImageSegment,
+  segmentedImageFrames,
   sourcePageForDisplayIndex,
   spreads,
   stateTopPadding,
@@ -149,7 +185,20 @@ export function MobileReaderGallery({
   windowHeight,
 }: MobileReaderGalleryProps) {
   const { tokens } = useNemuTheme();
-  const galleryItemCount = isTwoPageMode ? spreads.length : displayedPages.length;
+  const segmentedMode = Boolean(segmentedImageFrames?.length);
+  const logicalLongStripMode = longStripPresentationMode || segmentedMode;
+  const [logicalScrollAccessibility, setLogicalScrollAccessibility] = useState(
+    () => ({ scrollMountKey, percent: 0 }),
+  );
+  const logicalScrollPercent =
+    logicalScrollAccessibility.scrollMountKey === scrollMountKey
+      ? logicalScrollAccessibility.percent
+      : 0;
+  const galleryItemCount = segmentedMode
+    ? segmentedImageFrames!.length
+    : isTwoPageMode
+      ? spreads.length
+      : displayedPages.length;
   const touchStartRef = useRef<{
     x: number;
     y: number;
@@ -160,12 +209,17 @@ export function MobileReaderGallery({
   );
   const lastTapEndAtRef = useRef(0);
   const dragStartOffsetRef = useRef<number | null>(null);
+  const latestScrollMetricsRef = useRef({
+    contentOffset: 0,
+    contentLength: 0,
+    viewportLength: 0,
+  });
+  const priorLongStripContentIdentityRef = useRef<string | null>(null);
+  const pendingLogicalScrollProgressRef = useRef<number | null>(null);
   const onToggleControlsRef = useRef(onToggleControls);
   const onPageStepRef = useRef(onPageStep);
   const onRequestAdvancePastEndRef = useRef(onRequestAdvancePastEnd);
-  const onScrollingVisiblePageChangeRef = useRef(
-    onScrollingVisiblePageChange,
-  );
+  const onScrollingVisiblePageChangeRef = useRef(onScrollingVisiblePageChange);
   const displayedPageCountRef = useRef(displayedPages.length);
   const appliedScrollMountKeyRef = useRef<string | null>(null);
   const listRef = useRef<FlatList<MobileReaderGalleryItem> | null>(null);
@@ -178,11 +232,17 @@ export function MobileReaderGallery({
     attempts: number;
   } | null>(null);
   const onViewableItemsChanged = useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken<MobileReaderGalleryItem>[] }) => {
+    ({
+      viewableItems,
+    }: {
+      viewableItems: ViewToken<MobileReaderGalleryItem>[];
+    }) => {
       const nextPageIndex = readerDisplayIndexForViewableItems(
         viewableItems.flatMap((token) => {
-          if (!token.isViewable || token.item.kind !== "page") return [];
-          return [token.item.index];
+          if (!token.isViewable) return [];
+          if (token.item.kind === "segment") return [0];
+          if (token.item.kind === "page") return [token.item.index];
+          return [];
         }),
         displayedPageCountRef.current,
       );
@@ -298,12 +358,44 @@ export function MobileReaderGallery({
 
   useLayoutEffect(() => {
     if (appliedScrollMountKeyRef.current === scrollMountKey) return;
+    const priorProgress = getMobileReaderLogicalScrollProgress(
+      latestScrollMetricsRef.current,
+    );
+    const persistedProgress =
+      Number.isFinite(initialLongStripScrollProgress) &&
+      initialLongStripScrollProgress != null &&
+      initialLongStripScrollProgress >= 0 &&
+      initialLongStripScrollProgress <= 1
+        ? initialLongStripScrollProgress
+        : null;
+    pendingLogicalScrollProgressRef.current =
+      logicalLongStripMode &&
+      Boolean(longStripContentIdentity) &&
+      priorLongStripContentIdentityRef.current === longStripContentIdentity
+        ? (priorProgress ?? persistedProgress)
+        : logicalLongStripMode && Boolean(longStripContentIdentity)
+          ? persistedProgress
+          : null;
+    priorLongStripContentIdentityRef.current = longStripContentIdentity ?? null;
     appliedScrollMountKeyRef.current = scrollMountKey;
+    latestScrollMetricsRef.current = {
+      contentOffset: 0,
+      contentLength: 0,
+      viewportLength: 0,
+    };
+    dragStartOffsetRef.current = null;
     listRef.current?.scrollToOffset({
       offset: pagedMode ? initialContentOffset.x : initialContentOffset.y,
       animated: false,
     });
-  }, [initialContentOffset, pagedMode, scrollMountKey]);
+  }, [
+    initialContentOffset,
+    initialLongStripScrollProgress,
+    logicalLongStripMode,
+    longStripContentIdentity,
+    pagedMode,
+    scrollMountKey,
+  ]);
   const readerStatePadding = {
     paddingTop: stateTopPadding,
     paddingBottom: bottomPadding,
@@ -325,14 +417,25 @@ export function MobileReaderGallery({
   );
   const galleryItems = useMemo<MobileReaderGalleryItem[]>(
     () =>
-      isTwoPageMode
-        ? pagedSpreads.map((spread) => ({ kind: "spread", spread }))
-        : pagedSinglePages.map(({ page, index }) => ({
-            kind: "page",
-            page,
-            index,
-          })),
-    [isTwoPageMode, pagedSinglePages, pagedSpreads],
+      segmentedMode
+        ? (segmentedImageFrames ?? []).map((frame) => ({
+            kind: "segment" as const,
+            frame,
+          }))
+        : isTwoPageMode
+          ? pagedSpreads.map((spread) => ({ kind: "spread", spread }))
+          : pagedSinglePages.map(({ page, index }) => ({
+              kind: "page",
+              page,
+              index,
+            })),
+    [
+      isTwoPageMode,
+      pagedSinglePages,
+      pagedSpreads,
+      segmentedImageFrames,
+      segmentedMode,
+    ],
   );
   const handleStageTouchStart = (event: GestureResponderEvent) => {
     const touch = event.nativeEvent;
@@ -353,6 +456,36 @@ export function MobileReaderGallery({
     pages.length > 0 &&
     pagedMode &&
     Boolean(onPageStep);
+  const readerAccessibilityPageTurnEnabled =
+    !isReaderLoading &&
+    pagesState.status === "ready" &&
+    pages.length > 0 &&
+    ((pageTurnAccessibilityEnabled ?? pagedMode) || logicalLongStripMode) &&
+    Boolean(onPageStep);
+  const recordLogicalScrollMetrics = useCallback(
+    (
+      metrics: {
+        contentOffset: number;
+        contentLength: number;
+        viewportLength: number;
+      },
+      notifyPersistence: boolean,
+    ) => {
+      latestScrollMetricsRef.current = metrics;
+      const percent = getMobileReaderLogicalAccessibilityPercent(metrics);
+      setLogicalScrollAccessibility((current) =>
+        current.scrollMountKey === scrollMountKey && current.percent === percent
+          ? current
+          : { scrollMountKey, percent },
+      );
+      if (!notifyPersistence || !longStripContentIdentity) return;
+      const progress = getMobileReaderLogicalScrollProgress(metrics);
+      if (progress != null) {
+        onLongStripScrollProgressChange?.(longStripContentIdentity, progress);
+      }
+    },
+    [longStripContentIdentity, onLongStripScrollProgressChange, scrollMountKey],
+  );
   const handleStageTouchEnd = (event: GestureResponderEvent) => {
     const start = touchStartRef.current;
     touchStartRef.current = null;
@@ -404,6 +537,67 @@ export function MobileReaderGallery({
     const { contentOffset } = event.nativeEvent;
     dragStartOffsetRef.current = pagedMode ? contentOffset.x : contentOffset.y;
   };
+  const handleGalleryScroll = (
+    event: NativeSyntheticEvent<NativeScrollEvent>,
+  ) => {
+    if (logicalLongStripMode) {
+      const { contentOffset, contentSize, layoutMeasurement } =
+        event.nativeEvent;
+      const metrics = {
+        contentOffset: contentOffset.y,
+        // Keep the toolbar-safe trailing inset visible without treating its
+        // blank area as unread image content.
+        contentLength: Math.max(0, contentSize.height - bottomPadding),
+        viewportLength: layoutMeasurement.height,
+      };
+      recordLogicalScrollMetrics(metrics, true);
+      if (isMobileReaderLogicalEndReached(metrics)) {
+        onSegmentedLogicalEndReached?.();
+      }
+    }
+    onScroll(event);
+  };
+  const handleGalleryContentSizeChange = (_width: number, height: number) => {
+    if (!logicalLongStripMode) return;
+    const measuredMetrics = getMobileReaderMeasuredScrollMetrics({
+      contentOffset: latestScrollMetricsRef.current.contentOffset,
+      contentLength: height - bottomPadding,
+      viewportLength:
+        latestScrollMetricsRef.current.viewportLength > 0
+          ? latestScrollMetricsRef.current.viewportLength
+          : windowHeight,
+    });
+    recordLogicalScrollMetrics(measuredMetrics, false);
+    const progress = pendingLogicalScrollProgressRef.current;
+    if (progress == null) return;
+    pendingLogicalScrollProgressRef.current = null;
+    const offset = getMobileReaderLogicalOffsetForProgress({
+      progress,
+      contentLength: measuredMetrics.contentLength,
+      viewportLength: measuredMetrics.viewportLength,
+    });
+    recordLogicalScrollMetrics(
+      {
+        contentOffset: offset,
+        contentLength: measuredMetrics.contentLength,
+        viewportLength: measuredMetrics.viewportLength,
+      },
+      false,
+    );
+    listRef.current?.scrollToOffset({ offset, animated: false });
+  };
+  const handleGalleryLayout = (event: {
+    nativeEvent: { layout: { height: number } };
+  }) => {
+    if (!logicalLongStripMode) return;
+    recordLogicalScrollMetrics(
+      getMobileReaderMeasuredScrollMetrics({
+        ...latestScrollMetricsRef.current,
+        viewportLength: event.nativeEvent.layout.height,
+      }),
+      false,
+    );
+  };
   const handleScrollEndDrag = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
@@ -429,24 +623,44 @@ export function MobileReaderGallery({
     ) {
       return;
     }
+    if (logicalLongStripMode) onSegmentedLogicalEndReached?.();
     onRequestAdvancePastEndRef.current();
   };
   // VoiceOver reads the stage as a single element; expose page turns as
   // actions on that element rather than as separate focusable hit zones.
-  const stageAccessibilityActions = readerPageTurnEnabled
-    ? [
-        { name: "activate", label: accessibilityLabel },
-        { name: "nextPage", label: strings.reader.nextPage },
-        { name: "previousPage", label: strings.reader.previousPage },
-      ]
-    : undefined;
+  const stageAccessibilityActions =
+    pagesState.status === "ready"
+      ? [
+          { name: "activate", label: accessibilityLabel },
+          ...(readerAccessibilityPageTurnEnabled
+            ? [
+                { name: "nextPage", label: strings.reader.nextPage },
+                {
+                  name: "previousPage",
+                  label: strings.reader.previousPage,
+                },
+              ]
+            : []),
+        ]
+      : undefined;
 
   return (
     <View
-      accessible={pagesState.status === "ready"}
+      accessible={!accessibilityHidden && pagesState.status === "ready"}
+      accessibilityElementsHidden={accessibilityHidden}
+      importantForAccessibility={
+        accessibilityHidden ? "no-hide-descendants" : "auto"
+      }
       accessibilityRole={pagesState.status === "ready" ? "button" : undefined}
       accessibilityLabel={
-        pagesState.status === "ready" ? accessibilityLabel : undefined
+        pagesState.status === "ready"
+          ? logicalLongStripMode
+            ? `${accessibilityLabel}. ${formatMobileString(
+                strings.reader.longStripProgress,
+                { percent: logicalScrollPercent },
+              )}`
+            : accessibilityLabel
+          : undefined
       }
       accessibilityActions={stageAccessibilityActions}
       onAccessibilityAction={
@@ -454,10 +668,34 @@ export function MobileReaderGallery({
           ? (event) => {
               const action = event.nativeEvent.actionName;
               if (action === "nextPage") {
+                if (logicalLongStripMode) {
+                  const next = mobileReaderSegmentedNextAction(
+                    latestScrollMetricsRef.current,
+                  );
+                  if (next.kind === "scroll") {
+                    listRef.current?.scrollToOffset({
+                      offset: next.offset,
+                      animated: true,
+                    });
+                  } else {
+                    onSegmentedLogicalEndReached?.();
+                    onRequestAdvancePastEndRef.current?.();
+                  }
+                  return;
+                }
                 onPageStepRef.current?.("next");
                 return;
               }
               if (action === "previousPage") {
+                if (logicalLongStripMode) {
+                  const { contentOffset, viewportLength } =
+                    latestScrollMetricsRef.current;
+                  listRef.current?.scrollToOffset({
+                    offset: Math.max(0, contentOffset - viewportLength * 0.85),
+                    animated: true,
+                  });
+                  return;
+                }
                 onPageStepRef.current?.("previous");
                 return;
               }
@@ -482,7 +720,9 @@ export function MobileReaderGallery({
           keyExtractor={(item) =>
             item.kind === "spread"
               ? `spread-${item.spread.join("-")}`
-              : item.page.id
+              : item.kind === "segment"
+                ? `segment-${item.frame.segment.uri}`
+                : item.page.id
           }
           renderItem={({ item }) => {
             if (item.kind === "spread") {
@@ -518,6 +758,22 @@ export function MobileReaderGallery({
                       </View>
                     );
                   })}
+                </View>
+              );
+            }
+
+            if (item.kind === "segment") {
+              return (
+                <View
+                  style={[
+                    styles.segmentFrame,
+                    {
+                      width: item.frame.width,
+                      height: item.frame.height,
+                    },
+                  ]}
+                >
+                  {renderImageSegment?.(item.frame)}
                 </View>
               );
             }
@@ -563,22 +819,33 @@ export function MobileReaderGallery({
           directionalLockEnabled
           disableIntervalMomentum={pagedMode}
           horizontal={pagedMode}
-          initialNumToRender={pagedMode ? 3 : 5}
-          maxToRenderPerBatch={5}
-          windowSize={7}
+          initialNumToRender={segmentedMode ? 2 : pagedMode ? 3 : 5}
+          maxToRenderPerBatch={segmentedMode ? 2 : 5}
+          windowSize={segmentedMode ? 3 : 7}
           viewabilityConfig={READER_VIEWABILITY_CONFIG}
           removeClippedSubviews={Platform.OS === "android"}
           getItemLayout={
-            pagedMode
-              ? (_data, index) => ({
-                  index,
-                  length: readerPageWidth,
-                  offset: readerPageWidth * index,
-                })
-              : undefined
+            segmentedMode
+              ? (_data, index) => {
+                  const frame = segmentedImageFrames?.[index];
+                  return {
+                    index,
+                    length: frame?.height ?? 0,
+                    offset: frame?.offset ?? 0,
+                  };
+                }
+              : pagedMode
+                ? (_data, index) => ({
+                    index,
+                    length: readerPageWidth,
+                    offset: readerPageWidth * index,
+                  })
+                : undefined
           }
           onMomentumScrollEnd={onMomentumScrollEnd}
-          onScroll={onScroll}
+          onContentSizeChange={handleGalleryContentSizeChange}
+          onLayout={handleGalleryLayout}
+          onScroll={handleGalleryScroll}
           onScrollBeginDrag={handleScrollBeginDrag}
           onScrollEndDrag={handleScrollEndDrag}
           onScrollToIndexFailed={handleScrollToIndexFailed}
@@ -593,7 +860,11 @@ export function MobileReaderGallery({
           snapToAlignment="center"
           snapToInterval={pagedMode ? readerPageWidth : undefined}
           contentContainerStyle={[
-            pagedMode ? styles.pagedContent : styles.scrollingContent,
+            pagedMode
+              ? styles.pagedContent
+              : segmentedMode
+                ? styles.segmentedContent
+                : styles.scrollingContent,
             pagedMode
               ? null
               : {
@@ -634,7 +905,9 @@ export function MobileReaderGallery({
             <View
               style={[styles.readerDivider, { backgroundColor: tokens.border }]}
             />
-            <Text style={[styles.readerText, { color: tokens.mutedForeground }]}>
+            <Text
+              style={[styles.readerText, { color: tokens.mutedForeground }]}
+            >
               {pagesState.detail}
             </Text>
             {pagesState.status === "blocked" ? (
@@ -669,14 +942,17 @@ export function MobileReaderGallery({
                 />
               ) : null}
             </View>
-            <View style={[styles.progressPill, { backgroundColor: tokens.muted }]}>
+            <View
+              style={[styles.progressPill, { backgroundColor: tokens.muted }]}
+            >
               <Text
                 style={[
                   styles.progressPillText,
                   { color: tokens.mutedForeground },
                 ]}
               >
-                {pagesState.status === "blocked" || pagesState.status === "error"
+                {pagesState.status === "blocked" ||
+                pagesState.status === "error"
                   ? strings.reader.pageLoadingUnavailable
                   : completed
                     ? strings.reader.markedComplete
@@ -753,6 +1029,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     paddingHorizontal: 10,
+  },
+  segmentedContent: {
+    alignItems: "center",
+    gap: 0,
+    paddingHorizontal: 0,
+  },
+  segmentFrame: {
+    alignItems: "center",
+    overflow: "hidden",
+    borderRadius: 0,
   },
   pagedFrame: {
     alignItems: "center",

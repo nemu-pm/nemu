@@ -164,6 +164,29 @@ async function normalizeMobileSourceHomeImages(
   return { components };
 }
 
+export function compactFinalMobileSourceHome(
+  home: HomeLayout | null,
+): HomeLayout | null {
+  if (!home) return null;
+  const components = home.components.filter((component) => {
+    const value = component.value;
+    switch (value.type) {
+      case "scroller":
+      case "mangaList":
+      case "mangaChapterList":
+        return value.entries.length > 0 || value.listing !== undefined;
+      case "bigScroller":
+        return value.entries.length > 0;
+      case "imageScroller":
+      case "links":
+        return value.links.length > 0;
+      case "filters":
+        return value.items.length > 0;
+    }
+  });
+  return components.length > 0 ? { components } : null;
+}
+
 export async function fetchMobileSourceHome(
   source: InstalledSource,
   options: MobileSourceHomeOptions = {}
@@ -205,9 +228,8 @@ export async function fetchMobileSourceHome(
               partials.push(partial);
             })
           : null;
-        const normalizedHome = await normalizeMobileSourceHomeImages(
-          session.source,
-          home,
+        const normalizedHome = compactFinalMobileSourceHome(
+          await normalizeMobileSourceHomeImages(session.source, home),
         );
         await Promise.allSettled(partials);
         return {

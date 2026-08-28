@@ -1,4 +1,5 @@
 import {
+  chapterProgressIntraPageState,
   chapterProgressHighWaterValues,
   mergeChapterProgressHighWater,
 } from "./sync-lww";
@@ -133,8 +134,19 @@ export type LocalChapterProgress = {
   chapterNumber?: number;
   volumeNumber?: number;
   chapterTitle?: string;
+  intraPageProgress?: number;
+  intraPageContentIdentity?: string;
   updatedAt: number;
 };
+
+function withoutChapterProgressIntraPageState<
+  TProgress extends LocalChapterProgress,
+>(progress: TProgress): TProgress {
+  const copy = { ...progress };
+  delete copy.intraPageProgress;
+  delete copy.intraPageContentIdentity;
+  return copy;
+}
 
 export type LocalMangaProgress = {
   id: string;
@@ -209,6 +221,8 @@ export type CloudChapterProgress = {
   chapterNumber?: number;
   volumeNumber?: number;
   chapterTitle?: string;
+  intraPageProgress?: number;
+  intraPageContentIdentity?: string;
   updatedAt: number;
 };
 
@@ -265,6 +279,8 @@ export type CloudHistorySaveInput = {
   chapterNumber?: number;
   volumeNumber?: number;
   chapterTitle?: string;
+  intraPageProgress?: number;
+  intraPageContentIdentity?: string;
   updatedAt: number;
 };
 
@@ -432,7 +448,12 @@ export function toCloudInstalledSource(
 
 export function toCloudHistorySaveInput(
   progress: LocalChapterProgress,
+  options: { includeIntraPageState?: boolean } = {},
 ): CloudHistorySaveInput {
+  const intraPageState =
+    options.includeIntraPageState === false
+      ? undefined
+      : chapterProgressIntraPageState(progress);
   return {
     registryId: progress.registryId,
     sourceId: progress.sourceId,
@@ -445,6 +466,7 @@ export function toCloudHistorySaveInput(
     chapterNumber: progress.chapterNumber,
     volumeNumber: progress.volumeNumber,
     chapterTitle: progress.chapterTitle,
+    ...(intraPageState ?? {}),
     updatedAt: progress.updatedAt,
   };
 }
@@ -538,27 +560,31 @@ export function mapCloudCollectionItems<T extends CloudCollectionItem>(
 export function mapCloudChapterProgress<T extends CloudChapterProgress>(
   progress: T[],
 ): LocalChapterProgress[] {
-  return progress.map((entry) => ({
-    id: makeChapterProgressId(
-      entry.registryId,
-      entry.sourceId,
-      entry.sourceMangaId,
-      entry.sourceChapterId,
-    ),
-    registryId: entry.registryId,
-    sourceId: entry.sourceId,
-    sourceMangaId: entry.sourceMangaId,
-    sourceChapterId: entry.sourceChapterId,
-    libraryItemId: entry.libraryItemId,
-    progress: entry.progress,
-    total: entry.total,
-    completed: entry.completed,
-    lastReadAt: entry.lastReadAt,
-    chapterNumber: entry.chapterNumber,
-    volumeNumber: entry.volumeNumber,
-    chapterTitle: entry.chapterTitle,
-    updatedAt: entry.updatedAt,
-  }));
+  return progress.map((entry) => {
+    const intraPageState = chapterProgressIntraPageState(entry);
+    return {
+      id: makeChapterProgressId(
+        entry.registryId,
+        entry.sourceId,
+        entry.sourceMangaId,
+        entry.sourceChapterId,
+      ),
+      registryId: entry.registryId,
+      sourceId: entry.sourceId,
+      sourceMangaId: entry.sourceMangaId,
+      sourceChapterId: entry.sourceChapterId,
+      libraryItemId: entry.libraryItemId,
+      progress: entry.progress,
+      total: entry.total,
+      completed: entry.completed,
+      lastReadAt: entry.lastReadAt,
+      chapterNumber: entry.chapterNumber,
+      volumeNumber: entry.volumeNumber,
+      chapterTitle: entry.chapterTitle,
+      ...(intraPageState ?? {}),
+      updatedAt: entry.updatedAt,
+    };
+  });
 }
 
 export function mapCloudMangaProgress<T extends CloudMangaProgress>(
@@ -815,7 +841,15 @@ export function mergeChapterProgressForSave<
   existing: TProgress | null | undefined,
   incoming: TProgress,
 ): TProgress {
-  if (!existing) return incoming;
+  if (!existing) {
+    return {
+      ...withoutChapterProgressIntraPageState(incoming),
+      ...mergeChapterProgressHighWater(
+        undefined,
+        chapterProgressHighWaterValues(incoming),
+      ),
+    };
+  }
 
   // `existing` is the stored local row; `incoming` is the arriving record —
   // a cloud delivery during snapshot application, or a fresh local write.
@@ -832,7 +866,7 @@ export function mergeChapterProgressForSave<
   const other = owner === incoming ? existing : incoming;
 
   return {
-    ...owner,
+    ...withoutChapterProgressIntraPageState(owner),
     // The server derives this from source links and may not have resolved one
     // yet; never let a cloud row without a link erase the local association.
     libraryItemId: owner.libraryItemId ?? other.libraryItemId,
@@ -843,6 +877,7 @@ export function mergeChapterProgressForSave<
     chapterNumber: merged.chapterNumber,
     volumeNumber: merged.volumeNumber,
     chapterTitle: merged.chapterTitle,
+    ...chapterProgressIntraPageState(merged),
     updatedAt: merged.updatedAt,
   };
 }
@@ -909,6 +944,10 @@ export function chapterProgressNeedsPush(
   local: LocalChapterProgress,
   cloud: LocalChapterProgress | undefined,
 ): boolean {
+  const localIntraPageState = chapterProgressIntraPageState(local);
+  const cloudIntraPageState = cloud
+    ? chapterProgressIntraPageState(cloud)
+    : undefined;
   return (
     !cloud ||
     local.progress > cloud.progress ||
@@ -923,7 +962,8 @@ export function chapterProgressNeedsPush(
     // extra round instead of looping.
     (local.chapterNumber !== undefined && cloud.chapterNumber === undefined) ||
     (local.volumeNumber !== undefined && cloud.volumeNumber === undefined) ||
-    (local.chapterTitle !== undefined && cloud.chapterTitle === undefined)
+    (local.chapterTitle !== undefined && cloud.chapterTitle === undefined) ||
+    (localIntraPageState !== undefined && cloudIntraPageState === undefined)
   );
 }
 
@@ -945,6 +985,8 @@ function chapterProgressEquals(
     left.chapterNumber === right.chapterNumber &&
     left.volumeNumber === right.volumeNumber &&
     left.chapterTitle === right.chapterTitle &&
+    left.intraPageProgress === right.intraPageProgress &&
+    left.intraPageContentIdentity === right.intraPageContentIdentity &&
     left.updatedAt === right.updatedAt
   );
 }

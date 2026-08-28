@@ -77,6 +77,26 @@ describe("reader end-of-chapter drag detection", () => {
     ).toBe(false);
   });
 
+  test("uses the vertical bottom for a paged RTL chapter presented as one long strip", () => {
+    const verticalLongStrip = { mode: "rtl" as const, pagedMode: false };
+    expect(
+      isReaderAdvancePastEndDrag({
+        ...verticalLongStrip,
+        startOffset: 12_600,
+        endOffset: 12_600,
+        maxOffset: 12_600,
+      }),
+    ).toBe(true);
+    expect(
+      isReaderAdvancePastEndDrag({
+        ...verticalLongStrip,
+        startOffset: 0,
+        endOffset: 0,
+        maxOffset: 12_600,
+      }),
+    ).toBe(false);
+  });
+
   test("only paged mode treats an unscrollable stage as an edge", () => {
     expect(
       isReaderAdvancePastEndDrag({

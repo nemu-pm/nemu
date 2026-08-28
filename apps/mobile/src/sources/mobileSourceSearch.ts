@@ -1,9 +1,14 @@
 import type { InstalledSource } from "@/data/schema";
+import type { MobileStrings } from "@/lib/mobileI18n";
 import type { SearchSourceDisplay, SearchSourceSelection } from "@/lib/mobileSearch";
 import {
-  normalizeSearchSelectionForSources,
+  selectMobileLiveSearchSources,
   toSearchSourceDisplay,
 } from "@/lib/mobileSearch";
+import {
+  getMobileSourceErrorPresentation,
+  sanitizeMobileErrorDiagnostic,
+} from "@/lib/mobileSourceErrors";
 import {
   type AidokuManga,
   type FilterValue,
@@ -16,7 +21,10 @@ import {
   type MobileSourceSessionCache,
 } from "./mobileSourceExecutorCache";
 import {
-  defaultMobileSourceSettings, makeMobileRuntimeSourceKey, normalizeInstalledSource,
+  defaultMobileSourceSettings,
+  makeMobileRuntimeSourceKey,
+  MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL,
+  normalizeInstalledSource,
 } from "./mobileSourceRuntime";
 import { lcsLength, mergeAuthors } from "@nemu/core/sources";
 
@@ -57,6 +65,19 @@ export type MobileLiveSearchDisplayGroup =
   | MobileLiveSearchLoadingGroup
   | MobileLiveSearchGroup;
 
+export function presentMobileLiveSearchGroup(
+  group: MobileLiveSearchGroup,
+  strings: Pick<MobileStrings, "common">,
+): MobileLiveSearchGroup {
+  if (group.status !== "blocked" || group.title) return group;
+  const presentation = getMobileSourceErrorPresentation(group.detail, strings);
+  return {
+    ...group,
+    title: presentation.title,
+    detail: presentation.detail,
+  };
+}
+
 export type MobileLiveSearchOptions = {
   page?: number;
   filters?: FilterValue[];
@@ -65,7 +86,26 @@ export type MobileLiveSearchOptions = {
   getSourceSettings?: (sourceKey: string, source: InstalledSource) => Promise<Record<string, unknown>>;
   executor?: Pick<MobileSourceExecutorOptions, "bridge" | "readBytes">;
   sessionCache?: MobileSourceSessionCache;
+  signal?: AbortSignal;
+  imageRequestConcurrency?: number;
+  imageRequestDeadlineMs?: number;
 };
+
+const MOBILE_SEARCH_IMAGE_REQUEST_CONCURRENCY = 4;
+const MOBILE_SEARCH_IMAGE_REQUEST_DEADLINE_MS = 2_000;
+export const MOBILE_LIVE_SEARCH_SOURCE_CONCURRENCY = 3;
+
+function boundedPositiveInteger(
+  value: number | undefined,
+  fallback: number,
+  maximum: number,
+): number {
+  const finite =
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.trunc(value)
+      : fallback;
+  return Math.max(1, Math.min(maximum, finite));
+}
 
 export type MobileSourceTitlePool = {
   en: string[];
@@ -249,10 +289,62 @@ export async function mapAidokuMangaToLiveSearchMangaWithImageRequest(
 export async function mapAidokuMangasToLiveSearchMangaWithImageRequests(
   source: Pick<MobileAidokuExecutorSource, "modifyImageRequest">,
   mangas: AidokuManga[],
+  options: Pick<
+    MobileLiveSearchOptions,
+    "signal" | "imageRequestConcurrency" | "imageRequestDeadlineMs"
+  > = {},
 ): Promise<MobileLiveSearchManga[]> {
-  const items: MobileLiveSearchManga[] = [];
-  for (const manga of mangas) {
-    items.push(await mapAidokuMangaToLiveSearchMangaWithImageRequest(source, manga));
+  const items = mangas.map(mapAidokuMangaToLiveSearchManga);
+  if (options.signal?.aborted) return items;
+  const coverIndexes = mangas.flatMap((manga, index) =>
+    manga.cover ? [index] : [],
+  );
+  if (coverIndexes.length === 0) return items;
+
+  const concurrency = Math.min(
+    coverIndexes.length,
+    boundedPositiveInteger(
+      options.imageRequestConcurrency,
+      MOBILE_SEARCH_IMAGE_REQUEST_CONCURRENCY,
+      MOBILE_SEARCH_IMAGE_REQUEST_CONCURRENCY,
+    ),
+  );
+  const deadlineMs = boundedPositiveInteger(
+    options.imageRequestDeadlineMs,
+    MOBILE_SEARCH_IMAGE_REQUEST_DEADLINE_MS,
+    MOBILE_SEARCH_IMAGE_REQUEST_DEADLINE_MS,
+  );
+  let acceptingResults = true;
+  let nextCover = 0;
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (acceptingResults && !options.signal?.aborted) {
+      const coverOffset = nextCover;
+      nextCover += 1;
+      const mangaIndex = coverIndexes[coverOffset];
+      if (mangaIndex === undefined) return;
+      const rewritten = await mapAidokuMangaToLiveSearchMangaWithImageRequest(
+        source,
+        mangas[mangaIndex]!,
+      );
+      if (acceptingResults && !options.signal?.aborted) {
+        items[mangaIndex] = rewritten;
+      }
+    }
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let abortListener: (() => void) | undefined;
+  const stop = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, deadlineMs);
+    if (options.signal) {
+      abortListener = () => resolve();
+      options.signal.addEventListener("abort", abortListener, { once: true });
+    }
+  });
+  await Promise.race([Promise.all(workers).then(() => undefined), stop]);
+  acceptingResults = false;
+  if (timer) clearTimeout(timer);
+  if (options.signal && abortListener) {
+    options.signal.removeEventListener("abort", abortListener);
   }
   return items;
 }
@@ -262,11 +354,11 @@ export function selectInstalledSourcesForSearch(
   selection: SearchSourceSelection
 ): InstalledSource[] {
   const sourceDisplays = sources.map(toSearchSourceDisplay);
-  const normalizedSelection = normalizeSearchSelectionForSources(sourceDisplays, selection);
-  const selectedIds =
-    normalizedSelection === null
-      ? new Set(sourceDisplays.map((source) => source.id))
-      : new Set(normalizedSelection);
+  const selectedIds = new Set(
+    selectMobileLiveSearchSources(sourceDisplays, selection).map(
+      (source) => source.id,
+    ),
+  );
 
   return sources.filter((source) => selectedIds.has(source.id));
 }
@@ -344,6 +436,14 @@ export async function searchMobileSource(
   options: MobileLiveSearchOptions = {}
 ): Promise<MobileLiveSearchGroup> {
   const display = toSearchSourceDisplay(source);
+  if (display.unsupported) {
+    return {
+      status: "blocked",
+      source: display,
+      reason: "unsupported-source",
+      detail: MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL,
+    };
+  }
   const normalized = normalizeInstalledSource(source);
   const sourceKey = makeMobileRuntimeSourceKey(normalized);
   const settings = await (options.getSourceSettings ?? defaultMobileSourceSettings)(sourceKey, source);
@@ -376,6 +476,7 @@ export async function searchMobileSource(
           await mapAidokuMangasToLiveSearchMangaWithImageRequests(
             session.source,
             result.entries,
+            options,
           ),
           getMobileSearchCompareTitles(query, options)
         ),
@@ -397,7 +498,7 @@ async function searchMobileSourceOrBlocked(
       status: "blocked",
       source: toSearchSourceDisplay(source),
       reason: "search-failed",
-      detail: error instanceof Error ? error.message : String(error),
+      detail: sanitizeMobileErrorDiagnostic(error) ?? "Search failed.",
     };
   }
 }
@@ -415,12 +516,34 @@ export async function searchMobileSources(
   }
 
   const groups: MobileLiveSearchGroup[] = [];
-  for (const source of selectedSources) {
-    const sourceQuery = options.titlePool
-      ? getMobileSearchQueryForSource(source, options.titlePool) ?? fallbackQuery
-      : fallbackQuery;
-    groups.push(await searchMobileSourceOrBlocked(source, sourceQuery, options));
-  }
+  let nextSource = 0;
+  const workers = Array.from(
+    {
+      length: Math.min(
+        MOBILE_LIVE_SEARCH_SOURCE_CONCURRENCY,
+        selectedSources.length,
+      ),
+    },
+    async () => {
+      while (!options.signal?.aborted) {
+        const index = nextSource;
+        nextSource += 1;
+        const source = selectedSources[index];
+        if (!source) return;
+        const sourceQuery = options.titlePool
+          ? getMobileSearchQueryForSource(source, options.titlePool) ??
+            fallbackQuery
+          : fallbackQuery;
+        const group = await searchMobileSourceOrBlocked(
+          source,
+          sourceQuery,
+          options,
+        );
+        if (!options.signal?.aborted) groups.push(group);
+      }
+    },
+  );
+  await Promise.all(workers);
   return sortMobileLiveSearchGroupsBySimilarity(
     groups,
     getMobileSearchCompareTitles(fallbackQuery, options)

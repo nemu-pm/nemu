@@ -125,6 +125,34 @@ describe("mobile Japanese Learning grammar", () => {
     ]);
   });
 
+  test("normalizes Ichiran fields without String.prototype.replaceAll", () => {
+    const [token] = convertMobileIchiranSegments([
+      [
+        [
+          [
+            [
+              "watashi",
+              {
+                type: "KANJI",
+                text: "私",
+                kana: "\fわたし\f",
+                gloss: [{ pos: "[n]", gloss: "I; me" }],
+              },
+              [],
+            ],
+          ],
+          100,
+        ],
+      ],
+    ]);
+
+    expect(token).toMatchObject({
+      reading: "わたし",
+      partOfSpeech: "Noun",
+      meanings: [{ partOfSpeech: ["Noun"] }],
+    });
+  });
+
   test("normalizes text and posts boosted proper nouns to Ichiran", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = ((url: string | URL | Request, init?: RequestInit) => {

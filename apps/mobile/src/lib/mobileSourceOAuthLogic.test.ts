@@ -4,8 +4,10 @@ import {
   buildMobileSourceOAuthExchangeBody,
   buildMobileSourceOAuthAuthRequest,
   buildMobileSourcePkceAuthUrl,
+  canStartMobileSourceOAuthFlow,
   classifyMobileSourceLoginCallback,
   canRunMobileSourceLoginMethod,
+  isMobileSourceOAuthCallbackAllowed,
   isMobileSourceOAuthStoredValueWithinLimit,
   isMobileSourceLoggedIn,
   isMobileSourceLoginSetting,
@@ -129,6 +131,12 @@ describe("classifyMobileSourceLoginCallback", () => {
     const r = classifyMobileSourceLoginCallback("https://app/cb?code=abc123");
     expect(r).toEqual({ kind: "code", code: "abc123" });
   });
+  test("OIDC hybrid callback prefers its PKCE-bound code over token fields", () => {
+    const r = classifyMobileSourceLoginCallback(
+      "nemu://oauth/callback?code=abc123&id_token=signed-token",
+    );
+    expect(r).toEqual({ kind: "code", code: "abc123" });
+  });
   test("bare code= → code", () => {
     expect(classifyMobileSourceLoginCallback("code=abc123")).toEqual({
       kind: "code",
@@ -156,6 +164,19 @@ describe("classifyMobileSourceLoginCallback", () => {
         "nemu://oauth/callback?error=access_denied&code=ignored&state=expected",
       ),
     ).toEqual({ kind: "invalid" });
+  });
+  test("rejects duplicate codes across query and fragment, including empty values", () => {
+    for (const callback of [
+      "nemu://oauth/callback?code=first&code=second",
+      "nemu://oauth/callback?code=first#code=second",
+      "nemu://oauth/callback?code=&code=second",
+      "nemu://oauth/callback?code=first#code=",
+      "code=first&code=",
+    ]) {
+      expect(classifyMobileSourceLoginCallback(callback)).toEqual({
+        kind: "invalid",
+      });
+    }
   });
 });
 
@@ -225,11 +246,12 @@ describe("mobile source OAuth URL and callback safety", () => {
     ).toBe("neko://callback");
   });
 
-  test("accepts only credential-free http(s) endpoints", () => {
+  test("accepts only credential-free HTTPS endpoints", () => {
     expect(normalizeMobileSourceOAuthHttpUrl("HTTPS://Example.COM/auth"))
       .toBe("https://example.com/auth");
     for (const invalid of [
       "intent://auth",
+      "http://example.com/auth",
       "nemu://auth",
       "file:///auth",
       "/relative",
@@ -244,12 +266,74 @@ describe("mobile source OAuth URL and callback safety", () => {
     ).toBeNull();
   });
 
+  test("requires PKCE before Android can start or accept an OAuth callback", () => {
+    expect(
+      canStartMobileSourceOAuthFlow({
+        usePkce: false,
+        platform: "android",
+      }),
+    ).toBe(false);
+    expect(
+      canStartMobileSourceOAuthFlow({
+        usePkce: true,
+        platform: "android",
+      }),
+    ).toBe(true);
+    expect(
+      isMobileSourceOAuthCallbackAllowed({
+        kind: "code",
+        usePkce: true,
+        platform: "android",
+      }),
+    ).toBe(true);
+    expect(
+      isMobileSourceOAuthCallbackAllowed({
+        kind: "code",
+        usePkce: false,
+        platform: "android",
+      }),
+    ).toBe(false);
+    expect(
+      isMobileSourceOAuthCallbackAllowed({
+        kind: "token",
+        usePkce: true,
+        platform: "ios",
+      }),
+    ).toBe(false);
+    expect(
+      isMobileSourceOAuthCallbackAllowed({
+        kind: "token",
+        usePkce: false,
+        platform: "android",
+      }),
+    ).toBe(false);
+    expect(
+      isMobileSourceOAuthCallbackAllowed({
+        kind: "token",
+        usePkce: false,
+        platform: "ios",
+      }),
+    ).toBe(true);
+    expect(
+      isMobileSourceOAuthCallbackAllowed({
+        kind: "token",
+        usePkce: false,
+        platform: "other",
+      }),
+    ).toBe(false);
+  });
+
   test("bounds every callback value before it can be parsed or persisted", () => {
     expect(
       isMobileSourceOAuthStoredValueWithinLimit("nemu://callback?state=x"),
     ).toBe(true);
     expect(isMobileSourceOAuthStoredValueWithinLimit("😀".repeat(20_000)))
       .toBe(false);
+    expect(isMobileSourceOAuthStoredValueWithinLimit("a".repeat(64 * 1024)))
+      .toBe(true);
+    expect(
+      isMobileSourceOAuthStoredValueWithinLimit("a".repeat(64 * 1024 + 1)),
+    ).toBe(false);
   });
 
   test("requires exactly one matching state from query or fragment", () => {

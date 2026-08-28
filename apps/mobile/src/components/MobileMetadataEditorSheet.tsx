@@ -629,13 +629,9 @@ export function MobileMetadataEditorSheet({
     setPickingCover(true);
     setCoverError(null);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        setCoverError(strings.metadataEditor.coverPermissionDenied);
-        await hapticError();
-        return;
-      }
-
+      // The system picker grants access only to the selected item. Requesting
+      // broad media-library access first is unnecessary on supported Android
+      // versions and for this image-only picker flow on iOS.
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         allowsEditing: true,

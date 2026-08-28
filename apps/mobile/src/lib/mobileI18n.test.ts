@@ -12,10 +12,7 @@ const INTENTIONAL_EMPTY_MOBILE_STRINGS = new Set([
   "ja:settings.aboutNemuBeforeBrand",
 ]);
 
-function flattenStringLeaves(
-  value: unknown,
-  prefix = "",
-): Map<string, string> {
+function flattenStringLeaves(value: unknown, prefix = ""): Map<string, string> {
   const output = new Map<string, string>();
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
     const path = prefix ? `${prefix}.${key}` : key;
@@ -31,9 +28,7 @@ function flattenStringLeaves(
 }
 
 function interpolationKeys(value: string): string[] {
-  return [...value.matchAll(/\{\{(\w+)\}\}/g)]
-    .map((match) => match[1]!)
-    .sort();
+  return [...value.matchAll(/\{\{(\w+)\}\}/g)].map((match) => match[1]!).sort();
 }
 
 describe("mobile i18n helpers", () => {
@@ -57,8 +52,11 @@ describe("mobile i18n helpers", () => {
     const catalogs = getMobileStringsForAudit();
     for (const [language, catalog] of Object.entries(catalogs)) {
       for (const [path, value] of flattenStringLeaves(catalog)) {
-        if (INTENTIONAL_EMPTY_MOBILE_STRINGS.has(`${language}:${path}`)) continue;
-        expect(`${language}:${path}:${value.trim()}`).not.toBe(`${language}:${path}:`);
+        if (INTENTIONAL_EMPTY_MOBILE_STRINGS.has(`${language}:${path}`))
+          continue;
+        expect(`${language}:${path}:${value.trim()}`).not.toBe(
+          `${language}:${path}:`,
+        );
       }
     }
     for (const entry of INTENTIONAL_EMPTY_MOBILE_STRINGS) {
@@ -76,6 +74,21 @@ describe("mobile i18n helpers", () => {
     expect(strings.browse.searchRegistries).toBe("搜索源仓库");
   });
 
+  test("localizes reader plugin boolean values", () => {
+    expect(getMobileStrings("en").reader).toMatchObject({
+      pluginValueOff: "Off",
+      pluginValueOn: "On",
+    });
+    expect(getMobileStrings("zh").reader).toMatchObject({
+      pluginValueOff: "关闭",
+      pluginValueOn: "开启",
+    });
+    expect(getMobileStrings("ja").reader).toMatchObject({
+      pluginValueOff: "オフ",
+      pluginValueOn: "オン",
+    });
+  });
+
   test("localizes every stable source OAuth failure code", () => {
     const settings = getMobileStrings("en").settings as unknown as {
       sourceOAuthErrors?: Record<string, string>;
@@ -88,8 +101,10 @@ describe("mobile i18n helpers", () => {
       cancelled: "Login was cancelled.",
       "oversized-callback": "The source returned too much login data.",
       "state-mismatch": "The login response did not match this attempt.",
-      "invalid-callback": "The login response did not contain a valid token or code.",
-      "missing-token-endpoint": "This source does not provide a token endpoint.",
+      "invalid-callback":
+        "The login response did not contain a valid token or code.",
+      "missing-token-endpoint":
+        "This source does not provide a token endpoint.",
       "token-request-failed": "The token request could not be completed.",
       "token-exchange-failed": "The source rejected the token exchange.",
       "oversized-token": "The source returned too much token data.",
@@ -195,15 +210,20 @@ describe("mobile i18n helpers", () => {
     );
     expect(getMobileStrings("en").settings.agent).toBe("Nemu Agent");
     expect(getMobileStrings("en").settings.agentBuiltInEnabled).toBe(
-      "Built-in Nemu Agent Enabled",
+      "Protected-source verification ready",
     );
     expect(getMobileStrings("en").settings.agentReady).toBe(
-      "Native networking is ready for protected sources",
+      "Native networking and Cloudflare verification are available",
     );
-    expect(getMobileStrings("zh").settings.clearCloudData).toBe("同时删除云端数据");
+    expect(getMobileStrings("en").settings.agentVerificationUnavailable).toBe(
+      "Cloudflare verification is unavailable in this build",
+    );
+    expect(getMobileStrings("zh").settings.clearCloudData).toBe(
+      "同时删除云端数据",
+    );
     expect(getMobileStrings("zh").settings.agent).toBe("Nemu Agent");
     expect(getMobileStrings("zh").settings.agentReady).toBe(
-      "原生网络已可用于受保护的源",
+      "原生网络和 Cloudflare 验证已可用",
     );
     expect(getMobileStrings("ja").settings.agent).toBe("Nemu Agent");
     expect(getMobileStrings("en").browse.installingSource).toBe(
@@ -222,6 +242,15 @@ describe("mobile i18n helpers", () => {
       "内蔵ネイティブ通信",
     );
     expect(getMobileStrings("ja").welcome.startReading).toBe("読み始める");
+    expect(getMobileStrings("en").welcome.continueWithoutInstalling).toBe(
+      "Continue",
+    );
+    expect(getMobileStrings("zh").welcome.continueWithoutInstalling).toBe(
+      "继续",
+    );
+    expect(getMobileStrings("ja").welcome.continueWithoutInstalling).toBe(
+      "続ける",
+    );
     expect(getMobileStrings("en").sourceBrowse.resetFilters).toBe("Reset");
     expect(getMobileStrings("zh").sourceBrowse.applyFilters).toBe("应用");
     expect(getMobileStrings("ja").sourceBrowse.applyFilters).toBe("適用");
@@ -306,16 +335,22 @@ describe("mobile i18n helpers", () => {
       }),
     ).toBe("Install MangaDex");
     expect(
-      formatMobileString(getMobileStrings("en").library.collectionChipAccessibility, {
-        name: "Favorites",
-        countLabel: "3 books",
-      }),
+      formatMobileString(
+        getMobileStrings("en").library.collectionChipAccessibility,
+        {
+          name: "Favorites",
+          countLabel: "3 books",
+        },
+      ),
     ).toBe("Favorites, 3 books");
     expect(
-      formatMobileString(getMobileStrings("zh").library.collectionMangaAccessibility, {
-        title: "Blue Lock",
-        sourceCountLabel: "2 个源",
-      }),
+      formatMobileString(
+        getMobileStrings("zh").library.collectionMangaAccessibility,
+        {
+          title: "Blue Lock",
+          sourceCountLabel: "2 个源",
+        },
+      ),
     ).toBe("Blue Lock，2 个源");
     expect(getMobileStrings("en").search.noSourcesSelectedDescription).toBe(
       "Select at least one source to search.",
@@ -348,16 +383,22 @@ describe("mobile i18n helpers", () => {
     ).toBe("启用 Dual Reader");
     expect(getMobileStrings("zh").reader.pluginDualReadName).toBe("双源阅读");
     expect(
-      formatMobileString(getMobileStrings("en").settings.sourceSettingsSelectOption, {
-        name: "Image quality",
-        option: "High",
-      }),
+      formatMobileString(
+        getMobileStrings("en").settings.sourceSettingsSelectOption,
+        {
+          name: "Image quality",
+          option: "High",
+        },
+      ),
     ).toBe("Set Image quality to High");
     expect(
-      formatMobileString(getMobileStrings("zh").settings.sourceSettingsToggleOption, {
-        name: "Languages",
-        option: "Japanese",
-      }),
+      formatMobileString(
+        getMobileStrings("zh").settings.sourceSettingsToggleOption,
+        {
+          name: "Languages",
+          option: "Japanese",
+        },
+      ),
     ).toBe("切换 Languages 的 Japanese");
     expect(
       formatMobileString(
@@ -382,10 +423,13 @@ describe("mobile i18n helpers", () => {
       }),
     ).toBe("AniList のメタデータ一致を適用");
     expect(
-      formatMobileString(getMobileStrings("en").metadataEditor.applyMatchField, {
-        field: "Cover",
-        provider: "MAL",
-      }),
+      formatMobileString(
+        getMobileStrings("en").metadataEditor.applyMatchField,
+        {
+          field: "Cover",
+          provider: "MAL",
+        },
+      ),
     ).toBe("Apply Cover from MAL");
     expect(getMobileStrings("en").metadataEditor.chooseCoverImage).toBe(
       "Choose image",
@@ -399,18 +443,19 @@ describe("mobile i18n helpers", () => {
       }),
     ).toBe("Set status to Completed");
     expect(
-      formatMobileString(getMobileStrings("en").metadataEditor.sourceFetchAccessibility, {
-        source: "MangaDex",
-      }),
+      formatMobileString(
+        getMobileStrings("en").metadataEditor.sourceFetchAccessibility,
+        {
+          source: "MangaDex",
+        },
+      ),
     ).toBe("Fetch metadata from MangaDex");
     expect(
       formatMobileString(getMobileStrings("ja").metadataEditor.resetField, {
         field: "タイトル",
       }),
     ).toBe("タイトルをリセット");
-    expect(getMobileStrings("zh").metadataEditor.coverPreview).toBe(
-      "封面预览",
-    );
+    expect(getMobileStrings("zh").metadataEditor.coverPreview).toBe("封面预览");
     expect(
       formatMobileString(getMobileStrings("zh").mangaDetail.continueChapter, {
         chapter: "第 12 话",

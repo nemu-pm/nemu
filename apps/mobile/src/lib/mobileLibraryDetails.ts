@@ -4,7 +4,10 @@ import type {
   LocalSourceLink,
   MangaMetadata,
 } from "@/data/schema";
-import type { MobileSourceDetailsRefresh } from "@/sources/mobileSourceDetails";
+import {
+  resolveMobileSourceMangaMetadataTitle,
+  type MobileSourceDetailsRefresh,
+} from "@/sources/mobileSourceDetails";
 
 export type AppliedMobileSourceDetails = {
   item: LocalLibraryItem;
@@ -13,7 +16,7 @@ export type AppliedMobileSourceDetails = {
 
 export function mergeDefinedMangaMetadata(
   existing: MangaMetadata,
-  refreshed: MangaMetadata
+  refreshed: MangaMetadata,
 ): MangaMetadata {
   return {
     title: refreshed.title || existing.title,
@@ -26,20 +29,33 @@ export function mergeDefinedMangaMetadata(
   };
 }
 
-export function makeChapterSortKey(chapter: { id: string; chapterNumber?: number }): string {
+export function makeChapterSortKey(chapter: {
+  id: string;
+  chapterNumber?: number;
+}): string {
   return String(chapter.chapterNumber ?? chapter.id);
 }
 
 export function applyMobileSourceDetailsRefresh(
   entry: LibraryEntry,
   sourceLink: LocalSourceLink,
-  refresh: Extract<MobileSourceDetailsRefresh, { status: "ready" }>
+  refresh: Extract<MobileSourceDetailsRefresh, { status: "ready" }>,
 ): AppliedMobileSourceDetails {
   const latestChapter = refresh.latestChapter;
-  const latestChapterSortKey = latestChapter ? makeChapterSortKey(latestChapter) : undefined;
+  const latestChapterSortKey = latestChapter
+    ? makeChapterSortKey(latestChapter)
+    : undefined;
+  const refreshedMetadata = {
+    ...refresh.metadata,
+    title: resolveMobileSourceMangaMetadataTitle(
+      refresh.metadata.title,
+      sourceLink.sourceMangaId,
+      entry.item.metadata.title,
+    ),
+  };
   const item: LocalLibraryItem = {
     ...entry.item,
-    metadata: mergeDefinedMangaMetadata(entry.item.metadata, refresh.metadata),
+    metadata: mergeDefinedMangaMetadata(entry.item.metadata, refreshedMetadata),
     updatedAt: refresh.fetchedAt,
   };
   const updatedSourceLink: LocalSourceLink = {

@@ -7,17 +7,17 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { Image, type ImageProps, type ImageURISource } from "react-native";
 import {
-  Image,
-  type ImageProps,
-  type ImageURISource,
-} from "react-native";
-import {
-  getCachedMobileImageUriSync,
+  getCachedMobileImageAssetByStorageKeySync,
   getMobileImageCacheSourceKey,
   invalidateCachedMobileImage,
   MOBILE_IMAGE_CACHE_REQUIRES_LOCAL_FILE,
+  retainCachedMobileImageAsset,
+  resolveCachedMobileImageAsset,
   resolveCachedMobileImageUri,
+  type MobileCachedImageAsset,
+  type MobileCachedSegmentedImageAsset,
   type MobileImageCacheSource,
 } from "@/lib/mobileImageCache";
 import { shouldRetryCachedMobileImageError } from "@/lib/mobileImageCacheCoordinator";
@@ -39,6 +39,8 @@ type MobileCachedImageProps = Omit<ImageProps, "source" | "onError"> & {
    */
   uriOwnership: MobileImageUriOwnership;
   cacheKey?: string;
+  allowLongStripSegments?: boolean;
+  onSegmentedImage?: (asset: MobileCachedSegmentedImageAsset | null) => void;
   fallback?: ReactNode;
   onError?: (error: string) => void;
 };
@@ -65,6 +67,8 @@ export function MobileCachedImage({
   source,
   uriOwnership,
   cacheKey,
+  allowLongStripSegments = false,
+  onSegmentedImage,
   fallback,
   onError,
   onLoad,
@@ -76,18 +80,29 @@ export function MobileCachedImage({
     () => getMobileImageUriPolicy(sourceUri, uriOwnership),
     [sourceUri, uriOwnership],
   );
-  const sourceKey = useMemo(
-    () => {
-      if (uriPolicy.allowed && uriPolicy.kind === "source-remote") {
-        return `${uriOwnership}:${getMobileImageCacheSourceKey(
-          { uri: sourceUri, headers: sourceHeaders },
-          cacheKey,
-        )}`;
-      }
-      return boundedLocalImageSourceKey(sourceUri, uriOwnership, cacheKey);
-    },
-    [cacheKey, sourceHeaders, sourceUri, uriOwnership, uriPolicy],
+  const cacheStorageKey = useMemo(
+    () =>
+      uriPolicy.allowed && uriPolicy.kind === "source-remote"
+        ? getMobileImageCacheSourceKey(
+            { uri: sourceUri, headers: sourceHeaders },
+            cacheKey,
+          )
+        : "",
+    [cacheKey, sourceHeaders, sourceUri, uriPolicy],
   );
+  const sourceKey = useMemo(() => {
+    if (uriPolicy.allowed && uriPolicy.kind === "source-remote") {
+      return `${uriOwnership}:${allowLongStripSegments ? "segments-v1" : "file"}:${cacheStorageKey}`;
+    }
+    return boundedLocalImageSourceKey(sourceUri, uriOwnership, cacheKey);
+  }, [
+    allowLongStripSegments,
+    cacheKey,
+    cacheStorageKey,
+    sourceUri,
+    uriOwnership,
+    uriPolicy,
+  ]);
   const cacheSource = useMemo(
     () => ({
       uri: source.uri,
@@ -95,17 +110,26 @@ export function MobileCachedImage({
     }),
     [source.headers, source.uri],
   );
+  // Reading a segmented cache asset synchronously parses one manifest and
+  // verifies up to 32 members. Cache that work by the same stable identity
+  // used by the coordinator so ordinary Reader progress rerenders do not
+  // repeat synchronous filesystem bridge calls.
+  const synchronouslyCachedAsset = useMemo(
+    () => getCachedMobileImageAssetByStorageKeySync(cacheStorageKey),
+    [cacheStorageKey],
+  );
   const [cachedState, setCachedState] = useState<{
     sourceKey: string;
-    uri: string | null;
+    asset: MobileCachedImageAsset | null;
   }>(() => ({
     sourceKey,
-    uri: getCachedMobileImageUriSync(cacheSource, cacheKey),
+    asset: synchronouslyCachedAsset,
   }));
   const retriedSourceKeyRef = useRef<string | null>(null);
   const reportedErrorSourceKeyRef = useRef<string | null>(null);
   const activeSourceKeyRef = useRef(sourceKey);
   const onErrorRef = useRef(onError);
+  const onSegmentedImageRef = useRef(onSegmentedImage);
   const cacheResolveAbortControllerRef = useRef<AbortController | null>(null);
   const requiresLocalFile =
     MOBILE_IMAGE_CACHE_REQUIRES_LOCAL_FILE &&
@@ -116,6 +140,10 @@ export function MobileCachedImage({
   useLayoutEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
+
+  useLayoutEffect(() => {
+    onSegmentedImageRef.current = onSegmentedImage;
+  }, [onSegmentedImage]);
 
   useLayoutEffect(() => {
     cacheResolveAbortControllerRef.current?.abort();
@@ -153,16 +181,23 @@ export function MobileCachedImage({
     const controller = new AbortController();
     cacheResolveAbortControllerRef.current?.abort();
     cacheResolveAbortControllerRef.current = controller;
-    void resolveCachedMobileImageUri(cacheSource, cacheKey, undefined, {
-      signal: controller.signal,
-    })
-      .then((uri) => {
+    const resolution = allowLongStripSegments
+      ? resolveCachedMobileImageAsset(cacheSource, cacheKey, undefined, {
+          signal: controller.signal,
+        })
+      : resolveCachedMobileImageUri(cacheSource, cacheKey, undefined, {
+          signal: controller.signal,
+        }).then((uri): MobileCachedImageAsset | null =>
+          uri ? { kind: "file", uri } : null,
+        );
+    void resolution
+      .then((asset) => {
         if (!active) return;
-        if (uri) {
+        if (asset) {
           setFailedSourceKey((current) =>
             current === sourceKey ? null : current,
           );
-          setCachedState({ sourceKey, uri });
+          setCachedState({ sourceKey, asset });
         } else if (requiresLocalFile && !controller.signal.aborted) {
           reportError("The remote image could not be cached safely.");
         }
@@ -189,6 +224,7 @@ export function MobileCachedImage({
       }
     };
   }, [
+    allowLongStripSegments,
     cacheKey,
     cacheSource,
     reportError,
@@ -197,11 +233,11 @@ export function MobileCachedImage({
     uriPolicy,
   ]);
 
-  const synchronouslyCachedUri = getCachedMobileImageUriSync(cacheSource, cacheKey);
-  const cachedUri =
+  const cachedAsset =
     cachedState.sourceKey === sourceKey
-      ? (cachedState.uri ?? synchronouslyCachedUri)
-      : synchronouslyCachedUri;
+      ? cachedState.asset
+      : synchronouslyCachedAsset;
+  const cachedUri = cachedAsset?.kind === "file" ? cachedAsset.uri : null;
   const failed = failedSourceKey === sourceKey;
   const imageSource = failed
     ? undefined
@@ -210,6 +246,16 @@ export function MobileCachedImage({
       : uriPolicy.allowed && !requiresLocalFile
         ? source
         : undefined;
+
+  useEffect(() => {
+    onSegmentedImageRef.current?.(
+      cachedAsset?.kind === "segmented-image" && allowLongStripSegments
+        ? cachedAsset
+        : null,
+    );
+  }, [allowLongStripSegments, cachedAsset, sourceKey]);
+
+  useEffect(() => retainCachedMobileImageAsset(cachedAsset), [cachedAsset]);
 
   const handleImageError = useCallback<NonNullable<ImageProps["onError"]>>(
     (event) => {
@@ -228,7 +274,7 @@ export function MobileCachedImage({
         // Native never falls back to the original remote URL because that
         // would bypass the native destination policy.
         const invalidation = invalidateCachedMobileImage(cacheSource, cacheKey);
-        setCachedState({ sourceKey, uri: null });
+        setCachedState({ sourceKey, asset: null });
         const controller = new AbortController();
         cacheResolveAbortControllerRef.current?.abort();
         cacheResolveAbortControllerRef.current = controller;
@@ -236,23 +282,33 @@ export function MobileCachedImage({
           .catch(() => undefined)
           .then(() => {
             if (controller.signal.aborted) return null;
+            if (allowLongStripSegments) {
+              return resolveCachedMobileImageAsset(
+                cacheSource,
+                cacheKey,
+                undefined,
+                { signal: controller.signal },
+              );
+            }
             return resolveCachedMobileImageUri(
               cacheSource,
               cacheKey,
               undefined,
               { signal: controller.signal },
+            ).then((uri): MobileCachedImageAsset | null =>
+              uri ? { kind: "file", uri } : null,
             );
           })
-          .then((uri) => {
+          .then((asset) => {
             if (activeSourceKeyRef.current !== sourceKey) return;
-            if (!uri) {
+            if (!asset) {
               reportError("The remote image could not be cached safely.");
               return;
             }
             setFailedSourceKey((current) =>
               current === sourceKey ? null : current,
             );
-            setCachedState({ sourceKey, uri });
+            setCachedState({ sourceKey, asset });
           })
           .catch((error: unknown) => {
             if (controller.signal.aborted) return;
@@ -268,13 +324,23 @@ export function MobileCachedImage({
             }
           });
       }
-    }, [cacheKey, cacheSource, cachedUri, reportError, sourceKey],
+    },
+    [
+      allowLongStripSegments,
+      cacheKey,
+      cacheSource,
+      cachedUri,
+      reportError,
+      sourceKey,
+    ],
   );
 
   const handleImageLoad = useCallback<NonNullable<ImageProps["onLoad"]>>(
     (event) => {
       if (activeSourceKeyRef.current === sourceKey) {
-        setFailedSourceKey((current) => (current === sourceKey ? null : current));
+        setFailedSourceKey((current) =>
+          current === sourceKey ? null : current,
+        );
         reportedErrorSourceKeyRef.current = null;
       }
       onLoad?.(event);

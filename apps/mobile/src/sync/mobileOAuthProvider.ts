@@ -12,7 +12,11 @@ export const normalizeMobileOAuthProvider = normalizeOAuthProvider;
 
 export function resolveMobileCloudSignInErrorDetail(
   error: { code?: string; message?: string; status?: number } | null | undefined,
-  strings: { signInFailed: string; networkUnavailable: string },
+  strings: {
+    signInFailed: string;
+    networkUnavailable: string;
+    storageUnavailable: string;
+  },
 ): string {
   if (
     error?.status === 499 ||
@@ -21,6 +25,12 @@ export function resolveMobileCloudSignInErrorDetail(
     error?.message === "MOBILE_AUTH_NETWORK_UNAVAILABLE"
   ) {
     return strings.networkUnavailable;
+  }
+  if (
+    error?.code === "MOBILE_AUTH_STORAGE_UNAVAILABLE" ||
+    error?.message === "MOBILE_AUTH_STORAGE_UNAVAILABLE"
+  ) {
+    return strings.storageUnavailable;
   }
   return strings.signInFailed;
 }
@@ -69,11 +79,13 @@ export async function completeMobileCloudSignOut({
   clearLocalData,
 }: {
   keepData: boolean;
-  signOutAndUnregister: () => Promise<void>;
+  signOutAndUnregister: (
+    onSignOutConfirmed: () => Promise<void>,
+  ) => Promise<unknown>;
   retainLocalData: () => Promise<void>;
   clearLocalData: () => Promise<void>;
 }): Promise<void> {
-  await signOutAndUnregister();
-  if (keepData) await retainLocalData();
-  else await clearLocalData();
+  await signOutAndUnregister(
+    keepData ? retainLocalData : clearLocalData,
+  );
 }

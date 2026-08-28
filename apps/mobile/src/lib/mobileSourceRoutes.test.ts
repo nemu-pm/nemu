@@ -31,6 +31,27 @@ describe("mobile source routes", () => {
     ).toBe("/sources/aidoku-community/ja.raw/title%2F123%3Flang%3Dja");
   });
 
+  test("carries a bounded listing title into source manga navigation", () => {
+    expect(
+      getMobileSourceMangaHref({
+        registryId: "aidoku-community",
+        sourceId: "ja.raw",
+        mangaId: "/manga/example-raw/",
+        mangaTitle: " 後宮真贋判定人 ",
+      }),
+    ).toBe(
+      "/sources/aidoku-community/ja.raw/%2Fmanga%2Fexample-raw%2F?mangaTitle=%E5%BE%8C%E5%AE%AE%E7%9C%9F%E8%B4%8B%E5%88%A4%E5%AE%9A%E4%BA%BA",
+    );
+    expect(
+      getMobileSourceMangaHref({
+        registryId: "registry",
+        sourceId: "source",
+        mangaId: "same-title",
+        mangaTitle: "same-title",
+      }),
+    ).toBe("/sources/registry/source/same-title");
+  });
+
   test("never throws on malformed third-party route ids", () => {
     expect(
       getMobileSourceMangaHref({
@@ -47,9 +68,7 @@ describe("mobile source routes", () => {
         mangaTitle: null,
         chapter: { id: "bad\udfffchapter" },
       }),
-    ).toBe(
-      "/sources/aidoku-community/en.mangadex/manga/bad%EF%BF%BDchapter",
-    );
+    ).toBe("/sources/aidoku-community/en.mangadex/manga/bad%EF%BF%BDchapter");
   });
 
   test("uses native history when source manga has a parent screen", () => {
@@ -82,10 +101,11 @@ describe("mobile source routes", () => {
         registryId: "aidoku/community",
         sourceId: "en/mangadex",
         mangaId: "series/one",
+        mangaTitle: "Series One",
       }),
     ).toEqual({
       type: "replace",
-      href: "/sources/aidoku%2Fcommunity/en%2Fmangadex/series%2Fone",
+      href: "/sources/aidoku%2Fcommunity/en%2Fmangadex/series%2Fone?mangaTitle=Series%20One",
     });
     expect(
       getMobileSourceReaderBackAction({
@@ -161,18 +181,16 @@ describe("mobile source routes", () => {
     expect(normalizeMobileReaderRouteLabel(" chapter-id ", "chapter-id")).toBe(
       "",
     );
-    expect(normalizeMobileReaderRouteLabel(" Friendly title ", "chapter-id")).toBe(
-      "Friendly title",
-    );
+    expect(
+      normalizeMobileReaderRouteLabel(" Friendly title ", "chapter-id"),
+    ).toBe("Friendly title");
     expect(normalizeMobileReaderRouteLabel("x".repeat(300))).toHaveLength(256);
     expect(
       normalizeMobileReaderRouteLabel(`${"x".repeat(255)}😀rest`).endsWith(
         "😀",
       ),
     ).toBe(true);
-    expect(normalizeMobileReaderRouteLabel("bad\ud800label")).toBe(
-      "bad�label",
-    );
+    expect(normalizeMobileReaderRouteLabel("bad\ud800label")).toBe("bad�label");
     expect(parseMobileReaderRouteNumber("1188.5")).toBe(1188.5);
     expect(parseMobileReaderRouteNumber("1e3")).toBe(1000);
     expect(parseMobileReaderRouteNumber("0x10")).toBeUndefined();

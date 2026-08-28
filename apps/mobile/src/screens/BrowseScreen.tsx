@@ -69,7 +69,10 @@ import {
   shouldRenderMobileBrowseSkeleton,
 } from "@/lib/mobileBrowseSources";
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
-import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
+import {
+  describeMobileErrorDetail,
+  getMobileSourceErrorPresentation,
+} from "@/lib/mobileSourceErrors";
 import { sortSourcesByLanguagePriority } from "@/lib/mobileLanguageSettings";
 import {
   markMobilePerformance,
@@ -150,7 +153,10 @@ function UnsupportedSourceRow({
         <View style={styles.unsupportedSourceTitleRow}>
           <Text
             numberOfLines={1}
-            style={[styles.unsupportedSourceTitle, { color: tokens.foreground }]}
+            style={[
+              styles.unsupportedSourceTitle,
+              { color: tokens.foreground },
+            ]}
           >
             {source.name}
           </Text>
@@ -410,8 +416,12 @@ function LanguageFilterSheetSection({
 }) {
   const visibleLanguages = languages.filter((language) => language !== "all");
   const allLanguagesSelected = selectedLanguages.size === 0;
-  const pinnedLanguages = visibleLanguages.filter((language) => language === "multi");
-  const listLanguages = visibleLanguages.filter((language) => language !== "multi");
+  const pinnedLanguages = visibleLanguages.filter(
+    (language) => language === "multi",
+  );
+  const listLanguages = visibleLanguages.filter(
+    (language) => language !== "multi",
+  );
 
   return (
     <>
@@ -632,7 +642,9 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
               size={16}
               color={tokens.success}
             />
-            <Text style={[styles.installText, { color: tokens.mutedForeground }]}>
+            <Text
+              style={[styles.installText, { color: tokens.mutedForeground }]}
+            >
               {strings.browse.installed}
             </Text>
           </View>
@@ -776,6 +788,10 @@ export function BrowseScreen() {
 
   const loading = installed.loading || available.loading;
   const error = installed.error ?? available.error;
+  const errorPresentation = useMemo(
+    () => (error ? getMobileSourceErrorPresentation(error, strings) : null),
+    [error, strings],
+  );
   const showSkeleton = shouldRenderMobileBrowseSkeleton({
     loading,
     installedCount: installed.data.length,
@@ -851,9 +867,13 @@ export function BrowseScreen() {
     });
     try {
       await waitForInstallSheetFrame();
-      measureMobilePerformance("source.install.sheet-visible", installStartedAt, {
-        key,
-      });
+      measureMobilePerformance(
+        "source.install.sheet-visible",
+        installStartedAt,
+        {
+          key,
+        },
+      );
       if (source.icon) {
         void prefetchCachedMobileImages([{ uri: source.icon }]);
       }
@@ -920,7 +940,11 @@ export function BrowseScreen() {
     }: {
       section: SectionListData<MobileRegistrySource, AvailableSourceSection>;
     }) => {
-      const label = formatSourceLanguageLabel(section.label, strings, appLanguage);
+      const label = formatSourceLanguageLabel(
+        section.label,
+        strings,
+        appLanguage,
+      );
       return (
         <Text
           style={[
@@ -938,7 +962,10 @@ export function BrowseScreen() {
   const renderAvailableSourceRow = useCallback(
     ({
       item: source,
-    }: SectionListRenderItemInfo<MobileRegistrySource, AvailableSourceSection>) => {
+    }: SectionListRenderItemInfo<
+      MobileRegistrySource,
+      AvailableSourceSection
+    >) => {
       const key = makeSourceKey(source.registryId, source.id);
       return (
         <AvailableSourceRow
@@ -1069,8 +1096,12 @@ export function BrowseScreen() {
 
         {error ? (
           <EmptyLibrary
-            title={strings.browse.sourcesUnavailable}
-            description={error}
+            title={
+              errorPresentation?.title ?? strings.browse.sourcesUnavailable
+            }
+            description={
+              errorPresentation?.detail ?? strings.browse.sourcesUnavailable
+            }
             actionLabel={strings.common.retry}
             actionDisabled={refreshDisabled}
             actionLoading={refreshingSources}

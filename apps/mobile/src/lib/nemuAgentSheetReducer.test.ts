@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   initialNemuAgentSheetState,
   reduceNemuAgentSheet,
+  shouldOfferNemuAgentVerificationAction,
   type NemuAgentSheetState,
 } from "./nemuAgentSheetReducer";
 
@@ -18,6 +19,27 @@ const opened = (url?: string): NemuAgentSheetState => ({
 });
 
 describe("reduceNemuAgentSheet", () => {
+  test("never offers verification when the native capability is unavailable", () => {
+    for (const status of [
+      "needs-verification",
+      "opening",
+      "waiting",
+      "captcha",
+      "success",
+      "failed",
+    ] as const) {
+      expect(shouldOfferNemuAgentVerificationAction(status, false, true)).toBe(false);
+    }
+    expect(
+      shouldOfferNemuAgentVerificationAction("needs-verification", true, true),
+    ).toBe(true);
+    expect(shouldOfferNemuAgentVerificationAction("failed", true, true)).toBe(true);
+    expect(shouldOfferNemuAgentVerificationAction("waiting", true, true)).toBe(false);
+    expect(
+      shouldOfferNemuAgentVerificationAction("needs-verification", true, false),
+    ).toBe(false);
+  });
+
   test("starts hidden in the needs-verification state", () => {
     expect(initialNemuAgentSheetState).toEqual({
       visible: false,
@@ -31,6 +53,28 @@ describe("reduceNemuAgentSheet", () => {
       error: cloudflareError("https://protected.test/list"),
     });
     expect(next).toEqual(opened("https://protected.test/list"));
+  });
+
+  test("keeps required HTTPS challenge parameters for a capable native solver", () => {
+    const url = "https://protected.test/list?ray=abc&return=%2Fread#challenge";
+    const next = reduceNemuAgentSheet(initialNemuAgentSheetState, {
+      type: "report-error",
+      error: cloudflareError(url),
+    });
+    expect(next).toEqual(opened(url));
+  });
+
+  test("never captures insecure or credentialed URLs for native verification", () => {
+    for (const url of [
+      "http://protected.test/list?ray=abc",
+      "https://user:pass@protected.test/list?ray=abc",
+    ]) {
+      const next = reduceNemuAgentSheet(initialNemuAgentSheetState, {
+        type: "report-error",
+        error: cloudflareError(url),
+      });
+      expect(next).toEqual(opened());
+    }
   });
 
   test("ignores non-cloudflare errors so callers can pipe every error through", () => {
@@ -102,6 +146,24 @@ describe("reduceNemuAgentSheet", () => {
       url: "https://x.test",
     });
     expect(next).toEqual({ visible: true, status: "waiting", url: "https://x.test" });
+  });
+
+  test("native events cannot replace a validated challenge URL with an unsafe one", () => {
+    const opening: NemuAgentSheetState = {
+      visible: true,
+      status: "opening",
+      url: "https://x.test/challenge?ray=abc",
+    };
+    const next = reduceNemuAgentSheet(opening, {
+      type: "event",
+      event: "nemuAidokuCfSolveStart",
+      url: "https://user:pass@private.test/challenge",
+    });
+    expect(next).toEqual({
+      visible: true,
+      status: "waiting",
+      url: "https://x.test/challenge?ray=abc",
+    });
   });
 
   test("waiting event is idempotent from the waiting state", () => {

@@ -1,4 +1,5 @@
 import { FileSystemBinaryCache } from "@/data/nativeCache";
+import { File } from "expo-file-system";
 import type { NativeBinaryCachePolicy } from "@/data/nativeCachePolicy";
 import { Platform } from "react-native";
 import { MOBILE_REMOTE_IMAGE_MAX_BYTES } from "./mobileRemoteImageSafety";
@@ -15,11 +16,98 @@ import {
   registerMobileSourceProfileTransitionHandler,
 } from "@/sources/mobileSourceProfileScope";
 import { makeMobileImageCacheStorageKey } from "./mobileImageCacheKey";
+import { parseNativeSegmentedImageCacheManifest } from "@/data/nativeSegmentedImageCache";
 
 export type MobileImageCacheSource = {
   uri?: string | null;
   headers?: Record<string, string>;
 };
+
+export type MobileCachedImageFileAsset = Readonly<{
+  kind: "file";
+  uri: string;
+}>;
+
+export type MobileCachedImageSegment = Readonly<{
+  uri: string;
+  byteLength: number;
+  width: number;
+  height: number;
+  mimeType: "image/jpeg" | "image/png";
+}>;
+
+export type MobileCachedSegmentedImageAsset = Readonly<{
+  kind: "segmented-image";
+  manifestVersion: 1;
+  generation: string;
+  manifestUri: string;
+  byteLength: number;
+  width: number;
+  height: number;
+  segments: ReadonlyArray<MobileCachedImageSegment>;
+}>;
+
+export type MobileCachedImageAsset =
+  | MobileCachedImageFileAsset
+  | MobileCachedSegmentedImageAsset;
+
+export function retainCachedMobileImageAsset(
+  asset: MobileCachedImageAsset | null | undefined,
+): () => void {
+  return asset?.kind === "segmented-image"
+    ? mobileImageCache.retainSegmentedImageManifest(asset.manifestUri)
+    : () => undefined;
+}
+
+const SEGMENT_MANIFEST_FILE_PATTERN =
+  /^(.*)\.segments-v1-([a-z0-9]{10}-[a-z0-9]{6}-[a-z0-9]{10})\.json$/;
+
+function readCachedMobileImageAsset(
+  locatorUri: string,
+): MobileCachedImageAsset | null {
+  const locator = new File(locatorUri);
+  const match = SEGMENT_MANIFEST_FILE_PATTERN.exec(locator.name);
+  if (!match) return { kind: "file", uri: locatorUri };
+  try {
+    const locatorSize = locator.info().size ?? 0;
+    if (!locator.exists || locatorSize <= 0 || locatorSize > 64 * 1024)
+      return null;
+    const manifest = parseNativeSegmentedImageCacheManifest(
+      JSON.parse(locator.textSync()) as unknown,
+      match[1]!,
+      MOBILE_REMOTE_IMAGE_MAX_BYTES,
+    );
+    if (!manifest || manifest.generation !== match[2]) return null;
+    const directoryUri = locator.uri.slice(0, locator.uri.lastIndexOf("/") + 1);
+    const segments = manifest.segments.map((segment) => {
+      const member = new File(`${directoryUri}${segment.fileName}`);
+      if (!member.exists || (member.info().size ?? 0) !== segment.byteLength) {
+        throw new Error(
+          "Segmented image cache member is missing or incomplete.",
+        );
+      }
+      return {
+        uri: member.uri,
+        byteLength: segment.byteLength,
+        width: segment.width,
+        height: segment.height,
+        mimeType: segment.mimeType,
+      };
+    });
+    return {
+      kind: "segmented-image",
+      manifestVersion: 1,
+      generation: manifest.generation,
+      manifestUri: locator.uri,
+      byteLength: manifest.byteLength,
+      width: manifest.width,
+      height: manifest.height,
+      segments,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export const MOBILE_IMAGE_CACHE_REQUIRES_LOCAL_FILE = true;
 
@@ -108,6 +196,26 @@ export function getCachedMobileImageUriSync(
   );
 }
 
+export function getCachedMobileImageAssetSync(
+  source: MobileImageCacheSource | null | undefined,
+  cacheKey?: string,
+  executionScope = getActiveMobileSourceProfileScope(),
+): MobileCachedImageAsset | null {
+  if (!source?.uri || !isCacheableMobileImageUri(source.uri)) return null;
+  return getCachedMobileImageAssetByStorageKeySync(
+    mobileImageCacheStorageKey(source, cacheKey, executionScope),
+  );
+}
+
+/** Avoid re-reading a segmented manifest when its exact storage identity is unchanged. */
+export function getCachedMobileImageAssetByStorageKeySync(
+  storageKey: string,
+): MobileCachedImageAsset | null {
+  if (!storageKey) return null;
+  const locator = mobileImageCacheCoordinator.getResolvedUri(storageKey);
+  return locator ? readCachedMobileImageAsset(locator) : null;
+}
+
 export async function resolveCachedMobileImageUri(
   source: MobileImageCacheSource | null | undefined,
   cacheKey?: string,
@@ -137,6 +245,41 @@ export async function resolveCachedMobileImageUri(
     },
     options,
   );
+}
+
+export async function resolveCachedMobileImageAsset(
+  source: MobileImageCacheSource | null | undefined,
+  cacheKey?: string,
+  executionScope = getActiveMobileSourceProfileScope(),
+  options: MobileImageCacheResolveOptions = {},
+): Promise<MobileCachedImageAsset | null> {
+  if (!source?.uri || !isCacheableMobileImageUri(source.uri)) return null;
+  const key = mobileImageCacheStorageKey(source, cacheKey, executionScope);
+  const locator = await mobileImageCacheCoordinator.resolve(
+    key,
+    (signal) =>
+      mobileImageCache.downloadFile(
+        key,
+        source.uri!,
+        imageContentTypeForUri(source.uri!),
+        {
+          headers: imageDownloadHeaders(source.headers),
+          maxBytes: MOBILE_REMOTE_IMAGE_MAX_BYTES,
+          maxImageDimension: MOBILE_IMAGE_MAX_DIMENSION,
+          maxImagePixels: MOBILE_IMAGE_MAX_DECODED_PIXELS,
+          allowLongStripSegments: Platform.OS === "android",
+          signal,
+        },
+      ),
+    options,
+  );
+  if (!locator) return null;
+  const asset = readCachedMobileImageAsset(locator);
+  if (asset) return asset;
+  // A manifest locator without a complete validated generation is corrupt.
+  // Remove it before a bounded retry can repopulate the key.
+  await mobileImageCacheCoordinator.invalidate(key);
+  throw new Error("The segmented image cache entry is incomplete.");
 }
 
 export function invalidateCachedMobileImage(

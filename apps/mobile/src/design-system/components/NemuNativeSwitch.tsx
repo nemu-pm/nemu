@@ -5,7 +5,10 @@ import {
 } from "@expo/ui/jetpack-compose";
 import { testID as composeTestID } from "@expo/ui/jetpack-compose/modifiers";
 import { Host as SwiftHost } from "@expo/ui/swift-ui";
-import { tint } from "@expo/ui/swift-ui/modifiers";
+import {
+  accessibilityLabel as swiftAccessibilityLabel,
+  tint,
+} from "@expo/ui/swift-ui/modifiers";
 import { Platform, StyleSheet, Switch as RNSwitch, View } from "react-native";
 import { useNemuTheme } from "@/design/useNemuTheme";
 
@@ -37,7 +40,10 @@ export function NemuNativeSwitch({
         <SwiftHost colorScheme={scheme} matchContents style={styles.swiftHost}>
           <ExpoSwitch
             disabled={disabled}
-            modifiers={[tint(tokens.primary)]}
+            modifiers={[
+              swiftAccessibilityLabel(accessibilityLabel),
+              tint(tokens.primary),
+            ]}
             testID={testID}
             value={value}
             onValueChange={onValueChange}

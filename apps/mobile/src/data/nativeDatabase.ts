@@ -1,11 +1,62 @@
 import type { SQLiteDatabase } from "expo-sqlite";
+import {
+  createMobileSourceSettingsVault,
+  decodeLegacyMobileSourceSettings,
+  decodeMobileSourceSettingsVaultMarker,
+  encodeMobileSourceSettingsVaultMarker,
+} from "./mobileSourceSettingsVault";
 
 export const MOBILE_DATABASE_NAME = "nemu-mobile.db";
 export const MOBILE_ANONYMOUS_DATABASE_NAME = "nemu-mobile-anonymous.db";
 
-const DATABASE_VERSION = 5;
+const DATABASE_VERSION = 6;
+
+type SourceSettingsRow = {
+  sourceKey: string;
+  json: string;
+};
+
+async function migrateSourceSettingsToSecureVault(
+  db: SQLiteDatabase,
+): Promise<void> {
+  const vault = createMobileSourceSettingsVault(db.databasePath);
+  const rows = await db.getAllAsync<SourceSettingsRow>(
+    "SELECT sourceKey, json FROM source_settings",
+  );
+  const replacements: Array<{ sourceKey: string; marker: string }> = [];
+
+  for (const row of rows) {
+    const marker = decodeMobileSourceSettingsVaultMarker(row.json);
+    if (marker) {
+      if (!vault.isValidRef(marker.ref)) {
+        throw new TypeError("Invalid secure mobile source settings reference.");
+      }
+      continue;
+    }
+    const settings = decodeLegacyMobileSourceSettings(row.json, row.sourceKey);
+    const ref = await vault.put(settings);
+    replacements.push({
+      sourceKey: row.sourceKey,
+      marker: encodeMobileSourceSettingsVaultMarker(ref),
+    });
+  }
+
+  if (replacements.length === 0) return;
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    for (const replacement of replacements) {
+      await txn.runAsync(
+        "UPDATE source_settings SET json = ? WHERE sourceKey = ?",
+        replacement.marker,
+        replacement.sourceKey,
+      );
+    }
+  });
+}
 
 export async function migrateNativeDatabase(db: SQLiteDatabase) {
+  // Ensure future updates/deletes overwrite credential-bearing SQLite cells.
+  // The v6 migration also checkpoints and vacuums historical plaintext below.
+  await db.execAsync("PRAGMA secure_delete = ON;");
   const current = await db.getFirstAsync<{ user_version: number }>("PRAGMA user_version");
   const currentVersion = current?.user_version ?? 0;
   if (currentVersion >= DATABASE_VERSION) return;
@@ -170,6 +221,15 @@ CREATE TABLE IF NOT EXISTS sync_health (
   updatedAt INTEGER NOT NULL
 );
 `);
+  }
+
+  if (currentVersion < 6) {
+    await migrateSourceSettingsToSecureVault(db);
+    // Plaintext source credentials may exist in both the main file and its
+    // WAL. Complete physical cleanup before recording v6 so an interrupted
+    // attempt is retried on the next launch.
+    await db.execAsync("PRAGMA wal_checkpoint(TRUNCATE);");
+    await db.execAsync("VACUUM;");
   }
 
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);

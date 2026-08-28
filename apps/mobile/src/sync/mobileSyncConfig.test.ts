@@ -43,9 +43,16 @@ describe("mobile sync config", () => {
 
   test("derives the Convex site URL from a cloud URL", () => {
     expect(deriveConvexSiteUrl("https://example.convex.cloud")).toBe(
-      "https://example.convex.site"
+      "https://example.convex.site",
     );
     expect(deriveConvexSiteUrl("https://example.com")).toBeNull();
+    expect(deriveConvexSiteUrl("http://example.convex.cloud")).toBeNull();
+    expect(
+      deriveConvexSiteUrl("https://example.convex.cloud.attacker.test"),
+    ).toBeNull();
+    expect(
+      deriveConvexSiteUrl("https://user:secret@example.convex.cloud"),
+    ).toBeNull();
   });
 
   test("resolves the first non-empty Expo scheme", () => {
@@ -60,7 +67,7 @@ describe("mobile sync config", () => {
         EXPO_PUBLIC_CONVEX_URL: "https://expo.convex.cloud",
         EXPO_PUBLIC_CONVEX_SITE_URL: "https://expo.convex.site",
         VITE_CONVEX_URL: "https://vite.convex.cloud",
-      })
+      }),
     ).toMatchObject({
       convexUrl: "https://expo.convex.cloud",
       siteUrl: "https://expo.convex.site",
@@ -70,11 +77,43 @@ describe("mobile sync config", () => {
     expect(
       getMobileSyncConfig({
         VITE_CONVEX_URL: "https://vite.convex.cloud",
-      })
+      }),
     ).toMatchObject({
       convexUrl: "https://vite.convex.cloud",
       siteUrl: "https://vite.convex.site",
       configured: true,
+    });
+
+    expect(
+      getMobileSyncConfig({
+        EXPO_PUBLIC_CONVEX_URL: "https://sync.example.com",
+        EXPO_PUBLIC_CONVEX_SITE_URL: "https://auth.example.com",
+      }),
+    ).toMatchObject({
+      convexUrl: "https://sync.example.com",
+      siteUrl: "https://auth.example.com",
+      configured: true,
+    });
+  });
+
+  test("fails closed for unsafe endpoints and never derives from attacker suffixes", () => {
+    expect(
+      getMobileSyncConfig({
+        EXPO_PUBLIC_CONVEX_URL: "http://demo.convex.cloud",
+        EXPO_PUBLIC_CONVEX_SITE_URL: "https://demo.convex.site",
+      }),
+    ).toMatchObject({ convexUrl: null, configured: false });
+
+    expect(
+      getMobileSyncConfig({
+        EXPO_PUBLIC_CONVEX_URL:
+          "https://user:secret@demo.convex.cloud",
+        EXPO_PUBLIC_CONVEX_SITE_URL: "https://demo.convex.site/api",
+      }),
+    ).toMatchObject({
+      convexUrl: null,
+      siteUrl: null,
+      configured: false,
     });
   });
 });

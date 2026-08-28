@@ -3,15 +3,36 @@ import type {
   SourcePackageField,
   SourcePackageListing,
   SourcePackageMetadata,
-  SourcePackageSetting,
 } from "@/data/schema";
+import {
+  MAX_CORE_SETTING_KEY_LENGTH,
+  MAX_CORE_SETTING_NODES,
+  MAX_CORE_SETTING_OPTIONS,
+  MAX_CORE_SETTING_SCHEMA_STRING_CHARS,
+  MAX_CORE_SETTING_STRING_LENGTH,
+  MAX_CORE_SETTING_URL_LENGTH,
+  isUnsafeSettingTextCodePoint,
+  sanitizeSettingDisplayText,
+} from "@nemu/core";
 import {
   MOBILE_AIX_PACKAGE_LIMITS,
   SourcePackageLimitError,
   assertAixCompressedByteLength,
 } from "./sourcePackageSafety";
+import { sanitizeMobileSourceSettings } from "./mobileSourceSettingsSafety";
 
 type JsonObject = Record<string, unknown>;
+
+export const MOBILE_AIX_METADATA_LIMITS = {
+  maxCollectionItems: MAX_CORE_SETTING_NODES,
+  maxOptionItems: MAX_CORE_SETTING_OPTIONS,
+  maxKeyLength: MAX_CORE_SETTING_KEY_LENGTH,
+  maxStringLength: MAX_CORE_SETTING_STRING_LENGTH,
+  maxUrlLength: MAX_CORE_SETTING_URL_LENGTH,
+  maxTotalStringChars: MAX_CORE_SETTING_SCHEMA_STRING_CHARS,
+} as const;
+
+type MetadataStringBudget = { remaining: number };
 
 const AIX_MANIFEST_PATH = "Payload/source.json";
 const AIX_FILTERS_PATH = "Payload/filters.json";
@@ -97,7 +118,9 @@ function inspectAixArchive(aixBytes: Uint8Array): AixArchiveInspection {
   return { hasWasm };
 }
 
-function extractAixMetadataFiles(aixBytes: Uint8Array): Record<string, Uint8Array> {
+function extractAixMetadataFiles(
+  aixBytes: Uint8Array,
+): Record<string, Uint8Array> {
   const files = unzipSync(aixBytes, {
     filter(entry) {
       return AIX_METADATA_PATHS.has(entry.name);
@@ -121,27 +144,166 @@ function extractAixMetadataFiles(aixBytes: Uint8Array): Record<string, Uint8Arra
 }
 
 function asObject(value: unknown): JsonObject | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonObject)
-    : null;
+  if (!value || typeof value !== "object") return null;
+  try {
+    if (Array.isArray(value)) return null;
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null
+      ? (value as JsonObject)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+function ownValue(record: JsonObject, key: string): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    return descriptor && "value" in descriptor ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function safeArrayLength(value: readonly unknown[]): number {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, "length");
+    const length = descriptor && "value" in descriptor ? descriptor.value : 0;
+    return Number.isSafeInteger(length) && length >= 0 ? length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function safeArrayValue(value: readonly unknown[], index: number): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    return descriptor && "value" in descriptor ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isSafeAtomicString(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (
+      codePoint < 0x20 ||
+      codePoint === 0x7f ||
+      codePoint === 0x200c ||
+      codePoint === 0x200d ||
+      isUnsafeSettingTextCodePoint(codePoint)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function takeString(
+  value: unknown,
+  budget: MetadataStringBudget,
+  maxLength: number = MOBILE_AIX_METADATA_LIMITS.maxStringLength,
+  display = false,
+): string | undefined {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maxLength
+  ) {
+    return undefined;
+  }
+  const result = display ? sanitizeSettingDisplayText(value, maxLength) : value;
+  if (
+    !result ||
+    (!display && (result.trim().length === 0 || !isSafeAtomicString(result)))
+  ) {
+    return undefined;
+  }
+  if (result.length > budget.remaining) return undefined;
+  budget.remaining -= result.length;
+  return result;
 }
 
 function asNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
-function asStringArray(value: unknown): string[] | undefined {
+function asNonNegativeSafeInteger(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && (value as number) >= 0
+    ? (value as number)
+    : undefined;
+}
+
+function takeStringArray(
+  value: unknown,
+  budget: MetadataStringBudget,
+  maxStringLength: number = MOBILE_AIX_METADATA_LIMITS.maxStringLength,
+): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const strings = value.filter((item): item is string => typeof item === "string" && item.length > 0);
-  return strings.length ? strings : undefined;
+  const strings: string[] = [];
+  const seen = new Set<string>();
+  const end = Math.min(
+    safeArrayLength(value),
+    MOBILE_AIX_METADATA_LIMITS.maxOptionItems,
+  );
+  for (let index = 0; index < end; index += 1) {
+    const item = takeString(
+      safeArrayValue(value, index),
+      budget,
+      maxStringLength,
+    );
+    if (!item || seen.has(item)) continue;
+    seen.add(item);
+    strings.push(item);
+  }
+  return strings.length > 0 ? strings : undefined;
 }
 
-function asBoolean(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
+function takeHttpUrl(
+  value: unknown,
+  budget: MetadataStringBudget,
+): string | undefined {
+  const raw = takeString(
+    value,
+    budget,
+    MOBILE_AIX_METADATA_LIMITS.maxUrlLength,
+  );
+  if (!raw) return undefined;
+  try {
+    const normalized = raw.trim();
+    const parsed = new URL(normalized);
+    return parsed.hostname &&
+      !parsed.username &&
+      !parsed.password &&
+      (parsed.protocol === "https:" || parsed.protocol === "http:")
+      ? normalized
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function takeUrlArray(
+  value: unknown,
+  budget: MetadataStringBudget,
+): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const end = Math.min(
+    safeArrayLength(value),
+    MOBILE_AIX_METADATA_LIMITS.maxOptionItems,
+  );
+  for (let index = 0; index < end; index += 1) {
+    const url = takeHttpUrl(safeArrayValue(value, index), budget);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    urls.push(url);
+  }
+  return urls.length > 0 ? urls : undefined;
 }
 
 function parseJson(bytes: Uint8Array | undefined): unknown {
@@ -149,158 +311,89 @@ function parseJson(bytes: Uint8Array | undefined): unknown {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-function parseObjectArray(bytes: Uint8Array | undefined): JsonObject[] | undefined {
-  const parsed = parseJson(bytes);
-  if (!Array.isArray(parsed)) return undefined;
-  const objects = parsed.map(asObject).filter((item): item is JsonObject => item !== null);
-  return objects.length ? objects : undefined;
-}
-
-function normalizeListings(value: unknown): SourcePackageListing[] {
+function normalizeListings(
+  value: unknown,
+  budget: MetadataStringBudget,
+): SourcePackageListing[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .map(asObject)
-    .filter((item): item is JsonObject => item !== null)
-    .map((item, index) => {
-      const id = asString(item.id) ?? asString(item.name) ?? `listing-${index}`;
-      const kind = asNumber(item.kind);
-      const listing: SourcePackageListing = {
+  const listings: SourcePackageListing[] = [];
+  const end = Math.min(
+    safeArrayLength(value),
+    MOBILE_AIX_METADATA_LIMITS.maxCollectionItems,
+  );
+  for (let index = 0; index < end; index += 1) {
+    const item = asObject(safeArrayValue(value, index));
+    if (!item) continue;
+    const id =
+      takeString(
+        ownValue(item, "id"),
+        budget,
+        MOBILE_AIX_METADATA_LIMITS.maxKeyLength,
+      ) ??
+      takeString(
+        ownValue(item, "name"),
+        budget,
+        MOBILE_AIX_METADATA_LIMITS.maxKeyLength,
+      ) ??
+      `listing-${index}`;
+    const kind = asNumber(ownValue(item, "kind"));
+    const listing: SourcePackageListing = {
+      id,
+      name:
+        takeString(ownValue(item, "name"), budget, undefined, true) ??
+        takeString(ownValue(item, "title"), budget, undefined, true) ??
         id,
-        name: asString(item.name) ?? asString(item.title) ?? id,
-      };
-      if (kind === 0 || kind === 1) listing.kind = kind;
-      return listing;
-    });
+    };
+    if (kind === 0 || kind === 1) listing.kind = kind;
+    listings.push(listing);
+  }
+  return listings;
 }
 
-function normalizeFields(value: unknown): SourcePackageField[] {
+function normalizeFields(
+  value: unknown,
+  budget: MetadataStringBudget,
+): SourcePackageField[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .map(asObject)
-    .filter((item): item is JsonObject => item !== null)
-    .map((item) => {
-      const id = asString(item.id);
-      const title = asString(item.title) ?? asString(item.name) ?? id ?? "Filter";
-      const options = Array.isArray(item.options) ? item.options : undefined;
-      return {
-        id,
-        title,
-        type: asString(item.type) ?? "unknown",
-        optionCount: options?.length,
-      };
-    });
+  const fields: SourcePackageField[] = [];
+  const end = Math.min(
+    safeArrayLength(value),
+    MOBILE_AIX_METADATA_LIMITS.maxCollectionItems,
+  );
+  for (let index = 0; index < end; index += 1) {
+    const item = asObject(safeArrayValue(value, index));
+    if (!item) continue;
+    const id = takeString(
+      ownValue(item, "id"),
+      budget,
+      MOBILE_AIX_METADATA_LIMITS.maxKeyLength,
+    );
+    const title =
+      takeString(ownValue(item, "title"), budget, undefined, true) ??
+      takeString(ownValue(item, "name"), budget, undefined, true) ??
+      id ??
+      "Filter";
+    const type =
+      takeString(
+        ownValue(item, "type"),
+        budget,
+        MOBILE_AIX_METADATA_LIMITS.maxKeyLength,
+      ) ?? "unknown";
+    const options = ownValue(item, "options");
+    const optionCount = Array.isArray(options)
+      ? Math.min(
+          safeArrayLength(options),
+          MOBILE_AIX_METADATA_LIMITS.maxOptionItems,
+        )
+      : undefined;
+    fields.push({ id, title, type, optionCount });
+  }
+  return fields;
 }
 
-function normalizeSettings(value: unknown): SourcePackageSetting[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map(asObject)
-    .filter((item): item is JsonObject => item !== null)
-    .map((item, index) => {
-      const key = asString(item.key) ?? asString(item.id) ?? `setting-${index}`;
-      const optionValues = asStringArray(item.values) ?? asStringArray(item.options);
-      const optionTitles = asStringArray(item.titles) ?? asStringArray(item.labels);
-      const children = normalizeSettings(item.items);
-      const stringDefault = asString(item.default);
-      const numberDefault = asNumber(item.default);
-      const booleanDefault = asBoolean(item.default);
-      const arrayDefault = asStringArray(item.default);
-      const setting: SourcePackageSetting = {
-        key,
-        title: asString(item.title) ?? asString(item.name) ?? key,
-        type: asString(item.type) ?? "unknown",
-      };
-      const subtitle = asString(item.subtitle) ?? asString(item.description);
-      const footer = asString(item.footer);
-      const defaultValue = stringDefault ?? numberDefault ?? booleanDefault ?? arrayDefault;
-      const min = asNumber(item.min) ?? asNumber(item.minimum);
-      const max = asNumber(item.max) ?? asNumber(item.maximum);
-      const step = asNumber(item.step);
-      const placeholder = asString(item.placeholder);
-      const secure = asBoolean(item.secure) ?? asBoolean(item.password);
-      const requires = asString(item.requires);
-      const requiresFalse = asString(item.requiresFalse);
-      const requiresFeature = asString(item.requiresFeature);
-      const notification = asString(item.notification);
-      const refreshes = asStringArray(item.refreshes)?.filter(
-        (value): value is "content" | "listings" | "settings" | "filters" =>
-          value === "content" ||
-          value === "listings" ||
-          value === "settings" ||
-          value === "filters",
-      );
-      const action = asString(item.action);
-      const url = asString(item.url);
-      const urlKey = asString(item.urlKey);
-      const rawMethod = asString(item.method);
-      const method =
-        rawMethod === "basic" || rawMethod === "web" || rawMethod === "oauth"
-          ? rawMethod
-          : undefined;
-      const logoutTitle = asString(item.logoutTitle);
-      const localStorageKeys = asStringArray(item.localStorageKeys);
-      const useEmail = asBoolean(item.useEmail);
-      const external = asBoolean(item.external);
-      const destructive = asBoolean(item.destructive);
-      const confirmTitle = asString(item.confirmTitle);
-      const confirmMessage = asString(item.confirmMessage);
-      const callbackScheme = asString(item.callbackScheme);
-      const tokenUrl = asString(item.tokenUrl);
-      const pkce = asBoolean(item.pkce);
-      const info = asString(item.info);
-      const icon = asObject(item.icon);
-      const optionCount = optionValues?.length ?? optionTitles?.length;
-
-      if (subtitle) setting.subtitle = subtitle;
-      if (footer) setting.footer = footer;
-      if (optionCount !== undefined) setting.optionCount = optionCount;
-      if (optionValues) setting.values = optionValues;
-      if (optionTitles) setting.titles = optionTitles;
-      if (defaultValue !== undefined) setting.default = defaultValue;
-      if (min !== undefined) setting.min = min;
-      if (max !== undefined) setting.max = max;
-      if (step !== undefined) setting.step = step;
-      if (placeholder) setting.placeholder = placeholder;
-      if (secure !== undefined) setting.secure = secure;
-      if (requires) setting.requires = requires;
-      if (requiresFalse) setting.requiresFalse = requiresFalse;
-      if (requiresFeature) setting.requiresFeature = requiresFeature;
-      if (notification) setting.notification = notification;
-      if (refreshes?.length) setting.refreshes = refreshes;
-      if (action) setting.action = action;
-      if (url) setting.url = url;
-      if (urlKey) setting.urlKey = urlKey;
-      if (method) setting.method = method;
-      if (logoutTitle) setting.logoutTitle = logoutTitle;
-      if (localStorageKeys) setting.localStorageKeys = localStorageKeys;
-      if (useEmail !== undefined) setting.useEmail = useEmail;
-      if (external !== undefined) setting.external = external;
-      if (destructive !== undefined) setting.destructive = destructive;
-      if (confirmTitle) setting.confirmTitle = confirmTitle;
-      if (confirmMessage) setting.confirmMessage = confirmMessage;
-      if (callbackScheme) setting.callbackScheme = callbackScheme;
-      if (tokenUrl) setting.tokenUrl = tokenUrl;
-      if (pkce !== undefined) setting.pkce = pkce;
-      if (info) setting.info = info;
-      if (icon) {
-        const iconType = asString(icon.type);
-        const normalizedIcon: SourcePackageSetting["icon"] = {};
-        const iconName = asString(icon.name);
-        const iconUrl = asString(icon.url);
-        const iconColor = asString(icon.color);
-        if (iconType === "system" || iconType === "url") normalizedIcon.type = iconType;
-        if (iconName) normalizedIcon.name = iconName;
-        if (iconUrl) normalizedIcon.url = iconUrl;
-        if (iconColor) normalizedIcon.color = iconColor;
-        if (Object.keys(normalizedIcon).length) setting.icon = normalizedIcon;
-      }
-      if (children.length) setting.items = children;
-
-      return setting;
-    });
-}
-
-export function extractAixMetadata(aixBytes: Uint8Array): SourcePackageMetadata {
+export function extractAixMetadata(
+  aixBytes: Uint8Array,
+): SourcePackageMetadata {
   assertAixCompressedByteLength(aixBytes.byteLength);
   const archive = inspectAixArchive(aixBytes);
   const files = extractAixMetadataFiles(aixBytes);
@@ -309,35 +402,59 @@ export function extractAixMetadata(aixBytes: Uint8Array): SourcePackageMetadata 
     throw new Error("Invalid .aix package: missing Payload/source.json");
   }
 
-  const info = asObject(manifest.info);
+  const info = asObject(ownValue(manifest, "info"));
   if (!info) {
     throw new Error("Invalid .aix package: missing manifest info");
   }
 
-  const sourceId = asString(info.id);
-  const name = asString(info.name) ?? sourceId;
+  const stringBudget: MetadataStringBudget = {
+    remaining: MOBILE_AIX_METADATA_LIMITS.maxTotalStringChars,
+  };
+  const sourceId = takeString(
+    ownValue(info, "id"),
+    stringBudget,
+    MOBILE_AIX_METADATA_LIMITS.maxKeyLength,
+  );
+  const name =
+    takeString(ownValue(info, "name"), stringBudget, undefined, true) ??
+    sourceId;
   if (!sourceId || !name) {
     throw new Error("Invalid .aix package: missing source id or name");
   }
 
-  const filtersJson = parseObjectArray(files[AIX_FILTERS_PATH]);
-  const settingsJson = parseObjectArray(files[AIX_SETTINGS_PATH]);
-  const languageFallback = asString(info.lang);
+  const filtersJson = parseJson(files[AIX_FILTERS_PATH]);
+  const settingsJson = parseJson(files[AIX_SETTINGS_PATH]);
+  const languageFallback = takeString(
+    ownValue(info, "lang"),
+    stringBudget,
+    MOBILE_AIX_METADATA_LIMITS.maxKeyLength,
+  );
+  const rawManifestFilters = ownValue(manifest, "filters");
   const manifestFilters =
-    Array.isArray(manifest.filters) && manifest.filters.length > 0
-      ? manifest.filters
+    Array.isArray(rawManifestFilters) && safeArrayLength(rawManifestFilters) > 0
+      ? rawManifestFilters
       : filtersJson;
+  const languages =
+    takeStringArray(
+      ownValue(info, "languages"),
+      stringBudget,
+      MOBILE_AIX_METADATA_LIMITS.maxKeyLength,
+    ) ?? (languageFallback ? [languageFallback] : undefined);
+  const singleUrl = takeHttpUrl(ownValue(info, "url"), stringBudget);
+  const urls =
+    takeUrlArray(ownValue(info, "urls"), stringBudget) ??
+    (singleUrl ? [singleUrl] : undefined);
 
   return {
     sourceId,
     name,
-    version: asNumber(info.version) ?? 1,
-    languages: asStringArray(info.languages) ?? (languageFallback ? [languageFallback] : undefined),
-    contentRating: asNumber(info.contentRating),
-    urls: asStringArray(info.urls) ?? (asString(info.url) ? [asString(info.url) as string] : undefined),
-    listings: normalizeListings(manifest.listings),
-    filters: normalizeFields(manifestFilters),
-    settings: normalizeSettings(settingsJson),
+    version: asNonNegativeSafeInteger(ownValue(info, "version")) ?? 1,
+    languages,
+    contentRating: asNonNegativeSafeInteger(ownValue(info, "contentRating")),
+    urls,
+    listings: normalizeListings(ownValue(manifest, "listings"), stringBudget),
+    filters: normalizeFields(manifestFilters, stringBudget),
+    settings: sanitizeMobileSourceSettings(settingsJson),
     hasWasm: archive.hasWasm,
   };
 }

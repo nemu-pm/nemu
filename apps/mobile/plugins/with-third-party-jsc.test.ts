@@ -6,7 +6,10 @@ const require = createRequire(import.meta.url);
 
 type AndroidManifest = {
   manifest: {
-    application?: Array<{ $?: Record<string, string> }>;
+    application?: Array<{
+      $?: Record<string, string>;
+      activity?: Array<{ $?: Record<string, string> }>;
+    }>;
   };
 };
 
@@ -30,10 +33,18 @@ const plugin = require(
   patchKotlinMainApplication: (contents: string) => string;
   patchAndroidSettingsGradle: (contents: string) => string;
   patchAndroidAppBuildGradle: (contents: string) => string;
+  patchAndroidDebugManifest: (contents: string) => string;
   ensureAndroidFirstPartyNetworkSecurityConfig: (
     manifest: AndroidManifest,
   ) => AndroidManifest;
+  removeLegacyAndroidBackgroundAudioLintIgnore: (
+    manifest: AndroidManifest,
+  ) => AndroidManifest;
+  removeRedundantAndroidDefaultOrientation: (
+    manifest: AndroidManifest,
+  ) => AndroidManifest;
   androidNetworkSecurityConfigXml: string;
+  androidLintXml: string;
 };
 
 const PODFILE = [
@@ -166,6 +177,18 @@ describe("generated native project patches", () => {
     ).toContain("implementation project(':react-native-community_javascriptcore')");
   });
 
+  test("orders app CMake configuration after Skia Prefab packaging", () => {
+    const buildGradle = plugin.patchAndroidAppBuildGradle(
+      'dependencies {\n    implementation("com.facebook.react:react-android")\n}\n',
+    );
+
+    expect(buildGradle).toContain('task.name.startsWith("configureCMake")');
+    expect(buildGradle).toContain('"prefabDebugPackage"');
+    expect(buildGradle).toContain('"prefabReleasePackage"');
+    expect(buildGradle).toContain("appConfigure.dependsOn(producer)");
+    expect(buildGradle).toContain("prefabPackage.mustRunAfter(projectClean)");
+  });
+
   test("fail loudly instead of shipping an unpatched project", () => {
     expect(() =>
       plugin.patchKotlinMainApplication(
@@ -209,5 +232,113 @@ describe("Android network security policy", () => {
     for (const domain of ["nemu.pm", "convex.cloud", "convex.site"]) {
       expect(xml).toContain(`<domain includeSubdomains="true">${domain}</domain>`);
     }
+  });
+});
+
+describe("Android disabled background-audio lint policy", () => {
+  test("suppresses only Expo Audio's unreachable notification finding", () => {
+    const xml = plugin.androidLintXml;
+
+    expect(xml.match(/<issue\b/g)).toHaveLength(2);
+    expect(xml).toContain('<issue id="NotificationPermission">');
+    expect(xml).toContain(
+      '<ignore regexp="expo\\.modules\\.audio\\.service\\.AudioControlsService" />',
+    );
+    expect(xml).not.toMatch(/severity\s*=\s*["']ignore["']/i);
+    expect(xml).toContain('<issue id="ScopedStorage">');
+    expect(xml).toContain(
+      '<ignore regexp="(READ|WRITE)_EXTERNAL_STORAGE" />',
+    );
+  });
+
+  test("migrates the old broad manifest ignore without removing others", () => {
+    const manifest: AndroidManifest = {
+      manifest: {
+        application: [
+          {
+            $: {
+              "tools:ignore": " ExistingCheck, NotificationPermission ",
+            },
+          },
+        ],
+      },
+    };
+    plugin.removeLegacyAndroidBackgroundAudioLintIgnore(manifest);
+    plugin.removeLegacyAndroidBackgroundAudioLintIgnore(manifest);
+    expect(manifest.manifest.application?.[0]?.$?.["tools:ignore"]).toBe(
+      "ExistingCheck",
+    );
+
+    const notificationOnly: AndroidManifest = {
+      manifest: {
+        application: [{ $: { "tools:ignore": "NotificationPermission" } }],
+      },
+    };
+    plugin.removeLegacyAndroidBackgroundAudioLintIgnore(notificationOnly);
+    expect(notificationOnly.manifest.application?.[0]?.$?.["tools:ignore"]).toBe(
+      undefined,
+    );
+  });
+});
+
+describe("Android debug overlay permission policy", () => {
+  test("removes React Native's debug-only system overlay permission", () => {
+    const manifest = [
+      '<manifest xmlns:android="http://schemas.android.com/apk/res/android"',
+      '    xmlns:tools="http://schemas.android.com/tools">',
+      "",
+      '    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>',
+      "",
+      "</manifest>",
+    ].join("\n");
+    const patched = plugin.patchAndroidDebugManifest(manifest);
+    expect(patched).toContain(
+      '<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" tools:node="remove"/>',
+    );
+    expect(plugin.patchAndroidDebugManifest(patched)).toBe(patched);
+    expect(() =>
+      plugin.patchAndroidDebugManifest(
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android"/>',
+      ),
+    ).toThrow('Nemu prebuild patch "remove debug overlay permission"');
+  });
+});
+
+describe("Android responsive orientation policy", () => {
+  test("removes only Expo's redundant unspecified orientation", () => {
+    const manifest: AndroidManifest = {
+      manifest: {
+        application: [
+          {
+            activity: [
+              {
+                $: {
+                  "android:name": ".MainActivity",
+                  "android:screenOrientation": "unspecified",
+                },
+              },
+              {
+                $: {
+                  "android:name": ".ReaderActivity",
+                  "android:screenOrientation": "sensorLandscape",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    plugin.removeRedundantAndroidDefaultOrientation(manifest);
+    expect(
+      manifest.manifest.application?.[0]?.activity?.[0]?.$?.[
+        "android:screenOrientation"
+      ],
+    ).toBeUndefined();
+    expect(
+      manifest.manifest.application?.[0]?.activity?.[1]?.$?.[
+        "android:screenOrientation"
+      ],
+    ).toBe("sensorLandscape");
   });
 });

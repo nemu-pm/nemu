@@ -17,6 +17,10 @@ import {
 import { nemuFontWeight } from "@/design/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNemuTheme } from "@/design/useNemuTheme";
+import {
+  canDismissMobileNativeSheetFromHardwareBack,
+  resolveMobileNativeSheetDismissLabel,
+} from "@/lib/mobileNativeSheet";
 import { NemuPressable } from "./NemuPressable";
 
 type MobileNativeSheetScaffoldProps = {
@@ -59,7 +63,7 @@ export function MobileNativeSheetScaffold({
   visible,
   onClose,
   title,
-  dismissLabel = "Done",
+  dismissLabel,
   showDismissButton,
   snapPoints,
   scroll = false,
@@ -90,13 +94,18 @@ export function MobileNativeSheetScaffold({
     ? Math.min(Math.max(resolvedSnapPointHeight, 240), availableSheetHeight)
     : undefined;
   const shouldUseScrollView = scroll && Boolean(snapPoints?.length);
-  // Escape-route invariant: with pan-down-to-close disabled there is no
-  // gesture left that can dismiss the sheet, so a dismiss control is mandatory
-  // and a caller's `showDismissButton={false}` cannot opt out of it. See
-  // design-system/USAGE.md.
-  const dismissButtonRequired = !enablePanDownToClose;
-  const shouldRenderDismissButton =
-    dismissButtonRequired || (showDismissButton ?? Boolean(title));
+  const resolvedDismissLabel = resolveMobileNativeSheetDismissLabel({
+    dismissLabel,
+    enablePanDownToClose,
+    showDismissButton,
+  });
+  const canDismissFromHardwareBack =
+    canDismissMobileNativeSheetFromHardwareBack({
+      dismissLabel,
+      enablePanDownToClose,
+      showDismissButton,
+    });
+  const shouldRenderDismissButton = resolvedDismissLabel !== null;
   const shouldRenderChrome = Boolean(title) || shouldRenderDismissButton;
   const chromeHeight = shouldRenderChrome ? SHEET_CHROME_HEIGHT : 0;
   const boundedContentHeight = boundedSnapPointHeight
@@ -173,20 +182,20 @@ export function MobileNativeSheetScaffold({
     };
   }, [clearProgrammaticCloseTimer]);
 
-  // Android's hardware back must dismiss the sheet instead of being swallowed
-  // by whatever screen is behind it (or popping that screen out from under an
-  // open sheet).
+  // Keep Android hardware-back handling centralized so it follows the same
+  // caller-approved close policy as the visible controls. Guarded sheets consume
+  // back without closing rather than exposing an unintended escape route.
   useEffect(() => {
     if (Platform.OS !== "android" || !visible) return;
     const subscription = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
-        requestSheetClose();
+        if (canDismissFromHardwareBack) requestSheetClose();
         return true;
       },
     );
     return () => subscription.remove();
-  }, [requestSheetClose, visible]);
+  }, [canDismissFromHardwareBack, requestSheetClose, visible]);
 
   return (
     <BottomSheet
@@ -210,7 +219,7 @@ export function MobileNativeSheetScaffold({
           <View style={styles.chromeSide}>
             {shouldRenderDismissButton ? (
               <NemuPressable
-                accessibilityLabel={dismissLabel}
+                accessibilityLabel={resolvedDismissLabel}
                 accessibilityRole="button"
                 hapticFeedback="selection"
                 onPress={requestSheetClose}
@@ -219,7 +228,7 @@ export function MobileNativeSheetScaffold({
                 style={styles.dismissButton}
               >
                 <Text style={[styles.dismissText, { color: tokens.primary }]}>
-                  {dismissLabel}
+                  {resolvedDismissLabel}
                 </Text>
               </NemuPressable>
             ) : null}

@@ -12,7 +12,11 @@ import { MobileWelcomeWizard } from "@/components/MobileWelcomeWizard";
 import { MobileDataProvider } from "@/data/mobileData";
 import { NemuThemeProvider, useNemuTheme } from "@/design-system";
 import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
-import { MobileSyncBridge, MobileSyncProvider } from "@/sync/MobileSyncProvider";
+import { getMobileWelcomeUnderlyingContentState } from "@/lib/mobileWelcome";
+import {
+  MobileSyncBridge,
+  MobileSyncProvider,
+} from "@/sync/MobileSyncProvider";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 import { useMobileBackgroundSync } from "@/sync/useMobileBackgroundSync";
 import { shouldHideMobileSplashScreen } from "@/lib/mobileSplashScreen";
@@ -52,6 +56,9 @@ function RootStack({
 }) {
   const { scheme, tokens } = useNemuTheme();
   const pathname = usePathname();
+  const underlyingContentState = getMobileWelcomeUnderlyingContentState(
+    welcomeBlocksAccessibility,
+  );
   const splashHiddenRef = useRef(false);
   const rootLayoutMarkedRef = useRef(false);
   const lastPathnameRef = useRef<string | null>(null);
@@ -82,11 +89,15 @@ function RootStack({
 
   return (
     <View
-      accessibilityElementsHidden={welcomeBlocksAccessibility}
+      accessibilityElementsHidden={
+        underlyingContentState.accessibilityElementsHidden
+      }
+      aria-hidden={underlyingContentState.ariaHidden}
       importantForAccessibility={
-        welcomeBlocksAccessibility ? "no-hide-descendants" : "auto"
+        underlyingContentState.importantForAccessibility
       }
       onLayout={hideSplashAfterLayout}
+      pointerEvents={underlyingContentState.pointerEvents}
       style={[styles.root, { backgroundColor: tokens.background }]}
     >
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />

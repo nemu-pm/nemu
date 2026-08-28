@@ -23,6 +23,7 @@ export type MobileNativeFetchResponse = {
 export type MobileNativeFetchInit = RequestInit & {
   responseMode?: NemuAidokuHttpResponseMode;
   maxResponseBytes?: number;
+  requireHttps?: boolean;
 };
 
 function headersToRecord(headers: Headers): Record<string, string> {
@@ -75,11 +76,19 @@ export async function mobileNativeFetch(
   const {
     responseMode = "auto",
     maxResponseBytes = MOBILE_NATIVE_HTTP_DEFAULT_MAX_RESPONSE_BYTES,
+    requireHttps = false,
     ...requestInit
   } = init;
+  if (requireHttps && new URL(input).protocol !== "https:") {
+    throw new Error("This native HTTP request requires HTTPS.");
+  }
   const response = await fetch(input, {
     ...requestInit,
     body: bodyToString(init.body),
+    // Browsers do not expose every cross-origin redirect target for us to
+    // revalidate. Refuse redirects entirely in this non-native fallback when
+    // the caller requests the stronger contract.
+    redirect: requireHttps ? "error" : requestInit.redirect,
   });
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {

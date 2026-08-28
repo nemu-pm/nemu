@@ -48,6 +48,15 @@ type ClearMobileSourceSandbox = (
   executionScope: string,
 ) => Promise<void>;
 
+function hasOwnSetting(
+  settings: Record<string, unknown>,
+  key: string,
+): boolean {
+  // The pinned Android JavaScriptCore does not expose Object.hasOwn. The
+  // prototype call is safe for null-prototype objects and shadowed keys too.
+  return Object.prototype.hasOwnProperty.call(settings, key);
+}
+
 function getSettingsRollback(
   currentSettings: Record<string, unknown>,
   affectedKeys: Iterable<string>,
@@ -55,7 +64,7 @@ function getSettingsRollback(
   const patch: Record<string, unknown> = {};
   const deleteKeys: string[] = [];
   for (const key of affectedKeys) {
-    if (Object.hasOwn(currentSettings, key)) patch[key] = currentSettings[key];
+    if (hasOwnSetting(currentSettings, key)) patch[key] = currentSettings[key];
     else deleteKeys.push(key);
   }
   return { patch, deleteKeys };
@@ -217,6 +226,7 @@ export async function completeMobileSourceLogin({
   currentSettings,
   clearSandbox,
   persistSettings,
+  signal,
 }: {
   cache?: MobileSourceSessionCache;
   source: MobileRuntimeSource;
@@ -229,10 +239,12 @@ export async function completeMobileSourceLogin({
     patch: Record<string, unknown>,
     deleteKeys: string[],
   ) => Promise<void>;
+  signal?: AbortSignal;
 }): Promise<MobileSourceSettingsOperationResult> {
   const executionScope = getActiveMobileSourceProfileScope();
   assertActiveMobileSourceProfileScope(executionScope);
   try {
+    throwIfMobileSourceLoginAborted(signal);
     let loginResult: MobileSourceSettingsOperationResult = {
       status: "complete",
     };
@@ -265,6 +277,7 @@ export async function completeMobileSourceLogin({
         executionScope,
       });
     }
+    throwIfMobileSourceLoginAborted(signal);
     assertActiveMobileSourceProfileScope(executionScope);
     if (loginResult.status !== "complete") {
       await clearNativeSourceState(
@@ -306,7 +319,7 @@ export async function completeMobileSourceLogin({
     throw error;
   }
   const deleteKeys = sourceLoginLogoutKeys(setting).filter(
-    (key) => !Object.hasOwn(patch, key),
+    (key) => !hasOwnSetting(patch, key),
   );
   const nextSettings = applyMobileSourceSettingsPatch(
     schema,
@@ -321,8 +334,10 @@ export async function completeMobileSourceLogin({
   const notification = setting.notification?.trim();
   let result: MobileSourceSettingsOperationResult = { status: "complete" };
   try {
+    throwIfMobileSourceLoginAborted(signal);
     assertActiveMobileSourceProfileScope(executionScope);
     await persistSettings(patch, deleteKeys);
+    throwIfMobileSourceLoginAborted(signal);
     assertActiveMobileSourceProfileScope(executionScope);
     if (notification) {
       result = await runMobileSourceSettingsOperation({
@@ -332,6 +347,7 @@ export async function completeMobileSourceLogin({
         operation: { kind: "notification", notification },
         executionScope,
       });
+      throwIfMobileSourceLoginAborted(signal);
       assertActiveMobileSourceProfileScope(executionScope);
     }
   } catch (error) {
@@ -361,6 +377,17 @@ export async function completeMobileSourceLogin({
     );
   }
   return result;
+}
+
+export function isMobileSourceLoginCancellation(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function throwIfMobileSourceLoginAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error("Source login was cancelled.");
+  error.name = "AbortError";
+  throw error;
 }
 
 export async function completeMobileSourceLogout({
@@ -434,14 +461,25 @@ export async function completeMobileSourceLogout({
     }
   }
 
-  await clearNativeSourceState(
-    cache,
-    source,
-    clearSandbox,
-    executionScope,
-  );
-  assertActiveMobileSourceProfileScope(executionScope);
-  return { status: "complete" };
+  try {
+    await clearNativeSourceState(
+      cache,
+      source,
+      clearSandbox,
+      executionScope,
+    );
+    assertActiveMobileSourceProfileScope(executionScope);
+    return { status: "complete" };
+  } catch (error) {
+    // A profile transition intentionally keeps the captured profile logged out:
+    // restoring through a stale UI owner could write credentials into the new
+    // account. Ordinary native cleanup failures are retryable, so restore the
+    // visible login keys and keep the Logout control available.
+    if (isMobileSourceProfileChangedError(error)) throw error;
+    assertActiveMobileSourceProfileScope(executionScope);
+    await restoreSettings(persistSettings, rollback);
+    throw error;
+  }
 }
 
 export async function resetMobileSourceRuntimeSettings({

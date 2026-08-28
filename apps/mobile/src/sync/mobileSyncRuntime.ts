@@ -1,7 +1,10 @@
 import type { ConvexReactClient } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { MobileDataStore } from "@/data/storeTypes";
-import { areSyncAccountIdentitiesAligned } from "@nemu/core";
+import {
+  areSyncAccountIdentitiesAligned,
+  CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION,
+} from "@nemu/core";
 
 export const mobileConvexRef: { current: ConvexReactClient | null } = {
   current: null,
@@ -14,6 +17,23 @@ export const mobileIsAuthenticatedRef: { current: boolean } = {
 export const mobileSessionUserIdRef: { current: string | undefined } = {
   current: undefined,
 };
+
+/**
+ * Fail-closed rollout gate for the optional reader-position mutation fields.
+ * Older Convex deployments reject unknown keys at `v.object` validation, so
+ * mobile only sends them after the generation query advertises support.
+ */
+export const mobileChapterProgressIntraPageSyncSupportedRef: {
+  current: boolean;
+} = { current: false };
+
+export function setMobileChapterProgressIntraPageSyncVersion(
+  version: unknown,
+): void {
+  mobileChapterProgressIntraPageSyncSupportedRef.current =
+    Number.isSafeInteger(version) &&
+    (version as number) >= CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION;
+}
 
 let remoteApplyDepth = 0;
 let syncSuspendedDepth = 0;
@@ -38,6 +58,7 @@ export function isMobileSyncEpochCurrent(epoch: number): boolean {
 
 export function invalidateMobileSyncEpoch(): number {
   syncEpoch += 1;
+  mobileChapterProgressIntraPageSyncSupportedRef.current = false;
   return syncEpoch;
 }
 

@@ -399,7 +399,9 @@ export async function applyWebChapterProgressSyncSnapshot(options: {
   // A first sync can produce hundreds of local winners. One mutation per row
   // made that hundreds of sequential round trips; `saveBatch` applies each
   // chunk in a single server transaction using the same per-item logic.
-  const saveInputs = applied.localWinners.map(toCloudHistorySaveInput);
+  const saveInputs = applied.localWinners.map((progress) =>
+    toCloudHistorySaveInput(progress),
+  );
   for (const items of chunkChapterProgressSaveInputs(saveInputs)) {
     if (!options.shouldContinue()) return null;
     await options.convex.mutation(api.history.saveBatch, {

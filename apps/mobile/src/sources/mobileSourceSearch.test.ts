@@ -2,12 +2,15 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { FilterType, type FilterValue } from "@nemu.pm/aidoku-runtime";
 import { strToU8, zipSync } from "fflate";
 import type { InstalledSource } from "@/data/schema";
+import { getMobileStrings } from "@/lib/mobileI18n";
 import {
   buildMobileLiveSearchProgressGroups,
   buildMobileSourceTitlePool,
   calculateMobileTitleSimilarity,
   getMobileSearchQueryForSource,
   mapAidokuMangaToLiveSearchManga,
+  mapAidokuMangasToLiveSearchMangaWithImageRequests,
+  presentMobileLiveSearchGroup,
   searchMobileSource,
   searchMobileSources,
   selectInstalledSourcesForSearch,
@@ -170,6 +173,53 @@ describe("mobile source search", () => {
       sources[1],
     ]);
     expect(selectInstalledSourcesForSearch(sources, null)).toEqual(sources);
+  });
+
+  test("never executes unsupported installed source kinds", () => {
+    const supported = installedSource({
+      id: "aidoku-community:en.alpha",
+      sourceId: "en.alpha",
+    });
+    const unsupported = installedSource({
+      id: "tachiyomi:en.beta",
+      registryId: "tachiyomi",
+      sourceKind: "tachiyomi",
+      sourceId: "en.beta",
+    });
+
+    expect(selectInstalledSourcesForSearch([supported, unsupported], null)).toEqual([
+      supported,
+    ]);
+    expect(
+      selectInstalledSourcesForSearch([supported, unsupported], [unsupported.id]),
+    ).toEqual([]);
+  });
+
+  test("blocks unsupported sources at the single-source execution boundary", async () => {
+    const source = installedSource({
+      id: "tachiyomi:en.beta",
+      registryId: "tachiyomi",
+      sourceKind: "tachiyomi",
+      sourceId: "en.beta",
+    });
+
+    const group = await searchMobileSource(source, "blue");
+    expect(group).toMatchObject({
+      status: "blocked",
+      reason: "unsupported-source",
+      source: { unsupported: true },
+    });
+    const presentation = presentMobileLiveSearchGroup(
+      group,
+      getMobileStrings("en"),
+    );
+    expect(presentation).toMatchObject({
+      status: "blocked",
+      title: "Source not supported on mobile",
+    });
+    expect(presentation.status === "blocked" ? presentation.detail : "").not.toContain(
+      "[tachiyomi-unsupported]",
+    );
   });
 
   test("selects installed sources when saved selection uses a source alias", () => {
@@ -349,6 +399,70 @@ describe("mobile source search", () => {
         },
       ],
     });
+  });
+
+  test("bounds many slow cover rewrites and stops scheduling after cancellation", async () => {
+    let calls = 0;
+    const source = {
+      modifyImageRequest: async () => {
+        calls += 1;
+        return new Promise<{ url: string; headers: Record<string, string> }>(
+          () => undefined,
+        );
+      },
+    };
+    const mangas = Array.from({ length: 500 }, (_, index) => ({
+      key: `manga-${index}`,
+      title: `Manga ${index}`,
+      cover: `https://example.test/${index}.jpg`,
+    }));
+
+    const startedAt = performance.now();
+    const items = await mapAidokuMangasToLiveSearchMangaWithImageRequests(
+      source,
+      mangas,
+      { imageRequestConcurrency: 4, imageRequestDeadlineMs: 10 },
+    );
+
+    expect(performance.now() - startedAt).toBeLessThan(250);
+    expect(items).toHaveLength(500);
+    expect(calls).toBe(4);
+
+    const controller = new AbortController();
+    controller.abort();
+    calls = 0;
+    await mapAidokuMangasToLiveSearchMangaWithImageRequests(source, mangas, {
+      signal: controller.signal,
+    });
+    expect(calls).toBe(0);
+  });
+
+  test("falls back to safe cover rewrite limits for non-finite options", async () => {
+    let calls = 0;
+    const mangas = Array.from({ length: 5 }, (_, index) => ({
+      key: `manga-${index}`,
+      title: `Manga ${index}`,
+      cover: `https://example.test/${index}.jpg`,
+    }));
+
+    const items = await mapAidokuMangasToLiveSearchMangaWithImageRequests(
+      {
+        async modifyImageRequest(url) {
+          calls += 1;
+          return { url: `${url}?rewritten=1`, headers: {} };
+        },
+      },
+      mangas,
+      {
+        imageRequestConcurrency: Number.NaN,
+        imageRequestDeadlineMs: Number.NaN,
+      },
+    );
+
+    expect(calls).toBe(5);
+    expect(items.every((item) => item.cover?.endsWith("?rewritten=1"))).toBe(
+      true,
+    );
   });
 
   test("orders live source search items by title similarity", async () => {

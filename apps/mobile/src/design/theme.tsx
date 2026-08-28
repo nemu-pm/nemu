@@ -46,8 +46,10 @@ export function NemuThemeProvider({ children }: { children: ReactNode }) {
       if (nextPreference === themePreference) return;
       setThemePreferenceState(nextPreference);
       try {
-        const settings = await store.getSettings();
-        await store.saveSettings({ ...settings, themePreference: nextPreference });
+        await store.updateSettings((settings) => ({
+          ...settings,
+          themePreference: nextPreference,
+        }));
       } catch (error) {
         setThemePreferenceState(themePreference);
         throw error;

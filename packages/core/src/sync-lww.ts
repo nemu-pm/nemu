@@ -27,8 +27,49 @@ export type ChapterProgressHighWaterValues = {
   chapterNumber?: number;
   volumeNumber?: number;
   chapterTitle?: string;
+  intraPageProgress?: number;
+  intraPageContentIdentity?: string;
   updatedAt: number;
 };
+
+export type ChapterProgressIntraPageState = {
+  intraPageProgress: number;
+  intraPageContentIdentity: string;
+};
+
+export const CHAPTER_PROGRESS_INTRA_PAGE_CONTENT_IDENTITY_PREFIX =
+  "mobile-image:reader-page-state-v1:";
+
+/** Backend capability version required before clients send the optional pair. */
+export const CHAPTER_PROGRESS_INTRA_PAGE_SYNC_VERSION = 1;
+
+const CHAPTER_PROGRESS_INTRA_PAGE_CONTENT_IDENTITY_PATTERN =
+  /^mobile-image:reader-page-state-v1:[0-9a-f]{64}$/;
+
+/** Keep the scroll fraction and its logical-page digest as one atomic value. */
+export function chapterProgressIntraPageState(
+  record: Pick<
+    ChapterProgressHighWaterValues,
+    "intraPageProgress" | "intraPageContentIdentity"
+  >,
+): ChapterProgressIntraPageState | undefined {
+  if (
+    typeof record.intraPageProgress !== "number" ||
+    !Number.isFinite(record.intraPageProgress) ||
+    record.intraPageProgress < 0 ||
+    record.intraPageProgress > 1 ||
+    typeof record.intraPageContentIdentity !== "string" ||
+    !CHAPTER_PROGRESS_INTRA_PAGE_CONTENT_IDENTITY_PATTERN.test(
+      record.intraPageContentIdentity,
+    )
+  ) {
+    return undefined;
+  }
+  return {
+    intraPageProgress: record.intraPageProgress,
+    intraPageContentIdentity: record.intraPageContentIdentity,
+  };
+}
 
 /**
  * Reading progress is a join-semilattice, not a strict LWW register. A device
@@ -46,7 +87,20 @@ export function mergeChapterProgressHighWater(
   existing: ChapterProgressHighWaterValues | undefined,
   incoming: ChapterProgressHighWaterValues,
 ): ChapterProgressHighWaterValues {
-  if (!existing) return incoming;
+  const incomingIntraPageState = chapterProgressIntraPageState(incoming);
+  if (!existing) {
+    return {
+      progress: incoming.progress,
+      total: incoming.total,
+      completed: incoming.completed,
+      lastReadAt: incoming.lastReadAt,
+      chapterNumber: incoming.chapterNumber,
+      volumeNumber: incoming.volumeNumber,
+      chapterTitle: incoming.chapterTitle,
+      ...(incomingIntraPageState ?? {}),
+      updatedAt: incoming.updatedAt,
+    };
+  }
   const incomingOwnsMetadata = shouldApplyLww(
     existing.updatedAt,
     incoming.updatedAt,
@@ -57,6 +111,10 @@ export function mergeChapterProgressHighWater(
   ) => incomingOwnsMetadata
     ? (incomingValue ?? existingValue)
     : (existingValue ?? incomingValue);
+  const existingIntraPageState = chapterProgressIntraPageState(existing);
+  const intraPageState = incomingOwnsMetadata
+    ? (incomingIntraPageState ?? existingIntraPageState)
+    : (existingIntraPageState ?? incomingIntraPageState);
 
   return {
     progress: Math.max(existing.progress, incoming.progress),
@@ -66,6 +124,7 @@ export function mergeChapterProgressHighWater(
     chapterNumber: metadataValue(existing.chapterNumber, incoming.chapterNumber),
     volumeNumber: metadataValue(existing.volumeNumber, incoming.volumeNumber),
     chapterTitle: metadataValue(existing.chapterTitle, incoming.chapterTitle),
+    ...(intraPageState ?? {}),
     updatedAt: Math.max(existing.updatedAt, incoming.updatedAt),
   };
 }
@@ -74,6 +133,7 @@ export function mergeChapterProgressHighWater(
 export function chapterProgressHighWaterValues(
   record: ChapterProgressHighWaterValues,
 ): ChapterProgressHighWaterValues {
+  const intraPageState = chapterProgressIntraPageState(record);
   return {
     progress: record.progress,
     total: record.total,
@@ -82,6 +142,7 @@ export function chapterProgressHighWaterValues(
     chapterNumber: record.chapterNumber,
     volumeNumber: record.volumeNumber,
     chapterTitle: record.chapterTitle,
+    ...(intraPageState ?? {}),
     updatedAt: record.updatedAt,
   };
 }

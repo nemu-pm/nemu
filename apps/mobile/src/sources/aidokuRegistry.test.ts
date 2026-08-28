@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  fetchAllAidokuRegistrySources,
   fetchAidokuRegistrySources,
   makeAixArtifactCacheKey,
   isAixArtifactCacheKey,
@@ -20,6 +21,43 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
+describe("fetchAllAidokuRegistrySources", () => {
+  test("preserves AbortError cancellation instead of aggregating it as a registry error", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      fetchAllAidokuRegistrySources([registry], {
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  test("deduplicates identical registry failures before surfacing them", async () => {
+    globalThis.fetch = (async () => {
+      throw new Error("Unacceptable certificate: CN=Example Root");
+    }) as unknown as typeof fetch;
+
+    const registries = [
+      registry,
+      {
+        ...registry,
+        id: "second",
+        indexUrl: "https://second.example.com/index.json",
+      },
+    ];
+
+    try {
+      await fetchAllAidokuRegistrySources(registries);
+      throw new Error("Expected the aggregate registry request to fail.");
+    } catch (error) {
+      expect((error as Error).message).toBe(
+        "Unacceptable certificate: CN=Example Root",
+      );
+    }
+  });
+});
+
 function installFetch(data: unknown) {
   globalThis.fetch = (async () =>
     new Response(JSON.stringify(data), {
@@ -28,6 +66,22 @@ function installFetch(data: unknown) {
 }
 
 describe("fetchAidokuRegistrySources", () => {
+  test("requires HTTPS for the registry index request", async () => {
+    let observedRedirect: RequestRedirect | undefined;
+    globalThis.fetch = (async (_input, init) => {
+      observedRedirect = init?.redirect;
+      return new Response(JSON.stringify({ sources: [] }));
+    }) as typeof fetch;
+    await fetchAidokuRegistrySources(registry);
+    expect(observedRedirect).toBe("error");
+    await expect(
+      fetchAidokuRegistrySources({
+        ...registry,
+        indexUrl: "http://example.com/index.json",
+      }),
+    ).rejects.toThrow("requires HTTPS");
+  });
+
   test("normalizes the object Aidoku index format", async () => {
     installFetch({
       sources: [
@@ -128,6 +182,12 @@ describe("fetchAidokuRegistrySources", () => {
           downloadURL: "file:///private/source.aix",
           iconURL: "data:image/png;base64,AA==",
         },
+        {
+          id: "legacy-http",
+          name: "Legacy HTTP",
+          downloadURL: "http://cdn.example.test/source.aix",
+          iconURL: "http://cdn.example.test/source.png",
+        },
       ],
     });
 
@@ -138,6 +198,14 @@ describe("fetchAidokuRegistrySources", () => {
         registryName: "Test Registry",
         name: "Safe",
         version: 1,
+      },
+      {
+        id: "legacy-http",
+        registryId: "test",
+        registryName: "Test Registry",
+        name: "Legacy HTTP",
+        version: 1,
+        icon: "http://cdn.example.test/source.png",
       },
     ]);
   });
@@ -154,7 +222,9 @@ describe("makeAixArtifactCacheKey", () => {
 
     const first = makeAixArtifactCacheKey(base);
     expect(isAixArtifactCacheKey(first)).toBe(true);
-    expect(isAixArtifactCacheKey("aix:aidoku-community:en.example")).toBe(false);
+    expect(isAixArtifactCacheKey("aix:aidoku-community:en.example")).toBe(
+      false,
+    );
     expect(first).toBe(makeAixArtifactCacheKey(base));
     expect(first).not.toBe(makeAixArtifactCacheKey({ ...base, version: 2 }));
     expect(first).not.toBe(

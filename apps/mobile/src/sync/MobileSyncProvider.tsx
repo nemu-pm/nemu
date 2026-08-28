@@ -59,12 +59,14 @@ import {
   invalidateMobileSyncEpoch,
   isMobileSyncEpochCurrent,
   makeMobileSyncRunGuard,
+  mobileChapterProgressIntraPageSyncSupportedRef,
   mobileConvexRef,
   mobileIsAuthenticatedRef,
   mobileSessionUserIdRef,
   runWithMobileRemoteSnapshot,
   runWithMobileSyncWrite,
   setActiveMobileSyncStore,
+  setMobileChapterProgressIntraPageSyncVersion,
 } from "./mobileSyncRuntime";
 import { hydrateMobileSyncedSourcePackages } from "./mobileSyncedSourcePackages";
 import {
@@ -375,7 +377,10 @@ async function pushLocalChapterProgressWinners(
     if (!shouldContinue()) return;
     await convex.mutation(api.history.save, {
       expectedUserId,
-      ...toCloudHistorySaveInput(entry),
+      ...toCloudHistorySaveInput(entry, {
+        includeIntraPageState:
+          mobileChapterProgressIntraPageSyncSupportedRef.current,
+      }),
       generation,
     });
   }
@@ -664,6 +669,17 @@ function ConfiguredMobileSyncBridge() {
     api.sync.generation,
     skipSubscriptions ? "skip" : {},
   );
+  const chapterProgressIntraPageVersion = (
+    cloudGeneration as
+      | { chapterProgressIntraPageVersion?: unknown }
+      | undefined
+  )?.chapterProgressIntraPageVersion;
+  useEffect(() => {
+    setMobileChapterProgressIntraPageSyncVersion(
+      chapterProgressIntraPageVersion,
+    );
+    return () => setMobileChapterProgressIntraPageSyncVersion(undefined);
+  }, [chapterProgressIntraPageVersion]);
   const snapshotGateReady =
     snapshotGate?.store === store && snapshotGate.accountId === sessionUserId;
   const snapshotBlocked =

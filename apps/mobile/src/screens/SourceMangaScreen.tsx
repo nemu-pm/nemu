@@ -100,9 +100,11 @@ import {
 import {
   getMobileSourceMangaBackAction,
   getMobileSourceReaderHref,
+  normalizeMobileReaderRouteLabel,
   normalizeMobileSourceRouteParam,
 } from "@/lib/mobileSourceRoutes";
 import {
+  describeMobileErrorDetail,
   getMobileSourceErrorPresentation,
   getMobileSourceErrorRecoveryAction,
   type MobileSourceErrorRecoveryAction,
@@ -111,6 +113,7 @@ import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import {
   refreshMobileSourceDetails,
+  resolveMobileSourceMangaMetadataTitle,
   type MobileSourceDetailsRefresh,
 } from "@/sources/mobileSourceDetails";
 import {
@@ -219,10 +222,15 @@ export function SourceMangaScreen() {
     registryId: string;
     sourceId: string;
     mangaId: string;
+    mangaTitle?: string | string[];
   }>();
   const registryId = normalizeMobileSourceRouteParam(params.registryId);
   const sourceId = normalizeMobileSourceRouteParam(params.sourceId);
   const mangaId = normalizeMobileSourceRouteParam(params.mangaId);
+  const navigationTitle = normalizeMobileReaderRouteLabel(
+    params.mangaTitle,
+    mangaId,
+  );
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
@@ -539,7 +547,11 @@ export function SourceMangaScreen() {
     detailState.status === "ready"
       ? detailState.metadata
       : (localState.libraryEntry?.item.metadata ?? null);
-  const title = metadata?.title ?? mangaId;
+  const title = resolveMobileSourceMangaMetadataTitle(
+    metadata?.title,
+    mangaId,
+    navigationTitle,
+  );
   const cover = localState.libraryEntry
     ? getEntryCover(localState.libraryEntry)
     : metadata?.cover;
@@ -696,9 +708,10 @@ export function SourceMangaScreen() {
       return true;
     } catch (error) {
       setActionError(
-        error instanceof Error
-          ? error.message
-          : strings.sourceManga.actionFailedDetail,
+        describeMobileErrorDetail(
+          error,
+          strings.sourceManga.actionFailedDetail,
+        ),
       );
       await hapticError();
       return false;
@@ -789,9 +802,10 @@ export function SourceMangaScreen() {
         setRemoveConfirmOpen(false);
       }
       setActionError(
-        error instanceof Error
-          ? error.message
-          : strings.sourceManga.actionFailedDetail,
+        describeMobileErrorDetail(
+          error,
+          strings.sourceManga.actionFailedDetail,
+        ),
       );
       await hapticError();
     } finally {

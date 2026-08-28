@@ -14,12 +14,14 @@ import {
 } from "./mobileSyncDataStore";
 import {
   invalidateMobileSyncEpoch,
+  mobileChapterProgressIntraPageSyncSupportedRef,
   mobileConvexRef,
   mobileIsAuthenticatedRef,
   mobileSessionUserIdRef,
   runWithMobileSyncWrite,
   runWithMobileSyncSuspended,
   setActiveMobileSyncStore,
+  setMobileChapterProgressIntraPageSyncVersion,
 } from "./mobileSyncRuntime";
 
 type MutationCall = {
@@ -67,6 +69,20 @@ function installConvexRecorder(calls: MutationCall[]) {
     mutation: async (mutation: unknown, args: unknown) => {
       calls.push({ mutation, args });
       return null;
+    },
+  } as unknown as ConvexReactClient;
+  mobileIsAuthenticatedRef.current = true;
+  mobileSessionUserIdRef.current = "account-a";
+}
+
+function installConvexTransport(
+  calls: MutationCall[],
+  mutationResult: () => Promise<unknown>,
+) {
+  mobileConvexRef.current = {
+    mutation: (mutation: unknown, args: unknown) => {
+      calls.push({ mutation, args });
+      return mutationResult();
     },
   } as unknown as ConvexReactClient;
   mobileIsAuthenticatedRef.current = true;
@@ -150,6 +166,7 @@ function collection(): LocalCollection {
 describe("mobile sync data store", () => {
   beforeEach(() => {
     installLocalStorage();
+    setMobileChapterProgressIntraPageSyncVersion(undefined);
   });
 
   afterEach(() => {
@@ -157,6 +174,7 @@ describe("mobile sync data store", () => {
     mobileConvexRef.current = null;
     mobileIsAuthenticatedRef.current = false;
     mobileSessionUserIdRef.current = undefined;
+    setMobileChapterProgressIntraPageSyncVersion(undefined);
   });
 
   test("pushes library saves only after an item has a source link", async () => {
@@ -442,6 +460,122 @@ describe("mobile sync data store", () => {
     });
   });
 
+  test("keeps every foreground write local-first while cloud transport is stalled", async () => {
+    const calls: MutationCall[] = [];
+    installConvexTransport(calls, () => new Promise(() => undefined));
+    const base = new WebUserDataStore();
+    await base.applySyncGeneration(0);
+    const store = createMobileSyncDataStore(base);
+    const source = {
+      id: "aidoku-community:en.example",
+      registryId: "aidoku-community",
+      sourceKind: "aidoku" as const,
+      sourceId: "en.example",
+      name: "Example",
+      version: 1,
+      updatedAt: 100,
+      removed: false,
+    };
+
+    const writes = (async () => {
+      await store.saveInstalledSource(source);
+      await store.saveInstalledSourceIfCurrent?.(
+        { ...source, name: "Example hydrated", updatedAt: 101 },
+        source.updatedAt,
+      );
+      await store.saveLibraryItem(libraryItem());
+      await store.saveSourceLink(sourceLink());
+      await store.saveChapterProgress(chapterProgress());
+      await store.saveChapterProgressBatch([
+        chapterProgress({
+          id: makeChapterProgressId(
+            "aidoku-community",
+            "en.example",
+            "manga-1",
+            "chapter-3",
+          ),
+          sourceChapterId: "chapter-3",
+          chapterNumber: 3,
+          updatedAt: 12,
+        }),
+      ]);
+      await store.saveCollection(collection());
+      await store.addCollectionItems("favorites", ["library-1"]);
+      await store.removeCollectionItems("favorites", ["library-1"]);
+      await store.removeSourceLink(
+        sourceLink().registryId,
+        sourceLink().sourceId,
+        sourceLink().sourceMangaId,
+      );
+      await store.removeLibraryItem("library-1");
+      await store.removeCollection("favorites");
+      await store.removeInstalledSource(source.id, source.registryId);
+      await retargetMobileCloudHistoryLibraryItem(
+        "library-2",
+        "library-1",
+        undefined,
+        store,
+      );
+      return "resolved" as const;
+    })();
+    const outcome = await Promise.race([
+      writes,
+      new Promise<"timeout">((resolve) =>
+        setTimeout(() => resolve("timeout"), 100),
+      ),
+    ]);
+
+    expect(outcome).toBe("resolved");
+    expect(calls.length).toBeGreaterThan(0);
+    expect(
+      (await store.getSyncSettings()).installedSources.find(
+        (item) => item.id === source.id,
+      ),
+    ).toMatchObject({ removed: true });
+    expect(
+      (await store.getAllLibraryItems({ includeRemoved: true })).find(
+        (item) => item.libraryItemId === "library-1",
+      ),
+    ).toMatchObject({ inLibrary: false });
+    expect(
+      (await store.getAllSourceLinks()).find(
+        (item) => item.id === sourceLink().id,
+      ),
+    ).toMatchObject({ removed: true });
+    expect(await store.getChapterProgress(
+      "aidoku-community",
+      "en.example",
+      "manga-1",
+      "chapter-3",
+    )).not.toBeNull();
+    expect(store.getPendingSyncDeletions).toBeDefined();
+    expect(
+      (await store.getPendingSyncDeletions!())
+        .map((item) => item.kind)
+        .sort(),
+    ).toEqual(["collection", "source-link"]);
+  });
+
+  test("absorbs an immediate cloud rejection after the durable local write", async () => {
+    const calls: MutationCall[] = [];
+    installConvexTransport(calls, () =>
+      Promise.reject(new Error("backend detail must stay out of foreground UI")),
+    );
+    const store = createInitializedSyncStore();
+
+    await expect(store.saveChapterProgress(chapterProgress())).resolves.toBeUndefined();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls).toHaveLength(1);
+    expect(await store.getChapterProgress(
+      "aidoku-community",
+      "en.example",
+      "manga-1",
+      "chapter-2",
+    )).not.toBeNull();
+  });
+
   test("does not let stale package hydration revive an uninstall tombstone", async () => {
     const calls: MutationCall[] = [];
     installConvexRecorder(calls);
@@ -647,6 +781,30 @@ describe("mobile sync data store", () => {
       chapterNumber: 2,
       volumeNumber: 1,
       chapterTitle: "Second",
+    });
+  });
+
+  test("negotiates intra-page fields across an older backend rollout", async () => {
+    const calls: MutationCall[] = [];
+    installConvexRecorder(calls);
+    const store = createInitializedSyncStore();
+    const intraPageContentIdentity =
+      `mobile-image:reader-page-state-v1:${"a".repeat(64)}`;
+    const readerProgress = chapterProgress({
+      intraPageProgress: 0.625,
+      intraPageContentIdentity,
+    });
+
+    expect(mobileChapterProgressIntraPageSyncSupportedRef.current).toBe(false);
+    await store.saveChapterProgress(readerProgress);
+    expect(calls[0]?.args).not.toHaveProperty("intraPageProgress");
+    expect(calls[0]?.args).not.toHaveProperty("intraPageContentIdentity");
+
+    setMobileChapterProgressIntraPageSyncVersion(1);
+    await store.saveChapterProgress({ ...readerProgress, updatedAt: 12 });
+    expect(calls[1]?.args).toMatchObject({
+      intraPageProgress: 0.625,
+      intraPageContentIdentity,
     });
   });
 

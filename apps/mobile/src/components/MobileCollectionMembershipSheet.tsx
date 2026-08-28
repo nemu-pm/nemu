@@ -36,6 +36,7 @@ import {
   type MobileCollectionActionState,
 } from "@/lib/mobileCollections";
 import { getMobileCollectionMembershipRequestCloseAction } from "@/lib/mobileCollectionMembershipBackBehavior";
+import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 
 type MobileCollectionsState = ReturnType<typeof useCollections>;
 
@@ -349,7 +350,12 @@ function CollectionMembershipContent({
       setNewCollectionName("");
       await hapticConfirm();
     } catch (nextError) {
-      setLocalError(nextError instanceof Error ? nextError.message : String(nextError));
+      setLocalError(
+        describeMobileErrorDetail(
+          nextError,
+          strings.library.collectionActionFailedDetail,
+        ),
+      );
       await hapticError();
     } finally {
       setCreating(false);
@@ -381,7 +387,12 @@ function CollectionMembershipContent({
         await hapticConfirm();
       }
     } catch (nextError) {
-      setLocalError(nextError instanceof Error ? nextError.message : String(nextError));
+      setLocalError(
+        describeMobileErrorDetail(
+          nextError,
+          strings.library.collectionActionFailedDetail,
+        ),
+      );
       await hapticError();
     } finally {
       setRenaming(false);
@@ -418,7 +429,12 @@ function CollectionMembershipContent({
       setRemoveTarget(null);
       await hapticConfirm();
     } catch (nextError) {
-      setLocalError(nextError instanceof Error ? nextError.message : String(nextError));
+      setLocalError(
+        describeMobileErrorDetail(
+          nextError,
+          strings.library.collectionActionFailedDetail,
+        ),
+      );
       await hapticError();
     } finally {
       setRemoving(false);
@@ -442,7 +458,12 @@ function CollectionMembershipContent({
       await hapticConfirm();
       onClose();
     } catch (nextError) {
-      setLocalError(nextError instanceof Error ? nextError.message : String(nextError));
+      setLocalError(
+        describeMobileErrorDetail(
+          nextError,
+          strings.library.collectionActionFailedDetail,
+        ),
+      );
       await hapticError();
     } finally {
       setSaving(false);

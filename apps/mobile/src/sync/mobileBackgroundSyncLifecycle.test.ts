@@ -38,7 +38,10 @@ describe("mobile background sync lifecycle", () => {
   test("unregisters only after an explicitly successful sign-out", async () => {
     const calls: string[] = [];
 
-    await signOutAndUnregisterMobileBackgroundSync({
+    const result = await signOutAndUnregisterMobileBackgroundSync({
+      onSignOutConfirmed: async () => {
+        calls.push("disposition");
+      },
       signOut: async () => {
         calls.push("sign-out");
         return { data: { success: true }, error: null };
@@ -48,7 +51,47 @@ describe("mobile background sync lifecycle", () => {
       },
     });
 
-    expect(calls).toEqual(["sign-out", "unregister"]);
+    expect(calls).toEqual(["sign-out", "disposition", "unregister"]);
+    expect(result).toEqual({ backgroundSyncUnregisterScheduled: true });
+  });
+
+  test("does not await or surface scheduler unregister failure after disposition", async () => {
+    let settleUnregister!: () => void;
+    const unregisterSettled = new Promise<void>((resolve) => {
+      settleUnregister = resolve;
+    });
+    const calls: string[] = [];
+    const result = await signOutAndUnregisterMobileBackgroundSync({
+      onSignOutConfirmed: async () => {
+        calls.push("disposition");
+      },
+      signOut: async () => ({ data: { success: true }, error: null }),
+      unregister: async () => {
+        calls.push("unregister");
+        await unregisterSettled;
+        throw new Error("OS scheduler unavailable");
+      },
+    });
+
+    expect(calls).toEqual(["disposition", "unregister"]);
+    expect(result).toEqual({ backgroundSyncUnregisterScheduled: true });
+    settleUnregister();
+  });
+
+  test("still schedules unregister when the confirmed local disposition fails", async () => {
+    let unregisterCalls = 0;
+    await expect(
+      signOutAndUnregisterMobileBackgroundSync({
+        onSignOutConfirmed: async () => {
+          throw new Error("local cleanup pending");
+        },
+        signOut: async () => ({ data: { success: true }, error: null }),
+        unregister: async () => {
+          unregisterCalls += 1;
+        },
+      }),
+    ).rejects.toThrow("local cleanup pending");
+    expect(unregisterCalls).toBe(1);
   });
 
   test("keeps registration when sign-out resolves with a network error", async () => {
@@ -56,6 +99,7 @@ describe("mobile background sync lifecycle", () => {
 
     await expect(
       signOutAndUnregisterMobileBackgroundSync({
+        onSignOutConfirmed: async () => undefined,
         signOut: async () => ({
           data: null,
           error: { message: "Network unavailable", status: 0 },
@@ -77,6 +121,7 @@ describe("mobile background sync lifecycle", () => {
 
     await expect(
       signOutAndUnregisterMobileBackgroundSync({
+        onSignOutConfirmed: async () => undefined,
         signOut: async () => {
           throw new Error("offline");
         },
@@ -85,6 +130,7 @@ describe("mobile background sync lifecycle", () => {
     ).rejects.toThrow("offline");
     await expect(
       signOutAndUnregisterMobileBackgroundSync({
+        onSignOutConfirmed: async () => undefined,
         signOut: async () => ({ data: { success: false }, error: null }),
         unregister,
       }),

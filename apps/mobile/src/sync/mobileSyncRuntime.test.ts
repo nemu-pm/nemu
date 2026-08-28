@@ -8,12 +8,14 @@ import {
   invalidateMobileSyncEpoch,
   isApplyingMobileRemoteSnapshot,
   isMobileSyncSuspended,
+  mobileChapterProgressIntraPageSyncSupportedRef,
   mobileConvexRef,
   mobileIsAuthenticatedRef,
   mobileSessionUserIdRef,
   runWithMobileRemoteSnapshot,
   runWithMobileSyncWrite,
   runWithMobileSyncSuspended,
+  setMobileChapterProgressIntraPageSyncVersion,
 } from "./mobileSyncRuntime";
 
 function generationStore(initial: number | null = 0) {
@@ -39,6 +41,20 @@ describe("mobile sync runtime", () => {
     mobileConvexRef.current = null;
     mobileIsAuthenticatedRef.current = false;
     mobileSessionUserIdRef.current = "account-a";
+    setMobileChapterProgressIntraPageSyncVersion(undefined);
+  });
+
+  test("enables reader-position fields only for an advertised protocol", () => {
+    for (const version of [undefined, null, 0, 0.5, "1", Number.NaN]) {
+      setMobileChapterProgressIntraPageSyncVersion(version);
+      expect(mobileChapterProgressIntraPageSyncSupportedRef.current).toBe(false);
+    }
+    setMobileChapterProgressIntraPageSyncVersion(1);
+    expect(mobileChapterProgressIntraPageSyncSupportedRef.current).toBe(true);
+    setMobileChapterProgressIntraPageSyncVersion(2);
+    expect(mobileChapterProgressIntraPageSyncSupportedRef.current).toBe(true);
+    invalidateMobileSyncEpoch();
+    expect(mobileChapterProgressIntraPageSyncSupportedRef.current).toBe(false);
   });
 
   test("skips cloud clearing when signed out", async () => {

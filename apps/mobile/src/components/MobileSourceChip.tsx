@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { StyleSheet, Text } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import {
   MobileCachedImage,
   nemuFontWeight,
@@ -13,6 +13,7 @@ type MobileSourceChipProps = {
   disabled?: boolean;
   icon?: string;
   fallbackIcon?: keyof typeof Ionicons.glyphMap;
+  badge?: string;
   accessibilityLabel: string;
   accessibilityHint?: string;
   accessibilityRole?: "button" | "checkbox" | "tab";
@@ -26,6 +27,7 @@ export function MobileSourceChip({
   disabled = false,
   icon,
   fallbackIcon,
+  badge,
   accessibilityLabel,
   accessibilityHint,
   accessibilityRole = "button",
@@ -79,6 +81,16 @@ export function MobileSourceChip({
       >
         {label}
       </Text>
+      {badge ? (
+        <View style={[styles.badge, { backgroundColor: tokens.card }]}>
+          <Text
+            numberOfLines={1}
+            style={[styles.badgeLabel, { color: tokens.mutedForeground }]}
+          >
+            {badge}
+          </Text>
+        </View>
+      ) : null}
     </NemuPressable>
   );
 }
@@ -108,5 +120,16 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: nemuFontWeight.medium,
     letterSpacing: 0,
+  },
+  badge: {
+    flexShrink: 0,
+    borderRadius: 999,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  badgeLabel: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: nemuFontWeight.semibold,
   },
 });

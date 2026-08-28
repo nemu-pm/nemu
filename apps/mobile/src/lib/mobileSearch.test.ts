@@ -8,6 +8,7 @@ import {
   normalizeSearchSelectionForSources,
   normalizeSearchSelection,
   resolveSearchSourcePressSelection,
+  selectMobileLiveSearchSources,
   shouldRenderMobileSearchSkeleton,
   shouldRunMobileSearchSubmitFeedback,
   shouldShowMobileSearchNoSourcesEmpty,
@@ -83,6 +84,23 @@ describe("mobile search helpers", () => {
       sourceKeys: ["aidoku-community:en.example"],
       name: "Example",
       icon: "https://example.test/icon.png",
+      unsupported: false,
+    });
+  });
+
+  test("marks Tachiyomi sources unsupported across search presentation", () => {
+    expect(
+      toSearchSourceDisplay({
+        id: "tachiyomi:en.example",
+        registryId: "tachiyomi",
+        sourceKind: "tachiyomi",
+        sourceId: "en.example",
+        name: "Example",
+        version: 1,
+      }),
+    ).toMatchObject({
+      id: "tachiyomi:en.example",
+      unsupported: true,
     });
   });
 
@@ -411,6 +429,44 @@ describe("mobile search helpers", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]?.source.id).toBe("aidoku-community:registry-id");
     expect(groups[0]?.entries.map((item) => item.item.libraryItemId)).toEqual(["one"]);
+  });
+
+  test("keeps unsupported sources in local matching but excludes live execution", () => {
+    const supported = toSearchSourceDisplay({
+      id: "aidoku-community:en.supported",
+      registryId: "aidoku-community",
+      sourceKind: "aidoku",
+      sourceId: "en.supported",
+      name: "Supported",
+      version: 1,
+    });
+    const unsupported = toSearchSourceDisplay({
+      id: "tachiyomi:en.unsupported",
+      registryId: "tachiyomi",
+      sourceKind: "tachiyomi",
+      sourceId: "en.unsupported",
+      name: "Unsupported",
+      version: 1,
+    });
+    const sources = [supported, unsupported];
+    const entries = [
+      entry("saved", "Saved only", [
+        {
+          registryId: "tachiyomi",
+          sourceId: "en.unsupported",
+          sourceMangaId: "saved-only",
+        },
+      ]),
+    ];
+
+    expect(groupLocalSearchResults(entries, sources, null, "saved")).toEqual([
+      { source: supported, entries: [] },
+      { source: unsupported, entries },
+    ]);
+    expect(selectMobileLiveSearchSources(sources, null)).toEqual([supported]);
+    expect(
+      selectMobileLiveSearchSources(sources, [unsupported.id]),
+    ).toEqual([]);
   });
 
   test("matches local saved results by title, author, tag, and source manga id", () => {

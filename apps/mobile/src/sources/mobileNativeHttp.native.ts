@@ -41,6 +41,7 @@ export type MobileNativeFetchResponse = {
 export type MobileNativeFetchInit = RequestInit & {
   responseMode?: NemuAidokuHttpResponseMode;
   maxResponseBytes?: number;
+  requireHttps?: boolean;
 };
 
 function normalizeHeaders(
@@ -156,6 +157,7 @@ export async function mobileNativeFetch(
       timeoutMs: DEFAULT_TIMEOUT_MS,
       responseMode: init.responseMode ?? "auto",
       maxResponseBytes,
+      requireHttps: init.requireHttps === true,
     },
     init.signal,
   );

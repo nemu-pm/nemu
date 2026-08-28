@@ -18,7 +18,9 @@ import {
   type MobileSourcePackageHydrationHandler,
 } from "./mobileSourcePackageLoader";
 import {
-  defaultMobileSourceSettings, makeMobileRuntimeSourceKey, normalizeInstalledSource,
+  defaultMobileSourceSettings,
+  makeMobileRuntimeSourceKey,
+  normalizeInstalledSource,
 } from "./mobileSourceRuntime";
 import { mergeAuthors } from "@nemu/core/sources";
 
@@ -78,16 +80,52 @@ export type MobileSourceChaptersRefresh =
     };
 
 export type MobileSourceDetailsOptions = {
-  getSourceSettings?: (sourceKey: string, source: InstalledSource) => Promise<Record<string, unknown>>;
+  getSourceSettings?: (
+    sourceKey: string,
+    source: InstalledSource,
+  ) => Promise<Record<string, unknown>>;
   executor?: Pick<MobileSourceExecutorOptions, "bridge" | "readBytes">;
   sessionCache?: MobileSourceSessionCache;
   onSourcePackageHydrated?: MobileSourcePackageHydrationHandler;
   now?: () => number;
 };
 
-export function mapAidokuMangaToMetadata(manga: AidokuManga, fallbackId: string): MangaMetadata {
+export function isMobileSourceMangaTitlePathLike(value: string): boolean {
+  const title = value.trim();
+  return (
+    /^(?:[a-z][a-z\d+.-]*:)?\/\//i.test(title) ||
+    /^\.{1,2}[\\/]/.test(title) ||
+    /^[\\/][^\\/]+[\\/]/.test(title) ||
+    /^[a-z]:[\\/]/i.test(title) ||
+    /^www\.[^\s/]+(?:\/|$)/i.test(title)
+  );
+}
+
+export function resolveMobileSourceMangaMetadataTitle(
+  runtimeTitle: string | null | undefined,
+  fallbackId: string,
+  fallbackTitle?: string | null,
+): string {
+  const runtime = runtimeTitle?.trim() ?? "";
+  const knownTitle = fallbackTitle?.trim() ?? "";
+  const id = fallbackId.trim();
+
+  if (runtime && runtime !== id && !isMobileSourceMangaTitlePathLike(runtime)) {
+    return runtime;
+  }
+  if (knownTitle && knownTitle !== id) {
+    return knownTitle;
+  }
+  if (runtime && !isMobileSourceMangaTitlePathLike(runtime)) return runtime;
+  return id || knownTitle || runtime;
+}
+
+export function mapAidokuMangaToMetadata(
+  manga: AidokuManga,
+  fallbackId: string,
+): MangaMetadata {
   return {
-    title: manga.title || fallbackId,
+    title: resolveMobileSourceMangaMetadataTitle(manga.title, fallbackId),
     cover: manga.cover,
     authors: mergeAuthors(manga.authors, manga.artists),
     description: manga.description,
@@ -97,7 +135,9 @@ export function mapAidokuMangaToMetadata(manga: AidokuManga, fallbackId: string)
   };
 }
 
-export function mapAidokuChapterToSummary(chapter: AidokuChapter): ChapterSummary {
+export function mapAidokuChapterToSummary(
+  chapter: AidokuChapter,
+): ChapterSummary {
   const summary: ChapterSummary = {
     id: chapter.key,
     title: chapter.title,
@@ -116,7 +156,9 @@ export function chapterSortValue(chapter: ChapterSummary): number {
   return volume * 1_000_000 + chapterNumber;
 }
 
-export function sortChapterSummaries(chapters: ChapterSummary[]): ChapterSummary[] {
+export function sortChapterSummaries(
+  chapters: ChapterSummary[],
+): ChapterSummary[] {
   return [...chapters].sort((a, b) => {
     const aValue = chapterSortValue(a);
     const bValue = chapterSortValue(b);
@@ -128,11 +170,13 @@ export function sortChapterSummaries(chapters: ChapterSummary[]): ChapterSummary
 export async function refreshMobileSourceDetails(
   source: InstalledSource,
   mangaId: string,
-  options: MobileSourceDetailsOptions = {}
+  options: MobileSourceDetailsOptions = {},
 ): Promise<MobileSourceDetailsRefresh> {
   const normalized = normalizeInstalledSource(source);
   const sourceKey = makeMobileRuntimeSourceKey(normalized);
-  const settings = await (options.getSourceSettings ?? defaultMobileSourceSettings)(sourceKey, source);
+  const settings = await (
+    options.getSourceSettings ?? defaultMobileSourceSettings
+  )(sourceKey, source);
   const cache = options.sessionCache ?? defaultMobileSourceSessionCache;
 
   return cache.withSession(
@@ -145,11 +189,17 @@ export async function refreshMobileSourceDetails(
         options.onSourcePackageHydrated,
       );
       if (session.status === "blocked") {
-        return { status: "blocked", reason: session.reason, detail: session.detail };
+        return {
+          status: "blocked",
+          reason: session.reason,
+          detail: session.detail,
+        };
       }
       const manga = await session.source.getMangaDetails({ key: mangaId });
       const chapters = sortChapterSummaries(
-        (await session.source.getChapterList({ key: mangaId })).map(mapAidokuChapterToSummary)
+        (await session.source.getChapterList({ key: mangaId })).map(
+          mapAidokuChapterToSummary,
+        ),
       );
       return {
         status: "ready",
@@ -159,18 +209,20 @@ export async function refreshMobileSourceDetails(
         latestChapter: chapters[0],
         fetchedAt: options.now?.() ?? Date.now(),
       };
-    }
+    },
   );
 }
 
 export async function refreshMobileSourceMetadata(
   source: InstalledSource,
   mangaId: string,
-  options: MobileSourceDetailsOptions = {}
+  options: MobileSourceDetailsOptions = {},
 ): Promise<MobileSourceMetadataRefresh> {
   const normalized = normalizeInstalledSource(source);
   const sourceKey = makeMobileRuntimeSourceKey(normalized);
-  const settings = await (options.getSourceSettings ?? defaultMobileSourceSettings)(sourceKey, source);
+  const settings = await (
+    options.getSourceSettings ?? defaultMobileSourceSettings
+  )(sourceKey, source);
   const cache = options.sessionCache ?? defaultMobileSourceSessionCache;
 
   return cache.withSession(
@@ -183,7 +235,11 @@ export async function refreshMobileSourceMetadata(
         options.onSourcePackageHydrated,
       );
       if (session.status === "blocked") {
-        return { status: "blocked", reason: session.reason, detail: session.detail };
+        return {
+          status: "blocked",
+          reason: session.reason,
+          detail: session.detail,
+        };
       }
       const manga = await session.source.getMangaDetails({ key: mangaId });
       return {
@@ -192,14 +248,14 @@ export async function refreshMobileSourceMetadata(
         metadata: mapAidokuMangaToMetadata(manga, mangaId),
         fetchedAt: options.now?.() ?? Date.now(),
       };
-    }
+    },
   );
 }
 
 export async function refreshMobileSourceLatestChapter(
   source: InstalledSource,
   mangaId: string,
-  options: MobileSourceDetailsOptions = {}
+  options: MobileSourceDetailsOptions = {},
 ): Promise<MobileSourceLatestChapterRefresh> {
   const refreshed = await refreshMobileSourceChapters(source, mangaId, options);
   if (refreshed.status === "blocked") return refreshed;
@@ -214,11 +270,13 @@ export async function refreshMobileSourceLatestChapter(
 export async function refreshMobileSourceChapters(
   source: InstalledSource,
   mangaId: string,
-  options: MobileSourceDetailsOptions = {}
+  options: MobileSourceDetailsOptions = {},
 ): Promise<MobileSourceChaptersRefresh> {
   const normalized = normalizeInstalledSource(source);
   const sourceKey = makeMobileRuntimeSourceKey(normalized);
-  const settings = await (options.getSourceSettings ?? defaultMobileSourceSettings)(sourceKey, source);
+  const settings = await (
+    options.getSourceSettings ?? defaultMobileSourceSettings
+  )(sourceKey, source);
   const cache = options.sessionCache ?? defaultMobileSourceSessionCache;
 
   return cache.withSession(
@@ -231,10 +289,16 @@ export async function refreshMobileSourceChapters(
         options.onSourcePackageHydrated,
       );
       if (session.status === "blocked") {
-        return { status: "blocked", reason: session.reason, detail: session.detail };
+        return {
+          status: "blocked",
+          reason: session.reason,
+          detail: session.detail,
+        };
       }
       const chapters = sortChapterSummaries(
-        (await session.source.getChapterList({ key: mangaId })).map(mapAidokuChapterToSummary)
+        (await session.source.getChapterList({ key: mangaId })).map(
+          mapAidokuChapterToSummary,
+        ),
       );
       return {
         status: "ready",
@@ -243,6 +307,6 @@ export async function refreshMobileSourceChapters(
         latestChapter: chapters[0],
         fetchedAt: options.now?.() ?? Date.now(),
       };
-    }
+    },
   );
 }

@@ -22,6 +22,18 @@ const { transformSync } = requireFromTest(babelCorePath) as {
 };
 
 describe("mobile JSC Babel compatibility", () => {
+  test("does not use Android JSC built-ins that are absent on the pinned engine", () => {
+    const sourceSettingsExecutor = readFileSync(
+      path.join(
+        import.meta.dir,
+        "../sources/mobileSourceSettingsExecutor.ts",
+      ),
+      "utf8",
+    );
+
+    expect(sourceSettingsExecutor).not.toContain("Object.hasOwn(");
+  });
+
   test("uses a stable content hash for generated Bundle Mode worklets", async () => {
     const repositoryRoot = path.join(import.meta.dir, "../../../..");
     const packageManifest = JSON.parse(

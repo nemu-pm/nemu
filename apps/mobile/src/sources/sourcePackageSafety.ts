@@ -44,6 +44,18 @@ export class SourcePackageLimitError extends Error {
   }
 }
 
+export function assertSecureSourcePackageDownloadUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password) {
+      throw new Error();
+    }
+    return url.toString();
+  } catch {
+    throw new Error("Executable source packages require a valid HTTPS URL.");
+  }
+}
+
 export function assertSourcePackageByteLength({
   byteLength,
   maxBytes,
@@ -86,7 +98,8 @@ export function assertSourcePackageCompressedByteLength(
   assertSourcePackageByteLength({
     byteLength,
     maxBytes: sourcePackageCompressedByteLimit(kind),
-    label: kind === "aidoku-aix" ? "AIX package" : "Tachiyomi extension package",
+    label:
+      kind === "aidoku-aix" ? "AIX package" : "Tachiyomi extension package",
   });
 }
 

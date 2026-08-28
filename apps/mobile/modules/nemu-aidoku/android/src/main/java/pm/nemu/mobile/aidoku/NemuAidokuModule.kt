@@ -14,6 +14,7 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
+import expo.modules.kotlin.types.OptimizedRecord
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -44,9 +45,14 @@ private const val NEMU_NATIVE_HTTP_TEMP_MAX_AGE_MS = 60 * 60 * 1_000L
 private const val NEMU_NATIVE_HTTP_TEMP_ACTIVE_GRACE_MS = 5 * 60 * 1_000L
 private const val NEMU_NATIVE_HTTP_TEMP_MAX_FILES = 128
 private const val NEMU_NATIVE_HTTP_TEMP_MAX_BYTES = 256L * 1024 * 1024
+private val NEMU_NATIVE_HTTP_TEMP_FILE_PATTERN = Regex(
+  "^nemu-http-(?:\\d+|stage-\\d+|output-\\d+|" +
+    "stage-segment-\\d{2}-\\d+|output-segment-\\d{2}-\\d+)\\.part$"
+)
 private const val MOBILE_USER_AGENT =
   "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
+@OptimizedRecord
 class NemuAidokuHttpRequest : Record {
   @Field
   var requestId: String? = null
@@ -74,8 +80,12 @@ class NemuAidokuHttpRequest : Record {
 
   @Field
   var maxResponseBytes: Int? = null
+
+  @Field
+  var requireHttps: Boolean = false
 }
 
+@OptimizedRecord
 class NemuAidokuHttpFileRequest : Record {
   @Field
   var requestId: String? = null
@@ -96,10 +106,16 @@ class NemuAidokuHttpFileRequest : Record {
   var maxResponseBytes: Int = 0
 
   @Field
+  var requireHttps: Boolean = false
+
+  @Field
   var maxImageDimension: Int? = null
 
   @Field
   var maxImagePixels: Int? = null
+
+  @Field
+  var allowLongStripSegments: Boolean = false
 }
 
 private data class NativeHttpResult(
@@ -112,9 +128,22 @@ private data class NativeHttpResult(
 private data class NativeHttpFileResult(
   val status: Int,
   val headers: Map<String, String> = emptyMap(),
+  val kind: String = "file",
   val fileUri: String? = null,
   val byteLength: Long? = null,
+  val manifestVersion: Int? = null,
+  val imageWidth: Long? = null,
+  val imageHeight: Long? = null,
+  val imageSegments: List<NativeHttpImageSegmentResult> = emptyList(),
   val error: String? = null
+)
+
+private data class NativeHttpImageSegmentResult(
+  val fileUri: String,
+  val byteLength: Long,
+  val width: Long,
+  val height: Long,
+  val mimeType: String
 )
 
 class NemuAidokuModule : Module() {
@@ -135,6 +164,7 @@ class NemuAidokuModule : Module() {
     .dns(NemuPublicAddressDns)
     .addInterceptor(NemuPublicAddressPreflightInterceptor())
     .addInterceptor(AidokuExplicitCookiePolicyInterceptor())
+    .addNetworkInterceptor(NemuHttpsOnlyRedirectInterceptor())
     .addNetworkInterceptor(NemuPublicAddressNetworkInterceptor())
     .followRedirects(true)
     .followSslRedirects(true)
@@ -170,7 +200,7 @@ class NemuAidokuModule : Module() {
     Function("getHttpClientStatus") {
       mapOf(
         "available" to true,
-        "abiVersion" to 5,
+        "abiVersion" to 6,
         "supportsRequestLifecycle" to true,
         "supportsCloudflareSolver" to false,
         "version" to NEMU_NATIVE_HTTP_VERSION,
@@ -369,7 +399,7 @@ class NemuAidokuModule : Module() {
     val directory = File(cacheDir, "nemu-native-http-downloads")
     val now = System.currentTimeMillis()
     val candidates = directory.listFiles()
-      ?.filter { it.isFile && it.name.startsWith("nemu-http-") && it.name.endsWith(".part") }
+      ?.filter { it.isFile && NEMU_NATIVE_HTTP_TEMP_FILE_PATTERN.matches(it.name) }
       ?.sortedBy(File::lastModified)
       ?.toMutableList()
       ?: return
@@ -692,6 +722,12 @@ class NemuAidokuModule : Module() {
       } catch (error: IOException) {
         return fileResponse(status = 0, error = error.localizedMessage)
       }
+      if (request.allowLongStripSegments && imagePolicy == null) {
+        return fileResponse(
+          status = 0,
+          error = "Segmented image output requires paired image safety limits."
+        )
+      }
       if (requestId != null && cancelledHttpRequestIds.contains(requestId)) {
         return fileResponse(status = 0, error = "Request cancelled.")
       }
@@ -744,12 +780,25 @@ class NemuAidokuModule : Module() {
     var temporaryFile: File? = null
     var retained = false
     return try {
+      val parsedUrl = request.url.toHttpUrlOrNull()
+      if (request.requireHttps && parsedUrl?.isHttps != true) {
+        return NativeHttpFileResult(
+          status = 0,
+          error = "Native source networking requires HTTPS for this request."
+        )
+      }
       val requestBuilder = Request.Builder().url(request.url).get()
+      if (request.requireHttps) {
+        requestBuilder.tag(
+          NemuHttpsOnlyRequestPolicy::class.java,
+          NemuHttpsOnlyRequestPolicy
+        )
+      }
       if (!request.headers.keys.any { it.equals("user-agent", ignoreCase = true) }) {
         requestBuilder.header("User-Agent", MOBILE_USER_AGENT)
       }
-      request.headers.forEach { (key, value) ->
-        if (key.isNotBlank()) requestBuilder.header(key, value)
+      NemuNativeHttpRequestHeaderPolicy.normalize(request.headers).forEach { (key, value) ->
+        requestBuilder.header(key, value)
       }
 
       val call = client.newCall(requestBuilder.build())
@@ -814,15 +863,100 @@ class NemuAidokuModule : Module() {
           if (total <= 0L || total != outputFile.length()) {
             throw IOException("HTTP file download produced an empty or incomplete file.")
           }
+          var publishedFile = outputFile
+          var publishedLength = total
+          var publishedHeaders = headers
           if (imagePolicy != null) {
-            NemuImageMetadataPolicy.validateFile(outputFile, imagePolicy)
+            try {
+              NemuImageMetadataPolicy.validateFile(outputFile, imagePolicy)
+            } catch (error: NemuImageDimensionLimitException) {
+              val plan = NemuLongStripImagePolicy.inspectAndPlan(
+                outputFile,
+                imagePolicy,
+                request.maxResponseBytes.toLong()
+              )
+              val isCancelled = {
+                Thread.currentThread().isInterrupted ||
+                  (requestId != null && cancelledHttpRequestIds.contains(requestId))
+              }
+              // The opt-in segmented attempt and any bounded single-image
+              // fallback share one CPU deadline. A late aggregate-byte
+              // failure must not restart a second 30-second work window.
+              val transcodeDeadlineNanos =
+                NemuLongStripImageTranscoder.newRequestDeadlineNanos()
+              if (
+                request.allowLongStripSegments &&
+                request.maxResponseBytes.toLong() >
+                  NemuLongStripImageTranscoder.SEGMENTED_MANIFEST_RESERVE_BYTES &&
+                plan.container.displayedDimensions.height >
+                  plan.container.displayedDimensions.width
+              ) {
+                try {
+                  val transcoded = NemuLongStripImageTranscoder.transcodeSegments(
+                    source = outputFile,
+                    plan = plan,
+                    outputPolicy = imagePolicy,
+                    maximumOutputBytes =
+                      request.maxResponseBytes.toLong() -
+                        NemuLongStripImageTranscoder.SEGMENTED_MANIFEST_RESERVE_BYTES,
+                    isCancelled = isCancelled,
+                    deadlineNanos = transcodeDeadlineNanos
+                  )
+                  val segments = transcoded.segments.map { segment ->
+                    NativeHttpImageSegmentResult(
+                      fileUri = Uri.fromFile(segment.file).toString(),
+                      byteLength = segment.byteLength,
+                      width = segment.dimensions.width,
+                      height = segment.dimensions.height,
+                      mimeType = segment.mimeType
+                    )
+                  }
+                  return NativeHttpFileResult(
+                    status = httpResponse.code,
+                    headers = NemuTranscodedImageResponseHeaders.rewrite(
+                      headers,
+                      segments.first().mimeType
+                    ),
+                    kind = "segmented-image",
+                    byteLength = transcoded.byteLength,
+                    manifestVersion = 1,
+                    imageWidth = transcoded.dimensions.width,
+                    imageHeight = transcoded.dimensions.height,
+                    imageSegments = segments
+                  )
+                } catch (_: NemuLongStripSegmentOutputLimitException) {
+                  // Segment output is an opt-in fidelity enhancement. If its
+                  // aggregate encoder budget is exhausted, cleanly fall back
+                  // to the already-bounded single-image transcode. Corruption,
+                  // cancellation, timeout, decoder, and OOM failures remain
+                  // fail-closed and are intentionally not caught here.
+                }
+              }
+              val transcoded = NemuLongStripImageTranscoder.transcode(
+                source = outputFile,
+                plan = plan,
+                outputPolicy = imagePolicy,
+                maximumOutputBytes = request.maxResponseBytes.toLong(),
+                isCancelled = isCancelled,
+                deadlineNanos = transcodeDeadlineNanos
+              )
+              publishedFile = transcoded.file
+              publishedLength = transcoded.byteLength
+              publishedHeaders = NemuTranscodedImageResponseHeaders.rewrite(
+                headers,
+                transcoded.mimeType
+              )
+            }
           }
-          retained = true
+          // The normal download is returned directly. A transcoded download is
+          // a separate, atomically published file, so the existing finally
+          // cleanup retires only its oversized source temporary.
+          retained = publishedFile == outputFile
           NativeHttpFileResult(
             status = httpResponse.code,
-            headers = headers,
-            fileUri = Uri.fromFile(outputFile).toString(),
-            byteLength = total
+            headers = publishedHeaders,
+            fileUri = Uri.fromFile(publishedFile).toString(),
+            byteLength = publishedLength
           )
         }
       } finally {
@@ -845,6 +979,13 @@ class NemuAidokuModule : Module() {
     allowBackground: Boolean = false
   ): NativeHttpResult {
     return try {
+      val parsedUrl = request.url.toHttpUrlOrNull()
+      if (request.requireHttps && parsedUrl?.isHttps != true) {
+        return NativeHttpResult(
+          status = 0,
+          error = "Native source networking requires HTTPS for this request."
+        )
+      }
       val method = request.method.ifBlank { "GET" }.uppercase(Locale.US)
       val contentType = request.headers.entries.firstOrNull {
         it.key.equals("content-type", ignoreCase = true)
@@ -861,13 +1002,17 @@ class NemuAidokuModule : Module() {
       val requestBuilder = Request.Builder()
         .url(request.url)
         .method(method, requestBody)
+      if (request.requireHttps) {
+        requestBuilder.tag(
+          NemuHttpsOnlyRequestPolicy::class.java,
+          NemuHttpsOnlyRequestPolicy
+        )
+      }
       if (!request.headers.keys.any { it.equals("user-agent", ignoreCase = true) }) {
         requestBuilder.header("User-Agent", MOBILE_USER_AGENT)
       }
-      request.headers.forEach { (key, value) ->
-        if (key.isNotBlank()) {
-          requestBuilder.header(key, value)
-        }
+      NemuNativeHttpRequestHeaderPolicy.normalize(request.headers).forEach { (key, value) ->
+        requestBuilder.header(key, value)
       }
 
       val call = client.newCall(requestBuilder.build())
@@ -1020,12 +1165,25 @@ class NemuAidokuModule : Module() {
   }
 
   private fun fileResponse(result: NativeHttpFileResult): Map<String, Any?> {
-    return fileResponse(
-      status = result.status,
-      headers = result.headers,
-      fileUri = result.fileUri,
-      byteLength = result.byteLength,
-      error = result.error
+    return mapOf(
+      "status" to result.status,
+      "headers" to result.headers,
+      "kind" to result.kind,
+      "fileUri" to result.fileUri,
+      "byteLength" to result.byteLength,
+      "manifestVersion" to result.manifestVersion,
+      "imageWidth" to result.imageWidth,
+      "imageHeight" to result.imageHeight,
+      "imageSegments" to result.imageSegments.map { segment ->
+        mapOf(
+          "fileUri" to segment.fileUri,
+          "byteLength" to segment.byteLength,
+          "width" to segment.width,
+          "height" to segment.height,
+          "mimeType" to segment.mimeType
+        )
+      },
+      "error" to result.error
     )
   }
 
@@ -1039,6 +1197,7 @@ class NemuAidokuModule : Module() {
     return mapOf(
       "status" to status,
       "headers" to headers,
+      "kind" to "file",
       "fileUri" to fileUri,
       "byteLength" to byteLength,
       "error" to error

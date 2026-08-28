@@ -5,6 +5,7 @@ import { createMobileSyncDataStore } from "@/sync/mobileSyncDataStore";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 import { makeMobileProfileId } from "./mobileDataProfile";
+import { createMobileDataProfileGuardedStore } from "./mobileDataProfileStoreGuard";
 
 function MobileWebDataStoreProvider({
   children,
@@ -14,7 +15,13 @@ function MobileWebDataStoreProvider({
   storageKey: string;
 }) {
   const baseStore = useMemo(() => new WebUserDataStore(storageKey), [storageKey]);
-  const store = useMemo(() => createMobileSyncDataStore(baseStore), [baseStore]);
+  const store = useMemo(
+    () =>
+      createMobileDataProfileGuardedStore(
+        createMobileSyncDataStore(baseStore),
+      ),
+    [baseStore],
+  );
 
   return (
     <MobileDataContext.Provider value={{ store }}>

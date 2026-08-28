@@ -5,6 +5,7 @@ import {
   getMobileInstalledSourceRegistryKeys,
   getMobileInstalledSourceRegistryRef,
 } from "./mobileInstalledSourceKeys";
+import { isMobileUnsupportedInstalledSource } from "./mobileBrowseSources";
 
 export type SearchSourceDisplay = {
   id: string;
@@ -13,6 +14,7 @@ export type SearchSourceDisplay = {
   sourceKeys?: string[];
   name: string;
   icon?: string;
+  unsupported?: boolean;
 };
 
 export type SearchSourceSelection = string[] | null;
@@ -58,7 +60,26 @@ export function toSearchSourceDisplay(source: InstalledSource): SearchSourceDisp
     sourceKeys: getMobileInstalledSourceRegistryKeys(source),
     name: source.name ?? rawSourceId,
     icon: source.icon,
+    unsupported: isMobileUnsupportedInstalledSource(source),
   };
+}
+
+/**
+ * Local saved-title matching includes every installed source, but native live
+ * search must only execute source kinds this mobile build can run.
+ */
+export function selectMobileLiveSearchSources(
+  sources: SearchSourceDisplay[],
+  selection: SearchSourceSelection,
+): SearchSourceDisplay[] {
+  const normalizedSelection = normalizeSearchSelectionForSources(sources, selection);
+  const selectedIds =
+    normalizedSelection === null
+      ? new Set(sources.map((source) => source.id))
+      : new Set(normalizedSelection);
+  return sources.filter(
+    (source) => !source.unsupported && selectedIds.has(source.id),
+  );
 }
 
 export function normalizeSearchSelection(

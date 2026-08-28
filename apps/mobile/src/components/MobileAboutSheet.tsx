@@ -30,6 +30,7 @@ import {
   type MobileAboutActionState,
 } from "@/lib/mobileAboutActions";
 import { getMobileStrings } from "@/lib/mobileI18n";
+import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import { getMobileAboutSheetLayout } from "@/lib/mobileAboutLayout";
 
 const APP_VERSION = packageJson.version;
@@ -86,9 +87,10 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
     } catch (error) {
       await hapticError();
       setLinkError(
-        error instanceof Error
-          ? error.message
-          : strings.common.externalLinkFailedDetail,
+        describeMobileErrorDetail(
+          error,
+          strings.common.externalLinkFailedDetail,
+        ),
       );
     } finally {
       openingSourceCodeRef.current = false;

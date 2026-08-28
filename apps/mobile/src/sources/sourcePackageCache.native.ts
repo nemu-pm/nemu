@@ -20,6 +20,7 @@ import {
 } from "./sourcePackageCacheTypes";
 import {
   MOBILE_SOURCE_PACKAGE_CACHE_POLICY,
+  assertSecureSourcePackageDownloadUrl,
   assertSourcePackageCompressedByteLength,
   isCachedSourcePackageFileInfoValid,
   sourcePackageCompressedByteLimit,
@@ -94,8 +95,12 @@ export async function cacheSourcePackage(
   source: MobileRegistrySource,
   options: SourcePackageCacheOptions = {},
 ): Promise<SourcePackageCacheResult> {
-  if (!source.downloadUrl) return { packageUri: null, packageCacheKey: null, metadata: null };
+  if (!source.downloadUrl)
+    return { packageUri: null, packageCacheKey: null, metadata: null };
   throwIfMobileNativeHttpAborted(options.signal);
+  const secureDownloadUrl = assertSecureSourcePackageDownloadUrl(
+    source.downloadUrl,
+  );
 
   const packageKind = getSourcePackageKind(source);
   const sourceKey = `${source.registryId}:${source.id}`;
@@ -103,14 +108,17 @@ export async function cacheSourcePackage(
     key: sourceKey,
     kind: packageKind,
   });
-  const downloadStartedAt = markMobilePerformance("source.package.download.start", {
-    key: sourceKey,
-    kind: packageKind,
-  });
+  const downloadStartedAt = markMobilePerformance(
+    "source.package.download.start",
+    {
+      key: sourceKey,
+      kind: packageKind,
+    },
+  );
   const packageCacheKey =
     packageKind === "aidoku-aix"
       ? makeAixArtifactCacheKey({
-          artifactIdentity: source.downloadUrl,
+          artifactIdentity: secureDownloadUrl,
           registryId: source.registryId,
           sourceId: source.id,
           version: source.version,
@@ -119,27 +127,35 @@ export async function cacheSourcePackage(
   const contentType = sourcePackageContentType(source, packageKind);
   const packageUri = await packageCache.downloadFile(
     packageCacheKey,
-    source.downloadUrl,
+    secureDownloadUrl,
     contentType,
     {
       maxBytes: sourcePackageCompressedByteLimit(packageKind),
+      requireHttps: true,
       signal: options.signal,
     },
   );
-  measureMobilePerformance("source.package.download.complete", downloadStartedAt, {
-    key: sourceKey,
-    kind: packageKind,
-    status: 200,
-  });
+  measureMobilePerformance(
+    "source.package.download.complete",
+    downloadStartedAt,
+    {
+      key: sourceKey,
+      kind: packageKind,
+      status: 200,
+    },
+  );
   throwIfMobileNativeHttpAborted(options.signal);
   const packageFile = new File(packageUri);
   assertReadablePackageFileSize(packageFile, packageKind);
   const byteLength = packageFile.info().size ?? 0;
-  const metadataStartedAt = markMobilePerformance("source.package.metadata.start", {
-    key: sourceKey,
-    kind: packageKind,
-    byteLength,
-  });
+  const metadataStartedAt = markMobilePerformance(
+    "source.package.metadata.start",
+    {
+      key: sourceKey,
+      kind: packageKind,
+      byteLength,
+    },
+  );
   let metadata: SourcePackageCacheResult["metadata"] = null;
   try {
     // Tachiyomi packages stay entirely on disk. AIX metadata parsing still
@@ -156,10 +172,14 @@ export async function cacheSourcePackage(
     await packageCache.remove(packageCacheKey).catch(() => undefined);
     throw error;
   }
-  measureMobilePerformance("source.package.metadata.complete", metadataStartedAt, {
-    key: sourceKey,
-    kind: packageKind,
-  });
+  measureMobilePerformance(
+    "source.package.metadata.complete",
+    metadataStartedAt,
+    {
+      key: sourceKey,
+      kind: packageKind,
+    },
+  );
   measureMobilePerformance("source.package.cache.complete", cacheStartedAt, {
     key: sourceKey,
     kind: packageKind,
@@ -175,28 +195,41 @@ export async function cacheImportedAixSourcePackage({
   uri: string;
   registryId: string;
 }): Promise<SourcePackageCacheResult> {
-  const readStartedAt = markMobilePerformance("source.package.import-read.start", {
-    registryId,
-  });
+  const readStartedAt = markMobilePerformance(
+    "source.package.import-read.start",
+    {
+      registryId,
+    },
+  );
   const bytes = await readPackageFileBytes(new File(uri), "aidoku-aix");
-  measureMobilePerformance("source.package.import-read.complete", readStartedAt, {
-    registryId,
-    byteLength: bytes.byteLength,
-  });
+  measureMobilePerformance(
+    "source.package.import-read.complete",
+    readStartedAt,
+    {
+      registryId,
+      byteLength: bytes.byteLength,
+    },
+  );
 
-  const metadataStartedAt = markMobilePerformance("source.package.import-metadata.start", {
-    registryId,
-    byteLength: bytes.byteLength,
-  });
+  const metadataStartedAt = markMobilePerformance(
+    "source.package.import-metadata.start",
+    {
+      registryId,
+      byteLength: bytes.byteLength,
+    },
+  );
   const metadata = extractAixMetadata(bytes);
-  measureMobilePerformance("source.package.import-metadata.complete", metadataStartedAt, {
-    registryId,
-    sourceId: metadata.sourceId,
-  });
+  measureMobilePerformance(
+    "source.package.import-metadata.complete",
+    metadataStartedAt,
+    {
+      registryId,
+      sourceId: metadata.sourceId,
+    },
+  );
 
-  const contentDigest = Array.from(
-    sha256Bytes(bytes),
-    (byte) => byte.toString(16).padStart(2, "0"),
+  const contentDigest = Array.from(sha256Bytes(bytes), (byte) =>
+    byte.toString(16).padStart(2, "0"),
   ).join("");
   const packageCacheKey = makeAixArtifactCacheKey({
     artifactIdentity: `sha256:${contentDigest}`,
@@ -204,10 +237,13 @@ export async function cacheImportedAixSourcePackage({
     sourceId: metadata.sourceId,
     version: metadata.version,
   });
-  const writeStartedAt = markMobilePerformance("source.package.import-cache-write.start", {
-    key: packageCacheKey,
-    byteLength: bytes.byteLength,
-  });
+  const writeStartedAt = markMobilePerformance(
+    "source.package.import-cache-write.start",
+    {
+      key: packageCacheKey,
+      byteLength: bytes.byteLength,
+    },
+  );
   const packageUri = await writeCompletePackage(
     packageCacheKey,
     bytes,
@@ -220,16 +256,20 @@ export async function cacheImportedAixSourcePackage({
       "aidoku-aix",
     ),
   );
-  measureMobilePerformance("source.package.import-cache-write.complete", writeStartedAt, {
-    key: packageCacheKey,
-    byteLength: bytes.byteLength,
-  });
+  measureMobilePerformance(
+    "source.package.import-cache-write.complete",
+    writeStartedAt,
+    {
+      key: packageCacheKey,
+      byteLength: bytes.byteLength,
+    },
+  );
 
   return { packageUri, packageCacheKey, metadata };
 }
 
 export async function readCachedSourcePackageBytes(
-  packageCacheKey: string | null | undefined
+  packageCacheKey: string | null | undefined,
 ): Promise<Uint8Array | null> {
   if (!packageCacheKey) return null;
   const uri = await packageCache.getUri(packageCacheKey);
@@ -274,7 +314,7 @@ export async function resolveCachedSourcePackageUri(
 }
 
 export async function clearCachedSourcePackage(
-  packageCacheKey: string | null | undefined
+  packageCacheKey: string | null | undefined,
 ): Promise<void> {
   if (!packageCacheKey) return;
   await packageCache.remove(packageCacheKey);

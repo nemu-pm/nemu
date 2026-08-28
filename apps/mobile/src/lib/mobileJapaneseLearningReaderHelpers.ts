@@ -10,6 +10,7 @@ import {
   type MobileOcrDetection,
 } from "@/lib/mobileJapaneseLearningOcr";
 import { type MobileStrings } from "@/lib/mobileI18n";
+import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 
 /**
  * Theme tokens the grammar/OCR color helpers read. Kept as a structural type
@@ -118,9 +119,10 @@ export function mobileJapaneseLearningChatErrorDetail(
   if (error instanceof Error && error.message === "context_too_long") {
     return strings.reader.pluginJapaneseLearningChatFailed;
   }
-  return error instanceof Error
-    ? error.message
-    : strings.reader.pluginJapaneseLearningChatFailed;
+  return describeMobileErrorDetail(
+    error,
+    strings.reader.pluginJapaneseLearningChatFailed,
+  );
 }
 
 export function mobileOcrLabelColor(

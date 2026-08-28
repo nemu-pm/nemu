@@ -1,4 +1,5 @@
 import { normalizeAppLanguage } from "./mobileLanguageSettings";
+import { sanitizeMobileErrorDiagnostic } from "./mobileSourceErrors";
 
 export type MobileErrorLogInput = {
   error: Error;
@@ -13,8 +14,9 @@ export function resolveMobileErrorBoundaryLanguage(locale: string | null | undef
 }
 
 export function formatMobileErrorSummary(error: Error): string {
-  const message = error.message.trim();
-  return message ? `${error.name}: ${message}` : error.name;
+  const name = sanitizeMobileErrorDiagnostic(error.name) ?? "Error";
+  const message = sanitizeMobileErrorDiagnostic(error) ?? "";
+  return message ? `${name}: ${message}` : name;
 }
 
 export function formatMobileErrorLog({
@@ -24,22 +26,27 @@ export function formatMobileErrorLog({
   componentStack,
 }: MobileErrorLogInput): string {
   const lines: string[] = [`Timestamp: ${timestamp}`];
-  if (routePath?.trim()) lines.push(`Route: ${routePath.trim()}`);
+  const safeRoutePath = sanitizeMobileErrorDiagnostic(routePath);
+  if (safeRoutePath) lines.push(`Route: ${safeRoutePath}`);
 
   lines.push("");
-  lines.push(`Error: ${error.name}`);
-  if (error.message.trim()) lines.push(`Message: ${error.message.trim()}`);
+  const safeName = sanitizeMobileErrorDiagnostic(error.name) ?? "Error";
+  lines.push(`Error: ${safeName}`);
+  const safeMessage = sanitizeMobileErrorDiagnostic(error);
+  if (safeMessage) lines.push(`Message: ${safeMessage}`);
 
-  if (error.stack?.trim()) {
+  const safeStack = sanitizeMobileErrorDiagnostic(error.stack);
+  if (safeStack) {
     lines.push("");
     lines.push("Stack Trace:");
-    lines.push(error.stack.trim());
+    lines.push(safeStack);
   }
 
-  if (componentStack?.trim()) {
+  const safeComponentStack = sanitizeMobileErrorDiagnostic(componentStack);
+  if (safeComponentStack) {
     lines.push("");
     lines.push("Component Stack:");
-    lines.push(componentStack.trim());
+    lines.push(safeComponentStack);
   }
 
   return lines.join("\n");

@@ -22,13 +22,18 @@ export type NativeBinaryCacheDownloadOptions = {
   cookieScope?: string;
   headers?: Record<string, string>;
   maxBytes: number;
+  requireHttps?: boolean;
   maxImageDimension?: number;
   maxImagePixels?: number;
+  allowLongStripSegments?: boolean;
   signal?: AbortSignal;
 };
 
 export class FileSystemBinaryCache implements NativeBinaryCache {
-  private readonly entries = new Map<string, { bytes: Uint8Array; contentType?: string }>();
+  private readonly entries = new Map<
+    string,
+    { bytes: Uint8Array; contentType?: string }
+  >();
 
   constructor(
     _directoryName = "nemu-cache",
@@ -47,7 +52,11 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     return this.entries.get(key)?.bytes ?? null;
   }
 
-  async setBytes(key: string, bytes: Uint8Array, contentType?: string): Promise<string> {
+  async setBytes(
+    key: string,
+    bytes: Uint8Array,
+    contentType?: string,
+  ): Promise<string> {
     this.entries.set(key, { bytes, contentType });
     return `memory://${key}`;
   }
@@ -65,20 +74,23 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     const hasImagePixels = options.maxImagePixels != null;
     if (
       hasImageDimension !== hasImagePixels ||
-      (hasImageDimension && (
-        !Number.isSafeInteger(options.maxImageDimension) ||
-        options.maxImageDimension! <= 0 ||
-        options.maxImageDimension! > MOBILE_IMAGE_MAX_DIMENSION ||
-        !Number.isSafeInteger(options.maxImagePixels) ||
-        options.maxImagePixels! <= 0 ||
-        options.maxImagePixels! > MOBILE_IMAGE_MAX_DECODED_PIXELS
-      ))
+      (hasImageDimension &&
+        (!Number.isSafeInteger(options.maxImageDimension) ||
+          options.maxImageDimension! <= 0 ||
+          options.maxImageDimension! > MOBILE_IMAGE_MAX_DIMENSION ||
+          !Number.isSafeInteger(options.maxImagePixels) ||
+          options.maxImagePixels! <= 0 ||
+          options.maxImagePixels! > MOBILE_IMAGE_MAX_DECODED_PIXELS))
     ) {
       throw new Error("Invalid native cache image dimension limit.");
+    }
+    if (options.requireHttps && new URL(url).protocol !== "https:") {
+      throw new Error("This cache download requires HTTPS.");
     }
     const response = await fetch(url, {
       headers: options.headers,
       signal: options.signal,
+      redirect: options.requireHttps ? "error" : undefined,
     });
     if (!response.ok) throw new Error(`Download failed: ${response.status}`);
     const declaredLength = Number(response.headers.get("content-length"));
@@ -104,5 +116,10 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
 
   async clearAll(): Promise<void> {
     this.entries.clear();
+  }
+
+  retainSegmentedImageManifest(locatorUri: string): () => void {
+    void locatorUri;
+    return () => undefined;
   }
 }

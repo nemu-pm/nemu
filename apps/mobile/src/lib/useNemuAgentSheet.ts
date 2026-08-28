@@ -2,7 +2,10 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 import { useEventListener } from "expo";
 import NemuAidoku from "../../modules/nemu-aidoku/src/NemuAidokuModule";
 import { hapticConfirm, hapticError, hapticSelection } from "@/lib/haptics";
-import { isMobileCloudflareError } from "@/lib/mobileSourceErrors";
+import {
+  isMobileCloudflareError,
+  validateMobileCloudflareOperationalUrl,
+} from "@/lib/mobileSourceErrors";
 import {
   initialNemuAgentSheetState,
   reduceNemuAgentSheet,
@@ -15,8 +18,9 @@ import {
  * cannot enforce the source-network SSRF boundary for every subresource.
  *
  * The pure reducer lives in `nemuAgentSheetReducer.ts` (unit-tested without a
- * React host); this hook layers on the native event subscription, haptics, and
- * the post-success auto-dismiss + retry.
+ * React host). This hook keeps the native event integration for a future
+ * supported solver, while `verify` fails closed unless native code explicitly
+ * reports that capability.
  */
 
 export type UseNemuAgentSheetOptions = {
@@ -114,7 +118,9 @@ export function useNemuAgentSheet(
   }, []);
 
   const verify = useCallback(() => {
-    const url = state.url;
+    const url = state.url
+      ? validateMobileCloudflareOperationalUrl(state.url)
+      : undefined;
     if (!url) return;
     try {
       if (NemuAidoku.getHttpClientStatus().supportsCloudflareSolver !== true) {

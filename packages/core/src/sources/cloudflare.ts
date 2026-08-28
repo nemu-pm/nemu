@@ -76,6 +76,17 @@ export function isNetworkSourceError(error: unknown): boolean {
     message.includes("network request failed") ||
     message.includes("networkerror") ||
     message.includes("timed out") ||
-    message.includes("timeout")
+    message.includes("timeout") ||
+    message.includes("unacceptable certificate") ||
+    message.includes("certificate has expired") ||
+    message.includes("certificate is not yet valid") ||
+    message.includes("ssl handshake") ||
+    message.includes("tls handshake") ||
+    message.includes("hostname verification") ||
+    message.includes("trust anchor") ||
+    message.includes("certpathvalidatorexception") ||
+    message.includes("unable to verify the first certificate") ||
+    message.includes("self signed certificate") ||
+    message.includes("err_cert_")
   );
 }
