@@ -323,6 +323,11 @@ describe("ProfileWriteFence", () => {
     ).resolves.toBe("fresh");
   });
 
+  test("keeps opaque isolated-store scopes outside the device-wipe namespace", async () => {
+    const fence = new ProfileWriteFence(`test:isolated:${Math.random()}`);
+    await expect(fence.run(async () => "written")).resolves.toBe("written");
+  });
+
   test("a lease cannot be reused after its serialized callback returns", async () => {
     const profileId = `user:fence-leaked-lease-${Math.random()}`;
     const fence = new ProfileWriteFence(profileId);
