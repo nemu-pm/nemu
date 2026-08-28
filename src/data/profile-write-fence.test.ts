@@ -1,12 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   clearLocalStoragePreservingProfileWriteFences,
+  DeviceDataWipePendingError,
   isProfileWriteFenceStorageKey,
   ProfileWriteFence,
   ProfileWriteFenceUnavailableError,
   StaleProfileWriteError,
 } from "./profile-write-fence";
 import { listDeviceProfileCatalog } from "./device-profile-catalog";
+import {
+  deleteDeviceProfileWipeGuard,
+  persistDeviceProfileWipeGuard,
+} from "./device-profile-wipe-guard";
 
 const storageDescriptor = Object.getOwnPropertyDescriptor(
   globalThis,
@@ -270,6 +275,52 @@ describe("ProfileWriteFence", () => {
     await expect(
       staleLifetime.run(async () => undefined),
     ).rejects.toBeInstanceOf(StaleProfileWriteError);
+  });
+
+  test("blocks ordinary writers while the exact device-wipe guard owns a profile", async () => {
+    const profileId = `user:fence-device-wipe-${Math.random()}`;
+    const ordinaryWriter = new ProfileWriteFence(profileId);
+    const guard = persistDeviceProfileWipeGuard({
+      operationId: "wipe-operation",
+      profileId,
+      expectedEpoch: ordinaryWriter.epoch,
+    });
+    let ordinaryCalled = false;
+
+    await expect(
+      ordinaryWriter.run(async () => {
+        ordinaryCalled = true;
+      }),
+    ).rejects.toBeInstanceOf(DeviceDataWipePendingError);
+    expect(ordinaryCalled).toBe(false);
+
+    let clearCount = 0;
+    await new ProfileWriteFence(profileId).runDeviceDataWipe(
+      guard,
+      async () => {
+        clearCount += 1;
+      },
+    );
+    expect(new ProfileWriteFence(profileId).epoch).toBe(guard.targetEpoch);
+
+    // Replaying after a crash at the journal-checkpoint boundary is safe and
+    // does not keep advancing the profile lifetime.
+    await new ProfileWriteFence(profileId).runDeviceDataWipe(
+      guard,
+      async () => {
+        clearCount += 1;
+      },
+    );
+    expect(clearCount).toBe(2);
+    expect(new ProfileWriteFence(profileId).epoch).toBe(guard.targetEpoch);
+    await expect(
+      new ProfileWriteFence(profileId).run(async () => "blocked"),
+    ).rejects.toBeInstanceOf(DeviceDataWipePendingError);
+
+    deleteDeviceProfileWipeGuard(guard);
+    await expect(
+      new ProfileWriteFence(profileId).run(async () => "fresh"),
+    ).resolves.toBe("fresh");
   });
 
   test("a lease cannot be reused after its serialized callback returns", async () => {

@@ -329,6 +329,8 @@
     "uninstall": "Uninstall",
     "plugins": "Plugins",
     "noPlugins": "No plugins installed.",
+    "configurePlugin": "Configure {{name}}",
+    "togglePlugin": "Enable or disable {{name}}",
     "agent": "Nemu Agent",
     "agentDescription": "Desktop agent for better compatibility with protected sites",
     "agentConnected": "Connected",

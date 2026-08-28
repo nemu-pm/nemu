@@ -16,6 +16,10 @@ import {
   captureStableDurableStorageSnapshot,
   DurableStorageSnapshotChangedError,
 } from "./durable-storage-snapshot";
+import {
+  readDeviceProfileWipeGuard,
+  type DeviceProfileWipeGuard,
+} from "./device-profile-wipe-guard";
 
 const EPOCH_STORAGE_PREFIX = "nemu:profile-write-epoch:";
 const RETIREMENT_INTENT_STORAGE_PREFIX =
@@ -60,6 +64,15 @@ export class ProfileWriteFenceUnavailableError extends Error {
   }
 }
 
+export class DeviceDataWipePendingError extends Error {
+  constructor() {
+    super(
+      "This local profile is being cleared from the device. Wait for recovery to finish before saving again.",
+    );
+    this.name = "DeviceDataWipePendingError";
+  }
+}
+
 type RetiredListener = (epoch: number) => void;
 
 const sameRealmQueues = new Map<string, Promise<void>>();
@@ -83,6 +96,22 @@ function registerBrowserDeviceProfile(
   ) {
     registerDeviceProfile(profileId, epoch);
   }
+}
+
+function assertDeviceWipeAccess(
+  profileId: string | undefined,
+  authorization?: DeviceProfileWipeGuard,
+): void {
+  if (!getDurableStorage()) return;
+  const pending = readDeviceProfileWipeGuard(profileId);
+  if (!pending) return;
+  if (
+    authorization &&
+    JSON.stringify(pending) === JSON.stringify(authorization)
+  ) {
+    return;
+  }
+  throw new DeviceDataWipePendingError();
 }
 
 function epochStorageKey(key: string): string {
@@ -575,6 +604,14 @@ export class ProfileWriteFence {
     operation: (lease: ProfileWriteFenceLease) => Promise<T>,
     existingLease?: ProfileWriteFenceLease,
   ): Promise<T> {
+    return this.runInternal(operation, existingLease);
+  }
+
+  private runInternal<T>(
+    operation: (lease: ProfileWriteFenceLease) => Promise<T>,
+    existingLease?: ProfileWriteFenceLease,
+    deviceWipeAuthorization?: DeviceProfileWipeGuard,
+  ): Promise<T> {
     if (existingLease) {
       if (
         isLeaseCurrent(existingLease, this.key, this.epoch) &&
@@ -593,6 +630,7 @@ export class ProfileWriteFence {
     }
 
     return enqueue(this.key, async () => {
+      assertDeviceWipeAccess(this.profileId, deviceWipeAuthorization);
       if (readEpoch(this.key) !== this.epoch) {
         throw new StaleProfileWriteError();
       }
@@ -616,6 +654,14 @@ export class ProfileWriteFence {
   retire<T>(
     operation: (lease: ProfileWriteFenceLease) => Promise<T>,
     existingLease?: ProfileWriteFenceLease,
+  ): Promise<T> {
+    return this.retireInternal(operation, existingLease);
+  }
+
+  private retireInternal<T>(
+    operation: (lease: ProfileWriteFenceLease) => Promise<T>,
+    existingLease?: ProfileWriteFenceLease,
+    deviceWipeAuthorization?: DeviceProfileWipeGuard,
   ): Promise<T> {
     const retireWithLease = async (lease: ProfileWriteFenceLease) => {
       if (this.epoch >= Number.MAX_SAFE_INTEGER) {
@@ -678,6 +724,7 @@ export class ProfileWriteFence {
     };
 
     if (existingLease) {
+      assertDeviceWipeAccess(this.profileId, deviceWipeAuthorization);
       if (
         !isLeaseCurrent(existingLease, this.key, this.epoch) ||
         activeWriteLeases.get(this.key) !== existingLease ||
@@ -689,11 +736,35 @@ export class ProfileWriteFence {
     }
 
     return enqueue(this.key, async () => {
+      assertDeviceWipeAccess(this.profileId, deviceWipeAuthorization);
       if (readEpoch(this.key) !== this.epoch) {
         throw new StaleProfileWriteError();
       }
       return retireWithLease(createLease(this.key, this.epoch));
     });
+  }
+
+  /**
+   * Clear one profile for the exact durable device-wipe claim. The first
+   * successful pass retires the captured lifetime; a crash after retirement
+   * but before the journal checkpoint safely replays in the already-retired
+   * lifetime while the guard continues to reject ordinary writers.
+   */
+  runDeviceDataWipe<T>(
+    guard: DeviceProfileWipeGuard,
+    operation: (lease: ProfileWriteFenceLease) => Promise<T>,
+  ): Promise<T> {
+    if (
+      guard.profileId !== (this.profileId ?? null) ||
+      (this.epoch !== guard.expectedEpoch && this.epoch !== guard.targetEpoch)
+    ) {
+      return Promise.reject(
+        new Error("The profile lifetime no longer matches its device-wipe guard."),
+      );
+    }
+    return this.epoch === guard.expectedEpoch
+      ? this.retireInternal(operation, undefined, guard)
+      : this.runInternal(operation, undefined, guard);
   }
 
   subscribeRetired(listener: RetiredListener): () => void {
