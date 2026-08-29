@@ -49,7 +49,7 @@ export function MobilePageEmpty({
         >
           <Ionicons
             name={icon}
-            size={compactHeight ? 28 : 48}
+            size={compactHeight ? 24 : 48}
             color={tokens.mutedForeground}
           />
         </View>
@@ -96,9 +96,9 @@ const styles = StyleSheet.create({
   },
   compactRoot: {
     minHeight: 0,
-    gap: 8,
+    gap: 6,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   header: {
     maxWidth: 320,
@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   compactHeader: {
-    gap: 4,
+    gap: 3,
   },
   media: {
     width: 96,
@@ -117,9 +117,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   compactMedia: {
-    width: 56,
-    height: 56,
-    marginBottom: 2,
+    width: 48,
+    height: 48,
+    marginBottom: 0,
   },
   title: {
     textAlign: "center",
