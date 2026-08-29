@@ -1,5 +1,4 @@
 import {
-  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -13,7 +12,7 @@ import {
   type AudioPlayer,
 } from "expo-audio";
 import * as Clipboard from "expo-clipboard";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, Stack, useLocalSearchParams } from "expo-router";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -29,7 +28,6 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { StatusBar } from "expo-status-bar";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
@@ -281,8 +279,6 @@ import {
 } from "@/lib/mobileDualReaderStore";
 import { sortMobileSourceLinks } from "@/lib/mobileSourceLinks";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
-
-const ReaderStatusBar = memo(StatusBar);
 
 type ReaderPagesState =
   | { status: "idle"; pages: MobileReaderPage[]; detail: string }
@@ -2021,7 +2017,21 @@ export function ReaderScreen() {
   const showReaderBottomChrome =
     showReaderChrome && pagesState.status === "ready" && pageCount > 0;
   const readerBackgroundColor = "#000000";
-  const readerStatusBarStyle = "light";
+  const readerScreenOptions = useMemo(
+    () => ({
+      // The reader owns its own back affordance, and its page pan/scrub
+      // gestures must not compete with the iOS interactive-pop gesture.
+      fullScreenGestureEnabled: false,
+      gestureEnabled: false,
+      // Native-stack status-bar options use the scene's view controller on
+      // iOS. The legacy UIApplication path is a no-op when linked with the
+      // iOS 27 SDK.
+      statusBarAnimation: "fade" as const,
+      statusBarHidden: !showControls,
+      statusBarStyle: "light" as const,
+    }),
+    [showControls],
+  );
   const readerChromeTopPadding = showReaderChrome
     ? insets.top + 80
     : Math.max(insets.top + 8, 12);
@@ -4955,12 +4965,7 @@ export function ReaderScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: readerBackgroundColor }]}>
-      <ReaderStatusBar
-        hidden={!showControls}
-        animated
-        hideTransitionAnimation="fade"
-        style={readerStatusBarStyle}
-      />
+      <Stack.Screen options={readerScreenOptions} />
       <MobileReaderGallery
         accessibilityHidden={endOfChapterPromptVisible}
         accessibilityLabel={formatReaderStageAccessibilityLabel(

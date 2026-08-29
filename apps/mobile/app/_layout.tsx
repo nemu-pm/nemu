@@ -2,7 +2,6 @@ import "react-native-gesture-handler";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Stack, usePathname, type ErrorBoundaryProps } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { StatusBar } from "expo-status-bar";
 import { Platform, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -100,11 +99,11 @@ function RootStack({
       pointerEvents={underlyingContentState.pointerEvents}
       style={[styles.root, { backgroundColor: tokens.background }]}
     >
-      <StatusBar style={scheme === "dark" ? "light" : "dark"} />
       <Stack
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: tokens.background },
+          statusBarStyle: scheme === "dark" ? "light" : "dark",
         }}
       />
       {Platform.OS !== "ios" && shouldShowMobileFloatingTabBar(pathname) ? (

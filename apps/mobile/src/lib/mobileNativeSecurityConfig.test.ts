@@ -5,6 +5,34 @@ import path from "node:path";
 const mobileRoot = path.resolve(import.meta.dir, "../..");
 
 describe("mobile native security configuration", () => {
+  test("uses scene-compatible native-stack status bar control", () => {
+    const config = JSON.parse(
+      readFileSync(path.join(mobileRoot, "app.json"), "utf8"),
+    ) as {
+      expo: {
+        ios?: {
+          infoPlist?: { UIViewControllerBasedStatusBarAppearance?: boolean };
+        };
+      };
+    };
+    const reader = readFileSync(
+      path.join(mobileRoot, "src/screens/ReaderScreen.tsx"),
+      "utf8",
+    );
+    const rootLayout = readFileSync(
+      path.join(mobileRoot, "app/_layout.tsx"),
+      "utf8",
+    );
+
+    expect(
+      config.expo.ios?.infoPlist?.UIViewControllerBasedStatusBarAppearance,
+    ).toBe(true);
+    expect(reader).toContain("<Stack.Screen options={readerScreenOptions} />");
+    expect(reader).not.toContain('from "expo-status-bar"');
+    expect(rootLayout).toContain("statusBarStyle:");
+    expect(rootLayout).not.toContain('from "expo-status-bar"');
+  });
+
   test("declares the app-owned UserDefaults privacy reason", () => {
     const config = JSON.parse(
       readFileSync(path.join(mobileRoot, "app.json"), "utf8"),
