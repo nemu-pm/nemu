@@ -881,7 +881,12 @@ export function BrowseScreen() {
       measureMobilePerformance("source.install.package", installStartedAt, {
         key,
       });
-      await Promise.all([installed.reload(), available.reload()]);
+      // The package is usable as soon as the local installed-source store has
+      // reloaded. Registry discovery is remote enrichment and may run until the
+      // native HTTP timeout; it must not leave a completed install behind a
+      // misleading spinner.
+      await installed.reload();
+      void available.reload().catch(() => undefined);
       measureMobilePerformance("source.install.complete", installStartedAt, {
         key,
       });

@@ -91,14 +91,13 @@ export function shouldRenderMobileSettingsSkeletonForSection(
 export function shouldRenderMobileSourcesSectionLoading(
   state: MobileSettingsSkeletonState,
 ): boolean {
-  if (state.installedSourcesError || state.availableSourcesError) {
-    return false;
-  }
+  if (state.installedSourcesError) return false;
 
-  return (
-    (state.installedSourcesLoading && state.installedSourcesCount === 0) ||
-    (state.availableSourcesLoading && state.availableSourcesCount === 0)
-  );
+  // This section manages packages already stored on the device. Registry
+  // discovery only enriches those rows with newer metadata, and can take up to
+  // the native HTTP timeout on an unreliable connection. Never hide usable
+  // local sources behind that unrelated network request.
+  return state.installedSourcesLoading && state.installedSourcesCount === 0;
 }
 
 export function getMobileSettingsMutationResultAction({

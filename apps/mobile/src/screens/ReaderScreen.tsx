@@ -989,6 +989,7 @@ function ReaderPluginSettingsSheet({
                           onSelectPlugin(plugin.id);
                         }}
                         pressedScale={0.985}
+                        containerStyle={styles.pluginSettingsMainContainer}
                         style={[
                           styles.pluginSettingsMain,
                           { opacity: plugin.enabled ? 1 : 0.62 },
@@ -1186,6 +1187,7 @@ export function ReaderScreen() {
   const scrollingPageMetricsRef = useRef<ReaderScrollPageMetric[]>([]);
   const scrollingVisiblePageIndexRef = useRef(0);
   const readerSettingsActionRef = useRef<ReaderSettingsAction | null>(null);
+  const readerChromeAutoHideKeyRef = useRef<string | null>(null);
   const japaneseLearningOcrRunRef = useRef(0);
   const japaneseLearningAutoOcrPageRef = useRef("");
   const japaneseLearningChatRunRef = useRef(0);
@@ -2006,6 +2008,9 @@ export function ReaderScreen() {
       : "loading";
   const readerRestoreComplete =
     Boolean(restoreReaderKey) && restoredReaderKey === restoreReaderKey;
+  const readerChromeAutoHideKey = readerRestoreComplete
+    ? JSON.stringify([registryId, sourceId, mangaId, chapterId])
+    : "";
   const silentProgressPersistenceKey = readerRestoreComplete
     ? mobileReaderProgressPersistenceKey(
         restoreReaderKey,
@@ -2056,10 +2061,10 @@ export function ReaderScreen() {
     [readerChromeColors.border, readerChromeColors.panel],
   );
   useEffect(() => {
-    if (!showReaderBottomChrome) {
+    if (!showReaderChrome) {
       setReaderDisplaySettingsOpen(false);
     }
-  }, [showReaderBottomChrome]);
+  }, [showReaderChrome]);
   const readerMaxPagedImageHeight = Math.max(260, window.height);
   const selectedSourceLanguages =
     selectedInstalledSource?.packageMetadata?.languages ??
@@ -3193,7 +3198,10 @@ export function ReaderScreen() {
   );
 
   const sendJapaneseLearningChatPrompt = useCallback(
-    (promptText: string, options?: { transcript?: string }) => {
+    (
+      promptText: string,
+      options?: { transcript?: string; hideUserMessage?: boolean },
+    ) => {
       const prompt = promptText.trim();
       if (!prompt) return false;
       if (!currentDisplayedPage || !chapter) {
@@ -3233,6 +3241,7 @@ export function ReaderScreen() {
         role: "user",
         text: prompt,
         createdAt: Date.now(),
+        hidden: options?.hideUserMessage === true,
         isRead: true,
       };
       const nextMessages = [...japaneseLearningChatMessages, userMessage];
@@ -3430,6 +3439,7 @@ export function ReaderScreen() {
     );
     sendJapaneseLearningChatPrompt(
       getGreetingPrompt(appLanguage, responseMode),
+      { hideUserMessage: true },
     );
   }, [appLanguage, activeReaderPlugin, sendJapaneseLearningChatPrompt]);
 
@@ -4577,7 +4587,9 @@ export function ReaderScreen() {
   // Opening a chapter shows the chrome, then gets out of the way. Readers who
   // asked for reduced motion keep it until they dismiss it themselves.
   useEffect(() => {
-    if (!readerRestoreComplete) return;
+    if (!readerChromeAutoHideKey) return;
+    if (readerChromeAutoHideKeyRef.current === readerChromeAutoHideKey) return;
+    readerChromeAutoHideKeyRef.current = readerChromeAutoHideKey;
     if (pagesState.status !== "ready" || pageCount <= 0) return;
     if (!showControls) return;
 
@@ -4597,11 +4609,16 @@ export function ReaderScreen() {
       cancelled = true;
       if (timeout) clearTimeout(timeout);
     };
-    // Deliberately keyed on the chapter rather than on `showControls`: this is
-    // the "just opened a chapter" auto-hide, not a general inactivity timer,
-    // so re-showing the chrome by hand must not re-arm it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chapterId, pageCount, pagesState.status, readerRestoreComplete]);
+    // This is the "just opened a chapter" auto-hide, not a general inactivity
+    // timer. Mode/layout changes rebuild the gallery restore key; remembering
+    // the fetched chapter key keeps those changes from closing a settings
+    // popover the reader is actively using.
+  }, [
+    pageCount,
+    pagesState.status,
+    readerChromeAutoHideKey,
+    showControls,
+  ]);
 
   const onReaderMomentumEnd = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
@@ -4926,6 +4943,15 @@ export function ReaderScreen() {
       activePluginId: activeReaderPluginId,
       disabled: false,
     });
+  const readerInteractionOverlayVisible =
+    readerDisplaySettingsOpen ||
+    readerPluginSettingsOpen ||
+    japaneseLearningLauncherVisible ||
+    japaneseLearningOcrSheetVisible ||
+    japaneseLearningChatDrawerVisible ||
+    japaneseLearningTranscriptVisible ||
+    cloudflareSheet.visible ||
+    endOfChapterPromptVisible;
 
   return (
     <View style={[styles.root, { backgroundColor: readerBackgroundColor }]}>
@@ -4991,6 +5017,7 @@ export function ReaderScreen() {
         onToggleControls={() => {
           setShowControls((value) => !value);
         }}
+        tapGesturesEnabled={!readerInteractionOverlayVisible}
         pagedMode={galleryPagedMode}
         pageTurnAccessibilityEnabled={
           pagedMode || isLongStripLogicalPage || Boolean(currentSegmentedImage)
@@ -5155,6 +5182,12 @@ export function ReaderScreen() {
           <JapaneseLearningTranscriptSheet
             visible={japaneseLearningTranscriptVisible}
             strings={strings}
+            ocrStatus={japaneseLearningOcrState.status}
+            ocrErrorDetail={
+              japaneseLearningOcrState.status === "error"
+                ? japaneseLearningOcrState.detail
+                : undefined
+            }
             ocrResult={
               japaneseLearningOcrState.status === "ready"
                 ? japaneseLearningOcrState.result
@@ -5190,6 +5223,7 @@ export function ReaderScreen() {
                 : 0.5
             }
             onClose={() => setJapaneseLearningTranscriptVisible(false)}
+            onRetryOcr={runJapaneseLearningOcr}
             onSelectDetection={selectJapaneseLearningDetection}
             onToggleTts={toggleJapaneseLearningTranscriptTts}
           />
@@ -5282,7 +5316,10 @@ export function ReaderScreen() {
       />
 
       {showReaderChrome && !endOfChapterPromptVisible ? (
-        <View pointerEvents="box-none" style={styles.readerChromeLayer}>
+        <View
+          pointerEvents={readerInteractionOverlayVisible ? "none" : "box-none"}
+          style={styles.readerChromeLayer}
+        >
           <Animated.View
             entering={readerTopBarEntering}
             exiting={readerTopBarExiting}
@@ -5806,11 +5843,14 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   pluginSettingsMain: {
-    flex: 1,
-    minWidth: 0,
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  pluginSettingsMainContainer: {
+    flex: 1,
+    minWidth: 0,
   },
   pluginSettingsActionButton: {
     width: 34,

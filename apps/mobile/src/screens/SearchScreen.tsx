@@ -14,6 +14,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Stack, router, useLocalSearchParams } from "expo-router";
+import type { SearchBarCommands } from "react-native-screens";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
@@ -57,7 +58,10 @@ import {
 } from "@/lib/mobileAdaptiveGrid";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
-import { coerceMobileNativeSearchText } from "@/lib/mobileNativeSearchText";
+import {
+  coerceMobileNativeSearchText,
+  resolveMobileNativeSearchSubmitText,
+} from "@/lib/mobileNativeSearchText";
 import {
   describeMobileErrorDetail,
   getMobileSourceErrorPresentation,
@@ -620,6 +624,8 @@ export function SearchScreen() {
   const params = useLocalSearchParams<{ q?: string | string[] }>();
   const routeQuery = normalizeMobileSearchRouteQuery(params.q);
   const [query, setQuery] = useState(routeQuery);
+  const queryRef = useRef(routeQuery);
+  const nativeSearchRef = useRef<SearchBarCommands | null>(null);
   const [submittedQuery, setSubmittedQuery] = useState(routeQuery);
   const [selectedSourceIds, setSelectedSourceIds] = useState<SearchSourceSelection>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -881,6 +887,7 @@ export function SearchScreen() {
     liveSearchState.status === "idle";
 
   useEffect(() => {
+    queryRef.current = routeQuery;
     setQuery(routeQuery);
     setSubmittedQuery(routeQuery);
   }, [routeQuery]);
@@ -978,6 +985,7 @@ export function SearchScreen() {
     const rawQuery = options?.query ?? query;
     const nextQuery = normalizeMobileSearchRouteQuery(rawQuery);
     const shouldRunFeedback = shouldRunMobileSearchSubmitFeedback(rawQuery, routeQuery);
+    queryRef.current = nextQuery;
     setQuery(nextQuery);
     setSubmittedQuery(nextQuery);
     if (nextQuery !== routeQuery) {
@@ -988,6 +996,7 @@ export function SearchScreen() {
 
   const clearSearch = useCallback(() => {
     if (!canClearMobileSearchQuery(query)) return;
+    queryRef.current = "";
     setQuery("");
     setSubmittedQuery("");
     router.setParams({ q: undefined });
@@ -1077,22 +1086,38 @@ export function SearchScreen() {
         <>
           <Stack.Screen options={{ title: strings.nav.search }} />
           <Stack.SearchBar
+            ref={nativeSearchRef}
             autoCapitalize="none"
             barTintColor={tokens.card}
             headerIconColor={tokens.primary}
             hideWhenScrolling={false}
             hintTextColor={tokens.mutedForeground}
             obscureBackground={false}
-            onBlur={() => submitSearch()}
+            onBlur={() =>
+              submitSearch({
+                query: resolveMobileNativeSearchSubmitText(
+                  undefined,
+                  queryRef.current,
+                ),
+              })
+            }
             onCancelButtonPress={clearSearch}
             onChangeText={(event) => {
-              setQuery(coerceMobileNativeSearchText(event.nativeEvent.text));
+              const nextQuery = coerceMobileNativeSearchText(
+                event.nativeEvent.text,
+              );
+              queryRef.current = nextQuery;
+              setQuery(nextQuery);
             }}
             onClose={clearSearch}
             onSearchButtonPress={(event) => {
+              nativeSearchRef.current?.blur();
               submitSearch({
                 haptic: true,
-                query: coerceMobileNativeSearchText(event.nativeEvent.text),
+                query: resolveMobileNativeSearchSubmitText(
+                  event.nativeEvent.text,
+                  queryRef.current,
+                ),
               });
             }}
             placeholder={strings.search.searchInstalledSources}
@@ -1154,9 +1179,19 @@ export function SearchScreen() {
                     returnKeyType="search"
                     selectionColor={tokens.primary}
                     value={query}
-                    onBlur={() => submitSearch()}
-                    onChangeText={setQuery}
-                    onSubmitEditing={() => submitSearch({ haptic: true })}
+                    onBlur={() =>
+                      submitSearch({ query: queryRef.current })
+                    }
+                    onChangeText={(nextQuery) => {
+                      queryRef.current = nextQuery;
+                      setQuery(nextQuery);
+                    }}
+                    onSubmitEditing={() =>
+                      submitSearch({
+                        haptic: true,
+                        query: queryRef.current,
+                      })
+                    }
                     style={[styles.input, { color: tokens.foreground }]}
                   />
                   {canClearMobileSearchQuery(query) ? (
@@ -1212,6 +1247,25 @@ export function SearchScreen() {
                     variant="inline"
                   />
                 ) : null}
+
+                {trimmedQuery && localSearchRows.length > 0 ? (
+                  <View style={styles.resultKindHeader}>
+                    <Ionicons
+                      name="library-outline"
+                      size={18}
+                      color={tokens.mutedForeground}
+                    />
+                    <Text
+                      accessibilityRole="header"
+                      style={[
+                        styles.resultKindTitle,
+                        { color: tokens.mutedForeground },
+                      ]}
+                    >
+                      {strings.nav.library}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             )}
           </>
@@ -1227,6 +1281,25 @@ export function SearchScreen() {
                   })}
                   variant="inline"
                 />
+              ) : null}
+
+              {liveSearchState.status !== "idle" ? (
+                <View style={styles.resultKindHeader}>
+                  <Ionicons
+                    name="globe-outline"
+                    size={18}
+                    color={tokens.mutedForeground}
+                  />
+                  <Text
+                    accessibilityRole="header"
+                    style={[
+                      styles.resultKindTitle,
+                      { color: tokens.mutedForeground },
+                    ]}
+                  >
+                    {strings.search.liveSourceResults}
+                  </Text>
+                </View>
               ) : null}
 
               <LiveSearchResults
@@ -1324,6 +1397,19 @@ const styles = StyleSheet.create({
   resultFooter: {
     gap: 18,
     marginTop: 18,
+  },
+  resultKindHeader: {
+    minHeight: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  resultKindTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: nemuFontWeight.semibold,
+    textTransform: "uppercase",
+    letterSpacing: 0.45,
   },
   virtualResultSeparator: {
     height: 10,

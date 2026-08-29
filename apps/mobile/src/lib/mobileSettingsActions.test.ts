@@ -148,6 +148,20 @@ describe("mobile settings actions", () => {
         ...loading,
         availableSourcesError: "Network unavailable",
       }),
+    ).toBe(true);
+    expect(
+      shouldRenderMobileSourcesSectionLoading({
+        ...loading,
+        installedSourcesLoading: false,
+        installedSourcesCount: 1,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRenderMobileSourcesSectionLoading({
+        ...loading,
+        installedSourcesLoading: false,
+        availableSourcesLoading: true,
+      }),
     ).toBe(false);
   });
 });

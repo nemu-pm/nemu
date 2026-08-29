@@ -68,9 +68,9 @@ describe("mobile chapter progress accessory", () => {
       })
     ).toEqual({
       status: "progress",
-      page: 3,
+      page: 4,
       total: 10,
-      ratio: 0.3,
+      ratio: 0.4,
     });
 
     expect(
@@ -81,7 +81,7 @@ describe("mobile chapter progress accessory", () => {
       })
     ).toEqual({
       status: "progress",
-      page: 12,
+      page: 10,
       total: 10,
       ratio: 1,
     });

@@ -64,6 +64,13 @@ describe("extractAixMetadata", () => {
           type: "multi-select",
           options: ["Action", "Drama"],
         },
+        {
+          type: "check",
+          title: "Other options",
+          name: "Official Translation",
+          canExclude: true,
+          hideFromHeader: true,
+        },
       ]),
       "Payload/settings.json": JSON.stringify([
         {
@@ -148,6 +155,14 @@ describe("extractAixMetadata", () => {
           title: "Genres",
           type: "multi-select",
           optionCount: 2,
+          options: ["Action", "Drama"],
+        },
+        {
+          name: "Official Translation",
+          title: "Other options",
+          type: "check",
+          hideFromHeader: true,
+          canExclude: true,
         },
       ],
       settings: [
@@ -297,7 +312,7 @@ describe("extractAixMetadata", () => {
     expect(metadata.listings).toHaveLength(
       MOBILE_AIX_METADATA_LIMITS.maxCollectionItems,
     );
-    expect(metadata.filters).toEqual([
+    expect(metadata.filters).toMatchObject([
       {
         id: "genre",
         title: "Genre",
@@ -305,6 +320,10 @@ describe("extractAixMetadata", () => {
         optionCount: MOBILE_AIX_METADATA_LIMITS.maxOptionItems,
       },
     ]);
+    expect(metadata.filters[0]?.options).toHaveLength(
+      MOBILE_AIX_METADATA_LIMITS.maxOptionItems,
+    );
+    expect(metadata.filters[0]?.options?.at(-1)).toBe("Option 255");
   });
 
   test("rejects an oversized compressed package before parsing ZIP data", () => {

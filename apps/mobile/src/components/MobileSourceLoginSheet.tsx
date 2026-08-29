@@ -96,9 +96,10 @@ export function MobileSourceLoginSheet({
       visible={visible && setting !== null}
       // Swallowing the close while submitting would strand the caller's
       // `visible` flag on a sheet that is already gone. Pan-down is disabled
-      // instead, while the localized label keeps the explicit Cancel route.
+      // instead, while the always-live Cancel button stays the explicit route.
       onRequestClose={onClose}
       dismissLabel={strings.common.cancel}
+      showDismissButton={false}
       backdropDisabled={submitting}
     >
       <View style={styles.header}>

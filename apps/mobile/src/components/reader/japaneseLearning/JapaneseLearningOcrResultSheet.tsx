@@ -126,6 +126,7 @@ export function JapaneseLearningOcrResultSheet({
             disabled={!canActOnSentence}
             onPress={onPlaySentence}
             pressedScale={0.96}
+            containerStyle={styles.footerActionContainer}
             style={[
               styles.footerAction,
               styles.footerActionGhost,
@@ -158,6 +159,7 @@ export function JapaneseLearningOcrResultSheet({
             disabled={!canActOnSentence || askDisabled}
             onPress={onAskSentence}
             pressedScale={0.96}
+            containerStyle={styles.footerActionContainer}
             style={[
               styles.footerAction,
               {
@@ -180,6 +182,7 @@ export function JapaneseLearningOcrResultSheet({
             disabled={!canActOnSentence}
             onPress={onCopySentence}
             pressedScale={0.96}
+            containerStyle={styles.footerActionContainer}
             style={[
               styles.footerAction,
               styles.footerActionGhost,
@@ -239,7 +242,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   footerAction: {
-    flex: 1,
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -247,6 +250,10 @@ const styles = StyleSheet.create({
     height: 38,
     borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  footerActionContainer: {
+    flex: 1,
+    minWidth: 0,
   },
   footerActionGhost: {
     backgroundColor: "transparent",

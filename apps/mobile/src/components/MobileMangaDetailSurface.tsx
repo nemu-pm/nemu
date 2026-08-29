@@ -142,9 +142,12 @@ export function MobileMangaDetailSurface({
             disabled={primaryAction.disabled}
             onPress={primaryAction.onPress}
             pressedScale={0.97}
+            containerStyle={[
+              styles.primaryActionContainer,
+              primaryActionFull ? styles.primaryActionContainerFull : null,
+            ]}
             style={[
               styles.primaryAction,
-              primaryActionFull ? styles.primaryActionFull : null,
               {
                 opacity: !primaryAction.available
                   ? 0.7
@@ -194,6 +197,7 @@ export function MobileMangaDetailSurface({
             disabled={action.disabled}
             onPress={action.onPress}
             pressedScale={0.94}
+            containerStyle={styles.iconActionContainer}
             style={[
               styles.iconAction,
               {
@@ -458,8 +462,7 @@ const styles = StyleSheet.create({
   },
   primaryAction: {
     minHeight: 36,
-    flex: 1,
-    minWidth: 0,
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -468,7 +471,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     overflow: "hidden",
   },
-  primaryActionFull: {
+  primaryActionContainer: {
+    flex: 1,
+    minWidth: 0,
+  },
+  primaryActionContainerFull: {
     flexBasis: "100%",
   },
   primaryActionIcon: {
@@ -485,11 +492,16 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.semibold,
   },
   iconAction: {
-    width: 36,
-    height: 36,
+    width: "100%",
+    height: "100%",
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 999,
     overflow: "hidden",
+  },
+  iconActionContainer: {
+    width: 36,
+    height: 36,
+    flexShrink: 0,
   },
 });

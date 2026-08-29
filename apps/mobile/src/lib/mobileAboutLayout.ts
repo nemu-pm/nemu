@@ -3,7 +3,7 @@ const LARGE_TEXT_EXTRA_HEIGHT = 120;
 
 export type MobileAboutSheetLayout = {
   scroll: boolean;
-  snapPointHeight: number | undefined;
+  snapPoint: number | "82%" | undefined;
 };
 
 export function getMobileAboutSheetLayout({
@@ -24,11 +24,22 @@ export function getMobileAboutSheetLayout({
   const availableHeight = Math.max(1, height - topInset - bottomInset);
   const largeText = fontScale > 1.15;
   const landscape = width > height;
-  const needsBoundedScrollableSheet =
-    platform === "ios" || largeText || landscape || availableHeight < DEFAULT_ABOUT_SHEET_HEIGHT;
+  const compactViewport = landscape || availableHeight < DEFAULT_ABOUT_SHEET_HEIGHT;
+
+  // Expo's Android sheet already content-sizes large text correctly. Supplying
+  // a numeric detent there expands the Material sheet to the full window,
+  // leaving a large blank region below the content. Keep portrait Android
+  // dynamic, and only bound genuinely compact viewports with a percentage.
+  if (platform === "android") {
+    return compactViewport
+      ? { scroll: true, snapPoint: "82%" }
+      : { scroll: false, snapPoint: undefined };
+  }
+
+  const needsBoundedScrollableSheet = largeText || compactViewport;
 
   if (!needsBoundedScrollableSheet) {
-    return { scroll: false, snapPointHeight: undefined };
+    return { scroll: false, snapPoint: undefined };
   }
 
   const desiredHeight =
@@ -40,6 +51,6 @@ export function getMobileAboutSheetLayout({
 
   return {
     scroll: true,
-    snapPointHeight: Math.round(Math.min(desiredHeight, availableHeight)),
+    snapPoint: Math.round(Math.min(desiredHeight, availableHeight)),
   };
 }

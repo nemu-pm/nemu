@@ -97,6 +97,84 @@ describe("loadMobileSourcePackage", () => {
     expect(reads).toBe(0);
   });
 
+  test("refreshes legacy filter metadata that discarded option values", async () => {
+    const bytes = zipSync({
+      "Payload/source.json": strToU8(
+        JSON.stringify({
+          info: {
+            id: "en.example",
+            name: "Example",
+            version: 2,
+            languages: ["en"],
+          },
+        }),
+      ),
+      "Payload/filters.json": strToU8(
+        JSON.stringify([
+          {
+            id: "status",
+            title: "Status",
+            type: "multi-select",
+            options: ["Ongoing", "Complete"],
+          },
+        ]),
+      ),
+      "Payload/main.wasm": new Uint8Array([0, 97, 115, 109]),
+    });
+    let reads = 0;
+    const result = await loadMobileSourcePackage(
+      installedSource({
+        packageMetadata: {
+          sourceId: "en.example",
+          name: "Example",
+          version: 2,
+          listings: [],
+          filters: [
+            {
+              id: "status",
+              title: "Status",
+              type: "multi-select",
+              optionCount: 2,
+            },
+          ],
+          settings: [],
+          hasWasm: true,
+        },
+      }),
+      async () => {
+        reads += 1;
+        return bytes;
+      },
+      {
+        packageLoadMode: "native-file",
+        resolvePackageUri: async () => "file:///cache/example.aix",
+      },
+    );
+
+    expect(reads).toBe(1);
+    expect(result).toMatchObject({
+      status: "ready",
+      metadata: {
+        filters: [
+          {
+            id: "status",
+            options: ["Ongoing", "Complete"],
+          },
+        ],
+      },
+      sourcePackageHydration: {
+        packageMetadata: {
+          filters: [
+            {
+              id: "status",
+              options: ["Ongoing", "Complete"],
+            },
+          ],
+        },
+      },
+    });
+  });
+
   test("rebases a persisted package URI after the native data container moves", async () => {
     const result = await loadMobileSourcePackage(
       installedSource({

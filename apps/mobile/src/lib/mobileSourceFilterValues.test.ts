@@ -306,6 +306,10 @@ describe("mobile source filter values", () => {
       checkFilter({ name: "Ongoing", default: true }),
       inlineFilter(FilterType.Check, "No default"),
       inlineFilter(FilterType.Select, "Status"),
+      {
+        ...inlineFilter(FilterType.Select, "Full sheet only"),
+        hideFromHeader: true,
+      } as unknown as Filter,
     ];
 
     const selected = getMobileInlineSourceFilters(filters, [], 8);

@@ -5,6 +5,13 @@ export function normalizeMobileSourceBrowseRouteQuery(
   return typeof raw === "string" ? raw.trim() : "";
 }
 
+/** Keep the native search surface mounted while a user edits or resets source
+ * filters. A single space is the route-level sentinel for an intentionally
+ * active search whose visible query is empty. */
+export function makeMobileSourceBrowseSearchRouteQuery(query: string): string {
+  return normalizeMobileSourceBrowseRouteQuery(query) || " ";
+}
+
 export function canClearMobileSourceBrowseTextInput(query: string): boolean {
   return query.length > 0;
 }

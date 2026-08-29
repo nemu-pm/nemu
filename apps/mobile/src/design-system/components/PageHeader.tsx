@@ -27,6 +27,7 @@ type PageHeaderProps = {
   titleIconUri?: string;
   loading?: boolean;
   leadingIcon?: keyof typeof Ionicons.glyphMap;
+  leadingAccessibilityLabel?: string;
   onLeadingPress?: () => void;
   actionIcon?: keyof typeof Ionicons.glyphMap;
   actionLabel?: string;
@@ -42,6 +43,7 @@ export function PageHeader({
   titleIconUri,
   loading,
   leadingIcon,
+  leadingAccessibilityLabel,
   onLeadingPress,
   actionIcon,
   actionLabel,
@@ -74,7 +76,7 @@ export function PageHeader({
       {leadingIcon && onLeadingPress ? (
         <NemuPressable
           accessibilityRole="button"
-          accessibilityLabel={strings.common.back}
+          accessibilityLabel={leadingAccessibilityLabel ?? strings.common.back}
           onPress={onLeadingPress}
           style={[
             styles.leading,

@@ -61,9 +61,18 @@ export type SourcePackageListing = {
 
 export type SourcePackageField = {
   id?: string;
+  /** Check-filter choice label; distinct from the section title. */
+  name?: string;
   title: string;
   type: string;
+  hideFromHeader?: boolean;
   optionCount?: number;
+  options?: string[];
+  ids?: string[];
+  placeholder?: string;
+  default?: boolean | number | { index: number; ascending: boolean };
+  canAscend?: boolean;
+  canExclude?: boolean;
 };
 
 export type SourcePackageSetting = {

@@ -108,7 +108,7 @@ export function ReaderDisplaySettingsPopover({
       visible={visible}
     >
       <MobileSheetBackdrop
-        accessibilityLabel={strings.reader.hideControls}
+        accessibilityLabel={strings.reader.closeSettings}
         backgroundColor="rgba(0,0,0,0.18)"
         onPress={onClose}
       />
@@ -157,7 +157,7 @@ export function ReaderDisplaySettingsPopover({
             </View>
             <NemuPressable
               accessibilityRole="button"
-              accessibilityLabel={strings.reader.hideControls}
+              accessibilityLabel={strings.reader.closeSettings}
               onPress={onClose}
               style={[
                 styles.readerSettingsPopoverClose,
@@ -190,6 +190,7 @@ export function ReaderDisplaySettingsPopover({
                   hapticFeedback={selected ? "none" : "selection"}
                   onPress={() => onSetMode(option)}
                   pressedScale={0.985}
+                  containerStyle={styles.readerSettingsTabContainer}
                   style={[
                     styles.readerSettingsTab,
                     {
@@ -273,6 +274,7 @@ export function ReaderDisplaySettingsPopover({
                     onPress={() => {
                       if (!selected) onTogglePagePairingMode();
                     }}
+                    containerStyle={styles.pairingButtonContainer}
                     style={[
                       styles.pairingButton,
                       {
@@ -499,12 +501,16 @@ const styles = StyleSheet.create({
     padding: 3,
   },
   readerSettingsTab: {
-    flex: 1,
+    width: "100%",
     minHeight: 32,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.md,
     paddingHorizontal: 8,
+  },
+  readerSettingsTabContainer: {
+    flex: 1,
+    minWidth: 0,
   },
   readerSettingsTabText: {
     fontSize: 12,
@@ -541,11 +547,15 @@ const styles = StyleSheet.create({
   },
   pairingButton: {
     minHeight: 38,
-    flex: 1,
+    width: "100%",
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.md,
     paddingHorizontal: 8,
+  },
+  pairingButtonContainer: {
+    flex: 1,
+    minWidth: 0,
   },
   pairingButtonText: {
     fontSize: 12,

@@ -1,10 +1,35 @@
 import { describe, expect, test } from "bun:test";
 import {
   canDismissMobileNativeSheetFromHardwareBack,
+  normalizeMobileNativeSheetSnapPointsForPlatform,
   resolveMobileNativeSheetDismissLabel,
 } from "./mobileNativeSheet";
 
 describe("mobile native sheet dismissal", () => {
+  test("gives single-detent Android sheets partial and expanded states", () => {
+    expect(
+      normalizeMobileNativeSheetSnapPointsForPlatform(["82%"], "android"),
+    ).toEqual(["50%", "100%"]);
+    expect(
+      normalizeMobileNativeSheetSnapPointsForPlatform([360], "android"),
+    ).toEqual(["50%", "100%"]);
+  });
+
+  test("preserves dynamic and non-Android sheet detents", () => {
+    expect(
+      normalizeMobileNativeSheetSnapPointsForPlatform(undefined, "android"),
+    ).toBeUndefined();
+    expect(
+      normalizeMobileNativeSheetSnapPointsForPlatform(["82%"], "ios"),
+    ).toEqual(["82%"]);
+    expect(
+      normalizeMobileNativeSheetSnapPointsForPlatform(
+        ["40%", "90%"],
+        "android",
+      ),
+    ).toEqual(["40%", "90%"]);
+  });
+
   test("does not invent an active label for a non-dismissible busy sheet", () => {
     expect(
       resolveMobileNativeSheetDismissLabel({

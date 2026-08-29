@@ -61,9 +61,10 @@ export function MobileConfirmationSheet({
       visible={visible}
       onRequestClose={handleRequestClose}
       dismissLabel={cancelLabel}
+      showDismissButton={false}
       // Pan-down stays off during an in-flight confirm so the sheet cannot be
-      // swiped away by accident. The caller-provided label keeps an explicit
-      // chrome Cancel route in addition to the Cancel button below.
+      // swiped away by accident. The always-live Cancel button below remains
+      // the explicit escape without duplicating it in empty sheet chrome.
       backdropDisabled={loading}
     >
       <View style={styles.header}>

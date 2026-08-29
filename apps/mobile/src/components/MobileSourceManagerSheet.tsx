@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
@@ -90,6 +90,7 @@ import {
   getMobileSourceManagerMutationResultAction,
   getMobileSourceManagerRequestCloseAction,
 } from "@/lib/mobileSourceManagerBackBehavior";
+import { getMobileSourceManagerSheetLayout } from "@/lib/mobileSourceManagerLayout";
 import {
   loadMobileSourceSettingsByKeys,
   mergeSourceSettingValues,
@@ -562,6 +563,7 @@ export function MobileSourceManagerSheet({
   const progress = useMangaProgress();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
+  const { fontScale, height, width } = useWindowDimensions();
   const [busySourceId, setBusySourceId] = useState<string | null>(null);
   const busySourceIdRef = useRef<string | null>(null);
   const [addPanelOpen, setAddPanelOpen] = useState(false);
@@ -1270,13 +1272,30 @@ export function MobileSourceManagerSheet({
     onClose();
   };
   const canNativeDismissSheet = !addPanelOpen && confirmation === null;
+  const addPanelRowCount =
+    addMode === "merge"
+      ? pagedMergeCandidates.items.length
+      : addSearchState.status === "ready"
+        ? addSearchState.groups.reduce((count, group) => {
+            if (group.status !== "ready") return count + 1;
+            return count + Math.min(group.items.length, ADD_RESULTS_PER_SOURCE_PAGE);
+          }, 0)
+        : 1;
+  const sheetLayout = getMobileSourceManagerSheetLayout({
+    addPanelOpen,
+    addPanelRowCount,
+    fontScale,
+    height,
+    sourceCount: sources.length,
+    width,
+  });
 
   return (
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={handleRequestClose}
-      snapPoints={["88%"]}
-      fillContent
+      snapPoints={sheetLayout.snapPoints}
+      scroll={sheetLayout.fillContent}
       enablePanDownToClose={canNativeDismissSheet}
       contentStyle={styles.sheet}
     >
@@ -1308,12 +1327,7 @@ export function MobileSourceManagerSheet({
         />
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.listContent}
-      >
+      <View style={styles.listContent}>
         {actionError ? (
           <MobileInlineErrorBanner
             title={strings.sourceManager.sourceActionFailed}
@@ -2025,7 +2039,7 @@ export function MobileSourceManagerSheet({
             )}
           </>
         )}
-      </ScrollView>
+      </View>
 
       {!addPanelOpen ? (
         <NemuButton
@@ -2072,7 +2086,6 @@ export function MobileSourceManagerSheet({
 
 const styles = StyleSheet.create({
   sheet: {
-    flex: 1,
     maxHeight: "100%",
     gap: 14,
     padding: 14,
@@ -2096,9 +2109,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 12,
     lineHeight: 16,
-  },
-  scroll: {
-    flex: 1,
   },
   listContent: {
     gap: 10,

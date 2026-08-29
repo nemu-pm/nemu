@@ -5,6 +5,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -36,6 +37,7 @@ import {
   type MobileCollectionActionState,
 } from "@/lib/mobileCollections";
 import { getMobileCollectionMembershipRequestCloseAction } from "@/lib/mobileCollectionMembershipBackBehavior";
+import { getMobileCollectionMembershipSheetLayout } from "@/lib/mobileCollectionMembershipLayout";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 
 type MobileCollectionsState = ReturnType<typeof useCollections>;
@@ -109,6 +111,7 @@ function CollectionRow({
         hapticFeedback="selection"
         onPress={onToggle}
         pressedScale={0.985}
+        containerStyle={styles.collectionToggleContainer}
         style={styles.collectionToggle}
       >
         <View style={[styles.collectionIcon, { backgroundColor: tokens.card }]}>
@@ -179,7 +182,6 @@ function LoadingCollectionMembershipSheet({
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={onClose}
-      snapPoints={["32%"]}
       contentStyle={styles.loadingSheet}
       testID="MobileCollectionMembershipSheetLoading"
     >
@@ -221,6 +223,7 @@ function CollectionMembershipContent({
   collections: MobileCollectionsState;
 }) {
   const { tokens } = useNemuTheme();
+  const { fontScale, height, width } = useWindowDimensions();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const nextInitialSelected = useMemo(
@@ -309,6 +312,12 @@ function CollectionMembershipContent({
           count: changeCount,
         })
       : strings.common.save;
+  const sheetLayout = getMobileCollectionMembershipSheetLayout({
+    collectionCount: collections.data.length,
+    fontScale,
+    height,
+    width,
+  });
   const requestClose = () => {
     const action = getMobileCollectionMembershipRequestCloseAction({ busy });
     if (action === "ignore") return;
@@ -474,8 +483,8 @@ function CollectionMembershipContent({
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={requestClose}
-      snapPoints={collections.data.length > 2 ? ["82%"] : ["58%"]}
-      scroll
+      snapPoints={sheetLayout.snapPoints}
+      scroll={sheetLayout.scroll}
       enablePanDownToClose={!busy}
       contentStyle={styles.sheet}
       testID="MobileCollectionMembershipSheet"
@@ -841,11 +850,14 @@ const styles = StyleSheet.create({
   },
   collectionToggle: {
     minHeight: 44,
-    flex: 1,
-    minWidth: 0,
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  collectionToggleContainer: {
+    flex: 1,
+    minWidth: 0,
   },
   collectionIcon: {
     width: 36,

@@ -28,11 +28,14 @@ export interface JapaneseLearningTranscriptTtsStateLike {
 interface TranscriptSheetProps {
   visible: boolean;
   strings: MobileStrings;
+  ocrStatus: "idle" | "loading" | "ready" | "error";
+  ocrErrorDetail?: string;
   ocrResult: MobileJapaneseLearningOcrResult | null;
   selectedDetectionOrder: number | null;
   ttsState: JapaneseLearningTranscriptTtsStateLike;
   minConfidence: number;
   onClose: () => void;
+  onRetryOcr: () => void;
   onSelectDetection: (detection: MobileOcrDetection) => void;
   onToggleTts: (text: string) => void;
 }
@@ -47,11 +50,14 @@ interface TranscriptSheetProps {
 export function JapaneseLearningTranscriptSheet({
   visible,
   strings,
+  ocrStatus,
+  ocrErrorDetail,
   ocrResult,
   selectedDetectionOrder,
   ttsState,
   minConfidence,
   onClose,
+  onRetryOcr,
   onSelectDetection,
   onToggleTts,
 }: TranscriptSheetProps) {
@@ -85,7 +91,7 @@ export function JapaneseLearningTranscriptSheet({
       visible={visible}
       onRequestClose={onClose}
       backdropOnPress={onClose}
-      frameMaxHeight="70%"
+      frameMaxHeight={lines.length > 0 ? "70%" : "auto"}
       contentStyle={{ padding: 0, gap: 0 }}
     >
       <View style={[styles.header, { borderBottomColor: tokens.border }]}>
@@ -130,13 +136,13 @@ export function JapaneseLearningTranscriptSheet({
         ) : null}
       </View>
 
-      <ScrollView
-        style={styles.linesScroll}
-        contentContainerStyle={styles.linesContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {lines.length > 0 ? (
-          lines.map((line) => {
+      {lines.length > 0 ? (
+        <ScrollView
+          style={styles.linesScroll}
+          contentContainerStyle={styles.linesContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {lines.map((line) => {
             const selected = selectedDetectionOrder === line.order;
             const color = mobileOcrLabelColor(line.label, tokens);
             return (
@@ -164,15 +170,73 @@ export function JapaneseLearningTranscriptSheet({
                 </Text>
               </NemuPressable>
             );
-          })
-        ) : (
-          <Text style={[styles.emptyText, { color: tokens.mutedForeground }]}>
-            {ocrResult
-              ? ocrResult.text || strings.reader.pluginJapaneseLearningNoText
-              : strings.reader.pluginJapaneseLearningTranscriptHint}
+          })}
+        </ScrollView>
+      ) : (
+        <View style={styles.stateContent}>
+          {ocrStatus === "loading" ? (
+            <ActivityIndicator size="small" color={tokens.primary} />
+          ) : ocrStatus === "error" ? (
+            <Ionicons
+              name="alert-circle-outline"
+              size={24}
+              color={tokens.danger}
+            />
+          ) : (
+            <Ionicons
+              name="scan-outline"
+              size={24}
+              color={tokens.mutedForeground}
+            />
+          )}
+          <Text
+            style={[
+              styles.emptyText,
+              {
+                color:
+                  ocrStatus === "error" ? tokens.danger : tokens.mutedForeground,
+              },
+            ]}
+          >
+            {ocrStatus === "loading"
+              ? strings.reader.pluginJapaneseLearningDetectingText
+              : ocrStatus === "error"
+                ? ocrErrorDetail || strings.reader.pluginJapaneseLearningOcrFailed
+                : ocrResult
+                  ? ocrResult.text || strings.reader.pluginJapaneseLearningNoText
+                  : strings.reader.pluginJapaneseLearningTranscriptHint}
           </Text>
-        )}
-      </ScrollView>
+          {ocrStatus === "error" || ocrStatus === "idle" ? (
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                ocrStatus === "error"
+                  ? strings.common.retry
+                  : strings.reader.pluginJapaneseLearningDetectText
+              }
+              onPress={onRetryOcr}
+              pressedScale={0.98}
+              containerStyle={styles.retryButtonContainer}
+              style={[styles.retryButton, { backgroundColor: tokens.primary }]}
+            >
+              <Ionicons
+                name={
+                  ocrStatus === "error" ? "refresh-outline" : "scan-outline"
+                }
+                size={16}
+                color={tokens.primaryForeground}
+              />
+              <Text
+                style={[styles.retryText, { color: tokens.primaryForeground }]}
+              >
+                {ocrStatus === "error"
+                  ? strings.common.retry
+                  : strings.reader.pluginJapaneseLearningDetectText}
+              </Text>
+            </NemuPressable>
+          ) : null}
+        </View>
+      )}
 
       {ttsState.status === "error" && ttsState.source === "transcript" ? (
         <Text style={[styles.errorText, { color: tokens.danger }]}>
@@ -241,8 +305,35 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 13,
     fontWeight: nemuFontWeight.medium,
-    paddingVertical: 24,
     textAlign: "center",
+  },
+  stateContent: {
+    alignItems: "center",
+    gap: 10,
+    // Keep dynamic-sheet sizing stable while retry transitions between the
+    // error controls and the shorter loading message. Some native bottom-sheet
+    // implementations interpret a large content-height collapse as dismissal.
+    minHeight: 164,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+  },
+  retryButton: {
+    width: "100%",
+    minHeight: 40,
+    borderRadius: radius.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  retryButtonContainer: {
+    minWidth: 112,
+  },
+  retryText: {
+    fontSize: 13,
+    fontWeight: nemuFontWeight.semibold,
   },
   errorText: {
     fontSize: 12,

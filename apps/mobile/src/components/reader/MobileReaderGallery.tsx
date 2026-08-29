@@ -36,7 +36,11 @@ import type { MobileReaderPage } from "@/sources/mobileSourcePages";
 import type { ReaderScrollPageMetric } from "@/lib/mobileReaderProgress";
 import { readerDisplayIndexForViewableItems } from "@/lib/mobileReaderProgress";
 import { isReaderAdvancePastEndDrag } from "./readerEdgeDrag";
-import { readerTapZoneForPosition } from "./readerTapZones";
+import {
+  isReaderStageTapEnabled,
+  isReaderTapInsideChrome,
+  readerTapZoneForPosition,
+} from "./readerTapZones";
 import {
   getMobileReaderLogicalOffsetForProgress,
   getMobileReaderLogicalAccessibilityPercent,
@@ -91,6 +95,8 @@ type MobileReaderGalleryProps = {
   /** Escape hatch for a source that refuses to serve pages. */
   onOpenSourceSettings?: () => void;
   onToggleControls: () => void;
+  /** Prevents modal/sheet taps from reaching the reader's page-turn zones. */
+  tapGesturesEnabled?: boolean;
   pagedMode: boolean;
   /**
    * Keeps page-turn screen-reader actions when a paged chapter uses a
@@ -167,6 +173,7 @@ export function MobileReaderGallery({
   onLongStripScrollProgressChange,
   onOpenSourceSettings,
   onToggleControls,
+  tapGesturesEnabled = true,
   pagedMode,
   pageTurnAccessibilityEnabled,
   pages,
@@ -439,6 +446,17 @@ export function MobileReaderGallery({
   );
   const handleStageTouchStart = (event: GestureResponderEvent) => {
     const touch = event.nativeEvent;
+    if (
+      isReaderTapInsideChrome({
+        y: touch.pageY,
+        height: windowHeight,
+        topInset: chromeTopPadding,
+        bottomInset: bottomPadding,
+      })
+    ) {
+      touchStartRef.current = null;
+      return;
+    }
     touchStartRef.current = {
       x: touch.pageX,
       y: touch.pageY,
@@ -449,7 +467,10 @@ export function MobileReaderGallery({
   // The chrome toggle is the only way out of a black screen, so it must keep
   // working while the chapter is in an error/blocked state. Only page turns
   // need a ready gallery.
-  const readerStageTapEnabled = !isReaderLoading;
+  const readerStageTapEnabled = isReaderStageTapEnabled({
+    tapGesturesEnabled,
+    loading: isReaderLoading,
+  });
   const readerPageTurnEnabled =
     !isReaderLoading &&
     pagesState.status === "ready" &&

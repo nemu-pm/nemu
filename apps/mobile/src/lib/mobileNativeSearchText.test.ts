@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { coerceMobileNativeSearchText } from "./mobileNativeSearchText";
+import {
+  coerceMobileNativeSearchText,
+  resolveMobileNativeSearchSubmitText,
+} from "./mobileNativeSearchText";
 
 describe("coerceMobileNativeSearchText", () => {
   test("preserves strings from native search events", () => {
@@ -11,5 +14,20 @@ describe("coerceMobileNativeSearchText", () => {
     expect(coerceMobileNativeSearchText(undefined)).toBe("");
     expect(coerceMobileNativeSearchText(null)).toBe("");
     expect(coerceMobileNativeSearchText({ text: "unexpected" })).toBe("");
+  });
+});
+
+describe("resolveMobileNativeSearchSubmitText", () => {
+  test("uses the search-button event text when native supplies it", () => {
+    expect(resolveMobileNativeSearchSubmitText("Naruto", "stale")).toBe(
+      "Naruto",
+    );
+    expect(resolveMobileNativeSearchSubmitText("", "stale")).toBe("");
+  });
+
+  test("uses the synchronous input ref when blur omits event text", () => {
+    expect(resolveMobileNativeSearchSubmitText(undefined, "Chainsaw")).toBe(
+      "Chainsaw",
+    );
   });
 });

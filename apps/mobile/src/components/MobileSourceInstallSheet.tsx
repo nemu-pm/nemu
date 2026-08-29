@@ -40,7 +40,6 @@ export function MobileSourceInstallSheet({
       // Pan-down stays off so a stray swipe cannot abandon an install, which
       // is exactly why the scaffold must render the dismiss control instead.
       enablePanDownToClose={false}
-      snapPoints={[280]}
       contentBottomInset={24}
       contentStyle={styles.sheet}
       testID="SourceInstallSheet"

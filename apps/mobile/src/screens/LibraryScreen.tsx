@@ -4,6 +4,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
   type ListRenderItemInfo,
 } from "react-native";
@@ -74,6 +75,11 @@ import {
   resolveCollectionSelection,
   type MobileCollectionActionState,
 } from "@/lib/mobileCollections";
+import {
+  getMobileCollectionsManagerSheetLayout,
+  getMobileLibraryTitleMenuSheetLayout,
+  getMobileManageCollectionSheetLayout,
+} from "@/lib/mobileLibrarySheetLayout";
 import {
   MOBILE_LIBRARY_REFRESH_INTERVAL_MS,
   getMobileLibraryRefreshLifecycleDecision,
@@ -218,9 +224,13 @@ function LibraryTitleMenuSheet({
   onManage: () => void;
 }) {
   const { tokens } = useNemuTheme();
-  const rowCount = collections.length + 2;
-  const shouldScroll = rowCount > 5;
-  const compactSnap = Math.min(360, 48 + rowCount * 50);
+  const { fontScale, height, width } = useWindowDimensions();
+  const sheetLayout = getMobileLibraryTitleMenuSheetLayout({
+    collectionCount: collections.length,
+    fontScale,
+    height,
+    width,
+  });
 
   const renderRow = ({
     id,
@@ -273,8 +283,8 @@ function LibraryTitleMenuSheet({
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={onClose}
-      snapPoints={shouldScroll ? ["48%"] : [compactSnap]}
-      scroll={shouldScroll}
+      snapPoints={sheetLayout.snapPoints}
+      scroll={sheetLayout.scroll}
       contentStyle={styles.titleMenuSheet}
       testID="LibraryTitleMenuSheet"
     >
@@ -446,18 +456,21 @@ function CollectionsManagerSheet({
   onRemove: (collection: LocalCollection) => void;
 }) {
   const { tokens } = useNemuTheme();
+  const { fontScale, height, width } = useWindowDimensions();
   const actionBusy = isMobileCollectionActionBusy(actionState);
-  const shouldScroll = collections.length > 4;
-  const snapPoints = shouldScroll
-    ? ["78%"]
-    : [collections.length === 0 ? 162 : Math.min(500, 94 + collections.length * 82)];
+  const sheetLayout = getMobileCollectionsManagerSheetLayout({
+    collectionCount: collections.length,
+    fontScale,
+    height,
+    width,
+  });
 
   return (
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={onClose}
-      snapPoints={snapPoints}
-      scroll={shouldScroll}
+      snapPoints={sheetLayout.snapPoints}
+      scroll={sheetLayout.scroll}
       contentStyle={styles.managerSheet}
       testID="CollectionsManagerSheet"
     >
@@ -520,6 +533,7 @@ function CollectionsManagerSheet({
                   hapticFeedback="selection"
                   onPress={() => onSelect(collection.collectionId)}
                   pressedScale={0.985}
+                  containerStyle={styles.managerRowMainContainer}
                   style={styles.managerRowMain}
                 >
                   <Ionicons
@@ -903,6 +917,7 @@ export function LibraryScreen({
   mode = "library",
 }: LibraryScreenProps = {}) {
   const { tokens } = useNemuTheme();
+  const { fontScale, height, width } = useWindowDimensions();
   const usesNativeHeader = usesNemuNativeHeader;
   const store = useMobileDataStore();
   const {
@@ -996,6 +1011,12 @@ export function LibraryScreen({
     () => sortMobileLibraryEntries(libraryEntries, progressIndex),
     [libraryEntries, progressIndex]
   );
+  const manageCollectionSheetLayout = getMobileManageCollectionSheetLayout({
+    collectionCount: sortedLibraryEntries.length,
+    fontScale,
+    height,
+    width,
+  });
   const visibleEntries = useMemo(
     () =>
       entriesForCollection(
@@ -1822,8 +1843,8 @@ export function LibraryScreen({
           setShowManagePanel(false);
           setRemoveArmed(false);
         }}
-        snapPoints={["78%"]}
-        scroll
+        snapPoints={manageCollectionSheetLayout.snapPoints}
+        scroll={manageCollectionSheetLayout.scroll}
         contentStyle={styles.manageCollectionSheet}
         testID="ManageCollectionSheet"
       >
@@ -1979,10 +2000,13 @@ const styles = StyleSheet.create({
     paddingLeft: 12,
     paddingRight: 9,
   },
-  managerRowMain: {
-    minHeight: 66,
+  managerRowMainContainer: {
     flex: 1,
     minWidth: 0,
+  },
+  managerRowMain: {
+    width: "100%",
+    minHeight: 66,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,

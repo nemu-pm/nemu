@@ -368,9 +368,15 @@ function normalizeFields(
       budget,
       MOBILE_AIX_METADATA_LIMITS.maxKeyLength,
     );
+    const name = takeString(
+      ownValue(item, "name"),
+      budget,
+      MOBILE_AIX_METADATA_LIMITS.maxStringLength,
+      true,
+    );
     const title =
       takeString(ownValue(item, "title"), budget, undefined, true) ??
-      takeString(ownValue(item, "name"), budget, undefined, true) ??
+      name ??
       id ??
       "Filter";
     const type =
@@ -379,14 +385,77 @@ function normalizeFields(
         budget,
         MOBILE_AIX_METADATA_LIMITS.maxKeyLength,
       ) ?? "unknown";
-    const options = ownValue(item, "options");
-    const optionCount = Array.isArray(options)
-      ? Math.min(
-          safeArrayLength(options),
-          MOBILE_AIX_METADATA_LIMITS.maxOptionItems,
-        )
+    const rawOptions = ownValue(item, "options");
+    const rawIds = ownValue(item, "ids");
+    const hasRawIds = Array.isArray(rawIds);
+    const options: string[] = [];
+    const ids: string[] = [];
+    if (Array.isArray(rawOptions)) {
+      const optionEnd = Math.min(
+        safeArrayLength(rawOptions),
+        MOBILE_AIX_METADATA_LIMITS.maxOptionItems,
+      );
+      for (let optionIndex = 0; optionIndex < optionEnd; optionIndex += 1) {
+        const option = takeString(
+          safeArrayValue(rawOptions, optionIndex),
+          budget,
+          MOBILE_AIX_METADATA_LIMITS.maxStringLength,
+          true,
+        );
+        if (!option) continue;
+        options.push(option);
+        const optionId = hasRawIds
+          ? takeString(
+              safeArrayValue(rawIds, optionIndex),
+              budget,
+              MOBILE_AIX_METADATA_LIMITS.maxStringLength,
+            )
+          : undefined;
+        ids.push(optionId ?? option);
+      }
+    }
+    const placeholder = takeString(
+      ownValue(item, "placeholder"),
+      budget,
+      MOBILE_AIX_METADATA_LIMITS.maxStringLength,
+      true,
+    );
+    const rawDefault = ownValue(item, "default");
+    const defaultObject = asObject(rawDefault);
+    const defaultIndex = defaultObject
+      ? asNonNegativeSafeInteger(ownValue(defaultObject, "index"))
       : undefined;
-    fields.push({ id, title, type, optionCount });
+    const defaultAscending = defaultObject
+      ? ownValue(defaultObject, "ascending")
+      : undefined;
+    const defaultValue =
+      typeof rawDefault === "boolean" ||
+      (typeof rawDefault === "number" && Number.isSafeInteger(rawDefault))
+        ? rawDefault
+        : defaultIndex !== undefined && typeof defaultAscending === "boolean"
+          ? { index: defaultIndex, ascending: defaultAscending }
+          : undefined;
+    const canAscend = ownValue(item, "canAscend");
+    const canExclude = ownValue(item, "canExclude");
+    const hideFromHeader = ownValue(item, "hideFromHeader");
+    fields.push({
+      id,
+      ...(name ? { name } : {}),
+      title,
+      type,
+      ...(typeof hideFromHeader === "boolean" ? { hideFromHeader } : {}),
+      ...(options.length
+        ? {
+            optionCount: options.length,
+            options,
+            ...(hasRawIds ? { ids } : {}),
+          }
+        : {}),
+      ...(placeholder ? { placeholder } : {}),
+      ...(defaultValue === undefined ? {} : { default: defaultValue }),
+      ...(typeof canAscend === "boolean" ? { canAscend } : {}),
+      ...(typeof canExclude === "boolean" ? { canExclude } : {}),
+    });
   }
   return fields;
 }

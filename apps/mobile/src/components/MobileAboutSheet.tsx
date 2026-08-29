@@ -102,9 +102,7 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={closeSheet}
-      snapPoints={
-        sheetLayout.snapPointHeight ? [sheetLayout.snapPointHeight] : undefined
-      }
+      snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
       scroll={sheetLayout.scroll}
       scrollContentBottomInset={18}
       testID="AboutNemuSheet"

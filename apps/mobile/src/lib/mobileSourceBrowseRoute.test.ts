@@ -9,6 +9,7 @@ import {
   hasMobileSourceBrowseRouteQuery,
   isMobileSourceBrowseHomeTabPending,
   makeMobileSourceHomeGenerationKey,
+  makeMobileSourceBrowseSearchRouteQuery,
   normalizeMobileSourceBrowseRouteQuery,
   normalizeMobileSourceBrowseRouteTab,
   shouldRenderMobileSourceBrowseSearchHeader,
@@ -111,6 +112,14 @@ describe("mobile source browse route helpers", () => {
     expect(hasMobileSourceBrowseRouteQuery("")).toBe(false);
     expect(hasMobileSourceBrowseRouteQuery(" ")).toBe(true);
     expect(hasMobileSourceBrowseRouteQuery([" ", "latest"])).toBe(true);
+  });
+
+  test("keeps an empty filter search route active", () => {
+    expect(makeMobileSourceBrowseSearchRouteQuery("")).toBe(" ");
+    expect(makeMobileSourceBrowseSearchRouteQuery("   ")).toBe(" ");
+    expect(makeMobileSourceBrowseSearchRouteQuery("  yotsuba  ")).toBe(
+      "yotsuba",
+    );
   });
 
   test("enables source browse text clearing only while input has content", () => {

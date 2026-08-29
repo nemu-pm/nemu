@@ -77,7 +77,7 @@ export function getNextMobileCheckFilterValue(
 export function isMobileSourceFilterValueActive(
   value: FilterValue,
 ): boolean {
-  if (value.type === FilterType.Text) {
+  if (value.type === FilterType.Text || value.type === FilterType.Author) {
     return typeof value.value === "string" && value.value.trim().length > 0;
   }
 
@@ -138,6 +138,9 @@ export function updateMobileSourceFilterValues(
 }
 
 export function isMobileInlineSourceFilter(filter: Filter): boolean {
+  if ((filter as Filter & { hideFromHeader?: boolean }).hideFromHeader) {
+    return false;
+  }
   if (
     filter.type === FilterType.Sort ||
     filter.type === FilterType.Select ||

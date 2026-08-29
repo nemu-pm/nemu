@@ -22,6 +22,7 @@ import {
   Platform,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
   type ListRenderItem,
 } from "react-native";
@@ -38,6 +39,7 @@ import { hapticConfirm, hapticError, hapticPress } from "@/lib/haptics";
 import { formatChapterTitle } from "@/lib/formatChapter";
 import { MOBILE_CHAPTER_LIST_PERFORMANCE } from "@/lib/mobileChapterRows";
 import { mobileInstalledSourceMatchesLink } from "@/lib/mobileInstalledSourceKeys";
+import { getMobileDualReaderSheetLayout } from "@/lib/mobileDualReaderSheetLayout";
 import {
   getMobileDualReadCandidateSources,
   getMobileDualReadSourcePresentation,
@@ -54,6 +56,7 @@ function chapterKeyExtractor(chapter: ChapterSummary): string {
 export function MobileDualReaderConfigSheet() {
   const ctx = useMobileDualReaderContext();
   const { tokens } = useNemuTheme();
+  const { fontScale, height, width } = useWindowDimensions();
 
   const configOpen = useMobileDualReaderStore((s) => s.configOpen);
   const setConfigOpen = useMobileDualReaderStore((s) => s.setConfigOpen);
@@ -158,8 +161,11 @@ export function MobileDualReaderConfigSheet() {
         if (refreshed.status === "ready") {
           completed = true;
           setLocalSecondaryChapters(refreshed.chapters);
+          if (refreshed.chapters.length === 0) {
+            setError(ctx.strings.reader.dualReadDialogNoChapters);
+          }
         } else {
-          setError(ctx.strings.reader.dualReadDialogLoadingChapters);
+          setError(ctx.strings.reader.dualReadDialogChapterLoadFailed);
         }
       } catch (err) {
         if (!cancelled) {
@@ -167,7 +173,7 @@ export function MobileDualReaderConfigSheet() {
             "[DualRead] Failed to load secondary chapters in config",
             err,
           );
-          setError(ctx.strings.reader.dualReadDialogLoadingChapters);
+          setError(ctx.strings.reader.dualReadDialogChapterLoadFailed);
         }
       } finally {
         if (!cancelled) setLoadingChapters(false);
@@ -264,6 +270,15 @@ export function MobileDualReaderConfigSheet() {
     ? formatChapterTitle(currentPrimaryChapter, ctx.strings)
     : ctx.strings.reader.noChapter;
 
+  const sheetLayout = getMobileDualReaderSheetLayout({
+    candidateCount: candidates.length,
+    chapterCount: secondaryChapters.length,
+    fontScale,
+    height,
+    loading: loadingChapters,
+    width,
+  });
+
   const renderChapter = useCallback<ListRenderItem<ChapterSummary>>(
     ({ item: chapter }) => {
       const selected = selectedSecondaryChapterId === chapter.id;
@@ -285,14 +300,17 @@ export function MobileDualReaderConfigSheet() {
     <MobileSheetScaffold
       visible={configOpen}
       onRequestClose={close}
+      frameMaxHeight={sheetLayout.frameMaxHeight}
       contentStyle={styles.content}
     >
       <PageHeader
+        leadingAccessibilityLabel={ctx.strings.reader.closePlugin}
+        leadingIcon="close-outline"
         title={ctx.strings.reader.dualReadDialogTitle}
         onLeadingPress={close}
       />
       <FlatList
-        style={styles.scroll}
+        style={sheetLayout.listFillsFrame ? styles.scroll : undefined}
         contentContainerStyle={styles.scrollContent}
         data={loadingChapters ? [] : secondaryChapters}
         renderItem={renderChapter}
@@ -303,7 +321,9 @@ export function MobileDualReaderConfigSheet() {
           MOBILE_CHAPTER_LIST_PERFORMANCE.maxToRenderPerBatch
         }
         windowSize={MOBILE_CHAPTER_LIST_PERFORMANCE.windowSize}
-        removeClippedSubviews={Platform.OS === "android"}
+        removeClippedSubviews={
+          sheetLayout.listFillsFrame && Platform.OS === "android"
+        }
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <View>
@@ -408,7 +428,7 @@ export function MobileDualReaderConfigSheet() {
 
 const styles = StyleSheet.create({
   content: {
-    maxHeight: "85%",
+    paddingTop: 2,
   },
   scroll: {
     flex: 1,

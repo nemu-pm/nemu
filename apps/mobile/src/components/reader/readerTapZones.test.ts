@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   READER_TAP_EDGE_ZONE_RATIO,
+  isReaderStageTapEnabled,
+  isReaderTapInsideChrome,
   readerTapZoneForPosition,
 } from "./readerTapZones";
 
@@ -11,6 +13,33 @@ function zone(x: number, mode: "ltr" | "rtl" | "scrolling", pagedMode = true) {
 }
 
 describe("reader tap zones", () => {
+  test("blocks page-turn taps while an overlay owns the gesture", () => {
+    expect(
+      isReaderStageTapEnabled({ tapGesturesEnabled: false, loading: false }),
+    ).toBe(false);
+    expect(
+      isReaderStageTapEnabled({ tapGesturesEnabled: true, loading: true }),
+    ).toBe(false);
+    expect(
+      isReaderStageTapEnabled({ tapGesturesEnabled: true, loading: false }),
+    ).toBe(true);
+  });
+
+  test("keeps reader chrome taps out of the gallery page-turn zones", () => {
+    const geometry = { height: 900, topInset: 100, bottomInset: 120 };
+    expect(isReaderTapInsideChrome({ ...geometry, y: 80 })).toBe(true);
+    expect(isReaderTapInsideChrome({ ...geometry, y: 100 })).toBe(true);
+    expect(isReaderTapInsideChrome({ ...geometry, y: 450 })).toBe(false);
+    expect(isReaderTapInsideChrome({ ...geometry, y: 780 })).toBe(true);
+    expect(isReaderTapInsideChrome({ ...geometry, y: 850 })).toBe(true);
+    expect(
+      isReaderTapInsideChrome({
+        ...geometry,
+        y: Number.NaN,
+      }),
+    ).toBe(false);
+  });
+
   test("splits the stage into 35/30/35 zones", () => {
     expect(READER_TAP_EDGE_ZONE_RATIO).toBe(0.35);
     // Left edge band: [0, 140)

@@ -3,6 +3,7 @@ import {
   FlatList,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -30,6 +31,7 @@ import {
 } from "@/lib/mobileCollections";
 import { getMobileCollectionMembershipRequestCloseAction } from "@/lib/mobileCollectionMembershipBackBehavior";
 import { getMobileCollectionBookSubtitle } from "@/lib/mobileLibraryPresentation";
+import { getMobileAddBooksSheetLayout } from "@/lib/mobileAddBooksSheetLayout";
 
 type MobileAddBooksSheetProps = {
   visible: boolean;
@@ -89,6 +91,7 @@ function MobileAddBooksSheetContent({
   initialSelected: Set<string>;
 }) {
   const { tokens } = useNemuTheme();
+  const { fontScale, height, width } = useWindowDimensions();
   const validLibraryItemIds = useMemo(
     () => new Set(entries.map((entry) => entry.item.libraryItemId)),
     [entries]
@@ -109,6 +112,12 @@ function MobileAddBooksSheetContent({
           count: changeCount,
         })
       : strings.common.save;
+  const sheetLayout = getMobileAddBooksSheetLayout({
+    entryCount: entries.length,
+    fontScale,
+    height,
+    width,
+  });
 
   const requestClose = () => {
     const action = getMobileCollectionMembershipRequestCloseAction({ busy: closeDisabled });
@@ -125,12 +134,101 @@ function MobileAddBooksSheetContent({
     }
   };
 
+  const renderBookRow = (entry: LibraryEntry) => {
+    const libraryItemId = entry.item.libraryItemId;
+    const selected = selectedIds.has(libraryItemId);
+    const subtitle = getMobileCollectionBookSubtitle(entry, strings);
+    return (
+      <NemuPressable
+        accessibilityLabel={formatMobileString(
+          strings.library.collectionMangaAccessibility,
+          {
+            title: getEntryTitle(entry),
+            sourceCountLabel: subtitle,
+          },
+        )}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: selected, disabled: saving }}
+        disabled={saving}
+        hapticFeedback="selection"
+        onPress={() => {
+          setSelectedIds((current) => {
+            const next = new Set(current);
+            if (next.has(libraryItemId)) {
+              next.delete(libraryItemId);
+            } else {
+              next.add(libraryItemId);
+            }
+            return next;
+          });
+        }}
+        pressedScale={0.985}
+        style={[
+          styles.bookRow,
+          {
+            backgroundColor: selected ? `${tokens.primary}16` : tokens.muted,
+            borderColor: selected ? tokens.primary : tokens.border,
+            opacity: saving ? 0.68 : 1,
+          },
+        ]}
+      >
+        <View style={styles.bookRowText}>
+          <Text
+            numberOfLines={1}
+            style={[styles.bookTitle, { color: tokens.foreground }]}
+          >
+            {getEntryTitle(entry)}
+          </Text>
+          <Text
+            numberOfLines={1}
+            style={[styles.bookSubtitle, { color: tokens.mutedForeground }]}
+          >
+            {subtitle}
+          </Text>
+        </View>
+        <Ionicons
+          name={selected ? "checkmark-circle" : "ellipse-outline"}
+          size={22}
+          color={selected ? tokens.primary : tokens.mutedForeground}
+        />
+      </NemuPressable>
+    );
+  };
+
+  const emptyState = (
+    <View
+      style={[
+        styles.emptyState,
+        { borderColor: tokens.border, backgroundColor: tokens.muted },
+      ]}
+    >
+      <Ionicons name="library-outline" size={22} color={tokens.mutedForeground} />
+      <Text
+        style={[styles.emptyText, { color: tokens.mutedForeground }]}
+      >
+        {strings.library.addBooksEmpty}
+      </Text>
+    </View>
+  );
+
+  const errorFooter = error ? (
+    <View style={styles.listFooter}>
+      <MobileInlineErrorBanner
+        title={strings.library.collectionActionFailed}
+        detail={error}
+        dismissLabel={strings.common.clear}
+        onDismiss={onErrorDismiss ?? (() => undefined)}
+        variant="embedded"
+      />
+    </View>
+  ) : null;
+
   return (
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={requestClose}
-      snapPoints={["90%"]}
-      fillContent
+      snapPoints={sheetLayout.snapPoints}
+      fillContent={sheetLayout.bounded}
       enablePanDownToClose={!closeDisabled}
       contentStyle={styles.sheet}
     >
@@ -161,110 +259,36 @@ function MobileAddBooksSheetContent({
         </NemuPressable>
       </View>
 
-      <FlatList
-        style={styles.scroll}
-        data={entries}
-        extraData={selectedIds}
-        keyExtractor={(entry) => entry.item.libraryItemId}
-        initialNumToRender={10}
-        maxToRenderPerBatch={10}
-        windowSize={7}
-        removeClippedSubviews
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        ItemSeparatorComponent={() => <View style={styles.itemSeparator} />}
-        renderItem={({ item: entry }) => {
-          const libraryItemId = entry.item.libraryItemId;
-          const selected = selectedIds.has(libraryItemId);
-          const subtitle = getMobileCollectionBookSubtitle(entry, strings);
-          return (
-            <NemuPressable
-              accessibilityLabel={formatMobileString(
-                strings.library.collectionMangaAccessibility,
-                {
-                  title: getEntryTitle(entry),
-                  sourceCountLabel: subtitle,
-                },
-              )}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: selected, disabled: saving }}
-              disabled={saving}
-              hapticFeedback="selection"
-              onPress={() => {
-                setSelectedIds((current) => {
-                  const next = new Set(current);
-                  if (next.has(libraryItemId)) {
-                    next.delete(libraryItemId);
-                  } else {
-                    next.add(libraryItemId);
-                  }
-                  return next;
-                });
-              }}
-              pressedScale={0.985}
-              style={[
-                styles.bookRow,
-                {
-                  backgroundColor: selected
-                    ? `${tokens.primary}16`
-                    : tokens.muted,
-                  borderColor: selected ? tokens.primary : tokens.border,
-                  opacity: saving ? 0.68 : 1,
-                },
-              ]}
-            >
-              <View style={styles.bookRowText}>
-                <Text
-                  numberOfLines={1}
-                  style={[styles.bookTitle, { color: tokens.foreground }]}
-                >
-                  {getEntryTitle(entry)}
-                </Text>
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.bookSubtitle,
-                    { color: tokens.mutedForeground },
-                  ]}
-                >
-                  {subtitle}
-                </Text>
-              </View>
-              <Ionicons
-                name={selected ? "checkmark-circle" : "ellipse-outline"}
-                size={22}
-                color={selected ? tokens.primary : tokens.mutedForeground}
-              />
-            </NemuPressable>
-          );
-        }}
-        ListEmptyComponent={
-          <View
-            style={[
-              styles.emptyState,
-              { borderColor: tokens.border, backgroundColor: tokens.muted },
-            ]}
-          >
-            <Ionicons name="library-outline" size={22} color={tokens.mutedForeground} />
-            <Text style={[styles.emptyText, { color: tokens.mutedForeground }]}>
-              {strings.library.addBooksEmpty}
-            </Text>
-          </View>
-        }
-        ListFooterComponent={
-          error ? (
-            <View style={styles.listFooter}>
-              <MobileInlineErrorBanner
-                title={strings.library.collectionActionFailed}
-                detail={error}
-                dismissLabel={strings.common.clear}
-                onDismiss={onErrorDismiss ?? (() => undefined)}
-                variant="embedded"
-              />
-            </View>
-          ) : null
-        }
-      />
+      {sheetLayout.bounded ? (
+        <FlatList
+          style={styles.scroll}
+          data={entries}
+          extraData={selectedIds}
+          keyExtractor={(entry) => entry.item.libraryItemId}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          ItemSeparatorComponent={() => <View style={styles.itemSeparator} />}
+          renderItem={({ item }) => renderBookRow(item)}
+          ListEmptyComponent={emptyState}
+          ListFooterComponent={errorFooter}
+        />
+      ) : (
+        <View style={styles.dynamicList}>
+          {entries.length
+            ? entries.map((entry, index) => (
+                <View key={entry.item.libraryItemId}>
+                  {index > 0 ? <View style={styles.itemSeparator} /> : null}
+                  {renderBookRow(entry)}
+                </View>
+              ))
+            : emptyState}
+          {errorFooter}
+        </View>
+      )}
 
       <View style={styles.footer}>
         <NemuButton
@@ -332,6 +356,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 2,
+  },
+  dynamicList: {
+    flexShrink: 1,
   },
   itemSeparator: {
     height: 9,

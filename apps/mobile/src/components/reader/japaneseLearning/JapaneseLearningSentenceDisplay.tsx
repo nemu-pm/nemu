@@ -324,6 +324,7 @@ export function JapaneseLearningSentenceDisplay({
                       accessibilityLabel={strings.reader.pluginJapaneseLearningCopySelection}
                       onPress={() => onCopySelection(selectedRangeText)}
                       pressedScale={0.96}
+                      containerStyle={styles.actionButtonContainer}
                       style={[
                         styles.actionButton,
                         {
@@ -344,6 +345,7 @@ export function JapaneseLearningSentenceDisplay({
                       disabled={askDisabled}
                       onPress={() => onAskSelection(selectedRangeText, "words")}
                       pressedScale={0.96}
+                      containerStyle={styles.actionButtonContainer}
                       style={[
                         styles.actionButton,
                         {
@@ -487,7 +489,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   actionButton: {
-    flex: 1,
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -495,6 +497,10 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  actionButtonContainer: {
+    flex: 1,
+    minWidth: 0,
   },
   actionText: {
     fontSize: 12,

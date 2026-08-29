@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import {
   canDismissMobileNativeSheetFromHardwareBack,
+  normalizeMobileNativeSheetSnapPointsForPlatform,
   resolveMobileNativeSheetDismissLabel,
 } from "@/lib/mobileNativeSheet";
 import { NemuPressable } from "./NemuPressable";
@@ -86,14 +87,18 @@ export function MobileNativeSheetScaffold({
     null,
   );
   const availableSheetHeight = windowHeight - insets.top - insets.bottom;
+  const effectiveSnapPoints = normalizeMobileNativeSheetSnapPointsForPlatform(
+    snapPoints,
+    Platform.OS,
+  );
   const resolvedSnapPointHeight = resolveSnapPointHeight(
-    snapPoints?.[0],
+    effectiveSnapPoints?.[0],
     availableSheetHeight,
   );
   const boundedSnapPointHeight = resolvedSnapPointHeight
     ? Math.min(Math.max(resolvedSnapPointHeight, 240), availableSheetHeight)
     : undefined;
-  const shouldUseScrollView = scroll && Boolean(snapPoints?.length);
+  const shouldUseScrollView = scroll && Boolean(effectiveSnapPoints?.length);
   const resolvedDismissLabel = resolveMobileNativeSheetDismissLabel({
     dismissLabel,
     enablePanDownToClose,
@@ -126,7 +131,7 @@ export function MobileNativeSheetScaffold({
   ];
   const filledContentStyle =
     fillContent && boundedContentHeight
-      ? [styles.filledContent, { height: boundedContentHeight }]
+      ? { height: boundedContentHeight }
       : fillContent
         ? styles.filledContent
         : null;
@@ -201,8 +206,8 @@ export function MobileNativeSheetScaffold({
     <BottomSheet
       ref={sheetRef}
       index={visible ? 0 : -1}
-      snapPoints={snapPoints}
-      enableDynamicSizing={!snapPoints?.length}
+      snapPoints={effectiveSnapPoints}
+      enableDynamicSizing={!effectiveSnapPoints?.length}
       enablePanDownToClose={enablePanDownToClose}
       backgroundStyle={{ backgroundColor: backgroundColor ?? tokens.card }}
       onClose={handleClose}
@@ -211,6 +216,7 @@ export function MobileNativeSheetScaffold({
         <View style={styles.chrome}>
           <View style={styles.chromeSide} />
           <Text
+            maxFontSizeMultiplier={SHEET_CHROME_MAX_FONT_SIZE_MULTIPLIER}
             numberOfLines={1}
             style={[styles.chromeTitle, { color: tokens.foreground }]}
           >
@@ -227,7 +233,11 @@ export function MobileNativeSheetScaffold({
                 containerStyle={styles.dismissButtonHitArea}
                 style={styles.dismissButton}
               >
-                <Text style={[styles.dismissText, { color: tokens.primary }]}>
+                <Text
+                  maxFontSizeMultiplier={SHEET_CHROME_MAX_FONT_SIZE_MULTIPLIER}
+                  numberOfLines={1}
+                  style={[styles.dismissText, { color: tokens.primary }]}
+                >
                   {resolvedDismissLabel}
                 </Text>
               </NemuPressable>
@@ -264,6 +274,11 @@ export function MobileNativeSheetScaffold({
 }
 
 const SHEET_CHROME_HEIGHT = 52;
+// Sheet chrome competes for one fixed row: an unbounded Dynamic Type title and
+// text dismiss action can overlap even though the sheet body itself remains
+// scrollable. Keep both labels accessible and scaled, but cap only this compact
+// navigation chrome so neither control is truncated at accessibility sizes.
+const SHEET_CHROME_MAX_FONT_SIZE_MULTIPLIER = 1.5;
 // Let the native sheet receive the close state before React unmounts the wrapper.
 const PROGRAMMATIC_SHEET_CLOSE_DELAY_MS = 320;
 

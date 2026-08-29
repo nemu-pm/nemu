@@ -470,6 +470,7 @@ export type MobileStrings = {
   reader: {
     bookPairing: string;
     chapterAccessibility: string;
+    closeSettings: string;
     closePlugin: string;
     currentChapter: string;
     description: string;
@@ -484,6 +485,8 @@ export type MobileStrings = {
     dualReadDialogPrimaryChapter: string;
     dualReadDialogSecondaryChapter: string;
     dualReadDialogLoadingChapters: string;
+    dualReadDialogNoChapters: string;
+    dualReadDialogChapterLoadFailed: string;
     dualReadDialogChooseChapter: string;
     dualReadDialogEnable: string;
     dualReadDialogDisable: string;
@@ -1389,6 +1392,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
     reader: {
       bookPairing: "Book-style pairing",
       chapterAccessibility: "{{direction}} chapter: {{chapter}}",
+      closeSettings: "Close reader settings",
       closePlugin: "Close reader plugin",
       currentChapter: "Current",
       description: "Reading direction, scrolling, and page layout",
@@ -1403,6 +1407,9 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       dualReadDialogPrimaryChapter: "Current chapter",
       dualReadDialogSecondaryChapter: "Paired chapter",
       dualReadDialogLoadingChapters: "Loading chapters…",
+      dualReadDialogNoChapters: "No chapters are available from this source.",
+      dualReadDialogChapterLoadFailed:
+        "Could not load chapters from this source. Try again later.",
       dualReadDialogChooseChapter: "Choose a chapter",
       dualReadDialogEnable: "Enable Dual Read",
       dualReadDialogDisable: "Disable Dual Read",
@@ -2332,6 +2339,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
     reader: {
       bookPairing: "书籍式配对",
       chapterAccessibility: "{{direction}}：{{chapter}}",
+      closeSettings: "关闭阅读器设置",
       closePlugin: "关闭阅读器插件",
       currentChapter: "当前",
       description: "阅读方向、滚动和页面布局",
@@ -2346,6 +2354,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       dualReadDialogPrimaryChapter: "当前章节",
       dualReadDialogSecondaryChapter: "配对章节",
       dualReadDialogLoadingChapters: "正在加载章节…",
+      dualReadDialogNoChapters: "此源暂时没有可用章节。",
+      dualReadDialogChapterLoadFailed: "无法从此源加载章节，请稍后重试。",
       dualReadDialogChooseChapter: "选择一个章节",
       dualReadDialogEnable: "启用双源阅读",
       dualReadDialogDisable: "关闭双源阅读",
@@ -3289,6 +3299,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
     reader: {
       bookPairing: "ブック形式のペアリング",
       chapterAccessibility: "{{direction}}: {{chapter}}",
+      closeSettings: "リーダー設定を閉じる",
       closePlugin: "リーダープラグインを閉じる",
       currentChapter: "現在",
       description: "読書方向、スクロール、ページレイアウト",
@@ -3306,6 +3317,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       dualReadDialogPrimaryChapter: "現在のチャプター",
       dualReadDialogSecondaryChapter: "ペアのチャプター",
       dualReadDialogLoadingChapters: "チャプターを読み込み中…",
+      dualReadDialogNoChapters:
+        "このソースには利用可能なチャプターがありません。",
+      dualReadDialogChapterLoadFailed:
+        "このソースからチャプターを読み込めませんでした。後でもう一度お試しください。",
       dualReadDialogChooseChapter: "チャプターを選択",
       dualReadDialogEnable: "2ソース同時読みを有効化",
       dualReadDialogDisable: "2ソース同時読みを無効化",

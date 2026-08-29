@@ -82,7 +82,10 @@ import {
 } from "@/lib/mobileInstalledSourceKeys";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
-import { coerceMobileNativeSearchText } from "@/lib/mobileNativeSearchText";
+import {
+  coerceMobileNativeSearchText,
+  resolveMobileNativeSearchSubmitText,
+} from "@/lib/mobileNativeSearchText";
 import {
   createMobileIdleTaskCoordinator,
   type MobileIdleTaskCoordinator,
@@ -112,6 +115,7 @@ import {
   getMobileSortFilterSelection,
   updateMobileSourceFilterValues,
 } from "@/lib/mobileSourceFilterValues";
+import { getMobileSourceFilterSheetLayout } from "@/lib/mobileSourceFilterSheetLayout";
 import {
   loadMobileSourceSettingsByKeys,
   makeMobileSourceKey,
@@ -125,6 +129,7 @@ import {
   getMobileSourceBrowseRouteTabForListingId,
   makeMobileSourceHomeGenerationKey,
   hasMobileSourceBrowseRouteQuery,
+  makeMobileSourceBrowseSearchRouteQuery,
   isMobileSourceBrowseHomeTabPending,
   normalizeMobileSourceBrowseRouteQuery,
   normalizeMobileSourceBrowseRouteTab,
@@ -337,8 +342,7 @@ type SourceHomeState =
 
 function filterSourceBrowseControls(filters: Filter[]): Filter[] {
   return filters.filter(
-    (filter) =>
-      filter.type !== FilterType.Title && filter.type !== FilterType.Author,
+    (filter) => filter.type !== FilterType.Title,
   );
 }
 
@@ -416,58 +420,17 @@ function filterOptionValue(filter: Filter, index: number): string {
 }
 
 function filterLabel(filter: Filter): string {
-  return filter.name;
+  const displayName = (filter as Filter & { displayName?: unknown }).displayName;
+  return typeof displayName === "string" && displayName.trim()
+    ? displayName
+    : filter.name;
 }
 
-function describeFilterValue(
-  filter: Filter,
-  value: FilterValue | undefined,
-  strings: MobileStrings,
-): string {
-  if (!value) return strings.sourceBrowse.anyFilter;
-  if (
-    filter.type === FilterType.Sort &&
-    value.value &&
-    typeof value.value === "object"
-  ) {
-    const sort = getMobileSortFilterSelection(filter, value);
-    const option =
-      filter.options[sort.index] ?? strings.sourceBrowse.defaultFilter;
-    return `${option} ${sort.ascending ? "↑" : "↓"}`;
-  }
-  if (filter.type === FilterType.Select) {
-    const selectedIndex = filter.options.findIndex(
-      (_option, index) => filterOptionValue(filter, index) === value.value,
-    );
-    return selectedIndex >= 0
-      ? filter.options[selectedIndex]
-      : strings.sourceBrowse.customFilter;
-  }
-  if (filter.type === FilterType.Check) {
-    const state = getMobileCheckFilterState(filter, value);
-    return state === 2
-      ? strings.sourceBrowse.excludeFilter
-      : state === 1
-        ? strings.sourceBrowse.includeFilter
-        : strings.sourceBrowse.anyFilter;
-  }
-  if (
-    filter.type === FilterType.Genre &&
-    value.value &&
-    typeof value.value === "object"
-  ) {
-    const multi = value.value as MultiSelectValue;
-    const count = (multi.included?.length ?? 0) + (multi.excluded?.length ?? 0);
-    return count
-      ? formatMobileString(strings.sourceBrowse.selectedFilterCount, { count })
-      : strings.sourceBrowse.anyFilter;
-  }
-  if (filter.type === FilterType.Text) {
-    return typeof value.value === "string" && value.value.trim()
-      ? value.value
-      : strings.sourceBrowse.anyFilter;
-  }
-  return strings.sourceBrowse.customFilter;
+function checkFilterOptionName(filter: Filter): string {
+  const optionName = (filter as Filter & { optionName?: unknown }).optionName;
+  return typeof optionName === "string" && optionName.trim()
+    ? optionName.trim()
+    : filter.name;
 }
 
 function sourceFilterOptionAccessibilityLabel(
@@ -742,15 +705,13 @@ function SourceFilterControl({
 }) {
   const { tokens } = useNemuTheme();
 
-  if (filter.type === FilterType.Title || filter.type === FilterType.Author)
-    return null;
+  if (filter.type === FilterType.Title) return null;
 
   if (filter.type === FilterType.Group) {
     const group = filter as GroupFilter;
     const childFilters = group.filters.filter(
       (childFilter) =>
-        childFilter.type !== FilterType.Title &&
-        childFilter.type !== FilterType.Author,
+        childFilter.type !== FilterType.Title,
     );
 
     if (!childFilters.length) return null;
@@ -786,7 +747,7 @@ function SourceFilterControl({
 
   const visibleOptions = visibleFilterOptions(filter, optionLimit);
 
-  if (filter.type === FilterType.Text) {
+  if (filter.type === FilterType.Text || filter.type === FilterType.Author) {
     return (
       <GlassSurface
         style={styles.sourceTextFilterShell}
@@ -800,7 +761,10 @@ function SourceFilterControl({
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder={filter.placeholder ?? strings.sourceBrowse.anyFilter}
+          placeholder={
+            ("placeholder" in filter ? filter.placeholder : undefined) ??
+            strings.sourceBrowse.anyFilter
+          }
           placeholderTextColor={tokens.mutedForeground}
           selectionColor={tokens.primary}
           accessibilityLabel={sourceFilterTextAccessibilityLabel(
@@ -920,7 +884,13 @@ function SourceFilterControl({
   if (filter.type === FilterType.Check) {
     const state = getMobileCheckFilterState(filter, value);
     const selected = state !== 0;
-    const optionLabel = describeFilterValue(filter, value, strings);
+    const choiceLabel = checkFilterOptionName(filter);
+    const optionLabel =
+      state === 2
+        ? formatMobileString(strings.sourceBrowse.notFilter, {
+            option: choiceLabel,
+          })
+        : choiceLabel;
     return (
       <View style={styles.sourceFilterGroup}>
         <Text
@@ -1059,7 +1029,13 @@ function SourceFilterPanel({
   strings: MobileStrings;
 }) {
   const { tokens } = useNemuTheme();
+  const { fontScale, height, width } = useWindowDimensions();
   const [draftValues, setDraftValues] = useState<FilterValue[]>(values);
+  const sheetLayout = getMobileSourceFilterSheetLayout({
+    fontScale,
+    height,
+    width,
+  });
 
   const valueMap = useMemo(() => {
     const map = new Map<string, FilterValue>();
@@ -1092,7 +1068,7 @@ function SourceFilterPanel({
     <MobileNativeSheetScaffold
       visible
       onClose={onClose}
-      snapPoints={["82%"]}
+      snapPoints={sheetLayout.snapPoints}
       contentStyle={styles.filterPanel}
       testID="SourceFilterSheet"
     >
@@ -1144,7 +1120,11 @@ function SourceFilterPanel({
       <ScrollView
         contentContainerStyle={styles.filterPanelScrollContent}
         showsVerticalScrollIndicator={false}
-        style={styles.filterPanelScroll}
+        style={
+          sheetLayout.bounded
+            ? styles.filterPanelScrollBounded
+            : styles.filterPanelScroll
+        }
       >
         {filters.map((filter, index) => (
           <SourceFilterControl
@@ -1166,6 +1146,7 @@ function SourceFilterPanel({
           accessibilityRole="button"
           accessibilityLabel={strings.sourceBrowse.resetFilters}
           onPress={resetDraftFilters}
+          containerStyle={styles.filterPanelActionContainer}
           style={[
             styles.filterPanelSecondaryButton,
             { backgroundColor: tokens.muted },
@@ -1184,6 +1165,7 @@ function SourceFilterPanel({
           accessibilityRole="button"
           accessibilityLabel={strings.sourceBrowse.applyFilters}
           onPress={applyDraftFilters}
+          containerStyle={styles.filterPanelActionContainer}
           style={[
             styles.filterPanelPrimaryButton,
             { backgroundColor: tokens.primary },
@@ -1265,6 +1247,7 @@ export function SourceBrowseScreen() {
   const [sourceSearchQuery, setSourceSearchQuery] = useState(
     routeSourceSearchQuery,
   );
+  const sourceSearchQueryRef = useRef(routeSourceSearchQuery);
   const [submittedSourceSearchQuery, setSubmittedSourceSearchQuery] = useState(
     routeSourceSearchQuery,
   );
@@ -1308,6 +1291,7 @@ export function SourceBrowseScreen() {
   }, [strings.sourceBrowse]);
 
   useEffect(() => {
+    sourceSearchQueryRef.current = routeSourceSearchQuery;
     setSourceSearchQuery(routeSourceSearchQuery);
     setSubmittedSourceSearchQuery(routeSourceSearchQuery);
   }, [routeSourceSearchQuery]);
@@ -2260,6 +2244,7 @@ export function SourceBrowseScreen() {
           activeFilterCount: sourceFilterCount,
         },
       );
+      sourceSearchQueryRef.current = nextQuery;
       setSourceSearchQuery(nextQuery);
       setSubmittedSourceSearchQuery(nextQuery);
       if (
@@ -2277,6 +2262,7 @@ export function SourceBrowseScreen() {
 
   const clearSourceSearch = useCallback(() => {
     sourceSearchInputRef.current?.clearText();
+    sourceSearchQueryRef.current = "";
     router.setParams({ q: undefined });
     sourceSearchIdleTasks.schedule(() => {
       setSourceSearchQuery("");
@@ -2287,6 +2273,7 @@ export function SourceBrowseScreen() {
   }, [sourceSearchIdleTasks]);
 
   const enterSourceSearch = useCallback(() => {
+    sourceSearchQueryRef.current = "";
     setSourceSearchQuery("");
     setSubmittedSourceSearchQuery("");
     router.setParams({ q: " " });
@@ -2304,6 +2291,7 @@ export function SourceBrowseScreen() {
     listingRequestRef.current += 1;
     setSelectedRuntimeListing(null);
     setSelectedListingId(null);
+    sourceSearchQueryRef.current = "";
     setSourceSearchQuery("");
     setSubmittedSourceSearchQuery("");
     setSourceFilterValues([]);
@@ -2387,7 +2375,7 @@ export function SourceBrowseScreen() {
       setSourceFilterValues(next);
       setSubmittedSourceSearchQuery(nextQuery);
       router.setParams({
-        q: next.length ? nextQuery || " " : nextQuery || undefined,
+        q: makeMobileSourceBrowseSearchRouteQuery(nextQuery),
       });
     },
     [sourceFilterValues, sourceSearchQuery],
@@ -2402,7 +2390,7 @@ export function SourceBrowseScreen() {
       setSubmittedSourceSearchQuery(nextQuery);
       setSourceFilterPanelOpen(false);
       router.setParams({
-        q: nextValues.length ? nextQuery || " " : nextQuery || undefined,
+        q: makeMobileSourceBrowseSearchRouteQuery(nextQuery),
       });
     },
     [sourceSearchQuery],
@@ -2617,18 +2605,29 @@ export function SourceBrowseScreen() {
           hintTextColor={tokens.mutedForeground}
           obscureBackground={false}
           onBlur={() => {
-            submitSourceSearchText(sourceSearchQuery);
+            submitSourceSearchText(
+              resolveMobileNativeSearchSubmitText(
+                undefined,
+                sourceSearchQueryRef.current,
+              ),
+            );
           }}
           onCancelButtonPress={clearSourceSearch}
           onChangeText={(event) => {
-            setSourceSearchQuery(
-              coerceMobileNativeSearchText(event.nativeEvent.text),
+            const nextQuery = coerceMobileNativeSearchText(
+              event.nativeEvent.text,
             );
+            sourceSearchQueryRef.current = nextQuery;
+            setSourceSearchQuery(nextQuery);
           }}
           onClose={clearSourceSearch}
           onSearchButtonPress={(event) => {
+            sourceSearchInputRef.current?.blur();
             submitSourceSearchText(
-              coerceMobileNativeSearchText(event.nativeEvent.text),
+              resolveMobileNativeSearchSubmitText(
+                event.nativeEvent.text,
+                sourceSearchQueryRef.current,
+              ),
               { haptic: true },
             );
           }}
@@ -2982,7 +2981,11 @@ export function SourceBrowseScreen() {
                 />
               ) : sourceSearchState.status === "error" ? (
                 <NemuInlineEmptyState
+                  actionLabel={strings.common.retry}
                   icon="alert-circle-outline"
+                  onActionPress={() => {
+                    void loadSourceSearch(1);
+                  }}
                   title={sourceSearchState.detail}
                   tone="danger"
                 />
@@ -3012,7 +3015,11 @@ export function SourceBrowseScreen() {
                 />
               ) : listingState.status === "error" ? (
                 <NemuInlineEmptyState
+                  actionLabel={strings.common.retry}
                   icon="alert-circle-outline"
+                  onActionPress={() => {
+                    void loadListing(1);
+                  }}
                   title={listingState.detail}
                   tone="danger"
                 />
@@ -3045,7 +3052,11 @@ export function SourceBrowseScreen() {
                 />
               ) : sourceHomeState.status === "error" ? (
                 <NemuInlineEmptyState
+                  actionLabel={strings.common.retry}
                   icon="alert-circle-outline"
+                  onActionPress={() => {
+                    void refreshSourceData();
+                  }}
                   title={sourceHomeState.detail}
                   tone="danger"
                 />
@@ -3252,6 +3263,9 @@ const styles = StyleSheet.create({
   filterPanelScroll: {
     maxHeight: 440,
   },
+  filterPanelScrollBounded: {
+    flex: 1,
+  },
   filterPanelScrollContent: {
     gap: 14,
     paddingBottom: 2,
@@ -3262,7 +3276,7 @@ const styles = StyleSheet.create({
   },
   filterPanelSecondaryButton: {
     minHeight: 44,
-    flex: 1,
+    width: "100%",
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.lg,
@@ -3270,11 +3284,15 @@ const styles = StyleSheet.create({
   },
   filterPanelPrimaryButton: {
     minHeight: 44,
-    flex: 1,
+    width: "100%",
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.lg,
     paddingHorizontal: 12,
+  },
+  filterPanelActionContainer: {
+    flex: 1,
+    minWidth: 0,
   },
   filterPanelSecondaryText: {
     fontSize: 13,

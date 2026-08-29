@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { strToU8, zipSync } from "fflate";
-import { FilterType } from "@nemu.pm/aidoku-runtime";
+import { FilterType, type Filter } from "@nemu.pm/aidoku-runtime";
 import type { InstalledSource, SourcePackageListing } from "@/data/schema";
 import { fetchMobileSourceBrowseMetadata } from "./mobileSourceBrowseMetadata";
 import { defaultMobileSourceSessionCache } from "./mobileSourceExecutorCache";
@@ -342,7 +342,14 @@ describe("mobile source browse metadata", () => {
       listings: [runtimeListing],
       filters: [
         { id: "Title", title: "Title", type: "text" },
-        { id: "Status", title: "Status", type: "select", optionCount: 2 },
+        {
+          id: "Status",
+          title: "Status",
+          type: "select",
+          optionCount: 2,
+          options: ["Any", "Completed"],
+          default: 0,
+        },
       ],
       settings: [
         {
@@ -505,6 +512,158 @@ describe("mobile source browse metadata", () => {
       filters: [{ id: "Genre", title: "Genre", type: "genre" }],
       settings: [{ key: "enabled", title: "Enabled", type: "switch" }],
     });
+  });
+
+  test("falls back to static AIX filters when the wasm exports none", async () => {
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getFilters() {
+              return [
+                {
+                  // Guard a native old-ABI bridge surfacing Swift's numeric
+                  // author value instead of the runtime contract value.
+                  type: 8 as typeof FilterType.Author,
+                  name: "author",
+                },
+              ];
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await fetchMobileSourceBrowseMetadata(
+      installedSource({
+        packageMetadata: {
+          sourceId: "en.example",
+          name: "Example",
+          version: 2,
+          listings: [staticListing],
+          filters: [
+            {
+              id: "author",
+              title: "Author",
+              type: "text",
+              placeholder: "Author name",
+            },
+            {
+              id: "sort",
+              title: "Sort",
+              type: "sort",
+              options: ["Best Match", "Alphabet"],
+              optionCount: 2,
+              default: { index: 0, ascending: false },
+              canAscend: true,
+            },
+            {
+              id: "status",
+              title: "Series Status",
+              type: "multi-select",
+              options: ["Ongoing", "Complete"],
+              ids: ["ongoing", "complete"],
+              optionCount: 2,
+            },
+          ],
+          settings: [],
+          hasWasm: true,
+        },
+      }),
+      {
+        executor: {
+          bridge,
+          readBytes: async () => makeAixPackage(),
+        },
+      },
+    );
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.filters as Array<Filter & { displayName?: string }>).toEqual([
+      {
+        type: FilterType.Author,
+        name: "author",
+        displayName: "Author",
+      },
+      {
+        type: FilterType.Sort,
+        name: "sort",
+        displayName: "Sort",
+        options: ["Best Match", "Alphabet"],
+        default: { index: 0, ascending: false },
+        canAscend: true,
+      },
+      {
+        type: FilterType.Genre,
+        name: "status",
+        displayName: "Series Status",
+        options: ["Ongoing", "Complete"],
+        ids: ["ongoing", "complete"],
+        canExclude: false,
+        default: [],
+      },
+    ]);
+    expect(result.packageMetadata.filters).toEqual([
+      {
+        id: "author",
+        title: "Author",
+        type: "author",
+      },
+      {
+        id: "sort",
+        title: "Sort",
+        type: "sort",
+        optionCount: 2,
+        options: ["Best Match", "Alphabet"],
+        default: { index: 0, ascending: false },
+        canAscend: true,
+      },
+      {
+        id: "status",
+        title: "Series Status",
+        type: "genre",
+        optionCount: 2,
+        options: ["Ongoing", "Complete"],
+        ids: ["ongoing", "complete"],
+        canExclude: false,
+      },
+    ]);
+  });
+
+  test("preserves distinct title and author filter types across persistence", async () => {
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getFilters() {
+              return [
+                { type: FilterType.Title, name: "title" },
+                { type: FilterType.Author, name: "author" },
+              ];
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await fetchMobileSourceBrowseMetadata(installedSource(), {
+      executor: {
+        bridge,
+        readBytes: async () => makeAixPackage(),
+      },
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.packageMetadata.filters).toEqual([
+      { id: "title", title: "title", type: "title" },
+      { id: "author", title: "author", type: "author" },
+    ]);
   });
 
   test("returns blocked metadata when the executor cannot load", async () => {

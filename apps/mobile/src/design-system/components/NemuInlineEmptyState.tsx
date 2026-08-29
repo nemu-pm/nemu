@@ -4,12 +4,17 @@ import { radius } from "@/design/tokens";
 import { nemuText } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { GlassSurface } from "./GlassSurface";
+import { NemuButton } from "./NemuButton";
 
 type NemuInlineEmptyStateProps = {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   description?: string;
   tone?: "muted" | "danger";
+  actionLabel?: string;
+  actionDisabled?: boolean;
+  actionLoading?: boolean;
+  onActionPress?: () => void;
   testID?: string;
 };
 
@@ -18,6 +23,10 @@ export function NemuInlineEmptyState({
   title,
   description,
   tone = "muted",
+  actionLabel,
+  actionDisabled,
+  actionLoading,
+  onActionPress,
   testID,
 }: NemuInlineEmptyStateProps) {
   const { tokens } = useNemuTheme();
@@ -41,6 +50,18 @@ export function NemuInlineEmptyState({
           </Text>
         ) : null}
       </View>
+      {actionLabel && onActionPress ? (
+        <NemuButton
+          accessibilityLabel={actionLabel}
+          disabled={actionDisabled}
+          icon="refresh-outline"
+          label={actionLabel}
+          loading={actionLoading}
+          onPress={onActionPress}
+          size="sm"
+          variant="secondary"
+        />
+      ) : null}
     </GlassSurface>
   );
 }

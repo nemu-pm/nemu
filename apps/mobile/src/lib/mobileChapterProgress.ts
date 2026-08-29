@@ -27,17 +27,26 @@ export function getMobileChapterProgressAccessory(
   if (!progress) return { status: "unread" };
   if (progress.completed) return { status: "completed" };
 
-  const page = Math.trunc(progress.progress);
+  // Reader progress is persisted as a zero-based source page index so it can
+  // be restored without conversion. Keep that storage contract internal and
+  // expose the one-based page number users expect in chapter rows.
+  const pageIndex = Math.trunc(progress.progress);
   const total = Math.trunc(progress.total);
-  if (!Number.isFinite(page) || !Number.isFinite(total) || page <= 0 || total <= 0) {
+  if (
+    !Number.isFinite(pageIndex) ||
+    !Number.isFinite(total) ||
+    pageIndex <= 0 ||
+    total <= 0
+  ) {
     return { status: "unread" };
   }
+  const page = Math.min(pageIndex + 1, total);
 
   return {
     status: "progress",
     page,
     total,
-    ratio: Math.min(page / total, 1),
+    ratio: page / total,
   };
 }
 

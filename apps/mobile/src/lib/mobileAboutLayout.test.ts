@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { getMobileAboutSheetLayout } from "./mobileAboutLayout";
 
 describe("getMobileAboutSheetLayout", () => {
-  test("preserves the compact fixed iOS presentation at the default text size", () => {
+  test("fits normal iOS portrait content instead of reserving a fixed detent", () => {
     expect(
       getMobileAboutSheetLayout({
         bottomInset: 34,
@@ -12,7 +12,7 @@ describe("getMobileAboutSheetLayout", () => {
         topInset: 47,
         width: 390,
       }),
-    ).toEqual({ scroll: true, snapPointHeight: 392 });
+    ).toEqual({ scroll: false, snapPoint: undefined });
   });
 
   test("allows a taller scrollable sheet for accessibility text", () => {
@@ -25,7 +25,7 @@ describe("getMobileAboutSheetLayout", () => {
         topInset: 47,
         width: 390,
       }),
-    ).toEqual({ scroll: true, snapPointHeight: 512 });
+    ).toEqual({ scroll: true, snapPoint: 512 });
   });
 
   test("bounds the sheet to the usable landscape viewport", () => {
@@ -38,10 +38,10 @@ describe("getMobileAboutSheetLayout", () => {
         topInset: 24,
         width: 780,
       }),
-    ).toEqual({ scroll: true, snapPointHeight: 316 });
+    ).toEqual({ scroll: true, snapPoint: "82%" });
   });
 
-  test("keeps normal Android portrait dynamic sizing", () => {
+  test("keeps normal Android portrait dynamic", () => {
     expect(
       getMobileAboutSheetLayout({
         bottomInset: 24,
@@ -51,6 +51,19 @@ describe("getMobileAboutSheetLayout", () => {
         topInset: 24,
         width: 360,
       }),
-    ).toEqual({ scroll: false, snapPointHeight: undefined });
+    ).toEqual({ scroll: false, snapPoint: undefined });
+  });
+
+  test("keeps large Android portrait content-sized", () => {
+    expect(
+      getMobileAboutSheetLayout({
+        bottomInset: 24,
+        fontScale: 1.5,
+        height: 873,
+        platform: "android",
+        topInset: 24,
+        width: 393,
+      }),
+    ).toEqual({ scroll: false, snapPoint: undefined });
   });
 });

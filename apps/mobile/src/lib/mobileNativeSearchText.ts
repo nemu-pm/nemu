@@ -6,3 +6,15 @@
 export function coerceMobileNativeSearchText(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
+
+/**
+ * Native search can blur immediately after the search-button event. React
+ * state may still contain the previous render's query at that point, so blur
+ * submissions must fall back to the synchronously updated input ref.
+ */
+export function resolveMobileNativeSearchSubmitText(
+  eventText: unknown,
+  latestText: string,
+): string {
+  return typeof eventText === "string" ? eventText : latestText;
+}

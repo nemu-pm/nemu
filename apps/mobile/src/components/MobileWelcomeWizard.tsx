@@ -119,6 +119,7 @@ function LanguageStep({
               }
             }}
             pressedScale={0.98}
+            containerStyle={styles.segmentContainer}
             style={[
               styles.segment,
               {
@@ -989,12 +990,16 @@ const styles = StyleSheet.create({
   },
   segment: {
     minHeight: 40,
-    flex: 1,
+    width: "100%",
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 8,
+  },
+  segmentContainer: {
+    flex: 1,
+    minWidth: 0,
   },
   segmentText: {
     fontSize: 14,

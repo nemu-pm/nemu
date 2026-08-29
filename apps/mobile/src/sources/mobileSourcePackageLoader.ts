@@ -89,6 +89,19 @@ function metadataMatchesPlan(metadata: SourcePackageMetadata, plan: MobileSource
   );
 }
 
+/** Older persisted package metadata retained only an option count, which is
+ * not enough to render or submit a static Aidoku filter. Re-read that package
+ * once so the sanitized option schema can be durably hydrated. */
+export function mobileSourcePackageMetadataNeedsFilterRefresh(
+  metadata: SourcePackageMetadata,
+): boolean {
+  return metadata.filters.some(
+    (filter) =>
+      (filter.optionCount ?? 0) > 0 &&
+      (!filter.options || filter.options.length === 0),
+  );
+}
+
 function errorDetail(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
@@ -282,6 +295,13 @@ export async function loadMobileSourcePackage(
   let plan = buildMobileSourcePackageLoadPlan(activeSource);
   let hydrated = false;
 
+  if (
+    activeSource?.packageMetadata &&
+    mobileSourcePackageMetadataNeedsFilterRefresh(activeSource.packageMetadata)
+  ) {
+    hydrated = true;
+  }
+
   if (plan.status === "blocked" && plan.reason === "package-missing") {
     try {
       const hydratedSource = await hydrateMissingSourcePackage(activeSource, cachePackage);
@@ -344,6 +364,7 @@ export async function loadMobileSourcePackage(
     options.packageLoadMode === "native-file" &&
     activeSource?.packageMetadata &&
     metadataMatchesPlan(activeSource.packageMetadata, plan) &&
+    !mobileSourcePackageMetadataNeedsFilterRefresh(activeSource.packageMetadata) &&
     activeSource.packageMetadata.hasWasm
   ) {
     let currentPackageUri: string | null = null;
@@ -388,6 +409,7 @@ export async function loadMobileSourcePackage(
       plan.status === "ready" &&
       activeSource?.packageMetadata &&
       metadataMatchesPlan(activeSource.packageMetadata, plan) &&
+      !mobileSourcePackageMetadataNeedsFilterRefresh(activeSource.packageMetadata) &&
       activeSource.packageMetadata.hasWasm
     ) {
       const metadata = activeSource.packageMetadata;

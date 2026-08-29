@@ -15,6 +15,42 @@ export type ReaderTapZone = "previous" | "toggle" | "next";
  */
 export const READER_TAP_EDGE_ZONE_RATIO = 0.35;
 
+export function isReaderStageTapEnabled({
+  tapGesturesEnabled,
+  loading,
+}: {
+  tapGesturesEnabled: boolean;
+  loading: boolean;
+}): boolean {
+  return tapGesturesEnabled && !loading;
+}
+
+/**
+ * Reader chrome is rendered above the gallery, but React Native touch events
+ * can still bubble through that overlay to the gallery's edge tap zones. Keep
+ * toolbar actions from also turning a page.
+ */
+export function isReaderTapInsideChrome({
+  y,
+  height,
+  topInset,
+  bottomInset,
+}: {
+  y: number;
+  height: number;
+  topInset: number;
+  bottomInset: number;
+}): boolean {
+  if (!Number.isFinite(y) || !Number.isFinite(height) || height <= 0) {
+    return false;
+  }
+  const safeTopInset = Number.isFinite(topInset) ? Math.max(0, topInset) : 0;
+  const safeBottomInset = Number.isFinite(bottomInset)
+    ? Math.max(0, bottomInset)
+    : 0;
+  return y <= safeTopInset || y >= height - safeBottomInset;
+}
+
 export function readerTapZoneForPosition({
   x,
   width,

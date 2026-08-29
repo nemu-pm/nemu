@@ -6,6 +6,7 @@ import {
   Platform,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
   type ImageStyle,
   type ImageSourcePropType,
@@ -124,6 +125,7 @@ import {
   shouldRenderMobileSourcesSectionLoading,
   type MobileSettingsActionState,
 } from "@/lib/mobileSettingsActions";
+import { getMobileSettingsSheetLayout } from "@/lib/mobileSettingsSheetLayout";
 import {
   makeMobileRuntimeSourceKey,
   normalizeInstalledSource,
@@ -641,12 +643,20 @@ function MobileReaderPluginSettingsSheet({
   ) => void;
 }) {
   const { tokens } = useNemuTheme();
+  const { fontScale, height, width } = useWindowDimensions();
+  const sheetLayout = getMobileSettingsSheetLayout({
+    fontScale,
+    height,
+    rowCount: countRenderableSourceSettings(plugin.settings),
+    width,
+  });
 
   return (
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={onClose}
-      scroll
+      scroll={sheetLayout.scroll}
+      snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
       testID={`ReaderPluginSettingsSheet:${plugin.id}`}
       contentStyle={styles.readerPluginSheet}
     >
@@ -746,12 +756,20 @@ function MobileInstalledSourceSettingsSheet({
 }) {
   const { tokens } = useNemuTheme();
   const name = sourceName(source);
+  const { fontScale, height, width } = useWindowDimensions();
+  const sheetLayout = getMobileSettingsSheetLayout({
+    fontScale,
+    height,
+    rowCount: countRenderableSourceSettings(settings),
+    width,
+  });
 
   return (
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={onClose}
-      scroll
+      scroll={sheetLayout.scroll}
+      snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
       testID={`InstalledSourceSettingsSheet:${source.id}`}
       contentStyle={styles.readerPluginSheet}
     >
