@@ -12,6 +12,7 @@ import type * as _lib from "../_lib.js";
 import type * as ai_metadata from "../ai_metadata.js";
 import type * as auth from "../auth.js";
 import type * as authCookiePolicy from "../authCookiePolicy.js";
+import type * as authMobileOriginBridge from "../authMobileOriginBridge.js";
 import type * as collections from "../collections.js";
 import type * as history from "../history.js";
 import type * as http from "../http.js";
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   ai_metadata: typeof ai_metadata;
   auth: typeof auth;
   authCookiePolicy: typeof authCookiePolicy;
+  authMobileOriginBridge: typeof authMobileOriginBridge;
   collections: typeof collections;
   history: typeof history;
   http: typeof http;
