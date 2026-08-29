@@ -10,25 +10,19 @@ import {
 import { usePathname } from "expo-router";
 import {
   FlatList,
-  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
-  useWindowDimensions,
-  View,
   type FlatListProps,
   type ScrollViewProps,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { spacing } from "@/design/tokens";
-import { getMobileFloatingTabBarContentInset } from "@/lib/mobileFloatingTabBarLayout";
+import { getMobilePageContentBottomPadding } from "@/lib/mobileFloatingTabBarClearance";
 import { resolveMobilePullToRefreshEnabled } from "@/lib/mobilePullToRefresh";
 import { subscribeMobileRootTabReselect } from "@/lib/mobileRootTabReselect";
-import {
-  exactMobileRootTabHrefForPathname,
-  shouldShowMobileFloatingTabBar,
-} from "@/lib/mobileRootTabs";
+import { exactMobileRootTabHrefForPathname } from "@/lib/mobileRootTabs";
 
 type PageScaffoldProps = {
   children: ReactNode;
@@ -38,7 +32,6 @@ type PageScaffoldProps = {
   refreshing?: boolean;
   nativeHeader?: boolean;
   contentInsetAdjustmentBehavior?: ScrollViewProps["contentInsetAdjustmentBehavior"];
-  scroll?: boolean;
   scrollRef?: Ref<ScrollView>;
 };
 
@@ -108,25 +101,9 @@ function usePageContentStyle(nativeHeader: boolean) {
     styles.content,
     {
       paddingTop: nativeHeader ? spacing.pageTop : insets.top + spacing.pageTop,
-      paddingBottom: insets.bottom + 148,
+      paddingBottom: getMobilePageContentBottomPadding(insets.bottom),
     },
   ];
-}
-
-function usePageRootStyle(pathname: string) {
-  const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
-  const floatingTabBarInset =
-    Platform.OS !== "ios" && shouldShowMobileFloatingTabBar(pathname)
-      ? getMobileFloatingTabBarContentInset({
-          viewportHeight: height,
-          bottomInset: insets.bottom,
-          tabBottom: spacing.tabBottom,
-        })
-      : 0;
-  return floatingTabBarInset > 0
-    ? { marginBottom: floatingTabBarInset }
-    : undefined;
 }
 
 function usePageRefreshControl({
@@ -171,12 +148,10 @@ export function PageScaffold({
   refreshing = false,
   nativeHeader = false,
   contentInsetAdjustmentBehavior = "never",
-  scroll = true,
   scrollRef,
 }: PageScaffoldProps) {
   const { tokens } = useNemuTheme();
   const pathname = usePathname();
-  const rootStyle = usePageRootStyle(pathname);
   const localScrollRef = useRef<ScrollView | null>(null);
   const rootTabHref = useMemo(
     () => exactMobileRootTabHrefForPathname(pathname),
@@ -199,26 +174,16 @@ export function PageScaffold({
   });
 
   useEffect(() => {
-    if (!scroll || !rootTabHref) return undefined;
+    if (!rootTabHref) return undefined;
     return subscribeMobileRootTabReselect(rootTabHref, () => {
       scrollPageScaffoldToTop(localScrollRef.current);
     });
-  }, [rootTabHref, scroll]);
-
-  if (!scroll) {
-    return (
-      <View
-        style={[styles.root, { backgroundColor: tokens.background }, rootStyle]}
-      >
-        <View style={contentStyle}>{children}</View>
-      </View>
-    );
-  }
+  }, [rootTabHref]);
 
   return (
     <ScrollView
       ref={setScrollRef}
-      style={[styles.root, { backgroundColor: tokens.background }, rootStyle]}
+      style={[styles.root, { backgroundColor: tokens.background }]}
       automaticallyAdjustContentInsets={contentInsetAdjustmentBehavior !== "never"}
       automaticallyAdjustsScrollIndicatorInsets={contentInsetAdjustmentBehavior !== "never"}
       contentContainerStyle={contentStyle}
@@ -245,7 +210,6 @@ export function PageListScaffold<ItemT>({
 }: PageListScaffoldProps<ItemT>) {
   const { tokens } = useNemuTheme();
   const pathname = usePathname();
-  const rootStyle = usePageRootStyle(pathname);
   const localListRef = useRef<FlatList<ItemT> | null>(null);
   const rootTabHref = useMemo(
     () => exactMobileRootTabHrefForPathname(pathname),
@@ -277,7 +241,7 @@ export function PageListScaffold<ItemT>({
   return (
     <FlatList
       ref={setListRef}
-      style={[styles.root, { backgroundColor: tokens.background }, rootStyle]}
+      style={[styles.root, { backgroundColor: tokens.background }]}
       automaticallyAdjustContentInsets={contentInsetAdjustmentBehavior !== "never"}
       automaticallyAdjustsScrollIndicatorInsets={contentInsetAdjustmentBehavior !== "never"}
       contentContainerStyle={[contentStyle, contentContainerStyle]}

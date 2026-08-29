@@ -18,6 +18,10 @@ import {
   type MobileRootTabHref,
 } from "@/lib/mobileRootTabs";
 import { emitMobileRootTabReselect } from "@/lib/mobileRootTabReselect";
+import {
+  MOBILE_FLOATING_TAB_BAR_ITEM_MIN_HEIGHT,
+  MOBILE_FLOATING_TAB_BAR_VERTICAL_PADDING,
+} from "@/lib/mobileFloatingTabBarClearance";
 
 type TabItem = {
   href: MobileRootTabHref;
@@ -39,7 +43,7 @@ export function FloatingTabBar() {
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const barContent = (
-    <View style={styles.items}>
+    <View accessibilityRole="tablist" style={styles.items}>
       {tabs.map((tab) => {
         const active = isMobileRootTabSelected(pathname, tab.href);
         const pressAction = getMobileRootTabPressAction(pathname, tab.href);
@@ -122,11 +126,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: MOBILE_FLOATING_TAB_BAR_VERTICAL_PADDING,
   },
   item: {
     minWidth: 68,
-    minHeight: 54,
+    minHeight: MOBILE_FLOATING_TAB_BAR_ITEM_MIN_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 16,
