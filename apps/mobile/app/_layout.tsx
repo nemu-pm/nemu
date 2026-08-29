@@ -2,7 +2,12 @@ import "react-native-gesture-handler";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Stack, usePathname, type ErrorBoundaryProps } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { Platform, StyleSheet, View } from "react-native";
+import {
+  Platform,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FloatingTabBar } from "@/components/FloatingTabBar";
@@ -11,6 +16,7 @@ import { MobileWelcomeWizard } from "@/components/MobileWelcomeWizard";
 import { MobileDataProvider } from "@/data/mobileData";
 import { NemuThemeProvider, useNemuTheme } from "@/design-system";
 import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
+import { shouldReserveMobileFloatingTabBarSpace } from "@/lib/mobileFloatingTabBarLayout";
 import { getMobileWelcomeUnderlyingContentState } from "@/lib/mobileWelcome";
 import {
   MobileSyncBridge,
@@ -55,6 +61,12 @@ function RootStack({
 }) {
   const { scheme, tokens } = useNemuTheme();
   const pathname = usePathname();
+  const { height } = useWindowDimensions();
+  const [floatingTabBarHeight, setFloatingTabBarHeight] = useState(0);
+  const showFloatingTabBar =
+    Platform.OS !== "ios" && shouldShowMobileFloatingTabBar(pathname);
+  const reserveFloatingTabBarSpace =
+    showFloatingTabBar && shouldReserveMobileFloatingTabBarSpace(height);
   const underlyingContentState = getMobileWelcomeUnderlyingContentState(
     welcomeBlocksAccessibility,
   );
@@ -99,15 +111,28 @@ function RootStack({
       pointerEvents={underlyingContentState.pointerEvents}
       style={[styles.root, { backgroundColor: tokens.background }]}
     >
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: tokens.background },
-          statusBarStyle: scheme === "dark" ? "light" : "dark",
-        }}
-      />
-      {Platform.OS !== "ios" && shouldShowMobileFloatingTabBar(pathname) ? (
-        <FloatingTabBar />
+      <View
+        style={[
+          styles.stack,
+          reserveFloatingTabBarSpace && floatingTabBarHeight > 0
+            ? { marginBottom: floatingTabBarHeight }
+            : null,
+        ]}
+      >
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: tokens.background },
+            statusBarStyle: scheme === "dark" ? "light" : "dark",
+          }}
+        />
+      </View>
+      {showFloatingTabBar ? (
+        <FloatingTabBar
+          onReservedHeightChange={
+            reserveFloatingTabBarSpace ? setFloatingTabBarHeight : undefined
+          }
+        />
       ) : null}
     </View>
   );
@@ -141,6 +166,9 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   root: {
+    flex: 1,
+  },
+  stack: {
     flex: 1,
   },
 });
