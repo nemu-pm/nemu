@@ -24,6 +24,7 @@ export default function NotFoundScreen() {
           title={strings.common.pageNotFound}
           description={strings.common.pageNotFoundDescription}
           actionLabel={strings.common.goHome}
+          actionIcon="home-outline"
           onActionPress={() => {
             router.replace("/");
           }}

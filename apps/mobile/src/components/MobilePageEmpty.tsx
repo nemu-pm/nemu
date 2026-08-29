@@ -1,6 +1,7 @@
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { nemuText, useNemuTheme, NemuButton } from "@/design-system";
+import { shouldUseCompactMobilePageEmptyLayout } from "@/lib/mobilePageEmptyLayout";
 
 type MobilePageEmptyProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -8,6 +9,7 @@ type MobilePageEmptyProps = {
   description?: string;
   variant?: "full" | "inline";
   actionLabel?: string;
+  actionIcon?: keyof typeof Ionicons.glyphMap;
   onActionPress?: () => void;
   actionDisabled?: boolean;
   actionLoading?: boolean;
@@ -19,18 +21,37 @@ export function MobilePageEmpty({
   description,
   variant = "full",
   actionLabel,
+  actionIcon = "add-outline",
   onActionPress,
   actionDisabled,
   actionLoading,
 }: MobilePageEmptyProps) {
   const { tokens } = useNemuTheme();
+  const { height } = useWindowDimensions();
+  const compactHeight = shouldUseCompactMobilePageEmptyLayout(height);
   const disabled = Boolean(actionDisabled || actionLoading);
 
   return (
-    <View style={[styles.root, variant === "inline" ? styles.inlineRoot : null]}>
-      <View style={styles.header}>
-        <View style={[styles.media, { backgroundColor: tokens.muted }]}>
-          <Ionicons name={icon} size={48} color={tokens.mutedForeground} />
+    <View
+      style={[
+        styles.root,
+        variant === "inline" ? styles.inlineRoot : null,
+        compactHeight ? styles.compactRoot : null,
+      ]}
+    >
+      <View style={[styles.header, compactHeight ? styles.compactHeader : null]}>
+        <View
+          style={[
+            styles.media,
+            compactHeight ? styles.compactMedia : null,
+            { backgroundColor: tokens.muted },
+          ]}
+        >
+          <Ionicons
+            name={icon}
+            size={compactHeight ? 28 : 48}
+            color={tokens.mutedForeground}
+          />
         </View>
         <Text style={[nemuText.pageEmptyTitle, styles.title, { color: tokens.foreground }]}>
           {title}
@@ -51,7 +72,7 @@ export function MobilePageEmpty({
         <NemuButton
           accessibilityLabel={actionLabel}
           disabled={disabled}
-          icon="add-outline"
+          icon={actionIcon}
           label={actionLabel}
           loading={actionLoading}
           onPress={onActionPress}
@@ -73,10 +94,19 @@ const styles = StyleSheet.create({
   inlineRoot: {
     minHeight: 340,
   },
+  compactRoot: {
+    minHeight: 0,
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
   header: {
     maxWidth: 320,
     alignItems: "center",
     gap: 8,
+  },
+  compactHeader: {
+    gap: 4,
   },
   media: {
     width: 96,
@@ -85,6 +115,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 999,
     marginBottom: 8,
+  },
+  compactMedia: {
+    width: 56,
+    height: 56,
+    marginBottom: 2,
   },
   title: {
     textAlign: "center",
