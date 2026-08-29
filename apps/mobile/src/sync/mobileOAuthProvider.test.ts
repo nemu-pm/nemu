@@ -7,6 +7,7 @@ import {
   getMobileCloudSignOutResultAction,
   normalizeMobileOAuthProvider,
   resolveMobileCloudSignInErrorDetail,
+  resolveMobileOAuthSignInOutcome,
 } from "./mobileOAuthProvider";
 import { signOutAndUnregisterMobileBackgroundSync } from "./mobileBackgroundSyncLifecycle";
 
@@ -49,6 +50,32 @@ describe("normalizeMobileOAuthProvider", () => {
     ).toBe(
       "Nemu could not securely save this sign-in. Check device storage and try again.",
     );
+  });
+
+  it("treats a dismissed OAuth browser as neither success nor failure", () => {
+    expect(resolveMobileOAuthSignInOutcome({ data: null, error: null })).toBe(
+      "dismissed",
+    );
+    expect(resolveMobileOAuthSignInOutcome({ data: {} })).toBe("dismissed");
+    expect(resolveMobileOAuthSignInOutcome(undefined)).toBe("dismissed");
+  });
+
+  it("confirms sign-in only when the callback persisted a session user", () => {
+    expect(
+      resolveMobileOAuthSignInOutcome({
+        data: { user: { id: "user-1" } },
+        error: null,
+      }),
+    ).toBe("signed-in");
+  });
+
+  it("surfaces a session lookup failure instead of a false success", () => {
+    expect(
+      resolveMobileOAuthSignInOutcome({
+        data: null,
+        error: { status: 503, message: "MOBILE_AUTH_NETWORK_UNAVAILABLE" },
+      }),
+    ).toBe("failed");
   });
 
   it("keeps supported OAuth providers", () => {

@@ -47,6 +47,7 @@ import {
   getMobileCloudSignOutResultAction,
   normalizeMobileOAuthProvider,
   resolveMobileCloudSignInErrorDetail,
+  resolveMobileOAuthSignInOutcome,
 } from "@/sync/mobileOAuthProvider";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { clearMobileAidokuSandboxDataForProfile } from "@/sources/mobileAidokuSandboxData";
@@ -654,6 +655,27 @@ function MobileCloudSyncConfiguredCard({
         await hapticError();
         return;
       }
+      // The Expo client resolves `signIn.social` with the original redirect
+      // response even when the user closes the OAuth browser, so only a
+      // persisted session proves the callback completed.
+      const session = await mobileAuthClient.getSession();
+      const outcome = resolveMobileOAuthSignInOutcome(session);
+      if (outcome === "failed") {
+        setError({
+          title: strings.settings.cloudSyncSignInFailed,
+          detail: resolveMobileCloudSignInErrorDetail(session.error, {
+            signInFailed: strings.settings.cloudSyncSignInFailed,
+            networkUnavailable:
+              strings.settings.cloudSyncAuthenticationNetworkUnavailable,
+            storageUnavailable:
+              strings.settings.cloudSyncAuthenticationStorageUnavailable,
+          }),
+          accountId: errorAccountId,
+        });
+        await hapticError();
+        return;
+      }
+      if (outcome === "dismissed") return;
       await hapticConfirm();
     } catch (nextError) {
       setError({

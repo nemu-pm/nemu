@@ -89,3 +89,27 @@ export async function completeMobileCloudSignOut({
     keepData ? retainLocalData : clearLocalData,
   );
 }
+
+export type MobileOAuthSignInOutcome = "signed-in" | "dismissed" | "failed";
+
+/**
+ * `signIn.social` resolves with the original redirect response even when the
+ * user closes the OAuth browser, so it cannot distinguish a completed sign-in
+ * from a dismissed one. A persisted session is the only proof of success:
+ * treat a readable session as signed in, a session lookup error as a failure
+ * worth surfacing, and an empty session as a user-dismissed attempt that needs
+ * no error UI.
+ */
+export function resolveMobileOAuthSignInOutcome(
+  session:
+    | {
+        data?: { user?: unknown } | null;
+        error?: unknown;
+      }
+    | null
+    | undefined,
+): MobileOAuthSignInOutcome {
+  if (session?.data?.user) return "signed-in";
+  if (session?.error) return "failed";
+  return "dismissed";
+}

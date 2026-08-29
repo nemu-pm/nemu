@@ -7,10 +7,13 @@ import { query } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import authConfig from "./auth.config";
+import { getAuthCrossSubDomainCookieConfig } from "./authCookiePolicy";
 
 const siteUrl = process.env.SITE_URL!;
 const devUrl = process.env.DEV_URL;
 const convexSiteUrl = process.env.CONVEX_SITE_URL!;
+const crossSubDomainCookieConfig =
+  getAuthCrossSubDomainCookieConfig(convexSiteUrl);
 const mobileTrustedOrigins = [
   "nemu://",
   "nemu://*",
@@ -98,10 +101,9 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     advanced: {
       cookiePrefix: "nemu",
       useSecureCookies: true,
-      crossSubDomainCookies: {
-        enabled: true,
-        domain: ".nemu.pm",
-      },
+      ...(crossSubDomainCookieConfig
+        ? { crossSubDomainCookies: crossSubDomainCookieConfig }
+        : {}),
     },
     plugins: [
       mobileOriginBridge(),
