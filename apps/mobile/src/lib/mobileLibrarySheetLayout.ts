@@ -26,6 +26,13 @@ export function getMobileLibraryTitleMenuSheetLayout(
     64,
     54,
   );
+  // Expo's dynamically sized Android sheet can retain the portrait content
+  // width after rotating, which shifts this compact row menu outside the
+  // visible landscape sheet. A bounded scroll frame owns the current sheet
+  // width and keeps every row inside its native container.
+  if (input.width > input.height) {
+    return { snapPoints: ["78%", "100%"], scroll: true };
+  }
   return estimatedHeight > Math.max(280, input.height * 0.72)
     ? { snapPoints: ["48%"], scroll: true }
     : { snapPoints: undefined, scroll: false };
@@ -53,7 +60,12 @@ export function getMobileManageCollectionSheetLayout({
     input.width > input.height ||
     input.fontScale >= 1.6 ||
     estimatedHeight > Math.max(360, input.height * 0.78);
-  return constrained
-    ? { snapPoints: ["78%"], scroll: true }
+  return input.width > input.height
+    ? {
+        snapPoints: ["100%"],
+        scroll: true,
+      }
+    : constrained
+      ? { snapPoints: ["78%"], scroll: true }
     : { snapPoints: undefined, scroll: false };
 }

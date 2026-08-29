@@ -4,7 +4,6 @@ import {
   StyleSheet,
   View,
   type StyleProp,
-  type ViewProps,
   type ViewStyle,
 } from "react-native";
 import { createNemuShadowStyle } from "@/design/shadows";
@@ -16,7 +15,6 @@ type GlassSurfaceProps = {
   style?: StyleProp<ViewStyle>;
   contentStyle?: StyleProp<ViewStyle>;
   intensity?: number;
-  onLayout?: ViewProps["onLayout"];
   testID?: string;
 };
 
@@ -25,7 +23,6 @@ export function GlassSurface({
   style,
   contentStyle,
   intensity = 24,
-  onLayout,
   testID,
 }: GlassSurfaceProps) {
   const { scheme, tokens } = useNemuTheme();
@@ -50,7 +47,7 @@ export function GlassSurface({
   // preserves the same card color/border/depth without an offscreen blur layer.
   if (getGlassSurfaceRenderMode(Platform.OS) === "native-view") {
     return (
-      <View onLayout={onLayout} style={shellStyle} testID={testID}>
+      <View style={shellStyle} testID={testID}>
         {content}
       </View>
     );
@@ -59,7 +56,6 @@ export function GlassSurface({
   return (
     <BlurView
       intensity={intensity}
-      onLayout={onLayout}
       tint={scheme}
       style={shellStyle}
       testID={testID}

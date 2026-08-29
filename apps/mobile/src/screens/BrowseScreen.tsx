@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stack, router, type Href } from "expo-router";
 import {
+  Platform,
   SectionList,
   StyleSheet,
   Text,
@@ -1223,7 +1224,7 @@ export function BrowseScreen() {
           onClose={closeAddSourceSheet}
           title={strings.browse.addSources}
           dismissLabel={strings.common.done}
-          snapPoints={["88%"]}
+          snapPoints={Platform.OS === "android" ? ["100%"] : ["88%"]}
           fillContent
           contentBottomInset={0}
           contentStyle={styles.addSourceSheet}

@@ -1,6 +1,6 @@
 import { router, usePathname } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   radius,
@@ -32,11 +32,7 @@ const tabs: TabItem[] = [
   { href: "/settings", labelKey: "settings", icon: "settings-outline" },
 ];
 
-export function FloatingTabBar({
-  onReservedHeightChange,
-}: {
-  onReservedHeightChange?: (height: number) => void;
-}) {
+export function FloatingTabBar() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { tokens } = useNemuTheme();
@@ -93,15 +89,6 @@ export function FloatingTabBar({
     >
       <GlassSurface
         intensity={32}
-        onLayout={(event: LayoutChangeEvent) => {
-          onReservedHeightChange?.(
-            Math.ceil(
-              event.nativeEvent.layout.height +
-                insets.bottom +
-                spacing.tabBottom,
-            ),
-          );
-        }}
         style={[
           styles.bar,
           {

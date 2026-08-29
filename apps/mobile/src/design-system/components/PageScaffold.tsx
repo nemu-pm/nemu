@@ -10,9 +10,11 @@ import {
 import { usePathname } from "expo-router";
 import {
   FlatList,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
   type FlatListProps,
   type ScrollViewProps,
@@ -20,9 +22,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { spacing } from "@/design/tokens";
+import { getMobileFloatingTabBarContentInset } from "@/lib/mobileFloatingTabBarLayout";
 import { resolveMobilePullToRefreshEnabled } from "@/lib/mobilePullToRefresh";
 import { subscribeMobileRootTabReselect } from "@/lib/mobileRootTabReselect";
-import { exactMobileRootTabHrefForPathname } from "@/lib/mobileRootTabs";
+import {
+  exactMobileRootTabHrefForPathname,
+  shouldShowMobileFloatingTabBar,
+} from "@/lib/mobileRootTabs";
 
 type PageScaffoldProps = {
   children: ReactNode;
@@ -107,6 +113,22 @@ function usePageContentStyle(nativeHeader: boolean) {
   ];
 }
 
+function usePageRootStyle(pathname: string) {
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const floatingTabBarInset =
+    Platform.OS !== "ios" && shouldShowMobileFloatingTabBar(pathname)
+      ? getMobileFloatingTabBarContentInset({
+          viewportHeight: height,
+          bottomInset: insets.bottom,
+          tabBottom: spacing.tabBottom,
+        })
+      : 0;
+  return floatingTabBarInset > 0
+    ? { marginBottom: floatingTabBarInset }
+    : undefined;
+}
+
 function usePageRefreshControl({
   nativeHeader,
   onRefresh,
@@ -154,6 +176,7 @@ export function PageScaffold({
 }: PageScaffoldProps) {
   const { tokens } = useNemuTheme();
   const pathname = usePathname();
+  const rootStyle = usePageRootStyle(pathname);
   const localScrollRef = useRef<ScrollView | null>(null);
   const rootTabHref = useMemo(
     () => exactMobileRootTabHrefForPathname(pathname),
@@ -184,7 +207,9 @@ export function PageScaffold({
 
   if (!scroll) {
     return (
-      <View style={[styles.root, { backgroundColor: tokens.background }]}>
+      <View
+        style={[styles.root, { backgroundColor: tokens.background }, rootStyle]}
+      >
         <View style={contentStyle}>{children}</View>
       </View>
     );
@@ -193,7 +218,7 @@ export function PageScaffold({
   return (
     <ScrollView
       ref={setScrollRef}
-      style={[styles.root, { backgroundColor: tokens.background }]}
+      style={[styles.root, { backgroundColor: tokens.background }, rootStyle]}
       automaticallyAdjustContentInsets={contentInsetAdjustmentBehavior !== "never"}
       automaticallyAdjustsScrollIndicatorInsets={contentInsetAdjustmentBehavior !== "never"}
       contentContainerStyle={contentStyle}
@@ -220,6 +245,7 @@ export function PageListScaffold<ItemT>({
 }: PageListScaffoldProps<ItemT>) {
   const { tokens } = useNemuTheme();
   const pathname = usePathname();
+  const rootStyle = usePageRootStyle(pathname);
   const localListRef = useRef<FlatList<ItemT> | null>(null);
   const rootTabHref = useMemo(
     () => exactMobileRootTabHrefForPathname(pathname),
@@ -251,7 +277,7 @@ export function PageListScaffold<ItemT>({
   return (
     <FlatList
       ref={setListRef}
-      style={[styles.root, { backgroundColor: tokens.background }]}
+      style={[styles.root, { backgroundColor: tokens.background }, rootStyle]}
       automaticallyAdjustContentInsets={contentInsetAdjustmentBehavior !== "never"}
       automaticallyAdjustsScrollIndicatorInsets={contentInsetAdjustmentBehavior !== "never"}
       contentContainerStyle={[contentStyle, contentContainerStyle]}

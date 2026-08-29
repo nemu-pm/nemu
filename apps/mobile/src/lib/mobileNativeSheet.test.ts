@@ -3,15 +3,25 @@ import {
   canDismissMobileNativeSheetFromHardwareBack,
   normalizeMobileNativeSheetSnapPointsForPlatform,
   resolveMobileNativeSheetDismissLabel,
+  shouldBoundMobileNativeSheetForPlatform,
 } from "./mobileNativeSheet";
 
-describe("mobile native sheet dismissal", () => {
-  test("gives single-detent Android sheets partial and expanded states", () => {
+describe("mobile native sheet behavior", () => {
+  test("matches Android sheets to their physical partial and expanded states", () => {
     expect(
       normalizeMobileNativeSheetSnapPointsForPlatform(["82%"], "android"),
     ).toEqual(["50%", "100%"]);
     expect(
       normalizeMobileNativeSheetSnapPointsForPlatform([360], "android"),
+    ).toEqual(["50%", "100%"]);
+    expect(
+      normalizeMobileNativeSheetSnapPointsForPlatform(["100%"], "android"),
+    ).toEqual(["100%"]);
+    expect(
+      normalizeMobileNativeSheetSnapPointsForPlatform(
+        ["40%", "90%"],
+        "android",
+      ),
     ).toEqual(["50%", "100%"]);
   });
 
@@ -22,12 +32,31 @@ describe("mobile native sheet dismissal", () => {
     expect(
       normalizeMobileNativeSheetSnapPointsForPlatform(["82%"], "ios"),
     ).toEqual(["82%"]);
+    expect(normalizeMobileNativeSheetSnapPointsForPlatform([], "android")).toEqual(
+      [],
+    );
+  });
+
+  test("bounds only dynamic Android sheets in landscape", () => {
+    const input = {
+      platform: "android",
+      width: 840,
+      height: 432,
+      snapPoints: undefined,
+    };
+    expect(shouldBoundMobileNativeSheetForPlatform(input)).toBe(true);
     expect(
-      normalizeMobileNativeSheetSnapPointsForPlatform(
-        ["40%", "90%"],
-        "android",
-      ),
-    ).toEqual(["40%", "90%"]);
+      shouldBoundMobileNativeSheetForPlatform({ ...input, width: 432, height: 840 }),
+    ).toBe(false);
+    expect(
+      shouldBoundMobileNativeSheetForPlatform({ ...input, platform: "ios" }),
+    ).toBe(false);
+    expect(
+      shouldBoundMobileNativeSheetForPlatform({
+        ...input,
+        snapPoints: ["82%"],
+      }),
+    ).toBe(false);
   });
 
   test("does not invent an active label for a non-dismissible busy sheet", () => {

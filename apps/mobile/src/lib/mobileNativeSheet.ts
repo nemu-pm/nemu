@@ -4,6 +4,20 @@ export type MobileNativeSheetDismissControlOptions = {
   showDismissButton?: boolean;
 };
 
+export function shouldBoundMobileNativeSheetForPlatform({
+  platform,
+  width,
+  height,
+  snapPoints,
+}: {
+  platform: string;
+  width: number;
+  height: number;
+  snapPoints: (string | number)[] | undefined;
+}) {
+  return platform === "android" && width > height && !snapPoints?.length;
+}
+
 /**
  * Expo's Material 3 sheet only distinguishes partial and expanded states on
  * Android. Passing one explicit detent therefore expands it fully. Give that
@@ -14,9 +28,18 @@ export function normalizeMobileNativeSheetSnapPointsForPlatform(
   snapPoints: (string | number)[] | undefined,
   platform: string,
 ): (string | number)[] | undefined {
-  if (platform !== "android" || snapPoints?.length !== 1) {
+  if (platform !== "android" || !snapPoints?.length) {
     return snapPoints;
   }
+  if (snapPoints.length === 1 && snapPoints[0] === "100%") {
+    return snapPoints;
+  }
+  // Material 3 ignores the requested detent values and exposes only an
+  // approximately half-height partial state and a full-height expanded state.
+  // Normalize both single- and multi-detent callers to those physical heights
+  // so our bounded React Native scroll frame matches the visible native sheet.
+  // A caller's explicit 100% detent is preserved above to intentionally skip
+  // the partial anchor for a constrained landscape form.
   return ["50%", "100%"];
 }
 

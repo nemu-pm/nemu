@@ -21,6 +21,7 @@ import {
   canDismissMobileNativeSheetFromHardwareBack,
   normalizeMobileNativeSheetSnapPointsForPlatform,
   resolveMobileNativeSheetDismissLabel,
+  shouldBoundMobileNativeSheetForPlatform,
 } from "@/lib/mobileNativeSheet";
 import { NemuPressable } from "./NemuPressable";
 
@@ -79,7 +80,7 @@ export function MobileNativeSheetScaffold({
 }: MobileNativeSheetScaffoldProps) {
   const { tokens } = useNemuTheme();
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const sheetRef = useRef<BottomSheetMethods | null>(null);
   const sheetClosedRef = useRef(!visible);
   const programmaticCloseRef = useRef(false);
@@ -87,10 +88,16 @@ export function MobileNativeSheetScaffold({
     null,
   );
   const availableSheetHeight = windowHeight - insets.top - insets.bottom;
-  const effectiveSnapPoints = normalizeMobileNativeSheetSnapPointsForPlatform(
-    snapPoints,
-    Platform.OS,
-  );
+  const boundDynamicAndroidLandscapeSheet =
+    shouldBoundMobileNativeSheetForPlatform({
+      platform: Platform.OS,
+      width: windowWidth,
+      height: windowHeight,
+      snapPoints,
+    });
+  const effectiveSnapPoints = boundDynamicAndroidLandscapeSheet
+    ? ["50%", "100%"]
+    : normalizeMobileNativeSheetSnapPointsForPlatform(snapPoints, Platform.OS);
   const resolvedSnapPointHeight = resolveSnapPointHeight(
     effectiveSnapPoints?.[0],
     availableSheetHeight,
@@ -98,7 +105,9 @@ export function MobileNativeSheetScaffold({
   const boundedSnapPointHeight = resolvedSnapPointHeight
     ? Math.min(Math.max(resolvedSnapPointHeight, 240), availableSheetHeight)
     : undefined;
-  const shouldUseScrollView = scroll && Boolean(effectiveSnapPoints?.length);
+  const shouldUseScrollView =
+    (scroll || boundDynamicAndroidLandscapeSheet) &&
+    Boolean(effectiveSnapPoints?.length);
   const resolvedDismissLabel = resolveMobileNativeSheetDismissLabel({
     dismissLabel,
     enablePanDownToClose,
@@ -115,9 +124,6 @@ export function MobileNativeSheetScaffold({
   const chromeHeight = shouldRenderChrome ? SHEET_CHROME_HEIGHT : 0;
   const boundedContentHeight = boundedSnapPointHeight
     ? Math.max(boundedSnapPointHeight - chromeHeight, 188)
-    : undefined;
-  const boundedScrollFrameHeight = shouldUseScrollView
-    ? boundedContentHeight
     : undefined;
   const paddingBottom =
     contentBottomInset ??
@@ -246,12 +252,7 @@ export function MobileNativeSheetScaffold({
         </View>
       ) : null}
       {shouldUseScrollView ? (
-        <View
-          style={[
-            styles.scrollFrame,
-            boundedScrollFrameHeight ? { height: boundedScrollFrameHeight } : null,
-          ]}
-        >
+        <View style={styles.scrollFrame}>
           <BottomSheetScrollView
             alwaysBounceVertical={false}
             automaticallyAdjustContentInsets={false}
@@ -323,6 +324,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   scrollFrame: {
+    flex: 1,
     width: "100%",
   },
   scroll: {

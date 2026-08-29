@@ -334,6 +334,8 @@ function CollectionNameSheet({
   onSubmit: (name: string) => void;
 }) {
   const { tokens } = useNemuTheme();
+  const { height, width } = useWindowDimensions();
+  const landscape = width > height;
   const [name, setName] = useState(initialName);
   const trimmedName = name.trim();
   const actionState: MobileCollectionActionState = {
@@ -363,8 +365,12 @@ function CollectionNameSheet({
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={requestClose}
+      scroll={landscape}
       enablePanDownToClose={!saving}
-      contentStyle={styles.nameSheet}
+      contentStyle={[
+        styles.nameSheet,
+        landscape ? styles.nameSheetLandscape : null,
+      ]}
       testID={mode === "create" ? "NewCollectionSheet" : "RenameCollectionSheet"}
     >
       <View style={styles.sheetHeader}>
@@ -1928,6 +1934,9 @@ const styles = StyleSheet.create({
   },
   nameSheet: {
     gap: 14,
+  },
+  nameSheetLandscape: {
+    gap: 4,
   },
   managerSheet: {
     gap: 14,

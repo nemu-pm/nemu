@@ -32,6 +32,17 @@ describe("mobile library sheet layout", () => {
     });
   });
 
+  test("bounds shelf selectors to the current native sheet width in landscape", () => {
+    expect(
+      getMobileLibraryTitleMenuSheetLayout({
+        fontScale: 1,
+        height: 432,
+        width: 840,
+        collectionCount: 1,
+      }),
+    ).toEqual({ snapPoints: ["78%", "100%"], scroll: true });
+  });
+
   test("content-sizes short collection managers and bounds long ones", () => {
     expect(
       getMobileCollectionsManagerSheetLayout({ ...portrait, collectionCount: 4 }),
@@ -82,5 +93,19 @@ describe("mobile library sheet layout", () => {
         collectionCount: 7,
       }),
     ).toEqual({ snapPoints: ["78%"], scroll: true });
+  });
+
+  test("opens landscape collection editing at its fully accessible height", () => {
+    expect(
+      getMobileManageCollectionSheetLayout({
+        fontScale: 1,
+        height: 432,
+        width: 840,
+        collectionCount: 1,
+      }),
+    ).toEqual({
+      snapPoints: ["100%"],
+      scroll: true,
+    });
   });
 });
