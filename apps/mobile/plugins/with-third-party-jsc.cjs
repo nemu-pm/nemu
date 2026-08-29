@@ -99,6 +99,102 @@ const FACTORY_METHOD = [
   "  }",
   "",
 ].join("\n");
+const IOS_SCENE_LIFECYCLE_MARKER = "// NemuUISceneLifecycle";
+const IOS_SCENE_LAUNCH_OPTIONS_PROPERTY =
+  "  fileprivate var initialLaunchOptions: [UIApplication.LaunchOptionsKey: Any]?";
+const IOS_LEGACY_WINDOW_START_PATTERN = /#if os\(iOS\) \|\| os\(tvOS\)\n\s*window = UIWindow\(frame: UIScreen\.main\.bounds\)\n\s*factory\.startReactNative\(\n\s*withModuleName: "main",\n\s*in: window,\n\s*launchOptions: launchOptions\)\n#endif/;
+const IOS_SCENE_DELEGATE_BLOCK = `
+
+${IOS_SCENE_LIFECYCLE_MARKER}
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+  var window: UIWindow?
+
+  private var appDelegate: AppDelegate? {
+    UIApplication.shared.delegate as? AppDelegate
+  }
+
+  func scene(
+    _ scene: UIScene,
+    willConnectTo session: UISceneSession,
+    options connectionOptions: UIScene.ConnectionOptions
+  ) {
+    guard
+      let windowScene = scene as? UIWindowScene,
+      let appDelegate,
+      let factory = appDelegate.reactNativeFactory
+    else {
+      return
+    }
+
+    var launchOptions = appDelegate.initialLaunchOptions ?? [:]
+    if let urlContext = connectionOptions.urlContexts.first {
+      launchOptions[.url] = urlContext.url
+      if let sourceApplication = urlContext.options.sourceApplication {
+        launchOptions[.sourceApplication] = sourceApplication
+      }
+      if let annotation = urlContext.options.annotation {
+        launchOptions[.annotation] = annotation
+      }
+    }
+    if let userActivity = connectionOptions.userActivities.first {
+      launchOptions[.userActivityDictionary] = [
+        "UIApplicationLaunchOptionsUserActivityTypeKey": userActivity.activityType,
+        "UIApplicationLaunchOptionsUserActivityKey": userActivity,
+      ]
+    }
+
+    let window = UIWindow(windowScene: windowScene)
+    self.window = window
+    appDelegate.window = window
+    factory.startReactNative(
+      withModuleName: "main",
+      in: window,
+      launchOptions: launchOptions)
+  }
+
+  func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+    guard let appDelegate else { return }
+    for context in URLContexts {
+      var options: [UIApplication.OpenURLOptionsKey: Any] = [
+        .openInPlace: context.options.openInPlace,
+      ]
+      if let sourceApplication = context.options.sourceApplication {
+        options[.sourceApplication] = sourceApplication
+      }
+      if let annotation = context.options.annotation {
+        options[.annotation] = annotation
+      }
+      _ = appDelegate.application(
+        UIApplication.shared,
+        open: context.url,
+        options: options)
+    }
+  }
+
+  func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+    guard let appDelegate else { return }
+    _ = appDelegate.application(
+      UIApplication.shared,
+      continue: userActivity,
+      restorationHandler: { _ in })
+  }
+
+  func sceneDidBecomeActive(_ scene: UIScene) {
+    appDelegate?.applicationDidBecomeActive(UIApplication.shared)
+  }
+
+  func sceneWillResignActive(_ scene: UIScene) {
+    appDelegate?.applicationWillResignActive(UIApplication.shared)
+  }
+
+  func sceneDidEnterBackground(_ scene: UIScene) {
+    appDelegate?.applicationDidEnterBackground(UIApplication.shared)
+  }
+
+  func sceneWillEnterForeground(_ scene: UIScene) {
+    appDelegate?.applicationWillEnterForeground(UIApplication.shared)
+  }
+}`;
 
 const JSC_FILE_FLAGS = {
   "RCTAppSetupUtils.mm":
@@ -648,6 +744,22 @@ function patchSwiftAppDelegate(contents) {
     "normalize the JS runtime factory return type",
   );
 
+  if (!next.includes(IOS_SCENE_LIFECYCLE_MARKER)) {
+    next = replaceOnceOrThrow(
+      next,
+      /(  var reactNativeFactory: RCTReactNativeFactory\?\n)/,
+      `$1${IOS_SCENE_LAUNCH_OPTIONS_PROPERTY}\n`,
+      "retain launch options for the iOS scene lifecycle",
+    );
+    next = replaceOnceOrThrow(
+      next,
+      IOS_LEGACY_WINDOW_START_PATTERN,
+      "#if os(iOS)\n    initialLaunchOptions = launchOptions\n#endif",
+      "move the React Native window into the iOS scene lifecycle",
+    );
+    next = `${next.trimEnd()}${IOS_SCENE_DELEGATE_BLOCK}\n`;
+  }
+
   return next;
 }
 
@@ -672,7 +784,7 @@ function patchPodfile(contents) {
   next = replaceOptional(
     next,
     new RegExp(
-      `\\ndef ${helperName}\\(installer\\)[\\s\\S]*?\\nend\\n+(?=target 'Nemu' do)`,
+      `\\ndef ${helperName}\\(installer(?:, ios_deployment_target)?\\)[\\s\\S]*?\\nend\\n+(?=target 'Nemu' do)`,
     ),
     "\n",
     "drop a previously generated third-party JSC build-settings helper",
@@ -683,7 +795,7 @@ function patchPodfile(contents) {
       next,
       /(\nprepare_react_native_project!\n)/,
       `$1\n` +
-        `def ${helperName}(installer)\n` +
+        `def ${helperName}(installer, ios_deployment_target)\n` +
         `  normalize_flags = ->(value) do\n` +
         `    if value.is_a?(String)\n` +
         `      value\n` +
@@ -705,6 +817,11 @@ function patchPodfile(contents) {
         `  expo_sqlite_c_flags = '${EXPO_SQLITE_C_FLAGS}'\n` +
         `  installer.pods_project.targets.each do |target|\n` +
         `    target.build_configurations.each do |config|\n` +
+        // Xcode 27 rejects pod targets below iOS 15 instead of warning. Some
+        // transitive pods (notably RNSVGFilters) still declare 12.4, so align
+        // every generated pod target with the app's configured deployment
+        // floor rather than patching Pods or individual dependency specs.
+        `      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = ios_deployment_target\n` +
         `      ['OTHER_CFLAGS', 'OTHER_CPLUSPLUSFLAGS'].each do |key|\n` +
         `        config.build_settings[key] = normalize_flags.call(config.build_settings[key])\n` +
         `      end\n` +
@@ -799,11 +916,20 @@ function patchPodfile(contents) {
     "remove the direct hermes-engine pod",
   );
 
-  const helperCall = `    ${helperName}(installer)`;
+  next = replaceOptional(
+    next,
+    `    ${helperName}(installer)\n`,
+    "",
+    "drop the legacy third-party JSC build-settings helper call",
+  );
+
+  const helperCall =
+    `    ${helperName}(installer, ` +
+    `podfile_properties['ios.deploymentTarget'] || '16.4')`;
   if (!next.includes(helperCall)) {
     next = replaceOnceOrThrow(
       next,
-      /(  post_install do \|installer\|[\s\S]*?react_native_post_install\([\s\S]*?\n    \)\n)(  end\nend)/,
+      /(  post_install do \|installer\|[\s\S]*?react_native_post_install\([\s\S]*?\n    \)\n)(?:[ \t]*\n)*(  end\nend)/,
       `$1\n${helperCall}\n$2`,
       "call the third-party JSC build-settings helper from post_install",
     );

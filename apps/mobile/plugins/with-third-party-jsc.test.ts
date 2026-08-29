@@ -86,6 +86,36 @@ const APP_DELEGATE = [
   "import React",
   "import ReactAppDependencyProvider",
   "",
+  "@main",
+  "class AppDelegate: ExpoAppDelegate {",
+  "  var window: UIWindow?",
+  "",
+  "  var reactNativeDelegate: ExpoReactNativeFactoryDelegate?",
+  "  var reactNativeFactory: RCTReactNativeFactory?",
+  "",
+  "  public override func application(",
+  "    _ application: UIApplication,",
+  "    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil",
+  "  ) -> Bool {",
+  "    let delegate = ReactNativeDelegate()",
+  "    let factory = ExpoReactNativeFactory(delegate: delegate)",
+  "    delegate.dependencyProvider = RCTAppDependencyProvider()",
+  "",
+  "    reactNativeDelegate = delegate",
+  "    reactNativeFactory = factory",
+  "",
+  "#if os(iOS) || os(tvOS)",
+  "    window = UIWindow(frame: UIScreen.main.bounds)",
+  "    factory.startReactNative(",
+  '      withModuleName: "main",',
+  "      in: window,",
+  "      launchOptions: launchOptions)",
+  "#endif",
+  "",
+  "    return super.application(application, didFinishLaunchingWithOptions: launchOptions)",
+  "  }",
+  "}",
+  "",
   "class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {",
   "  override func bundleURL() -> URL? { nil }",
   "}",
@@ -141,6 +171,41 @@ describe("native build flags", () => {
     expect(podfile).toContain("added_flags = flags.split");
     expect(podfile).not.toContain("next if compiler_flags.include?(flags)");
   });
+
+  test("aligns every generated pod with the app deployment target for Xcode 27", () => {
+    const podfile = plugin.patchPodfile(PODFILE);
+
+    expect(podfile).toContain(
+      "def apply_third_party_jsc_build_settings(installer, ios_deployment_target)",
+    );
+    expect(podfile).toContain(
+      "config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = ios_deployment_target",
+    );
+    expect(podfile).toContain(
+      "apply_third_party_jsc_build_settings(installer, podfile_properties['ios.deploymentTarget'] || '16.4')",
+    );
+  });
+
+  test("migrates the legacy deployment-target helper without duplicating calls", () => {
+    const current = plugin.patchPodfile(PODFILE);
+    const legacy = current
+      .replace(
+        "def apply_third_party_jsc_build_settings(installer, ios_deployment_target)",
+        "def apply_third_party_jsc_build_settings(installer)",
+      )
+      .replace(
+        "apply_third_party_jsc_build_settings(installer, podfile_properties['ios.deploymentTarget'] || '16.4')",
+        "apply_third_party_jsc_build_settings(installer)",
+      );
+    const migrated = plugin.patchPodfile(legacy);
+
+    expect(migrated.match(/apply_third_party_jsc_build_settings\(installer,/g)).toHaveLength(
+      2,
+    );
+    expect(migrated).not.toContain(
+      "apply_third_party_jsc_build_settings(installer)\n",
+    );
+  });
 });
 
 describe("generated native project patches", () => {
@@ -177,6 +242,21 @@ describe("generated native project patches", () => {
     ).toContain("implementation project(':react-native-community_javascriptcore')");
   });
 
+  test("adopts the required iOS 27 scene lifecycle without losing deep links", () => {
+    const appDelegate = plugin.patchSwiftAppDelegate(APP_DELEGATE);
+
+    expect(appDelegate).toContain("// NemuUISceneLifecycle");
+    expect(appDelegate).toContain(
+      "class SceneDelegate: UIResponder, UIWindowSceneDelegate",
+    );
+    expect(appDelegate).toContain("let window = UIWindow(windowScene: windowScene)");
+    expect(appDelegate).toContain("connectionOptions.urlContexts.first");
+    expect(appDelegate).toContain("connectionOptions.userActivities.first");
+    expect(appDelegate).not.toContain(
+      "window = UIWindow(frame: UIScreen.main.bounds)",
+    );
+  });
+
   test("orders app CMake configuration after Skia Prefab packaging", () => {
     const buildGradle = plugin.patchAndroidAppBuildGradle(
       'dependencies {\n    implementation("com.facebook.react:react-android")\n}\n',
@@ -197,7 +277,10 @@ describe("generated native project patches", () => {
     ).toThrow(/pass JSCRuntimeFactory to the Expo React host/);
     expect(() =>
       plugin.patchSwiftAppDelegate(
-        APP_DELEGATE.replace("ReactNativeDelegate", "RNDelegate"),
+        APP_DELEGATE.replace(
+          "class ReactNativeDelegate",
+          "class RNDelegate",
+        ),
       ),
     ).toThrow(/install the JSC runtime factory override/);
     expect(() =>
