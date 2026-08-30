@@ -87,6 +87,7 @@ import { getMobileStrings } from "@/lib/mobileI18n";
 import { sanitizeMobileErrorDiagnostic } from "@/lib/mobileSourceErrors";
 import { unregisterMobileBackgroundSyncAsync } from "@/sync/mobileBackgroundSync";
 import { signOutAndUnregisterMobileBackgroundSync } from "@/sync/mobileBackgroundSyncLifecycle";
+import { MobileSourceOperationTimeoutError } from "@/sources/mobileSourceOperationTimeout";
 import {
   applyMobileSourceSettingsPatch,
   loadMobileSourceSettingsByKeys,
@@ -1521,7 +1522,11 @@ export function useSourceInstaller(): {
       const controller = new AbortController();
       installAbortRef.current = controller;
       const timeout = setTimeout(() => {
-        controller.abort();
+        controller.abort(
+          new MobileSourceOperationTimeoutError(
+            "Source installation timed out.",
+          ),
+        );
       }, MOBILE_SOURCE_INSTALL_TIMEOUT_MS);
       setInstallingKey(key);
       try {

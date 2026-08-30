@@ -47,7 +47,16 @@ export async function runAbortableMobileNativeHttpRequest<T>(options: {
     // before the bridge invocation starts.
     if (signal?.aborted) cancelTargetRequest();
     throwIfMobileNativeHttpAborted(signal);
-    const result = await options.execute();
+    let result: T;
+    try {
+      result = await options.execute();
+    } catch (error) {
+      // Native cancellation can reject with its own generic transport error.
+      // Prefer the caller's abort reason so a deadline remains distinguishable
+      // from a user-requested cancellation at the presentation layer.
+      if (signal?.aborted) throwIfMobileNativeHttpAborted(signal);
+      throw error;
+    }
     throwIfMobileNativeHttpAborted(signal);
     return result;
   } finally {

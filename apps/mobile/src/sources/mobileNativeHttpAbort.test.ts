@@ -6,10 +6,12 @@ import {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((next) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((next, fail) => {
     resolve = next;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe("mobile native HTTP abort orchestration", () => {
@@ -62,6 +64,26 @@ describe("mobile native HTTP abort orchestration", () => {
     expect(cancelled).toEqual(["target"]);
     expect(released).toEqual(["target"]);
     expect(applied).toBe(false);
+  });
+
+  test("preserves a caller-provided abort reason over a native cancellation error", async () => {
+    const controller = new AbortController();
+    const pending = deferred<string>();
+    const deadline = new Error("Source installation timed out.");
+    deadline.name = "MobileSourceOperationTimeoutError";
+    const request = runAbortableMobileNativeHttpRequest({
+      requestId: "deadline",
+      signal: controller.signal,
+      prepare: () => {},
+      cancel: () => {},
+      release: () => {},
+      execute: () => pending.promise,
+    });
+
+    controller.abort(deadline);
+    pending.reject(new Error("Native request cancelled."));
+
+    await expect(request).rejects.toBe(deadline);
   });
 
   test("aborting one request never cancels a concurrent request", async () => {

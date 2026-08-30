@@ -70,10 +70,7 @@ import {
   shouldRenderMobileBrowseSkeleton,
 } from "@/lib/mobileBrowseSources";
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
-import {
-  describeMobileErrorDetail,
-  getMobileSourceErrorPresentation,
-} from "@/lib/mobileSourceErrors";
+import { getMobileSourceErrorPresentation } from "@/lib/mobileSourceErrors";
 import { sortSourcesByLanguagePriority } from "@/lib/mobileLanguageSettings";
 import {
   markMobilePerformance,
@@ -249,11 +246,12 @@ function formatLanguageSelectionLabel(
   });
 }
 
-function sourceActionErrorMessage(
+function sourceActionErrorPresentation(
   error: unknown,
   strings: MobileStrings,
-): string {
-  return describeMobileErrorDetail(error, strings.browse.sourcesUnavailable);
+): SourceActionError {
+  const presentation = getMobileSourceErrorPresentation(error, strings);
+  return { title: presentation.title, detail: presentation.detail };
 }
 
 function waitForInstallSheetFrame() {
@@ -911,10 +909,7 @@ export function BrowseScreen() {
       ) {
         setConfirmation(null);
       }
-      setActionError({
-        title: strings.browse.sourcesUnavailable,
-        detail: sourceActionErrorMessage(error, strings),
-      });
+      setActionError(sourceActionErrorPresentation(error, strings));
     } finally {
       if (installGuardKeyRef.current === key) {
         installGuardKeyRef.current = null;
@@ -1005,10 +1000,7 @@ export function BrowseScreen() {
       await hapticConfirm();
     } catch (error) {
       await hapticError();
-      setActionError({
-        title: strings.browse.sourcesUnavailable,
-        detail: sourceActionErrorMessage(error, strings),
-      });
+      setActionError(sourceActionErrorPresentation(error, strings));
     } finally {
       refreshGuardRef.current = false;
       setRefreshingSources(false);
@@ -1307,6 +1299,15 @@ export function BrowseScreen() {
                 />
               </NemuPressable>
             </View>
+
+            {actionError ? (
+              <MobileInlineErrorBanner
+                title={actionError.title}
+                detail={actionError.detail}
+                dismissLabel={strings.common.clear}
+                onDismiss={() => setActionError(null)}
+              />
+            ) : null}
 
             <SectionList
               alwaysBounceVertical={false}

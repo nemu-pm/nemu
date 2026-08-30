@@ -157,6 +157,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
   },
   content: {
+    // GlassSurface defaults its child to flex: 1. These banners have intrinsic
+    // height, so Android Yoga otherwise resolves a long diagnostic against the
+    // shell's minimum height and clips its final lines.
+    flex: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
