@@ -77,7 +77,12 @@
   },
   "sync": {
     "syncing": "Syncing",
-    "syncingDescription": "Syncing your library and settings..."
+    "syncingDescription": "Syncing your library and settings...",
+    "clockInvalid": {
+      "title": "Check your device date and time",
+      "description": "Nemu still received a sync timestamp outside the allowed range. Turn on automatic date, time, and time zone settings, then reload Nemu.",
+      "reload": "Reload"
+    }
   },
   "nav": {
     "library": "Library",
@@ -285,7 +290,6 @@
     "sourceCode": "Source Code"
   },
   "settings": {
-    "about": "About",
     "aboutNemu": "About nemu",
     "loading": "Loading settings...",
     "sourceUpdated": "Updated source: {{name}}",
@@ -320,9 +324,13 @@
     "metadataLanguageAuto": "Auto",
     "uninstallSource": "Uninstall Source",
     "uninstallSourceDescription": "Are you sure you want to uninstall \"{{name}}\"? This will remove the source but keep your library data.",
+    "configureSource": "Configure {{name}}",
+    "uninstallSourceLabel": "Uninstall {{name}}",
     "uninstall": "Uninstall",
     "plugins": "Plugins",
     "noPlugins": "No plugins installed.",
+    "configurePlugin": "Configure {{name}}",
+    "togglePlugin": "Enable or disable {{name}}",
     "agent": "Nemu Agent",
     "agentDescription": "Desktop agent for better compatibility with protected sites",
     "agentConnected": "Connected",
@@ -400,7 +408,8 @@
     "clearAllDescription": "This will remove all local data including your library, settings, and installed sources. The page will reload.",
     "alsoDeleteCloud": "Also delete cloud data",
     "alsoDeleteCloudDescription": "Permanently delete your synced library and progress. This cannot be undone.",
-    "clearing": "Clearing..."
+    "clearing": "Clearing...",
+    "failed": "Couldn't finish clearing all data. Some local data may already be removed. Close other Nemu tabs and try again."
   },
   "signIn": {
     "title": "Sign In",
@@ -415,7 +424,8 @@
     "keepDataDescription": "You can sign back in anytime to sync again.",
     "removeData": "Remove data from this device",
     "removeDataDescription": "Your cloud data will stay safe.",
-    "signingOut": "Signing out..."
+    "signingOut": "Signing out...",
+    "failed": "Couldn't sign out. Your local data was left unchanged."
   },
   "import": {
     "title": "Import Local Library",
@@ -439,22 +449,26 @@
     "password": "Password",
     "basicLoginDescription": "Enter your account credentials for this source.",
     "webLoginDescription": "Open the login page, then paste the cookies and/or any required local storage values.",
-    "oauthLoginDescription": "Open the authorization page, complete the flow, then paste the callback URL, code, or token value here. For providers that return to a custom app URL, copy the final callback URL or code from the browser.",
+    "oauthLoginDescription": "Open the authorization page, complete the flow, then paste the full callback URL or complete callback parameters here, including state. Bare codes and tokens cannot verify which login attempt they belong to and are rejected.",
     "openLoginPage": "Open Login Page",
     "cookies": "Cookies",
     "localStorage": "Local Storage JSON",
-    "callbackOrToken": "Callback URL, Code, or Token",
+    "callbackOrToken": "Full Callback Response",
     "missingCredentials": "Enter both username and password.",
-    "missingCallback": "Paste the callback URL, authorization code, or token value.",
+    "missingCallback": "Paste the full callback URL or complete callback parameters, including state.",
     "loginFailed": "Login failed.",
     "invalidCookies": "Paste cookies as JSON or cookie pairs like name=value.",
     "invalidSessionData": "Paste cookies and/or the required local storage JSON.",
-    "invalidCallback": "Could not extract an authorization code from the provided value.",
+    "invalidCallback": "Could not validate a complete authorization response from the provided value.",
     "invalidLink": "This setting does not have a valid URL.",
     "invalidLoginUrl": "This login action does not have a valid URL.",
     "popupBlocked": "The browser blocked the login window.",
-    "openLoginFirst": "Open the login page first so Nemu can generate the PKCE verifier.",
+    "openLoginFirst": "Open the authorization page first to start a verified login attempt.",
+    "callbackStateMismatch": "This callback belongs to a different login attempt and was rejected. Open the login page again and paste the new callback.",
+    "callbackStateMissing": "Paste the full callback URL — Nemu needs the state value it contains to verify this login attempt.",
     "tokenExchangeFailed": "Failed to exchange the authorization code for a token.",
+    "proxyUpgradeRequired": "The secure login relay is unavailable or needs an update. No authorization code was sent. Try again later.",
+    "oauthRelayDisclosure": "For this PKCE login, Nemu sends the authorization code and one-time verifier to the provider through Nemu's security-hardened relay. The current local Agent is not used because it cannot yet enforce these OAuth safeguards.",
     "logoutConfirm": "Log out from this source?",
     "notificationFailed": "Failed to apply the source setting action."
   },

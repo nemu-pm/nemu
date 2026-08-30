@@ -2,6 +2,10 @@
  * Core provider types for manga sources
  */
 
+// mergeAuthors is shared pure logic owned by @nemu/core (re-exported here so
+// existing `@/lib/sources` importers are unaffected).
+export { mergeAuthors } from "@nemu/core/sources";
+
 // ============ MANGA SOURCE INTERFACE ============
 
 export interface MangaSource {
@@ -83,13 +87,6 @@ export interface Manga {
   tags?: string[];
   status?: MangaStatus;
   url?: string;
-}
-
-/** Merge authors + artists into single array, deduped */
-export function mergeAuthors(authors?: string[], artists?: string[]): string[] | undefined {
-  const combined = [...(authors || []), ...(artists || [])];
-  const unique = [...new Set(combined)];
-  return unique.length ? unique : undefined;
 }
 
 export interface Chapter {

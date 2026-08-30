@@ -104,7 +104,8 @@ OCR development:
 ## Deployment Notes
 
 - `bun run deploy` runs the Apple secret generation step and deploys Convex functions.
-- The proxy worker source is in `services/proxy/`.
+- The proxy worker has a separate Worker-first rollout and rollback procedure in
+  [`services/proxy/README.md`](services/proxy/README.md).
 - The frontend uses `https://service.nemu.pm` as the proxy base in `src/config.ts`.
 
 ## Useful Environment Variables

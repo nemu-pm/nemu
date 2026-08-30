@@ -1,0 +1,74 @@
+diff --git a/shared/ssr-window.esm.mjs b/shared/ssr-window.esm.mjs
+index 60704fabfd6ff7ccc7e4e613106d92c2fed04cf1..d367284e61609ffd9db9e6754c0b87c54a74ff2c 100644
+--- a/shared/ssr-window.esm.mjs
++++ b/shared/ssr-window.esm.mjs
+@@ -14,12 +14,18 @@ function isObject(obj) {
+   return obj !== null && typeof obj === 'object' && 'constructor' in obj && obj.constructor === Object;
+ }
+ function extend(target = {}, src = {}) {
+-  const noExtend = ['__proto__', 'constructor', 'prototype'];
+-  Object.keys(src).filter(key => noExtend.indexOf(key) < 0).forEach(key => {
++  const keys = Object.keys(src);
++  for (let index = 0; index < keys.length; index += 1) {
++    const key = keys[index];
++    // Security-sensitive filtering must not use methods inherited from a
++    // potentially polluted Array.prototype.
++    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
++      continue;
++    }
+     if (typeof target[key] === 'undefined') target[key] = src[key];else if (isObject(src[key]) && isObject(target[key]) && Object.keys(src[key]).length > 0) {
+       extend(target[key], src[key]);
+     }
+-  });
++  }
+ }
+ const ssrDocument = {
+   body: {},
+diff --git a/shared/update-swiper.mjs b/shared/update-swiper.mjs
+index 8a7c6a1d759cf76e9a4ae9d29f1a9afad48eccef..59cbc1710a511bb06f6843c33892d960ac6cf303 100644
+--- a/shared/update-swiper.mjs
++++ b/shared/update-swiper.mjs
+@@ -9,14 +9,20 @@ function isObject(o) {
+   return typeof o === 'object' && o !== null && o.constructor && Object.prototype.toString.call(o).slice(8, -1) === 'Object' && !o.__swiper__;
+ }
+ function extend(target, src) {
+-  const noExtend = ['__proto__', 'constructor', 'prototype'];
+-  Object.keys(src).filter(key => noExtend.indexOf(key) < 0).forEach(key => {
++  const keys = Object.keys(src);
++  for (let index = 0; index < keys.length; index += 1) {
++    const key = keys[index];
++    // Security-sensitive filtering must not use methods inherited from a
++    // potentially polluted Array.prototype.
++    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
++      continue;
++    }
+     if (typeof target[key] === 'undefined') target[key] = src[key];else if (isObject(src[key]) && isObject(target[key]) && Object.keys(src[key]).length > 0) {
+       if (src[key].__swiper__) target[key] = src[key];else extend(target[key], src[key]);
+     } else {
+       target[key] = src[key];
+     }
+-  });
++  }
+ }
+ function needsNavigation(params = {}) {
+   return params.navigation && typeof params.navigation.nextEl === 'undefined' && typeof params.navigation.prevEl === 'undefined';
+diff --git a/shared/utils.mjs b/shared/utils.mjs
+index 98c86ad62bfd4294fb9a46a2f534f12dd5f8ba60..96bd3831f06e7e9b7da3aa0c751458fe126b393e 100644
+--- a/shared/utils.mjs
++++ b/shared/utils.mjs
+@@ -90,9 +90,14 @@ function extend(...args) {
+   for (let i = 1; i < args.length; i += 1) {
+     const nextSource = args[i];
+     if (nextSource !== undefined && nextSource !== null && !isNode(nextSource)) {
+-      const keysArray = Object.keys(Object(nextSource)).filter(key => key !== '__proto__' && key !== 'constructor' && key !== 'prototype');
++      const keysArray = Object.keys(Object(nextSource));
+       for (let nextIndex = 0, len = keysArray.length; nextIndex < len; nextIndex += 1) {
+         const nextKey = keysArray[nextIndex];
++        // Security-sensitive filtering must not use methods inherited from a
++        // potentially polluted Array.prototype.
++        if (nextKey === '__proto__' || nextKey === 'constructor' || nextKey === 'prototype') {
++          continue;
++        }
+         const desc = Object.getOwnPropertyDescriptor(nextSource, nextKey);
+         if (desc !== undefined && desc.enumerable) {
+           if (isObject(to[nextKey]) && isObject(nextSource[nextKey])) {

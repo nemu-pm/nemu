@@ -30,7 +30,10 @@ import type { CacheStore } from "@/data/cache";
 import { CacheKeys } from "@/data/cache";
 import { parseSourceKey } from "@/data/keys";
 import { SERVICE_URL, proxyUrl } from "@/config";
-import { getSourceSettingsStore } from "@/stores/source-settings";
+import {
+  getSourceSettingsStore,
+  type SourceSettingsStore,
+} from "@/stores/source-settings";
 import { extractDefaults } from "@/lib/settings";
 import pMemoize, { pMemoizeClear } from "p-memoize";
 import { hasAgent, agentProxyFetch } from "@/lib/agent";
@@ -147,8 +150,11 @@ interface AidokuAsyncSourceWithAuth extends AsyncAidokuSource {
 /**
  * Get merged settings (defaults + user values) for a source
  */
-function getMergedSettings(sourceKey: string): Record<string, unknown> {
-  const state = getSourceSettingsStore().getState();
+function getMergedSettings(
+  sourceKey: string,
+  settingsStore: SourceSettingsStore,
+): Record<string, unknown> {
+  const state = settingsStore.getState();
   const schema = state.schemas.get(sourceKey);
   const defaults = schema ? extractDefaults(schema) : {};
   const userValues = state.values.get(sourceKey) ?? {};
@@ -187,7 +193,8 @@ export async function createAidokuMangaSource(
   aixBytes: ArrayBuffer,
   sourceKey: string,
   cacheStore: CacheStore,
-  icon?: string
+  icon?: string,
+  settingsStore: SourceSettingsStore = getSourceSettingsStore(),
 ): Promise<CreateAidokuSourceResult> {
   // Use agent if available, otherwise fallback to CF Worker proxy
   const useAgent = await hasAgent();
@@ -203,13 +210,13 @@ export async function createAidokuMangaSource(
   const asyncSource = await loadSource(aixBytes, sourceKey, {
     proxyUrl: `${SERVICE_URL}/proxy?url=`,
     settings: {
-      get: () => getMergedSettings(sourceKey),
+      get: () => getMergedSettings(sourceKey, settingsStore),
       set: (key: string, value: unknown) => {
-        getSourceSettingsStore().getState().setSetting(sourceKey, key, value);
+        settingsStore.getState().setSetting(sourceKey, key, value);
       },
       subscribe: (callback) => {
         // Subscribe to settings store changes for this source
-        return getSourceSettingsStore().subscribe((state, prevState) => {
+        return settingsStore.subscribe((state, prevState) => {
           const newValues = state.values.get(sourceKey);
           const oldValues = prevState.values.get(sourceKey);
           if (newValues !== oldValues) {

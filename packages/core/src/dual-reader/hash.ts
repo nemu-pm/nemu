@@ -1,6 +1,19 @@
 import { resizeLuma, toLuma } from './image';
 
-export type Dhash = { h: bigint; v: bigint };
+/**
+ * One unsigned 64-bit dHash value represented without JavaScript BigInt.
+ *
+ * Nemu's Android JavaScriptCore runtime does not expose BigInt. JavaScript
+ * number bitwise operators are only 32-bit, so pretending Number is BigInt
+ * silently discarded half of every hash. Keeping the two words explicit is
+ * exact on every supported JS engine and remains cheap to compare.
+ */
+export type DhashWord = {
+  readonly high: number;
+  readonly low: number;
+};
+
+export type Dhash = { h: DhashWord; v: DhashWord };
 export type MultiDhash = {
   full: Dhash;
   left?: Dhash;
@@ -33,18 +46,55 @@ export type CandidateDistance = {
   variantDistance: number;
 };
 
-function popcount64(x: bigint): number {
+const MAX_UINT32 = 0xffff_ffff;
+const DHASH_HEX_PATTERN = /^[0-9a-f]{1,16}$/i;
+
+function assertUint32(value: number, name: string): number {
+  if (!Number.isInteger(value) || value < 0 || value > MAX_UINT32) {
+    throw new RangeError(`${name} must be an unsigned 32-bit integer.`);
+  }
+  return value >>> 0;
+}
+
+export function createDhashWord(high: number, low: number): DhashWord {
+  return {
+    high: assertUint32(high, 'DhashWord.high'),
+    low: assertUint32(low, 'DhashWord.low'),
+  };
+}
+
+/** Parse the legacy/cache-compatible unsigned hexadecimal representation. */
+export function dhashWordFromHex(value: string): DhashWord {
+  if (!DHASH_HEX_PATTERN.test(value)) {
+    throw new Error('Serialized dHash word must contain 1 to 16 hexadecimal digits.');
+  }
+  const padded = value.padStart(16, '0');
+  return createDhashWord(
+    Number.parseInt(padded.slice(0, 8), 16),
+    Number.parseInt(padded.slice(8), 16),
+  );
+}
+
+/** Preserve the existing unpadded hexadecimal cache/worker wire format. */
+export function dhashWordToHex(value: DhashWord): string {
+  const high = assertUint32(value.high, 'DhashWord.high');
+  const low = assertUint32(value.low, 'DhashWord.low');
+  if (high === 0) return low.toString(16);
+  return `${high.toString(16)}${low.toString(16).padStart(8, '0')}`;
+}
+
+function popcount32(value: number): number {
   let count = 0;
-  let v = x;
-  while (v !== 0n) {
-    v &= v - 1n;
+  let remaining = value >>> 0;
+  while (remaining !== 0) {
+    remaining = (remaining & (remaining - 1)) >>> 0;
     count += 1;
   }
   return count;
 }
 
-export function hammingDistance(a: bigint, b: bigint): number {
-  return popcount64(a ^ b);
+export function hammingDistance(a: DhashWord, b: DhashWord): number {
+  return popcount32((a.high ^ b.high) >>> 0) + popcount32((a.low ^ b.low) >>> 0);
 }
 
 export function dhashDistance(a: Dhash, b: Dhash): number {
@@ -55,30 +105,47 @@ function computeDhashFromLuma(luma: Uint8Array, width: number, height: number): 
   const w = Math.max(1, Math.trunc(width));
   const h = Math.max(1, Math.trunc(height));
   const hBuf = resizeLuma(luma, w, h, 9, 8);
-  let hVal = 0n;
-  let bit = 0n;
+  let hHigh = 0;
+  let hLow = 0;
+  let bit = 0;
   for (let y = 0; y < 8; y++) {
     for (let x = 0; x < 8; x++) {
       const a = hBuf[y * 9 + x] ?? 0;
       const b = hBuf[y * 9 + x + 1] ?? 0;
-      if (a > b) hVal |= 1n << bit;
-      bit += 1n;
+      if (a > b) {
+        if (bit < 32) {
+          hLow = (hLow | (1 << bit)) >>> 0;
+        } else {
+          hHigh = (hHigh | (1 << (bit - 32))) >>> 0;
+        }
+      }
+      bit += 1;
     }
   }
 
   const vBuf = resizeLuma(luma, w, h, 8, 9);
-  let vVal = 0n;
-  bit = 0n;
+  let vHigh = 0;
+  let vLow = 0;
+  bit = 0;
   for (let y = 0; y < 8; y++) {
     for (let x = 0; x < 8; x++) {
       const a = vBuf[y * 8 + x] ?? 0;
       const b = vBuf[(y + 1) * 8 + x] ?? 0;
-      if (a > b) vVal |= 1n << bit;
-      bit += 1n;
+      if (a > b) {
+        if (bit < 32) {
+          vLow = (vLow | (1 << bit)) >>> 0;
+        } else {
+          vHigh = (vHigh | (1 << (bit - 32))) >>> 0;
+        }
+      }
+      bit += 1;
     }
   }
 
-  return { h: hVal, v: vVal };
+  return {
+    h: createDhashWord(hHigh, hLow),
+    v: createDhashWord(vHigh, vLow),
+  };
 }
 
 export function computeDhash(input: DhashInput): Dhash {
@@ -399,71 +466,6 @@ export function findBestSecondaryMatch(input: {
   // Avoid over-checking here to keep types simple and prevent TS narrowing issues.
   if (!best) return null;
   return { best, secondBest };
-}
-
-export function findBestSecondaryIndex(input: {
-  primaryHash: Dhash;
-  secondaryHashes: Array<MultiDhash | null | undefined>;
-  expectedIndex: number;
-  windowSize: number;
-  threshold?: number;
-  softThreshold?: number;
-  deviationBias?: number;
-  minDistanceGap?: number;
-  variantPenalty?: number;
-  fullThreshold?: number;
-}): { bestIndex: number; bestDistance: number; secondBestDistance: number; bestScore: number; secondBestScore: number } | null {
-  const { primaryHash, secondaryHashes, expectedIndex, windowSize } = input;
-  if (secondaryHashes.length === 0 || !Number.isFinite(expectedIndex)) return null;
-
-  const start = Math.max(0, Math.trunc(expectedIndex) - windowSize);
-  const end = Math.min(secondaryHashes.length - 1, Math.trunc(expectedIndex) + windowSize);
-  const deviationBias = input.deviationBias ?? 0;
-
-  let bestIndex = start;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  let bestScore = Number.POSITIVE_INFINITY;
-  let secondBestDistance = Number.POSITIVE_INFINITY;
-  let secondBestScore = Number.POSITIVE_INFINITY;
-
-  for (let i = start; i <= end; i++) {
-    const candidate = secondaryHashes[i];
-    if (!candidate) continue;
-    const { distance: dist } = computeCandidateDistance(primaryHash, candidate, {
-      variantPenalty: input.variantPenalty,
-      fullThreshold: input.fullThreshold,
-    });
-    const score = dist + deviationBias * Math.abs(i - expectedIndex);
-    if (score < bestScore) {
-      secondBestScore = bestScore;
-      secondBestDistance = bestDistance;
-      bestScore = score;
-      bestDistance = dist;
-      bestIndex = i;
-    } else if (score < secondBestScore) {
-      secondBestScore = score;
-      secondBestDistance = dist;
-    }
-  }
-
-  if (!Number.isFinite(bestDistance)) return null;
-
-  const threshold = input.threshold;
-  const softThreshold = input.softThreshold ?? threshold;
-  const minDistanceGap = input.minDistanceGap ?? 6;
-
-  let accept = true;
-  if (typeof threshold === 'number' && bestDistance > threshold) {
-    accept = false;
-  }
-  if (!accept && typeof softThreshold === 'number' && bestDistance <= softThreshold) {
-    if (secondBestDistance - bestDistance >= minDistanceGap) {
-      accept = true;
-    }
-  }
-
-  if (!accept) return null;
-  return { bestIndex, bestDistance, secondBestDistance, bestScore, secondBestScore };
 }
 
 export function updateDriftDelta(input: {

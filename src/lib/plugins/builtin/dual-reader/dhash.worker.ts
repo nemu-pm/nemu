@@ -1,13 +1,13 @@
 /// <reference lib="webworker" />
 
-import { computeMultiDhash } from '@/lib/dual-reader/hash';
-import { serializeMultiDhash } from '@/lib/dual-reader/hash-serialization';
-import { downsampleToMax, toLuma } from '@/lib/dual-reader/image';
-import { initAlignmentWasm } from '@/lib/dual-reader/fft-wasm';
-import { buildMergeLuma, buildSplitLuma, computeAlignmentTransform } from '@/lib/dual-reader/visual-alignment';
-import { buildAlignmentOptions } from '@/lib/dual-reader/alignment-options';
-import { ALIGNMENT_FINE_MAX_DEFAULT, ALIGNMENT_FFT_MAX_DEFAULT } from '@/lib/dual-reader/alignment-constants';
-import type { AlignmentResult, AlignmentWorkerOptions } from '@/lib/dual-reader/visual-alignment';
+import { computeMultiDhash } from '@nemu/core/dual-reader';
+import { serializeMultiDhash } from '@nemu/core/dual-reader';
+import { downsampleToMax, toLuma } from '@nemu/core/dual-reader';
+import { alignmentWasmProvider, initAlignmentWasm } from '@/lib/dual-reader/fft-wasm';
+import { buildMergeLuma, buildSplitLuma, computeAlignmentTransform } from '@nemu/core/dual-reader';
+import { buildAlignmentOptions } from '@nemu/core/dual-reader';
+import { ALIGNMENT_FINE_MAX_DEFAULT, ALIGNMENT_FFT_MAX_DEFAULT } from '@nemu/core/dual-reader';
+import type { AlignmentResult, AlignmentWorkerOptions } from '@nemu/core/dual-reader';
 
 export type WorkerRequest =
   | {
@@ -135,6 +135,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           fineMax,
           fftMax,
           fftBackend: 'wasm',
+          wasmProvider: alignmentWasmProvider,
           abortCheck,
         }),
       });

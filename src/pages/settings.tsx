@@ -6,7 +6,10 @@ import { parseSourceKey } from "@/data/keys";
 import type { SyncStore } from "@/stores/sync";
 import { languageStore } from "@/stores/language";
 import { themeStore } from "@/stores/theme";
-import { metadataLanguageStore, type MetadataLanguage } from "@/stores/metadata-language";
+import {
+  metadataLanguageStore,
+  type MetadataLanguage,
+} from "@/stores/metadata-language";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,11 +17,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { SettingsPageSkeleton } from "@/components/page-skeletons";
 import { PageHeader } from "@/components/page-header";
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AddSourceDialog } from "@/components/add-source-dialog";
 import { SignInDialog } from "@/components/sign-in-dialog";
 import { SignOutDialog } from "@/components/sign-out-dialog";
@@ -35,85 +34,24 @@ import {
   ResponsiveDialogDescription,
 } from "@/components/ui/responsive-dialog";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Delete02Icon, CloudIcon, Settings02Icon, Recycle03Icon, InformationCircleIcon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import {
+  Add01Icon,
+  ArrowRight01Icon,
+  CloudIcon,
+  Delete02Icon,
+  InformationCircleIcon,
+  Recycle03Icon,
+  Settings02Icon,
+} from "@hugeicons/core-free-icons";
 import { isPluginEnabledForRuntime, usePluginRegistry } from "@/lib/plugins";
 import { hapticPress } from "@/lib/haptics";
-import { useAgentStore } from "@/stores/agent";
-import { RefreshCcw, Cpu } from "lucide-react";
+import { AgentStatusCard } from "@/components/agent-status-card";
 
 type OAuthProvider = "google" | "apple";
 
-function AgentStatusCard() {
-  const { t } = useTranslation();
-  const { status, checking, checkStatus } = useAgentStore();
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Cpu className="size-5" />
-          {t("settings.agent")}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div
-              className={`size-2.5 rounded-full ${
-                status.available ? "bg-green-500" : "bg-muted-foreground/40"
-              }`}
-            />
-            <div>
-              <p className="font-medium">
-                {status.available
-                  ? t("settings.agentConnected")
-                  : t("settings.agentNotRunning")}
-                {status.available && status.version && (
-                  <span className="ml-1.5 text-muted-foreground font-normal">
-                    {t("settings.agentVersion", { version: status.version })}
-                  </span>
-                )}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {t("settings.agentDescription")}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {!status.available && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  window.open(
-                    "https://github.com/user/nemu-agent/releases",
-                    "_blank"
-                  )
-                }
-              >
-                {t("settings.agentDownload")}
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={checkStatus}
-              disabled={checking}
-            >
-              <RefreshCcw
-                className={`size-4 ${checking ? "animate-spin" : ""}`}
-              />
-            </Button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 const providerIcons: Record<OAuthProvider, React.ReactNode> = {
   google: (
-    <svg className="size-4" viewBox="0 0 24 24">
+    <svg className="size-4" viewBox="0 0 24 24" aria-hidden="true">
       <path
         fill="currentColor"
         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -133,7 +71,12 @@ const providerIcons: Record<OAuthProvider, React.ReactNode> = {
     </svg>
   ),
   apple: (
-    <svg className="size-4" viewBox="0 0 24 24" fill="currentColor">
+    <svg
+      className="size-4"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
       <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
     </svg>
   ),
@@ -153,9 +96,15 @@ export function SettingsPage() {
     uninstallSource,
     reloadSource,
   } = useSettingsStore();
-  const currentLanguage = languageStore ? languageStore((state) => state.language) : "en";
-  const currentTheme = themeStore ? themeStore((state) => state.theme) : "system";
-  const currentMetadataLanguage = metadataLanguageStore ? metadataLanguageStore((state) => state.preference) : "auto";
+  const currentLanguage = languageStore
+    ? languageStore((state) => state.language)
+    : "en";
+  const currentTheme = themeStore
+    ? themeStore((state) => state.theme)
+    : "system";
+  const currentMetadataLanguage = metadataLanguageStore
+    ? metadataLanguageStore((state) => state.preference)
+    : "auto";
   const [addSourceOpen, setAddSourceOpen] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
@@ -265,7 +214,11 @@ export function SettingsPage() {
               <p className="text-sm text-muted-foreground">
                 {t("settings.signInDescription")}
               </p>
-              <Button size="sm" className="w-fit" onClick={() => setSignInOpen(true)}>
+              <Button
+                size="sm"
+                className="w-fit"
+                onClick={() => setSignInOpen(true)}
+              >
                 {t("settings.signIn")}
               </Button>
             </div>
@@ -316,8 +269,15 @@ export function SettingsPage() {
                   </div>
                   <div className="flex items-center gap-1">
                     <Button
+                      type="button"
                       variant="ghost"
                       size="icon-sm"
+                      aria-label={t("settings.configureSource", {
+                        name: source.name,
+                      })}
+                      title={t("settings.configureSource", {
+                        name: source.name,
+                      })}
                       onClick={() => {
                         setSettingsSourceData({
                           key: source.id,
@@ -332,17 +292,26 @@ export function SettingsPage() {
                     >
                       <HugeiconsIcon icon={Settings02Icon} className="size-4" />
                     </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setUninstallConfirm({
-                      registryId: source.registryId,
-                      sourceId: source.sourceId,
-                      name: source.name,
-                    })}
-                  >
-                    <HugeiconsIcon icon={Delete02Icon} className="size-4" />
-                  </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t("settings.uninstallSourceLabel", {
+                        name: source.name,
+                      })}
+                      title={t("settings.uninstallSourceLabel", {
+                        name: source.name,
+                      })}
+                      onClick={() =>
+                        setUninstallConfirm({
+                          registryId: source.registryId,
+                          sourceId: source.sourceId,
+                          name: source.name,
+                        })
+                      }
+                    >
+                      <HugeiconsIcon icon={Delete02Icon} className="size-4" />
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -366,8 +335,12 @@ export function SettingsPage() {
           ) : (
             <div className="space-y-2">
               {plugins.map((plugin) => {
-                const isEnabled = isPluginEnabledForRuntime(plugin, enabledState);
-                const hasSettings = plugin.settingsSchema && plugin.settingsSchema.length > 0;
+                const isEnabled = isPluginEnabledForRuntime(
+                  plugin,
+                  enabledState,
+                );
+                const hasSettings =
+                  plugin.settingsSchema && plugin.settingsSchema.length > 0;
                 return (
                   <div
                     key={plugin.manifest.id}
@@ -391,8 +364,15 @@ export function SettingsPage() {
                     <div className="flex items-center gap-2">
                       {hasSettings && (
                         <Button
+                          type="button"
                           variant="ghost"
                           size="icon-sm"
+                          aria-label={t("settings.configurePlugin", {
+                            name: plugin.manifest.name,
+                          })}
+                          title={t("settings.configurePlugin", {
+                            name: plugin.manifest.name,
+                          })}
                           onClick={() => {
                             setSettingsPluginId(plugin.manifest.id);
                             setSettingsPluginOpen(true);
@@ -404,6 +384,9 @@ export function SettingsPage() {
                       )}
                       <Switch
                         checked={isEnabled}
+                        aria-label={t("settings.togglePlugin", {
+                          name: plugin.manifest.name,
+                        })}
                         onCheckedChange={(checked) => {
                           setPluginEnabled(plugin.manifest.id, checked);
                         }}
@@ -499,26 +482,36 @@ export function SettingsPage() {
           <CardTitle>{t("settings.dataManagement")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <p className="font-medium">{t("settings.clearCache")}</p>
               <p className="text-sm text-muted-foreground">
                 {t("settings.clearCacheDescription")}
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setClearMode("cache")}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setClearMode("cache")}
+            >
               <HugeiconsIcon icon={Recycle03Icon} className="size-4" />
               {t("settings.clear")}
             </Button>
           </div>
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <p className="font-medium">{t("settings.clearAllData")}</p>
               <p className="text-sm text-muted-foreground">
                 {t("settings.clearAllDataDescription")}
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setClearMode("all")}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setClearMode("all")}
+            >
               <HugeiconsIcon icon={Delete02Icon} className="size-4" />
               {t("settings.clear")}
             </Button>
@@ -530,16 +523,19 @@ export function SettingsPage() {
       <AgentStatusCard />
 
       {/* About */}
-      <motion.div
+      <motion.button
+        type="button"
+        className="block w-full text-left"
+        aria-label={t("settings.about")}
         whileTap={{ scale: 0.97 }}
         transition={{ type: "spring", stiffness: 400, damping: 25 }}
+        onClick={() => {
+          hapticPress()
+          setAboutOpen(true)
+        }}
       >
         <Card
-          className="!py-0 cursor-default hover:bg-accent/50"
-          onClick={() => {
-            hapticPress()
-            setAboutOpen(true)
-          }}
+          className="!py-0 cursor-pointer hover:bg-accent/50"
         >
           <CardContent className="flex items-center gap-3 px-4 py-2.5">
             <HugeiconsIcon icon={InformationCircleIcon} className="size-5 text-muted-foreground" />
@@ -560,7 +556,7 @@ export function SettingsPage() {
             <HugeiconsIcon icon={ArrowRight01Icon} className="size-4 text-muted-foreground" />
           </CardContent>
         </Card>
-      </motion.div>
+      </motion.button>
 
       <AddSourceDialog open={addSourceOpen} onOpenChange={setAddSourceOpen} />
       <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />

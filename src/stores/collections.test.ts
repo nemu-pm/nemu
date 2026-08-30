@@ -87,4 +87,127 @@ describe("CollectionsStore", () => {
     expect(savedAdds).toEqual([]);
     expect(store.getState().getItemsInCollection("missing")).toEqual([]);
   });
+
+  it("retains tombstones in persistence while hiding them from UI state", async () => {
+    const store = createCollectionsStore({
+      getCollections: async () => [{
+        collectionId: "removed",
+        name: "Removed",
+        createdAt: 1,
+        updatedAt: 2,
+        removed: true,
+      }],
+      getCollectionItems: async () => [{
+        collectionId: "removed",
+        libraryItemId: "lib-1",
+        addedAt: 1,
+        updatedAt: 2,
+        removed: true,
+      }],
+      saveCollection: async () => {},
+      removeCollection: async () => {},
+      addCollectionItems: async () => {},
+      removeCollectionItems: async () => {},
+    });
+
+    await store.getState().load();
+
+    expect(store.getState().collections).toEqual([]);
+    expect(store.getState().membership.size).toBe(0);
+  });
+
+  it("renames beyond an observed future clock", async () => {
+    const originalNow = Date.now;
+    Date.now = () => 100;
+    const saved: LocalCollection[] = [];
+    try {
+      const store = createCollectionsStore({
+        getCollections: async () => [{
+          collectionId: "future",
+          name: "Before",
+          createdAt: 1,
+          updatedAt: 500,
+        }],
+        getCollectionItems: async () => [],
+        saveCollection: async (collection) => { saved.push(collection); },
+        removeCollection: async () => {},
+        addCollectionItems: async () => {},
+        removeCollectionItems: async () => {},
+      });
+      await store.getState().load();
+      await store.getState().rename("future", "After");
+      expect(saved[0]?.updatedAt).toBe(501);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  it("clears immediately and ignores an inflight old-generation load", async () => {
+    let markLoadStarted!: () => void;
+    const loadStarted = new Promise<void>((resolve) => {
+      markLoadStarted = resolve;
+    });
+    let resolveCollections!: (collections: LocalCollection[]) => void;
+    const delayedCollections = new Promise<LocalCollection[]>((resolve) => {
+      resolveCollections = resolve;
+    });
+    const store = createCollectionsStore({
+      getCollections: async () => {
+        markLoadStarted();
+        return delayedCollections;
+      },
+      getCollectionItems: async () => [],
+      saveCollection: async () => {},
+      removeCollection: async () => {},
+      addCollectionItems: async () => {},
+      removeCollectionItems: async () => {},
+    });
+    store.setState({
+      collections: [
+        { collectionId: "warm", name: "Warm", createdAt: 1, updatedAt: 1 },
+      ],
+      membership: new Map([["warm", new Set(["book"])]]),
+    });
+
+    const loading = store.getState().load();
+    await loadStarted;
+    store.getState().prepareSyncGeneration(5, Promise.resolve());
+    expect(store.getState().collections).toEqual([]);
+    expect(store.getState().membership.size).toBe(0);
+    resolveCollections([
+      { collectionId: "stale", name: "Stale", createdAt: 1, updatedAt: 1 },
+    ]);
+    await loading;
+
+    expect(store.getState().collections).toEqual([]);
+    expect(store.getState().syncGeneration).toBe(5);
+  });
+
+  it("preserves a collection action started after reset readiness", async () => {
+    const generations: Array<number | null | undefined> = [];
+    let markReady!: () => void;
+    const readiness = new Promise<void>((resolve) => {
+      markReady = resolve;
+    });
+    const store = createCollectionsStore({
+      getCollections: async () => [],
+      getCollectionItems: async () => [],
+      saveCollection: async (_collection, generation) => {
+        generations.push(generation);
+      },
+      removeCollection: async () => {},
+      addCollectionItems: async () => {},
+      removeCollectionItems: async () => {},
+    });
+    store.getState().prepareSyncGeneration(6, readiness);
+
+    const creating = store.getState().create("After reset");
+    await Promise.resolve();
+    expect(generations).toEqual([]);
+    markReady();
+    const created = await creating;
+
+    expect(generations).toEqual([6]);
+    expect(store.getState().collections).toEqual([created]);
+  });
 });

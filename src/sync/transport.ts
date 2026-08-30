@@ -1,82 +1,30 @@
 /**
- * Sync transport types (Phase 8 - Simplified)
+ * Sync transport types.
  *
- * Types for sync data structures.
- * No longer defines transport interface - Convex used directly.
+ * The Convex snapshot contract is shared with the React Native app through
+ * @nemu/core; this module keeps the web-facing type names stable.
  */
 
-import type { MangaMetadata, ExternalIds, ChapterSummary, UserOverrides } from "@/data/schema";
+import type {
+  CloudChapterProgress,
+  CloudLibraryItem,
+  CloudMangaProgress,
+  CloudSourceLink,
+} from "@nemu/core";
 
-// ============================================================================
-// Sync types (used by subscriptions)
-// ============================================================================
-
-/**
- * Library item from sync (matches Convex library_items table).
- */
-export interface SyncLibraryItem {
-  id: string; // = libraryItemId
+export type SyncLibraryItem = CloudLibraryItem & {
+  id: string;
   libraryItemId: string;
-  metadata: MangaMetadata;
-  externalIds?: ExternalIds;
-  inLibrary?: boolean;
-  overrides?: UserOverrides;
-  createdAt: number;
-  updatedAt: number;
-}
+};
 
-/**
- * Library source link from sync (matches Convex library_source_links table).
- */
-export interface SyncLibrarySourceLink {
-  id: string; // "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
-  libraryItemId: string;
-  registryId: string;
-  sourceId: string;
-  sourceMangaId: string;
-  latestChapter?: ChapterSummary;
-  latestChapterSortKey?: string;
-  latestFetchedAt?: number;
-  updateAckChapter?: ChapterSummary;
-  updateAckChapterSortKey?: string;
-  updateAckAt?: number;
-  createdAt: number;
-  updatedAt: number;
-}
+export type SyncLibrarySourceLink = CloudSourceLink & {
+  id: string;
+};
 
-/**
- * Chapter progress from sync (matches Convex chapter_progress table).
- */
-export interface SyncChapterProgress {
-  id: string; // "${registryId}:${sourceId}:${sourceMangaId}:${sourceChapterId}" (URL-encoded)
-  registryId: string;
-  sourceId: string;
-  sourceMangaId: string;
-  sourceChapterId: string;
-  libraryItemId?: string;
-  progress: number;
-  total: number;
-  completed: boolean;
-  lastReadAt: number;
-  chapterNumber?: number;
-  volumeNumber?: number;
-  chapterTitle?: string;
-  updatedAt: number;
-}
+export type SyncChapterProgress = CloudChapterProgress & {
+  id: string;
+};
 
-/**
- * Manga progress from sync (matches Convex manga_progress table).
- */
-export interface SyncMangaProgress {
-  id: string; // "${registryId}:${sourceId}:${sourceMangaId}" (URL-encoded)
-  registryId: string;
-  sourceId: string;
-  sourceMangaId: string;
-  libraryItemId?: string;
-  lastReadAt: number;
-  lastReadSourceChapterId?: string;
-  lastReadChapterNumber?: number;
-  lastReadVolumeNumber?: number;
-  lastReadChapterTitle?: string;
-  updatedAt: number;
-}
+export type SyncMangaProgress = CloudMangaProgress & {
+  id: string;
+};

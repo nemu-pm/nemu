@@ -1,0 +1,8 @@
+# Keep deterministic build outputs committed while making review tooling treat
+# them as generated. Their source files and regeneration scripts remain normal
+# review targets.
+convex/_generated/** linguist-generated=true
+
+# A unified diff represents an empty context line as one leading space. Do not
+# report those required patch markers as repository trailing-whitespace errors.
+patches/*.patch whitespace=-blank-at-eol,-blank-at-eof

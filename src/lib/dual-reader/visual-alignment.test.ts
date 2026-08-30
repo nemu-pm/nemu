@@ -7,9 +7,9 @@ import {
   buildMergeLuma,
   buildSplitLuma,
   computeAlignmentTransform,
-} from './visual-alignment';
-import { buildAlignmentOptions } from './alignment-options';
-import type { DhashInput } from './hash';
+} from '@nemu/core/dual-reader';
+import { buildAlignmentOptions } from '@nemu/core/dual-reader';
+import type { DhashInput } from '@nemu/core/dual-reader';
 
 type MappingEntry =
   | number
