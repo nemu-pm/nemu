@@ -1,0 +1,344 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+type StoredFile = { bytes: Uint8Array; modifiedAt: number };
+const files = new Map<string, StoredFile>();
+const directories = new Set<string>(["/cache"]);
+let failMoveDestination: RegExp | null = null;
+let directoryListCalls = 0;
+
+const pathFrom = (value: unknown): string => {
+  if (value instanceof FakeDirectory || value instanceof FakeFile)
+    return value.path;
+  const raw = String(value).replace(/^file:\/\//, "");
+  return raw.replace(/\/+$/, "") || "/";
+};
+const uriFor = (path: string) => `file://${path}`;
+
+class FakeFile {
+  path: string;
+  constructor(parent: unknown, name?: string) {
+    const base = pathFrom(parent);
+    this.path = name == null ? base : `${base}/${name}`;
+  }
+  get uri() {
+    return uriFor(this.path);
+  }
+  get name() {
+    return this.path.slice(this.path.lastIndexOf("/") + 1);
+  }
+  get exists() {
+    return files.has(this.path);
+  }
+  info() {
+    const value = files.get(this.path);
+    return {
+      size: value?.bytes.byteLength ?? 0,
+      modificationTime: value?.modifiedAt ?? 0,
+    };
+  }
+  write(value: string | Uint8Array) {
+    const bytes =
+      typeof value === "string"
+        ? new TextEncoder().encode(value)
+        : value.slice();
+    files.set(this.path, { bytes, modifiedAt: Date.now() });
+  }
+  textSync() {
+    const value = files.get(this.path);
+    if (!value) throw new Error("missing file");
+    return new TextDecoder().decode(value.bytes);
+  }
+  async base64() {
+    const value = files.get(this.path);
+    if (!value) throw new Error("missing file");
+    return Buffer.from(value.bytes).toString("base64");
+  }
+  delete() {
+    files.delete(this.path);
+  }
+  async move(destination: FakeFile, options?: { overwrite?: boolean }) {
+    if (failMoveDestination?.test(destination.name)) {
+      failMoveDestination = null;
+      throw new Error("injected move failure");
+    }
+    const value = files.get(this.path);
+    if (!value) throw new Error("missing source");
+    if (destination.exists && options?.overwrite !== true) {
+      throw new Error("destination exists");
+    }
+    if (destination.exists) destination.delete();
+    files.set(destination.path, value);
+    files.delete(this.path);
+    // Expo FileSystem mutates the source object to point at its destination.
+    // The cache must never use this object to clean up the old staging path.
+    this.path = destination.path;
+  }
+}
+
+class FakeDirectory {
+  readonly path: string;
+  constructor(parent: unknown, name?: string) {
+    const base = pathFrom(parent);
+    this.path = name == null ? base : `${base}/${name}`;
+  }
+  get uri() {
+    return uriFor(this.path);
+  }
+  get exists() {
+    return directories.has(this.path);
+  }
+  create() {
+    directories.add(this.path);
+  }
+  list() {
+    directoryListCalls += 1;
+    const prefix = `${this.path}/`;
+    return [...files.keys()]
+      .filter(
+        (path) =>
+          path.startsWith(prefix) && !path.slice(prefix.length).includes("/"),
+      )
+      .map((path) => new FakeFile(path));
+  }
+  delete() {
+    const prefix = `${this.path}/`;
+    [...files.keys()].forEach((path) => {
+      if (path.startsWith(prefix)) files.delete(path);
+    });
+    directories.delete(this.path);
+  }
+}
+
+mock.module("expo-file-system", () => ({
+  Directory: FakeDirectory,
+  File: FakeFile,
+  Paths: { cache: "/cache" },
+}));
+
+let nextNativeResponse: {
+  kind: "segmented-image";
+  status: number;
+  headers: Record<string, string>;
+  byteLength: number;
+  manifestVersion: 1;
+  imageWidth: number;
+  imageHeight: number;
+  imageSegments: Array<{
+    fileUri: string;
+    byteLength: number;
+    width: number;
+    height: number;
+    mimeType: "image/png";
+  }>;
+};
+
+mock.module("@/sources/mobileNativeHttpFile", () => ({
+  downloadMobileNativeHttpFile: async () => nextNativeResponse,
+}));
+
+const { FileSystemBinaryCache } = await import("./nativeCache.native");
+
+function stageResponse(suffix: string) {
+  const first = new FakeFile(`/cache/native-${suffix}-0.part`);
+  const second = new FakeFile(`/cache/native-${suffix}-1.part`);
+  first.write(new Uint8Array([1, 2, 3]));
+  second.write(new Uint8Array([4, 5, 6, 7]));
+  nextNativeResponse = {
+    kind: "segmented-image",
+    status: 200,
+    headers: { "content-type": "image/png" },
+    byteLength: 7,
+    manifestVersion: 1,
+    imageWidth: 100,
+    imageHeight: 10_000,
+    imageSegments: [
+      {
+        fileUri: first.uri,
+        byteLength: 3,
+        width: 100,
+        height: 5_000,
+        mimeType: "image/png",
+      },
+      {
+        fileUri: second.uri,
+        byteLength: 4,
+        width: 100,
+        height: 5_000,
+        mimeType: "image/png",
+      },
+    ],
+  };
+}
+
+describe("native segmented cache publication", () => {
+  beforeEach(() => {
+    files.clear();
+    directories.clear();
+    directories.add("/cache");
+    failMoveDestination = null;
+    directoryListCalls = 0;
+  });
+
+  test("publishes manifest last and never exposes it as binary bytes", async () => {
+    stageResponse("first");
+    const cache = new FileSystemBinaryCache("images", {
+      maxBytes: 1_000_000,
+      maxEntries: 10,
+      maxAgeMs: 60_000,
+      maxEntryBytes: 100_000,
+    });
+    const uri = await cache.downloadFile(
+      "page",
+      "https://example.test/p.png",
+      "image/png",
+      {
+        maxBytes: 100_000,
+        maxImageDimension: 16_384,
+        maxImagePixels: 8 * 1024 * 1024,
+        allowLongStripSegments: true,
+      },
+    );
+    expect(uri).toMatch(
+      /\.segments-v1-[a-z0-9]{10}-[a-z0-9]{6}-[a-z0-9]{10}\.json$/,
+    );
+    expect(await cache.getUri("page")).toBe(uri);
+    expect(await cache.getBytes("page")).toBeNull();
+    const manifest = JSON.parse(new FakeFile(uri).textSync()) as {
+      segments: Array<{ fileName: string }>;
+    };
+    expect(manifest.segments).toHaveLength(2);
+    manifest.segments.forEach((segment) => {
+      expect(new FakeFile(`/cache/images/${segment.fileName}`).exists).toBe(
+        true,
+      );
+    });
+  });
+
+  test("keeps the valid old generation when a replacement member move fails", async () => {
+    const cache = new FileSystemBinaryCache("images", {
+      maxBytes: 1_000_000,
+      maxEntries: 10,
+      maxAgeMs: 60_000,
+      maxEntryBytes: 100_000,
+    });
+    stageResponse("old");
+    const oldUri = await cache.downloadFile(
+      "page",
+      "https://example.test/p.png",
+      "image/png",
+      {
+        maxBytes: 100_000,
+        allowLongStripSegments: true,
+      },
+    );
+    stageResponse("new");
+    failMoveDestination = /-01\.png$/;
+    await expect(
+      cache.downloadFile("page", "https://example.test/p.png", "image/png", {
+        maxBytes: 100_000,
+        allowLongStripSegments: true,
+      }),
+    ).rejects.toThrow("injected move failure");
+    expect(await cache.getUri("page")).toBe(oldUri);
+    expect(new FakeFile(oldUri).exists).toBe(true);
+  });
+
+  test("rejects a replacement instead of quota-evicting a retained reader generation", async () => {
+    const cache = new FileSystemBinaryCache("images", {
+      maxBytes: 600,
+      maxEntries: 10,
+      maxAgeMs: 60_000,
+      maxEntryBytes: 600,
+    });
+    stageResponse("retained");
+    const oldUri = await cache.downloadFile(
+      "page",
+      "https://example.test/p.png",
+      "image/png",
+      {
+        maxBytes: 600,
+        allowLongStripSegments: true,
+      },
+    );
+    const release = cache.retainSegmentedImageManifest(oldUri);
+    stageResponse("replacement");
+    await expect(
+      cache.downloadFile("page", "https://example.test/p.png", "image/png", {
+        maxBytes: 600,
+        allowLongStripSegments: true,
+      }),
+    ).rejects.toThrow("active reader");
+    expect(await cache.getUri("page")).toBe(oldUri);
+    expect(new FakeFile(oldUri).exists).toBe(true);
+    release();
+  });
+
+  test("repairs missing members and startup-sweeps uncommitted members", async () => {
+    stageResponse("repair");
+    const cache = new FileSystemBinaryCache("images", {
+      maxBytes: 1_000_000,
+      maxEntries: 10,
+      maxAgeMs: 60_000,
+      maxEntryBytes: 100_000,
+    });
+    const uri = await cache.downloadFile(
+      "page",
+      "https://example.test/p.png",
+      "image/png",
+      {
+        maxBytes: 100_000,
+        allowLongStripSegments: true,
+      },
+    );
+    const manifest = JSON.parse(new FakeFile(uri).textSync()) as {
+      segments: Array<{ fileName: string }>;
+    };
+    new FakeFile(`/cache/images/${manifest.segments[0]!.fileName}`).delete();
+    expect(await cache.getUri("page")).toBeNull();
+    expect(new FakeFile(uri).exists).toBe(false);
+
+    const orphan = new FakeFile(
+      "/cache/images/orphan.segment-v1-00000000m1-000000-0000000001-00.png",
+    );
+    orphan.write(new Uint8Array([1]));
+    const restarted = new FileSystemBinaryCache("images", {
+      maxBytes: 1_000_000,
+      maxEntries: 10,
+      maxAgeMs: 60_000,
+      maxEntryBytes: 100_000,
+    });
+    await restarted.getUri("unrelated");
+    expect(orphan.exists).toBe(false);
+  });
+
+  test("bounds a corrupt 4,096-file startup sweep to one-pass indexes", async () => {
+    directories.add("/cache/images");
+    const generation = "00000000m1-000000-0000000001";
+    for (let group = 0; group < 512; group += 1) {
+      const key = `corrupt-${group.toString().padStart(3, "0")}`;
+      new FakeFile(`/cache/images/${key}.segments-v1-${generation}.json`).write(
+        "{}",
+      );
+      for (let member = 0; member < 7; member += 1) {
+        new FakeFile(
+          `/cache/images/${key}.segment-v1-${generation}-${member
+            .toString()
+            .padStart(2, "0")}.png`,
+        ).write(new Uint8Array([member]));
+      }
+    }
+    expect(files.size).toBe(4_096);
+    const cache = new FileSystemBinaryCache("images", {
+      maxBytes: 10_000_000,
+      maxEntries: 1_000,
+      maxAgeMs: 60_000,
+      maxEntryBytes: 100_000,
+    });
+    const startedAt = performance.now();
+    expect(await cache.getUri("unrelated")).toBeNull();
+    const elapsedMs = performance.now() - startedAt;
+    expect(files.size).toBe(0);
+    expect(directoryListCalls).toBeLessThanOrEqual(4);
+    expect(elapsedMs).toBeLessThan(1_000);
+  });
+});

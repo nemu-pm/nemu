@@ -313,6 +313,8 @@ describe("web snapshot sync run identity", () => {
     applyDeferred.resolve({
       items: [item],
       links: [link],
+      changedItems: [],
+      changedLinks: [],
       localItemsToPush: [item],
       localLinksToPush: [link],
     });
@@ -334,6 +336,8 @@ describe("web snapshot sync run identity", () => {
     const merged: LibrarySnapshotMerge<LocalLibraryItem, LocalSourceLink> = {
       items: [first, second],
       links: [],
+      changedItems: [],
+      changedLinks: [],
       localItemsToPush: [first, second],
       localLinksToPush: [],
     };
@@ -386,6 +390,8 @@ describe("web snapshot sync run identity", () => {
     const merged: LibrarySnapshotMerge<LocalLibraryItem, LocalSourceLink> = {
       items: [alias, target],
       links: [link],
+      changedItems: [],
+      changedLinks: [],
       // Deliberately adversarial order: ID/key ordering is not a dependency
       // guarantee and may put the retired source before its local-only target.
       localItemsToPush: [alias, target],
@@ -469,6 +475,8 @@ describe("web snapshot sync run identity", () => {
     applyDeferred.resolve({
       collections: [localCollection],
       collectionItems: [localCollectionItem],
+      changedCollections: [],
+      changedCollectionItems: [],
       localCollectionsToPush: [localCollection],
       localCollectionItemsToPush: [localCollectionItem],
     });
@@ -508,6 +516,8 @@ describe("web snapshot sync run identity", () => {
         return {
           collections: [collectionRecord],
           collectionItems: items,
+          changedCollections: [],
+          changedCollectionItems: [],
           localCollectionsToPush: [],
           localCollectionItemsToPush: [],
         };
@@ -549,6 +559,8 @@ describe("web snapshot sync run identity", () => {
     > = {
       collections: [parent],
       collectionItems: [member],
+      changedCollections: [],
+      changedCollectionItems: [],
       localCollectionsToPush: [parent],
       localCollectionItemsToPush: [member],
     };
@@ -602,6 +614,8 @@ describe("web snapshot sync run identity", () => {
     > = {
       collections: [first, second],
       collectionItems: [],
+      changedCollections: [],
+      changedCollectionItems: [],
       localCollectionsToPush: [first, second],
       localCollectionItemsToPush: [],
     };
@@ -653,6 +667,8 @@ describe("web snapshot sync run identity", () => {
     const merged: LibrarySnapshotMerge<LocalLibraryItem, LocalSourceLink> = {
       items,
       links,
+      changedItems: [],
+      changedLinks: [],
       localItemsToPush: [first, second],
       localLinksToPush: [],
     };
@@ -719,6 +735,8 @@ describe("web snapshot sync run identity", () => {
     > = {
       collections,
       collectionItems: [],
+      changedCollections: [],
+      changedCollectionItems: [],
       localCollectionsToPush: [first, second],
       localCollectionItemsToPush: [],
     };
@@ -842,6 +860,8 @@ describe("web snapshot sync run identity", () => {
     const merged: LibrarySnapshotMerge<LocalLibraryItem, LocalSourceLink> = {
       items,
       links,
+      changedItems: [],
+      changedLinks: [],
       localItemsToPush: items,
       localLinksToPush: links,
     };
@@ -895,6 +915,8 @@ describe("web snapshot sync run identity", () => {
     > = {
       collections: [parent],
       collectionItems: membership,
+      changedCollections: [],
+      changedCollectionItems: [],
       localCollectionsToPush: [],
       localCollectionItemsToPush: membership,
     };
@@ -937,6 +959,8 @@ describe("web snapshot sync run identity", () => {
     > = {
       collections,
       collectionItems: [],
+      changedCollections: [],
+      changedCollectionItems: [],
       localCollectionsToPush: collections,
       localCollectionItemsToPush: [],
     };

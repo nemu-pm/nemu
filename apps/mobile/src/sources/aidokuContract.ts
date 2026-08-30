@@ -1,0 +1,45 @@
+import type {
+  AsyncAidokuSource,
+  Chapter,
+  CheckFilter,
+  Filter,
+  FilterType as AidokuFilterType,
+  FilterValue,
+  GroupFilter,
+  HomeLayout,
+  Listing,
+  Manga,
+  MangaPageResult,
+  MultiSelectValue,
+  Page,
+  SortFilter,
+  SortSelection,
+} from "@nemu.pm/aidoku-runtime";
+
+export const FilterType = {
+  Title: 0,
+  Author: 1,
+  Select: 2,
+  Sort: 3,
+  Check: 4,
+  Group: 5,
+  Genre: 6,
+  Text: 7,
+} as const satisfies Record<string, AidokuFilterType>;
+
+export type {
+  AsyncAidokuSource,
+  Chapter,
+  CheckFilter,
+  Filter,
+  FilterValue,
+  GroupFilter,
+  HomeLayout,
+  Listing,
+  Manga,
+  MangaPageResult,
+  MultiSelectValue,
+  Page,
+  SortFilter,
+  SortSelection,
+};

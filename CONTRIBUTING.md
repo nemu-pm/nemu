@@ -4,7 +4,7 @@ This file records repository-specific development and verification conventions.
 
 ## What Nemu Is
 
-Nemu is a local-first content reader built around pluggable source runtimes, IndexedDB storage, and optional Convex-backed cloud sync. Today it ships one app from this monorepo: a web app (React 19 + Vite + TanStack Router), backed by the shared `@nemu/core` package. The Expo React Native mobile app (`apps/mobile`) lands in a follow-up PR; `packages/core` is shaped to be consumed by it.
+Nemu is a local-first content reader built around pluggable source runtimes and optional Convex-backed cloud sync. This monorepo ships a React 19 web app backed by IndexedDB and an Expo React Native app (`apps/mobile`) backed by SQLite. Both clients consume shared contracts and pure logic from `@nemu/core`.
 
 ## Commands
 
@@ -25,12 +25,17 @@ bunx convex codegen               # regenerate committed Convex bindings
 
 bun run build                     # pure local/CI web build: tsc -b + vite build
 bun run deploy                    # generate Apple secret, then deploy Convex
+
+bun run mobile:dev                # start the Expo development server
+bun run mobile:typecheck          # typecheck apps/mobile
+bun run --cwd apps/mobile lint    # lint the mobile app
+bun run --cwd apps/mobile test    # run the mobile test suite
 ```
 
 ### Lint / typecheck gotchas
 
 - **Root `bun run test` covers the web suite plus `@nemu/core`.** Root `bun test` is rooted at `src/`; the `bun run test` script chains `bun test ./tests` (repository contract tests) and `bun run core:test`, so the shared sync/settings/sources/library tests run alongside the web suite.
-- **Full lint is a CI gate.** `.github/workflows/ci.yml` runs `bun install --frozen-lockfile`, then `bun run test`, `bun run typecheck`, `bun run lint`, and `bun run build` on every pull request and on pushes to `master`. Targeted lint is useful while iterating, but full `bun run lint` must pass before merge. `--frozen-lockfile` also means a dependency change is only mergeable with a matching `bun.lock` update committed.
+- **Full lint is a CI gate.** `.github/workflows/ci.yml` validates the shared core and web app; `.github/workflows/mobile.yml` validates the Expo app and runs native jobs when native or prebuild inputs change. Targeted lint is useful while iterating, but both root and mobile lint must pass before merge. `--frozen-lockfile` also means a dependency change is only mergeable with a matching `bun.lock` update committed.
 - **Tests need the vaul submodule.** `bun install` plus `git submodule update --init` (for `vendor/vaul`) are both required or tests fail on missing `vaul`/`zustand`. The `vaul` import is path-aliased to `./vendor/vaul/src` in all tsconfigs.
 - **bun `mock.module` leaks across files in one run.** When mocking a module in a test, the mock must export _every_ named export of the real module, or later test files in the same run break with "export not found".
 - `bun run typecheck` covers three projects (`packages/core`, app, `convex/`); `bun run core:typecheck` isolates just the shared core package.
@@ -39,13 +44,14 @@ bun run deploy                    # generate Apple secret, then deploy Convex
 ## Monorepo Layout
 
 - `src/` — web app (the primary app). Routed by TanStack Router (`src/router.tsx`, `src/pages/`).
-- `packages/core/` — `@nemu/core`, shared pure-logic (sync mapping helpers, settings). Consumed by the web app today and by the mobile app once it lands. Exports source TS directly (no build step).
+- `apps/mobile/` — Expo Router React Native app, native source modules, and mobile-specific tests and prebuild plugins.
+- `packages/core/` — `@nemu/core`, shared pure logic (sync mapping helpers, settings, source OAuth, and reader alignment). Consumed by both apps and exported as source TS (no build step).
 - `convex/` — Convex backend (schema, auth, HTTP actions, sync mutations). `convex/_generated` is generated, git-ignored from lint.
 - `services/proxy/` — Bun + Cloudflare Worker proxy. `services/ocr/` — Python OCR service (`./services/ocr/run.sh 8080`).
 - `vendor/vaul` — git submodule; the `vaul` package resolves to it via tsconfig path aliases.
 - `docs/` — `sources.md`, `collections.md`, `plugins.md` are the source-of-truth docs for those subsystems.
 
-Path aliases (all tsconfigs): `@/*` → `./src/*` (web), `@nemu/core` / `@nemu/core/*` → `./packages/core/src`, `vaul` → `./vendor/vaul/src`.
+Root path aliases: `@/*` → `./src/*` (web), `@nemu/core` / `@nemu/core/*` → `./packages/core/src`, `vaul` → `./vendor/vaul/src`. The mobile tsconfig maps `@/*` to `apps/mobile/src/*` while retaining the same `@nemu/core` aliases.
 
 ## Architecture: Local-First Sync Model
 
@@ -75,9 +81,13 @@ Plugin APIs in `src/lib/plugins/`; built-ins registered by `src/lib/plugins/init
 
 ## Mobile App
 
-The Expo React Native app is not part of this branch. It lands in a follow-up PR, which adds `apps/mobile`, its toolchain, its own conventions section here, and its CI jobs.
+The Expo Router app lives in `apps/mobile`. Its local-first store uses account-scoped SQLite databases, while `MobileSyncDataStore` mirrors cloud-backed domains through the same generation-fenced merge contracts used by the web client. Aidoku packages execute through the platform modules in `apps/mobile/modules/nemu-aidoku`; Tachiyomi packages may sync as metadata but remain explicitly unsupported for live execution until a native bridge exists.
 
-Until then, treat `@nemu/core` as the seam: when logic will be needed by both clients, put it in `packages/core` (pure TS, no DOM/`react-native` imports) rather than in `src/`.
+Source settings are a credential boundary. Mobile SQLite may contain only the opaque `mobileSourceSettingsVault` marker; the value itself lives in Expo SecureStore under a database-scoped, device-only Keychain/Android Keystore namespace. Database migration v6 moves legacy rows before checkpointing and vacuuming plaintext remnants. Source-authored Aidoku runtime patches follow the same rule: iOS migrates legacy `UserDefaults` values into device-only Keychain entries, while Android migrates legacy `SharedPreferences` values into AES-GCM envelopes whose key is non-exportable in Android Keystore. Profile/source reset paths must clear both layers. Never add a fallback that silently writes credentials to SQLite, `UserDefaults`, or ordinary `SharedPreferences` when secure storage fails; fail the login/settings operation instead.
+
+Mobile source OAuth authorization and token endpoints must be credential-free HTTPS URLs. PKCE callbacks must contain a verifier-bound authorization code (hybrid callbacks exchange the code rather than accepting their token field), and Android must not accept bearer tokens through a collision-prone private-use scheme. Keep any compatibility exception narrower than these invariants and cover it in `mobileSourceOAuthLogic.test.ts`.
+
+Keep shared logic in `packages/core` as pure TypeScript with no DOM or `react-native` imports. Keep platform code behind `.native.ts` seams or Expo modules so the mobile Bun suite can exercise the portable behavior. Changes to `app.json`, prebuild plugins, native modules, assets, dependencies, or checked-in patches must pass the Android and iOS jobs in `.github/workflows/mobile.yml`.
 
 ## Deployment / Environment
 

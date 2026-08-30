@@ -1,0 +1,391 @@
+diff --git a/android/CMakeLists.txt b/android/CMakeLists.txt
+index 8a72619a6792198d85f82aa0455eb281bed48f6f..5e35d3ff30596f25806754e86f9aff516f5a57dc 100644
+--- a/android/CMakeLists.txt
++++ b/android/CMakeLists.txt
+@@ -40,6 +40,15 @@ add_library(
+   "${SRC_DIR}/OnLoad.cpp"
+ )
+
++# NDK r27 does not opt libraries into flexible page sizes by default. Align
++# LOAD segments for both 4 KiB and 16 KiB Android devices.
++target_link_options(
++  ${PACKAGE_NAME}
++  PRIVATE
++  "-Wl,-z,max-page-size=16384"
++  "-Wl,-z,common-page-size=16384"
++)
++
+ # includes
+
+ target_include_directories(
+diff --git a/android/build.gradle.kts b/android/build.gradle.kts
+index c8d6724a13b6ecf2cd7ada3bf226021345aa78f1..d13e37eddb2061c76cba1c2c960fd0cead314e55 100644
+--- a/android/build.gradle.kts
++++ b/android/build.gradle.kts
+@@ -100,8 +100,9 @@ dependencies {
+   compileOnly("com.facebook.fbjni:fbjni:0.7.0")
+   implementation("com.facebook.react:react-android")
+
+-  //noinspection GradleDynamicVersion
+-  implementation("io.github.react-native-community:jsc-android:2026004.+")
++  // Pin the native engine: a dynamic Maven range makes identical commits
++  // resolve to different runtimes and invalidates crash/build verification.
++  implementation("io.github.react-native-community:jsc-android:2026004.0.1")
+ }
+
+ val createPrefabHeadersDir by
+diff --git a/common/JSCRuntime.cpp b/common/JSCRuntime.cpp
+index 0d6b7d6cb8fffc88bc2c7640391e1612884b96e1..3e3c6dac94a24f6a3388042a1325155467550cca 100644
+--- a/common/JSCRuntime.cpp
++++ b/common/JSCRuntime.cpp
+@@ -14,6 +14,7 @@
+ #include <condition_variable>
+ #include <cstdlib>
+ #include <deque>
++#include <memory>
+ #include <mutex>
+ #include <sstream>
+ #include <thread>
+@@ -83,45 +84,55 @@ class JSCRuntime : public jsi::Runtime {
+
+  protected:
+   friend class detail::ArgsConverter;
+-  class JSCSymbolValue final : public PointerValue {
++
++  // PointerValue instances can outlive JSCRuntime during a React Native reload.
++  // Keep the shutdown flag and debug accounting alive until the final wrapper
++  // is released instead of storing references to members of a dead runtime.
++  struct LifetimeState {
++    std::atomic<bool> ctxInvalid{false};
+ #ifndef NDEBUG
++    std::atomic<intptr_t> objectCounter{0};
++    std::atomic<intptr_t> symbolCounter{0};
++    std::atomic<intptr_t> stringCounter{0};
++
++    ~LifetimeState() {
++      assert(
++          objectCounter == 0 &&
++          "JSC lifetime state destroyed with a dangling API object");
++      assert(
++          symbolCounter == 0 &&
++          "JSC lifetime state destroyed with a dangling API symbol");
++      assert(
++          stringCounter == 0 &&
++          "JSC lifetime state destroyed with a dangling API string");
++    }
++#endif
++  };
++
++  class JSCSymbolValue final : public PointerValue {
+     JSCSymbolValue(
+         JSGlobalContextRef ctx,
+-        const std::atomic<bool>& ctxInvalid,
+-        JSValueRef sym,
+-        std::atomic<intptr_t>& counter);
+-#else
+-    JSCSymbolValue(
+-        JSGlobalContextRef ctx,
+-        const std::atomic<bool>& ctxInvalid,
++        std::shared_ptr<LifetimeState> lifetimeState,
+         JSValueRef sym);
+-#endif
+     void invalidate() noexcept override;
+
+     JSGlobalContextRef ctx_;
+-    const std::atomic<bool>& ctxInvalid_;
++    std::shared_ptr<LifetimeState> lifetimeState_;
+     // There is no C type in the JSC API to represent Symbol, so this stored
+     // a JSValueRef which contains the Symbol.
+     JSValueRef sym_;
+-#ifndef NDEBUG
+-    std::atomic<intptr_t>& counter_;
+-#endif
+    protected:
+     friend class JSCRuntime;
+   };
+
+   class JSCStringValue final : public PointerValue {
+-#ifndef NDEBUG
+-    JSCStringValue(JSStringRef str, std::atomic<intptr_t>& counter);
+-#else
+-    JSCStringValue(JSStringRef str);
+-#endif
++    JSCStringValue(
++        JSStringRef str,
++        std::shared_ptr<LifetimeState> lifetimeState);
+     void invalidate() noexcept override;
+
+     JSStringRef str_;
+-#ifndef NDEBUG
+-    std::atomic<intptr_t>& counter_;
+-#endif
++    std::shared_ptr<LifetimeState> lifetimeState_;
+    protected:
+     friend class JSCRuntime;
+   };
+@@ -129,22 +140,14 @@ class JSCRuntime : public jsi::Runtime {
+   class JSCObjectValue final : public PointerValue {
+     JSCObjectValue(
+         JSGlobalContextRef ctx,
+-        const std::atomic<bool>& ctxInvalid,
+-        JSObjectRef obj
+-#ifndef NDEBUG
+-        ,
+-        std::atomic<intptr_t>& counter
+-#endif
+-    );
++        std::shared_ptr<LifetimeState> lifetimeState,
++        JSObjectRef obj);
+
+     void invalidate() noexcept override;
+
+     JSGlobalContextRef ctx_;
+-    const std::atomic<bool>& ctxInvalid_;
++    std::shared_ptr<LifetimeState> lifetimeState_;
+     JSObjectRef obj_;
+-#ifndef NDEBUG
+-    std::atomic<intptr_t>& counter_;
+-#endif
+    protected:
+     friend class JSCRuntime;
+   };
+@@ -270,15 +273,10 @@ class JSCRuntime : public jsi::Runtime {
+   void checkException(JSValueRef res, JSValueRef exc, const char* msg);
+
+   JSGlobalContextRef ctx_;
+-  std::atomic<bool> ctxInvalid_;
++  std::shared_ptr<LifetimeState> lifetimeState_;
+   std::string desc_;
+   JSValueRef nativeStateSymbol_ = nullptr;
+   std::deque<jsi::Function> microtaskQueue_;
+-#ifndef NDEBUG
+-  mutable std::atomic<intptr_t> objectCounter_;
+-  mutable std::atomic<intptr_t> symbolCounter_;
+-  mutable std::atomic<intptr_t> stringCounter_;
+-#endif
+ };
+
+ #ifndef __has_builtin
+@@ -381,13 +379,7 @@ JSCRuntime::JSCRuntime(const facebook::jsc::RuntimeConfig& rc)
+
+ JSCRuntime::JSCRuntime(JSGlobalContextRef ctx)
+     : ctx_(JSGlobalContextRetain(ctx)),
+-      ctxInvalid_(false)
+-#ifndef NDEBUG
+-      ,
+-      objectCounter_(0),
+-      stringCounter_(0)
+-#endif
+-{
++      lifetimeState_(std::make_shared<LifetimeState>()) {
+ #ifndef NDEBUG
+ #ifdef _JSC_HAS_INSPECTABLE
+   if (__builtin_available(macOS 13.3, iOS 16.4, tvOS 16.4, *)) {
+@@ -408,16 +400,10 @@ JSCRuntime::~JSCRuntime() {
+   // JSValueUnprotect() can no longer be called.  We use an
+   // atomic<bool> to avoid unsafe unprotects happening after shutdown
+   // has started.
+-  ctxInvalid_ = true;
++  lifetimeState_->ctxInvalid.store(true, std::memory_order_release);
+   // No need to unprotect nativeStateSymbol_ since the heap is getting torn down
+   // anyway
+   JSGlobalContextRelease(ctx_);
+-#ifndef NDEBUG
+-  assert(
+-      objectCounter_ == 0 && "JSCRuntime destroyed with a dangling API object");
+-  assert(
+-      stringCounter_ == 0 && "JSCRuntime destroyed with a dangling API string");
+-#endif
+ }
+
+ std::shared_ptr<const jsi::PreparedJavaScript> JSCRuntime::prepareJavaScript(
+@@ -495,59 +481,47 @@ bool JSCRuntime::isInspectable() {
+
+ JSCRuntime::JSCSymbolValue::JSCSymbolValue(
+     JSGlobalContextRef ctx,
+-    const std::atomic<bool>& ctxInvalid,
+-    JSValueRef sym
+-#ifndef NDEBUG
+-    ,
+-    std::atomic<intptr_t>& counter
+-#endif
+-    )
++    std::shared_ptr<LifetimeState> lifetimeState,
++    JSValueRef sym)
+     : ctx_(ctx),
+-      ctxInvalid_(ctxInvalid),
+-      sym_(sym)
+-#ifndef NDEBUG
+-      ,
+-      counter_(counter)
+-#endif
+-{
++      lifetimeState_(std::move(lifetimeState)),
++      sym_(sym) {
+   assert(JSValueIsSymbol(ctx_, sym_));
+   JSValueProtect(ctx_, sym_);
+ #ifndef NDEBUG
+-  counter_ += 1;
++  lifetimeState_->symbolCounter += 1;
+ #endif
+ }
+
+ void JSCRuntime::JSCSymbolValue::invalidate() noexcept {
+ #ifndef NDEBUG
+-  counter_ -= 1;
++  lifetimeState_->symbolCounter -= 1;
+ #endif
+
+-  if (!ctxInvalid_) {
++  if (!lifetimeState_->ctxInvalid.load(std::memory_order_acquire)) {
+     JSValueUnprotect(ctx_, sym_);
+   }
+   delete this;
+ }
+
+-#ifndef NDEBUG
+ JSCRuntime::JSCStringValue::JSCStringValue(
+     JSStringRef str,
+-    std::atomic<intptr_t>& counter)
+-    : str_(JSStringRetain(str)), counter_(counter) {
++    std::shared_ptr<LifetimeState> lifetimeState)
++    : str_(JSStringRetain(str)),
++      lifetimeState_(std::move(lifetimeState)) {
++#ifndef NDEBUG
+   // Since std::atomic returns a copy instead of a reference when calling
+   // operator+= we must do this explicitly in the constructor
+-  counter_ += 1;
+-}
+-#else
+-JSCRuntime::JSCStringValue::JSCStringValue(JSStringRef str)
+-    : str_(JSStringRetain(str)) {}
++  lifetimeState_->stringCounter += 1;
+ #endif
++}
+
+ void JSCRuntime::JSCStringValue::invalidate() noexcept {
+   // These JSC{String,Object}Value objects are implicitly owned by the
+   // {String,Object} objects, thus when a String/Object is destructed
+   // the JSC{String,Object}Value should be released.
+ #ifndef NDEBUG
+-  counter_ -= 1;
++  lifetimeState_->stringCounter -= 1;
+ #endif
+   JSStringRelease(str_);
+   // Angery reaccs only
+@@ -556,30 +530,20 @@ void JSCRuntime::JSCStringValue::invalidate() noexcept {
+
+ JSCRuntime::JSCObjectValue::JSCObjectValue(
+     JSGlobalContextRef ctx,
+-    const std::atomic<bool>& ctxInvalid,
+-    JSObjectRef obj
+-#ifndef NDEBUG
+-    ,
+-    std::atomic<intptr_t>& counter
+-#endif
+-    )
++    std::shared_ptr<LifetimeState> lifetimeState,
++    JSObjectRef obj)
+     : ctx_(ctx),
+-      ctxInvalid_(ctxInvalid),
+-      obj_(obj)
+-#ifndef NDEBUG
+-      ,
+-      counter_(counter)
+-#endif
+-{
++      lifetimeState_(std::move(lifetimeState)),
++      obj_(obj) {
+   JSValueProtect(ctx_, obj_);
+ #ifndef NDEBUG
+-  counter_ += 1;
++  lifetimeState_->objectCounter += 1;
+ #endif
+ }
+
+ void JSCRuntime::JSCObjectValue::invalidate() noexcept {
+ #ifndef NDEBUG
+-  counter_ -= 1;
++  lifetimeState_->objectCounter -= 1;
+ #endif
+   // When shutting down the VM, if there is a HostObject which
+   // contains or otherwise owns a jsi::Object, then the final GC will
+@@ -603,7 +567,7 @@ void JSCRuntime::JSCObjectValue::invalidate() noexcept {
+   // JSValueUnprotect, in order to conform to the documented API, but
+   // use the "unsafe" synchronous version on iOS 11 and earlier.
+
+-  if (!ctxInvalid_) {
++  if (!lifetimeState_->ctxInvalid.load(std::memory_order_acquire)) {
+     JSValueUnprotect(ctx_, obj_);
+   }
+   delete this;
+@@ -1131,7 +1095,29 @@ jsi::Array JSCRuntime::createArray(size_t length) {
+
+ jsi::ArrayBuffer JSCRuntime::createArrayBuffer(
+     std::shared_ptr<jsi::MutableBuffer> buffer) {
+-  throw std::logic_error("Not implemented");
++  // Keep the MutableBuffer alive for as long as JavaScriptCore owns the
++  // no-copy ArrayBuffer. Without this implementation, native modules that
++  // resolve Data/Uint8Array values crash because the default method throws.
++  auto bufferContext =
++      std::make_unique<std::shared_ptr<jsi::MutableBuffer>>(std::move(buffer));
++  JSValueRef exc = nullptr;
++  JSObjectRef obj = JSObjectMakeArrayBufferWithBytesNoCopy(
++      ctx_,
++      (*bufferContext)->data(),
++      (*bufferContext)->size(),
++      [](void* /*bytes*/, void* context) {
++        delete static_cast<std::shared_ptr<jsi::MutableBuffer>*>(context);
++      },
++      bufferContext.get(),
++      &exc);
++
++  // JavaScriptCore owns the context only after it successfully creates the
++  // object. Retain local ownership on failure so the buffer cannot leak.
++  if (obj != nullptr) {
++    bufferContext.release();
++  }
++  checkException(obj, exc);
++  return createObject(obj).getArrayBuffer(*this);
+ }
+
+ size_t JSCRuntime::size(const jsi::Array& arr) {
+@@ -1437,11 +1423,7 @@ void JSCRuntime::setExternalMemoryPressure(const jsi::Object&, size_t) {}
+
+ jsi::Runtime::PointerValue* JSCRuntime::makeSymbolValue(
+     JSValueRef symbolRef) const {
+-#ifndef NDEBUG
+-  return new JSCSymbolValue(ctx_, ctxInvalid_, symbolRef, symbolCounter_);
+-#else
+-  return new JSCSymbolValue(ctx_, ctxInvalid_, symbolRef);
+-#endif
++  return new JSCSymbolValue(ctx_, lifetimeState_, symbolRef);
+ }
+
+ namespace {
+@@ -1456,11 +1438,7 @@ jsi::Runtime::PointerValue* JSCRuntime::makeStringValue(
+   if (!stringRef) {
+     stringRef = getEmptyString();
+   }
+-#ifndef NDEBUG
+-  return new JSCStringValue(stringRef, stringCounter_);
+-#else
+-  return new JSCStringValue(stringRef);
+-#endif
++  return new JSCStringValue(stringRef, lifetimeState_);
+ }
+
+ jsi::Symbol JSCRuntime::createSymbol(JSValueRef sym) const {
+@@ -1480,11 +1458,7 @@ jsi::Runtime::PointerValue* JSCRuntime::makeObjectValue(
+   if (!objectRef) {
+     objectRef = JSObjectMake(ctx_, nullptr, nullptr);
+   }
+-#ifndef NDEBUG
+-  return new JSCObjectValue(ctx_, ctxInvalid_, objectRef, objectCounter_);
+-#else
+-  return new JSCObjectValue(ctx_, ctxInvalid_, objectRef);
+-#endif
++  return new JSCObjectValue(ctx_, lifetimeState_, objectRef);
+ }
+
+ jsi::Object JSCRuntime::createObject(JSObjectRef obj) const {

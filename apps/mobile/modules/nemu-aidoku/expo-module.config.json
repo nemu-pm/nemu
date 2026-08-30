@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["NemuAidokuModule"]
+  },
+  "android": {
+    "modules": ["pm.nemu.mobile.aidoku.NemuAidokuModule"]
+  }
+}
