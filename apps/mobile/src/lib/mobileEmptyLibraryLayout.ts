@@ -19,7 +19,7 @@ const ACTION_BUTTON_HEIGHT = 48;
 export const NEMU_EMPTY_LIBRARY_GLOW_BLEED_RATIO = 20 / 456;
 const PORTRAIT_ASPECT = 456 / 390;
 /** Share of the leftover column (after copy + button) given to the portrait. */
-export const NEMU_EMPTY_LIBRARY_PORTRAIT_REMAINING_RATIO = 0.86;
+export const NEMU_EMPTY_LIBRARY_PORTRAIT_REMAINING_RATIO = 0.93;
 
 export const NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT =
   NEMU_WEB_EMPTY_LIBRARY_VISUAL.portraitMarginBottom +

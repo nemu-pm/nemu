@@ -61,6 +61,8 @@ describe("Nemu portrait halo motion", () => {
     }
     expect(generator).toContain("NEMU_WEB_PORTRAIT_GLOW.primary.blurRadius");
     expect(generator).toContain("NEMU_WEB_PORTRAIT_GLOW.secondary.blurRadius");
+    expect(generator).toContain("<ellipse cx=");
+    expect(webEmpty).toContain("rounded-full");
     expect(NEMU_WEB_PORTRAIT_GLOW.primary.blurRadius).toBe(64);
     expect(NEMU_WEB_PORTRAIT_GLOW.secondary.blurRadius).toBe(40);
     expect(NEMU_WEB_PORTRAIT_GLOW.shadow).toEqual({

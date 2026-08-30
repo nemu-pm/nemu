@@ -75,8 +75,12 @@ function rasterSvg(
   const padding = NEMU_WEB_PORTRAIT_GLOW.artboardPadding;
   const canvasWidth = stageWidth + padding * 2;
   const canvasHeight = stageHeight + padding * 2;
-  const primaryRect = `<rect x="${padding}" y="${padding}" width="${stageWidth}" height="${stageHeight}" rx="${stageWidth / 2}" fill="url(#primary-gradient)" filter="url(#primary-blur)" />`;
-  const secondaryRect = `<rect x="${padding}" y="${padding}" width="${stageWidth}" height="${stageHeight}" rx="${stageWidth / 2}" fill="url(#secondary-gradient)" filter="url(#secondary-blur)" />`;
+  const cx = padding + stageWidth / 2;
+  const cy = padding + stageHeight / 2;
+  const rx = stageWidth / 2;
+  const ry = stageHeight / 2;
+  const primaryRect = `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#primary-gradient)" filter="url(#primary-blur)" />`;
+  const secondaryRect = `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#secondary-gradient)" filter="url(#secondary-blur)" />`;
 
   const content = layer === "primary"
     ? primaryRect
