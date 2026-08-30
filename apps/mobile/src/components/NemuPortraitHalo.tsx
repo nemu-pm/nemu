@@ -148,11 +148,13 @@ export function NemuPortraitHalo({
     ],
   }));
   const glowPulseStyle = useAnimatedStyle(() => {
-    const [opacity0, opacity1] = NEMU_WEB_PORTRAIT_GLOW.primary.opacity;
     const [y0, y1] = NEMU_WEB_PORTRAIT_GLOW.primary.translateY;
     const [scale0, scale1] = NEMU_WEB_PORTRAIT_GLOW.primary.scale;
+    // CSS multiplies 0.25–0.4 onto a live gradient. The PNG already contains
+    // those stops; another 0.25 against white washes the aura out. Pulse the
+    // full baked layer instead.
     return {
-      opacity: opacity0 + (opacity1 - opacity0) * glowPulse.value,
+      opacity: 0.62 + 0.38 * glowPulse.value,
       transform: [
         { translateY: y0 + (y1 - y0) * glowPulse.value },
         { scale: scale0 + (scale1 - scale0) * glowPulse.value },
@@ -160,11 +162,10 @@ export function NemuPortraitHalo({
     };
   });
   const glowDriftStyle = useAnimatedStyle(() => {
-    const [opacity0, opacity1] = NEMU_WEB_PORTRAIT_GLOW.secondary.opacity;
     const [x0, x1] = NEMU_WEB_PORTRAIT_GLOW.secondary.translateX;
     const [y0, y1] = NEMU_WEB_PORTRAIT_GLOW.secondary.translateY;
     return {
-      opacity: opacity0 + (opacity1 - opacity0) * glowDrift.value,
+      opacity: 0.45 + 0.4 * glowDrift.value,
       transform: [
         { translateY: y0 + (y1 - y0) * glowDrift.value },
         { translateX: x0 + (x1 - x0) * glowDrift.value },
