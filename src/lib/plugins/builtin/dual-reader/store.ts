@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Chapter, Page } from '@/lib/sources/types';
 import type { LocalSourceLink } from '@/data/schema';
-import type { ChapterPairSeed, SecondaryAlignment, SecondaryRenderPlan } from '@/lib/dual-reader/types';
+import type { ChapterPairSeed, SecondaryAlignment, SecondaryRenderPlan } from '@nemu/core/dual-reader';
 import { createPluginStorage } from '../../types';
 
 const storage = createPluginStorage('dual-reader');

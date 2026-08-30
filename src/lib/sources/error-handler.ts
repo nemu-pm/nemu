@@ -6,43 +6,38 @@
 import { toast } from "sonner";
 import i18n from "@/lib/i18n";
 import { useCloudflareBypassStore } from "@/components/cloudflare-bypass-dialog";
+import {
+  extractCfUrlFromMessage,
+  isCloudflareErrorMessage,
+  readErrorUrl,
+} from "@nemu/core/sources";
 // Note: Don't import from ./aidoku here to avoid circular dependency
 
 /**
- * Check if an error is a Cloudflare block
+ * Check if an error is a Cloudflare block.
+ *
+ * Web keeps a strict `instanceof Error` gate: the shared
+ * `isCloudflareErrorMessage` primitive handles the message patterns, and the
+ * `CloudflareBlockedError` name check is applied here (inside the gate) so a
+ * plain string is never classified as Cloudflare on web.
  */
 export function isCloudflareError(error: unknown): boolean {
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
-    // Direct CloudflareBlockedError
-    if (error.name === "CloudflareBlockedError") return true;
-    // Error message patterns
-    if (msg.includes("cloudflare blocked")) return true;
-    if (msg.includes("cloudflare challenge")) return true;
-    if (msg.includes("cloudflare protection")) return true;
-    // Image 403 errors often indicate CF/hotlink protection
-    if (msg.includes("fetch image") && msg.includes("403")) return true;
-  }
-  return false;
+  if (!(error instanceof Error)) return false;
+  if (error.name === "CloudflareBlockedError") return true;
+  return isCloudflareErrorMessage(error.message);
 }
 
 /**
- * Extract URL from Cloudflare error if available
+ * Extract URL from Cloudflare error if available.
+ *
+ * Kept `instanceof Error`-gated to match prior web behavior; the shared
+ * `readErrorUrl` / `extractCfUrlFromMessage` primitives do the actual work.
  */
 function extractCfUrl(error: unknown): string | undefined {
-  if (error instanceof Error) {
-    // CloudflareBlockedError has url property
-    if ("url" in error && typeof (error as { url: unknown }).url === "string") {
-      return (error as { url: string }).url;
-    }
-    // Parse URL from error message: "Cloudflare challenge detected for https://... (status 403)"
-    const match = error.message.match(/for (https?:\/\/[^\s(]+)/);
-    if (match) return match[1];
-    // Also try "Cloudflare blocked: ..." format
-    const match2 = error.message.match(/blocked[:\s]+(https?:\/\/[^\s]+)/i);
-    if (match2) return match2[1];
-  }
-  return undefined;
+  if (!(error instanceof Error)) return undefined;
+  const url = readErrorUrl(error);
+  if (url) return url;
+  return extractCfUrlFromMessage(error.message);
 }
 
 /**

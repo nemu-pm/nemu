@@ -2,8 +2,8 @@ import { describe, it } from 'bun:test';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
-import { computeMultiDhash, findBestSecondaryMatch } from './hash';
-import { shouldMarkMissing } from './pages';
+import { computeMultiDhash, findBestSecondaryMatch } from '@nemu/core/dual-reader';
+import { shouldMarkMissing } from '@nemu/core/dual-reader';
 
 type Meta = {
   caseId: string;

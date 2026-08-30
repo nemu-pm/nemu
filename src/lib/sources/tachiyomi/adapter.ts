@@ -16,7 +16,10 @@ import { CacheKeys } from "@/data/cache";
 import { parseSourceKey } from "@/data/keys";
 import pMemoize, { pMemoizeClear } from "p-memoize";
 import { normalizeSourceLang } from "../language";
-import { getSourceSettingsStore } from "@/stores/source-settings";
+import {
+  getSourceSettingsStore,
+  type SourceSettingsStore,
+} from "@/stores/source-settings";
 import type { Setting, SelectSetting } from "@/lib/settings";
 
 /** Settings key for source selection (synthetic, not from extension) */
@@ -179,10 +182,10 @@ function getPrefsName(sourceId: string): string {
  */
 async function initSourcePreferences(
   source: AsyncTachiyomiSource,
-  sourceKey: string
+  sourceKey: string,
+  store: SourceSettingsStore,
 ): Promise<void> {
   const prefsName = getPrefsName(source.sourceId);
-  const store = getSourceSettingsStore();
   const values = store.getState().values.get(sourceKey) ?? {};
   await source.initPreferences(prefsName, values);
 }
@@ -193,12 +196,12 @@ async function initSourcePreferences(
  */
 async function syncPrefChanges(
   source: AsyncTachiyomiSource,
-  sourceKey: string
+  sourceKey: string,
+  store: SourceSettingsStore,
 ): Promise<void> {
   const changes = await source.flushPrefChanges();
   if (changes.length === 0) return;
 
-  const store = getSourceSettingsStore();
   for (const change of changes) {
     if (change.key === "__clear__") {
       store.getState().resetSettings(sourceKey);
@@ -281,14 +284,15 @@ function parseSettingsSchema(schemaJson: string | null): Setting[] | null {
 export async function createTachiyomiBrowsableSource(
   source: AsyncTachiyomiSource,
   sourceKey: string,
-  cacheStore: CacheStore
+  cacheStore: CacheStore,
+  settingsStore: SourceSettingsStore = getSourceSettingsStore(),
 ): Promise<TachiyomiBrowsableSource> {
   const { sourceId, sourceInfo } = source;
   const supportsLatest = sourceInfo.supportsLatest ?? false;
   const sourceLang = normalizeSourceLang(sourceInfo.lang);
 
   // Initialize preferences before any operations
-  await initSourcePreferences(source, sourceKey);
+  await initSourcePreferences(source, sourceKey, settingsStore);
 
   // Load settings schema ONCE at creation time (not lazily)
   const schemaJson = await source.getSettingsSchema();
@@ -311,8 +315,7 @@ export async function createTachiyomiBrowsableSource(
   
   // Cache schema in store for persistence
   if (schema) {
-    const store = getSourceSettingsStore();
-    await store.getState().setSchema(sourceKey, schema);
+    await settingsStore.getState().setSchema(sourceKey, schema);
   }
 
   // Pagination state for loadMore
@@ -587,12 +590,12 @@ export async function createTachiyomiBrowsableSource(
     // ============ Preferences Methods ============
 
     async syncPreferences(): Promise<void> {
-      await syncPrefChanges(source, sourceKey);
+      await syncPrefChanges(source, sourceKey, settingsStore);
     },
 
     dispose(): void {
       // Sync any final preference changes before disposing
-      syncPrefChanges(source, sourceKey).catch(() => {});
+      syncPrefChanges(source, sourceKey, settingsStore).catch(() => {});
       source.dispose();
       currentSearch = null;
       currentListing = null;

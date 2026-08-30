@@ -1,0 +1,31 @@
+{
+  "name": "@nemu/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./dual-reader": {
+      "types": "./src/dual-reader/index.ts",
+      "import": "./src/dual-reader/index.ts"
+    },
+    "./sources": {
+      "types": "./src/sources/index.ts",
+      "import": "./src/sources/index.ts"
+    },
+    "./library": {
+      "types": "./src/library/index.ts",
+      "import": "./src/library/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fft.js": "^4.0.4"
+  }
+}

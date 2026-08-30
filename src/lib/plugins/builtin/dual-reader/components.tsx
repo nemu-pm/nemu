@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/responsive-dialog';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Copy02Icon } from '@hugeicons/core-free-icons';
-import { mapSecondaryChapterForPrimary, resolveSecondaryChapterSelection } from '@/lib/dual-reader/chapters';
+import { mapSecondaryChapterForPrimary, resolveSecondaryChapterSelection } from '@nemu/core/dual-reader';
 import { hapticPress, hapticConfirm } from '@/lib/haptics';
 import {
   buildSecondaryRenderPlan,
@@ -35,13 +35,13 @@ import {
   mapSecondaryPageIndex,
   shouldApplySiblingSplitPlan,
   shouldMarkMissing,
-} from '@/lib/dual-reader/pages';
-import type { MultiDhash, SecondaryMatch } from '@/lib/dual-reader/hash';
-import { findBestSecondaryMatch, updateDriftDelta } from '@/lib/dual-reader/hash';
-import { isDualReadDebugEnabled } from '@/lib/dual-reader/debug';
-import type { SecondaryRenderPlan } from '@/lib/dual-reader/types';
-import { buildAlignmentQueue, getAlignmentPlanSignature } from '@/lib/dual-reader/alignment-scheduler';
-import { buildAlignmentOptions } from '@/lib/dual-reader/alignment-options';
+} from '@nemu/core/dual-reader';
+import type { MultiDhash, SecondaryMatch } from '@nemu/core/dual-reader';
+import { findBestSecondaryMatch, updateDriftDelta } from '@nemu/core/dual-reader';
+import { isDualReadDebugEnabled } from '@nemu/core/dual-reader';
+import type { SecondaryRenderPlan } from '@nemu/core/dual-reader';
+import { buildAlignmentQueue, getAlignmentPlanSignature } from '@nemu/core/dual-reader';
+import { buildAlignmentOptions } from '@nemu/core/dual-reader';
 import { useDualReadStore, type DualReadFabPosition, type DualReadSide } from './store';
 import { useDualReadPluginSettingsStore } from './settings';
 import { useDualReadDebugStore, type DualReadDebugSnapshot } from './debug-store';
@@ -54,7 +54,12 @@ import {
   getDualReadWorkerPendingStats,
 } from './dhash-worker-client';
 import { getCachedDualReadHash, setCachedDualReadHash, type DualReadHashCacheKey } from './dhash-cache';
-import { ALIGNMENT_CONFIDENCE_MIN_DEFAULT, ALIGNMENT_FINE_MAX_DEFAULT } from '@/lib/dual-reader/alignment-constants';
+import { ALIGNMENT_CONFIDENCE_MIN_DEFAULT, ALIGNMENT_FINE_MAX_DEFAULT } from '@nemu/core/dual-reader';
+import {
+  computeAlignmentDownsampleScale,
+  computeFitScale,
+  computeRenderBounds,
+} from '@nemu/core/dual-reader';
 
 const HOLD_DELAY_MS = 220;
 const DRAG_THRESHOLD_PX = 6;
@@ -349,45 +354,6 @@ function DualReadDebugOverlay({ ctx }: { ctx: ReaderPluginContext }) {
     </div>,
     document.body
   );
-}
-
-function computeFitScale(containerW: number, containerH: number, naturalW: number, naturalH: number): number {
-  if (containerW <= 0 || containerH <= 0 || naturalW <= 0 || naturalH <= 0) return 1;
-  return Math.min(containerW / naturalW, containerH / naturalH);
-}
-
-function computeRenderBounds(
-  containerW: number,
-  containerH: number,
-  naturalW: number,
-  naturalH: number
-): { left: number; top: number; width: number; height: number } {
-  const safeW = Math.max(1, containerW);
-  const safeH = Math.max(1, containerH);
-  const imgW = Math.max(1, naturalW);
-  const imgH = Math.max(1, naturalH);
-  const imageAspect = imgW / imgH;
-  const containerAspect = safeW / safeH;
-  let renderWidth: number;
-  let renderHeight: number;
-  if (imageAspect > containerAspect) {
-    renderWidth = safeW;
-    renderHeight = safeW / imageAspect;
-  } else {
-    renderHeight = safeH;
-    renderWidth = safeH * imageAspect;
-  }
-  const renderLeft = (safeW - renderWidth) / 2;
-  const renderTop = (safeH - renderHeight) / 2;
-  return { left: renderLeft, top: renderTop, width: renderWidth, height: renderHeight };
-}
-
-function computeAlignmentDownsampleScale(width: number, height: number, maxSize: number): number {
-  const w = Math.max(1, Math.trunc(width));
-  const h = Math.max(1, Math.trunc(height));
-  const maxDim = Math.max(w, h);
-  if (maxDim <= maxSize) return 1;
-  return maxSize / maxDim;
 }
 
 function getSourceInfo(availableSources: SourceInfo[], link: LocalSourceLink): SourceInfo | undefined {

@@ -166,6 +166,7 @@ export function MangaPage() {
             title: latestChapter.title,
             chapterNumber: latestChapter.chapterNumber,
             volumeNumber: latestChapter.volumeNumber,
+            lang: latestChapter.lang,
           });
         }
       } catch (e) {

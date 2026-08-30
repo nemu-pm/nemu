@@ -1,15 +1,11 @@
-export type KissFftModule = {
-  _malloc: (size: number) => number;
-  _free: (ptr: number) => void;
-  _allocate: (size: number) => number;
-  _kiss_fftndr_alloc: (dimsPtr: number, ndims: number, inverse: number, tmp1: number, tmp2: number) => number;
-  _kiss_fftndr: (cfg: number, inputPtr: number, outputPtr: number) => void;
-  _kiss_fftnd_alloc: (dimsPtr: number, ndims: number, inverse: number, tmp1: number, tmp2: number) => number;
-  _kiss_fftnd: (cfg: number, inputPtr: number, outputPtr: number) => void;
-  _scale: (ptr: number, length: number, scale: number) => void;
-  HEAPF32: Float32Array;
-  HEAP32: Int32Array;
-};
+// The `KissFftModule` shape is owned by the platform-agnostic dual-reader
+// core in `@nemu/core` so the alignment pipeline can depend on it without a
+// wasm-loader import. This web-only module wires the actual `kissfft-wasm`
+// loader (Vite `?url`) into that type and exposes the provider the web worker
+// passes into `computeAlignmentTransform({ options: { wasmProvider } })`.
+import type { KissFftModule } from "@nemu/core/dual-reader";
+
+export type { KissFftModule };
 
 type WasmState = {
   module: KissFftModule | null;
@@ -57,3 +53,16 @@ export function isAlignmentWasmReady(): boolean {
 export function getAlignmentWasmModule(): KissFftModule | null {
   return wasmState.module;
 }
+
+/**
+ * Provider the web dual-reader worker passes to
+ * `computeAlignmentTransform({ options: { wasmProvider } })`. The pure core
+ * calls `isReady()` / `getModule()` instead of importing this loader
+ * directly, so the same core runs on mobile (no provider → JS backend).
+ */
+import type { FftWasmProvider } from "@nemu/core/dual-reader";
+
+export const alignmentWasmProvider: FftWasmProvider = {
+  isReady: isAlignmentWasmReady,
+  getModule: getAlignmentWasmModule,
+};

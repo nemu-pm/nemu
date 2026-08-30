@@ -38,6 +38,7 @@ function findLatestChapter(chapters: Chapter[]): ChapterSummary | null {
     title: latest.title,
     chapterNumber: latest.chapterNumber,
     volumeNumber: latest.volumeNumber,
+    lang: latest.lang,
   };
 }
 

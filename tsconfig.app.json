@@ -25,6 +25,8 @@
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
+      "@nemu/core": ["./packages/core/src/index.ts"],
+      "@nemu/core/*": ["./packages/core/src/*"],
       "@/*": ["./src/*"],
       "vaul": ["./vendor/vaul/src"]
     }

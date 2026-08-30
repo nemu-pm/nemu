@@ -77,7 +77,12 @@
   },
   "sync": {
     "syncing": "同步中",
-    "syncingDescription": "正在同步您的库和设置..."
+    "syncingDescription": "正在同步您的库和设置...",
+    "clockInvalid": {
+      "title": "请检查设备日期和时间",
+      "description": "同步时间仍超出允许范围。请开启设备的自动日期、时间和时区设置，然后刷新 nemu。",
+      "reload": "刷新"
+    }
   },
   "nav": {
     "library": "书架",
@@ -280,7 +285,6 @@
     "sourceCode": "源代码"
   },
   "settings": {
-    "about": "关于",
     "aboutNemu": "关于 nemu",
     "loading": "加载设置中...",
     "sourceUpdated": "已更新源：{{name}}",
@@ -315,9 +319,13 @@
     "metadataLanguageAuto": "自动",
     "uninstallSource": "卸载源",
     "uninstallSourceDescription": "确定要卸载「{{name}}」吗？这将移除源但保留您的书架数据。",
+    "configureSource": "设置{{name}}",
+    "uninstallSourceLabel": "卸载{{name}}",
     "uninstall": "卸载",
     "plugins": "插件",
     "noPlugins": "未安装插件。",
+    "configurePlugin": "设置{{name}}",
+    "togglePlugin": "启用或停用{{name}}",
     "agent": "Nemu Agent",
     "agentDescription": "桌面代理，更好地支持受保护的网站",
     "agentConnected": "已连接",
@@ -395,7 +403,8 @@
     "clearAllDescription": "这将删除所有本地数据，包括您的书架、设置和已安装的源。页面将重新加载。",
     "alsoDeleteCloud": "同时删除云端数据",
     "alsoDeleteCloudDescription": "永久删除您同步的书架和阅读进度。此操作无法撤消。",
-    "clearing": "清除中..."
+    "clearing": "清除中...",
+    "failed": "无法完成所有数据的清除。部分本地数据可能已被删除。请关闭其他 Nemu 标签页后重试。"
   },
   "signIn": {
     "title": "登录",
@@ -410,7 +419,8 @@
     "keepDataDescription": "您可以随时重新登录以继续同步。",
     "removeData": "从此设备移除数据",
     "removeDataDescription": "您的云端数据将保持安全。",
-    "signingOut": "登出中..."
+    "signingOut": "登出中...",
+    "failed": "无法登出，您的本地数据未被更改。"
   },
   "sourceSettings": {
     "loadingSettings": "加载设置中...",
@@ -428,22 +438,26 @@
     "password": "密码",
     "basicLoginDescription": "输入此源的账号凭据。",
     "webLoginDescription": "打开登录页面，然后粘贴所需的 Cookie 和/或 Local Storage 值。",
-    "oauthLoginDescription": "打开授权页面完成登录后，将回调 URL、授权码或令牌值粘贴到这里。对于会返回到自定义应用 URL 的提供商，请从浏览器复制最终的回调 URL 或授权码后再粘贴。",
+    "oauthLoginDescription": "打开授权页面并完成登录，然后粘贴包含 state 的完整回调 URL 或完整回调参数。无法验证所属登录尝试的单独授权码或令牌会被拒绝。",
     "openLoginPage": "打开登录页面",
     "cookies": "Cookie",
     "localStorage": "Local Storage JSON",
-    "callbackOrToken": "回调 URL、授权码或令牌",
+    "callbackOrToken": "完整回调响应",
     "missingCredentials": "请输入用户名和密码。",
-    "missingCallback": "请粘贴回调 URL、授权码或令牌值。",
+    "missingCallback": "请粘贴包含 state 的完整回调 URL 或完整回调参数。",
     "loginFailed": "登录失败。",
     "invalidCookies": "请以 JSON 或 name=value 的格式粘贴 Cookie。",
     "invalidSessionData": "请粘贴 Cookie 和/或所需的 Local Storage JSON。",
-    "invalidCallback": "无法从提供的值中提取授权码。",
+    "invalidCallback": "无法将提供的值验证为完整的授权响应。",
     "invalidLink": "此设置没有有效的 URL。",
     "invalidLoginUrl": "此登录操作没有有效的 URL。",
     "popupBlocked": "浏览器阻止了登录窗口。",
-    "openLoginFirst": "请先打开登录页面，以便 Nemu 生成 PKCE 校验值。",
+    "openLoginFirst": "请先打开授权页面，以开始可验证的登录尝试。",
+    "callbackStateMismatch": "此回调属于另一次登录尝试，已被拒绝。请重新打开登录页面并粘贴新的回调。",
+    "callbackStateMissing": "请粘贴完整的回调 URL：Nemu 需要其中的 state 值来验证本次登录尝试。",
     "tokenExchangeFailed": "无法将授权码换取令牌。",
+    "proxyUpgradeRequired": "安全登录中继不可用或需要更新。授权码尚未发送，请稍后重试。",
+    "oauthRelayDisclosure": "此次 PKCE 登录会通过 Nemu 的安全强化中继，将授权码和一次性校验值发送给提供商。当前本地 Agent 尚无法强制执行这些 OAuth 安全措施，因此不会用于此流程。",
     "logoutConfirm": "要从此源登出吗？",
     "notificationFailed": "应用源设置操作失败。"
   },

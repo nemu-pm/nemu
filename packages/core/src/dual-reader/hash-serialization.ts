@@ -1,4 +1,11 @@
-import type { Dhash, MultiDhash } from './hash';
+import {
+  dhashWordFromHex,
+  dhashWordToHex,
+  type Dhash,
+  type MultiDhash,
+} from './hash';
+
+export const DUAL_READER_DHASH_CACHE_VERSION = 3;
 
 export type SerializedDhash = { h: string; v: string };
 export type SerializedMultiDhash = {
@@ -12,11 +19,11 @@ export type SerializedMultiDhash = {
 };
 
 export function serializeDhash(hash: Dhash): SerializedDhash {
-  return { h: hash.h.toString(16), v: hash.v.toString(16) };
+  return { h: dhashWordToHex(hash.h), v: dhashWordToHex(hash.v) };
 }
 
 export function deserializeDhash(hash: SerializedDhash): Dhash {
-  return { h: BigInt(`0x${hash.h}`), v: BigInt(`0x${hash.v}`) };
+  return { h: dhashWordFromHex(hash.h), v: dhashWordFromHex(hash.v) };
 }
 
 function serializeMaybe(hash?: Dhash): SerializedDhash | undefined {
