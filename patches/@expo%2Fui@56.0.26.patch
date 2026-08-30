@@ -1,0 +1,17 @@
+diff --git a/src/community/bottom-sheet/BottomSheet.android.tsx b/src/community/bottom-sheet/BottomSheet.android.tsx
+index f60ae61bf0c9023d41c55cdca2d9af0de7291a92..631645388e72066047ceea85b6d26c1161206e34 100644
+--- a/src/community/bottom-sheet/BottomSheet.android.tsx
++++ b/src/community/bottom-sheet/BottomSheet.android.tsx
+@@ -200,9 +200,9 @@ export function BottomSheet(props: BottomSheetProps) {
+               shouldDismissOnClickOutside: enablePanDownToClose,
+             }}>
+             <RNHostView matchContents={fitToContents}>
+-              {/* flexGrow:1 + height:0 (flex-basis 0) fills RNHostView's measured height without
+-                  inheriting the scrollable child's content height, which would block scrolling to the end. */}
+-              <View style={fitToContents ? undefined : { flexGrow: 1, height: 0 }}>
++              {/* RNHostView reports its Compose constraints back to Yoga. A regular flex child
++                  then fills those constraints without hard-coding a zero layout height. */}
++              <View style={fitToContents ? undefined : { flex: 1 }}>
+                 <SheetScrollContextReset>{children}</SheetScrollContextReset>
+               </View>
+             </RNHostView>

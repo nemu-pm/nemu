@@ -366,6 +366,20 @@ describe("extractAuthorizationCode", () => {
       extractAuthorizationCode("https://app/callback?code=abc123&state=s"),
     ).toBe("abc123");
   });
+  test("from a callback fragment", () => {
+    expect(extractAuthorizationCode("https://app/callback#code=abc123&state=s")).toBe("abc123");
+  });
+  test("rejects duplicate query/fragment codes, including empty values", () => {
+    for (const callback of [
+      "https://app/callback?code=a&code=b",
+      "https://app/callback?code=a#code=b",
+      "https://app/callback?code=&code=b",
+      "https://app/callback?code=a#code=",
+      "code=a&code=",
+    ]) {
+      expect(extractAuthorizationCode(callback)).toBeNull();
+    }
+  });
   test("from a bare code= fragment", () => {
     expect(extractAuthorizationCode("code=abc123")).toBe("abc123");
   });

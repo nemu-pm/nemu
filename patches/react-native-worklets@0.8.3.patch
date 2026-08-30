@@ -1,0 +1,97 @@
+diff --git a/android/CMakeLists.txt b/android/CMakeLists.txt
+index 120f2ceb..5bbedcfd 100644
+--- a/android/CMakeLists.txt
++++ b/android/CMakeLists.txt
+@@ -63,6 +63,21 @@ find_package(ReactAndroid REQUIRED CONFIG)
+ 
+ if(${JS_RUNTIME} STREQUAL "hermes")
+   find_package(hermes-engine REQUIRED CONFIG)
++elseif(${JS_RUNTIME} STREQUAL "jsc")
++  find_package(react-native-community_javascriptcore REQUIRED CONFIG)
++  if(DEFINED NEMU_JSC_RUNTIME_FACTORY_BUILD_DIR)
++    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
++      set(NEMU_JSC_RUNTIME_FACTORY_VARIANT "debug")
++    else()
++      set(NEMU_JSC_RUNTIME_FACTORY_VARIANT "release")
++    endif()
++    add_library(nemu_jsc_runtime_factory SHARED IMPORTED)
++    set_target_properties(
++      nemu_jsc_runtime_factory
++      PROPERTIES
++        IMPORTED_LOCATION
++        "${NEMU_JSC_RUNTIME_FACTORY_BUILD_DIR}/intermediates/cmake/${NEMU_JSC_RUNTIME_FACTORY_VARIANT}/obj/${ANDROID_ABI}/libjscruntimefactory.so")
++  endif()
+ endif()
+ 
+ add_library(worklets SHARED ${WORKLETS_COMMON_CPP_SOURCES}
+@@ -112,5 +127,11 @@ if(${JS_RUNTIME} STREQUAL "hermes")
+     target_link_libraries(worklets ReactAndroid::hermestooling)
+   endif()
+ elseif(${JS_RUNTIME} STREQUAL "jsc")
+-  target_link_libraries(worklets ReactAndroid::jsctooling)
++  target_link_libraries(worklets react-native-community_javascriptcore::jscruntimefactory)
++  if(TARGET nemu_jsc_runtime_factory)
++    # AGP exposes local-project Prefab dependencies as header-only snapshots.
++    # Link the producer's stable native output explicitly while retaining the
++    # Prefab target above for its exported headers.
++    target_link_libraries(worklets nemu_jsc_runtime_factory)
++  endif()
+ endif()
+diff --git a/android/build.gradle b/android/build.gradle
+index e189e1ca..13020858 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -227,6 +227,12 @@ android {
+                         "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+                         "-DWORKLETS_FEATURE_FLAGS=${WORKLETS_FEATURE_FLAGS}",
+                         "-DHERMES_V1_ENABLED=${HERMES_V1_ENABLED}"
++                if (JS_RUNTIME == "jsc") {
++                    def jscProject = rootProject.findProject(":react-native-community_javascriptcore")
++                    if (jscProject != null) {
++                        arguments "-DNEMU_JSC_RUNTIME_FACTORY_BUILD_DIR=${toPlatformFileString(jscProject.layout.buildDirectory.get().asFile.absolutePath)}"
++                    }
++                }
+                 abiFilters(*reactNativeArchitectures())
+                 targets("worklets")
+             }
+@@ -378,6 +384,8 @@ dependencies {
+     implementation "androidx.core:core-ktx:1.17.0"
+     if (JS_RUNTIME == "hermes") {
+         implementation "com.facebook.react:hermes-android" // version substituted by RNGP
++    } else if (JS_RUNTIME == "jsc" && rootProject.findProject(":react-native-community_javascriptcore") != null) {
++        implementation project(":react-native-community_javascriptcore")
+     }
+ }
+ 
+@@ -388,4 +396,30 @@ afterEvaluate {
+         it.finalizedBy(cleanCMakeCache)
+     }
+ }
+-
++// Preserve the community JSC Prefab headers until every Worklets native-clean
++// task has consumed them. The app's global clean topology deletes project
++// outputs only after all native-clean tasks have completed.
++gradle.projectsEvaluated {
++    if (JS_RUNTIME != "jsc") return
++    def jscProject = rootProject.findProject(":react-native-community_javascriptcore")
++    if (jscProject == null) return
++
++    def jscHeaders = jscProject.tasks.named("createPrefabHeadersDir")
++    def jscDebugBuild = jscProject.tasks.named("buildCMakeDebug")
++    def jscReleaseBuild = jscProject.tasks.named("buildCMakeRelWithDebInfo")
++    tasks.matching { task ->
++        task.name.startsWith("buildCMakeDebug")
++    }.configureEach {
++        dependsOn(jscDebugBuild)
++    }
++    tasks.matching { task ->
++        task.name.startsWith("buildCMakeRelWithDebInfo")
++    }.configureEach {
++        dependsOn(jscReleaseBuild)
++    }
++    tasks.matching { task ->
++        task.name.startsWith("externalNativeBuildClean")
++    }.configureEach {
++        dependsOn(jscHeaders)
++    }
++}

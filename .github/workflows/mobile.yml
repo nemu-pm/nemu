@@ -1,0 +1,465 @@
+name: Mobile
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+on:
+  pull_request:
+    paths:
+      - "apps/mobile/**"
+      - "convex/**"
+      - "convex.json"
+      - "packages/**"
+      - "src/**"
+      - "vendor/**"
+      - "package.json"
+      - "bun.lock"
+      - "bunfig.toml"
+      - "patches/**"
+      - "scripts/**"
+      - "tests/**"
+      - "eslint.config.js"
+      - "tsconfig*.json"
+      - "vite.config.ts"
+      - ".gitmodules"
+      - ".github/workflows/mobile.yml"
+  push:
+    branches:
+      - master
+    paths:
+      - "apps/mobile/**"
+      - "convex/**"
+      - "convex.json"
+      - "packages/**"
+      - "src/**"
+      - "vendor/**"
+      - "package.json"
+      - "bun.lock"
+      - "bunfig.toml"
+      - "patches/**"
+      - "scripts/**"
+      - "tests/**"
+      - "eslint.config.js"
+      - "tsconfig*.json"
+      - "vite.config.ts"
+      - ".gitmodules"
+      - ".github/workflows/mobile.yml"
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS build profile"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - preview
+          - development
+      platform:
+        description: "EAS build platform"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - ios
+          - android
+
+jobs:
+  changes:
+    name: Detect native changes
+    runs-on: ubuntu-latest
+    outputs:
+      native: ${{ steps.native.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Check native and prebuild inputs
+        id: native
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -z "$BASE_SHA" ] || printf '%s' "$BASE_SHA" | grep -Eq '^0+$'; then
+            git diff-tree --root --no-commit-id --name-only -r "$HEAD_SHA" > /tmp/native-changes.txt
+          else
+            git diff --name-only "$BASE_SHA...$HEAD_SHA" > /tmp/native-changes.txt
+          fi
+
+          if grep -Eq '^(apps/mobile/(app\.json|app\.config\.cjs|eas\.json|loadRootEnv\.cjs|react-native\.config\.js|assets/|modules/|plugins/|package\.json)|package\.json$|bun\.lock$|bunfig\.toml$|patches/|scripts/(build-mobile-aidoku-sandbox|generate-mobile-app-icon-glow|patch-aidoku-runtime)\.ts$|\.github/workflows/mobile\.yml$)' /tmp/native-changes.txt; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  mobile:
+    name: Mobile JavaScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+      - name: Restore Bun package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Audit production dependencies
+        run: |
+          # image-size 1.2.1 has no upstream release containing the two
+          # security fixes yet. Prove the vendored patch is active before
+          # suppressing only those version-based advisory matches.
+          bun test ./apps/mobile/src/lib/imageSizeSecurity.test.ts
+          bun audit --production \
+            --ignore GHSA-w3rx-r6r6-pgpr \
+            --ignore GHSA-5p2g-fcmc-qvqq
+      - name: Check Expo dependency alignment
+        working-directory: apps/mobile
+        run: bunx expo install --check
+      - name: Typecheck mobile app
+        run: bun run --cwd apps/mobile typecheck
+      - name: Lint mobile app
+        run: bun run --cwd apps/mobile lint
+      - name: Test mobile app
+        run: bun run --cwd apps/mobile test
+      - name: Diagnose Expo dependencies
+        working-directory: apps/mobile
+        # expo-doctor's Hermes V1 regression check is a known false positive
+        # here: the app ships the pinned third-party JSC (never Hermes V1),
+        # and the only upstream opt-out (expo-build-properties
+        # `useHermesV1: false`) forces a legacy hermes-compiler resolution
+        # this project deliberately avoids. Tolerate exactly that check —
+        # any other failure (or a doctor crash) still fails the step.
+        run: |
+          set +e
+          output="$(bunx expo-doctor 2>&1)"
+          status=$?
+          printf '%s\n' "$output"
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          printf '%s\n' "$output" | grep -q '✖.*Hermes V1 regressions' || exit "$status"
+          failures="$(printf '%s\n' "$output" | grep '✖' | grep -v 'Hermes V1 regressions' || true)"
+          if [ -n "$failures" ]; then
+            exit "$status"
+          fi
+      - name: Validate Expo prebuild configuration
+        working-directory: apps/mobile
+        run: bunx expo config --type prebuild >/tmp/nemu-mobile-prebuild-config.txt
+      - name: Export production iOS bundle
+        working-directory: apps/mobile
+        env:
+          NODE_ENV: production
+        run: bunx expo export --platform ios --output-dir /tmp/nemu-mobile-export
+      - name: Export production Android bundle
+        working-directory: apps/mobile
+        env:
+          NODE_ENV: production
+        run: bunx expo export --platform android --output-dir /tmp/nemu-mobile-export-android
+
+  android-native:
+    name: Android native
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      # Expo reads NODE_ENV during prebuild and again while Gradle bundles JS.
+      # Keep both phases on the same deterministic production configuration.
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+      - name: Restore Bun package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: "temurin"
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            bun.lock
+            apps/mobile/modules/*/android/*.gradle
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Generate Android native project
+        working-directory: apps/mobile
+        run: bunx expo prebuild --platform android --no-install
+      - name: Test, lint, and assemble Android native modules and app
+        working-directory: apps/mobile/android
+        run: |
+          # Keep R8/release packaging and lint in separate Gradle processes so
+          # their retained heaps cannot exhaust a hosted runner together.
+          # Two workers plus a bounded 3 GiB heap leave room for native and JS
+          # subprocesses while avoiding the previous 2 GiB packageRelease OOM.
+          ./gradlew --no-daemon --console=plain --stacktrace --max-workers=2 \
+            -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g" \
+            clean \
+            :nemu-aidoku:testDebugUnitTest \
+            :nemu-aidoku:testReleaseUnitTest \
+            :nemu-aidoku:assembleDebugAndroidTest \
+            :app:assembleDebug \
+            -PreactNativeArchitectures=arm64-v8a
+          ./gradlew --no-daemon --console=plain --stacktrace --max-workers=2 \
+            -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g" \
+            :app:assembleRelease \
+            -PreactNativeArchitectures=arm64-v8a
+          ./gradlew --no-daemon --console=plain --stacktrace --max-workers=2 \
+            -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g" \
+            :nemu-aidoku:lintDebug \
+            :nemu-aidoku:lintRelease \
+            :app:lintDebug \
+            :app:lintRelease \
+            -PreactNativeArchitectures=arm64-v8a
+      - name: Enable KVM for the Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          # Some hosted runners keep the pre-existing device node's original
+          # mode even after the matching udev rule is triggered. Apply the
+          # intended mode directly so the emulator gate is deterministic.
+          sudo chmod 0666 /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+      - name: Run Android long-strip instrumented tests
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        timeout-minutes: 35
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-boot-timeout: 600
+          emulator-options: >-
+            -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect
+            -camera-back none -camera-front none
+          # The action executes multiline input one line at a time, so shell
+          # state such as `cd`, `$?`, and `set +e` does not persist. Keep the
+          # stateful report capture in one checked-in script instead.
+          script: ./scripts/run-mobile-android-instrumented-tests.sh
+      - name: Verify Android release source network policy
+        working-directory: apps/mobile/android
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print \
+            app/build/outputs/apk/debug/app-debug.apk \
+            > /tmp/nemu-android-debug-manifest.xml
+          ! grep -Fq 'android.permission.SYSTEM_ALERT_WINDOW' /tmp/nemu-android-debug-manifest.xml
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print \
+            app/build/outputs/apk/release/app-release.apk \
+            > /tmp/nemu-android-release-manifest.xml
+          grep -F 'android:usesCleartextTraffic="true"' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.CAMERA' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.POST_NOTIFICATIONS' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.READ_EXTERNAL_STORAGE' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.RECORD_AUDIO' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.FOREGROUND_SERVICE' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.SYSTEM_ALERT_WINDOW' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.USE_BIOMETRIC' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.USE_FINGERPRINT' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'android.permission.WRITE_EXTERNAL_STORAGE' /tmp/nemu-android-release-manifest.xml
+          ! grep -Fq 'expo.modules.audio.service.AudioControlsService' /tmp/nemu-android-release-manifest.xml
+      - name: Upload Android failure reports
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-native-reports-${{ github.run_attempt }}
+          path: |
+            apps/mobile/android/build/reports/**
+            apps/mobile/android/**/build/reports/**
+            apps/mobile/android/**/build/test-results/**
+            apps/mobile/modules/nemu-aidoku/android/build/reports/**
+            apps/mobile/modules/nemu-aidoku/android/build/test-results/**
+            apps/mobile/modules/nemu-aidoku/android/build/outputs/androidTest-results/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ios-native:
+    name: iOS native
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    # React Native is built from source for the third-party JSC runtime. The
+    # standard macOS 26 Arm runner has only 7 GB of memory; use the 14 GB Intel
+    # image so parallel Swift/C++ compilation does not become an avoidable CI
+    # OOM. Device Release remains a cross-compile and does not require signing.
+    runs-on: macos-26-intel
+    # The Release + Debug xcodebuild pair takes ~115 minutes on a healthy
+    # run — 120 left no margin and timed out on slow runners.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+      - name: Restore Bun package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - name: Restore CocoaPods download cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/CocoaPods
+          key: ${{ runner.os }}-cocoapods-${{ hashFiles('bun.lock', 'apps/mobile/modules/*/ios/*.podspec') }}
+          restore-keys: |
+            ${{ runner.os }}-cocoapods-
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Generate iOS native project
+        working-directory: apps/mobile
+        run: bunx expo prebuild --platform ios --no-install
+      - name: Verify generated iOS privacy manifest
+        working-directory: apps/mobile
+        run: |
+          privacy_manifest="ios/Nemu/PrivacyInfo.xcprivacy"
+          test -f "$privacy_manifest"
+          plutil -convert xml1 -o /tmp/nemu-privacy-manifest.xml "$privacy_manifest"
+          grep -Fq '<string>NSPrivacyAccessedAPICategoryUserDefaults</string>' /tmp/nemu-privacy-manifest.xml
+          grep -Fq '<string>CA92.1</string>' /tmp/nemu-privacy-manifest.xml
+          plutil -extract UIBackgroundModes xml1 -o /tmp/nemu-background-modes.xml ios/Nemu/Info.plist
+          grep -Fq '<string>processing</string>' /tmp/nemu-background-modes.xml
+          ! grep -Fq '<string>audio</string>' /tmp/nemu-background-modes.xml
+          ! grep -Fq '<key>NSMicrophoneUsageDescription</key>' ios/Nemu/Info.plist
+      - name: Install CocoaPods
+        working-directory: apps/mobile/ios
+        run: pod install
+      - name: Test iOS native source policies
+        working-directory: apps/mobile
+        run: |
+          test_dir="$(mktemp -d)"
+          trap 'rm -rf "$test_dir"' EXIT
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuNativeHttpAddressPolicy.swift \
+            modules/nemu-aidoku/ios/NemuNativeHttpLoopbackProxy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuNativeHttpAddressPolicyTests.swift \
+            -framework Network \
+            -o "$test_dir/address-tests"
+          "$test_dir/address-tests"
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuNativeHttpHeaderPolicy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuNativeHttpHeaderPolicyTests.swift \
+            -o "$test_dir/header-tests"
+          "$test_dir/header-tests"
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuNativeHttpRequestHeaderPolicy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuNativeHttpRequestHeaderPolicyTests.swift \
+            -o "$test_dir/request-header-tests"
+          "$test_dir/request-header-tests"
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuNativeHttpRedirectPolicy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuNativeHttpRedirectPolicyTests.swift \
+            -o "$test_dir/redirect-tests"
+          "$test_dir/redirect-tests"
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuAidokuSandboxSessionPolicy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuAidokuSandboxSessionPolicyTests.swift \
+            -o "$test_dir/session-tests"
+          "$test_dir/session-tests"
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuImageMetadataPolicy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuImageMetadataPolicyTests.swift \
+            -framework ImageIO \
+            -o "$test_dir/image-tests"
+          "$test_dir/image-tests"
+      - name: Build iOS Debug simulator app
+        working-directory: apps/mobile/ios
+        run: |
+          xcodebuild \
+            -workspace Nemu.xcworkspace \
+            -scheme Nemu \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath /tmp/nemu-ios-derived-Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          # A from-source React Native build can occupy several GiB. The
+          # standard runner has 14 GB of SSD, so do not retain a simulator
+          # DerivedData tree while compiling the independent device Release.
+          rm -rf /tmp/nemu-ios-derived-Debug
+      - name: Build iOS Release device app
+        working-directory: apps/mobile/ios
+        run: |
+          xcodebuild \
+            -workspace Nemu.xcworkspace \
+            -scheme Nemu \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath /tmp/nemu-ios-derived-Release \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+  release-build:
+    if: github.event_name == 'workflow_dispatch'
+    needs:
+      - mobile
+      - android-native
+      - ios-native
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+      - name: Restore Bun package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Start EAS build
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+          EAS_PROFILE: ${{ inputs.profile }}
+          EAS_PLATFORM: ${{ inputs.platform }}
+        run: |
+          test -n "$EXPO_TOKEN" || (echo "EXPO_TOKEN secret is required" && exit 1)
+          test -n "$EAS_PROJECT_ID" || (echo "EAS_PROJECT_ID secret is required" && exit 1)
+          cd apps/mobile
+          bunx eas-cli@20.5.1 build \
+            --profile "$EAS_PROFILE" \
+            --platform "$EAS_PLATFORM" \
+            --non-interactive

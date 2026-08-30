@@ -3,6 +3,7 @@
 # review targets.
 convex/_generated/** linguist-generated=true
 
-# A unified diff represents an empty context line as one leading space. Do not
-# report those required patch markers as repository trailing-whitespace errors.
-patches/*.patch whitespace=-blank-at-eol,-blank-at-eof
+# Unified diffs require leading marker characters on every hunk line. Context
+# lines therefore contain a marker space before their original indentation;
+# exclude those patch-format bytes from source-oriented whitespace checks.
+patches/*.patch whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab

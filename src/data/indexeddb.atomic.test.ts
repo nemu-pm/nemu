@@ -129,9 +129,18 @@ describe("IndexedDB atomic snapshot application", () => {
     );
     await store.saveChapterProgressBatch(rows);
     const originalPut = IDBObjectStore.prototype.put;
+    const targetDbName = store.dbName;
     let putCount = 0;
     IDBObjectStore.prototype.put = function (...args) {
-      putCount += 1;
+      // Bun may execute other test files concurrently. The prototype is
+      // process-global, so count only writes made by this exact profile DB;
+      // otherwise an unrelated IndexedDB test can make this assertion flaky.
+      if (
+        this.name === "chapter_progress" &&
+        this.transaction.db.name === targetDbName
+      ) {
+        putCount += 1;
+      }
       return Reflect.apply(originalPut, this, args) as IDBRequest<IDBValidKey>;
     };
 

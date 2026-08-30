@@ -4,11 +4,16 @@
   "version": "1.0.0",
   "type": "module",
   "workspaces": [
+    "apps/*",
     "packages/*"
   ],
   "scripts": {
     "postinstall": "bun scripts/patch-aidoku-runtime.ts && bun scripts/patch-vaul-css.ts",
     "dev": "concurrently \"vite --host\" \"convex dev\"",
+    "mobile:dev": "bun run --filter @nemu/mobile start",
+    "mobile:typecheck": "bun run --filter @nemu/mobile typecheck",
+    "generate:mobile-app-icon-glow": "bun scripts/generate-mobile-app-icon-glow.ts",
+    "generate:mobile-aidoku-sandbox": "bun scripts/patch-aidoku-runtime.ts && bun scripts/build-mobile-aidoku-sandbox.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "core:typecheck": "tsc -p packages/core/tsconfig.json",
@@ -119,7 +124,7 @@
     "fake-indexeddb": "^6.2.5",
     "globals": "^16.5.0",
     "happy-dom": "^20.10.6",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.0",
     "shadcn": "^3.8.5",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
@@ -127,6 +132,7 @@
     "vite": "^7.3.6"
   },
   "trustedDependencies": [
+    "@shopify/react-native-skia",
     "canvas",
     "esbuild",
     "msw",
@@ -134,18 +140,20 @@
   ],
   "overrides": {
     "@babel/core": "7.29.7",
-    "@hono/node-server": "1.19.13",
+    "@hono/node-server": "2.0.10",
+    "body-parser": "2.3.0",
     "defu": "6.1.7",
     "diff": "8.0.4",
     "dompurify": "3.4.13",
-    "fast-uri": "3.1.2",
+    "fast-uri": "3.1.5",
     "flatted": "3.4.2",
-    "hono": "4.12.29",
-    "js-yaml": "4.3.0",
+    "hono": "4.12.34",
+    "ip-address": "10.3.1",
+    "js-yaml": "4.3.1",
     "lodash": "4.18.1",
     "lodash-es": "4.18.1",
     "mermaid": "11.16.1",
-    "postcss": "8.5.16",
+    "postcss": "8.5.23",
     "qs": "6.15.3",
     "rollup": "4.62.2",
     "seroval": "1.5.5",
@@ -154,7 +162,19 @@
     "uuid": "14.0.1"
   },
   "patchedDependencies": {
+    "@better-auth/expo@1.6.23": "patches/@better-auth%2Fexpo@1.6.23.patch",
+    "@react-native-community/javascriptcore@0.2.0": "patches/react-native-community-javascriptcore@0.2.0.patch",
+    "expo-modules-jsi@56.0.13": "patches/expo-modules-jsi@56.0.13.patch",
+    "react-native-worklets@0.8.3": "patches/react-native-worklets@0.8.3.patch",
+    "expo-sqlite@56.0.6": "patches/expo-sqlite@56.0.6.patch",
     "swiper@12.2.0": "patches/swiper@12.2.0.patch",
-    "vaul@1.1.2": "patches/vaul@1.1.2.patch"
+    "vaul@1.1.2": "patches/vaul@1.1.2.patch",
+    "react-native@0.85.3": "patches/react-native@0.85.3.patch",
+    "expo@56.0.21": "patches/expo@56.0.21.patch",
+    "expo-background-task@56.0.27": "patches/expo-background-task@56.0.27.patch",
+    "@expo/ui@56.0.26": "patches/@expo%2Fui@56.0.26.patch",
+    "@expo/cli@56.1.25": "patches/@expo%2Fcli@56.1.25.patch",
+    "metro@0.84.5": "patches/metro@0.84.5.patch",
+    "image-size@1.2.1": "patches/image-size@1.2.1.patch"
   }
 }

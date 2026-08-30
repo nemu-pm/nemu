@@ -7,10 +7,14 @@ import { query } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import { betterAuth } from "better-auth";
 import authConfig from "./auth.config";
+import { getAuthCrossSubDomainCookieConfig } from "./authCookiePolicy";
 import { createMobileOriginBridge } from "./authMobileOriginBridge";
 
 const siteUrl = process.env.SITE_URL!;
 const devUrl = process.env.DEV_URL;
+const convexSiteUrl = process.env.CONVEX_SITE_URL!;
+const crossSubDomainCookieConfig =
+  getAuthCrossSubDomainCookieConfig(convexSiteUrl);
 const mobileTrustedOrigins = [
   "nemu://",
   "nemu://*",
@@ -26,6 +30,10 @@ const appleConfigured = Boolean(
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   return betterAuth({
+    // Better Auth 1.6 no longer treats request-host inference as a stable
+    // server configuration. Convex provides this canonical deployment URL at
+    // runtime, keeping OAuth callbacks deterministic behind its HTTP router.
+    baseURL: convexSiteUrl,
     trustedOrigins: [
       siteUrl,
       devUrl,
@@ -50,10 +58,9 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     advanced: {
       cookiePrefix: "nemu",
       useSecureCookies: true,
-      crossSubDomainCookies: {
-        enabled: true,
-        domain: ".nemu.pm",
-      },
+      ...(crossSubDomainCookieConfig
+        ? { crossSubDomainCookies: crossSubDomainCookieConfig }
+        : {}),
     },
     plugins: [
       createMobileOriginBridge({ siteUrl, devUrl }),
