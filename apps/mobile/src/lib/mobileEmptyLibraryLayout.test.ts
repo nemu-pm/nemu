@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   getMobileEmptyLibraryLayout,
+  NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT,
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
 } from "./mobileEmptyLibraryLayout";
 
@@ -13,11 +14,8 @@ describe("getMobileEmptyLibraryLayout", () => {
       width: 780,
     });
 
-    expect(layout).toEqual({
-      glowBleed: 48,
-      portraitMaxWidth: 512,
-      rootMinHeight: 247,
-    });
+    expect(layout.portraitMaxWidth).toBe(512);
+    expect(layout.rootMinHeight).toBe(247);
   });
 
   test("matches the web full-viewport portrait on a narrow phone", () => {
@@ -35,11 +33,8 @@ describe("getMobileEmptyLibraryLayout", () => {
       width: 390,
     });
 
-    expect(layout).toEqual({
-      glowBleed: 48,
-      portraitMaxWidth: 390,
-      rootMinHeight: 506,
-    });
+    expect(layout.portraitMaxWidth).toBe(390);
+    expect(layout.rootMinHeight).toBe(506);
   });
 
   test("matches the real web portrait breakpoints on target devices", () => {
@@ -71,10 +66,15 @@ describe("getMobileEmptyLibraryLayout", () => {
       verticalChrome: 257,
     });
 
-    expect(layout.portraitMaxWidth).toBeLessThan(370);
-    expect(layout.portraitMaxWidth).toBeGreaterThan(240);
+    const portraitHeight = layout.portraitMaxWidth * (456 / 390);
+    const stack =
+      portraitHeight +
+      layout.glowBleed +
+      NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT +
+      NEMU_WEB_EMPTY_LIBRARY_VISUAL.rootPadding * 2;
+    expect(layout.portraitMaxWidth).toBeLessThan(402 - 32);
     expect(layout.rootMinHeight).toBe(617);
-    expect(layout.glowBleed).toBe(48);
+    expect(stack).toBeLessThanOrEqual(layout.rootMinHeight);
   });
 
   test("pins spacing and type to the production web empty state", () => {

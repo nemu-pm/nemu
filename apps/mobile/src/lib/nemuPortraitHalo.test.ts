@@ -137,7 +137,7 @@ describe("Nemu portrait halo motion", () => {
     expect(component).toContain("source={glowAssets.primary}");
     expect(component).toContain("source={glowAssets.secondary}");
     expect(component).toContain("source={glowAssets.shadow}");
-    expect(component).toContain("<Animated.Image");
+    expect(component).toContain("<Reanimated.Image");
     expect(component).not.toContain("react-native-svg");
     expect(component).not.toContain("FeGaussianBlur");
     expect(component).not.toContain("shadowColor:");
@@ -216,12 +216,10 @@ describe("Nemu portrait halo motion", () => {
       path.join(import.meta.dir, "../components/NemuPortraitHalo.tsx"),
       "utf8",
     );
-    expect(component).toContain("function getInitialWebKeyframeValue(");
-    expect(component).toContain("initiallyAnimating");
-    expect(component).toContain("useLayoutEffect(() => {");
-    expect(component).toContain(
-      "value.setValue(getInitialWebKeyframeValue(duration, negativeDelay));",
-    );
+    expect(component).toContain("function startPingPong(");
+    expect(component).toContain("withRepeat");
+    expect(component).toContain("withSequence");
+    expect(component).toContain("Easing.bezier(0.42, 0, 0.58, 1)");
   });
 
   test("matches responsive mask geometry while keeping blur pixels fixed", () => {
@@ -293,7 +291,7 @@ describe("Nemu portrait halo motion", () => {
         stageHeight: getNemuPortraitStageHeight(448),
         stageWidth: 448,
       }),
-    ).toEqual({ height: 972, left: -192, top: -186, width: 896 });
+    ).toEqual({ height: 1111, left: -256, top: -256, width: 1024 });
   });
 
   test("ships unclipped, memory-bounded native rasters for both web glow layers", async () => {

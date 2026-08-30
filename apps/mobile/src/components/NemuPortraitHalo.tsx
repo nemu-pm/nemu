@@ -1,9 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useFocusEffect } from "expo-router";
+import { useEffect, useState } from "react";
 import {
-  Animated,
   AppState,
-  Easing,
   Image,
   Platform,
   StyleSheet,
@@ -12,9 +9,18 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import Reanimated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
 import portrait from "../../assets/portrait.png";
 import {
-  getNemuWebLoopStart,
   getNemuPortraitGlowRasterLayout,
   getNemuPortraitGlowStageWidth,
   getNemuPortraitHaloRenderMode,
@@ -27,57 +33,17 @@ import { getNemuPortraitGlowAssets } from "@/lib/nemuPortraitGlowAssets";
 import { useNemuTheme } from "@/design-system";
 
 const PORTRAIT_MAX_WIDTH = 639;
-const useNativeAnimationDriver = Platform.OS !== "web";
 const webEaseInOut = Easing.bezier(0.42, 0, 0.58, 1);
-const PORTRAIT_SWAY_DELAY = -2_500;
-const PORTRAIT_BREATHE_DELAY = -1_200;
-const PORTRAIT_ROTATE_DELAY = -4_000;
 
-function getInitialWebKeyframeValue(duration: number, negativeDelay = 0) {
-  const start = getNemuWebLoopStart(duration, negativeDelay);
-  const easedProgress = webEaseInOut(start.progress);
-  return start.direction === "ascending" ? easedProgress : 1 - easedProgress;
-}
-
-function createWebKeyframeLoop(
-  value: Animated.Value,
-  duration: number,
-  negativeDelay = 0,
-  { seed = true }: { seed?: boolean } = {},
-) {
-  const start = getNemuWebLoopStart(duration, negativeDelay);
-  const ascending = start.direction === "ascending";
-  if (seed) {
-    value.setValue(getInitialWebKeyframeValue(duration, negativeDelay));
-  }
-
-  // Bezier is native-driver safe. A JS-only remapped easing for the remainder
-  // of the first CSS leg made iOS skip the rest of the cycle.
-  const rise = () =>
-    Animated.timing(value, {
-      toValue: 1,
-      duration: duration / 2,
-      easing: webEaseInOut,
-      useNativeDriver: useNativeAnimationDriver,
-    });
-  const fall = () =>
-    Animated.timing(value, {
-      toValue: 0,
-      duration: duration / 2,
-      easing: webEaseInOut,
-      useNativeDriver: useNativeAnimationDriver,
-    });
-  const finishCurrentLeg = Animated.timing(value, {
-    toValue: ascending ? 1 : 0,
-    duration: Math.max(16, start.remainingDuration),
-    easing: webEaseInOut,
-    useNativeDriver: useNativeAnimationDriver,
-  });
-  const continuingLoop = Animated.loop(
-    Animated.sequence(ascending ? [fall(), rise()] : [rise(), fall()]),
+function startPingPong(value: SharedValue<number>, duration: number) {
+  value.value = withRepeat(
+    withSequence(
+      withTiming(1, { duration: duration / 2, easing: webEaseInOut }),
+      withTiming(0, { duration: duration / 2, easing: webEaseInOut }),
+    ),
+    -1,
+    false,
   );
-
-  return Animated.sequence([finishCurrentLeg, continuingLoop]);
 }
 
 type NemuPortraitHaloProps = {
@@ -108,71 +74,14 @@ export function NemuPortraitHalo({
     stageWidth: glowStageWidth,
   });
 
-  const initiallyAnimating =
-    reduceMotion !== true && AppState.currentState === "active";
-  const [float] = useState(
-    () =>
-      new Animated.Value(
-        initiallyAnimating ? getInitialWebKeyframeValue(5_000) : 0,
-      ),
-  );
-  const [sway] = useState(
-    () =>
-      new Animated.Value(
-        initiallyAnimating
-          ? getInitialWebKeyframeValue(7_000, PORTRAIT_SWAY_DELAY)
-          : 0,
-      ),
-  );
-  const [breathe] = useState(
-    () =>
-      new Animated.Value(
-        initiallyAnimating
-          ? getInitialWebKeyframeValue(4_000, PORTRAIT_BREATHE_DELAY)
-          : 0,
-      ),
-  );
-  const [rotate] = useState(
-    () =>
-      new Animated.Value(
-        initiallyAnimating
-          ? getInitialWebKeyframeValue(9_000, PORTRAIT_ROTATE_DELAY)
-          : 0,
-      ),
-  );
-  const [glowPulse] = useState(
-    () =>
-      new Animated.Value(
-        initiallyAnimating
-          ? getInitialWebKeyframeValue(
-              NEMU_WEB_PORTRAIT_GLOW.primary.duration,
-              NEMU_WEB_PORTRAIT_GLOW.primary.delay,
-            )
-          : 0,
-      ),
-  );
-  const [glowDrift] = useState(
-    () =>
-      new Animated.Value(
-        initiallyAnimating
-          ? getInitialWebKeyframeValue(
-              NEMU_WEB_PORTRAIT_GLOW.secondary.duration,
-              NEMU_WEB_PORTRAIT_GLOW.secondary.delay,
-            )
-          : 0,
-      ),
-  );
-  const [focused, setFocused] = useState(true);
+  const float = useSharedValue(0);
+  const sway = useSharedValue(0);
+  const breathe = useSharedValue(0);
+  const rotate = useSharedValue(0);
+  const glowPulse = useSharedValue(0);
+  const glowDrift = useSharedValue(0);
   const [appActive, setAppActive] = useState(AppState.currentState === "active");
-  const motionStartedRef = useRef(false);
   const haloRenderMode = getNemuPortraitHaloRenderMode(Platform.OS);
-
-  useFocusEffect(
-    useCallback(() => {
-      setFocused(true);
-      return () => setFocused(false);
-    }, []),
-  );
 
   useEffect(() => {
     const appStateSubscription = AppState.addEventListener("change", (state) => {
@@ -185,92 +94,82 @@ export function NemuPortraitHalo({
 
   const animate = shouldAnimateNemuPortraitHalo({
     appActive,
-    focused,
+    focused: true,
     platform: Platform.OS,
     reduceMotion,
   });
   const animateGlow = animate && shouldAnimateNemuPortraitGlow(Platform.OS);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!animate) {
-      // Keep the current pose. Resetting to 0 made iOS snap the figure back to
-      // rest whenever the library lost focus under a sheet.
-      [float, sway, breathe, rotate, glowPulse, glowDrift].forEach((value) => {
-        value.stopAnimation();
-      });
+      cancelAnimation(float);
+      cancelAnimation(sway);
+      cancelAnimation(breathe);
+      cancelAnimation(rotate);
+      cancelAnimation(glowPulse);
+      cancelAnimation(glowDrift);
       return;
     }
-    const seed = !motionStartedRef.current;
-    motionStartedRef.current = true;
-    const portraitAnimations = [
-      createWebKeyframeLoop(float, 5000, 0, { seed }),
-      createWebKeyframeLoop(sway, 7000, PORTRAIT_SWAY_DELAY, { seed }),
-      createWebKeyframeLoop(breathe, 4000, PORTRAIT_BREATHE_DELAY, { seed }),
-      createWebKeyframeLoop(rotate, 9000, PORTRAIT_ROTATE_DELAY, { seed }),
-    ];
-    const glowAnimations = animateGlow
-      ? [
-          createWebKeyframeLoop(
-            glowPulse,
-            NEMU_WEB_PORTRAIT_GLOW.primary.duration,
-            NEMU_WEB_PORTRAIT_GLOW.primary.delay,
-            { seed },
-          ),
-          createWebKeyframeLoop(
-            glowDrift,
-            NEMU_WEB_PORTRAIT_GLOW.secondary.duration,
-            NEMU_WEB_PORTRAIT_GLOW.secondary.delay,
-            { seed },
-          ),
-        ]
-      : [];
-    const animations = [...portraitAnimations, ...glowAnimations];
 
-    animations.forEach((animation) => animation.start());
+    startPingPong(float, 5_000);
+    startPingPong(sway, 7_000);
+    startPingPong(breathe, 4_000);
+    startPingPong(rotate, 9_000);
+    if (animateGlow) {
+      startPingPong(glowPulse, NEMU_WEB_PORTRAIT_GLOW.primary.duration);
+      startPingPong(glowDrift, NEMU_WEB_PORTRAIT_GLOW.secondary.duration);
+    }
+
     return () => {
-      animations.forEach((animation) => animation.stop());
+      cancelAnimation(float);
+      cancelAnimation(sway);
+      cancelAnimation(breathe);
+      cancelAnimation(rotate);
+      cancelAnimation(glowPulse);
+      cancelAnimation(glowDrift);
     };
-  }, [animate, animateGlow, breathe, float, glowDrift, glowPulse, rotate, sway]);
+  }, [
+    animate,
+    animateGlow,
+    breathe,
+    float,
+    glowDrift,
+    glowPulse,
+    rotate,
+    sway,
+  ]);
 
-  const floatTranslateY = float.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -12],
+  const portraitMotionStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: float.value * -12 },
+      { translateX: sway.value * 4 },
+      { rotate: `${-0.5 + rotate.value}deg` },
+      { scale: 1 + breathe.value * 0.012 },
+    ],
+  }));
+  const glowPulseStyle = useAnimatedStyle(() => {
+    const [opacity0, opacity1] = NEMU_WEB_PORTRAIT_GLOW.primary.opacity;
+    const [y0, y1] = NEMU_WEB_PORTRAIT_GLOW.primary.translateY;
+    const [scale0, scale1] = NEMU_WEB_PORTRAIT_GLOW.primary.scale;
+    return {
+      opacity: opacity0 + (opacity1 - opacity0) * glowPulse.value,
+      transform: [
+        { translateY: y0 + (y1 - y0) * glowPulse.value },
+        { scale: scale0 + (scale1 - scale0) * glowPulse.value },
+      ],
+    };
   });
-  const swayTranslateX = sway.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 4],
-  });
-  const breatheScale = breathe.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.012],
-  });
-  const rotateDeg = rotate.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["-0.5deg", "0.5deg"],
-  });
-  const glowPulseOpacity = glowPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [...NEMU_WEB_PORTRAIT_GLOW.primary.opacity],
-  });
-  const glowPulseTranslateY = glowPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [...NEMU_WEB_PORTRAIT_GLOW.primary.translateY],
-  });
-  const glowPulseScale = glowPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [...NEMU_WEB_PORTRAIT_GLOW.primary.scale],
-  });
-  const glowDriftOpacity = glowDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [...NEMU_WEB_PORTRAIT_GLOW.secondary.opacity],
-  });
-  const glowDriftTranslateX = glowDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [...NEMU_WEB_PORTRAIT_GLOW.secondary.translateX],
-  });
-  const glowDriftTranslateY = glowDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [...NEMU_WEB_PORTRAIT_GLOW.secondary.translateY],
+  const glowDriftStyle = useAnimatedStyle(() => {
+    const [opacity0, opacity1] = NEMU_WEB_PORTRAIT_GLOW.secondary.opacity;
+    const [x0, x1] = NEMU_WEB_PORTRAIT_GLOW.secondary.translateX;
+    const [y0, y1] = NEMU_WEB_PORTRAIT_GLOW.secondary.translateY;
+    return {
+      opacity: opacity0 + (opacity1 - opacity0) * glowDrift.value,
+      transform: [
+        { translateY: y0 + (y1 - y0) * glowDrift.value },
+        { translateX: x0 + (x1 - x0) * glowDrift.value },
+      ],
+    };
   });
 
   return (
@@ -287,56 +186,24 @@ export function NemuPortraitHalo({
           style={[styles.rasterGlow, glowRasterLayout]}
         />
       ) : (
-        <Animated.Image
+        <Reanimated.Image
           fadeDuration={0}
           resizeMode="stretch"
           source={glowAssets.primary}
-          style={[
-            styles.rasterGlow,
-            {
-              opacity: glowPulseOpacity,
-              transform: [
-                { translateY: glowPulseTranslateY },
-                { scale: glowPulseScale },
-              ],
-            },
-            glowRasterLayout,
-          ]}
+          style={[styles.rasterGlow, glowRasterLayout, glowPulseStyle]}
         />
       )}
 
       {haloRenderMode === "animated-raster-layers" ? (
-        <Animated.Image
+        <Reanimated.Image
           fadeDuration={0}
           resizeMode="stretch"
           source={glowAssets.secondary}
-          style={[
-            styles.rasterGlow,
-            {
-              opacity: glowDriftOpacity,
-              transform: [
-                { translateY: glowDriftTranslateY },
-                { translateX: glowDriftTranslateX },
-              ],
-            },
-            glowRasterLayout,
-          ]}
+          style={[styles.rasterGlow, glowRasterLayout, glowDriftStyle]}
         />
       ) : null}
 
-      <Animated.View
-        style={[
-          styles.motionLayer,
-          {
-            transform: [
-              { translateY: floatTranslateY },
-              { translateX: swayTranslateX },
-              { rotate: rotateDeg },
-              { scale: breatheScale },
-            ],
-          },
-        ]}
-      >
+      <Reanimated.View style={[styles.motionLayer, portraitMotionStyle]}>
         <View
           style={[
             styles.portraitStack,
@@ -360,7 +227,7 @@ export function NemuPortraitHalo({
             style={styles.portrait}
           />
         </View>
-      </Animated.View>
+      </Reanimated.View>
     </View>
   );
 }

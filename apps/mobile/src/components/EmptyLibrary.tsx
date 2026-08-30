@@ -8,7 +8,7 @@ import {
   usesNemuNativeHeader,
   NemuButton,
 } from "@/design-system";
-import { getMobilePageContentBottomPadding } from "@/lib/mobileFloatingTabBarClearance";
+import { getMobileFloatingTabBarOverlayExtent } from "@/lib/mobileFloatingTabBarClearance";
 import {
   getMobileEmptyLibraryLayout,
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
@@ -42,11 +42,12 @@ export function EmptyLibrary({
   const layout = getMobileEmptyLibraryLayout({
     height,
     width,
-    horizontalPadding: spacing.pageX,
+    // Match web `w-[100vw]` on phones; page padding must not shrink the art.
+    horizontalPadding: 0,
     verticalChrome:
-      (usesNemuNativeHeader ? insets.top + 52 : insets.top) +
+      (usesNemuNativeHeader ? insets.top + 44 : insets.top) +
       spacing.pageTop +
-      getMobilePageContentBottomPadding(insets.bottom),
+      getMobileFloatingTabBarOverlayExtent(insets.bottom),
   });
   const disabled = Boolean(actionDisabled || actionLoading);
 

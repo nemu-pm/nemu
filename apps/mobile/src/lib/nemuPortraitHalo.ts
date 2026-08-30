@@ -78,14 +78,17 @@ export function getNemuPortraitGlowRasterLayout({
   stageHeight: number;
   stageWidth: number;
 }) {
-  // The selected raster's mask and stage have identical dimensions. One source
-  // pixel maps to one native layout unit, so the 64/40px blur remains 64/40dp.
+  // Glow/shadow rasters are authored for a bucketed stage. Scale them onto the
+  // displayed portrait box so the baked 20px drop-shadow stays under the
+  // character instead of drifting when the nearest bucket differs.
   const padding = NEMU_WEB_PORTRAIT_GLOW.artboardPadding;
+  const scale = stageWidth > 0 ? containerStageWidth / stageWidth : 1;
+  const scaledPadding = padding * scale;
   return {
-    height: stageHeight + padding * 2,
-    left: Math.round((containerStageWidth - stageWidth) / 2) - padding,
-    top: Math.round((containerStageHeight - stageHeight) / 2) - padding,
-    width: stageWidth + padding * 2,
+    height: Math.round((stageHeight + padding * 2) * scale),
+    left: Math.round((containerStageWidth - stageWidth * scale) / 2 - scaledPadding),
+    top: Math.round((containerStageHeight - stageHeight * scale) / 2 - scaledPadding),
+    width: Math.round((stageWidth + padding * 2) * scale),
   } as const;
 }
 

@@ -13,12 +13,13 @@ const WEB_SM_BREAKPOINT = 640;
 const WEB_MD_BREAKPOINT = 768;
 const WEB_SM_PORTRAIT_MAX_WIDTH = 448;
 const WEB_MD_PORTRAIT_MAX_WIDTH = 512;
-const PORTRAIT_ASPECT =
-  456 / 390;
 const ACTION_BUTTON_HEIGHT = 48;
 
-/** Space reserved under the portrait so the baked glow does not sit on the copy. */
-export const NEMU_EMPTY_LIBRARY_GLOW_BLEED = 48;
+/** Drop-shadow offset as a fraction of the web portrait height (20/456). */
+export const NEMU_EMPTY_LIBRARY_GLOW_BLEED_RATIO = 20 / 456;
+const PORTRAIT_ASPECT = 456 / 390;
+/** Share of the leftover column (after copy + button) given to the portrait. */
+export const NEMU_EMPTY_LIBRARY_PORTRAIT_REMAINING_RATIO = 0.86;
 
 export const NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT =
   NEMU_WEB_EMPTY_LIBRARY_VISUAL.portraitMarginBottom +
@@ -56,23 +57,36 @@ export function getMobileEmptyLibraryLayout({
   const safeChrome = Math.max(0, verticalChrome);
   const contentWidth = Math.max(1, Math.round(width - safePadding * 2));
   const availableHeight = Math.max(1, Math.round(safeHeight - safeChrome));
-  const widthBound = portraitWidthForBreakpoint(contentWidth);
-  const heightBudget =
-    availableHeight -
-    NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT -
-    NEMU_EMPTY_LIBRARY_GLOW_BLEED -
+  const copyBudget =
+    NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT +
     NEMU_WEB_EMPTY_LIBRARY_VISUAL.rootPadding * 2;
-  const heightBound = Math.max(
+
+  let portraitMaxWidth = portraitWidthForBreakpoint(contentWidth);
+  let glowBleed = Math.max(
     1,
-    Math.round(Math.max(1, heightBudget) / PORTRAIT_ASPECT),
+    Math.round(portraitMaxWidth * PORTRAIT_ASPECT * NEMU_EMPTY_LIBRARY_GLOW_BLEED_RATIO),
   );
 
-  return {
-    glowBleed: NEMU_EMPTY_LIBRARY_GLOW_BLEED,
-    portraitMaxWidth: Math.max(
+  if (safeChrome > 0) {
+    const remainingForPortrait = Math.max(
       1,
-      safeChrome > 0 ? Math.min(widthBound, heightBound) : widthBound,
-    ),
+      availableHeight - copyBudget,
+    );
+    const portraitHeight =
+      remainingForPortrait * NEMU_EMPTY_LIBRARY_PORTRAIT_REMAINING_RATIO;
+    portraitMaxWidth = Math.max(
+      1,
+      Math.round(Math.min(contentWidth, portraitHeight / PORTRAIT_ASPECT)),
+    );
+    glowBleed = Math.max(
+      1,
+      Math.round(portraitMaxWidth * PORTRAIT_ASPECT * NEMU_EMPTY_LIBRARY_GLOW_BLEED_RATIO),
+    );
+  }
+
+  return {
+    glowBleed,
+    portraitMaxWidth,
     rootMinHeight:
       safeChrome > 0
         ? availableHeight
