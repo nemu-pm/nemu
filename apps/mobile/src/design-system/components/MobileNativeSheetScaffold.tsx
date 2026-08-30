@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   BackHandler,
   Platform,
@@ -14,22 +22,35 @@ import {
   BottomSheetScrollView,
   type BottomSheetMethods,
 } from "@expo/ui/community/bottom-sheet";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { nemuFontWeight } from "@/design/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import {
+  canDismissMobileNativeSheetFromPan,
   canDismissMobileNativeSheetFromHardwareBack,
+  MOBILE_NATIVE_ANDROID_SNAP_POINTS,
   normalizeMobileNativeSheetSnapPointsForPlatform,
+  resolveMobileSheetHeaderMetrics,
   resolveMobileNativeSheetDismissLabel,
   shouldBoundMobileNativeSheetForPlatform,
 } from "@/lib/mobileNativeSheet";
 import { NemuPressable } from "./NemuPressable";
+import { MobileSheetHeader } from "./MobileSheetHeader";
 
 type MobileNativeSheetScaffoldProps = {
   visible: boolean;
+  /** Called when the native host has fully finished dismissing. */
+  onDismiss?: () => void;
   onClose: () => void;
+  /** Handles Android Back inside an in-sheet subflow without dismissing it. */
+  onHardwareBackPress?: () => boolean;
   title?: string;
+  subtitle?: string;
+  headerLeading?: ReactNode;
+  headerTrailing?: ReactNode;
   dismissLabel?: string;
+  dismissDisabled?: boolean;
   showDismissButton?: boolean;
   snapPoints?: (string | number)[];
   scroll?: boolean;
@@ -63,9 +84,15 @@ function resolveSnapPointHeight(
 
 export function MobileNativeSheetScaffold({
   visible,
+  onDismiss,
   onClose,
+  onHardwareBackPress,
   title,
+  subtitle,
+  headerLeading,
+  headerTrailing,
   dismissLabel,
+  dismissDisabled = false,
   showDismissButton,
   snapPoints,
   scroll = false,
@@ -82,12 +109,23 @@ export function MobileNativeSheetScaffold({
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const sheetRef = useRef<BottomSheetMethods | null>(null);
-  const sheetClosedRef = useRef(!visible);
-  const programmaticCloseRef = useRef(false);
-  const programmaticCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
+  const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState(0);
+  const [sheetPresented, setSheetPresented] = useState(visible);
+  const [closeInteractionLocked, setCloseInteractionLocked] = useState(
+    !visible,
   );
+  const sheetClosedRef = useRef(!visible);
+  const closeRequestedRef = useRef(false);
+  const previousVisibleRef = useRef(visible);
+  const visibleRef = useRef(visible);
+  const reopenAfterCloseRef = useRef(false);
+  const reopenReadyRef = useRef(false);
   const availableSheetHeight = windowHeight - insets.top - insets.bottom;
+  const headerMetrics = resolveMobileSheetHeaderMetrics(Platform.OS);
+  const effectiveEnablePanDownToClose = canDismissMobileNativeSheetFromPan({
+    dismissDisabled,
+    enablePanDownToClose,
+  });
   const boundDynamicAndroidLandscapeSheet =
     shouldBoundMobileNativeSheetForPlatform({
       platform: Platform.OS,
@@ -95,9 +133,22 @@ export function MobileNativeSheetScaffold({
       height: windowHeight,
       snapPoints,
     });
-  const effectiveSnapPoints = boundDynamicAndroidLandscapeSheet
-    ? ["50%", "100%"]
+  const normalizedSnapPoints = boundDynamicAndroidLandscapeSheet
+    ? MOBILE_NATIVE_ANDROID_SNAP_POINTS
     : normalizeMobileNativeSheetSnapPointsForPlatform(snapPoints, Platform.OS);
+  const effectiveSnapPointsSignature = normalizedSnapPoints
+    ? JSON.stringify(normalizedSnapPoints)
+    : null;
+  // Native BottomSheet memoizes presentation detents and imperative methods by
+  // array identity. Canonicalize equal values here so inline caller arrays and
+  // unrelated form/loading renders cannot rebuild native presentation inputs.
+  const effectiveSnapPoints = useMemo(
+    () =>
+      effectiveSnapPointsSignature === null
+        ? undefined
+        : (JSON.parse(effectiveSnapPointsSignature) as (string | number)[]),
+    [effectiveSnapPointsSignature],
+  );
   const resolvedSnapPointHeight = resolveSnapPointHeight(
     effectiveSnapPoints?.[0],
     availableSheetHeight,
@@ -110,18 +161,27 @@ export function MobileNativeSheetScaffold({
     Boolean(effectiveSnapPoints?.length);
   const resolvedDismissLabel = resolveMobileNativeSheetDismissLabel({
     dismissLabel,
-    enablePanDownToClose,
+    dismissDisabled,
+    enablePanDownToClose: effectiveEnablePanDownToClose,
     showDismissButton,
   });
   const canDismissFromHardwareBack =
     canDismissMobileNativeSheetFromHardwareBack({
       dismissLabel,
-      enablePanDownToClose,
+      dismissDisabled,
+      enablePanDownToClose: effectiveEnablePanDownToClose,
       showDismissButton,
     });
   const shouldRenderDismissButton = resolvedDismissLabel !== null;
-  const shouldRenderChrome = Boolean(title) || shouldRenderDismissButton;
-  const chromeHeight = shouldRenderChrome ? SHEET_CHROME_HEIGHT : 0;
+  const shouldRenderChrome =
+    Boolean(title) ||
+    Boolean(headerLeading) ||
+    Boolean(headerTrailing) ||
+    shouldRenderDismissButton;
+  const defaultHeaderHeight = headerMetrics.minimumHeight;
+  const chromeHeight = shouldRenderChrome
+    ? measuredHeaderHeight || defaultHeaderHeight
+    : 0;
   const boundedContentHeight = boundedSnapPointHeight
     ? Math.max(boundedSnapPointHeight - chromeHeight, 188)
     : undefined;
@@ -132,66 +192,116 @@ export function MobileNativeSheetScaffold({
       : 18);
   const content = [
     styles.content,
+    {
+      paddingHorizontal: headerMetrics.bodyHorizontalPadding,
+      paddingTop: headerMetrics.bodyTopPadding,
+    },
     contentStyle,
     { paddingBottom },
   ];
+  const bodyDescription = subtitle ? (
+    <Text
+      maxFontSizeMultiplier={headerMetrics.bodyDescriptionMaxFontSizeMultiplier}
+      numberOfLines={headerMetrics.bodyDescriptionNumberOfLines ?? undefined}
+      style={[
+        styles.bodyDescription,
+        {
+          color: tokens.mutedForeground,
+          fontSize: headerMetrics.bodyDescriptionFontSize,
+          lineHeight: headerMetrics.bodyDescriptionLineHeight,
+        },
+      ]}
+    >
+      {subtitle}
+    </Text>
+  ) : null;
+  const hasMultipleSnapPoints = (effectiveSnapPoints?.length ?? 0) > 1;
   const filledContentStyle =
-    fillContent && boundedContentHeight
+    fillContent && hasMultipleSnapPoints
+      ? styles.filledContent
+      : fillContent && boundedContentHeight
       ? { height: boundedContentHeight }
       : fillContent
         ? styles.filledContent
         : null;
-  const clearProgrammaticCloseTimer = useCallback(() => {
-    if (!programmaticCloseTimerRef.current) return;
-    clearTimeout(programmaticCloseTimerRef.current);
-    programmaticCloseTimerRef.current = null;
-  }, []);
+  const interactionLocked = closeInteractionLocked || !visible;
   const finishClose = useCallback(() => {
     if (sheetClosedRef.current) return;
     sheetClosedRef.current = true;
-    clearProgrammaticCloseTimer();
-    programmaticCloseRef.current = false;
+    closeRequestedRef.current = false;
+    setCloseInteractionLocked(true);
+    setSheetPresented(false);
     onClose();
-  }, [clearProgrammaticCloseTimer, onClose]);
+    onDismiss?.();
+  }, [onClose, onDismiss]);
   const handleClose = useCallback(() => {
-    if (programmaticCloseRef.current) {
-      if (programmaticCloseTimerRef.current) return;
-      programmaticCloseTimerRef.current = setTimeout(() => {
-        finishClose();
-      }, PROGRAMMATIC_SHEET_CLOSE_DELAY_MS);
+    if (sheetClosedRef.current) return;
+    if (reopenAfterCloseRef.current && visibleRef.current) {
+      // A false -> true transition arrived after native dismissal had already
+      // started. Let the completed native close commit an index=-1 frame, then
+      // present the new visibility cycle without reporting a stale close.
+      sheetClosedRef.current = true;
+      closeRequestedRef.current = false;
+      reopenAfterCloseRef.current = false;
+      reopenReadyRef.current = true;
+      setSheetPresented(false);
       return;
     }
-
     finishClose();
   }, [finishClose]);
   const requestSheetClose = useCallback(() => {
-    if (sheetClosedRef.current) return;
+    if (sheetClosedRef.current || closeRequestedRef.current) return;
+    // Native dismissal animations leave the React subtree mounted. Own the
+    // first close intent immediately so a second tap cannot mutate data or
+    // queue a different handoff while that animation is still running.
+    setCloseInteractionLocked(true);
     const sheet = sheetRef.current;
     if (!sheet) {
       finishClose();
       return;
     }
 
-    programmaticCloseRef.current = true;
+    closeRequestedRef.current = true;
     sheet.close();
   }, [finishClose]);
 
+  useLayoutEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
+
   useEffect(() => {
+    const wasVisible = previousVisibleRef.current;
+    previousVisibleRef.current = visible;
     if (visible) {
-      clearProgrammaticCloseTimer();
-      programmaticCloseRef.current = false;
-      sheetClosedRef.current = false;
+      if (!wasVisible) {
+        if (closeRequestedRef.current) {
+          reopenAfterCloseRef.current = true;
+          return;
+        }
+        sheetClosedRef.current = false;
+        reopenReadyRef.current = false;
+        // Controlled visibility starts a new native presentation session.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setCloseInteractionLocked(false);
+        // A new controlled visibility cycle must re-present the native host.
+        // The transition guard prevents an effect/render feedback loop.
+        setSheetPresented(true);
+      } else if (reopenReadyRef.current) {
+        reopenReadyRef.current = false;
+        sheetClosedRef.current = false;
+        setCloseInteractionLocked(false);
+        // Native dismissal has completed, so the canceled close can now start
+        // a fresh presentation without racing the prior platform animation.
+        setSheetPresented(true);
+      }
       return;
     }
 
-    requestSheetClose();
-  }, [clearProgrammaticCloseTimer, requestSheetClose, visible]);
-
-  useEffect(() => {
-    return () => {
-      clearProgrammaticCloseTimer();
-    };
-  }, [clearProgrammaticCloseTimer]);
+    reopenAfterCloseRef.current = false;
+    reopenReadyRef.current = false;
+    setCloseInteractionLocked(true);
+    if (sheetPresented) requestSheetClose();
+  }, [requestSheetClose, sheetPresented, visible]);
 
   // Keep Android hardware-back handling centralized so it follows the same
   // caller-approved close policy as the visible controls. Guarded sheets consume
@@ -201,58 +311,107 @@ export function MobileNativeSheetScaffold({
     const subscription = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
+        if (onHardwareBackPress?.()) return true;
         if (canDismissFromHardwareBack) requestSheetClose();
         return true;
       },
     );
     return () => subscription.remove();
-  }, [canDismissFromHardwareBack, requestSheetClose, visible]);
+  }, [
+    canDismissFromHardwareBack,
+    onHardwareBackPress,
+    requestSheetClose,
+    visible,
+  ]);
 
   return (
     <BottomSheet
       ref={sheetRef}
-      index={visible ? 0 : -1}
+      index={sheetPresented ? 0 : -1}
       snapPoints={effectiveSnapPoints}
       enableDynamicSizing={!effectiveSnapPoints?.length}
-      enablePanDownToClose={enablePanDownToClose}
+      enablePanDownToClose={effectiveEnablePanDownToClose}
       backgroundStyle={{ backgroundColor: backgroundColor ?? tokens.card }}
       onClose={handleClose}
     >
       {shouldRenderChrome ? (
-        <View style={styles.chrome}>
-          <View style={styles.chromeSide} />
-          <Text
-            maxFontSizeMultiplier={SHEET_CHROME_MAX_FONT_SIZE_MULTIPLIER}
-            numberOfLines={1}
-            style={[styles.chromeTitle, { color: tokens.foreground }]}
-          >
-            {title}
-          </Text>
-          <View style={styles.chromeSide}>
-            {shouldRenderDismissButton ? (
-              <NemuPressable
-                accessibilityLabel={resolvedDismissLabel}
-                accessibilityRole="button"
-                hapticFeedback="selection"
-                onPress={requestSheetClose}
-                pressedScale={0.97}
-                containerStyle={styles.dismissButtonHitArea}
-                style={styles.dismissButton}
-              >
-                <Text
-                  maxFontSizeMultiplier={SHEET_CHROME_MAX_FONT_SIZE_MULTIPLIER}
-                  numberOfLines={1}
-                  style={[styles.dismissText, { color: tokens.primary }]}
+        <View
+          accessibilityElementsHidden={interactionLocked}
+          importantForAccessibility={
+            interactionLocked ? "no-hide-descendants" : "auto"
+          }
+          pointerEvents={interactionLocked ? "none" : "auto"}
+        >
+          <MobileSheetHeader
+            leading={headerLeading}
+            onLayout={(event) => {
+              const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+              setMeasuredHeaderHeight((currentHeight) =>
+                currentHeight === nextHeight ? currentHeight : nextHeight,
+              );
+            }}
+            title={title ?? ""}
+            trailing={
+              headerTrailing ??
+              (shouldRenderDismissButton ? (
+                <NemuPressable
+                  accessibilityLabel={resolvedDismissLabel}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: dismissDisabled }}
+                  disabled={dismissDisabled}
+                  hapticFeedback="none"
+                  onPress={requestSheetClose}
+                  pressedScale={0.97}
+                  containerStyle={[
+                    styles.dismissButtonHitArea,
+                    {
+                      minHeight: headerMetrics.controlSize,
+                      minWidth: headerMetrics.controlSize,
+                    },
+                  ]}
+                  style={[
+                    styles.dismissButton,
+                    { opacity: dismissDisabled ? 0.48 : 1 },
+                  ]}
                 >
-                  {resolvedDismissLabel}
-                </Text>
-              </NemuPressable>
-            ) : null}
-          </View>
+                  {headerMetrics.showActionLabels ? (
+                    <Text
+                      maxFontSizeMultiplier={
+                        SHEET_CHROME_MAX_FONT_SIZE_MULTIPLIER
+                      }
+                      numberOfLines={1}
+                      style={[
+                        styles.dismissText,
+                        styles.androidDismissText,
+                        { color: tokens.primary },
+                      ]}
+                    >
+                      {resolvedDismissLabel}
+                    </Text>
+                  ) : (
+                    <Ionicons
+                      accessibilityElementsHidden
+                      importantForAccessibility="no"
+                      name="close-outline"
+                      size={20}
+                      color={tokens.primary}
+                    />
+                  )}
+                </NemuPressable>
+              ) : null)
+            }
+          />
         </View>
       ) : null}
       {shouldUseScrollView ? (
-        <View style={styles.scrollFrame}>
+        <View
+          accessibilityElementsHidden={interactionLocked}
+          importantForAccessibility={
+            interactionLocked ? "no-hide-descendants" : "auto"
+          }
+          pointerEvents={interactionLocked ? "none" : "auto"}
+          style={styles.scrollFrame}
+        >
           <BottomSheetScrollView
             alwaysBounceVertical={false}
             automaticallyAdjustContentInsets={false}
@@ -262,11 +421,21 @@ export function MobileNativeSheetScaffold({
             contentContainerStyle={content}
             testID={testID}
           >
+            {bodyDescription}
             {children}
           </BottomSheetScrollView>
         </View>
       ) : (
-        <View style={[filledContentStyle, content]} testID={testID}>
+        <View
+          accessibilityElementsHidden={interactionLocked}
+          importantForAccessibility={
+            interactionLocked ? "no-hide-descendants" : "auto"
+          }
+          pointerEvents={interactionLocked ? "none" : "auto"}
+          style={[filledContentStyle, content]}
+          testID={testID}
+        >
+          {bodyDescription}
           {children}
         </View>
       )}
@@ -274,39 +443,13 @@ export function MobileNativeSheetScaffold({
   );
 }
 
-const SHEET_CHROME_HEIGHT = 52;
 // Sheet chrome competes for one fixed row: an unbounded Dynamic Type title and
 // text dismiss action can overlap even though the sheet body itself remains
 // scrollable. Keep both labels accessible and scaled, but cap only this compact
 // navigation chrome so neither control is truncated at accessibility sizes.
 const SHEET_CHROME_MAX_FONT_SIZE_MULTIPLIER = 1.5;
-// Let the native sheet receive the close state before React unmounts the wrapper.
-const PROGRAMMATIC_SHEET_CLOSE_DELAY_MS = 320;
-
 const styles = StyleSheet.create({
-  chrome: {
-    height: SHEET_CHROME_HEIGHT,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-  },
-  chromeSide: {
-    width: 76,
-    minWidth: 76,
-    minHeight: 44,
-    justifyContent: "center",
-  },
-  chromeTitle: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: nemuFontWeight.semibold,
-    letterSpacing: 0,
-    textAlign: "center",
-  },
   dismissButtonHitArea: {
-    minHeight: 44,
     alignItems: "flex-end",
     justifyContent: "center",
   },
@@ -323,6 +466,14 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.medium,
     letterSpacing: 0,
   },
+  androidDismissText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  bodyDescription: {
+    width: "100%",
+    letterSpacing: 0,
+  },
   scrollFrame: {
     flex: 1,
     width: "100%",
@@ -336,6 +487,6 @@ const styles = StyleSheet.create({
   content: {
     gap: 14,
     paddingHorizontal: 16,
-    paddingTop: 2,
+    paddingTop: 8,
   },
 });

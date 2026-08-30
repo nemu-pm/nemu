@@ -79,3 +79,32 @@ export function canRunNemuPressableHaptic(
 ): boolean {
   return !disabled && hapticFeedback !== "none";
 }
+
+/**
+ * Depth controls inherit the app's unresolved-safe Reduce Motion policy. Plain
+ * pressables retain their existing spring by default; callers can still opt a
+ * bespoke control explicitly in or out through `pressAnimationEnabled`.
+ */
+export function resolveNemuPressableAnimationEnabled({
+  hasButtonDepth,
+  pressAnimationEnabled,
+  reduceMotion,
+}: {
+  hasButtonDepth: boolean;
+  pressAnimationEnabled?: boolean;
+  reduceMotion: boolean | null;
+}): boolean {
+  if (pressAnimationEnabled !== undefined) return pressAnimationEnabled;
+  return hasButtonDepth ? reduceMotion === false : true;
+}
+
+/** A disabled or motion-suppressed control may not receive a final press-out. */
+export function shouldResetNemuPressableInteraction({
+  animationEnabled,
+  disabled,
+}: {
+  animationEnabled: boolean;
+  disabled: boolean;
+}): boolean {
+  return disabled || !animationEnabled;
+}

@@ -1,7 +1,10 @@
 import type { ComponentProps } from "react";
 import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { nemuText, useNemuTheme, NemuButton } from "@/design-system";
-import { getMobileEmptyLibraryLayout } from "@/lib/mobileEmptyLibraryLayout";
+import {
+  getMobileEmptyLibraryLayout,
+  NEMU_WEB_EMPTY_LIBRARY_VISUAL,
+} from "@/lib/mobileEmptyLibraryLayout";
 import { NemuPortraitHalo } from "./NemuPortraitHalo";
 
 type EmptyLibraryActionIcon = ComponentProps<typeof NemuButton>["icon"];
@@ -26,8 +29,8 @@ export function EmptyLibrary({
   actionLoading,
 }: EmptyLibraryProps) {
   const { tokens } = useNemuTheme();
-  const { width } = useWindowDimensions();
-  const layout = getMobileEmptyLibraryLayout({ width });
+  const { height, width } = useWindowDimensions();
+  const layout = getMobileEmptyLibraryLayout({ height, width });
   const disabled = Boolean(actionDisabled || actionLoading);
 
   return (
@@ -59,6 +62,7 @@ export function EmptyLibrary({
           icon={actionIcon}
           label={actionLabel}
           loading={actionLoading}
+          size="lg"
           containerStyle={styles.action}
           onPress={onActionPress}
           variant="default"
@@ -72,10 +76,10 @@ const styles = StyleSheet.create({
   root: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 24,
+    paddingVertical: NEMU_WEB_EMPTY_LIBRARY_VISUAL.rootPadding,
   },
   portraitWrap: {
-    marginBottom: 12,
+    marginBottom: NEMU_WEB_EMPTY_LIBRARY_VISUAL.portraitMarginBottom,
   },
   details: {
     flexShrink: 1,
@@ -84,15 +88,18 @@ const styles = StyleSheet.create({
   copy: {
     maxWidth: 320,
     alignItems: "center",
-    gap: 8,
+    gap: NEMU_WEB_EMPTY_LIBRARY_VISUAL.copyGap,
   },
   title: {
+    letterSpacing: NEMU_WEB_EMPTY_LIBRARY_VISUAL.titleLetterSpacing,
+    lineHeight: NEMU_WEB_EMPTY_LIBRARY_VISUAL.titleLineHeight,
     textAlign: "center",
   },
   description: {
+    lineHeight: NEMU_WEB_EMPTY_LIBRARY_VISUAL.descriptionLineHeight,
     textAlign: "center",
   },
   action: {
-    marginTop: 24,
+    marginTop: NEMU_WEB_EMPTY_LIBRARY_VISUAL.actionMarginTop,
   },
 });

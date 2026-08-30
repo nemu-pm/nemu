@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { router } from "expo-router";
 import {
   ActivityIndicator,
-  Modal,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -50,9 +48,10 @@ import {
   getMobileWelcomeAvailableSources,
   getMobileWelcomeDefaultSelection,
   getMobileWelcomePendingSourceInstallCount,
+  MOBILE_WELCOME_ICON_SIZE,
+  resolveMobileWelcomeNativeSheetPresentation,
   shouldBlockMobileWelcomeUnderlyingContent,
-  shouldScrollMobileWelcomeContent,
-  shouldUseContentSizedMobileWelcomeSheet,
+  shouldStackMobileWelcomeActions,
   type MobileWelcomeStep,
 } from "@/lib/mobileWelcome";
 import { makeSourceKey, type MobileRegistrySource } from "@/sources/aidokuRegistry";
@@ -62,8 +61,6 @@ const languageOptions: Array<{ value: AppLanguage; label: string }> = [
   { value: "zh", label: "简体中文" },
   { value: "ja", label: "日本語" },
 ];
-
-const WELCOME_ICON_SIZE = 96;
 
 function formatLanguages(languages?: string[]): string | undefined {
   return languages?.length ? languages.join(", ").toUpperCase() : undefined;
@@ -350,6 +347,7 @@ function MobileWelcomeWizardContent({
   const [operationError, setOperationError] =
     useState<MobileWelcomeOperationError | null>(null);
   const [sheetVisible, setSheetVisible] = useState(true);
+  const afterSheetDismissRef = useRef<(() => void) | null>(null);
 
   const strings = getMobileStrings(selectedLanguage);
   const startupBlocked = startupError !== null || startupRetrying;
@@ -393,6 +391,13 @@ function MobileWelcomeWizardContent({
   useEffect(() => {
     setSelectedLanguage(appLanguage);
   }, [appLanguage]);
+
+  useEffect(
+    () => () => {
+      afterSheetDismissRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     setSelectedSourceKeys(
@@ -444,16 +449,12 @@ function MobileWelcomeWizardContent({
       await markCompleted();
       await hapticConfirm();
       completed = true;
-      // Android uses an in-tree sheet because Compose ModalBottomSheet can
-      // leave an older host behind when this multi-step content remounts. The
-      // iOS native sheet still needs an explicit close before it is unmounted.
-      if (Platform.OS === "android") {
-        onCompleted();
-      } else {
-        setSheetVisible(false);
-      }
-      afterComplete?.();
+      // Let the stable native sheet finish its close animation on both
+      // platforms; its onClose callback then releases onboarding ownership.
+      afterSheetDismissRef.current = afterComplete ?? null;
+      setSheetVisible(false);
     } catch (error) {
+      afterSheetDismissRef.current = null;
       await hapticError();
       setOperationError({
         title: strings.settings.settingsActionFailed,
@@ -561,6 +562,13 @@ function MobileWelcomeWizardContent({
     });
   };
 
+  const handleWelcomeSheetClosed = useCallback(() => {
+    const afterDismiss = afterSheetDismissRef.current;
+    afterSheetDismissRef.current = null;
+    onCompleted();
+    afterDismiss?.();
+  }, [onCompleted]);
+
   const primaryAction = () => {
     if (!canRunMobileWelcomePrimaryAction(getGuardedActionState())) return;
 
@@ -604,13 +612,27 @@ function MobileWelcomeWizardContent({
         nativePreferredHeight,
         Math.max(240, windowHeight - sheetTopPadding - 12),
       );
-  const useContentSizedNativeSheet = shouldUseContentSizedMobileWelcomeSheet({
-    platform: "ios",
-    step,
-    fontScale,
-    availableHeight: windowHeight - sheetTopPadding - 12,
-  });
+  const availableNativeSheetHeight = windowHeight - sheetTopPadding - 12;
+  const welcomeSheetPlatform = Platform.OS === "android" ? "android" : "ios";
+  const welcomeSheetPresentation = useMemo(
+    () =>
+      resolveMobileWelcomeNativeSheetPresentation({
+        platform: welcomeSheetPlatform,
+        step,
+        fontScale,
+        availableHeight: availableNativeSheetHeight,
+        nativeSheetHeight,
+      }),
+    [
+      availableNativeSheetHeight,
+      fontScale,
+      nativeSheetHeight,
+      step,
+      welcomeSheetPlatform,
+    ],
+  );
   const welcomeIntroWidth = Math.min(400, windowWidth - 40);
+  const stackActions = shouldStackMobileWelcomeActions(windowWidth);
   const welcomeIntroLines = strings.welcome.introLines;
   const [welcomeTitleBeforeBrand, welcomeTitleAfterBrand] =
     splitWelcomeTitleAroundBrand(strings.welcome.title);
@@ -619,8 +641,8 @@ function MobileWelcomeWizardContent({
     <>
       {step === "welcome" ? (
         <NemuAppIconHalo
-          accessibilityLabel="nemu"
-          iconSize={WELCOME_ICON_SIZE}
+          accessibilityLabel={strings.about.appIconLabel}
+          iconSize={MOBILE_WELCOME_ICON_SIZE}
           source={appIcon}
           style={styles.iconWrap}
         />
@@ -761,13 +783,15 @@ function MobileWelcomeWizardContent({
         </View>
       ) : null}
 
-      <View style={styles.actions}>
+      <View style={[styles.actions, stackActions && styles.stackedActions]}>
         {step !== "done" ? (
           <NemuButton
             label={skipConfirm ? strings.welcome.confirmSkip : strings.welcome.skip}
             variant="ghost"
             disabled={skipDisabled}
             hapticFeedback="none"
+            containerStyle={stackActions ? styles.stackedActionContainer : undefined}
+            style={stackActions ? styles.stackedAction : undefined}
             onPress={skip}
           />
         ) : (
@@ -779,6 +803,8 @@ function MobileWelcomeWizardContent({
             variant="ghost"
             disabled={primaryDisabled}
             hapticFeedback="none"
+            containerStyle={stackActions ? styles.stackedActionContainer : undefined}
+            style={stackActions ? styles.stackedAction : undefined}
             onPress={openCloudSync}
           />
         )}
@@ -799,91 +825,24 @@ function MobileWelcomeWizardContent({
           variant="default"
           loading={installing || completing}
           disabled={primaryDisabled}
-          style={step === "done" ? styles.doneActionButton : undefined}
+          containerStyle={stackActions ? styles.stackedActionContainer : undefined}
+          style={[
+            step === "done" && !stackActions ? styles.doneActionButton : undefined,
+            stackActions ? styles.stackedAction : undefined,
+          ]}
           onPress={primaryAction}
         />
       </View>
     </>
   );
 
-  if (Platform.OS === "android") {
-    const scrollContent = shouldScrollMobileWelcomeContent({
-      platform: "android",
-      step,
-    });
-    return (
-      <Modal
-        hardwareAccelerated
-        navigationBarTranslucent
-        onRequestClose={() => undefined}
-        statusBarTranslucent
-        transparent
-        visible
-      >
-        <View
-          accessibilityViewIsModal
-          importantForAccessibility="yes"
-          style={styles.androidOverlay}
-          testID="MobileWelcomeWizard"
-        >
-          <View pointerEvents="none" style={styles.androidBackdrop} />
-          <View
-            style={[
-              styles.androidSheet,
-              {
-                backgroundColor: tokens.background,
-                maxHeight: windowHeight - sheetTopPadding,
-              },
-              isSourceStep ? { height: sourceSheetHeight } : null,
-            ]}
-          >
-            <View style={styles.androidHandleArea}>
-              <View
-                accessibilityLabel={strings.common.dragHandle}
-                style={[
-                  styles.androidHandle,
-                  { backgroundColor: tokens.mutedForeground },
-                ]}
-              />
-            </View>
-            {scrollContent ? (
-              <ScrollView
-                alwaysBounceVertical={false}
-                contentContainerStyle={[
-                  styles.sheetContent,
-                  { paddingBottom: Math.max(insets.bottom, 18) },
-                ]}
-                keyboardShouldPersistTaps="handled"
-                style={isSourceStep ? styles.androidScroll : undefined}
-              >
-                {content}
-              </ScrollView>
-            ) : (
-              <View
-                style={[
-                  styles.sheetContent,
-                  { paddingBottom: Math.max(insets.bottom, 18) },
-                ]}
-              >
-                {content}
-              </View>
-            )}
-          </View>
-        </View>
-      </Modal>
-    );
-  }
-
   return (
     <MobileNativeSheetScaffold
       visible={sheetVisible}
-      onClose={onCompleted}
-      snapPoints={useContentSizedNativeSheet ? undefined : [nativeSheetHeight]}
-      scroll={
-        !useContentSizedNativeSheet &&
-        shouldScrollMobileWelcomeContent({ platform: "ios", step })
-      }
-      enablePanDownToClose={false}
+      onClose={handleWelcomeSheetClosed}
+      snapPoints={welcomeSheetPresentation.snapPoints}
+      scroll={welcomeSheetPresentation.scroll}
+      enablePanDownToClose={welcomeSheetPresentation.enablePanDownToClose}
       backgroundColor={tokens.background}
       testID="MobileWelcomeWizard"
       contentStyle={styles.sheetContent}
@@ -894,43 +853,6 @@ function MobileWelcomeWizardContent({
 }
 
 const styles = StyleSheet.create({
-  androidOverlay: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    zIndex: 1000,
-    justifyContent: "flex-end",
-  },
-  androidBackdrop: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.34)",
-  },
-  androidSheet: {
-    width: "100%",
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    overflow: "hidden",
-  },
-  androidHandleArea: {
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  androidHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 999,
-    opacity: 0.62,
-  },
-  androidScroll: {
-    flex: 1,
-  },
   sheetContent: {
     gap: 18,
     paddingHorizontal: 24,
@@ -938,8 +860,8 @@ const styles = StyleSheet.create({
   },
   iconWrap: {
     alignSelf: "center",
-    height: 144,
-    width: 144,
+    height: 128,
+    width: 128,
   },
   header: {
     alignItems: "stretch",
@@ -1077,6 +999,16 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     gap: 8,
     paddingTop: 2,
+  },
+  stackedActions: {
+    alignItems: "stretch",
+    flexDirection: "column",
+  },
+  stackedActionContainer: {
+    alignSelf: "stretch",
+  },
+  stackedAction: {
+    width: "100%",
   },
   doneActionButton: {
     alignSelf: "flex-end",

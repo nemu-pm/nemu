@@ -1,4 +1,10 @@
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   MobileSheetScaffold,
@@ -30,6 +36,7 @@ interface OcrResultSheetProps {
   grammarState: JapaneseLearningGrammarState;
   selectedTokenIndex: number | null;
   grammarActionNotice: string | null;
+  ttsState: JapaneseLearningTtsStateLike;
   askDisabled: boolean;
   canActOnSentence: boolean;
   sentenceTtsBusy: boolean;
@@ -55,6 +62,7 @@ export function JapaneseLearningOcrResultSheet({
   grammarState,
   selectedTokenIndex,
   grammarActionNotice,
+  ttsState,
   askDisabled,
   canActOnSentence,
   sentenceTtsBusy,
@@ -68,13 +76,16 @@ export function JapaneseLearningOcrResultSheet({
   onCopySentence,
 }: OcrResultSheetProps) {
   const { tokens } = useNemuTheme();
+  const { fontScale, width } = useWindowDimensions();
+  const largeTextLayout = fontScale > 1.3;
+  const stackFooterActions = width < 520 || largeTextLayout;
 
   return (
     <MobileSheetScaffold
       visible={visible}
       onRequestClose={onClose}
       backdropOnPress={onClose}
-      frameMaxHeight="70%"
+      frameMaxHeight={largeTextLayout ? "100%" : "70%"}
       contentStyle={{ padding: 0, gap: 0 }}
     >
       <View style={styles.sheetBody}>
@@ -87,7 +98,11 @@ export function JapaneseLearningOcrResultSheet({
           </View>
         ) : ocrState.status === "error" ? (
           <View style={styles.errorState}>
-            <Text style={[styles.errorText, { color: tokens.danger }]}>
+            <Text
+              accessibilityLiveRegion="assertive"
+              accessibilityRole="alert"
+              style={[styles.errorText, { color: tokens.danger }]}
+            >
               {ocrState.detail ?? strings.reader.pluginJapaneseLearningOcrFailed}
             </Text>
           </View>
@@ -105,6 +120,18 @@ export function JapaneseLearningOcrResultSheet({
         )}
       </View>
 
+      {ttsState.status === "error" &&
+      ttsState.source === "sentence" &&
+      ocrState.status !== "error" ? (
+        <Text
+          accessibilityLiveRegion="assertive"
+          accessibilityRole="alert"
+          style={[styles.ttsErrorText, { color: tokens.danger }]}
+        >
+          {ttsState.detail}
+        </Text>
+      ) : null}
+
       <View
         style={[
           styles.footer,
@@ -114,7 +141,12 @@ export function JapaneseLearningOcrResultSheet({
           },
         ]}
       >
-        <View style={styles.footerActions}>
+        <View
+          style={[
+            styles.footerActions,
+            stackFooterActions ? styles.footerActionsStacked : null,
+          ]}
+        >
           <NemuPressable
             accessibilityRole="button"
             accessibilityLabel={
@@ -126,7 +158,12 @@ export function JapaneseLearningOcrResultSheet({
             disabled={!canActOnSentence}
             onPress={onPlaySentence}
             pressedScale={0.96}
-            containerStyle={styles.footerActionContainer}
+            containerStyle={[
+              styles.footerActionContainer,
+              stackFooterActions
+                ? styles.footerActionContainerStacked
+                : null,
+            ]}
             style={[
               styles.footerAction,
               styles.footerActionGhost,
@@ -145,7 +182,9 @@ export function JapaneseLearningOcrResultSheet({
                 color={tokens.foreground}
               />
             )}
-            <Text style={[styles.footerActionText, { color: tokens.foreground }]} numberOfLines={1}>
+            <Text
+              style={[styles.footerActionText, { color: tokens.foreground }]}
+            >
               {sentenceTtsBusy
                 ? strings.reader.pluginJapaneseLearningStopListening
                 : strings.reader.pluginJapaneseLearningListen}
@@ -159,7 +198,12 @@ export function JapaneseLearningOcrResultSheet({
             disabled={!canActOnSentence || askDisabled}
             onPress={onAskSentence}
             pressedScale={0.96}
-            containerStyle={styles.footerActionContainer}
+            containerStyle={[
+              styles.footerActionContainer,
+              stackFooterActions
+                ? styles.footerActionContainerStacked
+                : null,
+            ]}
             style={[
               styles.footerAction,
               {
@@ -170,7 +214,12 @@ export function JapaneseLearningOcrResultSheet({
             ]}
           >
             <Ionicons name="chatbubble-ellipses-outline" size={15} color={tokens.primaryForeground} />
-            <Text style={[styles.footerActionText, { color: tokens.primaryForeground }]} numberOfLines={1}>
+            <Text
+              style={[
+                styles.footerActionText,
+                { color: tokens.primaryForeground },
+              ]}
+            >
               {strings.reader.pluginJapaneseLearningAskSentence}
             </Text>
           </NemuPressable>
@@ -182,7 +231,12 @@ export function JapaneseLearningOcrResultSheet({
             disabled={!canActOnSentence}
             onPress={onCopySentence}
             pressedScale={0.96}
-            containerStyle={styles.footerActionContainer}
+            containerStyle={[
+              styles.footerActionContainer,
+              stackFooterActions
+                ? styles.footerActionContainerStacked
+                : null,
+            ]}
             style={[
               styles.footerAction,
               styles.footerActionGhost,
@@ -193,7 +247,9 @@ export function JapaneseLearningOcrResultSheet({
             ]}
           >
             <Ionicons name="copy-outline" size={15} color={tokens.foreground} />
-            <Text style={[styles.footerActionText, { color: tokens.foreground }]} numberOfLines={1}>
+            <Text
+              style={[styles.footerActionText, { color: tokens.foreground }]}
+            >
               {strings.reader.pluginJapaneseLearningCopySentence}
             </Text>
           </NemuPressable>
@@ -231,6 +287,13 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.medium,
     textAlign: "center",
   },
+  ttsErrorText: {
+    fontSize: 12,
+    fontWeight: nemuFontWeight.medium,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    textAlign: "center",
+  },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
@@ -239,7 +302,11 @@ const styles = StyleSheet.create({
   },
   footerActions: {
     flexDirection: "row",
+    alignItems: "stretch",
     gap: 8,
+  },
+  footerActionsStacked: {
+    flexDirection: "column",
   },
   footerAction: {
     width: "100%",
@@ -247,19 +314,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    height: 38,
+    minHeight: 48,
     borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   footerActionContainer: {
     flex: 1,
     minWidth: 0,
   },
+  footerActionContainerStacked: {
+    flex: 0,
+    width: "100%",
+  },
   footerActionGhost: {
     backgroundColor: "transparent",
   },
   footerActionText: {
+    flexShrink: 1,
     fontSize: 12,
     fontWeight: nemuFontWeight.medium,
+    textAlign: "center",
   },
 });

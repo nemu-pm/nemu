@@ -40,6 +40,7 @@ interface PluginLauncherSheetProps {
   ocrUnavailableDetail?: string;
   chatLoading: boolean;
   onClose: () => void;
+  onDismiss?: () => void;
   onDetectText: () => void;
   onOpenChat: () => void;
   onOpenSettings: () => void;
@@ -64,6 +65,7 @@ export function JapaneseLearningPluginLauncherSheet({
   ocrUnavailableDetail,
   chatLoading,
   onClose,
+  onDismiss,
   onDetectText,
   onOpenChat,
   onOpenSettings,
@@ -80,11 +82,10 @@ export function JapaneseLearningPluginLauncherSheet({
       visible={visible}
       onRequestClose={onClose}
       backdropOnPress={onClose}
-      frameMaxHeight="auto"
-      contentStyle={{ padding: 16, gap: 14 }}
-    >
-      {/* Header */}
-      <View style={styles.header}>
+      onDismiss={onDismiss}
+      title={pluginName}
+      subtitle={enabled ? strings.reader.enabled : strings.reader.disabled}
+      headerLeading={
         <View style={[styles.iconBadge, { backgroundColor: tokens.primary }]}>
           <Ionicons
             name={pluginIcon}
@@ -92,35 +93,10 @@ export function JapaneseLearningPluginLauncherSheet({
             color={tokens.primaryForeground}
           />
         </View>
-        <View style={styles.titleBlock}>
-          <Text
-            style={[styles.title, { color: tokens.foreground }]}
-            numberOfLines={1}
-          >
-            {pluginName}
-          </Text>
-          <Text
-            style={[styles.subtitle, { color: tokens.mutedForeground }]}
-            numberOfLines={1}
-          >
-            {enabled ? strings.reader.enabled : strings.reader.disabled}
-          </Text>
-        </View>
-        <NemuPressable
-          accessibilityRole="button"
-          accessibilityLabel={strings.reader.closePlugin}
-          onPress={onClose}
-          pressedScale={0.94}
-          style={[styles.closeButton, { backgroundColor: tokens.muted }]}
-        >
-          <Ionicons
-            name="close-outline"
-            size={20}
-            color={tokens.mutedForeground}
-          />
-        </NemuPressable>
-      </View>
-
+      }
+      dismissLabel={strings.reader.closePlugin}
+      frameMaxHeight="auto"
+    >
       {/* Status grid */}
       <View style={styles.statusGrid}>
         {(
@@ -265,34 +241,10 @@ export function JapaneseLearningPluginLauncherSheet({
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
   iconBadge: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  titleBlock: {
-    flex: 1,
-    gap: 2,
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  subtitle: {
-    fontSize: 13,
-    fontWeight: nemuFontWeight.regular,
-  },
-  closeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { nemuFontWeight, useNemuTheme } from "@/design-system";
 import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import {
@@ -12,6 +12,10 @@ interface TokenDisplayProps {
   index: number;
   isSelected: boolean;
   isMultiSelected: boolean;
+  accessibilityLabel: string;
+  accessibilityExtendLabel: string;
+  onActivate: () => void;
+  onExtendSelection: () => void;
   onLayout?: (index: number, x: number, y: number, width: number, height: number) => void;
 }
 
@@ -29,6 +33,10 @@ export function JapaneseLearningTokenDisplay({
   index,
   isSelected,
   isMultiSelected,
+  accessibilityLabel,
+  accessibilityExtendLabel,
+  onActivate,
+  onExtendSelection,
   onLayout,
 }: TokenDisplayProps) {
   const { tokens } = useNemuTheme();
@@ -42,7 +50,23 @@ export function JapaneseLearningTokenDisplay({
 
   return (
     <Fragment>
-      <View
+      <Pressable
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        accessibilityState={{ selected: isHighlighted }}
+        accessibilityActions={[
+          {
+            name: "extendSelection",
+            label: accessibilityExtendLabel,
+          },
+        ]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === "extendSelection") {
+            onExtendSelection();
+          }
+        }}
+        onPress={onActivate}
         style={[
           styles.token,
           {
@@ -97,7 +121,7 @@ export function JapaneseLearningTokenDisplay({
             </Text>
           ) : null}
         </View>
-      </View>
+      </Pressable>
       {hasNewline ? <View style={styles.lineBreak} /> : null}
     </Fragment>
   );
@@ -113,7 +137,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   furiganaRow: {
-    height: 14,
+    minHeight: 14,
     justifyContent: "flex-end",
   },
   furigana: {
@@ -127,7 +151,7 @@ const styles = StyleSheet.create({
     lineHeight: 30,
   },
   posLabelRow: {
-    height: 16,
+    minHeight: 16,
     justifyContent: "flex-start",
     marginTop: 2,
   },

@@ -1,6 +1,19 @@
 const DEFAULT_ABOUT_SHEET_HEIGHT = 392;
 const LARGE_TEXT_EXTRA_HEIGHT = 120;
 
+export const MOBILE_ABOUT_VERSION_PULSE = {
+  duration: 2_000,
+  easing: [0.4, 0, 0.6, 1] as const,
+  midpointOpacity: 0.5,
+} as const;
+
+export function shouldAnimateMobileAboutVersionPulse(
+  active: boolean,
+  reduceMotion: boolean | null,
+): boolean {
+  return active && reduceMotion === false;
+}
+
 export type MobileAboutSheetLayout = {
   scroll: boolean;
   snapPoint: number | "82%" | undefined;

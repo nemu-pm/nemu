@@ -77,6 +77,25 @@ describe("reader end-of-chapter drag detection", () => {
     ).toBe(false);
   });
 
+  test("accepts outward iOS bounce but rejects movement back from the bottom", () => {
+    expect(
+      isReaderAdvancePastEndDrag({
+        ...scrolling,
+        startOffset: 4200,
+        endOffset: 4260,
+        maxOffset: 4200,
+      }),
+    ).toBe(true);
+    expect(
+      isReaderAdvancePastEndDrag({
+        ...scrolling,
+        startOffset: 4200,
+        endOffset: 4160,
+        maxOffset: 4200,
+      }),
+    ).toBe(false);
+  });
+
   test("uses the vertical bottom for a paged RTL chapter presented as one long strip", () => {
     const verticalLongStrip = { mode: "rtl" as const, pagedMode: false };
     expect(
@@ -97,7 +116,7 @@ describe("reader end-of-chapter drag detection", () => {
     ).toBe(false);
   });
 
-  test("only paged mode treats an unscrollable stage as an edge", () => {
+  test("requires a deliberate upward gesture on an unscrollable vertical stage", () => {
     expect(
       isReaderAdvancePastEndDrag({
         ...pagedLtr,
@@ -112,6 +131,25 @@ describe("reader end-of-chapter drag detection", () => {
         startOffset: 0,
         endOffset: 0,
         maxOffset: 0,
+        gestureDelta: -48,
+      }),
+    ).toBe(true);
+    expect(
+      isReaderAdvancePastEndDrag({
+        ...scrolling,
+        startOffset: 0,
+        endOffset: 0,
+        maxOffset: 0,
+        gestureDelta: -12,
+      }),
+    ).toBe(false);
+    expect(
+      isReaderAdvancePastEndDrag({
+        ...scrolling,
+        startOffset: 0,
+        endOffset: 0,
+        maxOffset: 0,
+        gestureDelta: 48,
       }),
     ).toBe(false);
   });

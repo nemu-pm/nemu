@@ -70,6 +70,7 @@ export function JapaneseLearningTokenSummary({
             <NemuPressable
               accessibilityRole="button"
               accessibilityLabel={strings.reader.pluginJapaneseLearningCopyWord}
+              minimumTouchTarget
               onPress={handleCopyWord}
               pressedScale={0.94}
               style={[
@@ -83,6 +84,7 @@ export function JapaneseLearningTokenSummary({
               <NemuPressable
                 accessibilityRole="button"
                 accessibilityLabel={strings.reader.pluginJapaneseLearningAskWord}
+                minimumTouchTarget
                 onPress={onAskNemu}
                 pressedScale={0.94}
                 style={[
@@ -195,10 +197,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    height: 30,
+    minHeight: 30,
     borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 8,
+    paddingVertical: 5,
   },
   askActionText: {
     fontSize: 12,

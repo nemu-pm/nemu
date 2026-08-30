@@ -9,7 +9,7 @@
  * `store.enable({secondarySource, seedPair, primaryChapters, secondaryChapters})`
  * — selection enables the overlay instead of navigating away.
  *
- * Layout: `MobileSheetScaffold` → `PageHeader` (title) → source picker
+ * Layout: `MobileSheetScaffold` chrome → source picker
  * (`NemuListRow` rows for each candidate linked source) → chapter picker
  * (ScrollView of `NemuListRow` rows for the selected source's chapters) →
  * Enable / Disable actions. Default secondary mirrors web's
@@ -31,7 +31,6 @@ import {
   MobileSheetScaffold,
   NemuButton,
   NemuListRow,
-  PageHeader,
   nemuFontWeight,
   useNemuTheme,
 } from "@/design-system";
@@ -251,9 +250,10 @@ export function MobileDualReaderConfigSheet() {
   }, [disable, setConfigOpen]);
 
   const close = useCallback(() => {
+    if (!configOpen) return;
     void hapticPress();
     setConfigOpen(false);
-  }, [setConfigOpen]);
+  }, [configOpen, setConfigOpen]);
 
   const onSelectSource = useCallback((link: LocalSourceLink) => {
     void hapticPress();
@@ -300,15 +300,10 @@ export function MobileDualReaderConfigSheet() {
     <MobileSheetScaffold
       visible={configOpen}
       onRequestClose={close}
+      title={ctx.strings.reader.dualReadDialogTitle}
+      dismissLabel={ctx.strings.reader.closePlugin}
       frameMaxHeight={sheetLayout.frameMaxHeight}
-      contentStyle={styles.content}
     >
-      <PageHeader
-        leadingAccessibilityLabel={ctx.strings.reader.closePlugin}
-        leadingIcon="close-outline"
-        title={ctx.strings.reader.dualReadDialogTitle}
-        onLeadingPress={close}
-      />
       <FlatList
         style={sheetLayout.listFillsFrame ? styles.scroll : undefined}
         contentContainerStyle={styles.scrollContent}
@@ -427,14 +422,10 @@ export function MobileDualReaderConfigSheet() {
 }
 
 const styles = StyleSheet.create({
-  content: {
-    paddingTop: 2,
-  },
   scroll: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
     paddingBottom: 12,
   },
   description: {

@@ -33,6 +33,7 @@ import {
   GlassSurface,
   MangaCard,
   MobileCachedImage,
+  NemuTextFieldClearAction,
   NemuPressable,
   NemuInlineEmptyState,
   PageHeader,
@@ -60,6 +61,7 @@ import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourc
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
 import {
   coerceMobileNativeSearchText,
+  getMobileSearchFieldTrailingAccessories,
   resolveMobileNativeSearchSubmitText,
 } from "@/lib/mobileNativeSearchText";
 import {
@@ -1000,7 +1002,6 @@ export function SearchScreen() {
     setQuery("");
     setSubmittedQuery("");
     router.setParams({ q: undefined });
-    void hapticPress();
   }, [query]);
 
   const handleLiveResultPress = useCallback(
@@ -1194,23 +1195,23 @@ export function SearchScreen() {
                     }
                     style={[styles.input, { color: tokens.foreground }]}
                   />
-                  {canClearMobileSearchQuery(query) ? (
-                    <NemuPressable
-                      accessibilityLabel={strings.common.clear}
-                      accessibilityRole="button"
-                      onPress={clearSearch}
-                      pressedScale={0.94}
-                      style={[styles.clearButton, { backgroundColor: tokens.muted }]}
-                    >
-                      <Ionicons
-                        name="close-outline"
-                        size={17}
-                        color={tokens.mutedForeground}
+                  {getMobileSearchFieldTrailingAccessories({
+                    loading,
+                    canClear: canClearMobileSearchQuery(query),
+                  }).map((accessory) =>
+                    accessory === "loading" ? (
+                      <ActivityIndicator key={accessory} color={tokens.primary} />
+                    ) : (
+                      <NemuTextFieldClearAction
+                        key={accessory}
+                        accessibilityLabel={strings.common.clear}
+                        onPress={clearSearch}
+                        testID="InstalledSourceSearchClearAction"
+                        trailingInset={14}
                       />
-                    </NemuPressable>
-                  ) : null}
-                  {loading ? <ActivityIndicator color={tokens.primary} /> : null}
-                  </GlassSurface>
+                    ),
+                  )}
+                </GlassSurface>
                 )}
 
                 {showSourceFilter ? (
@@ -1347,13 +1348,6 @@ const styles = StyleSheet.create({
     height: 52,
     fontSize: 16,
     lineHeight: 20,
-  },
-  clearButton: {
-    width: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
   },
   sourceFilterFrame: {
     marginHorizontal: -18,

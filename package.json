@@ -13,6 +13,7 @@
     "mobile:dev": "bun run --filter @nemu/mobile start",
     "mobile:typecheck": "bun run --filter @nemu/mobile typecheck",
     "generate:mobile-app-icon-glow": "bun scripts/generate-mobile-app-icon-glow.ts",
+    "generate:mobile-portrait-glow": "bun scripts/generate-mobile-portrait-glow.ts",
     "generate:mobile-aidoku-sandbox": "bun scripts/patch-aidoku-runtime.ts && bun scripts/build-mobile-aidoku-sandbox.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

@@ -19,7 +19,7 @@ import {
 import {
   mobileJapaneseLearningTokenCanAct,
 } from "@/lib/mobileJapaneseLearningPosStyles";
-import type { MobileStrings } from "@/lib/mobileI18n";
+import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { JapaneseLearningTokenDisplay } from "./JapaneseLearningTokenDisplay";
 import { JapaneseLearningTokenSummary } from "./JapaneseLearningTokenSummary";
 import { JapaneseLearningTokenDetails } from "./JapaneseLearningTokenDetails";
@@ -153,6 +153,32 @@ export function JapaneseLearningSentenceDisplay({
     [onSelectToken, selectedTokenIndex, tokensKey],
   );
 
+  const extendAccessibleSelection = useCallback(
+    (index: number) => {
+      const anchor = activeSelectionStart ?? selectedTokenIndex ?? index;
+      if (anchor === index) {
+        clearRangeSelection();
+        if (selectedTokenIndex !== index) onSelectToken(index);
+        return;
+      }
+      draggingSelectionRef.current = false;
+      dragStartIndexRef.current = null;
+      setIsDraggingSelection(false);
+      setSelectionStart(Math.min(anchor, index));
+      setSelectionEnd(Math.max(anchor, index));
+      setSelectionKey(tokensKey);
+      if (selectedTokenIndex != null) onSelectToken(null);
+      void hapticPress();
+    },
+    [
+      activeSelectionStart,
+      clearRangeSelection,
+      onSelectToken,
+      selectedTokenIndex,
+      tokensKey,
+    ],
+  );
+
   const beginTokenGesture = useCallback(
     (x: number, y: number) => {
       const index = mobileGrammarTokenAtPoint(
@@ -237,12 +263,18 @@ export function JapaneseLearningSentenceDisplay({
               </Text>
             </View>
           ) : grammarState.status === "error" ? (
-            <Text style={[styles.errorText, { color: tokens.danger }]}>
+            <Text
+              accessibilityRole="alert"
+              accessibilityLiveRegion="assertive"
+              style={[styles.errorText, { color: tokens.danger }]}
+            >
               {strings.reader.pluginJapaneseLearningGrammarFailed}
             </Text>
           ) : grammarTokens.length > 0 ? (
             <View
-              onStartShouldSetResponder={() => grammarTokens.length > 0}
+              onStartShouldSetResponderCapture={() =>
+                grammarTokens.length > 0
+              }
               onMoveShouldSetResponder={() => grammarTokens.length > 0}
               onResponderGrant={(e) =>
                 beginTokenGesture(e.nativeEvent.locationX, e.nativeEvent.locationY)
@@ -273,6 +305,27 @@ export function JapaneseLearningSentenceDisplay({
                     activeSelectionStart,
                     activeSelectionEnd,
                   )}
+                  accessibilityLabel={[
+                    formatMobileString(
+                      strings.reader.pluginJapaneseLearningTokenAccessibility,
+                      { word: token.word.replace(/\n/g, "") },
+                    ),
+                    token.reading && token.reading !== token.word
+                      ? token.reading.replace(/\n/g, "")
+                      : null,
+                    token.partOfSpeech || null,
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
+                  accessibilityExtendLabel={formatMobileString(
+                    strings.reader
+                      .pluginJapaneseLearningTokenExtendAccessibility,
+                    { word: token.word.replace(/\n/g, "") },
+                  )}
+                  onActivate={() => selectSingleToken(index)}
+                  onExtendSelection={() =>
+                    extendAccessibleSelection(index)
+                  }
                   onLayout={(i, x, y, width, height) => {
                     tokenLayoutsRef.current[i] = { x, y, width, height };
                   }}
@@ -322,6 +375,7 @@ export function JapaneseLearningSentenceDisplay({
                     <NemuPressable
                       accessibilityRole="button"
                       accessibilityLabel={strings.reader.pluginJapaneseLearningCopySelection}
+                      minimumTouchTarget
                       onPress={() => onCopySelection(selectedRangeText)}
                       pressedScale={0.96}
                       containerStyle={styles.actionButtonContainer}
@@ -342,6 +396,7 @@ export function JapaneseLearningSentenceDisplay({
                       accessibilityRole="button"
                       accessibilityLabel={strings.reader.pluginJapaneseLearningAskWords}
                       accessibilityState={{ disabled: askDisabled }}
+                      minimumTouchTarget
                       disabled={askDisabled}
                       onPress={() => onAskSelection(selectedRangeText, "words")}
                       pressedScale={0.96}
@@ -494,9 +549,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 5,
-    height: 32,
+    minHeight: 32,
     borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 6,
   },
   actionButtonContainer: {
     flex: 1,

@@ -30,6 +30,10 @@ export { useNemuTheme } from "@/design/useNemuTheme";
 
 export { GlassSurface } from "./components/GlassSurface";
 export { MobileNativeSheetScaffold } from "./components/MobileNativeSheetScaffold";
+export {
+  MobileSheetHeader,
+  type MobileSheetHeaderProps,
+} from "./components/MobileSheetHeader";
 export { MobileCachedImage } from "./components/MobileCachedImage";
 export { MobileSheetBackdrop } from "./components/MobileSheetBackdrop";
 export { MobileSheetScaffold } from "./components/MobileSheetScaffold";
@@ -39,6 +43,7 @@ export { NemuListRow } from "./components/NemuListRow";
 export { NemuNativeProgressView } from "./components/NemuNativeProgressView";
 export { NemuNativeSwitch } from "./components/NemuNativeSwitch";
 export { NemuPressable } from "./components/NemuPressable";
+export { NemuTextFieldClearAction } from "./components/NemuTextFieldClearAction";
 export { PageHeader, type PageHeaderAction } from "./components/PageHeader";
 export { PageListScaffold, PageScaffold } from "./components/PageScaffold";
 export { MangaCard, type MangaCardModel } from "./components/MangaCard";

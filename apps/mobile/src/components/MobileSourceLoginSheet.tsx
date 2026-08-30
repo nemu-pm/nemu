@@ -26,6 +26,8 @@ import {
 export type MobileSourceLoginSheetProps = {
   setting: SourcePackageSetting | null;
   visible: boolean;
+  /** Renders inside an existing native sheet without presenting another host. */
+  embedded?: boolean;
   submitting: boolean;
   error: string | null;
   onClose: () => void;
@@ -35,6 +37,7 @@ export type MobileSourceLoginSheetProps = {
 export function MobileSourceLoginSheet({
   setting,
   visible,
+  embedded = false,
   submitting,
   error,
   onClose,
@@ -80,6 +83,10 @@ export function MobileSourceLoginSheet({
   const usernameLabel = setting?.useEmail
     ? strings.settings.sourceSettingsEmail
     : strings.settings.sourceSettingsUsername;
+  const title = setting?.title ?? strings.settings.sourceSettingsLogin;
+  const subtitle = isWeb
+    ? strings.settings.sourceSettingsWebLoginInstructions
+    : strings.settings.sourceSettingsBasicLoginInstructions;
 
   useEffect(() => {
     if (!visible || !activeError || Platform.OS !== "ios") {
@@ -91,28 +98,8 @@ export function MobileSourceLoginSheet({
     AccessibilityInfo.announceForAccessibility(activeError);
   }, [activeError, visible]);
 
-  return (
-    <MobileSheetScaffold
-      visible={visible && setting !== null}
-      // Swallowing the close while submitting would strand the caller's
-      // `visible` flag on a sheet that is already gone. Pan-down is disabled
-      // instead, while the always-live Cancel button stays the explicit route.
-      onRequestClose={onClose}
-      dismissLabel={strings.common.cancel}
-      showDismissButton={false}
-      backdropDisabled={submitting}
-    >
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: tokens.foreground }]}>
-          {setting?.title ?? strings.settings.sourceSettingsLogin}
-        </Text>
-        <Text style={[styles.description, { color: tokens.mutedForeground }]}>
-          {isWeb
-            ? strings.settings.sourceSettingsWebLoginInstructions
-            : strings.settings.sourceSettingsBasicLoginInstructions}
-        </Text>
-      </View>
-
+  const formContent = (
+    <>
       {isWeb ? (
         <View style={styles.fields}>
           <SourceLoginField
@@ -195,6 +182,48 @@ export function MobileSourceLoginSheet({
           variant="default"
         />
       </View>
+    </>
+  );
+
+  if (embedded) {
+    return visible && setting ? (
+      <View
+        style={[
+          styles.embeddedPanel,
+          { backgroundColor: tokens.card, borderColor: tokens.border },
+        ]}
+      >
+        <View style={styles.embeddedHeader}>
+          <Text style={[styles.embeddedTitle, { color: tokens.foreground }]}>
+            {title}
+          </Text>
+          <Text
+            style={[
+              styles.embeddedSubtitle,
+              { color: tokens.mutedForeground },
+            ]}
+          >
+            {subtitle}
+          </Text>
+        </View>
+        {formContent}
+      </View>
+    ) : null;
+  }
+
+  return (
+    <MobileSheetScaffold
+      visible={visible && setting !== null}
+      // Pan-down is disabled while credentials are in flight; the explicit
+      // Cancel action remains available so the request can be fenced safely.
+      onRequestClose={onClose}
+      title={title}
+      subtitle={subtitle}
+      dismissLabel={strings.common.cancel}
+      showDismissButton={false}
+      backdropDisabled={submitting}
+    >
+      {formContent}
     </MobileSheetScaffold>
   );
 }
@@ -248,13 +277,19 @@ function SourceLoginField({
 }
 
 const styles = StyleSheet.create({
-  header: { gap: 4 },
-  title: {
+  embeddedPanel: {
+    gap: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    padding: 14,
+  },
+  embeddedHeader: { gap: 4 },
+  embeddedTitle: {
     fontSize: 17,
     lineHeight: 22,
     fontWeight: nemuFontWeight.semibold,
   },
-  description: { fontSize: 13, lineHeight: 19 },
+  embeddedSubtitle: { fontSize: 13, lineHeight: 18 },
   fields: { gap: 12 },
   fieldGroup: { gap: 5 },
   field: { gap: 6 },

@@ -19,6 +19,8 @@ type MobileSourceInstallSheetProps = {
    * would be a non-dismissible spinner over an unbounded download.
    */
   onCancel?: () => void;
+  /** Called after the native sheet has fully finished dismissing. */
+  onDismiss?: () => void;
 };
 
 export function MobileSourceInstallSheet({
@@ -26,15 +28,22 @@ export function MobileSourceInstallSheet({
   title,
   sourceIcon,
   onCancel,
+  onDismiss,
 }: MobileSourceInstallSheetProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
+  const handleNativeClose = () => {
+    // A completed install drives `visible` false and must not be reported as a
+    // cancellation. A user-driven native close still arrives while visible.
+    if (visible) onCancel?.();
+  };
 
   return (
     <MobileNativeSheetScaffold
       visible={visible}
-      onClose={onCancel ?? (() => {})}
+      onClose={handleNativeClose}
+      onDismiss={onDismiss}
       title={title}
       dismissLabel={strings.common.cancel}
       // Pan-down stays off so a stray swipe cannot abandon an install, which
@@ -98,7 +107,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 22,
-    paddingTop: 2,
   },
   cancelAction: {
     alignSelf: "stretch",

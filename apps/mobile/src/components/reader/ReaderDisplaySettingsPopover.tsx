@@ -1,7 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import {
   ActivityIndicator,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -38,12 +40,15 @@ type ReaderDisplaySettingsPopoverProps = {
   canOpenReaderPluginSettings: boolean;
   strings: MobileStrings;
   onClose: () => void;
+  onDismissComplete?: () => void;
   onSetMode: (mode: ReadingMode) => void;
   onToggleTwoPageMode: () => void;
   onTogglePagePairingMode: () => void;
   onToggleProcessPageImages: () => void;
   onPreviewScrollWidth: (value: number) => void;
   onCommitScrollWidth: (value: number) => void;
+  onScrollWidthInteractionStart?: () => void;
+  onScrollWidthInteractionEnd?: () => void;
   onOpenReaderPluginSettings: () => void;
   onMarkComplete: () => void;
 };
@@ -69,18 +74,50 @@ export function ReaderDisplaySettingsPopover({
   canOpenReaderPluginSettings,
   strings,
   onClose,
+  onDismissComplete,
   onSetMode,
   onToggleTwoPageMode,
   onTogglePagePairingMode,
   onToggleProcessPageImages,
   onPreviewScrollWidth,
   onCommitScrollWidth,
+  onScrollWidthInteractionStart,
+  onScrollWidthInteractionEnd,
   onOpenReaderPluginSettings,
   onMarkComplete,
 }: ReaderDisplaySettingsPopoverProps) {
   const { tokens, scheme } = useNemuTheme();
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
+  const previousVisibleRef = useRef(visible);
+  const dismissPendingRef = useRef(false);
+  const onDismissCompleteRef = useRef(onDismissComplete);
+
+  useLayoutEffect(() => {
+    onDismissCompleteRef.current = onDismissComplete;
+  }, [onDismissComplete]);
+
+  useLayoutEffect(() => {
+    const wasVisible = previousVisibleRef.current;
+    previousVisibleRef.current = visible;
+    if (wasVisible && !visible) dismissPendingRef.current = true;
+    if (visible) dismissPendingRef.current = false;
+  }, [visible]);
+
+  const notifyDismissComplete = useCallback(() => {
+    if (!dismissPendingRef.current) return;
+    dismissPendingRef.current = false;
+    onDismissCompleteRef.current?.();
+  }, []);
+
+  // React Native's iOS Modal reports the end of its native dismissal through
+  // onDismiss. Android removes its Dialog synchronously when `visible` becomes
+  // false, so the first passive effect after that committed unmount is the
+  // equivalent completion boundary.
+  useEffect(() => {
+    if (Platform.OS === "android" && !visible) notifyDismissComplete();
+  }, [notifyDismissComplete, visible]);
+
   const modeOptions: ReadingMode[] = ["rtl", "ltr", "scrolling"];
   const bottomOffset = insets.bottom + 86;
   const maxPanelHeight = Math.max(
@@ -101,6 +138,7 @@ export function ReaderDisplaySettingsPopover({
   return (
     <Modal
       animationType="fade"
+      onDismiss={Platform.OS === "ios" ? notifyDismissComplete : undefined}
       onRequestClose={onClose}
       presentationStyle="overFullScreen"
       statusBarTranslucent
@@ -364,6 +402,8 @@ export function ReaderDisplaySettingsPopover({
                 disabled={busy}
                 onPreview={onPreviewScrollWidth}
                 onCommit={onCommitScrollWidth}
+                onInteractionStart={onScrollWidthInteractionStart}
+                onInteractionEnd={onScrollWidthInteractionEnd}
               />
             </View>
           ) : null}

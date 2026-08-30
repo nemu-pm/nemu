@@ -22,6 +22,7 @@ import {
   GlassSurface,
   MobileCachedImage,
   MobileNativeSheetScaffold,
+  NemuTextFieldClearAction,
   NemuPressable,
   PageHeader,
   PageScaffold,
@@ -45,7 +46,6 @@ import {
 import {
   hapticConfirm,
   hapticError,
-  hapticPress,
   hapticSelection,
 } from "@/lib/haptics";
 import { prefetchCachedMobileImages } from "@/lib/mobileImageCache";
@@ -95,6 +95,15 @@ type SourceActionError = {
 };
 
 type BrowseSheet = "add-source" | "source-language";
+
+type AddSourceDismissAction =
+  | { type: "open-language" }
+  | { type: "open-confirmation"; confirmation: BrowseConfirmation }
+  | { type: "start-install"; source: MobileRegistrySource };
+
+type ConfirmationDismissAction =
+  | { type: "reopen-add-source" }
+  | { type: "start-install"; source: MobileRegistrySource };
 
 type AvailableSourceSection = {
   label: string;
@@ -691,13 +700,19 @@ export function BrowseScreen() {
   const [query, setQuery] = useState("");
   const [showAdult, setShowAdult] = useState(false);
   const [activeSheet, setActiveSheet] = useState<BrowseSheet | null>(null);
-  const [addSourceSheetKey, setAddSourceSheetKey] = useState(0);
+  const [activeSheetVisible, setActiveSheetVisible] = useState(false);
+  const addSourceDismissActionRef = useRef<AddSourceDismissAction | null>(null);
   const [selectedLanguages, setSelectedLanguages] = useState<Set<string>>(
     () => new Set(),
   );
   const [confirmation, setConfirmation] = useState<BrowseConfirmation | null>(
     null,
   );
+  const [confirmationVisible, setConfirmationVisible] = useState(false);
+  const confirmationDismissActionRef =
+    useRef<ConfirmationDismissAction | null>(null);
+  const returnToAddSourceAfterInstallRef = useRef(false);
+  const installSheetDismissedRef = useRef(false);
   const [pendingInstallKey, setPendingInstallKey] = useState<string | null>(
     null,
   );
@@ -803,6 +818,23 @@ export function BrowseScreen() {
     : null;
   const activeInstallSourceName = activeInstallSource?.name;
   const refreshDisabled = refreshingSources || activeInstallKey !== null;
+
+  const restoreAddSourceSheet = useCallback(() => {
+    setActiveSheet("add-source");
+    setActiveSheetVisible(true);
+  }, []);
+
+  const finishInstallSheetReturn = useCallback(() => {
+    if (!returnToAddSourceAfterInstallRef.current) return;
+    returnToAddSourceAfterInstallRef.current = false;
+    installSheetDismissedRef.current = false;
+    restoreAddSourceSheet();
+  }, [restoreAddSourceSheet]);
+
+  useEffect(() => {
+    if (activeInstallKey !== null || !installSheetDismissedRef.current) return;
+    finishInstallSheetReturn();
+  }, [activeInstallKey, finishInstallSheetReturn]);
 
   useEffect(() => {
     if (activeSheet !== "add-source") return;
@@ -918,15 +950,42 @@ export function BrowseScreen() {
     }
   };
 
+  const startInstallAfterAddSourceDismissal = (
+    source: MobileRegistrySource,
+  ) => {
+    const key = makeSourceKey(source.registryId, source.id);
+    const guardedInstallKey =
+      installGuardKeyRef.current ?? installer.installingKey;
+    if (!canStartMobileSourceInstall(key, guardedInstallKey)) {
+      restoreAddSourceSheet();
+      return;
+    }
+
+    returnToAddSourceAfterInstallRef.current = true;
+    installSheetDismissedRef.current = false;
+    void installSource(source);
+  };
+
+  const requestAddSourceDismissal = (next: AddSourceDismissAction) => {
+    // Native dismissal is asynchronous. The first accepted tap owns this
+    // visibility cycle so a second row cannot replace its queued destination.
+    if (addSourceDismissActionRef.current) return;
+    addSourceDismissActionRef.current = next;
+    setActiveSheetVisible(false);
+  };
+
   const confirmInstallSource = (source: MobileRegistrySource) => {
     setActionError(null);
     const warnings = getMobileSourceWarningMessages(source, strings.browse);
     if (warnings.length === 0) {
-      void installSource(source);
+      requestAddSourceDismissal({ type: "start-install", source });
       return;
     }
 
-    setConfirmation({ type: "install-warning", source, warnings });
+    requestAddSourceDismissal({
+      type: "open-confirmation",
+      confirmation: { type: "install-warning", source, warnings },
+    });
   };
   const confirmInstallSourceRef = useRef(confirmInstallSource);
   useEffect(() => {
@@ -984,9 +1043,12 @@ export function BrowseScreen() {
 
   const runConfirmedAction = () => {
     if (!confirmation) return;
-    const source = confirmation.source;
-    setConfirmation(null);
-    void installSource(source);
+    if (confirmationDismissActionRef.current) return;
+    confirmationDismissActionRef.current = {
+      type: "start-install",
+      source: confirmation.source,
+    };
+    setConfirmationVisible(false);
   };
 
   const refreshSources = async () => {
@@ -1022,27 +1084,80 @@ export function BrowseScreen() {
   const clearSourceQuery = () => {
     if (!canClearMobileBrowseSourceQuery(query)) return;
     setQuery("");
-    void hapticPress();
   };
   const openAddSourceSheet = () => {
     // A registry query is useful only for the current sheet visit. Keeping it
     // after installing or dismissing a source makes a later visit look empty
     // until the user notices and clears the stale filter.
     setQuery("");
+    addSourceDismissActionRef.current = null;
     setActiveSheet("add-source");
+    setActiveSheetVisible(true);
   };
   const closeAddSourceSheet = () => {
+    setActiveSheetVisible(false);
+  };
+  const handleAddSourceSheetDismissed = () => {
+    const next = addSourceDismissActionRef.current;
+    addSourceDismissActionRef.current = null;
     setActiveSheet(null);
+    setActiveSheetVisible(false);
+
+    if (next?.type === "open-language") {
+      setActiveSheet("source-language");
+      setActiveSheetVisible(true);
+      return;
+    }
+    if (next?.type === "open-confirmation") {
+      // Leave the destination unclaimed while the confirmation is visible.
+      // Its first Cancel or Confirm tap owns the handoff; a native dismissal
+      // falls back to reopening Add Source in the post-dismiss callback.
+      confirmationDismissActionRef.current = null;
+      setConfirmation(next.confirmation);
+      setConfirmationVisible(true);
+      return;
+    }
+    if (next?.type === "start-install") {
+      startInstallAfterAddSourceDismissal(next.source);
+    }
   };
   const openLanguageSheet = () => {
-    setActiveSheet("source-language");
+    requestAddSourceDismissal({ type: "open-language" });
   };
   const closeLanguageSheet = () => {
-    setAddSourceSheetKey((key) => key + 1);
-    setActiveSheet(null);
-    requestAnimationFrame(() => {
-      setActiveSheet("add-source");
-    });
+    setActiveSheetVisible(false);
+  };
+  const handleLanguageSheetDismissed = () => {
+    restoreAddSourceSheet();
+  };
+  const cancelInstallConfirmation = () => {
+    if (confirmationDismissActionRef.current) return;
+    confirmationDismissActionRef.current = { type: "reopen-add-source" };
+    setConfirmationVisible(false);
+  };
+  const handleInstallConfirmationDismissed = () => {
+    const next = confirmationDismissActionRef.current ?? {
+      type: "reopen-add-source" as const,
+    };
+    confirmationDismissActionRef.current = null;
+    setConfirmation(null);
+    setConfirmationVisible(false);
+
+    if (next.type === "start-install") {
+      startInstallAfterAddSourceDismissal(next.source);
+      return;
+    }
+    restoreAddSourceSheet();
+  };
+  const handleInstallSheetDismissed = () => {
+    if (!returnToAddSourceAfterInstallRef.current) return;
+    if (activeInstallKey !== null) {
+      // A native Cancel dismissal can complete before the installer observes
+      // its abort signal. Reopen only once both lifecycles are finished.
+      installSheetDismissedRef.current = true;
+      return;
+    }
+    finishInstallSheetReturn();
   };
   const nativeHeaderActions: NemuNativeHeaderAction[] = [
     {
@@ -1211,15 +1326,14 @@ export function BrowseScreen() {
 
       {activeSheet === "add-source" ? (
         <MobileNativeSheetScaffold
-          key={`add-source-${addSourceSheetKey}`}
-          visible
+          visible={activeSheetVisible}
           onClose={closeAddSourceSheet}
+          onDismiss={handleAddSourceSheetDismissed}
           title={strings.browse.addSources}
           dismissLabel={strings.common.done}
           snapPoints={Platform.OS === "android" ? ["100%"] : ["88%"]}
           fillContent
           contentBottomInset={0}
-          contentStyle={styles.addSourceSheet}
           testID="AddSourceSheet"
         >
           <View style={styles.addSourceSheetBody}>
@@ -1252,22 +1366,12 @@ export function BrowseScreen() {
                 style={[styles.searchInput, { color: tokens.foreground }]}
               />
               {canClearMobileBrowseSourceQuery(query) ? (
-                <NemuPressable
+                <NemuTextFieldClearAction
                   accessibilityLabel={strings.common.clear}
-                  accessibilityRole="button"
                   onPress={clearSourceQuery}
-                  pressedScale={0.94}
-                  style={[
-                    styles.clearButton,
-                    { backgroundColor: tokens.muted },
-                  ]}
-                >
-                  <Ionicons
-                    name="close-outline"
-                    size={17}
-                    color={tokens.mutedForeground}
-                  />
-                </NemuPressable>
+                  testID="AddSourceSearchClearAction"
+                  trailingInset={14}
+                />
               ) : null}
             </View>
 
@@ -1360,14 +1464,14 @@ export function BrowseScreen() {
 
       {activeSheet === "source-language" ? (
         <MobileNativeSheetScaffold
-          visible
+          visible={activeSheetVisible}
           onClose={closeLanguageSheet}
+          onDismiss={handleLanguageSheetDismissed}
           title={strings.browse.languageFilter}
           dismissLabel={strings.common.done}
           snapPoints={["82%"]}
           scroll
           scrollContentBottomInset={18}
-          contentStyle={styles.languageSheet}
           testID="SourceLanguageSheet"
         >
           <LanguageFilterSheetSection
@@ -1383,7 +1487,7 @@ export function BrowseScreen() {
 
       {confirmationDetails ? (
         <MobileConfirmationSheet
-          visible
+          visible={confirmationVisible}
           title={confirmationDetails.title}
           description={confirmationDetails.description}
           subject={confirmationDetails.subject}
@@ -1395,7 +1499,8 @@ export function BrowseScreen() {
           }
           loading={confirmationDetails.loading}
           destructive={confirmationDetails.destructive}
-          onCancel={() => setConfirmation(null)}
+          onCancel={cancelInstallConfirmation}
+          onDismiss={handleInstallConfirmationDismissed}
           onConfirm={runConfirmedAction}
         >
           {actionError ? (
@@ -1420,6 +1525,7 @@ export function BrowseScreen() {
         }
         sourceIcon={activeInstallSource?.icon}
         onCancel={installer.cancelInstall}
+        onDismiss={handleInstallSheetDismissed}
       />
     </>
   );
@@ -1429,19 +1535,10 @@ const styles = StyleSheet.create({
   sections: {
     gap: 26,
   },
-  addSourceSheet: {
-    paddingHorizontal: 16,
-    paddingTop: 0,
-  },
   addSourceSheetBody: {
     flex: 1,
     minHeight: 0,
     gap: 14,
-  },
-  languageSheet: {
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingTop: 0,
   },
   sheetFilterControls: {
     flexDirection: "row",
@@ -1565,20 +1662,12 @@ const styles = StyleSheet.create({
     minHeight: 50,
     fontSize: 15,
   },
-  clearButton: {
-    width: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-  },
   adultToggle: {
     width: 34,
     height: 34,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 8,
-    overflow: "hidden",
   },
   languageFallbackButton: {
     alignSelf: "flex-start",
@@ -1589,7 +1678,6 @@ const styles = StyleSheet.create({
     gap: 6,
     borderRadius: 8,
     paddingHorizontal: 10,
-    overflow: "hidden",
   },
   languageFallbackText: {
     flexShrink: 1,

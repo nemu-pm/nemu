@@ -280,19 +280,19 @@ describe("mobile collection helpers", () => {
         visible: true,
         targetId: "favorites",
       }),
-    ).toBe("open:favorites");
+    ).toBe("target:favorites");
     expect(
       getMobileCollectionSelectionSessionKey({
         visible: true,
         targetId: "later",
       }),
-    ).toBe("open:later");
+    ).toBe("target:later");
     expect(
       getMobileCollectionSelectionSessionKey({
         visible: false,
         targetId: "favorites",
       }),
-    ).toBe("closed");
+    ).toBe("target:favorites");
   });
 
   test("opens collection creation in place on library and collection routes", () => {

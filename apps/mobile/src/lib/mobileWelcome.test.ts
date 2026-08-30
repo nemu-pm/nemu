@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { InstalledSource } from "@/data/schema";
 import type { MobileRegistrySource } from "@/sources/aidokuRegistry";
 import {
@@ -16,6 +18,10 @@ import {
   shouldScrollMobileWelcomeContent,
   shouldBlockMobileWelcomeUnderlyingContent,
   shouldUseContentSizedMobileWelcomeSheet,
+  shouldStackMobileWelcomeActions,
+  resolveMobileWelcomeNativeSheetPresentation,
+  MOBILE_WELCOME_ANDROID_SNAP_POINTS,
+  MOBILE_WELCOME_ICON_SIZE,
 } from "./mobileWelcome";
 
 function source(registryId: string, id: string, name = id): MobileRegistrySource {
@@ -41,6 +47,13 @@ function installedSource(
 }
 
 describe("mobile welcome helpers", () => {
+  test("matches the production web icon size and narrow action breakpoint", () => {
+    expect(MOBILE_WELCOME_ICON_SIZE).toBe(80);
+    expect(shouldStackMobileWelcomeActions(390)).toBe(true);
+    expect(shouldStackMobileWelcomeActions(767)).toBe(true);
+    expect(shouldStackMobileWelcomeActions(768)).toBe(false);
+  });
+
   test("coalesces successful completion writes and only retries failures", async () => {
     const coordinator = createMobileWelcomeCompletionWriteCoordinator();
     let writeCount = 0;
@@ -139,6 +152,80 @@ describe("mobile welcome helpers", () => {
         availableHeight: 800,
       }),
     ).toBe(false);
+  });
+
+  test("keeps one stable guarded Material sheet presentation across Android steps", () => {
+    const welcome = resolveMobileWelcomeNativeSheetPresentation({
+      platform: "android",
+      step: "welcome",
+      fontScale: 1,
+      availableHeight: 800,
+      nativeSheetHeight: 520,
+    });
+    const sources = resolveMobileWelcomeNativeSheetPresentation({
+      platform: "android",
+      step: "sources",
+      fontScale: 1.8,
+      availableHeight: 430,
+      nativeSheetHeight: 410,
+    });
+
+    expect(welcome.snapPoints).toBe(MOBILE_WELCOME_ANDROID_SNAP_POINTS);
+    expect(sources.snapPoints).toBe(MOBILE_WELCOME_ANDROID_SNAP_POINTS);
+    expect(welcome.snapPoints).toEqual(["50%", "100%"]);
+    expect(welcome.scroll).toBe(true);
+    expect(sources.scroll).toBe(true);
+    expect(welcome.enablePanDownToClose).toBe(false);
+  });
+
+  test("preserves fitted and scrollable detent behavior on iOS", () => {
+    expect(
+      resolveMobileWelcomeNativeSheetPresentation({
+        platform: "ios",
+        step: "welcome",
+        fontScale: 1,
+        availableHeight: 800,
+        nativeSheetHeight: 520,
+      }),
+    ).toEqual({
+      enablePanDownToClose: false,
+      scroll: false,
+      snapPoints: undefined,
+    });
+    expect(
+      resolveMobileWelcomeNativeSheetPresentation({
+        platform: "ios",
+        step: "sources",
+        fontScale: 1,
+        availableHeight: 800,
+        nativeSheetHeight: 620,
+      }),
+    ).toEqual({
+      enablePanDownToClose: false,
+      scroll: true,
+      snapPoints: [620],
+    });
+  });
+
+  test("forbids hand-built Android sheet chrome in onboarding", () => {
+    const source = readFileSync(
+      path.join(import.meta.dir, "../components/MobileWelcomeWizard.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("<MobileNativeSheetScaffold");
+    expect(source).not.toContain("<Modal");
+    expect(source).not.toMatch(/android(?:Overlay|Backdrop|Sheet|Handle)/);
+    expect(source).toContain("afterSheetDismissRef.current = afterComplete ?? null;");
+    expect(source).toContain("onClose={handleWelcomeSheetClosed}");
+    expect(source).toMatch(
+      /const handleWelcomeSheetClosed[\s\S]*?onCompleted\(\);[\s\S]*?afterDismiss\?\.\(\);/,
+    );
+    expect(source).not.toContain("setSheetVisible(false);\n      afterComplete?.();");
+    expect(source).toContain(
+      "accessibilityLabel={strings.about.appIconLabel}",
+    );
+    expect(source).not.toContain('accessibilityLabel="nemu"');
   });
 
   test("hides the underlying navigation tree only while onboarding is visible", () => {

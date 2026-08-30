@@ -9,6 +9,17 @@ export type MobileWelcomeSourceRef = {
 
 export type MobileWelcomeStep = "welcome" | "language" | "sources" | "done";
 
+export const MOBILE_WELCOME_ICON_SIZE = 80;
+export const MOBILE_WELCOME_STACK_BREAKPOINT = 768;
+export const MOBILE_WELCOME_ANDROID_SNAP_POINTS: (string | number)[] = [
+  "50%",
+  "100%",
+];
+
+export function shouldStackMobileWelcomeActions(width: number): boolean {
+  return width < MOBILE_WELCOME_STACK_BREAKPOINT;
+}
+
 export function shouldBlockMobileWelcomeUnderlyingContent({
   checking,
   visible,
@@ -65,6 +76,53 @@ export function shouldUseContentSizedMobileWelcomeSheet({
   // viewport can make the content taller than the available presentation.
   // Those cases keep the explicit, scrollable detent instead.
   return fontScale <= 1.5 && availableHeight >= 520;
+}
+
+export type MobileWelcomeNativeSheetPresentation = {
+  enablePanDownToClose: false;
+  scroll: boolean;
+  snapPoints: (string | number)[] | undefined;
+};
+
+/**
+ * Android's Material sheet exposes one partial and one expanded state. Keep the
+ * same snap-point array across every onboarding render so changing steps never
+ * replaces the native host. Dismiss gestures remain disabled because setup is
+ * modal, while the sheet's scroll view keeps every control reachable.
+ */
+export function resolveMobileWelcomeNativeSheetPresentation({
+  platform,
+  step,
+  fontScale,
+  availableHeight,
+  nativeSheetHeight,
+}: {
+  platform: "android" | "ios";
+  step: MobileWelcomeStep;
+  fontScale: number;
+  availableHeight: number;
+  nativeSheetHeight: number;
+}): MobileWelcomeNativeSheetPresentation {
+  if (platform === "android") {
+    return {
+      enablePanDownToClose: false,
+      scroll: true,
+      snapPoints: MOBILE_WELCOME_ANDROID_SNAP_POINTS,
+    };
+  }
+
+  const contentSized = shouldUseContentSizedMobileWelcomeSheet({
+    platform,
+    step,
+    fontScale,
+    availableHeight,
+  });
+  return {
+    enablePanDownToClose: false,
+    scroll:
+      !contentSized && shouldScrollMobileWelcomeContent({ platform, step }),
+    snapPoints: contentSized ? undefined : [nativeSheetHeight],
+  };
 }
 
 export type MobileWelcomeActionState = {

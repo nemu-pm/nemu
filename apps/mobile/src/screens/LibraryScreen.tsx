@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AppState,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -87,6 +95,7 @@ import {
   isMobileLibraryRefreshAppActive,
   refreshMobileLibraryLatestChapters,
 } from "@/lib/mobileLibraryRefresh";
+import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
 import {
   buildMobileEntryProgressMap,
   buildMobileProgressIndex,
@@ -198,6 +207,18 @@ const LIBRARY_TITLE_MENU_MANAGE = "library:manage";
 const LIBRARY_TITLE_MENU_COLLECTION_PREFIX = "library:collection:";
 const LIBRARY_GRID_COLUMNS = 3;
 
+type LibrarySheetTransitionSource =
+  | "title-menu"
+  | "collections-manager"
+  | "create-collection"
+  | "manage-collection"
+  | "remove-confirmation";
+
+type PendingLibrarySheetTransition = {
+  source: LibrarySheetTransitionSource;
+  run: () => void;
+};
+
 function collectionTitleMenuValue(collectionId: string | null): string {
   return collectionId
     ? `${LIBRARY_TITLE_MENU_COLLECTION_PREFIX}${collectionId}`
@@ -211,6 +232,7 @@ function LibraryTitleMenuSheet({
   selectedCollectionId,
   disabled,
   onClose,
+  onDismiss,
   onSelect,
   onManage,
 }: {
@@ -220,6 +242,7 @@ function LibraryTitleMenuSheet({
   selectedCollectionId: string | null;
   disabled: boolean;
   onClose: () => void;
+  onDismiss?: () => void;
   onSelect: (collectionId: string | null) => void;
   onManage: () => void;
 }) {
@@ -283,6 +306,7 @@ function LibraryTitleMenuSheet({
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={onClose}
+      onDismiss={onDismiss}
       snapPoints={sheetLayout.snapPoints}
       scroll={sheetLayout.scroll}
       contentStyle={styles.titleMenuSheet}
@@ -323,6 +347,7 @@ function CollectionNameSheet({
   strings,
   saving,
   onClose,
+  onDismiss,
   onSubmit,
 }: {
   visible: boolean;
@@ -331,12 +356,14 @@ function CollectionNameSheet({
   strings: MobileStrings;
   saving: boolean;
   onClose: () => void;
+  onDismiss?: () => void;
   onSubmit: (name: string) => void;
 }) {
   const { tokens } = useNemuTheme();
   const { height, width } = useWindowDimensions();
   const landscape = width > height;
   const [name, setName] = useState(initialName);
+  const wasVisibleRef = useRef(false);
   const trimmedName = name.trim();
   const actionState: MobileCollectionActionState = {
     creating: mode === "create" ? saving : false,
@@ -361,10 +388,26 @@ function CollectionNameSheet({
     onClose();
   };
 
+  useLayoutEffect(() => {
+    if (visible && !wasVisibleRef.current) {
+      // Keep one native host mounted through dismissal, but restore its local
+      // draft synchronously before the next presentation paints.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setName(initialName);
+    }
+    wasVisibleRef.current = visible;
+  }, [initialName, visible]);
+
   return (
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={requestClose}
+      onDismiss={onDismiss}
+      title={title}
+      subtitle={description}
+      dismissLabel={strings.common.cancel}
+      dismissDisabled={saving}
+      showDismissButton={false}
       scroll={landscape}
       enablePanDownToClose={!saving}
       contentStyle={[
@@ -373,17 +416,6 @@ function CollectionNameSheet({
       ]}
       testID={mode === "create" ? "NewCollectionSheet" : "RenameCollectionSheet"}
     >
-      <View style={styles.sheetHeader}>
-        <View style={styles.sheetHeaderCopy}>
-          <Text style={[styles.sheetTitle, { color: tokens.foreground }]}>
-            {title}
-          </Text>
-          <Text style={[styles.sheetDescription, { color: tokens.mutedForeground }]}>
-            {description}
-          </Text>
-        </View>
-      </View>
-
       <View
         style={[
           styles.nameInputShell,
@@ -444,6 +476,7 @@ function CollectionsManagerSheet({
   selectedCollectionId,
   actionState,
   onClose,
+  onDismiss,
   onSelect,
   onCreate,
   onRename,
@@ -456,6 +489,7 @@ function CollectionsManagerSheet({
   selectedCollectionId: string | null;
   actionState: MobileCollectionActionState;
   onClose: () => void;
+  onDismiss?: () => void;
   onSelect: (collectionId: string) => void;
   onCreate: () => void;
   onRename: (collection: LocalCollection) => void;
@@ -470,32 +504,30 @@ function CollectionsManagerSheet({
     height,
     width,
   });
+  const headerMetrics = resolveMobileSheetHeaderMetrics(Platform.OS);
 
   return (
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={onClose}
+      onDismiss={onDismiss}
+      title={strings.library.manageCollections}
+      headerTrailing={
+        <NemuButton
+          accessibilityLabel={strings.library.createCollection}
+          disabled={actionBusy}
+          icon="add-outline"
+          label={headerMetrics.showActionLabels ? strings.library.new : undefined}
+          onPress={onCreate}
+          size={headerMetrics.showActionLabels ? "sm" : "icon-sm"}
+          variant="secondary"
+        />
+      }
       snapPoints={sheetLayout.snapPoints}
       scroll={sheetLayout.scroll}
       contentStyle={styles.managerSheet}
       testID="CollectionsManagerSheet"
     >
-      <View style={styles.sheetHeader}>
-        <View style={styles.sheetHeaderCopy}>
-          <Text style={[styles.sheetTitle, { color: tokens.foreground }]}>
-            {strings.library.manageCollections}
-          </Text>
-        </View>
-        <NemuButton
-          accessibilityLabel={strings.library.createCollection}
-          disabled={actionBusy}
-          icon="add-outline"
-          label={strings.library.new}
-          onPress={onCreate}
-          variant="secondary"
-        />
-      </View>
-
       {collections.length === 0 ? (
         <View
           style={[
@@ -945,8 +977,12 @@ export function LibraryScreen({
   const [showTitleMenuSheet, setShowTitleMenuSheet] = useState(false);
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [showManagePanel, setShowManagePanel] = useState(false);
+  const [manageCollectionPresentation, setManageCollectionPresentation] =
+    useState<LocalCollection | null>(null);
   const [showCollectionsManagerSheet, setShowCollectionsManagerSheet] = useState(false);
   const [showAddBooksSheet, setShowAddBooksSheet] = useState(false);
+  const [addBooksPresentation, setAddBooksPresentation] =
+    useState<LocalCollection | null>(null);
   const [renameTarget, setRenameTarget] = useState<LocalCollection | null>(null);
   const [removeTarget, setRemoveTarget] = useState<LocalCollection | null>(null);
   const [newCollectionName, setNewCollectionName] = useState("");
@@ -962,6 +998,7 @@ export function LibraryScreen({
   const [retryingData, setRetryingData] = useState(false);
   const [removeArmed, setRemoveArmed] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
+  const pendingSheetTransitionRef = useRef<PendingLibrarySheetTransition | null>(null);
   const refreshInFlightRef = useRef(false);
   const retryDataGuardRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
@@ -975,7 +1012,26 @@ export function LibraryScreen({
   const libraryRefreshAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const libraryFocusedRef = useRef(true);
 
+  const queueAfterSheetDismiss = useCallback(
+    (source: LibrarySheetTransitionSource, run: () => void) => {
+      if (pendingSheetTransitionRef.current) return false;
+      pendingSheetTransitionRef.current = { source, run };
+      return true;
+    },
+    [],
+  );
+  const completeSheetDismiss = useCallback(
+    (source: LibrarySheetTransitionSource) => {
+      const pending = pendingSheetTransitionRef.current;
+      if (!pending || pending.source !== source) return;
+      pendingSheetTransitionRef.current = null;
+      pending.run();
+    },
+    [],
+  );
+
   useEffect(() => {
+    pendingSheetTransitionRef.current = null;
     if (!isCollectionRoute) return;
     setSelectedCollectionId(routeCollectionId);
     setShowTitleMenuSheet(false);
@@ -983,10 +1039,18 @@ export function LibraryScreen({
     setShowManagePanel(false);
     setShowCollectionsManagerSheet(false);
     setShowAddBooksSheet(false);
+    setAddBooksPresentation(null);
     setRenameTarget(null);
     setRemoveTarget(null);
     setRemoveArmed(false);
   }, [isCollectionRoute, routeCollectionId]);
+
+  useEffect(
+    () => () => {
+      pendingSheetTransitionRef.current = null;
+    },
+    [],
+  );
 
   const collectionSelection = useMemo(
     () => resolveCollectionSelection(collections.data, selectedCollectionId),
@@ -1092,7 +1156,10 @@ export function LibraryScreen({
     removing: removingCollectionRef.current || removingCollection,
   });
 
-  const selectCollection = (nextCollectionId: string | null) => {
+  const selectCollection = (
+    nextCollectionId: string | null,
+    source: "title-menu" | "collections-manager",
+  ) => {
     if (
       !canSelectMobileCollectionScope({
         currentCollectionId: effectiveCollectionId,
@@ -1103,49 +1170,65 @@ export function LibraryScreen({
       return;
     }
     setOperationError(null);
-    setSelectedCollectionId(nextCollectionId);
-    setShowTitleMenuSheet(false);
-    setShowCreatePanel(false);
-    setShowManagePanel(false);
-    setShowCollectionsManagerSheet(false);
-    setShowAddBooksSheet(false);
-    setRenameTarget(null);
-    setRemoveTarget(null);
-    setRemoveArmed(false);
+    const commitSelection = () => {
+      setSelectedCollectionId(nextCollectionId);
+      setShowTitleMenuSheet(false);
+      setShowCreatePanel(false);
+      setShowManagePanel(false);
+      setShowCollectionsManagerSheet(false);
+      setShowAddBooksSheet(false);
+      setRenameTarget(null);
+      setRemoveTarget(null);
+      setRemoveArmed(false);
 
-    if (!isCollectionRoute) return;
-    if (nextCollectionId) {
-      router.replace({
-        pathname: "/library/collection/[id]",
-        params: { id: nextCollectionId },
-      });
+      if (!isCollectionRoute) return;
+      if (nextCollectionId) {
+        router.replace({
+          pathname: "/library/collection/[id]",
+          params: { id: nextCollectionId },
+        });
+      } else {
+        router.replace("/library");
+      }
+    };
+    if (!queueAfterSheetDismiss(source, commitSelection)) return;
+    if (source === "title-menu") {
+      setShowTitleMenuSheet(false);
     } else {
-      router.replace("/library");
+      setShowCollectionsManagerSheet(false);
     }
   };
 
   const openAddBooksSheet = useCallback(() => {
     if (collectionActionBusy) return;
+    if (!selectedCollection) return;
     setOperationError(null);
     setShowTitleMenuSheet(false);
+    setAddBooksPresentation(selectedCollection);
     setShowAddBooksSheet(true);
     setShowCreatePanel(false);
     setShowCollectionsManagerSheet(false);
     setRemoveArmed(false);
-  }, [collectionActionBusy]);
+  }, [collectionActionBusy, selectedCollection]);
 
   const toggleCollectionManagement = useCallback(() => {
     if (collectionActionBusy) return;
     setOperationError(null);
     setShowTitleMenuSheet(false);
-    setShowManagePanel((value) => !value);
+    if (showManagePanel) {
+      setShowManagePanel(false);
+    } else {
+      if (!selectedCollection) return;
+      setManageCollectionPresentation(selectedCollection);
+      setShowManagePanel(true);
+    }
     setShowAddBooksSheet(false);
     setShowCreatePanel(false);
     setShowCollectionsManagerSheet(false);
     setRenameTarget(null);
     setRemoveTarget(null);
     setRemoveArmed(false);
-  }, [collectionActionBusy]);
+  }, [collectionActionBusy, selectedCollection, showManagePanel]);
 
   const toggleCreateCollection = useCallback(() => {
     if (collectionActionBusy) return;
@@ -1175,28 +1258,36 @@ export function LibraryScreen({
   const openCollectionRename = useCallback((collection: LocalCollection) => {
     if (collectionActionBusy) return;
     setOperationError(null);
-    setShowTitleMenuSheet(false);
-    setRenameTarget(collection);
+    if (
+      !queueAfterSheetDismiss("collections-manager", () => {
+        setRenameTarget(collection);
+      })
+    ) {
+      return;
+    }
     setShowCollectionsManagerSheet(false);
     setShowManagePanel(false);
     setShowCreatePanel(false);
     setShowAddBooksSheet(false);
-    setRemoveTarget(null);
     setRemoveArmed(false);
-  }, [collectionActionBusy]);
+  }, [collectionActionBusy, queueAfterSheetDismiss]);
 
   const openCollectionRemoveConfirmation = useCallback((collection: LocalCollection) => {
     if (collectionActionBusy) return;
     setOperationError(null);
-    setShowTitleMenuSheet(false);
-    setRemoveTarget(collection);
+    if (
+      !queueAfterSheetDismiss("collections-manager", () => {
+        setRemoveTarget(collection);
+      })
+    ) {
+      return;
+    }
     setShowCollectionsManagerSheet(false);
     setShowManagePanel(false);
     setShowCreatePanel(false);
     setShowAddBooksSheet(false);
-    setRenameTarget(null);
     setRemoveArmed(false);
-  }, [collectionActionBusy]);
+  }, [collectionActionBusy, queueAfterSheetDismiss]);
 
   const reportCollectionError = async (error: unknown) => {
     await hapticError();
@@ -1364,19 +1455,23 @@ export function LibraryScreen({
     setOperationError(null);
     try {
       const collection = await collections.createCollection(name);
-      if (isCollectionRoute) {
-        router.replace({
-          pathname: "/library/collection/[id]",
-          params: { id: collection.collectionId },
-        });
-      } else {
-        setSelectedCollectionId(collection.collectionId);
+      if (
+        !queueAfterSheetDismiss("create-collection", () => {
+          if (isCollectionRoute) {
+            router.replace({
+              pathname: "/library/collection/[id]",
+              params: { id: collection.collectionId },
+            });
+          } else {
+            setSelectedCollectionId(collection.collectionId);
+          }
+        })
+      ) {
+        return;
       }
       setNewCollectionName("");
-      setShowTitleMenuSheet(false);
       setShowCreatePanel(false);
       setShowManagePanel(false);
-      setShowTitleMenuSheet(false);
       setShowCollectionsManagerSheet(false);
       setShowAddBooksSheet(false);
       await hapticConfirm();
@@ -1453,6 +1548,9 @@ export function LibraryScreen({
     try {
       const updated = await collections.renameCollection(collection.collectionId, name);
       if (!updated) return false;
+      setManageCollectionPresentation((current) =>
+        current?.collectionId === updated.collectionId ? updated : current,
+      );
       if (effectiveCollectionId === collection.collectionId) {
         setSelectedCollectionId(updated.collectionId);
       }
@@ -1473,17 +1571,29 @@ export function LibraryScreen({
     return renameCollectionById(selectedCollection, name);
   };
 
-  const removeCollectionById = async (collection: LocalCollection) => {
+  const removeCollectionById = async (
+    collection: LocalCollection,
+    source: "manage-collection" | "remove-confirmation",
+  ) => {
     if (!canStartMobileCollectionAction(getGuardedCollectionActionState())) return;
     removingCollectionRef.current = true;
     setRemovingCollection(true);
     setOperationError(null);
     try {
       await collections.removeCollection(collection.collectionId);
-      if (isCollectionRoute && effectiveCollectionId === collection.collectionId) {
-        router.replace("/library");
-      } else if (effectiveCollectionId === collection.collectionId) {
-        setSelectedCollectionId(null);
+      if (
+        !queueAfterSheetDismiss(source, () => {
+          if (
+            isCollectionRoute &&
+            effectiveCollectionId === collection.collectionId
+          ) {
+            router.replace("/library");
+          } else if (effectiveCollectionId === collection.collectionId) {
+            setSelectedCollectionId(null);
+          }
+        })
+      ) {
+        return;
       }
       setShowManagePanel(false);
       setShowCollectionsManagerSheet(false);
@@ -1507,7 +1617,7 @@ export function LibraryScreen({
       setRemoveArmed(true);
       return;
     }
-    await removeCollectionById(selectedCollection);
+    await removeCollectionById(selectedCollection, "manage-collection");
   };
 
   const retryLibraryData = async () => {
@@ -1743,11 +1853,11 @@ export function LibraryScreen({
               />
             ) : null}
 
-            {!showSkeleton && selectedCollection && showAddBooksSheet ? (
+            {addBooksPresentation ? (
               <MobileAddBooksSheet
-                visible={showAddBooksSheet}
-                collectionId={selectedCollection.collectionId}
-                collectionName={selectedCollection.name}
+                visible={!showSkeleton && showAddBooksSheet}
+                collectionId={addBooksPresentation.collectionId}
+                collectionName={addBooksPresentation.name}
                 entries={sortedLibraryEntries}
                 membership={collections.membership}
                 strings={strings}
@@ -1755,6 +1865,7 @@ export function LibraryScreen({
                 saving={savingCollectionMembership}
                 error={operationError}
                 onClose={() => setShowAddBooksSheet(false)}
+                onDismiss={() => setAddBooksPresentation(null)}
                 onErrorDismiss={() => setOperationError(null)}
                 onSave={saveCollectionMembership}
               />
@@ -1788,17 +1899,23 @@ export function LibraryScreen({
       selectedCollectionId={effectiveCollectionId}
       disabled={collectionActionBusy}
       onClose={() => setShowTitleMenuSheet(false)}
+      onDismiss={() => completeSheetDismiss("title-menu")}
       onSelect={(collectionId) => {
-        setShowTitleMenuSheet(false);
-        selectCollection(collectionId);
+        selectCollection(collectionId, "title-menu");
       }}
       onManage={() => {
+        if (collectionActionBusy) return;
+        if (
+          !queueAfterSheetDismiss("title-menu", () => {
+            openCollectionsManager();
+          })
+        ) {
+          return;
+        }
         setShowTitleMenuSheet(false);
-        openCollectionsManager();
       }}
     />
     <CollectionNameSheet
-      key={showCreatePanel ? "create-open" : "create-closed"}
       visible={!showSkeleton && showCreatePanel}
       mode="create"
       strings={strings}
@@ -1807,6 +1924,7 @@ export function LibraryScreen({
         setShowCreatePanel(false);
         setNewCollectionName("");
       }}
+      onDismiss={() => completeSheetDismiss("create-collection")}
       onSubmit={(name) => {
         setNewCollectionName(name);
         void createCollection(name);
@@ -1820,17 +1938,26 @@ export function LibraryScreen({
       selectedCollectionId={effectiveCollectionId}
       actionState={collectionActionState}
       onClose={() => setShowCollectionsManagerSheet(false)}
-      onSelect={(collectionId) => selectCollection(collectionId)}
+      onDismiss={() => completeSheetDismiss("collections-manager")}
+      onSelect={(collectionId) =>
+        selectCollection(collectionId, "collections-manager")
+      }
       onCreate={() => {
+        if (collectionActionBusy) return;
+        if (
+          !queueAfterSheetDismiss("collections-manager", () => {
+            setNewCollectionName("");
+            setShowCreatePanel(true);
+          })
+        ) {
+          return;
+        }
         setShowCollectionsManagerSheet(false);
-        setShowCreatePanel(true);
-        setNewCollectionName("");
       }}
       onRename={openCollectionRename}
       onRemove={openCollectionRemoveConfirmation}
     />
     <CollectionNameSheet
-      key={renameTarget?.collectionId ?? "rename-closed"}
       visible={!showSkeleton && renameTarget !== null}
       mode="rename"
       initialName={renameTarget?.name ?? ""}
@@ -1842,20 +1969,27 @@ export function LibraryScreen({
         void renameCollectionById(renameTarget, name);
       }}
     />
-    {!showSkeleton && showManagePanel && selectedCollection ? (
-      <MobileNativeSheetScaffold
-        visible={showManagePanel}
-        onClose={() => {
-          setShowManagePanel(false);
-          setRemoveArmed(false);
-        }}
-        snapPoints={manageCollectionSheetLayout.snapPoints}
-        scroll={manageCollectionSheetLayout.scroll}
-        contentStyle={styles.manageCollectionSheet}
-        testID="ManageCollectionSheet"
-      >
+    <MobileNativeSheetScaffold
+      visible={
+        !showSkeleton &&
+        showManagePanel &&
+        Boolean(manageCollectionPresentation)
+      }
+      onClose={() => {
+        setShowManagePanel(false);
+        setRemoveArmed(false);
+      }}
+      onDismiss={() => {
+        completeSheetDismiss("manage-collection");
+        setManageCollectionPresentation(null);
+      }}
+      snapPoints={manageCollectionSheetLayout.snapPoints}
+      scroll={manageCollectionSheetLayout.scroll}
+      testID="ManageCollectionSheet"
+    >
+      {manageCollectionPresentation ? (
         <ManageCollectionPanel
-          collection={selectedCollection}
+          collection={manageCollectionPresentation}
           strings={strings}
           entries={sortedLibraryEntries}
           membership={collections.membership}
@@ -1874,8 +2008,8 @@ export function LibraryScreen({
           }}
           onCancelRemove={() => setRemoveArmed(false)}
         />
-      </MobileNativeSheetScaffold>
-    ) : null}
+      ) : null}
+    </MobileNativeSheetScaffold>
     <MobileConfirmationSheet
       visible={!showSkeleton && removeTarget !== null}
       title={strings.library.removeCollection}
@@ -1892,13 +2026,14 @@ export function LibraryScreen({
       }
       destructive
       loading={removingCollection}
+      onDismiss={() => completeSheetDismiss("remove-confirmation")}
       onCancel={() => {
         if (removingCollection) return;
         setRemoveTarget(null);
       }}
       onConfirm={() => {
         if (!removeTarget) return;
-        void removeCollectionById(removeTarget);
+        void removeCollectionById(removeTarget, "remove-confirmation");
       }}
     />
     </>
@@ -1940,30 +2075,6 @@ const styles = StyleSheet.create({
   },
   managerSheet: {
     gap: 14,
-  },
-  manageCollectionSheet: {
-    paddingHorizontal: 12,
-    paddingTop: 0,
-  },
-  sheetHeader: {
-    minHeight: 38,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  sheetHeaderCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  sheetTitle: {
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  sheetDescription: {
-    marginTop: 3,
-    fontSize: 13,
-    lineHeight: 18,
   },
   nameInputShell: {
     minHeight: 46,

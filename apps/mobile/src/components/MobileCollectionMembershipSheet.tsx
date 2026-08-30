@@ -47,6 +47,7 @@ type MobileCollectionMembershipSheetProps = {
   libraryItemId: string;
   title?: string;
   onClose: () => void;
+  onDismiss?: () => void;
 };
 
 function collectionBookCountText(count: number, strings: MobileStrings): string {
@@ -169,56 +170,13 @@ function CollectionRow({
   );
 }
 
-function LoadingCollectionMembershipSheet({
-  visible,
-  title,
-  onClose,
-}: Pick<MobileCollectionMembershipSheetProps, "visible" | "title" | "onClose">) {
-  const { tokens } = useNemuTheme();
-  const { appLanguage } = useMobileLanguageSettings();
-  const strings = getMobileStrings(appLanguage);
-
-  return (
-    <MobileNativeSheetScaffold
-      visible={visible}
-      onClose={onClose}
-      contentStyle={styles.loadingSheet}
-      testID="MobileCollectionMembershipSheetLoading"
-    >
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text style={[styles.title, { color: tokens.foreground }]}>
-            {strings.collectionMembership.title}
-          </Text>
-          <Text numberOfLines={1} style={[styles.subtitle, { color: tokens.mutedForeground }]}>
-            {collectionSubtitle(title, strings)}
-          </Text>
-        </View>
-        <NemuPressable
-          accessibilityRole="button"
-          accessibilityLabel={strings.collectionMembership.close}
-          onPress={onClose}
-          style={[styles.closeButton, { backgroundColor: tokens.muted }]}
-        >
-          <Ionicons name="close-outline" size={20} color={tokens.mutedForeground} />
-        </NemuPressable>
-      </View>
-      <View style={styles.loadingBody}>
-        <ActivityIndicator size="small" color={tokens.primary} />
-        <Text style={[styles.loadingText, { color: tokens.mutedForeground }]}>
-          {strings.collectionMembership.loading}
-        </Text>
-      </View>
-    </MobileNativeSheetScaffold>
-  );
-}
-
 function CollectionMembershipContent({
   visible,
   libraryItemId,
   title,
   collections,
   onClose,
+  onDismiss,
 }: MobileCollectionMembershipSheetProps & {
   collections: MobileCollectionsState;
 }) {
@@ -249,11 +207,14 @@ function CollectionMembershipContent({
   const [localError, setLocalError] = useState<string | null>(null);
   const [dismissedCollectionError, setDismissedCollectionError] = useState<string | null>(null);
   const wasVisibleRef = useRef(false);
+  const wasLoadingRef = useRef(collections.loading);
   const visibleLibraryItemIdRef = useRef<string | null>(null);
+  const closeRequestedRef = useRef(false);
 
   useEffect(() => {
     const itemChanged = visibleLibraryItemIdRef.current !== libraryItemId;
-    if (visible && (!wasVisibleRef.current || itemChanged)) {
+    const finishedInitialLoad = wasLoadingRef.current && !collections.loading;
+    if (visible && (!wasVisibleRef.current || itemChanged || finishedInitialLoad)) {
       setInitialSelected(nextInitialSelected);
       setSelected(new Set(nextInitialSelected));
       setNewCollectionName("");
@@ -264,9 +225,13 @@ function CollectionMembershipContent({
       setLocalError(null);
       setDismissedCollectionError(null);
     }
+    if (visible && (!wasVisibleRef.current || itemChanged)) {
+      closeRequestedRef.current = false;
+    }
     wasVisibleRef.current = visible;
+    wasLoadingRef.current = collections.loading;
     visibleLibraryItemIdRef.current = visible ? libraryItemId : null;
-  }, [libraryItemId, nextInitialSelected, visible]);
+  }, [collections.loading, libraryItemId, nextInitialSelected, visible]);
 
   const validCollectionIds = useMemo(
     () => new Set(collections.data.map((collection) => collection.collectionId)),
@@ -279,12 +244,13 @@ function CollectionMembershipContent({
   const changeCount = diff.idsToAdd.length + diff.idsToRemove.length;
   const actionState: MobileCollectionActionState = {
     creating,
-    loadingCollections: retryingCollections,
+    loadingCollections: collections.loading || retryingCollections,
     renaming,
     savingMembership: saving,
     removing,
   };
-  const busy = creating || saving || renaming || removing || retryingCollections;
+  const operationBusy = creating || saving || renaming || removing || retryingCollections;
+  const busy = collections.loading || operationBusy;
   const canCreate = !busy && newCollectionName.trim().length > 0;
   const renameDisabled = !renameTarget || !canRenameMobileCollection(
     actionState,
@@ -319,8 +285,21 @@ function CollectionMembershipContent({
     width,
   });
   const requestClose = () => {
-    const action = getMobileCollectionMembershipRequestCloseAction({ busy });
+    const action = getMobileCollectionMembershipRequestCloseAction({
+      busy: operationBusy,
+    });
     if (action === "ignore") return;
+    if (closeRequestedRef.current) return;
+    closeRequestedRef.current = true;
+    void hapticPress();
+    onClose();
+  };
+
+  const handleNativeClose = () => {
+    // An explicit content action already asked the controlled parent to hide
+    // this sheet. Native completion must not repeat the callback or haptic.
+    if (closeRequestedRef.current) return;
+    closeRequestedRef.current = true;
     void hapticPress();
     onClose();
   };
@@ -465,6 +444,7 @@ function CollectionMembershipContent({
         ),
       ]);
       await hapticConfirm();
+      closeRequestedRef.current = true;
       onClose();
     } catch (nextError) {
       setLocalError(
@@ -482,39 +462,28 @@ function CollectionMembershipContent({
   return (
     <MobileNativeSheetScaffold
       visible={visible}
-      onClose={requestClose}
+      onClose={handleNativeClose}
+      onDismiss={onDismiss}
+      title={strings.collectionMembership.title}
+      subtitle={collectionSubtitle(title, strings)}
+      dismissLabel={strings.collectionMembership.close}
+      dismissDisabled={operationBusy}
       snapPoints={sheetLayout.snapPoints}
       scroll={sheetLayout.scroll}
-      enablePanDownToClose={!busy}
+      enablePanDownToClose={!operationBusy}
       contentStyle={styles.sheet}
       testID="MobileCollectionMembershipSheet"
     >
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text style={[styles.title, { color: tokens.foreground }]}>
-            {strings.collectionMembership.title}
-          </Text>
-          <Text numberOfLines={1} style={[styles.subtitle, { color: tokens.mutedForeground }]}>
-            {collectionSubtitle(title, strings)}
+      {collections.loading ? (
+        <View style={styles.loadingBody}>
+          <ActivityIndicator size="small" color={tokens.primary} />
+          <Text style={[styles.loadingText, { color: tokens.mutedForeground }]}>
+            {strings.collectionMembership.loading}
           </Text>
         </View>
-        <NemuPressable
-          accessibilityRole="button"
-          accessibilityLabel={strings.collectionMembership.close}
-          accessibilityState={{ disabled: busy }}
-          disabled={busy}
-          hapticFeedback="none"
-          onPress={requestClose}
-          style={[
-            styles.closeButton,
-            { backgroundColor: tokens.muted, opacity: busy ? 0.58 : 1 },
-          ]}
-        >
-          <Ionicons name="close-outline" size={20} color={tokens.mutedForeground} />
-        </NemuPressable>
-      </View>
-
-      <View style={styles.scrollContent}>
+      ) : (
+        <>
+        <View style={styles.scrollContent}>
         <View style={styles.list}>
           {collections.data.length ? (
             collections.data.map((collection) => (
@@ -724,9 +693,9 @@ function CollectionMembershipContent({
             variant="embedded"
           />
         ) : null}
-      </View>
+        </View>
 
-      <View style={styles.footer}>
+        <View style={styles.footer}>
         <NemuButton
           accessibilityLabel={strings.common.cancel}
           containerStyle={styles.footerButton}
@@ -748,7 +717,9 @@ function CollectionMembershipContent({
           }}
           variant={saving || !saveDisabled ? "default" : "secondary"}
         />
-      </View>
+        </View>
+        </>
+      )}
     </MobileNativeSheetScaffold>
   );
 }
@@ -758,18 +729,9 @@ export function MobileCollectionMembershipSheet({
   libraryItemId,
   title,
   onClose,
+  onDismiss,
 }: MobileCollectionMembershipSheetProps) {
   const collections = useCollections();
-
-  if (collections.loading) {
-    return (
-      <LoadingCollectionMembershipSheet
-        visible={visible}
-        title={title}
-        onClose={onClose}
-      />
-    );
-  }
 
   return (
     <CollectionMembershipContent
@@ -778,6 +740,7 @@ export function MobileCollectionMembershipSheet({
       title={title}
       collections={collections}
       onClose={onClose}
+      onDismiss={onDismiss}
     />
   );
 }
@@ -785,40 +748,6 @@ export function MobileCollectionMembershipSheet({
 const styles = StyleSheet.create({
   sheet: {
     gap: 14,
-    paddingHorizontal: 16,
-    paddingTop: 4,
-  },
-  loadingSheet: {
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingTop: 4,
-  },
-  header: {
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  headerCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  title: {
-    fontSize: 20,
-    lineHeight: 25,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  subtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  closeButton: {
-    width: 38,
-    height: 38,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
   },
   loadingBody: {
     minHeight: 92,

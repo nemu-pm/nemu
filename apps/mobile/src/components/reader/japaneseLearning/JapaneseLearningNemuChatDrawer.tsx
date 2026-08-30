@@ -36,6 +36,7 @@ export interface JapaneseLearningChatTtsState {
   status: "idle" | "loading" | "playing" | "error";
   source?: "sentence" | "transcript" | "chat";
   messageId?: string;
+  detail?: string;
 }
 
 interface NemuChatDrawerProps {
@@ -140,15 +141,10 @@ export function JapaneseLearningNemuChatDrawer({
       visible={visible}
       onRequestClose={onClose}
       backdropOnPress={onClose}
+      title="Nemu"
       frameMaxHeight="70%"
       contentStyle={{ padding: 0, gap: 0 }}
     >
-      <View style={[styles.header, { borderBottomColor: tokens.border }]}>
-        <Text style={[styles.headerTitle, { color: tokens.foreground }]}>
-          Nemu
-        </Text>
-      </View>
-
       <ScrollView
         ref={scrollRef}
         style={styles.messagesScroll}
@@ -199,6 +195,12 @@ export function JapaneseLearningNemuChatDrawer({
                 ttsState.messageId === msg.id;
               const chatTtsDisabled =
                 ttsState.status === "loading" && !chatTtsLoading;
+              const chatTtsError =
+                ttsState.status === "error" &&
+                ttsState.source === "chat" &&
+                ttsState.messageId === msg.id
+                  ? ttsState.detail
+                  : undefined;
               return (
                 <JapaneseLearningMessageBubble
                   key={msg.id}
@@ -211,6 +213,7 @@ export function JapaneseLearningNemuChatDrawer({
                   ttsLoading={chatTtsLoading}
                   ttsPlaying={chatTtsPlaying}
                   ttsDisabled={chatTtsDisabled}
+                  ttsErrorDetail={chatTtsError}
                   onVoiceAction={onToggleChatTts}
                 />
               );
@@ -290,6 +293,7 @@ export function JapaneseLearningNemuChatDrawer({
           <NemuPressable
             accessibilityRole="button"
             accessibilityLabel={strings.reader.pluginJapaneseLearningChatSend}
+            minimumTouchTarget
             onPress={handleSubmit}
             pressedScale={0.9}
             style={styles.sendButton}
@@ -303,16 +307,6 @@ export function JapaneseLearningNemuChatDrawer({
 }
 
 const styles = StyleSheet.create({
-  header: {
-    alignItems: "center",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  headerTitle: {
-    fontSize: 14,
-    fontWeight: nemuFontWeight.medium,
-  },
   messagesScroll: {
     flex: 1,
     minHeight: 0,

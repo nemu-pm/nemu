@@ -40,6 +40,7 @@ export function JapaneseLearningFollowUpSuggestions({
             accessibilityLabel={suggestion}
             accessibilityState={{ disabled }}
             disabled={disabled}
+            minimumTouchTarget
             hapticFeedback="selection"
             onPress={() => onSelect(suggestion)}
             pressedScale={0.985}

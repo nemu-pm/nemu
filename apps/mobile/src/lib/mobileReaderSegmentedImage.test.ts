@@ -307,7 +307,10 @@ describe("segmented reader geometry", () => {
       ),
       "utf8",
     );
-    expect(gallery).toContain("priorProgress ?? persistedProgress");
+    expect(gallery).toContain("readerContinuousRelayoutProgress({");
+    expect(gallery).toContain(
+      "initialProgress: logicalLongStripMode ? persistedProgress : null",
+    );
     expect(gallery).toContain("strings.reader.longStripProgress");
   });
 });

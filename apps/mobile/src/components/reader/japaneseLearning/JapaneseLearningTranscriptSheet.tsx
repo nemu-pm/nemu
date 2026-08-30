@@ -1,5 +1,12 @@
 import { useMemo } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   MobileSheetScaffold,
@@ -16,6 +23,7 @@ import {
 import type { MobileOcrDetection, MobileJapaneseLearningOcrResult } from "@/lib/mobileJapaneseLearningOcr";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { formatMobileString } from "@/lib/mobileI18n";
+import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
 
 export interface JapaneseLearningTranscriptTtsStateLike {
   status: "idle" | "loading" | "playing" | "error";
@@ -35,6 +43,7 @@ interface TranscriptSheetProps {
   ttsState: JapaneseLearningTranscriptTtsStateLike;
   minConfidence: number;
   onClose: () => void;
+  onDismiss?: () => void;
   onRetryOcr: () => void;
   onSelectDetection: (detection: MobileOcrDetection) => void;
   onToggleTts: (text: string) => void;
@@ -57,11 +66,13 @@ export function JapaneseLearningTranscriptSheet({
   ttsState,
   minConfidence,
   onClose,
+  onDismiss,
   onRetryOcr,
   onSelectDetection,
   onToggleTts,
 }: TranscriptSheetProps) {
   const { tokens } = useNemuTheme();
+  const headerMetrics = resolveMobileSheetHeaderMetrics(Platform.OS);
 
   const lines = useMemo(() => {
     if (!ocrResult) return [];
@@ -80,6 +91,9 @@ export function JapaneseLearningTranscriptSheet({
     ttsState.source === "transcript";
   const transcriptTtsLoading =
     ttsState.status === "loading" && ttsState.source === "transcript";
+  const transcriptActionLabel = transcriptTtsBusy
+    ? strings.reader.pluginJapaneseLearningStopListening
+    : strings.reader.pluginJapaneseLearningListen;
 
   const title =
     ocrResult?.source === "source-text"
@@ -91,21 +105,13 @@ export function JapaneseLearningTranscriptSheet({
       visible={visible}
       onRequestClose={onClose}
       backdropOnPress={onClose}
-      frameMaxHeight={lines.length > 0 ? "70%" : "auto"}
-      contentStyle={{ padding: 0, gap: 0 }}
-    >
-      <View style={[styles.header, { borderBottomColor: tokens.border }]}>
-        <Text style={[styles.title, { color: tokens.foreground }]} numberOfLines={1}>
-          {title}
-        </Text>
-        {transcriptText ? (
+      onDismiss={onDismiss}
+      title={title}
+      headerTrailing={
+        transcriptText ? (
           <NemuPressable
             accessibilityRole="button"
-            accessibilityLabel={
-              transcriptTtsBusy
-                ? strings.reader.pluginJapaneseLearningStopListening
-                : strings.reader.pluginJapaneseLearningListen
-            }
+            accessibilityLabel={transcriptActionLabel}
             accessibilityState={{ disabled: !transcriptText }}
             disabled={!transcriptText}
             onPress={() => onToggleTts(transcriptText)}
@@ -127,15 +133,20 @@ export function JapaneseLearningTranscriptSheet({
                 color={tokens.foreground}
               />
             )}
-            <Text style={[styles.listenText, { color: tokens.foreground }]} numberOfLines={1}>
-              {transcriptTtsBusy
-                ? strings.reader.pluginJapaneseLearningStopListening
-                : strings.reader.pluginJapaneseLearningListen}
-            </Text>
+            {headerMetrics.showActionLabels ? (
+              <Text
+                style={[styles.listenText, { color: tokens.foreground }]}
+                numberOfLines={1}
+              >
+                {transcriptActionLabel}
+              </Text>
+            ) : null}
           </NemuPressable>
-        ) : null}
-      </View>
-
+        ) : undefined
+      }
+      frameMaxHeight={lines.length > 0 ? "70%" : "auto"}
+      contentStyle={{ gap: 0 }}
+    >
       {lines.length > 0 ? (
         <ScrollView
           style={styles.linesScroll}
@@ -214,6 +225,7 @@ export function JapaneseLearningTranscriptSheet({
                   ? strings.common.retry
                   : strings.reader.pluginJapaneseLearningDetectText
               }
+              minimumTouchTarget
               onPress={onRetryOcr}
               pressedScale={0.98}
               containerStyle={styles.retryButtonContainer}
@@ -239,7 +251,11 @@ export function JapaneseLearningTranscriptSheet({
       )}
 
       {ttsState.status === "error" && ttsState.source === "transcript" ? (
-        <Text style={[styles.errorText, { color: tokens.danger }]}>
+        <Text
+          accessibilityLiveRegion="assertive"
+          accessibilityRole="alert"
+          style={[styles.errorText, { color: tokens.danger }]}
+        >
           {ttsState.detail}
         </Text>
       ) : null}
@@ -248,21 +264,8 @@ export function JapaneseLearningTranscriptSheet({
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  title: {
-    fontSize: 14,
-    fontWeight: nemuFontWeight.semibold,
-    flex: 1,
-  },
   listenButton: {
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
@@ -280,7 +283,7 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   linesContent: {
-    padding: 12,
+    paddingVertical: 12,
     gap: 4,
   },
   line: {
@@ -319,7 +322,7 @@ const styles = StyleSheet.create({
   },
   retryButton: {
     width: "100%",
-    minHeight: 40,
+    minHeight: 48,
     borderRadius: radius.md,
     flexDirection: "row",
     alignItems: "center",

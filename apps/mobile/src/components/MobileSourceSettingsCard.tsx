@@ -115,6 +115,7 @@ type MobileSourceSettingsCardProps = {
   onReset?: () => void;
   retryDisabled?: boolean;
   retrying?: boolean;
+  onEmbeddedBackHandlerChange?: (handler: (() => void) | null) => void;
 };
 
 function settingValue(
@@ -1586,6 +1587,7 @@ function MobileSourceSettingsCardContent({
   retryDisabled = false,
   retrying = false,
   loginCapabilities = null,
+  onEmbeddedBackHandlerChange,
 }: MobileSourceSettingsCardProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -1660,6 +1662,13 @@ function MobileSourceSettingsCardContent({
   }, []);
 
   useEffect(() => {
+    onEmbeddedBackHandlerChange?.(
+      loginSetting ? closeLoginSheet : null,
+    );
+    return () => onEmbeddedBackHandlerChange?.(null);
+  }, [closeLoginSheet, loginSetting, onEmbeddedBackHandlerChange]);
+
+  useEffect(() => {
     return () => {
       loginRequestRef.current += 1;
       loginAbortRef.current?.abort();
@@ -1719,9 +1728,25 @@ function MobileSourceSettingsCardContent({
 
   if (!hasRootRows && !showEmpty) return null;
 
+  if (loginSetting) {
+    return (
+      <MobileSourceLoginSheet
+        key={loginSetting.key}
+        setting={loginSetting}
+        visible
+        embedded
+        submitting={loginSubmitting}
+        error={loginError}
+        onClose={closeLoginSheet}
+        onSubmit={(submission) => {
+          void handleLoginSubmission(submission);
+        }}
+      />
+    );
+  }
+
   return (
-    <>
-      <View
+    <View
         style={[
           styles.settingsShell,
           { backgroundColor: tokens.card, borderColor: tokens.border },
@@ -1887,20 +1912,6 @@ function MobileSourceSettingsCardContent({
           )}
         </View>
       </View>
-      {loginSetting ? (
-        <MobileSourceLoginSheet
-          key={loginSetting.key}
-          setting={loginSetting}
-          visible
-          submitting={loginSubmitting}
-          error={loginError}
-          onClose={closeLoginSheet}
-          onSubmit={(submission) => {
-            void handleLoginSubmission(submission);
-          }}
-        />
-      ) : null}
-    </>
   );
 }
 
@@ -1939,7 +1950,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.md,
-    overflow: "hidden",
   },
   statusLabel: {
     fontSize: 14,
@@ -1958,7 +1968,6 @@ const styles = StyleSheet.create({
     gap: 5,
     borderRadius: radius.md,
     paddingHorizontal: 10,
-    overflow: "hidden",
   },
   resetText: {
     fontSize: 11,
@@ -2147,7 +2156,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.md,
-    overflow: "hidden",
   },
   editableListItems: {
     width: "100%",
@@ -2224,7 +2232,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.md,
-    overflow: "hidden",
   },
   stepperValue: {
     minWidth: 34,

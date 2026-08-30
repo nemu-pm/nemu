@@ -21,6 +21,7 @@ import {
   useNemuTheme,
   NemuButton,
   GlassSurface,
+  NemuTextFieldClearAction,
   NemuPressable,
 } from "@/design-system";
 import type { InstalledSource, LibraryEntry, MangaMetadata } from "@/data/schema";
@@ -84,6 +85,8 @@ type MobileMetadataEditorSheetProps = {
   coverSource?: InstalledSource | null;
   sourceChoices?: MobileMetadataSourceChoice[];
   onClose: () => void;
+  /** Called after the native sheet has fully finished dismissing. */
+  onDismiss?: () => void;
   onFetchFromSource?: (sourceId: string) => Promise<MangaMetadata>;
   onSave: (form: MobileMetadataFormValues) => Promise<void>;
 };
@@ -301,6 +304,7 @@ export function MobileMetadataEditorSheet({
   coverSource = null,
   sourceChoices = [],
   onClose,
+  onDismiss,
   onFetchFromSource,
   onSave,
 }: MobileMetadataEditorSheetProps) {
@@ -416,6 +420,7 @@ export function MobileMetadataEditorSheet({
     editorActionBusy
   );
   const requestClose = () => {
+    if (!visible) return;
     const action = getMobileMetadataEditorRequestCloseAction({
       busy: closeBusy,
     });
@@ -757,36 +762,16 @@ export function MobileMetadataEditorSheet({
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={requestClose}
+      onDismiss={onDismiss}
+      title={strings.metadataEditor.title}
+      subtitle={strings.metadataEditor.subtitle}
+      dismissLabel={strings.metadataEditor.close}
+      dismissDisabled={closeBusy}
       snapPoints={["92%"]}
       fillContent
       enablePanDownToClose={!closeBusy}
       contentStyle={styles.sheet}
     >
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text style={[styles.title, { color: tokens.foreground }]}>
-            {strings.metadataEditor.title}
-          </Text>
-          <Text style={[styles.subtitle, { color: tokens.mutedForeground }]}>
-            {strings.metadataEditor.subtitle}
-          </Text>
-        </View>
-        <NemuPressable
-          accessibilityRole="button"
-          accessibilityLabel={strings.metadataEditor.close}
-          accessibilityState={{ disabled: closeBusy }}
-          disabled={closeBusy}
-          hapticFeedback="none"
-          onPress={requestClose}
-          style={[
-            styles.closeButton,
-            { backgroundColor: tokens.muted, opacity: closeBusy ? 0.58 : 1 },
-          ]}
-        >
-          <Ionicons name="close-outline" size={20} color={tokens.mutedForeground} />
-        </NemuPressable>
-      </View>
-
       <ScrollView
         style={styles.scroll}
         keyboardShouldPersistTaps="handled"
@@ -1122,6 +1107,15 @@ export function MobileMetadataEditorSheet({
                 ]}
                 value={matchQuery}
               />
+              {matchQuery.length > 0 ? (
+                <NemuTextFieldClearAction
+                  accessibilityLabel={strings.common.clear}
+                  disabled={editorActionBusy}
+                  onPress={() => setMatchQuery("")}
+                  testID="MetadataMatchSearchClearAction"
+                  trailingInset={11}
+                />
+              ) : null}
             </GlassSurface>
             <NemuPressable
               accessibilityRole="button"
@@ -1511,34 +1505,6 @@ const styles = StyleSheet.create({
     flex: 1,
     maxHeight: "100%",
     gap: 14,
-    padding: 14,
-  },
-  header: {
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  headerCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  title: {
-    fontSize: 20,
-    lineHeight: 25,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  subtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  closeButton: {
-    width: 38,
-    height: 38,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
   },
   scroll: {
     flex: 1,
@@ -1753,27 +1719,30 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.medium,
   },
   matchSearchRow: {
-    minHeight: 42,
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
   matchInputShell: {
-    minHeight: 42,
+    minHeight: 48,
     flex: 1,
     borderRadius: radius.lg,
   },
   matchInputContent: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 11,
   },
   matchInput: {
-    minHeight: 42,
+    minHeight: 48,
+    flex: 1,
     fontSize: 14,
     lineHeight: 18,
   },
   matchSearchButton: {
-    width: 42,
-    height: 42,
+    width: 48,
+    height: 48,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.lg,

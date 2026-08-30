@@ -15,6 +15,8 @@ type MobileReaderWidthSliderProps = {
   disabled?: boolean;
   onPreview: (value: number) => void;
   onCommit: (value: number) => void;
+  onInteractionStart?: () => void;
+  onInteractionEnd?: () => void;
 };
 
 export function MobileReaderWidthSlider({
@@ -23,6 +25,8 @@ export function MobileReaderWidthSlider({
   disabled = false,
   onPreview,
   onCommit,
+  onInteractionStart,
+  onInteractionEnd,
 }: MobileReaderWidthSliderProps) {
   const clampedValue = clampReaderScrollWidthPct(value);
   const progress =
@@ -58,15 +62,33 @@ export function MobileReaderWidthSlider({
     [onCommit, onPreview, triggerSelectionHaptic, valueFromRatio],
   );
 
+  const onRatioEnd = useCallback(
+    (ratio: number) => {
+      onRatioCommit(ratio);
+      onInteractionEnd?.();
+    },
+    [onInteractionEnd, onRatioCommit],
+  );
+
   const adjustValue = useCallback(
     (delta: number) => {
       if (disabled) return;
+      onInteractionStart?.();
       const nextValue = clampReaderScrollWidthPct(clampedValue + delta);
       onPreview(nextValue);
       onCommit(nextValue);
       triggerSelectionHaptic(nextValue);
+      onInteractionEnd?.();
     },
-    [clampedValue, disabled, onCommit, onPreview, triggerSelectionHaptic],
+    [
+      clampedValue,
+      disabled,
+      onCommit,
+      onInteractionEnd,
+      onInteractionStart,
+      onPreview,
+      triggerSelectionHaptic,
+    ],
   );
 
   return (
@@ -97,8 +119,10 @@ export function MobileReaderWidthSlider({
       <MobileSliderTrack
         progress={progress}
         disabled={disabled}
+        onRatioStart={() => onInteractionStart?.()}
         onRatioChange={onRatioChange}
-        onRatioCommit={onRatioCommit}
+        onRatioEnd={onRatioEnd}
+        onRatioCancel={onInteractionEnd}
       />
     </View>
   );

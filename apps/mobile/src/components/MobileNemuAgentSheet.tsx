@@ -74,6 +74,7 @@ export function MobileNemuAgentSheet({
   const actionLabel = status === "failed" ? strings.common.retry : strings.common.agentVerify;
 
   const closeFromBackdrop = () => {
+    if (!visible) return;
     void hapticPress();
     onDismiss();
   };
@@ -86,21 +87,14 @@ export function MobileNemuAgentSheet({
     <MobileSheetScaffold
       visible={visible}
       onRequestClose={closeFromBackdrop}
-    >
-      <View style={styles.header}>
+      title={strings.settings.agent}
+      subtitle={visual.copy}
+      headerLeading={
         <View style={[styles.iconShell, { backgroundColor: `${accentColor}18` }]}>
           <Ionicons name="hardware-chip-outline" size={22} color={accentColor} />
         </View>
-        <View style={styles.headerCopy}>
-          <Text style={[styles.title, { color: tokens.foreground }]}>
-            {strings.settings.agent}
-          </Text>
-          <Text style={[styles.description, { color: tokens.mutedForeground }]}>
-            {visual.copy}
-          </Text>
-        </View>
-      </View>
-
+      }
+    >
       <View
         style={[styles.statusRow, { backgroundColor: tokens.card, borderColor: tokens.border }]}
       >
@@ -246,30 +240,12 @@ function toneColor(
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    gap: 12,
-  },
   iconShell: {
     width: 42,
     height: 42,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.lg,
-  },
-  headerCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 4,
-  },
-  title: {
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  description: {
-    fontSize: 13,
-    lineHeight: 19,
   },
   statusRow: {
     flexDirection: "row",

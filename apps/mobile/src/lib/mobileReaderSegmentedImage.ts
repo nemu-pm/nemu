@@ -3,6 +3,7 @@ import type {
   MobileCachedSegmentedImageAsset,
 } from "./mobileImageCache";
 import { makeMobileImageCacheStorageKey } from "./mobileImageCacheKey";
+import { readerContinuousAccessibilityAction } from "./mobileReaderProgress";
 
 export type MobileReaderLogicalPageIdentityInput = Readonly<{
   registryId: string;
@@ -99,24 +100,7 @@ export function mobileReaderSegmentedNextAction(input: {
   contentLength: number;
   viewportLength: number;
 }): { kind: "scroll"; offset: number } | { kind: "end" } {
-  if (isMobileReaderLogicalEndReached(input)) return { kind: "end" };
-  if (
-    !Number.isFinite(input.contentOffset) ||
-    !Number.isFinite(input.contentLength) ||
-    !Number.isFinite(input.viewportLength) ||
-    input.contentLength <= 0 ||
-    input.viewportLength <= 0
-  ) {
-    return { kind: "scroll", offset: 0 };
-  }
-  const maximumOffset = Math.max(0, input.contentLength - input.viewportLength);
-  return {
-    kind: "scroll",
-    offset: Math.min(
-      maximumOffset,
-      input.contentOffset + Math.max(1, input.viewportLength * 0.85),
-    ),
-  };
+  return readerContinuousAccessibilityAction(input, "next");
 }
 
 export function getMobileReaderMeasuredScrollMetrics(input: {

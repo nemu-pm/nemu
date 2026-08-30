@@ -275,10 +275,18 @@ export function SourceMangaScreen() {
   const [retryRun, setRetryRun] = useState(0);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [collectionSheetOpen, setCollectionSheetOpen] = useState(false);
+  const [collectionSheetPresentation, setCollectionSheetPresentation] =
+    useState<{ libraryItemId: string; title: string } | null>(null);
   const [libraryOptionsOpen, setLibraryOptionsOpen] = useState(false);
-  const collectionSheetOpenTimerRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  const [libraryOptionsPresentationMode, setLibraryOptionsPresentationMode] =
+    useState<"add" | "in-library" | null>(null);
+  const libraryOptionsNextSheetRef = useRef<
+    | "close-only"
+    | "collections"
+    | "remove-confirm"
+    | { kind: "reader"; chapter: ChapterSummary }
+    | null
+  >(null);
   // Lets the detail-refresh effect report Cloudflare failures to the bypass
   // sheet without adding the sheet controller to the effect's deps (which
   // would re-trigger the refresh on every render).
@@ -292,9 +300,7 @@ export function SourceMangaScreen() {
 
   useEffect(
     () => () => {
-      if (collectionSheetOpenTimerRef.current) {
-        clearTimeout(collectionSheetOpenTimerRef.current);
-      }
+      libraryOptionsNextSheetRef.current = null;
     },
     [],
   );
@@ -667,66 +673,85 @@ export function SourceMangaScreen() {
     ],
   );
 
-  const addToLibrary = useCallback(async (): Promise<boolean> => {
-    if (openingReaderRef.current || addingRef.current || removingRef.current) {
-      return false;
-    }
+  const addToLibrary = useCallback(
+    async (afterClose?: {
+      kind: "reader";
+      chapter: ChapterSummary;
+    }): Promise<boolean> => {
+      if (openingReaderRef.current || addingRef.current || removingRef.current) {
+        return false;
+      }
 
-    if (inLibrary) {
-      setLibraryOptionsOpen(false);
-      return true;
-    }
+      const claimedTransition = afterClose ?? "close-only";
+      if (libraryOptionsNextSheetRef.current) return false;
 
-    if (!sourceDisplay || detailState.status !== "ready") {
-      setActionError(strings.sourceManga.actionFailedDetail);
-      await hapticError();
-      return false;
-    }
-    addingRef.current = true;
-    setAdding(true);
-    setActionError(null);
-    try {
-      const imported = makeSourceDetailsLibraryImport(
-        sourceDisplay,
-        mangaId,
-        detailState.refresh,
-        nextSyncTimestamp(),
-      );
-      await store.saveLibraryItem(imported.item);
-      await store.saveSourceLink(imported.sourceLink);
-      emitMobileDataChanged("library");
-      setLocalState((current) => ({
-        ...current,
-        libraryEntry: {
-          item: imported.item,
-          sources: [imported.sourceLink],
-        },
-      }));
-      setRemoveConfirmOpen(false);
-      setLibraryOptionsOpen(false);
-      await hapticConfirm();
-      return true;
-    } catch (error) {
-      setActionError(
-        describeMobileErrorDetail(
-          error,
-          strings.sourceManga.actionFailedDetail,
-        ),
-      );
-      await hapticError();
-      return false;
-    } finally {
-      addingRef.current = false;
-      setAdding(false);
-    }
-  }, [
-    detailState,
-    inLibrary,
-    mangaId,
-    sourceDisplay,
-    store,
-    strings.sourceManga.actionFailedDetail,
-  ]);
+      if (inLibrary) {
+        libraryOptionsNextSheetRef.current = claimedTransition;
+        setLibraryOptionsOpen(false);
+        return true;
+      }
+
+      if (!sourceDisplay || detailState.status !== "ready") {
+        setActionError(strings.sourceManga.actionFailedDetail);
+        await hapticError();
+        return false;
+      }
+      libraryOptionsNextSheetRef.current = claimedTransition;
+      addingRef.current = true;
+      setAdding(true);
+      setActionError(null);
+      try {
+        const imported = makeSourceDetailsLibraryImport(
+          sourceDisplay,
+          mangaId,
+          detailState.refresh,
+          nextSyncTimestamp(),
+        );
+        await store.saveLibraryItem(imported.item);
+        await store.saveSourceLink(imported.sourceLink);
+        emitMobileDataChanged("library");
+        setLocalState((current) => ({
+          ...current,
+          libraryEntry: {
+            item: imported.item,
+            sources: [imported.sourceLink],
+          },
+        }));
+        setRemoveConfirmOpen(false);
+        await hapticConfirm();
+        // The queued reader opens from the native sheet's post-dismiss callback.
+        // Release the mutation guard before requesting that dismissal so the
+        // reader action cannot be rejected if the native animation is fast.
+        addingRef.current = false;
+        setAdding(false);
+        setLibraryOptionsOpen(false);
+        return true;
+      } catch (error) {
+        if (libraryOptionsNextSheetRef.current === claimedTransition) {
+          libraryOptionsNextSheetRef.current = null;
+        }
+        setActionError(
+          describeMobileErrorDetail(
+            error,
+            strings.sourceManga.actionFailedDetail,
+          ),
+        );
+        await hapticError();
+        return false;
+      } finally {
+        addingRef.current = false;
+        setAdding(false);
+      }
+    },
+    [
+      detailState,
+      inLibrary,
+      mangaId,
+      sourceDisplay,
+      store,
+      strings.sourceManga.actionFailedDetail,
+    ],
+  );
 
   const openLibraryOptions = useCallback(() => {
     const guardedActionState = {
@@ -739,32 +764,51 @@ export function SourceMangaScreen() {
     if (!canPressMobileSourceMangaLibraryAction(guardedActionState)) return;
 
     setActionError(null);
+    libraryOptionsNextSheetRef.current = null;
+    setLibraryOptionsPresentationMode(inLibrary ? "in-library" : "add");
     setLibraryOptionsOpen(true);
   }, [adding, detailState.status, inLibrary, openingReader, removing]);
 
-  const openCollectionSheetFromLibraryOptions = useCallback(() => {
-    if (libraryActionBusy) return;
-    setActionError(null);
+  const closeLibraryOptionsTo = useCallback(
+    (nextSheet: "collections" | "remove-confirm") => {
+      if (libraryActionBusy) return;
+      if (libraryOptionsNextSheetRef.current) return;
+      setActionError(null);
+      libraryOptionsNextSheetRef.current = nextSheet;
+      setLibraryOptionsOpen(false);
+    },
+    [libraryActionBusy],
+  );
+
+  const handleLibraryOptionsClosed = useCallback(() => {
     setLibraryOptionsOpen(false);
-    if (collectionSheetOpenTimerRef.current) {
-      clearTimeout(collectionSheetOpenTimerRef.current);
+    const nextSheet = libraryOptionsNextSheetRef.current;
+    libraryOptionsNextSheetRef.current = null;
+    setLibraryOptionsPresentationMode(null);
+    if (nextSheet === "collections") {
+      const libraryItemId = localState.libraryEntry?.item.libraryItemId;
+      if (libraryItemId) {
+        setCollectionSheetPresentation({ libraryItemId, title });
+        setCollectionSheetOpen(true);
+      }
+    } else if (nextSheet === "remove-confirm") {
+      setRemoveConfirmOpen(true);
+    } else if (
+      nextSheet !== null &&
+      typeof nextSheet === "object" &&
+      nextSheet.kind === "reader"
+    ) {
+      openReader(nextSheet.chapter);
     }
-    collectionSheetOpenTimerRef.current = setTimeout(() => {
-      collectionSheetOpenTimerRef.current = null;
-      setCollectionSheetOpen(true);
-    }, 250);
-  }, [libraryActionBusy]);
+  }, [localState.libraryEntry?.item.libraryItemId, openReader, title]);
 
   const addToLibraryAndRead = useCallback(async () => {
     if (!continueChapter) {
       await hapticError();
       return;
     }
-    const added = await addToLibrary();
-    if (added) {
-      openReader(continueChapter);
-    }
-  }, [addToLibrary, continueChapter, openReader]);
+    await addToLibrary({ kind: "reader", chapter: continueChapter });
+  }, [addToLibrary, continueChapter]);
 
   const removeFromLibrary = useCallback(async () => {
     if (openingReaderRef.current || addingRef.current || removingRef.current)
@@ -913,12 +957,13 @@ export function SourceMangaScreen() {
         )}
         ListHeaderComponent={
           <>
-            {collectionSheetOpen && localState.libraryEntry ? (
+            {collectionSheetPresentation ? (
               <MobileCollectionMembershipSheet
                 visible={collectionSheetOpen}
-                libraryItemId={localState.libraryEntry.item.libraryItemId}
-                title={title}
+                libraryItemId={collectionSheetPresentation.libraryItemId}
+                title={collectionSheetPresentation.title}
                 onClose={() => setCollectionSheetOpen(false)}
+                onDismiss={() => setCollectionSheetPresentation(null)}
               />
             ) : null}
             <MobileConfirmationSheet
@@ -953,37 +998,26 @@ export function SourceMangaScreen() {
             </MobileConfirmationSheet>
             <MobileNativeSheetScaffold
               visible={libraryOptionsOpen}
-              onClose={() => {
-                if (libraryActionBusy) return;
-                setLibraryOptionsOpen(false);
-              }}
+              onClose={() => setLibraryOptionsOpen(false)}
+              onDismiss={handleLibraryOptionsClosed}
+              title={
+                libraryOptionsPresentationMode === "in-library"
+                  ? strings.sourceManga.libraryOptionsTitle
+                  : strings.sourceManga.addOptionsTitle
+              }
+              subtitle={
+                libraryOptionsPresentationMode === "in-library"
+                  ? strings.sourceManga.libraryOptionsDescription
+                  : strings.sourceManga.addOptionsDescription
+              }
+              dismissLabel={strings.common.done}
+              dismissDisabled={libraryActionBusy}
+              enablePanDownToClose={!libraryActionBusy}
               contentStyle={styles.libraryOptionsSheet}
               testID="SourceMangaLibraryOptionsSheet"
             >
-              <View style={styles.libraryOptionsHeader}>
-                <Text
-                  style={[
-                    styles.libraryOptionsTitle,
-                    { color: tokens.foreground },
-                  ]}
-                >
-                  {inLibrary
-                    ? strings.sourceManga.libraryOptionsTitle
-                    : strings.sourceManga.addOptionsTitle}
-                </Text>
-                <Text
-                  style={[
-                    styles.libraryOptionsDescription,
-                    { color: tokens.mutedForeground },
-                  ]}
-                >
-                  {inLibrary
-                    ? strings.sourceManga.libraryOptionsDescription
-                    : strings.sourceManga.addOptionsDescription}
-                </Text>
-              </View>
               <View style={styles.libraryOptionsList}>
-                {inLibrary ? (
+                {libraryOptionsPresentationMode === "in-library" ? (
                   <>
                     <NemuPressable
                       accessibilityRole="button"
@@ -994,7 +1028,7 @@ export function SourceMangaScreen() {
                       accessibilityState={{ disabled: libraryActionBusy }}
                       disabled={libraryActionBusy}
                       onPress={() => {
-                        openCollectionSheetFromLibraryOptions();
+                        closeLibraryOptionsTo("collections");
                       }}
                       pressedScale={0.985}
                       style={[
@@ -1053,10 +1087,7 @@ export function SourceMangaScreen() {
                       disabled={libraryActionBusy}
                       hapticFeedback="warning"
                       onPress={() => {
-                        if (libraryActionBusy) return;
-                        setActionError(null);
-                        setLibraryOptionsOpen(false);
-                        setRemoveConfirmOpen(true);
+                        closeLibraryOptionsTo("remove-confirm");
                       }}
                       pressedScale={0.985}
                       style={[
@@ -1366,20 +1397,6 @@ const styles = StyleSheet.create({
   },
   libraryOptionsSheet: {
     gap: 16,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-  },
-  libraryOptionsHeader: {
-    gap: 4,
-  },
-  libraryOptionsTitle: {
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: nemuFontWeight.bold,
-  },
-  libraryOptionsDescription: {
-    fontSize: 13,
-    lineHeight: 18,
   },
   libraryOptionsList: {
     gap: 10,

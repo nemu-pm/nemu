@@ -288,6 +288,7 @@ export function MangaDetailScreen() {
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
   const removingRef = useRef(false);
+  const removeRouteAfterDismissRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [liveChapters, setLiveChapters] = useState<ChapterSummary[]>([]);
@@ -298,8 +299,14 @@ export function MangaDetailScreen() {
     {},
   );
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(false);
+  const [metadataEditorPresentation, setMetadataEditorPresentation] =
+    useState<LibraryEntry | null>(null);
   const [collectionSheetOpen, setCollectionSheetOpen] = useState(false);
+  const [collectionSheetPresentation, setCollectionSheetPresentation] =
+    useState<{ libraryItemId: string; title: string } | null>(null);
   const [sourceManagerOpen, setSourceManagerOpen] = useState(false);
+  const [sourceManagerPresentation, setSourceManagerPresentation] =
+    useState<LibraryEntry | null>(null);
   const [savingMetadata, setSavingMetadata] = useState(false);
   const savingMetadataRef = useRef(false);
   const [openingReader, setOpeningReader] = useState(false);
@@ -593,23 +600,30 @@ export function MangaDetailScreen() {
     [openingReader, removing, savingMetadata],
   );
   const openMetadataEditor = () => {
-    if (detailActionBusy) return;
+    if (detailActionBusy || !entry) return;
     setActionError(null);
+    setMetadataEditorPresentation(entry);
     setMetadataEditorOpen(true);
   };
   const openSourceManager = () => {
-    if (detailActionBusy) return;
+    if (detailActionBusy || !entry) return;
     setActionError(null);
+    setSourceManagerPresentation(entry);
     setSourceManagerOpen(true);
   };
   const openCollectionMembership = () => {
-    if (detailActionBusy) return;
+    if (detailActionBusy || !entry) return;
     setActionError(null);
+    setCollectionSheetPresentation({
+      libraryItemId: entry.item.libraryItemId,
+      title,
+    });
     setCollectionSheetOpen(true);
   };
   const confirmRemoveFromLibrary = () => {
     if (detailActionBusy) return;
     setActionError(null);
+    removeRouteAfterDismissRef.current = false;
     setRemoveConfirmOpen(true);
   };
 
@@ -1151,24 +1165,36 @@ export function MangaDetailScreen() {
         getMobileMangaDetailMutationResultAction({ succeeded: true }) ===
         "close-confirmation"
       ) {
+        await hapticConfirm();
+        removeRouteAfterDismissRef.current = true;
         setRemoveConfirmOpen(false);
       }
-      await hapticConfirm();
-      router.replace("/library");
     } catch (error) {
-      if (
-        getMobileMangaDetailMutationResultAction({ succeeded: false }) ===
-        "close-confirmation"
-      ) {
-        setRemoveConfirmOpen(false);
-      }
       setActionError(
         describeMobileErrorDetail(error, strings.mangaDetail.actionFailedDetail),
       );
       await hapticError();
       removingRef.current = false;
       setRemoving(false);
+      if (
+        getMobileMangaDetailMutationResultAction({ succeeded: false }) ===
+        "close-confirmation"
+      ) {
+        setRemoveConfirmOpen(false);
+      }
     }
+  };
+
+  const cancelRemoveFromLibrary = () => {
+    if (removingRef.current) return;
+    removeRouteAfterDismissRef.current = false;
+    setRemoveConfirmOpen(false);
+  };
+
+  const handleRemoveConfirmationDismissed = () => {
+    if (!removeRouteAfterDismissRef.current) return;
+    removeRouteAfterDismissRef.current = false;
+    router.replace("/library");
   };
 
   const canOpenContinueChapter = canOpenMobileMangaDetailReader({
@@ -1354,7 +1380,8 @@ export function MangaDetailScreen() {
               confirmAccessibilityLabel={strings.mangaDetail.removeFromLibrary}
               loading={removing}
               destructive
-              onCancel={() => setRemoveConfirmOpen(false)}
+              onCancel={cancelRemoveFromLibrary}
+              onDismiss={handleRemoveConfirmationDismissed}
               onConfirm={() => {
                 void removeFromLibrary();
               }}
@@ -1403,26 +1430,39 @@ export function MangaDetailScreen() {
           ) : null}
         </>
       ) : null}
-      {entry && metadataEditorOpen ? (
+      {metadataEditorPresentation ? (
         <MobileMetadataEditorSheet
-          visible
-          entry={entry}
+          visible={metadataEditorOpen}
+          entry={
+            entry?.item.libraryItemId ===
+            metadataEditorPresentation.item.libraryItemId
+              ? entry
+              : metadataEditorPresentation
+          }
           saving={savingMetadata}
           coverSource={coverSource}
           sourceChoices={metadataSourceChoices}
           onClose={() => setMetadataEditorOpen(false)}
+          onDismiss={() => setMetadataEditorPresentation(null)}
           onFetchFromSource={fetchMetadataFromSource}
           onSave={saveMetadata}
         />
       ) : null}
-      {entry && sourceManagerOpen ? (
+      {sourceManagerPresentation ? (
         <MobileSourceManagerSheet
-          visible
-          entry={entry}
+          visible={sourceManagerOpen}
+          entry={
+            entry?.item.libraryItemId ===
+            sourceManagerPresentation.item.libraryItemId
+              ? entry
+              : sourceManagerPresentation
+          }
           selectedSourceId={selectedSource?.id ?? null}
           onClose={() => setSourceManagerOpen(false)}
+          onDismiss={() => setSourceManagerPresentation(null)}
           onSelectSource={selectSource}
           onEntryChange={(nextEntry) => {
+            setSourceManagerPresentation(nextEntry);
             setState((current) => ({
               ...current,
               entry: nextEntry,
@@ -1430,14 +1470,17 @@ export function MangaDetailScreen() {
           }}
         />
       ) : null}
+      {collectionSheetPresentation ? (
+        <MobileCollectionMembershipSheet
+          visible={collectionSheetOpen}
+          libraryItemId={collectionSheetPresentation.libraryItemId}
+          title={collectionSheetPresentation.title}
+          onClose={() => setCollectionSheetOpen(false)}
+          onDismiss={() => setCollectionSheetPresentation(null)}
+        />
+      ) : null}
       {entry ? (
         <>
-          <MobileCollectionMembershipSheet
-            visible={collectionSheetOpen}
-            libraryItemId={entry.item.libraryItemId}
-            title={title}
-            onClose={() => setCollectionSheetOpen(false)}
-          />
           <MobileConfirmationSheet
             visible={removeConfirmOpen}
             title={strings.mangaDetail.removeTitle}
@@ -1449,7 +1492,8 @@ export function MangaDetailScreen() {
             confirmAccessibilityLabel={strings.mangaDetail.removeFromLibrary}
             loading={removing}
             destructive
-            onCancel={() => setRemoveConfirmOpen(false)}
+            onCancel={cancelRemoveFromLibrary}
+            onDismiss={handleRemoveConfirmationDismissed}
             onConfirm={() => {
               void removeFromLibrary();
             }}

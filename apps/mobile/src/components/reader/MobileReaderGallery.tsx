@@ -33,8 +33,16 @@ import { formatChapterTitle } from "@/lib/formatChapter";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { visualPageIndexesForMobileReaderSpread } from "@/lib/mobileReaderSpreads";
 import type { MobileReaderPage } from "@/sources/mobileSourcePages";
-import type { ReaderScrollPageMetric } from "@/lib/mobileReaderProgress";
-import { readerDisplayIndexForViewableItems } from "@/lib/mobileReaderProgress";
+import {
+  getReaderContinuousScrollMetrics,
+  readerContinuousAccessibilityAction,
+  readerContinuousRelayoutProgress,
+  readerScrollToIndexRetryLimit,
+  readerContinuousScrollOffsetForProgress,
+  readerDisplayIndexForViewableItems,
+  type ReaderContinuousScrollMetrics,
+  type ReaderScrollPageMetric,
+} from "@/lib/mobileReaderProgress";
 import { isReaderAdvancePastEndDrag } from "./readerEdgeDrag";
 import {
   isReaderStageTapEnabled,
@@ -45,9 +53,7 @@ import {
   getMobileReaderLogicalOffsetForProgress,
   getMobileReaderLogicalAccessibilityPercent,
   getMobileReaderLogicalScrollProgress,
-  getMobileReaderMeasuredScrollMetrics,
   isMobileReaderLogicalEndReached,
-  mobileReaderSegmentedNextAction,
   type MobileReaderSegmentFrame,
 } from "@/lib/mobileReaderSegmentedImage";
 
@@ -72,6 +78,7 @@ type MobileReaderGalleryProps = {
   loading: boolean;
   longStripPresentationMode?: boolean;
   longStripContentIdentity?: string;
+  continuousContentIdentity?: string;
   initialLongStripScrollProgress?: number;
   mode: ReadingMode;
   onMomentumScrollEnd: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
@@ -82,6 +89,11 @@ type MobileReaderGalleryProps = {
   ) => void;
   onScrollingVisiblePageChange?: (pageIndex: number) => void;
   onScrollingSeekFailed?: (pageIndex: number) => void;
+  onContinuousScrollMetricsChange?: (
+    metrics: ReaderContinuousScrollMetrics,
+  ) => void;
+  /** User touch always supersedes queued restore/seek work. */
+  onUserScrollBegin?: () => void;
   onRetry?: () => void;
   /** Steps one page in source order. Only wired in paged reading modes. */
   onPageStep?: (direction: "previous" | "next") => void;
@@ -126,6 +138,8 @@ export type MobileReaderScrollHandle = {
     index?: number;
     animated?: boolean;
   }): void;
+  scrollToProgress(progress: number, animated?: boolean): boolean;
+  scrollToProgressAfterContentChange(progress: number): void;
 };
 
 type MobileReaderGalleryItem =
@@ -159,6 +173,7 @@ export function MobileReaderGallery({
   loading,
   longStripPresentationMode = false,
   longStripContentIdentity,
+  continuousContentIdentity,
   initialLongStripScrollProgress,
   mode,
   onMomentumScrollEnd,
@@ -166,6 +181,8 @@ export function MobileReaderGallery({
   onScrollingPageLayout,
   onScrollingVisiblePageChange,
   onScrollingSeekFailed,
+  onContinuousScrollMetricsChange,
+  onUserScrollBegin,
   onRetry,
   onPageStep,
   onRequestAdvancePastEnd,
@@ -194,6 +211,8 @@ export function MobileReaderGallery({
   const { tokens } = useNemuTheme();
   const segmentedMode = Boolean(segmentedImageFrames?.length);
   const logicalLongStripMode = longStripPresentationMode || segmentedMode;
+  const resolvedContinuousContentIdentity =
+    longStripContentIdentity ?? continuousContentIdentity ?? scrollMountKey;
   const [logicalScrollAccessibility, setLogicalScrollAccessibility] = useState(
     () => ({ scrollMountKey, percent: 0 }),
   );
@@ -216,13 +235,19 @@ export function MobileReaderGallery({
   );
   const lastTapEndAtRef = useRef(0);
   const dragStartOffsetRef = useRef<number | null>(null);
-  const latestScrollMetricsRef = useRef({
-    contentOffset: 0,
-    contentLength: 0,
-    viewportLength: 0,
-  });
-  const priorLongStripContentIdentityRef = useRef<string | null>(null);
+  const latestScrollMetricsRef = useRef<ReaderContinuousScrollMetrics>(
+    getReaderContinuousScrollMetrics({
+      contentOffset: 0,
+      contentLength: 0,
+      viewportLength: 0,
+    }),
+  );
+  const priorContinuousContentIdentityRef = useRef<string | null>(null);
   const pendingLogicalScrollProgressRef = useRef<number | null>(null);
+  const pendingContentSizeScrollProgressRef = useRef<{
+    contentIdentity: string;
+    progress: number;
+  } | null>(null);
   const onToggleControlsRef = useRef(onToggleControls);
   const onPageStepRef = useRef(onPageStep);
   const onRequestAdvancePastEndRef = useRef(onRequestAdvancePastEnd);
@@ -291,8 +316,35 @@ export function MobileReaderGallery({
           animated,
         });
       },
+      scrollToProgress(progress, animated = false) {
+        if (pagedMode) return false;
+        const metrics = latestScrollMetricsRef.current;
+        if (!metrics.scrollable) return false;
+        if (scrollToIndexRetryTimerRef.current) {
+          clearTimeout(scrollToIndexRetryTimerRef.current);
+          scrollToIndexRetryTimerRef.current = null;
+        }
+        pendingScrollToIndexRef.current = null;
+        listRef.current?.scrollToOffset({
+          offset: readerContinuousScrollOffsetForProgress(progress, metrics),
+          animated,
+        });
+        return true;
+      },
+      scrollToProgressAfterContentChange(progress) {
+        pendingContentSizeScrollProgressRef.current = {
+          contentIdentity: resolvedContinuousContentIdentity,
+          progress: Number.isFinite(progress)
+            ? Math.max(0, Math.min(1, progress))
+            : 0,
+        };
+      },
     }),
-    [galleryItemCount, pagedMode],
+    [
+      galleryItemCount,
+      pagedMode,
+      resolvedContinuousContentIdentity,
+    ],
   );
 
   const handleScrollToIndexFailed = (info: {
@@ -310,7 +362,7 @@ export function MobileReaderGallery({
       offset: Math.max(0, info.averageItemLength * targetIndex),
       animated: false,
     });
-    if (attempts > 2) {
+    if (attempts > readerScrollToIndexRetryLimit(galleryItemCount)) {
       pendingScrollToIndexRef.current = null;
       onScrollingSeekFailed?.(targetIndex);
       return;
@@ -332,7 +384,7 @@ export function MobileReaderGallery({
         animated: retry.animated,
         viewPosition: 0,
       });
-    }, 50);
+    }, 100);
   };
 
   useLayoutEffect(() => {
@@ -360,12 +412,34 @@ export function MobileReaderGallery({
         scrollToIndexRetryTimerRef.current = null;
       }
       pendingScrollToIndexRef.current = null;
+      pendingContentSizeScrollProgressRef.current = null;
     };
   }, []);
 
   useLayoutEffect(() => {
+    if (tapGesturesEnabled) return;
+    touchStartRef.current = null;
+    lastTapEndAtRef.current = 0;
+    if (pendingToggleTimerRef.current) {
+      clearTimeout(pendingToggleTimerRef.current);
+      pendingToggleTimerRef.current = null;
+    }
+  }, [tapGesturesEnabled]);
+
+  useLayoutEffect(() => {
     if (appliedScrollMountKeyRef.current === scrollMountKey) return;
-    const priorProgress = getMobileReaderLogicalScrollProgress(
+    touchStartRef.current = null;
+    lastTapEndAtRef.current = 0;
+    if (pendingToggleTimerRef.current) {
+      clearTimeout(pendingToggleTimerRef.current);
+      pendingToggleTimerRef.current = null;
+    }
+    if (scrollToIndexRetryTimerRef.current) {
+      clearTimeout(scrollToIndexRetryTimerRef.current);
+      scrollToIndexRetryTimerRef.current = null;
+    }
+    pendingScrollToIndexRef.current = null;
+    const currentProgress = getMobileReaderLogicalScrollProgress(
       latestScrollMetricsRef.current,
     );
     const persistedProgress =
@@ -375,21 +449,31 @@ export function MobileReaderGallery({
       initialLongStripScrollProgress <= 1
         ? initialLongStripScrollProgress
         : null;
+    const pendingContentSizeProgress =
+      pendingContentSizeScrollProgressRef.current;
     pendingLogicalScrollProgressRef.current =
-      logicalLongStripMode &&
-      Boolean(longStripContentIdentity) &&
-      priorLongStripContentIdentityRef.current === longStripContentIdentity
-        ? (priorProgress ?? persistedProgress)
-        : logicalLongStripMode && Boolean(longStripContentIdentity)
-          ? persistedProgress
-          : null;
-    priorLongStripContentIdentityRef.current = longStripContentIdentity ?? null;
+      !pagedMode
+        ? readerContinuousRelayoutProgress({
+            sameContent:
+              priorContinuousContentIdentityRef.current ===
+              resolvedContinuousContentIdentity,
+            currentProgress,
+            pendingProgress:
+              pendingContentSizeProgress?.contentIdentity ===
+              resolvedContinuousContentIdentity
+                ? pendingContentSizeProgress.progress
+                : pendingLogicalScrollProgressRef.current,
+            initialProgress: logicalLongStripMode ? persistedProgress : null,
+          })
+        : null;
+    priorContinuousContentIdentityRef.current =
+      resolvedContinuousContentIdentity;
     appliedScrollMountKeyRef.current = scrollMountKey;
-    latestScrollMetricsRef.current = {
+    latestScrollMetricsRef.current = getReaderContinuousScrollMetrics({
       contentOffset: 0,
       contentLength: 0,
       viewportLength: 0,
-    };
+    });
     dragStartOffsetRef.current = null;
     listRef.current?.scrollToOffset({
       offset: pagedMode ? initialContentOffset.x : initialContentOffset.y,
@@ -399,8 +483,8 @@ export function MobileReaderGallery({
     initialContentOffset,
     initialLongStripScrollProgress,
     logicalLongStripMode,
-    longStripContentIdentity,
     pagedMode,
+    resolvedContinuousContentIdentity,
     scrollMountKey,
   ]);
   const readerStatePadding = {
@@ -444,6 +528,17 @@ export function MobileReaderGallery({
       segmentedMode,
     ],
   );
+  const pagingBehaviorProps = pagedMode
+    ? {
+        decelerationRate: "fast" as const,
+        disableIntervalMomentum: true,
+        pagingEnabled: true,
+        snapToAlignment: "center" as const,
+        snapToInterval: readerPageWidth,
+      }
+    : {
+        decelerationRate: "normal" as const,
+      };
   const handleStageTouchStart = (event: GestureResponderEvent) => {
     const touch = event.nativeEvent;
     if (
@@ -483,7 +578,7 @@ export function MobileReaderGallery({
     pages.length > 0 &&
     ((pageTurnAccessibilityEnabled ?? pagedMode) || logicalLongStripMode) &&
     Boolean(onPageStep);
-  const recordLogicalScrollMetrics = useCallback(
+  const recordContinuousScrollMetrics = useCallback(
     (
       metrics: {
         contentOffset: number;
@@ -492,20 +587,33 @@ export function MobileReaderGallery({
       },
       notifyPersistence: boolean,
     ) => {
-      latestScrollMetricsRef.current = metrics;
-      const percent = getMobileReaderLogicalAccessibilityPercent(metrics);
-      setLogicalScrollAccessibility((current) =>
-        current.scrollMountKey === scrollMountKey && current.percent === percent
-          ? current
-          : { scrollMountKey, percent },
-      );
+      const normalizedMetrics = getReaderContinuousScrollMetrics(metrics);
+      latestScrollMetricsRef.current = normalizedMetrics;
+      onContinuousScrollMetricsChange?.(normalizedMetrics);
+      if (logicalLongStripMode) {
+        const percent = getMobileReaderLogicalAccessibilityPercent(
+          normalizedMetrics,
+        );
+        setLogicalScrollAccessibility((current) =>
+          current.scrollMountKey === scrollMountKey &&
+          current.percent === percent
+            ? current
+            : { scrollMountKey, percent },
+        );
+      }
       if (!notifyPersistence || !longStripContentIdentity) return;
-      const progress = getMobileReaderLogicalScrollProgress(metrics);
+      const progress = getMobileReaderLogicalScrollProgress(normalizedMetrics);
       if (progress != null) {
         onLongStripScrollProgressChange?.(longStripContentIdentity, progress);
       }
     },
-    [longStripContentIdentity, onLongStripScrollProgressChange, scrollMountKey],
+    [
+      longStripContentIdentity,
+      logicalLongStripMode,
+      onContinuousScrollMetricsChange,
+      onLongStripScrollProgressChange,
+      scrollMountKey,
+    ],
   );
   const handleStageTouchEnd = (event: GestureResponderEvent) => {
     const start = touchStartRef.current;
@@ -513,6 +621,24 @@ export function MobileReaderGallery({
     if (!start) return;
 
     const touch = event.nativeEvent;
+    if (
+      !pagedMode &&
+      pagesState.status === "ready" &&
+      pages.length > 0 &&
+      onRequestAdvancePastEndRef.current &&
+      isReaderAdvancePastEndDrag({
+        startOffset: latestScrollMetricsRef.current.contentOffset,
+        endOffset: latestScrollMetricsRef.current.contentOffset,
+        maxOffset: latestScrollMetricsRef.current.maximumOffset,
+        gestureDelta: touch.pageY - start.y,
+        mode,
+        pagedMode,
+      })
+    ) {
+      if (logicalLongStripMode) onSegmentedLogicalEndReached?.();
+      onRequestAdvancePastEndRef.current();
+      return;
+    }
     const distance = Math.hypot(touch.pageX - start.x, touch.pageY - start.y);
     if (
       distance > READER_TAP_MAX_DISTANCE ||
@@ -555,49 +681,75 @@ export function MobileReaderGallery({
   const handleScrollBeginDrag = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
+    if (scrollToIndexRetryTimerRef.current) {
+      clearTimeout(scrollToIndexRetryTimerRef.current);
+      scrollToIndexRetryTimerRef.current = null;
+    }
+    pendingScrollToIndexRef.current = null;
+    pendingLogicalScrollProgressRef.current = null;
+    pendingContentSizeScrollProgressRef.current = null;
+    onUserScrollBegin?.();
     const { contentOffset } = event.nativeEvent;
     dragStartOffsetRef.current = pagedMode ? contentOffset.x : contentOffset.y;
   };
   const handleGalleryScroll = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
-    if (logicalLongStripMode) {
+    if (!pagedMode) {
       const { contentOffset, contentSize, layoutMeasurement } =
         event.nativeEvent;
       const metrics = {
         contentOffset: contentOffset.y,
-        // Keep the toolbar-safe trailing inset visible without treating its
-        // blank area as unread image content.
-        contentLength: Math.max(0, contentSize.height - bottomPadding),
+        // Progress follows the physical native scroll range, including the
+        // toolbar-safe trailing inset. Otherwise 100% lands before the last
+        // image can clear the chrome and releasing the end thumb snaps back.
+        contentLength: contentSize.height,
         viewportLength: layoutMeasurement.height,
       };
-      recordLogicalScrollMetrics(metrics, true);
-      if (isMobileReaderLogicalEndReached(metrics)) {
+      recordContinuousScrollMetrics(metrics, logicalLongStripMode);
+      if (
+        logicalLongStripMode &&
+        isMobileReaderLogicalEndReached(metrics)
+      ) {
         onSegmentedLogicalEndReached?.();
       }
     }
     onScroll(event);
   };
   const handleGalleryContentSizeChange = (_width: number, height: number) => {
-    if (!logicalLongStripMode) return;
-    const measuredMetrics = getMobileReaderMeasuredScrollMetrics({
+    if (pagedMode) return;
+    const measuredMetrics = getReaderContinuousScrollMetrics({
       contentOffset: latestScrollMetricsRef.current.contentOffset,
-      contentLength: height - bottomPadding,
+      contentLength: height,
       viewportLength:
         latestScrollMetricsRef.current.viewportLength > 0
           ? latestScrollMetricsRef.current.viewportLength
           : windowHeight,
     });
-    recordLogicalScrollMetrics(measuredMetrics, false);
+    recordContinuousScrollMetrics(measuredMetrics, false);
     const progress = pendingLogicalScrollProgressRef.current;
-    if (progress == null) return;
+    const pendingContentSizeProgress =
+      pendingContentSizeScrollProgressRef.current;
+    const contentSizeProgress =
+      pendingContentSizeProgress?.contentIdentity ===
+      resolvedContinuousContentIdentity
+        ? pendingContentSizeProgress.progress
+        : null;
+    if (pendingContentSizeProgress && contentSizeProgress == null) {
+      pendingContentSizeScrollProgressRef.current = null;
+    }
+    if (contentSizeProgress == null && progress == null) {
+      return;
+    }
+    pendingContentSizeScrollProgressRef.current = null;
     pendingLogicalScrollProgressRef.current = null;
+    const targetProgress = contentSizeProgress ?? progress ?? 0;
     const offset = getMobileReaderLogicalOffsetForProgress({
-      progress,
+      progress: targetProgress,
       contentLength: measuredMetrics.contentLength,
       viewportLength: measuredMetrics.viewportLength,
     });
-    recordLogicalScrollMetrics(
+    recordContinuousScrollMetrics(
       {
         contentOffset: offset,
         contentLength: measuredMetrics.contentLength,
@@ -610,9 +762,9 @@ export function MobileReaderGallery({
   const handleGalleryLayout = (event: {
     nativeEvent: { layout: { height: number } };
   }) => {
-    if (!logicalLongStripMode) return;
-    recordLogicalScrollMetrics(
-      getMobileReaderMeasuredScrollMetrics({
+    if (pagedMode) return;
+    recordContinuousScrollMetrics(
+      getReaderContinuousScrollMetrics({
         ...latestScrollMetricsRef.current,
         viewportLength: event.nativeEvent.layout.height,
       }),
@@ -655,10 +807,17 @@ export function MobileReaderGallery({
           { name: "activate", label: accessibilityLabel },
           ...(readerAccessibilityPageTurnEnabled
             ? [
-                { name: "nextPage", label: strings.reader.nextPage },
+                {
+                  name: "nextPage",
+                  label: isTwoPageMode
+                    ? strings.reader.nextSpread
+                    : strings.reader.nextPage,
+                },
                 {
                   name: "previousPage",
-                  label: strings.reader.previousPage,
+                  label: isTwoPageMode
+                    ? strings.reader.previousSpread
+                    : strings.reader.previousPage,
                 },
               ]
             : []),
@@ -690,8 +849,9 @@ export function MobileReaderGallery({
               const action = event.nativeEvent.actionName;
               if (action === "nextPage") {
                 if (logicalLongStripMode) {
-                  const next = mobileReaderSegmentedNextAction(
+                  const next = readerContinuousAccessibilityAction(
                     latestScrollMetricsRef.current,
+                    "next",
                   );
                   if (next.kind === "scroll") {
                     listRef.current?.scrollToOffset({
@@ -709,12 +869,16 @@ export function MobileReaderGallery({
               }
               if (action === "previousPage") {
                 if (logicalLongStripMode) {
-                  const { contentOffset, viewportLength } =
-                    latestScrollMetricsRef.current;
-                  listRef.current?.scrollToOffset({
-                    offset: Math.max(0, contentOffset - viewportLength * 0.85),
-                    animated: true,
-                  });
+                  const previous = readerContinuousAccessibilityAction(
+                    latestScrollMetricsRef.current,
+                    "previous",
+                  );
+                  if (previous.kind === "scroll") {
+                    listRef.current?.scrollToOffset({
+                      offset: previous.offset,
+                      animated: true,
+                    });
+                  }
                   return;
                 }
                 onPageStepRef.current?.("previous");
@@ -834,17 +998,16 @@ export function MobileReaderGallery({
           }}
           alwaysBounceHorizontal={false}
           alwaysBounceVertical={!pagedMode}
-          bounces={false}
+          bounces={!pagedMode}
           contentInsetAdjustmentBehavior="never"
-          decelerationRate={pagedMode ? "fast" : "normal"}
+          {...pagingBehaviorProps}
           directionalLockEnabled
-          disableIntervalMomentum={pagedMode}
           horizontal={pagedMode}
           initialNumToRender={segmentedMode ? 2 : pagedMode ? 3 : 5}
           maxToRenderPerBatch={segmentedMode ? 2 : 5}
           windowSize={segmentedMode ? 3 : 7}
           viewabilityConfig={READER_VIEWABILITY_CONFIG}
-          removeClippedSubviews={Platform.OS === "android"}
+          removeClippedSubviews={pagedMode && Platform.OS === "android"}
           getItemLayout={
             segmentedMode
               ? (_data, index) => {
@@ -874,12 +1037,9 @@ export function MobileReaderGallery({
             pagedMode ? undefined : onViewableItemsChanged
           }
           overScrollMode="never"
-          pagingEnabled={pagedMode}
-          scrollEventThrottle={32}
+          scrollEventThrottle={16}
           showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={false}
-          snapToAlignment="center"
-          snapToInterval={pagedMode ? readerPageWidth : undefined}
           contentContainerStyle={[
             pagedMode
               ? styles.pagedContent

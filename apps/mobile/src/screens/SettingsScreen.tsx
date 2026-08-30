@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ActivityIndicator,
   Image,
@@ -127,6 +134,12 @@ import {
 } from "@/lib/mobileSettingsActions";
 import { getMobileSettingsSheetLayout } from "@/lib/mobileSettingsSheetLayout";
 import {
+  isMobileSourceSettingsConfirmation,
+  resolveMobileFirstQueuedSheetHandoff,
+  resolveMobileSourceSettingsPostDismissAction,
+  shouldReopenMobileSourceSettingsAfterConfirmation,
+} from "@/lib/mobileSettingsSheetHandoff";
+import {
   makeMobileRuntimeSourceKey,
   normalizeInstalledSource,
   resolveMobileSourcePackageCacheKey,
@@ -164,6 +177,11 @@ type SettingsConfirmation =
   | { type: "clear-all-data" }
   | { type: "source-logout"; setting: SourcePackageSetting }
   | { type: "source-button"; setting: SourcePackageSetting };
+
+type SourceSettingsConfirmation = Extract<
+  SettingsConfirmation,
+  { type: "source-logout" | "source-button" }
+>;
 
 const readingModes: Array<{
   mode: ReadingMode;
@@ -642,7 +660,6 @@ function MobileReaderPluginSettingsSheet({
     setting: SourcePackageSetting,
   ) => void;
 }) {
-  const { tokens } = useNemuTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const sheetLayout = getMobileSettingsSheetLayout({
     fontScale,
@@ -655,35 +672,13 @@ function MobileReaderPluginSettingsSheet({
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={onClose}
+      title={plugin.name}
+      subtitle={plugin.description}
+      headerLeading={<ReaderPluginIcon plugin={plugin} />}
       scroll={sheetLayout.scroll}
       snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
       testID={`ReaderPluginSettingsSheet:${plugin.id}`}
-      contentStyle={styles.readerPluginSheet}
     >
-      <View style={styles.readerPluginSheetHeader}>
-        <ReaderPluginIcon plugin={plugin} />
-        <View style={styles.readerPluginSheetTitleBlock}>
-          <Text
-            numberOfLines={1}
-            style={[
-              styles.readerPluginSheetTitle,
-              { color: tokens.foreground },
-            ]}
-          >
-            {plugin.name}
-          </Text>
-          <Text
-            numberOfLines={2}
-            style={[
-              styles.readerPluginSheetSubtitle,
-              { color: tokens.mutedForeground },
-            ]}
-          >
-            {plugin.description}
-          </Text>
-        </View>
-      </View>
-
       <MobileSourceSettingsCard
         settings={plugin.settings}
         values={plugin.values}
@@ -718,6 +713,7 @@ function MobileInstalledSourceSettingsSheet({
   retrying,
   navigationResetKey,
   onClose,
+  onDismiss,
   onRetry,
   onReset,
   onChange,
@@ -738,6 +734,7 @@ function MobileInstalledSourceSettingsSheet({
   retrying: boolean;
   navigationResetKey: string | number | null;
   onClose: () => void;
+  onDismiss?: () => void;
   onRetry: () => void;
   onReset: () => void;
   onChange: (
@@ -754,9 +751,9 @@ function MobileInstalledSourceSettingsSheet({
   onLogout: (setting: SourcePackageSetting) => void;
   loginCapabilities: MobileSourceLoginCapabilities | null;
 }) {
-  const { tokens } = useNemuTheme();
   const name = sourceName(source);
   const { fontScale, height, width } = useWindowDimensions();
+  const embeddedBackHandlerRef = useRef<(() => void) | null>(null);
   const sheetLayout = getMobileSettingsSheetLayout({
     fontScale,
     height,
@@ -768,35 +765,20 @@ function MobileInstalledSourceSettingsSheet({
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={onClose}
+      onDismiss={onDismiss}
+      onHardwareBackPress={() => {
+        const handler = embeddedBackHandlerRef.current;
+        if (!handler) return false;
+        handler();
+        return true;
+      }}
+      title={name}
+      subtitle={sourceSubtitle(source)}
+      headerLeading={<SourceIcon icon={source.icon} />}
       scroll={sheetLayout.scroll}
       snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
       testID={`InstalledSourceSettingsSheet:${source.id}`}
-      contentStyle={styles.readerPluginSheet}
     >
-      <View style={styles.readerPluginSheetHeader}>
-        <SourceIcon icon={source.icon} />
-        <View style={styles.readerPluginSheetTitleBlock}>
-          <Text
-            numberOfLines={1}
-            style={[
-              styles.readerPluginSheetTitle,
-              { color: tokens.foreground },
-            ]}
-          >
-            {name}
-          </Text>
-          <Text
-            numberOfLines={1}
-            style={[
-              styles.readerPluginSheetSubtitle,
-              { color: tokens.mutedForeground },
-            ]}
-          >
-            {sourceSubtitle(source)}
-          </Text>
-        </View>
-      </View>
-
       <MobileSourceSettingsCard
         settings={settings}
         values={values}
@@ -810,6 +792,9 @@ function MobileInstalledSourceSettingsSheet({
         disabled={disabled}
         retryDisabled={retryDisabled}
         retrying={retrying}
+        onEmbeddedBackHandlerChange={(handler) => {
+          embeddedBackHandlerRef.current = handler;
+        }}
         onRetry={onRetry}
         onReset={onReset}
         onChange={onChange}
@@ -1338,6 +1323,13 @@ export function SettingsScreen({
   const [confirmation, setConfirmation] = useState<SettingsConfirmation | null>(
     null,
   );
+  const [confirmationVisible, setConfirmationVisible] = useState(false);
+  const confirmationVisibleRef = useRef(false);
+  const [sourceSettingsSheetVisible, setSourceSettingsSheetVisible] =
+    useState(false);
+  const queuedSourceConfirmationRef =
+    useRef<SourceSettingsConfirmation | null>(null);
+  const reopenSourceSettingsAfterConfirmationRef = useRef(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [clearCloudData, setClearCloudData] = useState(false);
@@ -1370,6 +1362,80 @@ export function SettingsScreen({
       displayedSources.find((source) => source.id === selectedSourceId) ?? null
     );
   }, [displayedSources, selectedSourceId]);
+
+  const openSourceSettings = useCallback((sourceId: string) => {
+    queuedSourceConfirmationRef.current = null;
+    setOperationError(null);
+    setSelectedSourceId(sourceId);
+    setSourceSettingsSheetVisible(true);
+  }, []);
+
+  const presentSettingsConfirmation = useCallback((next: SettingsConfirmation) => {
+    reopenSourceSettingsAfterConfirmationRef.current = false;
+    confirmationVisibleRef.current = true;
+    setConfirmation(next);
+    setConfirmationVisible(true);
+  }, []);
+
+  const queueSourceSettingsConfirmation = useCallback(
+    (next: SourceSettingsConfirmation) => {
+      const queued = resolveMobileFirstQueuedSheetHandoff({
+        current: queuedSourceConfirmationRef.current,
+        next,
+      });
+      if (!queued.accepted) return false;
+      queuedSourceConfirmationRef.current = queued.queued;
+      setSourceSettingsSheetVisible(false);
+      return true;
+    },
+    [],
+  );
+
+  const dismissSettingsConfirmation = useCallback((reopenSourceSettings = false) => {
+    if (!confirmationVisibleRef.current) return;
+    confirmationVisibleRef.current = false;
+    reopenSourceSettingsAfterConfirmationRef.current =
+      reopenSourceSettingsAfterConfirmationRef.current || reopenSourceSettings;
+    setConfirmationVisible(false);
+  }, []);
+
+  const handleSourceSettingsDismiss = useCallback(() => {
+    const queuedConfirmation = queuedSourceConfirmationRef.current;
+    queuedSourceConfirmationRef.current = null;
+    if (
+      resolveMobileSourceSettingsPostDismissAction(
+        queuedConfirmation !== null,
+      ) === "present-confirmation" &&
+      queuedConfirmation
+    ) {
+      presentSettingsConfirmation(queuedConfirmation);
+      return;
+    }
+    setSelectedSourceId(null);
+    setOperationError(null);
+  }, [presentSettingsConfirmation]);
+
+  const handleConfirmationDismiss = useCallback(() => {
+    const dismissedConfirmation = confirmation;
+    const reopenSourceSettings =
+      reopenSourceSettingsAfterConfirmationRef.current &&
+      shouldReopenMobileSourceSettingsAfterConfirmation({
+        activeSection,
+        confirmation: dismissedConfirmation,
+        sourceAvailable: selectedSource !== null,
+      });
+    reopenSourceSettingsAfterConfirmationRef.current = false;
+    confirmationVisibleRef.current = false;
+    setConfirmation(null);
+    if (reopenSourceSettings) {
+      setSourceSettingsSheetVisible(true);
+      return;
+    }
+    if (isMobileSourceSettingsConfirmation(dismissedConfirmation)) {
+      setSelectedSourceId(null);
+    }
+  }, [activeSection, confirmation, selectedSource]);
+
   const selectedRuntimeSource = useMemo(
     () => (selectedSource ? normalizeInstalledSource(selectedSource) : null),
     [selectedSource],
@@ -1381,9 +1447,9 @@ export function SettingsScreen({
       (source) => source.id === sourceParam,
     );
     if (!routedSource) return;
-    setSelectedSourceId(routedSource.id);
+    openSourceSettings(routedSource.id);
     router.setParams({ sourceId: undefined });
-  }, [activeSection, displayedSources, sourceParam]);
+  }, [activeSection, displayedSources, openSourceSettings, sourceParam]);
 
   const selectedPlugin = useMemo(() => {
     if (!selectedPluginId) return null;
@@ -1882,7 +1948,7 @@ export function SettingsScreen({
           return;
         }
         await reloadSelectedSourceSettingScopes(setting);
-        setConfirmation(null);
+        dismissSettingsConfirmation(true);
         await hapticConfirm();
       },
     );
@@ -1916,8 +1982,12 @@ export function SettingsScreen({
     }
     if (decision.kind !== "run-button") return;
     if (decision.confirmation) {
+      if (
+        !queueSourceSettingsConfirmation({ type: "source-button", setting })
+      ) {
+        return;
+      }
       setOperationError(null);
-      setConfirmation({ type: "source-button", setting });
       return;
     }
     void runSelectedSourceButton(setting);
@@ -1940,7 +2010,7 @@ export function SettingsScreen({
             clearSandbox: clearMobileAidokuSandboxDataForSource,
             persistSettings: selectedSourceSettings.setSettings,
           });
-          setConfirmation(null);
+          dismissSettingsConfirmation(true);
           await reloadSelectedSourceSettingScopes(setting);
           await hapticConfirm();
         } catch {
@@ -2048,7 +2118,7 @@ export function SettingsScreen({
         emitMobileDataChanged("registries");
         emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
         await sources.reload();
-        setSelectedSourceId(installedSource.id);
+        openSourceSettings(installedSource.id);
         await hapticConfirm();
       } catch (error) {
         await reportSettingsError(error);
@@ -2079,13 +2149,16 @@ export function SettingsScreen({
           store.removeInstalledSource(source.id, source.registryId),
       });
       emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
-      if (selectedSourceId === source.id) setSelectedSourceId(null);
+      if (selectedSourceId === source.id) {
+        setSourceSettingsSheetVisible(false);
+        setSelectedSourceId(null);
+      }
       await sources.reload();
       if (
         getMobileSettingsMutationResultAction({ succeeded: true }) ===
         "close-confirmation"
       ) {
-        setConfirmation(null);
+        dismissSettingsConfirmation();
       }
       await hapticConfirm();
     } catch (error) {
@@ -2093,7 +2166,7 @@ export function SettingsScreen({
         getMobileSettingsMutationResultAction({ succeeded: false }) ===
         "close-confirmation"
       ) {
-        setConfirmation(null);
+        dismissSettingsConfirmation();
       }
       await reportSettingsError(error);
     } finally {
@@ -2126,7 +2199,7 @@ export function SettingsScreen({
   const confirmRemoveSource = (source: InstalledSource) => {
     if (!canStartMobileSettingsAction(getGuardedSettingsActionState())) return;
     setOperationError(null);
-    setConfirmation({
+    presentSettingsConfirmation({
       type: "uninstall-source",
       source,
       name: sourceName(source),
@@ -2145,7 +2218,7 @@ export function SettingsScreen({
         getMobileSettingsMutationResultAction({ succeeded: true }) ===
         "close-confirmation"
       ) {
-        setConfirmation(null);
+        dismissSettingsConfirmation();
       }
       await hapticConfirm();
     } catch (error) {
@@ -2153,7 +2226,7 @@ export function SettingsScreen({
         getMobileSettingsMutationResultAction({ succeeded: false }) ===
         "close-confirmation"
       ) {
-        setConfirmation(null);
+        dismissSettingsConfirmation();
       }
       await reportSettingsError(error);
     } finally {
@@ -2173,6 +2246,7 @@ export function SettingsScreen({
       await dataManagement.clearAllData({
         clearCloud: clearCloudData,
       });
+      setSourceSettingsSheetVisible(false);
       setSelectedSourceId(null);
       setSelectedPluginId(null);
       setClearCloudData(false);
@@ -2184,7 +2258,7 @@ export function SettingsScreen({
         getMobileSettingsMutationResultAction({ succeeded: true }) ===
         "close-confirmation"
       ) {
-        setConfirmation(null);
+        dismissSettingsConfirmation();
       }
       await hapticConfirm();
     } catch (error) {
@@ -2192,7 +2266,7 @@ export function SettingsScreen({
         getMobileSettingsMutationResultAction({ succeeded: false }) ===
         "close-confirmation"
       ) {
-        setConfirmation(null);
+        dismissSettingsConfirmation();
       }
       await reportSettingsError(error);
     } finally {
@@ -2206,14 +2280,14 @@ export function SettingsScreen({
   const confirmClearCache = () => {
     if (!canStartMobileSettingsAction(getGuardedSettingsActionState())) return;
     setOperationError(null);
-    setConfirmation({ type: "clear-cache" });
+    presentSettingsConfirmation({ type: "clear-cache" });
   };
 
   const confirmClearAllData = () => {
     if (!canStartMobileSettingsAction(getGuardedSettingsActionState())) return;
     setOperationError(null);
     setClearCloudData(false);
-    setConfirmation({ type: "clear-all-data" });
+    presentSettingsConfirmation({ type: "clear-all-data" });
   };
 
   const runConfirmedAction = () => {
@@ -2725,7 +2799,7 @@ export function SettingsScreen({
                             disabled={settingsActionBusy}
                             onSettings={() => {
                               if (settingsActionBusy) return;
-                              setSelectedSourceId(source.id);
+                              openSourceSettings(source.id);
                             }}
                             onBrowse={() => openSource(source)}
                             onRemove={() => confirmRemoveSource(source)}
@@ -2829,7 +2903,7 @@ export function SettingsScreen({
         </View>
         {confirmationDetails ? (
           <MobileConfirmationSheet
-            visible
+            visible={confirmationVisible}
             title={confirmationDetails.title}
             description={confirmationDetails.description}
             subject={confirmationDetails.subject}
@@ -2843,8 +2917,15 @@ export function SettingsScreen({
             destructive={confirmationDetails.destructive}
             onCancel={() => {
               setClearCloudData(false);
-              setConfirmation(null);
+              dismissSettingsConfirmation(
+                shouldReopenMobileSourceSettingsAfterConfirmation({
+                  activeSection,
+                  confirmation,
+                  sourceAvailable: selectedSource !== null,
+                }),
+              );
             }}
+            onDismiss={handleConfirmationDismiss}
             onConfirm={runConfirmedAction}
           >
             {operationError ? (
@@ -2872,7 +2953,9 @@ export function SettingsScreen({
           <MobileInstalledSourceSettingsSheet
             source={selectedSource}
             strings={strings}
-            visible={activeSection === "sources"}
+            visible={
+              activeSection === "sources" && sourceSettingsSheetVisible
+            }
             disabled={settingsActionBusy}
             settings={selectedSourceSchema}
             values={selectedSourceSettings.data}
@@ -2885,16 +2968,8 @@ export function SettingsScreen({
             loginCapabilities={selectedSourceLoginCapabilities}
             retryDisabled={!canRetrySelectedSourceSettingsError}
             retrying={retryingSelectedSourceSettings}
-            onClose={() => {
-              setSelectedSourceId(null);
-              setOperationError(null);
-              setConfirmation((current) =>
-                current?.type === "source-logout" ||
-                current?.type === "source-button"
-                  ? null
-                  : current,
-              );
-            }}
+            onClose={() => setSourceSettingsSheetVisible(false)}
+            onDismiss={handleSourceSettingsDismiss}
             onRetry={retrySelectedSourceSettings}
             onReset={() => {
               if (!selectedSourceKey || !selectedRuntimeSource) return;
@@ -2918,8 +2993,15 @@ export function SettingsScreen({
             onAction={handleSelectedSourceAction}
             onLogin={loginToSelectedSource}
             onLogout={(setting) => {
+              if (
+                !queueSourceSettingsConfirmation({
+                  type: "source-logout",
+                  setting,
+                })
+              ) {
+                return;
+              }
               setOperationError(null);
-              setConfirmation({ type: "source-logout", setting });
             }}
             onChange={(key, value, setting) => {
               if (!selectedSourceKey) return;
@@ -3323,30 +3405,6 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: "center",
     justifyContent: "center",
-  },
-  readerPluginSheet: {
-    gap: 14,
-    paddingTop: 4,
-  },
-  readerPluginSheetHeader: {
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  readerPluginSheetTitleBlock: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  readerPluginSheetTitle: {
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  readerPluginSheetSubtitle: {
-    fontSize: 13,
-    lineHeight: 17,
   },
   sourceIcon: {
     width: 34,

@@ -166,7 +166,7 @@ function SignOutChoiceSheet({
   const { tokens } = useNemuTheme();
 
   const requestClose = () => {
-    if (!loading) {
+    if (visible && !loading) {
       onCancel();
     }
   };
@@ -182,22 +182,17 @@ function SignOutChoiceSheet({
       visible={visible}
       onClose={requestClose}
       title={strings.settings.cloudSyncSignOutTitle}
-      dismissLabel={strings.common.cancel}
-      showDismissButton={!loading}
-      enablePanDownToClose={!loading}
-      contentStyle={styles.sheetContent}
-    >
-      <View style={styles.sheetHeader}>
+      subtitle={strings.settings.cloudSyncSignOutMessage}
+      headerLeading={
         <View style={styles.sheetIconFrame}>
           <Ionicons name="log-out-outline" size={22} color={tokens.danger} />
         </View>
-        <Text
-          style={[styles.sheetDescription, { color: tokens.mutedForeground }]}
-        >
-          {strings.settings.cloudSyncSignOutMessage}
-        </Text>
-      </View>
-
+      }
+      dismissLabel={strings.common.cancel}
+      dismissDisabled={loading}
+      enablePanDownToClose={!loading}
+      contentStyle={styles.sheetContent}
+    >
       <View style={styles.signOutOptions}>
         <SignOutOption
           active={keepData}
@@ -1210,22 +1205,11 @@ const styles = StyleSheet.create({
   sheetContent: {
     gap: 16,
   },
-  sheetHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
   sheetIconFrame: {
     width: 24,
     height: 24,
     alignItems: "center",
     justifyContent: "center",
-  },
-  sheetDescription: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 13,
-    lineHeight: 18,
   },
   signOutOptions: {
     gap: 10,

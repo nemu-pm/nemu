@@ -51,6 +51,7 @@ import {
   NemuInlineEmptyState,
   NemuNativeProgressView,
   NemuPressable,
+  NemuTextFieldClearAction,
   PageListScaffold,
   PageScaffold,
   createNemuNativeScreenOptions,
@@ -748,6 +749,7 @@ function SourceFilterControl({
   const visibleOptions = visibleFilterOptions(filter, optionLimit);
 
   if (filter.type === FilterType.Text || filter.type === FilterType.Author) {
+    const textValue = typeof value?.value === "string" ? value.value : "";
     return (
       <GlassSurface
         style={styles.sourceTextFilterShell}
@@ -771,12 +773,20 @@ function SourceFilterControl({
             filter,
             strings,
           )}
-          value={typeof value?.value === "string" ? value.value : ""}
+          value={textValue}
           onChangeText={(text) =>
             onChange(filter, text.trim() ? text : undefined)
           }
           style={[styles.sourceTextFilterInput, { color: tokens.foreground }]}
         />
+        {textValue.length > 0 ? (
+          <NemuTextFieldClearAction
+            accessibilityLabel={strings.common.clear}
+            onPress={() => onChange(filter, undefined)}
+            testID={`SourceTextFilterClearAction:${filter.name}`}
+            trailingInset={12}
+          />
+        ) : null}
       </GlassSurface>
     );
   }
@@ -1016,26 +1026,41 @@ function SourceFilterControl({
 }
 
 function SourceFilterPanel({
+  visible,
   filters,
   values,
   onClose,
+  onDismiss,
   onApply,
   strings,
 }: {
+  visible: boolean;
   filters: Filter[];
   values: FilterValue[];
   onClose: () => void;
+  onDismiss: () => void;
   onApply: (values: FilterValue[]) => void;
   strings: MobileStrings;
 }) {
   const { tokens } = useNemuTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const [draftValues, setDraftValues] = useState<FilterValue[]>(values);
+  const wasVisibleRef = useRef(false);
   const sheetLayout = getMobileSourceFilterSheetLayout({
     fontScale,
     height,
     width,
   });
+
+  useEffect(() => {
+    if (visible && !wasVisibleRef.current) {
+      // The native host survives its dismissal animation, so reset the draft
+      // only when a new controlled presentation session actually begins.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDraftValues(values);
+    }
+    wasVisibleRef.current = visible;
+  }, [values, visible]);
 
   const valueMap = useMemo(() => {
     const map = new Map<string, FilterValue>();
@@ -1066,59 +1091,31 @@ function SourceFilterPanel({
 
   return (
     <MobileNativeSheetScaffold
-      visible
+      visible={visible}
       onClose={onClose}
+      onDismiss={onDismiss}
+      title={strings.sourceBrowse.sourceFilters}
+      subtitle={
+        draftActiveCount
+          ? formatSourceBrowseCount(
+              draftActiveCount,
+              strings.sourceBrowse.activeFilterCountOne,
+              strings.sourceBrowse.activeFilterCountOther,
+            )
+          : formatSourceBrowseCount(
+              filters.length,
+              strings.sourceBrowse.availableFilterCountOne,
+              strings.sourceBrowse.availableFilterCountOther,
+            )
+      }
+      dismissLabel={strings.sourceBrowse.closeFilters}
       snapPoints={sheetLayout.snapPoints}
       contentStyle={styles.filterPanel}
       testID="SourceFilterSheet"
     >
-      <View style={styles.filterPanelHeader}>
-        <View style={styles.filterPanelTitleBlock}>
-          <Text
-            numberOfLines={1}
-            style={[styles.filterPanelTitle, { color: tokens.foreground }]}
-          >
-            {strings.sourceBrowse.sourceFilters}
-          </Text>
-          <Text
-            numberOfLines={1}
-            style={[
-              styles.filterPanelSubtitle,
-              { color: tokens.mutedForeground },
-            ]}
-          >
-            {draftActiveCount
-              ? formatSourceBrowseCount(
-                  draftActiveCount,
-                  strings.sourceBrowse.activeFilterCountOne,
-                  strings.sourceBrowse.activeFilterCountOther,
-                )
-              : formatSourceBrowseCount(
-                  filters.length,
-                  strings.sourceBrowse.availableFilterCountOne,
-                  strings.sourceBrowse.availableFilterCountOther,
-                )}
-          </Text>
-        </View>
-        <NemuPressable
-          accessibilityRole="button"
-          accessibilityLabel={strings.sourceBrowse.closeFilters}
-          onPress={onClose}
-          style={[
-            styles.filterPanelCloseButton,
-            { backgroundColor: tokens.muted },
-          ]}
-        >
-          <Ionicons
-            name="close-outline"
-            size={20}
-            color={tokens.mutedForeground}
-          />
-        </NemuPressable>
-      </View>
-
       <ScrollView
         contentContainerStyle={styles.filterPanelScrollContent}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         style={
           sheetLayout.bounded
@@ -1255,6 +1252,14 @@ export function SourceBrowseScreen() {
     [],
   );
   const [sourceFilterPanelOpen, setSourceFilterPanelOpen] = useState(false);
+  const [sourceFilterPresentation, setSourceFilterPresentation] = useState<{
+    filters: Filter[];
+    values: FilterValue[];
+  } | null>(null);
+  const pendingSourceFilterApplyRef = useRef<{
+    values: FilterValue[];
+    query: string;
+  } | null>(null);
   const [sourceFiltersState, setSourceFiltersState] =
     useState<SourceFiltersState>({
       status: "idle",
@@ -2383,18 +2388,32 @@ export function SourceBrowseScreen() {
 
   const applySourceFilters = useCallback(
     (values: FilterValue[]) => {
+      if (pendingSourceFilterApplyRef.current) return;
       const nextValues = compactMobileSourceFilterValues(values);
       const nextQuery =
         normalizeMobileSourceBrowseRouteQuery(sourceSearchQuery);
-      setSourceFilterValues(nextValues);
-      setSubmittedSourceSearchQuery(nextQuery);
+      pendingSourceFilterApplyRef.current = {
+        values: nextValues,
+        query: nextQuery,
+      };
       setSourceFilterPanelOpen(false);
-      router.setParams({
-        q: makeMobileSourceBrowseSearchRouteQuery(nextQuery),
-      });
     },
     [sourceSearchQuery],
   );
+
+  const handleSourceFilterPanelDismissed = useCallback(() => {
+    setSourceFilterPanelOpen(false);
+    const pending = pendingSourceFilterApplyRef.current;
+    pendingSourceFilterApplyRef.current = null;
+    if (pending) {
+      setSourceFilterValues(pending.values);
+      setSubmittedSourceSearchQuery(pending.query);
+      router.setParams({
+        q: makeMobileSourceBrowseSearchRouteQuery(pending.query),
+      });
+    }
+    setSourceFilterPresentation(null);
+  }, []);
 
   const handleHomeListingPress = useCallback(
     (listing: Listing) => {
@@ -2423,8 +2442,14 @@ export function SourceBrowseScreen() {
   );
 
   const openSourceFilterPanel = useCallback(() => {
+    if (!sourceFilters.length || sourceFilterPresentation) return;
+    pendingSourceFilterApplyRef.current = null;
+    setSourceFilterPresentation({
+      filters: sourceFilters,
+      values: sourceFilterValues,
+    });
     setSourceFilterPanelOpen(true);
-  }, []);
+  }, [sourceFilterPresentation, sourceFilterValues, sourceFilters]);
 
   const closeSourceFilterPanel = useCallback(() => {
     setSourceFilterPanelOpen(false);
@@ -2800,15 +2825,6 @@ export function SourceBrowseScreen() {
                     />
                   ) : null}
 
-                  {sourceFilterPanelOpen ? (
-                    <SourceFilterPanel
-                      filters={sourceFilters}
-                      values={sourceFilterValues}
-                      onClose={closeSourceFilterPanel}
-                      onApply={applySourceFilters}
-                      strings={strings}
-                    />
-                  ) : null}
                 </View>
               ) : null}
 
@@ -3074,6 +3090,17 @@ export function SourceBrowseScreen() {
           }
         />
       )}
+      {sourceFilterPresentation ? (
+        <SourceFilterPanel
+          visible={sourceFilterPanelOpen}
+          filters={sourceFilterPresentation.filters}
+          values={sourceFilterPresentation.values}
+          onClose={closeSourceFilterPanel}
+          onDismiss={handleSourceFilterPanelDismissed}
+          onApply={applySourceFilters}
+          strings={strings}
+        />
+      ) : null}
       <MobileNemuAgentSheet
         visible={cloudflareSheet.visible}
         status={cloudflareSheet.status}
@@ -3232,33 +3259,6 @@ const styles = StyleSheet.create({
   },
   filterPanel: {
     gap: 13,
-    paddingTop: 6,
-  },
-  filterPanelHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  filterPanelTitleBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  filterPanelTitle: {
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  filterPanelSubtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  filterPanelCloseButton: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
   },
   filterPanelScroll: {
     maxHeight: 440,

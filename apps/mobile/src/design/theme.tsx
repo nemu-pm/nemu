@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useColorScheme } from "react-native";
+import { AccessibilityInfo, useColorScheme } from "react-native";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import type { ThemePreference } from "@/data/schema";
 import {
@@ -10,6 +10,7 @@ import { nemuTokens, type NemuColorScheme, type NemuTokens } from "./tokens";
 import { NemuThemeContext } from "./themeContext";
 
 type NemuTheme = {
+  reduceMotion: boolean | null;
   scheme: NemuColorScheme;
   themePreference: ThemePreference;
   tokens: NemuTokens;
@@ -19,12 +20,32 @@ type NemuTheme = {
 export function NemuThemeProvider({ children }: { children: ReactNode }) {
   const store = useMobileDataStore();
   const colorScheme = useColorScheme();
+  // Unknown is intentionally motion-safe. A single provider subscription keeps
+  // every button in sync without adding one native listener per control.
+  const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>(
     DEFAULT_THEME_PREFERENCE
   );
   const systemScheme: NemuColorScheme = colorScheme === "dark" ? "dark" : "light";
   const scheme: NemuColorScheme =
     themePreference === "system" ? systemScheme : themePreference;
+
+  useEffect(() => {
+    let mounted = true;
+    void AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (mounted) setReduceMotion(enabled);
+      })
+      .catch(() => undefined);
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotion,
+    );
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -60,12 +81,13 @@ export function NemuThemeProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<NemuTheme>(
     () => ({
+      reduceMotion,
       scheme,
       themePreference,
       tokens: nemuTokens[scheme],
       setThemePreference,
     }),
-    [scheme, setThemePreference, themePreference]
+    [reduceMotion, scheme, setThemePreference, themePreference]
   );
 
   return (

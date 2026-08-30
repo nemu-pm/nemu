@@ -469,7 +469,6 @@ const styles = StyleSheet.create({
     gap: 6,
     borderRadius: 999,
     paddingHorizontal: 14,
-    overflow: "hidden",
   },
   primaryActionContainer: {
     flex: 1,
@@ -492,12 +491,11 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.semibold,
   },
   iconAction: {
-    width: "100%",
-    height: "100%",
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 999,
-    overflow: "hidden",
   },
   iconActionContainer: {
     width: 36,

@@ -532,6 +532,7 @@ export type MobileStrings = {
     pageWidth: string;
     pageWidthValue: string;
     longStripProgress: string;
+    scrollProgress: string;
     pluginAllLanguages: string;
     pluginAutoDetect: string;
     pluginConfidence: string;
@@ -593,6 +594,7 @@ export type MobileStrings = {
     pluginJapaneseLearningStructure: string;
     pluginJapaneseLearningTapTokenHint: string;
     pluginJapaneseLearningTokenAccessibility: string;
+    pluginJapaneseLearningTokenExtendAccessibility: string;
     pluginJapaneseLearningTranscript: string;
     pluginJapaneseLearningTranscriptHint: string;
     pluginJapaneseLearningTranscriptTooLong: string;
@@ -614,6 +616,7 @@ export type MobileStrings = {
     showControls: string;
     sourcePackageUnavailable: string;
     spread: string;
+    spreadValue: string;
     stageAccessibility: string;
     title: string;
     twoPageView: string;
@@ -1456,6 +1459,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       pageWidth: "Page width",
       pageWidthValue: "{{percent}}% page width",
       longStripProgress: "{{percent}}% through this page",
+      scrollProgress: "{{percent}}% through this chapter",
       pluginAllLanguages: "All Languages",
       pluginAutoDetect: "Auto Detect",
       pluginConfidence: "Confidence",
@@ -1527,6 +1531,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       pluginJapaneseLearningStructure: "Structure",
       pluginJapaneseLearningTapTokenHint: "Tap a word to see details.",
       pluginJapaneseLearningTokenAccessibility: "Select word: {{word}}",
+      pluginJapaneseLearningTokenExtendAccessibility:
+        "Extend selection through {{word}}",
       pluginJapaneseLearningTranscript: "Transcript",
       pluginJapaneseLearningTranscriptHint:
         "Run text detection on the current page to show a transcript.",
@@ -1551,6 +1557,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourcePackageUnavailable:
         "The installed source package for this chapter is unavailable.",
       spread: "Spread",
+      spreadValue: "Spread {{spread}} of {{total}}",
       stageAccessibility: "{{page}}. {{action}}",
       title: "Reader",
       twoPageView: "Two-page view",
@@ -2401,6 +2408,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       pageWidth: "页面宽度",
       pageWidthValue: "{{percent}}% 页面宽度",
       longStripProgress: "本页阅读进度 {{percent}}%",
+      scrollProgress: "本章阅读进度 {{percent}}%",
       pluginAllLanguages: "所有语言",
       pluginAutoDetect: "自动检测",
       pluginConfidence: "置信度",
@@ -2469,6 +2477,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       pluginJapaneseLearningStructure: "结构",
       pluginJapaneseLearningTapTokenHint: "点按词语查看详情。",
       pluginJapaneseLearningTokenAccessibility: "选择词语：{{word}}",
+      pluginJapaneseLearningTokenExtendAccessibility:
+        "将选择范围扩展到{{word}}",
       pluginJapaneseLearningTranscript: "转写文本",
       pluginJapaneseLearningTranscriptHint:
         "对当前页面运行文字检测以显示转写文本。",
@@ -2492,6 +2502,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       showControls: "显示阅读器控制",
       sourcePackageUnavailable: "此章节的已安装源包不可用。",
       spread: "双页",
+      spreadValue: "第 {{spread}} 组，共 {{total}} 组",
       stageAccessibility: "{{page}}。{{action}}",
       title: "阅读器",
       twoPageView: "双页视图",
@@ -3368,6 +3379,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       pageWidth: "ページ幅",
       pageWidthValue: "ページ幅 {{percent}}%",
       longStripProgress: "このページの {{percent}}% まで読みました",
+      scrollProgress: "この章の {{percent}}% まで読みました",
       pluginAllLanguages: "すべての言語",
       pluginAutoDetect: "自動検出",
       pluginConfidence: "信頼度",
@@ -3444,6 +3456,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       pluginJapaneseLearningTapTokenHint:
         "単語をタップすると詳細を表示します。",
       pluginJapaneseLearningTokenAccessibility: "単語を選択: {{word}}",
+      pluginJapaneseLearningTokenExtendAccessibility:
+        "{{word}}まで選択範囲を広げる",
       pluginJapaneseLearningTranscript: "文字起こし",
       pluginJapaneseLearningTranscriptHint:
         "現在のページでテキスト検出を実行すると文字起こしを表示します。",
@@ -3468,6 +3482,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourcePackageUnavailable:
         "このチャプターのインストール済みソースパッケージを利用できません。",
       spread: "見開き",
+      spreadValue: "{{total}} 見開き中 {{spread}}",
       stageAccessibility: "{{page}}。{{action}}",
       title: "リーダー",
       twoPageView: "見開き表示",
