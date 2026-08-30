@@ -438,7 +438,7 @@ describe("Nemu portrait halo motion", () => {
   });
 
   test(
-    "reproduces every checked-in native raster byte-for-byte",
+    "reproduces every checked-in native raster pixel-for-pixel",
     async () => {
       const outputDirectory = mkdtempSync(
         path.join(tmpdir(), "nemu-portrait-glow-"),
@@ -449,9 +449,26 @@ describe("Nemu portrait halo motion", () => {
           ...getMobilePortraitGlowFilenames(),
           ...getMobilePortraitImageFilenames(),
         ]) {
-          expect(readFileSync(path.join(outputDirectory, filename))).toEqual(
-            readFileSync(path.join(import.meta.dir, "../../assets", filename)),
-          );
+          const generated = await sharp(
+            path.join(outputDirectory, filename),
+          )
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+          const checkedIn = await sharp(
+            path.join(import.meta.dir, "../../assets", filename),
+          )
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+
+          // PNG compression is deliberately not part of the contract. Sharp
+          // uses platform-specific libvips/libpng builds whose deflate streams
+          // can differ while decoding to the exact same raster. Pin the native
+          // result that users see instead: geometry, RGBA channels, and every
+          // decoded pixel byte.
+          expect(generated.info).toEqual(checkedIn.info);
+          expect(generated.data).toEqual(checkedIn.data);
         }
       } finally {
         rmSync(outputDirectory, { recursive: true, force: true });
