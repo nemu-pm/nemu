@@ -1,6 +1,14 @@
 import type { ComponentProps } from "react";
 import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import { nemuText, useNemuTheme, NemuButton } from "@/design-system";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  nemuText,
+  spacing,
+  useNemuTheme,
+  usesNemuNativeHeader,
+  NemuButton,
+} from "@/design-system";
+import { getMobilePageContentBottomPadding } from "@/lib/mobileFloatingTabBarClearance";
 import {
   getMobileEmptyLibraryLayout,
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
@@ -29,15 +37,27 @@ export function EmptyLibrary({
   actionLoading,
 }: EmptyLibraryProps) {
   const { tokens } = useNemuTheme();
+  const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
-  const layout = getMobileEmptyLibraryLayout({ height, width });
+  const layout = getMobileEmptyLibraryLayout({
+    height,
+    width,
+    horizontalPadding: spacing.pageX,
+    verticalChrome:
+      (usesNemuNativeHeader ? insets.top + 52 : insets.top) +
+      spacing.pageTop +
+      getMobilePageContentBottomPadding(insets.bottom),
+  });
   const disabled = Boolean(actionDisabled || actionLoading);
 
   return (
     <View style={[styles.root, { minHeight: layout.rootMinHeight }]}>
       <NemuPortraitHalo
         maxWidth={layout.portraitMaxWidth}
-        style={styles.portraitWrap}
+        style={[
+          styles.portraitWrap,
+          { marginBottom: NEMU_WEB_EMPTY_LIBRARY_VISUAL.portraitMarginBottom + layout.glowBleed },
+        ]}
       />
       <View style={styles.details}>
         <View style={styles.copy}>

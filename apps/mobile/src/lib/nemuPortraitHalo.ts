@@ -99,9 +99,13 @@ export function shouldAnimateNemuPortraitHalo({
   platform?: string;
   reduceMotion: boolean | null;
 }): boolean {
-  // Transforming the opaque portrait is safe on both native renderers. Only
-  // filtered glow surfaces need the stricter Android policy below.
-  return appActive && focused && reduceMotion === false;
+  // Unknown reduce-motion is optimistic: waiting for the accessibility probe
+  // used to leave the portrait frozen at rest, then snap into the CSS
+  // timeline. Focus is not required to keep a loop alive — overlay sheets
+  // blur the library without unmounting it, and restarting from rest made
+  // iOS skip mid-cycle. Pause only for background or explicit reduce-motion.
+  void focused;
+  return appActive && reduceMotion !== true;
 }
 
 export function shouldAnimateNemuPortraitGlow(platform: string): boolean {

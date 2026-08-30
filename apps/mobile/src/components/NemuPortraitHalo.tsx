@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import {
   Animated,
@@ -39,27 +39,20 @@ function getInitialWebKeyframeValue(duration: number, negativeDelay = 0) {
   return start.direction === "ascending" ? easedProgress : 1 - easedProgress;
 }
 
-function remainingWebEase(startProgress: number) {
-  if (startProgress <= 0) return webEaseInOut;
-  const startValue = webEaseInOut(startProgress);
-  const remainingValue = 1 - startValue;
-  return (progress: number) =>
-    remainingValue <= 0
-      ? 1
-      : (webEaseInOut(startProgress + (1 - startProgress) * progress) -
-          startValue) /
-        remainingValue;
-}
-
 function createWebKeyframeLoop(
   value: Animated.Value,
   duration: number,
   negativeDelay = 0,
+  { seed = true }: { seed?: boolean } = {},
 ) {
   const start = getNemuWebLoopStart(duration, negativeDelay);
   const ascending = start.direction === "ascending";
-  value.setValue(getInitialWebKeyframeValue(duration, negativeDelay));
+  if (seed) {
+    value.setValue(getInitialWebKeyframeValue(duration, negativeDelay));
+  }
 
+  // Bezier is native-driver safe. A JS-only remapped easing for the remainder
+  // of the first CSS leg made iOS skip the rest of the cycle.
   const rise = () =>
     Animated.timing(value, {
       toValue: 1,
@@ -76,8 +69,8 @@ function createWebKeyframeLoop(
     });
   const finishCurrentLeg = Animated.timing(value, {
     toValue: ascending ? 1 : 0,
-    duration: start.remainingDuration,
-    easing: remainingWebEase(start.progress),
+    duration: Math.max(16, start.remainingDuration),
+    easing: webEaseInOut,
     useNativeDriver: useNativeAnimationDriver,
   });
   const continuingLoop = Animated.loop(
@@ -116,7 +109,7 @@ export function NemuPortraitHalo({
   });
 
   const initiallyAnimating =
-    reduceMotion === false && AppState.currentState === "active";
+    reduceMotion !== true && AppState.currentState === "active";
   const [float] = useState(
     () =>
       new Animated.Value(
@@ -171,6 +164,7 @@ export function NemuPortraitHalo({
   );
   const [focused, setFocused] = useState(true);
   const [appActive, setAppActive] = useState(AppState.currentState === "active");
+  const motionStartedRef = useRef(false);
   const haloRenderMode = getNemuPortraitHaloRenderMode(Platform.OS);
 
   useFocusEffect(
@@ -199,17 +193,20 @@ export function NemuPortraitHalo({
 
   useLayoutEffect(() => {
     if (!animate) {
+      // Keep the current pose. Resetting to 0 made iOS snap the figure back to
+      // rest whenever the library lost focus under a sheet.
       [float, sway, breathe, rotate, glowPulse, glowDrift].forEach((value) => {
         value.stopAnimation();
-        value.setValue(0);
       });
       return;
     }
+    const seed = !motionStartedRef.current;
+    motionStartedRef.current = true;
     const portraitAnimations = [
-      createWebKeyframeLoop(float, 5000),
-      createWebKeyframeLoop(sway, 7000, PORTRAIT_SWAY_DELAY),
-      createWebKeyframeLoop(breathe, 4000, PORTRAIT_BREATHE_DELAY),
-      createWebKeyframeLoop(rotate, 9000, PORTRAIT_ROTATE_DELAY),
+      createWebKeyframeLoop(float, 5000, 0, { seed }),
+      createWebKeyframeLoop(sway, 7000, PORTRAIT_SWAY_DELAY, { seed }),
+      createWebKeyframeLoop(breathe, 4000, PORTRAIT_BREATHE_DELAY, { seed }),
+      createWebKeyframeLoop(rotate, 9000, PORTRAIT_ROTATE_DELAY, { seed }),
     ];
     const glowAnimations = animateGlow
       ? [
@@ -217,11 +214,13 @@ export function NemuPortraitHalo({
             glowPulse,
             NEMU_WEB_PORTRAIT_GLOW.primary.duration,
             NEMU_WEB_PORTRAIT_GLOW.primary.delay,
+            { seed },
           ),
           createWebKeyframeLoop(
             glowDrift,
             NEMU_WEB_PORTRAIT_GLOW.secondary.duration,
             NEMU_WEB_PORTRAIT_GLOW.secondary.delay,
+            { seed },
           ),
         ]
       : [];
@@ -329,39 +328,38 @@ export function NemuPortraitHalo({
         style={[
           styles.motionLayer,
           {
-            transform: [{ translateY: floatTranslateY }],
+            transform: [
+              { translateY: floatTranslateY },
+              { translateX: swayTranslateX },
+              { rotate: rotateDeg },
+              { scale: breatheScale },
+            ],
           },
         ]}
       >
-        <Animated.View style={{ transform: [{ translateX: swayTranslateX }] }}>
-          <Animated.View style={{ transform: [{ rotate: rotateDeg }] }}>
-            <Animated.View style={{ transform: [{ scale: breatheScale }] }}>
-              <View
-                style={[
-                  styles.portraitStack,
-                  { height: stageHeight, width: stageWidth },
-                ]}
-              >
-                <Image
-                  fadeDuration={0}
-                  resizeMode="stretch"
-                  source={glowAssets.shadow}
-                  style={[
-                    styles.rasterGlow,
-                    { opacity: NEMU_WEB_PORTRAIT_GLOW.shadow.opacity },
-                    glowRasterLayout,
-                  ]}
-                />
-                <Image
-                  fadeDuration={0}
-                  resizeMode="contain"
-                  source={portrait}
-                  style={styles.portrait}
-                />
-              </View>
-            </Animated.View>
-          </Animated.View>
-        </Animated.View>
+        <View
+          style={[
+            styles.portraitStack,
+            { height: stageHeight, width: stageWidth },
+          ]}
+        >
+          <Image
+            fadeDuration={0}
+            resizeMode="stretch"
+            source={glowAssets.shadow}
+            style={[
+              styles.rasterGlow,
+              { opacity: NEMU_WEB_PORTRAIT_GLOW.shadow.opacity },
+              glowRasterLayout,
+            ]}
+          />
+          <Image
+            fadeDuration={0}
+            resizeMode="contain"
+            source={portrait}
+            style={styles.portrait}
+          />
+        </View>
       </Animated.View>
     </View>
   );

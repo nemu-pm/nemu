@@ -14,6 +14,7 @@ describe("getMobileEmptyLibraryLayout", () => {
     });
 
     expect(layout).toEqual({
+      glowBleed: 48,
       portraitMaxWidth: 512,
       rootMinHeight: 247,
     });
@@ -35,6 +36,7 @@ describe("getMobileEmptyLibraryLayout", () => {
     });
 
     expect(layout).toEqual({
+      glowBleed: 48,
       portraitMaxWidth: 390,
       rootMinHeight: 506,
     });
@@ -59,6 +61,20 @@ describe("getMobileEmptyLibraryLayout", () => {
     expect(
       getMobileEmptyLibraryLayout({ height: 411, width: 891 }).portraitMaxWidth,
     ).toBe(512);
+  });
+
+  test("sizes the portrait to the padded native column and visible chrome", () => {
+    const layout = getMobileEmptyLibraryLayout({
+      height: 874,
+      width: 402,
+      horizontalPadding: 16,
+      verticalChrome: 257,
+    });
+
+    expect(layout.portraitMaxWidth).toBeLessThan(370);
+    expect(layout.portraitMaxWidth).toBeGreaterThan(240);
+    expect(layout.rootMinHeight).toBe(617);
+    expect(layout.glowBleed).toBe(48);
   });
 
   test("pins spacing and type to the production web empty state", () => {

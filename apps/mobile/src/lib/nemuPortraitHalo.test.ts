@@ -71,14 +71,14 @@ describe("Nemu portrait halo motion", () => {
     });
   });
 
-  test("animates only while focused, active, and motion is allowed", () => {
+  test("animates while active unless reduce-motion is explicit", () => {
     expect(
       shouldAnimateNemuPortraitHalo({
         appActive: true,
         focused: true,
         reduceMotion: null,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldAnimateNemuPortraitHalo({
         appActive: true,
@@ -106,7 +106,7 @@ describe("Nemu portrait halo motion", () => {
         focused: false,
         reduceMotion: false,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldAnimateNemuPortraitHalo({
         appActive: true,
