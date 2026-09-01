@@ -43,12 +43,11 @@ interface PluginLauncherSheetProps {
   onDismiss?: () => void;
   onDetectText: () => void;
   onOpenChat: () => void;
-  onOpenSettings: () => void;
 }
 
 /**
  * Compact plugin launcher sheet — the entry surface that shows plugin status
- * pills + the primary "Detect Text" / "Nemu Chat" actions + settings link.
+ * pills + the primary "Detect Text" / "Nemu Chat" actions.
  *
  * On web these are navbar action buttons (OcrNavbarIcon, NemuChatNavbarIcon);
  * mobile has no reader navbar popover, so this sheet serves as the launcher
@@ -68,7 +67,6 @@ export function JapaneseLearningPluginLauncherSheet({
   onDismiss,
   onDetectText,
   onOpenChat,
-  onOpenSettings,
 }: PluginLauncherSheetProps) {
   const { tokens } = useNemuTheme();
   const canRunChat = canRunMobileJapaneseLearningChatAction(
@@ -210,32 +208,6 @@ export function JapaneseLearningPluginLauncherSheet({
         </Text>
       </NemuPressable>
 
-      {/* Settings link */}
-      <NemuPressable
-        accessibilityRole="button"
-        accessibilityLabel={strings.settings.pluginSettings}
-        onPress={onOpenSettings}
-        pressedScale={0.98}
-        style={[
-          styles.settingsAction,
-          {
-            backgroundColor: tokens.card,
-            borderColor: tokens.border,
-          },
-        ]}
-      >
-        <Ionicons
-          name="settings-outline"
-          size={16}
-          color={tokens.mutedForeground}
-        />
-        <Text
-          style={[styles.settingsText, { color: tokens.mutedForeground }]}
-          numberOfLines={1}
-        >
-          {strings.settings.pluginSettings}
-        </Text>
-      </NemuPressable>
     </MobileSheetScaffold>
   );
 }

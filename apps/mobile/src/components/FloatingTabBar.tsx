@@ -71,9 +71,19 @@ export function FloatingTabBar() {
               active && { backgroundColor: `${tokens.primary}24` },
             ]}
           >
-            <Ionicons name={tab.icon} size={23} color={color} />
+            <Ionicons
+              accessible={false}
+              accessibilityElementsHidden
+              importantForAccessibility="no"
+              name={tab.icon}
+              size={23}
+              color={color}
+            />
             <Text
+              accessible={false}
+              accessibilityElementsHidden
               adjustsFontSizeToFit
+              importantForAccessibility="no"
               maxFontSizeMultiplier={1.4}
               minimumFontScale={0.75}
               numberOfLines={1}

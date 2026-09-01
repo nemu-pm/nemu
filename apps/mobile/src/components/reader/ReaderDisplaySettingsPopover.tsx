@@ -36,8 +36,7 @@ type ReaderDisplaySettingsPopoverProps = {
   processPageImages: boolean;
   busy: boolean;
   saving: boolean;
-  hasReaderPlugins: boolean;
-  canOpenReaderPluginSettings: boolean;
+  completed: boolean;
   strings: MobileStrings;
   onClose: () => void;
   onDismissComplete?: () => void;
@@ -49,7 +48,6 @@ type ReaderDisplaySettingsPopoverProps = {
   onCommitScrollWidth: (value: number) => void;
   onScrollWidthInteractionStart?: () => void;
   onScrollWidthInteractionEnd?: () => void;
-  onOpenReaderPluginSettings: () => void;
   onMarkComplete: () => void;
 };
 
@@ -70,8 +68,7 @@ export function ReaderDisplaySettingsPopover({
   processPageImages,
   busy,
   saving,
-  hasReaderPlugins,
-  canOpenReaderPluginSettings,
+  completed,
   strings,
   onClose,
   onDismissComplete,
@@ -83,7 +80,6 @@ export function ReaderDisplaySettingsPopover({
   onCommitScrollWidth,
   onScrollWidthInteractionStart,
   onScrollWidthInteractionEnd,
-  onOpenReaderPluginSettings,
   onMarkComplete,
 }: ReaderDisplaySettingsPopoverProps) {
   const { tokens, scheme } = useNemuTheme();
@@ -408,75 +404,47 @@ export function ReaderDisplaySettingsPopover({
             </View>
           ) : null}
 
-          {hasReaderPlugins ? (
+          {!completed ? (
             <NemuPressable
               accessibilityRole="button"
-              accessibilityLabel={strings.settings.plugins}
-              accessibilityState={{
-                disabled: !canOpenReaderPluginSettings,
-              }}
-              disabled={!canOpenReaderPluginSettings}
-              onPress={onOpenReaderPluginSettings}
+              accessibilityLabel={
+                saving
+                  ? strings.reader.savingProgress
+                  : strings.reader.markComplete
+              }
+              accessibilityState={{ disabled: saving }}
+              disabled={saving}
+              onPress={onMarkComplete}
               pressedScale={0.985}
               style={[
-                styles.readerSettingsSecondaryAction,
+                styles.completeButton,
                 {
-                  backgroundColor: tokens.muted,
-                  opacity: canOpenReaderPluginSettings ? 1 : 0.56,
+                  backgroundColor: tokens.primary,
+                  opacity: saving ? 0.72 : 1,
                 },
               ]}
             >
-              <Ionicons
-                name="extension-puzzle-outline"
-                size={17}
-                color={tokens.mutedForeground}
-              />
+              {saving ? (
+                <ActivityIndicator color={tokens.primaryForeground} />
+              ) : (
+                <Ionicons
+                  name="checkmark-circle-outline"
+                  size={18}
+                  color={tokens.primaryForeground}
+                />
+              )}
               <Text
                 style={[
-                  styles.readerSettingsSecondaryActionText,
-                  { color: tokens.foreground },
+                  styles.completeText,
+                  { color: tokens.primaryForeground },
                 ]}
               >
-                {strings.settings.plugins}
+                {saving
+                  ? strings.reader.savingProgress
+                  : strings.reader.markComplete}
               </Text>
             </NemuPressable>
           ) : null}
-
-          <NemuPressable
-            accessibilityRole="button"
-            accessibilityLabel={
-              saving ? strings.reader.savingProgress : strings.reader.markComplete
-            }
-            accessibilityState={{ disabled: saving }}
-            disabled={saving}
-            onPress={onMarkComplete}
-            pressedScale={0.985}
-            style={[
-              styles.completeButton,
-              {
-                backgroundColor: tokens.primary,
-                opacity: saving ? 0.72 : 1,
-              },
-            ]}
-          >
-            {saving ? (
-              <ActivityIndicator color={tokens.primaryForeground} />
-            ) : (
-              <Ionicons
-                name="checkmark-circle-outline"
-                size={18}
-                color={tokens.primaryForeground}
-              />
-            )}
-            <Text
-              style={[
-                styles.completeText,
-                { color: tokens.primaryForeground },
-              ]}
-            >
-              {saving ? strings.reader.savingProgress : strings.reader.markComplete}
-            </Text>
-          </NemuPressable>
           </ScrollView>
         </View>
       </View>
@@ -620,20 +588,6 @@ const styles = StyleSheet.create({
   widthControlValue: {
     fontSize: 12,
     lineHeight: 15,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  readerSettingsSecondaryAction: {
-    minHeight: 40,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
-  },
-  readerSettingsSecondaryActionText: {
-    fontSize: 13,
-    lineHeight: 17,
     fontWeight: nemuFontWeight.semibold,
   },
   completeButton: {

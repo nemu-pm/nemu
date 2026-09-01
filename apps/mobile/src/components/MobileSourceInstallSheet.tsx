@@ -45,11 +45,10 @@ export function MobileSourceInstallSheet({
       onClose={handleNativeClose}
       onDismiss={onDismiss}
       title={title}
-      dismissLabel={strings.common.cancel}
-      // Pan-down stays off so a stray swipe cannot abandon an install, which
-      // is exactly why the scaffold must render the dismiss control instead.
-      enablePanDownToClose={false}
-      contentBottomInset={24}
+      showDismissButton={false}
+      enablePanDownToClose={Boolean(onCancel)}
+      snapPoints={[260]}
+      contentBottomInset={18}
       contentStyle={styles.sheet}
       testID="SourceInstallSheet"
     >
@@ -105,8 +104,8 @@ export function MobileSourceInstallSheet({
 const styles = StyleSheet.create({
   sheet: {
     alignItems: "center",
-    justifyContent: "center",
-    gap: 22,
+    gap: 16,
+    paddingTop: 2,
   },
   cancelAction: {
     alignSelf: "stretch",

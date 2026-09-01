@@ -21,10 +21,6 @@ export type SearchSourceSelection = string[] | null;
 
 export type SearchSourcePressState = { id: string; time: number } | null;
 
-export type MobileSearchSelectionActionState = {
-  savingSelection: boolean;
-};
-
 export function canClearMobileSearchQuery(query: string): boolean {
   return query.length > 0;
 }
@@ -143,12 +139,6 @@ export function toggleAllSearchSources(
   selection: SearchSourceSelection
 ): SearchSourceSelection {
   return selection === null ? [] : null;
-}
-
-export function canChangeMobileSearchSourceSelection(
-  state: MobileSearchSelectionActionState
-): boolean {
-  return !state.savingSelection;
 }
 
 export function shouldShowMobileSearchNoSourcesEmpty({

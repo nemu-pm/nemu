@@ -77,7 +77,6 @@ import { getMobileSourceMangaHref } from "@/lib/mobileSourceRoutes";
 import {
   groupLocalSearchResults,
   canClearMobileSearchQuery,
-  canChangeMobileSearchSourceSelection,
   normalizeMobileSearchRouteQuery,
   normalizeSearchSelectionForSources,
   resolveSearchSourcePressSelection,
@@ -634,8 +633,6 @@ export function SearchScreen() {
   const [preferenceError, setPreferenceError] = useState<string | null>(null);
   const [liveSearchResult, setLiveSearchResult] = useState<LiveSearchResult | null>(null);
   const selectionSaveRun = useRef(0);
-  const selectionSavingRef = useRef(false);
-  const [selectionSaving, setSelectionSaving] = useState(false);
   const [retryingData, setRetryingData] = useState(false);
   const retryDataGuardRef = useRef(false);
   // Bumped by the Nemu Agent sheet's onSuccess to force the live-search effect
@@ -695,6 +692,16 @@ export function SearchScreen() {
     );
   }, [resultItemWidth, windowWidth]);
   const trimmedQuery = submittedQuery.trim();
+  const retainedLiveSearchRef = useRef<{
+    query: string;
+    result: LiveSearchResult;
+  } | null>(null);
+  if (liveSearchResult?.state.status === "ready") {
+    retainedLiveSearchRef.current = {
+      query: trimmedQuery,
+      result: liveSearchResult,
+    };
+  }
   const resultGroups = useMemo(
     () => groupLocalSearchResults(library.data, sources, effectiveSelectedSourceIds, trimmedQuery),
     [effectiveSelectedSourceIds, library.data, sources, trimmedQuery]
@@ -733,9 +740,6 @@ export function SearchScreen() {
     installedCount: installed.data.length,
     libraryCount: library.data.length,
     hasError: Boolean(error),
-  });
-  const canChangeSourceSelection = canChangeMobileSearchSourceSelection({
-    savingSelection: selectionSaving,
   });
   const liveSearchKey = useMemo(() => {
     if (
@@ -782,6 +786,20 @@ export function SearchScreen() {
     }
 
     const completedGroups = new Map<string, MobileLiveSearchGroup>();
+    const retainedResult = retainedLiveSearchRef.current;
+    if (
+      retainedResult?.query === trimmedQuery &&
+      retainedResult.result.state.status === "ready"
+    ) {
+      const selectedIds = new Set(
+        selectedInstalledSources.map((source) => source.id),
+      );
+      for (const group of retainedResult.result.state.groups) {
+        if (group.status !== "loading" && selectedIds.has(group.source.id)) {
+          completedGroups.set(group.source.id, group);
+        }
+      }
+    }
     const compareTitles = trimmedQuery ? [trimmedQuery] : [];
     const publishProgress = () => {
       const result: LiveSearchResult = {
@@ -934,20 +952,10 @@ export function SearchScreen() {
 
   const changeSelection = useCallback(
     (selection: SearchSourceSelection) => {
-      if (
-        !canChangeMobileSearchSourceSelection({
-          savingSelection: selectionSavingRef.current || selectionSaving,
-        })
-      ) {
-        return;
-      }
-
       const normalized = normalizeSearchSelectionForSources(sources, selection);
       const previousSelection = selectedSourceIds;
       const saveRun = selectionSaveRun.current + 1;
       selectionSaveRun.current = saveRun;
-      selectionSavingRef.current = true;
-      setSelectionSaving(true);
       setPreferenceError(null);
       setSelectedSourceIds(normalized);
       void saveSelection(normalized)
@@ -966,18 +974,11 @@ export function SearchScreen() {
             ),
           );
           void hapticError();
-        })
-        .finally(() => {
-          if (selectionSaveRun.current === saveRun) {
-            selectionSavingRef.current = false;
-            setSelectionSaving(false);
-          }
         });
     },
     [
       saveSelection,
       selectedSourceIds,
-      selectionSaving,
       sources,
       strings.search.preferencesSaveFailedDetail,
     ]
@@ -1219,7 +1220,6 @@ export function SearchScreen() {
                     sources={sources}
                     strings={strings}
                     selectedSourceIds={effectiveSelectedSourceIds}
-                    disabled={!canChangeSourceSelection}
                     onChangeSelection={changeSelection}
                   />
                 ) : null}

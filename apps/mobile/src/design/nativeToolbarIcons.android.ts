@@ -6,12 +6,14 @@ import EditIcon from "@expo/material-symbols/edit.xml";
 import LayersIcon from "@expo/material-symbols/layers.xml";
 import MoreIcon from "@expo/material-symbols/more_horiz.xml";
 import SearchIcon from "@expo/material-symbols/search.xml";
+import TuneIcon from "@expo/material-symbols/tune.xml";
 import type { ImageSourcePropType } from "react-native";
 import type { NemuNativeToolbarSymbol } from "./nativeToolbarIcons";
 
 const androidToolbarIcons: Record<NemuNativeToolbarSymbol, ImageSourcePropType> = {
   "chevron.left": ArrowBackIcon,
   "ellipsis.circle": MoreIcon,
+  "line.3.horizontal.decrease": TuneIcon,
   magnifyingglass: SearchIcon,
   pencil: EditIcon,
   plus: AddIcon,

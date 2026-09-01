@@ -2493,7 +2493,16 @@ export function SourceBrowseScreen() {
     screenTitle,
   );
   const nativeHeaderActions: NemuNativeHeaderAction[] =
-    source && !sourceSearchActive
+    source && sourceSearchActive && showSourceSearchControls
+      ? [
+          {
+            icon: "line.3.horizontal.decrease",
+            label: strings.sourceBrowse.openAllFilters,
+            hint: strings.sourceBrowse.openAllFilters,
+            onPress: openSourceFilterPanel,
+          },
+        ]
+      : source && !sourceSearchActive
       ? [
           {
             icon: "magnifyingglass",
@@ -2723,33 +2732,9 @@ export function SourceBrowseScreen() {
                     styles.previewSection,
                     listingGridItems.length > 0
                       ? styles.gridHeaderSpacing
-                      : null,
+                      : styles.emptyGridHeaderSpacing,
                   ]}
                 >
-                  {showSourceSearchControls ? (
-                    <View style={styles.sourceSearchControls}>
-                      {sourceFilters.length ? (
-                        <NemuPressable
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            strings.sourceBrowse.openAllFilters
-                          }
-                          onPress={openSourceFilterPanel}
-                          style={[
-                            styles.iconButton,
-                            { backgroundColor: tokens.muted },
-                          ]}
-                        >
-                          <Ionicons
-                            name="options-outline"
-                            size={17}
-                            color={tokens.mutedForeground}
-                          />
-                        </NemuPressable>
-                      ) : null}
-                    </View>
-                  ) : null}
-
                   {sourceFilterCount > 0 ? (
                     <Text
                       style={[
@@ -3126,13 +3111,6 @@ const styles = StyleSheet.create({
   listingGridListHeader: {
     paddingBottom: 0,
   },
-  sourceSearchControls: {
-    minHeight: 30,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 8,
-  },
   filterSummary: {
     fontSize: 12,
     lineHeight: 16,
@@ -3317,6 +3295,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   gridHeaderSpacing: {
+    marginBottom: 9,
+  },
+  emptyGridHeaderSpacing: {
     marginBottom: 9,
   },
   liveCard: {

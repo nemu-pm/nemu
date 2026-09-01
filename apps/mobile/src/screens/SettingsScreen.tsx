@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Image,
   Linking,
@@ -882,6 +883,27 @@ type SettingsSegmentedOption<Value extends string> = {
   label: string;
 };
 
+function useScreenReaderEnabled(): boolean {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    void AccessibilityInfo.isScreenReaderEnabled().then((nextEnabled) => {
+      if (mounted) setEnabled(nextEnabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener(
+      "screenReaderChanged",
+      setEnabled,
+    );
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  return enabled;
+}
+
 export type SettingsSectionId = "reader" | "sources" | "appearance" | "data";
 
 function settingsSectionHref(
@@ -973,23 +995,38 @@ function PressableSettingsSurface({
 function SettingsSegmentedPicker<Value extends string>({
   accessibilityLabel,
   disabled,
+  interactionLocked = false,
   options,
   value,
   onSelect,
 }: {
   accessibilityLabel: string;
   disabled: boolean;
+  interactionLocked?: boolean;
   options: Array<SettingsSegmentedOption<Value>>;
   value: Value;
   onSelect: (value: Value) => void;
 }) {
   const { scheme, tokens } = useNemuTheme();
+  const screenReaderEnabled = useScreenReaderEnabled();
+  const interactionBlocked = disabled || interactionLocked;
+  const [optimisticValue, setOptimisticValue] = useState<Value | null>(null);
+  const displayedValue = optimisticValue ?? value;
   const selectedIndex = Math.max(
     0,
-    options.findIndex((option) => option.value === value),
+    options.findIndex((option) => option.value === displayedValue),
   );
   const selectValue = (nextValue: Value) => {
-    if (disabled || nextValue === value) return;
+    if (interactionBlocked || nextValue === displayedValue) return;
+    // Preserve the native control's new selection while the async settings
+    // mutation catches up. Otherwise an intermediate render can briefly feed
+    // the old controlled value back into SwiftUI and make the thumb flash.
+    setOptimisticValue(nextValue);
+    requestAnimationFrame(() => {
+      setOptimisticValue((current) =>
+        current === nextValue ? null : current,
+      );
+    });
     void hapticSelection();
     onSelect(nextValue);
   };
@@ -1010,7 +1047,7 @@ function SettingsSegmentedPicker<Value extends string>({
               tint(tokens.primary),
               ...(disabled ? [swiftDisabled(true)] : []),
             ]}
-            selection={value}
+            selection={displayedValue}
             onSelectionChange={(nextValue) => {
               const nextOption = options.find(
                 (option) => option.value === nextValue,
@@ -1026,18 +1063,29 @@ function SettingsSegmentedPicker<Value extends string>({
             ))}
           </SwiftPicker>
         </SwiftHost>
-        <View style={styles.nativeSegmentedAccessibilityOverlay}>
+        <View
+          // Let the SwiftUI picker own ordinary touches so UISegmentedControl
+          // can run its native selection transition. VoiceOver still receives
+          // the individually-labelled React Native tabs used by this overlay.
+          // While the current value is being persisted, the overlay also
+          // blocks repeat taps without visually disabling and redrawing the
+          // native picker midway through its selection animation.
+          pointerEvents={
+            screenReaderEnabled || interactionLocked ? "auto" : "none"
+          }
+          style={styles.nativeSegmentedAccessibilityOverlay}
+        >
           {options.map((option) => (
             <NemuPressable
               key={option.value}
               accessibilityLabel={option.label}
               accessibilityRole="tab"
               accessibilityState={{
-                disabled,
-                selected: option.value === value,
+                disabled: interactionBlocked,
+                selected: option.value === displayedValue,
               }}
               containerStyle={styles.nativeSegmentedAccessibilityOption}
-              disabled={disabled}
+              disabled={interactionBlocked}
               hapticFeedback="none"
               hitSlop={0}
               pressedScale={1}
@@ -1055,7 +1103,7 @@ function SettingsSegmentedPicker<Value extends string>({
   return (
     <SegmentedControl
       appearance={scheme}
-      enabled={!disabled}
+      enabled={!interactionBlocked}
       selectedIndex={selectedIndex}
       style={styles.nativeSegmented}
       testID={accessibilityLabel}
@@ -1129,6 +1177,7 @@ function SegmentedSetting<Value extends string>({
   value,
   onSelect,
   disabled = false,
+  interactionLocked = false,
 }: {
   title: string;
   subtitle: string;
@@ -1136,6 +1185,7 @@ function SegmentedSetting<Value extends string>({
   value: Value;
   onSelect: (value: Value) => void;
   disabled?: boolean;
+  interactionLocked?: boolean;
 }) {
   const { tokens } = useNemuTheme();
 
@@ -1155,6 +1205,7 @@ function SegmentedSetting<Value extends string>({
         <SettingsSegmentedPicker
           accessibilityLabel={title}
           disabled={disabled}
+          interactionLocked={interactionLocked}
           options={options}
           value={value}
           onSelect={onSelect}
@@ -2454,7 +2505,13 @@ export function SettingsScreen({
                     <View style={styles.nativeSegmentedShell}>
                       <SettingsSegmentedPicker
                         accessibilityLabel={strings.reader.title}
-                        disabled={settingsActionBusy}
+                        disabled={
+                          settingsActionBusy &&
+                          settingsMutationKey !== "reading-mode"
+                        }
+                        interactionLocked={
+                          settingsMutationKey === "reading-mode"
+                        }
                         options={readingModes.map((item) => ({
                           value: item.mode,
                           label: strings.reader[item.labelKey],
@@ -2581,7 +2638,10 @@ export function SettingsScreen({
                             plugin={plugin}
                             strings={strings}
                             selected={selectedPluginId === plugin.id}
-                            disabled={settingsActionBusy}
+                            disabled={
+                              settingsMutationKey ===
+                              `reader-plugin:${plugin.id}`
+                            }
                             embedded
                             onSelect={() => {
                               if (settingsActionBusy) return;
@@ -2632,7 +2692,13 @@ export function SettingsScreen({
                     subtitle={strings.settings.languageDescription}
                     options={appLanguageOptions}
                     value={appLanguage}
-                    disabled={settingsActionBusy}
+                    disabled={
+                      settingsActionBusy &&
+                      settingsMutationKey !== "app-language"
+                    }
+                    interactionLocked={
+                      settingsMutationKey === "app-language"
+                    }
                     onSelect={(value) => {
                       void selectAppLanguage(value);
                     }}
@@ -2642,7 +2708,10 @@ export function SettingsScreen({
                     subtitle={strings.settings.themeDescription}
                     options={themeOptions}
                     value={themePreference}
-                    disabled={settingsActionBusy}
+                    disabled={
+                      settingsActionBusy && settingsMutationKey !== "theme"
+                    }
+                    interactionLocked={settingsMutationKey === "theme"}
                     onSelect={(value) => {
                       void selectThemePreference(value);
                     }}
@@ -2652,7 +2721,13 @@ export function SettingsScreen({
                     subtitle={metadataLanguageSubtitle}
                     options={metadataLanguageOptions}
                     value={metadataLanguagePreference}
-                    disabled={settingsActionBusy}
+                    disabled={
+                      settingsActionBusy &&
+                      settingsMutationKey !== "metadata-language"
+                    }
+                    interactionLocked={
+                      settingsMutationKey === "metadata-language"
+                    }
                     onSelect={(value) => {
                       void selectMetadataLanguagePreference(value);
                     }}

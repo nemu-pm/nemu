@@ -277,7 +277,6 @@ import type {
   MobileReaderPluginState,
 } from "@/lib/mobileReaderPlugins";
 import {
-  canOpenMobileReaderPluginSettingsAction,
   canSelectMobileReaderPluginOption,
   isMobileReaderPluginVisible,
 } from "@/lib/mobileReaderPlugins";
@@ -1199,9 +1198,6 @@ export function ReaderScreen() {
     useState(false);
   const [readerDisplaySettingsOpen, setReaderDisplaySettingsOpen] =
     useState(false);
-  const readerDisplaySettingsNextSheetRef = useRef<
-    "plugin-settings" | null
-  >(null);
   const [selectedReaderPluginSettingsId, setSelectedReaderPluginSettingsId] =
     useState<string | null>(null);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
@@ -1268,7 +1264,7 @@ export function ReaderScreen() {
   const [japaneseLearningLauncherVisible, setJapaneseLearningLauncherVisible] =
     useState(false);
   const japaneseLearningLauncherNextSurfaceRef = useRef<
-    "transcript" | "chat" | "plugin-settings" | null
+    "transcript" | "chat" | null
   >(null);
   const [japaneseLearningOcrSheetVisible, setJapaneseLearningOcrSheetVisible] =
     useState(false);
@@ -2473,7 +2469,6 @@ export function ReaderScreen() {
 
   useEffect(() => {
     return () => {
-      readerDisplaySettingsNextSheetRef.current = null;
       japaneseLearningLauncherNextSurfaceRef.current = null;
       japaneseLearningTranscriptNextSurfaceRef.current = null;
       void clearMobileReaderImageMemoryCache();
@@ -3762,7 +3757,7 @@ export function ReaderScreen() {
   );
 
   const openJapaneseLearningSurfaceAfterLauncher = useCallback(
-    (surface: "transcript" | "chat" | "plugin-settings") => {
+    (surface: "transcript" | "chat") => {
       // The native launcher remains physically interactive while its dismissal
       // animates. The first accepted destination owns that visibility cycle.
       if (japaneseLearningLauncherNextSurfaceRef.current) return;
@@ -3773,10 +3768,8 @@ export function ReaderScreen() {
       }
       if (surface === "transcript") {
         setJapaneseLearningTranscriptVisible(true);
-      } else if (surface === "chat") {
-        setJapaneseLearningChatDrawerVisible(true);
       } else {
-        setReaderPluginSettingsOpen(true);
+        setJapaneseLearningChatDrawerVisible(true);
       }
     },
     [japaneseLearningLauncherVisible],
@@ -3790,8 +3783,6 @@ export function ReaderScreen() {
       setJapaneseLearningTranscriptVisible(true);
     } else if (nextSurface === "chat") {
       setJapaneseLearningChatDrawerVisible(true);
-    } else if (nextSurface === "plugin-settings") {
-      setReaderPluginSettingsOpen(true);
     }
   }, []);
 
@@ -3827,11 +3818,6 @@ export function ReaderScreen() {
     openJapaneseLearningSurfaceAfterLauncher,
     runJapaneseLearningChat,
   ]);
-
-  const openJapaneseLearningPluginSettings = useCallback(() => {
-    setSelectedReaderPluginSettingsId("japanese-learning");
-    openJapaneseLearningSurfaceAfterLauncher("plugin-settings");
-  }, [openJapaneseLearningSurfaceAfterLauncher]);
 
   const copyJapaneseLearningSentence = useCallback(() => {
     const sentenceText = getJapaneseLearningSentenceText();
@@ -4817,7 +4803,6 @@ export function ReaderScreen() {
           emitMobileDataChanged("progress");
           if (complete && !options?.silent) {
             await hapticConfirm();
-            await load();
           }
         } catch (error) {
           if (!options?.silent) await hapticError();
@@ -4835,7 +4820,6 @@ export function ReaderScreen() {
       chapter.volumeNumber,
       chapterId,
       clampedPageIndex,
-      load,
       mode,
       pageCount,
       routeSourceRef,
@@ -5361,27 +5345,8 @@ export function ReaderScreen() {
   const stageActionLabel = showControls
     ? strings.reader.hideControls
     : strings.reader.showControls;
-  const canOpenReaderPluginSettingsAction =
-    canOpenMobileReaderPluginSettingsAction({
-      settingsOpen: readerPluginSettingsOpen,
-      activePluginId: activeReaderPluginId,
-      disabled: false,
-    });
   const closeReaderDisplaySettings = useCallback(() => {
-    readerDisplaySettingsNextSheetRef.current = null;
     setReaderDisplaySettingsOpen(false);
-  }, []);
-  const closeReaderDisplaySettingsToPlugin = useCallback(() => {
-    if (!canOpenReaderPluginSettingsAction) return;
-    readerDisplaySettingsNextSheetRef.current = "plugin-settings";
-    setReaderDisplaySettingsOpen(false);
-  }, [canOpenReaderPluginSettingsAction]);
-  const handleReaderDisplaySettingsDismissed = useCallback(() => {
-    const nextSheet = readerDisplaySettingsNextSheetRef.current;
-    readerDisplaySettingsNextSheetRef.current = null;
-    if (nextSheet !== "plugin-settings") return;
-    setActiveReaderPluginId(null);
-    setReaderPluginSettingsOpen(true);
   }, []);
   const readerInteractionOverlayVisible =
     readerInteractionSurfaceOpen || cloudflareSheet.visible;
@@ -5523,7 +5488,6 @@ export function ReaderScreen() {
             onDismiss={handleJapaneseLearningLauncherClosed}
             onDetectText={openJapaneseLearningDetectionTool}
             onOpenChat={openJapaneseLearningChatTool}
-            onOpenSettings={openJapaneseLearningPluginSettings}
           />
 
           <JapaneseLearningOcrResultSheet
@@ -5719,11 +5683,9 @@ export function ReaderScreen() {
         processPageImages={processPageImages}
         busy={readerSettingsActionBusy}
         saving={saving}
-        hasReaderPlugins={readerPlugins.data.length > 0}
-        canOpenReaderPluginSettings={canOpenReaderPluginSettingsAction}
+        completed={completed}
         strings={strings}
         onClose={closeReaderDisplaySettings}
-        onDismissComplete={handleReaderDisplaySettingsDismissed}
         onSetMode={(nextMode) => {
           if (nextMode === mode || readerSettingsActionBusy) return;
           void runReaderSettingsAction("reading-mode", () => setMode(nextMode));
@@ -5752,9 +5714,14 @@ export function ReaderScreen() {
         onCommitScrollWidth={(nextValue) => {
           void commitScrollWidth(nextValue);
         }}
-        onOpenReaderPluginSettings={closeReaderDisplaySettingsToPlugin}
         onMarkComplete={() => {
-          void persistProgress(true);
+          void persistProgress(true, clampedPageIndex, {
+            throwOnError: true,
+          })
+            .then(() => {
+              setReaderDisplaySettingsOpen(false);
+            })
+            .catch(() => undefined);
         }}
       />
 

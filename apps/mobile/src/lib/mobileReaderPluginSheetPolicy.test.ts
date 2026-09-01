@@ -149,12 +149,11 @@ describe("reader plugin settings sheet policy", () => {
       'Platform.OS === "android" && !visible',
     );
     expect(display).toContain("dismissPendingRef.current = false;");
-    expect(screen).toContain(
-      "readerDisplaySettingsNextSheetRef.current = \"plugin-settings\";",
-    );
-    expect(screen).toContain(
-      "onDismissComplete={handleReaderDisplaySettingsDismissed}",
-    );
+    // The display settings popover no longer hands off to plugin settings
+    // (plugins are configured from the Settings screen), so no next-sheet
+    // handoff may remain wired from it.
+    expect(screen).not.toContain("onOpenReaderPluginSettings");
+    expect(screen).not.toContain('"plugin-settings"');
     expect(screen).toContain(
       "japaneseLearningLauncherNextSurfaceRef.current = surface;",
     );
