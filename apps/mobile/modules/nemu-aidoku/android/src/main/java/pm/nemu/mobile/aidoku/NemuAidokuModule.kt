@@ -50,7 +50,7 @@ private val NEMU_NATIVE_HTTP_TEMP_FILE_PATTERN = Regex(
     "stage-segment-\\d{2}-\\d+|output-segment-\\d{2}-\\d+)\\.part$"
 )
 private const val MOBILE_USER_AGENT =
-  "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+  "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36"
 
 @OptimizedRecord
 class NemuAidokuHttpRequest : Record {

@@ -7,7 +7,7 @@ private let nemuAsyncHttpMaxTimeoutSeconds = 30.0
 private let nemuSyncHttpMaxTimeoutSeconds = 12.0
 private let nemuIOSAidokuMaxHttpResponseBytes = 16 * 1024 * 1024
 private let nemuMobileUserAgent =
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1"
 
 private final class NemuAidokuSandboxException: Exception, @unchecked Sendable {
   private let detail: String
