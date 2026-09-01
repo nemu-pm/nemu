@@ -123,7 +123,7 @@ const mobileImageCache = new FileSystemBinaryCache(
   MOBILE_IMAGE_DISK_CACHE_POLICY,
 );
 const MAX_RESOLVED_IMAGE_URIS = 600;
-const MAX_IMAGE_LOAD_CONCURRENCY = 4;
+const MAX_IMAGE_LOAD_CONCURRENCY = 8;
 const MOBILE_IMAGE_DEFAULT_USER_AGENT = Platform.select({
   android:
     "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",

@@ -39,16 +39,59 @@ export type MobileSourceHomeOptions = {
   sessionCache?: MobileSourceSessionCache;
 };
 
+const MOBILE_HOME_IMAGE_REQUEST_CONCURRENCY = 8;
+const mobileHomeImageRequestQueue: Array<() => void> = [];
+const mobileHomeImageRequestCache = new WeakMap<
+  object,
+  Map<string, Promise<{ url: string; headers: Record<string, string> } | null>>
+>();
+let activeMobileHomeImageRequests = 0;
+
+function runMobileHomeImageRequest<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const start = () => {
+      activeMobileHomeImageRequests += 1;
+      void task()
+        .then(resolve, reject)
+        .finally(() => {
+          activeMobileHomeImageRequests = Math.max(
+            0,
+            activeMobileHomeImageRequests - 1,
+          );
+          mobileHomeImageRequestQueue.shift()?.();
+        });
+    };
+
+    if (
+      activeMobileHomeImageRequests < MOBILE_HOME_IMAGE_REQUEST_CONCURRENCY
+    ) {
+      start();
+    } else {
+      mobileHomeImageRequestQueue.push(start);
+    }
+  });
+}
+
 async function resolveHomeImageRequest(
   source: Pick<MobileAidokuExecutorSource, "modifyImageRequest">,
   url: string | undefined,
 ): Promise<{ url: string; headers: Record<string, string> } | null> {
   if (!url) return null;
-  try {
-    return await source.modifyImageRequest(url);
-  } catch {
-    return null;
+  let sourceCache = mobileHomeImageRequestCache.get(source);
+  if (!sourceCache) {
+    sourceCache = new Map();
+    mobileHomeImageRequestCache.set(source, sourceCache);
   }
+  const cached = sourceCache.get(url);
+  if (cached) return cached;
+
+  const request = runMobileHomeImageRequest(() =>
+    source.modifyImageRequest(url),
+  ).catch(() => null);
+  sourceCache.set(url, request);
+  const result = await request;
+  if (!result && sourceCache.get(url) === request) sourceCache.delete(url);
+  return result;
 }
 
 async function normalizeHomeMangaImage(
@@ -91,75 +134,66 @@ async function normalizeMobileSourceHomeImages(
 ): Promise<HomeLayout | null> {
   if (!home) return null;
 
-  const components: HomeLayout["components"] = [];
-  for (const component of home.components) {
+  const components = await Promise.all(home.components.map(async (component) => {
     const { value } = component;
 
     if (value.type === "scroller" || value.type === "mangaList") {
-      const entries: typeof value.entries = [];
-      for (const link of value.entries) {
-        entries.push(await normalizeHomeLinkImages(source, link));
-      }
-      components.push({
+      const entries = await Promise.all(
+        value.entries.map((link) => normalizeHomeLinkImages(source, link)),
+      );
+      return {
         ...component,
         value: {
           ...value,
           entries,
         },
-      });
-      continue;
+      };
     }
 
     if (value.type === "imageScroller") {
-      const links: typeof value.links = [];
-      for (const link of value.links) {
-        links.push(await normalizeHomeLinkImages(source, link));
-      }
-      components.push({
+      const links = await Promise.all(
+        value.links.map((link) => normalizeHomeLinkImages(source, link)),
+      );
+      return {
         ...component,
         value: {
           ...value,
           links,
         },
-      });
-      continue;
+      };
     }
 
     if (value.type === "bigScroller") {
-      const entries: typeof value.entries = [];
-      for (const manga of value.entries) {
-        entries.push(await normalizeHomeMangaImage(source, manga));
-      }
-      components.push({
+      const entries = await Promise.all(
+        value.entries.map((manga) => normalizeHomeMangaImage(source, manga)),
+      );
+      return {
         ...component,
         value: {
           ...value,
           entries,
         },
-      });
-      continue;
+      };
     }
 
     if (value.type === "mangaChapterList") {
-      const entries: typeof value.entries = [];
-      for (const entry of value.entries) {
-        entries.push({
+      const entries = await Promise.all(
+        value.entries.map(async (entry) => ({
           ...entry,
           manga: await normalizeHomeMangaImage(source, entry.manga),
-        });
-      }
-      components.push({
+        })),
+      );
+      return {
         ...component,
         value: {
           ...value,
           entries,
         },
-      });
-      continue;
+      };
     }
 
-    components.push(component);
-  }
+    return component;
+  }));
 
   return { components };
 }

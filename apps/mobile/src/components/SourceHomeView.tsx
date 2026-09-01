@@ -134,14 +134,20 @@ function SourceHomeCoverImage({
 }) {
   const { tokens } = useNemuTheme();
   const installedSource = useContext(SourceHomeInstalledSourceContext);
-  const request = useMobileSourceImageRequest(installedSource, uri);
-  const imageSource = request
-    ? {
+  const requestAlreadyResolved = headers !== undefined;
+  const request = useMobileSourceImageRequest(
+    requestAlreadyResolved ? null : installedSource,
+    requestAlreadyResolved ? null : uri,
+  );
+  const imageSource = requestAlreadyResolved
+    ? { uri, headers, cache: "force-cache" as const }
+    : request
+      ? {
         uri: request.url,
         headers: request.headers,
         cache: "force-cache" as const,
       }
-    : { uri, headers, cache: "force-cache" as const };
+      : { uri, headers, cache: "force-cache" as const };
 
   return (
     <MobileCachedImage
@@ -1416,6 +1422,10 @@ function BannerSection({
         )}
         initialNumToRender={3}
         maxToRenderPerBatch={3}
+        decelerationRate="fast"
+        disableIntervalMomentum
+        snapToAlignment="start"
+        snapToInterval={cardSize.width + 12}
         removeClippedSubviews={false}
         renderItem={({ item: link }) => {
           const manga = linkToManga(link);
