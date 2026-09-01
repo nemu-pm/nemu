@@ -165,12 +165,15 @@ describe("mobile i18n helpers", () => {
 
   test("keeps every Simplified Chinese string free of Japanese kana", () => {
     // zh.about.tagline was once a byte-identical copy of the ja string; kana in
-    // the zh catalog is always a copy/paste slip.
+    // the zh catalog is always a copy/paste slip. The brand tagline is the one
+    // intentional exception: it renders in Japanese across all locales.
     const kana = /[\u3040-\u309f\u30a0-\u30ff]/;
+    const intentionalKanaPaths = new Set(["about.tagline"]);
     const offenders: string[] = [];
     for (const [path, value] of flattenStringLeaves(
       getMobileStringsForAudit().zh,
     )) {
+      if (intentionalKanaPaths.has(path)) continue;
       if (kana.test(value)) offenders.push(`${path}: ${value}`);
     }
     expect(offenders).toEqual([]);

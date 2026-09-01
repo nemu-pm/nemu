@@ -526,7 +526,7 @@ export function SettingsPage() {
       <motion.button
         type="button"
         className="block w-full text-left"
-        aria-label={t("settings.about")}
+        aria-label={t("settings.aboutNemu")}
         whileTap={{ scale: 0.97 }}
         transition={{ type: "spring", stiffness: 400, damping: 25 }}
         onClick={() => {
@@ -540,7 +540,7 @@ export function SettingsPage() {
           <CardContent className="flex items-center gap-3 px-4 py-2.5">
             <HugeiconsIcon icon={InformationCircleIcon} className="size-5 text-muted-foreground" />
             <span className="flex-1 font-medium text-sm">
-              {t("settings.about")}{" "}
+              {t("settings.aboutBeforeBrand")}
               <span
                 className="text-primary"
                 style={{
@@ -552,6 +552,7 @@ export function SettingsPage() {
               >
                 nemu
               </span>
+              {t("settings.aboutAfterBrand")}
             </span>
             <HugeiconsIcon icon={ArrowRight01Icon} className="size-4 text-muted-foreground" />
           </CardContent>

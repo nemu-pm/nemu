@@ -286,6 +286,8 @@
   },
   "settings": {
     "aboutNemu": "关于 nemu",
+    "aboutBeforeBrand": "关于 ",
+    "aboutAfterBrand": "",
     "loading": "加载设置中...",
     "sourceUpdated": "已更新源：{{name}}",
     "sourcesUpdated": "已更新 {{count}} 个源：{{names}}",

@@ -877,7 +877,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
         "nemu is a manga reader that lets you discover and read from your favorite online sources.",
       openSourceCode: "Open Nemu source code on GitHub",
       sourceCode: "Source Code",
-      tagline: "A magical manga reader",
+      tagline: "魔法の漫画リーダー",
     },
     common: {
       add: "Add",
@@ -1872,7 +1872,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
         "nemu 是一款跨平台漫画阅读器，让你可以从各种来源发现和阅读漫画。",
       openSourceCode: "在 GitHub 打开 Nemu 源代码",
       sourceCode: "源代码",
-      tagline: "魔法般的漫画阅读器",
+      tagline: "魔法の漫画リーダー",
     },
     common: {
       add: "添加",
