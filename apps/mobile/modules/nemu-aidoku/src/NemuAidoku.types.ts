@@ -89,6 +89,15 @@ export type NemuAidokuSandboxStatus = {
   detail?: string | null;
 };
 
+export type NemuNetworkAccessState =
+  | "unknown"
+  | "restricted"
+  | "notRestricted";
+
+export type NemuNetworkAccessEventPayload = {
+  state: NemuNetworkAccessState;
+};
+
 /**
  * Cloudflare solver lifecycle events emitted by `solveCloudflare`. Each event
  * carries the url being solved; `nemuAidokuCfFailed` adds a `reason` when one
@@ -105,4 +114,8 @@ export type NemuAidokuCfEventsMap = {
   nemuAidokuCfCaptcha: (payload: NemuAidokuCfSolveEventPayload) => void;
   nemuAidokuCfSuccess: (payload: NemuAidokuCfSolveEventPayload) => void;
   nemuAidokuCfFailed: (payload: NemuAidokuCfSolveEventPayload) => void;
+};
+
+export type NemuAidokuEventsMap = NemuAidokuCfEventsMap & {
+  nemuNetworkAccessChanged: (payload: NemuNetworkAccessEventPayload) => void;
 };

@@ -1,5 +1,6 @@
 import ExpoModulesCore
 import Foundation
+import CoreTelephony
 
 private let nemuNativeHttpVersion = "built-in"
 private let nemuAsyncHttpMaxTimeoutSeconds = 30.0
@@ -1132,6 +1133,23 @@ private final class NemuNativeHttpFileAsyncOperation: @unchecked Sendable {
 }
 
 public class NemuAidokuModule: Module {
+  private let cellularData = CTCellularData()
+
+  private static func networkAccessStateName(
+    _ state: CTCellularDataRestrictedState
+  ) -> String {
+    switch state {
+    case .restrictedStateUnknown:
+      return "unknown"
+    case .restricted:
+      return "restricted"
+    case .notRestricted:
+      return "notRestricted"
+    @unknown default:
+      return "unknown"
+    }
+  }
+
   private lazy var iosSandboxManager = NemuAidokuIOSandboxManager(
     httpRequest: Self.sendAidokuSandboxHttpRequest
   )
@@ -1148,11 +1166,31 @@ public class NemuAidokuModule: Module {
       "nemuAidokuCfWaiting",
       "nemuAidokuCfCaptcha",
       "nemuAidokuCfSuccess",
-      "nemuAidokuCfFailed"
+      "nemuAidokuCfFailed",
+      "nemuNetworkAccessChanged"
     )
+
+    OnStartObserving("nemuNetworkAccessChanged") {
+      self.cellularData.cellularDataRestrictionDidUpdateNotifier = { [weak self] state in
+        guard let self else { return }
+        DispatchQueue.main.async {
+          self.sendEvent("nemuNetworkAccessChanged", [
+            "state": Self.networkAccessStateName(state),
+          ])
+        }
+      }
+    }
+
+    OnStopObserving("nemuNetworkAccessChanged") {
+      self.cellularData.cellularDataRestrictionDidUpdateNotifier = nil
+    }
 
     Function("isAvailable") {
       return true
+    }
+
+    Function("getNetworkAccessState") {
+      return Self.networkAccessStateName(self.cellularData.restrictedState)
     }
 
     Function("getHttpClientStatus") {
@@ -1601,8 +1639,21 @@ public class NemuAidokuModule: Module {
               policy: imagePolicy
             )
           }
-          let output = FileManager.default.temporaryDirectory
-            .appendingPathComponent("nemu-native-http-export-\(UUID().uuidString)")
+          let outputDirectory = FileManager.default.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+          )[0].appendingPathComponent(
+            "nemu-native-http-downloads",
+            isDirectory: true
+          )
+          try FileManager.default.createDirectory(
+            at: outputDirectory,
+            withIntermediateDirectories: true
+          )
+          let output = outputDirectory.appendingPathComponent(
+            "nemu-http-\(DispatchTime.now().uptimeNanoseconds).part",
+            isDirectory: false
+          )
           try FileManager.default.moveItem(at: location, to: output)
           operation.finish(NemuNativeHttpFileResult(
             status: status,

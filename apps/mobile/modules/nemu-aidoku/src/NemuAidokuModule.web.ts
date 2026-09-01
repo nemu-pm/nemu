@@ -1,17 +1,22 @@
 import { NativeModule, registerWebModule } from "expo";
 import type {
-  NemuAidokuCfEventsMap,
+  NemuAidokuEventsMap,
   NemuAidokuHttpClientStatus,
   NemuAidokuHttpFileRequest,
   NemuAidokuHttpFileResponse,
   NemuAidokuHttpRequest,
   NemuAidokuHttpResponse,
   NemuAidokuSandboxStatus,
+  NemuNetworkAccessState,
 } from "./NemuAidoku.types";
 
-class NemuAidokuModule extends NativeModule<NemuAidokuCfEventsMap> {
+class NemuAidokuModule extends NativeModule<NemuAidokuEventsMap> {
   isAvailable(): boolean {
     return false;
+  }
+
+  getNetworkAccessState(): NemuNetworkAccessState {
+    return "notRestricted";
   }
 
   getHttpClientStatus(): NemuAidokuHttpClientStatus {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { router } from "expo-router";
 import {
   ActivityIndicator,
+  Linking,
   Platform,
   StyleSheet,
   Text,
@@ -32,7 +33,7 @@ import {
   useSourceInstaller,
 } from "@/data/mobileHooks";
 import type { AppLanguage } from "@/data/schema";
-import { hapticConfirm, hapticError, hapticWarning } from "@/lib/haptics";
+import { hapticConfirm, hapticError, hapticSelection, hapticWarning } from "@/lib/haptics";
 import {
   formatMobileString,
   getMobileStrings,
@@ -339,6 +340,7 @@ function MobileWelcomeWizardContent({
   );
   const [installing, setInstalling] = useState(false);
   const installingRef = useRef(false);
+  const sourceInstallCancelRequestedRef = useRef(false);
   const [completing, setCompleting] = useState(false);
   const completeGuardRef = useRef(false);
   const [changingLanguage, setChangingLanguage] = useState(false);
@@ -521,16 +523,21 @@ function MobileWelcomeWizardContent({
     installingRef.current = true;
     setInstalling(true);
     setOperationError(null);
+    sourceInstallCancelRequestedRef.current = false;
     try {
       for (const source of recommendedSources) {
         const key = makeSourceKey(source.registryId, source.id);
         if (!selectedSourceKeys.has(key) || installedKeys.has(key)) continue;
+        if (sourceInstallCancelRequestedRef.current) break;
         await installer.installSource(source);
       }
-      await installedSources.reload();
-      setStep("done");
-      await hapticConfirm();
+      if (!sourceInstallCancelRequestedRef.current) {
+        await installedSources.reload();
+        setStep("done");
+        await hapticConfirm();
+      }
     } catch (error) {
+      if (sourceInstallCancelRequestedRef.current) return;
       await hapticError();
       setOperationError({
         title: strings.welcome.sourceInstallFailed,
@@ -540,9 +547,18 @@ function MobileWelcomeWizardContent({
         ),
       });
     } finally {
+      if (sourceInstallCancelRequestedRef.current) {
+        void hapticSelection();
+      }
+      sourceInstallCancelRequestedRef.current = false;
       installingRef.current = false;
       setInstalling(false);
     }
+  };
+
+  const cancelSourceInstalls = () => {
+    sourceInstallCancelRequestedRef.current = true;
+    installer.cancelInstall();
   };
 
   const skip = () => {
@@ -598,8 +614,16 @@ function MobileWelcomeWizardContent({
     availableSources.loading || !recommendedSources.length
       ? 109
       : sourceRowCount * 58 + Math.max(0, sourceRowCount - 1) * 8 + 25;
+  // Header (56), grabber area (32), content padding (18), hint + layout gaps +
+  // action row (~100) and the bottom safe area. Skipping the grabber or the
+  // gaps clips the action buttons under the navigation bar.
   const sourcePreferredHeight =
-    18 + Math.max(insets.bottom, 16) + 56 + sourceListHeight + 60;
+    32 +
+    18 +
+    56 +
+    sourceListHeight +
+    100 +
+    Math.max(insets.bottom, 18);
   const sourceSheetHeight = Math.min(
     620,
     Math.max(320, Math.min(sourcePreferredHeight, windowHeight - sheetTopPadding - 12)),
@@ -746,6 +770,27 @@ function MobileWelcomeWizardContent({
                 {strings.welcome.loadingSources}
               </Text>
             </View>
+          ) : availableSources.error ? (
+            <MobileInlineErrorBanner
+              title={strings.browse.sourcesUnavailable}
+              detail={describeMobileErrorDetail(
+                availableSources.error,
+                strings.browse.sourcesUnavailable,
+              )}
+              actionLabel={
+                availableSources.networkAccessState === "restricted"
+                  ? strings.common.openSettings
+                  : strings.common.retry
+              }
+              onActionPress={() => {
+                if (availableSources.networkAccessState === "restricted") {
+                  void Linking.openSettings();
+                  return;
+                }
+                void availableSources.reload().catch(() => undefined);
+              }}
+              variant="embedded"
+            />
           ) : recommendedSources.length ? (
             recommendedSources.map((source) => {
               const key = makeSourceKey(source.registryId, source.id);
@@ -786,13 +831,15 @@ function MobileWelcomeWizardContent({
       <View style={[styles.actions, stackActions && styles.stackedActions]}>
         {step !== "done" ? (
           <NemuButton
-            label={skipConfirm ? strings.welcome.confirmSkip : strings.welcome.skip}
+            label={
+              installing ? strings.common.cancel : skipConfirm ? strings.welcome.confirmSkip : strings.welcome.skip
+            }
             variant="ghost"
-            disabled={skipDisabled}
+            disabled={installing ? false : skipDisabled}
             hapticFeedback="none"
             containerStyle={stackActions ? styles.stackedActionContainer : undefined}
             style={stackActions ? styles.stackedAction : undefined}
-            onPress={skip}
+            onPress={installing ? cancelSourceInstalls : skip}
           />
         ) : (
           // `syncHint` asks the user to sign in, so give that ask an actual

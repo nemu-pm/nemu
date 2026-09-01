@@ -1,12 +1,13 @@
 import { NativeModule, requireNativeModule } from "expo";
 import type {
-  NemuAidokuCfEventsMap,
+  NemuAidokuEventsMap,
   NemuAidokuHttpClientStatus,
   NemuAidokuHttpFileRequest,
   NemuAidokuHttpFileResponse,
   NemuAidokuHttpRequest,
   NemuAidokuHttpResponse,
   NemuAidokuSandboxStatus,
+  NemuNetworkAccessState,
 } from "./NemuAidoku.types";
 
 export type {
@@ -14,8 +15,9 @@ export type {
   NemuAidokuCfSolveEventPayload,
 } from "./NemuAidoku.types";
 
-declare class NemuAidokuModule extends NativeModule<NemuAidokuCfEventsMap> {
+declare class NemuAidokuModule extends NativeModule<NemuAidokuEventsMap> {
   isAvailable(): boolean;
+  getNetworkAccessState(): NemuNetworkAccessState;
   getHttpClientStatus(): NemuAidokuHttpClientStatus;
   getAidokuSandboxStatus(): NemuAidokuSandboxStatus;
   prepareHttpRequest(requestId: string): boolean;

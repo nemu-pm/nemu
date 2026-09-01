@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getLocales } from "expo-localization";
+import { AppState, Platform } from "react-native";
+import NemuAidokuModule from "../../modules/nemu-aidoku/src/NemuAidokuModule";
+import type { NemuNetworkAccessState } from "../../modules/nemu-aidoku/src/NemuAidoku.types";
 import { useMobileDataStore } from "./mobileDataContext";
 import type {
   AppLanguage,
@@ -1378,6 +1381,7 @@ export function useMobileReaderPlugins(): LoadState<
 
 export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
   sourceUpdateNotice: MobileSourceUpdateNotice | null;
+  networkAccessState: NemuNetworkAccessState;
 } {
   const store = useMobileDataStore();
   const [data, setData] = useState<MobileRegistrySource[]>([]);
@@ -1385,6 +1389,12 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
   const [error, setError] = useState<string | null>(null);
   const [sourceUpdateNotice, setSourceUpdateNotice] =
     useState<MobileSourceUpdateNotice | null>(null);
+  const [networkAccessState, setNetworkAccessState] =
+    useState<NemuNetworkAccessState>(() =>
+      Platform.OS === "ios"
+        ? NemuAidokuModule.getNetworkAccessState()
+        : "notRestricted",
+    );
   const reloadAbortRef = useRef<AbortController | null>(null);
   const reloadRunRef = useRef(0);
 
@@ -1467,14 +1477,55 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
 
   useEffect(() => {
     ignoreReloadError(reload);
+    if (Platform.OS !== "ios") {
+      return () => {
+        reloadAbortRef.current?.abort();
+        reloadAbortRef.current = null;
+        reloadRunRef.current += 1;
+      };
+    }
+
+    let previousNetworkAccessState = NemuAidokuModule.getNetworkAccessState();
+    setNetworkAccessState(previousNetworkAccessState);
+    let previousAppState = AppState.currentState;
+    const networkSubscription = NemuAidokuModule.addListener(
+      "nemuNetworkAccessChanged",
+      ({ state }) => {
+        const shouldRetry =
+          state === "notRestricted" &&
+          previousNetworkAccessState !== "notRestricted";
+        previousNetworkAccessState = state;
+        setNetworkAccessState(state);
+        if (shouldRetry) ignoreReloadError(reload);
+      },
+    );
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      (nextAppState) => {
+        const returnedToForeground =
+          previousAppState !== "active" && nextAppState === "active";
+        previousAppState = nextAppState;
+        if (returnedToForeground) ignoreReloadError(reload);
+      },
+    );
+
     return () => {
+      networkSubscription.remove();
+      appStateSubscription.remove();
       reloadAbortRef.current?.abort();
       reloadAbortRef.current = null;
       reloadRunRef.current += 1;
     };
   }, [reload]);
 
-  return { data, loading, error, reload, sourceUpdateNotice };
+  return {
+    data,
+    loading,
+    error,
+    reload,
+    sourceUpdateNotice,
+    networkAccessState,
+  };
 }
 
 /**
@@ -1500,7 +1551,10 @@ export function useSourceInstaller(): {
   const installAbortRef = useRef<AbortController | null>(null);
 
   const cancelInstall = useCallback(() => {
-    installAbortRef.current?.abort();
+    const controller = installAbortRef.current;
+    installAbortRef.current = null;
+    setInstallingKey(null);
+    controller?.abort();
   }, []);
 
   useEffect(() => {

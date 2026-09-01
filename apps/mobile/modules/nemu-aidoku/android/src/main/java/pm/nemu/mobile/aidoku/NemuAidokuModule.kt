@@ -190,11 +190,16 @@ class NemuAidokuModule : Module() {
       "nemuAidokuCfWaiting",
       "nemuAidokuCfCaptcha",
       "nemuAidokuCfSuccess",
-      "nemuAidokuCfFailed"
+      "nemuAidokuCfFailed",
+      "nemuNetworkAccessChanged"
     )
 
     Function("isAvailable") {
       true
+    }
+
+    Function("getNetworkAccessState") {
+      "notRestricted"
     }
 
     Function("getHttpClientStatus") {
