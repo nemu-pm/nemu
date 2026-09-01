@@ -3,7 +3,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { createNemuShadowStyle } from "@/design/shadows";
 import { radius } from "@/design/tokens";
-import { nemuFontWeight } from "@/design/typography";
+import { nemuFontWeight, nemuMaxFontSizeMultiplier } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import {
   isMobileHeaderActionDisabled,
@@ -106,6 +106,7 @@ export function PageHeader({
           />
         ) : null}
         <Text
+          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
           numberOfLines={1}
           style={[styles.title, { color: tokens.foreground }]}
         >

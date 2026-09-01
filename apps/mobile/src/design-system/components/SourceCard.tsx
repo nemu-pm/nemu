@@ -4,7 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { radius } from "@/design/tokens";
-import { nemuFontWeight } from "@/design/typography";
+import { nemuFontWeight, nemuMaxFontSizeMultiplier } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
 import { resolveSourceCardVisuals } from "@/lib/mobileSourceCardVisuals";
@@ -113,6 +113,7 @@ export function SourceCard({
       </View>
       <View style={styles.text}>
         <Text
+          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
           numberOfLines={1}
           style={[styles.title, { color: tokens.foreground }]}
         >
@@ -120,6 +121,7 @@ export function SourceCard({
         </Text>
         {item.subtitle ? (
           <Text
+            maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
             numberOfLines={1}
             style={[styles.subtitle, { color: tokens.mutedForeground }]}
           >
