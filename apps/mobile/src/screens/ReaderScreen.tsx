@@ -263,6 +263,12 @@ import {
   type MobileReaderPageProcessor,
   type MobileReaderPageWindowResult,
 } from "@/sources/mobileSourcePages";
+import {
+  MOBILE_READER_NEXT_CHAPTER_PREFETCH_DELAY_MS,
+  disposeMobileReaderPagesPrefetchResult,
+  makeMobileReaderPagesPrefetchKey,
+  mobileReaderPagesPrefetchCache,
+} from "@/sources/mobileReaderPagesPrefetch";
 import { refreshMobileSourceMetadata } from "@/sources/mobileSourceDetails";
 import {
   makeMobileRuntimeSourceKey,
@@ -4570,16 +4576,29 @@ export function ReaderScreen() {
           return;
         }
 
-        const refreshed = await refreshMobileReaderPages(
-          installedSource,
-          mangaId,
-          sourceChapterForRequest,
-          {
-            getSourceSettings: getReaderSourceSettings,
-            onSourcePackageHydrated: saveReaderSourcePackageHydration,
+        // A background chapter-turn prefetch (started while the previous
+        // chapter was being read) makes this render without a network wait.
+        const prefetched = mobileReaderPagesPrefetchCache.take(
+          makeMobileReaderPagesPrefetchKey({
+            registryId,
+            sourceId,
+            mangaId,
+            chapterId,
             processPageImages,
-          },
+          }),
         );
+        const refreshed =
+          (prefetched ? await prefetched : null) ??
+          (await refreshMobileReaderPages(
+            installedSource,
+            mangaId,
+            sourceChapterForRequest,
+            {
+              getSourceSettings: getReaderSourceSettings,
+              onSourcePackageHydrated: saveReaderSourcePackageHydration,
+              processPageImages,
+            },
+          ));
 
         if (cancelled || readerPagesRequestRunRef.current !== requestRun)
           return;
@@ -4638,6 +4657,58 @@ export function ReaderScreen() {
     store,
     getReaderSourceSettings,
     saveReaderSourcePackageHydration,
+  ]);
+
+  // Once the current chapter renders, warm the next chapter's page list in
+  // the background so turning the chapter never waits on the source. Delayed
+  // so it cannot compete with the current chapter's first page images.
+  useEffect(() => {
+    if (pagesState.status !== "ready") return;
+    const nextChapter = nextChapterInReadingOrder;
+    if (!nextChapter || nextChapter.locked) return;
+
+    const timeout = setTimeout(() => {
+      void (async () => {
+        try {
+          const installedSources = await store.getInstalledSources();
+          const installedSource = installedSources.find((item) =>
+            mobileInstalledSourceMatchesRoute(item, registryId, sourceId),
+          );
+          if (!installedSource) return;
+          mobileReaderPagesPrefetchCache.start(
+            makeMobileReaderPagesPrefetchKey({
+              registryId,
+              sourceId,
+              mangaId,
+              chapterId: nextChapter.id,
+              processPageImages,
+            }),
+            () =>
+              refreshMobileReaderPages(installedSource, mangaId, nextChapter, {
+                getSourceSettings: getReaderSourceSettings,
+                onSourcePackageHydrated: saveReaderSourcePackageHydration,
+                processPageImages,
+              }),
+            disposeMobileReaderPagesPrefetchResult,
+          );
+        } catch {
+          // A failed warmup must never surface; the chapter turn falls back
+          // to the normal load path.
+        }
+      })();
+    }, MOBILE_READER_NEXT_CHAPTER_PREFETCH_DELAY_MS);
+
+    return () => clearTimeout(timeout);
+  }, [
+    getReaderSourceSettings,
+    mangaId,
+    nextChapterInReadingOrder,
+    pagesState.status,
+    processPageImages,
+    registryId,
+    saveReaderSourcePackageHydration,
+    sourceId,
+    store,
   ]);
 
   useEffect(() => {
