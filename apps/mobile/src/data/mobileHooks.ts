@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getLocales } from "expo-localization";
+import {
+  addNetworkStateListener,
+  getNetworkStateAsync,
+} from "expo-network";
 import { AppState, Platform } from "react-native";
+import {
+  classifyMobileNetworkState,
+  shouldRetryAfterMobileConnectivityChange,
+  type MobileConnectivityStatus,
+} from "@/lib/mobileConnectivity";
 import NemuAidokuModule from "../../modules/nemu-aidoku/src/NemuAidokuModule";
 import type { NemuNetworkAccessState } from "../../modules/nemu-aidoku/src/NemuAidoku.types";
 import { useMobileDataStore } from "./mobileDataContext";
@@ -1477,28 +1486,8 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
 
   useEffect(() => {
     ignoreReloadError(reload);
-    if (Platform.OS !== "ios") {
-      return () => {
-        reloadAbortRef.current?.abort();
-        reloadAbortRef.current = null;
-        reloadRunRef.current += 1;
-      };
-    }
 
-    let previousNetworkAccessState = NemuAidokuModule.getNetworkAccessState();
-    setNetworkAccessState(previousNetworkAccessState);
     let previousAppState = AppState.currentState;
-    const networkSubscription = NemuAidokuModule.addListener(
-      "nemuNetworkAccessChanged",
-      ({ state }) => {
-        const shouldRetry =
-          state === "notRestricted" &&
-          previousNetworkAccessState !== "notRestricted";
-        previousNetworkAccessState = state;
-        setNetworkAccessState(state);
-        if (shouldRetry) ignoreReloadError(reload);
-      },
-    );
     const appStateSubscription = AppState.addEventListener(
       "change",
       (nextAppState) => {
@@ -1509,8 +1498,47 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
       },
     );
 
+    // A load that failed while offline self-heals as soon as connectivity
+    // returns, instead of waiting for the user to background the app or find
+    // a retry button.
+    let previousConnectivity: MobileConnectivityStatus | null = null;
+    void getNetworkStateAsync()
+      .then((state) => {
+        if (previousConnectivity === null) {
+          previousConnectivity = classifyMobileNetworkState(state);
+        }
+      })
+      .catch(() => undefined);
+    const connectivitySubscription = addNetworkStateListener((state) => {
+      const next = classifyMobileNetworkState(state);
+      const shouldRetry = shouldRetryAfterMobileConnectivityChange({
+        previous: previousConnectivity,
+        next,
+      });
+      previousConnectivity = next;
+      if (shouldRetry) ignoreReloadError(reload);
+    });
+
+    let cellularSubscription: { remove: () => void } | null = null;
+    if (Platform.OS === "ios") {
+      let previousNetworkAccessState = NemuAidokuModule.getNetworkAccessState();
+      setNetworkAccessState(previousNetworkAccessState);
+      cellularSubscription = NemuAidokuModule.addListener(
+        "nemuNetworkAccessChanged",
+        ({ state }) => {
+          const shouldRetry =
+            state === "notRestricted" &&
+            previousNetworkAccessState !== "notRestricted";
+          previousNetworkAccessState = state;
+          setNetworkAccessState(state);
+          if (shouldRetry) ignoreReloadError(reload);
+        },
+      );
+    }
+
     return () => {
-      networkSubscription.remove();
+      cellularSubscription?.remove();
+      connectivitySubscription.remove();
       appStateSubscription.remove();
       reloadAbortRef.current?.abort();
       reloadAbortRef.current = null;
