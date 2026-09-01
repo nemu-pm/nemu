@@ -22,11 +22,12 @@ enum NemuNativeHttpAddressPolicyError: Error, LocalizedError {
  * Address policy for untrusted source-package networking.
  *
  * Every source destination is resolved inside Nemu's authenticated loopback
- * proxy. Every answer must be public; mixed public/private answers fail closed.
- * The proxy then opens a socket to one of those exact IP literals, so no second
- * resolver lookup can rebind the connection after validation. URLSession's
- * metrics are retained as a fail-closed assertion that every transaction used
- * that loopback proxy instead of contacting an origin directly.
+ * proxy. Private and reserved answers are removed, and at least one public
+ * answer must remain. The proxy then opens a socket to one of those exact IP
+ * literals, so filtered answers cannot be selected and no second resolver
+ * lookup can rebind the connection after validation. URLSession's metrics are
+ * retained as a fail-closed assertion that every transaction used that
+ * loopback proxy instead of contacting an origin directly.
  */
 enum NemuNativeHttpAddressPolicy {
   typealias Resolver = (String) throws -> [[UInt8]]
@@ -112,10 +113,15 @@ enum NemuNativeHttpAddressPolicy {
     guard !addresses.isEmpty else {
       throw NemuNativeHttpAddressPolicyError.unresolvedHost
     }
-    guard addresses.allSatisfy(isPublicAddress) else {
+    let allowProxySyntheticAddresses = !isNumericHostname(normalized)
+    let validatedAddresses = addresses.filter { address in
+      isPublicAddress(address) ||
+        (allowProxySyntheticAddresses && isProxySyntheticAddress(address))
+    }
+    guard !validatedAddresses.isEmpty else {
       throw NemuNativeHttpAddressPolicyError.blockedDestination
     }
-    return addresses
+    return validatedAddresses
   }
 
   /// Fail-closed defense in depth for the explicit proxy configuration. The
@@ -178,6 +184,20 @@ enum NemuNativeHttpAddressPolicy {
       normalized == "instance-data.ec2.internal" ||
       normalized == "metadata.aws.internal" ||
       normalized == "metadata.azure.internal"
+  }
+
+  static func isNumericHostname(_ hostname: String) -> Bool {
+    if hostname.contains(":") { return true }
+    return !hostname.isEmpty && hostname.allSatisfy { character in
+      character.isNumber || character == "."
+    }
+  }
+
+  /// Surge and compatible TUN proxies synthesize DNS answers from RFC 2544's
+  /// benchmarking range. These remain non-public everywhere else and are only
+  /// eligible when they came from resolving a non-numeric hostname.
+  static func isProxySyntheticAddress(_ bytes: [UInt8]) -> Bool {
+    return bytes.count == 4 && bytes[0] == 198 && (18...19).contains(Int(bytes[1]))
   }
 
   static func isPublicAddress(_ bytes: [UInt8]) -> Bool {

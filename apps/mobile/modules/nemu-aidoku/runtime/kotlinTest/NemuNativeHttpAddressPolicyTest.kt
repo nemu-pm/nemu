@@ -111,14 +111,15 @@ class NemuNativeHttpAddressPolicyTest {
   }
 
   @Test
-  fun rejectsMixedDnsAnswersAndReturnsOnlyAnAllPublicSet() {
+  fun filtersMixedDnsAnswersAndReturnsOnlyThePublicSet() {
     val public = InetAddress.getByName("1.1.1.1")
     val private = InetAddress.getByName("192.168.0.1")
-    assertThrows(UnknownHostException::class.java) {
+    assertEquals(
+      listOf(public),
       NemuNativeHttpAddressPolicy.resolvePublicAddresses("source.example") {
         listOf(public, private)
       }
-    }
+    )
 
     assertEquals(
       listOf(public),
@@ -126,6 +127,27 @@ class NemuNativeHttpAddressPolicyTest {
         listOf(public)
       }
     )
+  }
+
+  @Test
+  fun allowsSurgeFakeIpOnlyForResolvedHostnames() {
+    val fakeIp = InetAddress.getByName("198.18.3.207")
+    assertEquals(
+      listOf(fakeIp),
+      NemuNativeHttpAddressPolicy.resolvePublicAddresses("source.example") {
+        listOf(fakeIp)
+      }
+    )
+    NemuNativeHttpAddressPolicy.requirePublicAddress(fakeIp, "source.example")
+
+    assertThrows(UnknownHostException::class.java) {
+      NemuNativeHttpAddressPolicy.resolvePublicAddresses("198.18.3.207") {
+        listOf(fakeIp)
+      }
+    }
+    assertThrows(UnknownHostException::class.java) {
+      NemuNativeHttpAddressPolicy.requirePublicAddress(fakeIp, "198.18.3.207")
+    }
   }
 
   @Test

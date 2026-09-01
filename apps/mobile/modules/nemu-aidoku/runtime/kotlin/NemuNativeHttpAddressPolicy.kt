@@ -14,9 +14,10 @@ import okhttp3.Response
  *
  * A source may choose arbitrary request URLs, so accepting only HTTP(S) is not
  * sufficient: without an address policy it can read loopback/LAN/cloud-metadata
- * services and exfiltrate the response in a later public request. DNS rejects a
- * host when *any* answer is non-public, and the network interceptor re-checks
- * the connected peer before request bytes are written. The latter also closes
+ * services and exfiltrate the response in a later public request. DNS removes
+ * every non-public answer and requires at least one public route; OkHttp can
+ * therefore select only a validated address. The network interceptor re-checks
+ * the connected peer before request bytes are written, which also closes
  * DNS-rebinding and redirect races after lookup.
  */
 internal object NemuNativeHttpAddressPolicy {
@@ -42,12 +43,19 @@ internal object NemuNativeHttpAddressPolicy {
     if (addresses.isEmpty()) {
       throw UnknownHostException("Native source host lookup returned no addresses.")
     }
-    if (addresses.any { !isPublicAddress(it.address) }) throw blockedDestination()
-    return addresses
+    val validatedAddresses = addresses.filter {
+      isPublicAddress(it.address) ||
+        (!isNumericHostname(normalized) && isProxySyntheticAddress(it.address))
+    }
+    if (validatedAddresses.isEmpty()) throw blockedDestination()
+    return validatedAddresses
   }
 
-  internal fun requirePublicAddress(address: InetAddress) {
-    if (!isPublicAddress(address.address)) throw blockedDestination()
+  internal fun requirePublicAddress(address: InetAddress, hostname: String) {
+    val normalized = normalizeHostname(hostname)
+    val allowed = isPublicAddress(address.address) ||
+      (!isNumericHostname(normalized) && isProxySyntheticAddress(address.address))
+    if (!allowed) throw blockedDestination()
   }
 
   /**
@@ -78,6 +86,17 @@ internal object NemuNativeHttpAddressPolicy {
     if (hostname.isEmpty()) return false
     if (hostname.contains(':')) return true
     return hostname.all { it in '0'..'9' || it == '.' }
+  }
+
+  /**
+   * Surge and compatible TUN proxies synthesize DNS answers from RFC 2544's
+   * benchmarking range. The range remains blocked as a direct URL literal and
+   * is accepted only when associated with an ordinary DNS hostname.
+   */
+  internal fun isProxySyntheticAddress(bytes: ByteArray): Boolean {
+    return bytes.size == 4 &&
+      unsigned(bytes[0]) == 198 &&
+      unsigned(bytes[1]) in 18..19
   }
 
   /** Address bytes for an IP literal, or `null` when [value] is not one. */
@@ -279,7 +298,7 @@ internal object NemuNativeHttpAddressPolicy {
   }
 }
 
-/** Validates every DNS answer used by OkHttp, including redirect lookups. */
+/** Returns only validated DNS answers to OkHttp, including redirect lookups. */
 internal object NemuPublicAddressDns : Dns {
   override fun lookup(hostname: String): List<InetAddress> {
     return NemuNativeHttpAddressPolicy.resolvePublicAddresses(hostname) {
@@ -311,7 +330,10 @@ internal class NemuPublicAddressNetworkInterceptor : Interceptor {
   override fun intercept(chain: Interceptor.Chain): Response {
     val address = chain.connection()?.route()?.socketAddress?.address
       ?: throw IOException("Native source destination could not be validated.")
-    NemuNativeHttpAddressPolicy.requirePublicAddress(address)
+    NemuNativeHttpAddressPolicy.requirePublicAddress(
+      address,
+      chain.request().url.host
+    )
     return chain.proceed(chain.request())
   }
 }

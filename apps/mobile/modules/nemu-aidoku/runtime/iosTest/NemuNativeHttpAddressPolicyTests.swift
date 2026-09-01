@@ -126,10 +126,23 @@ enum NemuNativeHttpAddressPolicyTests {
       resolver: { _ in [publicAddress] }
     )
     precondition(validatedAddresses == [publicAddress])
-    expectPolicyFailure("mixed DNS answers") {
-      try NemuNativeHttpAddressPolicy.validate(url: publicURL) { _ in
-        [publicAddress, privateAddress]
-      }
+    let filteredAddresses = try NemuNativeHttpAddressPolicy.validatedAddresses(
+      hostname: "source.example",
+      resolver: { _ in [publicAddress, privateAddress] }
+    )
+    precondition(filteredAddresses == [publicAddress])
+
+    let surgeFakeAddress = addressBytes("198.18.3.207")
+    let surgeAddresses = try NemuNativeHttpAddressPolicy.validatedAddresses(
+      hostname: "source.example",
+      resolver: { _ in [surgeFakeAddress] }
+    )
+    precondition(surgeAddresses == [surgeFakeAddress])
+    expectPolicyFailure("direct Surge fake IP") {
+      _ = try NemuNativeHttpAddressPolicy.validatedAddresses(
+        hostname: "198.18.3.207",
+        resolver: { _ in [surgeFakeAddress] }
+      )
     }
 
     var resolverCalled = false
