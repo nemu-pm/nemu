@@ -40,6 +40,10 @@ import {
   type MobileRegistrySource,
 } from "@/sources/aidokuRegistry";
 import {
+  loadCachedRegistryIndex,
+  saveCachedRegistryIndex,
+} from "@/sources/mobileRegistryIndexCache";
+import {
   cacheSourcePackage,
   clearCachedSourcePackage,
   clearCachedSourcePackages,
@@ -1477,6 +1481,10 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
     );
   const reloadAbortRef = useRef<AbortController | null>(null);
   const reloadRunRef = useRef(0);
+  const dataRef = useRef(data);
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   const reload = useCallback(async () => {
     reloadAbortRef.current?.abort();
@@ -1486,10 +1494,26 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
     reloadAbortRef.current = controller;
     const isCurrent = () =>
       reloadAbortRef.current === controller && reloadRunRef.current === run;
+    const hasPaintedData = dataRef.current.length > 0;
     try {
-      setLoading(true);
+      if (!hasPaintedData) {
+        setLoading(true);
+      }
       setError(null);
       setSourceUpdateNotice(null);
+
+      // Stale-while-revalidate: paint the persisted catalog immediately so
+      // cold starts and offline launches see a usable source list while the
+      // network refresh is still in flight.
+      if (!hasPaintedData) {
+        const cached = await loadCachedRegistryIndex();
+        if (!isCurrent()) return;
+        if (cached && cached.length > 0) {
+          setData(cached);
+          setLoading(false);
+        }
+      }
+
       const sources = await fetchAllAidokuRegistrySources(AIDOKU_REGISTRIES, {
         signal: controller.signal,
       });
@@ -1510,39 +1534,17 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
         Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
       );
       emitMobileDataChanged("registries");
+      void saveCachedRegistryIndex(sources);
       const installedSources = await store.getInstalledSources();
       assertMobileSourceInstallActive(controller.signal, () =>
         Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
       );
       const updateSources = findMobileSourceUpdates(installedSources, sources);
-      const updatedNames: string[] = [];
-      for (const source of updateSources) {
-        try {
-          const saved = await saveMobileRegistrySourceInstall(store, source, {
-            signal: controller.signal,
-            updateOnly: true,
-          });
-          if (saved) updatedNames.push(source.name);
-        } catch (nextError) {
-          if (isMobileSourceInstallCancellation(nextError)) throw nextError;
-          console.warn(
-            `[MobileSources] Failed to update ${source.registryId}:${source.id}:`,
-            errorMessage(nextError),
-          );
-        }
-      }
-      assertMobileSourceInstallActive(controller.signal, () =>
-        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
-      );
+
+      // Paint the fresh catalog before downloading update packages so slow
+      // or sequential-feeling updates can't hold the list hostage.
       if (!isCurrent()) return;
-      if (updatedNames.length > 0) {
-        emitMobileDataChanged("sources");
-        setSourceUpdateNotice({ id: Date.now(), names: updatedNames });
-      } else {
-        setSourceUpdateNotice(null);
-      }
-      // Foreground and reconnect reloads must not re-key consumers (source
-      // pickers, the settings login probe) when the registry is unchanged.
+      setSourceUpdateNotice(null);
       setData(
         (current) =>
           stabilizeListReferences(
@@ -1551,6 +1553,37 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
             (source) => `${source.registryId}:${source.id}`,
           ) as MobileRegistrySource[],
       );
+      if (updateSources.length === 0) return;
+
+      const updatedNames = await Promise.all(
+        updateSources.map(async (source) => {
+          try {
+            const saved = await saveMobileRegistrySourceInstall(store, source, {
+              signal: controller.signal,
+              updateOnly: true,
+            });
+            return saved ? source.name : null;
+          } catch (nextError) {
+            if (isMobileSourceInstallCancellation(nextError)) throw nextError;
+            console.warn(
+              `[MobileSources] Failed to update ${source.registryId}:${source.id}:`,
+              errorMessage(nextError),
+            );
+            return null;
+          }
+        }),
+      );
+      assertMobileSourceInstallActive(controller.signal, () =>
+        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
+      );
+      if (!isCurrent()) return;
+      const names = updatedNames.filter(
+        (name): name is string => name !== null,
+      );
+      if (names.length > 0) {
+        emitMobileDataChanged("sources");
+        setSourceUpdateNotice({ id: Date.now(), names });
+      }
     } catch (nextError) {
       if (isCurrent() && !isMobileSourceInstallCancellation(nextError)) {
         setError(errorMessage(nextError));

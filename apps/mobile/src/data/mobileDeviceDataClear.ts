@@ -3,6 +3,7 @@ import { runMobileCacheClearSteps } from "./mobileCacheClear";
 import { clearCachedSourcePackages } from "@/sources/sourcePackageCache";
 import { defaultMobileSourceSessionCache } from "@/sources/mobileSourceExecutorCache";
 import { clearMobileSourceImageRequestCache } from "@/sources/mobileSourceImages";
+import { clearCachedRegistryIndex } from "@/sources/mobileRegistryIndexCache";
 import { clearMobileImageCache } from "@/lib/mobileImageCache";
 import { clearMobileJapaneseLearningTtsCache } from "@/lib/mobileJapaneseLearningTts";
 import { clearMobileDualReaderDhashCache } from "@/lib/mobileDualReaderDhashCache";
@@ -25,6 +26,7 @@ export async function clearAllMobileDeviceData(
       clearMobileJapaneseLearningTtsCache,
       clearMobileDualReaderDhashCache,
       clearMobileSourceImageRequestCache,
+      clearCachedRegistryIndex,
     ]);
   } catch (error) {
     cacheFailed = true;
