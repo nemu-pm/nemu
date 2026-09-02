@@ -11,6 +11,7 @@ import {
   type MobileConnectivityStatus,
 } from "@/lib/mobileConnectivity";
 import {
+  keepMapOfSetsIfUnchanged,
   keepReferenceIfUnchanged,
   stabilizeListReferences,
 } from "@/lib/mobileStableData";
@@ -544,7 +545,16 @@ export function useSourceSettings(
       savedUserData.current = {};
       setData(defaults);
     }
-    setLoading(true);
+    // Only a new source (or schema) starts from a loading state. A revision
+    // reload for the same source refreshes in the background, so consumers
+    // keyed on `loading` (browse search/filter effects, the login probe) do
+    // not reset on every settings write.
+    if (
+      sourceChanged ||
+      loadedSourceSettingsSignature.current !== sourceSettingsLoadSignature
+    ) {
+      setLoading(true);
+    }
     try {
       setError(null);
       if (!currentSourceKey) {
@@ -576,7 +586,7 @@ export function useSourceSettings(
         savedData.current = values;
         userDataRef.current = userValues;
         savedUserData.current = userValues;
-        setData(values);
+        setData((current) => keepReferenceIfUnchanged(current, values));
       }
     } catch (nextError) {
       if (
@@ -755,12 +765,21 @@ export function useCollections(): LoadState<LocalCollection[]> & {
         store.getCollections(),
         store.getCollectionItems(),
       ]);
-      setData(
-        sortCollections(
-          collections.filter((collection) => !collection.removed),
-        ),
+      const sorted = sortCollections(
+        collections.filter((collection) => !collection.removed),
       );
-      setMembership(buildCollectionMembership(collectionItems));
+      const nextMembership = buildCollectionMembership(collectionItems);
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            sorted,
+            (collection) => collection.collectionId,
+          ) as LocalCollection[],
+      );
+      setMembership((current) =>
+        keepMapOfSetsIfUnchanged(current, nextMembership),
+      );
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -1522,7 +1541,16 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
       } else {
         setSourceUpdateNotice(null);
       }
-      setData(sources);
+      // Foreground and reconnect reloads must not re-key consumers (source
+      // pickers, the settings login probe) when the registry is unchanged.
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            sources,
+            (source) => `${source.registryId}:${source.id}`,
+          ) as MobileRegistrySource[],
+      );
     } catch (nextError) {
       if (isCurrent() && !isMobileSourceInstallCancellation(nextError)) {
         setError(errorMessage(nextError));

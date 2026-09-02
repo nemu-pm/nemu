@@ -1531,9 +1531,16 @@ export function SettingsScreen({
   const [selectedSourceLoginCapabilities, setSelectedSourceLoginCapabilities] =
     useState<MobileSourceLoginCapabilities | null>(null);
 
+  const probedLoginSourceRef = useRef(selectedRuntimeSource);
   useEffect(() => {
     let active = true;
-    setSelectedSourceLoginCapabilities(null);
+    // Only a different source starts from an unknown login state. Re-probing
+    // after a setting toggle keeps the current answer visible until the new
+    // one arrives instead of blanking the login row on every write.
+    if (probedLoginSourceRef.current !== selectedRuntimeSource) {
+      probedLoginSourceRef.current = selectedRuntimeSource;
+      setSelectedSourceLoginCapabilities(null);
+    }
     if (!selectedRuntimeSource || selectedSourceSettings.loading) {
       return () => {
         active = false;

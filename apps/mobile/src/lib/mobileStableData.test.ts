@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  keepMapOfSetsIfUnchanged,
   keepReferenceIfUnchanged,
+  shallowEqualLists,
   stabilizeListReferences,
 } from "./mobileStableData";
 
@@ -90,5 +92,51 @@ describe("stabilizeListReferences", () => {
     expect(result).not.toBe(current);
     expect(result).toHaveLength(1);
     expect(result[0]).toBe(current[0]!);
+  });
+});
+
+describe("shallowEqualLists", () => {
+  test("compares item references in order", () => {
+    const a = { id: "a" };
+    const b = { id: "b" };
+    expect(shallowEqualLists([a, b], [a, b])).toBe(true);
+    expect(shallowEqualLists([a, b], [b, a])).toBe(false);
+    expect(shallowEqualLists([a], [a, b])).toBe(false);
+    expect(shallowEqualLists([a], [{ id: "a" }])).toBe(false);
+  });
+});
+
+describe("keepMapOfSetsIfUnchanged", () => {
+  test("keeps the current map when every membership set is identical", () => {
+    const current = new Map([
+      ["c1", new Set(["m1", "m2"])],
+      ["c2", new Set<string>()],
+    ]);
+    const next = new Map([
+      ["c2", new Set<string>()],
+      ["c1", new Set(["m2", "m1"])],
+    ]);
+    expect(keepMapOfSetsIfUnchanged(current, next)).toBe(current);
+  });
+
+  test("returns the next map for any membership difference", () => {
+    const current = new Map([["c1", new Set(["m1"])]]);
+    for (const next of [
+      new Map([["c1", new Set(["m1", "m2"])]]),
+      new Map([["c1", new Set(["m2"])]]),
+      new Map([["c9", new Set(["m1"])]]),
+      new Map<string, Set<string>>(),
+    ]) {
+      expect(keepMapOfSetsIfUnchanged(current, next)).toBe(next);
+    }
+  });
+
+  test("does not rely on JSON serialization of Map and Set", () => {
+    // JSON.stringify(new Map()) === "{}" — the generic helper would call
+    // every membership equal.
+    const current = new Map([["c1", new Set(["m1"])]]);
+    const next = new Map([["c1", new Set(["m2"])]]);
+    expect(keepReferenceIfUnchanged(current, next)).toBe(current);
+    expect(keepMapOfSetsIfUnchanged(current, next)).toBe(next);
   });
 });

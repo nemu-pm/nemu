@@ -19,23 +19,32 @@ export function useMobileSourceImageRequest(
 ): MobileSourceImageRequest | null {
   const store = useMobileDataStore();
   const sourceSettingsRevision = useMobileDataRevision(["sourceSettings"]);
+  // Identity: which image this is. A resolved request stays valid for the
+  // same identity while a refresh is in flight.
+  const imageIdentityKey = useMemo(
+    () => (source && url ? [source.id, url].join("|") : ""),
+    [source, url],
+  );
+  // Refresh: anything that can change the resolved headers. Bumping it
+  // re-resolves in the background instead of dropping the current request —
+  // a source-settings save must not blank every mounted cover, and covers
+  // for referer/auth sources must never fall back to a headerless URL.
   const sourceRequestKey = useMemo(
     () =>
       source && url
         ? [
-            source.id,
+            imageIdentityKey,
             source.packageCacheKey ?? "",
             source.packageUri ?? "",
             source.updatedAt ?? "",
             source.version,
             sourceSettingsRevision,
-            url,
           ].join("|")
         : "",
-    [source, sourceSettingsRevision, url],
+    [imageIdentityKey, source, sourceSettingsRevision, url],
   );
   const [state, setState] = useState<{
-    key: string;
+    identityKey: string;
     request: MobileSourceImageRequest | null;
   } | null>(null);
   const getSourceSettings = useCallback(
@@ -63,13 +72,21 @@ export function useMobileSourceImageRequest(
     })
       .catch(() => null)
       .then((request) => {
-        if (active) setState({ key: sourceRequestKey, request });
+        if (!active) return;
+        setState((current) =>
+          // A failed refresh keeps the last good request for the same image.
+          request === null &&
+          current?.identityKey === imageIdentityKey &&
+          current.request
+            ? current
+            : { identityKey: imageIdentityKey, request },
+        );
       });
 
     return () => {
       active = false;
     };
-  }, [getSourceSettings, source, sourceRequestKey, url]);
+  }, [getSourceSettings, imageIdentityKey, source, sourceRequestKey, url]);
 
-  return state?.key === sourceRequestKey ? state.request : null;
+  return state?.identityKey === imageIdentityKey ? state.request : null;
 }

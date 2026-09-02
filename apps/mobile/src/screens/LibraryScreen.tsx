@@ -1385,9 +1385,19 @@ export function LibraryScreen({
     }, []),
   );
 
+  // The scheduler must outlive callback identity: `refreshLatestChapters`
+  // re-creates on every library/source write (including the reload its own
+  // sweep triggers), and re-arming the schedule on each one restarted the
+  // interval and queued redundant initial sweeps.
+  const refreshLatestChaptersRef = useRef(refreshLatestChapters);
+  useEffect(() => {
+    refreshLatestChaptersRef.current = refreshLatestChapters;
+  }, [refreshLatestChapters]);
+
   useEffect(() => {
     let initialRefreshTask: MobileIdleTaskHandle | null = null;
     let interval: ReturnType<typeof setInterval> | null = null;
+    const refreshLatestChapters = () => refreshLatestChaptersRef.current();
 
     const stopRefreshSchedule = () => {
       initialRefreshTask?.cancel();
@@ -1445,7 +1455,7 @@ export function LibraryScreen({
       stopRefreshSchedule();
       subscription.remove();
     };
-  }, [refreshLatestChapters]);
+  }, []);
 
   const createCollection = async (submittedName?: string) => {
     const name = (submittedName ?? newCollectionName).trim();

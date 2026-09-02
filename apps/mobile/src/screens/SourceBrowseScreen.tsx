@@ -2077,10 +2077,22 @@ export function SourceBrowseScreen() {
     ],
   );
 
+  // Everything that genuinely changes source search results. The effect below
+  // also re-runs on incidental churn (installed-source identity, settings
+  // loading flips, string tables); an unchanged key must not wipe the results
+  // and re-search.
+  const sourceSearchRequestKey = sourceSearchActive
+    ? `${sourceHomeGenerationKey}:${sourceSearchTerm}:${JSON.stringify(
+        compactMobileSourceFilterValues(sourceFilterValues),
+      )}`
+    : null;
+  const loadedSourceSearchKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!installedSource || sourceSettings.loading) return;
     if (!sourceSearchActive) {
       sourceSearchRequestRef.current += 1;
+      loadedSourceSearchKeyRef.current = null;
       if (
         !shouldPreserveSourceBrowseSearchItemsOnDeactivate({
           sourceExpectsHomeTab,
@@ -2094,6 +2106,8 @@ export function SourceBrowseScreen() {
       }
       return;
     }
+    if (loadedSourceSearchKeyRef.current === sourceSearchRequestKey) return;
+    loadedSourceSearchKeyRef.current = sourceSearchRequestKey;
     void loadSourceSearch(1);
   }, [
     installedSource,
@@ -2101,6 +2115,7 @@ export function SourceBrowseScreen() {
     runtimeRefreshKey,
     sourceExpectsHomeTab,
     sourceSearchActive,
+    sourceSearchRequestKey,
     sourceSettings.loading,
     strings,
   ]);

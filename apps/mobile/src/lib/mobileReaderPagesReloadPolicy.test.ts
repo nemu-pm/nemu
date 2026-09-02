@@ -85,3 +85,50 @@ describe("mobile reader pages reload policy", () => {
     );
   });
 });
+
+describe("incidental-churn guards across screens", () => {
+  test("source search refetches only when its request key changes", () => {
+    const screen = mobileSource("screens/SourceBrowseScreen.tsx");
+    expect(screen).toContain("const loadedSourceSearchKeyRef = useRef<");
+    expect(screen).toContain(
+      "if (loadedSourceSearchKeyRef.current === sourceSearchRequestKey) return;",
+    );
+    // The key must derive from the same generation inputs as the home tab.
+    expect(screen).toContain("? `${sourceHomeGenerationKey}:${sourceSearchTerm}:");
+  });
+
+  test("library refresh scheduler is decoupled from callback identity", () => {
+    const screen = mobileSource("screens/LibraryScreen.tsx");
+    expect(screen).toContain(
+      "const refreshLatestChaptersRef = useRef(refreshLatestChapters);",
+    );
+    expect(screen).toContain(
+      "const refreshLatestChapters = () => refreshLatestChaptersRef.current();",
+    );
+    const schedulerIndex = screen.indexOf(
+      "const refreshLatestChapters = () => refreshLatestChaptersRef.current();",
+    );
+    const schedulerEnd = screen.indexOf("subscription.remove();\n    };\n  }, []);", schedulerIndex);
+    expect(schedulerEnd).toBeGreaterThan(schedulerIndex);
+  });
+
+  test("cover requests keep the last resolved request while refreshing", () => {
+    const hook = mobileSource("lib/useMobileSourceImageRequest.ts");
+    expect(hook).toContain(
+      "return state?.identityKey === imageIdentityKey ? state.request : null;",
+    );
+    expect(hook).not.toContain("state?.key === sourceRequestKey");
+  });
+
+  test("source settings reload does not flash loading for the same source", () => {
+    const hooks = mobileSource("data/mobileHooks.ts");
+    expect(hooks).toContain(
+      "loadedSourceSettingsSignature.current !== sourceSettingsLoadSignature\n    ) {\n      setLoading(true);",
+    );
+  });
+
+  test("selected live-search sources hold their reference across sibling changes", () => {
+    const screen = mobileSource("screens/SearchScreen.tsx");
+    expect(screen).toContain("const selectedInstalledSources = useStableList(");
+  });
+});

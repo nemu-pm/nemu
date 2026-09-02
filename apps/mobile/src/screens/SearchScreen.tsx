@@ -74,6 +74,7 @@ import {
   mergeSourceSettingValues,
 } from "@/lib/mobileSourceSettings";
 import { getMobileSourceMangaHref } from "@/lib/mobileSourceRoutes";
+import { useStableList } from "@/lib/useStableList";
 import {
   groupLocalSearchResults,
   canClearMobileSearchQuery,
@@ -662,9 +663,13 @@ export function SearchScreen() {
     () => new Set(selectedLiveSources.map((source) => source.id)),
     [selectedLiveSources],
   );
-  const selectedInstalledSources = useMemo(
-    () => installed.data.filter((source) => selectedLiveSourceIdSet.has(source.id)),
-    [installed.data, selectedLiveSourceIdSet],
+  // Stable while the selected subset is unchanged, so another source's
+  // package hydration cannot abort and restart a running live search.
+  const selectedInstalledSources = useStableList(
+    useMemo(
+      () => installed.data.filter((source) => selectedLiveSourceIdSet.has(source.id)),
+      [installed.data, selectedLiveSourceIdSet],
+    ),
   );
   const showSourceFilter = sources.length > 1;
   const resultItemWidth = useMemo(
