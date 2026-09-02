@@ -1317,6 +1317,11 @@ export function ReaderScreen() {
     useState<string | null>(null);
   const readerPluginSettingsBusyKeyRef = useRef<string | null>(null);
   const readerPagesRequestRunRef = useRef(0);
+  // The request key whose pages are currently rendered. The pages effect also
+  // re-runs on incidental dependency churn (any settings write flips `loading`
+  // through the installed-sources revision); an unchanged key must not blank
+  // the reader and refetch the chapter.
+  const readerPagesLoadedKeyRef = useRef<string | null>(null);
   const persistProgressRef = useRef<
     (
       complete: boolean,
@@ -4537,6 +4542,22 @@ export function ReaderScreen() {
       };
     }
 
+    const pagesRequestKey = `${makeMobileReaderPagesPrefetchKey({
+      registryId,
+      sourceId,
+      mangaId,
+      chapterId,
+      processPageImages,
+    })}:${pagesRefreshNonce}:${appLanguage}`;
+    // Reading mode, theme, and similar settings writes re-run this effect via
+    // the `loading` flip without changing what should be on screen. Only a
+    // changed request key may reset the rendered pages.
+    if (readerPagesLoadedKeyRef.current === pagesRequestKey) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const performanceKey = `${registryId}:${sourceId}:${mangaId}:${chapterId}`;
     readerFirstPageRequestRef.current = {
       key: performanceKey,
@@ -4611,6 +4632,7 @@ export function ReaderScreen() {
           return;
         }
 
+        readerPagesLoadedKeyRef.current = pagesRequestKey;
         setPagesState({
           status: "ready",
           pages: refreshed.pages,

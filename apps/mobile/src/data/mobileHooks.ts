@@ -10,6 +10,7 @@ import {
   shouldRetryAfterMobileConnectivityChange,
   type MobileConnectivityStatus,
 } from "@/lib/mobileConnectivity";
+import { keepReferenceIfUnchanged } from "@/lib/mobileStableData";
 import NemuAidokuModule from "../../modules/nemu-aidoku/src/NemuAidokuModule";
 import type { NemuNetworkAccessState } from "../../modules/nemu-aidoku/src/NemuAidoku.types";
 import { useMobileDataStore } from "./mobileDataContext";
@@ -329,7 +330,10 @@ export function useInstalledSources(): LoadState<InstalledSource[]> {
     try {
       setError(null);
       const sources = await store.getInstalledSources();
-      setData(sources);
+      // Settings writes bump this hook's revision even when the installed
+      // sources are untouched; keeping the previous reference stops every
+      // consumer keyed on `data` (reader loads included) from re-running.
+      setData((current) => keepReferenceIfUnchanged(current, sources));
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
