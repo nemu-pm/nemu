@@ -31,8 +31,10 @@ import {
   canRunNemuPressableHaptic,
   resolveNemuPressableAccessibility,
   resolveNemuPressableAnimationEnabled,
+  resolveNemuPressablePressedScale,
   shouldResetNemuPressableInteraction,
   type NemuPressableHapticFeedback,
+  type NemuPressableProfile,
 } from "@/lib/nemuPressable";
 
 const useNativeAnimationDriver = Platform.OS !== "web";
@@ -43,6 +45,7 @@ type NemuPressableProps = Omit<PressableProps, "style"> & {
   containerStyle?: StyleProp<ViewStyle>;
   style?: StyleProp<ViewStyle>;
   pressedScale?: number;
+  pressProfile?: NemuPressableProfile;
   pressAnimationDuration?: number;
   pressAnimationEnabled?: boolean;
   hapticFeedback?: NemuPressableHapticFeedback;
@@ -56,6 +59,7 @@ export function NemuPressable({
   containerStyle,
   style,
   pressedScale,
+  pressProfile,
   pressAnimationDuration,
   pressAnimationEnabled,
   hitSlop = 6,
@@ -112,7 +116,8 @@ export function NemuPressable({
     ? getNemuButtonMinimumTargetSize(Platform.OS)
     : null;
   const resolvedPressedScale =
-    pressedScale ?? (depthMotion ? depthMotion.scale : 0.96);
+    resolveNemuPressablePressedScale({ pressProfile, pressedScale }) ??
+    (depthMotion ? depthMotion.scale : 0.96);
   const resolvedPressAnimationDuration =
     pressAnimationDuration ?? depthMotion?.duration;
   const resolvedPressAnimationEnabled =

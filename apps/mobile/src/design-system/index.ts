@@ -1,5 +1,6 @@
 export {
   nemuTokens,
+  iconSize,
   radius,
   spacing,
   type NemuColorScheme,
@@ -43,6 +44,11 @@ export { NemuListRow } from "./components/NemuListRow";
 export { NemuNativeProgressView } from "./components/NemuNativeProgressView";
 export { NemuNativeSwitch } from "./components/NemuNativeSwitch";
 export { NemuPressable } from "./components/NemuPressable";
+export {
+  NemuText,
+  type NemuTextProps,
+  type NemuTextVariant,
+} from "./components/NemuText";
 export { NemuTextFieldClearAction } from "./components/NemuTextFieldClearAction";
 export { PageHeader, type PageHeaderAction } from "./components/PageHeader";
 export { PageListScaffold, PageScaffold } from "./components/PageScaffold";

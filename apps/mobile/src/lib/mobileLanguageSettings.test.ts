@@ -105,10 +105,38 @@ describe("mobile language settings helpers", () => {
 
     expect(sortSourcesByLanguagePriority(sources, "zh").map((source) => source.id)).toEqual([
       "ja",
-      "en",
       "zh",
+      "en",
       "multi",
       "fr",
+    ]);
+  });
+
+  test("keeps chinese ahead of english regardless of the app language", () => {
+    const sources = [
+      { id: "en", languages: ["en"] },
+      { id: "zh", languages: ["zh"] },
+      { id: "ja", languages: ["ja"] },
+    ];
+
+    expect(sortSourcesByLanguagePriority(sources, "en").map((source) => source.id)).toEqual([
+      "ja",
+      "zh",
+      "en",
+    ]);
+  });
+
+  test("ranks the app language after multi but before alphabetical order", () => {
+    const sources = [
+      { id: "pt", languages: ["pt"] },
+      { id: "multi", languages: ["multi"] },
+      { id: "ja", languages: ["ja"] },
+    ];
+
+    expect(sortSourcesByLanguagePriority(sources, "ja").map((source) => source.id)).toEqual([
+      "ja",
+      "multi",
+      "pt",
     ]);
   });
 });

@@ -26,6 +26,8 @@ export type NemuTokens = {
   shadow: string;
   danger: string;
   success: string;
+  warning: string;
+  warningSoft: string;
 };
 
 export const radius = {
@@ -34,12 +36,28 @@ export const radius = {
   lg: 10,
   xl: 12,
   tab: 22,
+  pill: 999,
 } as const;
 
 export const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 24,
   pageX: 16,
   pageTop: 18,
   tabBottom: 12,
+} as const;
+
+/**
+ * Shared icon glyph sizes. Toolbars and sheet rows render 22/20pt SF-Symbol
+ * equivalents; compact inline icons stay at 18pt.
+ */
+export const iconSize = {
+  sm: 18,
+  md: 20,
+  lg: 22,
 } as const;
 
 export const nemuTokens: Record<NemuColorScheme, NemuTokens> = {
@@ -66,6 +84,8 @@ export const nemuTokens: Record<NemuColorScheme, NemuTokens> = {
     shadow: "rgba(38,57,176,0.14)",
     danger: "#de3b3d",
     success: "#2f8f67",
+    warning: "#c2801a",
+    warningSoft: "rgba(194,128,26,0.14)",
   },
   dark: {
     background: "#090a0d",
@@ -90,5 +110,7 @@ export const nemuTokens: Record<NemuColorScheme, NemuTokens> = {
     shadow: "rgba(0,0,0,0.36)",
     danger: "#e8575b",
     success: "#64c493",
+    warning: "#f0a63a",
+    warningSoft: "rgba(240,166,58,0.16)",
   },
 };

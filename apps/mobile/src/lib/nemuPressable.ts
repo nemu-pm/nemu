@@ -8,6 +8,30 @@ export type NemuPressableHapticFeedback =
   | "error"
   | "none";
 
+/**
+ * Named press scales so screens stop hand-picking ad-hoc values. An explicit
+ * `pressedScale` prop still wins over the profile.
+ */
+export const nemuPressablePressProfiles = {
+  card: 0.98,
+  row: 0.985,
+  icon: 0.94,
+} as const;
+
+export type NemuPressableProfile = keyof typeof nemuPressablePressProfiles;
+
+export function resolveNemuPressablePressedScale({
+  pressProfile,
+  pressedScale,
+}: {
+  pressProfile?: NemuPressableProfile;
+  pressedScale?: number;
+}): number | undefined {
+  if (pressedScale !== undefined) return pressedScale;
+  if (pressProfile !== undefined) return nemuPressablePressProfiles[pressProfile];
+  return undefined;
+}
+
 export type NemuPressableAccessibilityInput = {
   accessibilityRole?: AccessibilityRole;
   accessibilityState?: AccessibilityState;

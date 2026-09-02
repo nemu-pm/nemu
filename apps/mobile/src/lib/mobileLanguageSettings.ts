@@ -90,7 +90,7 @@ export function getLanguageCategory(languages: string[] | undefined): string {
 }
 
 export function getLanguagePriorityOrder(appLanguage: AppLanguage): string[] {
-  return [...new Set(["ja", "en", appLanguage, "multi"])];
+  return [...new Set(["ja", "zh", "en", "multi", appLanguage])];
 }
 
 export function sortSourcesByLanguagePriority<T extends MobileLanguageSource>(
