@@ -1,12 +1,15 @@
+import { useState } from "react";
 import type { ComponentProps } from "react";
 import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   nemuText,
   spacing,
   useNemuTheme,
   usesNemuNativeHeader,
   NemuButton,
+  NemuPressable,
 } from "@/design-system";
 import { getMobileFloatingTabBarOverlayExtent } from "@/lib/mobileFloatingTabBarClearance";
 import {
@@ -25,6 +28,9 @@ type EmptyLibraryProps = {
   onActionPress: () => void;
   actionDisabled?: boolean;
   actionLoading?: boolean;
+  /** Raw diagnostic string (e.g. describeMobileErrorDetail output). */
+  diagnostic?: string;
+  diagnosticDetailsLabel?: string;
 };
 
 export function EmptyLibrary({
@@ -35,8 +41,11 @@ export function EmptyLibrary({
   onActionPress,
   actionDisabled,
   actionLoading,
+  diagnostic,
+  diagnosticDetailsLabel,
 }: EmptyLibraryProps) {
   const { tokens } = useNemuTheme();
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const layout = getMobileEmptyLibraryLayout({
@@ -76,6 +85,44 @@ export function EmptyLibrary({
           >
             {description}
           </Text>
+          {diagnostic ? (
+            <View style={styles.diagnostic}>
+              <NemuPressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: diagnosticOpen }}
+                accessibilityLabel={diagnosticDetailsLabel ?? diagnostic.slice(0, 80)}
+                hapticFeedback="selection"
+                pressProfile="row"
+                onPress={() => setDiagnosticOpen((open) => !open)}
+                style={styles.diagnosticToggle}
+              >
+                <Ionicons
+                  name={
+                    diagnosticOpen
+                      ? "chevron-down-outline"
+                      : "chevron-forward-outline"
+                  }
+                  size={12}
+                  color={tokens.mutedForeground}
+                />
+                <Text style={[nemuText.caption, { color: tokens.mutedForeground }]}>
+                  {diagnosticDetailsLabel ?? "Details"}
+                </Text>
+              </NemuPressable>
+              {diagnosticOpen ? (
+                <Text
+                  selectable
+                  style={[
+                    styles.diagnosticBody,
+                    styles.diagnosticMono,
+                    { color: tokens.mutedForeground },
+                  ]}
+                >
+                  {diagnostic}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
         </View>
         <NemuButton
           accessibilityLabel={actionLabel}
@@ -122,5 +169,29 @@ const styles = StyleSheet.create({
   },
   action: {
     marginTop: NEMU_WEB_EMPTY_LIBRARY_VISUAL.actionMarginTop,
+  },
+  diagnostic: {
+    alignSelf: "stretch",
+    alignItems: "center",
+    gap: 4,
+  },
+  diagnosticToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  diagnosticBody: {
+    alignSelf: "stretch",
+    maxWidth: 320,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: "rgba(127,127,127,0.08)",
+  },
+  diagnosticMono: {
+    fontFamily: "Menlo",
+    fontSize: 11,
+    lineHeight: 15,
   },
 });

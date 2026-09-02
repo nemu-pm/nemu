@@ -916,6 +916,48 @@ DELETE FROM sync_health;
     });
   }
 
+  async restoreLibraryItem(
+    libraryItemId: string,
+    updatedAt?: number,
+  ): Promise<void> {
+    await this.runTransaction(async (txn) => {
+      const item = await txn.getFirstAsync<JsonRow>(
+        "SELECT json FROM library_items WHERE libraryItemId = ? LIMIT 1",
+        libraryItemId,
+      );
+      const parsedItem = decodeJson<LocalLibraryItem>(item);
+      // Removed memberships stay in the row set, so the undo can resurrect
+      // exactly the collections the removal touched.
+      const collectionRows = await txn.getAllAsync<JsonRow>(
+        "SELECT json FROM collection_items WHERE libraryItemId = ?",
+        libraryItemId,
+      );
+      const collectionItems =
+        decodeJsonRows<LocalCollectionItem>(collectionRows);
+      const now =
+        updatedAt ??
+        nextSyncTimestamp(
+          parsedItem?.updatedAt,
+          ...collectionItems.map((entry) => entry.updatedAt),
+        );
+      if (parsedItem) {
+        await this.putLibraryItem(txn, {
+          ...parsedItem,
+          inLibrary: true,
+          updatedAt: now,
+        });
+      }
+      for (const collectionItem of collectionItems) {
+        if (!collectionItem.removed) continue;
+        await this.putCollectionItem(txn, {
+          ...collectionItem,
+          removed: false,
+          updatedAt: now,
+        });
+      }
+    });
+  }
+
   async saveSourceLink(link: LocalSourceLink): Promise<void> {
     await this.runTransaction(async (txn) => {
       await this.putSourceLink(txn, link);

@@ -1,6 +1,9 @@
 import * as Haptics from "expo-haptics";
+import { areHapticsFeedbackEnabled } from "./mobileHapticsGate";
 
 async function runHaptic(action: () => Promise<void>) {
+  // The user-level master switch wins over any individual call site.
+  if (!areHapticsFeedbackEnabled()) return;
   try {
     await action();
   } catch {

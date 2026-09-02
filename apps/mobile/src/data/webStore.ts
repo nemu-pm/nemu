@@ -594,6 +594,39 @@ export class WebUserDataStore implements MobileDataStore {
     });
   }
 
+  async restoreLibraryItem(
+    libraryItemId: string,
+    updatedAt?: number,
+  ): Promise<void> {
+    this.updateState((state) => {
+      const item = state.libraryItems.find(
+        (entry) => entry.libraryItemId === libraryItemId,
+      );
+      const memberships = state.collectionItems.filter(
+        (entry) => entry.libraryItemId === libraryItemId,
+      );
+      const now =
+        updatedAt ??
+        nextSyncTimestamp(
+          item?.updatedAt,
+          ...memberships.map((entry) => entry.updatedAt),
+        );
+      return {
+        ...state,
+        libraryItems: state.libraryItems.map((entry) =>
+          entry.libraryItemId === libraryItemId
+            ? { ...entry, inLibrary: true, updatedAt: now }
+            : entry,
+        ),
+        collectionItems: state.collectionItems.map((entry) =>
+          entry.libraryItemId === libraryItemId && entry.removed
+            ? { ...entry, removed: false, updatedAt: now }
+            : entry,
+        ),
+      };
+    });
+  }
+
   async saveSourceLink(link: LocalSourceLink): Promise<void> {
     this.updateState((state) => ({
       ...state,

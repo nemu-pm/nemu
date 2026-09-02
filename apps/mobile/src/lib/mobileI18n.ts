@@ -866,6 +866,36 @@ export type MobileStrings = {
     subtitle: string;
     dragToReorder: string;
   };
+  feedback: {
+    dismiss: string;
+    undo: string;
+    removedFromLibrary: string;
+    removedFromLibraryHint: string;
+    markedAllRead: string;
+    quickMenuMarkAllRead: string;
+    quickMenuOpenInSource: string;
+    quickMenuAddToCollection: string;
+    libraryRefreshTitle: string;
+    libraryRefreshDetail: string;
+    libraryRefreshUnavailableSuffix: string;
+    catalogUnavailableTitle: string;
+    catalogUnavailableDetail: string;
+    hapticsFeedback: string;
+    hapticsFeedbackHint: string;
+    chapterCompleteFeedback: string;
+    chapterCompleteFeedbackHint: string;
+    loadingPageN: string;
+    noMoreResultsTotal: string;
+    loadFailed: string;
+    readerOfflineTitle: string;
+    readerOfflineDetail: string;
+    readerSlowSource: string;
+    readerWaitingForNetwork: string;
+    displayBrightness: string;
+    displayKeepAwake: string;
+    displayLockPortrait: string;
+    viewAllInSource: string;
+  };
 };
 
 const mobileStrings: Record<AppLanguage, MobileStrings> = {
@@ -1863,6 +1893,36 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       subtitle: "Reorder or unlink sources for this title",
       dragToReorder: "Drag to reorder",
     },
+    feedback: {
+      dismiss: "Dismiss",
+      undo: "Undo",
+      removedFromLibrary: "Removed from library",
+      removedFromLibraryHint: "Tap undo within 5 seconds to restore",
+      markedAllRead: "Marked all as read",
+      quickMenuMarkAllRead: "Mark all as read",
+      quickMenuAddToCollection: "Add to collection…",
+      quickMenuOpenInSource: "Open in {{source}}",
+      libraryRefreshTitle: "Library updated",
+      libraryRefreshDetail: "{{updated}} updated of {{checked}} checked",
+      libraryRefreshUnavailableSuffix: " · {{count}} source unavailable",
+      catalogUnavailableTitle: "Source catalog unavailable",
+      catalogUnavailableDetail: "Showing a cached catalog from earlier",
+      hapticsFeedback: "Haptic feedback",
+      hapticsFeedbackHint: "Light taps for page turns, toggles, and confirmations",
+      chapterCompleteFeedback: "Chapter complete animation",
+      chapterCompleteFeedbackHint: "Play a check animation when finishing a chapter",
+      loadingPageN: "Loading page {{page}}…",
+      noMoreResultsTotal: "No more results · {{count}} total",
+      loadFailed: "Load failed",
+      readerOfflineTitle: "Network offline",
+      readerOfflineDetail: "Cached pages stay readable · retries resume automatically",
+      readerSlowSource: "Still loading · the source is slow",
+      readerWaitingForNetwork: "Waiting for network",
+      displayBrightness: "Brightness",
+      displayKeepAwake: "Keep screen awake",
+      displayLockPortrait: "Lock portrait",
+      viewAllInSource: "View all in {{source}}",
+    },
   },
   zh: {
     about: {
@@ -2778,6 +2838,36 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceSearchPlaceholder: "搜索源标题",
       subtitle: "重新排序或取消链接此标题的源",
       dragToReorder: "拖动以重新排序",
+    },
+    feedback: {
+      dismiss: "关闭",
+      undo: "撤销",
+      removedFromLibrary: "已从书库移除",
+      removedFromLibraryHint: "5 秒内点撤销即可恢复",
+      markedAllRead: "已全部标为已读",
+      quickMenuMarkAllRead: "全部标为已读",
+      quickMenuAddToCollection: "加入合集…",
+      quickMenuOpenInSource: "在 {{source}} 中打开",
+      libraryRefreshTitle: "书库已更新",
+      libraryRefreshDetail: "检查 {{checked}} 本 · 更新 {{updated}} 本",
+      libraryRefreshUnavailableSuffix: " · {{count}} 个源暂时不可用",
+      catalogUnavailableTitle: "源目录暂时不可用",
+      catalogUnavailableDetail: "正在显示之前缓存的目录",
+      hapticsFeedback: "触感反馈",
+      hapticsFeedbackHint: "翻页、切换、操作确认时轻微振动",
+      chapterCompleteFeedback: "章节完成提示",
+      chapterCompleteFeedbackHint: "读完一话时显示完成动画并轻震",
+      loadingPageN: "正在加载第 {{page}} 页…",
+      noMoreResultsTotal: "没有更多了 · 共 {{count}} 部",
+      loadFailed: "加载失败",
+      readerOfflineTitle: "网络已断开",
+      readerOfflineDetail: "已缓存的页面可继续看 · 恢复后自动重试",
+      readerSlowSource: "仍在加载 · 源响应较慢",
+      readerWaitingForNetwork: "等待网络",
+      displayBrightness: "亮度",
+      displayKeepAwake: "保持屏幕唤醒",
+      displayLockPortrait: "锁定竖屏",
+      viewAllInSource: "在 {{source}} 中查看全部",
     },
   },
   ja: {
@@ -3795,6 +3885,36 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceSearchPlaceholder: "ソースタイトルを検索",
       subtitle: "このタイトルのソースを並べ替え、またはリンク解除します",
       dragToReorder: "ドラッグして並べ替え",
+    },
+    feedback: {
+      dismiss: "閉じる",
+      undo: "取り消す",
+      removedFromLibrary: "ライブラリから削除しました",
+      removedFromLibraryHint: "5秒以内なら取り消しで復元できます",
+      markedAllRead: "すべて既読にしました",
+      quickMenuMarkAllRead: "すべて既読にする",
+      quickMenuAddToCollection: "コレクションに追加…",
+      quickMenuOpenInSource: "{{source}}で開く",
+      libraryRefreshTitle: "ライブラリを更新しました",
+      libraryRefreshDetail: "{{checked}}件確認して {{updated}}件を更新",
+      libraryRefreshUnavailableSuffix: " · {{count}}件のソースが一時的に利用できません",
+      catalogUnavailableTitle: "ソースカタログが一時的に利用できません",
+      catalogUnavailableDetail: "以前のキャッシュを表示しています",
+      hapticsFeedback: "触覚フィードバック",
+      hapticsFeedbackHint: "ページ送りや切り替え、操作確認時に軽く振動します",
+      chapterCompleteFeedback: "話の読了アニメーション",
+      chapterCompleteFeedbackHint: "話を読み終えたときにチェックのアニメーションを再生します",
+      loadingPageN: "{{page}}ページを読み込み中…",
+      noMoreResultsTotal: "これ以上ありません · 全{{count}}件",
+      loadFailed: "読み込みに失敗しました",
+      readerOfflineTitle: "ネットワークに接続できません",
+      readerOfflineDetail: "キャッシュ済みのページはそのまま読めます · 復帰後に自動再試行",
+      readerSlowSource: "読み込み中 · ソースの応答が遅いです",
+      readerWaitingForNetwork: "ネットワークを待機中",
+      displayBrightness: "明るさ",
+      displayKeepAwake: "画面を常に点灯",
+      displayLockPortrait: "縦向きにロック",
+      viewAllInSource: "{{source}}ですべて表示",
     },
   },
 };

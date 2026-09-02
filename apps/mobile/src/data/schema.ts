@@ -160,6 +160,10 @@ export type UserSettings = {
   searchSelectedSourceIds?: string[];
   readerPlugins?: Record<string, ReaderPluginSettings>;
   mobileWelcomeCompleted?: boolean;
+  /** Master switch for transient haptic feedback; `undefined` means enabled. */
+  hapticsFeedbackEnabled?: boolean;
+  /** End-of-chapter check animation; `undefined` means disabled. */
+  chapterCompleteCelebration?: boolean;
 };
 
 /**

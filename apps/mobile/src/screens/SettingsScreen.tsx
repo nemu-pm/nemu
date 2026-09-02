@@ -59,6 +59,7 @@ import {
   useMobileDataManagement,
   useInstalledSources,
   useMobileLanguageSettings,
+  useMobileFeedbackSettings,
   useMobileReaderPlugins,
   useReadingMode,
   useSourceSettings,
@@ -1167,6 +1168,86 @@ function SettingsMenuRow({
         />
       </View>
     </PressableSettingsSurface>
+  );
+}
+
+function FeedbackSettingRow({
+  icon,
+  title,
+  subtitle,
+  value,
+  onToggle,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle: string;
+  value: boolean;
+  onToggle: (nextValue: boolean) => void;
+}) {
+  const { tokens } = useNemuTheme();
+
+  return (
+    <View style={[styles.settingsSurface, styles.menuRow, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
+      <View style={styles.menuIcon}>
+        <Ionicons name={icon} size={19} color={tokens.primary} />
+      </View>
+      <View style={styles.menuText}>
+        <Text
+          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+          style={[styles.menuTitle, { color: tokens.foreground }]}
+        >
+          {title}
+        </Text>
+        <Text
+          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+          numberOfLines={2}
+          style={[styles.menuSubtitle, { color: tokens.mutedForeground }]}
+        >
+          {subtitle}
+        </Text>
+      </View>
+      <NemuNativeSwitch
+        accessibilityLabel={title}
+        value={value}
+        onValueChange={(nextValue) => {
+          void hapticSelection();
+          onToggle(nextValue);
+        }}
+      />
+    </View>
+  );
+}
+
+function MobileFeedbackSettingsCard() {
+  const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
+  const {
+    hapticsFeedbackEnabled,
+    chapterCompleteCelebration,
+    setHapticsFeedbackEnabled,
+    setChapterCompleteCelebration,
+  } = useMobileFeedbackSettings();
+
+  return (
+    <View style={styles.menuGroup} testID="FeedbackSettingsCard">
+      <FeedbackSettingRow
+        icon="radio-button-on-outline"
+        title={strings.feedback.hapticsFeedback}
+        subtitle={strings.feedback.hapticsFeedbackHint}
+        value={hapticsFeedbackEnabled}
+        onToggle={(nextValue) => {
+          void setHapticsFeedbackEnabled(nextValue);
+        }}
+      />
+      <FeedbackSettingRow
+        icon="checkmark-done-outline"
+        title={strings.feedback.chapterCompleteFeedback}
+        subtitle={strings.feedback.chapterCompleteFeedbackHint}
+        value={chapterCompleteCelebration}
+        onToggle={(nextValue) => {
+          void setChapterCompleteCelebration(nextValue);
+        }}
+      />
+    </View>
   );
 }
 
@@ -2441,6 +2522,7 @@ export function SettingsScreen({
               {activeSection === null ? (
                 <>
                   <MobileCloudSyncCard />
+                  <MobileFeedbackSettingsCard />
                   <View style={styles.menuGroup}>
                     <SettingsMenuRow
                       icon="book-outline"

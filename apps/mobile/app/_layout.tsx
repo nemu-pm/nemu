@@ -14,6 +14,8 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FloatingTabBar } from "@/components/FloatingTabBar";
 import { MobileErrorBoundaryScreen } from "@/components/MobileErrorBoundaryScreen";
+import { MobileFeedbackSettingsBridge } from "@/components/MobileFeedbackSettingsBridge";
+import { MobileToastProvider } from "@/components/MobileToast";
 import { MobileWelcomeWizard } from "@/components/MobileWelcomeWizard";
 import { MobileDataProvider } from "@/data/mobileData";
 import { NemuThemeProvider, useNemuTheme } from "@/design-system";
@@ -147,14 +149,17 @@ export default function RootLayout() {
         <MobileSyncProvider>
           <MobileDataProvider>
             <MobileSyncBridge />
+            <MobileFeedbackSettingsBridge />
             <MobileBackgroundSyncRegistrar />
             <NemuThemeProvider>
-              <RootStack
-                welcomeBlocksAccessibility={welcomeBlocksAccessibility}
-              />
-              <MobileWelcomeWizard
-                onVisibilityChange={setWelcomeBlocksAccessibility}
-              />
+              <MobileToastProvider>
+                <RootStack
+                  welcomeBlocksAccessibility={welcomeBlocksAccessibility}
+                />
+                <MobileWelcomeWizard
+                  onVisibilityChange={setWelcomeBlocksAccessibility}
+                />
+              </MobileToastProvider>
             </NemuThemeProvider>
           </MobileDataProvider>
         </MobileSyncProvider>

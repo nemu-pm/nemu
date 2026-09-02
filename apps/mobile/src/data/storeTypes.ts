@@ -131,6 +131,12 @@ export type MobileDataStore = {
     updatedAt?: number,
     expectedGeneration?: number,
   ): Promise<void>;
+  /**
+   * Inverse of `removeLibraryItem`: flips the item back to `inLibrary` and
+   * un-removes its collection memberships in one transaction, so an undo can
+   * restore exactly what the removal touched.
+   */
+  restoreLibraryItem(libraryItemId: string, updatedAt?: number): Promise<void>;
   saveSourceLink(link: LocalSourceLink, expectedGeneration?: number): Promise<void>;
   removeSourceLink(
     registryId: string,

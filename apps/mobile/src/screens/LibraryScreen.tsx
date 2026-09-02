@@ -20,12 +20,15 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetTextInput } from "@expo/ui/community/bottom-sheet";
 import { Stack, router, useFocusEffect } from "expo-router";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
+import { MangaQuickActionSheet, type MangaQuickAction } from "@/components/MangaQuickActionSheet";
 import { MobileAddBooksSheet } from "@/components/MobileAddBooksSheet";
+import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileLibrarySkeleton } from "@/components/MobileLibrarySkeleton";
+import { useMobileToast } from "@/components/MobileToastContext";
 import { useMobileDataStore } from "@/data/mobileDataContext";
-import { emitMobileDataChanged } from "@/data/mobileDataEvents";
+import { emitMobileDataChanged, emitMobileLibraryDataChanged } from "@/data/mobileDataEvents";
 import {
   useCollections,
   useInstalledSources,
@@ -59,7 +62,11 @@ import {
   type MangaCardModel,
   type NemuNativeHeaderAction,
 } from "@/design-system";
-import { hapticConfirm, hapticError } from "@/lib/haptics";
+import {
+  hapticConfirm,
+  hapticError,
+  hapticSelection,
+} from "@/lib/haptics";
 import {
   formatMobileString,
   getMobileStrings,
@@ -69,8 +76,7 @@ import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import {
   getMobileInstalledSourceSettingsKeys,
   mobileInstalledSourceMatchesLink,
-} from "@/lib/mobileInstalledSourceKeys";
-import {
+} from "@/lib/mobileInstalledSourceKeys";import {
   canCreateMobileCollection,
   canRenameMobileCollection,
   canSaveMobileCollectionMembership,
@@ -113,6 +119,7 @@ import {
   loadMobileSourceSettingsByKeys,
   mergeSourceSettingValues,
 } from "@/lib/mobileSourceSettings";
+import { getMobileSourceMangaHref } from "@/lib/mobileSourceRoutes";
 import {
   scheduleMobileIdleTask,
   type MobileIdleTaskHandle,
@@ -169,11 +176,13 @@ function LibraryGridItem({
   progressIndex,
   strings,
   installedSources,
+  onLongPress,
 }: {
   entry: LibraryEntry;
   progressIndex: MobileLibraryProgressIndex;
   strings: MobileStrings;
   installedSources: InstalledSource[];
+  onLongPress?: () => void;
 }) {
   const cover = getEntryCover(entry);
   const sourceLink = useMemo(
@@ -190,7 +199,7 @@ function LibraryGridItem({
     [coverRequest, entry, progressIndex, strings],
   );
 
-  return <MangaCard item={item} />;
+  return <MangaCard item={item} onLongPress={onLongPress} />;
 }
 
 function collectionBookCountText(count: number, strings: MobileStrings): string {
@@ -998,6 +1007,9 @@ export function LibraryScreen({
   const [retryingData, setRetryingData] = useState(false);
   const [removeArmed, setRemoveArmed] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
+  const [quickActionEntry, setQuickActionEntry] = useState<LibraryEntry | null>(null);
+  const [membershipSheetEntry, setMembershipSheetEntry] = useState<LibraryEntry | null>(null);
+  const toast = useMobileToast();
   const pendingSheetTransitionRef = useRef<PendingLibrarySheetTransition | null>(null);
   const refreshInFlightRef = useRef(false);
   const retryDataGuardRef = useRef(false);
@@ -1343,9 +1355,26 @@ export function LibraryScreen({
         await reloadLibrary();
       }
       if (options.interactive) {
-        await (result.failed > 0 && result.refreshed === 0
-          ? hapticError()
-          : hapticConfirm());
+        if (result.failed > 0 && result.refreshed === 0) {
+          await hapticError();
+        } else {
+          await hapticConfirm();
+          const unavailableSuffix =
+            result.failed > 0
+              ? formatMobileString(strings.feedback.libraryRefreshUnavailableSuffix, {
+                  count: result.failed,
+                })
+              : "";
+          toast.show({
+            tone: result.failed > 0 ? "info" : "success",
+            title: strings.feedback.libraryRefreshTitle,
+            detail:
+              formatMobileString(strings.feedback.libraryRefreshDetail, {
+                updated: result.refreshed,
+                checked: result.checked,
+              }) + unavailableSuffix,
+          });
+        }
       }
     } finally {
       refreshInFlightRef.current = false;
@@ -1369,6 +1398,10 @@ export function LibraryScreen({
     getSourceSettings,
     reloadLibrary,
     store,
+    strings.feedback.libraryRefreshDetail,
+    strings.feedback.libraryRefreshTitle,
+    strings.feedback.libraryRefreshUnavailableSuffix,
+    toast,
   ]);
 
   // Blur-abort: when the user taps a manga (which navigates away and blurs
@@ -1686,6 +1719,160 @@ export function LibraryScreen({
           onPress: () => setShowTitleMenuSheet(true),
         },
       ];
+  const handleQuickActionMarkAllRead = useCallback(
+    async (entry: LibraryEntry) => {
+      const now = Date.now();
+      let acked = 0;
+      try {
+        for (const link of entry.sources) {
+          if (!link.latestChapter) continue;
+          const latest = link.latestChapter.chapterNumber;
+          const ack = link.updateAckChapter?.chapterNumber;
+          if (latest == null || (ack != null && ack >= latest)) continue;
+          await store.saveSourceLink({
+            ...link,
+            updateAckChapter: link.latestChapter,
+            updateAckChapterSortKey: link.latestChapterSortKey,
+            updateAckAt: now,
+            updatedAt: now,
+          });
+          acked += 1;
+        }
+      } catch {
+        toast.show({
+          tone: "danger",
+          title: strings.mangaDetail.actionFailedDetail,
+        });
+        return;
+      }
+      if (acked > 0) {
+        emitMobileDataChanged("library");
+        await hapticConfirm();
+      }
+      toast.show({
+        tone: "success",
+        title: strings.feedback.markedAllRead,
+      });
+    },
+    [store, strings, toast],
+  );
+
+  const handleQuickActionRemove = useCallback(
+    async (entry: LibraryEntry) => {
+      try {
+        await store.removeLibraryItem(entry.item.libraryItemId);
+        emitMobileLibraryDataChanged({ collectionsChanged: true });
+      } catch {
+        toast.show({
+          tone: "danger",
+          title: strings.mangaDetail.actionFailedDetail,
+        });
+        return;
+      }
+      toast.show({
+        tone: "info",
+        title: strings.feedback.removedFromLibrary,
+        detail: strings.feedback.removedFromLibraryHint,
+        action: {
+          label: strings.feedback.undo,
+          onPress: () => {
+            store
+              .restoreLibraryItem(entry.item.libraryItemId)
+              .then(() => emitMobileLibraryDataChanged({ collectionsChanged: true }))
+              .catch(() =>
+                toast.show({
+                  tone: "danger",
+                  title: strings.mangaDetail.actionFailedDetail,
+                }),
+              );
+          },
+        },
+      });
+    },
+    [store, strings, toast],
+  );
+
+  const openEntryInSource = useCallback(
+    (entry: LibraryEntry) => {
+      const link =
+        selectLibraryCoverSource(entry, progressIndex) ?? entry.sources[0];
+      if (!link) return;
+      router.push(
+        getMobileSourceMangaHref({
+          registryId: link.registryId,
+          sourceId: link.sourceId,
+          mangaId: link.sourceMangaId,
+          mangaTitle: getEntryTitle(entry),
+        }),
+      );
+    },
+    [progressIndex],
+  );
+
+  const quickActions = useMemo<MangaQuickAction[]>(() => {
+    const entry = quickActionEntry;
+    if (!entry) return [];
+    const link =
+      selectLibraryCoverSource(entry, progressIndex) ?? entry.sources[0];
+    const installedLinkSource = link
+      ? installedSources.data.find((candidate) =>
+          mobileInstalledSourceMatchesLink(candidate, link),
+        )
+      : null;
+    const actions: MangaQuickAction[] = [
+      {
+        id: "markAllRead",
+        label: strings.feedback.quickMenuMarkAllRead,
+        icon: "checkmark-done-outline",
+        onPress: () => {
+          setQuickActionEntry(null);
+          void handleQuickActionMarkAllRead(entry);
+        },
+      },
+      {
+        id: "addToCollection",
+        label: strings.feedback.quickMenuAddToCollection,
+        icon: "albums-outline",
+        onPress: () => {
+          setQuickActionEntry(null);
+          setMembershipSheetEntry(entry);
+        },
+      },
+    ];
+    if (link) {
+      actions.push({
+        id: "openInSource",
+        label: formatMobileString(strings.feedback.quickMenuOpenInSource, {
+          source: installedLinkSource?.name ?? link.sourceId,
+        }),
+        icon: "open-outline",
+        onPress: () => {
+          setQuickActionEntry(null);
+          openEntryInSource(entry);
+        },
+      });
+    }
+    actions.push({
+      id: "remove",
+      label: strings.mangaDetail.removeFromLibrary,
+      icon: "trash-outline",
+      destructive: true,
+      onPress: () => {
+        setQuickActionEntry(null);
+        void handleQuickActionRemove(entry);
+      },
+    });
+    return actions;
+  }, [
+    quickActionEntry,
+    progressIndex,
+    installedSources.data,
+    strings,
+    handleQuickActionMarkAllRead,
+    handleQuickActionRemove,
+    openEntryInSource,
+  ]);
+
   const renderLibraryGridItem = ({
     item: entry,
   }: ListRenderItemInfo<LibraryEntry>) => (
@@ -1695,6 +1882,10 @@ export function LibraryScreen({
         progressIndex={progressIndex}
         strings={strings}
         installedSources={installedSources.data}
+        onLongPress={() => {
+          void hapticSelection();
+          setQuickActionEntry(entry);
+        }}
       />
     </View>
   );
@@ -1925,6 +2116,21 @@ export function LibraryScreen({
         setShowTitleMenuSheet(false);
       }}
     />
+    <MangaQuickActionSheet
+      visible={quickActionEntry !== null}
+      title={quickActionEntry ? getEntryTitle(quickActionEntry) : ""}
+      actions={quickActions}
+      onClose={() => setQuickActionEntry(null)}
+      onDismiss={() => setQuickActionEntry(null)}
+    />
+    {membershipSheetEntry ? (
+      <MobileCollectionMembershipSheet
+        visible
+        libraryItemId={membershipSheetEntry.item.libraryItemId}
+        title={getEntryTitle(membershipSheetEntry)}
+        onClose={() => setMembershipSheetEntry(null)}
+      />
+    ) : null}
     <CollectionNameSheet
       visible={!showSkeleton && showCreatePanel}
       mode="create"

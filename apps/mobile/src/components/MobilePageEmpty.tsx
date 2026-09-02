@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { nemuText, useNemuTheme, NemuButton } from "@/design-system";
+import { nemuText, useNemuTheme, NemuButton, NemuPressable } from "@/design-system";
 import { shouldUseCompactMobilePageEmptyLayout } from "@/lib/mobilePageEmptyLayout";
 
 type MobilePageEmptyProps = {
@@ -13,6 +14,9 @@ type MobilePageEmptyProps = {
   onActionPress?: () => void;
   actionDisabled?: boolean;
   actionLoading?: boolean;
+  /** Raw diagnostic string (e.g. describeMobileErrorDetail output). */
+  diagnostic?: string;
+  diagnosticDetailsLabel?: string;
 };
 
 export function MobilePageEmpty({
@@ -25,11 +29,14 @@ export function MobilePageEmpty({
   onActionPress,
   actionDisabled,
   actionLoading,
+  diagnostic,
+  diagnosticDetailsLabel,
 }: MobilePageEmptyProps) {
   const { tokens } = useNemuTheme();
   const { height } = useWindowDimensions();
   const compactHeight = shouldUseCompactMobilePageEmptyLayout(height);
   const disabled = Boolean(actionDisabled || actionLoading);
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
 
   return (
     <View
@@ -66,6 +73,44 @@ export function MobilePageEmpty({
           >
             {description}
           </Text>
+        ) : null}
+        {diagnostic && !compactHeight ? (
+          <View style={styles.diagnostic}>
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: diagnosticOpen }}
+              accessibilityLabel={
+                diagnosticDetailsLabel ?? diagnostic.slice(0, 80)
+              }
+              hapticFeedback="selection"
+              pressProfile="row"
+              onPress={() => setDiagnosticOpen((open) => !open)}
+              style={styles.diagnosticToggle}
+            >
+              <Ionicons
+                name={diagnosticOpen ? "chevron-down-outline" : "chevron-forward-outline"}
+                size={12}
+                color={tokens.mutedForeground}
+              />
+              <Text
+                style={[nemuText.caption, { color: tokens.mutedForeground }]}
+              >
+                {diagnosticDetailsLabel ?? "Details"}
+              </Text>
+            </NemuPressable>
+            {diagnosticOpen ? (
+              <Text
+                selectable
+                style={[
+                  styles.diagnosticBody,
+                  styles.diagnosticMono,
+                  { color: tokens.mutedForeground },
+                ]}
+              >
+                {diagnostic}
+              </Text>
+            ) : null}
+          </View>
         ) : null}
       </View>
       {actionLabel && onActionPress ? (
@@ -126,5 +171,28 @@ const styles = StyleSheet.create({
   },
   description: {
     textAlign: "center",
+  },
+  diagnostic: {
+    alignSelf: "stretch",
+    alignItems: "center",
+    gap: 4,
+  },
+  diagnosticToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  diagnosticBody: {
+    alignSelf: "stretch",
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: "rgba(127,127,127,0.08)",
+  },
+  diagnosticMono: {
+    fontFamily: "Menlo",
+    fontSize: 11,
+    lineHeight: 15,
   },
 });

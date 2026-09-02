@@ -914,6 +914,107 @@ export function useSourceRegistries(): LoadState<SourceRegistry[]> {
   return { data, loading, error, reload };
 }
 
+export const DEFAULT_HAPTICS_FEEDBACK_ENABLED = true;
+export const DEFAULT_CHAPTER_COMPLETE_CELEBRATION = false;
+
+/**
+ * User-facing feedback switches: the haptics master gate and the
+ * end-of-chapter celebration. Both default per product spec and persist
+ * through the shared settings row.
+ */
+export function useMobileFeedbackSettings(): {
+  hapticsFeedbackEnabled: boolean;
+  chapterCompleteCelebration: boolean;
+  setHapticsFeedbackEnabled: (enabled: boolean) => Promise<void>;
+  setChapterCompleteCelebration: (enabled: boolean) => Promise<void>;
+} {
+  const store = useMobileDataStore();
+  const revision = useMobileDataRevision(["settings"]);
+  const [hapticsFeedbackEnabled, setHapticsState] = useState(
+    DEFAULT_HAPTICS_FEEDBACK_ENABLED,
+  );
+  const [chapterCompleteCelebration, setCelebrationState] = useState(
+    DEFAULT_CHAPTER_COMPLETE_CELEBRATION,
+  );
+  const hapticsRun = useRef(0);
+  const celebrationRun = useRef(0);
+  const savedHaptics = useRef(DEFAULT_HAPTICS_FEEDBACK_ENABLED);
+  const savedCelebration = useRef(DEFAULT_CHAPTER_COMPLETE_CELEBRATION);
+
+  useEffect(() => {
+    let mounted = true;
+    store
+      .getSettings()
+      .then((settings) => {
+        if (!mounted) return;
+        const nextHaptics = settings.hapticsFeedbackEnabled ?? DEFAULT_HAPTICS_FEEDBACK_ENABLED;
+        setHapticsState(nextHaptics);
+        savedHaptics.current = nextHaptics;
+        const nextCelebration =
+          settings.chapterCompleteCelebration ?? DEFAULT_CHAPTER_COMPLETE_CELEBRATION;
+        setCelebrationState(nextCelebration);
+        savedCelebration.current = nextCelebration;
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, [revision, store]);
+
+  const setHapticsFeedbackEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (enabled === hapticsFeedbackEnabled) return;
+      const run = hapticsRun.current + 1;
+      hapticsRun.current = run;
+      setHapticsState(enabled);
+      try {
+        await store.updateSettings((settings) => ({
+          ...settings,
+          hapticsFeedbackEnabled: enabled,
+        }));
+        savedHaptics.current = enabled;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (hapticsRun.current === run) {
+          setHapticsState(savedHaptics.current);
+        }
+        throw error;
+      }
+    },
+    [hapticsFeedbackEnabled, store],
+  );
+
+  const setChapterCompleteCelebration = useCallback(
+    async (enabled: boolean) => {
+      if (enabled === chapterCompleteCelebration) return;
+      const run = celebrationRun.current + 1;
+      celebrationRun.current = run;
+      setCelebrationState(enabled);
+      try {
+        await store.updateSettings((settings) => ({
+          ...settings,
+          chapterCompleteCelebration: enabled,
+        }));
+        savedCelebration.current = enabled;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (celebrationRun.current === run) {
+          setCelebrationState(savedCelebration.current);
+        }
+        throw error;
+      }
+    },
+    [chapterCompleteCelebration, store],
+  );
+
+  return {
+    hapticsFeedbackEnabled,
+    chapterCompleteCelebration,
+    setHapticsFeedbackEnabled,
+    setChapterCompleteCelebration,
+  };
+}
+
 export function useReadingMode(): {
   mode: ReadingMode;
   setMode: (mode: ReadingMode) => Promise<void>;

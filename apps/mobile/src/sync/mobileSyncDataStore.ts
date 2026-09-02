@@ -491,6 +491,38 @@ class MobileSyncDataStore implements MobileDataStore {
     );
   }
 
+  async restoreLibraryItem(
+    libraryItemId: string,
+    updatedAt?: number,
+  ): Promise<void> {
+    const syncEpoch = getMobileSyncEpoch();
+    const { generation, value } = await runLocalSyncMutation(
+      this.base,
+      async () => {
+        const resolvedUpdatedAt = updatedAt ?? nextSyncTimestamp();
+        await this.base.restoreLibraryItem(
+          libraryItemId,
+          resolvedUpdatedAt,
+        );
+        const [item, links] = await Promise.all([
+          this.base.getLibraryItem(libraryItemId),
+          this.base.getSourceLinksForItem(libraryItemId),
+        ]);
+        return { item, links };
+      },
+    );
+    if (generation === null) return;
+    const { item, links } = value;
+    if (!item || item.inLibrary === false) return;
+    enqueueMobileCloudMutation(syncEpoch, this, (context) =>
+      context.convex.mutation(api.library.save, {
+        expectedUserId: context.expectedUserId,
+        ...toCloudLibrarySaveInput(item, links),
+        generation,
+      }),
+    );
+  }
+
   async saveSourceLink(link: LocalSourceLink): Promise<void> {
     const syncEpoch = getMobileSyncEpoch();
     const { generation, value } = await runLocalSyncMutation(

@@ -67,6 +67,7 @@ import {
 import {
   describeMobileErrorDetail,
   getMobileSourceErrorPresentation,
+  sanitizeMobileErrorDiagnostic,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
 import {
@@ -1153,7 +1154,11 @@ export function SearchScreen() {
             {error ? (
               <EmptyLibrary
                 title={strings.search.searchUnavailable}
-                description={error}
+                description={strings.common.sourceErrorDescription}
+                diagnostic={
+                  sanitizeMobileErrorDiagnostic(error) ?? error
+                }
+                diagnosticDetailsLabel={strings.errorBoundary.detailsLabel}
                 actionLabel={strings.common.retry}
                 actionDisabled={retryingData}
                 actionLoading={retryingData}

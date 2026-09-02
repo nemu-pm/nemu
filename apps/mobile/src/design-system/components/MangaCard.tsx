@@ -1,6 +1,11 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
+import Animated, {
+  ZoomIn,
+  useReducedMotion,
+} from "react-native-reanimated";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { createNemuShadowStyle } from "@/design/shadows";
 import { radius } from "@/design/tokens";
@@ -8,7 +13,7 @@ import { nemuFontWeight, nemuMaxFontSizeMultiplier } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
-import { hapticPress } from "@/lib/haptics";
+import { NemuPressable } from "./NemuPressable";
 import { MobileCachedImage } from "./MobileCachedImage";
 
 export type MangaCardModel = {
@@ -20,13 +25,31 @@ export type MangaCardModel = {
   coverHeaders?: Record<string, string>;
 };
 
-export function MangaCard({ item }: { item: MangaCardModel }) {
+export function MangaCard({
+  item,
+  onLongPress,
+}: {
+  item: MangaCardModel;
+  onLongPress?: () => void;
+}) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
+  const reducedMotion = useReducedMotion();
+
+  // The badge pops (spring scale-in) only on a zero→non-zero transition; a
+  // count bump on an existing badge and a badge present at mount stay still.
+  // Derived-state-during-render keeps the transition detect without effects.
+  const [badgePresent, setBadgePresent] = useState(() => Boolean(item.badge));
+  const [badgePopToken, setBadgePopToken] = useState(0);
+  if (Boolean(item.badge) !== badgePresent) {
+    const hasNow = Boolean(item.badge);
+    setBadgePresent(hasNow);
+    if (hasNow) setBadgePopToken((token) => token + 1);
+  }
 
   return (
-    <Pressable
+    <NemuPressable
       accessibilityRole="button"
       accessibilityLabel={formatMobileMangaCardAccessibilityLabel({
         openTemplate: strings.search.openItem,
@@ -34,17 +57,22 @@ export function MangaCard({ item }: { item: MangaCardModel }) {
         subtitle: item.subtitle,
         badge: item.badge,
       })}
+      hapticFeedback="press"
+      pressProfile="card"
       onPress={() => {
-        void hapticPress();
         router.push({
           pathname: "/library/[id]",
           params: { id: item.id },
         });
       }}
-      style={({ pressed }) => [
-        styles.root,
-        pressed ? styles.pressed : null,
-      ]}
+      onLongPress={
+        onLongPress
+          ? () => {
+              onLongPress();
+            }
+          : undefined
+      }
+      style={styles.root}
     >
       <View
         style={[
@@ -84,7 +112,15 @@ export function MangaCard({ item }: { item: MangaCardModel }) {
           style={styles.coverShade}
         />
         {item.badge ? (
-          <View style={[styles.badge, { backgroundColor: tokens.primary }]}>
+          <Animated.View
+            key={badgePopToken}
+            entering={
+              badgePopToken > 0 && !reducedMotion
+                ? ZoomIn.springify().damping(16).stiffness(220)
+                : undefined
+            }
+            style={[styles.badge, { backgroundColor: tokens.primary }]}
+          >
             <Text
               maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
               numberOfLines={1}
@@ -92,7 +128,7 @@ export function MangaCard({ item }: { item: MangaCardModel }) {
             >
               {item.badge}
             </Text>
-          </View>
+          </Animated.View>
         ) : null}
       </View>
       <View style={styles.textBlock}>
@@ -113,7 +149,7 @@ export function MangaCard({ item }: { item: MangaCardModel }) {
           </Text>
         ) : null}
       </View>
-    </Pressable>
+    </NemuPressable>
   );
 }
 
@@ -121,10 +157,6 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     minWidth: 0,
-  },
-  pressed: {
-    opacity: 0.86,
-    transform: [{ scale: 0.98 }],
   },
   cover: {
     aspectRatio: 2 / 3,
