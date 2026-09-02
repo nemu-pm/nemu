@@ -10,7 +10,10 @@ import {
   shouldRetryAfterMobileConnectivityChange,
   type MobileConnectivityStatus,
 } from "@/lib/mobileConnectivity";
-import { keepReferenceIfUnchanged } from "@/lib/mobileStableData";
+import {
+  keepReferenceIfUnchanged,
+  stabilizeListReferences,
+} from "@/lib/mobileStableData";
 import NemuAidokuModule from "../../modules/nemu-aidoku/src/NemuAidokuModule";
 import type { NemuNetworkAccessState } from "../../modules/nemu-aidoku/src/NemuAidoku.types";
 import { useMobileDataStore } from "./mobileDataContext";
@@ -276,7 +279,17 @@ export function useLibraryEntries(): LoadState<LibraryEntry[]> {
     try {
       setError(null);
       const entries = await store.getLibraryEntries();
-      setData(entries);
+      // Library emits fire for single-item changes; keep sibling entry
+      // references so grid cards and detail memos only recompute for the
+      // entry that actually changed.
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            entries,
+            (entry) => entry.item.libraryItemId,
+          ) as LibraryEntry[],
+      );
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -303,7 +316,14 @@ export function useMangaProgress(): LoadState<LocalMangaProgress[]> {
     try {
       setError(null);
       const progress = await store.getMangaProgress();
-      setData(progress);
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            progress,
+            (item) => item.id,
+          ) as LocalMangaProgress[],
+      );
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -321,7 +341,7 @@ export function useMangaProgress(): LoadState<LocalMangaProgress[]> {
 
 export function useInstalledSources(): LoadState<InstalledSource[]> {
   const store = useMobileDataStore();
-  const revision = useMobileDataRevision(["settings"]);
+  const revision = useMobileDataRevision(["sources"]);
   const [data, setData] = useState<InstalledSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -330,10 +350,17 @@ export function useInstalledSources(): LoadState<InstalledSource[]> {
     try {
       setError(null);
       const sources = await store.getInstalledSources();
-      // Settings writes bump this hook's revision even when the installed
-      // sources are untouched; keeping the previous reference stops every
-      // consumer keyed on `data` (reader loads included) from re-running.
-      setData((current) => keepReferenceIfUnchanged(current, sources));
+      // Per-item reference stability: hydrating one source's package must not
+      // invalidate memos (and through them screen load effects) keyed on its
+      // siblings; an unchanged list keeps the previous array reference.
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            sources,
+            (source) => source.id,
+          ) as InstalledSource[],
+      );
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -353,7 +380,7 @@ export function useInstalledSource(
   sourceId: string | null | undefined,
 ): LoadState<InstalledSource | null> {
   const store = useMobileDataStore();
-  const revision = useMobileDataRevision(["settings"]);
+  const revision = useMobileDataRevision(["sources"]);
   const normalizedSourceId = sourceId?.trim() || null;
   const [data, setData] = useState<InstalledSource | null>(null);
   const [loading, setLoading] = useState(true);
@@ -362,11 +389,10 @@ export function useInstalledSource(
   const reload = useCallback(async () => {
     try {
       setError(null);
-      setData(
-        normalizedSourceId
-          ? await store.getInstalledSource(normalizedSourceId)
-          : null,
-      );
+      const source = normalizedSourceId
+        ? await store.getInstalledSource(normalizedSourceId)
+        : null;
+      setData((current) => keepReferenceIfUnchanged(current, source));
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -395,11 +421,10 @@ export function useLibraryItem(
   const reload = useCallback(async () => {
     try {
       setError(null);
-      setData(
-        normalizedLibraryItemId
-          ? await store.getLibraryItem(normalizedLibraryItemId)
-          : null,
-      );
+      const item = normalizedLibraryItemId
+        ? await store.getLibraryItem(normalizedLibraryItemId)
+        : null;
+      setData((current) => keepReferenceIfUnchanged(current, item));
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -432,15 +457,17 @@ export function useMangaChapterProgress(
   const reload = useCallback(async () => {
     try {
       setError(null);
-      setData(
+      const progress =
         normalizedRegistryId && normalizedSourceId && normalizedMangaId
           ? await store.getMangaChapterProgress(
               normalizedRegistryId,
               normalizedSourceId,
               normalizedMangaId,
             )
-          : {},
-      );
+          : {};
+      // Progress emits fire on every page turn; an unchanged map must not
+      // re-key chapter-list memos.
+      setData((current) => keepReferenceIfUnchanged(current, progress));
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -841,7 +868,14 @@ export function useSourceRegistries(): LoadState<SourceRegistry[]> {
     try {
       setError(null);
       const registries = await store.getRegistries();
-      setData(registries);
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            registries,
+            (registry) => registry.id,
+          ) as SourceRegistry[],
+      );
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -1205,7 +1239,10 @@ export function useMobileDataManagement(): {
       } finally {
         // Earlier steps may have succeeded even if another backend failed.
         // Refresh dependents so the UI never keeps stale package/settings data.
-        emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
+        emitMobileSettingsDataChanged({
+          sourceSettingsChanged: true,
+          installedSourcesChanged: true,
+        });
       }
     } finally {
       setClearingMode(null);
@@ -1289,7 +1326,18 @@ export function useMobileReaderPlugins(): LoadState<
     try {
       setError(null);
       const settings = await store.getSettings();
-      setData(getMobileReaderPluginStates(settings, strings));
+      const plugins = getMobileReaderPluginStates(settings, strings);
+      // Plugin state is plain data derived from settings; every settings
+      // write reloads it, so unchanged plugins must keep their references or
+      // the reader re-derives its plugin pipeline on each write.
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            plugins,
+            (plugin) => plugin.id,
+          ) as MobileReaderPluginState[],
+      );
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -1469,7 +1517,7 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
       );
       if (!isCurrent()) return;
       if (updatedNames.length > 0) {
-        emitMobileDataChanged("settings");
+        emitMobileDataChanged("sources");
         setSourceUpdateNotice({ id: Date.now(), names: updatedNames });
       } else {
         setSourceUpdateNotice(null);
@@ -1621,7 +1669,7 @@ export function useSourceInstaller(): {
             signal: controller.signal,
           }),
         );
-        emitMobileDataChanged("settings");
+        emitMobileDataChanged("sources");
         measureMobilePerformance("source.install.action.complete", startedAt, {
           key,
         });
@@ -1684,7 +1732,8 @@ export function useSourceInstaller(): {
               ),
           });
         });
-        emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
+        emitMobileDataChanged("sources");
+        emitMobileDataChanged("sourceSettings");
         measureMobilePerformance(
           "source.uninstall.action.complete",
           startedAt,

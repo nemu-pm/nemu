@@ -1456,7 +1456,10 @@ function ConfiguredMobileSyncBridge() {
             snapshotGeneration,
             expectedUserId,
           );
-        if (shouldContinue()) emitMobileDataChanged("settings");
+        if (shouldContinue()) {
+          emitMobileDataChanged("settings");
+          emitMobileDataChanged("sources");
+        }
       } catch (error) {
         console.error("[MobileSync] Failed to apply settings snapshot:", error);
       }

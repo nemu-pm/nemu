@@ -39,10 +39,49 @@ describe("mobile reader pages reload policy", () => {
     expect(resetIndex).toBeGreaterThan(guardIndex);
   });
 
-  test("installed sources keep reference-stable data across reloads", () => {
+  test("installed sources keep per-item reference-stable data across reloads", () => {
     const hooks = mobileSource("data/mobileHooks.ts");
+    expect(hooks).toContain("stabilizeListReferences(");
     expect(hooks).toContain(
-      "setData((current) => keepReferenceIfUnchanged(current, sources));",
+      "setData((current) => keepReferenceIfUnchanged(current, source));",
+    );
+  });
+
+  test("installed-source hooks listen on the sources scope, not settings", () => {
+    const hooks = mobileSource("data/mobileHooks.ts");
+    const installedSourcesHook = hooks.slice(
+      hooks.indexOf("export function useInstalledSources("),
+      hooks.indexOf("export function useLibraryItem("),
+    );
+    expect(installedSourcesHook).toContain(
+      'useMobileDataRevision(["sources"])',
+    );
+    expect(installedSourcesHook).not.toContain(
+      'useMobileDataRevision(["settings"])',
+    );
+  });
+
+  test("installed-source mutations emit the sources scope", () => {
+    // Package hydration during reading/browsing is the hot path: it must not
+    // ride the settings channel, or it re-wakes every settings listener.
+    for (const relativePath of [
+      "screens/MangaDetailScreen.tsx",
+      "screens/SourceMangaScreen.tsx",
+      "screens/SourceBrowseScreen.tsx",
+      "screens/ReaderScreen.tsx",
+    ]) {
+      expect(mobileSource(relativePath)).toContain(
+        'emitMobileDataChanged("sources")',
+      );
+    }
+    const hooks = mobileSource("data/mobileHooks.ts");
+    expect(hooks).toContain('emitMobileDataChanged("sources")');
+    // Cloud hydration rewrites settings and installed sources together.
+    expect(mobileSource("sync/MobileSyncProvider.tsx")).toContain(
+      'emitMobileDataChanged("sources")',
+    );
+    expect(mobileSource("sync/mobileBackgroundSyncRunner.ts")).toContain(
+      'emitMobileDataChanged("sources")',
     );
   });
 });

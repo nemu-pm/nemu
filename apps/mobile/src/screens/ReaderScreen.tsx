@@ -2221,7 +2221,7 @@ export function ReaderScreen() {
         sourceRecord.updatedAt,
       );
       if (!saved) return;
-      emitMobileDataChanged("settings");
+      emitMobileDataChanged("sources");
     },
     [store],
   );

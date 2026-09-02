@@ -31,7 +31,7 @@ import {
   SourceHomeView,
 } from "@/components/SourceHomeView";
 import { useMobileDataStore } from "@/data/mobileDataContext";
-import { emitMobileSettingsDataChanged } from "@/data/mobileDataEvents";
+import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import {
   useInstalledSources,
   useMobileLanguageSettings,
@@ -1739,7 +1739,7 @@ export function SourceBrowseScreen() {
               requestSource.updatedAt,
             );
             if (saved) {
-              emitMobileSettingsDataChanged();
+              emitMobileDataChanged("sources");
             }
           })().catch(() => undefined);
         }

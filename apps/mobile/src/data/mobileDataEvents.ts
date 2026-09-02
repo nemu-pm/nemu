@@ -7,6 +7,10 @@ export type MobileDataChangeScope =
   | "progress"
   | "registries"
   | "settings"
+  // The installed-source list. Deliberately separate from "settings": every
+  // settings write used to wake installed-source consumers (and through them
+  // screen load effects), so a reading-mode change reloaded the reader.
+  | "sources"
   | "syncStatus"
   | "sourceSettings";
 
@@ -31,10 +35,14 @@ export function emitMobileLibraryDataChanged(options?: {
 
 export function emitMobileSettingsDataChanged(options?: {
   sourceSettingsChanged?: boolean;
+  installedSourcesChanged?: boolean;
 }): void {
   emitMobileDataChanged("settings");
   if (options?.sourceSettingsChanged) {
     emitMobileDataChanged("sourceSettings");
+  }
+  if (options?.installedSourcesChanged) {
+    emitMobileDataChanged("sources");
   }
 }
 

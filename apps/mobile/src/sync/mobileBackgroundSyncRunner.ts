@@ -523,7 +523,10 @@ async function pullAndMergeSettings(
       });
     });
   }
-  if (!shouldStop(deps)) emitMobileDataChanged("settings");
+  if (!shouldStop(deps)) {
+    emitMobileDataChanged("settings");
+    emitMobileDataChanged("sources");
+  }
 }
 
 async function runMobileBackgroundSyncOnce(

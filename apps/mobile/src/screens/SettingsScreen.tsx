@@ -2167,7 +2167,10 @@ export function SettingsScreen({
           makeMobileRuntimeSourceKey(normalizeInstalledSource(installedSource)),
         );
         emitMobileDataChanged("registries");
-        emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
+        emitMobileSettingsDataChanged({
+          sourceSettingsChanged: true,
+          installedSourcesChanged: true,
+        });
         await sources.reload();
         openSourceSettings(installedSource.id);
         await hapticConfirm();
@@ -2199,7 +2202,10 @@ export function SettingsScreen({
         removeInstalledSource: () =>
           store.removeInstalledSource(source.id, source.registryId),
       });
-      emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
+      emitMobileSettingsDataChanged({
+          sourceSettingsChanged: true,
+          installedSourcesChanged: true,
+        });
       if (selectedSourceId === source.id) {
         setSourceSettingsSheetVisible(false);
         setSelectedSourceId(null);

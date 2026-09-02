@@ -250,7 +250,7 @@ export function SourceMangaScreen() {
         sourceRecord.updatedAt,
       );
       if (!saved) return;
-      emitMobileDataChanged("settings");
+      emitMobileDataChanged("sources");
     },
     [store],
   );
