@@ -111,6 +111,7 @@ import {
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
+import { takeMobileSourceDetailSeed } from "@/lib/mobileSourceDetailSeed";
 import {
   refreshMobileSourceDetails,
   resolveMobileSourceMangaMetadataTitle,
@@ -549,10 +550,25 @@ export function SourceMangaScreen() {
     mangaId,
   );
   const inLibrary = Boolean(librarySource);
+  // Consume the listing seed once: the tapped card already knew the title,
+  // cover, and authors, so paint them instead of a blank skeleton.
+  const seedMetadata = useMemo(
+    () => takeMobileSourceDetailSeed(registryId, sourceId, mangaId),
+    [mangaId, registryId, sourceId],
+  );
   const metadata =
     detailState.status === "ready"
       ? detailState.metadata
-      : (localState.libraryEntry?.item.metadata ?? null);
+      : (localState.libraryEntry?.item.metadata ??
+        (seedMetadata
+          ? {
+              title: seedMetadata.title,
+              cover: seedMetadata.cover,
+              authors: seedMetadata.authors,
+              description: seedMetadata.description,
+              tags: seedMetadata.tags,
+            }
+          : null));
   const title = resolveMobileSourceMangaMetadataTitle(
     metadata?.title,
     mangaId,

@@ -1,4 +1,9 @@
 import { StyleSheet, useWindowDimensions, View } from "react-native";
+import Animated from "react-native-reanimated";
+import {
+  useSkeletonDisplayDelay,
+  useSkeletonPulse,
+} from "@/lib/useSkeletonPulse";
 import {
   createNemuShadowStyle,
   radius,
@@ -20,7 +25,9 @@ export function MobileMangaPageSkeleton({
   accessibilityLabel,
   actionsPlacement = "below",
 }: MobileMangaPageSkeletonProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens, reduceMotion } = useNemuTheme();
+  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const skeletonReady = useSkeletonDisplayDelay(150);
   const { width } = useWindowDimensions();
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
@@ -48,11 +55,13 @@ export function MobileMangaPageSkeleton({
     </View>
   );
 
+  if (!skeletonReady) return null;
+
   return (
-    <View
+    <Animated.View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={styles.stack}
+      style={[styles.stack, { opacity: skeletonOpacity }]}
     >
       <GlassSurface style={styles.heroShell} contentStyle={styles.hero}>
         <View style={styles.heroInfoRow}>
@@ -166,7 +175,7 @@ export function MobileMangaPageSkeleton({
           ))}
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 

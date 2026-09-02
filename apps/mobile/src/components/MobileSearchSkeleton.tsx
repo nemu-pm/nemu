@@ -1,4 +1,9 @@
 import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
+import {
+  useSkeletonDisplayDelay,
+  useSkeletonPulse,
+} from "@/lib/useSkeletonPulse";
 import {
   createNemuShadowStyle,
   radius,
@@ -17,15 +22,19 @@ type MobileSearchSkeletonProps = {
 export function MobileSearchSkeleton({
   accessibilityLabel,
 }: MobileSearchSkeletonProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens, reduceMotion } = useNemuTheme();
+  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const skeletonReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
 
+  if (!skeletonReady) return null;
+
   return (
-    <View
+    <Animated.View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={styles.stack}
+      style={[styles.stack, { opacity: skeletonOpacity }]}
     >
       <GlassSurface style={styles.searchShell} contentStyle={styles.searchContent}>
         <View
@@ -109,7 +118,7 @@ export function MobileSearchSkeleton({
           </View>
         ))}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 

@@ -26,6 +26,8 @@ import {
 import type { SearchBarCommands } from "react-native-screens";
 import { nextSyncTimestamp } from "@nemu/core";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
+import { MobileSourceListFooter } from "@/components/MobileSourceListFooter";
+import { setMobileSourceDetailSeed } from "@/lib/mobileSourceDetailSeed";
 import {
   SourceHomeSkeletonView,
   SourceHomeView,
@@ -1217,6 +1219,7 @@ export function SourceBrowseScreen() {
   const listingPaginationRef = useRef({ hasMore: false, loading: false });
   const [listingLoadMoreInFlight, setListingLoadMoreInFlight] = useState(false);
   const listingLoadMoreInFlightRef = useRef(false);
+  const listingLastPageRef = useRef(1);
   const [listingTabsViewportWidth, setListingTabsViewportWidth] = useState(0);
   const [listingTabsContentWidth, setListingTabsContentWidth] = useState(0);
   const [listingTabsScrollX, setListingTabsScrollX] = useState(0);
@@ -1278,6 +1281,7 @@ export function SourceBrowseScreen() {
   const [sourceSearchLoadMoreInFlight, setSourceSearchLoadMoreInFlight] =
     useState(false);
   const sourceSearchLoadMoreInFlightRef = useRef(false);
+  const sourceSearchLastPageRef = useRef(1);
   const sourceSearchRequestRef = useRef(0);
   const store = useMobileDataStore();
   const installed = useInstalledSources();
@@ -2043,6 +2047,7 @@ export function SourceBrowseScreen() {
 
         const items =
           page > 1 ? [...previousItems, ...result.items] : result.items;
+        sourceSearchLastPageRef.current = page;
         setSourceSearchState({
           status: "ready",
           result,
@@ -2182,6 +2187,7 @@ export function SourceBrowseScreen() {
           result,
           items,
         };
+        listingLastPageRef.current = page;
         setListingState(nextState);
         if (cacheKey) {
           writeSourceListingCache(cacheKey, nextState);
@@ -2239,6 +2245,12 @@ export function SourceBrowseScreen() {
 
   const handleListingMangaPress = useCallback(
     (sourceDisplay: SearchSourceDisplay, manga: MobileLiveSearchManga) => {
+      setMobileSourceDetailSeed(
+        sourceDisplay.registryId,
+        sourceDisplay.rawSourceId,
+        manga.id,
+        manga,
+      );
       router.push(
         getMobileSourceMangaHref({
           registryId: sourceDisplay.registryId,
@@ -2476,19 +2488,10 @@ export function SourceBrowseScreen() {
       sourceSearchState.items.length > 0,
     inFlight: sourceSearchLoadMoreInFlight,
   });
-  const showSourceSearchLoadMore =
-    sourceSearchState.items.length > 0 &&
-    (sourceSearchLoadMoreBusy ||
-      (sourceSearchState.status === "ready" &&
-        sourceSearchState.result.hasMore));
   const listingLoadMoreBusy = isMobileSourceBrowseLoadMoreBusy({
     loading: listingState.status === "loading" && listingState.items.length > 0,
     inFlight: listingLoadMoreInFlight,
   });
-  const showListingLoadMore =
-    listingState.items.length > 0 &&
-    (listingLoadMoreBusy ||
-      (listingState.status === "ready" && listingState.result.hasMore));
   const listingTabFadeColor = nemuColorWithAlpha(tokens.background, 1);
   const listingTabFadeTransparent = nemuColorWithAlpha(tokens.background, 0);
   const showListingTabsLeadingFade = listingTabsScrollX > 2;
@@ -2719,6 +2722,16 @@ export function SourceBrowseScreen() {
           refreshDisabled={loading || !source}
           refreshLabel={strings.sourceBrowse.refreshSource}
           refreshing={refreshingSource}
+          onEndReached={() => {
+            if (source && sourceSearchActive) {
+              if (sourceSearchState.status !== "ready") return;
+              void loadSourceSearch(sourceSearchState.page + 1);
+              return;
+            }
+            if (listingState.status !== "ready") return;
+            void loadListing(listingState.result.page + 1);
+          }}
+          onEndReachedThreshold={0.6}
           data={listingGridItems}
           keyExtractor={(item) =>
             `${listingGridSourceDisplay?.id ?? ""}:${item.id}`
@@ -2955,36 +2968,55 @@ export function SourceBrowseScreen() {
             </View>
           }
           ListFooterComponent={
-            source && sourceSearchActive && showSourceSearchLoadMore ? (
-              <NemuButton
-                accessibilityLabel={strings.sourceBrowse.loadMore}
-                disabled={sourceSearchLoadMoreBusy}
-                icon="add-outline"
-                label={strings.sourceBrowse.loadMore}
-                loading={sourceSearchLoadMoreBusy}
-                onPress={() => {
+            source && sourceSearchActive && sourceSearchState.items.length > 0 ? (
+              <MobileSourceListFooter
+                state={{
+                  busy: sourceSearchLoadMoreBusy,
+                  failed:
+                    sourceSearchState.status === "error" &&
+                    sourceSearchState.items.length > 0,
+                  hasMore:
+                    !sourceSearchLoadMoreBusy &&
+                    sourceSearchState.status === "ready" &&
+                    sourceSearchState.result.hasMore,
+                  loadingPage:
+                    sourceSearchLastPageRef.current + 1,
+                  total: sourceSearchState.items.length,
+                }}
+                strings={strings}
+                onRetry={() =>
+                  void loadSourceSearch(sourceSearchLastPageRef.current + 1)
+                }
+                onLoadMore={() => {
                   if (sourceSearchState.status !== "ready") return;
                   void loadSourceSearch(sourceSearchState.page + 1);
                 }}
-                style={styles.loadMoreButton}
-                variant="secondary"
               />
             ) : !sourceSearchActive &&
               showExecutableSourceSections &&
               selectedListing &&
-              showListingLoadMore ? (
-              <NemuButton
-                accessibilityLabel={strings.sourceBrowse.loadMore}
-                disabled={listingLoadMoreBusy}
-                icon="add-outline"
-                label={strings.sourceBrowse.loadMore}
-                loading={listingLoadMoreBusy}
-                onPress={() => {
+              listingState.items.length > 0 ? (
+              <MobileSourceListFooter
+                state={{
+                  busy: listingLoadMoreBusy,
+                  failed:
+                    listingState.status === "error" &&
+                    listingState.items.length > 0,
+                  hasMore:
+                    !listingLoadMoreBusy &&
+                    listingState.status === "ready" &&
+                    listingState.result.hasMore,
+                  loadingPage: listingLastPageRef.current + 1,
+                  total: listingState.items.length,
+                }}
+                strings={strings}
+                onRetry={() =>
+                  void loadListing(listingLastPageRef.current + 1)
+                }
+                onLoadMore={() => {
                   if (listingState.status !== "ready") return;
                   void loadListing(listingState.result.page + 1);
                 }}
-                style={styles.loadMoreButton}
-                variant="secondary"
               />
             ) : null
           }
@@ -3350,8 +3382,5 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 12,
     lineHeight: 15,
-  },
-  loadMoreButton: {
-    width: "100%",
   },
 });

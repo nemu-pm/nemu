@@ -1,4 +1,9 @@
 import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
+import {
+  useSkeletonDisplayDelay,
+  useSkeletonPulse,
+} from "@/lib/useSkeletonPulse";
 import { radius, useNemuTheme, GlassSurface } from "@/design-system";
 
 const PLUGIN_ROWS = [0, 1] as const;
@@ -122,13 +127,17 @@ function SegmentedSkeleton({ width }: { width: number }) {
 export function MobileSettingsSkeleton({
   accessibilityLabel,
 }: MobileSettingsSkeletonProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens, reduceMotion } = useNemuTheme();
+  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const skeletonReady = useSkeletonDisplayDelay(150);
+
+  if (!skeletonReady) return null;
 
   return (
-    <View
+    <Animated.View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={styles.stack}
+      style={[styles.stack, { opacity: skeletonOpacity }]}
     >
       <GlassSurface style={styles.cardShell} contentStyle={styles.cardContent}>
         <View style={styles.cardHeader}>
@@ -222,7 +231,7 @@ export function MobileSettingsSkeleton({
         <SkeletonLine width="58%" height={14} />
         <SkeletonLine width={22} height={22} subtle />
       </GlassSurface>
-    </View>
+    </Animated.View>
   );
 }
 

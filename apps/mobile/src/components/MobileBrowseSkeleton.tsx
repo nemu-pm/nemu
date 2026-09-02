@@ -1,4 +1,9 @@
 import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
+import {
+  useSkeletonDisplayDelay,
+  useSkeletonPulse,
+} from "@/lib/useSkeletonPulse";
 import { radius, useNemuTheme } from "@/design-system";
 import { resolveSourceCardVisuals } from "@/lib/mobileSourceCardVisuals";
 
@@ -12,15 +17,19 @@ type MobileBrowseSkeletonProps = {
 export function MobileBrowseSkeleton({
   accessibilityLabel,
 }: MobileBrowseSkeletonProps) {
-  const { scheme } = useNemuTheme();
+  const { scheme, reduceMotion } = useNemuTheme();
+  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const skeletonReady = useSkeletonDisplayDelay(150);
   const visuals = resolveSourceCardVisuals(scheme);
   const skeletonColor = visuals.skeletonBlock;
 
+  if (!skeletonReady) return null;
+
   return (
-    <View
+    <Animated.View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={styles.stack}
+      style={[styles.stack, { opacity: skeletonOpacity }]}
     >
       {SKELETON_SECTIONS.map((section) => (
         <View key={section} style={styles.section}>
@@ -69,7 +78,7 @@ export function MobileBrowseSkeleton({
           </View>
         </View>
       ))}
-    </View>
+    </Animated.View>
   );
 }
 
