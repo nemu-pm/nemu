@@ -187,69 +187,103 @@ export function createSettingsStore(
             // Ignore localStorage errors
           }
 
-          // Get all available sources from registries
+          // Get all available sources from registries (cache-first; see
+          // AidokuUrlRegistry.loadIndex — a cached index resolves without
+          // waiting on the network).
           const allSources = await manager.listAllSources();
           if (seq !== initSeq || !generationGate.isCurrent(token)) return;
 
-          // Check for source updates and auto-update
-          const updatedSources: string[] = [];
-          for (const installed of installedSources) {
-            const { registryId, sourceId } = parseSourceKey(installed.id);
-            const registrySource = allSources.find(
-              (s) => s.registryId === registryId && s.id === sourceId,
-            );
-            if (registrySource && registrySource.version > installed.version) {
-              try {
-                const registry = manager.getRegistry(registryId);
-                if (registry) {
-                  await registry.installSource(sourceId, token.generation);
-                  if (!generationGate.isCurrent(token)) return;
-                  updatedSources.push(registrySource.name);
-                }
-              } catch (e) {
-                console.error(
-                  "[SettingsStore] Failed to update a source:",
-                  safeErrorCategory(e),
-                );
-              }
-            }
-          }
-
-          if (!generationGate.isCurrent(token)) return;
-
-          // Show toast if sources were updated
-          if (updatedSources.length > 0) {
-            toast.success(
-              updatedSources.length === 1
-                ? i18n.t("settings.sourceUpdated", { name: updatedSources[0] })
-                : i18n.t("settings.sourcesUpdated", {
-                    count: updatedSources.length,
-                    names: updatedSources.join(", "),
-                  }),
-            );
-          }
-
-          // Reload installed sources after updates
-          const finalInstalledSources =
-            updatedSources.length > 0
-              ? await ops.getInstalledSources()
-              : installedSources;
-          if (seq !== initSeq || !generationGate.isCurrent(token)) return;
-
           // InstalledSource.id is the composite key (registryId:sourceId)
-          const installedIds = new Set(finalInstalledSources.map((s) => s.id));
+          const installedIds = new Set(installedSources.map((s) => s.id));
 
           const availableSources: SourceInfo[] = allSources.map((s) => ({
             ...s,
             installed: installedIds.has(Keys.source(s.registryId, s.id)),
           }));
 
+          // Paint the source list immediately; auto-updates below run in the
+          // background so slow networks can't hold the first render hostage.
           setIfCurrent(token, {
             availableSources,
-            installedSources: finalInstalledSources,
+            installedSources,
             readingMode,
             loading: false,
           });
+
+          // Auto-update outdated sources in parallel, best-effort. Runs after
+          // the state is live; the refreshed install list lands when done.
+          void (async () => {
+            try {
+              const outdated = installedSources.flatMap((installed) => {
+                const { registryId, sourceId } = parseSourceKey(installed.id);
+                const registrySource = allSources.find(
+                  (s) => s.registryId === registryId && s.id === sourceId,
+                );
+                if (!registrySource || registrySource.version <= installed.version) {
+                  return [];
+                }
+                return [{ registryId, sourceId, name: registrySource.name }];
+              });
+              if (outdated.length === 0) return;
+
+              const updatedNames = await Promise.all(
+                outdated.map(async ({ registryId, sourceId, name }) => {
+                  if (!generationGate.isCurrent(token)) return null;
+                  try {
+                    const registry = manager.getRegistry(registryId);
+                    if (!registry) return null;
+                    await registry.installSource(sourceId, token.generation);
+                    if (!generationGate.isCurrent(token)) return null;
+                    return name;
+                  } catch (e) {
+                    console.error(
+                      "[SettingsStore] Failed to update a source:",
+                      safeErrorCategory(e),
+                    );
+                    return null;
+                  }
+                }),
+              );
+              if (seq !== initSeq || !generationGate.isCurrent(token)) return;
+
+              const names = updatedNames.filter(
+                (name): name is string => name !== null,
+              );
+              if (names.length === 0) return;
+
+              toast.success(
+                names.length === 1
+                  ? i18n.t("settings.sourceUpdated", { name: names[0] })
+                  : i18n.t("settings.sourcesUpdated", {
+                      count: names.length,
+                      names: names.join(", "),
+                    }),
+              );
+
+              const finalInstalledSources = await ops.getInstalledSources();
+              if (seq !== initSeq || !generationGate.isCurrent(token)) return;
+
+              setIfCurrent(token, (state) => {
+                const finalInstalledIds = new Set(
+                  finalInstalledSources.map((s) => s.id),
+                );
+                return {
+                  installedSources: finalInstalledSources,
+                  availableSources: state.availableSources.map((s) => ({
+                    ...s,
+                    installed: finalInstalledIds.has(
+                      Keys.source(s.registryId, s.id),
+                    ),
+                  })),
+                };
+              });
+            } catch (e) {
+              console.error(
+                "[SettingsStore] Background source update failed:",
+                safeErrorCategory(e),
+              );
+            }
+          })();
         } catch (e) {
           if (seq !== initSeq || !generationGate.isCurrent(token)) return;
           console.error(
@@ -341,8 +375,11 @@ export function createSettingsStore(
         const registry = manager.getRegistry(registryId);
         if (!registry) return null;
 
-        // Check if source needs installation (lazy install path)
-        const isInstalled = await registry.isInstalled(sourceId);
+        // A live source instance is definitely installed; only fall back to
+        // the storage check (which reads the whole .aix blob) when unloaded.
+        const isInstalled =
+          registry.isLoaded(sourceId) ||
+          (await registry.isInstalled(sourceId));
         if (!generationGate.isCurrent(token)) return null;
         if (!isInstalled) {
           // Show install dialog for lazy installs

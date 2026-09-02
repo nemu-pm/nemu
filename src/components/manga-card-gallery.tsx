@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { VirtuosoGrid } from "react-virtuoso";
 import { MangaCard } from "@/components/manga-card";
 import { Spinner } from "@/components/ui/spinner";
+import { MangaGallerySkeleton } from "@/components/page-skeletons";
 import type { Manga } from "@/lib/sources/types";
 import { cn } from "@/lib/utils";
 
@@ -81,6 +82,11 @@ export function MangaCardGallery({
     (index: number, m: Manga) => m?.id ?? index,
     []
   );
+
+  // Initial load: mirror the grid with skeletons instead of a bare spinner
+  if (manga.length === 0 && loading) {
+    return <MangaGallerySkeleton className={className} />;
+  }
 
   // Empty state
   if (manga.length === 0 && !loading) {

@@ -7,12 +7,12 @@ import { parseSourceKey } from "@/data/keys";
 import type { Manga } from "@/lib/sources";
 import { MangaCard } from "@/components/manga-card";
 import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Search01Icon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { NoSourcesEmpty } from "@/components/no-sources-empty";
 import { PageEmpty } from "@/components/page-empty";
 import { PageHeader } from "@/components/page-header";
+import { MangaGallerySkeleton } from "@/components/page-skeletons";
 import {
   Empty,
   EmptyHeader,
@@ -455,10 +455,7 @@ function SourceResultSection({ result }: { result: SourceResults }) {
           )}
           <h2 className="text-lg font-semibold">{result.sourceName}</h2>
         </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner className="size-4" />
-          {t("search.searching")}
-        </div>
+        <MangaGallerySkeleton count={6} />
       </section>
     );
   }

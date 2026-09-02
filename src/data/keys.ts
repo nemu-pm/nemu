@@ -61,5 +61,7 @@ export const CacheKeys = {
   image: (url: string) => `image${SEP}${hashString(url)}`,
   /** Home layout cache for sources */
   home: (registryId: string, sourceId: string) => `home${SEP}${enc(registryId)}${SEP}${enc(sourceId)}`,
+  /** Registry source-list index for offline-first loads */
+  registryIndex: (registryId: string) => `registryIndex${SEP}${enc(registryId)}`,
 };
 

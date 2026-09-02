@@ -46,6 +46,8 @@ export interface SourceRegistryProvider {
   ): Promise<void>;
   unloadSource(sourceId: string): void;
   getSource(sourceId: string): Promise<MangaSource | null>;
+  /** Synchronous check for an already-live source instance (skips storage). */
+  isLoaded(sourceId: string): boolean;
   isInstalled(sourceId: string): Promise<boolean>;
 }
 

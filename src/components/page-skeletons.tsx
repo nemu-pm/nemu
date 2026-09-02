@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 /**
  * Mirrors the real PageHeader's mobile structure: a sticky bar at top
@@ -241,6 +242,37 @@ export function SourceBrowsePageSkeleton() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Skeleton grid mirroring MangaCardGallery's layout (columns + card shape)
+ * for initial gallery/listing loads and per-source search sections.
+ */
+export function MangaGallerySkeleton({
+  count = 12,
+  className,
+}: {
+  count?: number;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "grid grid-cols-3 gap-3 sm:grid-cols-4 sm:gap-4 md:grid-cols-5 lg:grid-cols-6",
+        className
+      )}
+    >
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="space-y-2">
+          <Skeleton className="aspect-[2/3] w-full rounded-lg" />
+          <div className="space-y-1.5 px-0.5">
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3.5 w-2/3" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

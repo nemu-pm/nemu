@@ -171,4 +171,131 @@ describe("AidokuUrlRegistry", () => {
       "https://registry.example/root/https://cdn.example/sources/absolute.aix",
     );
   });
+
+  it("serves a cached index immediately and refreshes it in the background", async () => {
+    const cache = createCacheStore();
+    await cache.setJson("registryIndex:test", {
+      sources: [
+        {
+          id: "cached.example",
+          name: "Cached",
+          version: 1,
+          iconURL: "icons/cached.png",
+          downloadURL: "sources/cached.aix",
+          languages: ["en"],
+        },
+      ],
+    });
+
+    // Hold the network refresh until the cached read has been asserted.
+    let releaseIndex!: () => void;
+    const indexResponse = new Promise<Response>((resolve) => {
+      releaseIndex = () =>
+        resolve(
+          new Response(
+            JSON.stringify({
+              sources: [
+                {
+                  id: "cached.example",
+                  name: "Cached",
+                  version: 2,
+                  iconURL: "icons/cached.png",
+                  downloadURL: "sources/cached.aix",
+                  languages: ["en"],
+                },
+                {
+                  id: "fresh.example",
+                  name: "Fresh",
+                  version: 1,
+                  iconURL: "icons/fresh.png",
+                  downloadURL: "sources/fresh.aix",
+                  languages: ["en"],
+                },
+              ],
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+        );
+    });
+    globalThis.fetch = mock(
+      async () => indexResponse,
+    ) as unknown as typeof fetch;
+
+    const registry = new AidokuUrlRegistry(
+      "test",
+      "Test",
+      "https://registry.example/index.min.json",
+      createInstalledStore(),
+      cache,
+    );
+
+    const cached = await registry.listSources();
+    expect(cached.map((source) => source.id)).toEqual(["cached.example"]);
+    expect(cached[0]?.version).toBe(1);
+
+    releaseIndex();
+
+    // The background refresh lands and updates the in-memory index.
+    let refreshed: number | undefined;
+    for (let i = 0; i < 100 && refreshed === undefined; i++) {
+      const current = await registry.listSources();
+      refreshed = current.find((source) => source.id === "fresh.example")
+        ?.version;
+      if (refreshed === undefined) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+    expect(refreshed).toBe(1);
+
+    // The refreshed index is persisted for the next session.
+    const persisted = await cache.getJson<{
+      sources: Array<{ id: string }>;
+    }>("registryIndex:test");
+    expect(persisted?.sources.map((source) => source.id)).toContain(
+      "fresh.example",
+    );
+  });
+
+  it("falls back to the cached index when the network fails", async () => {
+    const cache = createCacheStore();
+    await cache.setJson("registryIndex:test", {
+      sources: [
+        {
+          id: "offline.example",
+          name: "Offline",
+          version: 1,
+          iconURL: "icons/offline.png",
+          downloadURL: "sources/offline.aix",
+          languages: ["en"],
+        },
+      ],
+    });
+
+    globalThis.fetch = mock(async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+
+    const registry = new AidokuUrlRegistry(
+      "test",
+      "Test",
+      "https://registry.example/index.min.json",
+      createInstalledStore(),
+      cache,
+    );
+
+    const sources = await registry.listSources();
+    expect(sources.map((source) => source.id)).toEqual(["offline.example"]);
+  });
+
+  it("reports live sources via isLoaded", () => {
+    const registry = new AidokuUrlRegistry(
+      "test",
+      "Test",
+      "https://registry.example/index.min.json",
+      createInstalledStore(),
+      createCacheStore(),
+    );
+
+    expect(registry.isLoaded("en.example")).toBe(false);
+  });
 });

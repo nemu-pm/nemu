@@ -261,7 +261,7 @@ export function TachiyomiBrowse({ data }: TachiyomiBrowseProps) {
           emptyState={
             <PageEmpty
               icon={Search01Icon}
-              title={loadingMore ? t("browse.loading") : t("browse.noResults")}
+              title={t("browse.noResults")}
               variant="inline"
             />
           }
