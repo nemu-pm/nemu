@@ -71,6 +71,26 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(headerAction).toMatch(/action:\s*\{[\s\S]*?width:\s*48,/);
   });
 
+  test("sizes the iOS sheet header action on its label, not on the button", () => {
+    const source = readMobileSource(
+      "design-system/components/NemuNativeSheetHeaderAction.ios.tsx",
+    );
+
+    // `buttonStyle` measures its own background from the label plus the style's
+    // control padding, so a `frame` on the button only re-centers a ~32pt pill.
+    // The 44pt circle and its hit target have to be drawn on the label instead.
+    expect(source).toContain("const CONTROL_SIZE = 44");
+    expect(source).toContain("const GLYPH_POINT_SIZE = 20");
+    expect(source).toContain(
+      "frame({ width: CONTROL_SIZE, height: CONTROL_SIZE })",
+    );
+    expect(source).toContain("contentShape(shapes.circle())");
+    expect(source).toContain('shape: "circle"');
+    expect(source).not.toContain('buttonStyle("glass")');
+    expect(source).not.toContain("buttonBorderShape");
+    expect(source).not.toContain("controlSize(");
+  });
+
   test("preserves header semantics and lets localized Android titles wrap", () => {
     const source = readMobileSource(
       "design-system/components/MobileSheetHeader.tsx",
@@ -419,10 +439,6 @@ describe("mobile sheet and text-field chrome policy", () => {
       [readMobileSource("design-system/components/NemuToolbarAction.tsx"), "action"],
       [readMobileSource("components/MobileMangaDetailSurface.tsx"), "primaryAction"],
       [readMobileSource("components/MobileMangaDetailSurface.tsx"), "iconAction"],
-      [readMobileSource("components/MobileSourceSettingsCard.tsx"), "backButton"],
-      [readMobileSource("components/MobileSourceSettingsCard.tsx"), "resetButton"],
-      [readMobileSource("components/MobileSourceSettingsCard.tsx"), "editableListAddButton"],
-      [readMobileSource("components/MobileSourceSettingsCard.tsx"), "stepperButton"],
     ] as const;
 
     for (const [source, styleName] of targets) {
@@ -433,5 +449,26 @@ describe("mobile sheet and text-field chrome policy", () => {
         'overflow: "hidden"',
       );
     }
+
+    // The source settings card's back / reset / stepper / add controls used to
+    // paint their own depth through `buttonDepth` plus a local style. They now
+    // go through NemuButton, which keeps the depth shadow on unclipped sibling
+    // surfaces and grows the touch frame to the native minimum target.
+    const settingsCard = readMobileSource(
+      "components/MobileSourceSettingsCard.tsx",
+    );
+    expect(settingsCard).not.toContain("buttonDepth=");
+    for (const marker of [
+      'icon="chevron-back"',
+      'icon="refresh-outline"',
+      'icon="add-outline"',
+      'icon="remove-outline"',
+    ]) {
+      expect(settingsCard).toContain(marker);
+    }
+
+    const button = readMobileSource("design-system/components/NemuButton.tsx");
+    expect(button).toContain("resolveNemuButtonTouchTargetStyle");
+    expect(button).not.toContain('overflow: "hidden"');
   });
 });

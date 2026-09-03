@@ -137,34 +137,30 @@ function CollectionRow({
         />
       </NemuPressable>
       <View style={styles.collectionActions}>
-        <NemuPressable
-          accessibilityRole="button"
+        <NemuButton
           accessibilityLabel={formatMobileString(
             strings.library.renameCollectionAccessibility,
             { name: collection.name }
           )}
           accessibilityState={{ disabled }}
           disabled={disabled}
+          icon="create-outline"
           onPress={onRename}
-          pressedScale={0.94}
-          style={[styles.collectionActionButton, { backgroundColor: tokens.card }]}
-        >
-          <Ionicons name="create-outline" size={16} color={tokens.mutedForeground} />
-        </NemuPressable>
-        <NemuPressable
-          accessibilityRole="button"
+          size="icon-sm"
+          variant="secondary"
+        />
+        <NemuButton
           accessibilityLabel={formatMobileString(
             strings.library.removeCollectionNamed,
             { name: collection.name }
           )}
           accessibilityState={{ disabled }}
           disabled={disabled}
+          icon="trash-outline"
           onPress={onRemove}
-          pressedScale={0.94}
-          style={[styles.collectionActionButton, { backgroundColor: tokens.card }]}
-        >
-          <Ionicons name="trash-outline" size={16} color={tokens.danger} />
-        </NemuPressable>
+          size="icon-sm"
+          variant="destructive"
+        />
       </View>
     </View>
   );
@@ -812,13 +808,6 @@ const styles = StyleSheet.create({
   collectionActions: {
     flexDirection: "row",
     gap: 6,
-  },
-  collectionActionButton: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
   },
   emptyState: {
     minHeight: 78,

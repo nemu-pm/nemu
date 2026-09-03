@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import * as Brightness from "expo-brightness";
 import * as KeepAwake from "expo-keep-awake";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { useMobileDataStore } from "@/data/mobileDataContext";
@@ -12,12 +11,12 @@ import {
 } from "@/lib/mobileReaderSettings";
 
 const KEEP_AWAKE_TAG = "nemu-reader";
-const BRIGHTNESS_PREVIEW_THROTTLE_MS = 120;
 
 /**
- * Reader session environment: brightness (session-only, restored on exit),
- * keep-awake, and portrait lock. Persistence of the two switches lives in
- * `useReaderDisplayPrefs`; this hook applies them to the device.
+ * Reader session environment: keep-awake and portrait lock. Persistence of the
+ * two switches lives in `useReaderDisplayPrefs`; this hook applies them to the
+ * device. Screen brightness is left to the system — the reader no longer
+ * shadows the OS control.
  */
 export function useReaderDisplayEnvironment({
   keepAwakeEnabled,
@@ -25,77 +24,7 @@ export function useReaderDisplayEnvironment({
 }: {
   keepAwakeEnabled: boolean;
   lockPortraitEnabled: boolean;
-}): {
-  brightnessPct: number;
-  previewBrightness: (pct: number) => void;
-  commitBrightness: (pct: number) => void;
-} {
-  const [brightnessPct, setBrightnessPct] = useState(100);
-  const systemBrightnessRef = useRef<number | null>(null);
-  const lastPreviewAtRef = useRef(0);
-  const pendingCommitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    Brightness.getBrightnessAsync()
-      .then((value) => {
-        if (!mounted || typeof value !== "number") return;
-        systemBrightnessRef.current = value;
-        setBrightnessPct(Math.round(value * 100));
-      })
-      .catch(() => undefined);
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const applyBrightness = useCallback((pct: number) => {
-    const clamped = Math.min(100, Math.max(0, pct));
-    void Brightness.setBrightnessAsync(clamped / 100).catch(() => undefined);
-  }, []);
-
-  const previewBrightness = useCallback(
-    (pct: number) => {
-      setBrightnessPct(pct);
-      const now = Date.now();
-      if (now - lastPreviewAtRef.current < BRIGHTNESS_PREVIEW_THROTTLE_MS) {
-        if (pendingCommitRef.current) clearTimeout(pendingCommitRef.current);
-        pendingCommitRef.current = setTimeout(() => {
-          pendingCommitRef.current = null;
-          applyBrightness(pct);
-        }, BRIGHTNESS_PREVIEW_THROTTLE_MS);
-        return;
-      }
-      lastPreviewAtRef.current = now;
-      applyBrightness(pct);
-    },
-    [applyBrightness],
-  );
-
-  const commitBrightness = useCallback(
-    (pct: number) => {
-      if (pendingCommitRef.current) {
-        clearTimeout(pendingCommitRef.current);
-        pendingCommitRef.current = null;
-      }
-      lastPreviewAtRef.current = Date.now();
-      setBrightnessPct(pct);
-      applyBrightness(pct);
-    },
-    [applyBrightness],
-  );
-
-  // Restore the system brightness when the reader unmounts.
-  useEffect(() => {
-    return () => {
-      if (pendingCommitRef.current) clearTimeout(pendingCommitRef.current);
-      const system = systemBrightnessRef.current;
-      if (system != null) {
-        void Brightness.setBrightnessAsync(system).catch(() => undefined);
-      }
-    };
-  }, []);
-
+}): void {
   useEffect(() => {
     if (!keepAwakeEnabled) return;
     void KeepAwake.activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(
@@ -119,8 +48,6 @@ export function useReaderDisplayEnvironment({
     }
     return undefined;
   }, [lockPortraitEnabled]);
-
-  return { brightnessPct, previewBrightness, commitBrightness };
 }
 
 /** Persisted reader display switches: keep-awake (default on) and portrait lock (default off). */

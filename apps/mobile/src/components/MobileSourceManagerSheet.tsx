@@ -368,28 +368,20 @@ function SourceManagerRow({
       </NemuPressable>
 
       {/* Delete button. */}
-      <NemuPressable
-        accessibilityRole="button"
+      <NemuButton
         accessibilityLabel={formatMobileString(
           strings.sourceManager.removeSourceConfirm,
           { name },
         )}
-        accessibilityState={{ disabled: !canRemove }}
+        accessibilityState={{ disabled: !canRemove, busy: busy || undefined }}
         disabled={!canRemove}
         hapticFeedback={canRemove ? "press" : "none"}
+        icon="trash-outline"
+        loading={busy}
         onPress={onRemove}
-        pressedScale={0.9}
-        style={[
-          styles.deleteButton,
-          { opacity: canRemove ? 1 : 0.4 },
-        ]}
-      >
-        {busy ? (
-          <ActivityIndicator size="small" color={tokens.danger} />
-        ) : (
-          <Ionicons name="trash-outline" size={18} color={tokens.danger} />
-        )}
-      </NemuPressable>
+        size="icon-sm"
+        variant="destructive"
+      />
       </View>
     </View>
   );
@@ -1750,8 +1742,7 @@ export function MobileSourceManagerSheet({
                             </Text>
                             {!addedManga && totalPages > 1 ? (
                               <View style={styles.resultPager}>
-                                <NemuPressable
-                                  accessibilityRole="button"
+                                <NemuButton
                                   accessibilityLabel={
                                     strings.sourceManager.previousResults
                                   }
@@ -1759,29 +1750,14 @@ export function MobileSourceManagerSheet({
                                     disabled: page === 0 || sourceManagerActionBusy,
                                   }}
                                   disabled={page === 0 || sourceManagerActionBusy}
+                                  icon="chevron-back-outline"
                                   onPress={() =>
                                     setAddResultPage(group, page - 1)
                                   }
-                                  pressedScale={0.94}
-                                  style={[
-                                    styles.resultPagerButton,
-                                    {
-                                      backgroundColor: tokens.muted,
-                                      opacity:
-                                        page === 0 || sourceManagerActionBusy
-                                          ? 0.45
-                                          : 1,
-                                    },
-                                  ]}
-                                >
-                                  <Ionicons
-                                    name="chevron-back-outline"
-                                    size={16}
-                                    color={tokens.mutedForeground}
-                                  />
-                                </NemuPressable>
-                                <NemuPressable
-                                  accessibilityRole="button"
+                                  size="icon-sm"
+                                  variant="secondary"
+                                />
+                                <NemuButton
                                   accessibilityLabel={
                                     strings.sourceManager.nextResults
                                   }
@@ -1794,28 +1770,13 @@ export function MobileSourceManagerSheet({
                                     page >= totalPages - 1 ||
                                     sourceManagerActionBusy
                                   }
+                                  icon="chevron-forward-outline"
                                   onPress={() =>
                                     setAddResultPage(group, page + 1)
                                   }
-                                  pressedScale={0.94}
-                                  style={[
-                                    styles.resultPagerButton,
-                                    {
-                                      backgroundColor: tokens.muted,
-                                      opacity:
-                                        page >= totalPages - 1 ||
-                                        sourceManagerActionBusy
-                                          ? 0.45
-                                          : 1,
-                                    },
-                                  ]}
-                                >
-                                  <Ionicons
-                                    name="chevron-forward-outline"
-                                    size={16}
-                                    color={tokens.mutedForeground}
-                                  />
-                                </NemuPressable>
+                                  size="icon-sm"
+                                  variant="secondary"
+                                />
                               </View>
                             ) : null}
                           </View>
@@ -1958,8 +1919,7 @@ export function MobileSourceManagerSheet({
                   <>
                     {pagedMergeCandidates.totalPages > 1 ? (
                       <View style={styles.resultPager}>
-                        <NemuPressable
-                          accessibilityRole="button"
+                        <NemuButton
                           accessibilityLabel={
                             strings.sourceManager.previousResults
                           }
@@ -1972,32 +1932,16 @@ export function MobileSourceManagerSheet({
                             pagedMergeCandidates.page === 0 ||
                             sourceManagerActionBusy
                           }
+                          icon="chevron-back-outline"
                           onPress={() =>
                             setMergeCandidateResultPage(
                               pagedMergeCandidates.page - 1,
                             )
                           }
-                          pressedScale={0.94}
-                          style={[
-                            styles.resultPagerButton,
-                            {
-                              backgroundColor: tokens.muted,
-                              opacity:
-                                pagedMergeCandidates.page === 0 ||
-                                sourceManagerActionBusy
-                                  ? 0.45
-                                  : 1,
-                            },
-                          ]}
-                        >
-                          <Ionicons
-                            name="chevron-back-outline"
-                            size={16}
-                            color={tokens.mutedForeground}
-                          />
-                        </NemuPressable>
-                        <NemuPressable
-                          accessibilityRole="button"
+                          size="icon-sm"
+                          variant="secondary"
+                        />
+                        <NemuButton
                           accessibilityLabel={
                             strings.sourceManager.nextResults
                           }
@@ -2012,31 +1956,15 @@ export function MobileSourceManagerSheet({
                               pagedMergeCandidates.totalPages - 1 ||
                             sourceManagerActionBusy
                           }
+                          icon="chevron-forward-outline"
                           onPress={() =>
                             setMergeCandidateResultPage(
                               pagedMergeCandidates.page + 1,
                             )
                           }
-                          pressedScale={0.94}
-                          style={[
-                            styles.resultPagerButton,
-                            {
-                              backgroundColor: tokens.muted,
-                              opacity:
-                                pagedMergeCandidates.page >=
-                                  pagedMergeCandidates.totalPages - 1 ||
-                                sourceManagerActionBusy
-                                  ? 0.45
-                                  : 1,
-                            },
-                          ]}
-                        >
-                          <Ionicons
-                            name="chevron-forward-outline"
-                            size={16}
-                            color={tokens.mutedForeground}
-                          />
-                        </NemuPressable>
+                          size="icon-sm"
+                          variant="secondary"
+                        />
                       </View>
                     ) : null}
                     {pagedMergeCandidates.items.map(
@@ -2271,13 +2199,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 6,
   },
-  resultPagerButton: {
-    width: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-  },
   addResultRow: {
     minHeight: 66,
     flexDirection: "row",
@@ -2397,12 +2318,6 @@ const styles = StyleSheet.create({
   rowSubtitle: {
     fontSize: 11,
     lineHeight: 15,
-  },
-  deleteButton: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
   },
   dragToReorderHint: {
     textAlign: "center",

@@ -183,6 +183,34 @@ describe("mobile browse source filtering", () => {
     ]);
   });
 
+  test("lists chinese variants directly under chinese, not after the tail", () => {
+    const sources = [
+      source("vietnamese", { languages: ["vi"] }),
+      source("traditional", { languages: ["zh-Hant"] }),
+      source("brazilian", { languages: ["pt-BR"] }),
+      source("simplified", { languages: ["zh-hans"] }),
+      source("portuguese", { languages: ["pt"] }),
+      source("taiwanese", { languages: ["zh-TW"] }),
+      source("chinese", { languages: ["zh"] }),
+      source("latam", { languages: ["es-419"] }),
+      source("spanish", { languages: ["es"] }),
+      source("japanese", { languages: ["ja"] }),
+    ];
+
+    expect(getMobileAvailableSourceLanguageOptions(sources, "zh")).toEqual([
+      "ja",
+      "zh",
+      "zh-hans",
+      "zh-hant",
+      "zh-tw",
+      "es",
+      "es-419",
+      "pt",
+      "pt-br",
+      "vi",
+    ]);
+  });
+
   test("collapses the registry All bucket onto multi in the option list", () => {
     const sources = [
       source("everything", { languages: ["All"] }),

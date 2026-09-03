@@ -11,8 +11,8 @@ import {
   mobileInstalledSourceMatchesRoute,
 } from "./mobileInstalledSourceKeys";
 import {
+  compareMobileLanguageCodes,
   getLanguageCategory,
-  getLanguagePriorityOrder,
   normalizeMobileLanguageCode,
   sortSourcesByLanguagePriority,
   type MobileLanguageSource,
@@ -107,16 +107,10 @@ export function groupMobileSourcesByLanguage<T extends MobileBrowseLanguageSourc
     }
   }
 
-  const priorityOrder = getLanguagePriorityOrder(appLanguage);
   return [...grouped.entries()]
-    .sort(([languageA], [languageB]) => {
-      const priorityA = priorityOrder.indexOf(languageA);
-      const priorityB = priorityOrder.indexOf(languageB);
-      if (priorityA !== -1 && priorityB !== -1) return priorityA - priorityB;
-      if (priorityA !== -1) return -1;
-      if (priorityB !== -1) return 1;
-      return languageA.localeCompare(languageB);
-    })
+    .sort(([languageA], [languageB]) =>
+      compareMobileLanguageCodes(languageA, languageB, appLanguage),
+    )
     .map(([label, sectionSources]) => ({
       label,
       sources: options.sortSourcesByName
@@ -139,15 +133,9 @@ export function getMobileAvailableSourceLanguageOptions<
     }
   }
 
-  const priorityOrder = getLanguagePriorityOrder(appLanguage);
-  return [...languages].sort((a, b) => {
-    const priorityA = priorityOrder.indexOf(a);
-    const priorityB = priorityOrder.indexOf(b);
-    if (priorityA !== -1 && priorityB !== -1) return priorityA - priorityB;
-    if (priorityA !== -1) return -1;
-    if (priorityB !== -1) return 1;
-    return a.localeCompare(b);
-  });
+  return [...languages].sort((a, b) =>
+    compareMobileLanguageCodes(a, b, appLanguage),
+  );
 }
 
 export function canStartMobileSourceInstall(

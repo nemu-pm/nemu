@@ -31,7 +31,7 @@ export function NemuNativeSheetHeaderAction({
           accessibilityElementsHidden
           importantForAccessibility="no"
           name={androidIcon}
-          size={21}
+          size={22}
           color={tokens.primary}
         />
       </NemuPressable>

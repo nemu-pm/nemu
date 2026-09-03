@@ -176,25 +176,61 @@ export function getLanguagePriorityOrder(appLanguage: AppLanguage): string[] {
   return [...new Set(["ja", "zh", "en", "multi", appLanguage])];
 }
 
-export function sortSourcesByLanguagePriority<T extends MobileLanguageSource>(
-  sources: T[],
-  appLanguage: AppLanguage
-): T[] {
-  const priorityOrder = getLanguagePriorityOrder(appLanguage);
+/** The subtag a code is a variant of: `zh-Hant` → `zh`, `pt-BR` → `pt`. */
+function getMobileLanguageBaseCode(normalizedCode: string): string {
+  const [base] = normalizedCode.split("-");
+  return base || normalizedCode;
+}
 
-  return [...sources].sort((a, b) => {
-    const categoryA = getLanguageCategory(a.languages);
-    const categoryB = getLanguageCategory(b.languages);
+/**
+ * The single ordering rule for every language list in the app.
+ *
+ * A region or script variant is a flavour of its base language, not a separate
+ * entry filed under its own letter, so ranking happens on the base subtag:
+ * `zh-Hans` and `zh-Hant` sit directly under 中文 wherever 中文 lands in the
+ * priority order, instead of being stranded at the end of the alphabetical
+ * tail. Within one language the bare code leads and its variants follow
+ * alphabetically, which also keeps `zh-hans`/`zh-cn` ahead of
+ * `zh-hant`/`zh-hk`/`zh-tw`.
+ */
+export function compareMobileLanguageCodes(
+  left: string,
+  right: string,
+  appLanguage: AppLanguage,
+): number {
+  const a = normalizeMobileLanguageCode(left);
+  const b = normalizeMobileLanguageCode(right);
+  if (a === b) return 0;
 
-    if (categoryA === categoryB) return 0;
+  const baseA = getMobileLanguageBaseCode(a);
+  const baseB = getMobileLanguageBaseCode(b);
 
-    const priorityA = priorityOrder.indexOf(categoryA);
-    const priorityB = priorityOrder.indexOf(categoryB);
+  if (baseA !== baseB) {
+    const priorityOrder = getLanguagePriorityOrder(appLanguage);
+    const priorityA = priorityOrder.indexOf(baseA);
+    const priorityB = priorityOrder.indexOf(baseB);
 
     if (priorityA !== -1 && priorityB !== -1) return priorityA - priorityB;
     if (priorityA !== -1) return -1;
     if (priorityB !== -1) return 1;
 
-    return categoryA.localeCompare(categoryB);
-  });
+    return baseA.localeCompare(baseB);
+  }
+
+  if (a === baseA) return -1;
+  if (b === baseB) return 1;
+  return a.localeCompare(b);
+}
+
+export function sortSourcesByLanguagePriority<T extends MobileLanguageSource>(
+  sources: T[],
+  appLanguage: AppLanguage
+): T[] {
+  return [...sources].sort((a, b) =>
+    compareMobileLanguageCodes(
+      getLanguageCategory(a.languages),
+      getLanguageCategory(b.languages),
+      appLanguage,
+    ),
+  );
 }

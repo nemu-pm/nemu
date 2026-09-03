@@ -607,35 +607,31 @@ function CollectionsManagerSheet({
                   ) : null}
                 </NemuPressable>
                 <View style={styles.managerRowActions}>
-                  <NemuPressable
+                  <NemuButton
                     accessibilityLabel={formatMobileString(
                       strings.library.renameCollectionAccessibility,
                       { name: collection.name }
                     )}
-                    accessibilityRole="button"
                     accessibilityState={{ disabled: actionBusy }}
                     disabled={actionBusy}
+                    icon="create-outline"
                     onPress={() => onRename(collection)}
-                    pressedScale={0.94}
-                    style={[styles.managerIconButton, { backgroundColor: tokens.muted }]}
-                  >
-                    <Ionicons name="create-outline" size={16} color={tokens.mutedForeground} />
-                  </NemuPressable>
-                  <NemuPressable
+                    size="icon-sm"
+                    variant="secondary"
+                  />
+                  <NemuButton
                     accessibilityLabel={formatMobileString(
                       strings.library.removeCollectionNamed,
                       { name: collection.name }
                     )}
-                    accessibilityRole="button"
                     accessibilityState={{ disabled: actionBusy }}
                     disabled={actionBusy}
                     hapticFeedback="warning"
+                    icon="trash-outline"
                     onPress={() => onRemove(collection)}
-                    pressedScale={0.94}
-                    style={[styles.managerIconButton, { backgroundColor: tokens.muted }]}
-                  >
-                    <Ionicons name="trash-outline" size={16} color={tokens.danger} />
-                  </NemuPressable>
+                    size="icon-sm"
+                    variant="destructive"
+                  />
                 </View>
               </View>
             );
@@ -744,26 +740,21 @@ function ManageCollectionPanel({
           </Text>
         </View>
         {!editingName ? (
-          <NemuPressable
-            accessibilityRole="button"
+          <NemuButton
             accessibilityLabel={formatMobileString(
               strings.library.renameCollectionAccessibility,
               { name: collection.name }
             )}
             accessibilityState={{ disabled: collectionActionBusy }}
             disabled={collectionActionBusy}
+            icon="create-outline"
             onPress={() => {
               setDraftName(collection.name);
               setEditingName(true);
             }}
-            pressedScale={0.94}
-            style={[
-              styles.headerIconButton,
-              { backgroundColor: tokens.muted, opacity: collectionActionBusy ? 0.72 : 1 },
-            ]}
-          >
-            <Ionicons name="create-outline" size={17} color={tokens.mutedForeground} />
-          </NemuPressable>
+            size="icon-sm"
+            variant="secondary"
+          />
         ) : null}
       </View>
 
@@ -2404,13 +2395,6 @@ const styles = StyleSheet.create({
     gap: 7,
     paddingLeft: 8,
   },
-  managerIconButton: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-  },
   gridRow: {
     gap: 12,
     marginBottom: 12,
@@ -2434,13 +2418,6 @@ const styles = StyleSheet.create({
   panelTitleWrap: {
     flex: 1,
     minWidth: 0,
-  },
-  headerIconButton: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
   },
   panelTitle: {
     fontSize: 15,

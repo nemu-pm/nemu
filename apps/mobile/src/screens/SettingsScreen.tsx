@@ -77,9 +77,9 @@ import {
   MobileNativeSheetScaffold,
   MobileCachedImage,
   NemuButton,
-  NemuListRow,
   NemuNativeSwitch,
   NemuPressable,
+  NemuText,
   PageScaffold,
   radius,
   nemuBrandTextStyle,
@@ -129,9 +129,11 @@ import { getMobileSourceBrowseHref } from "@/lib/mobileSourceRoutes";
 import {
   canRetryMobileSettingsLoadError,
   canRunMobileSettingsSelection,
+  canSelectMobileLanguageTab,
   canStartMobileSettingsAction,
   getMobileSettingsMutationResultAction,
   isMobileSettingsActionBusy,
+  resolveMobileLanguageTabAccessibilityState,
   shouldRenderMobileSettingsSkeletonForSection,
   shouldRenderMobileSourcesSectionLoading,
   type MobileSettingsActionState,
@@ -401,8 +403,7 @@ function SourceManagementRow({
         </View>
       </NemuPressable>
       <View style={styles.sourceActions}>
-        <NemuPressable
-          accessibilityRole="button"
+        <NemuButton
           accessibilityLabel={formatMobileString(
             strings.settings.editSourceSettings,
             { name },
@@ -410,27 +411,15 @@ function SourceManagementRow({
           accessibilityState={{ disabled }}
           disabled={disabled}
           hapticFeedback={canOpenSettings ? "press" : "none"}
+          icon="settings-outline"
           onPress={() => {
             if (!canOpenSettings) return;
             onSettings();
           }}
-          pressedScale={0.94}
-          style={[
-            styles.iconButton,
-            {
-              backgroundColor: tokens.muted,
-              opacity: disabled ? 0.65 : 1,
-            },
-          ]}
-        >
-          <Ionicons
-            name="settings-outline"
-            size={17}
-            color={tokens.mutedForeground}
-          />
-        </NemuPressable>
-        <NemuPressable
-          accessibilityRole="button"
+          size="icon-sm"
+          variant="secondary"
+        />
+        <NemuButton
           accessibilityLabel={formatMobileString(
             strings.settings.uninstallSourceNamed,
             { name },
@@ -440,28 +429,29 @@ function SourceManagementRow({
             busy: removing || undefined,
           }}
           disabled={removeDisabled}
+          icon="trash-outline"
+          loading={removing}
           onPress={onRemove}
-          pressedScale={0.94}
-          style={[
-            styles.iconButton,
-            {
-              backgroundColor: tokens.muted,
-              opacity: removeDisabled ? 0.65 : 1,
-            },
-          ]}
-        >
-          {removing ? (
-            <ActivityIndicator size="small" color={tokens.danger} />
-          ) : (
-            <Ionicons name="trash-outline" size={17} color={tokens.danger} />
-          )}
-        </NemuPressable>
+          size="icon-sm"
+          variant="destructive"
+        />
       </View>
     </View>
   );
 }
 
-function ReaderPluginIcon({ plugin }: { plugin: MobileReaderPluginState }) {
+/**
+ * `row` is the boxed 40pt list artwork. `title` is the bare mark that sits on
+ * the baseline of a sheet title: no tinted frame, sized to the title line box
+ * so the icon and the title read as one centered unit.
+ */
+function ReaderPluginIcon({
+  plugin,
+  placement = "row",
+}: {
+  plugin: MobileReaderPluginState;
+  placement?: "row" | "title";
+}) {
   const { tokens } = useNemuTheme();
   const [failed, setFailed] = useState(false);
   const source =
@@ -470,15 +460,14 @@ function ReaderPluginIcon({ plugin }: { plugin: MobileReaderPluginState }) {
       : plugin.id === "dual-reader"
         ? readerPluginArtworkSources["dual-reader"]
         : null;
+  const inTitle = placement === "title";
+  const frameStyle = inTitle
+    ? styles.pluginTitleArtwork
+    : [styles.pluginArtwork, { backgroundColor: tokens.sourceIconGlass }];
 
   if (source && !failed) {
     return (
-      <View
-        style={[
-          styles.pluginArtwork,
-          { backgroundColor: tokens.sourceIconGlass },
-        ]}
-      >
+      <View style={frameStyle}>
         <ResolvedSettingsImage
           accessibilityLabel={plugin.name}
           source={source}
@@ -490,15 +479,10 @@ function ReaderPluginIcon({ plugin }: { plugin: MobileReaderPluginState }) {
   }
 
   return (
-    <View
-      style={[
-        styles.pluginArtwork,
-        { backgroundColor: tokens.sourceIconGlass },
-      ]}
-    >
+    <View style={frameStyle}>
       <Ionicons
         name={plugin.icon}
-        size={24}
+        size={inTitle ? 22 : 24}
         color={plugin.enabled ? tokens.primary : tokens.mutedForeground}
       />
     </View>
@@ -548,8 +532,7 @@ function ReaderPluginManagementRow({
       </View>
       <View style={styles.pluginActions}>
         {hasSettings ? (
-          <NemuPressable
-            accessibilityRole="button"
+          <NemuButton
             accessibilityLabel={formatMobileString(
               strings.settings.editReaderPluginSettings,
               {
@@ -559,23 +542,15 @@ function ReaderPluginManagementRow({
             accessibilityState={{ disabled: selectDisabled }}
             disabled={selectDisabled}
             hapticFeedback={canOpenSettings ? "press" : "none"}
+            icon="settings-outline"
             onPress={() => {
               if (!canOpenSettings) return;
               onSelect();
             }}
-            pressedScale={0.94}
-            style={[
-              styles.actionIconButton,
-              { opacity: selectDisabled ? 0.38 : 1 },
-            ]}
+            size="icon-sm"
             testID={`ReaderPluginSettings:${plugin.id}`}
-          >
-            <Ionicons
-              name="settings-outline"
-              size={18}
-              color={tokens.mutedForeground}
-            />
-          </NemuPressable>
+            variant="secondary"
+          />
         ) : null}
         <NemuNativeSwitch
           accessibilityLabel={formatMobileString(
@@ -664,6 +639,7 @@ function MobileReaderPluginSettingsSheet({
     setting: SourcePackageSetting,
   ) => void;
 }) {
+  const { tokens } = useNemuTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const sheetLayout = getMobileSettingsSheetLayout({
     fontScale,
@@ -676,13 +652,41 @@ function MobileReaderPluginSettingsSheet({
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={onClose}
-      title={plugin.name}
-      subtitle={plugin.description}
-      headerLeading={<ReaderPluginIcon plugin={plugin} />}
       scroll={sheetLayout.scroll}
       snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
       testID={`ReaderPluginSettingsSheet:${plugin.id}`}
     >
+      {/*
+        The plugin mark belongs to the title, not to the sheet chrome: a
+        leading header slot leaves the icon stranded in the top-left corner
+        while the title stays optically centered. Compose both into one
+        centered row and center the description under it.
+      */}
+      <View style={styles.pluginSheetHeader}>
+        <View style={styles.pluginSheetTitleRow}>
+          <ReaderPluginIcon plugin={plugin} placement="title" />
+          <NemuText
+            accessibilityRole="header"
+            color={tokens.foreground}
+            density="compact"
+            numberOfLines={2}
+            style={styles.pluginSheetTitle}
+            variant="sheetTitle"
+          >
+            {plugin.name}
+          </NemuText>
+        </View>
+        {plugin.description ? (
+          <NemuText
+            color={tokens.mutedForeground}
+            density="compact"
+            style={styles.pluginSheetDescription}
+            variant="rowSubtitle"
+          >
+            {plugin.description}
+          </NemuText>
+        ) : null}
+      </View>
       <MobileSourceSettingsCard
         settings={plugin.settings}
         values={plugin.values}
@@ -1186,26 +1190,49 @@ function FeedbackSettingRow({
   value: boolean;
   onToggle: (nextValue: boolean) => void;
 }) {
+  const { tokens } = useNemuTheme();
+
   return (
-    <NemuListRow
-      accessory={
-        <NemuNativeSwitch
-          accessibilityLabel={title}
-          value={value}
-          onValueChange={(nextValue) => {
-            void hapticSelection();
-            onToggle(nextValue);
-          }}
-        />
-      }
-      icon={icon}
-      subtitle={subtitle}
-      title={title}
-    />
+    <View style={[styles.feedbackEmbeddedRow, { borderColor: tokens.border }]}>
+      <View
+        style={[
+          styles.feedbackIconFrame,
+          { backgroundColor: tokens.sourceIconGlass },
+        ]}
+      >
+        <Ionicons name={icon} size={20} color={tokens.primary} />
+      </View>
+      <View style={styles.rowText}>
+        <NemuText color={tokens.foreground} numberOfLines={1} variant="rowTitle">
+          {title}
+        </NemuText>
+        <NemuText
+          color={tokens.mutedForeground}
+          numberOfLines={2}
+          variant="rowSubtitle"
+        >
+          {subtitle}
+        </NemuText>
+      </View>
+      <NemuNativeSwitch
+        accessibilityLabel={title}
+        value={value}
+        onValueChange={(nextValue) => {
+          void hapticSelection();
+          onToggle(nextValue);
+        }}
+      />
+    </View>
   );
 }
 
+/**
+ * Haptics and the chapter-completion cue used to float as two unparented rows
+ * on the settings landing page. They now live inside the reader section under
+ * a titled "Feedback" card so every landing row belongs to a group.
+ */
 function MobileFeedbackSettingsCard() {
+  const { tokens } = useNemuTheme();
   const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
   const {
     hapticsFeedbackEnabled,
@@ -1215,24 +1242,164 @@ function MobileFeedbackSettingsCard() {
   } = useMobileFeedbackSettings();
 
   return (
-    <View style={styles.menuGroup} testID="FeedbackSettingsCard">
-      <FeedbackSettingRow
-        icon="radio-button-on-outline"
-        title={strings.feedback.hapticsFeedback}
-        subtitle={strings.feedback.hapticsFeedbackHint}
-        value={hapticsFeedbackEnabled}
-        onToggle={(nextValue) => {
-          void setHapticsFeedbackEnabled(nextValue);
-        }}
-      />
-      <FeedbackSettingRow
-        icon="checkmark-done-outline"
-        title={strings.feedback.chapterCompleteFeedback}
-        subtitle={strings.feedback.chapterCompleteFeedbackHint}
-        value={chapterCompleteCelebration}
-        onToggle={(nextValue) => {
-          void setChapterCompleteCelebration(nextValue);
-        }}
+    <SettingsSurface
+      style={styles.pluginSectionShell}
+      contentStyle={styles.pluginSectionCard}
+    >
+      <View style={styles.readerHeader}>
+        <View style={styles.iconFrame}>
+          <Ionicons name="pulse-outline" size={20} color={tokens.primary} />
+        </View>
+        <View style={styles.rowText}>
+          <Text style={[styles.rowTitle, { color: tokens.foreground }]}>
+            {strings.settings.feedbackSection}
+          </Text>
+          <Text
+            style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}
+          >
+            {strings.settings.feedbackSectionDescription}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.pluginEmbeddedList} testID="FeedbackSettingsCard">
+        <FeedbackSettingRow
+          icon="radio-button-on-outline"
+          title={strings.feedback.hapticsFeedback}
+          subtitle={strings.feedback.hapticsFeedbackHint}
+          value={hapticsFeedbackEnabled}
+          onToggle={(nextValue) => {
+            void setHapticsFeedbackEnabled(nextValue);
+          }}
+        />
+        <FeedbackSettingRow
+          icon="checkmark-done-outline"
+          title={strings.feedback.chapterCompleteFeedback}
+          subtitle={strings.feedback.chapterCompleteFeedbackHint}
+          value={chapterCompleteCelebration}
+          onToggle={(nextValue) => {
+            void setChapterCompleteCelebration(nextValue);
+          }}
+        />
+      </View>
+    </SettingsSurface>
+  );
+}
+
+/**
+ * Native counterpart of the web settings language control
+ * (`<Tabs><TabsList><TabsTrigger>`): a recessed tray whose active trigger is
+ * the raised glass panel shared with the web `.tabs-nemu-trigger[data-active]`
+ * surface — the design system exposes it as the `elevated` button depth.
+ */
+function SettingsLanguageTabs<Value extends string>({
+  accessibilityLabel,
+  disabled,
+  interactionLocked = false,
+  options,
+  value,
+  onSelect,
+}: {
+  accessibilityLabel: string;
+  disabled: boolean;
+  interactionLocked?: boolean;
+  options: Array<SettingsSegmentedOption<Value>>;
+  value: Value;
+  onSelect: (value: Value) => void;
+}) {
+  const { tokens } = useNemuTheme();
+
+  return (
+    <View
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="tablist"
+      style={[
+        styles.languageTabsTray,
+        { backgroundColor: tokens.muted, borderColor: tokens.border },
+      ]}
+    >
+      {options.map((option) => {
+        const selected = option.value === value;
+        const canSelect = canSelectMobileLanguageTab({
+          selected,
+          disabled,
+          interactionLocked,
+        });
+        return (
+          <NemuPressable
+            key={option.value}
+            accessibilityLabel={option.label}
+            accessibilityRole="tab"
+            accessibilityState={resolveMobileLanguageTabAccessibilityState({
+              selected,
+              disabled,
+              interactionLocked,
+            })}
+            buttonDepth={selected ? "elevated" : undefined}
+            containerStyle={styles.languageTabContainer}
+            disabled={disabled}
+            hapticFeedback={canSelect ? "selection" : "none"}
+            hitSlop={0}
+            minimumTouchTarget
+            onPress={() => {
+              if (!canSelect) return;
+              onSelect(option.value);
+            }}
+            pressedScale={selected ? 1 : 0.98}
+            style={styles.languageTab}
+          >
+            <NemuText
+              color={selected ? tokens.foreground : tokens.mutedForeground}
+              numberOfLines={1}
+              style={styles.languageTabLabel}
+              variant="body"
+            >
+              {option.label}
+            </NemuText>
+          </NemuPressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function LanguageSetting<Value extends string>({
+  title,
+  subtitle,
+  options,
+  value,
+  onSelect,
+  disabled = false,
+  interactionLocked = false,
+}: {
+  title: string;
+  subtitle: string;
+  options: Array<SettingsSegmentedOption<Value>>;
+  value: Value;
+  onSelect: (value: Value) => void;
+  disabled?: boolean;
+  interactionLocked?: boolean;
+}) {
+  const { tokens } = useNemuTheme();
+
+  return (
+    <View style={styles.settingBlock}>
+      <View style={styles.settingCopy}>
+        <Text style={[styles.settingTitle, { color: tokens.foreground }]}>
+          {title}
+        </Text>
+        <Text
+          style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
+        >
+          {subtitle}
+        </Text>
+      </View>
+      <SettingsLanguageTabs
+        accessibilityLabel={title}
+        disabled={disabled}
+        interactionLocked={interactionLocked}
+        options={options}
+        value={value}
+        onSelect={onSelect}
       />
     </View>
   );
@@ -1303,7 +1470,6 @@ function DataActionRow({
   onPress: () => void;
 }) {
   const { tokens } = useNemuTheme();
-  const actionColor = destructive ? tokens.danger : tokens.primary;
 
   return (
     <View style={[styles.dataAction, { borderColor: tokens.border }]}>
@@ -1317,33 +1483,18 @@ function DataActionRow({
           {subtitle}
         </Text>
       </View>
-      <NemuPressable
-        accessibilityRole="button"
+      <NemuButton
         accessibilityLabel={title}
-        accessibilityState={{ disabled }}
+        accessibilityState={{ disabled, busy: busy || undefined }}
+        containerStyle={styles.dataActionButton}
         disabled={disabled}
+        icon={icon}
+        label={actionLabel}
+        loading={busy}
         onPress={onPress}
-        pressedScale={0.96}
-        style={[
-          styles.dataActionButton,
-          {
-            backgroundColor: tokens.background,
-            borderColor: tokens.border,
-            opacity: disabled ? 0.68 : 1,
-          },
-        ]}
-      >
-        {busy ? (
-          <ActivityIndicator size="small" color={actionColor} />
-        ) : (
-          <>
-            <Ionicons name={icon} size={14} color={actionColor} />
-            <Text style={[styles.dataActionButtonText, { color: actionColor }]}>
-              {actionLabel}
-            </Text>
-          </>
-        )}
-      </NemuPressable>
+        size="sm"
+        variant={destructive ? "destructive" : "outline"}
+      />
     </View>
   );
 }
@@ -2509,12 +2660,13 @@ export function SettingsScreen({
               {activeSection === null ? (
                 <>
                   <MobileCloudSyncCard />
-                  <MobileFeedbackSettingsCard />
                   <View style={styles.menuGroup}>
                     <SettingsMenuRow
                       icon="book-outline"
                       title={strings.reader.title}
-                      subtitle={strings.reader.description}
+                      subtitle={
+                        strings.settings.readerDescriptionWithFeedback
+                      }
                       disabled={settingsActionBusy}
                       onPress={() => router.push(settingsSectionHref("reader"))}
                     />
@@ -2663,8 +2815,7 @@ export function SettingsScreen({
                             strings.settings.settingsActionFailedDetail,
                           )}
                         </Text>
-                        <NemuPressable
-                          accessibilityRole="button"
+                        <NemuButton
                           accessibilityLabel={strings.common.retry}
                           accessibilityState={{
                             disabled: !canRetryReaderPluginsError,
@@ -2674,28 +2825,12 @@ export function SettingsScreen({
                           hapticFeedback={
                             canRetryReaderPluginsError ? "press" : "none"
                           }
+                          icon="refresh-outline"
+                          loading={retryingReaderPlugins}
                           onPress={retryReaderPlugins}
-                          style={[
-                            styles.iconButton,
-                            {
-                              backgroundColor: tokens.muted,
-                              opacity: canRetryReaderPluginsError ? 1 : 0.58,
-                            },
-                          ]}
-                        >
-                          {retryingReaderPlugins ? (
-                            <ActivityIndicator
-                              size="small"
-                              color={tokens.primary}
-                            />
-                          ) : (
-                            <Ionicons
-                              name="refresh-outline"
-                              size={17}
-                              color={tokens.primary}
-                            />
-                          )}
-                        </NemuPressable>
+                          size="icon-sm"
+                          variant="secondary"
+                        />
                       </View>
                     ) : readerPlugins.loading && !readerPlugins.data.length ? (
                       <View style={styles.emptyRow}>
@@ -2737,6 +2872,8 @@ export function SettingsScreen({
                       </View>
                     )}
                   </SettingsSurface>
+
+                  <MobileFeedbackSettingsCard />
                 </>
               ) : null}
 
@@ -2769,7 +2906,7 @@ export function SettingsScreen({
                       </Text>
                     </View>
                   </View>
-                  <SegmentedSetting
+                  <LanguageSetting
                     title={strings.settings.language}
                     subtitle={strings.settings.languageDescription}
                     options={appLanguageOptions}
@@ -2798,7 +2935,7 @@ export function SettingsScreen({
                       void selectThemePreference(value);
                     }}
                   />
-                  <SegmentedSetting
+                  <LanguageSetting
                     title={strings.settings.metadataLanguage}
                     subtitle={metadataLanguageSubtitle}
                     options={metadataLanguageOptions}
@@ -2911,8 +3048,7 @@ export function SettingsScreen({
                             strings.browse.sourcesUnavailable,
                           )}
                         </Text>
-                        <NemuPressable
-                          accessibilityRole="button"
+                        <NemuButton
                           accessibilityLabel={strings.common.retry}
                           accessibilityState={{
                             disabled: !canRetryInstalledSourcesError,
@@ -2922,28 +3058,12 @@ export function SettingsScreen({
                           hapticFeedback={
                             canRetryInstalledSourcesError ? "press" : "none"
                           }
+                          icon="refresh-outline"
+                          loading={retryingInstalledSources}
                           onPress={retryInstalledSources}
-                          style={[
-                            styles.iconButton,
-                            {
-                              backgroundColor: tokens.muted,
-                              opacity: canRetryInstalledSourcesError ? 1 : 0.58,
-                            },
-                          ]}
-                        >
-                          {retryingInstalledSources ? (
-                            <ActivityIndicator
-                              size="small"
-                              color={tokens.primary}
-                            />
-                          ) : (
-                            <Ionicons
-                              name="refresh-outline"
-                              size={17}
-                              color={tokens.primary}
-                            />
-                          )}
-                        </NemuPressable>
+                          size="icon-sm"
+                          variant="secondary"
+                        />
                       </View>
                     ) : displayedSources.length ? (
                       <View style={styles.sourceList}>
@@ -3368,6 +3488,30 @@ const styles = StyleSheet.create({
   settingBlock: {
     gap: 8,
   },
+  languageTabsTray: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.xl,
+    padding: 3,
+  },
+  languageTabContainer: {
+    minWidth: 0,
+    flex: 1,
+  },
+  languageTab: {
+    minHeight: 34,
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.lg,
+    paddingHorizontal: 6,
+  },
+  languageTabLabel: {
+    fontWeight: nemuFontWeight.medium,
+    textAlign: "center",
+  },
   settingCopy: {
     gap: 2,
   },
@@ -3398,20 +3542,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   dataActionButton: {
-    minWidth: 74,
-    minHeight: 34,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-  },
-  dataActionButtonText: {
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.medium,
+    minWidth: 92,
   },
   nativeSegmentedShell: {
     minHeight: 34,
@@ -3493,6 +3624,23 @@ const styles = StyleSheet.create({
     marginHorizontal: -12,
     marginBottom: -8,
   },
+  feedbackEmbeddedRow: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  feedbackIconFrame: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderRadius: radius.md,
+  },
   pluginEmbeddedRow: {
     minHeight: 72,
     flexDirection: "row",
@@ -3555,6 +3703,31 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  pluginTitleArtwork: {
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderRadius: radius.sm,
+  },
+  pluginSheetHeader: {
+    alignItems: "center",
+    gap: 4,
+  },
+  pluginSheetTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  pluginSheetTitle: {
+    flexShrink: 1,
+    textAlign: "center",
+  },
+  pluginSheetDescription: {
+    textAlign: "center",
+  },
   disabledMain: {
     opacity: 0.62,
   },
@@ -3564,12 +3737,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 6,
-  },
-  actionIconButton: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
   },
   sourceIcon: {
     width: 34,
@@ -3614,13 +3781,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 6,
-  },
-  iconButton: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
   },
   emptyRow: {
     minHeight: 78,

@@ -42,6 +42,7 @@ import {
   type MobileReaderContinuousScrubberHandle,
 } from "@/components/MobileReaderContinuousScrubber";
 import { MobileReaderScrubber } from "@/components/MobileReaderScrubber";
+import { ReaderChromeLoadingTrack } from "@/components/reader/ReaderChromeLoadingTrack";
 import { ReaderChromePanel } from "@/components/reader/ReaderChromePanel";
 import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplaySettingsPopover";
 import {
@@ -193,7 +194,19 @@ import {
   clampMobileReaderZoomScale,
   shouldResetMobileReaderZoom,
 } from "@/lib/mobileReaderZoom";
-import { getMobileReaderTitle } from "@/lib/mobileReaderHeader";
+import {
+  READER_CHROME_LOADING_OPACITY,
+  READER_CHROME_PANEL_CONTENT_MIN_HEIGHT,
+  READER_CHROME_PANEL_CORNER_RADIUS,
+  READER_CHROME_PANEL_HORIZONTAL_INSET,
+  READER_CHROME_PANEL_HORIZONTAL_PADDING,
+  READER_CHROME_PANEL_MAX_WIDTH,
+  READER_CHROME_PANEL_MIN_HEIGHT,
+  READER_CHROME_PANEL_VERTICAL_PADDING,
+  getMobileReaderTitle,
+  isReaderChromeLoading,
+  readerChromePageCountLabel,
+} from "@/lib/mobileReaderHeader";
 import { useMobileConnectivity } from "@/lib/useMobileConnectivity";
 import {
   readerBottomBarEntering,
@@ -1151,11 +1164,7 @@ export function ReaderScreen() {
     lockPortrait: readerLockPortrait,
     setLockPortrait: setReaderLockPortrait,
   } = useReaderDisplayPrefs();
-  const {
-    brightnessPct: readerBrightnessPct,
-    previewBrightness: previewReaderBrightness,
-    commitBrightness: commitReaderBrightness,
-  } = useReaderDisplayEnvironment({
+  useReaderDisplayEnvironment({
     keepAwakeEnabled: readerKeepAwake,
     lockPortraitEnabled: readerLockPortrait,
   });
@@ -2221,6 +2230,12 @@ export function ReaderScreen() {
           },
     [scheme],
   );
+  // A chapter that has not resolved its page list keeps both chrome panels up
+  // in a greyed loading state instead of collapsing to a black screen.
+  const readerChromeLoading = isReaderChromeLoading(pagesState.status);
+  // Only an actively-fetching chapter gets the "fetching pages" subtitle and
+  // spinner; error and blocked states have their own dedicated surfaces.
+  const readerChromePagesPending = pagesState.status === "loading";
   const readerChromePanelStyle = useMemo(
     () => ({
       backgroundColor: readerChromeColors.panel,
@@ -5905,9 +5920,6 @@ export function ReaderScreen() {
         completed={completed}
         strings={strings}
         onClose={closeReaderDisplaySettings}
-        brightnessPct={readerBrightnessPct}
-        onPreviewBrightness={previewReaderBrightness}
-        onCommitBrightness={commitReaderBrightness}
         keepAwake={readerKeepAwake}
         onToggleKeepAwake={() => {
           void runReaderSettingsAction("keep-awake", () =>
@@ -6009,21 +6021,36 @@ export function ReaderScreen() {
                       { color: readerChromeColors.secondaryText },
                     ]}
                   >
-                    {chapterTitle}
+                    {readerChromePagesPending
+                      ? `${chapterTitle} · ${strings.reader.fetchingPages}`
+                      : chapterTitle}
                   </Text>
                 </View>
-                {pageCount ? (
+                <View style={styles.readerTopStatusSlot}>
+                  {readerChromePagesPending ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={readerChromeColors.disabled}
+                    />
+                  ) : null}
                   <Text
                     style={[
                       styles.readerTopPageCount,
-                      { color: readerChromeColors.secondaryText },
+                      {
+                        color: readerChromeColors.secondaryText,
+                        opacity: readerChromeLoading
+                          ? READER_CHROME_LOADING_OPACITY
+                          : 1,
+                      },
                     ]}
                   >
-                    {readerChromeSourcePageNumber} / {Math.max(1, pageCount)}
+                    {readerChromePageCountLabel({
+                      pagesStatus: pagesState.status,
+                      pageNumber: readerChromeSourcePageNumber,
+                      pageCount,
+                    })}
                   </Text>
-                ) : (
-                  <View style={styles.readerTopPageCountPlaceholder} />
-                )}
+                </View>
               </View>
             </ReaderChromePanel>
           </Animated.View>
@@ -6090,7 +6117,12 @@ export function ReaderScreen() {
                     </NemuPressable>
 
                     <View style={styles.readerChromeScrubber}>
-                      {!usePhysicalScrollScrubber ? (
+                      {readerChromeLoading ? (
+                        <ReaderChromeLoadingTrack
+                          accessibilityLabel={strings.reader.fetchingPages}
+                          color={readerChromeColors.secondaryText}
+                        />
+                      ) : !usePhysicalScrollScrubber ? (
                         <MobileReaderScrubber
                           pageIndex={visibleProgressPageIndex}
                           pageCount={pageCount}
@@ -6353,6 +6385,9 @@ export function ReaderScreen() {
                           backgroundColor: readerDisplaySettingsOpen
                             ? readerChromeColors.hover
                             : "transparent",
+                          opacity: readerChromeLoading
+                            ? READER_CHROME_LOADING_OPACITY
+                            : 1,
                         },
                       ]}
                     >
@@ -6435,25 +6470,28 @@ const styles = StyleSheet.create({
   },
   topBar: {
     position: "absolute",
-    left: 16,
-    right: 16,
+    left: READER_CHROME_PANEL_HORIZONTAL_INSET,
+    right: READER_CHROME_PANEL_HORIZONTAL_INSET,
     top: 0,
     alignItems: "center",
   },
+  // Both chrome panels share one shell so the top info bar and the bottom
+  // toolbar read as the same surface: same height, inset and corner radius.
   readerChromePanelShell: {
     width: "100%",
-    maxWidth: 520,
-    borderRadius: 16,
+    maxWidth: READER_CHROME_PANEL_MAX_WIDTH,
+    minHeight: READER_CHROME_PANEL_MIN_HEIGHT,
+    borderRadius: READER_CHROME_PANEL_CORNER_RADIUS,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
   },
   readerTopPanel: {
-    minHeight: 52,
+    minHeight: READER_CHROME_PANEL_MIN_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: READER_CHROME_PANEL_HORIZONTAL_PADDING,
+    paddingVertical: READER_CHROME_PANEL_VERTICAL_PADDING,
   },
   readerChromeIconButton: {
     width: 38,
@@ -6477,6 +6515,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
   },
+  readerTopStatusSlot: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
+  },
   readerTopPageCount: {
     minWidth: 54,
     flexShrink: 0,
@@ -6484,25 +6529,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 15,
     fontWeight: nemuFontWeight.medium,
-  },
-  readerTopPageCountPlaceholder: {
-    width: 54,
-    height: 1,
+    fontVariant: ["tabular-nums"],
   },
   bottomBar: {
     position: "absolute",
-    left: 16,
-    right: 16,
+    left: READER_CHROME_PANEL_HORIZONTAL_INSET,
+    right: READER_CHROME_PANEL_HORIZONTAL_INSET,
     bottom: 0,
     alignItems: "center",
   },
   readerBottomPanel: {
+    minHeight: READER_CHROME_PANEL_MIN_HEIGHT,
+    justifyContent: "center",
     gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: READER_CHROME_PANEL_HORIZONTAL_PADDING,
+    paddingVertical: READER_CHROME_PANEL_VERTICAL_PADDING,
   },
   readerBottomChromeRow: {
-    minHeight: 38,
+    minHeight: READER_CHROME_PANEL_CONTENT_MIN_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,

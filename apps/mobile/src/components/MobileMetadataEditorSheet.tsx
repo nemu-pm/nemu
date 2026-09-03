@@ -250,23 +250,16 @@ function MetadataTextField({
           {label}
         </Text>
         {isOverridden && onReset && resetLabel ? (
-          <NemuPressable
-            accessibilityRole="button"
+          <NemuButton
             accessibilityLabel={resetAccessibilityLabel ?? resetLabel}
             accessibilityState={{ disabled }}
             disabled={disabled}
+            icon="refresh-outline"
+            label={resetLabel}
             onPress={onReset}
-            pressedScale={0.97}
-            style={[
-              styles.fieldResetButton,
-              { backgroundColor: tokens.muted, opacity: disabled ? 0.64 : 1 },
-            ]}
-          >
-            <Ionicons name="refresh-outline" size={13} color={tokens.mutedForeground} />
-            <Text style={[styles.fieldResetText, { color: tokens.mutedForeground }]}>
-              {resetLabel}
-            </Text>
-          </NemuPressable>
+            size="xs"
+            variant="secondary"
+          />
         ) : null}
       </View>
       <GlassSurface
@@ -828,79 +821,36 @@ export function MobileMetadataEditorSheet({
             </Text>
             <View style={styles.coverActions}>
               <View style={styles.coverActionButtons}>
-                <NemuPressable
-                  accessibilityRole="button"
+                <NemuButton
                   accessibilityLabel={strings.metadataEditor.chooseCoverImage}
                   accessibilityState={{
                     busy: pickingCover || undefined,
                     disabled: editorActionBusy,
                   }}
                   disabled={editorActionBusy}
+                  icon="image-outline"
+                  label={strings.metadataEditor.chooseCoverImage}
+                  loading={pickingCover}
                   onPress={() => {
                     void handlePickCover();
                   }}
-                  pressedScale={0.97}
-                  style={[
-                    styles.coverActionButton,
-                    {
-                      backgroundColor: tokens.muted,
-                      opacity: editorActionBusy ? 0.7 : 1,
-                    },
-                  ]}
-                >
-                  {pickingCover ? (
-                    <ActivityIndicator size="small" color={tokens.mutedForeground} />
-                  ) : (
-                    <Ionicons
-                      name="image-outline"
-                      size={14}
-                      color={tokens.mutedForeground}
-                    />
-                  )}
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.coverActionText,
-                      { color: tokens.mutedForeground },
-                    ]}
-                  >
-                    {strings.metadataEditor.chooseCoverImage}
-                  </Text>
-                </NemuPressable>
+                  size="sm"
+                  variant="secondary"
+                />
                 {coverUrlOverridden ? (
-                  <NemuPressable
-                    accessibilityRole="button"
+                  <NemuButton
                     accessibilityLabel={resetFieldAccessibilityLabel(
                       strings.metadataEditor.cover
                     )}
                     accessibilityState={{ disabled: editorActionBusy }}
                     disabled={editorActionBusy}
                     hapticFeedback="press"
+                    icon="trash-outline"
+                    label={strings.common.clear}
                     onPress={() => resetField("coverUrl")}
-                    pressedScale={0.97}
-                    style={[
-                      styles.coverActionButton,
-                      {
-                        backgroundColor: tokens.muted,
-                        opacity: editorActionBusy ? 0.7 : 1,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name="trash-outline"
-                      size={14}
-                      color={tokens.mutedForeground}
-                    />
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        styles.coverActionText,
-                        { color: tokens.mutedForeground },
-                      ]}
-                    >
-                      {strings.common.clear}
-                    </Text>
-                  </NemuPressable>
+                    size="sm"
+                    variant="secondary"
+                  />
                 ) : null}
               </View>
               {selectedCoverAsset ? (
@@ -1117,29 +1067,22 @@ export function MobileMetadataEditorSheet({
                 />
               ) : null}
             </GlassSurface>
-            <NemuPressable
-              accessibilityRole="button"
+            <NemuButton
               accessibilityLabel={strings.metadataEditor.searchMatches}
-              accessibilityState={{ disabled: !canSearchMatches }}
+              accessibilityState={{
+                busy: matchLoading || undefined,
+                disabled: !canSearchMatches,
+              }}
+              containerStyle={styles.matchSearchButton}
               disabled={!canSearchMatches}
+              icon="search-outline"
+              loading={matchLoading}
               onPress={() => {
                 void handleSearchMatches();
               }}
-              pressedScale={0.98}
-              style={[
-                styles.matchSearchButton,
-                {
-                  backgroundColor: canSearchMatches ? tokens.primary : tokens.muted,
-                  opacity: canSearchMatches ? 1 : 0.75,
-                },
-              ]}
-            >
-              {matchLoading ? (
-                <ActivityIndicator color={tokens.mutedForeground} size="small" />
-              ) : (
-                <Ionicons name="search-outline" size={17} color={tokens.primaryForeground} />
-              )}
-            </NemuPressable>
+              size="icon-lg"
+              variant="default"
+            />
           </View>
 
           {matchError ? (
@@ -1238,9 +1181,8 @@ export function MobileMetadataEditorSheet({
                       ).map((field) => {
                         const fieldLabel = matchFieldLabel(field, strings);
                         return (
-                          <NemuPressable
+                          <NemuButton
                             key={field}
-                            accessibilityRole="button"
                             accessibilityLabel={formatMobileString(
                               strings.metadataEditor.applyMatchField,
                               {
@@ -1252,35 +1194,16 @@ export function MobileMetadataEditorSheet({
                               busy: matchApplying || undefined,
                               disabled: editorActionBusy,
                             }}
+                            containerStyle={styles.matchFieldButton}
                             disabled={editorActionBusy}
+                            icon={matchFieldIcon(field)}
+                            label={fieldLabel}
                             onPress={() => {
                               void handleApplyMatchField(result, field);
                             }}
-                            pressedScale={0.97}
-                            style={[
-                              styles.matchFieldButton,
-                              {
-                                backgroundColor: tokens.muted,
-                                borderColor: tokens.border,
-                                opacity: editorActionBusy ? 0.7 : 1,
-                              },
-                            ]}
-                          >
-                            <Ionicons
-                              name={matchFieldIcon(field)}
-                              size={13}
-                              color={tokens.mutedForeground}
-                            />
-                            <Text
-                              numberOfLines={1}
-                              style={[
-                                styles.matchFieldButtonText,
-                                { color: tokens.mutedForeground },
-                              ]}
-                            >
-                              {fieldLabel}
-                            </Text>
-                          </NemuPressable>
+                            size="xs"
+                            variant="secondary"
+                          />
                         );
                       })}
                     </ScrollView>
@@ -1314,34 +1237,18 @@ export function MobileMetadataEditorSheet({
               {strings.metadataEditor.status}
             </Text>
             {fieldOverrides.status ? (
-              <NemuPressable
-                accessibilityRole="button"
+              <NemuButton
                 accessibilityLabel={resetFieldAccessibilityLabel(
                   strings.metadataEditor.status
                 )}
                 accessibilityState={{ disabled: editorActionBusy }}
                 disabled={editorActionBusy}
+                icon="refresh-outline"
+                label={strings.metadataEditor.reset}
                 onPress={() => resetField("status")}
-                pressedScale={0.97}
-                style={[
-                  styles.fieldResetButton,
-                  {
-                    backgroundColor: tokens.muted,
-                    opacity: editorActionBusy ? 0.64 : 1,
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="refresh-outline"
-                  size={13}
-                  color={tokens.mutedForeground}
-                />
-                <Text
-                  style={[styles.fieldResetText, { color: tokens.mutedForeground }]}
-                >
-                  {strings.metadataEditor.reset}
-                </Text>
-              </NemuPressable>
+                size="xs"
+                variant="secondary"
+              />
             ) : null}
           </View>
           <View accessibilityRole="tablist" style={styles.statusGrid}>
@@ -1555,24 +1462,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 6,
   },
-  coverActionButton: {
-    minHeight: 34,
-    maxWidth: "100%",
-    alignSelf: "flex-start",
-    flexShrink: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderRadius: radius.md,
-    paddingHorizontal: 10,
-  },
-  coverActionText: {
-    flexShrink: 1,
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.semibold,
-  },
   coverSelectedText: {
     fontSize: 11,
     lineHeight: 14,
@@ -1743,9 +1632,6 @@ const styles = StyleSheet.create({
   matchSearchButton: {
     width: 48,
     height: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
   },
   matchError: {
     fontSize: 12,
@@ -1807,21 +1693,7 @@ const styles = StyleSheet.create({
     paddingRight: 2,
   },
   matchFieldButton: {
-    minHeight: 30,
     maxWidth: 120,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.md,
-    paddingHorizontal: 9,
-  },
-  matchFieldButtonText: {
-    flexShrink: 1,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.semibold,
   },
   field: {
     gap: 7,
@@ -1840,20 +1712,6 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: nemuFontWeight.semibold,
     textTransform: "uppercase",
-  },
-  fieldResetButton: {
-    minHeight: 26,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    borderRadius: radius.md,
-    paddingHorizontal: 8,
-  },
-  fieldResetText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.semibold,
   },
   inputShell: {
     minHeight: 44,

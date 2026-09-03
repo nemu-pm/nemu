@@ -29,6 +29,7 @@ import {
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileSourceLoginSheet } from "@/components/MobileSourceLoginSheet";
 import {
+  NemuButton,
   NemuNativeSwitch,
   radius,
   nemuFontWeight,
@@ -770,8 +771,7 @@ function SourceSettingControl({
     const incrementDisabled = current >= max;
     return (
       <View style={styles.stepper}>
-        <NemuPressable
-          accessibilityRole="button"
+        <NemuButton
           accessibilityLabel={formatSourceSettingAccessibilityLabel(
             setting,
             values,
@@ -782,27 +782,15 @@ function SourceSettingControl({
           )}
           accessibilityState={{ disabled: disabled || decrementDisabled }}
           disabled={disabled || decrementDisabled}
+          icon="remove-outline"
           onPress={() => setValue(Math.max(min, current - step))}
-          pressedScale={0.96}
-          buttonDepth="secondary"
-          style={[
-            styles.stepperButton,
-            {
-              opacity: disabled || decrementDisabled ? 0.62 : 1,
-            },
-          ]}
-        >
-          <Ionicons
-            name="remove-outline"
-            size={16}
-            color={tokens.mutedForeground}
-          />
-        </NemuPressable>
+          size="icon-sm"
+          variant="secondary"
+        />
         <Text style={[styles.stepperValue, { color: tokens.foreground }]}>
           {current}
         </Text>
-        <NemuPressable
-          accessibilityRole="button"
+        <NemuButton
           accessibilityLabel={formatSourceSettingAccessibilityLabel(
             setting,
             values,
@@ -813,22 +801,11 @@ function SourceSettingControl({
           )}
           accessibilityState={{ disabled: disabled || incrementDisabled }}
           disabled={disabled || incrementDisabled}
+          icon="add-outline"
           onPress={() => setValue(Math.min(max, current + step))}
-          pressedScale={0.96}
-          buttonDepth="secondary"
-          style={[
-            styles.stepperButton,
-            {
-              opacity: disabled || incrementDisabled ? 0.62 : 1,
-            },
-          ]}
-        >
-          <Ionicons
-            name="add-outline"
-            size={16}
-            color={tokens.mutedForeground}
-          />
-        </NemuPressable>
+          size="icon-sm"
+          variant="secondary"
+        />
       </View>
     );
   }
@@ -884,8 +861,7 @@ function SourceSettingControl({
               style={[styles.editableListInput, { color: tokens.foreground }]}
             />
           </GlassSurface>
-          <NemuPressable
-            accessibilityRole="button"
+          <NemuButton
             accessibilityLabel={formatSourceSettingAccessibilityLabel(
               setting,
               values,
@@ -897,25 +873,11 @@ function SourceSettingControl({
                 disabled || !trimmedDraft || listIsFull || draftIsTooLong,
             }}
             disabled={disabled || !trimmedDraft || listIsFull || draftIsTooLong}
+            icon="add-outline"
             onPress={() => addDraftItem()}
-            pressedScale={0.94}
-            buttonDepth="primary"
-            style={[
-              styles.editableListAddButton,
-              {
-                opacity:
-                  !disabled && trimmedDraft && !listIsFull && !draftIsTooLong
-                    ? 1
-                    : 0.58,
-              },
-            ]}
-          >
-            <Ionicons
-              name="add-outline"
-              size={17}
-              color={tokens.primaryForeground}
-            />
-          </NemuPressable>
+            size="icon-sm"
+            variant="default"
+          />
         </View>
         {currentItems.length ? (
           <View style={styles.editableListItems}>
@@ -1756,27 +1718,15 @@ function MobileSourceSettingsCardContent({
           <View style={styles.settingsHeader}>
             {currentPage ? (
               <View style={styles.capabilityHeader}>
-                <NemuPressable
-                  accessibilityRole="button"
+                <NemuButton
                   accessibilityLabel={strings.settings.sourceSettingsBack}
                   accessibilityState={{ disabled }}
                   disabled={disabled}
+                  icon="chevron-back"
                   onPress={() => setPageStack(activePageStack.slice(0, -1))}
-                  pressedScale={0.94}
-                  buttonDepth="secondary"
-                  style={[
-                    styles.backButton,
-                    {
-                      opacity: disabled ? 0.62 : 1,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name="chevron-back"
-                    size={17}
-                    color={tokens.mutedForeground}
-                  />
-                </NemuPressable>
+                  size="icon-sm"
+                  variant="secondary"
+                />
                 <View style={styles.settingsHeaderText}>
                   <Text
                     style={[styles.statusLabel, { color: tokens.foreground }]}
@@ -1824,36 +1774,20 @@ function MobileSourceSettingsCardContent({
               </View>
             )}
             {!currentPage && onReset && editableSettings.length ? (
-              <NemuPressable
-                accessibilityRole="button"
+              <NemuButton
                 accessibilityLabel={strings.settings.sourceSettingsResetLabel}
                 accessibilityState={{ disabled }}
                 disabled={disabled}
+                icon="refresh-outline"
+                label={strings.settings.sourceSettingsReset}
                 onPress={() => {
                   if (disabled) return;
                   setDismissedError(null);
                   onReset();
                 }}
-                pressedScale={0.97}
-                buttonDepth="secondary"
-                style={[
-                  styles.resetButton,
-                  {
-                    opacity: disabled ? 0.62 : 1,
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="refresh-outline"
-                  size={15}
-                  color={tokens.mutedForeground}
-                />
-                <Text
-                  style={[styles.resetText, { color: tokens.mutedForeground }]}
-                >
-                  {strings.settings.sourceSettingsReset}
-                </Text>
-              </NemuPressable>
+                size="sm"
+                variant="secondary"
+              />
             ) : null}
           </View>
           {activeError ? (
@@ -1944,13 +1878,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 1,
   },
-  backButton: {
-    width: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-  },
   statusLabel: {
     fontSize: 14,
     lineHeight: 18,
@@ -1959,20 +1886,6 @@ const styles = StyleSheet.create({
   settingsSubtitle: {
     fontSize: 11,
     lineHeight: 14,
-  },
-  resetButton: {
-    minHeight: 30,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    borderRadius: radius.md,
-    paddingHorizontal: 10,
-  },
-  resetText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.semibold,
   },
   settingList: {
     gap: 10,
@@ -2150,13 +2063,6 @@ const styles = StyleSheet.create({
     minHeight: 34,
     fontSize: 12,
   },
-  editableListAddButton: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-  },
   editableListItems: {
     width: "100%",
     flexDirection: "row",
@@ -2225,13 +2131,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-  },
-  stepperButton: {
-    width: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
   },
   stepperValue: {
     minWidth: 34,

@@ -12,6 +12,7 @@ import {
   getMobileWelcomeAvailableSources,
   getMobileWelcomeDefaultSelection,
   getMobileWelcomePendingSourceInstallCount,
+  getMobileWelcomeSourceStepLayout,
   getMobileWelcomeUnderlyingContentState,
   getMobileWelcomeRecommendedSources,
   mobileWelcomeSourceKey,
@@ -22,6 +23,10 @@ import {
   resolveMobileWelcomeNativeSheetPresentation,
   MOBILE_WELCOME_ANDROID_SNAP_POINTS,
   MOBILE_WELCOME_ICON_SIZE,
+  MOBILE_WELCOME_SOURCE_LIST_MIN_HEIGHT,
+  MOBILE_WELCOME_SOURCE_PLACEHOLDER_HEIGHT,
+  MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT,
+  MOBILE_WELCOME_SOURCE_SHEET_MAX_HEIGHT,
 } from "./mobileWelcome";
 
 function source(registryId: string, id: string, name = id): MobileRegistrySource {
@@ -175,6 +180,10 @@ describe("mobile welcome helpers", () => {
     expect(welcome.snapPoints).toEqual(["50%", "100%"]);
     expect(welcome.scroll).toBe(true);
     expect(sources.scroll).toBe(true);
+    // Material only exposes partial/expanded detents, so the source list can
+    // never be pinned against an exact sheet height there.
+    expect(welcome.boundSourceList).toBe(false);
+    expect(sources.boundSourceList).toBe(false);
     expect(welcome.enablePanDownToClose).toBe(false);
   });
 
@@ -188,6 +197,7 @@ describe("mobile welcome helpers", () => {
         nativeSheetHeight: 520,
       }),
     ).toEqual({
+      boundSourceList: false,
       enablePanDownToClose: false,
       scroll: false,
       snapPoints: undefined,
@@ -201,10 +211,94 @@ describe("mobile welcome helpers", () => {
         nativeSheetHeight: 620,
       }),
     ).toEqual({
+      boundSourceList: true,
       enablePanDownToClose: false,
-      scroll: true,
+      scroll: false,
       snapPoints: [620],
     });
+  });
+
+  test("keeps the iOS source step pinned and scrolls only for banners", () => {
+    const pinned = resolveMobileWelcomeNativeSheetPresentation({
+      platform: "ios",
+      step: "sources",
+      fontScale: 1,
+      availableHeight: 800,
+      nativeSheetHeight: 480,
+    });
+    const recovering = resolveMobileWelcomeNativeSheetPresentation({
+      platform: "ios",
+      step: "sources",
+      fontScale: 1,
+      availableHeight: 800,
+      nativeSheetHeight: 480,
+      bannerVisible: true,
+    });
+
+    expect(pinned.boundSourceList).toBe(true);
+    expect(pinned.scroll).toBe(false);
+    // An unbudgeted recovery banner must stay reachable, so the whole sheet
+    // falls back to scrolling.
+    expect(recovering.boundSourceList).toBe(false);
+    expect(recovering.scroll).toBe(true);
+    expect(recovering.snapPoints).toEqual([480]);
+  });
+
+  test("sizes the source step so only its list scrolls", () => {
+    const threeRows = getMobileWelcomeSourceStepLayout({
+      rowCount: 3,
+      bottomInset: 34,
+      availableHeight: 800,
+    });
+
+    expect(threeRows.contentBottomInset).toBe(34);
+    // 3 * 61 + 2 * 8
+    expect(threeRows.listHeight).toBe(199);
+    expect(threeRows.sheetHeight).toBe(
+      MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT + 199 + 34,
+    );
+
+    const placeholder = getMobileWelcomeSourceStepLayout({
+      rowCount: 0,
+      bottomInset: 0,
+      availableHeight: 800,
+    });
+    expect(placeholder.contentBottomInset).toBe(18);
+    expect(placeholder.listHeight).toBe(
+      MOBILE_WELCOME_SOURCE_PLACEHOLDER_HEIGHT,
+    );
+  });
+
+  test("shrinks the source list instead of the pinned actions", () => {
+    const clamped = getMobileWelcomeSourceStepLayout({
+      rowCount: 8,
+      bottomInset: 34,
+      availableHeight: 420,
+    });
+
+    expect(clamped.sheetHeight).toBe(420);
+    expect(clamped.listHeight).toBe(
+      420 - MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT - 34,
+    );
+
+    const tiny = getMobileWelcomeSourceStepLayout({
+      rowCount: 8,
+      bottomInset: 34,
+      availableHeight: 240,
+    });
+    expect(tiny.listHeight).toBe(MOBILE_WELCOME_SOURCE_LIST_MIN_HEIGHT);
+
+    const huge = getMobileWelcomeSourceStepLayout({
+      rowCount: 20,
+      bottomInset: 34,
+      availableHeight: 2000,
+    });
+    expect(huge.sheetHeight).toBe(MOBILE_WELCOME_SOURCE_SHEET_MAX_HEIGHT);
+    expect(huge.listHeight).toBe(
+      MOBILE_WELCOME_SOURCE_SHEET_MAX_HEIGHT -
+        MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT -
+        34,
+    );
   });
 
   test("forbids hand-built Android sheet chrome in onboarding", () => {
@@ -238,8 +332,31 @@ describe("mobile welcome helpers", () => {
       "utf8",
     );
 
+    const pageEmptySource = readFileSync(
+      path.join(import.meta.dir, "../components/MobilePageEmpty.tsx"),
+      "utf8",
+    );
+
     expect(welcomeSource).toContain("size={NEMU_PROMINENT_CTA_SIZE}");
     expect(emptyLibrarySource).toContain("size={NEMU_PROMINENT_CTA_SIZE}");
+    // The library and page empty states must never diverge into two CTA sizes.
+    expect(pageEmptySource).toContain("size={NEMU_PROMINENT_CTA_SIZE}");
+  });
+
+  test("keeps every onboarding action on a depth button surface", () => {
+    const welcomeSource = readFileSync(
+      path.join(import.meta.dir, "../components/MobileWelcomeWizard.tsx"),
+      "utf8",
+    );
+
+    // The language picker is a row of depth buttons, not hand-painted chips.
+    expect(welcomeSource).toContain('variant={selected ? "default" : "secondary"}');
+    expect(welcomeSource).not.toContain("segmentText");
+    // Selection on a source card must read as a deliberate ring.
+    expect(welcomeSource).toMatch(/selectedSourceOption: \{\s*borderWidth: 1\.5,/);
+    // Only the recommended source list scrolls.
+    expect(welcomeSource).toContain("boundSourceList ? (");
+    expect(welcomeSource).toContain("{ height: sourceStepLayout.listHeight }");
   });
 
   test("hides the underlying navigation tree only while onboarding is visible", () => {

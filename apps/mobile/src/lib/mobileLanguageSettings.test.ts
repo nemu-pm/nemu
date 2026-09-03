@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  compareMobileLanguageCodes,
   DEFAULT_APP_LANGUAGE,
   DEFAULT_METADATA_LANGUAGE_PREFERENCE,
   formatMobileLanguageDisplayName,
@@ -182,5 +183,50 @@ describe("mobile language display names", () => {
     expect(getLanguagePriorityOrder("en")).toEqual(["ja", "zh", "en", "multi"]);
     expect(getLanguagePriorityOrder("zh")).toEqual(["ja", "zh", "en", "multi"]);
     expect(getLanguagePriorityOrder("ja")).toEqual(["ja", "zh", "en", "multi"]);
+  });
+
+  test("keeps every script and region variant beside its base language", () => {
+    const codes = [
+      "vi",
+      "zh-Hant",
+      "es-419",
+      "pt-BR",
+      "en",
+      "zh-hans",
+      "multi",
+      "pt",
+      "zh-TW",
+      "es",
+      "zh",
+      "ja",
+    ];
+
+    expect(
+      [...codes].sort((left, right) =>
+        compareMobileLanguageCodes(left, right, "zh"),
+      ),
+    ).toEqual([
+      "ja",
+      "zh",
+      "zh-hans",
+      "zh-Hant",
+      "zh-TW",
+      "en",
+      "multi",
+      "es",
+      "es-419",
+      "pt",
+      "pt-BR",
+      "vi",
+    ]);
+  });
+
+  test("compares variants case-insensitively and through the All alias", () => {
+    expect(compareMobileLanguageCodes("zh_Hant", "zh-hant", "en")).toBe(0);
+    expect(compareMobileLanguageCodes("All", "multi", "en")).toBe(0);
+    // A variant never outranks its own base language.
+    expect(compareMobileLanguageCodes("zh-hans", "zh", "en")).toBeGreaterThan(0);
+    // The base language keeps its priority rank for the whole family.
+    expect(compareMobileLanguageCodes("zh-hant", "en", "en")).toBeLessThan(0);
   });
 });

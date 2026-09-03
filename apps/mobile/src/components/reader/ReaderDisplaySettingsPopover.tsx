@@ -1,30 +1,36 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import {
-  ActivityIndicator,
   Modal,
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MobileReaderWidthSlider } from "@/components/MobileReaderWidthSlider";
-import { MobileSliderTrack } from "@/components/MobileSliderTrack";
 import type { ReadingMode } from "@/data/schema";
 import {
   MobileSheetBackdrop,
+  NemuButton,
+  NemuNativeSheetHeaderAction,
   NemuNativeSwitch,
-  NemuPressable,
+  NemuText,
   iconSize,
   nemuFontWeight,
-  radius,
   useNemuTheme,
 } from "@/design-system";
-import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
-import { useSliderSelectionHaptic } from "@/lib/useSliderSelectionHaptic";
+import type { MobileStrings } from "@/lib/mobileI18n";
+import {
+  READER_CHROME_PANEL_CORNER_RADIUS,
+  READER_CHROME_PANEL_HORIZONTAL_INSET,
+  READER_CHROME_PANEL_MAX_WIDTH,
+  readerChromeSettingsPopoverBottomOffset,
+} from "@/lib/mobileReaderHeader";
+import { ReaderReadingModePicker } from "./ReaderReadingModePicker";
+import { ReaderSegmentedChipRow } from "./ReaderSegmentedChipRow";
 
 type ReaderPagePairingMode = "book" | "manga";
 
@@ -51,9 +57,6 @@ type ReaderDisplaySettingsPopoverProps = {
   onCommitScrollWidth: (value: number) => void;
   onScrollWidthInteractionStart?: () => void;
   onScrollWidthInteractionEnd?: () => void;
-  brightnessPct: number;
-  onPreviewBrightness: (value: number) => void;
-  onCommitBrightness: (value: number) => void;
   keepAwake: boolean;
   onToggleKeepAwake: () => void;
   lockPortrait: boolean;
@@ -61,118 +64,73 @@ type ReaderDisplaySettingsPopoverProps = {
   onMarkComplete: () => void;
 };
 
-const BRIGHTNESS_MIN = 0;
-const BRIGHTNESS_MAX = 100;
-const BRIGHTNESS_STEP = 5;
-
-function clampBrightnessPct(value: number): number {
-  return Math.max(
-    BRIGHTNESS_MIN,
-    Math.min(BRIGHTNESS_MAX, Math.round(value)),
-  );
-}
-
-/**
- * Reader brightness runs the full 0–100 range, so it cannot reuse
- * MobileReaderWidthSlider (which clamps to the page-width range). It shares
- * the same MobileSliderTrack geometry and selection haptic.
- */
-function ReaderBrightnessSlider({
-  disabled,
-  strings,
-  value,
-  onPreview,
-  onCommit,
-}: {
-  disabled: boolean;
-  strings: MobileStrings;
-  value: number;
-  onPreview: (value: number) => void;
-  onCommit: (value: number) => void;
-}) {
-  const clampedValue = clampBrightnessPct(value);
-  const triggerSelectionHaptic = useSliderSelectionHaptic(clampedValue);
-
-  const valueFromRatio = useCallback(
-    (ratio: number) =>
-      clampBrightnessPct(
-        BRIGHTNESS_MIN + ratio * (BRIGHTNESS_MAX - BRIGHTNESS_MIN),
-      ),
-    [],
-  );
-
-  const onRatioChange = useCallback(
-    (ratio: number) => {
-      const nextValue = valueFromRatio(ratio);
-      onPreview(nextValue);
-      triggerSelectionHaptic(nextValue);
-    },
-    [onPreview, triggerSelectionHaptic, valueFromRatio],
-  );
-
-  const onRatioEnd = useCallback(
-    (ratio: number) => {
-      const nextValue = valueFromRatio(ratio);
-      onPreview(nextValue);
-      onCommit(nextValue);
-      triggerSelectionHaptic(nextValue);
-    },
-    [onCommit, onPreview, triggerSelectionHaptic, valueFromRatio],
-  );
-
-  const adjustValue = useCallback(
-    (delta: number) => {
-      if (disabled) return;
-      const nextValue = clampBrightnessPct(clampedValue + delta);
-      onPreview(nextValue);
-      onCommit(nextValue);
-      triggerSelectionHaptic(nextValue);
-    },
-    [clampedValue, disabled, onCommit, onPreview, triggerSelectionHaptic],
-  );
-
-  return (
-    <View
-      accessibilityRole="adjustable"
-      accessibilityLabel={strings.feedback.displayBrightness}
-      accessibilityState={{ disabled }}
-      accessibilityValue={{
-        min: BRIGHTNESS_MIN,
-        max: BRIGHTNESS_MAX,
-        now: clampedValue,
-        text: formatMobileString(strings.feedback.displayBrightnessValue, {
-          percent: clampedValue,
-        }),
-      }}
-      accessibilityActions={[
-        { name: "decrement", label: strings.feedback.displayBrightnessDecrease },
-        { name: "increment", label: strings.feedback.displayBrightnessIncrease },
-      ]}
-      onAccessibilityAction={(event) => {
-        if (event.nativeEvent.actionName === "increment") {
-          adjustValue(BRIGHTNESS_STEP);
-        } else if (event.nativeEvent.actionName === "decrement") {
-          adjustValue(-BRIGHTNESS_STEP);
-        }
-      }}
-      style={[styles.brightnessSlider, { opacity: disabled ? 0.56 : 1 }]}
-    >
-      <MobileSliderTrack
-        disabled={disabled}
-        progress={
-          (clampedValue - BRIGHTNESS_MIN) / (BRIGHTNESS_MAX - BRIGHTNESS_MIN)
-        }
-        onRatioChange={onRatioChange}
-        onRatioEnd={onRatioEnd}
-      />
-    </View>
-  );
-}
-
 function readerModeLabel(mode: ReadingMode, strings: MobileStrings): string {
   if (mode === "rtl") return strings.reader.rtl;
   if (mode === "ltr") return strings.reader.ltr;
   return strings.reader.scroll;
+}
+
+/**
+ * One popover row: a 20pt leading glyph, a 14/500 label (with an optional
+ * secondary line) and a trailing control. Blocks whose control needs the full
+ * width pass `below` instead of `control`.
+ */
+function ReaderSettingRow({
+  below,
+  control,
+  description,
+  first = false,
+  icon,
+  title,
+}: {
+  below?: ReactNode;
+  control?: ReactNode;
+  description?: string;
+  first?: boolean;
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+}) {
+  const { tokens } = useNemuTheme();
+
+  return (
+    <View
+      style={[
+        styles.settingBlock,
+        first
+          ? null
+          : { borderTopWidth: StyleSheet.hairlineWidth, borderColor: tokens.border },
+      ]}
+    >
+      <View style={styles.settingRow}>
+        <View style={styles.settingLabel}>
+          <Ionicons
+            name={icon}
+            size={iconSize.md}
+            color={tokens.mutedForeground}
+          />
+          <View style={styles.settingCopy}>
+            <NemuText
+              color={tokens.foreground}
+              numberOfLines={1}
+              style={styles.settingTitle}
+            >
+              {title}
+            </NemuText>
+            {description ? (
+              <NemuText
+                color={tokens.mutedForeground}
+                style={styles.settingDescription}
+              >
+                {description}
+              </NemuText>
+            ) : null}
+          </View>
+        </View>
+        {control}
+      </View>
+      {below}
+    </View>
+  );
 }
 
 export function ReaderDisplaySettingsPopover({
@@ -198,9 +156,6 @@ export function ReaderDisplaySettingsPopover({
   onCommitScrollWidth,
   onScrollWidthInteractionStart,
   onScrollWidthInteractionEnd,
-  brightnessPct,
-  onPreviewBrightness,
-  onCommitBrightness,
   keepAwake,
   onToggleKeepAwake,
   lockPortrait,
@@ -239,8 +194,7 @@ export function ReaderDisplaySettingsPopover({
     if (Platform.OS === "android" && !visible) notifyDismissComplete();
   }, [notifyDismissComplete, visible]);
 
-  const modeOptions: ReadingMode[] = ["rtl", "ltr", "scrolling"];
-  const bottomOffset = insets.bottom + 86;
+  const bottomOffset = readerChromeSettingsPopoverBottomOffset(insets.bottom);
   const maxPanelHeight = Math.max(
     140,
     window.height - bottomOffset - Math.max(insets.top, 8) - 12,
@@ -297,329 +251,174 @@ export function ReaderDisplaySettingsPopover({
           >
           <View style={styles.readerSettingsPopoverHeader}>
             <View style={styles.readerSettingsPopoverTitleBlock}>
-              <Text
-                style={[
-                  styles.readerSettingsPopoverTitle,
-                  { color: tokens.foreground },
-                ]}
+              <NemuText
+                color={tokens.foreground}
+                style={styles.readerSettingsPopoverTitle}
               >
                 {strings.reader.title}
-              </Text>
-              <Text
-                style={[
-                  styles.readerSettingsPopoverDescription,
-                  { color: tokens.mutedForeground },
-                ]}
+              </NemuText>
+              <NemuText
+                color={tokens.mutedForeground}
+                style={styles.readerSettingsPopoverDescription}
               >
                 {strings.reader.description}
-              </Text>
+              </NemuText>
             </View>
-            <NemuPressable
-              accessibilityRole="button"
+            <NemuNativeSheetHeaderAction
               accessibilityLabel={strings.reader.closeSettings}
+              androidIcon="close-outline"
+              iosSystemImage="xmark"
               onPress={onClose}
-              style={[
-                styles.readerSettingsPopoverClose,
-                { backgroundColor: tokens.muted },
-              ]}
-            >
-              <Ionicons
-                name="close-outline"
-                size={18}
-                color={tokens.mutedForeground}
-              />
-            </NemuPressable>
-          </View>
-
-          <View style={styles.displayRow}>
-            <View style={styles.displayRowLabel}>
-              <Ionicons
-                name="sunny-outline"
-                size={iconSize.md}
-                color={tokens.mutedForeground}
-              />
-              <Text
-                numberOfLines={1}
-                style={[styles.displayRowTitle, { color: tokens.foreground }]}
-              >
-                {strings.feedback.displayBrightness}
-              </Text>
-            </View>
-            <View style={styles.displayRowSlider}>
-              <ReaderBrightnessSlider
-                disabled={busy}
-                strings={strings}
-                value={brightnessPct}
-                onCommit={onCommitBrightness}
-                onPreview={onPreviewBrightness}
-              />
-            </View>
-            <Text
-              style={[
-                styles.displayRowValue,
-                { color: tokens.mutedForeground },
-              ]}
-            >
-              {brightnessPct}%
-            </Text>
-          </View>
-
-          <View style={styles.displayRow}>
-            <View style={styles.displayRowLabel}>
-              <Ionicons
-                name="moon-outline"
-                size={iconSize.md}
-                color={tokens.mutedForeground}
-              />
-              <Text
-                numberOfLines={1}
-                style={[styles.displayRowTitle, { color: tokens.foreground }]}
-              >
-                {strings.feedback.displayKeepAwake}
-              </Text>
-            </View>
-            <NemuNativeSwitch
-              accessibilityLabel={strings.feedback.displayKeepAwake}
-              disabled={busy}
-              value={keepAwake}
-              onValueChange={onToggleKeepAwake}
             />
           </View>
 
-          <View style={styles.displayRow}>
-            <View style={styles.displayRowLabel}>
-              <Ionicons
-                name="phone-portrait-outline"
-                size={iconSize.md}
-                color={tokens.mutedForeground}
-              />
-              <Text
-                numberOfLines={1}
-                style={[styles.displayRowTitle, { color: tokens.foreground }]}
-              >
-                {strings.feedback.displayLockPortrait}
-              </Text>
-            </View>
-            <NemuNativeSwitch
-              accessibilityLabel={strings.feedback.displayLockPortrait}
-              disabled={busy}
-              value={lockPortrait}
-              onValueChange={onToggleLockPortrait}
-            />
-          </View>
-
-          <View
-            style={[
-              styles.readerSettingsTabs,
-              { backgroundColor: tokens.muted },
-            ]}
-          >
-            {modeOptions.map((option) => {
-              const selected = option === mode;
-              return (
-                <NemuPressable
-                  key={option}
-                  accessibilityRole="button"
-                  accessibilityLabel={readerModeLabel(option, strings)}
-                  accessibilityState={{ selected, disabled: busy }}
+          <ReaderSettingRow
+            first
+            icon="swap-horizontal-outline"
+            title={strings.reader.readingDirection}
+            below={
+              <View style={styles.settingControlBlock}>
+                <ReaderReadingModePicker
+                  accessibilityLabel={strings.reader.readingDirection}
                   disabled={busy}
-                  hapticFeedback={selected ? "none" : "selection"}
-                  onPress={() => onSetMode(option)}
-                  pressedScale={0.985}
-                  containerStyle={styles.readerSettingsTabContainer}
-                  style={[
-                    styles.readerSettingsTab,
-                    {
-                      backgroundColor: selected ? tokens.card : "transparent",
-                      opacity: busy ? 0.56 : 1,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.readerSettingsTabText,
-                      {
-                        color: selected
-                          ? tokens.foreground
-                          : tokens.mutedForeground,
-                      },
-                    ]}
-                  >
-                    {readerModeLabel(option, strings)}
-                  </Text>
-                </NemuPressable>
-              );
-            })}
-          </View>
+                  labelForMode={(option) => readerModeLabel(option, strings)}
+                  mode={mode}
+                  onSetMode={onSetMode}
+                />
+              </View>
+            }
+          />
 
           {twoPageSupported ? (
-            <View style={[styles.readerSettingRow, { borderColor: tokens.border }]}>
-              <View style={styles.readerSettingCopy}>
-                <Text
-                  style={[styles.readerSettingTitle, { color: tokens.foreground }]}
-                >
-                  {strings.reader.twoPageView}
-                </Text>
-                <Text
-                  style={[
-                    styles.readerSettingDescription,
-                    { color: tokens.mutedForeground },
-                  ]}
-                >
-                  {strings.reader.spread}
-                </Text>
-              </View>
-              <NemuNativeSwitch
-                accessibilityLabel={strings.reader.twoPageView}
-                disabled={busy}
-                value={isTwoPageMode}
-                onValueChange={onToggleTwoPageMode}
-              />
-            </View>
-          ) : null}
-
-          {showPagePairingControls ? (
-            <View style={styles.pairingTabs}>
-              {(["book", "manga"] as const).map((option) => {
-                const selected = option === pagePairingMode;
-                return (
-                  <NemuPressable
-                    key={option}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      option === "book"
-                        ? strings.reader.bookPairing
-                        : strings.reader.mangaPairing
-                    }
-                    accessibilityState={{ selected, disabled: busy }}
-                    disabled={busy}
-                    hapticFeedback={selected ? "none" : "selection"}
-                    onPress={() => {
-                      if (!selected) onTogglePagePairingMode();
-                    }}
-                    containerStyle={styles.pairingButtonContainer}
-                    style={[
-                      styles.pairingButton,
-                      {
-                        backgroundColor: selected ? tokens.primary : tokens.muted,
-                        opacity: busy ? 0.56 : 1,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.pairingButtonText,
+            <ReaderSettingRow
+              icon="book-outline"
+              title={strings.reader.twoPageView}
+              description={strings.reader.spread}
+              control={
+                <NemuNativeSwitch
+                  accessibilityLabel={strings.reader.twoPageView}
+                  disabled={busy}
+                  value={isTwoPageMode}
+                  onValueChange={onToggleTwoPageMode}
+                />
+              }
+              below={
+                showPagePairingControls ? (
+                  <View style={styles.settingControlBlock}>
+                    <ReaderSegmentedChipRow<ReaderPagePairingMode>
+                      disabled={busy}
+                      onChange={(next) => {
+                        if (next === pagePairingMode) return;
+                        onTogglePagePairingMode();
+                      }}
+                      options={[
                         {
-                          color: selected
-                            ? tokens.primaryForeground
-                            : tokens.mutedForeground,
+                          value: "book",
+                          label: "1-2",
+                          accessibilityLabel: strings.reader.bookPairing,
+                        },
+                        {
+                          value: "manga",
+                          label: "1,2",
+                          accessibilityLabel: strings.reader.mangaPairing,
                         },
                       ]}
-                    >
-                      {option === "book" ? "1-2" : "1,2"}
-                    </Text>
-                  </NemuPressable>
-                );
-              })}
-            </View>
+                      value={pagePairingMode}
+                    />
+                  </View>
+                ) : null
+              }
+            />
           ) : null}
 
-          <View style={[styles.readerSettingRow, { borderColor: tokens.border }]}>
-            <View style={styles.readerSettingCopy}>
-              <Text
-                style={[styles.readerSettingTitle, { color: tokens.foreground }]}
-              >
-                {strings.reader.processPageImages}
-              </Text>
-              <Text
-                style={[
-                  styles.readerSettingDescription,
-                  { color: tokens.mutedForeground },
-                ]}
-              >
-                {strings.reader.processPageImagesDescription}
-              </Text>
-            </View>
-            <NemuNativeSwitch
-              accessibilityLabel={strings.reader.processPageImages}
-              disabled={busy}
-              value={processPageImages}
-              onValueChange={onToggleProcessPageImages}
-            />
-          </View>
+          <ReaderSettingRow
+            icon="color-wand-outline"
+            title={strings.reader.processPageImages}
+            description={strings.reader.processPageImagesDescription}
+            control={
+              <NemuNativeSwitch
+                accessibilityLabel={strings.reader.processPageImages}
+                disabled={busy}
+                value={processPageImages}
+                onValueChange={onToggleProcessPageImages}
+              />
+            }
+          />
 
           {mode === "scrolling" ? (
-            <View style={styles.widthControlBlock}>
-              <View style={styles.widthControlHeader}>
-                <Text
-                  style={[
-                    styles.widthControlLabel,
-                    { color: tokens.mutedForeground },
-                  ]}
+            <ReaderSettingRow
+              icon="resize-outline"
+              title={strings.reader.pageWidth}
+              control={
+                <NemuText
+                  color={tokens.mutedForeground}
+                  style={styles.settingValue}
                 >
-                  {strings.reader.pageWidth}
-                </Text>
-                <Text
-                  style={[
-                    styles.widthControlValue,
-                    { color: tokens.foreground },
-                  ]}
-                >
-                  {activeScrollWidthPct}%
-                </Text>
-              </View>
-              <MobileReaderWidthSlider
-                value={activeScrollWidthPct}
-                strings={strings}
-                disabled={busy}
-                onPreview={onPreviewScrollWidth}
-                onCommit={onCommitScrollWidth}
-                onInteractionStart={onScrollWidthInteractionStart}
-                onInteractionEnd={onScrollWidthInteractionEnd}
-              />
-            </View>
+                  {`${activeScrollWidthPct}%`}
+                </NemuText>
+              }
+              below={
+                <View style={styles.settingControlBlock}>
+                  <MobileReaderWidthSlider
+                    value={activeScrollWidthPct}
+                    strings={strings}
+                    disabled={busy}
+                    onPreview={onPreviewScrollWidth}
+                    onCommit={onCommitScrollWidth}
+                    onInteractionStart={onScrollWidthInteractionStart}
+                    onInteractionEnd={onScrollWidthInteractionEnd}
+                  />
+                </View>
+              }
+            />
           ) : null}
 
+          <ReaderSettingRow
+            icon="moon-outline"
+            title={strings.feedback.displayKeepAwake}
+            control={
+              <NemuNativeSwitch
+                accessibilityLabel={strings.feedback.displayKeepAwake}
+                disabled={busy}
+                value={keepAwake}
+                onValueChange={onToggleKeepAwake}
+              />
+            }
+          />
+
+          <ReaderSettingRow
+            icon="phone-portrait-outline"
+            title={strings.feedback.displayLockPortrait}
+            control={
+              <NemuNativeSwitch
+                accessibilityLabel={strings.feedback.displayLockPortrait}
+                disabled={busy}
+                value={lockPortrait}
+                onValueChange={onToggleLockPortrait}
+              />
+            }
+          />
+
           {!completed ? (
-            <NemuPressable
-              accessibilityRole="button"
+            <NemuButton
               accessibilityLabel={
                 saving
                   ? strings.reader.savingProgress
                   : strings.reader.markComplete
               }
-              accessibilityState={{ disabled: saving }}
-              disabled={saving}
-              onPress={onMarkComplete}
-              pressedScale={0.985}
-              style={[
-                styles.completeButton,
-                {
-                  backgroundColor: tokens.primary,
-                  opacity: saving ? 0.72 : 1,
-                },
-              ]}
-            >
-              {saving ? (
-                <ActivityIndicator color={tokens.primaryForeground} />
-              ) : (
-                <Ionicons
-                  name="checkmark-circle-outline"
-                  size={18}
-                  color={tokens.primaryForeground}
-                />
-              )}
-              <Text
-                style={[
-                  styles.completeText,
-                  { color: tokens.primaryForeground },
-                ]}
-              >
-                {saving
+              icon="checkmark-circle-outline"
+              label={
+                saving
                   ? strings.reader.savingProgress
-                  : strings.reader.markComplete}
-              </Text>
-            </NemuPressable>
+                  : strings.reader.markComplete
+              }
+              loading={saving}
+              containerStyle={styles.completeButtonContainer}
+              onPress={onMarkComplete}
+              size="lg"
+              style={styles.completeButton}
+              tone="primary"
+            />
           ) : null}
           </ScrollView>
         </View>
@@ -631,14 +430,14 @@ export function ReaderDisplaySettingsPopover({
 const styles = StyleSheet.create({
   readerSettingsPopoverFrame: {
     position: "absolute",
-    right: 16,
-    left: 16,
+    right: READER_CHROME_PANEL_HORIZONTAL_INSET,
+    left: READER_CHROME_PANEL_HORIZONTAL_INSET,
     alignItems: "center",
   },
   readerSettingsPopoverShell: {
     width: "100%",
-    maxWidth: 520,
-    borderRadius: 16,
+    maxWidth: READER_CHROME_PANEL_MAX_WIDTH,
+    borderRadius: READER_CHROME_PANEL_CORNER_RADIUS,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
   },
@@ -646,11 +445,10 @@ const styles = StyleSheet.create({
     flexGrow: 0,
   },
   readerSettingsPopover: {
-    gap: 12,
     padding: 14,
   },
   readerSettingsPopoverHeader: {
-    minHeight: 38,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -660,160 +458,64 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   readerSettingsPopoverTitle: {
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: nemuFontWeight.semibold,
   },
   readerSettingsPopoverDescription: {
     marginTop: 2,
-    fontSize: 11,
-    lineHeight: 14,
-  },
-  readerSettingsPopoverClose: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
-  },
-  readerSettingsTabs: {
-    minHeight: 38,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderRadius: radius.lg,
-    padding: 3,
-  },
-  readerSettingsTab: {
-    width: "100%",
-    minHeight: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-    paddingHorizontal: 8,
-  },
-  readerSettingsTabContainer: {
-    flex: 1,
-    minWidth: 0,
-  },
-  readerSettingsTabText: {
     fontSize: 12,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.semibold,
+    lineHeight: 16,
   },
-  readerSettingRow: {
-    minHeight: 48,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
+  settingBlock: {
+    gap: 10,
     paddingTop: 12,
   },
-  readerSettingCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  readerSettingTitle: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  readerSettingDescription: {
-    marginTop: 2,
-    fontSize: 11,
-    lineHeight: 14,
-  },
-  pairingTabs: {
-    flex: 2,
-    flexDirection: "row",
-    gap: 8,
-  },
-  pairingButton: {
-    minHeight: 38,
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-    paddingHorizontal: 8,
-  },
-  pairingButtonContainer: {
-    flex: 1,
-    minWidth: 0,
-  },
-  pairingButtonText: {
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  widthControlBlock: {
-    gap: 8,
-  },
-  displayRow: {
-    minHeight: 44,
+  settingRow: {
+    minHeight: 32,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
   },
-  displayRowLabel: {
+  settingLabel: {
     flexShrink: 1,
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
   },
-  displayRowTitle: {
+  settingCopy: {
     flexShrink: 1,
     minWidth: 0,
+  },
+  settingTitle: {
     fontSize: 14,
     lineHeight: 18,
     fontWeight: nemuFontWeight.medium,
   },
-  displayRowSlider: {
-    flex: 1,
-    minWidth: 72,
-  },
-  displayRowValue: {
-    minWidth: 36,
+  settingDescription: {
+    marginTop: 2,
     fontSize: 12,
+    lineHeight: 16,
+  },
+  settingValue: {
+    minWidth: 40,
+    fontSize: 13,
     lineHeight: 16,
     fontWeight: nemuFontWeight.medium,
     fontVariant: ["tabular-nums"],
     textAlign: "right",
   },
-  brightnessSlider: {
-    minHeight: 26,
-    justifyContent: "center",
+  settingControlBlock: {
+    width: "100%",
   },
-  widthControlHeader: {
-    minHeight: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  widthControlLabel: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.medium,
-  },
-  widthControlValue: {
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.semibold,
+  completeButtonContainer: {
+    width: "100%",
+    marginTop: 14,
   },
   completeButton: {
-    minHeight: 46,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderRadius: radius.xl,
-  },
-  completeText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.semibold,
+    width: "100%",
+    minHeight: 44,
   },
 });

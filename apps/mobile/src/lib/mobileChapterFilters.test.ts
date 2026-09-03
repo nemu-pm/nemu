@@ -39,6 +39,34 @@ describe("mobile chapter filters", () => {
     ).toEqual(["ja", "zh", "en", "multi", "de", "fr"]);
   });
 
+  test("keeps chapter language variants beside their base language", () => {
+    expect(
+      getMobileChapterLanguages([
+        { id: "vi", chapterNumber: 1, lang: "vi" },
+        { id: "zh-Hant", chapterNumber: 2, lang: "zh-Hant" },
+        { id: "pt-BR", chapterNumber: 3, lang: "pt-BR" },
+        { id: "zh-hans", chapterNumber: 4, lang: "zh-hans" },
+        { id: "pt", chapterNumber: 5, lang: "pt" },
+        { id: "zh-TW", chapterNumber: 6, lang: "zh-TW" },
+        { id: "zh", chapterNumber: 7, lang: "zh" },
+        { id: "es-419", chapterNumber: 8, lang: "es-419" },
+        { id: "es", chapterNumber: 9, lang: "es" },
+        { id: "ja", chapterNumber: 10, lang: "ja" },
+      ]),
+    ).toEqual([
+      "ja",
+      "zh",
+      "zh-hans",
+      "zh-Hant",
+      "zh-TW",
+      "es",
+      "es-419",
+      "pt",
+      "pt-BR",
+      "vi",
+    ]);
+  });
+
   test("normalizes malformed persisted preferences", () => {
     expect(normalizeMobileChapterListPreference({ languages: ["ja", "ja", 1] })).toEqual({
       sortDirection: "desc",

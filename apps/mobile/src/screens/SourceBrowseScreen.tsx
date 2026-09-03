@@ -1054,7 +1054,6 @@ function SourceFilterPanel({
   onApply: (values: FilterValue[]) => void;
   strings: MobileStrings;
 }) {
-  const { tokens } = useNemuTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const [draftValues, setDraftValues] = useState<FilterValue[]>(values);
   const wasVisibleRef = useRef(false);
@@ -1151,44 +1150,22 @@ function SourceFilterPanel({
       </ScrollView>
 
       <View style={styles.filterPanelActions}>
-        <NemuPressable
-          accessibilityRole="button"
+        <NemuButton
           accessibilityLabel={strings.sourceBrowse.resetFilters}
+          containerStyle={styles.filterPanelActionContainer}
+          label={strings.sourceBrowse.resetFilters}
           onPress={resetDraftFilters}
-          containerStyle={styles.filterPanelActionContainer}
-          style={[
-            styles.filterPanelSecondaryButton,
-            { backgroundColor: tokens.muted },
-          ]}
-        >
-          <Text
-            style={[
-              styles.filterPanelSecondaryText,
-              { color: tokens.mutedForeground },
-            ]}
-          >
-            {strings.sourceBrowse.resetFilters}
-          </Text>
-        </NemuPressable>
-        <NemuPressable
-          accessibilityRole="button"
+          size="lg"
+          variant="secondary"
+        />
+        <NemuButton
           accessibilityLabel={strings.sourceBrowse.applyFilters}
-          onPress={applyDraftFilters}
           containerStyle={styles.filterPanelActionContainer}
-          style={[
-            styles.filterPanelPrimaryButton,
-            { backgroundColor: tokens.primary },
-          ]}
-        >
-          <Text
-            style={[
-              styles.filterPanelPrimaryText,
-              { color: tokens.primaryForeground },
-            ]}
-          >
-            {strings.sourceBrowse.applyFilters}
-          </Text>
-        </NemuPressable>
+          label={strings.sourceBrowse.applyFilters}
+          onPress={applyDraftFilters}
+          size="lg"
+          variant="default"
+        />
       </View>
     </MobileNativeSheetScaffold>
   );
@@ -3325,35 +3302,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
   },
-  filterPanelSecondaryButton: {
-    minHeight: 44,
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
-  },
-  filterPanelPrimaryButton: {
-    minHeight: 44,
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
-  },
   filterPanelActionContainer: {
     flex: 1,
     minWidth: 0,
-  },
-  filterPanelSecondaryText: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  filterPanelPrimaryText: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.semibold,
   },
   // Virtualized grid (FlatList numColumns). `gridRow` is the per-row gap
   // (columnWrapperStyle); `gridItem` fills one column. `gridHeaderSpacing`

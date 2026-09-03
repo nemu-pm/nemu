@@ -13,6 +13,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useNemuTheme } from "@/design-system";
+import { READER_CHROME_PANEL_CORNER_RADIUS } from "@/lib/mobileReaderHeader";
 import {
   readerChromeGlassBorderColor,
   readerChromeGlassShadowColor,
@@ -28,8 +29,6 @@ export type ReaderChromePanelProps = {
   };
   style?: StyleProp<ViewStyle>;
 };
-
-const READER_CHROME_GLASS_CORNER_RADIUS = 16;
 
 export function ReaderChromePanel({
   children,
@@ -77,7 +76,7 @@ export function ReaderChromePanel({
                 tint: readerChromeGlassTint(scheme),
               },
               shape: "roundedRectangle",
-              cornerRadius: READER_CHROME_GLASS_CORNER_RADIUS,
+              cornerRadius: READER_CHROME_PANEL_CORNER_RADIUS,
             }),
             shadow({
               radius: scheme === "dark" ? 18 : 12,

@@ -107,3 +107,32 @@ export function getMobileSettingsMutationResultAction({
 }): MobileSettingsMutationResultAction {
   return succeeded ? "close-confirmation" : "keep-confirmation-open";
 }
+
+/**
+ * The language pickers mirror the web `Tabs` control, so a tab is inert while
+ * it is already selected, while the settings screen is busy, or while its own
+ * mutation is still being persisted.
+ */
+export function canSelectMobileLanguageTab({
+  selected,
+  disabled,
+  interactionLocked,
+}: {
+  selected: boolean;
+  disabled: boolean;
+  interactionLocked: boolean;
+}): boolean {
+  return !selected && !disabled && !interactionLocked;
+}
+
+export function resolveMobileLanguageTabAccessibilityState({
+  selected,
+  disabled,
+  interactionLocked,
+}: {
+  selected: boolean;
+  disabled: boolean;
+  interactionLocked: boolean;
+}): { selected: boolean; disabled: boolean } {
+  return { selected, disabled: disabled || interactionLocked };
+}

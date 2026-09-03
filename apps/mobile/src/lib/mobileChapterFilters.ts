@@ -1,4 +1,8 @@
-import type { ChapterSummary, LocalChapterProgress } from "@/data/schema";
+import type { AppLanguage, ChapterSummary, LocalChapterProgress } from "@/data/schema";
+import {
+  compareMobileLanguageCodes,
+  DEFAULT_APP_LANGUAGE,
+} from "./mobileLanguageSettings";
 
 export type MobileChapterListPreference = {
   sortDirection: "asc" | "desc";
@@ -28,19 +32,16 @@ export function normalizeMobileChapterListPreference(
   };
 }
 
-export function getMobileChapterLanguages(chapters: ChapterSummary[]): string[] {
-  const priority = ["ja", "zh", "en", "multi"];
+/**
+ * Shares the browse filter's ordering so a chapter language list and a source
+ * language list never disagree about where `zh-Hant` belongs.
+ */
+export function getMobileChapterLanguages(
+  chapters: ChapterSummary[],
+  appLanguage: AppLanguage = DEFAULT_APP_LANGUAGE,
+): string[] {
   return [...new Set(chapters.map((chapter) => chapter.lang).filter((lang): lang is string => Boolean(lang)))]
-    .sort((left, right) => {
-      const leftPriority = priority.indexOf(left);
-      const rightPriority = priority.indexOf(right);
-      if (leftPriority !== -1 || rightPriority !== -1) {
-        if (leftPriority === -1) return 1;
-        if (rightPriority === -1) return -1;
-        return leftPriority - rightPriority;
-      }
-      return left.localeCompare(right);
-    });
+    .sort((left, right) => compareMobileLanguageCodes(left, right, appLanguage));
 }
 
 export function filterAndSortMobileChapters(

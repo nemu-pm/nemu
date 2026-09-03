@@ -74,6 +74,7 @@ export type MobileStrings = {
   };
   browse: {
     adult: string;
+    adultSourcesDescription: string;
     adultSourcesSwitch: string;
     addSource: string;
     addSourcesDescription: string;
@@ -504,6 +505,8 @@ export type MobileStrings = {
     hideControls: string;
     loadingChapterState: string;
     loadingPages: string;
+    fetchingPages: string;
+    readingDirection: string;
     rtl: string;
     ltr: string;
     lockedChapter: string;
@@ -680,6 +683,9 @@ export type MobileStrings = {
     addSource: string;
     appearance: string;
     appearanceDescription: string;
+    feedbackSection: string;
+    feedbackSectionDescription: string;
+    readerDescriptionWithFeedback: string;
     agent: string;
     agentBuiltInEnabled: string;
     agentConnected: string;
@@ -1011,6 +1017,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
     },
     browse: {
       adult: "Explicit",
+      adultSourcesDescription: "Show sources with explicit content",
       adultSourcesSwitch: "Explicit content",
       addSource: "Add Source",
       addSourcesDescription: "Select a source from available registries",
@@ -1491,6 +1498,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       hideControls: "Hide reader controls",
       loadingChapterState: "Loading chapter state.",
       loadingPages: "Loading pages from the source package.",
+      fetchingPages: "Fetching pages…",
+      readingDirection: "Reading direction",
       rtl: "RTL",
       ltr: "LTR",
       lockedChapter: "Locked chapter",
@@ -1688,6 +1697,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSource: "Add Source",
       appearance: "Appearance",
       appearanceDescription: "Language, theme, and metadata preferences",
+      feedbackSection: "Feedback",
+      feedbackSectionDescription: "Haptics and completion cues",
+      readerDescriptionWithFeedback:
+        "Reading direction, scrolling, page layout, and feedback",
       agent: "Nemu Agent",
       agentBuiltInEnabled: "Protected-source verification ready",
       agentConnected: "Native source networking available",
@@ -2066,6 +2079,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
     },
     browse: {
       adult: "敏感内容",
+      adultSourcesDescription: "显示包含敏感内容的源",
       adultSourcesSwitch: "敏感内容来源",
       addSource: "添加源",
       addSourcesDescription: "从可用源仓库中选择一个源",
@@ -2503,6 +2517,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       hideControls: "隐藏阅读器控制",
       loadingChapterState: "正在加载章节状态。",
       loadingPages: "正在从源包加载页面。",
+      fetchingPages: "正在获取页面…",
+      readingDirection: "阅读方向",
       rtl: "右至左",
       ltr: "左至右",
       lockedChapter: "已锁定章节",
@@ -2689,6 +2705,9 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSource: "添加源",
       appearance: "外观",
       appearanceDescription: "语言、主题和元数据偏好",
+      feedbackSection: "反馈",
+      feedbackSectionDescription: "触感与完成提示",
+      readerDescriptionWithFeedback: "阅读方向、滚动、页面布局与反馈",
       agent: "Nemu Agent",
       agentBuiltInEnabled: "受保护网站验证已就绪",
       agentConnected: "原生源网络已可用",
@@ -3045,6 +3064,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
     },
     browse: {
       adult: "センシティブ",
+      adultSourcesDescription: "センシティブなコンテンツを含むソースを表示",
       adultSourcesSwitch: "センシティブなコンテンツ",
       addSource: "ソースを追加",
       addSourcesDescription: "利用可能なレジストリからソースを選択",
@@ -3534,6 +3554,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       hideControls: "リーダー操作を隠す",
       loadingChapterState: "チャプター状態を読み込み中です。",
       loadingPages: "ソースパッケージからページを読み込んでいます。",
+      fetchingPages: "ページを取得中…",
+      readingDirection: "読み方向",
       rtl: "右から左",
       ltr: "左から右",
       lockedChapter: "ロックされたチャプター",
@@ -3739,6 +3761,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSource: "ソースを追加",
       appearance: "外観",
       appearanceDescription: "言語、テーマ、メタデータ設定",
+      feedbackSection: "フィードバック",
+      feedbackSectionDescription: "触覚と読了のヒント",
+      readerDescriptionWithFeedback:
+        "読み方向、スクロール、ページレイアウトとフィードバック",
       agent: "Nemu Agent",
       agentBuiltInEnabled: "保護サイトの認証を利用できます",
       agentConnected: "ネイティブソース通信を利用できます",

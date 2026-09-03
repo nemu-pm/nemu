@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Image, Platform, StyleSheet, Text, View } from "react-native";
+import { Image, StyleSheet, Text, View } from "react-native";
 import { MobileSliderTrack } from "@/components/MobileSliderTrack";
 import type { ReadingMode } from "@/data/schema";
 import { hapticPress, hapticSelection } from "@/lib/haptics";
@@ -25,6 +25,7 @@ import {
   shouldRunReaderMenuPageSwitchHaptic,
 } from "@/lib/mobileReaderProgress";
 import { nemuFontWeight, useNemuTheme } from "@/design-system";
+import { READER_CHROME_PANEL_CONTENT_MIN_HEIGHT } from "@/lib/mobileReaderHeader";
 import {
   READER_CHROME_GLASS_BORDER,
   READER_CHROME_GLASS_TINT,
@@ -525,7 +526,9 @@ export function MobileReaderScrubber({
 
 const styles = StyleSheet.create({
   root: {
-    minHeight: Platform.OS === "android" ? 48 : 44,
+    // Matches the shared reader chrome content box so the bottom toolbar
+    // panel resolves to exactly the same height as the top info panel.
+    minHeight: READER_CHROME_PANEL_CONTENT_MIN_HEIGHT,
     justifyContent: "center",
     position: "relative",
   },

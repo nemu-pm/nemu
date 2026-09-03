@@ -8,7 +8,13 @@ import {
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
-import { nemuText, useNemuTheme, NemuButton, NemuPressable } from "@/design-system";
+import {
+  nemuText,
+  useNemuTheme,
+  NEMU_PROMINENT_CTA_SIZE,
+  NemuButton,
+  NemuPressable,
+} from "@/design-system";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import { shouldUseCompactMobilePageEmptyLayout } from "@/lib/mobilePageEmptyLayout";
 
@@ -134,6 +140,9 @@ export function MobilePageEmpty({
           icon={actionIcon}
           label={actionLabel}
           loading={actionLoading}
+          // Same geometry as the library empty state and onboarding CTA so the
+          // primary empty-state action never changes size between pages.
+          size={NEMU_PROMINENT_CTA_SIZE}
           onPress={onActionPress}
           variant="default"
         />

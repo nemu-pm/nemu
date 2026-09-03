@@ -16,6 +16,84 @@ export const MOBILE_WELCOME_ANDROID_SNAP_POINTS: (string | number)[] = [
   "100%",
 ];
 
+/**
+ * A source card is 12pt padding + 34pt of content + its selection border, so a
+ * selected (1.5pt) row measures 61pt. Budgeting the selected height keeps the
+ * list from scrolling by a hairline when every recommendation is pre-checked.
+ */
+export const MOBILE_WELCOME_SOURCE_ROW_HEIGHT = 61;
+export const MOBILE_WELCOME_SOURCE_ROW_GAP = 8;
+/** Height reserved for the loading / error / "no recommendations" states. */
+export const MOBILE_WELCOME_SOURCE_PLACEHOLDER_HEIGHT = 84;
+/**
+ * Everything the source step renders around the scrollable list: the native
+ * grabber area (32), the content top padding (18), the title + description
+ * header (56), the hint line (25) and the action row plus the three content
+ * gaps (100).
+ */
+export const MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT = 231;
+export const MOBILE_WELCOME_SOURCE_LIST_MIN_HEIGHT = 64;
+export const MOBILE_WELCOME_SOURCE_SHEET_MIN_HEIGHT = 320;
+export const MOBILE_WELCOME_SOURCE_SHEET_MAX_HEIGHT = 620;
+export const MOBILE_WELCOME_SOURCE_SHEET_MIN_BOTTOM_INSET = 18;
+
+export type MobileWelcomeSourceStepLayout = {
+  /** Bottom padding the sheet content must reserve for the home indicator. */
+  contentBottomInset: number;
+  /** Fixed height of the in-sheet scrollable source list. */
+  listHeight: number;
+  /** Native detent height for the whole source step. */
+  sheetHeight: number;
+};
+
+/**
+ * The source step is a fixed-height sheet whose header, hint and actions stay
+ * pinned; only the recommended-source list scrolls. Deriving the list height
+ * from the resolved detent keeps those two in sync, so a clamped sheet shrinks
+ * the list instead of pushing the install action off-screen.
+ */
+export function getMobileWelcomeSourceStepLayout({
+  rowCount,
+  bottomInset,
+  availableHeight,
+}: {
+  rowCount: number;
+  bottomInset: number;
+  availableHeight: number;
+}): MobileWelcomeSourceStepLayout {
+  const contentBottomInset = Math.max(
+    bottomInset,
+    MOBILE_WELCOME_SOURCE_SHEET_MIN_BOTTOM_INSET,
+  );
+  const naturalListHeight =
+    rowCount > 0
+      ? rowCount * MOBILE_WELCOME_SOURCE_ROW_HEIGHT +
+        (rowCount - 1) * MOBILE_WELCOME_SOURCE_ROW_GAP
+      : MOBILE_WELCOME_SOURCE_PLACEHOLDER_HEIGHT;
+  const preferredHeight =
+    MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT +
+    naturalListHeight +
+    contentBottomInset;
+  const sheetHeight = Math.min(
+    MOBILE_WELCOME_SOURCE_SHEET_MAX_HEIGHT,
+    Math.max(
+      MOBILE_WELCOME_SOURCE_SHEET_MIN_HEIGHT,
+      Math.min(preferredHeight, availableHeight),
+    ),
+  );
+  const listHeight = Math.max(
+    MOBILE_WELCOME_SOURCE_LIST_MIN_HEIGHT,
+    Math.min(
+      naturalListHeight,
+      sheetHeight -
+        MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT -
+        contentBottomInset,
+    ),
+  );
+
+  return { contentBottomInset, listHeight, sheetHeight };
+}
+
 export function shouldStackMobileWelcomeActions(width: number): boolean {
   return width < MOBILE_WELCOME_STACK_BREAKPOINT;
 }
@@ -79,6 +157,8 @@ export function shouldUseContentSizedMobileWelcomeSheet({
 }
 
 export type MobileWelcomeNativeSheetPresentation = {
+  /** The source list owns scrolling; the rest of the sheet stays pinned. */
+  boundSourceList: boolean;
   enablePanDownToClose: false;
   scroll: boolean;
   snapPoints: (string | number)[] | undefined;
@@ -96,15 +176,22 @@ export function resolveMobileWelcomeNativeSheetPresentation({
   fontScale,
   availableHeight,
   nativeSheetHeight,
+  bannerVisible = false,
 }: {
   platform: "android" | "ios";
   step: MobileWelcomeStep;
   fontScale: number;
   availableHeight: number;
   nativeSheetHeight: number;
+  /** A recovery banner is on screen and must stay reachable. */
+  bannerVisible?: boolean;
 }): MobileWelcomeNativeSheetPresentation {
   if (platform === "android") {
+    // Material only exposes a partial and an expanded state, so the source
+    // step cannot get an exact detent to size a pinned list against. Keep the
+    // sheet itself scrollable there.
     return {
+      boundSourceList: false,
       enablePanDownToClose: false,
       scroll: true,
       snapPoints: MOBILE_WELCOME_ANDROID_SNAP_POINTS,
@@ -117,10 +204,16 @@ export function resolveMobileWelcomeNativeSheetPresentation({
     fontScale,
     availableHeight,
   });
+  // An error banner is unbudgeted extra height, so fall back to scrolling the
+  // whole sheet rather than clipping the recovery action out of reach.
+  const boundSourceList = step === "sources" && !bannerVisible;
   return {
+    boundSourceList,
     enablePanDownToClose: false,
     scroll:
-      !contentSized && shouldScrollMobileWelcomeContent({ platform, step }),
+      !contentSized &&
+      !boundSourceList &&
+      shouldScrollMobileWelcomeContent({ platform, step }),
     snapPoints: contentSized ? undefined : [nativeSheetHeight],
   };
 }

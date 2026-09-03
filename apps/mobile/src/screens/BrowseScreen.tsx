@@ -23,6 +23,7 @@ import {
   GlassSurface,
   MobileCachedImage,
   MobileNativeSheetScaffold,
+  NemuListRow,
   NemuNativeSheetHeaderAction,
   NemuNativeSwitch,
   NemuTextFieldClearAction,
@@ -390,7 +391,6 @@ function LanguageFilterSheetSection({
   showAdult: boolean;
   onToggleAdult: () => void;
 }) {
-  const { tokens } = useNemuTheme();
   const visibleLanguages = languages.filter((language) => language !== "all");
   const allLanguagesSelected = selectedLanguages.size === 0;
   const pinnedLanguages = visibleLanguages.filter(
@@ -485,23 +485,23 @@ function LanguageFilterSheetSection({
           })}
         </GlassSurface>
       ) : null}
-      <GlassSurface
-        style={styles.languageListSection}
-        contentStyle={styles.languageListContent}
-      >
-        <View style={styles.languageOptionRow}>
-          <Text
-            style={[styles.languageOptionText, { color: tokens.foreground }]}
-          >
-            {strings.browse.adult}
-          </Text>
+      {/*
+        The explicit-content toggle is a settings row, not a language option, so
+        it gets its own card group under the language groups instead of a bare
+        row floating on the sheet background.
+      */}
+      <NemuListRow
+        accessory={
           <NemuNativeSwitch
             accessibilityLabel={strings.browse.adultSourcesSwitch}
             value={showAdult}
             onValueChange={onToggleAdult}
           />
-        </View>
-      </GlassSurface>
+        }
+        icon="eye-outline"
+        subtitle={strings.browse.adultSourcesDescription}
+        title={strings.browse.adult}
+      />
     </>
   );
 }
@@ -1354,18 +1354,29 @@ export function BrowseScreen() {
                 }}
               />
             ) : null}
+            {/*
+              A truly native search bar is not reachable here. `Stack.SearchBar`
+              is a UISearchController bound to a navigation header, and this
+              field lives inside a presented sheet; `@expo/ui/swift-ui` ships
+              only a bare `TextField` (no search style, no leading glyph, no
+              clear button — `isSearchField` there is an accessibility trait),
+              and hosting one would nest a UIHostingController inside the RN
+              tree that is itself hosted by the sheet's SwiftUI presentation,
+              which is exactly where first-responder and IME handoff get
+              unreliable. So this stays an RN `TextInput` dressed as the iOS 26
+              search field: secondary-filled capsule, 17pt system text, muted
+              leading magnifier, shared trailing clear action.
+            */}
             <View
               style={[
                 styles.searchShell,
-                {
-                  backgroundColor: tokens.card,
-                  borderColor: tokens.border,
-                },
+                Platform.OS === "android" ? styles.androidSearchShell : null,
+                { backgroundColor: tokens.secondary },
               ]}
             >
               <Ionicons
-                name="search-outline"
-                size={18}
+                name="search"
+                size={17}
                 color={tokens.mutedForeground}
               />
               <TextInput
@@ -1387,7 +1398,7 @@ export function BrowseScreen() {
                   accessibilityLabel={strings.common.clear}
                   onPress={clearSourceQuery}
                   testID="AddSourceSearchClearAction"
-                  trailingInset={14}
+                  trailingInset={12}
                 />
               ) : null}
             </View>
@@ -1666,19 +1677,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
+  // iOS 26 search field metrics: a 36pt capsule on a secondary fill, with the
+  // glyph and the 17pt text sharing one baseline. Android keeps a taller target
+  // so the Material clear action fits inside the field.
   searchShell: {
-    minHeight: 50,
+    height: 36,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
+    gap: 6,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+  },
+  androidSearchShell: {
+    height: 48,
   },
   searchInput: {
     flex: 1,
-    minHeight: 50,
-    fontSize: 15,
+    height: "100%",
+    // Android's editable defaults would otherwise pad the capsule open and
+    // top-align the text against the leading glyph.
+    padding: 0,
+    textAlignVertical: "center",
+    fontSize: 17,
   },
   languageListSection: {
     borderRadius: radius.xl,
