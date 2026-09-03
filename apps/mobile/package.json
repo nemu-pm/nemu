@@ -39,7 +39,6 @@
     "expo-audio": "~56.0.13",
     "expo-background-task": "~56.0.27",
     "expo-blur": "~56.0.4",
-    "expo-brightness": "~56.0.5",
     "expo-clipboard": "~56.0.4",
     "expo-constants": "~56.0.25",
     "expo-crypto": "~56.0.5",
