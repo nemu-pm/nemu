@@ -6,7 +6,6 @@ import {
   SectionList,
   StyleSheet,
   Text,
-  TextInput,
   View,
   type SectionListData,
   type SectionListRenderItemInfo,
@@ -30,9 +29,9 @@ import {
   MobileCachedImage,
   MobileNativeSheetScaffold,
   NemuListRow,
+  NemuNativeSearchField,
   NemuNativeSheetHeaderAction,
   NemuNativeSwitch,
-  NemuTextFieldClearAction,
   NemuPressable,
   PageHeader,
   PageScaffold,
@@ -67,7 +66,6 @@ import {
 } from "@/lib/mobileI18n";
 import {
   buildMobileInstalledSourceKeySet,
-  canClearMobileBrowseSourceQuery,
   canSelectMobileBrowseAllLanguages,
   canStartMobileSourceInstall,
   filterMobileAvailableSources,
@@ -1211,10 +1209,6 @@ export function BrowseScreen() {
     });
   };
 
-  const clearSourceQuery = () => {
-    if (!canClearMobileBrowseSourceQuery(query)) return;
-    setQuery("");
-  };
   const openAddSourceSheet = () => {
     // A registry query is useful only for the current sheet visit. Keeping it
     // after installing or dismissing a source makes a later visit look empty
@@ -1558,57 +1552,21 @@ export function BrowseScreen() {
                 />
               ) : null}
               {/*
-                A truly native search bar is still not reachable here, re-checked
-                against the installed @expo/ui: `Stack.SearchBar` is a
-                UISearchController bound to a navigation header and this field
-                lives inside a presented sheet, and `@expo/ui/swift-ui` exposes
-                no `.searchable` modifier, no toolbar binding, and no search
-                field style — `textFieldStyle` offers only
-                `automatic | plain | roundedBorder`, and `isSearchField` is an
-                accessibility trait, not a control. Hand-composing HStack +
-                Image + TextField inside a SwiftHost would be no more native
-                than this and would nest a UIHostingController in the RN tree
-                that the sheet's own SwiftUI presentation already hosts, which
-                is exactly where first-responder and IME handoff get unreliable.
-                So this stays an RN `TextInput` dressed as the iOS 26 search
-                field: secondary-filled capsule, 17pt system text, muted leading
-                magnifier, shared trailing clear action.
+                iOS renders this as a real SwiftUI `TextField` (`Host > HStack >
+                magnifier / TextField / clear Button`) via `@expo/ui/swift-ui`;
+                every other platform keeps the RN `TextInput` capsule. Both live
+                in `NemuNativeSearchField`, which also documents the SwiftUI
+                first-responder/IME caveat of hosting a text field inside the
+                sheet's own SwiftUI presentation and how to fall back.
               */}
-              <View
-                style={[
-                  styles.searchShell,
-                  Platform.OS === "android" ? styles.androidSearchShell : null,
-                  { backgroundColor: tokens.secondary },
-                ]}
-              >
-                <Ionicons
-                  name="search"
-                  size={17}
-                  color={tokens.mutedForeground}
-                />
-                <TextInput
-                  accessibilityLabel={strings.browse.searchRegistries}
-                  accessibilityRole="search"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  enterKeyHint="search"
-                  value={query}
-                  onChangeText={setQuery}
-                  placeholder={strings.browse.searchRegistries}
-                  placeholderTextColor={tokens.mutedForeground}
-                  returnKeyType="search"
-                  selectionColor={tokens.primary}
-                  style={[styles.searchInput, { color: tokens.foreground }]}
-                />
-                {canClearMobileBrowseSourceQuery(query) ? (
-                  <NemuTextFieldClearAction
-                    accessibilityLabel={strings.common.clear}
-                    onPress={clearSourceQuery}
-                    testID="AddSourceSearchClearAction"
-                    trailingInset={12}
-                  />
-                ) : null}
-              </View>
+              <NemuNativeSearchField
+                accessibilityLabel={strings.browse.searchRegistries}
+                clearAccessibilityLabel={strings.common.clear}
+                clearActionTestID="AddSourceSearchClearAction"
+                onChangeText={setQuery}
+                placeholder={strings.browse.searchRegistries}
+                value={query}
+              />
 
               {selectedLanguages.size > 0 || showAdult ? (
                 <View style={styles.activeFilterChips}>
@@ -1945,29 +1903,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     lineHeight: 18,
-  },
-  // iOS 26 search field metrics: a 36pt capsule on a secondary fill, with the
-  // glyph and the 17pt text sharing one baseline. Android keeps a taller target
-  // so the Material clear action fits inside the field.
-  searchShell: {
-    height: 36,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: radius.pill,
-    paddingHorizontal: 12,
-  },
-  androidSearchShell: {
-    height: 48,
-  },
-  searchInput: {
-    flex: 1,
-    height: "100%",
-    // Android's editable defaults would otherwise pad the capsule open and
-    // top-align the text against the leading glyph.
-    padding: 0,
-    textAlignVertical: "center",
-    fontSize: 17,
   },
   languageListSection: {
     borderRadius: radius.xl,

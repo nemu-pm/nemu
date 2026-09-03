@@ -142,6 +142,13 @@ describe("mobile sheet and text-field chrome policy", () => {
 
   test("routes every custom search and text-filter clear entrance through the shared action", () => {
     const browse = readMobileSource("screens/BrowseScreen.tsx");
+    // The Add Source sheet's field moved into the shared design-system search
+    // component so iOS can host a real SwiftUI TextField. BrowseScreen now only
+    // names the clear action's test ID; the clear-action contract itself lives
+    // with that component's RN fallback.
+    const addSourceSearchField = readMobileSource(
+      "design-system/components/NemuNativeSearchField.tsx",
+    );
     const search = readMobileSource("screens/SearchScreen.tsx");
     const metadata = readMobileSource(
       "components/MobileMetadataEditorSheet.tsx",
@@ -151,7 +158,9 @@ describe("mobile sheet and text-field chrome policy", () => {
     );
     const sourceBrowse = readMobileSource("screens/SourceBrowseScreen.tsx");
 
-    expect(browse).toContain('testID="AddSourceSearchClearAction"');
+    expect(browse).toContain('clearActionTestID="AddSourceSearchClearAction"');
+    expect(browse).not.toContain("clearButtonMode=");
+    expect(addSourceSearchField).toContain("testID={clearActionTestID}");
     expect(search).toContain('testID="InstalledSourceSearchClearAction"');
     expect(metadata).toContain('testID="MetadataMatchSearchClearAction"');
     expect(sourceManager).toContain(
@@ -162,7 +171,13 @@ describe("mobile sheet and text-field chrome policy", () => {
       /contentContainerStyle=\{styles\.filterPanelScrollContent\}[\s\S]*?keyboardShouldPersistTaps="handled"/,
     );
 
-    for (const source of [browse, search, metadata, sourceManager, sourceBrowse]) {
+    for (const source of [
+      addSourceSearchField,
+      search,
+      metadata,
+      sourceManager,
+      sourceBrowse,
+    ]) {
       expect(source).toContain("<NemuTextFieldClearAction");
       expect(source).toMatch(/trailingInset=\{(?:11|12|14)\}/);
       expect(source).not.toContain("clearButtonMode=");
