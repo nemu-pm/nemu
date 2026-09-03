@@ -16,6 +16,7 @@ import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
   MobileNativeSheetScaffold,
   MobileCachedImage,
+  NEMU_PROMINENT_CTA_SIZE,
   NemuPressable,
   NemuButton,
   radius,
@@ -870,6 +871,7 @@ function MobileWelcomeWizardContent({
                   : strings.welcome.startReading
           }
           variant="default"
+          size={NEMU_PROMINENT_CTA_SIZE}
           loading={installing || completing}
           disabled={primaryDisabled}
           containerStyle={stackActions ? styles.stackedActionContainer : undefined}

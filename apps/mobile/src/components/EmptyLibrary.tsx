@@ -8,6 +8,7 @@ import {
   spacing,
   useNemuTheme,
   usesNemuNativeHeader,
+  NEMU_PROMINENT_CTA_SIZE,
   NemuButton,
   NemuPressable,
 } from "@/design-system";
@@ -130,7 +131,7 @@ export function EmptyLibrary({
           icon={actionIcon}
           label={actionLabel}
           loading={actionLoading}
-          size="lg"
+          size={NEMU_PROMINENT_CTA_SIZE}
           containerStyle={styles.action}
           onPress={onActionPress}
           variant="default"

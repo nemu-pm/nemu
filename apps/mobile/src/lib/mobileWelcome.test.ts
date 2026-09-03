@@ -228,6 +228,20 @@ describe("mobile welcome helpers", () => {
     expect(source).not.toContain('accessibilityLabel="nemu"');
   });
 
+  test("keeps the primary onboarding action on the empty-state CTA treatment", () => {
+    const welcomeSource = readFileSync(
+      path.join(import.meta.dir, "../components/MobileWelcomeWizard.tsx"),
+      "utf8",
+    );
+    const emptyLibrarySource = readFileSync(
+      path.join(import.meta.dir, "../components/EmptyLibrary.tsx"),
+      "utf8",
+    );
+
+    expect(welcomeSource).toContain("size={NEMU_PROMINENT_CTA_SIZE}");
+    expect(emptyLibrarySource).toContain("size={NEMU_PROMINENT_CTA_SIZE}");
+  });
+
   test("hides the underlying navigation tree only while onboarding is visible", () => {
     expect(
       shouldBlockMobileWelcomeUnderlyingContent({ checking: true, visible: false }),

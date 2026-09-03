@@ -38,7 +38,12 @@ export {
 export { MobileCachedImage } from "./components/MobileCachedImage";
 export { MobileSheetBackdrop } from "./components/MobileSheetBackdrop";
 export { MobileSheetScaffold } from "./components/MobileSheetScaffold";
-export { NemuButton, type NemuButtonTone } from "./components/NemuButton";
+export {
+  NEMU_PROMINENT_CTA_SIZE,
+  NemuButton,
+  type NemuButtonSize,
+  type NemuButtonTone,
+} from "./components/NemuButton";
 export { NemuInlineEmptyState } from "./components/NemuInlineEmptyState";
 export { NemuListRow } from "./components/NemuListRow";
 export { NemuNativeProgressView } from "./components/NemuNativeProgressView";
