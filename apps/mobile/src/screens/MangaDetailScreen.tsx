@@ -123,7 +123,7 @@ import {
   type MobileSourceErrorRecoveryAction,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
-import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
+import { useMobileStickySourceCover } from "@/lib/useMobileSourceImageRequest";
 import { withMobileSourceOperationTimeout } from "@/sources/mobileSourceOperationTimeout";
 import { normalizeReaderProcessPageImages } from "@/lib/mobileReaderSettings";
 import { refreshMobileReaderPages } from "@/sources/mobileSourcePages";
@@ -597,7 +597,14 @@ export function MangaDetailScreen() {
       ? (sourceInfoForLink(source, state.installedSources) ?? null)
       : null;
   }, [selectedSource, sources, state.installedSources]);
-  const coverRequest = useMobileSourceImageRequest(coverSource, cover);
+  // Same protection as the source manga screen: switching the selected source
+  // (or a metadata refresh) changes the cover identity, and painting the bare
+  // URL while the source rewrite is in flight is what drops referer-gated
+  // covers into `MobileCachedImage`'s failed state.
+  const coverImage = useMobileStickySourceCover({
+    source: coverSource,
+    cover,
+  });
   const progressBySource = useMemo(() => {
     return new Map(state.progress.map((item) => [item.id, item]));
   }, [state.progress]);
@@ -1737,14 +1744,9 @@ export function MangaDetailScreen() {
                 <MobileMangaDetailSurface
                   title={title}
                   authors={effectiveMetadata?.authors}
-                  coverSource={
-                    cover
-                      ? {
-                          uri: coverRequest?.url ?? cover,
-                          headers: coverRequest?.headers,
-                        }
-                      : null
-                  }
+                  coverSource={coverImage.source}
+                  onCoverError={coverImage.onCoverError}
+                  onCoverLoad={coverImage.onCoverLoad}
                   status={effectiveMetadata?.status}
                   strings={strings}
                   actionsPlacement="copy"

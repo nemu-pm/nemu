@@ -94,6 +94,8 @@ export function MobileMangaDetailSurface({
   title,
   authors,
   coverSource,
+  onCoverError,
+  onCoverLoad,
   status,
   badges,
   primaryAction,
@@ -106,6 +108,9 @@ export function MobileMangaDetailSurface({
   title: string;
   authors?: string[];
   coverSource?: MobileMangaDetailCoverSource | null;
+  /** Lets the owner fall back to the last cover that actually rendered. */
+  onCoverError?: () => void;
+  onCoverLoad?: () => void;
   status?: number;
   badges: MobileMangaDetailSurfaceBadge[];
   primaryAction?: MobileMangaDetailSurfacePrimaryAction | null;
@@ -250,6 +255,8 @@ export function MobileMangaDetailSurface({
                 }
                 uriOwnership="source"
                 source={coverSource}
+                onError={onCoverError ? () => onCoverError() : undefined}
+                onLoad={onCoverLoad ? () => onCoverLoad() : undefined}
                 style={styles.coverImage}
               />
             ) : coverSource ? (

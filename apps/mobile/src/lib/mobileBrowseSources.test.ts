@@ -10,6 +10,7 @@ import {
   findMobileInstalledSourceForRegistrySource,
   getMobileAvailableSourceLanguageOptions,
   getMobileInstalledSourceRegistryDisplayName,
+  getMobileSourceInstallHandoff,
   getMobileSourceInstallResultAction,
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
@@ -17,6 +18,7 @@ import {
   isMobileUnsupportedInstalledSource,
   mergeMobileInstalledSourceRegistryMetadata,
   shouldRenderMobileBrowseSkeleton,
+  shouldReopenMobileAddSourceSheetAfterInstall,
   type MobileBrowseLanguageSource,
   type MobileBrowseSource,
 } from "./mobileBrowseSources";
@@ -560,6 +562,21 @@ describe("mobile browse source filtering", () => {
     expect(getMobileSourceInstallResultAction({ succeeded: false })).toBe(
       "keep-confirmation-open",
     );
+  });
+
+  test("dismisses the add source sheet before every install", () => {
+    // The toast host lives under the native sheet: an install started while
+    // the sheet is up hides its own progress toast.
+    expect(getMobileSourceInstallHandoff({ warningCount: 0 })).toBe(
+      "install-after-dismiss",
+    );
+    expect(getMobileSourceInstallHandoff({ warningCount: 2 })).toBe(
+      "confirm-after-dismiss",
+    );
+  });
+
+  test("never re-presents the add source sheet after an install starts", () => {
+    expect(shouldReopenMobileAddSourceSheetAfterInstall()).toBe(false);
   });
 
   test("matches web warning metadata for source install rows", () => {

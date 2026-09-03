@@ -79,6 +79,10 @@ export type MobileStrings = {
     addSource: string;
     addSourcesDescription: string;
     addSources: string;
+    manageSources: string;
+    openSourceHomepage: string;
+    sourceQuickActions: string;
+    updateSourceToVersion: string;
     allLanguages: string;
     chooseLanguages: string;
     installAnyway: string;
@@ -773,6 +777,9 @@ export type MobileStrings = {
     editSourceSettings: string;
     importSource: string;
     importingSource: string;
+    importSourceCardTitle: string;
+    importSourceCardDescription: string;
+    importSourceChooseFile: string;
     installedSources: string;
     installedSourcesDescription: string;
     language: string;
@@ -1022,6 +1029,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSource: "Add Source",
       addSourcesDescription: "Select a source from available registries",
       addSources: "Add Sources",
+      manageSources: "Manage Sources",
+      openSourceHomepage: "Open in Browser",
+      sourceQuickActions: "{{name}} actions",
+      updateSourceToVersion: "Update to v{{version}}",
       allLanguages: "All",
       chooseLanguages: "Choose Languages…",
       installAnyway: "Install Anyway",
@@ -1697,10 +1708,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSource: "Add Source",
       appearance: "Appearance",
       appearanceDescription: "Language, theme, and metadata preferences",
-      feedbackSection: "Feedback",
-      feedbackSectionDescription: "Haptics and completion cues",
+      feedbackSection: "Haptics & Cues",
+      feedbackSectionDescription: "Vibration and completion cues",
       readerDescriptionWithFeedback:
-        "Reading direction, scrolling, page layout, and feedback",
+        "Reading direction, scrolling, page layout, and haptics",
       agent: "Nemu Agent",
       agentBuiltInEnabled: "Protected-source verification ready",
       agentConnected: "Native source networking available",
@@ -1806,6 +1817,9 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       editSourceSettings: "Edit settings for {{name}}",
       importSource: "Import AIX",
       importingSource: "Importing…",
+      importSourceCardTitle: "Import an AIX package",
+      importSourceCardDescription: "Install an Aidoku source from a local file",
+      importSourceChooseFile: "Choose File…",
       installedSources: "Installed Sources",
       installedSourcesDescription:
         "Source packages, runtime settings, and local uninstall",
@@ -2084,6 +2098,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSource: "添加源",
       addSourcesDescription: "从可用源仓库中选择一个源",
       addSources: "添加源",
+      manageSources: "管理源",
+      openSourceHomepage: "在浏览器中打开",
+      sourceQuickActions: "{{name}} 操作",
+      updateSourceToVersion: "更新到 v{{version}}",
       allLanguages: "全部",
       chooseLanguages: "选择语言…",
       installAnyway: "仍然安装",
@@ -2705,9 +2723,9 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSource: "添加源",
       appearance: "外观",
       appearanceDescription: "语言、主题和元数据偏好",
-      feedbackSection: "反馈",
-      feedbackSectionDescription: "触感与完成提示",
-      readerDescriptionWithFeedback: "阅读方向、滚动、页面布局与反馈",
+      feedbackSection: "触感与提示",
+      feedbackSectionDescription: "振动反馈和读完提示",
+      readerDescriptionWithFeedback: "阅读方向、滚动、页面布局与触感",
       agent: "Nemu Agent",
       agentBuiltInEnabled: "受保护网站验证已就绪",
       agentConnected: "原生源网络已可用",
@@ -2804,6 +2822,9 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       editSourceSettings: "编辑 {{name}} 的设置",
       importSource: "导入 AIX",
       importingSource: "正在导入…",
+      importSourceCardTitle: "导入 AIX 源包",
+      importSourceCardDescription: "从本机文件安装 Aidoku 源",
+      importSourceChooseFile: "选择文件…",
       installedSources: "已安装源",
       installedSourcesDescription: "源包、运行时设置和本地卸载",
       language: "语言",
@@ -3069,6 +3090,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSource: "ソースを追加",
       addSourcesDescription: "利用可能なレジストリからソースを選択",
       addSources: "ソースを追加",
+      manageSources: "ソース管理",
+      openSourceHomepage: "ブラウザで開く",
+      sourceQuickActions: "{{name}} の操作",
+      updateSourceToVersion: "v{{version}} に更新",
       allLanguages: "すべて",
       chooseLanguages: "言語を選択…",
       installAnyway: "それでもインストール",
@@ -3761,10 +3786,10 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       addSource: "ソースを追加",
       appearance: "外観",
       appearanceDescription: "言語、テーマ、メタデータ設定",
-      feedbackSection: "フィードバック",
-      feedbackSectionDescription: "触覚と読了のヒント",
+      feedbackSection: "触覚とヒント",
+      feedbackSectionDescription: "振動と読了時のヒント",
       readerDescriptionWithFeedback:
-        "読み方向、スクロール、ページレイアウトとフィードバック",
+        "読み方向、スクロール、ページレイアウトと触覚",
       agent: "Nemu Agent",
       agentBuiltInEnabled: "保護サイトの認証を利用できます",
       agentConnected: "ネイティブソース通信を利用できます",
@@ -3870,6 +3895,9 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       editSourceSettings: "{{name}} の設定を編集",
       importSource: "AIX をインポート",
       importingSource: "インポート中…",
+      importSourceCardTitle: "AIX パッケージを読み込む",
+      importSourceCardDescription: "ローカルファイルから Aidoku ソースをインストール",
+      importSourceChooseFile: "ファイルを選択…",
       installedSources: "インストール済みソース",
       installedSourcesDescription:
         "ソースパッケージ、ランタイム設定、ローカルアンインストール",

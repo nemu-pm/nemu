@@ -13,10 +13,23 @@ import {
 } from "@/sources/mobileSourceImages";
 import { makeMobileRuntimeSourceKey, normalizeInstalledSource } from "@/sources/mobileSourceRuntime";
 
-export function useMobileSourceImageRequest(
+export type MobileSourceImageRequestStatus = "idle" | "pending" | "settled";
+
+export type MobileSourceImageRequestState = {
+  /**
+   * `pending` means the rewrite for this exact image has not come back yet, so
+   * the caller does not know whether the URL needs headers. Callers that must
+   * not paint a headerless source URL (covers on referer/auth gated sources)
+   * use this to hold the previous image instead.
+   */
+  status: MobileSourceImageRequestStatus;
+  request: MobileSourceImageRequest | null;
+};
+
+export function useMobileSourceImageRequestState(
   source: InstalledSource | null | undefined,
   url: string | null | undefined,
-): MobileSourceImageRequest | null {
+): MobileSourceImageRequestState {
   const store = useMobileDataStore();
   const sourceSettingsRevision = useMobileDataRevision(["sourceSettings"]);
   // Identity: which image this is. A resolved request stays valid for the
@@ -88,5 +101,203 @@ export function useMobileSourceImageRequest(
     };
   }, [getSourceSettings, imageIdentityKey, source, sourceRequestKey, url]);
 
-  return state?.identityKey === imageIdentityKey ? state.request : null;
+  const settledRequest =
+    state?.identityKey === imageIdentityKey ? state.request : null;
+  const settled = Boolean(imageIdentityKey) && state?.identityKey === imageIdentityKey;
+  return useMemo<MobileSourceImageRequestState>(
+    () => ({
+      status: !imageIdentityKey ? "idle" : settled ? "settled" : "pending",
+      request: settledRequest,
+    }),
+    [imageIdentityKey, settled, settledRequest],
+  );
+}
+
+export function useMobileSourceImageRequest(
+  source: InstalledSource | null | undefined,
+  url: string | null | undefined,
+): MobileSourceImageRequest | null {
+  return useMobileSourceImageRequestState(source, url).request;
+}
+
+export type MobileCoverImageSource = {
+  uri: string;
+  headers?: Record<string, string>;
+};
+
+export type MobileStickyCoverPaint = {
+  request: MobileCoverImageSource;
+  /**
+   * `true` once the paint carries whatever headers the source resolved for it
+   * (or the cover provably needs none). A `false` paint is a best-effort first
+   * frame and must never displace an already resolved one.
+   */
+  resolved: boolean;
+};
+
+/**
+ * `MobileCachedImage` keys its cache entry and its failed state on the URL *and*
+ * the headers, so two paints of the same URL with and without headers are two
+ * different images. Sticky-cover bookkeeping uses the same identity.
+ */
+export function makeMobileCoverRequestKey(
+  request: MobileCoverImageSource | null | undefined,
+): string {
+  if (!request) return "";
+  const headers = request.headers ?? {};
+  const signature = Object.keys(headers)
+    .sort()
+    .map((name) => `${name}=${headers[name]}`)
+    .join("&");
+  return signature ? `${request.uri}|${signature}` : request.uri;
+}
+
+/**
+ * Picks the cover to paint for one manga screen.
+ *
+ * Source listings resolve `modifyImageRequest` up front and hand the tapped
+ * card's rewritten URL *and* headers to the detail screen. Details, on the
+ * other hand, return the raw cover straight from the source, so the moment
+ * they land the cover identity changes and the rewrite has to run again. While
+ * that rewrite is in flight the request hook has nothing for the new identity,
+ * and painting the bare URL is what made covers vanish: a referer-gated host
+ * answers 403, and `MobileCachedImage` latches that failure for the whole
+ * source key. So an unresolved cover keeps the last resolved one on screen and
+ * only swaps once the new request settles.
+ */
+export function resolveMobileStickyCover(
+  previous: MobileStickyCoverPaint | null,
+  input: {
+    cover?: string | null;
+    coverHeaders?: Record<string, string> | null;
+    requestState: MobileSourceImageRequestState;
+    /** Source-remote covers may need headers; app-local ones never do. */
+    requiresSourceRequest: boolean;
+  },
+): MobileStickyCoverPaint | null {
+  // Reusing `previous` whenever it already describes the same paint keeps the
+  // cover source referentially stable across the screen's ordinary rerenders.
+  const keep = (next: MobileStickyCoverPaint): MobileStickyCoverPaint =>
+    previous &&
+    previous.resolved === next.resolved &&
+    makeMobileCoverRequestKey(previous.request) ===
+      makeMobileCoverRequestKey(next.request)
+      ? previous
+      : next;
+  const cover = input.cover?.trim() ? input.cover : null;
+  if (!cover) return null;
+
+  const request = input.requestState.request;
+  if (request) {
+    return keep({
+      request: { uri: request.url, headers: request.headers },
+      resolved: true,
+    });
+  }
+  const seedHeaders =
+    input.coverHeaders && Object.keys(input.coverHeaders).length > 0
+      ? input.coverHeaders
+      : null;
+  if (seedHeaders) {
+    return keep({
+      request: { uri: cover, headers: seedHeaders },
+      resolved: true,
+    });
+  }
+  if (!input.requiresSourceRequest || input.requestState.status === "settled") {
+    return keep({ request: { uri: cover }, resolved: true });
+  }
+  return previous?.resolved
+    ? previous
+    : keep({ request: { uri: cover }, resolved: false });
+}
+
+/**
+ * A cover that fails to load falls back to the last one that actually rendered
+ * instead of dropping to the placeholder gradient.
+ */
+export function selectMobileCoverAfterError(
+  candidate: MobileCoverImageSource | null,
+  options: {
+    failedKey: string | null;
+    lastLoaded: MobileCoverImageSource | null;
+  },
+): MobileCoverImageSource | null {
+  if (!candidate) return null;
+  const candidateKey = makeMobileCoverRequestKey(candidate);
+  if (!options.failedKey || options.failedKey !== candidateKey) return candidate;
+  const lastLoaded = options.lastLoaded;
+  if (lastLoaded && makeMobileCoverRequestKey(lastLoaded) !== candidateKey) {
+    return lastLoaded;
+  }
+  return candidate;
+}
+
+export type MobileStickySourceCover = {
+  source: MobileCoverImageSource | null;
+  onCoverError: () => void;
+  onCoverLoad: () => void;
+};
+
+/**
+ * Cover source for a manga hero image that never flickers back to a headerless
+ * URL or to the placeholder while a source rewrite is resolving.
+ */
+export function useMobileStickySourceCover({
+  source,
+  cover,
+  coverHeaders,
+}: {
+  source: InstalledSource | null | undefined;
+  cover: string | null | undefined;
+  /** Headers already resolved for `cover` (listing seed / stored library row). */
+  coverHeaders?: Record<string, string> | null;
+}): MobileStickySourceCover {
+  const requestState = useMobileSourceImageRequestState(source, cover);
+  const [lastResolved, setLastResolved] =
+    useState<MobileStickyCoverPaint | null>(null);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const [lastLoaded, setLastLoaded] = useState<MobileCoverImageSource | null>(
+    null,
+  );
+
+  const paint = resolveMobileStickyCover(lastResolved, {
+    cover,
+    coverHeaders,
+    requestState,
+    requiresSourceRequest: Boolean(source),
+  });
+  // Remember the resolved paint during render (React's "adjust state while
+  // rendering" pattern): the next render has to be able to keep showing it
+  // synchronously, before any effect could run, or the unresolved frame in
+  // between would paint a headerless URL after all. Keyed so it settles.
+  const resolvedKey = paint?.resolved
+    ? makeMobileCoverRequestKey(paint.request)
+    : null;
+  if (
+    resolvedKey &&
+    resolvedKey !== (lastResolved ? makeMobileCoverRequestKey(lastResolved.request) : null)
+  ) {
+    setLastResolved(paint);
+  }
+
+  const displayed = selectMobileCoverAfterError(paint?.request ?? null, {
+    failedKey,
+    lastLoaded,
+  });
+  const displayedKey = makeMobileCoverRequestKey(displayed);
+  const onCoverError = useCallback(() => {
+    if (!displayedKey) return;
+    setFailedKey(displayedKey);
+  }, [displayedKey]);
+  const onCoverLoad = useCallback(() => {
+    if (!displayed) return;
+    setLastLoaded(displayed);
+    setFailedKey((current) => (current === displayedKey ? null : current));
+  }, [displayed, displayedKey]);
+
+  return useMemo(
+    () => ({ source: displayed, onCoverError, onCoverLoad }),
+    [displayed, onCoverError, onCoverLoad],
+  );
 }

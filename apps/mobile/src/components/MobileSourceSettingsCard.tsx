@@ -29,6 +29,8 @@ import {
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileSourceLoginSheet } from "@/components/MobileSourceLoginSheet";
 import {
+  createNemuButtonDepthStyle,
+  getNemuButtonDepthVisual,
   NemuButton,
   NemuNativeSwitch,
   radius,
@@ -320,16 +322,22 @@ function SourceSettingSelectMenu({
     options.find((option) => option.value === selectedValue)?.label ??
     selectedValue;
 
+  const triggerDepthStyle = createNemuButtonDepthStyle(
+    getNemuButtonDepthVisual({
+      variant: "outline",
+      state: "rest",
+      scheme,
+      tokens,
+    }),
+  );
+
   if (Platform.OS === "ios") {
     return (
       <View
         style={[
           styles.settingMenuShell,
-          {
-            backgroundColor: tokens.muted,
-            borderColor: tokens.border,
-            opacity: disabled ? 0.62 : 1,
-          },
+          triggerDepthStyle,
+          { opacity: disabled ? 0.62 : 1 },
         ]}
       >
         <SwiftHost
@@ -339,11 +347,7 @@ function SourceSettingSelectMenu({
         >
           <SwiftMenu
             label={
-              <SwiftHStack
-                alignment="center"
-                spacing={5}
-                modifiers={[frame({ width: 136, height: 32 })]}
-              >
+              <SwiftHStack alignment="center" spacing={5}>
                 <SwiftText
                   modifiers={[
                     swiftFont({ size: 12, weight: "medium" }),
@@ -362,7 +366,7 @@ function SourceSettingSelectMenu({
             modifiers={[
               buttonStyle("plain"),
               controlSize("small"),
-              frame({ width: 136, height: 32 }),
+              frame({ height: 32 }),
               tint(tokens.primary),
               ...(disabled ? [swiftDisabled(true)] : []),
             ]}
@@ -406,11 +410,8 @@ function SourceSettingSelectMenu({
         accessibilityState={{ disabled }}
         style={[
           styles.settingMaterialMenuTrigger,
-          {
-            backgroundColor: tokens.muted,
-            borderColor: tokens.border,
-            opacity: disabled ? 0.62 : 1,
-          },
+          triggerDepthStyle,
+          { opacity: disabled ? 0.62 : 1 },
         ]}
       >
         <Text
@@ -1785,8 +1786,8 @@ function MobileSourceSettingsCardContent({
                   setDismissedError(null);
                   onReset();
                 }}
-                size="sm"
-                variant="secondary"
+                size="xs"
+                variant="outline"
               />
             ) : null}
           </View>
@@ -1982,36 +1983,34 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: nemuFontWeight.medium,
   },
+  // The select trigger is a depth button, not a flat well: it hugs its label
+  // and sits at the row's trailing edge instead of stretching to a fixed width.
   settingMenuShell: {
-    minWidth: 136,
+    alignSelf: "flex-end",
     minHeight: 32,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.sm,
   },
   settingMenuHost: {
     height: 32,
-    minWidth: 136,
   },
   settingMaterialMenu: {
-    minWidth: 136,
+    alignSelf: "flex-end",
   },
   settingMaterialMenuTrigger: {
-    minWidth: 136,
-    minHeight: 36,
+    minHeight: 32,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     overflow: "hidden",
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.sm,
     paddingHorizontal: 10,
   },
   settingMaterialMenuText: {
-    maxWidth: 104,
+    maxWidth: 160,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: nemuFontWeight.medium,

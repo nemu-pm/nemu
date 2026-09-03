@@ -119,9 +119,12 @@ import {
   type MobileSourceErrorRecoveryAction,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
-import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
+import { useMobileStickySourceCover } from "@/lib/useMobileSourceImageRequest";
 import { takeMobileSourceDetailSeed } from "@/lib/mobileSourceDetailSeed";
-import { mergeDefinedMangaMetadata } from "@/lib/mobileLibraryDetails";
+import {
+  mergeDefinedMangaMetadata,
+  resolveMobileSeedCoverHeaders,
+} from "@/lib/mobileLibraryDetails";
 import { withMobileSourceOperationTimeout } from "@/sources/mobileSourceOperationTimeout";
 import { normalizeReaderProcessPageImages } from "@/lib/mobileReaderSettings";
 import { refreshMobileReaderPages } from "@/sources/mobileSourcePages";
@@ -624,10 +627,21 @@ export function SourceMangaScreen() {
   const cover = localState.libraryEntry
     ? getEntryCover(localState.libraryEntry)
     : metadata?.cover;
-  const coverRequest = useMobileSourceImageRequest(
-    localState.installedSource,
+  // The tapped card's cover was already rewritten by the source runtime, so
+  // reuse its headers while the cover URL is still that one. Details return a
+  // raw cover, which re-triggers the rewrite; the sticky hook keeps the cover
+  // that is on screen until the new request settles, so a finished detail load
+  // can no longer blank the hero image.
+  const seedCoverHeaders = resolveMobileSeedCoverHeaders({
     cover,
-  );
+    seedCover: seedMetadata?.cover,
+    seedCoverHeaders: seedMetadata?.coverHeaders,
+  });
+  const coverImage = useMobileStickySourceCover({
+    source: localState.installedSource,
+    cover,
+    coverHeaders: seedCoverHeaders,
+  });
   const chapters = useMemo(
     () => (detailState.status === "ready" ? detailState.chapters : []),
     [detailState],
@@ -1442,14 +1456,9 @@ export function SourceMangaScreen() {
               <MobileMangaDetailSurface
                 title={title}
                 authors={metadata?.authors}
-                coverSource={
-                  cover
-                    ? {
-                        uri: coverRequest?.url ?? cover,
-                        headers: coverRequest?.headers,
-                      }
-                    : null
-                }
+                coverSource={coverImage.source}
+                onCoverError={coverImage.onCoverError}
+                onCoverLoad={coverImage.onCoverLoad}
                 status={metadata?.status}
                 strings={strings}
                 badges={[

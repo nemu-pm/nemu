@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stack, router, type Href } from "expo-router";
 import {
+  Linking,
   Platform,
   SectionList,
   StyleSheet,
@@ -17,6 +18,11 @@ import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileInlineToast } from "@/components/MobileInlineToast";
 import { MobilePageEmpty } from "@/components/MobilePageEmpty";
+import { MobileSourceQuickSettingsSheet } from "@/components/MobileSourceQuickSettingsSheet";
+import {
+  SourceQuickActionSheet,
+  type SourceQuickAction,
+} from "@/components/SourceQuickActionSheet";
 import { useMobileToast } from "@/components/MobileToastContext";
 import {
   NemuButton,
@@ -47,7 +53,7 @@ import {
   useMobileLanguageSettings,
   useSourceInstaller,
 } from "@/data/mobileHooks";
-import type { AppLanguage } from "@/data/schema";
+import type { AppLanguage, InstalledSource } from "@/data/schema";
 import {
   hapticConfirm,
   hapticError,
@@ -66,6 +72,7 @@ import {
   canStartMobileSourceInstall,
   filterMobileAvailableSources,
   getMobileAvailableSourceLanguageOptions,
+  getMobileSourceInstallHandoff,
   getMobileSourceInstallResultAction,
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
@@ -73,8 +80,13 @@ import {
   isMobileUnsupportedInstalledSource,
   mergeMobileInstalledSourceRegistryMetadata,
   shouldRenderMobileBrowseSkeleton,
+  shouldReopenMobileAddSourceSheetAfterInstall,
 } from "@/lib/mobileBrowseSources";
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
+import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
+import { normalizeMobileSourceExternalUrl } from "@/lib/mobileSourceExternalUrl";
+import { resolveMobileInstalledSourceIconUri } from "@/lib/mobileSourceIconResolution";
+import { findMobileSourceUpdates } from "@/lib/mobileSourceUpdates";
 import { getMobileSourceErrorPresentation } from "@/lib/mobileSourceErrors";
 import {
   formatMobileLanguageDisplayName,
@@ -106,7 +118,8 @@ type BrowseSheet = "add-source" | "source-language";
 
 type AddSourceDismissAction =
   | { type: "open-language" }
-  | { type: "open-confirmation"; confirmation: BrowseConfirmation };
+  | { type: "open-confirmation"; confirmation: BrowseConfirmation }
+  | { type: "start-install"; source: MobileRegistrySource };
 
 type ConfirmationDismissAction =
   | { type: "reopen-add-source" }
@@ -677,7 +690,19 @@ function AvailableRowSeparator() {
   return <View style={styles.availableRowSeparator} />;
 }
 
-function AvailableSectionSeparator() {
+/**
+ * `SectionList` renders a section separator on both sides of a header. A header
+ * belongs to the rows beneath it, so only the gap that follows the previous
+ * group's last card gets the 18pt of air; the 8pt under the header comes from
+ * the header's own margin. The first header keeps the list's padding only,
+ * because nothing leads it.
+ */
+function AvailableSectionSeparator({
+  leadingItem,
+}: {
+  leadingItem?: MobileRegistrySource;
+}) {
+  if (leadingItem === undefined) return null;
   return <View style={styles.availableSectionSeparator} />;
 }
 
@@ -746,6 +771,105 @@ export function BrowseScreen() {
     () => groupMobileSourcesByLanguage(installedSources, appLanguage),
     [appLanguage, installedSources],
   );
+
+  // Long-press quick actions for an installed source. Kept next to the card
+  // that opens them; a short press still routes into the source.
+  const [quickActionSourceId, setQuickActionSourceId] = useState<string | null>(
+    null,
+  );
+  const [quickActionVisible, setQuickActionVisible] = useState(false);
+  const [quickActionSettingsVisible, setQuickActionSettingsVisible] =
+    useState(false);
+  const [quickActionUninstall, setQuickActionUninstall] =
+    useState<InstalledSource | null>(null);
+  const [quickActionUninstallVisible, setQuickActionUninstallVisible] =
+    useState(false);
+  const [uninstallingSourceId, setUninstallingSourceId] = useState<
+    string | null
+  >(null);
+  const quickActionDismissRef = useRef<"settings" | "uninstall" | null>(null);
+  const mergedInstalledSources = useMemo(
+    () =>
+      mergeMobileInstalledSourceRegistryMetadata(installed.data, available.data),
+    [available.data, installed.data],
+  );
+  const quickActionSource = useMemo(
+    () =>
+      quickActionSourceId
+        ? (mergedInstalledSources.find(
+            (source) => source.id === quickActionSourceId,
+          ) ?? null)
+        : null,
+    [mergedInstalledSources, quickActionSourceId],
+  );
+  const quickActionUpdate = useMemo(
+    () =>
+      quickActionSource
+        ? (findMobileSourceUpdates([quickActionSource], available.data)[0] ??
+          null)
+        : null,
+    [available.data, quickActionSource],
+  );
+  const quickActionHomepage = useMemo(() => {
+    for (const url of quickActionSource?.packageMetadata?.urls ?? []) {
+      const normalized = normalizeMobileSourceExternalUrl(url);
+      if (normalized) return normalized;
+    }
+    return null;
+  }, [quickActionSource]);
+  const quickActionIconUri = quickActionSource
+    ? resolveMobileInstalledSourceIconUri(quickActionSource, available.data)
+    : null;
+
+  const closeQuickActions = useCallback(
+    (next: "settings" | "uninstall" | null) => {
+      quickActionDismissRef.current = next;
+      setQuickActionVisible(false);
+    },
+    [],
+  );
+
+  const handleQuickActionsDismissed = useCallback(() => {
+    const next = quickActionDismissRef.current;
+    quickActionDismissRef.current = null;
+    if (next === "settings") {
+      setQuickActionSettingsVisible(true);
+      return;
+    }
+    if (next === "uninstall" && quickActionSource) {
+      setQuickActionUninstall(quickActionSource);
+      setQuickActionUninstallVisible(true);
+      return;
+    }
+    setQuickActionSourceId(null);
+  }, [quickActionSource]);
+
+  const runQuickActionUninstall = useCallback(async () => {
+    const source = quickActionUninstall;
+    if (!source || uninstallingSourceId) return;
+    const { registryId, sourceId } = getMobileInstalledSourceRegistryRef(source);
+    setUninstallingSourceId(source.id);
+    try {
+      await installer.uninstallSource({
+        id: sourceId,
+        registryId,
+        registryName: registryId,
+        name: getMobileInstalledSourceName(source),
+        version: source.version,
+      });
+      await installed.reload();
+      setQuickActionUninstallVisible(false);
+      await hapticConfirm();
+    } catch (error) {
+      setQuickActionUninstallVisible(false);
+      setActionError(sourceActionErrorPresentation(error, strings));
+      await hapticError();
+    } finally {
+      setUninstallingSourceId((current) =>
+        current === source.id ? null : current,
+      );
+    }
+  }, [installed, installer, quickActionUninstall, strings, uninstallingSourceId]);
 
   const filteredAvailable = useMemo(() => {
     return filterMobileAvailableSources(available.data, {
@@ -956,12 +1080,13 @@ export function BrowseScreen() {
     const key = makeSourceKey(source.registryId, source.id);
     const guardedInstallKey =
       installGuardKeyRef.current ?? installer.installingKey;
-    if (!canStartMobileSourceInstall(key, guardedInstallKey)) {
+    // The sheet stays closed either way: the running install already owns a
+    // sticky progress toast, and re-presenting the sheet would cover it.
+    if (shouldReopenMobileAddSourceSheetAfterInstall()) {
       restoreAddSourceSheet();
-      return;
     }
+    if (!canStartMobileSourceInstall(key, guardedInstallKey)) return;
 
-    restoreAddSourceSheet();
     void installSource(source);
   };
 
@@ -976,8 +1101,14 @@ export function BrowseScreen() {
   const confirmInstallSource = (source: MobileRegistrySource) => {
     setActionError(null);
     const warnings = getMobileSourceWarningMessages(source, strings.browse);
-    if (warnings.length === 0) {
-      void installSource(source);
+    // Install always dismisses the sheet first: the toast host sits under the
+    // native sheet, so a progress toast raised behind it is invisible until
+    // the sheet is closed by hand.
+    if (
+      getMobileSourceInstallHandoff({ warningCount: warnings.length }) ===
+      "install-after-dismiss"
+    ) {
+      requestAddSourceDismissal({ type: "start-install", source });
       return;
     }
 
@@ -1107,6 +1238,10 @@ export function BrowseScreen() {
       setActiveSheetVisible(true);
       return;
     }
+    if (next?.type === "start-install") {
+      startInstallAfterAddSourceDismissal(next.source);
+      return;
+    }
     if (next?.type === "open-confirmation") {
       // Leave the destination unclaimed while the confirmation is visible.
       // Its first Cancel or Confirm tap owns the handoff; a native dismissal
@@ -1145,12 +1280,67 @@ export function BrowseScreen() {
     }
     restoreAddSourceSheet();
   };
+  const quickActions = ((): SourceQuickAction[] => {
+    if (!quickActionSource) return [];
+    const actions: SourceQuickAction[] = [
+      {
+        id: "settings",
+        label: strings.settings.sourceSettingsDefaultTitle,
+        icon: "options-outline",
+        onPress: () => closeQuickActions("settings"),
+      },
+    ];
+    if (quickActionUpdate) {
+      actions.push({
+        id: "update",
+        label: formatMobileString(strings.browse.updateSourceToVersion, {
+          version: quickActionUpdate.version,
+        }),
+        icon: "arrow-up-circle-outline",
+        onPress: () => {
+          closeQuickActions(null);
+          void installSource(quickActionUpdate);
+        },
+      });
+    }
+    if (quickActionHomepage) {
+      actions.push({
+        id: "openInBrowser",
+        label: strings.browse.openSourceHomepage,
+        icon: "open-outline",
+        onPress: () => {
+          closeQuickActions(null);
+          void Linking.openURL(quickActionHomepage).catch(() => undefined);
+        },
+      });
+    }
+    actions.push({
+      id: "uninstall",
+      label: strings.common.uninstall,
+      icon: "trash-outline",
+      destructive: true,
+      onPress: () => closeQuickActions("uninstall"),
+    });
+    return actions;
+  })();
+
+
   const nativeHeaderActions: NemuNativeHeaderAction[] = [
     {
       icon: "plus",
       label: strings.browse.addSources,
       disabled: activeInstallKey !== null,
       onPress: openAddSourceSheet,
+    },
+    {
+      icon: "square.stack.3d.up",
+      label: strings.browse.manageSources,
+      onPress: () => {
+        router.push({
+          pathname: "/(tabs)/settings/[section]",
+          params: { section: "sources" },
+        });
+      },
     },
   ];
 
@@ -1286,7 +1476,10 @@ export function BrowseScreen() {
                                 key={source.id}
                                 item={source}
                                 onLongPress={() => {
-                                  router.push(sourceSettingsHref(source));
+                                  void hapticSelection();
+                                  quickActionDismissRef.current = null;
+                                  setQuickActionSourceId(source.id);
+                                  setQuickActionVisible(true);
                                 }}
                               />
                             ),
@@ -1339,102 +1532,117 @@ export function BrowseScreen() {
           testID="AddSourceSheet"
         >
           <View style={styles.addSourceSheetBody}>
-            {available.error ? (
-              <MobileInlineToast
-                title={strings.feedback.catalogUnavailableTitle}
-                detail={[
-                  strings.feedback.catalogUnavailableDetail,
-                  catalogCacheAge,
-                ].filter(Boolean).join(" · ")}
-                actionLabel={strings.common.retry}
-                actionDisabled={refreshingSources}
-                actionLoading={refreshingSources}
-                onActionPress={() => {
-                  void refreshSources();
-                }}
-              />
-            ) : null}
             {/*
-              A truly native search bar is not reachable here. `Stack.SearchBar`
-              is a UISearchController bound to a navigation header, and this
-              field lives inside a presented sheet; `@expo/ui/swift-ui` ships
-              only a bare `TextField` (no search style, no leading glyph, no
-              clear button — `isSearchField` there is an accessibility trait),
-              and hosting one would nest a UIHostingController inside the RN
-              tree that is itself hosted by the sheet's SwiftUI presentation,
-              which is exactly where first-responder and IME handoff get
-              unreliable. So this stays an RN `TextInput` dressed as the iOS 26
-              search field: secondary-filled capsule, 17pt system text, muted
-              leading magnifier, shared trailing clear action.
+              Everything above the list lives in one stack so the scroll
+              container's top edge sits exactly at the search field's bottom.
+              The 12pt separation belongs to the list's own content inset
+              (`availableListContent`) instead of a flex gap: rows then slide
+              under the field while scrolling instead of being clipped at a
+              hard edge floating in an empty gap, and the first row still
+              starts 12pt clear of the field at rest.
             */}
-            <View
-              style={[
-                styles.searchShell,
-                Platform.OS === "android" ? styles.androidSearchShell : null,
-                { backgroundColor: tokens.secondary },
-              ]}
-            >
-              <Ionicons
-                name="search"
-                size={17}
-                color={tokens.mutedForeground}
-              />
-              <TextInput
-                accessibilityLabel={strings.browse.searchRegistries}
-                accessibilityRole="search"
-                autoCapitalize="none"
-                autoCorrect={false}
-                enterKeyHint="search"
-                value={query}
-                onChangeText={setQuery}
-                placeholder={strings.browse.searchRegistries}
-                placeholderTextColor={tokens.mutedForeground}
-                returnKeyType="search"
-                selectionColor={tokens.primary}
-                style={[styles.searchInput, { color: tokens.foreground }]}
-              />
-              {canClearMobileBrowseSourceQuery(query) ? (
-                <NemuTextFieldClearAction
-                  accessibilityLabel={strings.common.clear}
-                  onPress={clearSourceQuery}
-                  testID="AddSourceSearchClearAction"
-                  trailingInset={12}
+            <View style={styles.addSourceSheetHeaderStack}>
+              {available.error ? (
+                <MobileInlineToast
+                  title={strings.feedback.catalogUnavailableTitle}
+                  detail={[
+                    strings.feedback.catalogUnavailableDetail,
+                    catalogCacheAge,
+                  ].filter(Boolean).join(" · ")}
+                  actionLabel={strings.common.retry}
+                  actionDisabled={refreshingSources}
+                  actionLoading={refreshingSources}
+                  onActionPress={() => {
+                    void refreshSources();
+                  }}
                 />
               ) : null}
-            </View>
-
-            {selectedLanguages.size > 0 || showAdult ? (
-              <View style={styles.activeFilterChips}>
-                {[...selectedLanguages].map((language) => (
-                  <ActiveFilterChip
-                    key={language}
-                    label={formatSourceLanguageLabel(
-                      language,
-                      strings,
-                      appLanguage,
-                    )}
-                    removeLabel={strings.common.remove}
-                    onPress={() => toggleLanguage(language)}
-                  />
-                ))}
-                {showAdult ? (
-                  <ActiveFilterChip
-                    label={strings.browse.adult}
-                    removeLabel={strings.common.remove}
-                    onPress={() => setShowAdult(false)}
+              {/*
+                A truly native search bar is still not reachable here, re-checked
+                against the installed @expo/ui: `Stack.SearchBar` is a
+                UISearchController bound to a navigation header and this field
+                lives inside a presented sheet, and `@expo/ui/swift-ui` exposes
+                no `.searchable` modifier, no toolbar binding, and no search
+                field style — `textFieldStyle` offers only
+                `automatic | plain | roundedBorder`, and `isSearchField` is an
+                accessibility trait, not a control. Hand-composing HStack +
+                Image + TextField inside a SwiftHost would be no more native
+                than this and would nest a UIHostingController in the RN tree
+                that the sheet's own SwiftUI presentation already hosts, which
+                is exactly where first-responder and IME handoff get unreliable.
+                So this stays an RN `TextInput` dressed as the iOS 26 search
+                field: secondary-filled capsule, 17pt system text, muted leading
+                magnifier, shared trailing clear action.
+              */}
+              <View
+                style={[
+                  styles.searchShell,
+                  Platform.OS === "android" ? styles.androidSearchShell : null,
+                  { backgroundColor: tokens.secondary },
+                ]}
+              >
+                <Ionicons
+                  name="search"
+                  size={17}
+                  color={tokens.mutedForeground}
+                />
+                <TextInput
+                  accessibilityLabel={strings.browse.searchRegistries}
+                  accessibilityRole="search"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  enterKeyHint="search"
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder={strings.browse.searchRegistries}
+                  placeholderTextColor={tokens.mutedForeground}
+                  returnKeyType="search"
+                  selectionColor={tokens.primary}
+                  style={[styles.searchInput, { color: tokens.foreground }]}
+                />
+                {canClearMobileBrowseSourceQuery(query) ? (
+                  <NemuTextFieldClearAction
+                    accessibilityLabel={strings.common.clear}
+                    onPress={clearSourceQuery}
+                    testID="AddSourceSearchClearAction"
+                    trailingInset={12}
                   />
                 ) : null}
               </View>
-            ) : null}
 
-            {actionError ? (
-              <MobileInlineErrorBanner
-                title={actionError.title}
-                detail={actionError.detail}
-                dismissLabel={strings.common.clear}
-                onDismiss={() => setActionError(null)}
-              />
-            ) : null}
+              {selectedLanguages.size > 0 || showAdult ? (
+                <View style={styles.activeFilterChips}>
+                  {[...selectedLanguages].map((language) => (
+                    <ActiveFilterChip
+                      key={language}
+                      label={formatSourceLanguageLabel(
+                        language,
+                        strings,
+                        appLanguage,
+                      )}
+                      removeLabel={strings.common.remove}
+                      onPress={() => toggleLanguage(language)}
+                    />
+                  ))}
+                  {showAdult ? (
+                    <ActiveFilterChip
+                      label={strings.browse.adult}
+                      removeLabel={strings.common.remove}
+                      onPress={() => setShowAdult(false)}
+                    />
+                  ) : null}
+                </View>
+              ) : null}
+
+              {actionError ? (
+                <MobileInlineErrorBanner
+                  title={actionError.title}
+                  detail={actionError.detail}
+                  dismissLabel={strings.common.clear}
+                  onDismiss={() => setActionError(null)}
+                />
+              ) : null}
+            </View>
 
             <SectionList
               alwaysBounceVertical={false}
@@ -1539,6 +1747,61 @@ export function BrowseScreen() {
         </MobileConfirmationSheet>
       ) : null}
 
+      {quickActionSource ? (
+        <SourceQuickActionSheet
+          visible={quickActionVisible}
+          title={getMobileInstalledSourceName(quickActionSource)}
+          subtitle={[
+            formatLanguages(quickActionSource.languages),
+            getMobileInstalledSourceRegistryRef(quickActionSource).registryId,
+            `v${quickActionSource.version}`,
+          ]
+            .filter(Boolean)
+            .join(" / ")}
+          icon={quickActionIconUri}
+          actions={quickActions}
+          onClose={() => closeQuickActions(null)}
+          onDismiss={handleQuickActionsDismissed}
+        />
+      ) : null}
+      {quickActionSource && quickActionSettingsVisible ? (
+        <MobileSourceQuickSettingsSheet
+          source={quickActionSource}
+          iconUri={quickActionIconUri}
+          strings={strings}
+          visible={quickActionSettingsVisible}
+          onClose={() => setQuickActionSettingsVisible(false)}
+          onDismiss={() => setQuickActionSourceId(null)}
+        />
+      ) : null}
+      {quickActionUninstall ? (
+        <MobileConfirmationSheet
+          visible={quickActionUninstallVisible}
+          title={strings.settings.uninstallSource}
+          description={formatMobileString(
+            strings.settings.uninstallSourceConfirm,
+            { name: getMobileInstalledSourceName(quickActionUninstall) },
+          )}
+          subject={getMobileInstalledSourceName(quickActionUninstall)}
+          iconName="trash-outline"
+          cancelLabel={strings.common.cancel}
+          confirmLabel={strings.common.uninstall}
+          confirmAccessibilityLabel={formatMobileString(
+            strings.settings.uninstallSourceNamed,
+            { name: getMobileInstalledSourceName(quickActionUninstall) },
+          )}
+          loading={uninstallingSourceId === quickActionUninstall.id}
+          destructive
+          onCancel={() => setQuickActionUninstallVisible(false)}
+          onDismiss={() => {
+            setQuickActionUninstall(null);
+            setQuickActionSourceId(null);
+          }}
+          onConfirm={() => {
+            void runQuickActionUninstall();
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -1550,6 +1813,8 @@ const styles = StyleSheet.create({
   addSourceSheetBody: {
     flex: 1,
     minHeight: 0,
+  },
+  addSourceSheetHeaderStack: {
     gap: 14,
   },
   activeFilterChips: {
@@ -1594,6 +1859,10 @@ const styles = StyleSheet.create({
   },
   availableListContent: {
     flexGrow: 1,
+    // The gap under the search field is a content inset, not a flex gap, so
+    // the scroll viewport starts at the field's bottom edge and nothing is
+    // ever clipped in the empty space between them.
+    paddingTop: 12,
     paddingBottom: 24,
   },
   availableRowSeparator: {

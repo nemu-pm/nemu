@@ -71,24 +71,26 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(headerAction).toMatch(/action:\s*\{[\s\S]*?width:\s*48,/);
   });
 
-  test("sizes the iOS sheet header action on its label, not on the button", () => {
+  test("lets the system size and draw the iOS sheet header action", () => {
     const source = readMobileSource(
       "design-system/components/NemuNativeSheetHeaderAction.ios.tsx",
     );
 
-    // `buttonStyle` measures its own background from the label plus the style's
-    // control padding, so a `frame` on the button only re-centers a ~32pt pill.
-    // The 44pt circle and its hit target have to be drawn on the label instead.
-    expect(source).toContain("const CONTROL_SIZE = 44");
-    expect(source).toContain("const GLYPH_POINT_SIZE = 20");
+    // The chrome is the platform's own bar-button treatment: Liquid Glass on
+    // iOS 26+, `bordered` before it, always a circle at the large control size.
+    // A hand-rolled `glassEffect` renders as a flat disc, and forcing a frame on
+    // the label makes the circle grow to that frame plus the style's padding.
+    expect(source).toContain('buttonStyle(glass ? "glass" : "bordered")');
+    expect(source).toContain('buttonBorderShape("circle")');
+    expect(source).toContain('controlSize("large")');
+    expect(source).toContain("const GLYPH_POINT_SIZE = 17");
     expect(source).toContain(
-      "frame({ width: CONTROL_SIZE, height: CONTROL_SIZE })",
+      "font({ size: GLYPH_POINT_SIZE, weight: \"medium\" })",
     );
-    expect(source).toContain("contentShape(shapes.circle())");
-    expect(source).toContain('shape: "circle"');
-    expect(source).not.toContain('buttonStyle("glass")');
-    expect(source).not.toContain("buttonBorderShape");
-    expect(source).not.toContain("controlSize(");
+    expect(source).toContain("supportsNemuLiquidGlassButtonStyle");
+    expect(source).not.toContain("glassEffect");
+    expect(source).not.toContain("strokeBorder");
+    expect(source).not.toContain("frame(");
   });
 
   test("preserves header semantics and lets localized Android titles wrap", () => {
@@ -365,7 +367,11 @@ describe("mobile sheet and text-field chrome policy", () => {
     const settingsCard = readMobileSource(
       "components/MobileSourceSettingsCard.tsx",
     );
-    const settingsScreen = readMobileSource("screens/SettingsScreen.tsx");
+    // The installed-source settings sheet is shared by Settings and Browse, so
+    // the embedded back-handler wiring lives with the sheet itself.
+    const sourceSettingsSheet = readMobileSource(
+      "components/MobileInstalledSourceSettingsSheet.tsx",
+    );
     const sourceBrowse = readMobileSource("screens/SourceBrowseScreen.tsx");
 
     expect(manager).not.toContain("<MobileConfirmationSheet");
@@ -374,8 +380,8 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(settingsCard).toContain("<MobileSourceLoginSheet");
     expect(settingsCard).toContain("embedded");
     expect(settingsCard).toContain("onEmbeddedBackHandlerChange?.(");
-    expect(settingsScreen).toContain("embeddedBackHandlerRef.current");
-    expect(settingsScreen).toContain("onHardwareBackPress={() => {");
+    expect(sourceSettingsSheet).toContain("embeddedBackHandlerRef.current");
+    expect(sourceSettingsSheet).toContain("onHardwareBackPress={() => {");
     expect(sourceBrowse).toContain("sourceFilterPresentation");
     expect(sourceBrowse).toContain("filters={sourceFilterPresentation.filters}");
     expect(sourceBrowse).toContain("setSourceFilterPresentation(null);");

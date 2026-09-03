@@ -156,6 +156,36 @@ export function getMobileSourceInstallResultAction({
   return succeeded ? "close-confirmation" : "keep-confirmation-open";
 }
 
+/**
+ * Tapping Install always dismisses the Add Source sheet first. The toast host
+ * lives in the root React Native tree, underneath the native sheet, so a
+ * progress toast raised while the sheet is presented stays invisible until the
+ * user closes the sheet by hand. Warned sources dismiss into the confirmation
+ * sheet; everything else dismisses straight into the install.
+ */
+export type MobileSourceInstallHandoff =
+  | "confirm-after-dismiss"
+  | "install-after-dismiss";
+
+export function getMobileSourceInstallHandoff({
+  warningCount,
+}: {
+  warningCount: number;
+}): MobileSourceInstallHandoff {
+  return warningCount > 0 ? "confirm-after-dismiss" : "install-after-dismiss";
+}
+
+/**
+ * The Add Source sheet never re-presents itself once an install has started.
+ * Re-opening it would cover the progress/success toast that is the only
+ * feedback surface for the install, which is exactly the bug this policy
+ * pins closed. Cancelling the warning confirmation is the one path that
+ * returns to the sheet, and it never reaches this policy.
+ */
+export function shouldReopenMobileAddSourceSheetAfterInstall(): boolean {
+  return false;
+}
+
 export function getMobileSourceWarningMessages(
   source: Pick<MobileRegistrySource, "hasAuthentication" | "hasCloudflare">,
   strings: Pick<

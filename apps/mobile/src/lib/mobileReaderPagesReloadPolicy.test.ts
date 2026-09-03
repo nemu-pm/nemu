@@ -115,9 +115,24 @@ describe("incidental-churn guards across screens", () => {
   test("cover requests keep the last resolved request while refreshing", () => {
     const hook = mobileSource("lib/useMobileSourceImageRequest.ts");
     expect(hook).toContain(
-      "return state?.identityKey === imageIdentityKey ? state.request : null;",
+      "const settledRequest =\n    state?.identityKey === imageIdentityKey ? state.request : null;",
     );
     expect(hook).not.toContain("state?.key === sourceRequestKey");
+  });
+
+  test("covers hold the last resolved paint until the next request settles", () => {
+    const hook = mobileSource("lib/useMobileSourceImageRequest.ts");
+    // An unresolved cover must never fall back to a headerless source URL:
+    // referer-gated hosts answer 403 and MobileCachedImage latches that.
+    expect(hook).toContain(
+      "return previous?.resolved\n    ? previous\n    : keep({ request: { uri: cover }, resolved: false });",
+    );
+    for (const screen of ["screens/SourceMangaScreen.tsx", "screens/MangaDetailScreen.tsx"]) {
+      const source = mobileSource(screen);
+      expect(source).toContain("useMobileStickySourceCover({");
+      expect(source).toContain("coverSource={coverImage.source}");
+      expect(source).not.toContain("coverRequest?.url ?? cover");
+    }
   });
 
   test("source settings reload does not flash loading for the same source", () => {

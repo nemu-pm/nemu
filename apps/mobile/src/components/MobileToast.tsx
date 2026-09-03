@@ -7,7 +7,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  ActivityIndicator,
   StyleSheet,
   View,
   type StyleProp,
@@ -24,6 +23,7 @@ import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
   GlassSurface,
   NemuPressable,
+  NemuRingSpinner,
   NemuText,
   nemuFontWeight,
   radius,
@@ -69,7 +69,7 @@ export type MobileToastSurfaceProps = {
   icon?: keyof typeof Ionicons.glyphMap;
   /** Overrides the tone tint, e.g. a muted reader hint. */
   iconColor?: string;
-  /** Replaces the leading glyph with an indeterminate activity indicator. */
+  /** Replaces the leading glyph with the indeterminate Nemu loading ring. */
   loading?: boolean;
   title: string;
   detail?: string;
@@ -121,7 +121,7 @@ export function MobileToastSurface({
   const content = (
     <>
       {loading ? (
-        <ActivityIndicator size="small" color={resolvedIconColor} />
+        <NemuRingSpinner color={resolvedIconColor} size={20} />
       ) : (
         <Ionicons
           accessibilityElementsHidden
@@ -158,7 +158,7 @@ export function MobileToastSurface({
       </View>
       {action ? (
         action.loading ? (
-          <ActivityIndicator size="small" color={tokens.primary} />
+          <NemuRingSpinner color={tokens.primary} size={14} />
         ) : (
           // `NemuButton` (and any depth pressable) grows its frame to the
           // native 44/48pt target, which would push this 48pt pill to 60.

@@ -312,8 +312,7 @@ export function MobileStorageBreakdown({
             onPress={onClearAllCache}
             size="lg"
             style={styles.blockButton}
-            textStyle={{ color: tokens.danger }}
-            variant="ghost"
+            variant="destructive"
           />
         ) : null}
       </View>
@@ -351,7 +350,7 @@ const styles = StyleSheet.create({
   legendSwatch: {
     width: 8,
     height: 8,
-    borderRadius: 2,
+    borderRadius: 4,
   },
   legendLabel: {
     fontSize: 11,

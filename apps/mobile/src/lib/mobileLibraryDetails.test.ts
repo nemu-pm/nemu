@@ -3,6 +3,7 @@ import type { LibraryEntry, LocalSourceLink } from "@/data/schema";
 import {
   applyMobileSourceDetailsRefresh,
   mergeDefinedMangaMetadata,
+  resolveMobileSeedCoverHeaders,
 } from "./mobileLibraryDetails";
 
 describe("mobile library detail refresh helpers", () => {
@@ -147,5 +148,53 @@ describe("mobile library detail refresh helpers", () => {
       });
       expect(applied.item.metadata.title).toBe("/Blush-DC.: Himitsu");
     }
+  });
+
+  test("keeps the listing cover when details return a blank one", () => {
+    expect(
+      mergeDefinedMangaMetadata(
+        { title: "Seed", cover: "https://cdn.test/seed.jpg" },
+        { title: "Detail", cover: "   " },
+      ).cover,
+    ).toBe("https://cdn.test/seed.jpg");
+  });
+
+  test("re-attaches seed cover headers while the cover is still the seed cover", () => {
+    const seedCoverHeaders = { Referer: "https://source.test/" };
+
+    // Details returned no usable cover, so the merge kept the seed cover and
+    // its already-resolved headers stay valid.
+    expect(
+      resolveMobileSeedCoverHeaders({
+        cover: "https://cdn.test/seed.jpg",
+        seedCover: "https://cdn.test/seed.jpg",
+        seedCoverHeaders,
+      }),
+    ).toEqual(seedCoverHeaders);
+
+    // Details returned their own cover: the seed headers were resolved for a
+    // different URL and must not be reused for it.
+    expect(
+      resolveMobileSeedCoverHeaders({
+        cover: "https://cdn.test/detail.jpg",
+        seedCover: "https://cdn.test/seed.jpg",
+        seedCoverHeaders,
+      }),
+    ).toBeUndefined();
+
+    expect(
+      resolveMobileSeedCoverHeaders({
+        cover: "https://cdn.test/seed.jpg",
+        seedCover: "https://cdn.test/seed.jpg",
+        seedCoverHeaders: {},
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveMobileSeedCoverHeaders({
+        cover: undefined,
+        seedCover: "https://cdn.test/seed.jpg",
+        seedCoverHeaders,
+      }),
+    ).toBeUndefined();
   });
 });

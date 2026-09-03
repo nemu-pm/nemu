@@ -5,44 +5,45 @@ import {
 } from "@expo/ui/swift-ui";
 import {
   accessibilityLabel as swiftAccessibilityLabel,
-  background,
+  buttonBorderShape,
   buttonStyle,
-  contentShape,
+  controlSize,
   font,
-  foregroundStyle,
-  frame,
-  glassEffect,
-  opacity,
-  shapes,
-  strokeBorder,
   tint,
   disabled as swiftDisabled,
 } from "@expo/ui/swift-ui/modifiers";
 import { Platform, StyleSheet, Text, View } from "react-native";
+import { supportsNemuLiquidGlassButtonStyle } from "@/lib/nemuLiquidGlass";
 import { nemuFontWeight } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import type { NemuNativeSheetHeaderActionProps } from "./NemuNativeSheetHeaderAction.types";
 
-/** Full-size iOS control target; the glass circle fills it exactly. */
-const CONTROL_SIZE = 44;
-/** Matches the symbol weight UIKit uses for 44pt navigation-bar actions. */
-const GLYPH_POINT_SIZE = 20;
-
-function supportsLiquidGlass(): boolean {
-  const major = Number.parseInt(String(Platform.Version).split(".")[0] ?? "0", 10);
-  return Number.isFinite(major) && major >= 26;
-}
+/**
+ * Reserved box for the control plus its badge. The glass circle itself is
+ * measured by SwiftUI (see below) and sits centred inside this box, so this is
+ * a layout allowance, not the control's size.
+ */
+const CONTROL_BOX = 44;
+/**
+ * Navigation-bar glyph metrics. 17pt medium is what UIKit uses for bar button
+ * symbols; `.controlSize(.large)` then pads it out to the system's ~40pt glass
+ * circle, which is what the rest of the iOS 26 nav bar draws.
+ */
+const GLYPH_POINT_SIZE = 17;
 
 /**
- * The chrome is sized on the *label*, never on the button.
+ * The system draws and sizes the chrome; we only choose the glyph.
  *
- * `buttonStyle('glass' | 'bordered')` draws its background around the label's
- * intrinsic size plus the style's own control padding, so a `frame` modifier on
- * the button only re-centers that small pill inside a larger invisible box —
- * which is why the circles rendered at ~32pt no matter what `controlSize` said.
- * Giving the label an explicit 44pt frame and painting the circle on it
- * (`glassEffect` on iOS 26+, a token-filled circle before that) makes the
- * visible control and the touch target the same fixed 44pt on every OS version.
+ * `@expo/ui`'s SwiftUI surface has no toolbar/`toolbarItem` binding (there is
+ * no `toolbar` export under `@expo/ui/swift-ui`), so a sheet header action is
+ * an ordinary `Button` styled the way the system styles bar buttons:
+ * `.buttonStyle(.glass)` on iOS 26+ (the real Liquid Glass capsule — painting
+ * the effect by hand onto a `borderless` button renders as a flat white disc),
+ * `.bordered` before it, plus `.buttonBorderShape(.circle)` and
+ * `.controlSize(.large)`. Pinning an explicit size on the label instead makes
+ * the circle grow to that size plus the style's own padding, which is how it
+ * ended up reading oversized; leaving the label unsized hands the measurement
+ * back to SwiftUI.
  */
 export function NemuNativeSheetHeaderAction({
   accessibilityLabel,
@@ -52,20 +53,7 @@ export function NemuNativeSheetHeaderAction({
   onPress,
 }: NemuNativeSheetHeaderActionProps) {
   const { scheme, tokens } = useNemuTheme();
-  const surfaceModifiers = supportsLiquidGlass()
-    ? [
-        glassEffect({
-          glass: { variant: "regular", interactive: true },
-          shape: "circle",
-        }),
-      ]
-    : [
-        background(tokens.toolbarAction, shapes.circle()),
-        strokeBorder({
-          color: tokens.toolbarActionBorder,
-          shape: "circle",
-        }),
-      ];
+  const glass = supportsNemuLiquidGlassButtonStyle(Platform.Version);
 
   return (
     <View style={styles.root}>
@@ -73,9 +61,9 @@ export function NemuNativeSheetHeaderAction({
         <SwiftButton
           onPress={onPress}
           modifiers={[
-            // `borderless` keeps the system press dimming without letting a
-            // button style re-measure the label we just sized.
-            buttonStyle("borderless"),
+            buttonStyle(glass ? "glass" : "bordered"),
+            buttonBorderShape("circle"),
+            controlSize("large"),
             tint(tokens.primary),
             swiftAccessibilityLabel(accessibilityLabel),
             ...(disabled ? [swiftDisabled(true)] : []),
@@ -83,15 +71,7 @@ export function NemuNativeSheetHeaderAction({
         >
           <SwiftImage
             systemName={iosSystemImage}
-            modifiers={[
-              font({ size: GLYPH_POINT_SIZE, weight: "semibold" }),
-              foregroundStyle(tokens.primary),
-              frame({ width: CONTROL_SIZE, height: CONTROL_SIZE }),
-              ...surfaceModifiers,
-              contentShape(shapes.circle()),
-              // `.plain`-family styles do not dim a disabled label on their own.
-              ...(disabled ? [opacity(0.48)] : []),
-            ]}
+            modifiers={[font({ size: GLYPH_POINT_SIZE, weight: "medium" })]}
           />
         </SwiftButton>
       </SwiftHost>
@@ -111,12 +91,14 @@ export function NemuNativeSheetHeaderAction({
 
 const styles = StyleSheet.create({
   root: {
-    width: CONTROL_SIZE,
-    height: CONTROL_SIZE,
+    width: CONTROL_BOX,
+    height: CONTROL_BOX,
+    alignItems: "center",
+    justifyContent: "center",
   },
   host: {
-    width: CONTROL_SIZE,
-    height: CONTROL_SIZE,
+    width: CONTROL_BOX,
+    height: CONTROL_BOX,
   },
   badge: {
     position: "absolute",

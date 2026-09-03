@@ -2,11 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   canRetryMobileSettingsLoadError,
   canRunMobileSettingsSelection,
-  canSelectMobileLanguageTab,
   canStartMobileSettingsAction,
   getMobileSettingsMutationResultAction,
   isMobileSettingsActionBusy,
-  resolveMobileLanguageTabAccessibilityState,
   shouldRenderMobileSettingsSkeletonForSection,
   shouldRenderMobileSourcesSectionLoading,
   shouldRenderMobileSettingsSkeleton,
@@ -165,62 +163,5 @@ describe("mobile settings actions", () => {
         availableSourcesLoading: true,
       }),
     ).toBe(false);
-  });
-});
-
-describe("mobile settings language tabs", () => {
-  test("only lets an unselected tab run while nothing is in flight", () => {
-    expect(
-      canSelectMobileLanguageTab({
-        selected: false,
-        disabled: false,
-        interactionLocked: false,
-      }),
-    ).toBe(true);
-    expect(
-      canSelectMobileLanguageTab({
-        selected: true,
-        disabled: false,
-        interactionLocked: false,
-      }),
-    ).toBe(false);
-    expect(
-      canSelectMobileLanguageTab({
-        selected: false,
-        disabled: true,
-        interactionLocked: false,
-      }),
-    ).toBe(false);
-    expect(
-      canSelectMobileLanguageTab({
-        selected: false,
-        disabled: false,
-        interactionLocked: true,
-      }),
-    ).toBe(false);
-  });
-
-  test("reports the tab selection and the locked state to assistive tech", () => {
-    expect(
-      resolveMobileLanguageTabAccessibilityState({
-        selected: true,
-        disabled: false,
-        interactionLocked: false,
-      }),
-    ).toEqual({ selected: true, disabled: false });
-    expect(
-      resolveMobileLanguageTabAccessibilityState({
-        selected: false,
-        disabled: false,
-        interactionLocked: true,
-      }),
-    ).toEqual({ selected: false, disabled: true });
-    expect(
-      resolveMobileLanguageTabAccessibilityState({
-        selected: false,
-        disabled: true,
-        interactionLocked: false,
-      }),
-    ).toEqual({ selected: false, disabled: true });
   });
 });

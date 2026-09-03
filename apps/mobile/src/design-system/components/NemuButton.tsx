@@ -49,7 +49,7 @@ export type NemuButtonSize =
   | "icon-lg";
 
 /** Shared geometry for the high-emphasis CTA used by onboarding and page empty states. */
-export const NEMU_PROMINENT_CTA_SIZE: NemuButtonSize = "lg";
+export const NEMU_PROMINENT_CTA_SIZE: NemuButtonSize = "default";
 
 type NemuButtonProps = {
   label?: string;

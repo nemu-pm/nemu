@@ -15,10 +15,12 @@ export {
 export { createNemuShadowStyle } from "@/design/shadows";
 export { nemuColorWithAlpha } from "@/design/colorAlpha";
 export {
+  getNemuButtonDepthVisual,
   type NemuButtonDepthState,
   type NemuButtonDepthVariant,
   type NemuButtonDepthVisual,
 } from "@/design/nemuButtonDepth";
+export { createNemuButtonDepthStyle } from "@/design/nemuButtonDepthStyle";
 export {
   createNemuNativeScreenOptions,
   createNemuNativeStackScreenOptions,
@@ -50,6 +52,10 @@ export { NemuNativeProgressView } from "./components/NemuNativeProgressView";
 export { NemuNativeSheetHeaderAction } from "./components/NemuNativeSheetHeaderAction";
 export { NemuNativeSwitch } from "./components/NemuNativeSwitch";
 export { NemuPressable } from "./components/NemuPressable";
+export {
+  NemuRingSpinner,
+  type NemuRingSpinnerProps,
+} from "./components/NemuRingSpinner";
 export {
   NemuText,
   type NemuTextProps,

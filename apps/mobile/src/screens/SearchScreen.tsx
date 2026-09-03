@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -1381,7 +1382,11 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   nativeSearchSections: {
-    marginTop: 0,
+    // iOS insets the list for the in-header search bar and adds its own bottom
+    // padding under the field; pull the chip row up so it sits ~14pt below the
+    // search bar instead of ~30pt. Android lays content out below the toolbar
+    // and needs no correction.
+    marginTop: Platform.OS === "ios" ? -16 : 0,
   },
   searchShell: {
     minHeight: 52,
