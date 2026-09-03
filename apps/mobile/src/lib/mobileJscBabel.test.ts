@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -21,7 +21,27 @@ const { transformSync } = requireFromTest(babelCorePath) as {
   ) => { code?: string | null } | null;
 };
 
+function sourceFiles(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const filePath = path.join(root, entry.name);
+    if (entry.isDirectory()) return sourceFiles(filePath);
+    return /\.(?:js|jsx|ts|tsx)$/.test(entry.name) ? [filePath] : [];
+  });
+}
+
 describe("mobile JSC Babel compatibility", () => {
+  test("keeps raw NUL bytes out of Metro source files", () => {
+    const mobileSourceRoot = path.join(import.meta.dir, "..");
+    const offenders = sourceFiles(mobileSourceRoot)
+      .filter((filePath) => readFileSync(filePath).includes(0))
+      .map((filePath) => path.relative(mobileSourceRoot, filePath));
+
+    // The JSC bridge evaluates Metro output through a NUL-terminated C string.
+    // A raw NUL in source truncates the bundle before parsing and surfaces as
+    // `[runtime not ready]: SyntaxError: Unexpected EOF` on iOS.
+    expect(offenders).toEqual([]);
+  });
+
   test("does not use Android JSC built-ins that are absent on the pinned engine", () => {
     const sourceSettingsExecutor = readFileSync(
       path.join(
