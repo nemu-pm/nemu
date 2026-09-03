@@ -333,6 +333,56 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(notice).toContain("<MobileToastSurface");
   });
 
+  test("renders the toast pill on system Liquid Glass behind an iOS 26 gate", () => {
+    const toast = readMobileSource("components/MobileToast.tsx");
+    const surface = readMobileSource(
+      "design-system/components/GlassSurface.tsx",
+    );
+
+    // Both toast entry points (anchored host and in-sheet inline toast) render
+    // `MobileToastSurface`, so opting its one shared `GlassSurface` in covers
+    // them together. The `plain` reader notice keeps the reader's own panel.
+    expect(toast).toContain("liquidGlass");
+    expect(toast).toMatch(/<GlassSurface\s+intensity=\{32\}\s+liquidGlass/);
+    expect(toast.indexOf("liquidGlass")).toBeGreaterThan(
+      toast.indexOf("if (plain) {"),
+    );
+
+    // iOS 26+ only; every other platform keeps the BlurView / native-view path.
+    expect(surface).toContain(
+      "supportsNemuLiquidGlass(Platform.OS, Platform.Version)",
+    );
+    expect(surface).toContain('variant: "regular"');
+    expect(surface).toContain("interactive: false");
+    expect(surface).toContain("resolveGlassSurfaceShape({ cornerRadius, height })");
+    expect(surface).toContain("glassSurfaceLiquidTint(tokens.background)");
+    // The material paints the surface; a token fill would hide the glass.
+    expect(surface).toMatch(/liquidShell:\s*\{[\s\S]*?backgroundColor: "transparent",/);
+    // Touch has to reach the action pill and dismiss glyph inside the host.
+    expect(surface).toContain("<RNHostView matchContents>");
+  });
+
+  test("keeps the toast entrance quick and the reduce-motion path animation free", () => {
+    const toast = readMobileSource("components/MobileToast.tsx");
+
+    // ~25% faster settle than the original 18/220 spring at the same damping
+    // ratio, so the pill arrives sooner without gaining a bounce.
+    expect(toast).toContain(
+      "FadeInDown.springify().damping(22).stiffness(340)",
+    );
+    expect(toast).toContain("FadeOutDown.duration(120)");
+    expect(toast).not.toContain("stiffness(220)");
+    expect(toast).toContain("motionDisabled\n          ? undefined");
+    expect(toast).toContain(
+      "exiting={motionDisabled ? undefined : FadeOutDown.duration(120)}",
+    );
+
+    // The whole pill animates: the SwiftUI host lives inside `Animated.View`.
+    expect(toast.indexOf("<Animated.View")).toBeLessThan(
+      toast.indexOf("<MobileToastSurface"),
+    );
+  });
+
   test("serializes Library sheet swaps without remounting the closing host", () => {
     const source = readMobileSource("screens/LibraryScreen.tsx");
 

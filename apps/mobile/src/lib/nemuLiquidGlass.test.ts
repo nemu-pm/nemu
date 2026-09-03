@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { supportsNemuLiquidGlassButtonStyle } from "./nemuLiquidGlass";
+import {
+  NEMU_LIQUID_GLASS_MIN_IOS_VERSION,
+  supportsNemuLiquidGlass,
+  supportsNemuLiquidGlassButtonStyle,
+} from "./nemuLiquidGlass";
 
 describe("supportsNemuLiquidGlassButtonStyle", () => {
   it("parses the major component of an iOS version string", () => {
@@ -20,5 +24,21 @@ describe("supportsNemuLiquidGlassButtonStyle", () => {
     expect(supportsNemuLiquidGlassButtonStyle(undefined)).toBe(false);
     expect(supportsNemuLiquidGlassButtonStyle("")).toBe(false);
     expect(supportsNemuLiquidGlassButtonStyle("unknown")).toBe(false);
+  });
+});
+
+describe("supportsNemuLiquidGlass", () => {
+  it("requires iOS 26 or newer", () => {
+    expect(NEMU_LIQUID_GLASS_MIN_IOS_VERSION).toBe(26);
+    expect(supportsNemuLiquidGlass("ios", "26.5")).toBe(true);
+    expect(supportsNemuLiquidGlass("ios", 26)).toBe(true);
+    expect(supportsNemuLiquidGlass("ios", "25.0")).toBe(false);
+    expect(supportsNemuLiquidGlass("ios", "18.7")).toBe(false);
+  });
+
+  it("never claims the SwiftUI material off iOS", () => {
+    expect(supportsNemuLiquidGlass("android", 36)).toBe(false);
+    expect(supportsNemuLiquidGlass("web", "26.0")).toBe(false);
+    expect(supportsNemuLiquidGlass("ios", null)).toBe(false);
   });
 });

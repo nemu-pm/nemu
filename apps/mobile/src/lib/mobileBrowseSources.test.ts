@@ -11,6 +11,7 @@ import {
   getMobileAvailableSourceLanguageOptions,
   getMobileInstalledSourceRegistryDisplayName,
   getMobileSourceInstallHandoff,
+  getMobileSourceQuickActionHandoff,
   getMobileSourceInstallResultAction,
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
@@ -577,6 +578,37 @@ describe("mobile browse source filtering", () => {
 
   test("never re-presents the add source sheet after an install starts", () => {
     expect(shouldReopenMobileAddSourceSheetAfterInstall()).toBe(false);
+  });
+
+  test("dismisses the quick actions before every sheet-bound destination", () => {
+    // Two native `@expo/ui` bottom sheets cannot be presented at once: a
+    // confirmation raised while the quick actions are still up never appears,
+    // which is exactly how long-press Uninstall silently did nothing.
+    expect(getMobileSourceQuickActionHandoff("uninstall")).toBe(
+      "dismiss-then-confirm-uninstall",
+    );
+    expect(getMobileSourceQuickActionHandoff("settings")).toBe(
+      "dismiss-then-open-settings",
+    );
+  });
+
+  test("dismisses the quick actions before starting a source update", () => {
+    // The install's sticky progress toast renders under the native sheet.
+    expect(getMobileSourceQuickActionHandoff("update")).toBe(
+      "dismiss-then-install-update",
+    );
+  });
+
+  test("opens a source homepage without waiting for the quick actions", () => {
+    // Leaving the app needs no sheet handoff, so this row stays immediate.
+    expect(getMobileSourceQuickActionHandoff("openInBrowser")).toBe("open-url");
+  });
+
+  test("routes every quick action row to exactly one handoff", () => {
+    const handoffs = (
+      ["settings", "update", "openInBrowser", "uninstall"] as const
+    ).map(getMobileSourceQuickActionHandoff);
+    expect(new Set(handoffs).size).toBe(handoffs.length);
   });
 
   test("matches web warning metadata for source install rows", () => {

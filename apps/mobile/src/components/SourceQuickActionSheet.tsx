@@ -10,10 +10,11 @@ import {
   useNemuTheme,
   nemuFontWeight,
 } from "@/design-system";
+import type { MobileSourceQuickActionId } from "@/lib/mobileBrowseSources";
 import { normalizeMobileSourceIconUri } from "@/lib/mobileSourceIconResolution";
 
 export type SourceQuickAction = {
-  id: "settings" | "update" | "openInBrowser" | "uninstall";
+  id: MobileSourceQuickActionId;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   destructive?: boolean;

@@ -186,6 +186,43 @@ export function shouldReopenMobileAddSourceSheetAfterInstall(): boolean {
   return false;
 }
 
+/** Rows offered by the installed-source long-press quick-action sheet. */
+export type MobileSourceQuickActionId =
+  | "settings"
+  | "update"
+  | "openInBrowser"
+  | "uninstall";
+
+/**
+ * Where a quick-action row is allowed to act. The quick-action sheet is a
+ * native `@expo/ui` bottom sheet and only one of those can be presented at a
+ * time, so every row whose destination is another sheet — or whose only
+ * feedback surface is the toast host that sits *underneath* the sheet — has to
+ * dismiss the quick actions first and run from the post-dismiss callback.
+ * Opening a homepage leaves the app entirely, so it is the one row that may act
+ * while the sheet is still on screen.
+ */
+export type MobileSourceQuickActionHandoff =
+  | "dismiss-then-open-settings"
+  | "dismiss-then-install-update"
+  | "dismiss-then-confirm-uninstall"
+  | "open-url";
+
+export function getMobileSourceQuickActionHandoff(
+  action: MobileSourceQuickActionId,
+): MobileSourceQuickActionHandoff {
+  switch (action) {
+    case "settings":
+      return "dismiss-then-open-settings";
+    case "update":
+      return "dismiss-then-install-update";
+    case "uninstall":
+      return "dismiss-then-confirm-uninstall";
+    case "openInBrowser":
+      return "open-url";
+  }
+}
+
 export function getMobileSourceWarningMessages(
   source: Pick<MobileRegistrySource, "hasAuthentication" | "hasCloudflare">,
   strings: Pick<

@@ -237,6 +237,7 @@ export function MobileToastSurface({
   return (
     <GlassSurface
       intensity={32}
+      liquidGlass
       style={[
         styles.pill,
         {
@@ -279,11 +280,13 @@ function MobileToastHost({
       key={toast.id}
       pointerEvents="box-none"
       entering={
+        // ~25% quicker settle than the original 18/220 spring at the same
+        // damping ratio (~0.6), so the pill still arrives without oscillating.
         motionDisabled
           ? undefined
-          : FadeInDown.springify().damping(18).stiffness(220)
+          : FadeInDown.springify().damping(22).stiffness(340)
       }
-      exiting={motionDisabled ? undefined : FadeOutDown.duration(160)}
+      exiting={motionDisabled ? undefined : FadeOutDown.duration(120)}
       style={[styles.host, { bottom }]}
     >
       <MobileToastSurface

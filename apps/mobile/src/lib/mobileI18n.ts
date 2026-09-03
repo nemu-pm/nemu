@@ -91,6 +91,7 @@ export type MobileStrings = {
     installingSourceDescriptionGeneric: string;
     installSourceNamed: string;
     installedSource: string;
+    uninstalledSource: string;
     installed: string;
     languageFilter: string;
     languageFilterOption: string;
@@ -1042,6 +1043,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
         "Please wait while the source is being installed.",
       installSourceNamed: "Install {{name}}",
       installedSource: "Installed {{name}}",
+      uninstalledSource: "Uninstalled {{name}}",
       installed: "Installed",
       languageFilter: "Source language",
       languageFilterOption: "Show {{language}} sources",
@@ -2110,6 +2112,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       installingSourceDescriptionGeneric: "请稍候，源正在安装中。",
       installSourceNamed: "安装 {{name}}",
       installedSource: "已安装 {{name}}",
+      uninstalledSource: "已卸载 {{name}}",
       installed: "已安装",
       languageFilter: "源语言",
       languageFilterOption: "显示{{language}}源",
@@ -3103,6 +3106,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
         "ソースをインストール中です。しばらくお待ちください。",
       installSourceNamed: "{{name}} をインストール",
       installedSource: "{{name}} をインストールしました",
+      uninstalledSource: "{{name}} をアンインストールしました",
       installed: "インストール済み",
       languageFilter: "ソース言語",
       languageFilterOption: "{{language}} のソースを表示",

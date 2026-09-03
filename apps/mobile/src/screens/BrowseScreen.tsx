@@ -72,6 +72,7 @@ import {
   getMobileAvailableSourceLanguageOptions,
   getMobileSourceInstallHandoff,
   getMobileSourceInstallResultAction,
+  getMobileSourceQuickActionHandoff,
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
   groupMobileSourcesByLanguage,
@@ -79,6 +80,7 @@ import {
   mergeMobileInstalledSourceRegistryMetadata,
   shouldRenderMobileBrowseSkeleton,
   shouldReopenMobileAddSourceSheetAfterInstall,
+  type MobileSourceQuickActionId,
 } from "@/lib/mobileBrowseSources";
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
 import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
@@ -118,6 +120,16 @@ type AddSourceDismissAction =
   | { type: "open-language" }
   | { type: "open-confirmation"; confirmation: BrowseConfirmation }
   | { type: "start-install"; source: MobileRegistrySource };
+
+/**
+ * Only one native `@expo/ui` bottom sheet can be presented at a time, so the
+ * quick-action rows queue their destination here and the sheet's post-dismiss
+ * callback performs it. See `getMobileSourceQuickActionHandoff`.
+ */
+type SourceQuickActionDismissAction =
+  | { type: "open-settings" }
+  | { type: "confirm-uninstall"; source: InstalledSource }
+  | { type: "install-update"; source: MobileRegistrySource };
 
 type ConfirmationDismissAction =
   | { type: "reopen-add-source" }
@@ -785,7 +797,14 @@ export function BrowseScreen() {
   const [uninstallingSourceId, setUninstallingSourceId] = useState<
     string | null
   >(null);
-  const quickActionDismissRef = useRef<"settings" | "uninstall" | null>(null);
+  const quickActionDismissRef = useRef<SourceQuickActionDismissAction | null>(
+    null,
+  );
+  // `installSource` is declared further down; the quick-action handoff runs
+  // long after this render, so it reaches the latest closure through a ref.
+  const installSourceRef = useRef<
+    ((source: MobileRegistrySource) => Promise<void>) | null
+  >(null);
   const mergedInstalledSources = useMemo(
     () =>
       mergeMobileInstalledSourceRegistryMetadata(installed.data, available.data),
@@ -819,8 +838,19 @@ export function BrowseScreen() {
     ? resolveMobileInstalledSourceIconUri(quickActionSource, available.data)
     : null;
 
-  const closeQuickActions = useCallback(
-    (next: "settings" | "uninstall" | null) => {
+  // `MobileNativeSheetScaffold` fires `onClose` *and then* `onDismiss` from the
+  // same native close. This handler is the `onClose` half, so it must never
+  // touch the queued handoff — clearing it here would wipe the destination one
+  // statement before `handleQuickActionsDismissed` reads it.
+  const closeQuickActions = useCallback(() => {
+    setQuickActionVisible(false);
+  }, []);
+
+  const requestQuickActionDismissal = useCallback(
+    (next: SourceQuickActionDismissAction) => {
+      // Native dismissal is asynchronous. The first accepted tap owns this
+      // visibility cycle so a second row cannot replace its queued destination.
+      if (quickActionDismissRef.current) return;
       quickActionDismissRef.current = next;
       setQuickActionVisible(false);
     },
@@ -830,17 +860,26 @@ export function BrowseScreen() {
   const handleQuickActionsDismissed = useCallback(() => {
     const next = quickActionDismissRef.current;
     quickActionDismissRef.current = null;
-    if (next === "settings") {
+    if (next?.type === "open-settings") {
       setQuickActionSettingsVisible(true);
       return;
     }
-    if (next === "uninstall" && quickActionSource) {
-      setQuickActionUninstall(quickActionSource);
+    if (next?.type === "confirm-uninstall") {
+      setQuickActionUninstall(next.source);
       setQuickActionUninstallVisible(true);
       return;
     }
+    if (next?.type === "install-update") {
+      // The install raises a sticky progress toast, and the toast host sits
+      // under the native sheet; starting it only after the dismissal keeps
+      // that progress visible.
+      const source = next.source;
+      setQuickActionSourceId(null);
+      void installSourceRef.current?.(source);
+      return;
+    }
     setQuickActionSourceId(null);
-  }, [quickActionSource]);
+  }, []);
 
   const runQuickActionUninstall = useCallback(async () => {
     const source = quickActionUninstall;
@@ -857,6 +896,13 @@ export function BrowseScreen() {
       });
       await installed.reload();
       setQuickActionUninstallVisible(false);
+      toast.show({
+        id: `source-uninstall:${source.id}`,
+        tone: "info",
+        title: formatMobileString(strings.browse.uninstalledSource, {
+          name: getMobileInstalledSourceName(source),
+        }),
+      });
       await hapticConfirm();
     } catch (error) {
       setQuickActionUninstallVisible(false);
@@ -867,7 +913,14 @@ export function BrowseScreen() {
         current === source.id ? null : current,
       );
     }
-  }, [installed, installer, quickActionUninstall, strings, uninstallingSourceId]);
+  }, [
+    installed,
+    installer,
+    quickActionUninstall,
+    strings,
+    toast,
+    uninstallingSourceId,
+  ]);
 
   const filteredAvailable = useMemo(() => {
     return filterMobileAvailableSources(available.data, {
@@ -1118,6 +1171,7 @@ export function BrowseScreen() {
   const confirmInstallSourceRef = useRef(confirmInstallSource);
   useEffect(() => {
     confirmInstallSourceRef.current = confirmInstallSource;
+    installSourceRef.current = installSource;
   });
   const handleInstallSource = useCallback((source: MobileRegistrySource) => {
     confirmInstallSourceRef.current(source);
@@ -1274,6 +1328,34 @@ export function BrowseScreen() {
     }
     restoreAddSourceSheet();
   };
+  const runQuickAction = (action: MobileSourceQuickActionId) => {
+    const source = quickActionSource;
+    if (!source) return;
+    switch (getMobileSourceQuickActionHandoff(action)) {
+      case "dismiss-then-open-settings":
+        requestQuickActionDismissal({ type: "open-settings" });
+        return;
+      case "dismiss-then-install-update":
+        if (!quickActionUpdate) return;
+        requestQuickActionDismissal({
+          type: "install-update",
+          source: quickActionUpdate,
+        });
+        return;
+      case "dismiss-then-confirm-uninstall":
+        requestQuickActionDismissal({ type: "confirm-uninstall", source });
+        return;
+      case "open-url": {
+        if (!quickActionHomepage) return;
+        // Leaving the app is the one destination that does not need the sheet
+        // gone first, so it opens directly and lets the sheet close behind it.
+        const homepage = quickActionHomepage;
+        closeQuickActions();
+        void Linking.openURL(homepage).catch(() => undefined);
+        return;
+      }
+    }
+  };
   const quickActions = ((): SourceQuickAction[] => {
     if (!quickActionSource) return [];
     const actions: SourceQuickAction[] = [
@@ -1281,7 +1363,7 @@ export function BrowseScreen() {
         id: "settings",
         label: strings.settings.sourceSettingsDefaultTitle,
         icon: "options-outline",
-        onPress: () => closeQuickActions("settings"),
+        onPress: () => runQuickAction("settings"),
       },
     ];
     if (quickActionUpdate) {
@@ -1291,10 +1373,7 @@ export function BrowseScreen() {
           version: quickActionUpdate.version,
         }),
         icon: "arrow-up-circle-outline",
-        onPress: () => {
-          closeQuickActions(null);
-          void installSource(quickActionUpdate);
-        },
+        onPress: () => runQuickAction("update"),
       });
     }
     if (quickActionHomepage) {
@@ -1302,10 +1381,7 @@ export function BrowseScreen() {
         id: "openInBrowser",
         label: strings.browse.openSourceHomepage,
         icon: "open-outline",
-        onPress: () => {
-          closeQuickActions(null);
-          void Linking.openURL(quickActionHomepage).catch(() => undefined);
-        },
+        onPress: () => runQuickAction("openInBrowser"),
       });
     }
     actions.push({
@@ -1313,7 +1389,7 @@ export function BrowseScreen() {
       label: strings.common.uninstall,
       icon: "trash-outline",
       destructive: true,
-      onPress: () => closeQuickActions("uninstall"),
+      onPress: () => runQuickAction("uninstall"),
     });
     return actions;
   })();
@@ -1718,7 +1794,7 @@ export function BrowseScreen() {
             .join(" / ")}
           icon={quickActionIconUri}
           actions={quickActions}
-          onClose={() => closeQuickActions(null)}
+          onClose={closeQuickActions}
           onDismiss={handleQuickActionsDismissed}
         />
       ) : null}
