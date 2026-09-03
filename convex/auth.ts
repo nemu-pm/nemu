@@ -18,8 +18,8 @@ const crossSubDomainCookieConfig =
 const mobileTrustedOrigins = [
   "nemu://",
   "nemu://*",
-  "pm.nemu.mobile://",
-  "pm.nemu.mobile://*",
+  "pm.nemu://",
+  "pm.nemu://*",
 ];
 
 export const authComponent = createClient<DataModel>(components.betterAuth);
