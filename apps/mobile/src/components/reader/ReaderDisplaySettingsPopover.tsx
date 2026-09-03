@@ -48,6 +48,13 @@ type ReaderDisplaySettingsPopoverProps = {
   onCommitScrollWidth: (value: number) => void;
   onScrollWidthInteractionStart?: () => void;
   onScrollWidthInteractionEnd?: () => void;
+  brightnessPct: number;
+  onPreviewBrightness: (value: number) => void;
+  onCommitBrightness: (value: number) => void;
+  keepAwake: boolean;
+  onToggleKeepAwake: () => void;
+  lockPortrait: boolean;
+  onToggleLockPortrait: () => void;
   onMarkComplete: () => void;
 };
 
@@ -80,6 +87,13 @@ export function ReaderDisplaySettingsPopover({
   onCommitScrollWidth,
   onScrollWidthInteractionStart,
   onScrollWidthInteractionEnd,
+  brightnessPct,
+  onPreviewBrightness,
+  onCommitBrightness,
+  keepAwake,
+  onToggleKeepAwake,
+  lockPortrait,
+  onToggleLockPortrait,
   onMarkComplete,
 }: ReaderDisplaySettingsPopoverProps) {
   const { tokens, scheme } = useNemuTheme();
@@ -204,6 +218,83 @@ export function ReaderDisplaySettingsPopover({
                 color={tokens.mutedForeground}
               />
             </NemuPressable>
+          </View>
+
+          <View style={styles.widthControlBlock}>
+            <View style={styles.widthControlHeader}>
+              <View style={styles.brightnessLabelRow}>
+                <Ionicons
+                  name="sunny-outline"
+                  size={14}
+                  color={tokens.mutedForeground}
+                />
+                <Text
+                  style={[
+                    styles.widthControlLabel,
+                    { color: tokens.mutedForeground },
+                  ]}
+                >
+                  {strings.feedback.displayBrightness}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.widthControlValue,
+                  { color: tokens.foreground },
+                ]}
+              >
+                {brightnessPct}%
+              </Text>
+            </View>
+            <MobileReaderWidthSlider
+              value={brightnessPct}
+              strings={strings}
+              disabled={busy}
+              onPreview={onPreviewBrightness}
+              onCommit={onCommitBrightness}
+            />
+          </View>
+
+          <View style={[styles.readerSettingRow, { borderColor: tokens.border }]}>
+            <View style={styles.readerSettingCopy}>
+              <Text
+                style={[styles.readerSettingTitle, { color: tokens.foreground }]}
+              >
+                {strings.feedback.displayKeepAwake}
+              </Text>
+            </View>
+            <Switch
+              accessibilityLabel={strings.feedback.displayKeepAwake}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: keepAwake, disabled: busy }}
+              disabled={busy}
+              ios_backgroundColor={tokens.muted}
+              thumbColor={keepAwake ? tokens.primary : tokens.mutedForeground}
+              trackColor={{ false: tokens.muted, true: `${tokens.primary}66` }}
+              value={keepAwake}
+              onValueChange={onToggleKeepAwake}
+            />
+          </View>
+
+          <View style={[styles.readerSettingRow, { borderColor: tokens.border }]}>
+            <View style={styles.readerSettingCopy}>
+              <Text
+                style={[styles.readerSettingTitle, { color: tokens.foreground }]}
+              >
+                {strings.feedback.displayLockPortrait}
+              </Text>
+            </View>
+            <Switch
+              accessibilityLabel={strings.feedback.displayLockPortrait}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: lockPortrait, disabled: busy }}
+              disabled={busy}
+              ios_backgroundColor={tokens.muted}
+              thumbColor={lockPortrait ? tokens.primary : tokens.mutedForeground}
+              trackColor={{ false: tokens.muted, true: `${tokens.primary}66` }}
+              value={lockPortrait}
+              onValueChange={onToggleLockPortrait}
+            />
           </View>
 
           <View
@@ -572,6 +663,11 @@ const styles = StyleSheet.create({
   },
   widthControlBlock: {
     gap: 8,
+  },
+  brightnessLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   widthControlHeader: {
     minHeight: 18,

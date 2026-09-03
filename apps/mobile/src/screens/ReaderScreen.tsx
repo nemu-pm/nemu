@@ -50,6 +50,11 @@ import {
 } from "@/components/reader/MobileReaderGallery";
 import { MobileReaderPageFrame } from "@/components/reader/MobileReaderPageFrame";
 import { MobileReaderEndOfChapterOverlay } from "@/components/reader/MobileReaderEndOfChapterOverlay";
+import { MobileReaderConnectivityNotice } from "@/components/reader/MobileReaderConnectivityNotice";
+import {
+  useReaderDisplayEnvironment,
+  useReaderDisplayPrefs,
+} from "@/components/reader/useReaderDisplayEnvironment";
 import { JapaneseLearningPluginLauncherSheet } from "@/components/reader/japaneseLearning/JapaneseLearningPluginLauncherSheet";
 import { JapaneseLearningOcrResultSheet } from "@/components/reader/japaneseLearning/JapaneseLearningOcrResultSheet";
 import { JapaneseLearningNemuChatDrawer } from "@/components/reader/japaneseLearning/JapaneseLearningNemuChatDrawer";
@@ -86,6 +91,7 @@ import {
 } from "@/lib/mobileAccessibility";
 import {
   useInstalledSources,
+  useMobileFeedbackSettings,
   useMobileLanguageSettings,
   useMobileReaderPlugins,
   useReadingMode,
@@ -167,6 +173,7 @@ import {
   type MobileReaderSegmentFrame,
 } from "@/lib/mobileReaderSegmentedImage";
 import {
+  getCachedMobileImageUriSync,
   invalidateCachedMobileImage,
   retainCachedMobileImageAsset,
   type MobileCachedSegmentedImageAsset,
@@ -187,6 +194,7 @@ import {
   shouldResetMobileReaderZoom,
 } from "@/lib/mobileReaderZoom";
 import { getMobileReaderTitle } from "@/lib/mobileReaderHeader";
+import { useMobileConnectivity } from "@/lib/useMobileConnectivity";
 import {
   readerBottomBarEntering,
   readerBottomBarExiting,
@@ -1132,6 +1140,22 @@ export function ReaderScreen() {
     processPageImages,
     setProcessPageImages,
   } = useReadingMode();
+  const { chapterCompleteCelebration } = useMobileFeedbackSettings();
+  const {
+    keepAwake: readerKeepAwake,
+    setKeepAwake: setReaderKeepAwake,
+    lockPortrait: readerLockPortrait,
+    setLockPortrait: setReaderLockPortrait,
+  } = useReaderDisplayPrefs();
+  const {
+    brightnessPct: readerBrightnessPct,
+    previewBrightness: previewReaderBrightness,
+    commitBrightness: commitReaderBrightness,
+  } = useReaderDisplayEnvironment({
+    keepAwakeEnabled: readerKeepAwake,
+    lockPortraitEnabled: readerLockPortrait,
+  });
+  const readerConnectivity = useMobileConnectivity();
   const readerPlugins = useMobileReaderPlugins();
   const installedReaderSources = useInstalledSources();
   const readerScrollRef = useRef<MobileReaderScrollHandle | null>(null);
@@ -1207,6 +1231,8 @@ export function ReaderScreen() {
   const [selectedReaderPluginSettingsId, setSelectedReaderPluginSettingsId] =
     useState<string | null>(null);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const [readerScrubPreviewPageIndex, setReaderScrubPreviewPageIndex] =
+    useState<number | null>(null);
   // How the reader reached `currentPageIndex`. Only a genuine forward turn may
   // auto-complete a chapter — see shouldAutoCompleteMobileReaderChapter.
   const [pageArrival, setPageArrival] =
@@ -1767,6 +1793,13 @@ export function ReaderScreen() {
   const sourcePageNumber = pageCount
     ? readerRoutePageForDisplayIndex(clampedPageIndex, pageCount, mode)
     : 0;
+  const readerChromePageIndex =
+    readerScrubPreviewPageIndex == null
+      ? clampedPageIndex
+      : clampReaderPageIndex(readerScrubPreviewPageIndex, pageCount);
+  const readerChromeSourcePageNumber = pageCount
+    ? readerRoutePageForDisplayIndex(readerChromePageIndex, pageCount, mode)
+    : 0;
   const chapterTitle = formatChapterTitle(chapter, strings);
   const sourcePageForDisplayIndex = useCallback(
     (displayIndex: number) =>
@@ -1776,6 +1809,21 @@ export function ReaderScreen() {
   const displayedPages = useMemo(() => {
     return pages;
   }, [pages]);
+  const readerScrubPreviewPage =
+    readerScrubPreviewPageIndex == null
+      ? null
+      : displayedPages[
+          clampReaderPageIndex(readerScrubPreviewPageIndex, pageCount)
+        ] ?? null;
+  const readerScrubPreviewImageUri = useMemo(() => {
+    const page = readerScrubPreviewPage;
+    if (!page?.imageUri) return null;
+    if (page.imageUriOwnership === "app") return page.imageUri;
+    return getCachedMobileImageUriSync({
+      uri: page.imageUri,
+      headers: page.headers,
+    });
+  }, [readerScrubPreviewPage]);
   const readerDisplayIndexByPageId = useMemo(() => {
     const map = new Map<string, number>();
     displayedPages.forEach((page, index) => map.set(page.id, index));
@@ -2090,7 +2138,9 @@ export function ReaderScreen() {
     : "";
   const showReaderChrome = showControls;
   const showReaderBottomChrome =
-    showReaderChrome && pagesState.status === "ready" && pageCount > 0;
+    showReaderChrome &&
+    ((pagesState.status === "ready" && pageCount > 0) ||
+      pagesState.status === "loading");
   useEffect(() => {
     const emptyMetrics = getReaderContinuousScrollMetrics({
       contentOffset: 0,
@@ -2839,16 +2889,27 @@ export function ReaderScreen() {
     ) {
       return;
     }
+    if (!chapterCompleteCelebration && nextChapterInReadingOrder) {
+      void persistEndOfChapterCompletion().then((persisted) => {
+        if (persisted) {
+          goToChapter(nextChapterInReadingOrder, { startAt: "start" });
+        }
+      });
+      return;
+    }
     setEndOfChapterProgressSaved(false);
     setEndOfChapterPromptVisible(true);
-    void hapticSelection();
+    if (chapterCompleteCelebration) void hapticConfirm();
     void persistEndOfChapterCompletion();
   }, [
+    chapterCompleteCelebration,
+    goToChapter,
     japaneseLearningChatDrawerVisible,
     japaneseLearningLauncherVisible,
     japaneseLearningOcrSheetVisible,
     japaneseLearningTranscriptVisible,
     persistEndOfChapterCompletion,
+    nextChapterInReadingOrder,
     readerDisplaySettingsOpen,
     readerPluginSettingsOpen,
   ]);
@@ -2896,6 +2957,13 @@ export function ReaderScreen() {
       goToPage(firstPageIndexForMobileReaderSpread(readerSpreads, scrubIndex));
     },
     [goToPage, isTwoPageMode, readerSpreads],
+  );
+  const getReaderScrubPreviewPageIndex = useCallback(
+    (scrubIndex: number) =>
+      isTwoPageMode
+        ? firstPageIndexForMobileReaderSpread(readerSpreads, scrubIndex)
+        : scrubIndex,
+    [isTwoPageMode, readerSpreads],
   );
 
   const beginContinuousReaderScrub = useCallback(() => {
@@ -3110,6 +3178,27 @@ export function ReaderScreen() {
     },
     [clearReaderImageError],
   );
+  const readerWasOfflineRef = useRef(false);
+  useEffect(() => {
+    if (readerConnectivity.resolving) return;
+    const restored = readerWasOfflineRef.current && !readerConnectivity.offline;
+    readerWasOfflineRef.current = readerConnectivity.offline;
+    if (!restored) return;
+    if (pagesState.status === "error") {
+      setPagesRefreshNonce((value) => value + 1);
+    }
+    setReaderImageErrors((current) => {
+      if (current.size === 0) return current;
+      setReaderImageRetryNonces((nonces) => {
+        const next = new Map(nonces);
+        current.forEach((_detail, pageId) => {
+          next.set(pageId, (next.get(pageId) ?? 0) + 1);
+        });
+        return next;
+      });
+      return new Map();
+    });
+  }, [pagesState.status, readerConnectivity.offline, readerConnectivity.resolving]);
   const setReaderImageLoadError = useCallback(
     (pageId: string, detail: string | undefined) => {
       setReaderImageErrors((current) => {
@@ -5313,6 +5402,7 @@ export function ReaderScreen() {
           imageUri={imageUri}
           imageUriOwnership={page.imageUriOwnership ?? "source"}
           loading={imageLoading}
+          offline={readerConnectivity.offline}
           error={imageError}
           strings={strings}
           onImageLoadStart={() => {
@@ -5399,6 +5489,7 @@ export function ReaderScreen() {
         imageUriOwnership="app"
         imageResizeMode="stretch"
         loading={!loadedReaderSegments.has(segmentKey)}
+        offline={readerConnectivity.offline}
         error={readerImageErrors.get(errorKey)}
         strings={strings}
         onImageLoadStart={() => clearReaderImageError(errorKey)}
@@ -5779,6 +5870,21 @@ export function ReaderScreen() {
         completed={completed}
         strings={strings}
         onClose={closeReaderDisplaySettings}
+        brightnessPct={readerBrightnessPct}
+        onPreviewBrightness={previewReaderBrightness}
+        onCommitBrightness={commitReaderBrightness}
+        keepAwake={readerKeepAwake}
+        onToggleKeepAwake={() => {
+          void runReaderSettingsAction("keep-awake", () =>
+            setReaderKeepAwake(!readerKeepAwake),
+          );
+        }}
+        lockPortrait={readerLockPortrait}
+        onToggleLockPortrait={() => {
+          void runReaderSettingsAction("lock-portrait", () =>
+            setReaderLockPortrait(!readerLockPortrait),
+          );
+        }}
         onSetMode={(nextMode) => {
           if (nextMode === mode || readerSettingsActionBusy) return;
           void runReaderSettingsAction("reading-mode", () => setMode(nextMode));
@@ -5878,7 +5984,7 @@ export function ReaderScreen() {
                       { color: readerChromeColors.secondaryText },
                     ]}
                   >
-                    {sourcePageNumber} / {Math.max(1, pageCount)}
+                    {readerChromeSourcePageNumber} / {Math.max(1, pageCount)}
                   </Text>
                 ) : (
                   <View style={styles.readerTopPageCountPlaceholder} />
@@ -5968,6 +6074,11 @@ export function ReaderScreen() {
                           onStep={stepReaderPage}
                           interactionScopeKey={readerScrollMountKey}
                           spreadScrubbing={isTwoPageMode}
+                          getPreviewPageIndex={getReaderScrubPreviewPageIndex}
+                          onPreviewPageIndexChange={
+                            setReaderScrubPreviewPageIndex
+                          }
+                          previewImageUri={readerScrubPreviewImageUri}
                         />
                       ) : (
                         <MobileReaderContinuousScrubber
@@ -5998,6 +6109,11 @@ export function ReaderScreen() {
                             stepContinuousReaderAccessibility
                           }
                           spreadScrubbing={isTwoPageMode}
+                          getPreviewPageIndex={getReaderScrubPreviewPageIndex}
+                          onPreviewPageIndexChange={
+                            setReaderScrubPreviewPageIndex
+                          }
+                          previewImageUri={readerScrubPreviewImageUri}
                         />
                       )}
                     </View>
@@ -6229,6 +6345,12 @@ export function ReaderScreen() {
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />
+      <MobileReaderConnectivityNotice
+        topOffset={insets.top + 76}
+        pageRequestPending={pagesState.status === "loading"}
+        strings={strings}
+        connectivity={readerConnectivity}
+      />
       <MobileReaderEndOfChapterOverlay
         visible={endOfChapterPromptVisible}
         nextChapterLabel={nextChapterLabel}
@@ -6237,6 +6359,7 @@ export function ReaderScreen() {
         topInset={insets.top}
         busy={endOfChapterProgressSaving}
         error={endOfChapterProgressError}
+        celebration={chapterCompleteCelebration}
         onGoToNextChapter={goToNextChapterFromPrompt}
         onDismiss={() => {
           if (endOfChapterProgressSaving) return;

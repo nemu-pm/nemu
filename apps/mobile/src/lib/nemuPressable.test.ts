@@ -170,7 +170,10 @@ describe("NemuPressable helpers", () => {
       "const depthMotion = buttonDepth ? getNemuButtonPressMotion(buttonDepth) : null;",
     );
     expect(component).toContain(
-      "pressedScale ?? (depthMotion ? depthMotion.scale : 0.96)",
+      "resolveNemuPressablePressedScale({ pressProfile, pressedScale }) ??",
+    );
+    expect(component).toContain(
+      "(depthMotion ? depthMotion.scale : 0.96)",
     );
     expect(component).toContain(
       "pressAnimationDuration ?? depthMotion?.duration",

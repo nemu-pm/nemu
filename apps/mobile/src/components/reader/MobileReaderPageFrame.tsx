@@ -34,6 +34,7 @@ type MobileReaderPageFrameProps = {
   allowLongStripSegments?: boolean;
   cacheKey?: string;
   loading: boolean;
+  offline?: boolean;
   strings: MobileStrings;
   onImageError: (error: string) => void;
   onImageLoad: (size: MobileImageSize) => void;
@@ -55,6 +56,7 @@ export function MobileReaderPageFrame({
   allowLongStripSegments,
   cacheKey,
   loading,
+  offline = false,
   strings,
   onImageError,
   onImageLoad,
@@ -105,7 +107,7 @@ export function MobileReaderPageFrame({
         >
           {error ? (
             <Ionicons
-              name="alert-circle-outline"
+              name={offline ? "cloud-offline-outline" : "alert-circle-outline"}
               size={22}
               color={READER_IMAGE_STATUS_ICON}
             />
@@ -120,7 +122,9 @@ export function MobileReaderPageFrame({
             ]}
           >
             {error
-              ? strings.reader.pageImageFailed
+              ? offline
+                ? strings.feedback.readerWaitingForNetwork
+                : strings.reader.pageImageFailed
               : strings.reader.pageImageLoading}
           </Text>
           {canRetry ? (

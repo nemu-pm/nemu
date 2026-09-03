@@ -164,6 +164,10 @@ export type UserSettings = {
   hapticsFeedbackEnabled?: boolean;
   /** End-of-chapter check animation; `undefined` means disabled. */
   chapterCompleteCelebration?: boolean;
+  /** Keep the screen awake while reading; `undefined` means enabled. */
+  readerKeepAwake?: boolean;
+  /** Lock the reader to portrait; `undefined` means disabled. */
+  readerLockPortrait?: boolean;
 };
 
 /**

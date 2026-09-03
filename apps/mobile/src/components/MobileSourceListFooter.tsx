@@ -2,6 +2,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import {
   NemuButton,
   NemuText,
+  nemuFontWeight,
   useNemuTheme,
 } from "@/design-system";
 import {
@@ -116,6 +117,6 @@ const styles = StyleSheet.create({
   errorLine: {
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: "500",
+    fontWeight: nemuFontWeight.medium,
   },
 });

@@ -5,6 +5,7 @@ import {
   NemuPressable,
   useNemuTheme,
   nemuMaxFontSizeMultiplier,
+  nemuFontWeight,
 } from "@/design-system";
 
 export type MangaQuickAction = {
@@ -101,7 +102,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: "600",
+    fontWeight: nemuFontWeight.semibold,
     opacity: 0.72,
     paddingHorizontal: 12,
     paddingTop: 2,
@@ -122,6 +123,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "500",
+    fontWeight: nemuFontWeight.medium,
   },
 });

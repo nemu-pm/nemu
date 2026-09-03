@@ -6,10 +6,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { Image, Platform, StyleSheet, Text, View } from "react-native";
 import { MobileSliderTrack } from "@/components/MobileSliderTrack";
 import type { ReadingMode } from "@/data/schema";
-import { hapticPress } from "@/lib/haptics";
+import { hapticPress, hapticSelection } from "@/lib/haptics";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import {
   clampReaderPageIndex,
@@ -23,6 +24,11 @@ import {
   readerSourceStepTargetForDisplayIndex,
   shouldRunReaderMenuPageSwitchHaptic,
 } from "@/lib/mobileReaderProgress";
+import { nemuFontWeight, useNemuTheme } from "@/design-system";
+import {
+  READER_CHROME_GLASS_BORDER,
+  READER_CHROME_GLASS_TINT,
+} from "@/components/reader/readerChromeGlass";
 
 export type MobileReaderScrubberProps = {
   pageIndex: number;
@@ -48,6 +54,12 @@ export type MobileReaderScrubberProps = {
   spreadScrubbing?: boolean;
   /** Changes whenever the mounted chapter/presentation can invalidate a drag. */
   interactionScopeKey?: string;
+  /** Maps a native spread position to the first logical page it previews. */
+  getPreviewPageIndex?: (scrubIndex: number) => number;
+  /** Publishes the temporary page shown while the thumb is moving. */
+  onPreviewPageIndexChange?: (pageIndex: number | null) => void;
+  /** A synchronous disk-cache hit for the currently previewed page. */
+  previewImageUri?: string | null;
 };
 
 export function MobileReaderScrubber({
@@ -70,7 +82,11 @@ export function MobileReaderScrubber({
   onContinuousAccessibilityStep,
   spreadScrubbing = false,
   interactionScopeKey,
+  getPreviewPageIndex,
+  onPreviewPageIndexChange,
+  previewImageUri,
 }: MobileReaderScrubberProps) {
+  const { scheme } = useNemuTheme();
   const clampedPageIndex = clampReaderPageIndex(pageIndex, pageCount);
   const clampedScrubIndex = clampReaderPageIndex(scrubIndex, scrubCount);
   const discreteProgress = readerProgressRatio(clampedScrubIndex, scrubCount);
@@ -154,6 +170,8 @@ export function MobileReaderScrubber({
     ? strings.reader.nextSpread
     : strings.reader.nextPage;
   const lastMenuPageHapticRef = useRef(clampedScrubIndex);
+  const lastPreviewPageHapticRef = useRef<number | null>(null);
+  const [previewPageIndex, setPreviewPageIndex] = useState<number | null>(null);
 
   useEffect(() => {
     lastMenuPageHapticRef.current = clampedScrubIndex;
@@ -244,6 +262,46 @@ export function MobileReaderScrubber({
     [scrubberDirection],
   );
 
+  const publishPreviewForRatio = useCallback(
+    (ratio: number) => {
+      const logicalProgress = logicalProgressForVisualRatio(ratio);
+      const nextScrubIndex = continuousScroll
+        ? clampReaderPageIndex(
+            Math.round(logicalProgress * Math.max(0, pageCount - 1)),
+            pageCount,
+          )
+        : readerDisplayIndexForVisualProgressRatio(ratio, scrubCount, mode);
+      const nextPageIndex = clampReaderPageIndex(
+        getPreviewPageIndex?.(nextScrubIndex) ?? nextScrubIndex,
+        pageCount,
+      );
+      if (
+        lastPreviewPageHapticRef.current != null &&
+        lastPreviewPageHapticRef.current !== nextPageIndex
+      ) {
+        void hapticSelection();
+      }
+      lastPreviewPageHapticRef.current = nextPageIndex;
+      setPreviewPageIndex(nextPageIndex);
+      onPreviewPageIndexChange?.(nextPageIndex);
+    },
+    [
+      continuousScroll,
+      getPreviewPageIndex,
+      logicalProgressForVisualRatio,
+      mode,
+      onPreviewPageIndexChange,
+      pageCount,
+      scrubCount,
+    ],
+  );
+
+  const clearPreview = useCallback(() => {
+    lastPreviewPageHapticRef.current = null;
+    setPreviewPageIndex(null);
+    onPreviewPageIndexChange?.(null);
+  }, [onPreviewPageIndexChange]);
+
   const onRatioStart = useCallback(
     (ratio: number) => {
       pendingScrollProgressRef.current = null;
@@ -259,11 +317,13 @@ export function MobileReaderScrubber({
         token: scrubInteractionToken,
         value: logicalProgressForVisualRatio(ratio),
       });
+      publishPreviewForRatio(ratio);
     }, [
       continuousScroll,
       logicalProgressForVisualRatio,
       onScrollScrubStart,
       progress,
+      publishPreviewForRatio,
       scrubInteractionToken,
       setDragProgressState,
     ],
@@ -277,10 +337,12 @@ export function MobileReaderScrubber({
         value: nextProgress,
       });
       if (continuousScroll) onScrollProgressChange?.(nextProgress);
+      publishPreviewForRatio(ratio);
     }, [
       continuousScroll,
       logicalProgressForVisualRatio,
       onScrollProgressChange,
+      publishPreviewForRatio,
       scrubInteractionToken,
       setDragProgressState,
     ],
@@ -290,6 +352,7 @@ export function MobileReaderScrubber({
     (ratio: number) => {
       const nextProgress = logicalProgressForVisualRatio(ratio);
       dragStartProgressRef.current = null;
+      clearPreview();
       if (continuousScroll) {
         pendingScrollProgressRef.current = nextProgress;
         setDragProgressState({
@@ -311,6 +374,7 @@ export function MobileReaderScrubber({
     },
     [
       continuousScroll,
+      clearPreview,
       logicalProgressForVisualRatio,
       mode,
       onScrollProgressChange,
@@ -341,7 +405,9 @@ export function MobileReaderScrubber({
       setDragProgressState(null);
     }
     if (continuousScroll) onScrollScrubCancel?.();
+    clearPreview();
   }, [
+    clearPreview,
     continuousScroll,
     normalizedScrollProgress,
     onScrollProgressChange,
@@ -403,6 +469,47 @@ export function MobileReaderScrubber({
       }}
       style={styles.root}
     >
+      {dragProgress != null && previewPageIndex != null ? (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.previewBubble,
+            {
+              left: `${
+                (scrubberDirection === "rtl"
+                  ? 1 - trackProgress
+                  : trackProgress) * 100
+              }%`,
+              backgroundColor: READER_CHROME_GLASS_TINT[scheme],
+              borderColor: READER_CHROME_GLASS_BORDER[scheme],
+            },
+          ]}
+        >
+          {previewImageUri ? (
+            <Image
+              accessibilityIgnoresInvertColors
+              resizeMode="cover"
+              source={{ uri: previewImageUri }}
+              style={styles.previewImage}
+            />
+          ) : (
+            <View style={styles.previewPlaceholder}>
+              <Ionicons
+                name="image-outline"
+                size={15}
+                color="rgba(235,238,245,0.66)"
+              />
+            </View>
+          )}
+          <Text style={styles.previewLabel}>
+            {readerRoutePageForDisplayIndex(
+              previewPageIndex,
+              pageCount,
+              mode,
+            )}
+          </Text>
+        </View>
+      ) : null}
       <MobileSliderTrack
         progress={trackProgress}
         direction={scrubberDirection}
@@ -420,5 +527,41 @@ const styles = StyleSheet.create({
   root: {
     minHeight: Platform.OS === "android" ? 48 : 44,
     justifyContent: "center",
+    position: "relative",
+  },
+  previewBubble: {
+    position: "absolute",
+    bottom: 39,
+    width: 58,
+    minHeight: 66,
+    marginLeft: -29,
+    padding: 5,
+    gap: 3,
+    alignItems: "center",
+    borderRadius: 12,
+    borderWidth: 0.5,
+    overflow: "hidden",
+    zIndex: 4,
+    elevation: 4,
+  },
+  previewImage: {
+    width: 48,
+    height: 42,
+    borderRadius: 7,
+    backgroundColor: "rgba(255,255,255,0.09)",
+  },
+  previewPlaceholder: {
+    width: 48,
+    height: 42,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.09)",
+  },
+  previewLabel: {
+    color: "rgba(235,238,245,0.96)",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: nemuFontWeight.semibold,
   },
 });

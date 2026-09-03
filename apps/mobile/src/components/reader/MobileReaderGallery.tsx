@@ -9,7 +9,6 @@ import {
   type RefObject,
 } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Platform,
   ScrollView,
@@ -21,6 +20,7 @@ import {
   type NativeSyntheticEvent,
   type ViewToken,
 } from "react-native";
+import Animated from "react-native-reanimated";
 import {
   GlassSurface,
   NemuButton,
@@ -56,6 +56,10 @@ import {
   isMobileReaderLogicalEndReached,
   type MobileReaderSegmentFrame,
 } from "@/lib/mobileReaderSegmentedImage";
+import {
+  useSkeletonDisplayDelay,
+  useSkeletonPulse,
+} from "@/lib/useSkeletonPulse";
 
 type MobileReaderGalleryState = {
   status: string;
@@ -153,7 +157,6 @@ const READER_TAP_MAX_DURATION_MS = 360;
 // ZoomableReaderImageFrame) so the chrome toggle can be cancelled when a
 // second tap turns the gesture into a zoom.
 const READER_DOUBLE_TAP_WINDOW_MS = 280;
-const READER_DARK_TEXT = "#f8fafc";
 const READER_VIEWABILITY_CONFIG = Object.freeze({
   viewAreaCoveragePercentThreshold: 50,
 });
@@ -208,7 +211,9 @@ export function MobileReaderGallery({
   title,
   windowHeight,
 }: MobileReaderGalleryProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens, reduceMotion } = useNemuTheme();
+  const readerSkeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const readerSkeletonVisible = useSkeletonDisplayDelay(150);
   const segmentedMode = Boolean(segmentedImageFrames?.length);
   const logicalLongStripMode = longStripPresentationMode || segmentedMode;
   const resolvedContinuousContentIdentity =
@@ -895,7 +900,24 @@ export function MobileReaderGallery({
     >
       {isReaderLoading ? (
         <View pointerEvents="none" style={styles.readerLoadingContainer}>
-          <ActivityIndicator color={READER_DARK_TEXT} size="large" />
+          {readerSkeletonVisible ? (
+            <Animated.View
+              accessibilityLabel={pagesState.detail}
+              accessibilityRole="progressbar"
+              style={[
+                styles.readerLoadingSkeleton,
+                {
+                  width: Math.min(readerImageWidth, readerPageWidth - 24),
+                  maxHeight: Math.max(240, windowHeight - 190),
+                  backgroundColor: "rgba(255,255,255,0.10)",
+                  borderColor: "rgba(255,255,255,0.13)",
+                  opacity: readerSkeletonOpacity,
+                },
+              ]}
+            >
+              <View style={styles.readerLoadingSkeletonLine} />
+            </Animated.View>
+          ) : null}
         </View>
       ) : pages.length ? (
         <FlatList
@@ -1198,6 +1220,20 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  readerLoadingSkeleton: {
+    aspectRatio: 1 / 1.45,
+    minWidth: 220,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  readerLoadingSkeletonLine: {
+    width: "34%",
+    height: 8,
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(255,255,255,0.13)",
   },
   readerScroll: {
     flex: 1,
