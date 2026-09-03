@@ -20,7 +20,10 @@ export function mergeDefinedMangaMetadata(
 ): MangaMetadata {
   return {
     title: refreshed.title || existing.title,
-    cover: refreshed.cover ?? existing.cover,
+    // Some source detail endpoints omit their listing cover or return an
+    // empty string. Do not replace a cover that was already resolved from the
+    // source listing/library with an unusable value after details finish.
+    cover: refreshed.cover?.trim() ? refreshed.cover : existing.cover,
     authors: refreshed.authors ?? existing.authors,
     description: refreshed.description ?? existing.description,
     tags: refreshed.tags ?? existing.tags,

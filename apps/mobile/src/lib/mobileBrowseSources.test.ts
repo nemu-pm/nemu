@@ -183,6 +183,36 @@ describe("mobile browse source filtering", () => {
     ]);
   });
 
+  test("collapses the registry All bucket onto multi in the option list", () => {
+    const sources = [
+      source("everything", { languages: ["All"] }),
+      source("japanese", { languages: ["ja"] }),
+      source("chinese", { languages: ["zh"] }),
+    ];
+
+    expect(getMobileAvailableSourceLanguageOptions(sources, "en")).toEqual([
+      "ja",
+      "zh",
+      "multi",
+    ]);
+  });
+
+  test("matches an All source when the multi option is selected", () => {
+    const sources = [
+      source("everything", { languages: ["All"] }),
+      source("japanese", { languages: ["ja"] }),
+    ];
+
+    expect(
+      filterMobileAvailableSources(sources, {
+        query: "",
+        selectedLanguages: ["multi"],
+        showAdult: true,
+        appLanguage: "en",
+      }).map((entry) => entry.id),
+    ).toEqual(["everything"]);
+  });
+
   test("groups filtered sources by language priority and source name", () => {
     const sources = [
       source("french-z", { name: "Zed", languages: ["fr"] }),

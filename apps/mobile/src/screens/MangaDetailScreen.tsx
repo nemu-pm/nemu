@@ -13,6 +13,7 @@ import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
   MobileMangaChapterRow,
   MobileMangaChapterSectionHeader,
+  MobileMangaChapterSortAction,
   MobileMangaChapterToolbar,
 } from "@/components/MobileMangaChapterSection";
 import {
@@ -980,6 +981,11 @@ export function MangaDetailScreen() {
     }),
     [chapterLanguages, chapterListPreference],
   );
+  // The chapter subtitle only repeats the language while the visible list can
+  // actually mix languages: one selected language makes it noise.
+  const showChapterLanguage =
+    chapterLanguages.length > 1 &&
+    effectiveChapterListPreference.languages.length !== 1;
   const visibleChapters = useMemo(
     () =>
       filterAndSortMobileChapters(
@@ -1684,7 +1690,8 @@ export function MangaDetailScreen() {
             progressByChapterId={state.selectedChapterProgress}
             strings={strings}
             onPressChapter={openReader}
-            showLanguage={chapterLanguages.length > 1}
+            appLanguage={appLanguage}
+            showLanguage={showChapterLanguage}
           />
         )}
         ListHeaderComponent={
@@ -1832,9 +1839,19 @@ export function MangaDetailScreen() {
                       />
                     ) : null
                   }
+                  sortAction={
+                    chapters.length > 0 ? (
+                      <MobileMangaChapterSortAction
+                        preference={effectiveChapterListPreference}
+                        strings={strings}
+                        onChange={changeChapterListPreference}
+                      />
+                    ) : null
+                  }
                   toolbar={
                     chapters.length > 0 ? (
                       <MobileMangaChapterToolbar
+                        appLanguage={appLanguage}
                         languages={chapterLanguages}
                         preference={effectiveChapterListPreference}
                         strings={strings}

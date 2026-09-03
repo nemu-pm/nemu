@@ -459,6 +459,7 @@ export type MobileStrings = {
     sourceNotInstalled: string;
     sourceSearchFailed: string;
     sourceUnavailable: string;
+    unreadOnly: string;
     unsupportedStatus: string;
     validatingExecutor: string;
     waitingForSettings: string;
@@ -709,8 +710,20 @@ export type MobileStrings = {
     storageUnitBytes: string;
     storageUnitKilobytes: string;
     storageUnitMegabytes: string;
+    storageRowCovers: string;
+    storageRowPages: string;
+    storageRowOther: string;
+    storageTotalLabel: string;
+    storageCountImages: string;
+    storageCountPages: string;
+    storageCountPackages: string;
+    storageCountChapters: string;
+    storageFootnote: string;
     clearCoverCache: string;
     clearPageCache: string;
+    clearCoverCacheWithSize: string;
+    clearPageCacheWithSize: string;
+    clearAllCaches: string;
     clearCloudData: string;
     clearCloudDataDescription: string;
     cloudSync: string;
@@ -890,7 +903,9 @@ export type MobileStrings = {
     quickMenuAddToCollection: string;
     libraryRefreshTitle: string;
     libraryRefreshDetail: string;
+    libraryRefreshFailedTitle: string;
     libraryRefreshUnavailableSuffix: string;
+    technicalDetails: string;
     catalogUnavailableTitle: string;
     catalogUnavailableDetail: string;
     hapticsFeedback: string;
@@ -905,6 +920,9 @@ export type MobileStrings = {
     readerSlowSource: string;
     readerWaitingForNetwork: string;
     displayBrightness: string;
+    displayBrightnessValue: string;
+    displayBrightnessDecrease: string;
+    displayBrightnessIncrease: string;
     displayKeepAwake: string;
     displayLockPortrait: string;
     viewAllInSource: string;
@@ -1424,6 +1442,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceNotInstalled: "Source not installed",
       sourceSearchFailed: "Source search failed.",
       sourceUnavailable: "Source unavailable",
+      unreadOnly: "Unread only",
       unsupportedStatus: "Unsupported",
       validatingExecutor:
         "Validating cached package bytes and loading the source executor.",
@@ -1705,8 +1724,20 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       storageUnitBytes: "{{value}} B",
       storageUnitKilobytes: "{{value}} KB",
       storageUnitMegabytes: "{{value}} MB",
+      storageRowCovers: "Cover cache",
+      storageRowPages: "Page cache",
+      storageRowOther: "Other",
+      storageTotalLabel: "Total",
+      storageCountImages: "{{count}} images",
+      storageCountPages: "{{count}} pages",
+      storageCountPackages: "{{count}} packages",
+      storageCountChapters: "{{count}} chapters",
+      storageFootnote: "Clearing the cache does not affect your library, reading progress, or installed sources.",
       clearCoverCache: "Clear covers",
       clearPageCache: "Clear pages",
+      clearCoverCacheWithSize: "Clear cover cache · {{bytes}}",
+      clearPageCacheWithSize: "Clear page cache · {{bytes}}",
+      clearAllCaches: "Clear all caches",
       clearCloudData: "Also delete cloud data",
       clearCloudDataDescription:
         "Remove synced library, collections, and progress from your Nemu account.",
@@ -1930,13 +1961,15 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       quickMenuOpenInSource: "Open in {{source}}",
       libraryRefreshTitle: "Library updated",
       libraryRefreshDetail: "{{updated}} updated of {{checked}} checked",
+      libraryRefreshFailedTitle: "Couldn't check for updates",
       libraryRefreshUnavailableSuffix: " · {{count}} source unavailable",
       catalogUnavailableTitle: "Source catalog unavailable",
       catalogUnavailableDetail: "Showing a cached catalog from earlier",
       hapticsFeedback: "Haptic feedback",
       hapticsFeedbackHint: "Light taps for page turns, toggles, and confirmations",
       chapterCompleteFeedback: "Chapter complete animation",
-      chapterCompleteFeedbackHint: "Play a check animation when finishing a chapter",
+      chapterCompleteFeedbackHint:
+        "Play a completion animation with a light tap when you finish a chapter · off by default",
       loadingPageN: "Loading page {{page}}…",
       noMoreResultsTotal: "No more results · {{count}} total",
       loadFailed: "Load failed",
@@ -1945,8 +1978,12 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       readerSlowSource: "Still loading · the source is slow",
       readerWaitingForNetwork: "Waiting for network",
       displayBrightness: "Brightness",
+      displayBrightnessValue: "{{percent}} percent",
+      displayBrightnessDecrease: "Dim the screen",
+      displayBrightnessIncrease: "Brighten the screen",
       displayKeepAwake: "Keep screen awake",
       displayLockPortrait: "Lock portrait",
+      technicalDetails: "Technical details",
       viewAllInSource: "View all in {{source}}",
     },
   },
@@ -2421,6 +2458,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceNotInstalled: "未安装源",
       sourceSearchFailed: "源搜索失败。",
       sourceUnavailable: "源不可用",
+      unreadOnly: "只看未读",
       unsupportedStatus: "不支持",
       validatingExecutor: "正在验证缓存的包字节并加载源执行器。",
       waitingForSettings: "正在等待已保存源设置，然后检查执行器。",
@@ -2683,8 +2721,20 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       storageUnitBytes: "{{value}} B",
       storageUnitKilobytes: "{{value}} KB",
       storageUnitMegabytes: "{{value}} MB",
+      storageRowCovers: "封面缓存",
+      storageRowPages: "漫画页缓存",
+      storageRowOther: "其他",
+      storageTotalLabel: "合计",
+      storageCountImages: "{{count}} 张",
+      storageCountPages: "{{count}} 页",
+      storageCountPackages: "{{count}} 个",
+      storageCountChapters: "{{count}} 章",
+      storageFootnote: "清除缓存不会影响书库、阅读进度和已安装的源。",
       clearCoverCache: "清除封面",
       clearPageCache: "清除阅读页",
+      clearCoverCacheWithSize: "清除封面缓存 · {{bytes}}",
+      clearPageCacheWithSize: "清除漫画页缓存 · {{bytes}}",
+      clearAllCaches: "清除全部缓存",
       clearCloudData: "同时删除云端数据",
       clearCloudDataDescription:
         "从你的 Nemu 账号移除已同步的书架、收藏和阅读进度。",
@@ -2889,13 +2939,14 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       quickMenuOpenInSource: "在 {{source}} 中打开",
       libraryRefreshTitle: "书库已更新",
       libraryRefreshDetail: "检查 {{checked}} 本 · 更新 {{updated}} 本",
+      libraryRefreshFailedTitle: "无法检查更新",
       libraryRefreshUnavailableSuffix: " · {{count}} 个源暂时不可用",
       catalogUnavailableTitle: "源目录暂时不可用",
       catalogUnavailableDetail: "正在显示之前缓存的目录",
       hapticsFeedback: "触感反馈",
       hapticsFeedbackHint: "翻页、切换、操作确认时轻微振动",
       chapterCompleteFeedback: "章节完成提示",
-      chapterCompleteFeedbackHint: "读完一话时显示完成动画并轻震",
+      chapterCompleteFeedbackHint: "读完一话时显示完成动画并轻震 · 默认关闭",
       loadingPageN: "正在加载第 {{page}} 页…",
       noMoreResultsTotal: "没有更多了 · 共 {{count}} 部",
       loadFailed: "加载失败",
@@ -2904,8 +2955,12 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       readerSlowSource: "仍在加载 · 源响应较慢",
       readerWaitingForNetwork: "等待网络",
       displayBrightness: "亮度",
+      displayBrightnessValue: "{{percent}}%",
+      displayBrightnessDecrease: "调暗屏幕",
+      displayBrightnessIncrease: "调亮屏幕",
       displayKeepAwake: "保持屏幕唤醒",
       displayLockPortrait: "锁定竖屏",
+      technicalDetails: "技术详情",
       viewAllInSource: "在 {{source}} 中查看全部",
     },
   },
@@ -3424,6 +3479,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       sourceNotInstalled: "ソースがインストールされていません",
       sourceSearchFailed: "ソース検索に失敗しました。",
       sourceUnavailable: "ソースを利用できません",
+      unreadOnly: "未読のみ",
       unsupportedStatus: "非対応",
       validatingExecutor:
         "キャッシュ済みパッケージのバイトを検証し、ソース実行環境を読み込んでいます。",
@@ -3718,8 +3774,20 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       storageUnitBytes: "{{value}} B",
       storageUnitKilobytes: "{{value}} KB",
       storageUnitMegabytes: "{{value}} MB",
+      storageRowCovers: "表紙キャッシュ",
+      storageRowPages: "ページキャッシュ",
+      storageRowOther: "その他",
+      storageTotalLabel: "合計",
+      storageCountImages: "{{count}} 枚",
+      storageCountPages: "{{count}} ページ",
+      storageCountPackages: "{{count}} 個",
+      storageCountChapters: "{{count}} 話",
+      storageFootnote: "キャッシュを消去してもライブラリ・読書の進捗・インストール済みのソースには影響しません。",
       clearCoverCache: "表紙を消去",
       clearPageCache: "ページを消去",
+      clearCoverCacheWithSize: "表紙キャッシュを消去 · {{bytes}}",
+      clearPageCacheWithSize: "ページキャッシュを消去 · {{bytes}}",
+      clearAllCaches: "すべてのキャッシュを消去",
       clearCloudData: "クラウドデータも削除",
       clearCloudDataDescription:
         "Nemu アカウントから同期済みライブラリ、コレクション、進捗を削除します。",
@@ -3949,13 +4017,15 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       quickMenuOpenInSource: "{{source}}で開く",
       libraryRefreshTitle: "ライブラリを更新しました",
       libraryRefreshDetail: "{{checked}}件確認して {{updated}}件を更新",
+      libraryRefreshFailedTitle: "更新を確認できませんでした",
       libraryRefreshUnavailableSuffix: " · {{count}}件のソースが一時的に利用できません",
       catalogUnavailableTitle: "ソースカタログが一時的に利用できません",
       catalogUnavailableDetail: "以前のキャッシュを表示しています",
       hapticsFeedback: "触覚フィードバック",
       hapticsFeedbackHint: "ページ送りや切り替え、操作確認時に軽く振動します",
       chapterCompleteFeedback: "話の読了アニメーション",
-      chapterCompleteFeedbackHint: "話を読み終えたときにチェックのアニメーションを再生します",
+      chapterCompleteFeedbackHint:
+        "話を読み終えたときに完了アニメーションと軽い振動を再生します · 既定はオフ",
       loadingPageN: "{{page}}ページを読み込み中…",
       noMoreResultsTotal: "これ以上ありません · 全{{count}}件",
       loadFailed: "読み込みに失敗しました",
@@ -3964,8 +4034,12 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       readerSlowSource: "読み込み中 · ソースの応答が遅いです",
       readerWaitingForNetwork: "ネットワークを待機中",
       displayBrightness: "明るさ",
+      displayBrightnessValue: "{{percent}}%",
+      displayBrightnessDecrease: "画面を暗くする",
+      displayBrightnessIncrease: "画面を明るくする",
       displayKeepAwake: "画面を常に点灯",
       displayLockPortrait: "縦向きにロック",
+      technicalDetails: "技術的な詳細",
       viewAllInSource: "{{source}}ですべて表示",
     },
   },

@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-export type MobileToastTone = "success" | "info" | "danger";
+export type MobileToastTone = "success" | "info" | "warning" | "danger";
 
 export type MobileToastAction = {
   label: string;

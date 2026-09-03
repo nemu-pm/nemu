@@ -21,6 +21,7 @@ import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
   MobileMangaChapterRow,
   MobileMangaChapterSectionHeader,
+  MobileMangaChapterSortAction,
   MobileMangaChapterToolbar,
 } from "@/components/MobileMangaChapterSection";
 import { MobileMangaDetailSurface } from "@/components/MobileMangaDetailSurface";
@@ -120,6 +121,7 @@ import {
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import { takeMobileSourceDetailSeed } from "@/lib/mobileSourceDetailSeed";
+import { mergeDefinedMangaMetadata } from "@/lib/mobileLibraryDetails";
 import { withMobileSourceOperationTimeout } from "@/sources/mobileSourceOperationTimeout";
 import { normalizeReaderProcessPageImages } from "@/lib/mobileReaderSettings";
 import { refreshMobileReaderPages } from "@/sources/mobileSourcePages";
@@ -597,19 +599,23 @@ export function SourceMangaScreen() {
     () => takeMobileSourceDetailSeed(registryId, sourceId, mangaId),
     [mangaId, registryId, sourceId],
   );
+  const listingMetadata = seedMetadata
+    ? {
+        title: seedMetadata.title,
+        cover: seedMetadata.cover,
+        authors: seedMetadata.authors,
+        description: seedMetadata.description,
+        tags: seedMetadata.tags,
+        status: seedMetadata.status,
+        url: seedMetadata.url,
+      }
+    : null;
   const metadata =
     detailState.status === "ready"
-      ? detailState.metadata
-      : (localState.libraryEntry?.item.metadata ??
-        (seedMetadata
-          ? {
-              title: seedMetadata.title,
-              cover: seedMetadata.cover,
-              authors: seedMetadata.authors,
-              description: seedMetadata.description,
-              tags: seedMetadata.tags,
-            }
-          : null));
+      ? listingMetadata
+        ? mergeDefinedMangaMetadata(listingMetadata, detailState.metadata)
+        : detailState.metadata
+      : (localState.libraryEntry?.item.metadata ?? listingMetadata);
   const title = resolveMobileSourceMangaMetadataTitle(
     metadata?.title,
     mangaId,
@@ -639,6 +645,11 @@ export function SourceMangaScreen() {
     }),
     [chapterLanguages, chapterListPreference],
   );
+  // The chapter subtitle only repeats the language while the visible list can
+  // actually mix languages: one selected language makes it noise.
+  const showChapterLanguage =
+    chapterLanguages.length > 1 &&
+    effectiveChapterListPreference.languages.length !== 1;
   const visibleChapters = useMemo(
     () =>
       filterAndSortMobileChapters(
@@ -1095,7 +1106,8 @@ export function SourceMangaScreen() {
             progressByChapterId={localState.chapterProgress}
             strings={strings}
             onPressChapter={openReader}
-            showLanguage={chapterLanguages.length > 1}
+            appLanguage={appLanguage}
+            showLanguage={showChapterLanguage}
           />
         )}
         ListHeaderComponent={
@@ -1513,9 +1525,19 @@ export function SourceMangaScreen() {
                 title={strings.sourceManga.chapters}
                 loading={detailState.status === "loading"}
                 hasChapters={visibleChapters.length > 0}
+                sortAction={
+                  chapters.length > 0 ? (
+                    <MobileMangaChapterSortAction
+                      preference={effectiveChapterListPreference}
+                      strings={strings}
+                      onChange={changeChapterListPreference}
+                    />
+                  ) : null
+                }
                 toolbar={
                   chapters.length > 0 ? (
                     <MobileMangaChapterToolbar
+                      appLanguage={appLanguage}
                       languages={chapterLanguages}
                       preference={effectiveChapterListPreference}
                       strings={strings}

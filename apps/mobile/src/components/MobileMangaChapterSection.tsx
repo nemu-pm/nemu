@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 import { MobileChapterGrid } from "@/components/MobileChapterGrid";
-import type { ChapterSummary, LocalChapterProgress } from "@/data/schema";
+import type { AppLanguage, ChapterSummary, LocalChapterProgress } from "@/data/schema";
 import {
   nemuFontWeight,
   useNemuTheme,
@@ -13,6 +13,7 @@ import {
 import type { MobileChapterListPreference } from "@/lib/mobileChapterFilters";
 import type { MobileChapterRow } from "@/lib/mobileChapterRows";
 import type { MobileStrings } from "@/lib/mobileI18n";
+import { formatMobileLanguageDisplayName } from "@/lib/mobileLanguageSettings";
 
 type MobileMangaChapterSectionHeaderProps = {
   emptyIcon?: "reader-outline" | "albums-outline";
@@ -20,12 +21,14 @@ type MobileMangaChapterSectionHeaderProps = {
   hasChapters: boolean;
   loading?: boolean;
   notice?: ReactNode;
+  sortAction?: ReactNode;
   sourceSelector?: ReactNode;
   toolbar?: ReactNode;
   title: string;
 };
 
 type MobileMangaChapterRowProps = {
+  appLanguage?: AppLanguage;
   busy: boolean;
   chapters: MobileChapterRow["chapters"];
   first: boolean;
@@ -37,6 +40,7 @@ type MobileMangaChapterRowProps = {
 };
 
 type MobileMangaChapterToolbarProps = {
+  appLanguage: AppLanguage;
   languages: string[];
   preference: MobileChapterListPreference;
   strings: MobileStrings;
@@ -44,14 +48,115 @@ type MobileMangaChapterToolbarProps = {
   onChange: (preference: MobileChapterListPreference) => void;
 };
 
+type MobileMangaChapterSortActionProps = {
+  preference: MobileChapterListPreference;
+  strings: MobileStrings;
+  onChange: (preference: MobileChapterListPreference) => void;
+};
+
+function MobileChapterToolbarChip({
+  accessibilityLabel,
+  badge,
+  label,
+  selected,
+  onPress,
+}: {
+  accessibilityLabel: string;
+  badge?: string;
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { tokens } = useNemuTheme();
+
+  return (
+    <NemuPressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      hapticFeedback="selection"
+      onPress={onPress}
+      pressedScale={0.97}
+      style={[
+        styles.toolbarChip,
+        {
+          backgroundColor: selected ? tokens.toolbarAction : tokens.secondary,
+          borderColor: selected ? tokens.toolbarActionBorder : "transparent",
+        },
+      ]}
+    >
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.toolbarChipText,
+          { color: selected ? tokens.primary : tokens.secondaryForeground },
+        ]}
+      >
+        {label}
+      </Text>
+      {badge ? (
+        <View style={[styles.toolbarChipBadge, { backgroundColor: tokens.primary }]}>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.toolbarChipBadgeText,
+              { color: tokens.primaryForeground },
+            ]}
+          >
+            {badge}
+          </Text>
+        </View>
+      ) : null}
+    </NemuPressable>
+  );
+}
+
+/**
+ * Sort direction is a single trailing text action in the section header row,
+ * not a chip: it toggles one value and never opens a menu.
+ */
+export function MobileMangaChapterSortAction({
+  preference,
+  strings,
+  onChange,
+}: MobileMangaChapterSortActionProps) {
+  const { tokens } = useNemuTheme();
+  const label =
+    preference.sortDirection === "desc"
+      ? strings.sourceBrowse.sortDescending
+      : strings.sourceBrowse.sortAscending;
+
+  return (
+    <NemuPressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      hapticFeedback="selection"
+      minimumTouchTarget
+      onPress={() =>
+        onChange({
+          ...preference,
+          sortDirection: preference.sortDirection === "desc" ? "asc" : "desc",
+        })
+      }
+      pressProfile="icon"
+      style={styles.sortAction}
+    >
+      <Ionicons name="swap-vertical-outline" size={16} color={tokens.primary} />
+      <Text style={[styles.sortActionLabel, { color: tokens.primary }]}>
+        {label}
+      </Text>
+    </NemuPressable>
+  );
+}
+
 export function MobileMangaChapterToolbar({
+  appLanguage,
   languages,
   preference,
   strings,
   unreadCount,
   onChange,
 }: MobileMangaChapterToolbarProps) {
-  const { tokens } = useNemuTheme();
   const selectedLanguages = new Set(preference.languages);
   const toggleLanguage = (language: string) => {
     const next = new Set(selectedLanguages);
@@ -61,108 +166,38 @@ export function MobileMangaChapterToolbar({
   };
 
   return (
-    <View style={styles.toolbarStack}>
-      <View style={styles.toolbarRow}>
-        <NemuPressable
-          accessibilityRole="button"
-          accessibilityLabel={
-            preference.sortDirection === "desc"
-              ? strings.sourceBrowse.sortDescending
-              : strings.sourceBrowse.sortAscending
-          }
-          onPress={() =>
-            onChange({
-              ...preference,
-              sortDirection: preference.sortDirection === "desc" ? "asc" : "desc",
-            })
-          }
-          pressProfile="icon"
-          style={[styles.toolbarChip, { backgroundColor: tokens.muted }]}
-        >
-          <Ionicons
-            name={preference.sortDirection === "desc" ? "arrow-down-outline" : "arrow-up-outline"}
-            size={16}
-            color={tokens.foreground}
-          />
-          <Text style={[styles.toolbarChipText, { color: tokens.foreground }]}>
-            {preference.sortDirection === "desc"
-              ? strings.sourceBrowse.sortDescending
-              : strings.sourceBrowse.sortAscending}
-          </Text>
-        </NemuPressable>
-        <NemuPressable
-          accessibilityRole="button"
-          accessibilityState={{ selected: preference.unreadOnly }}
-          onPress={() => onChange({ ...preference, unreadOnly: !preference.unreadOnly })}
-          pressProfile="row"
-          style={[
-            styles.toolbarChip,
-            {
-              backgroundColor: preference.unreadOnly ? tokens.primary : tokens.muted,
-            },
-          ]}
-        >
-          <View
-            style={[
-              styles.toolbarUnreadDot,
-              {
-                backgroundColor: preference.unreadOnly
-                  ? tokens.primaryForeground
-                  : tokens.primary,
-              },
-            ]}
-          />
-          <Text
-            style={[
-              styles.toolbarChipText,
-              {
-                color: preference.unreadOnly
-                  ? tokens.primaryForeground
-                  : tokens.foreground,
-              },
-            ]}
-          >
-            {strings.library.progressUnread} · {unreadCount}
-          </Text>
-        </NemuPressable>
-      </View>
-      {languages.length > 1 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.languageToolbar}
-        >
-          {languages.map((language) => {
-            const selected = selectedLanguages.has(language);
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.toolbarRow}
+    >
+      <MobileChapterToolbarChip
+        accessibilityLabel={strings.sourceBrowse.unreadOnly}
+        badge={String(unreadCount)}
+        label={strings.sourceBrowse.unreadOnly}
+        selected={preference.unreadOnly}
+        onPress={() =>
+          onChange({ ...preference, unreadOnly: !preference.unreadOnly })
+        }
+      />
+      {languages.length > 1
+        ? languages.map((language) => {
+            const label = formatMobileLanguageDisplayName(language, appLanguage, {
+              multi: strings.sourceBrowse.multiLanguage,
+              other: strings.browse.otherLanguages,
+            });
             return (
-              <NemuPressable
+              <MobileChapterToolbarChip
                 key={language}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
+                accessibilityLabel={label}
+                label={label}
+                selected={selectedLanguages.has(language)}
                 onPress={() => toggleLanguage(language)}
-                pressProfile="row"
-                style={[
-                  styles.languageChip,
-                  {
-                    backgroundColor: selected ? tokens.primary : tokens.card,
-                    borderColor: selected ? tokens.primary : tokens.border,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.languageChipText,
-                    { color: selected ? tokens.primaryForeground : tokens.foreground },
-                  ]}
-                >
-                  {language.toUpperCase()}
-                </Text>
-              </NemuPressable>
+              />
             );
-          })}
-        </ScrollView>
-      ) : null}
-    </View>
+          })
+        : null}
+    </ScrollView>
   );
 }
 
@@ -172,6 +207,7 @@ export function MobileMangaChapterSectionHeader({
   hasChapters,
   loading = false,
   notice,
+  sortAction,
   sourceSelector,
   toolbar,
   title,
@@ -186,7 +222,9 @@ export function MobileMangaChapterSectionHeader({
         </Text>
         {loading ? (
           <ActivityIndicator size="small" color={tokens.primary} />
-        ) : null}
+        ) : (
+          sortAction
+        )}
       </View>
       {sourceSelector}
       {toolbar}
@@ -199,6 +237,7 @@ export function MobileMangaChapterSectionHeader({
 }
 
 export function MobileMangaChapterRow({
+  appLanguage,
   busy,
   chapters,
   first,
@@ -211,6 +250,7 @@ export function MobileMangaChapterRow({
   return (
     <View style={first ? styles.firstChapterRow : styles.chapterRow}>
       <MobileChapterGrid
+        appLanguage={appLanguage}
         busy={busy}
         chapters={chapters}
         openChapterTemplate={openChapterTemplate}
@@ -239,47 +279,44 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontWeight: nemuFontWeight.semibold,
   },
-  toolbarStack: {
-    gap: 9,
+  sortAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  sortActionLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: nemuFontWeight.medium,
   },
   toolbarRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
     gap: 8,
   },
   toolbarChip: {
-    minHeight: 36,
+    minHeight: 30,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     borderRadius: radius.pill,
-    paddingHorizontal: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
   },
   toolbarChipText: {
     fontSize: 12,
     lineHeight: 16,
     fontWeight: nemuFontWeight.medium,
   },
-  toolbarUnreadDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  languageToolbar: {
-    gap: 7,
-  },
-  languageChip: {
-    minWidth: 44,
-    minHeight: 32,
-    alignItems: "center",
-    justifyContent: "center",
+  toolbarChipBadge: {
+    flexShrink: 0,
     borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 11,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
   },
-  languageChipText: {
-    fontSize: 11,
-    lineHeight: 14,
+  toolbarChipBadgeText: {
+    fontSize: 9,
+    lineHeight: 12,
     fontWeight: nemuFontWeight.semibold,
   },
   firstChapterRow: {

@@ -33,6 +33,7 @@ import {
   GlassSurface,
   MangaCard,
   MobileCachedImage,
+  NemuText,
   NemuTextFieldClearAction,
   NemuPressable,
   NemuInlineEmptyState,
@@ -41,6 +42,7 @@ import {
   PageScaffold,
   createNemuShadowStyle,
   nemuColorWithAlpha,
+  nemuText,
   radius,
   nemuFontWeight,
   useNemuTheme,
@@ -463,19 +465,15 @@ function LiveSourceResultSection({
   return (
     <View style={styles.resultSection}>
       <View style={styles.resultHeader}>
-        <SourceIcon source={group.source} size={24} />
-        <Text numberOfLines={1} style={[styles.resultTitle, { color: tokens.foreground }]}>
-          {group.source.name}
+        <SourceIcon source={group.source} size={20} />
+        <Text
+          numberOfLines={1}
+          style={[styles.resultTitle, { color: tokens.mutedForeground }]}
+        >
+          {group.status === "ready"
+            ? `${group.source.name} · ${group.items.length}${group.hasMore ? "+" : ""}`
+            : group.source.name}
         </Text>
-        <View style={[styles.countBadge, { backgroundColor: tokens.muted }]}>
-          <Text style={[styles.countText, { color: tokens.mutedForeground }]}>
-            {group.status === "loading"
-              ? "..."
-              : group.status === "ready"
-                ? `${group.items.length}${group.hasMore ? "+" : ""}`
-                : "!"}
-          </Text>
-        </View>
       </View>
 
       {group.status === "loading" ? (
@@ -507,17 +505,27 @@ function LiveSourceResultSection({
           </View>
           {group.hasMore ? (
             <NemuPressable
+              accessibilityLabel={formatMobileString(
+                strings.feedback.viewAllInSource,
+                { source: group.source.name },
+              )}
               accessibilityRole="button"
+              hapticFeedback="selection"
               onPress={() => action.onViewAll(group.source)}
               pressProfile="row"
-              style={[styles.viewAllAction, { borderColor: tokens.border }]}
+              style={styles.viewAllAction}
             >
-              <Text style={[styles.viewAllText, { color: tokens.primary }]}>
+              <NemuText
+                variant="actionLabel"
+                color={tokens.primary}
+                numberOfLines={1}
+                style={styles.viewAllText}
+              >
                 {formatMobileString(strings.feedback.viewAllInSource, {
                   source: group.source.name,
                 })}
-              </Text>
-              <Ionicons name="arrow-forward-outline" size={16} color={tokens.primary} />
+              </NemuText>
+              <Ionicons name="chevron-forward" size={16} color={tokens.primary} />
             </NemuPressable>
           ) : null}
         </>
@@ -595,15 +603,13 @@ const LocalSearchResultHeader = memo(function LocalSearchResultHeader({
 
   return (
     <View style={styles.resultHeader}>
-      <SourceIcon source={group.source} size={24} />
-      <Text numberOfLines={1} style={[styles.resultTitle, { color: tokens.foreground }]}>
-        {group.source.name}
+      <SourceIcon source={group.source} size={20} />
+      <Text
+        numberOfLines={1}
+        style={[styles.resultTitle, { color: tokens.mutedForeground }]}
+      >
+        {`${group.source.name} · ${count}`}
       </Text>
-      <View style={[styles.countBadge, { backgroundColor: tokens.muted }]}>
-        <Text style={[styles.countText, { color: tokens.mutedForeground }]}>
-          {count}
-        </Text>
-      </View>
     </View>
   );
 });
@@ -1464,22 +1470,9 @@ const styles = StyleSheet.create({
   resultTitle: {
     flex: 1,
     minWidth: 0,
-    fontSize: 16,
-    lineHeight: 21,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  countBadge: {
-    minWidth: 28,
-    minHeight: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-    paddingHorizontal: 8,
-  },
-  countText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
+    ...nemuText.label,
+    letterSpacing: 0.48,
+    textTransform: "uppercase",
   },
   resultsGrid: {
     flexDirection: "row",
@@ -1490,16 +1483,12 @@ const styles = StyleSheet.create({
     minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    paddingHorizontal: 14,
+    justifyContent: "flex-start",
+    gap: 4,
   },
   viewAllText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.medium,
+    flexShrink: 1,
+    minWidth: 0,
   },
   resultItem: {
     minWidth: 0,

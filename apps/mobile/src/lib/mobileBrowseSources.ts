@@ -13,6 +13,7 @@ import {
 import {
   getLanguageCategory,
   getLanguagePriorityOrder,
+  normalizeMobileLanguageCode,
   sortSourcesByLanguagePriority,
   type MobileLanguageSource,
 } from "./mobileLanguageSettings";
@@ -58,7 +59,9 @@ export function filterMobileAvailableSources<T extends MobileBrowseSource>(
     .filter((source) => {
       if (selectedLanguages.size === 0) return true;
       if (!source.languages?.length) return selectedLanguages.has("other");
-      return source.languages.some((language) => selectedLanguages.has(language));
+      return source.languages.some((language) =>
+        selectedLanguages.has(normalizeMobileLanguageCode(language)),
+      );
     })
     .filter((source) => {
       if (!normalized) return true;
@@ -132,7 +135,7 @@ export function getMobileAvailableSourceLanguageOptions<
       continue;
     }
     for (const language of source.languages) {
-      languages.add(language);
+      languages.add(normalizeMobileLanguageCode(language));
     }
   }
 

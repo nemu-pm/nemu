@@ -77,6 +77,7 @@ import {
   MobileNativeSheetScaffold,
   MobileCachedImage,
   NemuButton,
+  NemuListRow,
   NemuNativeSwitch,
   NemuPressable,
   PageScaffold,
@@ -1185,37 +1186,22 @@ function FeedbackSettingRow({
   value: boolean;
   onToggle: (nextValue: boolean) => void;
 }) {
-  const { tokens } = useNemuTheme();
-
   return (
-    <View style={[styles.settingsSurface, styles.menuRow, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-      <View style={styles.menuIcon}>
-        <Ionicons name={icon} size={19} color={tokens.primary} />
-      </View>
-      <View style={styles.menuText}>
-        <Text
-          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-          style={[styles.menuTitle, { color: tokens.foreground }]}
-        >
-          {title}
-        </Text>
-        <Text
-          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-          numberOfLines={2}
-          style={[styles.menuSubtitle, { color: tokens.mutedForeground }]}
-        >
-          {subtitle}
-        </Text>
-      </View>
-      <NemuNativeSwitch
-        accessibilityLabel={title}
-        value={value}
-        onValueChange={(nextValue) => {
-          void hapticSelection();
-          onToggle(nextValue);
-        }}
-      />
-    </View>
+    <NemuListRow
+      accessory={
+        <NemuNativeSwitch
+          accessibilityLabel={title}
+          value={value}
+          onValueChange={(nextValue) => {
+            void hapticSelection();
+            onToggle(nextValue);
+          }}
+        />
+      }
+      icon={icon}
+      subtitle={subtitle}
+      title={title}
+    />
   );
 }
 
@@ -3000,7 +2986,14 @@ export function SettingsScreen({
 
               {activeSection === "data" ? (
                 <>
-                  <MobileStorageBreakdown strings={strings} />
+                  <MobileStorageBreakdown
+                    clearAllBusy={
+                      pendingClearMode === "cache" ||
+                      dataManagement.clearingMode === "cache"
+                    }
+                    strings={strings}
+                    onClearAllCache={confirmClearCache}
+                  />
                   <SettingsSurface
                     style={styles.rowShell}
                     contentStyle={styles.dataManagementCard}

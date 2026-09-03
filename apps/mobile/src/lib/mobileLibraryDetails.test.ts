@@ -30,6 +30,24 @@ describe("mobile library detail refresh helpers", () => {
     });
   });
 
+  test("keeps a resolved listing cover when source details return an empty cover", () => {
+    expect(
+      mergeDefinedMangaMetadata(
+        {
+          title: "Listing Title",
+          cover: "https://source.test/listing-cover.jpg",
+        },
+        {
+          title: "Detail Title",
+          cover: "  ",
+        },
+      ),
+    ).toEqual({
+      title: "Detail Title",
+      cover: "https://source.test/listing-cover.jpg",
+    });
+  });
+
   test("applies refreshed latest chapter and acknowledges it for an existing link", () => {
     const sourceLink: LocalSourceLink = {
       id: "aidoku-community:en.example:blue-lock",

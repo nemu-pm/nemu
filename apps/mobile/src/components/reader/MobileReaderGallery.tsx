@@ -905,17 +905,31 @@ export function MobileReaderGallery({
               accessibilityLabel={pagesState.detail}
               accessibilityRole="progressbar"
               style={[
-                styles.readerLoadingSkeleton,
+                // Paged reading opens on a 1:1.45 page box at the reader
+                // width; long strip opens on a full-width block, so the
+                // placeholder already has the shape the first page will take.
+                logicalLongStripMode
+                  ? styles.readerLoadingStrip
+                  : styles.readerLoadingSkeleton,
+                logicalLongStripMode
+                  ? {
+                      width: readerPageWidth,
+                      height: Math.max(240, windowHeight - 190),
+                    }
+                  : {
+                      width: Math.min(readerImageWidth, readerPageWidth - 24),
+                      maxHeight: Math.max(240, windowHeight - 190),
+                    },
                 {
-                  width: Math.min(readerImageWidth, readerPageWidth - 24),
-                  maxHeight: Math.max(240, windowHeight - 190),
                   backgroundColor: "rgba(255,255,255,0.10)",
                   borderColor: "rgba(255,255,255,0.13)",
                   opacity: readerSkeletonOpacity,
                 },
               ]}
             >
-              <View style={styles.readerLoadingSkeletonLine} />
+              {logicalLongStripMode ? null : (
+                <View style={styles.readerLoadingSkeletonLine} />
+              )}
             </Animated.View>
           ) : null}
         </View>
@@ -1228,6 +1242,10 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
+  },
+  readerLoadingStrip: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   readerLoadingSkeletonLine: {
     width: "34%",

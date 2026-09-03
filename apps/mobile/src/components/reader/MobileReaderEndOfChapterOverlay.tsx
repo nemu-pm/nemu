@@ -130,10 +130,7 @@ export function MobileReaderEndOfChapterOverlay({
               <View
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
-                style={[
-                  styles.iconShell,
-                  { backgroundColor: `${tokens.primary}18` },
-                ]}
+                style={styles.iconShell}
               >
                 <Ionicons
                   name={
@@ -252,12 +249,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
+  // The glyph is bare on purpose: transient reader feedback shows a tinted
+  // symbol, never a boxed icon shell.
   iconShell: {
     width: 42,
     height: 42,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: radius.lg,
   },
   celebrationCheck: {
     width: 42,

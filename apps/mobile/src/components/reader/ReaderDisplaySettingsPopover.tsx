@@ -6,22 +6,25 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MobileReaderWidthSlider } from "@/components/MobileReaderWidthSlider";
+import { MobileSliderTrack } from "@/components/MobileSliderTrack";
 import type { ReadingMode } from "@/data/schema";
 import {
   MobileSheetBackdrop,
+  NemuNativeSwitch,
   NemuPressable,
+  iconSize,
   nemuFontWeight,
   radius,
   useNemuTheme,
 } from "@/design-system";
-import type { MobileStrings } from "@/lib/mobileI18n";
+import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
+import { useSliderSelectionHaptic } from "@/lib/useSliderSelectionHaptic";
 
 type ReaderPagePairingMode = "book" | "manga";
 
@@ -57,6 +60,114 @@ type ReaderDisplaySettingsPopoverProps = {
   onToggleLockPortrait: () => void;
   onMarkComplete: () => void;
 };
+
+const BRIGHTNESS_MIN = 0;
+const BRIGHTNESS_MAX = 100;
+const BRIGHTNESS_STEP = 5;
+
+function clampBrightnessPct(value: number): number {
+  return Math.max(
+    BRIGHTNESS_MIN,
+    Math.min(BRIGHTNESS_MAX, Math.round(value)),
+  );
+}
+
+/**
+ * Reader brightness runs the full 0–100 range, so it cannot reuse
+ * MobileReaderWidthSlider (which clamps to the page-width range). It shares
+ * the same MobileSliderTrack geometry and selection haptic.
+ */
+function ReaderBrightnessSlider({
+  disabled,
+  strings,
+  value,
+  onPreview,
+  onCommit,
+}: {
+  disabled: boolean;
+  strings: MobileStrings;
+  value: number;
+  onPreview: (value: number) => void;
+  onCommit: (value: number) => void;
+}) {
+  const clampedValue = clampBrightnessPct(value);
+  const triggerSelectionHaptic = useSliderSelectionHaptic(clampedValue);
+
+  const valueFromRatio = useCallback(
+    (ratio: number) =>
+      clampBrightnessPct(
+        BRIGHTNESS_MIN + ratio * (BRIGHTNESS_MAX - BRIGHTNESS_MIN),
+      ),
+    [],
+  );
+
+  const onRatioChange = useCallback(
+    (ratio: number) => {
+      const nextValue = valueFromRatio(ratio);
+      onPreview(nextValue);
+      triggerSelectionHaptic(nextValue);
+    },
+    [onPreview, triggerSelectionHaptic, valueFromRatio],
+  );
+
+  const onRatioEnd = useCallback(
+    (ratio: number) => {
+      const nextValue = valueFromRatio(ratio);
+      onPreview(nextValue);
+      onCommit(nextValue);
+      triggerSelectionHaptic(nextValue);
+    },
+    [onCommit, onPreview, triggerSelectionHaptic, valueFromRatio],
+  );
+
+  const adjustValue = useCallback(
+    (delta: number) => {
+      if (disabled) return;
+      const nextValue = clampBrightnessPct(clampedValue + delta);
+      onPreview(nextValue);
+      onCommit(nextValue);
+      triggerSelectionHaptic(nextValue);
+    },
+    [clampedValue, disabled, onCommit, onPreview, triggerSelectionHaptic],
+  );
+
+  return (
+    <View
+      accessibilityRole="adjustable"
+      accessibilityLabel={strings.feedback.displayBrightness}
+      accessibilityState={{ disabled }}
+      accessibilityValue={{
+        min: BRIGHTNESS_MIN,
+        max: BRIGHTNESS_MAX,
+        now: clampedValue,
+        text: formatMobileString(strings.feedback.displayBrightnessValue, {
+          percent: clampedValue,
+        }),
+      }}
+      accessibilityActions={[
+        { name: "decrement", label: strings.feedback.displayBrightnessDecrease },
+        { name: "increment", label: strings.feedback.displayBrightnessIncrease },
+      ]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === "increment") {
+          adjustValue(BRIGHTNESS_STEP);
+        } else if (event.nativeEvent.actionName === "decrement") {
+          adjustValue(-BRIGHTNESS_STEP);
+        }
+      }}
+      style={[styles.brightnessSlider, { opacity: disabled ? 0.56 : 1 }]}
+    >
+      <MobileSliderTrack
+        disabled={disabled}
+        progress={
+          (clampedValue - BRIGHTNESS_MIN) / (BRIGHTNESS_MAX - BRIGHTNESS_MIN)
+        }
+        onRatioChange={onRatioChange}
+        onRatioEnd={onRatioEnd}
+      />
+    </View>
+  );
+}
 
 function readerModeLabel(mode: ReadingMode, strings: MobileStrings): string {
   if (mode === "rtl") return strings.reader.rtl;
@@ -220,78 +331,78 @@ export function ReaderDisplaySettingsPopover({
             </NemuPressable>
           </View>
 
-          <View style={styles.widthControlBlock}>
-            <View style={styles.widthControlHeader}>
-              <View style={styles.brightnessLabelRow}>
-                <Ionicons
-                  name="sunny-outline"
-                  size={14}
-                  color={tokens.mutedForeground}
-                />
-                <Text
-                  style={[
-                    styles.widthControlLabel,
-                    { color: tokens.mutedForeground },
-                  ]}
-                >
-                  {strings.feedback.displayBrightness}
-                </Text>
-              </View>
+          <View style={styles.displayRow}>
+            <View style={styles.displayRowLabel}>
+              <Ionicons
+                name="sunny-outline"
+                size={iconSize.md}
+                color={tokens.mutedForeground}
+              />
               <Text
-                style={[
-                  styles.widthControlValue,
-                  { color: tokens.foreground },
-                ]}
+                numberOfLines={1}
+                style={[styles.displayRowTitle, { color: tokens.foreground }]}
               >
-                {brightnessPct}%
+                {strings.feedback.displayBrightness}
               </Text>
             </View>
-            <MobileReaderWidthSlider
-              value={brightnessPct}
-              strings={strings}
-              disabled={busy}
-              onPreview={onPreviewBrightness}
-              onCommit={onCommitBrightness}
-            />
+            <View style={styles.displayRowSlider}>
+              <ReaderBrightnessSlider
+                disabled={busy}
+                strings={strings}
+                value={brightnessPct}
+                onCommit={onCommitBrightness}
+                onPreview={onPreviewBrightness}
+              />
+            </View>
+            <Text
+              style={[
+                styles.displayRowValue,
+                { color: tokens.mutedForeground },
+              ]}
+            >
+              {brightnessPct}%
+            </Text>
           </View>
 
-          <View style={[styles.readerSettingRow, { borderColor: tokens.border }]}>
-            <View style={styles.readerSettingCopy}>
+          <View style={styles.displayRow}>
+            <View style={styles.displayRowLabel}>
+              <Ionicons
+                name="moon-outline"
+                size={iconSize.md}
+                color={tokens.mutedForeground}
+              />
               <Text
-                style={[styles.readerSettingTitle, { color: tokens.foreground }]}
+                numberOfLines={1}
+                style={[styles.displayRowTitle, { color: tokens.foreground }]}
               >
                 {strings.feedback.displayKeepAwake}
               </Text>
             </View>
-            <Switch
+            <NemuNativeSwitch
               accessibilityLabel={strings.feedback.displayKeepAwake}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: keepAwake, disabled: busy }}
               disabled={busy}
-              ios_backgroundColor={tokens.muted}
-              thumbColor={keepAwake ? tokens.primary : tokens.mutedForeground}
-              trackColor={{ false: tokens.muted, true: `${tokens.primary}66` }}
               value={keepAwake}
               onValueChange={onToggleKeepAwake}
             />
           </View>
 
-          <View style={[styles.readerSettingRow, { borderColor: tokens.border }]}>
-            <View style={styles.readerSettingCopy}>
+          <View style={styles.displayRow}>
+            <View style={styles.displayRowLabel}>
+              <Ionicons
+                name="phone-portrait-outline"
+                size={iconSize.md}
+                color={tokens.mutedForeground}
+              />
               <Text
-                style={[styles.readerSettingTitle, { color: tokens.foreground }]}
+                numberOfLines={1}
+                style={[styles.displayRowTitle, { color: tokens.foreground }]}
               >
                 {strings.feedback.displayLockPortrait}
               </Text>
             </View>
-            <Switch
+            <NemuNativeSwitch
               accessibilityLabel={strings.feedback.displayLockPortrait}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: lockPortrait, disabled: busy }}
               disabled={busy}
-              ios_backgroundColor={tokens.muted}
-              thumbColor={lockPortrait ? tokens.primary : tokens.mutedForeground}
-              trackColor={{ false: tokens.muted, true: `${tokens.primary}66` }}
               value={lockPortrait}
               onValueChange={onToggleLockPortrait}
             />
@@ -358,22 +469,9 @@ export function ReaderDisplaySettingsPopover({
                   {strings.reader.spread}
                 </Text>
               </View>
-              <Switch
+              <NemuNativeSwitch
                 accessibilityLabel={strings.reader.twoPageView}
-                accessibilityRole="switch"
-                accessibilityState={{
-                  checked: isTwoPageMode,
-                  disabled: busy,
-                }}
                 disabled={busy}
-                ios_backgroundColor={tokens.muted}
-                thumbColor={
-                  isTwoPageMode ? tokens.primary : tokens.mutedForeground
-                }
-                trackColor={{
-                  false: tokens.muted,
-                  true: `${tokens.primary}66`,
-                }}
                 value={isTwoPageMode}
                 onValueChange={onToggleTwoPageMode}
               />
@@ -442,22 +540,9 @@ export function ReaderDisplaySettingsPopover({
                 {strings.reader.processPageImagesDescription}
               </Text>
             </View>
-            <Switch
+            <NemuNativeSwitch
               accessibilityLabel={strings.reader.processPageImages}
-              accessibilityRole="switch"
-              accessibilityState={{
-                checked: processPageImages,
-                disabled: busy,
-              }}
               disabled={busy}
-              ios_backgroundColor={tokens.muted}
-              thumbColor={
-                processPageImages ? tokens.primary : tokens.mutedForeground
-              }
-              trackColor={{
-                false: tokens.muted,
-                true: `${tokens.primary}66`,
-              }}
               value={processPageImages}
               onValueChange={onToggleProcessPageImages}
             />
@@ -664,10 +749,42 @@ const styles = StyleSheet.create({
   widthControlBlock: {
     gap: 8,
   },
-  brightnessLabelRow: {
+  displayRow: {
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  displayRowLabel: {
+    flexShrink: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  displayRowTitle: {
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: nemuFontWeight.medium,
+  },
+  displayRowSlider: {
+    flex: 1,
+    minWidth: 72,
+  },
+  displayRowValue: {
+    minWidth: 36,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: nemuFontWeight.medium,
+    fontVariant: ["tabular-nums"],
+    textAlign: "right",
+  },
+  brightnessSlider: {
+    minHeight: 26,
+    justifyContent: "center",
   },
   widthControlHeader: {
     minHeight: 18,

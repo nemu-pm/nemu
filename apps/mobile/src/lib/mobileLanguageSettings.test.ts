@@ -2,8 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_APP_LANGUAGE,
   DEFAULT_METADATA_LANGUAGE_PREFERENCE,
+  formatMobileLanguageDisplayName,
   getEffectiveMetadataLanguage,
+  getLanguageCategory,
+  getLanguagePriorityOrder,
   normalizeAppLanguage,
+  normalizeMobileLanguageCode,
   normalizeMetadataLanguagePreference,
   resolveDeviceAppLanguage,
   resolveInitialAppLanguage,
@@ -138,5 +142,45 @@ describe("mobile language settings helpers", () => {
       "multi",
       "pt",
     ]);
+  });
+});
+
+describe("mobile language display names", () => {
+  test("writes every mapped language in its own script", () => {
+    expect(formatMobileLanguageDisplayName("ja", "en")).toBe("日本語");
+    expect(formatMobileLanguageDisplayName("zh", "en")).toBe("中文");
+    expect(formatMobileLanguageDisplayName("zh-Hant", "en")).toBe("繁體中文");
+    expect(formatMobileLanguageDisplayName("zh_hans", "en")).toBe("简体中文");
+    expect(formatMobileLanguageDisplayName("en", "ja")).toBe("English");
+    expect(formatMobileLanguageDisplayName("es-419", "en")).toBe("Español (LatAm)");
+    expect(formatMobileLanguageDisplayName("ko", "en")).toBe("한국어");
+  });
+
+  test("uses the passed multi and other labels for the shared buckets", () => {
+    expect(
+      formatMobileLanguageDisplayName("All", "zh", { multi: "多语言" }),
+    ).toBe("多语言");
+    expect(
+      formatMobileLanguageDisplayName("multi", "zh", { multi: "多语言" }),
+    ).toBe("多语言");
+    expect(
+      formatMobileLanguageDisplayName("other", "zh", { other: "其他" }),
+    ).toBe("其他");
+  });
+
+  test("never renders a raw code in lowercase and falls back upper-cased", () => {
+    expect(formatMobileLanguageDisplayName("zz", "en")).toBe("ZZ");
+  });
+
+  test("collapses the registry All bucket onto multi", () => {
+    expect(normalizeMobileLanguageCode("All")).toBe("multi");
+    expect(normalizeMobileLanguageCode("zh_Hant")).toBe("zh-hant");
+    expect(getLanguageCategory(["All"])).toBe("multi");
+  });
+
+  test("orders languages ja, zh, en, multi for every app language", () => {
+    expect(getLanguagePriorityOrder("en")).toEqual(["ja", "zh", "en", "multi"]);
+    expect(getLanguagePriorityOrder("zh")).toEqual(["ja", "zh", "en", "multi"]);
+    expect(getLanguagePriorityOrder("ja")).toEqual(["ja", "zh", "en", "multi"]);
   });
 });

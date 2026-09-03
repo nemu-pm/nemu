@@ -46,6 +46,7 @@ import {
   useMobileLanguageSettings,
   useSourceInstaller,
 } from "@/data/mobileHooks";
+import type { AppLanguage } from "@/data/schema";
 import {
   hapticConfirm,
   hapticError,
@@ -74,7 +75,10 @@ import {
 } from "@/lib/mobileBrowseSources";
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
 import { getMobileSourceErrorPresentation } from "@/lib/mobileSourceErrors";
-import { sortSourcesByLanguagePriority } from "@/lib/mobileLanguageSettings";
+import {
+  formatMobileLanguageDisplayName,
+  sortSourcesByLanguagePriority,
+} from "@/lib/mobileLanguageSettings";
 import {
   markMobilePerformance,
   measureMobilePerformance,
@@ -213,35 +217,18 @@ function formatLanguages(languages?: string[]): string | undefined {
 function formatSourceLanguageLabel(
   language: string,
   strings: MobileStrings,
-  appLanguage: string,
+  appLanguage: AppLanguage,
 ): string {
-  if (language === "other") return strings.browse.otherLanguages;
-  if (language === "multi") return strings.sourceBrowse.multiLanguage;
-
-  try {
-    const displayNamesCtor = (
-      Intl as unknown as {
-        DisplayNames?: new (
-          locales: string[],
-          options: { type: "language" },
-        ) => { of: (code: string) => string | undefined };
-      }
-    ).DisplayNames;
-    const label = displayNamesCtor
-      ? new displayNamesCtor([appLanguage], { type: "language" }).of(language)
-      : undefined;
-    if (label) return label.charAt(0).toUpperCase() + label.slice(1);
-  } catch {
-    // Some native runtimes ship a smaller Intl surface.
-  }
-
-  return language.toUpperCase();
+  return formatMobileLanguageDisplayName(language, appLanguage, {
+    multi: strings.sourceBrowse.multiLanguage,
+    other: strings.browse.otherLanguages,
+  });
 }
 
 function formatLanguageSelectionLabel(
   selectedLanguages: Set<string>,
   strings: MobileStrings,
-  appLanguage: string,
+  appLanguage: AppLanguage,
 ): string {
   if (selectedLanguages.size === 0) return strings.browse.allLanguages;
   if (selectedLanguages.size === 1) {
@@ -284,6 +271,49 @@ function formatCatalogCacheAge(savedAt: number | null, appLanguage: string): str
   const hours = Math.round(elapsedMinutes / 60);
   if (hours < 24) return formatter.format(-hours, "hour");
   return formatter.format(-Math.round(hours / 24), "day");
+}
+
+/**
+ * One removable active filter. Selected chips carry the toolbar-action surface
+ * rather than a flat muted rectangle, so they read as the same primitive as the
+ * chapter toolbar chips.
+ */
+function ActiveFilterChip({
+  label,
+  removeLabel,
+  onPress,
+}: {
+  label: string;
+  removeLabel: string;
+  onPress: () => void;
+}) {
+  const { tokens } = useNemuTheme();
+
+  return (
+    <NemuPressable
+      accessibilityLabel={`${removeLabel} ${label}`}
+      accessibilityRole="button"
+      accessibilityState={{ selected: true }}
+      hapticFeedback="selection"
+      onPress={onPress}
+      pressedScale={0.97}
+      style={[
+        styles.activeFilterChip,
+        {
+          backgroundColor: tokens.toolbarAction,
+          borderColor: tokens.toolbarActionBorder,
+        },
+      ]}
+    >
+      <Text
+        numberOfLines={1}
+        style={[styles.activeFilterChipText, { color: tokens.primary }]}
+      >
+        {label}
+      </Text>
+      <Ionicons name="close" size={14} color={tokens.primary} />
+    </NemuPressable>
+  );
 }
 
 function LanguageFilterOptionRow({
@@ -354,7 +384,7 @@ function LanguageFilterSheetSection({
   languages: string[];
   selectedLanguages: Set<string>;
   strings: MobileStrings;
-  appLanguage: string;
+  appLanguage: AppLanguage;
   onSelectAll: () => void;
   onToggleLanguage: (language: string) => void;
   showAdult: boolean;
@@ -1365,31 +1395,23 @@ export function BrowseScreen() {
             {selectedLanguages.size > 0 || showAdult ? (
               <View style={styles.activeFilterChips}>
                 {[...selectedLanguages].map((language) => (
-                  <NemuPressable
+                  <ActiveFilterChip
                     key={language}
-                    accessibilityLabel={`${strings.common.remove} ${formatSourceLanguageLabel(language, strings, appLanguage)}`}
+                    label={formatSourceLanguageLabel(
+                      language,
+                      strings,
+                      appLanguage,
+                    )}
+                    removeLabel={strings.common.remove}
                     onPress={() => toggleLanguage(language)}
-                    pressProfile="icon"
-                    style={[styles.activeFilterChip, { backgroundColor: tokens.muted }]}
-                  >
-                    <Text style={[styles.activeFilterChipText, { color: tokens.foreground }]}>
-                      {formatSourceLanguageLabel(language, strings, appLanguage)}
-                    </Text>
-                    <Ionicons name="close-outline" size={14} color={tokens.mutedForeground} />
-                  </NemuPressable>
+                  />
                 ))}
                 {showAdult ? (
-                  <NemuPressable
-                    accessibilityLabel={`${strings.common.remove} ${strings.browse.adult}`}
+                  <ActiveFilterChip
+                    label={strings.browse.adult}
+                    removeLabel={strings.common.remove}
                     onPress={() => setShowAdult(false)}
-                    pressProfile="icon"
-                    style={[styles.activeFilterChip, { backgroundColor: tokens.muted }]}
-                  >
-                    <Text style={[styles.activeFilterChipText, { color: tokens.foreground }]}>
-                      {strings.browse.adult}
-                    </Text>
-                    <Ionicons name="close-outline" size={14} color={tokens.mutedForeground} />
-                  </NemuPressable>
+                  />
                 ) : null}
               </View>
             ) : null}
@@ -1526,13 +1548,17 @@ const styles = StyleSheet.create({
   },
   activeFilterChip: {
     minHeight: 30,
+    maxWidth: 200,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 6,
     borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 10,
   },
   activeFilterChipText: {
+    flexShrink: 1,
+    minWidth: 0,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: nemuFontWeight.medium,

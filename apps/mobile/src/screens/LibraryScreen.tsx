@@ -1355,24 +1355,28 @@ export function LibraryScreen({
         await reloadLibrary();
       }
       if (options.interactive) {
+        // Refresh results are not surfaced: the per-card `+N` badge is the
+        // feedback. Only a sweep where every checked source failed needs a
+        // toast, because then no badge can appear at all.
+        const everySourceFailed =
+          result.checked > 0 &&
+          result.refreshed === 0 &&
+          result.failed >= result.checked;
         if (result.failed > 0 && result.refreshed === 0) {
           await hapticError();
         } else {
           await hapticConfirm();
-          const unavailableSuffix =
-            result.failed > 0
-              ? formatMobileString(strings.feedback.libraryRefreshUnavailableSuffix, {
-                  count: result.failed,
-                })
-              : "";
+        }
+        if (everySourceFailed) {
           toast.show({
-            tone: result.failed > 0 ? "info" : "success",
-            title: strings.feedback.libraryRefreshTitle,
-            detail:
-              formatMobileString(strings.feedback.libraryRefreshDetail, {
-                updated: result.refreshed,
-                checked: result.checked,
-              }) + unavailableSuffix,
+            tone: "danger",
+            title: strings.feedback.libraryRefreshFailedTitle,
+            // The count string is authored to trail a summary line, so drop
+            // its leading separator when it stands alone as the detail.
+            detail: formatMobileString(
+              strings.feedback.libraryRefreshUnavailableSuffix,
+              { count: result.failed },
+            ).replace(/^\s*·\s*/, ""),
           });
         }
       }
@@ -1398,8 +1402,7 @@ export function LibraryScreen({
     getSourceSettings,
     reloadLibrary,
     store,
-    strings.feedback.libraryRefreshDetail,
-    strings.feedback.libraryRefreshTitle,
+    strings.feedback.libraryRefreshFailedTitle,
     strings.feedback.libraryRefreshUnavailableSuffix,
     toast,
   ]);
@@ -1809,16 +1812,44 @@ export function LibraryScreen({
     [progressIndex],
   );
 
+  const quickActionLink = useMemo(
+    () =>
+      quickActionEntry
+        ? (selectLibraryCoverSource(quickActionEntry, progressIndex) ??
+          quickActionEntry.sources[0])
+        : null,
+    [progressIndex, quickActionEntry],
+  );
+  const quickActionSource = useMemo(
+    () => findInstalledSourceForLink(installedSources.data, quickActionLink),
+    [installedSources.data, quickActionLink],
+  );
+  const quickActionCoverRequest = useMobileSourceImageRequest(
+    quickActionSource,
+    quickActionEntry ? getEntryCover(quickActionEntry) : null,
+  );
+  const quickActionSubtitle = useMemo(() => {
+    if (!quickActionEntry) return undefined;
+    const progress = getMobileLibraryProgressInfo(
+      quickActionEntry,
+      progressIndex,
+      strings,
+    ).subtitle;
+    const sourceName =
+      quickActionSource?.name ?? quickActionLink?.sourceId ?? null;
+    return [sourceName, progress].filter(Boolean).join(" · ");
+  }, [
+    progressIndex,
+    quickActionEntry,
+    quickActionLink,
+    quickActionSource,
+    strings,
+  ]);
+
   const quickActions = useMemo<MangaQuickAction[]>(() => {
     const entry = quickActionEntry;
     if (!entry) return [];
-    const link =
-      selectLibraryCoverSource(entry, progressIndex) ?? entry.sources[0];
-    const installedLinkSource = link
-      ? installedSources.data.find((candidate) =>
-          mobileInstalledSourceMatchesLink(candidate, link),
-        )
-      : null;
+    const link = quickActionLink;
     const actions: MangaQuickAction[] = [
       {
         id: "markAllRead",
@@ -1843,7 +1874,7 @@ export function LibraryScreen({
       actions.push({
         id: "openInSource",
         label: formatMobileString(strings.feedback.quickMenuOpenInSource, {
-          source: installedLinkSource?.name ?? link.sourceId,
+          source: quickActionSource?.name ?? link.sourceId,
         }),
         icon: "open-outline",
         onPress: () => {
@@ -1865,8 +1896,8 @@ export function LibraryScreen({
     return actions;
   }, [
     quickActionEntry,
-    progressIndex,
-    installedSources.data,
+    quickActionLink,
+    quickActionSource,
     strings,
     handleQuickActionMarkAllRead,
     handleQuickActionRemove,
@@ -2119,6 +2150,12 @@ export function LibraryScreen({
     <MangaQuickActionSheet
       visible={quickActionEntry !== null}
       title={quickActionEntry ? getEntryTitle(quickActionEntry) : ""}
+      subtitle={quickActionSubtitle}
+      cover={
+        quickActionCoverRequest?.url ??
+        (quickActionEntry ? getEntryCover(quickActionEntry) : undefined)
+      }
+      coverHeaders={quickActionCoverRequest?.headers}
       actions={quickActions}
       onClose={() => setQuickActionEntry(null)}
       onDismiss={() => setQuickActionEntry(null)}

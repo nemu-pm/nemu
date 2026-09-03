@@ -22,7 +22,6 @@ import {
   BottomSheetScrollView,
   type BottomSheetMethods,
 } from "@expo/ui/community/bottom-sheet";
-import { nemuFontWeight } from "@/design/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import {
@@ -34,7 +33,6 @@ import {
   resolveMobileNativeSheetDismissLabel,
   shouldBoundMobileNativeSheetForPlatform,
 } from "@/lib/mobileNativeSheet";
-import { NemuPressable } from "./NemuPressable";
 import { NemuNativeSheetHeaderAction } from "./NemuNativeSheetHeaderAction";
 import { MobileSheetHeader } from "./MobileSheetHeader";
 
@@ -51,6 +49,10 @@ type MobileNativeSheetScaffoldProps = {
   headerTrailing?: ReactNode;
   dismissLabel?: string;
   dismissDisabled?: boolean;
+  /**
+   * @deprecated The dismiss control is always the platform icon action now.
+   * Retained so existing callers keep compiling.
+   */
   dismissAsIcon?: boolean;
   showDismissButton?: boolean;
   snapPoints?: (string | number)[];
@@ -94,7 +96,6 @@ export function MobileNativeSheetScaffold({
   headerTrailing,
   dismissLabel,
   dismissDisabled = false,
-  dismissAsIcon = false,
   showDismissButton,
   snapPoints,
   scroll = false,
@@ -355,53 +356,18 @@ export function MobileNativeSheetScaffold({
             title={title ?? ""}
             trailing={
               headerTrailing ??
+              // One dismiss control on every platform: the SwiftUI `xmark`
+              // button on iOS, a bare `close-outline` glyph on a 48dp target
+              // on Android. An Android text label would silently render as an
+              // empty pressable, because this chrome never shows action labels.
               (shouldRenderDismissButton ? (
-                Platform.OS === "ios" || dismissAsIcon ? (
-                  <NemuNativeSheetHeaderAction
-                    accessibilityLabel={resolvedDismissLabel}
-                    androidIcon="close-outline"
-                    iosSystemImage="xmark"
-                    disabled={dismissDisabled}
-                    onPress={requestSheetClose}
-                  />
-                ) : (
-                  <NemuPressable
-                    accessibilityLabel={resolvedDismissLabel}
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: dismissDisabled }}
-                    disabled={dismissDisabled}
-                    hapticFeedback="none"
-                    onPress={requestSheetClose}
-                    pressedScale={0.97}
-                    containerStyle={[
-                      styles.dismissButtonHitArea,
-                      {
-                        minHeight: headerMetrics.controlSize,
-                        minWidth: headerMetrics.controlSize,
-                      },
-                    ]}
-                    style={[
-                      styles.dismissButton,
-                      { opacity: dismissDisabled ? 0.48 : 1 },
-                    ]}
-                  >
-                    {headerMetrics.showActionLabels ? (
-                      <Text
-                        maxFontSizeMultiplier={
-                          SHEET_CHROME_MAX_FONT_SIZE_MULTIPLIER
-                        }
-                        numberOfLines={1}
-                        style={[
-                          styles.dismissText,
-                          styles.androidDismissText,
-                          { color: tokens.primary },
-                        ]}
-                      >
-                        {resolvedDismissLabel}
-                      </Text>
-                    ) : null}
-                  </NemuPressable>
-                )
+                <NemuNativeSheetHeaderAction
+                  accessibilityLabel={resolvedDismissLabel}
+                  androidIcon="close-outline"
+                  iosSystemImage="xmark"
+                  disabled={dismissDisabled}
+                  onPress={requestSheetClose}
+                />
               ) : null)
             }
           />
@@ -447,33 +413,7 @@ export function MobileNativeSheetScaffold({
   );
 }
 
-// Sheet chrome competes for one fixed row: an unbounded Dynamic Type title and
-// text dismiss action can overlap even though the sheet body itself remains
-// scrollable. Keep both labels accessible and scaled, but cap only this compact
-// navigation chrome so neither control is truncated at accessibility sizes.
-const SHEET_CHROME_MAX_FONT_SIZE_MULTIPLIER = 1.5;
 const styles = StyleSheet.create({
-  dismissButtonHitArea: {
-    alignItems: "flex-end",
-    justifyContent: "center",
-  },
-  dismissButton: {
-    minHeight: 32,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 2,
-  },
-  dismissText: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: nemuFontWeight.medium,
-    letterSpacing: 0,
-  },
-  androidDismissText: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
   bodyDescription: {
     width: "100%",
     letterSpacing: 0,

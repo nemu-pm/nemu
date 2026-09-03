@@ -7,7 +7,7 @@ import {
   nemuFontWeight,
   useNemuTheme,
 } from "@/design-system";
-import type { ChapterSummary, LocalChapterProgress } from "@/data/schema";
+import type { AppLanguage, ChapterSummary, LocalChapterProgress } from "@/data/schema";
 import { formatChapterSubtitle, formatChapterTitle } from "@/lib/formatChapter";
 import {
   getMobileChapterPresentation,
@@ -19,8 +19,13 @@ import {
   getMobileChapterProgressAccessory,
 } from "@/lib/mobileChapterProgress";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
+import {
+  DEFAULT_APP_LANGUAGE,
+  formatMobileLanguageDisplayName,
+} from "@/lib/mobileLanguageSettings";
 
 type MobileChapterCellProps = {
+  appLanguage?: AppLanguage;
   busy: boolean;
   chapter: ChapterSummary;
   openChapterTemplate: string;
@@ -31,6 +36,7 @@ type MobileChapterCellProps = {
 };
 
 export function MobileChapterCell({
+  appLanguage = DEFAULT_APP_LANGUAGE,
   busy,
   chapter,
   openChapterTemplate,
@@ -63,7 +69,12 @@ export function MobileChapterCell({
   const baseSubtitle = formatChapterSubtitle(chapter);
   const chapterSubtitle = [
     baseSubtitle,
-    showLanguage ? chapter.lang?.toUpperCase() : null,
+    showLanguage && chapter.lang
+      ? formatMobileLanguageDisplayName(chapter.lang, appLanguage, {
+          multi: strings.sourceBrowse.multiLanguage,
+          other: strings.browse.otherLanguages,
+        })
+      : null,
   ]
     .filter(Boolean)
     .join(" · ") || null;
@@ -149,8 +160,8 @@ const styles = StyleSheet.create({
   },
   unreadDot: {
     position: "absolute",
-    top: 7,
-    right: 7,
+    top: 8,
+    right: 8,
     width: 6,
     height: 6,
     borderRadius: 3,

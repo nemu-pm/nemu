@@ -43,9 +43,7 @@ export function MobileSourceListFooter({
 
   if (state.failed) {
     return (
-      <View
-        style={[styles.footerCard, styles.footerStack, { minHeight: 64, gap: 6 }]}
-      >
+      <View style={[styles.footerCard, styles.footerStack]}>
         <Text style={[styles.errorLine, { color: tokens.danger }]}>
           {strings.feedback.loadFailed}
         </Text>
@@ -102,6 +100,7 @@ export function MobileSourceListFooter({
 
 const styles = StyleSheet.create({
   footerCard: {
+    minHeight: 56,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 12,
@@ -112,11 +111,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   footerStack: {
+    minHeight: 64,
     flexDirection: "column",
+    gap: 6,
   },
   errorLine: {
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: nemuFontWeight.medium,
+    fontWeight: nemuFontWeight.regular,
   },
 });

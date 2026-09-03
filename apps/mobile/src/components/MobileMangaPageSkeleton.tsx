@@ -43,13 +43,13 @@ export function MobileMangaPageSkeleton({
       <View
         style={[
           styles.primaryAction,
-          { backgroundColor: skeletonColor, opacity: 0.78 },
+          { backgroundColor: skeletonColor },
         ]}
       />
       <View
         style={[
           styles.secondaryAction,
-          { backgroundColor: skeletonColor, opacity: 0.72 },
+          { backgroundColor: subtleSkeletonColor },
         ]}
       />
     </View>
@@ -161,17 +161,17 @@ export function MobileMangaPageSkeleton({
         </View>
         <View style={styles.chapterList}>
           {SKELETON_CHAPTERS.map((item) => (
-            <View
-              key={item}
-              style={[
-                styles.chapterRow,
-                {
-                  backgroundColor: skeletonColor,
-                  borderColor: tokens.border,
-                  opacity: 0.7,
-                },
-              ]}
-            />
+            <View key={item} style={styles.chapterSlot}>
+              <View
+                style={[
+                  styles.chapterCell,
+                  {
+                    backgroundColor: skeletonColor,
+                    borderColor: tokens.border,
+                  },
+                ]}
+              />
+            </View>
           ))}
         </View>
       </View>
@@ -226,13 +226,11 @@ const styles = StyleSheet.create({
     width: "82%",
     height: 26,
     borderRadius: radius.sm,
-    opacity: 0.78,
   },
   authorLine: {
     width: "48%",
     height: 16,
     borderRadius: radius.sm,
-    opacity: 0.72,
   },
   tagRow: {
     flexDirection: "row",
@@ -243,7 +241,6 @@ const styles = StyleSheet.create({
     width: 64,
     height: 28,
     borderRadius: radius.md,
-    opacity: 0.72,
   },
   description: {
     gap: 7,
@@ -252,13 +249,11 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 12,
     borderRadius: radius.sm,
-    opacity: 0.72,
   },
   descriptionLineShort: {
     width: "62%",
     height: 12,
     borderRadius: radius.sm,
-    opacity: 0.68,
   },
   actionRow: {
     flexDirection: "row",
@@ -282,7 +277,8 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   section: {
-    gap: 10,
+    // Matches MobileMangaChapterSection's 16pt section rhythm.
+    gap: 16,
   },
   sectionHeaderRow: {
     minHeight: 28,
@@ -295,20 +291,27 @@ const styles = StyleSheet.create({
     width: 92,
     height: 16,
     borderRadius: radius.sm,
-    opacity: 0.78,
   },
   statPill: {
     width: 72,
     height: 28,
     borderRadius: radius.md,
-    opacity: 0.72,
   },
   chapterList: {
-    gap: 9,
+    // MobileChapterGrid lays chapters out 2-up with an 8pt gap.
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
   },
-  chapterRow: {
-    minHeight: 62,
-    borderRadius: radius.lg,
+  chapterSlot: {
+    flexGrow: 1,
+    flexBasis: "48%",
+    maxWidth: "48%",
+  },
+  chapterCell: {
+    // MobileChapterCell geometry.
+    minHeight: 52,
+    borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
   },
 });

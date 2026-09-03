@@ -1,7 +1,15 @@
 import { useState } from "react";
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import {
+  Platform,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { nemuText, useNemuTheme, NemuButton, NemuPressable } from "@/design-system";
+import { getMobileStrings } from "@/lib/mobileI18n";
 import { shouldUseCompactMobilePageEmptyLayout } from "@/lib/mobilePageEmptyLayout";
 
 type MobilePageEmptyProps = {
@@ -16,6 +24,7 @@ type MobilePageEmptyProps = {
   actionLoading?: boolean;
   /** Raw diagnostic string (e.g. describeMobileErrorDetail output). */
   diagnostic?: string;
+  /** Optional override; the localized "Technical details" label is default. */
   diagnosticDetailsLabel?: string;
 };
 
@@ -33,6 +42,10 @@ export function MobilePageEmpty({
   diagnosticDetailsLabel,
 }: MobilePageEmptyProps) {
   const { tokens } = useNemuTheme();
+  const { appLanguage } = useMobileLanguageSettings();
+  const strings = getMobileStrings(appLanguage);
+  const detailsLabel =
+    diagnosticDetailsLabel ?? strings.feedback.technicalDetails;
   const { height } = useWindowDimensions();
   const compactHeight = shouldUseCompactMobilePageEmptyLayout(height);
   const disabled = Boolean(actionDisabled || actionLoading);
@@ -79,9 +92,7 @@ export function MobilePageEmpty({
             <NemuPressable
               accessibilityRole="button"
               accessibilityState={{ expanded: diagnosticOpen }}
-              accessibilityLabel={
-                diagnosticDetailsLabel ?? diagnostic.slice(0, 80)
-              }
+              accessibilityLabel={detailsLabel}
               hapticFeedback="selection"
               pressProfile="row"
               onPress={() => setDiagnosticOpen((open) => !open)}
@@ -95,7 +106,7 @@ export function MobilePageEmpty({
               <Text
                 style={[nemuText.caption, { color: tokens.mutedForeground }]}
               >
-                {diagnosticDetailsLabel ?? "Details"}
+                {detailsLabel}
               </Text>
             </NemuPressable>
             {diagnosticOpen ? (
@@ -104,7 +115,10 @@ export function MobilePageEmpty({
                 style={[
                   styles.diagnosticBody,
                   styles.diagnosticMono,
-                  { color: tokens.mutedForeground },
+                  {
+                    backgroundColor: tokens.secondary,
+                    color: tokens.mutedForeground,
+                  },
                 ]}
               >
                 {diagnostic}
@@ -127,6 +141,12 @@ export function MobilePageEmpty({
     </View>
   );
 }
+
+const MONOSPACE_FONT_FAMILY = Platform.select({
+  ios: "Menlo",
+  android: "monospace",
+  default: "monospace",
+});
 
 const styles = StyleSheet.create({
   root: {
@@ -188,10 +208,9 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     padding: 10,
     borderRadius: 8,
-    backgroundColor: "rgba(127,127,127,0.08)",
   },
   diagnosticMono: {
-    fontFamily: "Menlo",
+    fontFamily: MONOSPACE_FONT_FAMILY,
     fontSize: 11,
     lineHeight: 15,
   },

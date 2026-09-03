@@ -26,6 +26,19 @@ describe("mobile chapter filters", () => {
     ).toEqual(["ja-1"]);
   });
 
+  test("keeps ja, zh, en ahead of the alphabetical tail", () => {
+    expect(
+      getMobileChapterLanguages([
+        { id: "fr", chapterNumber: 1, lang: "fr" },
+        { id: "en", chapterNumber: 2, lang: "en" },
+        { id: "multi", chapterNumber: 3, lang: "multi" },
+        { id: "de", chapterNumber: 4, lang: "de" },
+        { id: "zh", chapterNumber: 5, lang: "zh" },
+        { id: "ja", chapterNumber: 6, lang: "ja" },
+      ]),
+    ).toEqual(["ja", "zh", "en", "multi", "de", "fr"]);
+  });
+
   test("normalizes malformed persisted preferences", () => {
     expect(normalizeMobileChapterListPreference({ languages: ["ja", "ja", 1] })).toEqual({
       sortDirection: "desc",

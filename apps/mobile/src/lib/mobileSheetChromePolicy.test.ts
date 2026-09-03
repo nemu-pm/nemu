@@ -22,12 +22,9 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(source).toContain("paddingTop: headerMetrics.bodyTopPadding");
     expect(source).toContain("bodyDescriptionNumberOfLines ?? undefined");
     expect(source.match(/\{bodyDescription\}/g)).toHaveLength(2);
-    expect(source).toContain("accessibilityState={{ disabled: dismissDisabled }}");
     expect(source).toContain("disabled={dismissDisabled}");
     expect(source).toContain("accessibilityLabel={resolvedDismissLabel}");
-    expect(source).toContain("headerMetrics.showActionLabels ? (");
     expect(source).toContain('androidIcon="close-outline"');
-    expect(source).toContain('hapticFeedback="none"');
     expect(source).toContain("index={sheetPresented ? 0 : -1}");
     expect(source).toContain("closeRequestedRef.current = true;");
     expect(source).toContain("setCloseInteractionLocked(true);");
@@ -44,6 +41,36 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(source).not.toContain("programmaticCloseTimerRef");
   });
 
+  test("always renders one dismiss control on both platforms", () => {
+    const source = readMobileSource(
+      "design-system/components/MobileNativeSheetScaffold.tsx",
+    );
+    const trailing = source.slice(
+      source.indexOf("trailing={"),
+      source.indexOf("/>", source.indexOf("<NemuNativeSheetHeaderAction")),
+    );
+
+    // Android chrome never shows action labels, so a label-gated dismiss
+    // rendered an empty pressable and left the sheet without a close button.
+    expect(trailing).toContain("<NemuNativeSheetHeaderAction");
+    expect(trailing).toContain('androidIcon="close-outline"');
+    expect(trailing).toContain('iosSystemImage="xmark"');
+    expect(trailing).not.toContain("showActionLabels");
+    expect(trailing).not.toContain("dismissAsIcon");
+    expect(source).not.toContain("styles.dismissButton");
+    expect(source).not.toContain("styles.androidDismissText");
+
+    const headerAction = readMobileSource(
+      "design-system/components/NemuNativeSheetHeaderAction.tsx",
+    );
+    // The Android glyph stays bare: no circular chip behind the X.
+    expect(headerAction).toContain("accessibilityState={{ disabled }}");
+    expect(headerAction).toContain("minimumTouchTarget");
+    expect(headerAction).toContain('hapticFeedback="none"');
+    expect(headerAction).not.toContain("borderRadius: 999");
+    expect(headerAction).toMatch(/action:\s*\{[\s\S]*?width:\s*48,/);
+  });
+
   test("preserves header semantics and lets localized Android titles wrap", () => {
     const source = readMobileSource(
       "design-system/components/MobileSheetHeader.tsx",
@@ -53,6 +80,15 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(source).toContain("numberOfLines={metrics.titleNumberOfLines}");
     expect(source).toContain("maxFontSizeMultiplier={1.5}");
     expect(source).not.toContain("subtitle");
+    // A centered title needs both side slots at the same fixed width, even
+    // when only one of them holds a control.
+    expect(source).toContain("width: metrics.sideWidth ?? undefined");
+    expect(source).toContain(
+      "<View style={[styles.side, sideStyle]}>{leading}</View>",
+    );
+    expect(source).toContain(
+      "<View style={[styles.side, styles.trailingSide, sideStyle]}>{trailing}</View>",
+    );
   });
 
   test("keeps the text clear action native-looking and free of duplicate feedback", () => {
@@ -226,12 +262,38 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(browse).not.toContain("MobileSourceInstallSheet");
     expect(browse).not.toContain("setAddSourceSheetKey");
     expect(toast.indexOf("onDismiss(toast.id);")).toBeLessThan(
-      toast.indexOf("toast.options.action?.onPress();"),
+      toast.indexOf("action.onPress();"),
     );
 
     expect(confirmation).toContain("onDismiss?: () => void;");
     expect(confirmation).toContain("onDismiss={onDismiss}");
     expect(confirmation).toContain("if (!visible) return;");
+  });
+
+  test("keeps the toast pill at 48pt without shrinking its touch targets", () => {
+    const toast = readMobileSource("components/MobileToast.tsx");
+    const inline = readMobileSource("components/MobileInlineToast.tsx");
+    const notice = readMobileSource(
+      "components/reader/MobileReaderConnectivityNotice.tsx",
+    );
+
+    // `NemuButton` and `minimumTouchTarget` grow their frame to 44/48pt,
+    // which would push the 48pt pill to 60. The action keeps the shared
+    // `secondary` depth surface at 28pt and restores the target with
+    // negative margins plus hitSlop instead.
+    expect(toast).not.toContain("<NemuButton");
+    expect(toast).not.toContain("minimumTouchTarget");
+    expect(toast).toContain('buttonDepth="secondary"');
+    expect(toast).toContain("hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}");
+    expect(toast).toContain("hitSlop={6}");
+    expect(toast).toMatch(/actionTarget:\s*\{[\s\S]*?marginVertical:\s*-6,/);
+    expect(toast).toMatch(/actionPill:\s*\{[\s\S]*?minHeight:\s*28,/);
+    expect(toast).toMatch(/dismiss:\s*\{[\s\S]*?width:\s*32,[\s\S]*?height:\s*32,/);
+    expect(toast).toMatch(/pillContent:\s*\{[\s\S]*?minHeight:\s*48,/);
+
+    // One surface: the in-sheet toast and the reader notice both render it.
+    expect(inline).toContain("<MobileToastSurface");
+    expect(notice).toContain("<MobileToastSurface");
   });
 
   test("serializes Library sheet swaps without remounting the closing host", () => {

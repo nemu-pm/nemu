@@ -39,7 +39,17 @@ function SkeletonLine({
   );
 }
 
-function SkeletonIcon({ subtle = true }: { subtle?: boolean }) {
+/**
+ * Settings icon frames are 24pt for menu rows, 34pt for source artwork and
+ * 40pt for plugin artwork; the skeleton mirrors whichever row it stands in for.
+ */
+function SkeletonIcon({
+  size = 24,
+  subtle = true,
+}: {
+  size?: 24 | 34 | 40;
+  subtle?: boolean;
+}) {
   const { tokens } = useNemuTheme();
 
   return (
@@ -47,6 +57,8 @@ function SkeletonIcon({ subtle = true }: { subtle?: boolean }) {
       style={[
         styles.icon,
         {
+          width: size,
+          height: size,
           backgroundColor: subtle ? tokens.sourceIconGlass : tokens.muted,
           borderColor: tokens.border,
         },
@@ -87,7 +99,7 @@ function SettingsRowSkeleton({ action }: { action?: "buttons" | "switch" }) {
 
   return (
     <GlassSurface style={styles.rowShell} contentStyle={styles.sourceRow}>
-      <SkeletonIcon />
+      <SkeletonIcon size={action === "switch" ? 40 : 34} />
       <View style={styles.rowCopy}>
         <SkeletonLine width="68%" height={14} />
         <SkeletonLine width="54%" height={12} subtle />
@@ -240,7 +252,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   cardShell: {
-    borderRadius: radius.xl,
+    minHeight: 68,
+    borderRadius: radius.lg,
   },
   cardContent: {
     gap: 14,
@@ -252,15 +265,11 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   icon: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
-    opacity: 0.8,
   },
   line: {
     borderRadius: radius.sm,
-    opacity: 0.78,
   },
   rowCopy: {
     flex: 1,
@@ -277,7 +286,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    opacity: 0.78,
   },
   section: {
     gap: 12,
@@ -300,14 +308,16 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   rowShell: {
-    minHeight: 90,
-    borderRadius: radius.xl,
+    // Installed source and plugin rows are 72pt tall in the real screen.
+    minHeight: 72,
+    borderRadius: radius.lg,
   },
   sourceRow: {
+    minHeight: 72,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 14,
+    gap: 10,
+    padding: 12,
   },
   rowActions: {
     flexDirection: "row",
@@ -318,7 +328,6 @@ const styles = StyleSheet.create({
     width: 50,
     height: 30,
     borderRadius: 15,
-    opacity: 0.78,
   },
   segmented: {
     flexDirection: "row",
@@ -339,11 +348,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   footerShell: {
-    minHeight: 50,
-    borderRadius: radius.xl,
+    minHeight: 68,
+    borderRadius: radius.lg,
   },
   footerRow: {
-    minHeight: 50,
+    minHeight: 68,
     flexDirection: "row",
     alignItems: "center",
     gap: 11,

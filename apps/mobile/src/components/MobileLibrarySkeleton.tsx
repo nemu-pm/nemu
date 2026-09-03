@@ -43,7 +43,6 @@ export function MobileLibrarySkeleton({
             <Animated.View
               style={[
                 styles.cover,
-                styles.pulsing,
                 {
                   backgroundColor: skeletonColor,
                   borderColor: tokens.coverBorder,
@@ -61,14 +60,19 @@ export function MobileLibrarySkeleton({
               <Animated.View
                 style={[
                   styles.titleLine,
-                  styles.pulsing,
+                  { backgroundColor: skeletonColor, opacity: skeletonOpacity },
+                ]}
+              />
+              <Animated.View
+                style={[
+                  styles.titleLine,
+                  styles.titleLineSecond,
                   { backgroundColor: skeletonColor, opacity: skeletonOpacity },
                 ]}
               />
               <Animated.View
                 style={[
                   styles.subtitleLine,
-                  styles.pulsing,
                   {
                     backgroundColor: subtleSkeletonColor,
                     opacity: skeletonOpacity,
@@ -107,17 +111,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   titleLine: {
-    height: 17,
-    width: "88%",
+    // MangaCard renders a 13/17 title over at most two lines; the skeleton
+    // reserves the same two glyph heights so nothing shifts when data lands.
+    height: 13,
+    width: "92%",
     borderRadius: radius.sm,
+  },
+  titleLineSecond: {
+    width: "60%",
+    marginTop: 4,
   },
   subtitleLine: {
-    height: 15,
-    width: "62%",
+    height: 12,
+    width: "45%",
     marginTop: 6,
     borderRadius: radius.sm,
-  },
-  pulsing: {
-    opacity: 0.78,
   },
 });
