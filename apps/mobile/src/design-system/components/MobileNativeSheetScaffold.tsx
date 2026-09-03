@@ -22,7 +22,6 @@ import {
   BottomSheetScrollView,
   type BottomSheetMethods,
 } from "@expo/ui/community/bottom-sheet";
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { nemuFontWeight } from "@/design/typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNemuTheme } from "@/design/useNemuTheme";
@@ -36,6 +35,7 @@ import {
   shouldBoundMobileNativeSheetForPlatform,
 } from "@/lib/mobileNativeSheet";
 import { NemuPressable } from "./NemuPressable";
+import { NemuNativeSheetHeaderAction } from "./NemuNativeSheetHeaderAction";
 import { MobileSheetHeader } from "./MobileSheetHeader";
 
 type MobileNativeSheetScaffoldProps = {
@@ -51,6 +51,7 @@ type MobileNativeSheetScaffoldProps = {
   headerTrailing?: ReactNode;
   dismissLabel?: string;
   dismissDisabled?: boolean;
+  dismissAsIcon?: boolean;
   showDismissButton?: boolean;
   snapPoints?: (string | number)[];
   scroll?: boolean;
@@ -93,6 +94,7 @@ export function MobileNativeSheetScaffold({
   headerTrailing,
   dismissLabel,
   dismissDisabled = false,
+  dismissAsIcon = false,
   showDismissButton,
   snapPoints,
   scroll = false,
@@ -354,50 +356,52 @@ export function MobileNativeSheetScaffold({
             trailing={
               headerTrailing ??
               (shouldRenderDismissButton ? (
-                <NemuPressable
-                  accessibilityLabel={resolvedDismissLabel}
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: dismissDisabled }}
-                  disabled={dismissDisabled}
-                  hapticFeedback="none"
-                  onPress={requestSheetClose}
-                  pressedScale={0.97}
-                  containerStyle={[
-                    styles.dismissButtonHitArea,
-                    {
-                      minHeight: headerMetrics.controlSize,
-                      minWidth: headerMetrics.controlSize,
-                    },
-                  ]}
-                  style={[
-                    styles.dismissButton,
-                    { opacity: dismissDisabled ? 0.48 : 1 },
-                  ]}
-                >
-                  {headerMetrics.showActionLabels ? (
-                    <Text
-                      maxFontSizeMultiplier={
-                        SHEET_CHROME_MAX_FONT_SIZE_MULTIPLIER
-                      }
-                      numberOfLines={1}
-                      style={[
-                        styles.dismissText,
-                        styles.androidDismissText,
-                        { color: tokens.primary },
-                      ]}
-                    >
-                      {resolvedDismissLabel}
-                    </Text>
-                  ) : (
-                    <Ionicons
-                      accessibilityElementsHidden
-                      importantForAccessibility="no"
-                      name="close-outline"
-                      size={20}
-                      color={tokens.primary}
-                    />
-                  )}
-                </NemuPressable>
+                Platform.OS === "ios" || dismissAsIcon ? (
+                  <NemuNativeSheetHeaderAction
+                    accessibilityLabel={resolvedDismissLabel}
+                    androidIcon="close-outline"
+                    iosSystemImage="xmark"
+                    disabled={dismissDisabled}
+                    onPress={requestSheetClose}
+                  />
+                ) : (
+                  <NemuPressable
+                    accessibilityLabel={resolvedDismissLabel}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: dismissDisabled }}
+                    disabled={dismissDisabled}
+                    hapticFeedback="none"
+                    onPress={requestSheetClose}
+                    pressedScale={0.97}
+                    containerStyle={[
+                      styles.dismissButtonHitArea,
+                      {
+                        minHeight: headerMetrics.controlSize,
+                        minWidth: headerMetrics.controlSize,
+                      },
+                    ]}
+                    style={[
+                      styles.dismissButton,
+                      { opacity: dismissDisabled ? 0.48 : 1 },
+                    ]}
+                  >
+                    {headerMetrics.showActionLabels ? (
+                      <Text
+                        maxFontSizeMultiplier={
+                          SHEET_CHROME_MAX_FONT_SIZE_MULTIPLIER
+                        }
+                        numberOfLines={1}
+                        style={[
+                          styles.dismissText,
+                          styles.androidDismissText,
+                          { color: tokens.primary },
+                        ]}
+                      >
+                        {resolvedDismissLabel}
+                      </Text>
+                    ) : null}
+                  </NemuPressable>
+                )
               ) : null)
             }
           />

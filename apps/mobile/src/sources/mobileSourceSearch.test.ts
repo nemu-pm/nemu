@@ -222,6 +222,23 @@ describe("mobile source search", () => {
     );
   });
 
+  test("does not queue source work for an already-aborted search", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let settingsCalls = 0;
+
+    await expect(
+      searchMobileSource(installedSource(), "blue", {
+        signal: controller.signal,
+        getSourceSettings: async () => {
+          settingsCalls += 1;
+          return {};
+        },
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(settingsCalls).toBe(0);
+  });
+
   test("selects installed sources when saved selection uses a source alias", () => {
     const source = installedSource({
       id: "aidoku-community:registry-id",

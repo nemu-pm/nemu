@@ -2,7 +2,9 @@ import { File, Paths } from "expo-file-system";
 import type { MobileRegistrySource } from "./aidokuRegistry";
 import {
   decodeRegistryIndexCache,
+  decodeRegistryIndexCacheSnapshot,
   encodeRegistryIndexCache,
+  type MobileRegistryIndexCacheSnapshot,
 } from "./mobileRegistryIndexCache";
 
 // Native registry-index cache: a single JSON file in the OS cache directory.
@@ -17,6 +19,15 @@ export async function loadCachedRegistryIndex(): Promise<MobileRegistrySource[] 
   try {
     if (!registryIndexCacheFile.exists) return null;
     return decodeRegistryIndexCache(await registryIndexCacheFile.text());
+  } catch {
+    return null;
+  }
+}
+
+export async function loadCachedRegistryIndexSnapshot(): Promise<MobileRegistryIndexCacheSnapshot | null> {
+  try {
+    if (!registryIndexCacheFile.exists) return null;
+    return decodeRegistryIndexCacheSnapshot(await registryIndexCacheFile.text());
   } catch {
     return null;
   }

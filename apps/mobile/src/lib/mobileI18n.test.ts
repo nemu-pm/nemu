@@ -238,6 +238,12 @@ describe("mobile i18n helpers", () => {
     expect(getMobileStrings("zh").browse.installingSourceDescription).toBe(
       "正在安装 {{name}}…",
     );
+    expect(getMobileStrings("zh").browse.installedSource).toBe(
+      "已安装 {{name}}",
+    );
+    expect(getMobileStrings("zh").browse.adultSourcesSwitch).toBe(
+      "敏感内容来源",
+    );
     expect(getMobileStrings("zh").browse.warningCloudflare).toContain(
       "内置原生网络",
     );
@@ -412,7 +418,7 @@ describe("mobile i18n helpers", () => {
       ),
     ).toBe("Dual Reader の設定を編集");
     expect(getMobileStrings("ja").browse.adultSourcesSwitch).toBe(
-      "成人向けソース",
+      "センシティブなコンテンツ",
     );
     expect(
       formatMobileString(getMobileStrings("zh").sourceManager.addSourceResult, {

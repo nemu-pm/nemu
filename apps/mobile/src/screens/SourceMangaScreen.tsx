@@ -21,6 +21,7 @@ import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
   MobileMangaChapterRow,
   MobileMangaChapterSectionHeader,
+  MobileMangaChapterToolbar,
 } from "@/components/MobileMangaChapterSection";
 import { MobileMangaDetailSurface } from "@/components/MobileMangaDetailSurface";
 import { MobileMangaPageSkeleton } from "@/components/MobileMangaPageSkeleton";
@@ -60,6 +61,13 @@ import {
   MOBILE_CHAPTER_LIST_PERFORMANCE,
   buildMobileChapterRows,
 } from "@/lib/mobileChapterRows";
+import {
+  DEFAULT_MOBILE_CHAPTER_LIST_PREFERENCE,
+  filterAndSortMobileChapters,
+  getMobileChapterLanguages,
+  normalizeMobileChapterListPreference,
+  type MobileChapterListPreference,
+} from "@/lib/mobileChapterFilters";
 import {
   formatMobileString,
   getMobileStrings,
@@ -112,6 +120,14 @@ import {
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import { takeMobileSourceDetailSeed } from "@/lib/mobileSourceDetailSeed";
+import { withMobileSourceOperationTimeout } from "@/sources/mobileSourceOperationTimeout";
+import { normalizeReaderProcessPageImages } from "@/lib/mobileReaderSettings";
+import { refreshMobileReaderPages } from "@/sources/mobileSourcePages";
+import {
+  disposeMobileReaderPagesPrefetchResult,
+  makeMobileReaderPagesPrefetchKey,
+  mobileReaderPagesPrefetchCache,
+} from "@/sources/mobileReaderPagesPrefetch";
 import {
   refreshMobileSourceDetails,
   resolveMobileSourceMangaMetadataTitle,
@@ -265,6 +281,28 @@ export function SourceMangaScreen() {
     status: "idle",
     detail: strings.sourceManga.detailsNotLoaded,
   });
+  const [chapterListPreference, setChapterListPreference] =
+    useState<MobileChapterListPreference>(
+      DEFAULT_MOBILE_CHAPTER_LIST_PREFERENCE,
+    );
+  const chapterListPreferenceKey = `${registryId}:${sourceId}:${mangaId}`;
+  useEffect(() => {
+    let active = true;
+    void store
+      .getSettings()
+      .then((settings) => {
+        if (!active) return;
+        setChapterListPreference(
+          normalizeMobileChapterListPreference(
+            settings.mobileChapterListPreferences?.[chapterListPreferenceKey],
+          ),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [chapterListPreferenceKey, store]);
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
   const [removing, setRemoving] = useState(false);
@@ -413,10 +451,11 @@ export function SourceMangaScreen() {
           return;
         }
 
-        const refreshed = await refreshMobileSourceDetails(
-          installedSource,
-          mangaId,
-          {
+        const refreshed = await withMobileSourceOperationTimeout(
+          refreshMobileSourceDetails(
+            installedSource,
+            mangaId,
+            {
             getSourceSettings: async (_sourceKey, sourceRecord) => {
               const normalized = normalizeInstalledSource(sourceRecord);
               const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
@@ -429,8 +468,10 @@ export function SourceMangaScreen() {
                 saved?.values,
               );
             },
-            onSourcePackageHydrated: saveSourcePackageHydration,
-          },
+              onSourcePackageHydrated: saveSourcePackageHydration,
+            },
+          ),
+          { message: strings.sourceBrowse.sourceOperationTimedOut },
         );
 
         if (cancelled) return;
@@ -585,9 +626,56 @@ export function SourceMangaScreen() {
     () => (detailState.status === "ready" ? detailState.chapters : []),
     [detailState],
   );
-  const chapterRows = useMemo(
-    () => buildMobileChapterRows(chapters),
+  const chapterLanguages = useMemo(
+    () => getMobileChapterLanguages(chapters),
     [chapters],
+  );
+  const effectiveChapterListPreference = useMemo(
+    () => ({
+      ...chapterListPreference,
+      languages: chapterListPreference.languages.filter((language) =>
+        chapterLanguages.includes(language),
+      ),
+    }),
+    [chapterLanguages, chapterListPreference],
+  );
+  const visibleChapters = useMemo(
+    () =>
+      filterAndSortMobileChapters(
+        chapters,
+        localState.chapterProgress,
+        effectiveChapterListPreference,
+      ),
+    [chapters, effectiveChapterListPreference, localState.chapterProgress],
+  );
+  const unreadChapterCount = useMemo(
+    () =>
+      chapters.reduce(
+        (count, chapter) =>
+          count + (localState.chapterProgress[chapter.id]?.completed ? 0 : 1),
+        0,
+      ),
+    [chapters, localState.chapterProgress],
+  );
+  const chapterRows = useMemo(
+    () => buildMobileChapterRows(visibleChapters),
+    [visibleChapters],
+  );
+  const changeChapterListPreference = useCallback(
+    (nextPreference: MobileChapterListPreference) => {
+      setChapterListPreference(nextPreference);
+      void store
+        .updateSettings((settings) => ({
+          ...settings,
+          mobileChapterListPreferences: {
+            ...settings.mobileChapterListPreferences,
+            [chapterListPreferenceKey]: nextPreference,
+          },
+        }))
+        .then(() => emitMobileDataChanged("settings"))
+        .catch(() => undefined);
+    },
+    [chapterListPreferenceKey, store],
   );
   const continueTarget = getMobileSourceMangaContinueTarget(
     chapters,
@@ -664,6 +752,41 @@ export function SourceMangaScreen() {
       }
       openingReaderRef.current = true;
       setOpeningReader(true);
+      const installedSource = localState.installedSource;
+      if (installedSource) {
+        void Promise.all([
+          store.getSettings(),
+          loadMobileSourceSettingsByKeys(store, [
+            makeMobileRuntimeSourceKey(normalizeInstalledSource(installedSource)),
+            ...getMobileInstalledSourceSettingsKeys(installedSource),
+          ]),
+        ]).then(([settings, saved]) => {
+          const processPageImages = normalizeReaderProcessPageImages(
+            settings.readerProcessPageImages,
+          );
+          const key = makeMobileReaderPagesPrefetchKey({
+            registryId: routeRef.registryId,
+            sourceId: routeRef.sourceId,
+            mangaId,
+            chapterId: chapter.id,
+            processPageImages,
+          });
+          mobileReaderPagesPrefetchCache.start(
+            key,
+            () =>
+              refreshMobileReaderPages(installedSource, mangaId, chapter, {
+                processPageImages,
+                getSourceSettings: async () =>
+                  mergeSourceSettingValues(
+                    installedSource.packageMetadata?.settings ?? [],
+                    saved?.values,
+                  ),
+                onSourcePackageHydrated: saveSourcePackageHydration,
+              }),
+            disposeMobileReaderPagesPrefetchResult,
+          );
+        }).catch(() => undefined);
+      }
       try {
         router.push(
           getMobileSourceReaderHref({
@@ -682,9 +805,12 @@ export function SourceMangaScreen() {
     },
     [
       getGuardedReaderActionState,
+      localState.installedSource,
       mangaId,
       routeRef.registryId,
       routeRef.sourceId,
+      saveSourcePackageHydration,
+      store,
       title,
     ],
   );
@@ -969,6 +1095,7 @@ export function SourceMangaScreen() {
             progressByChapterId={localState.chapterProgress}
             strings={strings}
             onPressChapter={openReader}
+            showLanguage={chapterLanguages.length > 1}
           />
         )}
         ListHeaderComponent={
@@ -1385,7 +1512,18 @@ export function SourceMangaScreen() {
               <MobileMangaChapterSectionHeader
                 title={strings.sourceManga.chapters}
                 loading={detailState.status === "loading"}
-                hasChapters={chapters.length > 0}
+                hasChapters={visibleChapters.length > 0}
+                toolbar={
+                  chapters.length > 0 ? (
+                    <MobileMangaChapterToolbar
+                      languages={chapterLanguages}
+                      preference={effectiveChapterListPreference}
+                      strings={strings}
+                      unreadCount={unreadChapterCount}
+                      onChange={changeChapterListPreference}
+                    />
+                  ) : null
+                }
                 emptyTitle={
                   detailState.status === "loading"
                     ? detailState.detail

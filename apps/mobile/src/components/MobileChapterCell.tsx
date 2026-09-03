@@ -27,6 +27,7 @@ type MobileChapterCellProps = {
   progress: LocalChapterProgress | undefined;
   strings: MobileStrings;
   onPress: () => void;
+  showLanguage?: boolean;
 };
 
 export function MobileChapterCell({
@@ -36,6 +37,7 @@ export function MobileChapterCell({
   progress,
   strings,
   onPress,
+  showLanguage = false,
 }: MobileChapterCellProps) {
   const { tokens } = useNemuTheme();
   const chapterPresentation = getMobileChapterPresentation(chapter, progress);
@@ -58,6 +60,13 @@ export function MobileChapterCell({
     .filter(Boolean)
     .join(". ");
   const chapterDisabled = chapterPresentation.isLocked || busy;
+  const baseSubtitle = formatChapterSubtitle(chapter);
+  const chapterSubtitle = [
+    baseSubtitle,
+    showLanguage ? chapter.lang?.toUpperCase() : null,
+  ]
+    .filter(Boolean)
+    .join(" · ") || null;
   const cellShadow = createNemuShadowStyle({
     color: tokens.shadow,
     offsetY: 1,
@@ -80,7 +89,11 @@ export function MobileChapterCell({
         {
           backgroundColor: cellPalette.backgroundColor,
           borderColor: cellPalette.borderColor,
-          opacity: chapterDisabled ? 0.72 : 1,
+          opacity: chapterPresentation.isRead
+            ? 0.55
+            : chapterDisabled
+              ? 0.72
+              : 1,
         },
       ]}
     >
@@ -88,12 +101,12 @@ export function MobileChapterCell({
         <Text numberOfLines={1} style={[styles.title, { color: cellPalette.titleColor }]}>
           {formatChapterTitle(chapter, strings)}
         </Text>
-        {formatChapterSubtitle(chapter) ? (
+        {chapterSubtitle ? (
           <Text
             numberOfLines={1}
             style={[styles.subtitle, { color: tokens.mutedForeground }]}
           >
-            {formatChapterSubtitle(chapter)}
+            {chapterSubtitle}
           </Text>
         ) : null}
       </View>
@@ -102,6 +115,9 @@ export function MobileChapterCell({
         locked={chapterPresentation.isLocked}
         showChevron={false}
       />
+      {!chapterPresentation.isRead ? (
+        <View style={[styles.unreadDot, { backgroundColor: tokens.primary }]} />
+      ) : null}
     </NemuPressable>
   );
 }
@@ -130,5 +146,13 @@ const styles = StyleSheet.create({
     marginTop: 1,
     fontSize: 11,
     lineHeight: 14,
+  },
+  unreadDot: {
+    position: "absolute",
+    top: 7,
+    right: 7,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
 });

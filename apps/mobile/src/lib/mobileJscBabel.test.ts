@@ -210,7 +210,7 @@ describe("mobile JSC Babel compatibility", () => {
     });
   });
 
-  test("links EAS from CI without hard-coding account metadata", () => {
+  test("uses the linked EAS project and allows a CI project override", () => {
     const appConfig = JSON.parse(
       readFileSync(path.join(import.meta.dir, "../../app.json"), "utf8"),
     ) as { expo: Record<string, unknown> };
@@ -220,6 +220,12 @@ describe("mobile JSC Babel compatibility", () => {
       extra?: { nemuJsEngine?: string; eas?: { projectId?: string } };
     };
     const previousProjectId = process.env.EAS_PROJECT_ID;
+
+    expect(appConfig.expo.owner).toBe("nemu-pm");
+    expect(
+      (appConfig.expo.extra as { eas?: { projectId?: string } } | undefined)
+        ?.eas?.projectId,
+    ).toBe("14ee8845-644a-4721-88fc-e0dacbce4aca");
 
     try {
       process.env.EAS_PROJECT_ID = "00000000-0000-4000-8000-000000000000";

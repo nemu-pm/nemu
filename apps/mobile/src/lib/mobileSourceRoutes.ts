@@ -108,6 +108,18 @@ export function getMobileSourceBrowseHref({
   return `/browse/${encodeRouteSegment(registryId)}/${encodeRouteSegment(sourceId)}` as Href;
 }
 
+export function getMobileSourceBrowseSearchHref({
+  registryId,
+  sourceId,
+  query,
+}: MobileSourceRouteRef & { query: string }): Href {
+  const path = getMobileSourceBrowseHref({ registryId, sourceId });
+  const normalizedQuery = query.trim();
+  return (normalizedQuery
+    ? `${path}?q=${encodeURIComponent(normalizedQuery)}`
+    : path) as Href;
+}
+
 export function getMobileSourceMangaHref({
   registryId,
   sourceId,

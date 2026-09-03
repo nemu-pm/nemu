@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import Animated, {
   FadeInDown,
   FadeOutDown,
@@ -92,7 +92,11 @@ function MobileToastHost({
         contentStyle={styles.pillContent}
       >
         <View style={styles.row}>
-          <Ionicons name={toneIcons[tone]} size={18} color={iconColor} />
+          {toast.options.loading ? (
+            <ActivityIndicator size="small" color={iconColor} />
+          ) : (
+            <Ionicons name={toneIcons[tone]} size={18} color={iconColor} />
+          )}
           <View style={styles.texts}>
             <NemuText variant="rowTitle" numberOfLines={1}>
               {toast.options.title}
@@ -109,8 +113,8 @@ function MobileToastHost({
               variant="secondary"
               label={toast.options.action.label}
               onPress={() => {
-                toast.options.action?.onPress();
                 onDismiss(toast.id);
+                toast.options.action?.onPress();
               }}
             />
           ) : (

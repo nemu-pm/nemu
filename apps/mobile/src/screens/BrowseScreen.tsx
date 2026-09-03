@@ -15,13 +15,16 @@ import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileBrowseSkeleton } from "@/components/MobileBrowseSkeleton";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
+import { MobileInlineToast } from "@/components/MobileInlineToast";
 import { MobilePageEmpty } from "@/components/MobilePageEmpty";
-import { MobileSourceInstallSheet } from "@/components/MobileSourceInstallSheet";
+import { useMobileToast } from "@/components/MobileToastContext";
 import {
   NemuButton,
   GlassSurface,
   MobileCachedImage,
   MobileNativeSheetScaffold,
+  NemuNativeSheetHeaderAction,
+  NemuNativeSwitch,
   NemuTextFieldClearAction,
   NemuPressable,
   PageHeader,
@@ -98,8 +101,7 @@ type BrowseSheet = "add-source" | "source-language";
 
 type AddSourceDismissAction =
   | { type: "open-language" }
-  | { type: "open-confirmation"; confirmation: BrowseConfirmation }
-  | { type: "start-install"; source: MobileRegistrySource };
+  | { type: "open-confirmation"; confirmation: BrowseConfirmation };
 
 type ConfirmationDismissAction =
   | { type: "reopen-add-source" }
@@ -263,14 +265,6 @@ function sourceActionErrorPresentation(
   return { title: presentation.title, detail: presentation.detail };
 }
 
-function waitForInstallSheetFrame() {
-  return new Promise<void>((resolve) => {
-    requestAnimationFrame(() => {
-      resolve();
-    });
-  });
-}
-
 function colorWithOpacity(color: string, opacity: number) {
   const hexMatch = /^#([0-9a-f]{6})$/i.exec(color);
   if (!hexMatch) return color;
@@ -281,75 +275,15 @@ function colorWithOpacity(color: string, opacity: number) {
   return `${color}${alpha}`;
 }
 
-function LanguageFilterMenu({
-  languages,
-  selectedLanguages,
-  strings,
-  appLanguage,
-  onOpenLanguageList,
-}: {
-  languages: string[];
-  selectedLanguages: Set<string>;
-  strings: MobileStrings;
-  appLanguage: string;
-  onOpenLanguageList: () => void;
-}) {
-  const { tokens } = useNemuTheme();
-  const visibleLanguages = languages.filter((language) => language !== "all");
-  if (visibleLanguages.length === 0) return null;
-  const allLanguagesSelected = selectedLanguages.size === 0;
-  const selectedLabel = formatLanguageSelectionLabel(
-    selectedLanguages,
-    strings,
-    appLanguage,
-  );
-
-  return (
-    <NemuPressable
-      accessibilityLabel={formatMobileString(
-        strings.browse.languageFilterOption,
-        {
-          language: selectedLabel,
-        },
-      )}
-      accessibilityRole="button"
-      buttonDepth={allLanguagesSelected ? "secondary" : "primary"}
-      onPress={() => {
-        void hapticSelection();
-        onOpenLanguageList();
-      }}
-      pressedScale={0.98}
-      style={styles.languageFallbackButton}
-    >
-      <Ionicons
-        name="language-outline"
-        size={15}
-        color={
-          allLanguagesSelected
-            ? tokens.mutedForeground
-            : tokens.primaryForeground
-        }
-      />
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.languageFallbackText,
-          {
-            color: allLanguagesSelected
-              ? tokens.foreground
-              : tokens.primaryForeground,
-          },
-        ]}
-      >
-        {selectedLabel}
-      </Text>
-      <Ionicons
-        name="chevron-down-outline"
-        size={14}
-        color={allLanguagesSelected ? tokens.primary : tokens.primaryForeground}
-      />
-    </NemuPressable>
-  );
+function formatCatalogCacheAge(savedAt: number | null, appLanguage: string): string | null {
+  if (!savedAt || savedAt > Date.now()) return null;
+  const elapsedMinutes = Math.max(1, Math.round((Date.now() - savedAt) / 60_000));
+  const locale = appLanguage === "zh" ? "zh-CN" : appLanguage === "ja" ? "ja-JP" : "en-US";
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  if (elapsedMinutes < 60) return formatter.format(-elapsedMinutes, "minute");
+  const hours = Math.round(elapsedMinutes / 60);
+  if (hours < 24) return formatter.format(-hours, "hour");
+  return formatter.format(-Math.round(hours / 24), "day");
 }
 
 function LanguageFilterOptionRow({
@@ -414,6 +348,8 @@ function LanguageFilterSheetSection({
   appLanguage,
   onSelectAll,
   onToggleLanguage,
+  showAdult,
+  onToggleAdult,
 }: {
   languages: string[];
   selectedLanguages: Set<string>;
@@ -421,7 +357,10 @@ function LanguageFilterSheetSection({
   appLanguage: string;
   onSelectAll: () => void;
   onToggleLanguage: (language: string) => void;
+  showAdult: boolean;
+  onToggleAdult: () => void;
 }) {
+  const { tokens } = useNemuTheme();
   const visibleLanguages = languages.filter((language) => language !== "all");
   const allLanguagesSelected = selectedLanguages.size === 0;
   const pinnedLanguages = visibleLanguages.filter(
@@ -516,6 +455,23 @@ function LanguageFilterSheetSection({
           })}
         </GlassSurface>
       ) : null}
+      <GlassSurface
+        style={styles.languageListSection}
+        contentStyle={styles.languageListContent}
+      >
+        <View style={styles.languageOptionRow}>
+          <Text
+            style={[styles.languageOptionText, { color: tokens.foreground }]}
+          >
+            {strings.browse.adult}
+          </Text>
+          <NemuNativeSwitch
+            accessibilityLabel={strings.browse.adultSourcesSwitch}
+            value={showAdult}
+            onValueChange={onToggleAdult}
+          />
+        </View>
+      </GlassSurface>
     </>
   );
 }
@@ -711,8 +667,6 @@ export function BrowseScreen() {
   const [confirmationVisible, setConfirmationVisible] = useState(false);
   const confirmationDismissActionRef =
     useRef<ConfirmationDismissAction | null>(null);
-  const returnToAddSourceAfterInstallRef = useRef(false);
-  const installSheetDismissedRef = useRef(false);
   const [pendingInstallKey, setPendingInstallKey] = useState<string | null>(
     null,
   );
@@ -727,6 +681,7 @@ export function BrowseScreen() {
   const installed = useInstalledSources();
   const available = useAvailableSources();
   const installer = useSourceInstaller();
+  const toast = useMobileToast();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const usesNativeHeader = usesNemuNativeHeader;
@@ -735,15 +690,6 @@ export function BrowseScreen() {
     () => buildMobileInstalledSourceKeySet(installed.data),
     [installed.data],
   );
-
-  const availableByKey = useMemo(() => {
-    return new Map(
-      available.data.map((source) => [
-        makeSourceKey(source.registryId, source.id),
-        source,
-      ]),
-    );
-  }, [available.data]);
 
   const installedSources = useMemo<InstalledSourceCardModel[]>(() => {
     const merged = mergeMobileInstalledSourceRegistryMetadata(
@@ -801,7 +747,9 @@ export function BrowseScreen() {
   );
 
   const loading = installed.loading || available.loading;
-  const error = installed.error ?? available.error;
+  // Registry discovery enriches the Add Source sheet, but it must never hide
+  // already-installed sources on the main Browse screen.
+  const error = installed.error;
   const errorPresentation = useMemo(
     () => (error ? getMobileSourceErrorPresentation(error, strings) : null),
     [error, strings],
@@ -813,28 +761,22 @@ export function BrowseScreen() {
     hasError: Boolean(error),
   });
   const activeInstallKey = pendingInstallKey ?? installer.installingKey;
-  const activeInstallSource = activeInstallKey
-    ? (availableByKey.get(activeInstallKey) ?? null)
-    : null;
-  const activeInstallSourceName = activeInstallSource?.name;
   const refreshDisabled = refreshingSources || activeInstallKey !== null;
+  const catalogCacheAge = formatCatalogCacheAge(
+    available.catalogCachedAt,
+    appLanguage,
+  );
+  const selectedFilterLabel = formatLanguageSelectionLabel(
+    selectedLanguages,
+    strings,
+    appLanguage,
+  );
+  const activeFilterCount = selectedLanguages.size + (showAdult ? 1 : 0);
 
   const restoreAddSourceSheet = useCallback(() => {
     setActiveSheet("add-source");
     setActiveSheetVisible(true);
   }, []);
-
-  const finishInstallSheetReturn = useCallback(() => {
-    if (!returnToAddSourceAfterInstallRef.current) return;
-    returnToAddSourceAfterInstallRef.current = false;
-    installSheetDismissedRef.current = false;
-    restoreAddSourceSheet();
-  }, [restoreAddSourceSheet]);
-
-  useEffect(() => {
-    if (activeInstallKey !== null || !installSheetDismissedRef.current) return;
-    finishInstallSheetReturn();
-  }, [activeInstallKey, finishInstallSheetReturn]);
 
   useEffect(() => {
     if (activeSheet !== "add-source") return;
@@ -883,7 +825,9 @@ export function BrowseScreen() {
     };
   }, [activeInstallKey, confirmation, strings]);
 
-  const installSource = async (source: MobileRegistrySource) => {
+  const installSource = async (
+    source: MobileRegistrySource,
+  ): Promise<void> => {
     const key = makeSourceKey(source.registryId, source.id);
     const guardedInstallKey =
       installGuardKeyRef.current ?? installer.installingKey;
@@ -892,19 +836,24 @@ export function BrowseScreen() {
     installGuardKeyRef.current = key;
     setPendingInstallKey(key);
     setActionError(null);
+    const installToastId = `source-install:${key}`;
+    toast.show({
+      id: installToastId,
+      title: formatMobileString(strings.browse.installingSourceDescription, {
+        name: source.name,
+      }),
+      loading: true,
+      duration: "sticky",
+      action: {
+        label: strings.common.cancel,
+        onPress: installer.cancelInstall,
+      },
+    });
     const installStartedAt = markMobilePerformance("source.install.start", {
       key,
       name: source.name,
     });
     try {
-      await waitForInstallSheetFrame();
-      measureMobilePerformance(
-        "source.install.sheet-visible",
-        installStartedAt,
-        {
-          key,
-        },
-      );
       if (source.icon) {
         void prefetchCachedMobileImages([{ uri: source.icon }]);
       }
@@ -927,11 +876,19 @@ export function BrowseScreen() {
       ) {
         setConfirmation(null);
       }
+      toast.show({
+        id: installToastId,
+        tone: "success",
+        title: formatMobileString(strings.browse.installedSource, {
+          name: source.name,
+        }),
+      });
       await hapticConfirm();
     } catch (error) {
-      // A user-requested cancel is not a failure; just close the sheet.
+      // A user-requested cancel is not a failure; remove the progress toast.
       if (isMobileSourceInstallCancellation(error)) {
         setConfirmation(null);
+        toast.dismiss(installToastId);
         return;
       }
       await hapticError();
@@ -941,7 +898,20 @@ export function BrowseScreen() {
       ) {
         setConfirmation(null);
       }
-      setActionError(sourceActionErrorPresentation(error, strings));
+      const presentation = sourceActionErrorPresentation(error, strings);
+      setActionError(presentation);
+      toast.show({
+        id: installToastId,
+        tone: "danger",
+        title: presentation.title,
+        detail: presentation.detail,
+        action: {
+          label: strings.common.retry,
+          onPress: () => {
+            void installSource(source);
+          },
+        },
+      });
     } finally {
       if (installGuardKeyRef.current === key) {
         installGuardKeyRef.current = null;
@@ -961,8 +931,7 @@ export function BrowseScreen() {
       return;
     }
 
-    returnToAddSourceAfterInstallRef.current = true;
-    installSheetDismissedRef.current = false;
+    restoreAddSourceSheet();
     void installSource(source);
   };
 
@@ -978,7 +947,7 @@ export function BrowseScreen() {
     setActionError(null);
     const warnings = getMobileSourceWarningMessages(source, strings.browse);
     if (warnings.length === 0) {
-      requestAddSourceDismissal({ type: "start-install", source });
+      void installSource(source);
       return;
     }
 
@@ -1117,9 +1086,6 @@ export function BrowseScreen() {
       setConfirmationVisible(true);
       return;
     }
-    if (next?.type === "start-install") {
-      startInstallAfterAddSourceDismissal(next.source);
-    }
   };
   const openLanguageSheet = () => {
     requestAddSourceDismissal({ type: "open-language" });
@@ -1148,16 +1114,6 @@ export function BrowseScreen() {
       return;
     }
     restoreAddSourceSheet();
-  };
-  const handleInstallSheetDismissed = () => {
-    if (!returnToAddSourceAfterInstallRef.current) return;
-    if (activeInstallKey !== null) {
-      // A native Cancel dismissal can complete before the installer observes
-      // its abort signal. Reopen only once both lifecycles are finished.
-      installSheetDismissedRef.current = true;
-      return;
-    }
-    finishInstallSheetReturn();
   };
   const nativeHeaderActions: NemuNativeHeaderAction[] = [
     {
@@ -1331,12 +1287,43 @@ export function BrowseScreen() {
           onDismiss={handleAddSourceSheetDismissed}
           title={strings.browse.addSources}
           dismissLabel={strings.common.done}
+          dismissAsIcon
+          headerLeading={
+            <NemuNativeSheetHeaderAction
+              accessibilityLabel={formatMobileString(
+                strings.browse.languageFilterOption,
+                { language: selectedFilterLabel },
+              )}
+              androidIcon="filter-outline"
+              iosSystemImage="line.3.horizontal.decrease"
+              badgeCount={activeFilterCount}
+              onPress={() => {
+                void hapticSelection();
+                openLanguageSheet();
+              }}
+            />
+          }
           snapPoints={Platform.OS === "android" ? ["100%"] : ["88%"]}
           fillContent
           contentBottomInset={0}
           testID="AddSourceSheet"
         >
           <View style={styles.addSourceSheetBody}>
+            {available.error ? (
+              <MobileInlineToast
+                title={strings.feedback.catalogUnavailableTitle}
+                detail={[
+                  strings.feedback.catalogUnavailableDetail,
+                  catalogCacheAge,
+                ].filter(Boolean).join(" · ")}
+                actionLabel={strings.common.retry}
+                actionDisabled={refreshingSources}
+                actionLoading={refreshingSources}
+                onActionPress={() => {
+                  void refreshSources();
+                }}
+              />
+            ) : null}
             <View
               style={[
                 styles.searchShell,
@@ -1375,34 +1362,37 @@ export function BrowseScreen() {
               ) : null}
             </View>
 
-            <View style={styles.sheetFilterControls}>
-              <LanguageFilterMenu
-                languages={languageOptions}
-                selectedLanguages={selectedLanguages}
-                strings={strings}
-                appLanguage={appLanguage}
-                onOpenLanguageList={openLanguageSheet}
-              />
-              <NemuPressable
-                accessibilityLabel={strings.browse.adultSourcesSwitch}
-                accessibilityRole="switch"
-                accessibilityState={{ checked: showAdult }}
-                buttonDepth={showAdult ? "primary" : "secondary"}
-                hapticFeedback="selection"
-                onPress={() => setShowAdult((value) => !value)}
-                style={styles.adultToggle}
-              >
-                <Ionicons
-                  name={showAdult ? "eye-outline" : "eye-off-outline"}
-                  size={16}
-                  color={
-                    showAdult
-                      ? tokens.primaryForeground
-                      : tokens.mutedForeground
-                  }
-                />
-              </NemuPressable>
-            </View>
+            {selectedLanguages.size > 0 || showAdult ? (
+              <View style={styles.activeFilterChips}>
+                {[...selectedLanguages].map((language) => (
+                  <NemuPressable
+                    key={language}
+                    accessibilityLabel={`${strings.common.remove} ${formatSourceLanguageLabel(language, strings, appLanguage)}`}
+                    onPress={() => toggleLanguage(language)}
+                    pressProfile="icon"
+                    style={[styles.activeFilterChip, { backgroundColor: tokens.muted }]}
+                  >
+                    <Text style={[styles.activeFilterChipText, { color: tokens.foreground }]}>
+                      {formatSourceLanguageLabel(language, strings, appLanguage)}
+                    </Text>
+                    <Ionicons name="close-outline" size={14} color={tokens.mutedForeground} />
+                  </NemuPressable>
+                ))}
+                {showAdult ? (
+                  <NemuPressable
+                    accessibilityLabel={`${strings.common.remove} ${strings.browse.adult}`}
+                    onPress={() => setShowAdult(false)}
+                    pressProfile="icon"
+                    style={[styles.activeFilterChip, { backgroundColor: tokens.muted }]}
+                  >
+                    <Text style={[styles.activeFilterChipText, { color: tokens.foreground }]}>
+                      {strings.browse.adult}
+                    </Text>
+                    <Ionicons name="close-outline" size={14} color={tokens.mutedForeground} />
+                  </NemuPressable>
+                ) : null}
+              </View>
+            ) : null}
 
             {actionError ? (
               <MobileInlineErrorBanner
@@ -1481,6 +1471,8 @@ export function BrowseScreen() {
             appLanguage={appLanguage}
             onSelectAll={() => setSelectedLanguages(new Set())}
             onToggleLanguage={toggleLanguage}
+            showAdult={showAdult}
+            onToggleAdult={() => setShowAdult((value) => !value)}
           />
         </MobileNativeSheetScaffold>
       ) : null}
@@ -1514,19 +1506,6 @@ export function BrowseScreen() {
         </MobileConfirmationSheet>
       ) : null}
 
-      <MobileSourceInstallSheet
-        visible={activeInstallKey !== null}
-        title={
-          activeInstallSourceName
-            ? formatMobileString(strings.browse.installingSourceDescription, {
-                name: activeInstallSourceName,
-              })
-            : strings.browse.installingSourceDescriptionGeneric
-        }
-        sourceIcon={activeInstallSource?.icon}
-        onCancel={installer.cancelInstall}
-        onDismiss={handleInstallSheetDismissed}
-      />
     </>
   );
 }
@@ -1540,10 +1519,23 @@ const styles = StyleSheet.create({
     minHeight: 0,
     gap: 14,
   },
-  sheetFilterControls: {
+  activeFilterChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  activeFilterChip: {
+    minHeight: 30,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 4,
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+  },
+  activeFilterChipText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: nemuFontWeight.medium,
   },
   sourceHeader: {
     minHeight: 32,
@@ -1661,30 +1653,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 50,
     fontSize: 15,
-  },
-  adultToggle: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 8,
-  },
-  languageFallbackButton: {
-    alignSelf: "flex-start",
-    maxWidth: 220,
-    minHeight: 34,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-  },
-  languageFallbackText: {
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.medium,
   },
   languageListSection: {
     borderRadius: radius.xl,

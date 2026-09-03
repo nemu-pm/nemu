@@ -277,6 +277,10 @@ import {
   makeMobileReaderPagesPrefetchKey,
   mobileReaderPagesPrefetchCache,
 } from "@/sources/mobileReaderPagesPrefetch";
+import {
+  loadMobileReaderPageListCache,
+  saveMobileReaderPageListCache,
+} from "@/sources/mobileReaderPageListCache";
 import { refreshMobileSourceMetadata } from "@/sources/mobileSourceDetails";
 import {
   makeMobileRuntimeSourceKey,
@@ -1822,6 +1826,7 @@ export function ReaderScreen() {
     return getCachedMobileImageUriSync({
       uri: page.imageUri,
       headers: page.headers,
+      cacheKind: "page",
     });
   }, [readerScrubPreviewPage]);
   const readerDisplayIndexByPageId = useMemo(() => {
@@ -4631,13 +4636,14 @@ export function ReaderScreen() {
       };
     }
 
-    const pagesRequestKey = `${makeMobileReaderPagesPrefetchKey({
+    const pageListCacheKey = makeMobileReaderPagesPrefetchKey({
       registryId,
       sourceId,
       mangaId,
       chapterId,
       processPageImages,
-    })}:${pagesRefreshNonce}:${appLanguage}`;
+    });
+    const pagesRequestKey = `${pageListCacheKey}:${pagesRefreshNonce}:${appLanguage}`;
     // Reading mode, theme, and similar settings writes re-run this effect via
     // the `loading` flip without changing what should be on screen. Only a
     // changed request key may reset the rendered pages.
@@ -4669,6 +4675,7 @@ export function ReaderScreen() {
     );
 
     void (async () => {
+      let restoredPersistedPageList = false;
       try {
         const installedSources = await store.getInstalledSources();
         const installedSource = installedSources.find((item) =>
@@ -4684,6 +4691,27 @@ export function ReaderScreen() {
             });
           }
           return;
+        }
+
+        const persisted = await loadMobileReaderPageListCache(pageListCacheKey);
+        if (
+          persisted &&
+          !cancelled &&
+          readerPagesRequestRunRef.current === requestRun
+        ) {
+          restoredPersistedPageList = true;
+          readerPagesLoadedKeyRef.current = pagesRequestKey;
+          setPagesState({
+            status: "ready",
+            pages: persisted.pages,
+            chapters: persisted.chapters,
+            detail: formatReaderLoadedPages(
+              persisted.pages.length,
+              effectStrings,
+            ),
+            fetchedAt: persisted.fetchedAt,
+            chapter: persisted.chapter,
+          });
         }
 
         // A background chapter-turn prefetch (started while the previous
@@ -4722,6 +4750,12 @@ export function ReaderScreen() {
         }
 
         readerPagesLoadedKeyRef.current = pagesRequestKey;
+        void saveMobileReaderPageListCache(pageListCacheKey, {
+          pages: refreshed.pages,
+          chapters: refreshed.chapters,
+          chapter: refreshed.chapter,
+          fetchedAt: refreshed.fetchedAt,
+        }).catch(() => undefined);
         setPagesState({
           status: "ready",
           pages: refreshed.pages,
@@ -4738,6 +4772,7 @@ export function ReaderScreen() {
         if (cancelled || readerPagesRequestRunRef.current !== requestRun) {
           return;
         }
+        if (restoredPersistedPageList) return;
         cloudflareSheetRef.current?.reportError(nextError);
         const presentation = getMobileSourceErrorPresentation(
           nextError,
@@ -5508,7 +5543,7 @@ export function ReaderScreen() {
         onImageError={(error) => setReaderImageLoadError(errorKey, error)}
         onRetry={() => {
           void invalidateCachedMobileImage(
-            { uri: page.imageUri, headers: page.headers },
+            { uri: page.imageUri, headers: page.headers, cacheKind: "page" },
             cacheKey,
           )
             .catch(() => undefined)

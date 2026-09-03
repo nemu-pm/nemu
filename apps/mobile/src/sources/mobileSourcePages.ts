@@ -728,17 +728,20 @@ export async function refreshMobileReaderPages(
         };
       }
 
-      const chapters = await session.source.getChapterList({ key: mangaId });
+      const requestedChapter = chapterFromSummary(chapter);
+      // The route already carries a safe chapter summary. Start its page-list
+      // request immediately instead of serially waiting for the full chapter
+      // index; the index still refreshes in parallel for adjacent navigation.
+      const [chapters, rawPages] = await Promise.all([
+        session.source.getChapterList({ key: mangaId }),
+        session.source.getPageList({ key: mangaId }, requestedChapter),
+      ]);
       const chapterSummaries = sortChapterSummaries(
         chapters.map(mapAidokuChapterToSummary),
       );
       const sourceChapter =
         chapters.find((item) => item.key === chapter.id) ??
-        chapterFromSummary(chapter);
-      const rawPages = await session.source.getPageList(
-        { key: mangaId },
-        sourceChapter,
-      );
+        requestedChapter;
       const shouldProcessPageImages = options.processPageImages === true;
       const hasProcessorContext =
         shouldProcessPageImages &&

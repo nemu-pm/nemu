@@ -294,6 +294,45 @@ describe("mobile source reader pages", () => {
     expect(disposed).toBe(true);
   });
 
+  test("starts the requested page list before the full chapter list resolves", async () => {
+    let chapterListResolved = false;
+    let pageListStartedBeforeChapterListResolved = false;
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getChapterList() {
+              await Promise.resolve();
+              chapterListResolved = true;
+              return [{ key: "c2", chapterNumber: 2 }];
+            },
+            async getPageList(_manga, chapter) {
+              pageListStartedBeforeChapterListResolved = !chapterListResolved;
+              return [
+                {
+                  index: 0,
+                  url: `https://example.test/${chapter.key}/001.jpg`,
+                },
+              ];
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      { executor: { bridge, readBytes: async () => makeAixPackage() } },
+    );
+
+    expect(result.status).toBe("ready");
+    expect(pageListStartedBeforeChapterListResolved).toBe(true);
+  });
+
   test("trusts only validated resolvePageImage data as app-owned", async () => {
     const bridge: MobileAidokuExecutorBridge = {
       async loadSource() {

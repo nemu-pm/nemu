@@ -18,6 +18,7 @@ import { MobileFeedbackSettingsBridge } from "@/components/MobileFeedbackSetting
 import { MobileToastProvider } from "@/components/MobileToast";
 import { MobileWelcomeWizard } from "@/components/MobileWelcomeWizard";
 import { MobileDataProvider } from "@/data/mobileData";
+import { MobileLanguageProvider } from "@/data/mobileLanguageContext";
 import { NemuThemeProvider, useNemuTheme } from "@/design-system";
 import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
 import { getMobileWelcomeUnderlyingContentState } from "@/lib/mobileWelcome";
@@ -148,19 +149,21 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <MobileSyncProvider>
           <MobileDataProvider>
-            <MobileSyncBridge />
-            <MobileFeedbackSettingsBridge />
-            <MobileBackgroundSyncRegistrar />
-            <NemuThemeProvider>
-              <MobileToastProvider>
-                <RootStack
-                  welcomeBlocksAccessibility={welcomeBlocksAccessibility}
-                />
-                <MobileWelcomeWizard
-                  onVisibilityChange={setWelcomeBlocksAccessibility}
-                />
-              </MobileToastProvider>
-            </NemuThemeProvider>
+            <MobileLanguageProvider>
+              <MobileSyncBridge />
+              <MobileFeedbackSettingsBridge />
+              <MobileBackgroundSyncRegistrar />
+              <NemuThemeProvider>
+                <MobileToastProvider>
+                  <RootStack
+                    welcomeBlocksAccessibility={welcomeBlocksAccessibility}
+                  />
+                  <MobileWelcomeWizard
+                    onVisibilityChange={setWelcomeBlocksAccessibility}
+                  />
+                </MobileToastProvider>
+              </NemuThemeProvider>
+            </MobileLanguageProvider>
           </MobileDataProvider>
         </MobileSyncProvider>
       </SafeAreaProvider>

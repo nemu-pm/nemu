@@ -1015,6 +1015,11 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     });
   }
 
+  async getStats(): Promise<{ bytes: number; entries: number }> {
+    this.indexAndEnforcePolicy();
+    return { bytes: this.indexedBytes, entries: this.indexedEntries };
+  }
+
   private assertCurrentWrite(lease: NativeCacheWriteLease): void {
     if (!this.writeCoordinator.isCurrent(lease)) {
       throw new Error("The cache download was superseded by a newer write.");

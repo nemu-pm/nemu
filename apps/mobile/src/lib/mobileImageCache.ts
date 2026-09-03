@@ -5,6 +5,7 @@ import type { MobileImageCacheResolveOptions } from "./mobileImageCacheCoordinat
 export type MobileImageCacheSource = {
   uri?: string | null;
   headers?: Record<string, string>;
+  cacheKind?: "cover" | "page";
 };
 
 export type MobileCachedImageFileAsset = Readonly<{
@@ -131,6 +132,19 @@ export async function prefetchCachedMobileImages(
 
 export async function clearMobileImageCache(): Promise<void> {
   return undefined;
+}
+
+export const clearMobileCoverImageCache = clearMobileImageCache;
+export const clearMobileReaderPageImageCache = clearMobileImageCache;
+
+export async function getMobileImageCacheStats(): Promise<{
+  covers: { bytes: number; entries: number };
+  pages: { bytes: number; entries: number };
+}> {
+  return {
+    covers: { bytes: 0, entries: 0 },
+    pages: { bytes: 0, entries: 0 },
+  };
 }
 
 export function clearMobileImageMemoryCacheForProfileTransition(): void {}

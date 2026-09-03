@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getLocales } from "expo-localization";
 import {
   addNetworkStateListener,
   getNetworkStateAsync,
@@ -41,6 +40,7 @@ import {
 } from "@/sources/aidokuRegistry";
 import {
   loadCachedRegistryIndex,
+  loadCachedRegistryIndexSnapshot,
   saveCachedRegistryIndex,
 } from "@/sources/mobileRegistryIndexCache";
 import {
@@ -63,6 +63,7 @@ import {
 import { clearMobileSourceImageRequestCache } from "@/sources/mobileSourceImages";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";
 import { clearMobileImageCache } from "@/lib/mobileImageCache";
+import { clearMobileReaderPageListCache } from "@/sources/mobileReaderPageListCache";
 import { clearMobileJapaneseLearningTtsCache } from "@/lib/mobileJapaneseLearningTts";
 import { clearMobileDualReaderDhashCache } from "@/lib/mobileDualReaderDhashCache";
 import { findMobileInstalledSourceForRegistrySource } from "@/lib/mobileBrowseSources";
@@ -81,15 +82,7 @@ import {
   normalizeReaderProcessPageImages,
   normalizeReaderTwoPageMode,
 } from "@/lib/mobileReaderSettings";
-import {
-  DEFAULT_APP_LANGUAGE,
-  DEFAULT_METADATA_LANGUAGE_PREFERENCE,
-  getEffectiveMetadataLanguage,
-  normalizeAppLanguage,
-  normalizeMetadataLanguagePreference,
-  resolveDeviceAppLanguage,
-  resolveInitialAppLanguage,
-} from "@/lib/mobileLanguageSettings";
+import { useMobileLanguageContext } from "./mobileLanguageState";
 import { findMobileSourceUpdates } from "@/lib/mobileSourceUpdates";
 import {
   markMobilePerformance,
@@ -1227,23 +1220,6 @@ export function useReadingMode(): {
   };
 }
 
-/**
- * Device locale, resolved once per process. `expo-localization` reads native
- * settings synchronously; the guard keeps this safe under Jest/bun where the
- * native module may be absent.
- */
-let cachedDeviceAppLanguage: AppLanguage | null | undefined;
-
-function readDeviceAppLanguage(): AppLanguage | null {
-  if (cachedDeviceAppLanguage !== undefined) return cachedDeviceAppLanguage;
-  try {
-    cachedDeviceAppLanguage = resolveDeviceAppLanguage(getLocales());
-  } catch {
-    cachedDeviceAppLanguage = null;
-  }
-  return cachedDeviceAppLanguage;
-}
-
 export function useMobileLanguageSettings(): {
   appLanguage: AppLanguage;
   metadataLanguagePreference: MetadataLanguagePreference;
@@ -1253,88 +1229,7 @@ export function useMobileLanguageSettings(): {
     preference: MetadataLanguagePreference,
   ) => Promise<void>;
 } {
-  const store = useMobileDataStore();
-  const revision = useMobileDataRevision(["settings"]);
-  const [appLanguage, setAppLanguageState] = useState<AppLanguage>(
-    () => readDeviceAppLanguage() ?? DEFAULT_APP_LANGUAGE,
-  );
-  const [metadataLanguagePreference, setMetadataLanguagePreferenceState] =
-    useState<MetadataLanguagePreference>(DEFAULT_METADATA_LANGUAGE_PREFERENCE);
-
-  useEffect(() => {
-    let mounted = true;
-    store
-      .getSettings()
-      .then((settings) => {
-        if (!mounted) return;
-        // A persisted choice always wins. Only fresh installs (no stored
-        // value) fall back to the device locale.
-        setAppLanguageState(
-          resolveInitialAppLanguage(
-            settings.appLanguage,
-            readDeviceAppLanguage(),
-          ),
-        );
-        setMetadataLanguagePreferenceState(
-          normalizeMetadataLanguagePreference(
-            settings.metadataLanguagePreference,
-          ),
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      mounted = false;
-    };
-  }, [revision, store]);
-
-  const setAppLanguage = useCallback(
-    async (language: AppLanguage) => {
-      const nextLanguage = normalizeAppLanguage(language);
-      if (nextLanguage === appLanguage) return;
-      setAppLanguageState(nextLanguage);
-      try {
-        await store.updateSettings((settings) => ({
-          ...settings,
-          appLanguage: nextLanguage,
-        }));
-        emitMobileDataChanged("settings");
-      } catch (error) {
-        setAppLanguageState(appLanguage);
-        throw error;
-      }
-    },
-    [appLanguage, store],
-  );
-
-  const setMetadataLanguagePreference = useCallback(
-    async (preference: MetadataLanguagePreference) => {
-      const nextPreference = normalizeMetadataLanguagePreference(preference);
-      if (nextPreference === metadataLanguagePreference) return;
-      setMetadataLanguagePreferenceState(nextPreference);
-      try {
-        await store.updateSettings((settings) => ({
-          ...settings,
-          metadataLanguagePreference: nextPreference,
-        }));
-        emitMobileDataChanged("settings");
-      } catch (error) {
-        setMetadataLanguagePreferenceState(metadataLanguagePreference);
-        throw error;
-      }
-    },
-    [metadataLanguagePreference, store],
-  );
-
-  return {
-    appLanguage,
-    metadataLanguagePreference,
-    effectiveMetadataLanguage: getEffectiveMetadataLanguage(
-      metadataLanguagePreference,
-      appLanguage,
-    ),
-    setAppLanguage,
-    setMetadataLanguagePreference,
-  };
+  return useMobileLanguageContext();
 }
 
 export function useMobileDataManagement(): {
@@ -1355,6 +1250,7 @@ export function useMobileDataManagement(): {
           clearCachedSourcePackages,
           () => defaultMobileSourceSessionCache.clear(),
           clearMobileImageCache,
+          clearMobileReaderPageListCache,
           clearMobileJapaneseLearningTtsCache,
           clearMobileDualReaderDhashCache,
           clearMobileSourceImageRequestCache,
@@ -1567,6 +1463,7 @@ export function useMobileReaderPlugins(): LoadState<
 export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
   sourceUpdateNotice: MobileSourceUpdateNotice | null;
   networkAccessState: NemuNetworkAccessState;
+  catalogCachedAt: number | null;
 } {
   const store = useMobileDataStore();
   const [data, setData] = useState<MobileRegistrySource[]>([]);
@@ -1574,6 +1471,7 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
   const [error, setError] = useState<string | null>(null);
   const [sourceUpdateNotice, setSourceUpdateNotice] =
     useState<MobileSourceUpdateNotice | null>(null);
+  const [catalogCachedAt, setCatalogCachedAt] = useState<number | null>(null);
   const [networkAccessState, setNetworkAccessState] =
     useState<NemuNetworkAccessState>(() =>
       Platform.OS === "ios"
@@ -1582,6 +1480,7 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
     );
   const reloadAbortRef = useRef<AbortController | null>(null);
   const reloadRunRef = useRef(0);
+  const lastForegroundReloadAtRef = useRef(0);
   const dataRef = useRef(data);
   useEffect(() => {
     dataRef.current = data;
@@ -1607,10 +1506,12 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
       // cold starts and offline launches see a usable source list while the
       // network refresh is still in flight.
       if (!hasPaintedData) {
-        const cached = await loadCachedRegistryIndex();
+        const cachedSnapshot = await loadCachedRegistryIndexSnapshot();
+        const cached = cachedSnapshot?.sources ?? (await loadCachedRegistryIndex());
         if (!isCurrent()) return;
         if (cached && cached.length > 0) {
           setData(cached);
+          setCatalogCachedAt(cachedSnapshot?.savedAt ?? null);
           setLoading(false);
         }
       }
@@ -1646,6 +1547,7 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
       // or sequential-feeling updates can't hold the list hostage.
       if (!isCurrent()) return;
       setSourceUpdateNotice(null);
+      setCatalogCachedAt(null);
       setData(
         (current) =>
           stabilizeListReferences(
@@ -1699,6 +1601,7 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
   }, [store]);
 
   useEffect(() => {
+    lastForegroundReloadAtRef.current = Date.now();
     ignoreReloadError(reload);
 
     let previousAppState = AppState.currentState;
@@ -1708,7 +1611,13 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
         const returnedToForeground =
           previousAppState !== "active" && nextAppState === "active";
         previousAppState = nextAppState;
-        if (returnedToForeground) ignoreReloadError(reload);
+        if (
+          returnedToForeground &&
+          Date.now() - lastForegroundReloadAtRef.current >= 5 * 60_000
+        ) {
+          lastForegroundReloadAtRef.current = Date.now();
+          ignoreReloadError(reload);
+        }
       },
     );
 
@@ -1767,6 +1676,7 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
     reload,
     sourceUpdateNotice,
     networkAccessState,
+    catalogCachedAt,
   };
 }
 

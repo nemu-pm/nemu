@@ -13,6 +13,7 @@ import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
   MobileMangaChapterRow,
   MobileMangaChapterSectionHeader,
+  MobileMangaChapterToolbar,
 } from "@/components/MobileMangaChapterSection";
 import {
   MobileSourceSelector,
@@ -56,6 +57,13 @@ import {
   MOBILE_CHAPTER_LIST_PERFORMANCE,
   buildMobileChapterRows,
 } from "@/lib/mobileChapterRows";
+import {
+  DEFAULT_MOBILE_CHAPTER_LIST_PREFERENCE,
+  filterAndSortMobileChapters,
+  getMobileChapterLanguages,
+  normalizeMobileChapterListPreference,
+  type MobileChapterListPreference,
+} from "@/lib/mobileChapterFilters";
 import {
   formatMobileString,
   getMobileStrings,
@@ -115,6 +123,14 @@ import {
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
+import { withMobileSourceOperationTimeout } from "@/sources/mobileSourceOperationTimeout";
+import { normalizeReaderProcessPageImages } from "@/lib/mobileReaderSettings";
+import { refreshMobileReaderPages } from "@/sources/mobileSourcePages";
+import {
+  disposeMobileReaderPagesPrefetchResult,
+  makeMobileReaderPagesPrefetchKey,
+  mobileReaderPagesPrefetchCache,
+} from "@/sources/mobileReaderPagesPrefetch";
 import {
   refreshMobileSourceChapters,
   refreshMobileSourceDetails,
@@ -292,6 +308,10 @@ export function MangaDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [liveChapters, setLiveChapters] = useState<ChapterSummary[]>([]);
+  const [chapterListPreference, setChapterListPreference] =
+    useState<MobileChapterListPreference>(
+      DEFAULT_MOBILE_CHAPTER_LIST_PREFERENCE,
+    );
   const [sourceChapterLists, setSourceChapterLists] = useState<
     Record<string, SourceChapterListState>
   >({});
@@ -466,6 +486,30 @@ export function MangaDetailScreen() {
   ]);
 
   const entry = state.entry;
+  useEffect(() => {
+    let active = true;
+    const libraryItemId = entry?.item.libraryItemId;
+    if (!libraryItemId) {
+      setChapterListPreference(DEFAULT_MOBILE_CHAPTER_LIST_PREFERENCE);
+      return () => {
+        active = false;
+      };
+    }
+    void store
+      .getSettings()
+      .then((settings) => {
+        if (!active) return;
+        setChapterListPreference(
+          normalizeMobileChapterListPreference(
+            settings.mobileChapterListPreferences?.[libraryItemId],
+          ),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [entry?.item.libraryItemId, store]);
   useEffect(() => {
     if (
       shouldRedirectMissingMobileMangaDetailEntry({
@@ -670,10 +714,11 @@ export function MangaDetailScreen() {
           return;
         }
 
-        const refreshed = await refreshMobileSourceDetails(
-          installedSource,
-          selectedSource.sourceMangaId,
-          {
+        const refreshed = await withMobileSourceOperationTimeout(
+          refreshMobileSourceDetails(
+            installedSource,
+            selectedSource.sourceMangaId,
+            {
             getSourceSettings: async (_sourceKey, sourceRecord) => {
               const normalized = normalizeInstalledSource(sourceRecord);
               const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
@@ -686,8 +731,10 @@ export function MangaDetailScreen() {
                 saved?.values,
               );
             },
-            onSourcePackageHydrated: saveSourcePackageHydration,
-          },
+              onSourcePackageHydrated: saveSourcePackageHydration,
+            },
+          ),
+          { message: strings.sourceBrowse.sourceOperationTimedOut },
         );
 
         if (cancelled) return;
@@ -829,10 +876,11 @@ export function MangaDetailScreen() {
             }
 
             try {
-              const refreshed = await refreshMobileSourceChapters(
-                installedSource,
-                source.sourceMangaId,
-                {
+              const refreshed = await withMobileSourceOperationTimeout(
+                refreshMobileSourceChapters(
+                  installedSource,
+                  source.sourceMangaId,
+                  {
                   getSourceSettings: async (_sourceKey, sourceRecord) => {
                     const normalized = normalizeInstalledSource(sourceRecord);
                     const runtimeSourceKey =
@@ -846,8 +894,10 @@ export function MangaDetailScreen() {
                       saved?.values,
                     );
                   },
-                  onSourcePackageHydrated: saveSourcePackageHydration,
-                },
+                    onSourcePackageHydrated: saveSourcePackageHydration,
+                  },
+                ),
+                { message: strings.sourceBrowse.sourceOperationTimedOut },
               );
 
               if (cancelled) return;
@@ -894,7 +944,13 @@ export function MangaDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [saveSourcePackageHydration, selectedSource?.id, sources, store]);
+  }, [
+    saveSourcePackageHydration,
+    selectedSource?.id,
+    sources,
+    store,
+    strings.sourceBrowse.sourceOperationTimedOut,
+  ]);
 
   const chapters = useMemo(
     () =>
@@ -911,9 +967,58 @@ export function MangaDetailScreen() {
       state.selectedChapterProgress,
     ],
   );
-  const chapterRows = useMemo(
-    () => buildMobileChapterRows(chapters),
+  const chapterLanguages = useMemo(
+    () => getMobileChapterLanguages(chapters),
     [chapters],
+  );
+  const effectiveChapterListPreference = useMemo(
+    () => ({
+      ...chapterListPreference,
+      languages: chapterListPreference.languages.filter((language) =>
+        chapterLanguages.includes(language),
+      ),
+    }),
+    [chapterLanguages, chapterListPreference],
+  );
+  const visibleChapters = useMemo(
+    () =>
+      filterAndSortMobileChapters(
+        chapters,
+        state.selectedChapterProgress,
+        effectiveChapterListPreference,
+      ),
+    [chapters, effectiveChapterListPreference, state.selectedChapterProgress],
+  );
+  const unreadChapterCount = useMemo(
+    () =>
+      chapters.reduce(
+        (count, chapter) =>
+          count + (state.selectedChapterProgress[chapter.id]?.completed ? 0 : 1),
+        0,
+      ),
+    [chapters, state.selectedChapterProgress],
+  );
+  const chapterRows = useMemo(
+    () => buildMobileChapterRows(visibleChapters),
+    [visibleChapters],
+  );
+  const changeChapterListPreference = useCallback(
+    (nextPreference: MobileChapterListPreference) => {
+      const libraryItemId = entry?.item.libraryItemId;
+      setChapterListPreference(nextPreference);
+      if (!libraryItemId) return;
+      void store
+        .updateSettings((settings) => ({
+          ...settings,
+          mobileChapterListPreferences: {
+            ...settings.mobileChapterListPreferences,
+            [libraryItemId]: nextPreference,
+          },
+        }))
+        .then(() => emitMobileDataChanged("settings"))
+        .catch(() => undefined);
+    },
+    [entry?.item.libraryItemId, store],
   );
   const sourceSelectorItems = useMemo((): MobileSourceSelectorItem[] => {
     return sources.map((source) => {
@@ -1022,6 +1127,46 @@ export function MangaDetailScreen() {
 
       openingReaderRef.current = true;
       setOpeningReader(true);
+      const installedSource = sourceInfoForLink(source, state.installedSources);
+      if (installedSource) {
+        void Promise.all([
+          store.getSettings(),
+          loadMobileSourceSettingsByKeys(store, [
+            makeMobileRuntimeSourceKey(normalizeInstalledSource(installedSource)),
+            ...getMobileInstalledSourceSettingsKeys(installedSource),
+          ]),
+        ]).then(([settings, saved]) => {
+          const processPageImages = normalizeReaderProcessPageImages(
+            settings.readerProcessPageImages,
+          );
+          const key = makeMobileReaderPagesPrefetchKey({
+            registryId: source.registryId,
+            sourceId: source.sourceId,
+            mangaId: source.sourceMangaId,
+            chapterId: chapter.id,
+            processPageImages,
+          });
+          mobileReaderPagesPrefetchCache.start(
+            key,
+            () =>
+              refreshMobileReaderPages(
+                installedSource,
+                source.sourceMangaId,
+                chapter,
+                {
+                  processPageImages,
+                  getSourceSettings: async () =>
+                    mergeSourceSettingValues(
+                      installedSource.packageMetadata?.settings ?? [],
+                      saved?.values,
+                    ),
+                  onSourcePackageHydrated: saveSourcePackageHydration,
+                },
+              ),
+            disposeMobileReaderPagesPrefetchResult,
+          );
+        }).catch(() => undefined);
+      }
       try {
         router.push(
           getMobileSourceReaderHref({
@@ -1038,7 +1183,14 @@ export function MangaDetailScreen() {
         void hapticError();
       }
     },
-    [getGuardedDetailActionState, selectedSource, title],
+    [
+      getGuardedDetailActionState,
+      saveSourcePackageHydration,
+      selectedSource,
+      state.installedSources,
+      store,
+      title,
+    ],
   );
 
   const fetchMetadataFromSource = useCallback(
@@ -1056,10 +1208,11 @@ export function MangaDetailScreen() {
         throw new Error(strings.mangaDetail.sourcePackageUnavailable);
       }
 
-      const refreshed = await refreshMobileSourceMetadata(
-        installedSource,
-        sourceLink.sourceMangaId,
-        {
+      const refreshed = await withMobileSourceOperationTimeout(
+        refreshMobileSourceMetadata(
+          installedSource,
+          sourceLink.sourceMangaId,
+          {
           getSourceSettings: async (_sourceKey, sourceRecord) => {
             const normalized = normalizeInstalledSource(sourceRecord);
             const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
@@ -1072,8 +1225,10 @@ export function MangaDetailScreen() {
               saved?.values,
             );
           },
-          onSourcePackageHydrated: saveSourcePackageHydration,
-        },
+            onSourcePackageHydrated: saveSourcePackageHydration,
+          },
+        ),
+        { message: strings.sourceBrowse.sourceOperationTimedOut },
       );
 
       if (refreshed.status === "blocked") {
@@ -1088,6 +1243,7 @@ export function MangaDetailScreen() {
       state.installedSources,
       store,
       strings.mangaDetail.sourcePackageUnavailable,
+      strings.sourceBrowse.sourceOperationTimedOut,
     ],
   );
 
@@ -1528,6 +1684,7 @@ export function MangaDetailScreen() {
             progressByChapterId={state.selectedChapterProgress}
             strings={strings}
             onPressChapter={openReader}
+            showLanguage={chapterLanguages.length > 1}
           />
         )}
         ListHeaderComponent={
@@ -1675,6 +1832,17 @@ export function MangaDetailScreen() {
                       />
                     ) : null
                   }
+                  toolbar={
+                    chapters.length > 0 ? (
+                      <MobileMangaChapterToolbar
+                        languages={chapterLanguages}
+                        preference={effectiveChapterListPreference}
+                        strings={strings}
+                        unreadCount={unreadChapterCount}
+                        onChange={changeChapterListPreference}
+                      />
+                    ) : null
+                  }
                   notice={
                     liveDetailState.status === "blocked" ||
                     liveDetailState.status === "error" ? (
@@ -1689,7 +1857,7 @@ export function MangaDetailScreen() {
                       />
                     ) : null
                   }
-                  hasChapters={chapters.length > 0}
+                  hasChapters={visibleChapters.length > 0}
                   emptyTitle={getMobileMangaDetailEmptyChapterMessage({
                     liveStatus: liveDetailState.status,
                     liveDetail: liveDetailState.detail,

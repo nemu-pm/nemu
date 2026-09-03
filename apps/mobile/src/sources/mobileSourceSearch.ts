@@ -435,6 +435,11 @@ export async function searchMobileSource(
   query: string,
   options: MobileLiveSearchOptions = {}
 ): Promise<MobileLiveSearchGroup> {
+  if (options.signal?.aborted) {
+    const error = new Error("The source search was aborted.");
+    error.name = "AbortError";
+    throw error;
+  }
   const display = toSearchSourceDisplay(source);
   if (display.unsupported) {
     return {
@@ -453,6 +458,11 @@ export async function searchMobileSource(
     normalized,
     { ...options.executor, settings },
     async (session): Promise<MobileLiveSearchGroup> => {
+      if (options.signal?.aborted) {
+        const error = new Error("The source search was aborted.");
+        error.name = "AbortError";
+        throw error;
+      }
       if (session.status === "blocked") {
         return {
           status: "blocked",

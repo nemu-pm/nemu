@@ -11,6 +11,7 @@ type MobileChapterGridProps = {
   progressByChapterId: Record<string, LocalChapterProgress | undefined>;
   strings: MobileStrings;
   onPressChapter: (chapter: ChapterSummary) => void;
+  showLanguage?: boolean;
 };
 
 export function MobileChapterGrid({
@@ -20,6 +21,7 @@ export function MobileChapterGrid({
   progressByChapterId,
   strings,
   onPressChapter,
+  showLanguage = false,
 }: MobileChapterGridProps) {
   return (
     <View style={styles.grid}>
@@ -32,6 +34,7 @@ export function MobileChapterGrid({
             openChapterTemplate={openChapterTemplate}
             strings={strings}
             onPress={() => onPressChapter(chapter)}
+            showLanguage={showLanguage}
           />
         </View>
       ))}

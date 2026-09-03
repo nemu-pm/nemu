@@ -323,3 +323,10 @@ export async function clearCachedSourcePackage(
 export async function clearCachedSourcePackages(): Promise<void> {
   await packageCache.clearAll();
 }
+
+export async function getCachedSourcePackageStats(): Promise<{
+  bytes: number;
+  entries: number;
+}> {
+  return packageCache.getStats();
+}

@@ -26,7 +26,7 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(source).toContain("disabled={dismissDisabled}");
     expect(source).toContain("accessibilityLabel={resolvedDismissLabel}");
     expect(source).toContain("headerMetrics.showActionLabels ? (");
-    expect(source).toContain('name="close-outline"');
+    expect(source).toContain('androidIcon="close-outline"');
     expect(source).toContain('hapticFeedback="none"');
     expect(source).toContain("index={sheetPresented ? 0 : -1}");
     expect(source).toContain("closeRequestedRef.current = true;");
@@ -202,12 +202,12 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(source).not.toContain("}, 250);");
   });
 
-  test("serializes Browse child sheets and installs behind native dismissal", () => {
+  test("serializes Browse child sheets and reports installs through toast", () => {
     const browse = readMobileSource("screens/BrowseScreen.tsx");
+    const toast = readMobileSource("components/MobileToast.tsx");
     const confirmation = readMobileSource(
       "components/MobileConfirmationSheet.tsx",
     );
-    const install = readMobileSource("components/MobileSourceInstallSheet.tsx");
 
     expect(browse).toContain("addSourceDismissActionRef.current = next;");
     expect(browse).toContain("if (addSourceDismissActionRef.current) return;");
@@ -219,16 +219,19 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(browse).toContain("onDismiss={handleAddSourceSheetDismissed}");
     expect(browse).toContain("onDismiss={handleLanguageSheetDismissed}");
     expect(browse).toContain("onDismiss={handleInstallConfirmationDismissed}");
-    expect(browse).toContain("onDismiss={handleInstallSheetDismissed}");
-    expect(browse).toContain("installSheetDismissedRef.current = true;");
+    expect(browse).toContain('duration: "sticky"');
+    expect(browse).toContain("loading: true");
+    expect(browse).toContain("onPress: installer.cancelInstall");
+    expect(browse).toContain("toast.dismiss(installToastId)");
+    expect(browse).not.toContain("MobileSourceInstallSheet");
     expect(browse).not.toContain("setAddSourceSheetKey");
+    expect(toast.indexOf("onDismiss(toast.id);")).toBeLessThan(
+      toast.indexOf("toast.options.action?.onPress();"),
+    );
 
-    for (const source of [confirmation, install]) {
-      expect(source).toContain("onDismiss?: () => void;");
-      expect(source).toContain("onDismiss={onDismiss}");
-    }
+    expect(confirmation).toContain("onDismiss?: () => void;");
+    expect(confirmation).toContain("onDismiss={onDismiss}");
     expect(confirmation).toContain("if (!visible) return;");
-    expect(install).toContain("if (visible) onCancel?.();");
   });
 
   test("serializes Library sheet swaps without remounting the closing host", () => {
@@ -352,8 +355,6 @@ describe("mobile sheet and text-field chrome policy", () => {
 
     const targets = [
       [readMobileSource("design-system/components/NemuToolbarAction.tsx"), "action"],
-      [readMobileSource("screens/BrowseScreen.tsx"), "adultToggle"],
-      [readMobileSource("screens/BrowseScreen.tsx"), "languageFallbackButton"],
       [readMobileSource("components/MobileMangaDetailSurface.tsx"), "primaryAction"],
       [readMobileSource("components/MobileMangaDetailSurface.tsx"), "iconAction"],
       [readMobileSource("components/MobileSourceSettingsCard.tsx"), "backButton"],

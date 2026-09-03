@@ -15,8 +15,14 @@ const REGISTRY_INDEX_CACHE_FORMAT_VERSION = 1;
 
 interface RegistryIndexCachePayload {
   v: number;
+  savedAt?: number;
   sources: MobileRegistrySource[];
 }
+
+export type MobileRegistryIndexCacheSnapshot = {
+  sources: MobileRegistrySource[];
+  savedAt: number | null;
+};
 
 export function isMobileRegistrySourceShape(
   value: unknown,
@@ -40,6 +46,7 @@ export function encodeRegistryIndexCache(
 ): string {
   const payload: RegistryIndexCachePayload = {
     v: REGISTRY_INDEX_CACHE_FORMAT_VERSION,
+    savedAt: Date.now(),
     sources,
   };
   return JSON.stringify(payload);
@@ -81,12 +88,36 @@ export function decodeRegistryIndexCache(
   return valid;
 }
 
+export function decodeRegistryIndexCacheSnapshot(
+  raw: string,
+): MobileRegistryIndexCacheSnapshot | null {
+  const sources = decodeRegistryIndexCache(raw);
+  if (!sources) return null;
+  try {
+    const parsed = JSON.parse(raw) as { savedAt?: unknown };
+    return {
+      sources,
+      savedAt:
+        typeof parsed.savedAt === "number" && Number.isFinite(parsed.savedAt)
+          ? parsed.savedAt
+          : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Base (bun tests / Expo web) implementation: process-lifetime memory only.
 let cachedPayload: string | null = null;
 
 export async function loadCachedRegistryIndex(): Promise<MobileRegistrySource[] | null> {
   if (cachedPayload == null) return null;
   return decodeRegistryIndexCache(cachedPayload);
+}
+
+export async function loadCachedRegistryIndexSnapshot(): Promise<MobileRegistryIndexCacheSnapshot | null> {
+  if (cachedPayload == null) return null;
+  return decodeRegistryIndexCacheSnapshot(cachedPayload);
 }
 
 export async function saveCachedRegistryIndex(

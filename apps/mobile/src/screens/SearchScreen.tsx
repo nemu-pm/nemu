@@ -74,7 +74,10 @@ import {
   loadMobileSourceSettingsByKeys,
   mergeSourceSettingValues,
 } from "@/lib/mobileSourceSettings";
-import { getMobileSourceMangaHref } from "@/lib/mobileSourceRoutes";
+import {
+  getMobileSourceBrowseSearchHref,
+  getMobileSourceMangaHref,
+} from "@/lib/mobileSourceRoutes";
 import { useStableList } from "@/lib/useStableList";
 import {
   groupLocalSearchResults,
@@ -121,6 +124,7 @@ type LiveSearchResult = {
 
 type LiveResultAction = {
   onPressResult: (source: SearchSourceDisplay, manga: MobileLiveSearchManga) => void;
+  onViewAll: (source: SearchSourceDisplay) => void;
 };
 
 type LocalSearchResultRow =
@@ -468,7 +472,7 @@ function LiveSourceResultSection({
             {group.status === "loading"
               ? "..."
               : group.status === "ready"
-                ? group.items.length
+                ? `${group.items.length}${group.hasMore ? "+" : ""}`
                 : "!"}
           </Text>
         </View>
@@ -486,20 +490,37 @@ function LiveSourceResultSection({
           description={group.title ? group.detail : undefined}
         />
       ) : group.items.length ? (
-        <View style={styles.resultsGrid}>
-          {group.items.map((item) => {
-            const resultKey = `${group.source.id}:${item.id}`;
-            return (
-              <View key={resultKey} style={[styles.resultItem, resultItemStyle]}>
-                <LiveMangaCard
-                  item={item}
-                  strings={strings}
-                  onPress={() => action.onPressResult(group.source, item)}
-                />
-              </View>
-            );
-          })}
-        </View>
+        <>
+          <View style={styles.resultsGrid}>
+            {group.items.map((item) => {
+              const resultKey = `${group.source.id}:${item.id}`;
+              return (
+                <View key={resultKey} style={[styles.resultItem, resultItemStyle]}>
+                  <LiveMangaCard
+                    item={item}
+                    strings={strings}
+                    onPress={() => action.onPressResult(group.source, item)}
+                  />
+                </View>
+              );
+            })}
+          </View>
+          {group.hasMore ? (
+            <NemuPressable
+              accessibilityRole="button"
+              onPress={() => action.onViewAll(group.source)}
+              pressProfile="row"
+              style={[styles.viewAllAction, { borderColor: tokens.border }]}
+            >
+              <Text style={[styles.viewAllText, { color: tokens.primary }]}>
+                {formatMobileString(strings.feedback.viewAllInSource, {
+                  source: group.source.name,
+                })}
+              </Text>
+              <Ionicons name="arrow-forward-outline" size={16} color={tokens.primary} />
+            </NemuPressable>
+          ) : null}
+        </>
       ) : (
         <NemuInlineEmptyState
           icon="search-outline"
@@ -1024,6 +1045,18 @@ export function SearchScreen() {
     },
     []
   );
+  const handleViewAllInSource = useCallback(
+    (source: SearchSourceDisplay) => {
+      router.push(
+        getMobileSourceBrowseSearchHref({
+          registryId: source.registryId,
+          sourceId: source.rawSourceId,
+          query: trimmedQuery,
+        }),
+      );
+    },
+    [trimmedQuery],
+  );
   const renderLocalSearchRow = useCallback(
     ({ item }: ListRenderItemInfo<LocalSearchResultRow>) => {
       if (item.type === "header") {
@@ -1318,6 +1351,7 @@ export function SearchScreen() {
                 strings={strings}
                 action={{
                   onPressResult: handleLiveResultPress,
+                  onViewAll: handleViewAllInSource,
                 }}
                 resultItemStyle={resultItemStyle}
               />
@@ -1451,6 +1485,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: MOBILE_MANGA_GRID_GAP,
+  },
+  viewAllAction: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    paddingHorizontal: 14,
+  },
+  viewAllText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: nemuFontWeight.medium,
   },
   resultItem: {
     minWidth: 0,

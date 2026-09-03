@@ -16,6 +16,7 @@ export const nemuPressablePressProfiles = {
   card: 0.98,
   row: 0.985,
   icon: 0.94,
+  tab: 0.97,
 } as const;
 
 export type NemuPressableProfile = keyof typeof nemuPressablePressProfiles;

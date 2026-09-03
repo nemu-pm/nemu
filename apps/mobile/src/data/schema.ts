@@ -168,6 +168,14 @@ export type UserSettings = {
   readerKeepAwake?: boolean;
   /** Lock the reader to portrait; `undefined` means disabled. */
   readerLockPortrait?: boolean;
+  mobileChapterListPreferences?: Record<
+    string,
+    {
+      sortDirection: "asc" | "desc";
+      unreadOnly: boolean;
+      languages: string[];
+    }
+  >;
 };
 
 /**

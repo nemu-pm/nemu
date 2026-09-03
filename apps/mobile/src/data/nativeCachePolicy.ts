@@ -3,6 +3,9 @@ export type NativeBinaryCachePolicy = {
   maxEntries: number;
   maxAgeMs: number;
   maxEntryBytes: number;
+  /** Optional post-pressure targets that prevent one-entry eviction churn. */
+  targetBytes?: number;
+  targetEntries?: number;
 };
 
 export type NativeBinaryCacheEntry = {
@@ -22,7 +25,10 @@ function safeSize(size: number): number {
  */
 export function selectNativeBinaryCacheEvictions(
   entries: NativeBinaryCacheEntry[],
-  policy: Pick<NativeBinaryCachePolicy, "maxAgeMs" | "maxBytes" | "maxEntries">,
+  policy: Pick<
+    NativeBinaryCachePolicy,
+    "maxAgeMs" | "maxBytes" | "maxEntries" | "targetBytes" | "targetEntries"
+  >,
   now = Date.now(),
   protectedId?: string,
 ): string[] {
@@ -50,13 +56,21 @@ export function selectNativeBinaryCacheEvictions(
     0,
   );
   let retainedEntries = retained.length;
+  const underPressure =
+    retainedBytes > policy.maxBytes || retainedEntries > policy.maxEntries;
+  const byteLimit = underPressure
+    ? Math.min(policy.maxBytes, policy.targetBytes ?? policy.maxBytes)
+    : policy.maxBytes;
+  const entryLimit = underPressure
+    ? Math.min(policy.maxEntries, policy.targetEntries ?? policy.maxEntries)
+    : policy.maxEntries;
   for (const entry of [
     ...retained.filter((candidate) => candidate.id !== protectedId),
     ...retained.filter((candidate) => candidate.id === protectedId),
   ]) {
     if (
-      retainedBytes <= policy.maxBytes &&
-      retainedEntries <= policy.maxEntries
+      retainedBytes <= byteLimit &&
+      retainedEntries <= entryLimit
     ) {
       break;
     }

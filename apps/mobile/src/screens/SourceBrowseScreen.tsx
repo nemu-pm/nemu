@@ -469,9 +469,19 @@ function ListingMangaCard({
 }) {
   const { tokens } = useNemuTheme();
   const subtitle = liveMangaSubtitle(item);
-  const coverRequest = useMobileSourceImageRequest(source, item.cover);
+  const coverRequestAlreadyResolved = item.coverHeaders !== undefined;
+  const coverRequest = useMobileSourceImageRequest(
+    coverRequestAlreadyResolved ? null : source,
+    coverRequestAlreadyResolved ? null : item.cover,
+  );
   const coverSource = item.cover
-    ? coverRequest
+    ? coverRequestAlreadyResolved
+      ? {
+          uri: item.cover,
+          headers: item.coverHeaders,
+          cache: "force-cache" as const,
+        }
+      : coverRequest
       ? {
           uri: coverRequest.url,
           headers: coverRequest.headers,
@@ -1283,6 +1293,7 @@ export function SourceBrowseScreen() {
   const sourceSearchLoadMoreInFlightRef = useRef(false);
   const sourceSearchLastPageRef = useRef(1);
   const sourceSearchRequestRef = useRef(0);
+  const sourceSearchAbortRef = useRef<AbortController | null>(null);
   const store = useMobileDataStore();
   const installed = useInstalledSources();
 
@@ -1998,6 +2009,9 @@ export function SourceBrowseScreen() {
   const loadSourceSearch = useCallback(
     async (page = 1) => {
       if (!installedSource || !sourceSearchActive) return;
+      sourceSearchAbortRef.current?.abort();
+      const controller = new AbortController();
+      sourceSearchAbortRef.current = controller;
       const loadingMore = page > 1;
       if (loadingMore) {
         const pagination = sourceSearchPaginationRef.current;
@@ -2031,6 +2045,7 @@ export function SourceBrowseScreen() {
             page,
             filters: compactMobileSourceFilterValues(sourceFilterValues),
             getSourceSettings: resolveExecutorSourceSettings,
+            signal: controller.signal,
           }),
           strings.sourceBrowse.sourceOperationTimedOut,
         );
@@ -2055,6 +2070,7 @@ export function SourceBrowseScreen() {
           page,
         });
       } catch (error) {
+        if (controller.signal.aborted) return;
         if (sourceSearchRequestRef.current !== requestId) return;
         cloudflareSheetRef.current?.reportError(error);
         setSourceSearchState({
@@ -2066,6 +2082,9 @@ export function SourceBrowseScreen() {
           ),
         });
       } finally {
+        if (sourceSearchAbortRef.current === controller) {
+          sourceSearchAbortRef.current = null;
+        }
         if (loadingMore) {
           sourceSearchLoadMoreInFlightRef.current = false;
           setSourceSearchLoadMoreInFlight(false);
@@ -2096,6 +2115,7 @@ export function SourceBrowseScreen() {
   useEffect(() => {
     if (!installedSource || sourceSettings.loading) return;
     if (!sourceSearchActive) {
+      sourceSearchAbortRef.current?.abort();
       sourceSearchRequestRef.current += 1;
       loadedSourceSearchKeyRef.current = null;
       if (
@@ -2113,7 +2133,13 @@ export function SourceBrowseScreen() {
     }
     if (loadedSourceSearchKeyRef.current === sourceSearchRequestKey) return;
     loadedSourceSearchKeyRef.current = sourceSearchRequestKey;
-    void loadSourceSearch(1);
+    const debounce = setTimeout(() => {
+      void loadSourceSearch(1);
+    }, 250);
+    return () => {
+      clearTimeout(debounce);
+      sourceSearchAbortRef.current?.abort();
+    };
   }, [
     installedSource,
     loadSourceSearch,

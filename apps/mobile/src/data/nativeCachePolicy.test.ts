@@ -51,6 +51,37 @@ describe("native binary cache policy", () => {
     ).toEqual(["a"]);
   });
 
+  test("evicts to a low-water target only after the hard limit is crossed", () => {
+    const policy = {
+      maxAgeMs: 10_000,
+      maxBytes: 100,
+      maxEntries: 10,
+      targetBytes: 60,
+      targetEntries: 8,
+    };
+    expect(
+      selectNativeBinaryCacheEvictions(
+        [
+          { id: "old", size: 40, modifiedAt: 1 },
+          { id: "middle", size: 40, modifiedAt: 2 },
+          { id: "new", size: 40, modifiedAt: 3 },
+        ],
+        policy,
+        10,
+      ),
+    ).toEqual(["old", "middle"]);
+    expect(
+      selectNativeBinaryCacheEvictions(
+        [
+          { id: "old", size: 40, modifiedAt: 1 },
+          { id: "new", size: 40, modifiedAt: 2 },
+        ],
+        policy,
+        10,
+      ),
+    ).toEqual([]);
+  });
+
   test("keeps a newly written entry while evicting equal-time older files", () => {
     expect(
       selectNativeBinaryCacheEvictions(

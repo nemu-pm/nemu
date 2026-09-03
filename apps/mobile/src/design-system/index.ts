@@ -42,6 +42,7 @@ export { NemuButton, type NemuButtonTone } from "./components/NemuButton";
 export { NemuInlineEmptyState } from "./components/NemuInlineEmptyState";
 export { NemuListRow } from "./components/NemuListRow";
 export { NemuNativeProgressView } from "./components/NemuNativeProgressView";
+export { NemuNativeSheetHeaderAction } from "./components/NemuNativeSheetHeaderAction";
 export { NemuNativeSwitch } from "./components/NemuNativeSwitch";
 export { NemuPressable } from "./components/NemuPressable";
 export {

@@ -45,6 +45,7 @@ type MobileCachedImageProps = Omit<ImageProps, "source" | "onError"> & {
    */
   uriOwnership: MobileImageUriOwnership;
   cacheKey?: string;
+  cacheKind?: "cover" | "page";
   allowLongStripSegments?: boolean;
   onSegmentedImage?: (asset: MobileCachedSegmentedImageAsset | null) => void;
   fallback?: ReactNode;
@@ -75,6 +76,7 @@ export function MobileCachedImage({
   source,
   uriOwnership,
   cacheKey,
+  cacheKind = "cover",
   allowLongStripSegments = false,
   onSegmentedImage,
   fallback,
@@ -97,11 +99,11 @@ export function MobileCachedImage({
     () =>
       uriPolicy.allowed && uriPolicy.kind === "source-remote"
         ? getMobileImageCacheSourceKey(
-            { uri: sourceUri, headers: sourceHeaders },
+            { uri: sourceUri, headers: sourceHeaders, cacheKind },
             cacheKey,
           )
         : "",
-    [cacheKey, sourceHeaders, sourceUri, uriPolicy],
+    [cacheKey, cacheKind, sourceHeaders, sourceUri, uriPolicy],
   );
   const sourceKey = useMemo(() => {
     if (uriPolicy.allowed && uriPolicy.kind === "source-remote") {
@@ -120,8 +122,9 @@ export function MobileCachedImage({
     () => ({
       uri: source.uri,
       headers: source.headers,
+      cacheKind,
     }),
-    [source.headers, source.uri],
+    [cacheKind, source.headers, source.uri],
   );
   // Reading a segmented cache asset synchronously parses one manifest and
   // verifies up to 32 members. Cache that work by the same stable identity

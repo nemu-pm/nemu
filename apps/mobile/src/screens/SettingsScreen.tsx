@@ -46,6 +46,7 @@ import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileSettingsSkeleton } from "@/components/MobileSettingsSkeleton";
 import { MobileSourceSettingsCard } from "@/components/MobileSourceSettingsCard";
+import { MobileStorageBreakdown } from "@/components/MobileStorageBreakdown";
 import dualReadIconImage from "../../../../src/lib/plugins/builtin/dual-reader/icon.png";
 import japaneseLearningIconImage from "../../../../src/lib/plugins/builtin/japanese-learning/icon.png";
 import { useMobileDataStore } from "@/data/mobileDataContext";
@@ -2999,6 +3000,7 @@ export function SettingsScreen({
 
               {activeSection === "data" ? (
                 <>
+                  <MobileStorageBreakdown strings={strings} />
                   <SettingsSurface
                     style={styles.rowShell}
                     contentStyle={styles.dataManagementCard}

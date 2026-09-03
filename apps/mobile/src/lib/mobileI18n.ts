@@ -85,6 +85,7 @@ export type MobileStrings = {
     installingSourceDescription: string;
     installingSourceDescriptionGeneric: string;
     installSourceNamed: string;
+    installedSource: string;
     installed: string;
     languageFilter: string;
     languageFilterOption: string;
@@ -698,6 +699,18 @@ export type MobileStrings = {
     clearCache: string;
     clearCacheConfirm: string;
     clearCacheDescription: string;
+    storageBreakdown: string;
+    storageTotal: string;
+    storageCovers: string;
+    storagePages: string;
+    storageSourcePackages: string;
+    storagePageLists: string;
+    storageOfflineChapters: string;
+    storageUnitBytes: string;
+    storageUnitKilobytes: string;
+    storageUnitMegabytes: string;
+    clearCoverCache: string;
+    clearPageCache: string;
     clearCloudData: string;
     clearCloudDataDescription: string;
     cloudSync: string;
@@ -979,8 +992,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       volX: "Vol.{{n}}",
     },
     browse: {
-      adult: "Adult",
-      adultSourcesSwitch: "Adult sources",
+      adult: "Explicit",
+      adultSourcesSwitch: "Explicit content",
       addSource: "Add Source",
       addSourcesDescription: "Select a source from available registries",
       addSources: "Add Sources",
@@ -992,6 +1005,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       installingSourceDescriptionGeneric:
         "Please wait while the source is being installed.",
       installSourceNamed: "Install {{name}}",
+      installedSource: "Installed {{name}}",
       installed: "Installed",
       languageFilter: "Source language",
       languageFilterOption: "Show {{language}} sources",
@@ -1681,6 +1695,18 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
         "Remove cached source packages from this device? Installed sources and library entries remain.",
       clearCacheDescription:
         "Remove cached source packages without changing your library",
+      storageBreakdown: "Storage breakdown",
+      storageTotal: "{{bytes}} across {{entries}} cached items",
+      storageCovers: "Covers",
+      storagePages: "Reader pages",
+      storageSourcePackages: "Source packages",
+      storagePageLists: "Page lists and other",
+      storageOfflineChapters: "Offline chapters",
+      storageUnitBytes: "{{value}} B",
+      storageUnitKilobytes: "{{value}} KB",
+      storageUnitMegabytes: "{{value}} MB",
+      clearCoverCache: "Clear covers",
+      clearPageCache: "Clear pages",
       clearCloudData: "Also delete cloud data",
       clearCloudDataDescription:
         "Remove synced library, collections, and progress from your Nemu account.",
@@ -2002,8 +2028,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       volX: "第{{n}}卷",
     },
     browse: {
-      adult: "成人",
-      adultSourcesSwitch: "成人源",
+      adult: "敏感内容",
+      adultSourcesSwitch: "敏感内容来源",
       addSource: "添加源",
       addSourcesDescription: "从可用源仓库中选择一个源",
       addSources: "添加源",
@@ -2014,6 +2040,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       installingSourceDescription: "正在安装 {{name}}…",
       installingSourceDescriptionGeneric: "请稍候，源正在安装中。",
       installSourceNamed: "安装 {{name}}",
+      installedSource: "已安装 {{name}}",
       installed: "已安装",
       languageFilter: "源语言",
       languageFilterOption: "显示{{language}}源",
@@ -2646,6 +2673,18 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       clearCacheConfirm:
         "要从此设备移除缓存的源包吗？已安装源和书架条目会保留。",
       clearCacheDescription: "移除缓存的源包，不更改你的书架",
+      storageBreakdown: "存储占用",
+      storageTotal: "{{entries}} 个缓存项目，共 {{bytes}}",
+      storageCovers: "封面",
+      storagePages: "阅读页",
+      storageSourcePackages: "源包",
+      storagePageLists: "页面列表与其他",
+      storageOfflineChapters: "离线章节",
+      storageUnitBytes: "{{value}} B",
+      storageUnitKilobytes: "{{value}} KB",
+      storageUnitMegabytes: "{{value}} MB",
+      clearCoverCache: "清除封面",
+      clearPageCache: "清除阅读页",
       clearCloudData: "同时删除云端数据",
       clearCloudDataDescription:
         "从你的 Nemu 账号移除已同步的书架、收藏和阅读进度。",
@@ -2950,8 +2989,8 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       volX: "{{n}}巻",
     },
     browse: {
-      adult: "成人向け",
-      adultSourcesSwitch: "成人向けソース",
+      adult: "センシティブ",
+      adultSourcesSwitch: "センシティブなコンテンツ",
       addSource: "ソースを追加",
       addSourcesDescription: "利用可能なレジストリからソースを選択",
       addSources: "ソースを追加",
@@ -2963,6 +3002,7 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
       installingSourceDescriptionGeneric:
         "ソースをインストール中です。しばらくお待ちください。",
       installSourceNamed: "{{name}} をインストール",
+      installedSource: "{{name}} をインストールしました",
       installed: "インストール済み",
       languageFilter: "ソース言語",
       languageFilterOption: "{{language}} のソースを表示",
@@ -3668,6 +3708,18 @@ const mobileStrings: Record<AppLanguage, MobileStrings> = {
         "このデバイスからキャッシュ済みソースパッケージを削除しますか？インストール済みソースとライブラリエントリは保持されます。",
       clearCacheDescription:
         "ライブラリを変更せずキャッシュ済みソースパッケージを削除",
+      storageBreakdown: "ストレージ内訳",
+      storageTotal: "キャッシュ {{entries}} 件・{{bytes}}",
+      storageCovers: "表紙",
+      storagePages: "リーダーページ",
+      storageSourcePackages: "ソースパッケージ",
+      storagePageLists: "ページ一覧とその他",
+      storageOfflineChapters: "オフラインチャプター",
+      storageUnitBytes: "{{value}} B",
+      storageUnitKilobytes: "{{value}} KB",
+      storageUnitMegabytes: "{{value}} MB",
+      clearCoverCache: "表紙を消去",
+      clearPageCache: "ページを消去",
       clearCloudData: "クラウドデータも削除",
       clearCloudDataDescription:
         "Nemu アカウントから同期済みライブラリ、コレクション、進捗を削除します。",

@@ -78,6 +78,7 @@ export function MobileReaderPageFrame({
       ]}
     >
       <MobileCachedImage
+        cacheKind="page"
         allowLongStripSegments={allowLongStripSegments}
         cacheKey={cacheKey}
         fallback={null}
