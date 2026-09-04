@@ -22,12 +22,8 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(source).toContain("paddingTop: headerMetrics.bodyTopPadding");
     expect(source).toContain("bodyDescriptionNumberOfLines ?? undefined");
     expect(source.match(/\{bodyDescription\}/g)).toHaveLength(2);
-    expect(source).toContain("accessibilityState={{ disabled: dismissDisabled }}");
     expect(source).toContain("disabled={dismissDisabled}");
     expect(source).toContain("accessibilityLabel={resolvedDismissLabel}");
-    expect(source).toContain("headerMetrics.showActionLabels ? (");
-    expect(source).toContain('name="close-outline"');
-    expect(source).toContain('hapticFeedback="none"');
     expect(source).toContain("index={sheetPresented ? 0 : -1}");
     expect(source).toContain("closeRequestedRef.current = true;");
     expect(source).toContain("setCloseInteractionLocked(true);");
@@ -44,6 +40,58 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(source).not.toContain("programmaticCloseTimerRef");
   });
 
+  test("always renders one dismiss control on both platforms", () => {
+    const source = readMobileSource(
+      "design-system/components/MobileNativeSheetScaffold.tsx",
+    );
+    const trailing = source.slice(
+      source.indexOf("trailing={"),
+      source.indexOf("/>", source.indexOf("<NemuNativeSheetHeaderAction")),
+    );
+
+    // Android chrome never shows action labels, so a label-gated dismiss
+    // rendered an empty pressable and left the sheet without a close button.
+    expect(trailing).toContain("<NemuNativeSheetHeaderAction");
+    expect(trailing).toContain('androidIcon="close-outline"');
+    expect(trailing).toContain('iosSystemImage="xmark"');
+    expect(trailing).not.toContain("showActionLabels");
+    expect(trailing).not.toContain("dismissAsIcon");
+    expect(source).not.toContain("styles.dismissButton");
+    expect(source).not.toContain("styles.androidDismissText");
+
+    const headerAction = readMobileSource(
+      "design-system/components/NemuNativeSheetHeaderAction.tsx",
+    );
+    // The Android glyph stays bare: no circular chip behind the X.
+    expect(headerAction).toContain("accessibilityState={{ disabled }}");
+    expect(headerAction).toContain("minimumTouchTarget");
+    expect(headerAction).toContain('hapticFeedback="none"');
+    expect(headerAction).not.toContain("borderRadius: 999");
+    expect(headerAction).toMatch(/action:\s*\{[\s\S]*?width:\s*48,/);
+  });
+
+  test("lets the system size and draw the iOS sheet header action", () => {
+    const source = readMobileSource(
+      "design-system/components/NemuNativeSheetHeaderAction.ios.tsx",
+    );
+
+    // The chrome is the platform's own bar-button treatment: Liquid Glass on
+    // iOS 26+, `bordered` before it, always a circle at the large control size.
+    // A hand-rolled `glassEffect` renders as a flat disc, and forcing a frame on
+    // the label makes the circle grow to that frame plus the style's padding.
+    expect(source).toContain('buttonStyle(glass ? "glass" : "bordered")');
+    expect(source).toContain('buttonBorderShape("circle")');
+    expect(source).toContain('controlSize("large")');
+    expect(source).toContain("const GLYPH_POINT_SIZE = 20");
+    expect(source).toContain(
+      "font({ size: GLYPH_POINT_SIZE, weight: \"medium\" })",
+    );
+    expect(source).toContain("supportsNemuLiquidGlassButtonStyle");
+    expect(source).not.toContain("glassEffect");
+    expect(source).not.toContain("strokeBorder");
+    expect(source).not.toContain("frame(");
+  });
+
   test("preserves header semantics and lets localized Android titles wrap", () => {
     const source = readMobileSource(
       "design-system/components/MobileSheetHeader.tsx",
@@ -53,6 +101,15 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(source).toContain("numberOfLines={metrics.titleNumberOfLines}");
     expect(source).toContain("maxFontSizeMultiplier={1.5}");
     expect(source).not.toContain("subtitle");
+    // A centered title needs both side slots at the same fixed width, even
+    // when only one of them holds a control.
+    expect(source).toContain("width: metrics.sideWidth ?? undefined");
+    expect(source).toContain(
+      "<View style={[styles.side, sideStyle]}>{leading}</View>",
+    );
+    expect(source).toContain(
+      "<View style={[styles.side, styles.trailingSide, sideStyle]}>{trailing}</View>",
+    );
   });
 
   test("keeps the text clear action native-looking and free of duplicate feedback", () => {
@@ -84,6 +141,13 @@ describe("mobile sheet and text-field chrome policy", () => {
 
   test("routes every custom search and text-filter clear entrance through the shared action", () => {
     const browse = readMobileSource("screens/BrowseScreen.tsx");
+    // The Add Source sheet's field moved into the shared design-system search
+    // component so iOS can host a real SwiftUI TextField. BrowseScreen now only
+    // names the clear action's test ID; the clear-action contract itself lives
+    // with that component's RN fallback.
+    const addSourceSearchField = readMobileSource(
+      "design-system/components/NemuNativeSearchField.tsx",
+    );
     const search = readMobileSource("screens/SearchScreen.tsx");
     const metadata = readMobileSource(
       "components/MobileMetadataEditorSheet.tsx",
@@ -93,7 +157,9 @@ describe("mobile sheet and text-field chrome policy", () => {
     );
     const sourceBrowse = readMobileSource("screens/SourceBrowseScreen.tsx");
 
-    expect(browse).toContain('testID="AddSourceSearchClearAction"');
+    expect(browse).toContain('clearActionTestID="AddSourceSearchClearAction"');
+    expect(browse).not.toContain("clearButtonMode=");
+    expect(addSourceSearchField).toContain("testID={clearActionTestID}");
     expect(search).toContain('testID="InstalledSourceSearchClearAction"');
     expect(metadata).toContain('testID="MetadataMatchSearchClearAction"');
     expect(sourceManager).toContain(
@@ -104,7 +170,13 @@ describe("mobile sheet and text-field chrome policy", () => {
       /contentContainerStyle=\{styles\.filterPanelScrollContent\}[\s\S]*?keyboardShouldPersistTaps="handled"/,
     );
 
-    for (const source of [browse, search, metadata, sourceManager, sourceBrowse]) {
+    for (const source of [
+      addSourceSearchField,
+      search,
+      metadata,
+      sourceManager,
+      sourceBrowse,
+    ]) {
       expect(source).toContain("<NemuTextFieldClearAction");
       expect(source).toMatch(/trailingInset=\{(?:11|12|14)\}/);
       expect(source).not.toContain("clearButtonMode=");
@@ -202,12 +274,12 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(source).not.toContain("}, 250);");
   });
 
-  test("serializes Browse child sheets and installs behind native dismissal", () => {
+  test("serializes Browse child sheets and reports installs through toast", () => {
     const browse = readMobileSource("screens/BrowseScreen.tsx");
+    const toast = readMobileSource("components/MobileToast.tsx");
     const confirmation = readMobileSource(
       "components/MobileConfirmationSheet.tsx",
     );
-    const install = readMobileSource("components/MobileSourceInstallSheet.tsx");
 
     expect(browse).toContain("addSourceDismissActionRef.current = next;");
     expect(browse).toContain("if (addSourceDismissActionRef.current) return;");
@@ -219,16 +291,95 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(browse).toContain("onDismiss={handleAddSourceSheetDismissed}");
     expect(browse).toContain("onDismiss={handleLanguageSheetDismissed}");
     expect(browse).toContain("onDismiss={handleInstallConfirmationDismissed}");
-    expect(browse).toContain("onDismiss={handleInstallSheetDismissed}");
-    expect(browse).toContain("installSheetDismissedRef.current = true;");
+    expect(browse).toContain('duration: "sticky"');
+    expect(browse).toContain("loading: true");
+    expect(browse).toContain("onPress: installer.cancelInstall");
+    expect(browse).toContain("toast.dismiss(installToastId)");
+    expect(browse).not.toContain("MobileSourceInstallSheet");
     expect(browse).not.toContain("setAddSourceSheetKey");
+    expect(toast.indexOf("onDismiss(toast.id);")).toBeLessThan(
+      toast.indexOf("action.onPress();"),
+    );
 
-    for (const source of [confirmation, install]) {
-      expect(source).toContain("onDismiss?: () => void;");
-      expect(source).toContain("onDismiss={onDismiss}");
-    }
+    expect(confirmation).toContain("onDismiss?: () => void;");
+    expect(confirmation).toContain("onDismiss={onDismiss}");
     expect(confirmation).toContain("if (!visible) return;");
-    expect(install).toContain("if (visible) onCancel?.();");
+  });
+
+  test("keeps the toast pill at 48pt without shrinking its touch targets", () => {
+    const toast = readMobileSource("components/MobileToast.tsx");
+    const inline = readMobileSource("components/MobileInlineToast.tsx");
+    const notice = readMobileSource(
+      "components/reader/MobileReaderConnectivityNotice.tsx",
+    );
+
+    // `NemuButton` and `minimumTouchTarget` grow their frame to 44/48pt,
+    // which would push the 48pt pill to 60. The action keeps the shared
+    // `secondary` depth surface at 28pt and restores the target with
+    // negative margins plus hitSlop instead.
+    expect(toast).not.toContain("<NemuButton");
+    expect(toast).not.toContain("minimumTouchTarget");
+    expect(toast).toContain('buttonDepth="secondary"');
+    expect(toast).toContain("hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}");
+    expect(toast).toContain("hitSlop={6}");
+    expect(toast).toMatch(/actionTarget:\s*\{[\s\S]*?marginVertical:\s*-6,/);
+    expect(toast).toMatch(/actionPill:\s*\{[\s\S]*?minHeight:\s*28,/);
+    expect(toast).toMatch(/dismiss:\s*\{[\s\S]*?width:\s*32,[\s\S]*?height:\s*32,/);
+    expect(toast).toMatch(/pillContent:\s*\{[\s\S]*?minHeight:\s*48,/);
+
+    // One surface: the in-sheet toast and the reader notice both render it.
+    expect(inline).toContain("<MobileToastSurface");
+    expect(notice).toContain("<MobileToastSurface");
+  });
+
+  test("renders the toast pill on system Liquid Glass behind an iOS 26 gate", () => {
+    const toast = readMobileSource("components/MobileToast.tsx");
+    const surface = readMobileSource(
+      "design-system/components/GlassSurface.tsx",
+    );
+
+    // Both toast entry points (anchored host and in-sheet inline toast) render
+    // `MobileToastSurface`, so opting its one shared `GlassSurface` in covers
+    // them together. The `plain` reader notice keeps the reader's own panel.
+    expect(toast).toContain("liquidGlass");
+    expect(toast).toMatch(/<GlassSurface\s+intensity=\{32\}\s+liquidGlass/);
+    expect(toast.indexOf("liquidGlass")).toBeGreaterThan(
+      toast.indexOf("if (plain) {"),
+    );
+
+    // iOS 26+ only; every other platform keeps the BlurView / native-view path.
+    expect(surface).toContain(
+      "supportsNemuLiquidGlass(Platform.OS, Platform.Version)",
+    );
+    expect(surface).toContain('variant: "regular"');
+    expect(surface).toContain("interactive: false");
+    expect(surface).toContain("resolveGlassSurfaceShape({ cornerRadius, height })");
+    expect(surface).toContain("glassSurfaceLiquidTint(tokens.background)");
+    // The material paints the surface; a token fill would hide the glass.
+    expect(surface).toMatch(/liquidShell:\s*\{[\s\S]*?backgroundColor: "transparent",/);
+    // Touch has to reach the action pill and dismiss glyph inside the host.
+    expect(surface).toContain("<RNHostView matchContents>");
+  });
+
+  test("keeps the toast entrance quick and the reduce-motion path animation free", () => {
+    const toast = readMobileSource("components/MobileToast.tsx");
+
+    // ~25% faster settle than the original 18/220 spring at the same damping
+    // ratio, so the pill arrives sooner without gaining a bounce.
+    expect(toast).toContain(
+      "FadeInDown.springify().damping(22).stiffness(340)",
+    );
+    expect(toast).toContain("FadeOutDown.duration(120)");
+    expect(toast).not.toContain("stiffness(220)");
+    expect(toast).toContain("motionDisabled\n          ? undefined");
+    expect(toast).toContain(
+      "exiting={motionDisabled ? undefined : FadeOutDown.duration(120)}",
+    );
+
+    // The whole pill animates: the SwiftUI host lives inside `Animated.View`.
+    expect(toast.indexOf("<Animated.View")).toBeLessThan(
+      toast.indexOf("<MobileToastSurface"),
+    );
   });
 
   test("serializes Library sheet swaps without remounting the closing host", () => {
@@ -280,7 +431,11 @@ describe("mobile sheet and text-field chrome policy", () => {
     const settingsCard = readMobileSource(
       "components/MobileSourceSettingsCard.tsx",
     );
-    const settingsScreen = readMobileSource("screens/SettingsScreen.tsx");
+    // The installed-source settings sheet is shared by Settings and Browse, so
+    // the embedded back-handler wiring lives with the sheet itself.
+    const sourceSettingsSheet = readMobileSource(
+      "components/MobileInstalledSourceSettingsSheet.tsx",
+    );
     const sourceBrowse = readMobileSource("screens/SourceBrowseScreen.tsx");
 
     expect(manager).not.toContain("<MobileConfirmationSheet");
@@ -289,8 +444,8 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(settingsCard).toContain("<MobileSourceLoginSheet");
     expect(settingsCard).toContain("embedded");
     expect(settingsCard).toContain("onEmbeddedBackHandlerChange?.(");
-    expect(settingsScreen).toContain("embeddedBackHandlerRef.current");
-    expect(settingsScreen).toContain("onHardwareBackPress={() => {");
+    expect(sourceSettingsSheet).toContain("embeddedBackHandlerRef.current");
+    expect(sourceSettingsSheet).toContain("onHardwareBackPress={() => {");
     expect(sourceBrowse).toContain("sourceFilterPresentation");
     expect(sourceBrowse).toContain("filters={sourceFilterPresentation.filters}");
     expect(sourceBrowse).toContain("setSourceFilterPresentation(null);");
@@ -352,14 +507,8 @@ describe("mobile sheet and text-field chrome policy", () => {
 
     const targets = [
       [readMobileSource("design-system/components/NemuToolbarAction.tsx"), "action"],
-      [readMobileSource("screens/BrowseScreen.tsx"), "adultToggle"],
-      [readMobileSource("screens/BrowseScreen.tsx"), "languageFallbackButton"],
       [readMobileSource("components/MobileMangaDetailSurface.tsx"), "primaryAction"],
       [readMobileSource("components/MobileMangaDetailSurface.tsx"), "iconAction"],
-      [readMobileSource("components/MobileSourceSettingsCard.tsx"), "backButton"],
-      [readMobileSource("components/MobileSourceSettingsCard.tsx"), "resetButton"],
-      [readMobileSource("components/MobileSourceSettingsCard.tsx"), "editableListAddButton"],
-      [readMobileSource("components/MobileSourceSettingsCard.tsx"), "stepperButton"],
     ] as const;
 
     for (const [source, styleName] of targets) {
@@ -370,5 +519,26 @@ describe("mobile sheet and text-field chrome policy", () => {
         'overflow: "hidden"',
       );
     }
+
+    // The source settings card's back / reset / stepper / add controls used to
+    // paint their own depth through `buttonDepth` plus a local style. They now
+    // go through NemuButton, which keeps the depth shadow on unclipped sibling
+    // surfaces and grows the touch frame to the native minimum target.
+    const settingsCard = readMobileSource(
+      "components/MobileSourceSettingsCard.tsx",
+    );
+    expect(settingsCard).not.toContain("buttonDepth=");
+    for (const marker of [
+      'icon="chevron-back"',
+      'icon="refresh-outline"',
+      'icon="add-outline"',
+      'icon="remove-outline"',
+    ]) {
+      expect(settingsCard).toContain(marker);
+    }
+
+    const button = readMobileSource("design-system/components/NemuButton.tsx");
+    expect(button).toContain("resolveNemuButtonTouchTargetStyle");
+    expect(button).not.toContain('overflow: "hidden"');
   });
 });

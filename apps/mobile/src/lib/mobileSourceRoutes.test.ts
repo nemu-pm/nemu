@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   getMobileSourceBrowseHref,
+  getMobileSourceBrowseSearchHref,
   getMobileSourceMangaBackAction,
   getMobileSourceMangaHref,
   getMobileSourceReaderBackAction,
@@ -19,6 +20,18 @@ describe("mobile source routes", () => {
         sourceId: "en/example",
       }),
     ).toBe("/browse/tachiyomi-local/en%2Fexample");
+  });
+
+  test("carries a trimmed search query into source browse navigation", () => {
+    expect(
+      getMobileSourceBrowseSearchHref({
+        registryId: "aidoku-community",
+        sourceId: "zh/example",
+        query: "  怪兽 8号 & friends  ",
+      }),
+    ).toBe(
+      "/browse/aidoku-community/zh%2Fexample?q=%E6%80%AA%E5%85%BD%208%E5%8F%B7%20%26%20friends",
+    );
   });
 
   test("encodes source manga route params as single path segments", () => {

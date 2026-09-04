@@ -9,6 +9,7 @@ export type NemuTokens = {
   card: string;
   cardForeground: string;
   primary: string;
+  primarySoft: string;
   primaryForeground: string;
   secondary: string;
   secondaryForeground: string;
@@ -25,7 +26,11 @@ export type NemuTokens = {
   toolbarActionPressed: string;
   shadow: string;
   danger: string;
+  dangerSoft: string;
   success: string;
+  successSoft: string;
+  warning: string;
+  warningSoft: string;
 };
 
 export const radius = {
@@ -34,12 +39,28 @@ export const radius = {
   lg: 10,
   xl: 12,
   tab: 22,
+  pill: 999,
 } as const;
 
 export const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 24,
   pageX: 16,
   pageTop: 18,
   tabBottom: 12,
+} as const;
+
+/**
+ * Shared icon glyph sizes. Toolbars and sheet rows render 22/20pt SF-Symbol
+ * equivalents; compact inline icons stay at 18pt.
+ */
+export const iconSize = {
+  sm: 18,
+  md: 20,
+  lg: 22,
 } as const;
 
 export const nemuTokens: Record<NemuColorScheme, NemuTokens> = {
@@ -50,6 +71,7 @@ export const nemuTokens: Record<NemuColorScheme, NemuTokens> = {
     cardForeground: "#0e111b",
     primary: "#5879f4",
     primaryForeground: "#f6f8ff",
+    primarySoft: "rgba(88,121,244,0.09)",
     secondary: "#e7ebf6",
     secondaryForeground: "#323a50",
     muted: "#e8ebf2",
@@ -65,7 +87,11 @@ export const nemuTokens: Record<NemuColorScheme, NemuTokens> = {
     toolbarActionPressed: "rgba(88,121,244,0.18)",
     shadow: "rgba(38,57,176,0.14)",
     danger: "#de3b3d",
+    dangerSoft: "rgba(222,59,61,0.14)",
     success: "#2f8f67",
+    successSoft: "rgba(47,143,103,0.09)",
+    warning: "#c2801a",
+    warningSoft: "rgba(194,128,26,0.14)",
   },
   dark: {
     background: "#090a0d",
@@ -74,6 +100,7 @@ export const nemuTokens: Record<NemuColorScheme, NemuTokens> = {
     cardForeground: "#e5e8ed",
     primary: "#6385fc",
     primaryForeground: "#f6f8ff",
+    primarySoft: "rgba(99,133,252,0.09)",
     secondary: "#191a1e",
     secondaryForeground: "#d5d7de",
     muted: "#191b1d",
@@ -89,6 +116,30 @@ export const nemuTokens: Record<NemuColorScheme, NemuTokens> = {
     toolbarActionPressed: "rgba(99,133,252,0.24)",
     shadow: "rgba(0,0,0,0.36)",
     danger: "#e8575b",
+    dangerSoft: "rgba(232,87,91,0.14)",
     success: "#64c493",
+    successSoft: "rgba(100,196,147,0.09)",
+    warning: "#f0a63a",
+    warningSoft: "rgba(240,166,58,0.16)",
   },
 };
+
+/** Semantic accent tones a status glyph, toast, or badge can carry. */
+export type NemuTone = "primary" | "success" | "warning" | "danger" | "info";
+
+/**
+ * Resolves a semantic tone to its accent color. `info` and anything unknown
+ * fall back to `primary`, which is what every tone-tinted surface wants.
+ */
+export function nemuToneColor(tokens: NemuTokens, tone: NemuTone): string {
+  switch (tone) {
+    case "success":
+      return tokens.success;
+    case "danger":
+      return tokens.danger;
+    case "warning":
+      return tokens.warning;
+    default:
+      return tokens.primary;
+  }
+}

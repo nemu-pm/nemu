@@ -9,6 +9,7 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
+import { radius } from "@/design-system";
 
 const VOICE_BAR_HEIGHTS = [12, 18, 26, 16, 22, 14, 20, 28] as const;
 const VOICE_BAR_LOOP_MS = 920;
@@ -98,7 +99,7 @@ const styles = StyleSheet.create({
   },
   bar: {
     width: 4,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     opacity: 0.86,
   },
 });

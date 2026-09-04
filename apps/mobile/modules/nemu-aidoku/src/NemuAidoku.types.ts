@@ -48,7 +48,7 @@ export type NemuAidokuHttpFileRequest = {
   /** Optional, paired decoded-image limits. Omit both for non-image files. */
   maxImageDimension?: number | null;
   maxImagePixels?: number | null;
-  /** Android-only opt-in for a bounded manifest of static portrait-strip tiles. */
+  /** Native opt-in for a bounded manifest of static portrait-strip tiles. */
   allowLongStripSegments?: boolean | null;
 };
 

@@ -1,6 +1,6 @@
 import type { MobileReaderPage } from "@/sources/mobileSourcePages";
 import { mobileNativeFetch } from "@/sources/mobileNativeHttp";
-import { base64ToBytes } from "./mobileBase64";
+import { decodeBase64 } from "./mobileBase64";
 import { createMobileJapaneseLearningAbortScope } from "./mobileJapaneseLearningLifecycle";
 import {
   assertMobileJapaneseLearningBase64Payload,
@@ -12,6 +12,8 @@ import {
   readMobileJapaneseLearningBoundedResponseText,
   throwIfMobileJapaneseLearningAborted,
 } from "./mobileJapaneseLearningSafety";
+import { sanitizeMobileErrorDiagnostic } from "./mobileSourceErrors";
+import type { MobileStrings } from "./mobileI18n";
 
 export type MobileOcrDetection = {
   x1: number;
@@ -122,7 +124,7 @@ async function defaultReadFileBytes(uri: string): Promise<Uint8Array> {
     },
     "OCR local image",
   );
-  return base64ToBytes(encoded);
+  return decodeBase64(encoded);
 }
 
 function base64FromDataUri(uri: string): string | null {
@@ -335,6 +337,65 @@ export function textFromMobileOcrDetections(
     "OCR transcript",
   );
   return text;
+}
+
+export type MobileJapaneseLearningOcrErrorKind = "unavailable" | "failed";
+
+export type MobileJapaneseLearningOcrErrorCopy = {
+  kind: MobileJapaneseLearningOcrErrorKind;
+  title: string;
+  description: string;
+  diagnostic: string | null;
+};
+
+/**
+ * Service-side or transport failures (5xx statuses like Cloudflare's 521,
+ * timeouts, offline fetches) mean the OCR service itself is unreachable —
+ * everything else is a generic recognition failure.
+ */
+const MOBILE_JAPANESE_LEARNING_OCR_UNAVAILABLE_PATTERN =
+  /\b5\d{2}\b|timed?[\s-]*out|timeout|network|offline|unreachable/i;
+
+/**
+ * The error-copy contract from `mobileSourceErrors.ts`, applied to the
+ * Japanese-learning OCR surfaces: localized copy is the headline and the raw
+ * English exception text is a bounded diagnostic shown only inside the
+ * collapsed "technical details" disclosure.
+ */
+export function describeJapaneseLearningOcrError(
+  error: unknown,
+  strings: Pick<MobileStrings, "reader">,
+): MobileJapaneseLearningOcrErrorCopy {
+  let message = "";
+  if (typeof error === "string") {
+    message = error;
+  } else if (error instanceof Error) {
+    message = error.message;
+  } else if (error != null) {
+    try {
+      message = String(error);
+    } catch {
+      message = "";
+    }
+  }
+  const kind: MobileJapaneseLearningOcrErrorKind =
+    message && MOBILE_JAPANESE_LEARNING_OCR_UNAVAILABLE_PATTERN.test(message)
+      ? "unavailable"
+      : "failed";
+  return {
+    kind,
+    title:
+      kind === "unavailable"
+        ? strings.reader.pluginJapaneseLearningOcrUnavailableTitle
+        : strings.reader.pluginJapaneseLearningOcrFailedTitle,
+    description:
+      kind === "unavailable"
+        ? strings.reader.pluginJapaneseLearningOcrUnavailableDescription
+        : strings.reader.pluginJapaneseLearningOcrFailedDescription,
+    // Nullish inputs stringify to "undefined"/"null", which is noise, not a
+    // diagnostic — hide the disclosure entirely for them.
+    diagnostic: message ? sanitizeMobileErrorDiagnostic(error) : null,
+  };
 }
 
 export async function runMobileJapaneseLearningOcr(

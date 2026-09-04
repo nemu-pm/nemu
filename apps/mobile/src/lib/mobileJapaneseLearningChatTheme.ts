@@ -1,5 +1,7 @@
 import type { ColorSchemeName } from "react-native";
 import type { NemuTokens } from "@/design-system";
+// eslint-disable-next-line no-restricted-imports -- pure color helper; importing from @/design-system pulls the component barrel, which loads react-native's Flow-typed index.js and breaks bun's test runner.
+import { nemuColorWithAlpha } from "@/design/colorAlpha";
 
 /** Web drawer follow-up row indent: `ml-11` (44px) + inner `ml-4` (16px). */
 export const JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_INDENT = 60;
@@ -74,7 +76,7 @@ export function getJapaneseLearningFollowUpSuggestionColors(
   }
 
   return {
-    backgroundColor: `${tokens.muted}CC`,
+    backgroundColor: nemuColorWithAlpha(tokens.muted, 0.8),
     borderColor: tokens.border,
     pressedBackgroundColor: tokens.muted,
     textColor: tokens.foreground,

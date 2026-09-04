@@ -2,7 +2,11 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { StyleSheet, Text, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import type { LocalChapterProgress } from "@/data/schema";
-import { nemuFontWeight, useNemuTheme } from "@/design-system";
+import {
+  nemuColorWithAlpha,
+  nemuFontWeight,
+  useNemuTheme,
+} from "@/design-system";
 import {
   getMobileChapterProgressAccessory,
   getMobileChapterProgressTone,
@@ -74,7 +78,7 @@ export function MobileChapterProgressAccessory({
             cy={RING_CENTER}
             r={RING_RADIUS}
             fill="none"
-            stroke={`${tone}24`}
+            stroke={nemuColorWithAlpha(tone, 0.14)}
             strokeWidth={RING_STROKE}
           />
           <Circle

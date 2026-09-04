@@ -35,7 +35,7 @@ describe("mobile origin bridge", () => {
     const context = ctx as unknown as { skipOriginCheck?: unknown };
     expect(context.skipOriginCheck).toBeUndefined();
     expect(ctx.isTrustedOrigin("nemu://settings")).toBe(true);
-    expect(ctx.isTrustedOrigin("pm.nemu.mobile://oauth/callback")).toBe(true);
+    expect(ctx.isTrustedOrigin("pm.nemu://oauth/callback")).toBe(true);
     expect(ctx.isTrustedOrigin(siteUrl)).toBe(true);
     expect(ctx.isTrustedOrigin("https://evil.example/steal")).toBe(false);
   });

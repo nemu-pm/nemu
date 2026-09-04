@@ -14,8 +14,12 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FloatingTabBar } from "@/components/FloatingTabBar";
 import { MobileErrorBoundaryScreen } from "@/components/MobileErrorBoundaryScreen";
+import { MobileFeedbackSettingsBridge } from "@/components/MobileFeedbackSettingsBridge";
+import { MobileSyncProgressToast } from "@/components/MobileSyncProgressToast";
+import { MobileToastProvider } from "@/components/MobileToast";
 import { MobileWelcomeWizard } from "@/components/MobileWelcomeWizard";
 import { MobileDataProvider } from "@/data/mobileData";
+import { MobileLanguageProvider } from "@/data/mobileLanguageContext";
 import { NemuThemeProvider, useNemuTheme } from "@/design-system";
 import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
 import { getMobileWelcomeUnderlyingContentState } from "@/lib/mobileWelcome";
@@ -146,16 +150,22 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <MobileSyncProvider>
           <MobileDataProvider>
-            <MobileSyncBridge />
-            <MobileBackgroundSyncRegistrar />
-            <NemuThemeProvider>
-              <RootStack
-                welcomeBlocksAccessibility={welcomeBlocksAccessibility}
-              />
-              <MobileWelcomeWizard
-                onVisibilityChange={setWelcomeBlocksAccessibility}
-              />
-            </NemuThemeProvider>
+            <MobileLanguageProvider>
+              <MobileSyncBridge />
+              <MobileFeedbackSettingsBridge />
+              <MobileBackgroundSyncRegistrar />
+              <NemuThemeProvider>
+                <MobileToastProvider>
+                  <RootStack
+                    welcomeBlocksAccessibility={welcomeBlocksAccessibility}
+                  />
+                  <MobileSyncProgressToast />
+                  <MobileWelcomeWizard
+                    onVisibilityChange={setWelcomeBlocksAccessibility}
+                  />
+                </MobileToastProvider>
+              </NemuThemeProvider>
+            </MobileLanguageProvider>
           </MobileDataProvider>
         </MobileSyncProvider>
       </SafeAreaProvider>

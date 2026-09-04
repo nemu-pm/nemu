@@ -1,3 +1,4 @@
+import { memo, useCallback } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { MobileChapterProgressAccessory } from "@/components/MobileChapterProgressAccessory";
 import {
@@ -7,7 +8,7 @@ import {
   nemuFontWeight,
   useNemuTheme,
 } from "@/design-system";
-import type { ChapterSummary, LocalChapterProgress } from "@/data/schema";
+import type { AppLanguage, ChapterSummary, LocalChapterProgress } from "@/data/schema";
 import { formatChapterSubtitle, formatChapterTitle } from "@/lib/formatChapter";
 import {
   getMobileChapterPresentation,
@@ -19,25 +20,40 @@ import {
   getMobileChapterProgressAccessory,
 } from "@/lib/mobileChapterProgress";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
+import {
+  DEFAULT_APP_LANGUAGE,
+  formatMobileLanguageDisplayName,
+} from "@/lib/mobileLanguageSettings";
 
 type MobileChapterCellProps = {
+  appLanguage?: AppLanguage;
   busy: boolean;
   chapter: ChapterSummary;
   openChapterTemplate: string;
   progress: LocalChapterProgress | undefined;
   strings: MobileStrings;
-  onPress: () => void;
+  /**
+   * Takes the chapter so the caller can pass one stable handler for the whole
+   * grid instead of allocating a closure per cell (which defeats `memo`).
+   */
+  onPress: (chapter: ChapterSummary) => void;
+  showLanguage?: boolean;
 };
 
-export function MobileChapterCell({
+export const MobileChapterCell = memo(function MobileChapterCell({
+  appLanguage = DEFAULT_APP_LANGUAGE,
   busy,
   chapter,
   openChapterTemplate,
   progress,
   strings,
   onPress,
+  showLanguage = false,
 }: MobileChapterCellProps) {
   const { tokens } = useNemuTheme();
+  const handlePress = useCallback(() => {
+    onPress(chapter);
+  }, [chapter, onPress]);
   const chapterPresentation = getMobileChapterPresentation(chapter, progress);
   const chapterVisualState = getMobileChapterVisualState(chapterPresentation);
   const cellPalette = getMobileChapterRowPalette(chapterVisualState, tokens);
@@ -58,6 +74,18 @@ export function MobileChapterCell({
     .filter(Boolean)
     .join(". ");
   const chapterDisabled = chapterPresentation.isLocked || busy;
+  const baseSubtitle = formatChapterSubtitle(chapter);
+  const chapterSubtitle = [
+    baseSubtitle,
+    showLanguage && chapter.lang
+      ? formatMobileLanguageDisplayName(chapter.lang, appLanguage, {
+          multi: strings.sourceBrowse.multiLanguage,
+          other: strings.browse.otherLanguages,
+        })
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ") || null;
   const cellShadow = createNemuShadowStyle({
     color: tokens.shadow,
     offsetY: 1,
@@ -72,7 +100,7 @@ export function MobileChapterCell({
       accessibilityRole="button"
       accessibilityState={{ disabled: chapterDisabled }}
       disabled={chapterDisabled}
-      onPress={onPress}
+      onPress={handlePress}
       pressedScale={0.985}
       style={[
         styles.cell,
@@ -80,7 +108,11 @@ export function MobileChapterCell({
         {
           backgroundColor: cellPalette.backgroundColor,
           borderColor: cellPalette.borderColor,
-          opacity: chapterDisabled ? 0.72 : 1,
+          opacity: chapterPresentation.isRead
+            ? 0.55
+            : chapterDisabled
+              ? 0.72
+              : 1,
         },
       ]}
     >
@@ -88,12 +120,12 @@ export function MobileChapterCell({
         <Text numberOfLines={1} style={[styles.title, { color: cellPalette.titleColor }]}>
           {formatChapterTitle(chapter, strings)}
         </Text>
-        {formatChapterSubtitle(chapter) ? (
+        {chapterSubtitle ? (
           <Text
             numberOfLines={1}
             style={[styles.subtitle, { color: tokens.mutedForeground }]}
           >
-            {formatChapterSubtitle(chapter)}
+            {chapterSubtitle}
           </Text>
         ) : null}
       </View>
@@ -102,9 +134,12 @@ export function MobileChapterCell({
         locked={chapterPresentation.isLocked}
         showChevron={false}
       />
+      {!chapterPresentation.isRead ? (
+        <View style={[styles.unreadDot, { backgroundColor: tokens.primary }]} />
+      ) : null}
     </NemuPressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   cell: {
@@ -130,5 +165,13 @@ const styles = StyleSheet.create({
     marginTop: 1,
     fontSize: 11,
     lineHeight: 14,
+  },
+  unreadDot: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
 });

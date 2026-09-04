@@ -7,9 +7,15 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  type FlatList,
   type ListRenderItemInfo,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import Animated, {
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
 import {
   FilterType,
   type GroupFilter,
@@ -26,6 +32,9 @@ import {
 import type { SearchBarCommands } from "react-native-screens";
 import { nextSyncTimestamp } from "@nemu/core";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
+import { MobileListFooter } from "@/components/MobileListFooter";
+import { MobileSourceGridSkeleton } from "@/components/MobileSourceGridSkeleton";
+import { setMobileSourceDetailSeed } from "@/lib/mobileSourceDetailSeed";
 import {
   SourceHomeSkeletonView,
   SourceHomeView,
@@ -49,7 +58,6 @@ import {
   MobileNativeSheetScaffold,
   NemuButton,
   NemuInlineEmptyState,
-  NemuNativeProgressView,
   NemuPressable,
   NemuTextFieldClearAction,
   PageListScaffold,
@@ -105,7 +113,9 @@ import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import {
   canLoadMoreMobileSourceBrowseResults,
   isMobileSourceBrowseLoadMoreBusy,
+  resolveMobileSourceBrowsePagination,
 } from "@/lib/mobileSourceBrowsePagination";
+import { resolveMobileListFooterState } from "@/lib/mobileListFooter";
 import {
   compactMobileSourceFilterValues,
   canSelectMobileSourceSortFilterOption,
@@ -163,14 +173,20 @@ import {
   makeMobileRuntimeSourceKey,
   normalizeInstalledSource,
 } from "@/sources/mobileSourceRuntime";
+import { getActiveMobileSourceProfileScope } from "@/sources/mobileSourceProfileScope";
+import { fetchMobileSourceListing } from "@/sources/mobileSourceListings";
 import {
-  getActiveMobileSourceProfileScope,
-  registerMobileSourceProfileTransitionHandler,
-} from "@/sources/mobileSourceProfileScope";
+  captureMobileGridScrollRatio,
+  resolveMobileGridScrollRestoreOffset,
+  shouldRestoreMobileGridScroll,
+  type MobileGridScrollSnapshot,
+} from "@/lib/mobileGridScrollRestore";
 import {
-  fetchMobileSourceListing,
-  type MobileSourceListingResult,
-} from "@/sources/mobileSourceListings";
+  clearMobileSourceListingCacheForRuntime,
+  readMobileSourceListingCache,
+  writeMobileSourceListingCache,
+  type MobileSourceListingBrowseState,
+} from "@/lib/mobileSourceListingCache";
 import {
   fetchMobileSourceFilters,
   type MobileSourceFiltersResult,
@@ -200,8 +216,16 @@ const INLINE_SOURCE_FILTER_LIMIT = 8;
 const INLINE_FILTER_OPTION_LIMIT = 8;
 const INLINE_GENRE_OPTION_LIMIT = 10;
 const SOURCE_BROWSE_HORIZONTAL_PADDING = 32;
-const SOURCE_BROWSE_TAB_EDGE_FADE_WIDTH = 26;
+/**
+ * Wide enough that a partially-scrolled tab's label sits fully inside the
+ * opaque tail of the gradient; the ramp itself only occupies the outer half.
+ */
+const SOURCE_BROWSE_TAB_EDGE_FADE_WIDTH = 40;
+const SOURCE_BROWSE_TAB_EDGE_FADE_OPAQUE_AT = 0.45;
 const SOURCE_OPERATION_TIMEOUT_MS = DEFAULT_MOBILE_SOURCE_OPERATION_TIMEOUT_MS;
+// The tab-strip edge fades ride the scroll offset on the UI thread; the
+// gradients themselves never re-render.
+const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 
 function withSourceOperationTimeout<T>(
   operation: Promise<T>,
@@ -220,67 +244,7 @@ function sameSourcePackageMetadata(
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
-type ListingBrowseState =
-  | { status: "idle"; items: MobileLiveSearchManga[]; detail: string }
-  | { status: "loading"; items: MobileLiveSearchManga[]; detail: string }
-  | {
-      status: "ready";
-      result: Extract<MobileSourceListingResult, { status: "ready" }>;
-      items: MobileLiveSearchManga[];
-    }
-  | {
-      status: "blocked";
-      result: Extract<MobileSourceListingResult, { status: "blocked" }>;
-      items: MobileLiveSearchManga[];
-    }
-  | { status: "error"; items: MobileLiveSearchManga[]; detail: string };
-
-const SOURCE_LISTING_CACHE_TTL_MS = 5 * 60 * 1000;
-const SOURCE_LISTING_CACHE_LIMIT = 80;
-const sourceListingCache = new Map<
-  string,
-  { state: ListingBrowseState; updatedAt: number }
->();
-
-function readSourceListingCache(key: string): ListingBrowseState | null {
-  const cached = sourceListingCache.get(key);
-  if (!cached) return null;
-  if (Date.now() - cached.updatedAt > SOURCE_LISTING_CACHE_TTL_MS) {
-    sourceListingCache.delete(key);
-    return null;
-  }
-  return cached.state;
-}
-
-function writeSourceListingCache(key: string, state: ListingBrowseState) {
-  if (state.status === "idle" || state.status === "loading") return;
-  sourceListingCache.set(key, { state, updatedAt: Date.now() });
-  while (sourceListingCache.size > SOURCE_LISTING_CACHE_LIMIT) {
-    const firstKey = sourceListingCache.keys().next().value;
-    if (!firstKey) break;
-    sourceListingCache.delete(firstKey);
-  }
-}
-
-function clearSourceListingCacheForRuntime(
-  sourceRuntimeKey: string | null,
-  profileScope = getActiveMobileSourceProfileScope(),
-) {
-  if (!sourceRuntimeKey) return;
-  const prefix = `${profileScope}:${sourceRuntimeKey}:`;
-  for (const key of sourceListingCache.keys()) {
-    if (key.startsWith(prefix)) sourceListingCache.delete(key);
-  }
-}
-
-function clearMobileSourceListingCache(): void {
-  sourceListingCache.clear();
-}
-
-registerMobileSourceProfileTransitionHandler(
-  "source-listing-cache",
-  clearMobileSourceListingCache,
-);
+type ListingBrowseState = MobileSourceListingBrowseState;
 
 type SourceFiltersState =
   | { status: "idle"; filters: Filter[]; detail: string }
@@ -467,9 +431,19 @@ function ListingMangaCard({
 }) {
   const { tokens } = useNemuTheme();
   const subtitle = liveMangaSubtitle(item);
-  const coverRequest = useMobileSourceImageRequest(source, item.cover);
+  const coverRequestAlreadyResolved = item.coverHeaders !== undefined;
+  const coverRequest = useMobileSourceImageRequest(
+    coverRequestAlreadyResolved ? null : source,
+    coverRequestAlreadyResolved ? null : item.cover,
+  );
   const coverSource = item.cover
-    ? coverRequest
+    ? coverRequestAlreadyResolved
+      ? {
+          uri: item.cover,
+          headers: item.coverHeaders,
+          cache: "force-cache" as const,
+        }
+      : coverRequest
       ? {
           uri: coverRequest.url,
           headers: coverRequest.headers,
@@ -596,14 +570,6 @@ function SourceListingTab({
       textStyle={styles.listingTabText}
       variant={selected ? "default" : "outline"}
     />
-  );
-}
-
-function SourceBrowseProgress({ label }: { label: string }) {
-  return (
-    <View style={styles.sourceBrowseProgress}>
-      <NemuNativeProgressView accessibilityLabel={label} />
-    </View>
   );
 }
 
@@ -1042,7 +1008,6 @@ function SourceFilterPanel({
   onApply: (values: FilterValue[]) => void;
   strings: MobileStrings;
 }) {
-  const { tokens } = useNemuTheme();
   const { fontScale, height, width } = useWindowDimensions();
   const [draftValues, setDraftValues] = useState<FilterValue[]>(values);
   const wasVisibleRef = useRef(false);
@@ -1139,44 +1104,22 @@ function SourceFilterPanel({
       </ScrollView>
 
       <View style={styles.filterPanelActions}>
-        <NemuPressable
-          accessibilityRole="button"
+        <NemuButton
           accessibilityLabel={strings.sourceBrowse.resetFilters}
+          containerStyle={styles.filterPanelActionContainer}
+          label={strings.sourceBrowse.resetFilters}
           onPress={resetDraftFilters}
-          containerStyle={styles.filterPanelActionContainer}
-          style={[
-            styles.filterPanelSecondaryButton,
-            { backgroundColor: tokens.muted },
-          ]}
-        >
-          <Text
-            style={[
-              styles.filterPanelSecondaryText,
-              { color: tokens.mutedForeground },
-            ]}
-          >
-            {strings.sourceBrowse.resetFilters}
-          </Text>
-        </NemuPressable>
-        <NemuPressable
-          accessibilityRole="button"
+          size="lg"
+          variant="secondary"
+        />
+        <NemuButton
           accessibilityLabel={strings.sourceBrowse.applyFilters}
-          onPress={applyDraftFilters}
           containerStyle={styles.filterPanelActionContainer}
-          style={[
-            styles.filterPanelPrimaryButton,
-            { backgroundColor: tokens.primary },
-          ]}
-        >
-          <Text
-            style={[
-              styles.filterPanelPrimaryText,
-              { color: tokens.primaryForeground },
-            ]}
-          >
-            {strings.sourceBrowse.applyFilters}
-          </Text>
-        </NemuPressable>
+          label={strings.sourceBrowse.applyFilters}
+          onPress={applyDraftFilters}
+          size="lg"
+          variant="default"
+        />
       </View>
     </MobileNativeSheetScaffold>
   );
@@ -1217,9 +1160,18 @@ export function SourceBrowseScreen() {
   const listingPaginationRef = useRef({ hasMore: false, loading: false });
   const [listingLoadMoreInFlight, setListingLoadMoreInFlight] = useState(false);
   const listingLoadMoreInFlightRef = useRef(false);
+  const listingLastPageRef = useRef(1);
   const [listingTabsViewportWidth, setListingTabsViewportWidth] = useState(0);
   const [listingTabsContentWidth, setListingTabsContentWidth] = useState(0);
-  const [listingTabsScrollX, setListingTabsScrollX] = useState(0);
+  // The tab strip's scroll offset only decides whether the two edge fades are
+  // shown. Holding it in JS state re-rendered this screen on every 16ms scroll
+  // frame; the offset now lives on the UI thread and the fades follow it there.
+  const listingTabsScrollX = useSharedValue(0);
+  const handleListingTabsScroll = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      listingTabsScrollX.value = event.contentOffset.x;
+    },
+  });
   const [runtimeRefreshKey, setRuntimeRefreshKey] = useState(0);
   const [sourceHomeState, setSourceHomeState] = useState<SourceHomeState>({
     status: "idle",
@@ -1228,6 +1180,18 @@ export function SourceBrowseScreen() {
   });
   const sourceHomeRequestRef = useRef(0);
   const sourceHomeResultKeyRef = useRef<string | null>(null);
+  /** Retrying the home rails re-runs only the home fetch. Bumping
+   * `runtimeRefreshKey` instead would rotate the listing cache key and throw
+   * away every cached listing page the user already paid for. */
+  const [sourceHomeRetryKey, setSourceHomeRetryKey] = useState(0);
+  const gridScrollSnapshotRef = useRef<MobileGridScrollSnapshot>({
+    offset: 0,
+    contentHeight: 0,
+    viewportHeight: 0,
+  });
+  const gridScrollRef = useRef<FlatList<MobileLiveSearchManga> | null>(null);
+  const pendingGridScrollRatioRef = useRef<number | null>(null);
+  const gridColumnsRef = useRef(0);
   const [refreshingSource, setRefreshingSource] = useState(false);
   const refreshSourceGuardRef = useRef(false);
   const cloudflareSheetRef = useRef<{
@@ -1278,7 +1242,9 @@ export function SourceBrowseScreen() {
   const [sourceSearchLoadMoreInFlight, setSourceSearchLoadMoreInFlight] =
     useState(false);
   const sourceSearchLoadMoreInFlightRef = useRef(false);
+  const sourceSearchLastPageRef = useRef(1);
   const sourceSearchRequestRef = useRef(0);
+  const sourceSearchAbortRef = useRef<AbortController | null>(null);
   const store = useMobileDataStore();
   const installed = useInstalledSources();
 
@@ -1366,6 +1332,16 @@ export function SourceBrowseScreen() {
       }),
     [windowWidth],
   );
+  // `FlatList` throws when `numColumns` changes on a mounted list, so a
+  // rotation has to remount the grid. Capture the scroll proportion in the
+  // same pass that changes the key — the remounted list reports its new
+  // content size before effects run.
+  if (gridColumnsRef.current !== 0 && gridColumnsRef.current !== gridColumns) {
+    pendingGridScrollRatioRef.current = captureMobileGridScrollRatio(
+      gridScrollSnapshotRef.current,
+    );
+  }
+  gridColumnsRef.current = gridColumns;
   const staticListings = useMemo(
     () => packageMetadata?.listings ?? [],
     [packageMetadata?.listings],
@@ -1552,15 +1528,29 @@ export function SourceBrowseScreen() {
 
   useEffect(() => {
     listingItemsRef.current = listingState.items;
-    listingPaginationRef.current = {
-      hasMore: listingState.status === "ready" && listingState.result.hasMore,
-      loading: listingState.status === "loading",
-    };
+    listingPaginationRef.current = resolveMobileSourceBrowsePagination(
+      listingPaginationRef.current,
+      {
+        loading: listingState.status === "loading",
+        readyHasMore:
+          listingState.status === "ready"
+            ? listingState.result.hasMore
+            : undefined,
+      },
+    );
   }, [listingState]);
 
   useEffect(() => {
     listingRequestRef.current += 1;
   }, [runtimeRefreshKey, selectedListing?.id, sourceRuntimeKey]);
+
+  // A rotation captures a scroll ratio for the remounted grid, but a restore
+  // that the new content size declines leaves the ratio queued. Switching tab,
+  // listing, or search mode retires it so a later pagination append cannot
+  // jump the user to a ratio captured against a different list.
+  useEffect(() => {
+    pendingGridScrollRatioRef.current = null;
+  }, [selectedListingId, sourceRuntimeKey, sourceSearchActive]);
 
   useEffect(() => {
     setSourceBrowseMetadataState({ status: "idle" });
@@ -1569,11 +1559,14 @@ export function SourceBrowseScreen() {
       filters: [],
       detail: sourceBrowseStringsRef.current.sourceFiltersIdle,
     });
-    clearSourceListingCacheForRuntime(sourceRuntimeKey, sourceProfileScope);
+    clearMobileSourceListingCacheForRuntime(
+      sourceRuntimeKey,
+      sourceProfileScope,
+    );
     setListingTabsContentWidth(0);
-    setListingTabsScrollX(0);
+    listingTabsScrollX.value = 0;
     setListingTabsViewportWidth(0);
-  }, [sourceProfileScope, sourceRuntimeKey]);
+  }, [listingTabsScrollX, sourceProfileScope, sourceRuntimeKey]);
 
   useEffect(() => {
     if (!listings.length && !selectedRuntimeListing) {
@@ -1772,12 +1765,16 @@ export function SourceBrowseScreen() {
 
   useEffect(() => {
     sourceSearchItemsRef.current = sourceSearchState.items;
-    sourceSearchPaginationRef.current = {
-      hasMore:
-        sourceSearchState.status === "ready" &&
-        sourceSearchState.result.hasMore,
-      loading: sourceSearchState.status === "loading",
-    };
+    sourceSearchPaginationRef.current = resolveMobileSourceBrowsePagination(
+      sourceSearchPaginationRef.current,
+      {
+        loading: sourceSearchState.status === "loading",
+        readyHasMore:
+          sourceSearchState.status === "ready"
+            ? sourceSearchState.result.hasMore
+            : undefined,
+      },
+    );
   }, [sourceSearchState]);
 
   useEffect(() => {
@@ -1920,6 +1917,7 @@ export function SourceBrowseScreen() {
   }, [
     resolveExecutorSourceSettings,
     sourceHomeGenerationKey,
+    sourceHomeRetryKey,
     sourceHomeSelected,
     sourceSettings.loading,
     strings,
@@ -1994,6 +1992,9 @@ export function SourceBrowseScreen() {
   const loadSourceSearch = useCallback(
     async (page = 1) => {
       if (!installedSource || !sourceSearchActive) return;
+      sourceSearchAbortRef.current?.abort();
+      const controller = new AbortController();
+      sourceSearchAbortRef.current = controller;
       const loadingMore = page > 1;
       if (loadingMore) {
         const pagination = sourceSearchPaginationRef.current;
@@ -2009,6 +2010,13 @@ export function SourceBrowseScreen() {
         sourceSearchLoadMoreInFlightRef.current = true;
         setSourceSearchLoadMoreInFlight(true);
       }
+      // Mirror the transition into the guard ref synchronously: the passive
+      // sync effect below runs a frame after commit, and a trigger landing in
+      // that gap must not read stale values.
+      sourceSearchPaginationRef.current =
+        resolveMobileSourceBrowsePagination(sourceSearchPaginationRef.current, {
+          loading: true,
+        });
       const requestId = sourceSearchRequestRef.current + 1;
       sourceSearchRequestRef.current = requestId;
       const previousItems = page > 1 ? sourceSearchItemsRef.current : [];
@@ -2027,12 +2035,18 @@ export function SourceBrowseScreen() {
             page,
             filters: compactMobileSourceFilterValues(sourceFilterValues),
             getSourceSettings: resolveExecutorSourceSettings,
+            signal: controller.signal,
           }),
           strings.sourceBrowse.sourceOperationTimedOut,
         );
         if (sourceSearchRequestRef.current !== requestId) return;
 
         if (result.status === "blocked") {
+          sourceSearchPaginationRef.current =
+            resolveMobileSourceBrowsePagination(
+              sourceSearchPaginationRef.current,
+              { loading: false },
+            );
           setSourceSearchState({
             status: "blocked",
             result,
@@ -2043,6 +2057,12 @@ export function SourceBrowseScreen() {
 
         const items =
           page > 1 ? [...previousItems, ...result.items] : result.items;
+        sourceSearchLastPageRef.current = page;
+        sourceSearchPaginationRef.current =
+          resolveMobileSourceBrowsePagination(
+            sourceSearchPaginationRef.current,
+            { loading: false, readyHasMore: result.hasMore },
+          );
         setSourceSearchState({
           status: "ready",
           result,
@@ -2050,8 +2070,14 @@ export function SourceBrowseScreen() {
           page,
         });
       } catch (error) {
+        if (controller.signal.aborted) return;
         if (sourceSearchRequestRef.current !== requestId) return;
         cloudflareSheetRef.current?.reportError(error);
+        sourceSearchPaginationRef.current =
+          resolveMobileSourceBrowsePagination(
+            sourceSearchPaginationRef.current,
+            { loading: false },
+          );
         setSourceSearchState({
           status: "error",
           items: previousItems,
@@ -2061,6 +2087,9 @@ export function SourceBrowseScreen() {
           ),
         });
       } finally {
+        if (sourceSearchAbortRef.current === controller) {
+          sourceSearchAbortRef.current = null;
+        }
         if (loadingMore) {
           sourceSearchLoadMoreInFlightRef.current = false;
           setSourceSearchLoadMoreInFlight(false);
@@ -2091,6 +2120,7 @@ export function SourceBrowseScreen() {
   useEffect(() => {
     if (!installedSource || sourceSettings.loading) return;
     if (!sourceSearchActive) {
+      sourceSearchAbortRef.current?.abort();
       sourceSearchRequestRef.current += 1;
       loadedSourceSearchKeyRef.current = null;
       if (
@@ -2108,7 +2138,13 @@ export function SourceBrowseScreen() {
     }
     if (loadedSourceSearchKeyRef.current === sourceSearchRequestKey) return;
     loadedSourceSearchKeyRef.current = sourceSearchRequestKey;
-    void loadSourceSearch(1);
+    const debounce = setTimeout(() => {
+      void loadSourceSearch(1);
+    }, 250);
+    return () => {
+      clearTimeout(debounce);
+      sourceSearchAbortRef.current?.abort();
+    };
   }, [
     installedSource,
     loadSourceSearch,
@@ -2139,6 +2175,13 @@ export function SourceBrowseScreen() {
         listingLoadMoreInFlightRef.current = true;
         setListingLoadMoreInFlight(true);
       }
+      // Mirror the transition into the guard ref synchronously: the passive
+      // sync effect below runs a frame after commit, and a trigger landing in
+      // that gap must not read stale values.
+      listingPaginationRef.current = resolveMobileSourceBrowsePagination(
+        listingPaginationRef.current,
+        { loading: true },
+      );
       const requestId = listingRequestRef.current + 1;
       listingRequestRef.current = requestId;
       const previousItems = page > 1 ? listingItemsRef.current : [];
@@ -2163,6 +2206,10 @@ export function SourceBrowseScreen() {
         if (listingRequestRef.current !== requestId) return;
 
         if (result.status === "blocked") {
+          listingPaginationRef.current = resolveMobileSourceBrowsePagination(
+            listingPaginationRef.current,
+            { loading: false },
+          );
           const nextState: ListingBrowseState = {
             status: "blocked",
             result,
@@ -2170,7 +2217,7 @@ export function SourceBrowseScreen() {
           };
           setListingState(nextState);
           if (page === 1 && cacheKey) {
-            writeSourceListingCache(cacheKey, nextState);
+            writeMobileSourceListingCache(cacheKey, nextState);
           }
           return;
         }
@@ -2182,13 +2229,22 @@ export function SourceBrowseScreen() {
           result,
           items,
         };
+        listingLastPageRef.current = page;
+        listingPaginationRef.current = resolveMobileSourceBrowsePagination(
+          listingPaginationRef.current,
+          { loading: false, readyHasMore: result.hasMore },
+        );
         setListingState(nextState);
         if (cacheKey) {
-          writeSourceListingCache(cacheKey, nextState);
+          writeMobileSourceListingCache(cacheKey, nextState);
         }
       } catch (error) {
         if (listingRequestRef.current !== requestId) return;
         cloudflareSheetRef.current?.reportError(error);
+        listingPaginationRef.current = resolveMobileSourceBrowsePagination(
+          listingPaginationRef.current,
+          { loading: false },
+        );
         setListingState({
           status: "error",
           items: previousItems,
@@ -2217,7 +2273,7 @@ export function SourceBrowseScreen() {
     if (!installedSource || !selectedListing || sourceSettings.loading) return;
     const cacheKey = getListingCacheKey(selectedListing);
     const cachedListingState = cacheKey
-      ? readSourceListingCache(cacheKey)
+      ? readMobileSourceListingCache(cacheKey)
       : null;
     if (
       cachedListingState &&
@@ -2239,6 +2295,12 @@ export function SourceBrowseScreen() {
 
   const handleListingMangaPress = useCallback(
     (sourceDisplay: SearchSourceDisplay, manga: MobileLiveSearchManga) => {
+      setMobileSourceDetailSeed(
+        sourceDisplay.registryId,
+        sourceDisplay.rawSourceId,
+        manga.id,
+        manga,
+      );
       router.push(
         getMobileSourceMangaHref({
           registryId: sourceDisplay.registryId,
@@ -2328,6 +2390,17 @@ export function SourceBrowseScreen() {
     onSuccess: () => setRuntimeRefreshKey((current) => current + 1),
   });
   cloudflareSheetRef.current = cloudflareSheet;
+
+  /**
+   * The home rails failing is a home-fetch failure, not a stale-runtime
+   * failure. Re-run just that request: a full refresh rotates
+   * `runtimeRefreshKey`, which is part of the listing cache key, so every
+   * already-loaded listing page would be thrown away too.
+   */
+  const retrySourceHome = useCallback(() => {
+    sourceHomeResultKeyRef.current = null;
+    setSourceHomeRetryKey((current) => current + 1);
+  }, []);
 
   const refreshSourceData = useCallback(async () => {
     if (refreshSourceGuardRef.current) return;
@@ -2476,24 +2549,24 @@ export function SourceBrowseScreen() {
       sourceSearchState.items.length > 0,
     inFlight: sourceSearchLoadMoreInFlight,
   });
-  const showSourceSearchLoadMore =
-    sourceSearchState.items.length > 0 &&
-    (sourceSearchLoadMoreBusy ||
-      (sourceSearchState.status === "ready" &&
-        sourceSearchState.result.hasMore));
   const listingLoadMoreBusy = isMobileSourceBrowseLoadMoreBusy({
     loading: listingState.status === "loading" && listingState.items.length > 0,
     inFlight: listingLoadMoreInFlight,
   });
-  const showListingLoadMore =
-    listingState.items.length > 0 &&
-    (listingLoadMoreBusy ||
-      (listingState.status === "ready" && listingState.result.hasMore));
   const listingTabFadeColor = nemuColorWithAlpha(tokens.background, 1);
   const listingTabFadeTransparent = nemuColorWithAlpha(tokens.background, 0);
-  const showListingTabsLeadingFade = listingTabsScrollX > 2;
-  const showListingTabsTrailingFade =
-    listingTabsContentWidth - listingTabsViewportWidth - listingTabsScrollX > 2;
+  const listingTabsLeadingFadeStyle = useAnimatedStyle(() => ({
+    opacity: listingTabsScrollX.value > 2 ? 1 : 0,
+  }));
+  const listingTabsTrailingFadeStyle = useAnimatedStyle(() => ({
+    opacity:
+      listingTabsContentWidth -
+        listingTabsViewportWidth -
+        listingTabsScrollX.value >
+      2
+        ? 1
+        : 0,
+  }));
 
   const loading = installed.loading;
   const error = installed.error;
@@ -2612,6 +2685,234 @@ export function SourceBrowseScreen() {
     ],
   );
 
+  // The ~190-line grid header rebuilt its whole subtree on every render of
+  // this screen — including each pagination append and every scroll-driven
+  // state change. Memoizing the element lets React skip it unless something
+  // it actually shows changed.
+  const hasListingGridItems = listingGridItems.length > 0;
+  const listingGridHeader = useMemo(
+    () => (
+      <View style={styles.sections}>
+        {sourceRuntimeUnavailableDetail ? (
+          <SourceBrowseBlockedNotice
+            detail={sourceRuntimeUnavailableDetail}
+            strings={strings}
+          />
+        ) : null}
+        {source && sourceSearchActive && showSourceSearchHeader ? (
+          <View
+            style={[
+              styles.previewSection,
+              hasListingGridItems
+                ? styles.gridHeaderSpacing
+                : styles.emptyGridHeaderSpacing,
+            ]}
+          >
+            {sourceFilterCount > 0 ? (
+              <Text
+                style={[
+                  styles.filterSummary,
+                  { color: tokens.mutedForeground },
+                ]}
+              >
+                {formatSourceBrowseCount(
+                  sourceFilterCount,
+                  strings.sourceBrowse.activeFilterCountOne,
+                  strings.sourceBrowse.activeFilterCountOther,
+                )}
+              </Text>
+            ) : null}
+
+            {sourceFilters.length ? (
+              <View style={styles.sourceFilterList}>
+                {inlineSourceFilters.map((filter, index) => (
+                  <SourceFilterControl
+                    key={`${filter.name}:${filter.type}:${index}`}
+                    filter={filter}
+                    value={sourceFilterValueMap.get(
+                      filterValueKey(filter),
+                    )}
+                    onChange={changeSourceFilter}
+                    strings={strings}
+                  />
+                ))}
+              </View>
+            ) : sourceFiltersState.status === "blocked" &&
+              packageMetadata?.filters.length ? (
+              <SourceBrowseBlockedNotice
+                detail={sourceFiltersState.result.detail}
+                strings={strings}
+              />
+            ) : sourceFiltersState.status === "error" ? (
+              <NemuInlineEmptyState
+                icon="alert-circle-outline"
+                title={sourceFiltersState.detail}
+                tone="danger"
+              />
+            ) : null}
+
+          </View>
+        ) : null}
+
+        {!sourceSearchActive &&
+        showExecutableSourceSections &&
+        showListingTabBar ? (
+          <View
+            style={[
+              styles.previewSection,
+              listingGridAttached
+                ? styles.previewSectionListingGrid
+                : null,
+            ]}
+          >
+            <View
+              style={[
+                styles.listingTabsFrame,
+                listingGridAttached
+                  ? styles.listingTabsFrameGridAttached
+                  : null,
+              ]}
+            >
+              <Animated.ScrollView
+                accessibilityRole="tablist"
+                horizontal
+                onContentSizeChange={(width) =>
+                  setListingTabsContentWidth(width)
+                }
+                onLayout={(event) =>
+                  setListingTabsViewportWidth(
+                    event.nativeEvent.layout.width,
+                  )
+                }
+                onScroll={handleListingTabsScroll}
+                scrollEventThrottle={16}
+                showsHorizontalScrollIndicator={false}
+                style={styles.listingTabsScroller}
+                contentContainerStyle={styles.listingTabs}
+              >
+                {showSourceHomeTab ? (
+                  <SourceListingTab
+                    accessibilityLabel={strings.sourceBrowse.sourceHome}
+                    canSelect={sourceHomeTabCanSelect}
+                    icon={sourceHomeTabSelected ? "home" : "home-outline"}
+                    label={strings.sourceBrowse.sourceHome}
+                    onPress={() => {
+                      if (!sourceHomeTabCanSelect) return;
+                      selectSourceHome();
+                    }}
+                    selected={sourceHomeTabSelected}
+                  />
+                ) : null}
+                {visibleListings.map((listing) => {
+                  const selected = listing.id === selectedListing?.id;
+                  const canSelect = canSelectMobileSourceBrowseTab({
+                    selected,
+                  });
+                  return (
+                    <SourceListingTab
+                      key={listing.id}
+                      accessibilityLabel={getMobileSourceListingLabel(
+                        listing,
+                      )}
+                      canSelect={canSelect}
+                      label={getMobileSourceListingLabel(listing)}
+                      onPress={() => {
+                        if (!canSelect) return;
+                        selectSourceListing(listing);
+                      }}
+                      selected={selected}
+                    />
+                  );
+                })}
+              </Animated.ScrollView>
+              <AnimatedLinearGradient
+                pointerEvents="none"
+                colors={[listingTabFadeColor, listingTabFadeTransparent]}
+                locations={[0, SOURCE_BROWSE_TAB_EDGE_FADE_OPAQUE_AT]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[
+                  styles.listingTabsFade,
+                  styles.listingTabsFadeLeading,
+                  listingTabsLeadingFadeStyle,
+                ]}
+              />
+              <AnimatedLinearGradient
+                pointerEvents="none"
+                colors={[listingTabFadeTransparent, listingTabFadeColor]}
+                locations={[SOURCE_BROWSE_TAB_EDGE_FADE_OPAQUE_AT, 1]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[
+                  styles.listingTabsFade,
+                  styles.listingTabsFadeTrailing,
+                  listingTabsTrailingFadeStyle,
+                ]}
+              />
+            </View>
+
+            {showSourceHomeSection &&
+            sourceHomeHasComponents &&
+            sourceHome &&
+            sourceHomeDisplay ? (
+              <View style={styles.previewSection}>
+                <SourceHomeView
+                  home={sourceHome}
+                  source={sourceHomeDisplay}
+                  importingKey={null}
+                  strings={strings}
+                  onPressManga={handleListingMangaPress}
+                  onListingPress={handleHomeListingPress}
+                  onFilterPress={handleHomeFilterPress}
+                  installedSource={installedSource}
+                />
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    ),
+    [
+      changeSourceFilter,
+      handleHomeFilterPress,
+      handleHomeListingPress,
+      handleListingMangaPress,
+      handleListingTabsScroll,
+      hasListingGridItems,
+      inlineSourceFilters,
+      installedSource,
+      listingGridAttached,
+      listingTabFadeColor,
+      listingTabFadeTransparent,
+      listingTabsLeadingFadeStyle,
+      listingTabsTrailingFadeStyle,
+      packageMetadata?.filters.length,
+      selectSourceHome,
+      selectSourceListing,
+      selectedListing?.id,
+      showExecutableSourceSections,
+      showListingTabBar,
+      showSourceHomeSection,
+      showSourceHomeTab,
+      showSourceSearchHeader,
+      source,
+      sourceFilterCount,
+      sourceFilterValueMap,
+      sourceFilters.length,
+      sourceFiltersState,
+      sourceHome,
+      sourceHomeDisplay,
+      sourceHomeHasComponents,
+      sourceHomeTabCanSelect,
+      sourceHomeTabSelected,
+      sourceRuntimeUnavailableDetail,
+      sourceSearchActive,
+      strings,
+      tokens.mutedForeground,
+      visibleListings,
+    ],
+  );
+
   if (showSourceNotInstalled) {
     return (
       <>
@@ -2711,14 +3012,63 @@ export function SourceBrowseScreen() {
       ) : (
         <PageListScaffold
           key={`source-browse-grid-${gridColumns}`}
+          listRef={gridScrollRef}
           nativeHeader
           contentInsetAdjustmentBehavior="automatic"
+          onLayout={(event) => {
+            gridScrollSnapshotRef.current = {
+              ...gridScrollSnapshotRef.current,
+              viewportHeight: event.nativeEvent.layout.height,
+            };
+          }}
+          onScroll={(event) => {
+            gridScrollSnapshotRef.current = {
+              offset: event.nativeEvent.contentOffset.y,
+              contentHeight: event.nativeEvent.contentSize.height,
+              viewportHeight: event.nativeEvent.layoutMeasurement.height,
+            };
+          }}
+          // The handler only stores a snapshot for the rotation restore, so
+          // it does not need a frame-rate feed.
+          scrollEventThrottle={100}
+          onContentSizeChange={(_width, contentHeight) => {
+            const ratio = pendingGridScrollRatioRef.current;
+            const viewportHeight = gridScrollSnapshotRef.current.viewportHeight;
+            if (
+              !shouldRestoreMobileGridScroll({
+                ratio,
+                contentHeight,
+                viewportHeight,
+              })
+            ) {
+              return;
+            }
+            pendingGridScrollRatioRef.current = null;
+            gridScrollRef.current?.scrollToOffset({
+              offset: resolveMobileGridScrollRestoreOffset({
+                ratio: ratio ?? 0,
+                contentHeight,
+                viewportHeight,
+              }),
+              animated: false,
+            });
+          }}
           onRefresh={() => {
             void refreshSourceData();
           }}
           refreshDisabled={loading || !source}
           refreshLabel={strings.sourceBrowse.refreshSource}
           refreshing={refreshingSource}
+          onEndReached={() => {
+            if (source && sourceSearchActive) {
+              if (sourceSearchState.status !== "ready") return;
+              void loadSourceSearch(sourceSearchState.page + 1);
+              return;
+            }
+            if (listingState.status !== "ready") return;
+            void loadListing(listingState.result.page + 1);
+          }}
+          onEndReachedThreshold={0.6}
           data={listingGridItems}
           keyExtractor={(item) =>
             `${listingGridSourceDisplay?.id ?? ""}:${item.id}`
@@ -2733,258 +3083,43 @@ export function SourceBrowseScreen() {
           ListHeaderComponentStyle={
             listingGridAttached ? styles.listingGridListHeader : undefined
           }
-          ListHeaderComponent={
-            <View style={styles.sections}>
-              {sourceRuntimeUnavailableDetail ? (
-                <SourceBrowseBlockedNotice
-                  detail={sourceRuntimeUnavailableDetail}
-                  strings={strings}
-                />
-              ) : null}
-              {source && sourceSearchActive && showSourceSearchHeader ? (
-                <View
-                  style={[
-                    styles.previewSection,
-                    listingGridItems.length > 0
-                      ? styles.gridHeaderSpacing
-                      : styles.emptyGridHeaderSpacing,
-                  ]}
-                >
-                  {sourceFilterCount > 0 ? (
-                    <Text
-                      style={[
-                        styles.filterSummary,
-                        { color: tokens.mutedForeground },
-                      ]}
-                    >
-                      {formatSourceBrowseCount(
-                        sourceFilterCount,
-                        strings.sourceBrowse.activeFilterCountOne,
-                        strings.sourceBrowse.activeFilterCountOther,
-                      )}
-                    </Text>
-                  ) : null}
-
-                  {sourceFilters.length ? (
-                    <View style={styles.sourceFilterList}>
-                      {inlineSourceFilters.map((filter, index) => (
-                        <SourceFilterControl
-                          key={`${filter.name}:${filter.type}:${index}`}
-                          filter={filter}
-                          value={sourceFilterValueMap.get(
-                            filterValueKey(filter),
-                          )}
-                          onChange={changeSourceFilter}
-                          strings={strings}
-                        />
-                      ))}
-                      {sourceFilters.length > inlineSourceFilters.length ? (
-                        <NemuPressable
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            strings.sourceBrowse.openAllFilters
-                          }
-                          onPress={openSourceFilterPanel}
-                          style={[
-                            styles.allFiltersButton,
-                            { backgroundColor: tokens.muted },
-                          ]}
-                        >
-                          <Ionicons
-                            name="options-outline"
-                            size={18}
-                            color={tokens.mutedForeground}
-                          />
-                          <Text
-                            style={[
-                              styles.allFiltersText,
-                              { color: tokens.mutedForeground },
-                            ]}
-                          >
-                            {formatMobileString(
-                              strings.sourceBrowse.allFilters,
-                              {
-                                count: sourceFilters.length,
-                              },
-                            )}
-                          </Text>
-                        </NemuPressable>
-                      ) : null}
-                    </View>
-                  ) : sourceFiltersState.status === "blocked" &&
-                    packageMetadata?.filters.length ? (
-                    <SourceBrowseBlockedNotice
-                      detail={sourceFiltersState.result.detail}
-                      strings={strings}
-                    />
-                  ) : sourceFiltersState.status === "error" ? (
-                    <NemuInlineEmptyState
-                      icon="alert-circle-outline"
-                      title={sourceFiltersState.detail}
-                      tone="danger"
-                    />
-                  ) : null}
-
-                </View>
-              ) : null}
-
-              {!sourceSearchActive &&
-              showExecutableSourceSections &&
-              showListingTabBar ? (
-                <View
-                  style={[
-                    styles.previewSection,
-                    listingGridAttached
-                      ? styles.previewSectionListingGrid
-                      : null,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.listingTabsFrame,
-                      listingGridAttached
-                        ? styles.listingTabsFrameGridAttached
-                        : null,
-                    ]}
-                  >
-                    <ScrollView
-                      accessibilityRole="tablist"
-                      horizontal
-                      onContentSizeChange={(width) =>
-                        setListingTabsContentWidth(width)
-                      }
-                      onLayout={(event) =>
-                        setListingTabsViewportWidth(
-                          event.nativeEvent.layout.width,
-                        )
-                      }
-                      onScroll={(event) =>
-                        setListingTabsScrollX(event.nativeEvent.contentOffset.x)
-                      }
-                      scrollEventThrottle={16}
-                      showsHorizontalScrollIndicator={false}
-                      style={styles.listingTabsScroller}
-                      contentContainerStyle={styles.listingTabs}
-                    >
-                      {showSourceHomeTab ? (
-                        <SourceListingTab
-                          accessibilityLabel={strings.sourceBrowse.sourceHome}
-                          canSelect={sourceHomeTabCanSelect}
-                          icon={sourceHomeTabSelected ? "home" : "home-outline"}
-                          label={strings.sourceBrowse.sourceHome}
-                          onPress={() => {
-                            if (!sourceHomeTabCanSelect) return;
-                            selectSourceHome();
-                          }}
-                          selected={sourceHomeTabSelected}
-                        />
-                      ) : null}
-                      {visibleListings.map((listing) => {
-                        const selected = listing.id === selectedListing?.id;
-                        const canSelect = canSelectMobileSourceBrowseTab({
-                          selected,
-                        });
-                        return (
-                          <SourceListingTab
-                            key={listing.id}
-                            accessibilityLabel={getMobileSourceListingLabel(
-                              listing,
-                            )}
-                            canSelect={canSelect}
-                            label={getMobileSourceListingLabel(listing)}
-                            onPress={() => {
-                              if (!canSelect) return;
-                              selectSourceListing(listing);
-                            }}
-                            selected={selected}
-                          />
-                        );
-                      })}
-                    </ScrollView>
-                    {showListingTabsLeadingFade ? (
-                      <LinearGradient
-                        pointerEvents="none"
-                        colors={[
-                          listingTabFadeColor,
-                          listingTabFadeTransparent,
-                        ]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={[
-                          styles.listingTabsFade,
-                          styles.listingTabsFadeLeading,
-                        ]}
-                      />
-                    ) : null}
-                    {showListingTabsTrailingFade ? (
-                      <LinearGradient
-                        pointerEvents="none"
-                        colors={[
-                          listingTabFadeTransparent,
-                          listingTabFadeColor,
-                        ]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={[
-                          styles.listingTabsFade,
-                          styles.listingTabsFadeTrailing,
-                        ]}
-                      />
-                    ) : null}
-                  </View>
-
-                  {showSourceHomeSection &&
-                  sourceHomeHasComponents &&
-                  sourceHome &&
-                  sourceHomeDisplay ? (
-                    <View style={styles.previewSection}>
-                      <SourceHomeView
-                        home={sourceHome}
-                        source={sourceHomeDisplay}
-                        importingKey={null}
-                        strings={strings}
-                        onPressManga={handleListingMangaPress}
-                        onListingPress={handleHomeListingPress}
-                        onFilterPress={handleHomeFilterPress}
-                        installedSource={installedSource}
-                      />
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-            </View>
-          }
+          ListHeaderComponent={listingGridHeader}
           ListFooterComponent={
-            source && sourceSearchActive && showSourceSearchLoadMore ? (
-              <NemuButton
-                accessibilityLabel={strings.sourceBrowse.loadMore}
-                disabled={sourceSearchLoadMoreBusy}
-                icon="add-outline"
-                label={strings.sourceBrowse.loadMore}
-                loading={sourceSearchLoadMoreBusy}
-                onPress={() => {
-                  if (sourceSearchState.status !== "ready") return;
-                  void loadSourceSearch(sourceSearchState.page + 1);
-                }}
-                style={styles.loadMoreButton}
-                variant="secondary"
+            source && sourceSearchActive ? (
+              <MobileListFooter
+                onRetry={() =>
+                  void loadSourceSearch(sourceSearchLastPageRef.current + 1)
+                }
+                pageNumber={sourceSearchLastPageRef.current + 1}
+                state={resolveMobileListFooterState({
+                  hasMore:
+                    sourceSearchState.status === "ready"
+                      ? sourceSearchState.result.hasMore
+                      : undefined,
+                  itemCount: sourceSearchState.items.length,
+                  loadingNextPage: sourceSearchLoadMoreBusy,
+                  nextPageFailed: sourceSearchState.status === "error",
+                })}
+                strings={strings}
+                totalCount={sourceSearchState.items.length}
               />
             ) : !sourceSearchActive &&
               showExecutableSourceSections &&
-              selectedListing &&
-              showListingLoadMore ? (
-              <NemuButton
-                accessibilityLabel={strings.sourceBrowse.loadMore}
-                disabled={listingLoadMoreBusy}
-                icon="add-outline"
-                label={strings.sourceBrowse.loadMore}
-                loading={listingLoadMoreBusy}
-                onPress={() => {
-                  if (listingState.status !== "ready") return;
-                  void loadListing(listingState.result.page + 1);
-                }}
-                style={styles.loadMoreButton}
-                variant="secondary"
+              selectedListing ? (
+              <MobileListFooter
+                onRetry={() => void loadListing(listingLastPageRef.current + 1)}
+                pageNumber={listingLastPageRef.current + 1}
+                state={resolveMobileListFooterState({
+                  hasMore:
+                    listingState.status === "ready"
+                      ? listingState.result.hasMore
+                      : undefined,
+                  itemCount: listingState.items.length,
+                  loadingNextPage: listingLoadMoreBusy,
+                  nextPageFailed: listingState.status === "error",
+                })}
+                strings={strings}
+                totalCount={listingState.items.length}
               />
             ) : null
           }
@@ -3006,8 +3141,8 @@ export function SourceBrowseScreen() {
                   tone="danger"
                 />
               ) : showCenterSourceBrowseSearchProgress ? (
-                <SourceBrowseProgress
-                  label={
+                <MobileSourceGridSkeleton
+                  accessibilityLabel={
                     sourceFiltersState.status === "loading"
                       ? strings.sourceBrowse.loadingFilters
                       : sourceSearchState.status === "loading"
@@ -3040,7 +3175,9 @@ export function SourceBrowseScreen() {
                   tone="danger"
                 />
               ) : listingState.status === "loading" ? (
-                <SourceBrowseProgress label={listingState.detail} />
+                <MobileSourceGridSkeleton
+                  accessibilityLabel={listingState.detail}
+                />
               ) : (
                 <NemuInlineEmptyState
                   icon="albums-outline"
@@ -3070,9 +3207,7 @@ export function SourceBrowseScreen() {
                 <NemuInlineEmptyState
                   actionLabel={strings.common.retry}
                   icon="alert-circle-outline"
-                  onActionPress={() => {
-                    void refreshSourceData();
-                  }}
+                  onActionPress={retrySourceHome}
                   title={sourceHomeState.detail}
                   tone="danger"
                 />
@@ -3166,20 +3301,6 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     fontWeight: nemuFontWeight.medium,
   },
-  allFiltersButton: {
-    minHeight: 42,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
-  },
-  allFiltersText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: nemuFontWeight.semibold,
-  },
   sourceTextFilterShell: {
     minHeight: 54,
     borderRadius: radius.lg,
@@ -3212,8 +3333,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 2,
-    paddingTop: 4,
-    // Room for web-parity box-shadow halo (up to ~8px blur below the chip).
+    // The page scaffold's top inset keeps the row clear of the header
+    // fade/blur; the row adds none of its own so the chips sit closer to the
+    // title. Bottom padding still reserves room for the web-parity box-shadow
+    // halo (up to ~8px blur below the chip).
+    paddingTop: 0,
     paddingBottom: 10,
   },
   listingTabButton: {
@@ -3236,12 +3360,6 @@ const styles = StyleSheet.create({
   },
   listingTabsFadeTrailing: {
     right: 0,
-  },
-  sourceBrowseProgress: {
-    minHeight: 96,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 24,
   },
   iconButton: {
     width: 30,
@@ -3267,35 +3385,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
   },
-  filterPanelSecondaryButton: {
-    minHeight: 44,
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
-  },
-  filterPanelPrimaryButton: {
-    minHeight: 44,
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
-  },
   filterPanelActionContainer: {
     flex: 1,
     minWidth: 0,
-  },
-  filterPanelSecondaryText: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  filterPanelPrimaryText: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.semibold,
   },
   // Virtualized grid (FlatList numColumns). `gridRow` is the per-row gap
   // (columnWrapperStyle); `gridItem` fills one column. `gridHeaderSpacing`
@@ -3350,8 +3442,5 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 12,
     lineHeight: 15,
-  },
-  loadMoreButton: {
-    width: "100%",
   },
 });

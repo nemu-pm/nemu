@@ -1,14 +1,26 @@
+import { useState } from "react";
 import type { ComponentProps } from "react";
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import {
+  Platform,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
   nemuText,
   spacing,
   useNemuTheme,
   usesNemuNativeHeader,
+  NEMU_PROMINENT_CTA_SIZE,
   NemuButton,
+  NemuPressable,
 } from "@/design-system";
 import { getMobileFloatingTabBarOverlayExtent } from "@/lib/mobileFloatingTabBarClearance";
+import { getMobileStrings } from "@/lib/mobileI18n";
 import {
   getMobileEmptyLibraryLayout,
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
@@ -25,6 +37,10 @@ type EmptyLibraryProps = {
   onActionPress: () => void;
   actionDisabled?: boolean;
   actionLoading?: boolean;
+  /** Raw diagnostic string (e.g. describeMobileErrorDetail output). */
+  diagnostic?: string;
+  /** Optional override; the localized "Technical details" label is default. */
+  diagnosticDetailsLabel?: string;
 };
 
 export function EmptyLibrary({
@@ -35,8 +51,15 @@ export function EmptyLibrary({
   onActionPress,
   actionDisabled,
   actionLoading,
+  diagnostic,
+  diagnosticDetailsLabel,
 }: EmptyLibraryProps) {
   const { tokens } = useNemuTheme();
+  const { appLanguage } = useMobileLanguageSettings();
+  const strings = getMobileStrings(appLanguage);
+  const detailsLabel =
+    diagnosticDetailsLabel ?? strings.feedback.technicalDetails;
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const layout = getMobileEmptyLibraryLayout({
@@ -76,6 +99,47 @@ export function EmptyLibrary({
           >
             {description}
           </Text>
+          {diagnostic ? (
+            <View style={styles.diagnostic}>
+              <NemuPressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: diagnosticOpen }}
+                accessibilityLabel={detailsLabel}
+                hapticFeedback="selection"
+                pressProfile="row"
+                onPress={() => setDiagnosticOpen((open) => !open)}
+                style={styles.diagnosticToggle}
+              >
+                <Ionicons
+                  name={
+                    diagnosticOpen
+                      ? "chevron-down-outline"
+                      : "chevron-forward-outline"
+                  }
+                  size={12}
+                  color={tokens.mutedForeground}
+                />
+                <Text style={[nemuText.caption, { color: tokens.mutedForeground }]}>
+                  {detailsLabel}
+                </Text>
+              </NemuPressable>
+              {diagnosticOpen ? (
+                <Text
+                  selectable
+                  style={[
+                    styles.diagnosticBody,
+                    styles.diagnosticMono,
+                    {
+                      backgroundColor: tokens.secondary,
+                      color: tokens.mutedForeground,
+                    },
+                  ]}
+                >
+                  {diagnostic}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
         </View>
         <NemuButton
           accessibilityLabel={actionLabel}
@@ -83,7 +147,7 @@ export function EmptyLibrary({
           icon={actionIcon}
           label={actionLabel}
           loading={actionLoading}
-          size="lg"
+          size={NEMU_PROMINENT_CTA_SIZE}
           containerStyle={styles.action}
           onPress={onActionPress}
           variant="default"
@@ -92,6 +156,12 @@ export function EmptyLibrary({
     </View>
   );
 }
+
+const MONOSPACE_FONT_FAMILY = Platform.select({
+  ios: "Menlo",
+  android: "monospace",
+  default: "monospace",
+});
 
 const styles = StyleSheet.create({
   root: {
@@ -122,5 +192,28 @@ const styles = StyleSheet.create({
   },
   action: {
     marginTop: NEMU_WEB_EMPTY_LIBRARY_VISUAL.actionMarginTop,
+  },
+  diagnostic: {
+    alignSelf: "stretch",
+    alignItems: "center",
+    gap: 4,
+  },
+  diagnosticToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  diagnosticBody: {
+    alignSelf: "stretch",
+    maxWidth: 320,
+    padding: 10,
+    borderRadius: 8,
+  },
+  diagnosticMono: {
+    fontFamily: MONOSPACE_FONT_FAMILY,
+    fontSize: 11,
+    lineHeight: 15,
   },
 });

@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
+  compareMobileLanguageCodes,
   DEFAULT_APP_LANGUAGE,
   DEFAULT_METADATA_LANGUAGE_PREFERENCE,
+  formatMobileLanguageDisplayName,
   getEffectiveMetadataLanguage,
+  getLanguageCategory,
+  getLanguagePriorityOrder,
   normalizeAppLanguage,
+  normalizeMobileLanguageCode,
   normalizeMetadataLanguagePreference,
   resolveDeviceAppLanguage,
   resolveInitialAppLanguage,
@@ -105,10 +110,188 @@ describe("mobile language settings helpers", () => {
 
     expect(sortSourcesByLanguagePriority(sources, "zh").map((source) => source.id)).toEqual([
       "ja",
-      "en",
       "zh",
+      "en",
       "multi",
       "fr",
     ]);
+  });
+
+  test("keeps chinese ahead of english regardless of the app language", () => {
+    const sources = [
+      { id: "en", languages: ["en"] },
+      { id: "zh", languages: ["zh"] },
+      { id: "ja", languages: ["ja"] },
+    ];
+
+    expect(sortSourcesByLanguagePriority(sources, "en").map((source) => source.id)).toEqual([
+      "ja",
+      "zh",
+      "en",
+    ]);
+  });
+
+  test("reads each source's language category exactly once per sort", () => {
+    // The comparator used to derive both categories inside every comparison,
+    // which is 2 * O(n log n) reads (and normalize passes) for an n-element
+    // list. Decorating up front makes it exactly n.
+    let reads = 0;
+    const codes = [
+      "fr",
+      "multi",
+      "zh-Hant",
+      "en",
+      "ja",
+      "pt-BR",
+      "es",
+      "de",
+      "ko",
+      "it",
+      "ru",
+      "vi",
+    ];
+    const sources = codes.map((code, index) => ({
+      id: `${code}:${index}`,
+      get languages() {
+        reads += 1;
+        return [code];
+      },
+    }));
+
+    const sorted = sortSourcesByLanguagePriority(sources, "en");
+
+    expect(reads).toBe(sources.length);
+    expect(sorted.map((source) => source.id.split(":")[0])).toEqual([
+      "ja",
+      "zh-Hant",
+      "en",
+      "multi",
+      "de",
+      "es",
+      "fr",
+      "it",
+      "ko",
+      "pt-BR",
+      "ru",
+      "vi",
+    ]);
+  });
+
+  test("an explicit priority order matches the derived one", () => {
+    const pairs: [string, string][] = [
+      ["zh-hant", "en"],
+      ["fr", "de"],
+      ["multi", "ja"],
+      ["zh", "zh-hans"],
+    ];
+    for (const [left, right] of pairs) {
+      expect(
+        compareMobileLanguageCodes(
+          left,
+          right,
+          "en",
+          getLanguagePriorityOrder("en"),
+        ),
+      ).toBe(compareMobileLanguageCodes(left, right, "en"));
+    }
+  });
+
+  test("ranks the app language after multi but before alphabetical order", () => {
+    const sources = [
+      { id: "pt", languages: ["pt"] },
+      { id: "multi", languages: ["multi"] },
+      { id: "ja", languages: ["ja"] },
+    ];
+
+    expect(sortSourcesByLanguagePriority(sources, "ja").map((source) => source.id)).toEqual([
+      "ja",
+      "multi",
+      "pt",
+    ]);
+  });
+});
+
+describe("mobile language display names", () => {
+  test("writes every mapped language in its own script", () => {
+    expect(formatMobileLanguageDisplayName("ja", "en")).toBe("日本語");
+    expect(formatMobileLanguageDisplayName("zh", "en")).toBe("中文");
+    expect(formatMobileLanguageDisplayName("zh-Hant", "en")).toBe("繁體中文");
+    expect(formatMobileLanguageDisplayName("zh_hans", "en")).toBe("简体中文");
+    expect(formatMobileLanguageDisplayName("en", "ja")).toBe("English");
+    expect(formatMobileLanguageDisplayName("es-419", "en")).toBe("Español (LatAm)");
+    expect(formatMobileLanguageDisplayName("ko", "en")).toBe("한국어");
+  });
+
+  test("uses the passed multi and other labels for the shared buckets", () => {
+    expect(
+      formatMobileLanguageDisplayName("All", "zh", { multi: "多语言" }),
+    ).toBe("多语言");
+    expect(
+      formatMobileLanguageDisplayName("multi", "zh", { multi: "多语言" }),
+    ).toBe("多语言");
+    expect(
+      formatMobileLanguageDisplayName("other", "zh", { other: "其他" }),
+    ).toBe("其他");
+  });
+
+  test("never renders a raw code in lowercase and falls back upper-cased", () => {
+    expect(formatMobileLanguageDisplayName("zz", "en")).toBe("ZZ");
+  });
+
+  test("collapses the registry All bucket onto multi", () => {
+    expect(normalizeMobileLanguageCode("All")).toBe("multi");
+    expect(normalizeMobileLanguageCode("zh_Hant")).toBe("zh-hant");
+    expect(getLanguageCategory(["All"])).toBe("multi");
+  });
+
+  test("orders languages ja, zh, en, multi for every app language", () => {
+    expect(getLanguagePriorityOrder("en")).toEqual(["ja", "zh", "en", "multi"]);
+    expect(getLanguagePriorityOrder("zh")).toEqual(["ja", "zh", "en", "multi"]);
+    expect(getLanguagePriorityOrder("ja")).toEqual(["ja", "zh", "en", "multi"]);
+  });
+
+  test("keeps every script and region variant beside its base language", () => {
+    const codes = [
+      "vi",
+      "zh-Hant",
+      "es-419",
+      "pt-BR",
+      "en",
+      "zh-hans",
+      "multi",
+      "pt",
+      "zh-TW",
+      "es",
+      "zh",
+      "ja",
+    ];
+
+    expect(
+      [...codes].sort((left, right) =>
+        compareMobileLanguageCodes(left, right, "zh"),
+      ),
+    ).toEqual([
+      "ja",
+      "zh",
+      "zh-hans",
+      "zh-Hant",
+      "zh-TW",
+      "en",
+      "multi",
+      "es",
+      "es-419",
+      "pt",
+      "pt-BR",
+      "vi",
+    ]);
+  });
+
+  test("compares variants case-insensitively and through the All alias", () => {
+    expect(compareMobileLanguageCodes("zh_Hant", "zh-hant", "en")).toBe(0);
+    expect(compareMobileLanguageCodes("All", "multi", "en")).toBe(0);
+    // A variant never outranks its own base language.
+    expect(compareMobileLanguageCodes("zh-hans", "zh", "en")).toBeGreaterThan(0);
+    // The base language keeps its priority rank for the whole family.
+    expect(compareMobileLanguageCodes("zh-hant", "en", "en")).toBeLessThan(0);
   });
 });

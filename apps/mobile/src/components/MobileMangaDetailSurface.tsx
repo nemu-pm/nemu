@@ -1,6 +1,5 @@
 import type { ComponentProps } from "react";
 import {
-  ActivityIndicator,
   Image,
   StyleSheet,
   Text,
@@ -12,7 +11,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import {
   GlassSurface,
   MobileCachedImage,
+  nemuColorWithAlpha,
   NemuPressable,
+  NemuRingSpinner,
   createNemuShadowStyle,
   radius,
   nemuFontWeight,
@@ -94,6 +95,8 @@ export function MobileMangaDetailSurface({
   title,
   authors,
   coverSource,
+  onCoverError,
+  onCoverLoad,
   status,
   badges,
   primaryAction,
@@ -106,6 +109,9 @@ export function MobileMangaDetailSurface({
   title: string;
   authors?: string[];
   coverSource?: MobileMangaDetailCoverSource | null;
+  /** Lets the owner fall back to the last cover that actually rendered. */
+  onCoverError?: () => void;
+  onCoverLoad?: () => void;
   status?: number;
   badges: MobileMangaDetailSurfaceBadge[];
   primaryAction?: MobileMangaDetailSurfacePrimaryAction | null;
@@ -158,7 +164,11 @@ export function MobileMangaDetailSurface({
             ]}
           >
             {primaryAction.busy ? (
-              <ActivityIndicator size="small" color={primaryActionColor} />
+              <NemuRingSpinner
+                size={15}
+                color={primaryActionColor}
+                accessibilityLabel={primaryAction.accessibilityLabel}
+              />
             ) : primaryAction.iconUri ? (
               <MobileCachedImage
                 fallback={
@@ -206,7 +216,11 @@ export function MobileMangaDetailSurface({
             ]}
           >
             {action.busy ? (
-              <ActivityIndicator size="small" color={action.color ?? tokens.primary} />
+              <NemuRingSpinner
+                size={16}
+                color={action.color ?? tokens.primary}
+                accessibilityLabel={action.accessibilityLabel}
+              />
             ) : (
               <Ionicons
                 name={action.iconName}
@@ -244,19 +258,21 @@ export function MobileMangaDetailSurface({
               <MobileCachedImage
                 fallback={
                   <LinearGradient
-                    colors={[`${tokens.primary}55`, tokens.muted]}
+                    colors={[nemuColorWithAlpha(tokens.primary, 0.33), tokens.muted]}
                     style={styles.coverPlaceholder}
                   />
                 }
                 uriOwnership="source"
                 source={coverSource}
+                onError={onCoverError ? () => onCoverError() : undefined}
+                onLoad={onCoverLoad ? () => onCoverLoad() : undefined}
                 style={styles.coverImage}
               />
             ) : coverSource ? (
               <Image source={coverSource} style={styles.coverImage} />
             ) : (
               <LinearGradient
-                colors={[`${tokens.primary}55`, tokens.muted]}
+                colors={[nemuColorWithAlpha(tokens.primary, 0.33), tokens.muted]}
                 style={styles.coverPlaceholder}
               />
             )}
@@ -467,7 +483,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: 14,
   },
   primaryActionContainer: {
@@ -495,7 +511,7 @@ const styles = StyleSheet.create({
     height: 36,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
   iconActionContainer: {
     width: 36,

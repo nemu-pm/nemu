@@ -160,6 +160,22 @@ export type UserSettings = {
   searchSelectedSourceIds?: string[];
   readerPlugins?: Record<string, ReaderPluginSettings>;
   mobileWelcomeCompleted?: boolean;
+  /** Master switch for transient haptic feedback; `undefined` means enabled. */
+  hapticsFeedbackEnabled?: boolean;
+  /** End-of-chapter check animation; `undefined` means disabled. */
+  chapterCompleteCelebration?: boolean;
+  /** Keep the screen awake while reading; `undefined` means enabled. */
+  readerKeepAwake?: boolean;
+  /** Lock the reader to portrait; `undefined` means disabled. */
+  readerLockPortrait?: boolean;
+  mobileChapterListPreferences?: Record<
+    string,
+    {
+      sortDirection: "asc" | "desc";
+      unreadOnly: boolean;
+      languages: string[];
+    }
+  >;
 };
 
 /**

@@ -346,6 +346,104 @@ describe("nemuButtonDepth", () => {
     expect(visual.boxShadow).toBe(nemuWebButtonPalette.light.outline.rest.boxShadow);
   });
 
+  test("chip rest reads as a pressed-in well with reversed light and no outer shadow", () => {
+    const light = getNemuButtonDepthVisual({
+      variant: "chip",
+      state: "rest",
+      scheme: "light",
+      tokens: nemuTokens.light,
+    });
+    const dark = getNemuButtonDepthVisual({
+      variant: "chip",
+      state: "rest",
+      scheme: "dark",
+      tokens: nemuTokens.dark,
+    });
+
+    expect(light.boxShadow).toBe(
+      "inset 0px 1px 2px rgba(15,23,42,0.12), inset 0px -0.5px 0px rgba(255,255,255,0.8)",
+    );
+    expect(dark.boxShadow).toBe(
+      "inset 0px 1px 2px rgba(0,0,0,0.5), inset 0px -0.5px 0px rgba(255,255,255,0.05)",
+    );
+    expect(light.backgroundColor).toBe("rgba(237,240,248,0.50)");
+    expect(dark.backgroundColor).toBe("rgba(34,36,40,0.50)");
+    expect(light.foregroundColor).toBe(nemuTokens.light.mutedForeground);
+    expect(dark.foregroundColor).toBe(nemuTokens.dark.mutedForeground);
+    expect(light.borderColor).toBe("transparent");
+    expect(dark.borderColor).toBe("transparent");
+  });
+
+  test("pressing a chip pops it up onto the raised outline surface", () => {
+    const light = getNemuButtonDepthVisual({
+      variant: "chip",
+      state: "pressed",
+      scheme: "light",
+      tokens: nemuTokens.light,
+    });
+    const dark = getNemuButtonDepthVisual({
+      variant: "chip",
+      state: "pressed",
+      scheme: "dark",
+      tokens: nemuTokens.dark,
+    });
+
+    expect(light.boxShadow).toBe(nemuWebButtonPalette.light.outline.pressed.boxShadow);
+    expect(dark.boxShadow).toBe(nemuWebButtonPalette.dark.outline.pressed.boxShadow);
+    expect(light.boxShadow.startsWith("0px")).toBe(true);
+    expect(light.backgroundColor).toBe(
+      nemuWebButtonPalette.light.outline.pressed.backgroundColor,
+    );
+    expect(dark.backgroundColor).toBe(
+      nemuWebButtonPalette.dark.outline.pressed.backgroundColor,
+    );
+    expect(light.foregroundColor).toBe(nemuTokens.light.mutedForeground);
+    expect(dark.foregroundColor).toBe(nemuTokens.dark.mutedForeground);
+  });
+
+  test("selected chip sits on the plain primary surface (no halo)", () => {
+    const light = getNemuButtonDepthVisual({
+      variant: "chip-selected",
+      state: "rest",
+      scheme: "light",
+      tokens: nemuTokens.light,
+    });
+    const dark = getNemuButtonDepthVisual({
+      variant: "chip-selected",
+      state: "rest",
+      scheme: "dark",
+      tokens: nemuTokens.dark,
+    });
+
+    expect(light.backgroundColor).toBe(nemuTokens.light.primary);
+    expect(dark.backgroundColor).toBe(nemuTokens.dark.primary);
+    expect(light.foregroundColor).toBe(nemuTokens.light.primaryForeground);
+    expect(dark.foregroundColor).toBe(nemuTokens.dark.primaryForeground);
+    expect(light.boxShadow).toBe(nemuWebButtonPalette.light.primary.rest.boxShadow);
+    expect(dark.boxShadow).toBe(nemuWebButtonPalette.dark.primary.rest.boxShadow);
+  });
+
+  test("pressing a selected chip deepens the primary press", () => {
+    const light = getNemuButtonDepthVisual({
+      variant: "chip-selected",
+      state: "pressed",
+      scheme: "light",
+      tokens: nemuTokens.light,
+    });
+    const dark = getNemuButtonDepthVisual({
+      variant: "chip-selected",
+      state: "pressed",
+      scheme: "dark",
+      tokens: nemuTokens.dark,
+    });
+
+    expect(light.backgroundColor).toBe("#6689ff");
+    expect(dark.backgroundColor).toBe("#7a9eff");
+    expect(light.boxShadow).toBe(nemuWebButtonPalette.light.primary.pressed.boxShadow);
+    expect(dark.boxShadow).toBe(nemuWebButtonPalette.dark.primary.pressed.boxShadow);
+    expect(light.foregroundColor).toBe(nemuTokens.light.primaryForeground);
+  });
+
   test("depth variants expose foreground color when relevant", () => {
     const variants: NemuButtonDepthVariant[] = [
       "primary",

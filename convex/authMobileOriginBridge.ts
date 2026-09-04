@@ -1,6 +1,6 @@
 import type { BetterAuthPlugin } from "better-auth";
 
-export const mobileOriginPrefixes = ["nemu://", "pm.nemu.mobile://"];
+export const mobileOriginPrefixes = ["nemu://", "pm.nemu://"];
 
 function isMobileOrigin(url: string): boolean {
   return mobileOriginPrefixes.some((origin) => url.startsWith(origin));

@@ -3,8 +3,10 @@ import { StyleSheet, Text, View } from "react-native";
 import {
   MobileSheetScaffold,
   NemuButton,
+  nemuColorWithAlpha,
   NemuNativeProgressView,
   nemuFontWeight,
+  nemuToneColor,
   radius,
   useNemuTheme,
 } from "@/design-system";
@@ -64,7 +66,7 @@ export function MobileNemuAgentSheet({
   const displayUrl = url ? redactMobileCloudflareUrlForDisplay(url) : undefined;
 
   const visual = statusVisual(status, strings, secureVerificationAvailable);
-  const accentColor = toneColor(visual.tone, tokens);
+  const accentColor = nemuToneColor(tokens, visual.tone);
   const inFlight = INFLIGHT_STATUSES.has(status);
   const showAction = shouldOfferNemuAgentVerificationAction(
     status,
@@ -90,7 +92,12 @@ export function MobileNemuAgentSheet({
       title={strings.settings.agent}
       subtitle={visual.copy}
       headerLeading={
-        <View style={[styles.iconShell, { backgroundColor: `${accentColor}18` }]}>
+        <View
+          style={[
+            styles.iconShell,
+            { backgroundColor: nemuColorWithAlpha(accentColor, 0.09) },
+          ]}
+        >
           <Ionicons name="hardware-chip-outline" size={22} color={accentColor} />
         </View>
       }
@@ -221,21 +228,6 @@ function statusLabel(
       return strings.common.sourceCloudflareBlocked;
     default:
       return strings.common.sourceCloudflareBlocked;
-  }
-}
-
-function toneColor(
-  tone: StatusVisual["tone"],
-  tokens: ReturnType<typeof useNemuTheme>["tokens"],
-): string {
-  switch (tone) {
-    case "success":
-      return tokens.success;
-    case "danger":
-      return tokens.danger;
-    case "primary":
-    default:
-      return tokens.primary;
   }
 }
 

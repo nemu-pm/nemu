@@ -432,6 +432,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     marginBottom: 16,
+    // Sits directly under the centered sheet title, so it reads as one block
+    // instead of a stray left-aligned line.
+    textAlign: "center",
   },
   sectionLabel: {
     fontSize: 12,

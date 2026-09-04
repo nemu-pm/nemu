@@ -91,6 +91,78 @@ describe("mobile auth secure storage", () => {
     });
   });
 
+  test("retries transient transport failures before reporting offline", async () => {
+    let calls = 0;
+    const safeFetch = createFailClosedMobileAuthFetch(
+      async () => {
+        calls += 1;
+        if (calls < 3) throw new TypeError("Network request failed");
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      },
+      { sleep: () => Promise.resolve() },
+    );
+
+    const response = await safeFetch("https://auth.invalid/get-session");
+
+    expect(response.status).toBe(200);
+    expect(calls).toBe(3);
+  });
+
+  test("non-idempotent requests are never replayed", async () => {
+    // A transport failure says nothing about whether the server saw the
+    // request; replaying a sign-up or a one-time-token exchange would consume
+    // a single-use credential.
+    let calls = 0;
+    const safeFetch = createFailClosedMobileAuthFetch(
+      async () => {
+        calls += 1;
+        throw new TypeError("Network request failed");
+      },
+      { sleep: () => Promise.resolve() },
+    );
+
+    const response = await safeFetch("https://auth.invalid/sign-up/email", {
+      method: "POST",
+      body: "{}",
+    });
+
+    expect(response.status).toBe(503);
+    expect(calls).toBe(1);
+  });
+
+  test("a Request object's own method decides replayability", async () => {
+    let calls = 0;
+    const safeFetch = createFailClosedMobileAuthFetch(
+      async () => {
+        calls += 1;
+        throw new TypeError("Network request failed");
+      },
+      { sleep: () => Promise.resolve() },
+    );
+
+    await safeFetch(
+      new Request("https://auth.invalid/sign-out", { method: "POST" }),
+    );
+
+    expect(calls).toBe(1);
+  });
+
+  test("non-transient failures are not retried", async () => {
+    let calls = 0;
+    const safeFetch = createFailClosedMobileAuthFetch(
+      async () => {
+        calls += 1;
+        throw new TypeError("network offline with secret context");
+      },
+      { sleep: () => Promise.resolve() },
+    );
+
+    const response = await safeFetch("https://auth.invalid/get-session");
+
+    expect(response.status).toBe(503);
+    expect(calls).toBe(1);
+  });
+
   test("routes auth bodies and cookies through the HTTPS-only bounded native transport", async () => {
     const calls: Array<{
       url: string;

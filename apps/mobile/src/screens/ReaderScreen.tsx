@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -15,6 +16,7 @@ import * as Clipboard from "expo-clipboard";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import {
   ActivityIndicator,
+  AppState,
   BackHandler,
   Platform,
   ScrollView,
@@ -42,6 +44,7 @@ import {
   type MobileReaderContinuousScrubberHandle,
 } from "@/components/MobileReaderContinuousScrubber";
 import { MobileReaderScrubber } from "@/components/MobileReaderScrubber";
+import { ReaderChromeLoadingTrack } from "@/components/reader/ReaderChromeLoadingTrack";
 import { ReaderChromePanel } from "@/components/reader/ReaderChromePanel";
 import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplaySettingsPopover";
 import {
@@ -49,14 +52,22 @@ import {
   type MobileReaderScrollHandle,
 } from "@/components/reader/MobileReaderGallery";
 import { MobileReaderPageFrame } from "@/components/reader/MobileReaderPageFrame";
+import { readerCentreTapBand } from "@/components/reader/readerTapZones";
 import { MobileReaderEndOfChapterOverlay } from "@/components/reader/MobileReaderEndOfChapterOverlay";
+import { MobileReaderConnectivityNotice } from "@/components/reader/MobileReaderConnectivityNotice";
+import {
+  useReaderDisplayEnvironment,
+  useReaderDisplayPrefs,
+} from "@/components/reader/useReaderDisplayEnvironment";
 import { JapaneseLearningPluginLauncherSheet } from "@/components/reader/japaneseLearning/JapaneseLearningPluginLauncherSheet";
 import { JapaneseLearningOcrResultSheet } from "@/components/reader/japaneseLearning/JapaneseLearningOcrResultSheet";
 import { JapaneseLearningNemuChatDrawer } from "@/components/reader/japaneseLearning/JapaneseLearningNemuChatDrawer";
 import { JapaneseLearningTranscriptSheet } from "@/components/reader/japaneseLearning/JapaneseLearningTranscriptSheet";
 import {
   MobileNativeSheetScaffold,
+  nemuColorWithAlpha,
   NemuPressable,
+  NemuRingSpinner,
   radius,
   nemuFontWeight,
   useNemuTheme,
@@ -86,6 +97,7 @@ import {
 } from "@/lib/mobileAccessibility";
 import {
   useInstalledSources,
+  useMobileFeedbackSettings,
   useMobileLanguageSettings,
   useMobileReaderPlugins,
   useReadingMode,
@@ -167,6 +179,7 @@ import {
   type MobileReaderSegmentFrame,
 } from "@/lib/mobileReaderSegmentedImage";
 import {
+  getCachedMobileImageUriSync,
   invalidateCachedMobileImage,
   retainCachedMobileImageAsset,
   type MobileCachedSegmentedImageAsset,
@@ -186,13 +199,21 @@ import {
   clampMobileReaderZoomScale,
   shouldResetMobileReaderZoom,
 } from "@/lib/mobileReaderZoom";
-import { getMobileReaderTitle } from "@/lib/mobileReaderHeader";
 import {
-  readerBottomBarEntering,
-  readerBottomBarExiting,
-  readerTopBarEntering,
-  readerTopBarExiting,
-} from "@/lib/mobileReaderChromeAnimations";
+  READER_CHROME_LOADING_OPACITY,
+  READER_CHROME_PANEL_CONTENT_MIN_HEIGHT,
+  READER_CHROME_PANEL_CORNER_RADIUS,
+  READER_CHROME_PANEL_HORIZONTAL_INSET,
+  READER_CHROME_PANEL_HORIZONTAL_PADDING,
+  READER_CHROME_PANEL_MAX_WIDTH,
+  READER_CHROME_PANEL_MIN_HEIGHT,
+  READER_CHROME_PANEL_VERTICAL_PADDING,
+  getMobileReaderTitle,
+  isReaderChromeLoading,
+  readerChromePageCountLabel,
+} from "@/lib/mobileReaderHeader";
+import { useMobileConnectivity } from "@/lib/useMobileConnectivity";
+import { readerChromeAnimationsForMotion } from "@/lib/mobileReaderChromeAnimations";
 import {
   chapterFromState,
   firstParam,
@@ -259,6 +280,7 @@ import {
 } from "@/lib/mobileJapaneseLearningOverlay";
 import {
   refreshMobileReaderPages,
+  resolveMobileReaderChapterIndex,
   type MobileReaderPage,
   type MobileReaderPageProcessor,
   type MobileReaderPageWindowResult,
@@ -269,6 +291,10 @@ import {
   makeMobileReaderPagesPrefetchKey,
   mobileReaderPagesPrefetchCache,
 } from "@/sources/mobileReaderPagesPrefetch";
+import {
+  loadMobileReaderPageListCache,
+  saveMobileReaderPageListCache,
+} from "@/sources/mobileReaderPageListCache";
 import { refreshMobileSourceMetadata } from "@/sources/mobileSourceDetails";
 import {
   makeMobileRuntimeSourceKey,
@@ -475,11 +501,22 @@ function JapaneseLearningDetectionOverlay({
 function ZoomableReaderImageFrame({
   children,
   frameSize,
+  onZoomActiveChange,
   pageId,
+  zoomTapBand,
 }: {
   children: ReactNode;
   frameSize: MobileImageSize;
+  /** Reports whether this page is currently zoomed in past its fit scale. */
+  onZoomActiveChange?: (pageId: string, active: boolean) => void;
   pageId: string;
+  /**
+   * Stage-x span where a double tap may *zoom in*. The page-turn bands act on
+   * touch-up, so letting a double tap zoom there would page twice *and* zoom;
+   * `null` lifts the restriction (no page turns are listening). A zoomed page
+   * owns the whole stage, so resetting the zoom is never band-limited.
+   */
+  zoomTapBand: { start: number; end: number } | null;
 }) {
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
@@ -487,6 +524,18 @@ function ZoomableReaderImageFrame({
   const translateY = useSharedValue(0);
   const savedTranslateX = useSharedValue(0);
   const savedTranslateY = useSharedValue(0);
+  const onZoomActiveChangeRef = useRef(onZoomActiveChange);
+
+  useLayoutEffect(() => {
+    onZoomActiveChangeRef.current = onZoomActiveChange;
+  }, [onZoomActiveChange]);
+
+  const publishZoomActive = useCallback(
+    (active: boolean) => {
+      onZoomActiveChangeRef.current?.(pageId, active);
+    },
+    [pageId],
+  );
 
   useEffect(() => {
     scale.value = withSpring(1);
@@ -495,8 +544,10 @@ function ZoomableReaderImageFrame({
     translateY.value = withSpring(0);
     savedTranslateX.value = 0;
     savedTranslateY.value = 0;
+    publishZoomActive(false);
   }, [
     pageId,
+    publishZoomActive,
     savedScale,
     savedTranslateX,
     savedTranslateY,
@@ -515,131 +566,162 @@ function ZoomableReaderImageFrame({
 
   const frameWidth = frameSize.width;
   const frameHeight = frameSize.height;
-  const springConfig = {
-    damping: 20,
-    mass: 0.7,
-    stiffness: 220,
-  };
 
-  const resetZoom = () => {
-    "worklet";
-    scale.value = withSpring(1, springConfig);
-    savedScale.value = 1;
-    translateX.value = withSpring(0, springConfig);
-    translateY.value = withSpring(0, springConfig);
-    savedTranslateX.value = 0;
-    savedTranslateY.value = 0;
-  };
+  // RNGH re-serializes a gesture's whole config to native whenever the Gesture
+  // objects change identity, and every page in the gallery mounts one of these
+  // frames. Build the composition once per frame size instead.
+  const composedGesture = useMemo(() => {
+    const springConfig = {
+      damping: 20,
+      mass: 0.7,
+      stiffness: 220,
+    };
 
-  const pinchGesture = Gesture.Pinch()
-    .onUpdate((event) => {
-      const nextScale = clampMobileReaderZoomScale(
-        savedScale.value * event.scale,
-      );
-      scale.value = nextScale;
-      translateX.value = clampMobileReaderZoomOffset(
-        translateX.value,
-        frameWidth,
-        nextScale,
-      );
-      translateY.value = clampMobileReaderZoomOffset(
-        translateY.value,
-        frameHeight,
-        nextScale,
-      );
-    })
-    .onEnd(() => {
-      if (shouldResetMobileReaderZoom(scale.value)) {
-        resetZoom();
-        return;
-      }
-
-      const nextScale = clampMobileReaderZoomScale(scale.value);
-      scale.value = nextScale;
-      savedScale.value = nextScale;
-      translateX.value = clampMobileReaderZoomOffset(
-        translateX.value,
-        frameWidth,
-        nextScale,
-      );
-      translateY.value = clampMobileReaderZoomOffset(
-        translateY.value,
-        frameHeight,
-        nextScale,
-      );
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
-    });
-
-  const panGesture = Gesture.Pan()
-    .minPointers(1)
-    .averageTouches(true)
-    // Single-finger panning is what a zoomed page needs, but at scale 1 that
-    // same finger belongs to the gallery's page swipe. Manual activation lets
-    // the gesture claim the touch only while zoomed in, and fail immediately
-    // otherwise so the FlatList keeps its swipe.
-    .manualActivation(true)
-    .onTouchesMove((event, stateManager) => {
+    const publishZoomActiveFromWorklet = (active: boolean) => {
       "worklet";
-      // Two fingers always pan (this is the pinch companion that already
-      // worked); one finger only pans once the page is actually zoomed.
-      if (event.numberOfTouches >= 2 || scale.value > 1) {
-        stateManager.activate();
-        return;
-      }
-      stateManager.fail();
-    })
-    .onUpdate((event) => {
-      if (scale.value <= 1) return;
-      translateX.value = clampMobileReaderZoomOffset(
-        savedTranslateX.value + event.translationX,
-        frameWidth,
-        scale.value,
-      );
-      translateY.value = clampMobileReaderZoomOffset(
-        savedTranslateY.value + event.translationY,
-        frameHeight,
-        scale.value,
-      );
-    })
-    .onEnd(() => {
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
-    });
+      runOnJS(publishZoomActive)(active);
+    };
 
-  const doubleTapGesture = Gesture.Tap()
-    .numberOfTaps(2)
-    .maxDuration(260)
-    .onStart((event) => {
-      if (shouldResetMobileReaderZoom(scale.value)) {
-        const nextScale = MOBILE_READER_DOUBLE_TAP_ZOOM_SCALE;
-        const nextTranslateX = clampMobileReaderZoomOffset(
-          (frameWidth / 2 - event.x) * (nextScale - 1),
+    const resetZoom = () => {
+      "worklet";
+      scale.value = withSpring(1, springConfig);
+      savedScale.value = 1;
+      translateX.value = withSpring(0, springConfig);
+      translateY.value = withSpring(0, springConfig);
+      savedTranslateX.value = 0;
+      savedTranslateY.value = 0;
+      publishZoomActiveFromWorklet(false);
+    };
+
+    const pinchGesture = Gesture.Pinch()
+      .onUpdate((event) => {
+        const nextScale = clampMobileReaderZoomScale(
+          savedScale.value * event.scale,
+        );
+        scale.value = nextScale;
+        translateX.value = clampMobileReaderZoomOffset(
+          translateX.value,
           frameWidth,
           nextScale,
         );
-        const nextTranslateY = clampMobileReaderZoomOffset(
-          (frameHeight / 2 - event.y) * (nextScale - 1),
+        translateY.value = clampMobileReaderZoomOffset(
+          translateY.value,
           frameHeight,
           nextScale,
         );
-        scale.value = withSpring(nextScale, springConfig);
-        savedScale.value = nextScale;
-        translateX.value = withSpring(nextTranslateX, springConfig);
-        translateY.value = withSpring(nextTranslateY, springConfig);
-        savedTranslateX.value = nextTranslateX;
-        savedTranslateY.value = nextTranslateY;
-      } else {
-        resetZoom();
-      }
-      runOnJS(hapticSelection)();
-    });
+      })
+      .onEnd(() => {
+        if (shouldResetMobileReaderZoom(scale.value)) {
+          resetZoom();
+          return;
+        }
 
-  const composedGesture = Gesture.Simultaneous(
-    pinchGesture,
-    panGesture,
-    doubleTapGesture,
-  );
+        const nextScale = clampMobileReaderZoomScale(scale.value);
+        scale.value = nextScale;
+        savedScale.value = nextScale;
+        translateX.value = clampMobileReaderZoomOffset(
+          translateX.value,
+          frameWidth,
+          nextScale,
+        );
+        translateY.value = clampMobileReaderZoomOffset(
+          translateY.value,
+          frameHeight,
+          nextScale,
+        );
+        savedTranslateX.value = translateX.value;
+        savedTranslateY.value = translateY.value;
+        publishZoomActiveFromWorklet(true);
+      });
+
+    const panGesture = Gesture.Pan()
+      .minPointers(1)
+      .averageTouches(true)
+      // Single-finger panning is what a zoomed page needs, but at scale 1 that
+      // same finger belongs to the gallery's page swipe. Manual activation lets
+      // the gesture claim the touch only while zoomed in, and fail immediately
+      // otherwise so the FlatList keeps its swipe.
+      .manualActivation(true)
+      .onTouchesMove((event, stateManager) => {
+        "worklet";
+        // Two fingers always pan (this is the pinch companion that already
+        // worked); one finger only pans once the page is actually zoomed.
+        if (event.numberOfTouches >= 2 || scale.value > 1) {
+          stateManager.activate();
+          return;
+        }
+        stateManager.fail();
+      })
+      .onUpdate((event) => {
+        if (scale.value <= 1) return;
+        translateX.value = clampMobileReaderZoomOffset(
+          savedTranslateX.value + event.translationX,
+          frameWidth,
+          scale.value,
+        );
+        translateY.value = clampMobileReaderZoomOffset(
+          savedTranslateY.value + event.translationY,
+          frameHeight,
+          scale.value,
+        );
+      })
+      .onEnd(() => {
+        savedTranslateX.value = translateX.value;
+        savedTranslateY.value = translateY.value;
+      });
+
+    const doubleTapGesture = Gesture.Tap()
+      .numberOfTaps(2)
+      .maxDuration(260)
+      .onStart((event) => {
+        if (shouldResetMobileReaderZoom(scale.value)) {
+          // `absoluteX` is the same window-relative x the stage's tap zones
+          // read. Only zooming *in* competes with a page-turn band; a zoomed
+          // page owns the stage outright, so its reset is never band-limited.
+          if (
+            zoomTapBand &&
+            (event.absoluteX < zoomTapBand.start ||
+              event.absoluteX > zoomTapBand.end)
+          ) {
+            return;
+          }
+          const nextScale = MOBILE_READER_DOUBLE_TAP_ZOOM_SCALE;
+          const nextTranslateX = clampMobileReaderZoomOffset(
+            (frameWidth / 2 - event.x) * (nextScale - 1),
+            frameWidth,
+            nextScale,
+          );
+          const nextTranslateY = clampMobileReaderZoomOffset(
+            (frameHeight / 2 - event.y) * (nextScale - 1),
+            frameHeight,
+            nextScale,
+          );
+          scale.value = withSpring(nextScale, springConfig);
+          savedScale.value = nextScale;
+          translateX.value = withSpring(nextTranslateX, springConfig);
+          translateY.value = withSpring(nextTranslateY, springConfig);
+          savedTranslateX.value = nextTranslateX;
+          savedTranslateY.value = nextTranslateY;
+          publishZoomActiveFromWorklet(true);
+        } else {
+          resetZoom();
+        }
+        runOnJS(hapticSelection)();
+      });
+
+    return Gesture.Simultaneous(pinchGesture, panGesture, doubleTapGesture);
+  }, [
+    frameHeight,
+    frameWidth,
+    publishZoomActive,
+    savedScale,
+    savedTranslateX,
+    savedTranslateY,
+    scale,
+    translateX,
+    translateY,
+    zoomTapBand,
+  ]);
 
   return (
     <GestureDetector gesture={composedGesture}>
@@ -716,368 +798,338 @@ function ReaderPluginSettingsSheet({
       contentStyle={styles.pluginSettingsSheet}
       testID="ReaderPluginSettingsSheet"
     >
-          {error ? (
-            <MobileInlineErrorBanner
-              title={strings.settings.settingsActionFailed}
-              detail={error}
-              dismissLabel={strings.common.clear}
-              onDismiss={onDismissError}
-              variant="embedded"
-            />
-          ) : null}
-          {loadError ? (
-            <MobileInlineErrorBanner
-              title={strings.settings.settingsActionFailed}
-              detail={loadError}
-              actionLabel={strings.common.retry}
-              actionDisabled={!canRetryLoadError}
-              actionLoading={retryingLoad}
-              dismissLabel={strings.common.clear}
-              onActionPress={onRetryLoad}
-              onDismiss={onDismissLoadError}
-              variant="embedded"
-            />
-          ) : null}
+      {error ? (
+        <MobileInlineErrorBanner
+          title={strings.settings.settingsActionFailed}
+          detail={error}
+          dismissLabel={strings.common.clear}
+          onDismiss={onDismissError}
+          variant="embedded"
+        />
+      ) : null}
+      {loadError ? (
+        <MobileInlineErrorBanner
+          title={strings.settings.settingsActionFailed}
+          detail={loadError}
+          actionLabel={strings.common.retry}
+          actionDisabled={!canRetryLoadError}
+          actionLoading={retryingLoad}
+          dismissLabel={strings.common.clear}
+          onActionPress={onRetryLoad}
+          onDismiss={onDismissLoadError}
+          variant="embedded"
+        />
+      ) : null}
 
-          {loading && plugins.length === 0 ? (
+      {loading && plugins.length === 0 ? (
+        <View
+          style={[
+            styles.pluginSettingsEmpty,
+            { backgroundColor: tokens.muted },
+          ]}
+        >
+          <ActivityIndicator size="small" color={tokens.primary} />
+          <Text
+            style={[
+              styles.pluginSettingsEmptyText,
+              { color: tokens.mutedForeground },
+            ]}
+          >
+            {strings.settings.loadingReaderPlugins}
+          </Text>
+        </View>
+      ) : selectedPlugin ? (
+        <ScrollView
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          style={styles.pluginSettingsScroll}
+          contentContainerStyle={styles.pluginSettingsContent}
+        >
+          <View
+            style={[
+              styles.pluginSettingsDetailHeader,
+              { backgroundColor: tokens.muted, borderColor: tokens.border },
+            ]}
+          >
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityLabel={strings.settings.sourceSettingsBack}
+              onPress={onClearSelectedPlugin}
+              pressedScale={0.94}
+              style={[
+                styles.pluginSettingsBackButton,
+                { backgroundColor: tokens.card },
+              ]}
+            >
+              <Ionicons
+                name="chevron-back"
+                size={18}
+                color={tokens.mutedForeground}
+              />
+            </NemuPressable>
+            <View
+              style={[
+                styles.pluginSettingsIcon,
+                {
+                  backgroundColor: selectedPlugin.enabled
+                    ? tokens.sourceIconGlass
+                    : tokens.muted,
+                  borderColor: tokens.border,
+                },
+              ]}
+            >
+              <Ionicons
+                name={selectedPlugin.icon}
+                size={19}
+                color={
+                  selectedPlugin.enabled
+                    ? tokens.primary
+                    : tokens.mutedForeground
+                }
+              />
+            </View>
+            <View style={styles.pluginSettingsCopy}>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.pluginSettingsTitle,
+                  { color: tokens.foreground },
+                ]}
+              >
+                {selectedPlugin.name}
+              </Text>
+            </View>
+            <Switch
+              accessibilityLabel={formatMobileString(
+                strings.settings.readerPluginSwitch,
+                { name: selectedPlugin.name },
+              )}
+              accessibilityRole="switch"
+              accessibilityState={getMobileSwitchAccessibilityState(
+                selectedPlugin.enabled,
+                busy,
+              )}
+              disabled={busy}
+              value={selectedPlugin.enabled}
+              onValueChange={(nextValue) => {
+                if (
+                  !canRunMobileSwitchSelectionFeedback({
+                    checked: selectedPlugin.enabled,
+                    disabled: busy,
+                    nextChecked: nextValue,
+                  })
+                ) {
+                  return;
+                }
+                void hapticSelection();
+                onTogglePlugin(selectedPlugin, nextValue);
+              }}
+              trackColor={{
+                false: tokens.muted,
+                true: nemuColorWithAlpha(tokens.primary, 0.4),
+              }}
+              thumbColor={
+                selectedPlugin.enabled ? tokens.primary : tokens.mutedForeground
+              }
+              ios_backgroundColor={tokens.muted}
+            />
+          </View>
+
+          {selectedPlugin.enabled ? (
+            <MobileSourceSettingsCard
+              settings={selectedPlugin.settings}
+              values={selectedPlugin.values}
+              loading={loading}
+              error={error}
+              title={formatMobileString(strings.settings.sourceSettingsTitle, {
+                name: selectedPlugin.name,
+              })}
+              subtitle={selectedPlugin.description}
+              navigationResetKey={selectedPlugin.id}
+              emptyMessage={strings.settings.noPluginSettings}
+              showEmpty
+              disabled={busy}
+              onReset={() => onResetPlugin(selectedPlugin)}
+              onChange={(key, value) =>
+                onChangePluginValue(selectedPlugin, key, value)
+              }
+            />
+          ) : (
             <View
               style={[
                 styles.pluginSettingsEmpty,
                 { backgroundColor: tokens.muted },
               ]}
             >
-              <ActivityIndicator size="small" color={tokens.primary} />
+              <Ionicons
+                name="power-outline"
+                size={20}
+                color={tokens.mutedForeground}
+              />
               <Text
                 style={[
                   styles.pluginSettingsEmptyText,
                   { color: tokens.mutedForeground },
                 ]}
               >
-                {strings.settings.loadingReaderPlugins}
+                {strings.reader.disabled}
               </Text>
             </View>
-          ) : selectedPlugin ? (
-            <ScrollView
-              nestedScrollEnabled
-              showsVerticalScrollIndicator={false}
-              style={styles.pluginSettingsScroll}
-              contentContainerStyle={styles.pluginSettingsContent}
-            >
-              <View
-                style={[
-                  styles.pluginSettingsDetailHeader,
-                  { backgroundColor: tokens.muted, borderColor: tokens.border },
-                ]}
-              >
-                <NemuPressable
-                  accessibilityRole="button"
-                  accessibilityLabel={strings.settings.sourceSettingsBack}
-                  onPress={onClearSelectedPlugin}
-                  pressedScale={0.94}
-                  style={[
-                    styles.pluginSettingsBackButton,
-                    { backgroundColor: tokens.card },
-                  ]}
-                >
-                  <Ionicons
-                    name="chevron-back"
-                    size={18}
-                    color={tokens.mutedForeground}
-                  />
-                </NemuPressable>
+          )}
+        </ScrollView>
+      ) : (
+        <ScrollView
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          style={styles.pluginSettingsScroll}
+          contentContainerStyle={styles.pluginSettingsContent}
+        >
+          <View style={styles.pluginSettingsList}>
+            {plugins.map((plugin) => {
+              const settingsCount = countRenderableSourceSettings(
+                plugin.settings,
+              );
+              return (
                 <View
+                  key={plugin.id}
                   style={[
-                    styles.pluginSettingsIcon,
+                    styles.pluginSettingsRow,
                     {
-                      backgroundColor: selectedPlugin.enabled
-                        ? tokens.sourceIconGlass
-                        : tokens.muted,
+                      backgroundColor: tokens.muted,
                       borderColor: tokens.border,
                     },
                   ]}
                 >
-                  <Ionicons
-                    name={selectedPlugin.icon}
-                    size={19}
-                    color={
-                      selectedPlugin.enabled
-                        ? tokens.primary
-                        : tokens.mutedForeground
-                    }
-                  />
-                </View>
-                <View style={styles.pluginSettingsCopy}>
-                  <Text
-                    numberOfLines={1}
+                  <NemuPressable
+                    accessibilityRole="button"
+                    accessibilityLabel={formatMobileString(
+                      strings.settings.editReaderPluginSettings,
+                      { name: plugin.name },
+                    )}
+                    accessibilityState={{
+                      disabled: busy || !plugin.enabled,
+                    }}
+                    disabled={busy || !plugin.enabled}
+                    hapticFeedback={busy || !plugin.enabled ? "none" : "press"}
+                    onPress={() => {
+                      onSelectPlugin(plugin.id);
+                    }}
+                    pressedScale={0.985}
+                    containerStyle={styles.pluginSettingsMainContainer}
                     style={[
-                      styles.pluginSettingsTitle,
-                      { color: tokens.foreground },
+                      styles.pluginSettingsMain,
+                      { opacity: plugin.enabled ? 1 : 0.62 },
                     ]}
                   >
-                    {selectedPlugin.name}
-                  </Text>
-                  <Text
-                    numberOfLines={2}
-                    style={[
-                      styles.pluginSettingsDescription,
-                      { color: tokens.mutedForeground },
-                    ]}
-                  >
-                    {selectedPlugin.description}
-                  </Text>
-                </View>
-                <Switch
-                  accessibilityLabel={formatMobileString(
-                    strings.settings.readerPluginSwitch,
-                    { name: selectedPlugin.name },
-                  )}
-                  accessibilityRole="switch"
-                  accessibilityState={getMobileSwitchAccessibilityState(
-                    selectedPlugin.enabled,
-                    busy,
-                  )}
-                  disabled={busy}
-                  value={selectedPlugin.enabled}
-                  onValueChange={(nextValue) => {
-                    if (
-                      !canRunMobileSwitchSelectionFeedback({
-                        checked: selectedPlugin.enabled,
-                        disabled: busy,
-                        nextChecked: nextValue,
-                      })
-                    ) {
-                      return;
-                    }
-                    void hapticSelection();
-                    onTogglePlugin(selectedPlugin, nextValue);
-                  }}
-                  trackColor={{
-                    false: tokens.muted,
-                    true: `${tokens.primary}66`,
-                  }}
-                  thumbColor={
-                    selectedPlugin.enabled
-                      ? tokens.primary
-                      : tokens.mutedForeground
-                  }
-                  ios_backgroundColor={tokens.muted}
-                />
-              </View>
-
-              {selectedPlugin.enabled ? (
-                <MobileSourceSettingsCard
-                  settings={selectedPlugin.settings}
-                  values={selectedPlugin.values}
-                  loading={loading}
-                  error={error}
-                  title={formatMobileString(
-                    strings.settings.sourceSettingsTitle,
-                    {
-                      name: selectedPlugin.name,
-                    },
-                  )}
-                  subtitle={selectedPlugin.description}
-                  navigationResetKey={selectedPlugin.id}
-                  emptyMessage={strings.settings.noPluginSettings}
-                  showEmpty
-                  disabled={busy}
-                  onReset={() => onResetPlugin(selectedPlugin)}
-                  onChange={(key, value) =>
-                    onChangePluginValue(selectedPlugin, key, value)
-                  }
-                />
-              ) : (
-                <View
-                  style={[
-                    styles.pluginSettingsEmpty,
-                    { backgroundColor: tokens.muted },
-                  ]}
-                >
-                  <Ionicons
-                    name="power-outline"
-                    size={20}
-                    color={tokens.mutedForeground}
-                  />
-                  <Text
-                    style={[
-                      styles.pluginSettingsEmptyText,
-                      { color: tokens.mutedForeground },
-                    ]}
-                  >
-                    {strings.reader.disabled}
-                  </Text>
-                </View>
-              )}
-            </ScrollView>
-          ) : (
-            <ScrollView
-              nestedScrollEnabled
-              showsVerticalScrollIndicator={false}
-              style={styles.pluginSettingsScroll}
-              contentContainerStyle={styles.pluginSettingsContent}
-            >
-              <View style={styles.pluginSettingsList}>
-                {plugins.map((plugin) => {
-                  const settingsCount = countRenderableSourceSettings(
-                    plugin.settings,
-                  );
-                  return (
                     <View
-                      key={plugin.id}
                       style={[
-                        styles.pluginSettingsRow,
+                        styles.pluginSettingsIcon,
                         {
-                          backgroundColor: tokens.muted,
+                          backgroundColor: tokens.sourceIconGlass,
                           borderColor: tokens.border,
                         },
                       ]}
                     >
-                      <NemuPressable
-                        accessibilityRole="button"
-                        accessibilityLabel={formatMobileString(
-                          strings.settings.editReaderPluginSettings,
-                          { name: plugin.name },
-                        )}
-                        accessibilityState={{
-                          disabled: busy || !plugin.enabled,
-                        }}
-                        disabled={busy || !plugin.enabled}
-                        hapticFeedback={
-                          busy || !plugin.enabled ? "none" : "press"
-                        }
-                        onPress={() => {
-                          onSelectPlugin(plugin.id);
-                        }}
-                        pressedScale={0.985}
-                        containerStyle={styles.pluginSettingsMainContainer}
-                        style={[
-                          styles.pluginSettingsMain,
-                          { opacity: plugin.enabled ? 1 : 0.62 },
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.pluginSettingsIcon,
-                            {
-                              backgroundColor: tokens.sourceIconGlass,
-                              borderColor: tokens.border,
-                            },
-                          ]}
-                        >
-                          <Ionicons
-                            name={plugin.icon}
-                            size={19}
-                            color={
-                              plugin.enabled
-                                ? tokens.primary
-                                : tokens.mutedForeground
-                            }
-                          />
-                        </View>
-                        <View style={styles.pluginSettingsCopy}>
-                          <Text
-                            numberOfLines={1}
-                            style={[
-                              styles.pluginSettingsTitle,
-                              { color: tokens.foreground },
-                            ]}
-                          >
-                            {plugin.name}
-                          </Text>
-                          <Text
-                            numberOfLines={2}
-                            style={[
-                              styles.pluginSettingsDescription,
-                              { color: tokens.mutedForeground },
-                            ]}
-                          >
-                            {plugin.description}
-                          </Text>
-                          <Text
-                            numberOfLines={1}
-                            style={[
-                              styles.pluginSettingsMeta,
-                              { color: tokens.mutedForeground },
-                            ]}
-                          >
-                            {formatMobileSettingsCount(settingsCount, strings)}
-                          </Text>
-                        </View>
-                      </NemuPressable>
-                      <NemuPressable
-                        accessibilityRole="button"
-                        accessibilityLabel={formatMobileString(
-                          strings.settings.editReaderPluginSettings,
-                          { name: plugin.name },
-                        )}
-                        accessibilityState={{
-                          disabled:
-                            busy || !plugin.enabled || settingsCount === 0,
-                        }}
-                        disabled={
-                          busy || !plugin.enabled || settingsCount === 0
-                        }
-                        onPress={() => onSelectPlugin(plugin.id)}
-                        pressedScale={0.94}
-                        style={[
-                          styles.pluginSettingsActionButton,
-                          {
-                            backgroundColor: tokens.card,
-                            opacity:
-                              busy || !plugin.enabled || settingsCount === 0
-                                ? 0.54
-                                : 1,
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name="settings-outline"
-                          size={17}
-                          color={tokens.mutedForeground}
-                        />
-                      </NemuPressable>
-                      <Switch
-                        accessibilityLabel={formatMobileString(
-                          strings.settings.readerPluginSwitch,
-                          { name: plugin.name },
-                        )}
-                        accessibilityRole="switch"
-                        accessibilityState={getMobileSwitchAccessibilityState(
-                          plugin.enabled,
-                          busy,
-                        )}
-                        disabled={busy}
-                        value={plugin.enabled}
-                        onValueChange={(nextValue) => {
-                          if (
-                            !canRunMobileSwitchSelectionFeedback({
-                              checked: plugin.enabled,
-                              disabled: busy,
-                              nextChecked: nextValue,
-                            })
-                          ) {
-                            return;
-                          }
-                          void hapticSelection();
-                          onTogglePlugin(plugin, nextValue);
-                        }}
-                        trackColor={{
-                          false: tokens.muted,
-                          true: `${tokens.primary}66`,
-                        }}
-                        thumbColor={
+                      <Ionicons
+                        name={plugin.icon}
+                        size={19}
+                        color={
                           plugin.enabled
                             ? tokens.primary
                             : tokens.mutedForeground
                         }
-                        ios_backgroundColor={tokens.muted}
                       />
                     </View>
-                  );
-                })}
-              </View>
-            </ScrollView>
-          )}
+                    <View style={styles.pluginSettingsCopy}>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.pluginSettingsTitle,
+                          { color: tokens.foreground },
+                        ]}
+                      >
+                        {plugin.name}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.pluginSettingsMeta,
+                          { color: tokens.mutedForeground },
+                        ]}
+                      >
+                        {formatMobileSettingsCount(settingsCount, strings)}
+                      </Text>
+                    </View>
+                  </NemuPressable>
+                  <NemuPressable
+                    accessibilityRole="button"
+                    accessibilityLabel={formatMobileString(
+                      strings.settings.editReaderPluginSettings,
+                      { name: plugin.name },
+                    )}
+                    accessibilityState={{
+                      disabled: busy || !plugin.enabled || settingsCount === 0,
+                    }}
+                    disabled={busy || !plugin.enabled || settingsCount === 0}
+                    onPress={() => onSelectPlugin(plugin.id)}
+                    pressedScale={0.94}
+                    style={[
+                      styles.pluginSettingsActionButton,
+                      {
+                        backgroundColor: tokens.card,
+                        opacity:
+                          busy || !plugin.enabled || settingsCount === 0
+                            ? 0.54
+                            : 1,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="settings-outline"
+                      size={17}
+                      color={tokens.mutedForeground}
+                    />
+                  </NemuPressable>
+                  <Switch
+                    accessibilityLabel={formatMobileString(
+                      strings.settings.readerPluginSwitch,
+                      { name: plugin.name },
+                    )}
+                    accessibilityRole="switch"
+                    accessibilityState={getMobileSwitchAccessibilityState(
+                      plugin.enabled,
+                      busy,
+                    )}
+                    disabled={busy}
+                    value={plugin.enabled}
+                    onValueChange={(nextValue) => {
+                      if (
+                        !canRunMobileSwitchSelectionFeedback({
+                          checked: plugin.enabled,
+                          disabled: busy,
+                          nextChecked: nextValue,
+                        })
+                      ) {
+                        return;
+                      }
+                      void hapticSelection();
+                      onTogglePlugin(plugin, nextValue);
+                    }}
+                    trackColor={{
+                      false: tokens.muted,
+                      true: nemuColorWithAlpha(tokens.primary, 0.4),
+                    }}
+                    thumbColor={
+                      plugin.enabled ? tokens.primary : tokens.mutedForeground
+                    }
+                    ios_backgroundColor={tokens.muted}
+                  />
+                </View>
+              );
+            })}
+          </View>
+        </ScrollView>
+      )}
     </MobileNativeSheetScaffold>
   );
 }
@@ -1115,6 +1167,8 @@ export function ReaderScreen() {
     [chapterId, params.chapterNumber, params.chapterTitle, params.volumeNumber],
   );
   const { reduceMotion, scheme } = useNemuTheme();
+  // Reduce Motion keeps the chrome's cross-fade but drops its 8px slide.
+  const readerChromeAnimations = readerChromeAnimationsForMotion(reduceMotion);
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
   const store = useMobileDataStore();
@@ -1132,6 +1186,14 @@ export function ReaderScreen() {
     processPageImages,
     setProcessPageImages,
   } = useReadingMode();
+  const { chapterCompleteCelebration } = useMobileFeedbackSettings();
+  const {
+    keepAwake: readerKeepAwake,
+    setKeepAwake: setReaderKeepAwake,
+    lockPortrait: readerLockPortrait,
+    setLockPortrait: setReaderLockPortrait,
+  } = useReaderDisplayPrefs();
+  const readerConnectivity = useMobileConnectivity();
   const readerPlugins = useMobileReaderPlugins();
   const installedReaderSources = useInstalledSources();
   const readerScrollRef = useRef<MobileReaderScrollHandle | null>(null);
@@ -1142,6 +1204,12 @@ export function ReaderScreen() {
     typeof setTimeout
   > | null>(null);
   const progressPersistenceQueueRef = useRef<Promise<void>>(Promise.resolve());
+  /** The debounced silent progress write, kept reachable so backgrounding can
+   * flush it instead of losing it to a suspended timer. */
+  const pendingSilentProgressRef = useRef<{
+    timeout: ReturnType<typeof setTimeout>;
+    displayIndex: number;
+  } | null>(null);
   const progressPersistenceClockRef = useRef(0);
   const readerProgrammaticScrollRef =
     useRef<ReaderProgrammaticScrollTarget | null>(null);
@@ -1207,6 +1275,8 @@ export function ReaderScreen() {
   const [selectedReaderPluginSettingsId, setSelectedReaderPluginSettingsId] =
     useState<string | null>(null);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const [readerScrubPreviewPageIndex, setReaderScrubPreviewPageIndex] =
+    useState<number | null>(null);
   // How the reader reached `currentPageIndex`. Only a genuine forward turn may
   // auto-complete a chapter — see shouldAutoCompleteMobileReaderChapter.
   const [pageArrival, setPageArrival] =
@@ -1240,6 +1310,13 @@ export function ReaderScreen() {
     status: "idle",
     pages: [],
     detail: strings.reader.readerPagesIdle,
+  });
+  // Keep-awake waits for pages: a chapter stuck loading or blocked should not
+  // hold the screen on. Portrait lock applies for the whole reader session.
+  useReaderDisplayEnvironment({
+    keepAwakeEnabled: readerKeepAwake,
+    keepAwakeReady: pagesState.status === "ready",
+    lockPortraitEnabled: readerLockPortrait,
   });
   const [japaneseLearningOcrState, setJapaneseLearningOcrState] =
     useState<JapaneseLearningOcrState>({ status: "idle" });
@@ -1299,6 +1376,14 @@ export function ReaderScreen() {
   const [readerImageErrors, setReaderImageErrors] = useState(
     () => new Map<string, string>(),
   );
+  // React may invoke a state updater more than once for a single dispatch, so
+  // the connectivity-restore retry reads the latched failures from here rather
+  // than from inside `setReaderImageErrors` — a re-invoked updater used to
+  // bump every failed page's nonce twice and re-download it twice.
+  const readerImageErrorsRef = useRef(readerImageErrors);
+  useEffect(() => {
+    readerImageErrorsRef.current = readerImageErrors;
+  }, [readerImageErrors]);
   const [state, setState] = useState<ReaderState>({
     entry: null,
     sourceLink: null,
@@ -1322,6 +1407,8 @@ export function ReaderScreen() {
   // through the installed-sources revision); an unchanged key must not blank
   // the reader and refetch the chapter.
   const readerPagesLoadedKeyRef = useRef<string | null>(null);
+  /** The request key whose source fetch is running right now, if any. */
+  const readerPagesInFlightKeyRef = useRef<string | null>(null);
   const persistProgressRef = useRef<
     (
       complete: boolean,
@@ -1767,6 +1854,13 @@ export function ReaderScreen() {
   const sourcePageNumber = pageCount
     ? readerRoutePageForDisplayIndex(clampedPageIndex, pageCount, mode)
     : 0;
+  const readerChromePageIndex =
+    readerScrubPreviewPageIndex == null
+      ? clampedPageIndex
+      : clampReaderPageIndex(readerScrubPreviewPageIndex, pageCount);
+  const readerChromeSourcePageNumber = pageCount
+    ? readerRoutePageForDisplayIndex(readerChromePageIndex, pageCount, mode)
+    : 0;
   const chapterTitle = formatChapterTitle(chapter, strings);
   const sourcePageForDisplayIndex = useCallback(
     (displayIndex: number) =>
@@ -1776,6 +1870,35 @@ export function ReaderScreen() {
   const displayedPages = useMemo(() => {
     return pages;
   }, [pages]);
+  const readerScrubPreviewPage =
+    readerScrubPreviewPageIndex == null
+      ? null
+      : (displayedPages[
+          clampReaderPageIndex(readerScrubPreviewPageIndex, pageCount)
+        ] ?? null);
+  // Resolving a cached page URI hashes it with a pure-JS SHA-256. A scrub drag
+  // walks the same handful of pages back and forth, so a resolved URI is
+  // remembered per page id and thrown away with the page list.
+  const readerScrubPreviewUriByPageIdRef = useRef(new Map<string, string>());
+  useEffect(() => {
+    readerScrubPreviewUriByPageIdRef.current = new Map();
+  }, [displayedPages]);
+  const readerScrubPreviewImageUri = useMemo(() => {
+    const page = readerScrubPreviewPage;
+    if (!page?.imageUri) return null;
+    if (page.imageUriOwnership === "app") return page.imageUri;
+    const resolvedByPageId = readerScrubPreviewUriByPageIdRef.current;
+    const remembered = resolvedByPageId.get(page.id);
+    if (remembered !== undefined) return remembered;
+    const resolved = getCachedMobileImageUriSync({
+      uri: page.imageUri,
+      headers: page.headers,
+      cacheKind: "page",
+    });
+    // A miss means the page is not on disk yet, so it has to be asked again.
+    if (resolved) resolvedByPageId.set(page.id, resolved);
+    return resolved;
+  }, [readerScrubPreviewPage]);
   const readerDisplayIndexByPageId = useMemo(() => {
     const map = new Map<string, number>();
     displayedPages.forEach((page, index) => map.set(page.id, index));
@@ -2090,7 +2213,9 @@ export function ReaderScreen() {
     : "";
   const showReaderChrome = showControls;
   const showReaderBottomChrome =
-    showReaderChrome && pagesState.status === "ready" && pageCount > 0;
+    showReaderChrome &&
+    ((pagesState.status === "ready" && pageCount > 0) ||
+      pagesState.status === "loading");
   useEffect(() => {
     const emptyMetrics = getReaderContinuousScrollMetrics({
       contentOffset: 0,
@@ -2166,6 +2291,19 @@ export function ReaderScreen() {
           },
     [scheme],
   );
+  // A chapter that has not resolved its page list keeps both chrome panels up
+  // in a greyed loading state instead of collapsing to a black screen.
+  const readerChromeLoading = isReaderChromeLoading(pagesState.status);
+  // Only an actively-fetching chapter gets the "fetching pages" subtitle and
+  // spinner; error and blocked states have their own dedicated surfaces.
+  const readerChromePagesPending = pagesState.status === "loading";
+  // Hidden entirely while the page list is unresolved: the ring spinner next
+  // to it already says the chapter is loading, and "— / —" reads as broken.
+  const readerTopPageCountLabel = readerChromePageCountLabel({
+    pagesStatus: pagesState.status,
+    pageNumber: readerChromeSourcePageNumber,
+    pageCount,
+  });
   const readerChromePanelStyle = useMemo(
     () => ({
       backgroundColor: readerChromeColors.panel,
@@ -2634,6 +2772,20 @@ export function ReaderScreen() {
     ],
   );
 
+  /**
+   * The one place a page turn is felt. Tap turns and step buttons come through
+   * `goToPage`, swipes through the scroll settle — both call this, and only for
+   * a real forward/backward turn, so placing the reader (restore, scrub, a
+   * chapter jump) stays silent and a single turn never buzzes twice.
+   */
+  const notifyReaderPageTurn = useCallback(
+    (arrival: MobileReaderPageArrival) => {
+      if (arrival === "initial") return;
+      void hapticSelection();
+    },
+    [],
+  );
+
   const goToPage = useCallback(
     (nextIndex: number, arrival: MobileReaderPageArrival = "initial") => {
       if (pageCount <= 0) return;
@@ -2643,16 +2795,14 @@ export function ReaderScreen() {
         : requestedPageIndex;
       const nextPageIndex =
         galleryPagedMode && isTwoPageMode
-          ? firstPageIndexForMobileReaderSpread(
-              readerSpreads,
-              targetFrameIndex,
-            )
+          ? firstPageIndexForMobileReaderSpread(readerSpreads, targetFrameIndex)
           : requestedPageIndex;
       armReaderProgrammaticScroll(
         galleryPagedMode
           ? { kind: "frame", frameIndex: targetFrameIndex }
           : { kind: "page", pageIndex: nextPageIndex },
       );
+      notifyReaderPageTurn(arrival);
       setPageArrival(arrival);
       setCurrentPageIndex(nextPageIndex);
       scrollToPageIndex(nextPageIndex, galleryPagedMode);
@@ -2677,6 +2827,7 @@ export function ReaderScreen() {
       currentSpreadIndex,
       galleryPagedMode,
       isTwoPageMode,
+      notifyReaderPageTurn,
       pageCount,
       readerSpreads,
       scrollToPageIndex,
@@ -2839,16 +2990,27 @@ export function ReaderScreen() {
     ) {
       return;
     }
+    if (!chapterCompleteCelebration && nextChapterInReadingOrder) {
+      void persistEndOfChapterCompletion().then((persisted) => {
+        if (persisted) {
+          goToChapter(nextChapterInReadingOrder, { startAt: "start" });
+        }
+      });
+      return;
+    }
     setEndOfChapterProgressSaved(false);
     setEndOfChapterPromptVisible(true);
-    void hapticSelection();
+    if (chapterCompleteCelebration) void hapticConfirm();
     void persistEndOfChapterCompletion();
   }, [
+    chapterCompleteCelebration,
+    goToChapter,
     japaneseLearningChatDrawerVisible,
     japaneseLearningLauncherVisible,
     japaneseLearningOcrSheetVisible,
     japaneseLearningTranscriptVisible,
     persistEndOfChapterCompletion,
+    nextChapterInReadingOrder,
     readerDisplaySettingsOpen,
     readerPluginSettingsOpen,
   ]);
@@ -2896,6 +3058,13 @@ export function ReaderScreen() {
       goToPage(firstPageIndexForMobileReaderSpread(readerSpreads, scrubIndex));
     },
     [goToPage, isTwoPageMode, readerSpreads],
+  );
+  const getReaderScrubPreviewPageIndex = useCallback(
+    (scrubIndex: number) =>
+      isTwoPageMode
+        ? firstPageIndexForMobileReaderSpread(readerSpreads, scrubIndex)
+        : scrubIndex,
+    [isTwoPageMode, readerSpreads],
   );
 
   const beginContinuousReaderScrub = useCallback(() => {
@@ -3110,6 +3279,32 @@ export function ReaderScreen() {
     },
     [clearReaderImageError],
   );
+  const readerWasOfflineRef = useRef(false);
+  useEffect(() => {
+    if (readerConnectivity.resolving) return;
+    const restored = readerWasOfflineRef.current && !readerConnectivity.offline;
+    readerWasOfflineRef.current = readerConnectivity.offline;
+    if (!restored) return;
+    if (pagesState.status === "error") {
+      setPagesRefreshNonce((value) => value + 1);
+    }
+    const failedPageIds = [...readerImageErrorsRef.current.keys()];
+    if (failedPageIds.length === 0) return;
+    setReaderImageRetryNonces((nonces) => {
+      const next = new Map(nonces);
+      for (const pageId of failedPageIds) {
+        next.set(pageId, (next.get(pageId) ?? 0) + 1);
+      }
+      return next;
+    });
+    setReaderImageErrors((current) =>
+      current.size === 0 ? current : new Map(),
+    );
+  }, [
+    pagesState.status,
+    readerConnectivity.offline,
+    readerConnectivity.resolving,
+  ]);
   const setReaderImageLoadError = useCallback(
     (pageId: string, detail: string | undefined) => {
       setReaderImageErrors((current) => {
@@ -4531,32 +4726,40 @@ export function ReaderScreen() {
   );
 
   useEffect(() => {
-    let cancelled = false;
-    const requestRun = readerPagesRequestRunRef.current + 1;
-    readerPagesRequestRunRef.current = requestRun;
     const effectStrings = getMobileStrings(appLanguage);
 
-    if (loading) {
-      return () => {
-        cancelled = true;
-      };
-    }
+    // Opening a chapter no longer waits on the library/progress reads in
+    // `load()`: the request identity is fully known from the route params and
+    // the installed source, so the source request runs in parallel with SQLite
+    // and only the restore-to-last-page step below waits for progress. The
+    // installed-source list comes from `useInstalledSources()` — gate on its
+    // load state instead of re-reading the table here.
+    if (installedReaderSources.loading) return;
 
-    const pagesRequestKey = `${makeMobileReaderPagesPrefetchKey({
+    const pageListCacheKey = makeMobileReaderPagesPrefetchKey({
       registryId,
       sourceId,
       mangaId,
       chapterId,
       processPageImages,
-    })}:${pagesRefreshNonce}:${appLanguage}`;
-    // Reading mode, theme, and similar settings writes re-run this effect via
-    // the `loading` flip without changing what should be on screen. Only a
-    // changed request key may reset the rendered pages.
+    });
+    const pagesRequestKey = `${pageListCacheKey}:${pagesRefreshNonce}:${appLanguage}`;
+    // Reading mode, theme, and similar settings writes re-run this effect
+    // (through the installed-sources revision) without changing what should be
+    // on screen. Only a changed request key may reset the rendered pages.
     if (readerPagesLoadedKeyRef.current === pagesRequestKey) {
-      return () => {
-        cancelled = true;
-      };
+      return;
     }
+    // A re-render that keeps the same request identity (the library/progress
+    // reads landing, a settings write) must ride the request already in
+    // flight instead of firing a second one at the source.
+    if (readerPagesInFlightKeyRef.current === pagesRequestKey) {
+      return;
+    }
+
+    const requestRun = readerPagesRequestRunRef.current + 1;
+    readerPagesRequestRunRef.current = requestRun;
+    readerPagesInFlightKeyRef.current = pagesRequestKey;
 
     const performanceKey = `${registryId}:${sourceId}:${mangaId}:${chapterId}`;
     readerFirstPageRequestRef.current = {
@@ -4580,14 +4783,12 @@ export function ReaderScreen() {
     );
 
     void (async () => {
+      let restoredPersistedPageList = false;
       try {
-        const installedSources = await store.getInstalledSources();
-        const installedSource = installedSources.find((item) =>
-          mobileInstalledSourceMatchesRoute(item, registryId, sourceId),
-        );
+        const installedSource = selectedInstalledSource;
 
         if (!installedSource) {
-          if (!cancelled && readerPagesRequestRunRef.current === requestRun) {
+          if (readerPagesRequestRunRef.current === requestRun) {
             setPagesState({
               status: "blocked",
               pages: [],
@@ -4595,6 +4796,23 @@ export function ReaderScreen() {
             });
           }
           return;
+        }
+
+        const persisted = await loadMobileReaderPageListCache(pageListCacheKey);
+        if (persisted && readerPagesRequestRunRef.current === requestRun) {
+          restoredPersistedPageList = true;
+          readerPagesLoadedKeyRef.current = pagesRequestKey;
+          setPagesState({
+            status: "ready",
+            pages: persisted.pages,
+            chapters: persisted.chapters,
+            detail: formatReaderLoadedPages(
+              persisted.pages.length,
+              effectStrings,
+            ),
+            fetchedAt: persisted.fetchedAt,
+            chapter: persisted.chapter,
+          });
         }
 
         // A background chapter-turn prefetch (started while the previous
@@ -4618,11 +4836,28 @@ export function ReaderScreen() {
               getSourceSettings: getReaderSourceSettings,
               onSourcePackageHydrated: saveReaderSourcePackageHydration,
               processPageImages,
+              // Paint the chapter as soon as its page list lands; the chapter
+              // index only feeds adjacent-chapter navigation and arrives in
+              // the final result a moment later with the same `fetchedAt`.
+              onPagesReady: (firstPaint) => {
+                if (readerPagesRequestRunRef.current !== requestRun) return;
+                setPagesState({
+                  status: "ready",
+                  pages: firstPaint.pages,
+                  pageProcessor: firstPaint.pageProcessor,
+                  chapters: [],
+                  detail: formatReaderLoadedPages(
+                    firstPaint.pages.length,
+                    effectStrings,
+                  ),
+                  fetchedAt: firstPaint.fetchedAt,
+                  chapter: firstPaint.chapter,
+                });
+              },
             },
           ));
 
-        if (cancelled || readerPagesRequestRunRef.current !== requestRun)
-          return;
+        if (readerPagesRequestRunRef.current !== requestRun) return;
         if (refreshed.status === "blocked") {
           setPagesState({
             status: "blocked",
@@ -4633,22 +4868,46 @@ export function ReaderScreen() {
         }
 
         readerPagesLoadedKeyRef.current = pagesRequestKey;
-        setPagesState({
+        // A failed chapter-index request comes back as `chapters: []` for that
+        // reason alone. Neither the cache nor the live state may take that
+        // emptiness: the cache would serve an empty chapter list for its whole
+        // life, and the reader would lose adjacent-chapter navigation for the
+        // rest of the session.
+        const cacheableChapters = resolveMobileReaderChapterIndex({
+          chapterIndexStatus: refreshed.chapterIndexStatus,
+          chapters: refreshed.chapters,
+          persistedChapters: persisted?.chapters,
+        });
+        if (cacheableChapters) {
+          void saveMobileReaderPageListCache(pageListCacheKey, {
+            pages: refreshed.pages,
+            chapters: cacheableChapters,
+            chapter: refreshed.chapter,
+            fetchedAt: refreshed.fetchedAt,
+          }).catch(() => undefined);
+        }
+        setPagesState((previous) => ({
           status: "ready",
           pages: refreshed.pages,
           pageProcessor: refreshed.pageProcessor,
-          chapters: refreshed.chapters,
+          chapters:
+            resolveMobileReaderChapterIndex({
+              chapterIndexStatus: refreshed.chapterIndexStatus,
+              chapters: refreshed.chapters,
+              previousChapters:
+                previous.status === "ready" ? previous.chapters : undefined,
+              persistedChapters: persisted?.chapters,
+            }) ?? [],
           detail: formatReaderLoadedPages(
             refreshed.pages.length,
             effectStrings,
           ),
           fetchedAt: refreshed.fetchedAt,
           chapter: refreshed.chapter,
-        });
+        }));
       } catch (nextError) {
-        if (cancelled || readerPagesRequestRunRef.current !== requestRun) {
-          return;
-        }
+        if (readerPagesRequestRunRef.current !== requestRun) return;
+        if (restoredPersistedPageList) return;
         cloudflareSheetRef.current?.reportError(nextError);
         const presentation = getMobileSourceErrorPresentation(
           nextError,
@@ -4660,26 +4919,39 @@ export function ReaderScreen() {
           title: presentation.title,
           detail: presentation.detail,
         });
+      } finally {
+        if (readerPagesInFlightKeyRef.current === pagesRequestKey) {
+          readerPagesInFlightKeyRef.current = null;
+        }
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    // No teardown flag: this request is owned by `readerPagesRequestRunRef`,
+    // so a same-key re-render keeps it, a new key supersedes it, and unmount
+    // invalidates every run (see the effect below).
+    return;
   }, [
     appLanguage,
     chapterId,
-    loading,
+    installedReaderSources.loading,
     mangaId,
     pagesRefreshNonce,
     processPageImages,
     registryId,
+    selectedInstalledSource,
     sourceChapterForRequest,
     sourceId,
-    store,
     getReaderSourceSettings,
     saveReaderSourcePackageHydration,
   ]);
+
+  // Unmounting invalidates whichever page-list request is still in flight.
+  useEffect(() => {
+    return () => {
+      readerPagesRequestRunRef.current = -1;
+      readerPagesInFlightKeyRef.current = null;
+    };
+  }, []);
 
   // Once the current chapter renders, warm the next chapter's page list in
   // the background so turning the chapter never waits on the source. Delayed
@@ -4689,35 +4961,31 @@ export function ReaderScreen() {
     const nextChapter = nextChapterInReadingOrder;
     if (!nextChapter || nextChapter.locked) return;
 
+    const installedSource = selectedInstalledSource;
+    if (!installedSource) return;
+
     const timeout = setTimeout(() => {
-      void (async () => {
-        try {
-          const installedSources = await store.getInstalledSources();
-          const installedSource = installedSources.find((item) =>
-            mobileInstalledSourceMatchesRoute(item, registryId, sourceId),
-          );
-          if (!installedSource) return;
-          mobileReaderPagesPrefetchCache.start(
-            makeMobileReaderPagesPrefetchKey({
-              registryId,
-              sourceId,
-              mangaId,
-              chapterId: nextChapter.id,
+      try {
+        mobileReaderPagesPrefetchCache.start(
+          makeMobileReaderPagesPrefetchKey({
+            registryId,
+            sourceId,
+            mangaId,
+            chapterId: nextChapter.id,
+            processPageImages,
+          }),
+          () =>
+            refreshMobileReaderPages(installedSource, mangaId, nextChapter, {
+              getSourceSettings: getReaderSourceSettings,
+              onSourcePackageHydrated: saveReaderSourcePackageHydration,
               processPageImages,
             }),
-            () =>
-              refreshMobileReaderPages(installedSource, mangaId, nextChapter, {
-                getSourceSettings: getReaderSourceSettings,
-                onSourcePackageHydrated: saveReaderSourcePackageHydration,
-                processPageImages,
-              }),
-            disposeMobileReaderPagesPrefetchResult,
-          );
-        } catch {
-          // A failed warmup must never surface; the chapter turn falls back
-          // to the normal load path.
-        }
-      })();
+          disposeMobileReaderPagesPrefetchResult,
+        );
+      } catch {
+        // A failed warmup must never surface; the chapter turn falls back
+        // to the normal load path.
+      }
     }, MOBILE_READER_NEXT_CHAPTER_PREFETCH_DELAY_MS);
 
     return () => clearTimeout(timeout);
@@ -4729,8 +4997,8 @@ export function ReaderScreen() {
     processPageImages,
     registryId,
     saveReaderSourcePackageHydration,
+    selectedInstalledSource,
     sourceId,
-    store,
   ]);
 
   useEffect(() => {
@@ -4874,6 +5142,8 @@ export function ReaderScreen() {
           await store.saveChapterProgress(chapterProgress);
           await store.saveMangaProgress(mangaProgress);
           if (options?.updateState !== false) {
+            // Read back the one row that was just written; scanning
+            // `getMangaProgress()` decodes every stored manga on every turn.
             const [savedChapterProgress, savedMangaProgress] =
               await Promise.all([
                 store.getChapterProgress(
@@ -4882,15 +5152,12 @@ export function ReaderScreen() {
                   chapterProgress.sourceMangaId,
                   chapterProgress.sourceChapterId,
                 ),
-                store.getMangaProgress(),
+                store.getMangaProgressById(mangaProgress.id),
               ]);
             setState((current) => ({
               ...current,
               chapterProgress: savedChapterProgress ?? chapterProgress,
-              mangaProgress:
-                savedMangaProgress.find(
-                  (entry) => entry.id === mangaProgress.id,
-                ) ?? mangaProgress,
+              mangaProgress: savedMangaProgress ?? mangaProgress,
             }));
           }
           emitMobileDataChanged("progress");
@@ -4985,6 +5252,7 @@ export function ReaderScreen() {
   useEffect(() => {
     if (!silentProgressPersistenceKey) return;
     const timeout = setTimeout(() => {
+      pendingSilentProgressRef.current = null;
       // persistProgress captures the saved timestamps that this write advances.
       // Calling the latest implementation through a ref prevents that
       // timestamp-only state update from re-arming this debounce forever.
@@ -4992,8 +5260,42 @@ export function ReaderScreen() {
         silent: true,
       });
     }, 500);
-    return () => clearTimeout(timeout);
+    pendingSilentProgressRef.current = {
+      timeout,
+      displayIndex: visibleProgressPageIndex,
+    };
+    return () => {
+      clearTimeout(timeout);
+      if (pendingSilentProgressRef.current?.timeout === timeout) {
+        pendingSilentProgressRef.current = null;
+      }
+    };
   }, [silentProgressPersistenceKey, visibleProgressPageIndex]);
+
+  /** Write everything still sitting in a debounce timer, immediately. */
+  const flushPendingReaderProgress = useCallback(() => {
+    const pending = pendingSilentProgressRef.current;
+    if (pending) {
+      clearTimeout(pending.timeout);
+      pendingSilentProgressRef.current = null;
+      void persistProgressRef.current(false, pending.displayIndex, {
+        silent: true,
+      });
+    }
+    flushPendingIntraPageProgress(false);
+  }, [flushPendingIntraPageProgress]);
+
+  // The OS can suspend — or kill — a backgrounded reader long before the 500 ms
+  // progress debounce fires, so leaving the app commits the page and the
+  // intra-page offset right away. Returning to `active` needs nothing extra:
+  // the next page change re-arms both timers.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") return;
+      flushPendingReaderProgress();
+    });
+    return () => subscription.remove();
+  }, [flushPendingReaderProgress]);
 
   useEffect(() => {
     if (pagesState.status !== "ready") return;
@@ -5131,18 +5433,17 @@ export function ReaderScreen() {
       const nextPageIndex = isTwoPageMode
         ? firstPageIndexForMobileReaderSpread(readerSpreads, nextFrameIndex)
         : nextFrameIndex;
-      if (programmaticTarget == null && nextPageIndex !== clampedPageIndex) {
-        void hapticSelection();
-      }
+      // A tap turn arms a programmatic target and already played its haptic in
+      // `goToPage`; only a user swipe reaches this branch.
       if (programmaticTarget == null) {
-        setPageArrival(
-          readerPageArrivalForStep(
-            clampedPageIndex,
-            nextPageIndex,
-            pageCount,
-            mode,
-          ),
+        const arrival = readerPageArrivalForStep(
+          clampedPageIndex,
+          nextPageIndex,
+          pageCount,
+          mode,
         );
+        if (nextPageIndex !== clampedPageIndex) notifyReaderPageTurn(arrival);
+        setPageArrival(arrival);
       }
       setCurrentPageIndex(nextPageIndex);
       syncRoutePage(nextPageIndex);
@@ -5160,31 +5461,24 @@ export function ReaderScreen() {
       pageCount,
     );
     if (nextPageIndex === clampedPageIndex) {
-      if (
-        programmaticTarget != null &&
-        programmaticTarget.kind !== "scrub"
-      ) {
+      if (programmaticTarget != null && programmaticTarget.kind !== "scrub") {
         clearReaderProgrammaticScroll();
       }
       return;
     }
     if (programmaticTarget == null) {
-      void hapticSelection();
-      setPageArrival(
-        readerPageArrivalForStep(
-          clampedPageIndex,
-          nextPageIndex,
-          pageCount,
-          mode,
-        ),
+      const arrival = readerPageArrivalForStep(
+        clampedPageIndex,
+        nextPageIndex,
+        pageCount,
+        mode,
       );
+      notifyReaderPageTurn(arrival);
+      setPageArrival(arrival);
     }
     setCurrentPageIndex(nextPageIndex);
     syncRoutePage(nextPageIndex);
-    if (
-      programmaticTarget != null &&
-      programmaticTarget.kind !== "scrub"
-    ) {
+    if (programmaticTarget != null && programmaticTarget.kind !== "scrub") {
       clearReaderProgrammaticScroll();
     }
   };
@@ -5249,6 +5543,32 @@ export function ReaderScreen() {
       },
     );
   };
+  // Page-turn bands act on touch-up, so double-tap zoom is confined to the
+  // centre band while they are listening; with an overlay owning the stage
+  // (no page turns) a double tap may zoom anywhere on the page.
+  const readerStageTapOwned =
+    readerInteractionSurfaceOpen || cloudflareSheet.visible;
+  // A zoomed page owns the whole stage: its edge bands stop turning pages so a
+  // double tap there resets the zoom instead of paging twice.
+  const [zoomedReaderPageId, setZoomedReaderPageId] = useState<string | null>(
+    null,
+  );
+  const handleReaderPageZoomActiveChange = useCallback(
+    (pageId: string, active: boolean) => {
+      setZoomedReaderPageId((current) =>
+        active ? pageId : current === pageId ? null : current,
+      );
+    },
+    [],
+  );
+  const readerZoomTapBand = useMemo(
+    () =>
+      galleryPagedMode && !readerStageTapOwned
+        ? readerCentreTapBand({ width: readerPageWidth })
+        : null,
+    [galleryPagedMode, readerPageWidth, readerStageTapOwned],
+  );
+
   const renderReaderImage = (page: MobileReaderPage) => {
     const pageIdentity = readerPageIdentityFor(page);
     const renderPolicy = getMobileReaderPageRenderPolicy({
@@ -5297,92 +5617,106 @@ export function ReaderScreen() {
     });
     const retryNonce = readerImageRetryNonces.get(pageIdentity) ?? 0;
     const segmentedCacheKey = readerSegmentedCacheKeyFor(page);
+    const pageFrame = (
+      <MobileReaderPageFrame
+        allowLongStripSegments={pageCount === 1}
+        backgroundColor={readerBackgroundColor}
+        cacheKey={pageCount === 1 ? segmentedCacheKey : undefined}
+        frameSize={readerImageFrameSize}
+        headers={page.headers}
+        imageUri={imageUri}
+        imageUriOwnership={page.imageUriOwnership ?? "source"}
+        loading={imageLoading}
+        offline={readerConnectivity.offline}
+        error={imageError}
+        strings={strings}
+        onImageLoadStart={() => {
+          clearReaderImageError(pageIdentity);
+        }}
+        onImageLoad={({ width, height }) => {
+          clearReaderImageError(pageIdentity);
+          setReaderImageNaturalSize(pageIdentity, { width, height });
+          measureReaderFirstContent(page);
+        }}
+        onImageError={(error) => {
+          setReaderImageLoadError(pageIdentity, error);
+        }}
+        onSegmentedImage={(asset) => {
+          if (!asset) {
+            setReaderSegmentedImages((current) => {
+              if (!current.has(pageIdentity)) return current;
+              const next = new Map(current);
+              next.delete(pageIdentity);
+              return next;
+            });
+            return;
+          }
+          clearReaderImageError(pageIdentity);
+          setReaderSegmentedImages((current) => {
+            if (current.get(pageIdentity)?.generation === asset.generation) {
+              return current;
+            }
+            const next = new Map(current);
+            next.set(pageIdentity, asset);
+            return next;
+          });
+          // Aggregate metadata is the logical page size. Individual tile
+          // load callbacks below never write into this page-scoped map.
+          setReaderImageNaturalSize(pageIdentity, {
+            width: asset.width,
+            height: asset.height,
+          });
+        }}
+        onRetry={() => {
+          retryReaderImage(pageIdentity);
+        }}
+      >
+        {page.id === currentDisplayedPageKey ? (
+          <JapaneseLearningDetectionOverlay
+            detections={japaneseLearningOverlayDetections}
+            frameSize={readerImageFrameSize}
+            imageSize={readerImageSizes.get(pageIdentity) ?? null}
+            activeOrder={activeJapaneseLearningTranscriptOrder}
+            selectedOrder={japaneseLearningSelectedDetectionOrder}
+            strings={strings}
+            onSelectDetection={selectJapaneseLearningDetection}
+          />
+        ) : null}
+        {/* The overlay runs a dozen store selectors per mounted page before
+            it can decide it has nothing to draw, so a disabled dual reader
+            must not mount it at all. `dualReadEnabled` is the same flag the
+            overlay itself gates every render path on. */}
+        {dualReadEnabled &&
+        (pageCount !== 1 || readerImageSizes.has(pageIdentity)) ? (
+          <MobileDualReaderOverlay
+            isGlobal={page.id === currentDisplayedPageKey}
+            readingMode={mode}
+            frameSize={readerImageFrameSize}
+            primaryNaturalSize={readerImageSizes.get(pageIdentity) ?? null}
+            chapterId={chapter?.id ?? null}
+            localIndex={page.index}
+            strings={strings}
+          />
+        ) : null}
+      </MobileReaderPageFrame>
+    );
+
+    // Long-strip presentations zoom the whole list (ZoomableReaderStrip);
+    // per-page pinch/double-tap zoom only applies to paged galleries.
+    if (!galleryPagedMode) return pageFrame;
     return (
       <ZoomableReaderImageFrame
         // Remounting on retry is what re-issues the image request.
         key={`${pageIdentity}:${retryNonce}`}
         frameSize={readerImageFrameSize}
+        onZoomActiveChange={handleReaderPageZoomActiveChange}
         pageId={page.id}
+        zoomTapBand={readerZoomTapBand}
       >
-        <MobileReaderPageFrame
-          allowLongStripSegments={pageCount === 1}
-          backgroundColor={readerBackgroundColor}
-          cacheKey={pageCount === 1 ? segmentedCacheKey : undefined}
-          frameSize={readerImageFrameSize}
-          headers={page.headers}
-          imageUri={imageUri}
-          imageUriOwnership={page.imageUriOwnership ?? "source"}
-          loading={imageLoading}
-          error={imageError}
-          strings={strings}
-          onImageLoadStart={() => {
-            clearReaderImageError(pageIdentity);
-          }}
-          onImageLoad={({ width, height }) => {
-            clearReaderImageError(pageIdentity);
-            setReaderImageNaturalSize(pageIdentity, { width, height });
-            measureReaderFirstContent(page);
-          }}
-          onImageError={(error) => {
-            setReaderImageLoadError(pageIdentity, error);
-          }}
-          onSegmentedImage={(asset) => {
-            if (!asset) {
-              setReaderSegmentedImages((current) => {
-                if (!current.has(pageIdentity)) return current;
-                const next = new Map(current);
-                next.delete(pageIdentity);
-                return next;
-              });
-              return;
-            }
-            clearReaderImageError(pageIdentity);
-            setReaderSegmentedImages((current) => {
-              if (current.get(pageIdentity)?.generation === asset.generation) {
-                return current;
-              }
-              const next = new Map(current);
-              next.set(pageIdentity, asset);
-              return next;
-            });
-            // Aggregate metadata is the logical page size. Individual tile
-            // load callbacks below never write into this page-scoped map.
-            setReaderImageNaturalSize(pageIdentity, {
-              width: asset.width,
-              height: asset.height,
-            });
-          }}
-          onRetry={() => {
-            retryReaderImage(pageIdentity);
-          }}
-        >
-          {page.id === currentDisplayedPageKey ? (
-            <JapaneseLearningDetectionOverlay
-              detections={japaneseLearningOverlayDetections}
-              frameSize={readerImageFrameSize}
-              imageSize={readerImageSizes.get(pageIdentity) ?? null}
-              activeOrder={activeJapaneseLearningTranscriptOrder}
-              selectedOrder={japaneseLearningSelectedDetectionOrder}
-              strings={strings}
-              onSelectDetection={selectJapaneseLearningDetection}
-            />
-          ) : null}
-          {pageCount !== 1 || readerImageSizes.has(pageIdentity) ? (
-            <MobileDualReaderOverlay
-              isGlobal={page.id === currentDisplayedPageKey}
-              readingMode={mode}
-              frameSize={readerImageFrameSize}
-              primaryNaturalSize={readerImageSizes.get(pageIdentity) ?? null}
-              chapterId={chapter?.id ?? null}
-              localIndex={page.index}
-              strings={strings}
-            />
-          ) : null}
-        </MobileReaderPageFrame>
+        {pageFrame}
       </ZoomableReaderImageFrame>
     );
   };
-
   const renderReaderImageSegment = (frame: MobileReaderSegmentFrame) => {
     const page = currentDisplayedPage;
     const asset = currentSegmentedImage;
@@ -5399,6 +5733,7 @@ export function ReaderScreen() {
         imageUriOwnership="app"
         imageResizeMode="stretch"
         loading={!loadedReaderSegments.has(segmentKey)}
+        offline={readerConnectivity.offline}
         error={readerImageErrors.get(errorKey)}
         strings={strings}
         onImageLoadStart={() => clearReaderImageError(errorKey)}
@@ -5417,7 +5752,7 @@ export function ReaderScreen() {
         onImageError={(error) => setReaderImageLoadError(errorKey, error)}
         onRetry={() => {
           void invalidateCachedMobileImage(
-            { uri: page.imageUri, headers: page.headers },
+            { uri: page.imageUri, headers: page.headers, cacheKind: "page" },
             cacheKey,
           )
             .catch(() => undefined)
@@ -5441,8 +5776,6 @@ export function ReaderScreen() {
   const closeReaderDisplaySettings = useCallback(() => {
     setReaderDisplaySettingsOpen(false);
   }, []);
-  const readerInteractionOverlayVisible =
-    readerInteractionSurfaceOpen || cloudflareSheet.visible;
 
   return (
     <View style={[styles.root, { backgroundColor: readerBackgroundColor }]}>
@@ -5487,9 +5820,7 @@ export function ReaderScreen() {
         mode={mode}
         onMomentumScrollEnd={onReaderMomentumEnd}
         onScroll={onReaderScroll}
-        onContinuousScrollMetricsChange={
-          onReaderContinuousScrollMetricsChange
-        }
+        onContinuousScrollMetricsChange={onReaderContinuousScrollMetricsChange}
         onUserScrollBegin={clearReaderProgrammaticScroll}
         onScrollingPageLayout={onScrollingPageLayout}
         onScrollingSeekFailed={onScrollingSeekFailed}
@@ -5514,7 +5845,11 @@ export function ReaderScreen() {
         onToggleControls={() => {
           setShowControls((value) => !value);
         }}
-        tapGesturesEnabled={!readerInteractionOverlayVisible}
+        pageZoomActive={
+          zoomedReaderPageId != null &&
+          zoomedReaderPageId === currentDisplayedPageKey
+        }
+        tapGesturesEnabled={!readerStageTapOwned}
         pagedMode={galleryPagedMode}
         pageTurnAccessibilityEnabled={
           pagedMode ||
@@ -5718,8 +6053,8 @@ export function ReaderScreen() {
                   : undefined,
             }}
             minConfidence={
-              typeof japaneseLearningPresentationPlugin.values
-                .minConfidence === "number"
+              typeof japaneseLearningPresentationPlugin.values.minConfidence ===
+              "number"
                 ? japaneseLearningPresentationPlugin.values.minConfidence
                 : 0.5
             }
@@ -5779,6 +6114,18 @@ export function ReaderScreen() {
         completed={completed}
         strings={strings}
         onClose={closeReaderDisplaySettings}
+        keepAwake={readerKeepAwake}
+        onToggleKeepAwake={() => {
+          void runReaderSettingsAction("keep-awake", () =>
+            setReaderKeepAwake(!readerKeepAwake),
+          );
+        }}
+        lockPortrait={readerLockPortrait}
+        onToggleLockPortrait={() => {
+          void runReaderSettingsAction("lock-portrait", () =>
+            setReaderLockPortrait(!readerLockPortrait),
+          );
+        }}
         onSetMode={(nextMode) => {
           if (nextMode === mode || readerSettingsActionBusy) return;
           void runReaderSettingsAction("reading-mode", () => setMode(nextMode));
@@ -5820,12 +6167,12 @@ export function ReaderScreen() {
 
       {showReaderChrome && !endOfChapterPromptVisible ? (
         <View
-          pointerEvents={readerInteractionOverlayVisible ? "none" : "box-none"}
+          pointerEvents={readerStageTapOwned ? "none" : "box-none"}
           style={styles.readerChromeLayer}
         >
           <Animated.View
-            entering={readerTopBarEntering}
-            exiting={readerTopBarExiting}
+            entering={readerChromeAnimations.topEntering}
+            exiting={readerChromeAnimations.topExiting}
             pointerEvents="box-none"
             style={[styles.topBar, { paddingTop: insets.top + 16 }]}
           >
@@ -5868,29 +6215,39 @@ export function ReaderScreen() {
                       { color: readerChromeColors.secondaryText },
                     ]}
                   >
-                    {chapterTitle}
+                    {readerChromePagesPending
+                      ? `${chapterTitle} · ${strings.reader.fetchingPages}`
+                      : chapterTitle}
                   </Text>
                 </View>
-                {pageCount ? (
-                  <Text
-                    style={[
-                      styles.readerTopPageCount,
-                      { color: readerChromeColors.secondaryText },
-                    ]}
-                  >
-                    {sourcePageNumber} / {Math.max(1, pageCount)}
-                  </Text>
-                ) : (
-                  <View style={styles.readerTopPageCountPlaceholder} />
-                )}
+                <View style={styles.readerTopStatusSlot}>
+                  {readerChromePagesPending ? (
+                    <NemuRingSpinner
+                      accessibilityLabel={strings.reader.fetchingPages}
+                      size={18}
+                      color={readerChromeColors.primaryText}
+                      trackColor={readerChromeColors.border}
+                    />
+                  ) : null}
+                  {readerTopPageCountLabel === null ? null : (
+                    <Text
+                      style={[
+                        styles.readerTopPageCount,
+                        { color: readerChromeColors.secondaryText },
+                      ]}
+                    >
+                      {readerTopPageCountLabel}
+                    </Text>
+                  )}
+                </View>
               </View>
             </ReaderChromePanel>
           </Animated.View>
 
           {showReaderBottomChrome ? (
             <Animated.View
-              entering={readerBottomBarEntering}
-              exiting={readerBottomBarExiting}
+              entering={readerChromeAnimations.bottomEntering}
+              exiting={readerChromeAnimations.bottomExiting}
               pointerEvents="box-none"
               style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}
             >
@@ -5949,7 +6306,12 @@ export function ReaderScreen() {
                     </NemuPressable>
 
                     <View style={styles.readerChromeScrubber}>
-                      {!usePhysicalScrollScrubber ? (
+                      {readerChromeLoading ? (
+                        <ReaderChromeLoadingTrack
+                          accessibilityLabel={strings.reader.fetchingPages}
+                          color={readerChromeColors.secondaryText}
+                        />
+                      ) : !usePhysicalScrollScrubber ? (
                         <MobileReaderScrubber
                           pageIndex={visibleProgressPageIndex}
                           pageCount={pageCount}
@@ -5968,6 +6330,11 @@ export function ReaderScreen() {
                           onStep={stepReaderPage}
                           interactionScopeKey={readerScrollMountKey}
                           spreadScrubbing={isTwoPageMode}
+                          getPreviewPageIndex={getReaderScrubPreviewPageIndex}
+                          onPreviewPageIndexChange={
+                            setReaderScrubPreviewPageIndex
+                          }
+                          previewImageUri={readerScrubPreviewImageUri}
                         />
                       ) : (
                         <MobileReaderContinuousScrubber
@@ -5998,6 +6365,11 @@ export function ReaderScreen() {
                             stepContinuousReaderAccessibility
                           }
                           spreadScrubbing={isTwoPageMode}
+                          getPreviewPageIndex={getReaderScrubPreviewPageIndex}
+                          onPreviewPageIndexChange={
+                            setReaderScrubPreviewPageIndex
+                          }
+                          previewImageUri={readerScrubPreviewImageUri}
                         />
                       )}
                     </View>
@@ -6202,6 +6574,9 @@ export function ReaderScreen() {
                           backgroundColor: readerDisplaySettingsOpen
                             ? readerChromeColors.hover
                             : "transparent",
+                          opacity: readerChromeLoading
+                            ? READER_CHROME_LOADING_OPACITY
+                            : 1,
                         },
                       ]}
                     >
@@ -6229,6 +6604,12 @@ export function ReaderScreen() {
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />
+      <MobileReaderConnectivityNotice
+        topOffset={insets.top + 76}
+        pageRequestPending={pagesState.status === "loading"}
+        strings={strings}
+        connectivity={readerConnectivity}
+      />
       <MobileReaderEndOfChapterOverlay
         visible={endOfChapterPromptVisible}
         nextChapterLabel={nextChapterLabel}
@@ -6237,6 +6618,7 @@ export function ReaderScreen() {
         topInset={insets.top}
         busy={endOfChapterProgressSaving}
         error={endOfChapterProgressError}
+        celebration={chapterCompleteCelebration}
         onGoToNextChapter={goToNextChapterFromPrompt}
         onDismiss={() => {
           if (endOfChapterProgressSaving) return;
@@ -6277,25 +6659,28 @@ const styles = StyleSheet.create({
   },
   topBar: {
     position: "absolute",
-    left: 16,
-    right: 16,
+    left: READER_CHROME_PANEL_HORIZONTAL_INSET,
+    right: READER_CHROME_PANEL_HORIZONTAL_INSET,
     top: 0,
     alignItems: "center",
   },
+  // Both chrome panels share one shell so the top info bar and the bottom
+  // toolbar read as the same surface: same height, inset and corner radius.
   readerChromePanelShell: {
     width: "100%",
-    maxWidth: 520,
-    borderRadius: 16,
+    maxWidth: READER_CHROME_PANEL_MAX_WIDTH,
+    minHeight: READER_CHROME_PANEL_MIN_HEIGHT,
+    borderRadius: READER_CHROME_PANEL_CORNER_RADIUS,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
   },
   readerTopPanel: {
-    minHeight: 52,
+    minHeight: READER_CHROME_PANEL_MIN_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: READER_CHROME_PANEL_HORIZONTAL_PADDING,
+    paddingVertical: READER_CHROME_PANEL_VERTICAL_PADDING,
   },
   readerChromeIconButton: {
     width: 38,
@@ -6319,6 +6704,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
   },
+  readerTopStatusSlot: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
+  },
   readerTopPageCount: {
     minWidth: 54,
     flexShrink: 0,
@@ -6326,25 +6718,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 15,
     fontWeight: nemuFontWeight.medium,
-  },
-  readerTopPageCountPlaceholder: {
-    width: 54,
-    height: 1,
+    fontVariant: ["tabular-nums"],
   },
   bottomBar: {
     position: "absolute",
-    left: 16,
-    right: 16,
+    left: READER_CHROME_PANEL_HORIZONTAL_INSET,
+    right: READER_CHROME_PANEL_HORIZONTAL_INSET,
     bottom: 0,
     alignItems: "center",
   },
   readerBottomPanel: {
+    minHeight: READER_CHROME_PANEL_MIN_HEIGHT,
+    justifyContent: "center",
     gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: READER_CHROME_PANEL_HORIZONTAL_PADDING,
+    paddingVertical: READER_CHROME_PANEL_VERTICAL_PADDING,
   },
   readerBottomChromeRow: {
-    minHeight: 38,
+    minHeight: READER_CHROME_PANEL_CONTENT_MIN_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -6433,12 +6824,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 18,
     fontWeight: nemuFontWeight.semibold,
-  },
-  pluginSettingsDescription: {
-    marginTop: 2,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.bold,
   },
   pluginSettingsMeta: {
     marginTop: 3,

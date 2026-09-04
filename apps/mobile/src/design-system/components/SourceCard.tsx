@@ -76,8 +76,8 @@ export function SourceCard({
         {
           backgroundColor: visuals.cardBackground,
           borderColor: visuals.cardBorder,
-          boxShadow: visuals.cardShadow,
         },
+        visuals.cardShadow,
       ]}
     >
       <View
@@ -86,7 +86,6 @@ export function SourceCard({
           {
             backgroundColor: visuals.iconBackground,
             borderColor: visuals.iconBorder,
-            boxShadow: visuals.iconShadow,
           },
         ]}
       >

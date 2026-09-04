@@ -37,7 +37,7 @@ describe("mobileJapaneseLearningChatTheme", () => {
     expect(
       getJapaneseLearningFollowUpSuggestionColors("light", nemuTokens.light),
     ).toEqual({
-      backgroundColor: "#e8ebf2CC",
+      backgroundColor: "rgba(232,235,242,0.8)",
       borderColor: nemuTokens.light.border,
       pressedBackgroundColor: nemuTokens.light.muted,
       textColor: nemuTokens.light.foreground,

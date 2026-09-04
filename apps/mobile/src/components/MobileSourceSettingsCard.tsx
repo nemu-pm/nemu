@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Platform,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
@@ -29,12 +28,16 @@ import {
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileSourceLoginSheet } from "@/components/MobileSourceLoginSheet";
 import {
+  createNemuButtonDepthStyle,
+  getNemuButtonDepthVisual,
+  NemuButton,
   NemuNativeSwitch,
   radius,
   nemuFontWeight,
   useNemuTheme,
   GlassSurface,
   NemuPressable,
+  NemuText,
 } from "@/design-system";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import type { SourcePackageSetting } from "@/data/schema";
@@ -42,9 +45,12 @@ import { hapticPress, hapticSelection } from "@/lib/haptics";
 import { canRunMobileSwitchSelectionFeedback } from "@/lib/mobileAccessibility";
 import {
   formatMobileString,
+  formatMobileSourceItemListCount,
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
+import { compactMobileLabelList } from "@/lib/mobileInstalledSourcePresentation";
+import { useMobileSourceLoginSubmission } from "@/lib/useMobileSourceLoginSubmission";
 import {
   canRunMobileSourceTextSettingBlurFeedback,
   canSelectMobileSourceSettingOption,
@@ -116,6 +122,15 @@ type MobileSourceSettingsCardProps = {
   retryDisabled?: boolean;
   retrying?: boolean;
   onEmbeddedBackHandlerChange?: (handler: (() => void) | null) => void;
+  /**
+   * Full-sheet handoffs for the richest setting kinds. When provided, the
+   * card renders those rows as picker buttons and the host layers the
+   * dedicated sheet (with a dismiss-then-present animation); when absent the
+   * card keeps its inline presentations.
+   */
+  onRequestLoginSheet?: (setting: SourcePackageSetting) => void;
+  onRequestMultiSelectSheet?: (setting: SourcePackageSetting) => void;
+  onRequestStringListSheet?: (setting: SourcePackageSetting) => void;
 };
 
 function settingValue(
@@ -210,7 +225,8 @@ function SourceSettingSlider({
 
   return (
     <View style={styles.sliderControl}>
-      <Text
+      <NemuText
+        density="compact"
         pointerEvents="none"
         numberOfLines={1}
         style={[
@@ -223,7 +239,7 @@ function SourceSettingSlider({
         ]}
       >
         {formatted}
-      </Text>
+      </NemuText>
       <View
         accessibilityRole="adjustable"
         accessibilityLabel={setting.title}
@@ -319,16 +335,22 @@ function SourceSettingSelectMenu({
     options.find((option) => option.value === selectedValue)?.label ??
     selectedValue;
 
+  const triggerDepthStyle = createNemuButtonDepthStyle(
+    getNemuButtonDepthVisual({
+      variant: "outline",
+      state: "rest",
+      scheme,
+      tokens,
+    }),
+  );
+
   if (Platform.OS === "ios") {
     return (
       <View
         style={[
           styles.settingMenuShell,
-          {
-            backgroundColor: tokens.muted,
-            borderColor: tokens.border,
-            opacity: disabled ? 0.62 : 1,
-          },
+          triggerDepthStyle,
+          { opacity: disabled ? 0.62 : 1 },
         ]}
       >
         <SwiftHost
@@ -338,14 +360,10 @@ function SourceSettingSelectMenu({
         >
           <SwiftMenu
             label={
-              <SwiftHStack
-                alignment="center"
-                spacing={5}
-                modifiers={[frame({ width: 136, height: 32 })]}
-              >
+              <SwiftHStack alignment="center" spacing={6}>
                 <SwiftText
                   modifiers={[
-                    swiftFont({ size: 12, weight: "medium" }),
+                    swiftFont({ size: 14, weight: "medium" }),
                     foregroundStyle(tokens.foreground),
                   ]}
                 >
@@ -353,7 +371,7 @@ function SourceSettingSelectMenu({
                 </SwiftText>
                 <SwiftImage
                   systemName="chevron.down"
-                  size={12}
+                  size={13}
                   color={tokens.primary}
                 />
               </SwiftHStack>
@@ -361,7 +379,7 @@ function SourceSettingSelectMenu({
             modifiers={[
               buttonStyle("plain"),
               controlSize("small"),
-              frame({ width: 136, height: 32 }),
+              frame({ height: 32 }),
               tint(tokens.primary),
               ...(disabled ? [swiftDisabled(true)] : []),
             ]}
@@ -405,20 +423,18 @@ function SourceSettingSelectMenu({
         accessibilityState={{ disabled }}
         style={[
           styles.settingMaterialMenuTrigger,
-          {
-            backgroundColor: tokens.muted,
-            borderColor: tokens.border,
-            opacity: disabled ? 0.62 : 1,
-          },
+          triggerDepthStyle,
+          { opacity: disabled ? 0.62 : 1 },
         ]}
       >
-        <Text
+        <NemuText
+          density="compact"
           numberOfLines={1}
           style={[styles.settingMaterialMenuText, { color: tokens.foreground }]}
         >
           {selectedLabel}
-        </Text>
-        <Ionicons name="chevron-down" size={15} color={tokens.primary} />
+        </NemuText>
+        <Ionicons name="chevron-down" size={16} color={tokens.primary} />
       </View>
     );
 
@@ -485,7 +501,8 @@ function SourceSettingSelectMenu({
               },
             ]}
           >
-            <Text
+            <NemuText
+              density="compact"
               numberOfLines={1}
               style={[
                 styles.settingOptionText,
@@ -497,7 +514,7 @@ function SourceSettingSelectMenu({
               ]}
             >
               {option.label}
-            </Text>
+            </NemuText>
           </NemuPressable>
         );
       })}
@@ -648,7 +665,8 @@ function SourceSettingControl({
                   },
                 ]}
               >
-                <Text
+                <NemuText
+                  density="compact"
                   numberOfLines={1}
                   style={[
                     styles.settingOptionText,
@@ -660,7 +678,7 @@ function SourceSettingControl({
                   ]}
                 >
                   {option.label}
-                </Text>
+                </NemuText>
               </NemuPressable>
             );
           })}
@@ -731,7 +749,8 @@ function SourceSettingControl({
                 },
               ]}
             >
-              <Text
+              <NemuText
+                density="compact"
                 numberOfLines={1}
                 style={[
                   styles.settingOptionText,
@@ -743,7 +762,7 @@ function SourceSettingControl({
                 ]}
               >
                 {option.label}
-              </Text>
+              </NemuText>
             </NemuPressable>
           );
         })}
@@ -770,8 +789,7 @@ function SourceSettingControl({
     const incrementDisabled = current >= max;
     return (
       <View style={styles.stepper}>
-        <NemuPressable
-          accessibilityRole="button"
+        <NemuButton
           accessibilityLabel={formatSourceSettingAccessibilityLabel(
             setting,
             values,
@@ -782,27 +800,18 @@ function SourceSettingControl({
           )}
           accessibilityState={{ disabled: disabled || decrementDisabled }}
           disabled={disabled || decrementDisabled}
+          icon="remove-outline"
           onPress={() => setValue(Math.max(min, current - step))}
-          pressedScale={0.96}
-          buttonDepth="secondary"
-          style={[
-            styles.stepperButton,
-            {
-              opacity: disabled || decrementDisabled ? 0.62 : 1,
-            },
-          ]}
+          size="icon-sm"
+          variant="secondary"
+        />
+        <NemuText
+          density="compact"
+          style={[styles.stepperValue, { color: tokens.foreground }]}
         >
-          <Ionicons
-            name="remove-outline"
-            size={16}
-            color={tokens.mutedForeground}
-          />
-        </NemuPressable>
-        <Text style={[styles.stepperValue, { color: tokens.foreground }]}>
           {current}
-        </Text>
-        <NemuPressable
-          accessibilityRole="button"
+        </NemuText>
+        <NemuButton
           accessibilityLabel={formatSourceSettingAccessibilityLabel(
             setting,
             values,
@@ -813,22 +822,11 @@ function SourceSettingControl({
           )}
           accessibilityState={{ disabled: disabled || incrementDisabled }}
           disabled={disabled || incrementDisabled}
+          icon="add-outline"
           onPress={() => setValue(Math.min(max, current + step))}
-          pressedScale={0.96}
-          buttonDepth="secondary"
-          style={[
-            styles.stepperButton,
-            {
-              opacity: disabled || incrementDisabled ? 0.62 : 1,
-            },
-          ]}
-        >
-          <Ionicons
-            name="add-outline"
-            size={16}
-            color={tokens.mutedForeground}
-          />
-        </NemuPressable>
+          size="icon-sm"
+          variant="secondary"
+        />
       </View>
     );
   }
@@ -884,8 +882,7 @@ function SourceSettingControl({
               style={[styles.editableListInput, { color: tokens.foreground }]}
             />
           </GlassSurface>
-          <NemuPressable
-            accessibilityRole="button"
+          <NemuButton
             accessibilityLabel={formatSourceSettingAccessibilityLabel(
               setting,
               values,
@@ -897,25 +894,11 @@ function SourceSettingControl({
                 disabled || !trimmedDraft || listIsFull || draftIsTooLong,
             }}
             disabled={disabled || !trimmedDraft || listIsFull || draftIsTooLong}
+            icon="add-outline"
             onPress={() => addDraftItem()}
-            pressedScale={0.94}
-            buttonDepth="primary"
-            style={[
-              styles.editableListAddButton,
-              {
-                opacity:
-                  !disabled && trimmedDraft && !listIsFull && !draftIsTooLong
-                    ? 1
-                    : 0.58,
-              },
-            ]}
-          >
-            <Ionicons
-              name="add-outline"
-              size={17}
-              color={tokens.primaryForeground}
-            />
-          </NemuPressable>
+            size="icon-sm"
+            variant="default"
+          />
         </View>
         {currentItems.length ? (
           <View style={styles.editableListItems}>
@@ -940,7 +923,8 @@ function SourceSettingControl({
                   },
                 ]}
               >
-                <Text
+                <NemuText
+                  density="compact"
                   numberOfLines={1}
                   style={[
                     styles.editableListChipText,
@@ -948,7 +932,7 @@ function SourceSettingControl({
                   ]}
                 >
                   {item}
-                </Text>
+                </NemuText>
                 <Ionicons
                   name="close-outline"
                   size={14}
@@ -958,14 +942,15 @@ function SourceSettingControl({
             ))}
           </View>
         ) : (
-          <Text
+          <NemuText
+            density="compact"
             style={[
               styles.editableListEmpty,
               { color: tokens.mutedForeground },
             ]}
           >
             {strings.settings.sourceSettingsNone}
-          </Text>
+          </NemuText>
         )}
       </View>
     );
@@ -1022,13 +1007,72 @@ function SourceSettingControl({
 
   return (
     <View style={[styles.settingValuePill, { backgroundColor: tokens.muted }]}>
-      <Text
+      <NemuText
+        density="compact"
         numberOfLines={1}
         style={[styles.settingValueText, { color: tokens.mutedForeground }]}
       >
         {describeSourceSettingValue(setting, values, strings)}
-      </Text>
+      </NemuText>
     </View>
+  );
+}
+
+/**
+ * The single-row stand-in for settings that open a dedicated sheet (multi
+ * select, string list): title plus the current selection summary, chevron,
+ * exactly the login/page-row geometry.
+ */
+function SourceSettingPickerRow({
+  title,
+  summary,
+  disabled,
+  accessibilityLabel,
+  onPress,
+}: {
+  title: string;
+  summary: string;
+  disabled: boolean;
+  accessibilityLabel: string;
+  onPress: () => void;
+}) {
+  const { tokens } = useNemuTheme();
+  return (
+    <NemuPressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
+      disabled={disabled}
+      pressedScale={0.98}
+      style={[
+        styles.pageRow,
+        { borderColor: tokens.border },
+        disabled && styles.disabledControl,
+      ]}
+    >
+      <View style={styles.settingText}>
+        <NemuText
+          density="compact"
+          numberOfLines={1}
+          style={[styles.settingTitle, { color: tokens.foreground }]}
+        >
+          {title}
+        </NemuText>
+        <NemuText
+          density="compact"
+          numberOfLines={1}
+          style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
+        >
+          {summary}
+        </NemuText>
+      </View>
+      <Ionicons
+        name="chevron-forward"
+        size={17}
+        color={tokens.mutedForeground}
+      />
+    </NemuPressable>
   );
 }
 
@@ -1062,20 +1106,22 @@ function SourceSettingRow({
     >
       <View style={[styles.settingText, isSlider && styles.settingTextFull]}>
         <View style={styles.settingTitleLine}>
-          <Text
+          <NemuText
+            density="compact"
             numberOfLines={1}
             style={[styles.settingTitle, { color: tokens.foreground }]}
           >
             {setting.title}
-          </Text>
+          </NemuText>
         </View>
-        <Text
+        <NemuText
+          density="compact"
           numberOfLines={2}
           style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
         >
           {setting.subtitle ??
             describeSourceSettingValue(setting, values, strings)}
-        </Text>
+        </NemuText>
       </View>
       <SourceSettingControl
         setting={setting}
@@ -1124,19 +1170,21 @@ function SourceSettingsPageRow({
       ]}
     >
       <View style={styles.settingText}>
-        <Text
+        <NemuText
+          density="compact"
           numberOfLines={1}
           style={[styles.settingTitle, { color: tokens.foreground }]}
         >
           {setting.title}
-        </Text>
+        </NemuText>
         {detail ? (
-          <Text
+          <NemuText
+            density="compact"
             numberOfLines={2}
             style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
           >
             {detail}
-          </Text>
+          </NemuText>
         ) : null}
       </View>
       <Ionicons
@@ -1320,13 +1368,15 @@ function SourceSettingLoginRow({
       ]}
     >
       <View style={styles.settingText}>
-        <Text
+        <NemuText
+          density="compact"
           numberOfLines={1}
           style={[styles.settingTitle, { color: tokens.foreground }]}
         >
           {setting.title}
-        </Text>
-        <Text
+        </NemuText>
+        <NemuText
+          density="compact"
           numberOfLines={2}
           style={[
             styles.settingSubtitle,
@@ -1334,17 +1384,18 @@ function SourceSettingLoginRow({
           ]}
         >
           {statusText}
-        </Text>
+        </NemuText>
       </View>
       {loading ? (
         <ActivityIndicator size="small" color={tokens.primary} />
       ) : (
-        <Text
+        <NemuText
+          density="compact"
           numberOfLines={1}
           style={[styles.loginActionLabel, { color: tokens.primary }]}
         >
           {actionLabel}
-        </Text>
+        </NemuText>
       )}
     </NemuPressable>
   );
@@ -1385,7 +1436,8 @@ function SourceSettingActionRow({
       ]}
     >
       <View style={styles.settingText}>
-        <Text
+        <NemuText
+          density="compact"
           numberOfLines={1}
           style={[
             styles.settingTitle,
@@ -1393,17 +1445,23 @@ function SourceSettingActionRow({
           ]}
         >
           {setting.title}
-        </Text>
+        </NemuText>
         {setting.subtitle ? (
-          <Text
+          <NemuText
+            density="compact"
             numberOfLines={2}
             style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
           >
             {setting.subtitle}
-          </Text>
+          </NemuText>
         ) : null}
       </View>
-      <Text style={[styles.loginActionLabel, { color }]}>{actionLabel}</Text>
+      <NemuText
+        density="compact"
+        style={[styles.loginActionLabel, { color }]}
+      >
+        {actionLabel}
+      </NemuText>
     </NemuPressable>
   );
 }
@@ -1421,6 +1479,8 @@ function SourceSettingsList({
   onRequestLogin,
   onPushPage,
   loginCapabilities,
+  onRequestMultiSelectSheet,
+  onRequestStringListSheet,
 }: {
   settings: SourcePackageSetting[];
   values: Record<string, unknown>;
@@ -1442,6 +1502,8 @@ function SourceSettingsList({
   onRequestLogin: (setting: SourcePackageSetting) => void;
   onPushPage: (page: SourcePackageSetting) => void;
   loginCapabilities: MobileSourceLoginCapabilities | null;
+  onRequestMultiSelectSheet?: (setting: SourcePackageSetting) => void;
+  onRequestStringListSheet?: (setting: SourcePackageSetting) => void;
 }) {
   const { tokens } = useNemuTheme();
 
@@ -1463,7 +1525,8 @@ function SourceSettingsList({
 
           return (
             <View key={key} style={styles.settingGroup}>
-              <Text
+              <NemuText
+                density="compact"
                 numberOfLines={1}
                 style={[
                   styles.settingGroupTitle,
@@ -1471,7 +1534,7 @@ function SourceSettingsList({
                 ]}
               >
                 {setting.title}
-              </Text>
+              </NemuText>
               <View style={styles.settingGroupRows}>
                 <SourceSettingsList
                   settings={setting.items}
@@ -1486,17 +1549,20 @@ function SourceSettingsList({
                   onRequestLogin={onRequestLogin}
                   onPushPage={onPushPage}
                   loginCapabilities={loginCapabilities}
+                  onRequestMultiSelectSheet={onRequestMultiSelectSheet}
+                  onRequestStringListSheet={onRequestStringListSheet}
                 />
               </View>
               {setting.footer ? (
-                <Text
+                <NemuText
+                  density="compact"
                   style={[
                     styles.settingGroupFooter,
                     { color: tokens.mutedForeground },
                   ]}
                 >
                   {setting.footer}
-                </Text>
+                </NemuText>
               ) : null}
             </View>
           );
@@ -1538,6 +1604,57 @@ function SourceSettingsList({
               strings={strings}
               disabled={disabled || !onAction}
               onPress={() => onAction?.(setting)}
+            />
+          );
+        }
+
+        if (setting.type === "multi-select" && onRequestMultiSelectSheet) {
+          const options = getSourceSettingOptions(setting);
+          if (options.length > 0) {
+            const optionValues = new Set(options.map((option) => option.value));
+            const selectedLabels = stringListSettingValue(setting, values)
+              .filter((item) => optionValues.has(item))
+              .map(
+                (item) =>
+                  options.find((option) => option.value === item)?.label ??
+                  item,
+              );
+            return (
+              <SourceSettingPickerRow
+                key={key}
+                accessibilityLabel={formatMobileString(
+                  strings.settings.sourceSettingsOpenPage,
+                  { name: setting.title },
+                )}
+                disabled={disabled}
+                onPress={() => onRequestMultiSelectSheet(setting)}
+                summary={
+                  compactMobileLabelList(selectedLabels) ??
+                  strings.settings.sourceSettingsNone
+                }
+                title={setting.title}
+              />
+            );
+          }
+        }
+
+        if (setting.type === "editable-list" && onRequestStringListSheet) {
+          const itemCount = stringListSettingValue(setting, values).length;
+          return (
+            <SourceSettingPickerRow
+              key={key}
+              accessibilityLabel={formatMobileString(
+                strings.settings.sourceSettingsOpenPage,
+                { name: setting.title },
+              )}
+              disabled={disabled}
+              onPress={() => onRequestStringListSheet(setting)}
+              summary={
+                itemCount
+                  ? formatMobileSourceItemListCount(itemCount, strings)
+                  : strings.settings.sourceSettingsNone
+              }
+              title={setting.title}
             />
           );
         }
@@ -1588,19 +1705,16 @@ function MobileSourceSettingsCardContent({
   retrying = false,
   loginCapabilities = null,
   onEmbeddedBackHandlerChange,
+  onRequestLoginSheet,
+  onRequestMultiSelectSheet,
+  onRequestStringListSheet,
 }: MobileSourceSettingsCardProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const [pageStack, setPageStack] = useState<SourcePackageSetting[]>([]);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
-  const [loginSetting, setLoginSetting] = useState<SourcePackageSetting | null>(
-    null,
-  );
-  const [loginSubmitting, setLoginSubmitting] = useState(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const loginAbortRef = useRef<AbortController | null>(null);
-  const loginRequestRef = useRef(0);
+  const login = useMobileSourceLoginSubmission(onLogin ?? (() => null));
   const safeSettings = useMemo(
     () => sanitizeMobileSourceSettings(settings),
     [settings],
@@ -1652,94 +1766,30 @@ function MobileSourceSettingsCardContent({
     setDismissedError(null);
     onRetry();
   }, [onRetry, retryDisabled]);
-  const closeLoginSheet = useCallback(() => {
-    loginRequestRef.current += 1;
-    loginAbortRef.current?.abort();
-    loginAbortRef.current = null;
-    setLoginSubmitting(false);
-    setLoginError(null);
-    setLoginSetting(null);
-  }, []);
 
   useEffect(() => {
     onEmbeddedBackHandlerChange?.(
-      loginSetting ? closeLoginSheet : null,
+      login.setting ? login.close : null,
     );
     return () => onEmbeddedBackHandlerChange?.(null);
-  }, [closeLoginSheet, loginSetting, onEmbeddedBackHandlerChange]);
-
-  useEffect(() => {
-    return () => {
-      loginRequestRef.current += 1;
-      loginAbortRef.current?.abort();
-      loginAbortRef.current = null;
-    };
-  }, []);
-
-  const handleLoginSubmission = useCallback(
-    async (submission: MobileSourceLoginSubmission) => {
-      if (!loginSetting || !onLogin || loginSubmitting) return;
-      const activeSetting = loginSetting;
-      const requestId = loginRequestRef.current + 1;
-      loginRequestRef.current = requestId;
-      loginAbortRef.current?.abort();
-      const controller = new AbortController();
-      loginAbortRef.current = controller;
-      setLoginSubmitting(true);
-      setLoginError(null);
-      try {
-        const nextError = await onLogin(activeSetting, submission, {
-          signal: controller.signal,
-        });
-        if (
-          controller.signal.aborted ||
-          loginRequestRef.current !== requestId
-        ) {
-          return;
-        }
-        if (nextError) {
-          setLoginError(nextError);
-        } else {
-          setLoginSetting(null);
-        }
-      } catch (error) {
-        if (
-          controller.signal.aborted ||
-          isMobileSourceLoginCancellation(error) ||
-          loginRequestRef.current !== requestId
-        ) {
-          return;
-        }
-        setLoginError(strings.settings.sourceSettingsLoginFailed);
-      } finally {
-        if (loginRequestRef.current === requestId) {
-          loginAbortRef.current = null;
-          setLoginSubmitting(false);
-        }
-      }
-    },
-    [
-      loginSetting,
-      loginSubmitting,
-      onLogin,
-      strings.settings.sourceSettingsLoginFailed,
-    ],
-  );
+  }, [login.close, login.setting, onEmbeddedBackHandlerChange]);
 
   if (!hasRootRows && !showEmpty) return null;
 
-  if (loginSetting) {
+  if (login.setting) {
     return (
       <MobileSourceLoginSheet
-        key={loginSetting.key}
-        setting={loginSetting}
+        key={login.setting.key}
+        setting={login.setting}
         visible
         embedded
-        submitting={loginSubmitting}
-        error={loginError}
-        onClose={closeLoginSheet}
+        submitting={login.submitting}
+        error={login.error}
+        onClose={login.close}
         onSubmit={(submission) => {
-          void handleLoginSubmission(submission);
+          void login.submit(submission).then((submitError) => {
+            if (!submitError) login.close();
+          });
         }}
       />
     );
@@ -1756,35 +1806,25 @@ function MobileSourceSettingsCardContent({
           <View style={styles.settingsHeader}>
             {currentPage ? (
               <View style={styles.capabilityHeader}>
-                <NemuPressable
-                  accessibilityRole="button"
+                <NemuButton
                   accessibilityLabel={strings.settings.sourceSettingsBack}
                   accessibilityState={{ disabled }}
                   disabled={disabled}
+                  icon="chevron-back"
                   onPress={() => setPageStack(activePageStack.slice(0, -1))}
-                  pressedScale={0.94}
-                  buttonDepth="secondary"
-                  style={[
-                    styles.backButton,
-                    {
-                      opacity: disabled ? 0.62 : 1,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name="chevron-back"
-                    size={17}
-                    color={tokens.mutedForeground}
-                  />
-                </NemuPressable>
+                  size="icon-sm"
+                  variant="secondary"
+                />
                 <View style={styles.settingsHeaderText}>
-                  <Text
+                  <NemuText
+                    density="compact"
                     style={[styles.statusLabel, { color: tokens.foreground }]}
                   >
                     {currentPage.title}
-                  </Text>
+                  </NemuText>
                   {!hideSubtitle ? (
-                    <Text
+                    <NemuText
+                      density="compact"
                       numberOfLines={1}
                       style={[
                         styles.settingsSubtitle,
@@ -1792,7 +1832,7 @@ function MobileSourceSettingsCardContent({
                       ]}
                     >
                       {currentPage.subtitle ?? titleLabel}
-                    </Text>
+                    </NemuText>
                   ) : null}
                 </View>
               </View>
@@ -1804,13 +1844,15 @@ function MobileSourceSettingsCardContent({
                   color={tokens.primary}
                 />
                 <View style={styles.settingsHeaderText}>
-                  <Text
+                  <NemuText
+                    density="compact"
                     style={[styles.statusLabel, { color: tokens.foreground }]}
                   >
                     {titleLabel}
-                  </Text>
+                  </NemuText>
                   {subtitleLabel ? (
-                    <Text
+                    <NemuText
+                      density="compact"
                       numberOfLines={1}
                       style={[
                         styles.settingsSubtitle,
@@ -1818,42 +1860,27 @@ function MobileSourceSettingsCardContent({
                       ]}
                     >
                       {subtitleLabel}
-                    </Text>
+                    </NemuText>
                   ) : null}
                 </View>
               </View>
             )}
             {!currentPage && onReset && editableSettings.length ? (
-              <NemuPressable
-                accessibilityRole="button"
+              <NemuButton
                 accessibilityLabel={strings.settings.sourceSettingsResetLabel}
                 accessibilityState={{ disabled }}
                 disabled={disabled}
+                icon="refresh-outline"
+                label={strings.settings.sourceSettingsReset}
                 onPress={() => {
                   if (disabled) return;
                   setDismissedError(null);
                   onReset();
                 }}
-                pressedScale={0.97}
-                buttonDepth="secondary"
-                style={[
-                  styles.resetButton,
-                  {
-                    opacity: disabled ? 0.62 : 1,
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="refresh-outline"
-                  size={15}
-                  color={tokens.mutedForeground}
-                />
-                <Text
-                  style={[styles.resetText, { color: tokens.mutedForeground }]}
-                >
-                  {strings.settings.sourceSettingsReset}
-                </Text>
-              </NemuPressable>
+                size="sm"
+                style={styles.settingsHeaderAction}
+                variant="secondary"
+              />
             ) : null}
           </View>
           {activeError ? (
@@ -1882,18 +1909,22 @@ function MobileSourceSettingsCardContent({
                 onLogin={onLogin}
                 onLogout={onLogout}
                 onRequestLogin={(setting) => {
-                  loginRequestRef.current += 1;
-                  loginAbortRef.current?.abort();
-                  loginAbortRef.current = null;
-                  setLoginError(null);
-                  setLoginSubmitting(false);
-                  setLoginSetting(setting);
+                  // The host sheet layers login as its own presented sheet
+                  // (dismiss-then-present); without a host handoff the card
+                  // swaps to its embedded panel in place.
+                  if (onRequestLoginSheet) {
+                    onRequestLoginSheet(setting);
+                    return;
+                  }
+                  login.present(setting);
                 }}
                 onPushPage={(page) => {
                   if (disabled) return;
                   setPageStack([...activePageStack, page]);
                 }}
                 loginCapabilities={loginCapabilities}
+                onRequestMultiSelectSheet={onRequestMultiSelectSheet}
+                onRequestStringListSheet={onRequestStringListSheet}
               />
             </View>
           ) : (
@@ -1903,11 +1934,12 @@ function MobileSourceSettingsCardContent({
                 size={18}
                 color={tokens.mutedForeground}
               />
-              <Text
+              <NemuText
+                density="compact"
                 style={[styles.emptyText, { color: tokens.mutedForeground }]}
               >
                 {emptyLabel}
-              </Text>
+              </NemuText>
             </View>
           )}
         </View>
@@ -1932,6 +1964,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
+  settingsHeaderAction: {
+    // Standard small button frame pinned to the header row's height so the
+    // reset control right-aligns without looking cramped or tilted.
+    minHeight: 34,
+  },
   capabilityHeader: {
     flex: 1,
     minWidth: 0,
@@ -1944,13 +1981,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 1,
   },
-  backButton: {
-    width: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-  },
   statusLabel: {
     fontSize: 14,
     lineHeight: 18,
@@ -1960,20 +1990,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
   },
-  resetButton: {
-    minHeight: 30,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    borderRadius: radius.md,
-    paddingHorizontal: 10,
-  },
-  resetText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.semibold,
-  },
   settingList: {
     gap: 10,
   },
@@ -1981,6 +1997,10 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   settingGroupTitle: {
+    // Sections must read as separate areas: the extra top padding keeps a
+    // group title (Account, Blocked Groups, …) visually owned by its rows
+    // instead of blending into the previous section's footer/rows.
+    marginTop: 12,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: nemuFontWeight.semibold,
@@ -2069,38 +2089,40 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: nemuFontWeight.medium,
   },
+  // The select trigger is a depth button, not a flat well: it hugs its label
+  // and sits at the row's trailing edge instead of stretching to a fixed width.
+  // The comfortable padding, label size, and 34pt frame mirror the card's
+  // standard small NemuButton surfaces so it reads as a pressable, and the row
+  // keeps it vertically centered next to the sibling switches.
   settingMenuShell: {
-    minWidth: 136,
-    minHeight: 32,
+    alignSelf: "flex-end",
+    minHeight: 34,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
     borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
   },
   settingMenuHost: {
     height: 32,
-    minWidth: 136,
   },
   settingMaterialMenu: {
-    minWidth: 136,
+    alignSelf: "flex-end",
   },
   settingMaterialMenuTrigger: {
-    minWidth: 136,
-    minHeight: 36,
+    minHeight: 34,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     overflow: "hidden",
     borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
   },
   settingMaterialMenuText: {
-    maxWidth: 104,
-    fontSize: 12,
-    lineHeight: 16,
+    maxWidth: 180,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: nemuFontWeight.medium,
   },
   settingValuePill: {
@@ -2150,13 +2172,6 @@ const styles = StyleSheet.create({
     minHeight: 34,
     fontSize: 12,
   },
-  editableListAddButton: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-  },
   editableListItems: {
     width: "100%",
     flexDirection: "row",
@@ -2205,11 +2220,11 @@ const styles = StyleSheet.create({
   sliderTrack: {
     height: 6,
     overflow: "visible",
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
   sliderFill: {
     height: 6,
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
   sliderThumb: {
     position: "absolute",
@@ -2225,13 +2240,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-  },
-  stepperButton: {
-    width: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
   },
   stepperValue: {
     minWidth: 34,

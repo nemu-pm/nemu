@@ -169,9 +169,36 @@ describe("mobile sync snapshot store contract", () => {
       ),
     ).toEqual(["new", "removed"]);
     expect(await store.getSourceLinksForItem("new")).toHaveLength(1);
+    expect((await store.getAllSourceLinks()).map((link) => link.id)).toEqual([
+      "aidoku-community:en.example:new-manga",
+    ]);
     expect(
-      (await store.getAllSourceLinks()).map((link) => link.libraryItemId),
-    ).toEqual(["new", "new"]);
+      (await store.getAllSourceLinks({ includeRemoved: true })).map(
+        (link) => link.id,
+      ),
+    ).toEqual([
+      "aidoku-community:en.example:new-manga",
+      "aidoku-community:en.example:removed-source",
+    ]);
+  });
+
+  test("counts in-library entries the same way it lists them", async () => {
+    const store = new WebUserDataStore();
+    expect(await store.countLibraryEntries()).toBe(0);
+
+    await store.saveLibrarySnapshot(
+      [
+        libraryItem("kept", "Kept"),
+        libraryItem("also", "Also"),
+        libraryItem("removed", "Removed", false),
+      ],
+      [sourceLink("kept", "kept-manga")],
+    );
+
+    expect(await store.countLibraryEntries()).toBe(2);
+    expect(await store.countLibraryEntries()).toBe(
+      (await store.getLibraryEntries()).length,
+    );
   });
 
   test("keeps installed source tombstones available for sync settings", async () => {

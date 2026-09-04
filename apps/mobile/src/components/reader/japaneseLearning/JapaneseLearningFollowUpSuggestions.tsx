@@ -1,5 +1,10 @@
 import { StyleSheet, Text, View } from "react-native";
-import { NemuPressable, nemuFontWeight, useNemuTheme } from "@/design-system";
+import {
+  nemuFontWeight,
+  NemuPressable,
+  radius,
+  useNemuTheme,
+} from "@/design-system";
 import {
   getJapaneseLearningFollowUpSuggestionColors,
   JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_INDENT,
@@ -76,7 +81,7 @@ const styles = StyleSheet.create({
   pill: {
     alignSelf: "flex-start",
     maxWidth: "100%",
-    borderRadius: 999,
+    borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 16,
     paddingVertical: 8,

@@ -120,6 +120,20 @@ export default defineConfig([
     files: ['apps/mobile/app/**/*.{ts,tsx}', 'apps/mobile/src/**/*.{ts,tsx}'],
     ignores: ['apps/mobile/src/design-system/**/*.{ts,tsx}'],
     rules: {
+      // Dynamic Type ratchet: a bare react-native `Text` ships without a
+      // `maxFontSizeMultiplier`, so enlarged type escapes measured native
+      // chrome. `NemuText` bounds it by default. Kept at `warn` because ~380
+      // pre-existing nodes are still unmigrated; `src/lib/mobileTextCoverageBudget.test.ts`
+      // is the hard gate that stops the count from growing.
+      'no-restricted-syntax': [
+        'warn',
+        {
+          selector:
+            'ImportDeclaration[source.value="react-native"] > ImportSpecifier[imported.name="Text"]',
+          message:
+            'Import NemuText from @/design-system instead of react-native Text so Dynamic Type stays bounded (maxFontSizeMultiplier).',
+        },
+      ],
       'no-restricted-imports': [
         'error',
         {

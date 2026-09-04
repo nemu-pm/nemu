@@ -7,6 +7,7 @@ import {
   nemuFontWeight,
   useNemuTheme,
   NemuButton,
+  NEMU_PROMINENT_CTA_SIZE,
 } from "@/design-system";
 import { hapticPress } from "@/lib/haptics";
 
@@ -51,7 +52,6 @@ export function MobileConfirmationSheet({
   onConfirm,
 }: MobileConfirmationSheetProps) {
   const { tokens } = useNemuTheme();
-  const accentColor = destructive ? tokens.danger : tokens.primary;
 
   const handleRequestClose = () => {
     // Non-abortable mutations keep every cancellation route disabled until
@@ -71,20 +71,33 @@ export function MobileConfirmationSheet({
       visible={visible}
       onRequestClose={handleRequestClose}
       onDismiss={onDismiss}
-      title={title}
-      subtitle={description}
-      headerLeading={
-        <View
-          style={[styles.iconShell, { backgroundColor: `${accentColor}18` }]}
-        >
-          <Ionicons name={iconName} size={22} color={accentColor} />
-        </View>
-      }
-      dismissLabel={cancelLabel}
       showDismissButton={false}
       // Pan-down/backdrop dismissal follows the same availability as Cancel.
       backdropDisabled={loading || cancelDisabled}
     >
+      {/*
+        Same composed header as the plugin/source settings sheets: the glyph
+        rides IN the centered title row instead of stranding in a leading
+        slot above a centered title.
+      */}
+      <View style={styles.header}>
+        <View style={styles.titleRow}>
+          <Ionicons name={iconName} size={20} color={tokens.mutedForeground} />
+          <Text
+            accessibilityRole="header"
+            numberOfLines={2}
+            style={[styles.title, { color: tokens.foreground }]}
+          >
+            {title}
+          </Text>
+        </View>
+        <Text
+          numberOfLines={3}
+          style={[styles.description, { color: tokens.mutedForeground }]}
+        >
+          {description}
+        </Text>
+      </View>
       {subject ? (
         <View style={[styles.subjectPill, { backgroundColor: tokens.muted }]}>
           <Text
@@ -104,6 +117,7 @@ export function MobileConfirmationSheet({
           hapticFeedback="none"
           label={cancelLabel}
           onPress={onCancel}
+          size={NEMU_PROMINENT_CTA_SIZE}
           variant="secondary"
         />
         <NemuButton
@@ -114,6 +128,7 @@ export function MobileConfirmationSheet({
           label={confirmLabel}
           loading={loading}
           onPress={onConfirm}
+          size={NEMU_PROMINENT_CTA_SIZE}
           variant={destructive ? "destructive" : "default"}
         />
       </View>
@@ -122,12 +137,27 @@ export function MobileConfirmationSheet({
 }
 
 const styles = StyleSheet.create({
-  iconShell: {
-    width: 42,
-    height: 42,
+  header: {
+    alignItems: "center",
+    gap: 6,
+  },
+  titleRow: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: radius.lg,
+    gap: 8,
+  },
+  title: {
+    flexShrink: 1,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: nemuFontWeight.semibold,
+    textAlign: "center",
+  },
+  description: {
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
   },
   subjectPill: {
     minHeight: 42,
@@ -142,10 +172,11 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.medium,
   },
   actions: {
-    flexDirection: "row",
+    alignItems: "stretch",
+    flexDirection: "column",
     gap: 10,
   },
   actionButton: {
-    flex: 1,
+    width: "100%",
   },
 });

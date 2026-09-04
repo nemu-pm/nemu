@@ -1,4 +1,5 @@
 import type {
+  ChapterSummary,
   LibraryEntry,
   LocalLibraryItem,
   LocalSourceLink,
@@ -14,6 +15,17 @@ import { makeChapterSortKey } from "./mobileLibraryDetails";
 export type LiveSearchLibraryImport = {
   item: LocalLibraryItem;
   sourceLink: LocalSourceLink;
+};
+
+/**
+ * The minimal detail-refresh fields a library import needs. A live source
+ * refresh satisfies this structurally; so does a cached detail snapshot that
+ * no longer has a source runtime attached.
+ */
+export type MobileSourceDetailsSnapshot = {
+  metadata: MangaMetadata;
+  latestChapter?: ChapterSummary;
+  fetchedAt?: number;
 };
 
 export function makeLiveSearchSourceLinkId(
@@ -47,7 +59,7 @@ function makeSourceLibraryImport(
   mangaId: string,
   metadata: MangaMetadata,
   now: number,
-  refresh?: Extract<MobileSourceDetailsRefresh, { status: "ready" }>
+  refresh?: MobileSourceDetailsSnapshot
 ): LiveSearchLibraryImport {
   const sourceLinkId = makeSourceLinkId(source.registryId, source.rawSourceId, mangaId);
   const libraryItemId = `source:${sourceLinkId}`;
@@ -104,6 +116,15 @@ export function makeSourceDetailsLibraryImport(
   now = Date.now()
 ): LiveSearchLibraryImport {
   return makeSourceLibraryImport(source, mangaId, refresh.metadata, now, refresh);
+}
+
+export function makeSourceDetailsSnapshotLibraryImport(
+  source: SearchSourceDisplay,
+  mangaId: string,
+  snapshot: MobileSourceDetailsSnapshot,
+  now = Date.now()
+): LiveSearchLibraryImport {
+  return makeSourceLibraryImport(source, mangaId, snapshot.metadata, now, snapshot);
 }
 
 export function findLibraryEntryForLiveSearchResult(

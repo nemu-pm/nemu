@@ -1,8 +1,10 @@
 import { router, usePathname } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Animated, Platform, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  nemuColorWithAlpha,
   radius,
   spacing,
   nemuFontWeight,
@@ -27,23 +29,66 @@ type TabItem = {
   href: MobileRootTabHref;
   labelKey: keyof MobileStrings["nav"];
   icon: keyof typeof Ionicons.glyphMap;
+  selectedIcon: keyof typeof Ionicons.glyphMap;
 };
 
 const tabs: TabItem[] = [
-  { href: "/library", labelKey: "library", icon: "home-outline" },
-  { href: "/browse", labelKey: "browse", icon: "globe-outline" },
-  { href: "/search", labelKey: "search", icon: "search-outline" },
-  { href: "/settings", labelKey: "settings", icon: "settings-outline" },
+  { href: "/library", labelKey: "library", icon: "home-outline", selectedIcon: "home" },
+  { href: "/browse", labelKey: "browse", icon: "globe-outline", selectedIcon: "globe" },
+  { href: "/search", labelKey: "search", icon: "search-outline", selectedIcon: "search" },
+  { href: "/settings", labelKey: "settings", icon: "settings-outline", selectedIcon: "settings" },
 ];
+
+const TAB_ITEM_WIDTH = 72;
+const TAB_ITEM_GAP = 8;
 
 export function FloatingTabBar() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const { tokens } = useNemuTheme();
+  const { reduceMotion, tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
+  const activeIndex = Math.max(
+    0,
+    tabs.findIndex((tab) => isMobileRootTabSelected(pathname, tab.href)),
+  );
+  const [pillProgress] = useState(() => new Animated.Value(activeIndex));
+
+  useEffect(() => {
+    pillProgress.stopAnimation();
+    if (reduceMotion) {
+      pillProgress.setValue(activeIndex);
+      return;
+    }
+    Animated.spring(pillProgress, {
+      toValue: activeIndex,
+      damping: 22,
+      stiffness: 320,
+      mass: 1,
+      overshootClamping: false,
+      useNativeDriver: true,
+    }).start();
+  }, [activeIndex, pillProgress, reduceMotion]);
+
   const barContent = (
     <View accessibilityRole="tablist" style={styles.items}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.selectionPill,
+          {
+            backgroundColor: nemuColorWithAlpha(tokens.primary, 0.14),
+            transform: [
+              {
+                translateX: pillProgress.interpolate({
+                  inputRange: [0, tabs.length - 1],
+                  outputRange: [0, (tabs.length - 1) * (TAB_ITEM_WIDTH + TAB_ITEM_GAP)],
+                }),
+              },
+            ],
+          },
+        ]}
+      />
       {tabs.map((tab) => {
         const active = isMobileRootTabSelected(pathname, tab.href);
         const pressAction = getMobileRootTabPressAction(pathname, tab.href);
@@ -58,6 +103,7 @@ export function FloatingTabBar() {
             accessibilityLabel={strings.nav[tab.labelKey]}
             accessibilityState={{ selected: active }}
             hapticFeedback={canNavigate || canReselect ? "selection" : "none"}
+            pressProfile="tab"
             onPress={() => {
               if (canReselect) {
                 emitMobileRootTabReselect(tab.href);
@@ -66,16 +112,13 @@ export function FloatingTabBar() {
               if (!canNavigate) return;
               router.navigate(tab.href);
             }}
-            style={[
-              styles.item,
-              active && { backgroundColor: `${tokens.primary}24` },
-            ]}
+            style={styles.item}
           >
             <Ionicons
               accessible={false}
               accessibilityElementsHidden
               importantForAccessibility="no"
-              name={tab.icon}
+              name={active ? tab.selectedIcon : tab.icon}
               size={23}
               color={color}
             />
@@ -106,7 +149,8 @@ export function FloatingTabBar() {
         style={[
           styles.bar,
           {
-            backgroundColor: tokens.tabGlass,
+            backgroundColor:
+              Platform.OS === "android" ? tokens.card : tokens.tabGlass,
             borderColor: tokens.tabBorder,
           },
         ]}
@@ -132,6 +176,7 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
   },
   items: {
+    position: "relative",
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -139,13 +184,21 @@ const styles = StyleSheet.create({
     paddingVertical: MOBILE_FLOATING_TAB_BAR_VERTICAL_PADDING,
   },
   item: {
-    minWidth: 68,
+    width: TAB_ITEM_WIDTH,
     minHeight: MOBILE_FLOATING_TAB_BAR_ITEM_MIN_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 7,
+  },
+  selectionPill: {
+    position: "absolute",
+    left: 12,
+    top: MOBILE_FLOATING_TAB_BAR_VERTICAL_PADDING,
+    width: TAB_ITEM_WIDTH,
+    height: MOBILE_FLOATING_TAB_BAR_ITEM_MIN_HEIGHT,
+    borderRadius: 16,
   },
   label: {
     marginTop: 2,

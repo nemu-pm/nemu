@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
@@ -9,7 +10,6 @@ import {
   type RefObject,
 } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Platform,
   ScrollView,
@@ -17,10 +17,12 @@ import {
   Text,
   View,
   type GestureResponderEvent,
+  type ListRenderItem,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   type ViewToken,
 } from "react-native";
+import Animated, { useSharedValue } from "react-native-reanimated";
 import {
   GlassSurface,
   NemuButton,
@@ -43,10 +45,12 @@ import {
   type ReaderContinuousScrollMetrics,
   type ReaderScrollPageMetric,
 } from "@/lib/mobileReaderProgress";
+import { ZoomableReaderStrip } from "./ZoomableReaderStrip";
 import { isReaderAdvancePastEndDrag } from "./readerEdgeDrag";
 import {
   isReaderStageTapEnabled,
   isReaderTapInsideChrome,
+  readerTapDispatchForZone,
   readerTapZoneForPosition,
 } from "./readerTapZones";
 import {
@@ -56,6 +60,10 @@ import {
   isMobileReaderLogicalEndReached,
   type MobileReaderSegmentFrame,
 } from "@/lib/mobileReaderSegmentedImage";
+import {
+  useSkeletonDisplayDelay,
+  useSkeletonPulse,
+} from "@/lib/useSkeletonPulse";
 
 type MobileReaderGalleryState = {
   status: string;
@@ -107,6 +115,11 @@ type MobileReaderGalleryProps = {
   /** Escape hatch for a source that refuses to serve pages. */
   onOpenSourceSettings?: () => void;
   onToggleControls: () => void;
+  /**
+   * The page under the stage is zoomed in. A zoomed page owns the whole stage,
+   * so its edge bands stop turning pages and its double tap resets the zoom.
+   */
+  pageZoomActive?: boolean;
   /** Prevents modal/sheet taps from reaching the reader's page-turn zones. */
   tapGesturesEnabled?: boolean;
   pagedMode: boolean;
@@ -151,9 +164,9 @@ const READER_TAP_MAX_DISTANCE = 10;
 const READER_TAP_MAX_DURATION_MS = 360;
 // Must exceed the double-tap zoom gesture's maxDuration (260 ms in
 // ZoomableReaderImageFrame) so the chrome toggle can be cancelled when a
-// second tap turns the gesture into a zoom.
+// second tap turns the gesture into a zoom. Only the centre band pays this
+// wait: the page-turn bands act on touch-up (see readerTapDispatchForZone).
 const READER_DOUBLE_TAP_WINDOW_MS = 280;
-const READER_DARK_TEXT = "#f8fafc";
 const READER_VIEWABILITY_CONFIG = Object.freeze({
   viewAreaCoveragePercentThreshold: 50,
 });
@@ -190,6 +203,7 @@ export function MobileReaderGallery({
   onLongStripScrollProgressChange,
   onOpenSourceSettings,
   onToggleControls,
+  pageZoomActive = false,
   tapGesturesEnabled = true,
   pagedMode,
   pageTurnAccessibilityEnabled,
@@ -208,7 +222,15 @@ export function MobileReaderGallery({
   title,
   windowHeight,
 }: MobileReaderGalleryProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens, reduceMotion } = useNemuTheme();
+  const isReaderLoading = loading || pagesState.status === "loading";
+  // The gallery lives for the whole chapter; the placeholder only for the
+  // first moments of it, so the infinite pulse stops with the load.
+  const readerSkeletonOpacity = useSkeletonPulse(
+    reduceMotion === true,
+    isReaderLoading,
+  );
+  const readerSkeletonVisible = useSkeletonDisplayDelay(150);
   const segmentedMode = Boolean(segmentedImageFrames?.length);
   const logicalLongStripMode = longStripPresentationMode || segmentedMode;
   const resolvedContinuousContentIdentity =
@@ -216,6 +238,34 @@ export function MobileReaderGallery({
   const [logicalScrollAccessibility, setLogicalScrollAccessibility] = useState(
     () => ({ scrollMountKey, percent: 0 }),
   );
+  // The percent only feeds the VoiceOver stage label. Publishing it from the
+  // 16ms scroll handler re-rendered the whole gallery on every rounded change
+  // (~100× a chapter), so the live value rides a ref and lands on the state
+  // when the scroll settles.
+  const pendingLogicalScrollAccessibilityRef = useRef(
+    logicalScrollAccessibility,
+  );
+  const publishLogicalScrollAccessibility = useCallback(() => {
+    const pending = pendingLogicalScrollAccessibilityRef.current;
+    setLogicalScrollAccessibility((current) =>
+      current.scrollMountKey === pending.scrollMountKey &&
+      current.percent === pending.percent
+        ? current
+        : pending,
+    );
+  }, []);
+  useEffect(() => {
+    pendingLogicalScrollAccessibilityRef.current = {
+      scrollMountKey,
+      percent: 0,
+    };
+    publishLogicalScrollAccessibility();
+  }, [publishLogicalScrollAccessibility, scrollMountKey]);
+  // Whole-strip pinch zoom (long strip only): the wrapper needs the live
+  // content length for pan clamping and suspends the list's own scroll while
+  // the strip is zoomed in.
+  const stripContentLengthShared = useSharedValue(0);
+  const [stripZoomActive, setStripZoomActive] = useState(false);
   const logicalScrollPercent =
     logicalScrollAccessibility.scrollMountKey === scrollMountKey
       ? logicalScrollAccessibility.percent
@@ -233,7 +283,7 @@ export function MobileReaderGallery({
   const pendingToggleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  const lastTapEndAtRef = useRef(0);
+  const lastCentreTapEndAtRef = useRef(0);
   const dragStartOffsetRef = useRef<number | null>(null);
   const latestScrollMetricsRef = useRef<ReaderContinuousScrollMetrics>(
     getReaderContinuousScrollMetrics({
@@ -340,11 +390,7 @@ export function MobileReaderGallery({
         };
       },
     }),
-    [
-      galleryItemCount,
-      pagedMode,
-      resolvedContinuousContentIdentity,
-    ],
+    [galleryItemCount, pagedMode, resolvedContinuousContentIdentity],
   );
 
   const handleScrollToIndexFailed = (info: {
@@ -419,7 +465,7 @@ export function MobileReaderGallery({
   useLayoutEffect(() => {
     if (tapGesturesEnabled) return;
     touchStartRef.current = null;
-    lastTapEndAtRef.current = 0;
+    lastCentreTapEndAtRef.current = 0;
     if (pendingToggleTimerRef.current) {
       clearTimeout(pendingToggleTimerRef.current);
       pendingToggleTimerRef.current = null;
@@ -429,7 +475,7 @@ export function MobileReaderGallery({
   useLayoutEffect(() => {
     if (appliedScrollMountKeyRef.current === scrollMountKey) return;
     touchStartRef.current = null;
-    lastTapEndAtRef.current = 0;
+    lastCentreTapEndAtRef.current = 0;
     if (pendingToggleTimerRef.current) {
       clearTimeout(pendingToggleTimerRef.current);
       pendingToggleTimerRef.current = null;
@@ -451,21 +497,20 @@ export function MobileReaderGallery({
         : null;
     const pendingContentSizeProgress =
       pendingContentSizeScrollProgressRef.current;
-    pendingLogicalScrollProgressRef.current =
-      !pagedMode
-        ? readerContinuousRelayoutProgress({
-            sameContent:
-              priorContinuousContentIdentityRef.current ===
-              resolvedContinuousContentIdentity,
-            currentProgress,
-            pendingProgress:
-              pendingContentSizeProgress?.contentIdentity ===
-              resolvedContinuousContentIdentity
-                ? pendingContentSizeProgress.progress
-                : pendingLogicalScrollProgressRef.current,
-            initialProgress: logicalLongStripMode ? persistedProgress : null,
-          })
-        : null;
+    pendingLogicalScrollProgressRef.current = !pagedMode
+      ? readerContinuousRelayoutProgress({
+          sameContent:
+            priorContinuousContentIdentityRef.current ===
+            resolvedContinuousContentIdentity,
+          currentProgress,
+          pendingProgress:
+            pendingContentSizeProgress?.contentIdentity ===
+            resolvedContinuousContentIdentity
+              ? pendingContentSizeProgress.progress
+              : pendingLogicalScrollProgressRef.current,
+          initialProgress: logicalLongStripMode ? persistedProgress : null,
+        })
+      : null;
     priorContinuousContentIdentityRef.current =
       resolvedContinuousContentIdentity;
     appliedScrollMountKeyRef.current = scrollMountKey;
@@ -558,7 +603,6 @@ export function MobileReaderGallery({
       time: Date.now(),
     };
   };
-  const isReaderLoading = loading || pagesState.status === "loading";
   // The chrome toggle is the only way out of a black screen, so it must keep
   // working while the chapter is in an error/blocked state. Only page turns
   // need a ready gallery.
@@ -589,17 +633,24 @@ export function MobileReaderGallery({
     ) => {
       const normalizedMetrics = getReaderContinuousScrollMetrics(metrics);
       latestScrollMetricsRef.current = normalizedMetrics;
+      // Reanimated shared values are officially mutable from the JS thread;
+      // the compiler's immutability lint just can't see through the box.
+      // eslint-disable-next-line react-hooks/immutability
+      stripContentLengthShared.value = normalizedMetrics.contentLength;
       onContinuousScrollMetricsChange?.(normalizedMetrics);
       if (logicalLongStripMode) {
-        const percent = getMobileReaderLogicalAccessibilityPercent(
-          normalizedMetrics,
-        );
-        setLogicalScrollAccessibility((current) =>
-          current.scrollMountKey === scrollMountKey &&
-          current.percent === percent
-            ? current
-            : { scrollMountKey, percent },
-        );
+        const percent =
+          getMobileReaderLogicalAccessibilityPercent(normalizedMetrics);
+        const pending = pendingLogicalScrollAccessibilityRef.current;
+        if (
+          pending.scrollMountKey !== scrollMountKey ||
+          pending.percent !== percent
+        ) {
+          pendingLogicalScrollAccessibilityRef.current = {
+            scrollMountKey,
+            percent,
+          };
+        }
       }
       if (!notifyPersistence || !longStripContentIdentity) return;
       const progress = getMobileReaderLogicalScrollProgress(normalizedMetrics);
@@ -613,6 +664,7 @@ export function MobileReaderGallery({
       onContinuousScrollMetricsChange,
       onLongStripScrollProgressChange,
       scrollMountKey,
+      stripContentLengthShared,
     ],
   );
   const handleStageTouchEnd = (event: GestureResponderEvent) => {
@@ -654,28 +706,32 @@ export function MobileReaderGallery({
           pagedMode,
         })
       : "toggle";
-    // Defer the action past the double-tap window: the zoom Tap gesture only
-    // activates on the second tap, so acting immediately would flash the
-    // chrome — or turn a page — under every double-tap zoom. Double-tap zoom
-    // covers the whole page frame including the edge zones, so page turns use
-    // the same window rather than an inconsistent mix of timings. A second
-    // qualifying tap cancels the pending action instead of scheduling another.
     const now = Date.now();
-    const isSecondTap =
-      now - lastTapEndAtRef.current <= READER_DOUBLE_TAP_WINDOW_MS;
-    lastTapEndAtRef.current = now;
+    const dispatch = readerTapDispatchForZone({
+      zone,
+      isSecondCentreTap:
+        now - lastCentreTapEndAtRef.current <= READER_DOUBLE_TAP_WINDOW_MS,
+      pageZoomed: pageZoomActive,
+    });
     if (pendingToggleTimerRef.current) {
       clearTimeout(pendingToggleTimerRef.current);
       pendingToggleTimerRef.current = null;
     }
-    if (isSecondTap) return;
+    // A page turn owns its band outright — the edge zones offer no double-tap
+    // affordance — so it lands on touch-up instead of sitting out the
+    // double-tap window that used to delay every single tap by 280 ms.
+    if (dispatch.kind === "turn") {
+      onPageStepRef.current?.(dispatch.zone);
+      return;
+    }
+    // The centre band still shares its space with the page's double-tap zoom:
+    // defer the chrome toggle so a zoom never flashes the chrome first, and
+    // let the second centre tap cancel the pending toggle outright.
+    lastCentreTapEndAtRef.current = now;
+    if (dispatch.kind === "cancelPendingToggle") return;
     pendingToggleTimerRef.current = setTimeout(() => {
       pendingToggleTimerRef.current = null;
-      if (zone === "toggle") {
-        onToggleControlsRef.current();
-        return;
-      }
-      onPageStepRef.current?.(zone);
+      onToggleControlsRef.current();
     }, READER_DOUBLE_TAP_WINDOW_MS);
   };
   const handleScrollBeginDrag = (
@@ -707,10 +763,7 @@ export function MobileReaderGallery({
         viewportLength: layoutMeasurement.height,
       };
       recordContinuousScrollMetrics(metrics, logicalLongStripMode);
-      if (
-        logicalLongStripMode &&
-        isMobileReaderLogicalEndReached(metrics)
-      ) {
+      if (logicalLongStripMode && isMobileReaderLogicalEndReached(metrics)) {
         onSegmentedLogicalEndReached?.();
       }
     }
@@ -727,6 +780,7 @@ export function MobileReaderGallery({
           : windowHeight,
     });
     recordContinuousScrollMetrics(measuredMetrics, false);
+    publishLogicalScrollAccessibility();
     const progress = pendingLogicalScrollProgressRef.current;
     const pendingContentSizeProgress =
       pendingContentSizeScrollProgressRef.current;
@@ -770,10 +824,18 @@ export function MobileReaderGallery({
       }),
       false,
     );
+    publishLogicalScrollAccessibility();
+  };
+  const handleGalleryMomentumScrollEnd = (
+    event: NativeSyntheticEvent<NativeScrollEvent>,
+  ) => {
+    publishLogicalScrollAccessibility();
+    onMomentumScrollEnd(event);
   };
   const handleScrollEndDrag = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
+    publishLogicalScrollAccessibility();
     const startOffset = dragStartOffsetRef.current;
     dragStartOffsetRef.current = null;
     if (startOffset == null) return;
@@ -823,6 +885,201 @@ export function MobileReaderGallery({
             : []),
         ]
       : undefined;
+
+  // FlatList re-renders every cell when `renderItem`/`keyExtractor` change
+  // identity, so both stay memoized across the gallery's own re-renders.
+  const galleryKeyExtractor = useCallback(
+    (item: MobileReaderGalleryItem) =>
+      item.kind === "spread"
+        ? `spread-${item.spread.join("-")}`
+        : item.kind === "segment"
+          ? `segment-${item.frame.segment.uri}`
+          : item.page.id,
+    [],
+  );
+  const renderGalleryItem = useCallback<
+    ListRenderItem<MobileReaderGalleryItem>
+  >(
+    ({ item }) => {
+      if (item.kind === "spread") {
+        return (
+          <View
+            style={[
+              styles.pagedFrame,
+              styles.spreadFrame,
+              {
+                width: readerPageWidth,
+                minHeight: windowHeight,
+              },
+            ]}
+          >
+            {visualPageIndexesForMobileReaderSpread(item.spread, mode).map(
+              (pageIndex) => {
+                const page = displayedPages[pageIndex];
+                if (!page) return null;
+                return (
+                  <View key={page.id} style={styles.spreadPageSlot}>
+                    {page.imageUri ? (
+                      renderImage(page)
+                    ) : (
+                      <TextPage
+                        width={readerImageWidth}
+                        text={page.text}
+                        fallbackPage={sourcePageForDisplayIndex(pageIndex)}
+                        strings={strings}
+                      />
+                    )}
+                  </View>
+                );
+              },
+            )}
+          </View>
+        );
+      }
+
+      if (item.kind === "segment") {
+        return (
+          <View
+            style={[
+              styles.segmentFrame,
+              {
+                width: item.frame.width,
+                height: item.frame.height,
+              },
+            ]}
+          >
+            {renderImageSegment?.(item.frame)}
+          </View>
+        );
+      }
+
+      const { page, index } = item;
+      return (
+        <View
+          onLayout={
+            pagedMode || !onScrollingPageLayout
+              ? undefined
+              : (event) => {
+                  const { y, height } = event.nativeEvent.layout;
+                  onScrollingPageLayout(index, { y, height });
+                }
+          }
+          style={[
+            pagedMode ? styles.pagedFrame : styles.scrollingFrame,
+            pagedMode
+              ? {
+                  width: readerPageWidth,
+                  minHeight: windowHeight,
+                }
+              : { width: "100%" },
+          ]}
+        >
+          {page.imageUri ? (
+            renderImage(page)
+          ) : (
+            <TextPage
+              text={page.text}
+              fallbackPage={sourcePageForDisplayIndex(index)}
+              strings={strings}
+            />
+          )}
+        </View>
+      );
+    },
+    [
+      displayedPages,
+      mode,
+      onScrollingPageLayout,
+      pagedMode,
+      readerImageWidth,
+      readerPageWidth,
+      renderImage,
+      renderImageSegment,
+      sourcePageForDisplayIndex,
+      strings,
+      windowHeight,
+    ],
+  );
+  const galleryGetItemLayout = useMemo(() => {
+    if (segmentedMode) {
+      return (
+        _data: ArrayLike<MobileReaderGalleryItem> | null | undefined,
+        index: number,
+      ) => {
+        const frame = segmentedImageFrames?.[index];
+        return {
+          index,
+          length: frame?.height ?? 0,
+          offset: frame?.offset ?? 0,
+        };
+      };
+    }
+    if (pagedMode) {
+      return (
+        _data: ArrayLike<MobileReaderGalleryItem> | null | undefined,
+        index: number,
+      ) => ({
+        index,
+        length: readerPageWidth,
+        offset: readerPageWidth * index,
+      });
+    }
+    return undefined;
+  }, [pagedMode, readerPageWidth, segmentedImageFrames, segmentedMode]);
+  const galleryContentContainerStyle = useMemo(
+    () => [
+      pagedMode
+        ? styles.pagedContent
+        : segmentedMode
+          ? styles.segmentedContent
+          : styles.scrollingContent,
+      pagedMode
+        ? null
+        : {
+            paddingTop: chromeTopPadding,
+            paddingBottom: bottomPadding,
+          },
+    ],
+    [bottomPadding, chromeTopPadding, pagedMode, segmentedMode],
+  );
+
+  const galleryList = (
+    <FlatList
+      key={scrollMountKey}
+      ref={listRef}
+      data={galleryItems}
+      keyExtractor={galleryKeyExtractor}
+      renderItem={renderGalleryItem}
+      alwaysBounceHorizontal={false}
+      alwaysBounceVertical={!pagedMode}
+      bounces={!pagedMode}
+      contentInsetAdjustmentBehavior="never"
+      {...pagingBehaviorProps}
+      directionalLockEnabled
+      horizontal={pagedMode}
+      initialNumToRender={segmentedMode ? 2 : pagedMode ? 3 : 5}
+      maxToRenderPerBatch={segmentedMode ? 2 : 5}
+      windowSize={segmentedMode ? 3 : 7}
+      viewabilityConfig={READER_VIEWABILITY_CONFIG}
+      removeClippedSubviews={pagedMode && Platform.OS === "android"}
+      getItemLayout={galleryGetItemLayout}
+      onMomentumScrollEnd={handleGalleryMomentumScrollEnd}
+      onContentSizeChange={handleGalleryContentSizeChange}
+      onLayout={handleGalleryLayout}
+      onScroll={handleGalleryScroll}
+      onScrollBeginDrag={handleScrollBeginDrag}
+      onScrollEndDrag={handleScrollEndDrag}
+      onScrollToIndexFailed={handleScrollToIndexFailed}
+      onViewableItemsChanged={pagedMode ? undefined : onViewableItemsChanged}
+      overScrollMode="never"
+      scrollEnabled={logicalLongStripMode ? !stripZoomActive : undefined}
+      scrollEventThrottle={16}
+      showsHorizontalScrollIndicator={false}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={galleryContentContainerStyle}
+      style={styles.readerScroll}
+    />
+  );
 
   return (
     <View
@@ -895,166 +1152,49 @@ export function MobileReaderGallery({
     >
       {isReaderLoading ? (
         <View pointerEvents="none" style={styles.readerLoadingContainer}>
-          <ActivityIndicator color={READER_DARK_TEXT} size="large" />
+          {readerSkeletonVisible ? (
+            <Animated.View
+              accessibilityLabel={pagesState.detail}
+              accessibilityRole="progressbar"
+              style={[
+                // Paged reading opens on a 1:1.45 page box at the reader
+                // width; long strip opens on a full-width block, so the
+                // placeholder already has the shape the first page will take.
+                logicalLongStripMode
+                  ? styles.readerLoadingStrip
+                  : styles.readerLoadingSkeleton,
+                logicalLongStripMode
+                  ? {
+                      width: readerPageWidth,
+                      height: Math.max(240, windowHeight - 190),
+                    }
+                  : {
+                      width: Math.min(readerImageWidth, readerPageWidth - 24),
+                      maxHeight: Math.max(240, windowHeight - 190),
+                    },
+                {
+                  backgroundColor: "rgba(255,255,255,0.10)",
+                  borderColor: "rgba(255,255,255,0.13)",
+                  opacity: readerSkeletonOpacity,
+                },
+              ]}
+            />
+          ) : null}
         </View>
       ) : pages.length ? (
-        <FlatList
-          key={scrollMountKey}
-          ref={listRef}
-          data={galleryItems}
-          keyExtractor={(item) =>
-            item.kind === "spread"
-              ? `spread-${item.spread.join("-")}`
-              : item.kind === "segment"
-                ? `segment-${item.frame.segment.uri}`
-                : item.page.id
-          }
-          renderItem={({ item }) => {
-            if (item.kind === "spread") {
-              return (
-                <View
-                  style={[
-                    styles.pagedFrame,
-                    styles.spreadFrame,
-                    {
-                      width: readerPageWidth,
-                      minHeight: windowHeight,
-                    },
-                  ]}
-                >
-                  {visualPageIndexesForMobileReaderSpread(
-                    item.spread,
-                    mode,
-                  ).map((pageIndex) => {
-                    const page = displayedPages[pageIndex];
-                    if (!page) return null;
-                    return (
-                      <View key={page.id} style={styles.spreadPageSlot}>
-                        {page.imageUri ? (
-                          renderImage(page)
-                        ) : (
-                          <TextPage
-                            width={readerImageWidth}
-                            text={page.text}
-                            fallbackPage={sourcePageForDisplayIndex(pageIndex)}
-                            strings={strings}
-                          />
-                        )}
-                      </View>
-                    );
-                  })}
-                </View>
-              );
-            }
-
-            if (item.kind === "segment") {
-              return (
-                <View
-                  style={[
-                    styles.segmentFrame,
-                    {
-                      width: item.frame.width,
-                      height: item.frame.height,
-                    },
-                  ]}
-                >
-                  {renderImageSegment?.(item.frame)}
-                </View>
-              );
-            }
-
-            const { page, index } = item;
-            return (
-              <View
-                onLayout={
-                  pagedMode || !onScrollingPageLayout
-                    ? undefined
-                    : (event) => {
-                        const { y, height } = event.nativeEvent.layout;
-                        onScrollingPageLayout(index, { y, height });
-                      }
-                }
-                style={[
-                  pagedMode ? styles.pagedFrame : styles.scrollingFrame,
-                  pagedMode
-                    ? {
-                        width: readerPageWidth,
-                        minHeight: windowHeight,
-                      }
-                    : { width: "100%" },
-                ]}
-              >
-                {page.imageUri ? (
-                  renderImage(page)
-                ) : (
-                  <TextPage
-                    text={page.text}
-                    fallbackPage={sourcePageForDisplayIndex(index)}
-                    strings={strings}
-                  />
-                )}
-              </View>
-            );
-          }}
-          alwaysBounceHorizontal={false}
-          alwaysBounceVertical={!pagedMode}
-          bounces={!pagedMode}
-          contentInsetAdjustmentBehavior="never"
-          {...pagingBehaviorProps}
-          directionalLockEnabled
-          horizontal={pagedMode}
-          initialNumToRender={segmentedMode ? 2 : pagedMode ? 3 : 5}
-          maxToRenderPerBatch={segmentedMode ? 2 : 5}
-          windowSize={segmentedMode ? 3 : 7}
-          viewabilityConfig={READER_VIEWABILITY_CONFIG}
-          removeClippedSubviews={pagedMode && Platform.OS === "android"}
-          getItemLayout={
-            segmentedMode
-              ? (_data, index) => {
-                  const frame = segmentedImageFrames?.[index];
-                  return {
-                    index,
-                    length: frame?.height ?? 0,
-                    offset: frame?.offset ?? 0,
-                  };
-                }
-              : pagedMode
-                ? (_data, index) => ({
-                    index,
-                    length: readerPageWidth,
-                    offset: readerPageWidth * index,
-                  })
-                : undefined
-          }
-          onMomentumScrollEnd={onMomentumScrollEnd}
-          onContentSizeChange={handleGalleryContentSizeChange}
-          onLayout={handleGalleryLayout}
-          onScroll={handleGalleryScroll}
-          onScrollBeginDrag={handleScrollBeginDrag}
-          onScrollEndDrag={handleScrollEndDrag}
-          onScrollToIndexFailed={handleScrollToIndexFailed}
-          onViewableItemsChanged={
-            pagedMode ? undefined : onViewableItemsChanged
-          }
-          overScrollMode="never"
-          scrollEventThrottle={16}
-          showsHorizontalScrollIndicator={false}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[
-            pagedMode
-              ? styles.pagedContent
-              : segmentedMode
-                ? styles.segmentedContent
-                : styles.scrollingContent,
-            pagedMode
-              ? null
-              : {
-                  paddingTop: chromeTopPadding,
-                  paddingBottom: bottomPadding,
-                },
-          ]}
-          style={styles.readerScroll}
-        />
+        logicalLongStripMode ? (
+          <ZoomableReaderStrip
+            contentLengthShared={stripContentLengthShared}
+            onZoomActiveChange={setStripZoomActive}
+            resetKey={resolvedContinuousContentIdentity}
+            viewportHeight={windowHeight}
+            viewportWidth={readerPageWidth}
+          >
+            {galleryList}
+          </ZoomableReaderStrip>
+        ) : (
+          galleryList
+        )
       ) : (
         <ScrollView
           alwaysBounceVertical={false}
@@ -1199,6 +1339,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  readerLoadingSkeleton: {
+    aspectRatio: 1 / 1.45,
+    minWidth: 220,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  readerLoadingStrip: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   readerScroll: {
     flex: 1,
     alignSelf: "stretch",
@@ -1234,9 +1384,18 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    // A zoomed spread half stays inside its own slot instead of painting over
+    // the facing page (later siblings paint on top, so only one side ever
+    // showed the overlap).
+    overflow: "hidden",
   },
   scrollingFrame: {
     alignItems: "center",
+    // Long-strip pages must not paint a zoom transform over the previous
+    // page: RN paints later siblings on top, so the overflow only ever showed
+    // upward. Clip the zoom to the page's own frame; paged mode stays
+    // unclipped so a zoom can still use the dark stage margins.
+    overflow: "hidden",
   },
   pageShell: {
     width: "88%",

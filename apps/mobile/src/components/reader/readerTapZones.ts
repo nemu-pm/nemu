@@ -84,3 +84,64 @@ export function readerTapZoneForPosition({
   if (atLeadingEdge) return nextIsOnTheLeft ? "next" : "previous";
   return nextIsOnTheLeft ? "previous" : "next";
 }
+
+/**
+ * What a resolved stage tap should do *right now*.
+ *
+ * Page turns are unambiguous: nothing in the edge bands offers a double-tap
+ * affordance, so a turn fires on touch-up instead of waiting out a
+ * double-tap window. Only the centre band shares its space with the page's
+ * double-tap zoom, so only the centre band defers.
+ *
+ * A zoomed page is the exception: it owns the whole stage, its double tap
+ * resets the zoom wherever it lands, and an edge tap that also turned the page
+ * would page twice *and* leave the page zoomed. While zoomed, every band
+ * behaves like the centre band.
+ */
+export type ReaderTapDispatch =
+  | { kind: "turn"; zone: "previous" | "next" }
+  /** Schedule the chrome toggle after the double-tap window. */
+  | { kind: "deferToggle" }
+  /** The second centre tap of a double-tap zoom: drop the pending toggle. */
+  | { kind: "cancelPendingToggle" };
+
+export function readerTapDispatchForZone({
+  zone,
+  isSecondCentreTap,
+  pageZoomed = false,
+}: {
+  zone: ReaderTapZone;
+  isSecondCentreTap: boolean;
+  /** The page under the tap is zoomed in past its fit scale. */
+  pageZoomed?: boolean;
+}): ReaderTapDispatch {
+  if (zone !== "toggle" && !pageZoomed) return { kind: "turn", zone };
+  return isSecondCentreTap
+    ? { kind: "cancelPendingToggle" }
+    : { kind: "deferToggle" };
+}
+
+/**
+ * The stage-x span where a double-tap may zoom, in the same coordinate space
+ * `readerTapZoneForPosition` reads (`pageX` against the stage width).
+ *
+ * A tap in an edge band now turns the page on touch-up, so a double tap there
+ * would page twice *and* zoom. Keeping the page zoom to the centre band is
+ * what makes the two gestures agree on who owns each part of the stage.
+ * `null` means "no restriction" — every position may zoom.
+ */
+export function readerCentreTapBand({
+  width,
+  edgeRatio = READER_TAP_EDGE_ZONE_RATIO,
+}: {
+  width: number;
+  edgeRatio?: number;
+}): { start: number; end: number } | null {
+  if (!Number.isFinite(width) || width <= 0) return null;
+  const clampedEdgeRatio = Math.max(0, Math.min(0.5, edgeRatio));
+  if (clampedEdgeRatio <= 0) return null;
+  return {
+    start: width * clampedEdgeRatio,
+    end: width * (1 - clampedEdgeRatio),
+  };
+}

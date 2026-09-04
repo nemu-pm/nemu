@@ -178,6 +178,7 @@ describe("native HTTP SSRF policy", () => {
     const moduleCache = path.join(directory, "clang-module-cache");
     const addressExecutable = path.join(directory, "address-policy-tests");
     const imageExecutable = path.join(directory, "image-policy-tests");
+    const longStripExecutable = path.join(directory, "long-strip-tests");
     const redirectExecutable = path.join(directory, "redirect-policy-tests");
     const requestHeaderExecutable = path.join(
       directory,
@@ -238,6 +239,41 @@ describe("native HTTP SSRF policy", () => {
       if (runImage.status !== 0) {
         throw new Error(
           runImage.stderr || runImage.stdout || "Swift policy test failed",
+        );
+      }
+
+      const compileLongStrip = runCommand(
+        "xcrun",
+        [
+          "swiftc",
+          path.join(moduleRoot, "ios/NemuImageMetadataPolicy.swift"),
+          path.join(moduleRoot, "ios/NemuLongStripImageTranscoder.swift"),
+          path.join(
+            moduleRoot,
+            "runtime/iosTest/NemuLongStripImageTranscoderTests.swift",
+          ),
+          "-framework",
+          "CoreImage",
+          "-framework",
+          "ImageIO",
+          "-o",
+          longStripExecutable,
+        ],
+        { env: swiftEnvironment(moduleCache) },
+      );
+      if (compileLongStrip.status !== 0) {
+        throw new Error(
+          compileLongStrip.stderr ||
+            compileLongStrip.stdout ||
+            "swiftc failed",
+        );
+      }
+      const runLongStrip = runCommand(longStripExecutable, []);
+      if (runLongStrip.status !== 0) {
+        throw new Error(
+          runLongStrip.stderr ||
+            runLongStrip.stdout ||
+            "Swift long-strip test failed",
         );
       }
 

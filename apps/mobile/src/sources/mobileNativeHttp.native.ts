@@ -17,6 +17,7 @@ import {
   runAbortableMobileNativeHttpRequest,
   throwIfMobileNativeHttpAborted,
 } from "./mobileNativeHttpAbort";
+import { runMobileHttpRequestWithRetry } from "./mobileNativeHttpRetry";
 import {
   assertMobileNativeHttpCapability,
   resolveMobileNativeHttpCapabilityStatus,
@@ -148,19 +149,27 @@ export async function mobileNativeFetch(
   });
   const maxResponseBytes =
     init.maxResponseBytes ?? MOBILE_NATIVE_HTTP_DEFAULT_MAX_RESPONSE_BYTES;
-  const response = await sendMobileNativeHttpRequest(
-    {
-      url: input,
-      method: init.method ?? "GET",
-      headers: normalizeHeaders(init.headers),
-      body: bodyToString(init.body),
-      timeoutMs: DEFAULT_TIMEOUT_MS,
-      responseMode: init.responseMode ?? "auto",
-      maxResponseBytes,
-      requireHttps: init.requireHttps === true,
-    },
-    init.signal,
-  );
+  const method = (init.method ?? "GET").toUpperCase();
+  // Idempotent requests only: a transient cold-start failure of the loopback
+  // proxy egress (DNS resolution / pinned-IP connect) is retried with short
+  // backoff; caller aborts and deadline cancellations always win.
+  const idempotent = init.body == null && (method === "GET" || method === "HEAD");
+  const request = {
+    url: input,
+    method,
+    headers: normalizeHeaders(init.headers),
+    body: bodyToString(init.body),
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    responseMode: init.responseMode ?? "auto",
+    maxResponseBytes,
+    requireHttps: init.requireHttps === true,
+  };
+  const response = idempotent
+    ? await runMobileHttpRequestWithRetry(
+        () => sendMobileNativeHttpRequest(request, init.signal),
+        { signal: init.signal },
+      )
+    : await sendMobileNativeHttpRequest(request, init.signal);
   throwIfMobileNativeHttpAborted(init.signal);
   measureMobilePerformance("native.http.request.complete", requestStartedAt, {
     status: response.status,

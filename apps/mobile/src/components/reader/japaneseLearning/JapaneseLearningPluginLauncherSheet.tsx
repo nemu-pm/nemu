@@ -1,9 +1,11 @@
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   MobileSheetScaffold,
   nemuFontWeight,
-  NemuPressable,
+  NEMU_PROMINENT_CTA_SIZE,
+  NemuButton,
+  NemuText,
   radius,
   useNemuTheme,
 } from "@/design-system";
@@ -81,20 +83,43 @@ export function JapaneseLearningPluginLauncherSheet({
       onRequestClose={onClose}
       backdropOnPress={onClose}
       onDismiss={onDismiss}
-      title={pluginName}
-      subtitle={enabled ? strings.reader.enabled : strings.reader.disabled}
-      headerLeading={
-        <View style={[styles.iconBadge, { backgroundColor: tokens.primary }]}>
-          <Ionicons
-            name={pluginIcon}
-            size={20}
-            color={tokens.primaryForeground}
-          />
-        </View>
-      }
       dismissLabel={strings.reader.closePlugin}
       frameMaxHeight="auto"
     >
+      {/*
+        The plugin mark belongs to the title, not to the sheet chrome: a
+        leading header slot leaves the icon stranded in the top-left corner
+        while the title stays optically centered. Compose both into one
+        centered row and center the status line under it.
+      */}
+      <View style={styles.pluginHeader}>
+        <View style={styles.pluginTitleRow}>
+          <Ionicons
+            name={pluginIcon}
+            size={22}
+            color={enabled ? tokens.primary : tokens.mutedForeground}
+          />
+          <NemuText
+            accessibilityRole="header"
+            color={tokens.foreground}
+            density="compact"
+            numberOfLines={2}
+            style={styles.pluginTitle}
+            variant="sheetTitle"
+          >
+            {pluginName}
+          </NemuText>
+        </View>
+        <NemuText
+          color={tokens.mutedForeground}
+          density="compact"
+          style={styles.pluginStatus}
+          variant="caption"
+        >
+          {enabled ? strings.reader.enabled : strings.reader.disabled}
+        </NemuText>
+      </View>
+
       {/* Status grid */}
       <View style={styles.statusGrid}>
         {(
@@ -129,41 +154,20 @@ export function JapaneseLearningPluginLauncherSheet({
       </View>
 
       {/* Primary action: Detect Text */}
-      <NemuPressable
-        accessibilityRole="button"
+      <NemuButton
         accessibilityLabel={strings.reader.pluginJapaneseLearningDetectText}
-        accessibilityState={{ disabled: !canRunOcr }}
         disabled={!canRunOcr}
-        onPress={onDetectText}
-        pressedScale={0.98}
-        style={[
-          styles.primaryAction,
-          {
-            backgroundColor: tokens.primary,
-            opacity: canRunOcr ? 1 : 0.72,
-          },
-        ]}
-      >
-        {ocrLoading ? (
-          <ActivityIndicator size="small" color={tokens.primaryForeground} />
-        ) : (
-          <Ionicons
-            name="scan-outline"
-            size={17}
-            color={tokens.primaryForeground}
-          />
-        )}
-        <Text
-          style={[
-            styles.primaryActionText,
-            { color: tokens.primaryForeground },
-          ]}
-        >
-          {ocrLoading
+        icon="scan-outline"
+        label={
+          ocrLoading
             ? strings.reader.pluginJapaneseLearningDetectingText
-            : strings.reader.pluginJapaneseLearningDetectText}
-        </Text>
-      </NemuPressable>
+            : strings.reader.pluginJapaneseLearningDetectText
+        }
+        loading={ocrLoading}
+        onPress={onDetectText}
+        size={NEMU_PROMINENT_CTA_SIZE}
+        variant="default"
+      />
       {ocrUnavailableDetail ? (
         <Text
           style={[styles.unavailableDetail, { color: tokens.mutedForeground }]}
@@ -173,52 +177,42 @@ export function JapaneseLearningPluginLauncherSheet({
       ) : null}
 
       {/* Secondary action: Nemu Chat */}
-      <NemuPressable
-        accessibilityRole="button"
+      <NemuButton
         accessibilityLabel={strings.reader.pluginJapaneseLearningNemuChat}
-        accessibilityState={{ disabled: !canRunChat }}
         disabled={!canRunChat}
-        onPress={onOpenChat}
-        pressedScale={0.98}
-        style={[
-          styles.secondaryAction,
-          {
-            backgroundColor: tokens.muted,
-            borderColor: tokens.border,
-            opacity: canRunChat ? 1 : 0.72,
-          },
-        ]}
-      >
-        {chatLoading ? (
-          <ActivityIndicator size="small" color={tokens.foreground} />
-        ) : (
-          <Ionicons
-            name="chatbubbles-outline"
-            size={17}
-            color={tokens.foreground}
-          />
-        )}
-        <Text
-          style={[styles.secondaryActionText, { color: tokens.foreground }]}
-          numberOfLines={1}
-        >
-          {chatLoading
+        icon="chatbubbles-outline"
+        label={
+          chatLoading
             ? strings.reader.pluginJapaneseLearningChatThinking
-            : strings.reader.pluginJapaneseLearningNemuChat}
-        </Text>
-      </NemuPressable>
+            : strings.reader.pluginJapaneseLearningNemuChat
+        }
+        loading={chatLoading}
+        onPress={onOpenChat}
+        size={NEMU_PROMINENT_CTA_SIZE}
+        variant="secondary"
+      />
 
     </MobileSheetScaffold>
   );
 }
 
 const styles = StyleSheet.create({
-  iconBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  pluginHeader: {
+    alignItems: "center",
+    gap: 4,
+  },
+  pluginTitleRow: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
+  },
+  pluginTitle: {
+    flexShrink: 1,
+    textAlign: "center",
+  },
+  pluginStatus: {
+    textAlign: "center",
   },
   statusGrid: {
     flexDirection: "row",
@@ -242,47 +236,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: nemuFontWeight.semibold,
   },
-  primaryAction: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    height: 48,
-    borderRadius: radius.lg,
-  },
-  primaryActionText: {
-    fontSize: 15,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  secondaryAction: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    height: 48,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
   unavailableDetail: {
     fontSize: 12,
     lineHeight: 17,
     textAlign: "center",
-  },
-  secondaryActionText: {
-    fontSize: 15,
-    fontWeight: nemuFontWeight.medium,
-  },
-  settingsAction: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    height: 40,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  settingsText: {
-    fontSize: 14,
-    fontWeight: nemuFontWeight.medium,
   },
 });

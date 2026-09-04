@@ -26,11 +26,56 @@ import {
   sourcePackageCompressedByteLimit,
 } from "./sourcePackageSafety";
 import { throwIfMobileNativeHttpAborted } from "./mobileNativeHttpAbort";
+import {
+  createMobileSourceEgressWarmup,
+  runMobileHttpRequestWithRetry,
+} from "./mobileNativeHttpRetry";
+import { mobileNativeFetch } from "./mobileNativeHttp";
 
 const packageCache = new FileSystemBinaryCache(
   "nemu-cache",
   MOBILE_SOURCE_PACKAGE_CACHE_POLICY,
 );
+
+/** A warmup probe must never delay an install; it only pre-opens the egress. */
+export const MOBILE_SOURCE_EGRESS_WARMUP_TIMEOUT_MS = 3_000;
+
+const sourceEgressWarmup = createMobileSourceEgressWarmup();
+
+/**
+ * One bounded, best-effort probe of the package origin before the first
+ * download of a session. Every source HTTP request re-resolves DNS and opens a
+ * fresh pinned-IP connection inside the native loopback proxy, so the first
+ * request after app start can absorb the host's cold DNS/TUN wake-up and
+ * exhaust the native 30s budget (-1001). The probe warms exactly that path for
+ * the onboarding install burst, whose sequential downloads share one origin.
+ */
+async function warmSourcePackageEgress(downloadUrl: string): Promise<void> {
+  let origin = "";
+  try {
+    origin = new URL(downloadUrl).origin;
+  } catch {
+    return;
+  }
+  if (!sourceEgressWarmup.shouldWarm(origin)) return;
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    MOBILE_SOURCE_EGRESS_WARMUP_TIMEOUT_MS,
+  );
+  try {
+    await mobileNativeFetch(downloadUrl, {
+      method: "HEAD",
+      requireHttps: true,
+      signal: controller.signal,
+    });
+  } catch {
+    // The probe exists only to warm resolution/route state. Its result —
+    // including its own timeout — never affects the install.
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function packageKindForCacheKey(packageCacheKey: string) {
   return packageCacheKey.startsWith("tachiyomi:")
@@ -125,15 +170,19 @@ export async function cacheSourcePackage(
         })
       : makeTachiyomiExtensionCacheKey(source.registryId, source.id);
   const contentType = sourcePackageContentType(source, packageKind);
-  const packageUri = await packageCache.downloadFile(
-    packageCacheKey,
-    secureDownloadUrl,
-    contentType,
-    {
-      maxBytes: sourcePackageCompressedByteLimit(packageKind),
-      requireHttps: true,
-      signal: options.signal,
-    },
+  // The install burst is sequential (one package at a time), so the first
+  // download owns the cold-egress risk. Warm the origin, then retry the
+  // idempotent package GET through transient transport failures while the
+  // caller's install watchdog/abort signal stays authoritative.
+  await warmSourcePackageEgress(secureDownloadUrl);
+  const packageUri = await runMobileHttpRequestWithRetry(
+    () =>
+      packageCache.downloadFile(packageCacheKey, secureDownloadUrl, contentType, {
+        maxBytes: sourcePackageCompressedByteLimit(packageKind),
+        requireHttps: true,
+        signal: options.signal,
+      }),
+    { signal: options.signal },
   );
   measureMobilePerformance(
     "source.package.download.complete",
@@ -322,4 +371,11 @@ export async function clearCachedSourcePackage(
 
 export async function clearCachedSourcePackages(): Promise<void> {
   await packageCache.clearAll();
+}
+
+export async function getCachedSourcePackageStats(): Promise<{
+  bytes: number;
+  entries: number;
+}> {
+  return packageCache.getStats();
 }

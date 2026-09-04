@@ -6,6 +6,7 @@ import {
   canRunMobileSourceTextSettingBlurFeedback,
   canStartMobileSourceSettingsAction,
   countRenderableSourceSettings,
+  countVisibleSourceSettings,
   describeSourceSettingValue,
   extractSourceSettingDefaults,
   flattenSourceSettings,
@@ -322,6 +323,87 @@ describe("mobile source settings helpers", () => {
         },
       ]),
     ).toBe(3);
+  });
+
+  test("counts visible rows for the real MANGA Plus settings shape", () => {
+    // The actual multi.mangaplus res/settings.json: 2 rows in a SETTINGS
+    // group plus a Mobile API group whose 4 text rows are gated behind the
+    // "mobile" switch, so the declared and rendered counts diverge.
+    const mangaPlusSettings: SourcePackageSetting[] = [
+      {
+        type: "group",
+        key: "settings",
+        title: "SETTINGS",
+        items: [
+          {
+            type: "select",
+            key: "imgQuality",
+            title: "Image Quality",
+            values: ["low", "high", "super_high"],
+            titles: ["Low", "Medium", "High"],
+            default: "super_high",
+          },
+          {
+            type: "switch",
+            key: "split",
+            title: "Split Double Pages",
+            default: false,
+          },
+        ],
+      },
+      {
+        type: "group",
+        key: "mobileApi",
+        title: "Mobile API",
+        items: [
+          {
+            type: "switch",
+            key: "mobile",
+            title: "Use Mobile API",
+            default: false,
+            refreshes: ["listings", "content"],
+          },
+          {
+            type: "text",
+            key: "os",
+            title: "os",
+            placeholder: "os (e.g., android)",
+            requires: "mobile",
+          },
+          {
+            type: "text",
+            key: "osVer",
+            title: "os_ver",
+            placeholder: "os_ver (e.g., 32)",
+            requires: "mobile",
+          },
+          {
+            type: "text",
+            key: "appVer",
+            title: "app_ver",
+            placeholder: "app_ver (e.g., 235)",
+            requires: "mobile",
+          },
+          {
+            type: "text",
+            key: "secret",
+            title: "secret",
+            placeholder: "secret (hash value)",
+            requires: "mobile",
+          },
+        ],
+        footer:
+          "These values can be obtained from the MANGA Plus mobile app, for example, by using a network sniffer.",
+      },
+    ];
+
+    // Both counters agree on the declared count…
+    expect(countRenderableSourceSettings(mangaPlusSettings)).toBe(7);
+    // …but only 3 rows render with the switch off, and 7 render with it on.
+    expect(countVisibleSourceSettings(mangaPlusSettings, {})).toBe(3);
+    expect(countVisibleSourceSettings(mangaPlusSettings, { mobile: true })).toBe(
+      7,
+    );
   });
 
   test("extracts and merges defaults with user values", () => {

@@ -26,4 +26,6 @@ export type ReaderSettingsAction =
   | "scroll-width"
   | "two-page-mode"
   | "page-pairing-mode"
-  | "page-image-processing";
+  | "page-image-processing"
+  | "keep-awake"
+  | "lock-portrait";

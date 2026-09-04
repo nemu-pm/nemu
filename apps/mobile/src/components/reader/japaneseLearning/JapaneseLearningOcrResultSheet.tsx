@@ -1,5 +1,7 @@
+import { useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -8,11 +10,14 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   MobileSheetScaffold,
+  nemuColorWithAlpha,
   nemuFontWeight,
+  nemuText,
   NemuPressable,
   radius,
   useNemuTheme,
 } from "@/design-system";
+import { describeJapaneseLearningOcrError } from "@/lib/mobileJapaneseLearningOcr";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import type { JapaneseLearningGrammarState } from "./JapaneseLearningSentenceDisplay";
 import { JapaneseLearningSentenceDisplay } from "./JapaneseLearningSentenceDisplay";
@@ -79,6 +84,12 @@ export function JapaneseLearningOcrResultSheet({
   const { fontScale, width } = useWindowDimensions();
   const largeTextLayout = fontScale > 1.3;
   const stackFooterActions = width < 520 || largeTextLayout;
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
+
+  const ocrErrorCopy =
+    ocrState.status === "error"
+      ? describeJapaneseLearningOcrError(ocrState.detail, strings)
+      : null;
 
   return (
     <MobileSheetScaffold
@@ -96,15 +107,75 @@ export function JapaneseLearningOcrResultSheet({
               {strings.reader.pluginJapaneseLearningDetectingText}
             </Text>
           </View>
-        ) : ocrState.status === "error" ? (
+        ) : ocrState.status === "error" && ocrErrorCopy ? (
           <View style={styles.errorState}>
+            <Ionicons
+              name={
+                ocrErrorCopy.kind === "unavailable"
+                  ? "cloud-offline-outline"
+                  : "alert-circle-outline"
+              }
+              size={24}
+              color={tokens.mutedForeground}
+            />
             <Text
               accessibilityLiveRegion="assertive"
               accessibilityRole="alert"
-              style={[styles.errorText, { color: tokens.danger }]}
+              style={[styles.errorTitle, { color: tokens.foreground }]}
             >
-              {ocrState.detail ?? strings.reader.pluginJapaneseLearningOcrFailed}
+              {ocrErrorCopy.title}
             </Text>
+            <Text
+              style={[
+                styles.errorDescription,
+                { color: tokens.mutedForeground },
+              ]}
+            >
+              {ocrErrorCopy.description}
+            </Text>
+            {ocrErrorCopy.diagnostic ? (
+              <View style={styles.diagnostic}>
+                <NemuPressable
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: diagnosticOpen }}
+                  accessibilityLabel={strings.feedback.technicalDetails}
+                  hapticFeedback="selection"
+                  pressProfile="row"
+                  onPress={() => setDiagnosticOpen((open) => !open)}
+                  style={styles.diagnosticToggle}
+                >
+                  <Ionicons
+                    name={
+                      diagnosticOpen
+                        ? "chevron-down-outline"
+                        : "chevron-forward-outline"
+                    }
+                    size={12}
+                    color={tokens.mutedForeground}
+                  />
+                  <Text
+                    style={[nemuText.caption, { color: tokens.mutedForeground }]}
+                  >
+                    {strings.feedback.technicalDetails}
+                  </Text>
+                </NemuPressable>
+                {diagnosticOpen ? (
+                  <Text
+                    selectable
+                    style={[
+                      styles.diagnosticBody,
+                      styles.diagnosticMono,
+                      {
+                        backgroundColor: tokens.secondary,
+                        color: tokens.mutedForeground,
+                      },
+                    ]}
+                  >
+                    {ocrErrorCopy.diagnostic}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : (
           <JapaneseLearningSentenceDisplay
@@ -136,7 +207,7 @@ export function JapaneseLearningOcrResultSheet({
         style={[
           styles.footer,
           {
-            backgroundColor: `${tokens.background}E6`,
+            backgroundColor: nemuColorWithAlpha(tokens.background, 0.9),
             borderTopColor: tokens.border,
           },
         ]}
@@ -279,13 +350,46 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    gap: 10,
     paddingVertical: 48,
     paddingHorizontal: 24,
   },
-  errorText: {
-    fontSize: 14,
-    fontWeight: nemuFontWeight.medium,
+  errorTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: nemuFontWeight.semibold,
     textAlign: "center",
+  },
+  errorDescription: {
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  diagnostic: {
+    alignSelf: "stretch",
+    alignItems: "center",
+    gap: 4,
+  },
+  diagnosticToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  diagnosticBody: {
+    alignSelf: "stretch",
+    padding: 10,
+    borderRadius: 8,
+  },
+  diagnosticMono: {
+    fontFamily: Platform.select({
+      ios: "Menlo",
+      android: "monospace",
+      default: "monospace",
+    }),
+    fontSize: 11,
+    lineHeight: 15,
   },
   ttsErrorText: {
     fontSize: 12,

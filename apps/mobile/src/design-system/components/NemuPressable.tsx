@@ -1,4 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Animated,
   Easing,
@@ -31,8 +37,10 @@ import {
   canRunNemuPressableHaptic,
   resolveNemuPressableAccessibility,
   resolveNemuPressableAnimationEnabled,
+  resolveNemuPressablePressedScale,
   shouldResetNemuPressableInteraction,
   type NemuPressableHapticFeedback,
+  type NemuPressableProfile,
 } from "@/lib/nemuPressable";
 
 const useNativeAnimationDriver = Platform.OS !== "web";
@@ -43,6 +51,7 @@ type NemuPressableProps = Omit<PressableProps, "style"> & {
   containerStyle?: StyleProp<ViewStyle>;
   style?: StyleProp<ViewStyle>;
   pressedScale?: number;
+  pressProfile?: NemuPressableProfile;
   pressAnimationDuration?: number;
   pressAnimationEnabled?: boolean;
   hapticFeedback?: NemuPressableHapticFeedback;
@@ -56,6 +65,7 @@ export function NemuPressable({
   containerStyle,
   style,
   pressedScale,
+  pressProfile,
   pressAnimationDuration,
   pressAnimationEnabled,
   hitSlop = 6,
@@ -72,7 +82,15 @@ export function NemuPressable({
 }: NemuPressableProps) {
   const { reduceMotion, scheme, tokens } = useNemuTheme();
   const [scale] = useState(() => new Animated.Value(1));
-  const [depthPressProgress] = useState(() => new Animated.Value(0));
+  // Only depth surfaces drive the press-progress node. A plain pressable —
+  // most of the app — used to allocate it (plus three interpolations) on
+  // every mount for nothing, so it is created the first time a depth variant
+  // actually asks for it.
+  const depthPressProgressRef = useRef<Animated.Value | null>(null);
+  if (buttonDepth && depthPressProgressRef.current === null) {
+    depthPressProgressRef.current = new Animated.Value(0);
+  }
+  const depthPressProgress = depthPressProgressRef.current;
   const {
     accessibilityRole: resolvedAccessibilityRole,
     accessibilityState: resolvedAccessibilityState,
@@ -99,9 +117,15 @@ export function NemuPressable({
         tokens,
       })
     : null;
-  const flattenedStyle = StyleSheet.flatten(style);
-  const { surfaceShapeStyle, surfaceStyle } = splitNemuButtonStyle(flattenedStyle);
-  const callerOverridesShadow = hasNemuButtonShadowOverride(surfaceStyle);
+  // Flattening and splitting the caller style only feeds the depth shadow
+  // plates; without a depth variant it was pure per-render churn.
+  const depthSurfaceSplit = depthRestVisual
+    ? splitNemuButtonStyle(StyleSheet.flatten(style))
+    : null;
+  const surfaceShapeStyle = depthSurfaceSplit?.surfaceShapeStyle;
+  const callerOverridesShadow = depthSurfaceSplit
+    ? hasNemuButtonShadowOverride(depthSurfaceSplit.surfaceStyle)
+    : false;
   const depthMotion = buttonDepth ? getNemuButtonPressMotion(buttonDepth) : null;
   // A depth-enabled surface connects `scale` and `depthPressProgress` to the
   // same Animated props node. Moving only `scale` to the native driver also
@@ -112,7 +136,8 @@ export function NemuPressable({
     ? getNemuButtonMinimumTargetSize(Platform.OS)
     : null;
   const resolvedPressedScale =
-    pressedScale ?? (depthMotion ? depthMotion.scale : 0.96);
+    resolveNemuPressablePressedScale({ pressProfile, pressedScale }) ??
+    (depthMotion ? depthMotion.scale : 0.96);
   const resolvedPressAnimationDuration =
     pressAnimationDuration ?? depthMotion?.duration;
   const resolvedPressAnimationEnabled =
@@ -121,38 +146,53 @@ export function NemuPressable({
       pressAnimationEnabled,
       reduceMotion,
     });
-  const depthBackgroundColor =
-    depthRestVisual && depthPressedVisual
-      ? depthPressProgress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [
-            depthRestVisual.backgroundColor,
-            depthPressedVisual.backgroundColor,
-          ],
-        })
-      : undefined;
-  const depthBorderColor =
-    depthRestVisual && depthPressedVisual
-      ? depthPressProgress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [
-            depthRestVisual.borderColor,
-            depthPressedVisual.borderColor,
-          ],
-        })
-      : undefined;
-  const restShadowOpacity = depthPressProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 0],
-  });
+  // `getNemuButtonDepthVisual` returns a fresh object each render, so the
+  // interpolation nodes are keyed on the palette values themselves; rebuilding
+  // three Animated nodes per render churned the driver for no visual change.
+  const restBackgroundColor = depthRestVisual?.backgroundColor;
+  const pressedBackgroundColor = depthPressedVisual?.backgroundColor;
+  const restBorderColor = depthRestVisual?.borderColor;
+  const pressedBorderColor = depthPressedVisual?.borderColor;
+  const depthBackgroundColor = useMemo(
+    () =>
+      depthPressProgress &&
+      restBackgroundColor !== undefined &&
+      pressedBackgroundColor !== undefined
+        ? depthPressProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [restBackgroundColor, pressedBackgroundColor],
+          })
+        : undefined,
+    [depthPressProgress, pressedBackgroundColor, restBackgroundColor],
+  );
+  const depthBorderColor = useMemo(
+    () =>
+      depthPressProgress &&
+      restBorderColor !== undefined &&
+      pressedBorderColor !== undefined
+        ? depthPressProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [restBorderColor, pressedBorderColor],
+          })
+        : undefined,
+    [depthPressProgress, pressedBorderColor, restBorderColor],
+  );
+  const restShadowOpacity = useMemo(
+    () =>
+      depthPressProgress?.interpolate({
+        inputRange: [0, 1],
+        outputRange: [1, 0],
+      }),
+    [depthPressProgress],
+  );
 
   const animateTo = (value: number, pressed: boolean) => {
     const depthTarget = pressed ? 1 : 0;
     scale.stopAnimation();
-    depthPressProgress.stopAnimation();
+    depthPressProgress?.stopAnimation();
     if (!resolvedPressAnimationEnabled) {
       scale.setValue(1);
-      depthPressProgress.setValue(
+      depthPressProgress?.setValue(
         depthTarget === 1 && !resolvedDisabled ? 1 : 0,
       );
       return;
@@ -173,7 +213,7 @@ export function NemuPressable({
         mass: 0.65,
       }).start();
     }
-    if (depthRestVisual) {
+    if (depthRestVisual && depthPressProgress) {
       Animated.timing(depthPressProgress, {
         toValue: depthTarget,
         duration: resolvedPressAnimationDuration ?? depthMotion?.duration ?? 180,
@@ -194,8 +234,10 @@ export function NemuPressable({
     }
     scale.stopAnimation();
     scale.setValue(1);
-    depthPressProgress.stopAnimation();
-    depthPressProgress.setValue(0);
+    if (depthPressProgress) {
+      depthPressProgress.stopAnimation();
+      depthPressProgress.setValue(0);
+    }
     // A Pressable disabled during an active gesture is not guaranteed to emit
     // onPressOut. Clear the visual latch before it can re-enable as pressed.
   }, [
@@ -208,7 +250,7 @@ export function NemuPressable({
   useEffect(
     () => () => {
       scale.stopAnimation();
-      depthPressProgress.stopAnimation();
+      depthPressProgress?.stopAnimation();
     },
     [depthPressProgress, scale],
   );
@@ -310,7 +352,7 @@ export function NemuPressable({
                 styles.depthShadow,
                 {
                   boxShadow: depthPressedVisual.boxShadow,
-                  opacity: depthPressProgress,
+                  opacity: depthPressProgress ?? undefined,
                 },
                 surfaceShapeStyle,
               ]}

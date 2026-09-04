@@ -18,8 +18,8 @@ const crossSubDomainCookieConfig =
 const mobileTrustedOrigins = [
   "nemu://",
   "nemu://*",
-  "pm.nemu.mobile://",
-  "pm.nemu.mobile://*",
+  "pm.nemu://",
+  "pm.nemu://*",
 ];
 
 export const authComponent = createClient<DataModel>(components.betterAuth);
@@ -30,10 +30,14 @@ const appleConfigured = Boolean(
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   return betterAuth({
-    // Better Auth 1.6 no longer treats request-host inference as a stable
-    // server configuration. Convex provides this canonical deployment URL at
-    // runtime, keeping OAuth callbacks deterministic behind its HTTP router.
-    baseURL: convexSiteUrl,
+    // Resolve callbacks from the incoming HTTP Actions host so production's
+    // custom domain and its OAuth state cookie stay together. Direct API calls
+    // and deployments without a custom domain use the canonical Convex URL.
+    baseURL: {
+      allowedHosts: ["convex-http.nemu.pm", "*.convex.site"],
+      fallback: convexSiteUrl,
+      protocol: "https",
+    },
     trustedOrigins: [
       siteUrl,
       devUrl,

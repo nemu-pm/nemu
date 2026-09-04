@@ -55,3 +55,10 @@ export async function clearCachedSourcePackage(
 export async function clearCachedSourcePackages(): Promise<void> {
   return undefined;
 }
+
+export async function getCachedSourcePackageStats(): Promise<{
+  bytes: number;
+  entries: number;
+}> {
+  return { bytes: 0, entries: 0 };
+}

@@ -20,13 +20,41 @@ export function mergeDefinedMangaMetadata(
 ): MangaMetadata {
   return {
     title: refreshed.title || existing.title,
-    cover: refreshed.cover ?? existing.cover,
+    // Some source detail endpoints omit their listing cover or return an
+    // empty string. Do not replace a cover that was already resolved from the
+    // source listing/library with an unusable value after details finish.
+    cover: refreshed.cover?.trim() ? refreshed.cover : existing.cover,
     authors: refreshed.authors ?? existing.authors,
     description: refreshed.description ?? existing.description,
     tags: refreshed.tags ?? existing.tags,
     status: refreshed.status ?? existing.status,
     url: refreshed.url ?? existing.url,
   };
+}
+
+/**
+ * Listing/search results resolve `modifyImageRequest` before they ever reach a
+ * card, so the seed handed to the detail screen carries both the rewritten
+ * cover URL and the headers that URL needs. `MangaMetadata` has no room for
+ * headers, so they are re-attached here: they stay valid for exactly as long
+ * as the merged cover is still the seed's cover — the same URL must not be
+ * painted headerless on one frame and with headers on the next, because
+ * `MobileCachedImage` treats those as two different images.
+ */
+export function resolveMobileSeedCoverHeaders({
+  cover,
+  seedCover,
+  seedCoverHeaders,
+}: {
+  cover?: string | null;
+  seedCover?: string | null;
+  seedCoverHeaders?: Record<string, string> | null;
+}): Record<string, string> | undefined {
+  if (!cover || !seedCover || cover !== seedCover) return undefined;
+  if (!seedCoverHeaders || Object.keys(seedCoverHeaders).length === 0) {
+    return undefined;
+  }
+  return seedCoverHeaders;
 }
 
 export function makeChapterSortKey(chapter: {

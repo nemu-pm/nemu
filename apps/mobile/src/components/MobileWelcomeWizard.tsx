@@ -10,12 +10,12 @@ import {
   useWindowDimensions,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import appIcon from "../../assets/icon.jpg";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
   MobileNativeSheetScaffold,
   MobileCachedImage,
+  NEMU_PROMINENT_CTA_SIZE,
   NemuPressable,
   NemuButton,
   radius,
@@ -33,7 +33,12 @@ import {
   useSourceInstaller,
 } from "@/data/mobileHooks";
 import type { AppLanguage } from "@/data/schema";
-import { hapticConfirm, hapticError, hapticSelection, hapticWarning } from "@/lib/haptics";
+import {
+  hapticConfirm,
+  hapticError,
+  hapticSelection,
+  hapticWarning,
+} from "@/lib/haptics";
 import {
   formatMobileString,
   getMobileStrings,
@@ -48,6 +53,7 @@ import {
   createMobileWelcomeCompletionWriteCoordinator,
   getMobileWelcomeAvailableSources,
   getMobileWelcomeDefaultSelection,
+  getMobileWelcomeInstallErrorCopy,
   getMobileWelcomePendingSourceInstallCount,
   MOBILE_WELCOME_ICON_SIZE,
   resolveMobileWelcomeNativeSheetPresentation,
@@ -55,7 +61,10 @@ import {
   shouldStackMobileWelcomeActions,
   type MobileWelcomeStep,
 } from "@/lib/mobileWelcome";
-import { makeSourceKey, type MobileRegistrySource } from "@/sources/aidokuRegistry";
+import {
+  makeSourceKey,
+  type MobileRegistrySource,
+} from "@/sources/aidokuRegistry";
 
 const languageOptions: Array<{ value: AppLanguage; label: string }> = [
   { value: "en", label: "English" },
@@ -91,7 +100,6 @@ function LanguageStep({
   disabled: boolean;
   onSelect: (language: AppLanguage) => void;
 }) {
-  const { tokens } = useNemuTheme();
   return (
     <View style={styles.segmented}>
       {languageOptions.map((option) => {
@@ -101,41 +109,33 @@ function LanguageStep({
           disabled,
         });
         return (
-          <NemuPressable
+          <NemuButton
             key={option.value}
             accessibilityRole="tab"
-            accessibilityLabel={formatMobileString(strings.settings.selectSettingOption, {
-              title: strings.welcome.languageTitle,
-              option: option.label,
-            })}
+            accessibilityLabel={formatMobileString(
+              strings.settings.selectSettingOption,
+              {
+                title: strings.welcome.languageTitle,
+                option: option.label,
+              },
+            )}
             accessibilityState={{ selected, disabled }}
             disabled={disabled}
             hapticFeedback={canSelect ? "selection" : "none"}
+            label={option.label}
+            // Depth variants carry the selected/unselected states, so the
+            // language picker keeps the same pressed surfaces as every other
+            // onboarding action.
+            variant={selected ? "default" : "secondary"}
+            size={NEMU_PROMINENT_CTA_SIZE}
+            containerStyle={styles.segmentContainer}
+            style={styles.segment}
             onPress={() => {
               if (canSelect) {
                 onSelect(option.value);
               }
             }}
-            pressedScale={0.98}
-            containerStyle={styles.segmentContainer}
-            style={[
-              styles.segment,
-              {
-                backgroundColor: selected ? tokens.primary : tokens.muted,
-                borderColor: selected ? tokens.primary : tokens.border,
-                opacity: disabled ? 0.65 : 1,
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.segmentText,
-                { color: selected ? tokens.primaryForeground : tokens.mutedForeground },
-              ]}
-            >
-              {option.label}
-            </Text>
-          </NemuPressable>
+          />
         );
       })}
     </View>
@@ -163,9 +163,12 @@ function SourceOption({
   return (
     <NemuPressable
       accessibilityRole="checkbox"
-      accessibilityLabel={formatMobileString(strings.welcome.selectRecommendedSource, {
-        name: source.name,
-      })}
+      accessibilityLabel={formatMobileString(
+        strings.welcome.selectRecommendedSource,
+        {
+          name: source.name,
+        },
+      )}
       accessibilityState={{ checked: active, disabled: optionDisabled }}
       disabled={optionDisabled}
       hapticFeedback="selection"
@@ -173,6 +176,9 @@ function SourceOption({
       pressedScale={0.985}
       style={[
         styles.sourceOption,
+        // The active card carries the primary border; one full point keeps
+        // the ring visible without reading as a heavy outline.
+        active ? styles.selectedSourceOption : null,
         {
           backgroundColor: tokens.card,
           borderColor: active ? tokens.primary : tokens.border,
@@ -190,13 +196,20 @@ function SourceOption({
         ]}
       >
         {active ? (
-          <Ionicons name="checkmark" size={14} color={tokens.primaryForeground} />
+          <Ionicons
+            name="checkmark"
+            size={14}
+            color={tokens.primaryForeground}
+          />
         ) : null}
       </View>
       <View
         style={[
           styles.sourceIcon,
-          { backgroundColor: tokens.sourceIconGlass, borderColor: tokens.border },
+          {
+            backgroundColor: tokens.sourceIconGlass,
+            borderColor: tokens.border,
+          },
         ]}
       >
         {source.icon ? (
@@ -213,14 +226,24 @@ function SourceOption({
             style={styles.sourceIconImage}
           />
         ) : (
-          <Ionicons name="globe-outline" size={21} color={tokens.mutedForeground} />
+          <Ionicons
+            name="globe-outline"
+            size={21}
+            color={tokens.mutedForeground}
+          />
         )}
       </View>
       <View style={styles.sourceText}>
-        <Text numberOfLines={1} style={[styles.sourceTitle, { color: tokens.foreground }]}>
+        <Text
+          numberOfLines={1}
+          style={[styles.sourceTitle, { color: tokens.foreground }]}
+        >
           {source.name}
         </Text>
-        <Text numberOfLines={1} style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}>
+        <Text
+          numberOfLines={1}
+          style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}
+        >
           {formatLanguages(source.languages)}
         </Text>
       </View>
@@ -318,12 +341,7 @@ function MobileWelcomeWizardContent({
   startupRetrying: boolean;
 }) {
   const { tokens } = useNemuTheme();
-  const insets = useSafeAreaInsets();
-  const {
-    fontScale,
-    height: windowHeight,
-    width: windowWidth,
-  } = useWindowDimensions();
+  const { width: windowWidth } = useWindowDimensions();
   const store = useMobileDataStore();
   const completionWriteCoordinator = useMemo(
     () => createMobileWelcomeCompletionWriteCoordinator(),
@@ -334,9 +352,10 @@ function MobileWelcomeWizardContent({
   const installer = useSourceInstaller();
   const { appLanguage, setAppLanguage } = useMobileLanguageSettings();
   const [step, setStep] = useState<MobileWelcomeStep>("welcome");
-  const [selectedLanguage, setSelectedLanguage] = useState<AppLanguage>(appLanguage);
+  const [selectedLanguage, setSelectedLanguage] =
+    useState<AppLanguage>(appLanguage);
   const [selectedSourceKeys, setSelectedSourceKeys] = useState<Set<string>>(
-    () => new Set()
+    () => new Set(),
   );
   const [installing, setInstalling] = useState(false);
   const installingRef = useRef(false);
@@ -354,12 +373,13 @@ function MobileWelcomeWizardContent({
   const strings = getMobileStrings(selectedLanguage);
   const startupBlocked = startupError !== null || startupRetrying;
   const recommendedSources = useMemo(
-    () => getMobileWelcomeAvailableSources(selectedLanguage, availableSources.data),
-    [availableSources.data, selectedLanguage]
+    () =>
+      getMobileWelcomeAvailableSources(selectedLanguage, availableSources.data),
+    [availableSources.data, selectedLanguage],
   );
   const installedKeys = useMemo(
     () => buildMobileWelcomeInstalledSourceKeySet(installedSources.data),
-    [installedSources.data]
+    [installedSources.data],
   );
   const pendingSourceInstallCount = useMemo(
     () =>
@@ -380,7 +400,8 @@ function MobileWelcomeWizardContent({
   };
   const primaryDisabled = !canRunMobileWelcomePrimaryAction(actionState);
   const skipDisabled = !canRunMobileWelcomeSkipAction(actionState);
-  const actionBusy = installing || completing || changingLanguage || startupBlocked;
+  const actionBusy =
+    installing || completing || changingLanguage || startupBlocked;
   const getGuardedActionState = () => ({
     step,
     installing: installingRef.current || installing,
@@ -403,7 +424,12 @@ function MobileWelcomeWizardContent({
 
   useEffect(() => {
     setSelectedSourceKeys(
-      new Set(getMobileWelcomeDefaultSelection(selectedLanguage, availableSources.data))
+      new Set(
+        getMobileWelcomeDefaultSelection(
+          selectedLanguage,
+          availableSources.data,
+        ),
+      ),
     );
   }, [availableSources.data, selectedLanguage]);
 
@@ -441,7 +467,11 @@ function MobileWelcomeWizardContent({
   ]);
 
   const completeWelcome = async (afterComplete?: () => void) => {
-    if (!canRunMobileWelcomePrimaryAction(getGuardedActionState())) return;
+    // Completion is gated by the SKIP conditions, not the primary ones: on
+    // the sources step the primary action is disabled while the catalog is
+    // still loading, but skip-confirm ("Are you sure?") must stay able to
+    // finish the wizard during that load (nothing is being installed).
+    if (!canRunMobileWelcomeSkipAction(getGuardedActionState())) return;
 
     completeGuardRef.current = true;
     setCompleting(true);
@@ -539,13 +569,9 @@ function MobileWelcomeWizardContent({
     } catch (error) {
       if (sourceInstallCancelRequestedRef.current) return;
       await hapticError();
-      setOperationError({
-        title: strings.welcome.sourceInstallFailed,
-        detail: describeMobileErrorDetail(
-          error,
-          strings.welcome.sourceInstallFailedDetail,
-        ),
-      });
+      // Classified in the lib: a plain network timeout during the package
+      // download must not read as "this device cannot install sources".
+      setOperationError(getMobileWelcomeInstallErrorCopy(error, strings));
     } finally {
       if (sourceInstallCancelRequestedRef.current) {
         void hapticSelection();
@@ -604,62 +630,71 @@ function MobileWelcomeWizardContent({
     void completeWelcome();
   };
 
-  const sheetTopPadding = Math.max(insets.top, 18);
-  const isSourceStep = step === "sources";
-  const sourceRowCount =
-    availableSources.loading || !recommendedSources.length
-      ? 1
-      : recommendedSources.length;
-  const sourceListHeight =
-    availableSources.loading || !recommendedSources.length
-      ? 109
-      : sourceRowCount * 58 + Math.max(0, sourceRowCount - 1) * 8 + 25;
-  // Header (56), grabber area (32), content padding (18), hint + layout gaps +
-  // action row (~100) and the bottom safe area. Skipping the grabber or the
-  // gaps clips the action buttons under the navigation bar.
-  const sourcePreferredHeight =
-    32 +
-    18 +
-    56 +
-    sourceListHeight +
-    100 +
-    Math.max(insets.bottom, 18);
-  const sourceSheetHeight = Math.min(
-    620,
-    Math.max(320, Math.min(sourcePreferredHeight, windowHeight - sheetTopPadding - 12)),
-  );
-  const nativePreferredHeight =
-    step === "welcome" ? 520 : step === "language" ? 560 : 420;
-  const nativeSheetHeight = isSourceStep
-    ? sourceSheetHeight
-    : Math.min(
-        nativePreferredHeight,
-        Math.max(240, windowHeight - sheetTopPadding - 12),
-      );
-  const availableNativeSheetHeight = windowHeight - sheetTopPadding - 12;
   const welcomeSheetPlatform = Platform.OS === "android" ? "android" : "ios";
   const welcomeSheetPresentation = useMemo(
     () =>
       resolveMobileWelcomeNativeSheetPresentation({
         platform: welcomeSheetPlatform,
-        step,
-        fontScale,
-        availableHeight: availableNativeSheetHeight,
-        nativeSheetHeight,
       }),
-    [
-      availableNativeSheetHeight,
-      fontScale,
-      nativeSheetHeight,
-      step,
-      welcomeSheetPlatform,
-    ],
+    [welcomeSheetPlatform],
   );
   const welcomeIntroWidth = Math.min(400, windowWidth - 40);
   const stackActions = shouldStackMobileWelcomeActions(windowWidth);
   const welcomeIntroLines = strings.welcome.introLines;
   const [welcomeTitleBeforeBrand, welcomeTitleAfterBrand] =
     splitWelcomeTitleAroundBrand(strings.welcome.title);
+
+  const sourceListBody = availableSources.loading ? (
+    <View style={styles.loadingRow}>
+      <ActivityIndicator color={tokens.primary} />
+      <Text style={[styles.body, { color: tokens.mutedForeground }]}>
+        {strings.welcome.loadingSources}
+      </Text>
+    </View>
+  ) : availableSources.error ? (
+    <MobileInlineErrorBanner
+      title={strings.browse.sourcesUnavailable}
+      detail={describeMobileErrorDetail(
+        availableSources.error,
+        strings.browse.sourcesUnavailable,
+      )}
+      actionLabel={
+        availableSources.networkAccessState === "restricted"
+          ? strings.common.openSettings
+          : strings.common.retry
+      }
+      onActionPress={() => {
+        if (availableSources.networkAccessState === "restricted") {
+          void Linking.openSettings();
+          return;
+        }
+        void availableSources.reload().catch(() => undefined);
+      }}
+      variant="embedded"
+    />
+  ) : recommendedSources.length ? (
+    recommendedSources.map((source) => {
+      const key = makeSourceKey(source.registryId, source.id);
+      return (
+        <SourceOption
+          key={key}
+          source={source}
+          selected={selectedSourceKeys.has(key)}
+          installed={installedKeys.has(key)}
+          disabled={actionBusy || availableSources.loading}
+          strings={strings}
+          onToggle={() => toggleSource(source)}
+        />
+      );
+    })
+  ) : (
+    <View style={styles.emptyRow}>
+      <Ionicons name="globe-outline" size={22} color={tokens.mutedForeground} />
+      <Text style={[styles.body, { color: tokens.mutedForeground }]}>
+        {strings.welcome.noRecommendedSources}
+      </Text>
+    </View>
+  );
 
   const content = (
     <>
@@ -683,7 +718,13 @@ function MobileWelcomeWizardContent({
           {step === "welcome" ? (
             <>
               {welcomeTitleBeforeBrand}
-              <Text style={[styles.brandWord, nemuBrandTextStyle, { color: tokens.primary }]}>
+              <Text
+                style={[
+                  styles.brandWord,
+                  nemuBrandTextStyle,
+                  { color: tokens.primary },
+                ]}
+              >
                 nemu
               </Text>
               {welcomeTitleAfterBrand}
@@ -728,10 +769,7 @@ function MobileWelcomeWizardContent({
         <View
           accessibilityLabel={welcomeIntroLines.join("\n")}
           accessible
-          style={[
-            styles.welcomeIntro,
-            { width: welcomeIntroWidth },
-          ]}
+          style={[styles.welcomeIntro, { width: welcomeIntroWidth }]}
         >
           {/*
             Lines are pre-split per locale, so no font-shrinking hack is needed
@@ -742,7 +780,11 @@ function MobileWelcomeWizardContent({
             <Text
               key={`${index}-${line}`}
               numberOfLines={2}
-              style={[styles.body, styles.welcomeIntroLine, { color: tokens.mutedForeground }]}
+              style={[
+                styles.body,
+                styles.welcomeIntroLine,
+                { color: tokens.mutedForeground },
+              ]}
             >
               {line}
             </Text>
@@ -762,67 +804,26 @@ function MobileWelcomeWizardContent({
       ) : null}
 
       {step === "sources" ? (
-        <View style={styles.sourceList}>
-          {availableSources.loading ? (
-            <View style={styles.loadingRow}>
-              <ActivityIndicator color={tokens.primary} />
-              <Text style={[styles.body, { color: tokens.mutedForeground }]}>
-                {strings.welcome.loadingSources}
-              </Text>
-            </View>
-          ) : availableSources.error ? (
-            <MobileInlineErrorBanner
-              title={strings.browse.sourcesUnavailable}
-              detail={describeMobileErrorDetail(
-                availableSources.error,
-                strings.browse.sourcesUnavailable,
-              )}
-              actionLabel={
-                availableSources.networkAccessState === "restricted"
-                  ? strings.common.openSettings
-                  : strings.common.retry
-              }
-              onActionPress={() => {
-                if (availableSources.networkAccessState === "restricted") {
-                  void Linking.openSettings();
-                  return;
-                }
-                void availableSources.reload().catch(() => undefined);
-              }}
-              variant="embedded"
-            />
-          ) : recommendedSources.length ? (
-            recommendedSources.map((source) => {
-              const key = makeSourceKey(source.registryId, source.id);
-              return (
-                <SourceOption
-                  key={key}
-                  source={source}
-                  selected={selectedSourceKeys.has(key)}
-                  installed={installedKeys.has(key)}
-                  disabled={actionBusy || availableSources.loading}
-                  strings={strings}
-                  onToggle={() => toggleSource(source)}
-                />
-              );
-            })
-          ) : (
-            <View style={styles.emptyRow}>
-              <Ionicons name="globe-outline" size={22} color={tokens.mutedForeground} />
-              <Text style={[styles.body, { color: tokens.mutedForeground }]}>
-                {strings.welcome.noRecommendedSources}
-              </Text>
-            </View>
-          )}
-          <Text style={[styles.hint, { color: tokens.mutedForeground }]}>
-            {strings.welcome.sourcesHint}
-          </Text>
-        </View>
+        // The sheet itself is content-sized; a long catalog scrolls inside
+        // the sheet's own scroll container, so no pinned sub-list is needed.
+        <View style={styles.sourceList}>{sourceListBody}</View>
+      ) : null}
+
+      {step === "sources" ? (
+        <Text style={[styles.hint, { color: tokens.mutedForeground }]}>
+          {strings.welcome.sourcesHint}
+        </Text>
       ) : null}
 
       {step === "done" ? (
         <View style={styles.doneBlock}>
-          <Text style={[styles.body, styles.leftBody, { color: tokens.mutedForeground }]}>
+          <Text
+            style={[
+              styles.body,
+              styles.leftBody,
+              { color: tokens.mutedForeground },
+            ]}
+          >
             {strings.welcome.syncHint}
           </Text>
         </View>
@@ -832,12 +833,19 @@ function MobileWelcomeWizardContent({
         {step !== "done" ? (
           <NemuButton
             label={
-              installing ? strings.common.cancel : skipConfirm ? strings.welcome.confirmSkip : strings.welcome.skip
+              installing
+                ? strings.common.cancel
+                : skipConfirm
+                  ? strings.welcome.confirmSkip
+                  : strings.welcome.skip
             }
             variant="ghost"
+            size={NEMU_PROMINENT_CTA_SIZE}
             disabled={installing ? false : skipDisabled}
             hapticFeedback="none"
-            containerStyle={stackActions ? styles.stackedActionContainer : undefined}
+            containerStyle={
+              stackActions ? styles.stackedActionContainer : undefined
+            }
             style={stackActions ? styles.stackedAction : undefined}
             onPress={installing ? cancelSourceInstalls : skip}
           />
@@ -848,9 +856,12 @@ function MobileWelcomeWizardContent({
           <NemuButton
             label={strings.welcome.signIn}
             variant="ghost"
+            size={NEMU_PROMINENT_CTA_SIZE}
             disabled={primaryDisabled}
             hapticFeedback="none"
-            containerStyle={stackActions ? styles.stackedActionContainer : undefined}
+            containerStyle={
+              stackActions ? styles.stackedActionContainer : undefined
+            }
             style={stackActions ? styles.stackedAction : undefined}
             onPress={openCloudSync}
           />
@@ -870,11 +881,16 @@ function MobileWelcomeWizardContent({
                   : strings.welcome.startReading
           }
           variant="default"
+          size={NEMU_PROMINENT_CTA_SIZE}
           loading={installing || completing}
           disabled={primaryDisabled}
-          containerStyle={stackActions ? styles.stackedActionContainer : undefined}
+          containerStyle={
+            stackActions ? styles.stackedActionContainer : undefined
+          }
           style={[
-            step === "done" && !stackActions ? styles.doneActionButton : undefined,
+            step === "done" && !stackActions
+              ? styles.doneActionButton
+              : undefined,
             stackActions ? styles.stackedAction : undefined,
           ]}
           onPress={primaryAction}
@@ -892,6 +908,8 @@ function MobileWelcomeWizardContent({
       enablePanDownToClose={welcomeSheetPresentation.enablePanDownToClose}
       backgroundColor={tokens.background}
       testID="MobileWelcomeWizard"
+      // Content-sized steps: no detent floor, so the sheet hugs its content
+      // exactly like the original onboarding sheet.
       contentStyle={styles.sheetContent}
     >
       {content}
@@ -958,21 +976,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   segment: {
-    minHeight: 40,
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
+    // Narrow phones fit three locale labels only with tighter side padding
+    // than the shared prominent-CTA geometry.
     paddingHorizontal: 8,
   },
   segmentContainer: {
     flex: 1,
     minWidth: 0,
-  },
-  segmentText: {
-    fontSize: 14,
-    fontWeight: nemuFontWeight.bold,
   },
   sourceList: {
     gap: 8,
@@ -985,6 +995,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 12,
+  },
+  selectedSourceOption: {
+    borderWidth: 1,
   },
   sourceIcon: {
     height: 32,
@@ -1017,7 +1030,7 @@ const styles = StyleSheet.create({
     width: 22,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 999,
+    borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
   },
   hint: {

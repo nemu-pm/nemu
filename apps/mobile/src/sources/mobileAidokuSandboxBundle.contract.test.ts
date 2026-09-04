@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -303,9 +302,9 @@ describe("Android Aidoku sandbox bundle", () => {
       "node_modules/.bin/esbuild",
     );
     try {
-      const result = spawnSync(
-        esbuildPath,
-        [
+      const result = Bun.spawnSync({
+        cmd: [
+          esbuildPath,
           entry,
           "--bundle",
           "--platform=browser",
@@ -317,15 +316,13 @@ describe("Android Aidoku sandbox bundle", () => {
           "--log-level=silent",
           `--outfile=${outputPath}`,
         ],
-        {
-          cwd: mobileRoot,
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
+        cwd: mobileRoot,
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+      });
 
-      expect(result.error).toBeUndefined();
-      expect(result.status, result.stderr).toBe(0);
+      expect(result.success).toBe(true);
       expect(readFileSync(outputPath, "utf8")).toBe(
         readFileSync(bundlePath, "utf8"),
       );

@@ -63,7 +63,7 @@ export function MobilePendingDataCleanupScreen({
           ]}
         >
           <View
-            style={[styles.iconFrame, { backgroundColor: `${tokens.primary}18` }]}
+            style={[styles.iconFrame, { backgroundColor: tokens.primarySoft }]}
           >
             {running ? (
               <ActivityIndicator size="small" color={tokens.primary} />

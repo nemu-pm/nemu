@@ -36,3 +36,38 @@ export function clampMobileReaderZoomOffset(
   if (!Number.isFinite(value) || bound <= 0) return 0;
   return Math.max(-bound, Math.min(bound, value));
 }
+
+/**
+ * Pan bound for a zoomed continuous strip axis: the overflow of the scaled
+ * content over the viewport, halved so either edge can be pulled to the
+ * viewport edge. Falls back to the viewport itself when the content length is
+ * unknown (equal overflow, center-anchored), and never allows pasting past
+ * the content at scale 1.
+ */
+export function mobileReaderStripOffsetBound(
+  viewportSize: number,
+  contentSize: number,
+  scale: number,
+): number {
+  "worklet";
+  if (!Number.isFinite(viewportSize) || viewportSize <= 0 || scale <= 1) {
+    return 0;
+  }
+  const scaled =
+    Number.isFinite(contentSize) && contentSize > viewportSize
+      ? contentSize * scale
+      : viewportSize * scale;
+  return Math.max(0, (scaled - viewportSize) / 2);
+}
+
+export function clampMobileReaderStripOffset(
+  value: number,
+  viewportSize: number,
+  contentSize: number,
+  scale: number,
+): number {
+  "worklet";
+  const bound = mobileReaderStripOffsetBound(viewportSize, contentSize, scale);
+  if (!Number.isFinite(value) || bound <= 0) return 0;
+  return Math.max(-bound, Math.min(bound, value));
+}

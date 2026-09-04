@@ -157,16 +157,22 @@ export function NemuNativeSwitch({
   );
 }
 
+// UISwitch is a fixed 51x31 control. Giving the SwiftUI host those exact
+// dimensions (instead of a min-size box it can seat its content at the top of)
+// keeps the switch on the row's optical centre line in every list row.
+const IOS_SWITCH_WIDTH = 51;
+const IOS_SWITCH_HEIGHT = 31;
+
 const styles = StyleSheet.create({
   host: {
     minWidth: 54,
-    minHeight: 32,
+    minHeight: IOS_SWITCH_HEIGHT,
     alignItems: "flex-end",
     justifyContent: "center",
   },
   swiftHost: {
-    minWidth: 54,
-    minHeight: 32,
+    width: IOS_SWITCH_WIDTH,
+    height: IOS_SWITCH_HEIGHT,
   },
   disabled: {
     opacity: 0.5,

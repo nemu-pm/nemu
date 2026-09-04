@@ -10,6 +10,7 @@ import {
 import { usePathname } from "expo-router";
 import {
   FlatList,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -123,18 +124,20 @@ function usePageRefreshControl({
   const insets = useSafeAreaInsets();
   return onRefresh ? (
     <RefreshControl
-      colors={[tokens.primary]}
+      // iOS keeps the system spinner: default tint, no title text. Android has
+      // no system default for the Material indicator, so it stays on brand.
+      {...(Platform.OS === "ios"
+        ? {}
+        : { colors: [tokens.primary], progressBackgroundColor: tokens.card })}
+      accessibilityLabel={refreshLabel}
       enabled={resolveMobilePullToRefreshEnabled({
         disabled: refreshDisabled,
         hasRefreshAction: true,
         refreshing,
       })}
       onRefresh={onRefresh}
-      progressBackgroundColor={tokens.card}
       progressViewOffset={nativeHeader ? spacing.pageTop : insets.top + spacing.pageTop}
       refreshing={refreshing}
-      tintColor={tokens.primary}
-      title={refreshLabel}
       titleColor={tokens.mutedForeground}
     />
   ) : undefined;

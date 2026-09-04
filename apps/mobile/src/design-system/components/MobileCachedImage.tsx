@@ -7,7 +7,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Image, type ImageProps, type ImageURISource } from "react-native";
+import {
+  Animated as ReactAnimated,
+  Image,
+  StyleSheet,
+  type ImageProps,
+  type ImageURISource,
+} from "react-native";
+import { useNemuTheme } from "@/design/useNemuTheme";
 import {
   getCachedMobileImageAssetByStorageKeySync,
   getMobileImageCacheSourceKey,
@@ -39,6 +46,7 @@ type MobileCachedImageProps = Omit<ImageProps, "source" | "onError"> & {
    */
   uriOwnership: MobileImageUriOwnership;
   cacheKey?: string;
+  cacheKind?: "cover" | "page";
   allowLongStripSegments?: boolean;
   onSegmentedImage?: (asset: MobileCachedSegmentedImageAsset | null) => void;
   fallback?: ReactNode;
@@ -67,15 +75,23 @@ export function MobileCachedImage({
   source,
   uriOwnership,
   cacheKey,
+  cacheKind = "cover",
   allowLongStripSegments = false,
   onSegmentedImage,
   fallback,
   onError,
   onLoad,
+  style,
   ...props
 }: MobileCachedImageProps) {
+  const { reduceMotion } = useNemuTheme();
+  // Reduce Motion turns the 240ms cover fade into an instant reveal.
+  const skipFade = reduceMotion === true;
   const sourceUri = source.uri;
   const sourceHeaders = source.headers;
+  const [imageFadeRef] = useState(
+    () => new ReactAnimated.Value(skipFade ? 1 : 0),
+  );
   const uriPolicy = useMemo(
     () => getMobileImageUriPolicy(sourceUri, uriOwnership),
     [sourceUri, uriOwnership],
@@ -84,11 +100,11 @@ export function MobileCachedImage({
     () =>
       uriPolicy.allowed && uriPolicy.kind === "source-remote"
         ? getMobileImageCacheSourceKey(
-            { uri: sourceUri, headers: sourceHeaders },
+            { uri: sourceUri, headers: sourceHeaders, cacheKind },
             cacheKey,
           )
         : "",
-    [cacheKey, sourceHeaders, sourceUri, uriPolicy],
+    [cacheKey, cacheKind, sourceHeaders, sourceUri, uriPolicy],
   );
   const sourceKey = useMemo(() => {
     if (uriPolicy.allowed && uriPolicy.kind === "source-remote") {
@@ -107,8 +123,9 @@ export function MobileCachedImage({
     () => ({
       uri: source.uri,
       headers: source.headers,
+      cacheKind,
     }),
-    [source.headers, source.uri],
+    [cacheKind, source.headers, source.uri],
   );
   // Reading a segmented cache asset synchronously parses one manifest and
   // verifies up to 32 members. Cache that work by the same stable identity
@@ -343,19 +360,63 @@ export function MobileCachedImage({
         );
         reportedErrorSourceKeyRef.current = null;
       }
+      if (skipFade) {
+        imageFadeRef.setValue(1);
+      } else {
+        ReactAnimated.timing(imageFadeRef, {
+          toValue: 1,
+          duration: 240,
+          useNativeDriver: true,
+        }).start();
+      }
       onLoad?.(event);
     },
-    [onLoad, sourceKey],
+    [imageFadeRef, onLoad, skipFade, sourceKey],
   );
+
+  // Restart the fade whenever the source changes so a recycled cover cell
+  // fades into its new image instead of popping.
+  const fadedSourceKeyRef = useRef(sourceKey);
+  useEffect(() => {
+    const sourceChanged = fadedSourceKeyRef.current !== sourceKey;
+    fadedSourceKeyRef.current = sourceKey;
+    if (skipFade) {
+      imageFadeRef.setValue(1);
+      return;
+    }
+    // Only a new source restarts the fade from 0. Reduce Motion switching back
+    // off must not reset an image that is already revealed: no further `onLoad`
+    // would arrive to fade it in again, so the cover would stay blank.
+    if (sourceChanged) imageFadeRef.setValue(0);
+  }, [imageFadeRef, skipFade, sourceKey]);
 
   if (!imageSource && fallback !== undefined) return fallback;
 
   return (
-    <Image
-      {...props}
-      onError={handleImageError}
-      onLoad={handleImageLoad}
-      source={imageSource}
-    />
+    <ReactAnimated.View
+      style={[
+        styles.fadeShell,
+        style,
+        { opacity: imageFadeRef },
+      ]}
+    >
+      <Image
+        {...props}
+        onError={handleImageError}
+        onLoad={handleImageLoad}
+        source={imageSource}
+        style={styles.fadeImage}
+      />
+    </ReactAnimated.View>
   );
 }
+
+const styles = StyleSheet.create({
+  fadeShell: {
+    overflow: "hidden",
+  },
+  fadeImage: {
+    width: "100%",
+    height: "100%",
+  },
+});
