@@ -1,5 +1,7 @@
 import type { ChapterSummary, LocalChapterProgress } from "@/data/schema";
 import type { NemuTokens } from "@/design-system";
+// eslint-disable-next-line no-restricted-imports -- pure color helper; importing from @/design-system pulls the component barrel, which loads react-native's Flow-typed index.js and breaks bun's test runner.
+import { nemuColorWithAlpha } from "@/design/colorAlpha";
 
 export const MOBILE_NEW_CHAPTER_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -67,20 +69,20 @@ export function getMobileChapterRowPalette(
       };
     case "read":
       return {
-        backgroundColor: `${tokens.success}16`,
-        borderColor: `${tokens.success}30`,
+        backgroundColor: tokens.successSoft,
+        borderColor: nemuColorWithAlpha(tokens.success, 0.19),
         titleColor: tokens.mutedForeground,
       };
     case "new":
       return {
-        backgroundColor: `${tokens.primary}16`,
+        backgroundColor: tokens.primarySoft,
         borderColor: tokens.primary,
         titleColor: tokens.foreground,
       };
     case "progress":
       return {
-        backgroundColor: `${tokens.primary}16`,
-        borderColor: `${tokens.primary}30`,
+        backgroundColor: tokens.primarySoft,
+        borderColor: nemuColorWithAlpha(tokens.primary, 0.19),
         titleColor: tokens.foreground,
       };
     case "default":

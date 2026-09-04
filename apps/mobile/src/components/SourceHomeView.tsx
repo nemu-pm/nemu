@@ -1,7 +1,15 @@
-import { createContext, useContext, useRef, useState } from "react";
+import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useRef,
+  useState,
+} from "react";
 import {
   FlatList,
   Linking,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,6 +20,7 @@ import {
   type NativeSyntheticEvent,
   type StyleProp,
 } from "react-native";
+import Animated from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type {
@@ -35,6 +44,10 @@ import {
   useNemuTheme,
 } from "@/design-system";
 import { formatChapterTitle } from "@/lib/formatChapter";
+import {
+  useSkeletonDisplayDelay,
+  useSkeletonPulse,
+} from "@/lib/useSkeletonPulse";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import type { SearchSourceDisplay } from "@/lib/mobileSearch";
@@ -134,14 +147,20 @@ function SourceHomeCoverImage({
 }) {
   const { tokens } = useNemuTheme();
   const installedSource = useContext(SourceHomeInstalledSourceContext);
-  const request = useMobileSourceImageRequest(installedSource, uri);
-  const imageSource = request
-    ? {
+  const requestAlreadyResolved = headers !== undefined;
+  const request = useMobileSourceImageRequest(
+    requestAlreadyResolved ? null : installedSource,
+    requestAlreadyResolved ? null : uri,
+  );
+  const imageSource = requestAlreadyResolved
+    ? { uri, headers, cache: "force-cache" as const }
+    : request
+      ? {
         uri: request.url,
         headers: request.headers,
         cache: "force-cache" as const,
       }
-    : { uri, headers, cache: "force-cache" as const };
+      : { uri, headers, cache: "force-cache" as const };
 
   return (
     <MobileCachedImage
@@ -314,7 +333,7 @@ function SectionHeader({
   return <View style={styles.sectionHeader}>{content}</View>;
 }
 
-function HomeMangaCard({
+const HomeMangaCard = memo(function HomeMangaCard({
   item,
   source,
   importingKey,
@@ -395,7 +414,7 @@ function HomeMangaCard({
       ) : null}
     </NemuPressable>
   );
-}
+});
 
 function HomeActionCard({
   link,
@@ -524,7 +543,7 @@ function HomeScrollerSkeletonItems() {
   );
 }
 
-function HorizontalLinkSection({
+const HorizontalLinkSection = memo(function HorizontalLinkSection({
   component,
   links,
   source,
@@ -567,7 +586,9 @@ function HorizontalLinkSection({
         ListEmptyComponent={showScrollerSkeleton ? HomeScrollerSkeletonItems : null}
         initialNumToRender={4}
         maxToRenderPerBatch={4}
-        removeClippedSubviews={false}
+        // iOS detaches cells it should not on horizontal lists (rows blank out
+        // mid-swipe), so clipping stays Android-only.
+        removeClippedSubviews={Platform.OS === "android"}
         renderItem={({ item: link }) => {
           const manga = linkToManga(link);
           return manga ? (
@@ -594,7 +615,7 @@ function HorizontalLinkSection({
       />
     </View>
   );
-}
+});
 
 function FeaturedSectionSkeleton() {
   const { tokens } = useNemuTheme();
@@ -982,7 +1003,7 @@ function HomeListSkeletonRows({
   );
 }
 
-function MangaListSection({
+const MangaListSection = memo(function MangaListSection({
   component,
   links,
   ranking,
@@ -1138,7 +1159,7 @@ function MangaListSection({
       </View>
     </View>
   );
-}
+});
 
 function HomeListActionRow({
   link,
@@ -1224,7 +1245,7 @@ function HomeListActionRow({
   );
 }
 
-function ChapterListSection({
+const ChapterListSection = memo(function ChapterListSection({
   component,
   entries,
   pageSize,
@@ -1351,9 +1372,9 @@ function ChapterListSection({
       </View>
     </View>
   );
-}
+});
 
-function BannerSection({
+const BannerSection = memo(function BannerSection({
   component,
   links,
   source,
@@ -1416,7 +1437,13 @@ function BannerSection({
         )}
         initialNumToRender={3}
         maxToRenderPerBatch={3}
-        removeClippedSubviews={false}
+        decelerationRate="fast"
+        disableIntervalMomentum
+        snapToAlignment="start"
+        snapToInterval={cardSize.width + 12}
+        // iOS detaches cells it should not on horizontal lists (rows blank out
+        // mid-swipe), so clipping stays Android-only.
+        removeClippedSubviews={Platform.OS === "android"}
         renderItem={({ item: link }) => {
           const manga = linkToManga(link);
           const handlePress = () => {
@@ -1491,9 +1518,9 @@ function BannerSection({
       />
     </View>
   );
-}
+});
 
-function HomeFiltersSection({
+const HomeFiltersSection = memo(function HomeFiltersSection({
   component,
   items,
   strings,
@@ -1549,9 +1576,9 @@ function HomeFiltersSection({
       </View>
     </View>
   );
-}
+});
 
-function HomeComponentView(
+const HomeComponentView = memo(function HomeComponentView(
   props: SourceHomeViewProps & {
     component: HomeComponent;
     onOpenLink: OpenLinkHandler;
@@ -1670,22 +1697,28 @@ function HomeComponentView(
   }
 
   return null;
-}
+});
 
 export function SourceHomeSkeletonView({
   accessibilityLabel,
 }: {
   accessibilityLabel?: string;
 }) {
-  const { tokens } = useNemuTheme();
+  const { tokens, reduceMotion } = useNemuTheme();
+  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const skeletonReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
 
+  // A home that answers faster than the classic 150 ms threshold paints its
+  // rails directly instead of flashing a placeholder first.
+  if (!skeletonReady) return null;
+
   return (
-    <View
+    <Animated.View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={styles.homeSkeletonStack}
+      style={[styles.homeSkeletonStack, { opacity: skeletonOpacity }]}
     >
       <View style={styles.homeSkeletonSection}>
         <View
@@ -1771,51 +1804,72 @@ export function SourceHomeSkeletonView({
           ))}
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
-export function SourceHomeView(props: SourceHomeViewProps) {
+function SourceHomeViewImpl(props: SourceHomeViewProps) {
   const [actionError, setActionError] = useState<SourceHomeActionError | null>(
     null,
   );
+  const {
+    onFilterPress: onFilterPressProp,
+    onListingPress: onListingPressProp,
+    onPressManga: onPressMangaProp,
+    strings,
+  } = props;
+
+  // Every section below is memoized, so the handlers they receive have to keep
+  // their identity across a re-render of this view; otherwise the whole home
+  // layout rebuilds on each parent render.
+  const handleOpenLink = useCallback(
+    (url: string) => {
+      void (async () => {
+        setActionError(null);
+        try {
+          const externalUrl = normalizeMobileSourceExternalUrl(url);
+          if (!externalUrl) {
+            throw new Error("Source links must use a valid http or https URL.");
+          }
+          await Linking.openURL(externalUrl);
+          await hapticConfirm();
+        } catch (error) {
+          await hapticError();
+          setActionError({
+            title: strings.sourceBrowse.openLinkFailed,
+            detail: sourceHomeActionErrorMessage(error, strings),
+          });
+        }
+      })();
+    },
+    [strings],
+  );
+
+  const handlePressManga = useCallback(
+    (source: SearchSourceDisplay, manga: MobileLiveSearchManga) => {
+      setActionError(null);
+      onPressMangaProp(source, manga);
+    },
+    [onPressMangaProp],
+  );
+
+  const handleListingPress = useCallback(
+    (listing: Listing) => {
+      setActionError(null);
+      onListingPressProp(listing);
+    },
+    [onListingPressProp],
+  );
+
+  const handleFilterPress = useCallback(
+    (values: FilterValue[]) => {
+      setActionError(null);
+      onFilterPressProp(values);
+    },
+    [onFilterPressProp],
+  );
+
   if (!props.home.components.length) return null;
-
-  const openLink = async (url: string) => {
-    setActionError(null);
-    try {
-      const externalUrl = normalizeMobileSourceExternalUrl(url);
-      if (!externalUrl) {
-        throw new Error("Source links must use a valid http or https URL.");
-      }
-      await Linking.openURL(externalUrl);
-      await hapticConfirm();
-    } catch (error) {
-      await hapticError();
-      setActionError({
-        title: props.strings.sourceBrowse.openLinkFailed,
-        detail: sourceHomeActionErrorMessage(error, props.strings),
-      });
-    }
-  };
-
-  const handlePressManga = (
-    source: SearchSourceDisplay,
-    manga: MobileLiveSearchManga,
-  ) => {
-    setActionError(null);
-    props.onPressManga(source, manga);
-  };
-
-  const handleListingPress = (listing: Listing) => {
-    setActionError(null);
-    props.onListingPress(listing);
-  };
-
-  const handleFilterPress = (values: FilterValue[]) => {
-    setActionError(null);
-    props.onFilterPress(values);
-  };
 
   return (
     <SourceHomeInstalledSourceContext.Provider
@@ -1838,7 +1892,7 @@ export function SourceHomeView(props: SourceHomeViewProps) {
             onPressManga={handlePressManga}
             onListingPress={handleListingPress}
             onFilterPress={handleFilterPress}
-            onOpenLink={(url) => void openLink(url)}
+            onOpenLink={handleOpenLink}
             component={component}
           />
         ))}
@@ -1846,6 +1900,12 @@ export function SourceHomeView(props: SourceHomeViewProps) {
     </SourceHomeInstalledSourceContext.Provider>
   );
 }
+
+/**
+ * The home layout is the heaviest subtree on the browse screen and its props
+ * are all stable; memoizing keeps a parent re-render from rebuilding it.
+ */
+export const SourceHomeView = memo(SourceHomeViewImpl);
 
 const styles = StyleSheet.create({
   homeStack: {
@@ -2045,7 +2105,7 @@ const styles = StyleSheet.create({
   },
   featuredDot: {
     height: 8,
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
   listStack: {
     gap: 2,

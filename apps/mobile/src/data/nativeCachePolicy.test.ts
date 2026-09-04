@@ -51,6 +51,81 @@ describe("native binary cache policy", () => {
     ).toEqual(["a"]);
   });
 
+  test("evicts to a low-water target only after the hard limit is crossed", () => {
+    const policy = {
+      maxAgeMs: 10_000,
+      maxBytes: 100,
+      maxEntries: 10,
+      targetBytes: 60,
+      targetEntries: 8,
+    };
+    expect(
+      selectNativeBinaryCacheEvictions(
+        [
+          { id: "old", size: 40, modifiedAt: 1 },
+          { id: "middle", size: 40, modifiedAt: 2 },
+          { id: "new", size: 40, modifiedAt: 3 },
+        ],
+        policy,
+        10,
+      ),
+    ).toEqual(["old", "middle"]);
+    expect(
+      selectNativeBinaryCacheEvictions(
+        [
+          { id: "old", size: 40, modifiedAt: 1 },
+          { id: "new", size: 40, modifiedAt: 2 },
+        ],
+        policy,
+        10,
+      ),
+    ).toEqual([]);
+  });
+
+  test("keeps a recently read entry that was written long ago", () => {
+    expect(
+      selectNativeBinaryCacheEvictions(
+        [
+          // Written first, but read most recently: an LRU cache must keep it.
+          { id: "hot", size: 60, modifiedAt: 2_100, lastAccessAt: 2_900 },
+          { id: "cold", size: 60, modifiedAt: 2_400 },
+        ],
+        policy,
+        3_000,
+      ),
+    ).toEqual(["cold"]);
+  });
+
+  test("treats a read as a recency refresh for the age limit", () => {
+    expect(
+      selectNativeBinaryCacheEvictions(
+        [{ id: "stale-write", size: 5, modifiedAt: 1_000, lastAccessAt: 2_800 }],
+        policy,
+        3_000,
+      ),
+    ).toEqual([]);
+    expect(
+      selectNativeBinaryCacheEvictions(
+        [{ id: "stale-read", size: 5, modifiedAt: 1_000, lastAccessAt: 1_500 }],
+        policy,
+        3_000,
+      ),
+    ).toEqual(["stale-read"]);
+  });
+
+  test("ignores an unusable access timestamp", () => {
+    expect(
+      selectNativeBinaryCacheEvictions(
+        [
+          { id: "a", size: 60, modifiedAt: 2_500, lastAccessAt: Number.NaN },
+          { id: "b", size: 60, modifiedAt: 2_600 },
+        ],
+        policy,
+        3_000,
+      ),
+    ).toEqual(["a"]);
+  });
+
   test("keeps a newly written entry while evicting equal-time older files", () => {
     expect(
       selectNativeBinaryCacheEvictions(

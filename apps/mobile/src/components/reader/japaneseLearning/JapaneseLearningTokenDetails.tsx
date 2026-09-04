@@ -1,6 +1,11 @@
 import { type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { nemuFontWeight, radius, useNemuTheme } from "@/design-system";
+import {
+  nemuColorWithAlpha,
+  nemuFontWeight,
+  radius,
+  useNemuTheme,
+} from "@/design-system";
 import { type MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import { type MobileStrings } from "@/lib/mobileI18n";
 import { mobileGrammarTokenCategory } from "@/lib/mobileJapaneseLearningReaderHelpers";
@@ -47,7 +52,9 @@ export function JapaneseLearningPosPill({
   const style =
     category === "punctuation" || category === "unknown" || category === "other"
       ? {
-          bg: subtle ? tokens.muted : `${tokens.mutedForeground}22`,
+          bg: subtle
+            ? tokens.muted
+            : nemuColorWithAlpha(tokens.mutedForeground, 0.13),
           text: tokens.mutedForeground,
           border: "transparent",
         }

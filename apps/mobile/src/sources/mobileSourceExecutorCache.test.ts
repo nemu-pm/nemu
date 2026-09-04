@@ -5,6 +5,7 @@ import type { MobileRuntimeSource } from "./mobileSourceRuntime";
 import {
   createMobileSourceSessionCache,
   hashSettings,
+  MOBILE_SOURCE_SESSION_POOL_SIZE,
   MobileSourceSessionInvalidatedError,
 } from "./mobileSourceExecutorCache";
 import { MobileSourceOperationTimeoutError } from "./mobileSourceOperationTimeout";
@@ -301,6 +302,9 @@ describe("mobileSourceExecutorCache", () => {
     const disposed: string[] = [];
     const calls: FactoryCalls = [];
     const cache = createMobileSourceSessionCache({
+      // Pinned at 2 so the eviction boundary is reachable with three
+      // sources; the production default is
+      // MOBILE_SOURCE_SESSION_POOL_SIZE, asserted separately.
       maxEntries: 2,
       factory: async (source, options) => {
         calls.push({ sourceKey: `${source.registryId}:${source.sourceId}`, settings: options.settings ?? {} });
@@ -327,7 +331,11 @@ describe("mobileSourceExecutorCache", () => {
     expect(cache.size()).toBe(2);
   });
 
-  test("production defaults retain only the two sessions Dual Reader needs", async () => {
+  // The pool used to be pinned at 2 — exactly the live-search fan-out — so
+  // every multi-source search evicted both sessions Dual Reader had warm and
+  // recompiled their WASM on the next page turn. It is now one larger than the
+  // search concurrency (MOBILE_LIVE_SEARCH_SOURCE_CONCURRENCY = pool - 1).
+  test("production defaults retain one more session than a search can occupy", async () => {
     const disposed: string[] = [];
     const cache = createMobileSourceSessionCache({
       factory: async (source) => ({
@@ -354,8 +362,17 @@ describe("mobileSourceExecutorCache", () => {
     );
 
     await Promise.resolve();
+    expect(MOBILE_SOURCE_SESSION_POOL_SIZE).toBe(3);
+    expect(disposed).toEqual([]);
+    expect(cache.size()).toBe(MOBILE_SOURCE_SESSION_POOL_SIZE);
+
+    await cache.acquire(
+      makeSource({ sourceId: "four", id: "aidoku-community:four" }),
+      { settings: {} },
+    );
+    await Promise.resolve();
     expect(disposed).toEqual(["aidoku-community:one"]);
-    expect(cache.size()).toBe(2);
+    expect(cache.size()).toBe(MOBILE_SOURCE_SESSION_POOL_SIZE);
   });
 
   test("idle sweep disposes entries past their TTL", async () => {
@@ -431,6 +448,9 @@ describe("mobileSourceExecutorCache", () => {
     const disposed: string[] = [];
     let resolveCallback: () => void = () => {};
     const cache = createMobileSourceSessionCache({
+      // Pinned at 2 so the eviction boundary is reachable with three
+      // sources; the production default is
+      // MOBILE_SOURCE_SESSION_POOL_SIZE, asserted separately.
       maxEntries: 2,
       factory: async (source) => ({
         status: "ready",
@@ -736,5 +756,76 @@ describe("mobileSourceExecutorCache", () => {
     await Promise.resolve();
     expect(disposed).toEqual(["disposed"]);
     expect(cache.size()).toBe(0);
+  });
+
+  test("skips an aborted queued request before it touches the runtime", async () => {
+    const built: string[] = [];
+    let releaseFirst: () => void = () => {};
+    const firstEntered = new Promise<void>((resolve) => {
+      releaseFirst = () => resolve();
+    });
+    let finishFirst: () => void = () => {};
+    const cache = createMobileSourceSessionCache({
+      factory: async (source) => {
+        built.push(`${source.registryId}:${source.sourceId}`);
+        return {
+          status: "ready",
+          sourceKey: `${source.registryId}:${source.sourceId}`,
+          runtime: "native-aidoku",
+          source: makeExecutorSource(),
+        };
+      },
+    });
+    const source = makeSource();
+    const controller = new AbortController();
+    let queuedCallbackRan = false;
+
+    const holdingBody = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const holding = cache.withSession(source, { settings: {} }, async () => {
+      releaseFirst();
+      await holdingBody;
+    });
+    await firstEntered;
+    const queued = cache.withSession(
+      source,
+      { settings: {}, signal: controller.signal },
+      async () => {
+        queuedCallbackRan = true;
+      },
+    );
+
+    controller.abort();
+    finishFirst();
+    await holding;
+    await expect(queued).rejects.toThrow(/aborted/i);
+    expect(queuedCallbackRan).toBe(false);
+    expect(built).toEqual(["aidoku-community:en.example"]);
+  });
+
+  test("an already-aborted caller never enters the session", async () => {
+    const cache = createMobileSourceSessionCache({
+      factory: async (source) => ({
+        status: "ready",
+        sourceKey: `${source.registryId}:${source.sourceId}`,
+        runtime: "native-aidoku",
+        source: makeExecutorSource(),
+      }),
+    });
+    const controller = new AbortController();
+    controller.abort();
+    let ran = false;
+
+    await expect(
+      cache.withSession(
+        makeSource(),
+        { settings: {}, signal: controller.signal },
+        async () => {
+          ran = true;
+        },
+      ),
+    ).rejects.toThrow(/aborted/i);
+    expect(ran).toBe(false);
   });
 });

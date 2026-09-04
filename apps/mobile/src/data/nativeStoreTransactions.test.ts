@@ -246,6 +246,67 @@ describe("NativeUserDataStore transactions", () => {
     ).rejects.toThrow("Invalid mobile sync snapshot state");
   });
 
+  test("reads one manga progress row with a primary-key select", async () => {
+    const row: LocalMangaProgress = {
+      id: "registry:source:manga",
+      registryId: "registry",
+      sourceId: "source",
+      sourceMangaId: "manga",
+      lastReadAt: 5,
+      updatedAt: 5,
+    };
+    const statements: string[] = [];
+    const db = {
+      getAllAsync: async (sql: string) => {
+        statements.push(sql);
+        return [];
+      },
+      getFirstAsync: async (sql: string, ...args: unknown[]) => {
+        statements.push(sql);
+        return args[0] === row.id ? { json: JSON.stringify(row) } : null;
+      },
+    } as unknown as SQLiteDatabase;
+    const store = new NativeUserDataStore(db);
+
+    expect(await store.getMangaProgressById(row.id)).toEqual(row);
+    expect(await store.getMangaProgressById("missing")).toBeNull();
+    // A full-table scan would have to read every row back through getAllAsync.
+    expect(statements.every((sql) => sql.includes("WHERE id = ?"))).toBe(true);
+  });
+
+  test("merges a saved manga progress row against the point lookup", async () => {
+    const existing: LocalMangaProgress = {
+      id: "registry:source:manga",
+      registryId: "registry",
+      sourceId: "source",
+      sourceMangaId: "manga",
+      lastReadAt: 10,
+      updatedAt: 10,
+    };
+    let scans = 0;
+    let saved: LocalMangaProgress | null = null;
+    const db = {
+      getAllAsync: async () => {
+        scans += 1;
+        return [];
+      },
+      getFirstAsync: async () => ({ json: JSON.stringify(existing) }),
+      runAsync: async (sql: string, ...args: unknown[]) => {
+        if (sql.includes("manga_progress")) {
+          saved = JSON.parse(String(args[7])) as LocalMangaProgress;
+        }
+        return {} as never;
+      },
+    } as unknown as SQLiteDatabase;
+    const store = new NativeUserDataStore(db);
+
+    await store.saveMangaProgress({ ...existing, lastReadAt: 20, updatedAt: 20 });
+
+    expect(saved).not.toBeNull();
+    expect(saved!.lastReadAt).toBe(20);
+    expect(scans).toBe(0);
+  });
+
   test("does zero SQLite puts for unchanged 10k progress snapshots", async () => {
     const chapters: LocalChapterProgress[] = Array.from(
       { length: 10_000 },
@@ -309,5 +370,90 @@ describe("NativeUserDataStore transactions", () => {
     expect(mangaResult.changed).toHaveLength(0);
     expect(mangaResult.localWinners).toHaveLength(0);
     expect(sqlitePuts).toBe(0);
+  });
+});
+
+describe("NativeUserDataStore library counting", () => {
+  test("counts in SQLite instead of scanning and parsing every row", async () => {
+    const statements: string[] = [];
+    const db = {
+      getAllAsync: async (sql: string) => {
+        statements.push(sql);
+        return [];
+      },
+      getFirstAsync: async (sql: string) => {
+        statements.push(sql);
+        return { count: 7 };
+      },
+      runAsync: async () => ({}) as never,
+      execAsync: async () => undefined,
+    } as unknown as SQLiteDatabase;
+    const store = new NativeUserDataStore(db);
+
+    expect(await store.countLibraryEntries()).toBe(7);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain("COUNT(*)");
+    expect(statements[0]).toContain("inLibrary = 1");
+    // No `SELECT json` means no per-row JSON.parse on the sync-progress path.
+    expect(statements.some((sql) => sql.includes("SELECT json"))).toBe(false);
+  });
+
+  test("reports zero when the count row is missing", async () => {
+    const db = {
+      getAllAsync: async () => [],
+      getFirstAsync: async () => null,
+      runAsync: async () => ({}) as never,
+      execAsync: async () => undefined,
+    } as unknown as SQLiteDatabase;
+
+    expect(await new NativeUserDataStore(db).countLibraryEntries()).toBe(0);
+  });
+});
+
+describe("NativeUserDataStore source-link tombstones", () => {
+  function recordingDb() {
+    const statements: string[] = [];
+    const db = {
+      getAllAsync: async (sql: string) => {
+        statements.push(sql);
+        return [];
+      },
+      getFirstAsync: async () => null,
+      runAsync: async () => ({}) as never,
+      execAsync: async () => undefined,
+    } as unknown as SQLiteDatabase;
+    return { db, statements };
+  }
+
+  test("filters removal tombstones in SQL by default", async () => {
+    const { db, statements } = recordingDb();
+
+    await new NativeUserDataStore(db).getAllSourceLinks();
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain("json_extract(json, '$.removed') IS NOT 1");
+  });
+
+  test("keeps tombstones available for sync merges", async () => {
+    const { db, statements } = recordingDb();
+
+    await new NativeUserDataStore(db).getAllSourceLinks({
+      includeRemoved: true,
+    });
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).not.toContain("json_extract");
+  });
+
+  test("library hydration never fetches tombstoned links", async () => {
+    const { db, statements } = recordingDb();
+
+    await new NativeUserDataStore(db).getLibraryEntries();
+
+    const linkStatements = statements.filter((sql) =>
+      sql.includes("source_links"),
+    );
+    expect(linkStatements).toHaveLength(1);
+    expect(linkStatements[0]).toContain("json_extract(json, '$.removed')");
   });
 });

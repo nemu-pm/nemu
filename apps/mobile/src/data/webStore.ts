@@ -500,6 +500,12 @@ export class WebUserDataStore implements MobileDataStore {
       .sort((a, b) => b.item.updatedAt - a.item.updatedAt);
   }
 
+  async countLibraryEntries(): Promise<number> {
+    return this.readState().libraryItems.filter(
+      (item) => item.inLibrary !== false,
+    ).length;
+  }
+
   async getLibraryItem(
     libraryItemId: string,
   ): Promise<LocalLibraryItem | null> {
@@ -534,8 +540,11 @@ export class WebUserDataStore implements MobileDataStore {
     return this.readState().sourceLinks.find((link) => link.id === id) ?? null;
   }
 
-  async getAllSourceLinks(): Promise<LocalSourceLink[]> {
-    return this.readState().sourceLinks;
+  async getAllSourceLinks(options?: {
+    includeRemoved?: boolean;
+  }): Promise<LocalSourceLink[]> {
+    const links = this.readState().sourceLinks;
+    return options?.includeRemoved ? links : links.filter((link) => !link.removed);
   }
 
   async saveLibraryItem(item: LocalLibraryItem): Promise<void> {
@@ -588,6 +597,39 @@ export class WebUserDataStore implements MobileDataStore {
         collectionItems: state.collectionItems.map((entry) =>
           entry.libraryItemId === libraryItemId
             ? { ...entry, removed: true, updatedAt: now }
+            : entry,
+        ),
+      };
+    });
+  }
+
+  async restoreLibraryItem(
+    libraryItemId: string,
+    updatedAt?: number,
+  ): Promise<void> {
+    this.updateState((state) => {
+      const item = state.libraryItems.find(
+        (entry) => entry.libraryItemId === libraryItemId,
+      );
+      const memberships = state.collectionItems.filter(
+        (entry) => entry.libraryItemId === libraryItemId,
+      );
+      const now =
+        updatedAt ??
+        nextSyncTimestamp(
+          item?.updatedAt,
+          ...memberships.map((entry) => entry.updatedAt),
+        );
+      return {
+        ...state,
+        libraryItems: state.libraryItems.map((entry) =>
+          entry.libraryItemId === libraryItemId
+            ? { ...entry, inLibrary: true, updatedAt: now }
+            : entry,
+        ),
+        collectionItems: state.collectionItems.map((entry) =>
+          entry.libraryItemId === libraryItemId && entry.removed
+            ? { ...entry, removed: false, updatedAt: now }
             : entry,
         ),
       };
@@ -726,6 +768,10 @@ export class WebUserDataStore implements MobileDataStore {
 
   async getMangaProgress(): Promise<LocalMangaProgress[]> {
     return this.readState().mangaProgress;
+  }
+
+  async getMangaProgressById(id: string): Promise<LocalMangaProgress | null> {
+    return this.readState().mangaProgress.find((entry) => entry.id === id) ?? null;
   }
 
   async getAllMangaProgress(): Promise<LocalMangaProgress[]> {

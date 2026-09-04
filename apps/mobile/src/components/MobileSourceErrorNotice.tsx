@@ -1,5 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef } from "react";
+import {
+  AccessibilityInfo,
+  Platform,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import {
   NemuPressable,
   radius,
@@ -23,6 +30,21 @@ export function MobileSourceErrorNotice({
   onActionPress,
 }: MobileSourceErrorNoticeProps) {
   const { tokens } = useNemuTheme();
+  const announcement = title ? `${title}. ${detail}` : detail;
+  const lastAnnouncementRef = useRef<string | null>(null);
+
+  // Same contract as `MobileInlineErrorBanner`: VoiceOver reads a newly
+  // surfaced source failure once, and a re-render with identical copy stays
+  // silent.
+  useEffect(() => {
+    if (Platform.OS !== "ios") {
+      lastAnnouncementRef.current = null;
+      return;
+    }
+    if (lastAnnouncementRef.current === announcement) return;
+    lastAnnouncementRef.current = announcement;
+    AccessibilityInfo.announceForAccessibility(announcement);
+  }, [announcement]);
 
   return (
     <View style={[styles.notice, { backgroundColor: tokens.muted }]}>
@@ -31,7 +53,13 @@ export function MobileSourceErrorNotice({
         size={16}
         color={error ? tokens.danger : tokens.mutedForeground}
       />
-      <View style={styles.noticeCopy}>
+      <View
+        accessible
+        accessibilityLabel={announcement}
+        accessibilityLiveRegion="polite"
+        accessibilityRole="alert"
+        style={styles.noticeCopy}
+      >
         {title ? (
           <Text
             numberOfLines={1}

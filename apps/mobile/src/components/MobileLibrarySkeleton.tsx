@@ -1,19 +1,35 @@
 import { StyleSheet, View } from "react-native";
-import { createNemuShadowStyle, radius, useNemuTheme } from "@/design-system";
+import Animated from "react-native-reanimated";
+import {
+  createNemuShadowStyle,
+  radius,
+  useNemuTheme,
+} from "@/design-system";
+import {
+  useSkeletonDisplayDelay,
+  useSkeletonPulse,
+} from "@/lib/useSkeletonPulse";
 
-const SKELETON_CHIPS = [0, 1, 2] as const;
 const SKELETON_ITEMS = [0, 1, 2, 3, 4, 5, 6, 7, 8] as const;
 
-type MobileLibrarySkeletonProps = {
-  accessibilityLabel: string;
-};
-
+/**
+ * Library loading skeleton sharing its geometry with MangaCard: 2/3 cover,
+ * radius 10, 8pt gap, and a 60pt text block — so the real grid never shifts
+ * or grows when data lands. Appears only after a 150ms hold, so fast loads
+ * never flash a placeholder.
+ */
 export function MobileLibrarySkeleton({
   accessibilityLabel,
-}: MobileLibrarySkeletonProps) {
-  const { tokens } = useNemuTheme();
+}: {
+  accessibilityLabel: string;
+}) {
+  const { tokens, reduceMotion } = useNemuTheme();
+  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const displayReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
+
+  if (!displayReady) return null;
 
   return (
     <View
@@ -21,30 +37,16 @@ export function MobileLibrarySkeleton({
       accessibilityRole="progressbar"
       style={styles.stack}
     >
-      <View style={styles.chipRow}>
-        {SKELETON_CHIPS.map((chip) => (
-          <View
-            key={chip}
-            style={[
-              styles.chip,
-              {
-                backgroundColor: chip === 0 ? skeletonColor : subtleSkeletonColor,
-                borderColor: tokens.border,
-              },
-            ]}
-          />
-        ))}
-      </View>
-
       <View style={styles.grid}>
         {SKELETON_ITEMS.map((item) => (
           <View key={item} style={styles.gridItem}>
-            <View
+            <Animated.View
               style={[
                 styles.cover,
                 {
                   backgroundColor: skeletonColor,
                   borderColor: tokens.coverBorder,
+                  opacity: skeletonOpacity,
                   ...createNemuShadowStyle({
                     color: tokens.shadow,
                     offsetY: 3,
@@ -54,15 +56,30 @@ export function MobileLibrarySkeleton({
                 },
               ]}
             />
-            <View
-              style={[styles.titleLine, { backgroundColor: skeletonColor }]}
-            />
-            <View
-              style={[
-                styles.subtitleLine,
-                { backgroundColor: subtleSkeletonColor },
-              ]}
-            />
+            <View style={styles.textBlock}>
+              <Animated.View
+                style={[
+                  styles.titleLine,
+                  { backgroundColor: skeletonColor, opacity: skeletonOpacity },
+                ]}
+              />
+              <Animated.View
+                style={[
+                  styles.titleLine,
+                  styles.titleLineSecond,
+                  { backgroundColor: skeletonColor, opacity: skeletonOpacity },
+                ]}
+              />
+              <Animated.View
+                style={[
+                  styles.subtitleLine,
+                  {
+                    backgroundColor: subtleSkeletonColor,
+                    opacity: skeletonOpacity,
+                  },
+                ]}
+              />
+            </View>
           </View>
         ))}
       </View>
@@ -73,19 +90,6 @@ export function MobileLibrarySkeleton({
 const styles = StyleSheet.create({
   stack: {
     gap: 16,
-  },
-  chipRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginHorizontal: -18,
-    paddingHorizontal: 18,
-  },
-  chip: {
-    width: 112,
-    height: 36,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    opacity: 0.78,
   },
   grid: {
     flexDirection: "row",
@@ -99,19 +103,28 @@ const styles = StyleSheet.create({
     aspectRatio: 2 / 3,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    opacity: 0.78,
+  },
+  textBlock: {
+    // Mirrors MangaCard: reserved 60pt block so the grid never reflows.
+    minHeight: 60,
+    marginTop: 8,
+    paddingHorizontal: 2,
   },
   titleLine: {
+    // MangaCard renders a 13/17 title over at most two lines; the skeleton
+    // reserves the same two glyph heights so nothing shifts when data lands.
     height: 13,
-    marginTop: 8,
+    width: "92%",
     borderRadius: radius.sm,
-    opacity: 0.78,
+  },
+  titleLineSecond: {
+    width: "60%",
+    marginTop: 4,
   },
   subtitleLine: {
-    width: "72%",
-    height: 11,
-    marginTop: 5,
+    height: 12,
+    width: "45%",
+    marginTop: 6,
     borderRadius: radius.sm,
-    opacity: 0.72,
   },
 });

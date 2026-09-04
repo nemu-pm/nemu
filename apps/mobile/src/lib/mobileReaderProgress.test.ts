@@ -3,24 +3,35 @@ import {
   clampReaderPageIndex,
   formatReaderPageActionAccessibilityLabel,
   formatReaderPageValue,
+  formatReaderSpreadValue,
   readerDisplayIndexForRoutePage,
   readerDisplayIndexForScrollOffset,
   readerDisplayIndexForViewableItems,
+  getReaderContinuousScrollMetrics,
   readerDisplayIndexForSourceIndex,
   readerDisplayIndexForVisualProgressRatio,
   readerDisplayIndexFromOffset,
   readerProgressDisplayIndexForVisiblePages,
   readerProgressRatio,
+  readerContinuousAccessibilityAction,
+  readerContinuousRelayoutProgress,
+  readerContinuousScrollOffsetForProgress,
   readerRoutePageForDisplayIndex,
+  readerScrollMetricsResetKey,
+  readerScrubberInteractionScopeKey,
+  readerScrubberDirection,
   readerLogicalFrameIndexForVisualFrame,
   readerPageArrivalForStep,
   readerScrollOffsetForLogicalFrame,
+  readerScrollToIndexRetryLimit,
   readerSourceIndexForDisplayIndex,
   readerSourceStepTargetForDisplayIndex,
   readerVisualFrameIndexForLogicalFrame,
   readerVisualProgressRatio,
   shouldAutoCompleteMobileReaderChapter,
+  shouldScheduleReaderChromeAutoHide,
   shouldRunReaderMenuPageSwitchHaptic,
+  shouldUseReaderPhysicalScrollScrubber,
 } from "./mobileReaderProgress";
 import { getMobileStrings } from "./mobileI18n";
 
@@ -41,6 +52,282 @@ describe("mobile reader progress helpers", () => {
     expect(readerDisplayIndexFromOffset(390 * 3.2, 390, 5)).toBe(3);
     expect(readerDisplayIndexFromOffset(390 * 9, 390, 5)).toBe(4);
     expect(readerDisplayIndexFromOffset(100, 0, 5)).toBe(0);
+  });
+
+  test("maps exact continuous scroll offsets independently of page count", () => {
+    const middle = getReaderContinuousScrollMetrics({
+      contentOffset: 1_500,
+      contentLength: 4_000,
+      viewportLength: 1_000,
+    });
+    expect(middle).toEqual({
+      contentOffset: 1_500,
+      contentLength: 4_000,
+      viewportLength: 1_000,
+      maximumOffset: 3_000,
+      progress: 0.5,
+      scrollable: true,
+    });
+    expect(readerContinuousScrollOffsetForProgress(0.25, middle)).toBe(750);
+    expect(readerContinuousScrollOffsetForProgress(2, middle)).toBe(3_000);
+
+    const short = getReaderContinuousScrollMetrics({
+      contentOffset: 500,
+      contentLength: 600,
+      viewportLength: 800,
+    });
+    expect(short.scrollable).toBe(false);
+    expect(short.contentOffset).toBe(0);
+    expect(short.progress).toBe(0);
+    expect(readerContinuousScrollOffsetForProgress(0.5, short)).toBe(0);
+  });
+
+  test("uses physical scroll progress only when the whole continuous content is measurable", () => {
+    expect(
+      shouldUseReaderPhysicalScrollScrubber({ pagedMode: false, pageCount: 1 }),
+    ).toBe(true);
+    expect(
+      shouldUseReaderPhysicalScrollScrubber({ pagedMode: false, pageCount: 60 }),
+    ).toBe(false);
+    expect(
+      shouldUseReaderPhysicalScrollScrubber({ pagedMode: true, pageCount: 1 }),
+    ).toBe(false);
+  });
+
+  test("guards malformed continuous scroll measurements", () => {
+    expect(
+      getReaderContinuousScrollMetrics({
+        contentOffset: Number.NaN,
+        contentLength: Number.POSITIVE_INFINITY,
+        viewportLength: -10,
+      }),
+    ).toEqual({
+      contentOffset: 0,
+      contentLength: 0,
+      viewportLength: 0,
+      maximumOffset: 0,
+      progress: 0,
+      scrollable: false,
+    });
+  });
+
+  test("keeps continuous scrub progress top-to-bottom regardless of paged direction", () => {
+    expect(
+      readerScrubberDirection({ continuousScroll: true, mode: "rtl" }),
+    ).toBe("ltr");
+    expect(
+      readerScrubberDirection({ continuousScroll: true, mode: "ltr" }),
+    ).toBe("ltr");
+    expect(
+      readerScrubberDirection({ continuousScroll: false, mode: "rtl" }),
+    ).toBe("rtl");
+    expect(
+      readerScrubberDirection({ continuousScroll: false, mode: "ltr" }),
+    ).toBe("ltr");
+  });
+
+  test("steps continuous accessibility by a viewport and advances only from the bottom", () => {
+    const metrics = {
+      contentOffset: 1_000,
+      contentLength: 5_000,
+      viewportLength: 1_000,
+    };
+    expect(readerContinuousAccessibilityAction(metrics, "next")).toEqual({
+      kind: "scroll",
+      offset: 1_850,
+    });
+    expect(readerContinuousAccessibilityAction(metrics, "previous")).toEqual({
+      kind: "scroll",
+      offset: 150,
+    });
+    expect(
+      readerContinuousAccessibilityAction(
+        { ...metrics, contentOffset: 3_900 },
+        "next",
+      ),
+    ).toEqual({ kind: "scroll", offset: 4_000 });
+    expect(
+      readerContinuousAccessibilityAction(
+        { ...metrics, contentOffset: 4_000 },
+        "next",
+      ),
+    ).toEqual({ kind: "end" });
+    expect(
+      readerContinuousAccessibilityAction(
+        { ...metrics, contentOffset: 0 },
+        "previous",
+      ),
+    ).toEqual({ kind: "scroll", offset: 0 });
+  });
+
+  test("carries normalized progress through same-content relayouts", () => {
+    expect(
+      readerContinuousRelayoutProgress({
+        sameContent: true,
+        currentProgress: 0.42,
+      }),
+    ).toBe(0.42);
+    expect(
+      readerContinuousRelayoutProgress({
+        sameContent: true,
+        currentProgress: null,
+        pendingProgress: 0.42,
+      }),
+    ).toBe(0.42);
+    expect(
+      readerContinuousRelayoutProgress({
+        sameContent: false,
+        currentProgress: 0.42,
+        initialProgress: 0.18,
+      }),
+    ).toBe(0.18);
+    expect(
+      readerContinuousRelayoutProgress({
+        sameContent: false,
+        currentProgress: 0.42,
+      }),
+    ).toBeNull();
+  });
+
+  test("does not clear live metrics between rapid same-content geometry remounts", () => {
+    const contentIdentity = "chapter:a:fetch:1:scrolling";
+    const first = readerScrollMetricsResetKey({
+      continuousContentIdentity: contentIdentity,
+      pagedMode: false,
+      scrollMountKey: "scrolling:390:844",
+    });
+    const second = readerScrollMetricsResetKey({
+      continuousContentIdentity: contentIdentity,
+      pagedMode: false,
+      scrollMountKey: "scrolling:360:780",
+    });
+    const third = readerScrollMetricsResetKey({
+      continuousContentIdentity: contentIdentity,
+      pagedMode: false,
+      scrollMountKey: "scrolling:320:568",
+    });
+
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+    expect(
+      readerScrollMetricsResetKey({
+        continuousContentIdentity: "chapter:b:fetch:2:scrolling",
+        pagedMode: false,
+        scrollMountKey: "scrolling:320:568",
+      }),
+    ).not.toBe(first);
+    expect(
+      readerScrollMetricsResetKey({
+        continuousContentIdentity: contentIdentity,
+        pagedMode: true,
+        scrollMountKey: "paged:390",
+      }),
+    ).toBe("mount:paged:390");
+  });
+
+  test("invalidates transient scrub state across mode, content, and presentation changes", () => {
+    const continuous = readerScrubberInteractionScopeKey({
+      continuousScroll: true,
+      contentIdentity: "chapter-a:scrolling:390:844",
+      disabled: false,
+      mode: "scrolling",
+      scrubCount: 12,
+    });
+
+    expect(
+      readerScrubberInteractionScopeKey({
+        continuousScroll: false,
+        contentIdentity: "chapter-a:scrolling:390:844",
+        disabled: false,
+        mode: "scrolling",
+        scrubCount: 12,
+      }),
+    ).not.toBe(continuous);
+    expect(
+      readerScrubberInteractionScopeKey({
+        continuousScroll: true,
+        contentIdentity: "chapter-b:scrolling:390:844",
+        disabled: false,
+        mode: "scrolling",
+        scrubCount: 12,
+      }),
+    ).not.toBe(continuous);
+    expect(
+      readerScrubberInteractionScopeKey({
+        continuousScroll: true,
+        contentIdentity: "chapter-a:scrolling:390:844",
+        disabled: false,
+        mode: "rtl",
+        scrubCount: 12,
+      }),
+    ).not.toBe(continuous);
+    expect(
+      readerScrubberInteractionScopeKey({
+        continuousScroll: true,
+        contentIdentity: "chapter-a:scrolling:390:844",
+        disabled: false,
+        mode: "scrolling",
+        scrubCount: Number.NaN,
+      }),
+    ).toContain(",0]");
+    expect(
+      readerScrubberInteractionScopeKey({
+        continuousScroll: true,
+        contentIdentity: "chapter-a:scrolling:390:844",
+        disabled: true,
+        mode: "scrolling",
+        scrubCount: 12,
+      }),
+    ).not.toBe(continuous);
+    // Returning to the same logical mode can reproduce the same value, so the
+    // component must pair it with a monotonically invalidated interaction
+    // generation rather than relying on string identity alone.
+    expect(
+      readerScrubberInteractionScopeKey({
+        continuousScroll: true,
+        contentIdentity: "chapter-a:scrolling:390:844",
+        disabled: false,
+        mode: "scrolling",
+        scrubCount: 12,
+      }),
+    ).toBe(continuous);
+  });
+
+  test("suspends opening chrome auto-hide while the continuous scrubber is active", () => {
+    const ready = {
+      hasReaderKey: true,
+      ready: true,
+      pageCount: 12,
+      showControls: true,
+      reduceMotion: false,
+    };
+    expect(
+      shouldScheduleReaderChromeAutoHide({ ...ready, scrubActive: false }),
+    ).toBe(true);
+    expect(
+      shouldScheduleReaderChromeAutoHide({ ...ready, scrubActive: true }),
+    ).toBe(false);
+    expect(
+      shouldScheduleReaderChromeAutoHide({
+        ...ready,
+        showControls: false,
+        scrubActive: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldScheduleReaderChromeAutoHide({
+        ...ready,
+        scrubActive: false,
+        reduceMotion: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldScheduleReaderChromeAutoHide({
+        ...ready,
+        scrubActive: false,
+        reduceMotion: null,
+      }),
+    ).toBe(false);
   });
 
   test("derives scrolling page index from measured page layouts", () => {
@@ -95,6 +382,15 @@ describe("mobile reader progress helpers", () => {
     expect(readerScrollOffsetForLogicalFrame(0, 5, 320, "rtl")).toBe(1280);
     expect(readerScrollOffsetForLogicalFrame(4, 5, 320, "rtl")).toBe(0);
     expect(readerScrollOffsetForLogicalFrame(0, 5, 0, "rtl")).toBe(0);
+  });
+
+  test("budgets enough bounded seek retries for virtualized long chapters", () => {
+    expect(readerScrollToIndexRetryLimit(0)).toBe(4);
+    expect(readerScrollToIndexRetryLimit(5)).toBe(7);
+    expect(readerScrollToIndexRetryLimit(60)).toBe(30);
+    expect(readerScrollToIndexRetryLimit(500)).toBe(30);
+    expect(readerScrollToIndexRetryLimit(Number.NaN)).toBe(4);
+    expect(readerScrollToIndexRetryLimit(60, 0)).toBe(30);
   });
 
   test("keeps displayed pages in source order for every reading mode", () => {
@@ -308,6 +604,11 @@ describe("mobile reader progress helpers", () => {
     expect(formatReaderPageValue(1, 5, "ltr", strings)).toBe("Page 2 of 5");
     expect(formatReaderPageValue(1, 5, "scrolling", strings)).toBe("Page 2 of 5");
     expect(formatReaderPageValue(1, 5, "rtl", strings)).toBe("Page 2 of 5");
+  });
+
+  test("formats bounded two-page spread values", () => {
+    expect(formatReaderSpreadValue(1, 3, strings)).toBe("Spread 2 of 3");
+    expect(formatReaderSpreadValue(99, 3, strings)).toBe("Spread 3 of 3");
   });
 
   test("formats reader page action labels with target page context", () => {

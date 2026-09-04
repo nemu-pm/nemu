@@ -156,6 +156,19 @@ const patches: FilePatch[] = [
           'import { encodeString, encodeVecString, encodeEmptyVec, encodeManga, encodeChapter, encodeImageResponse, encodeHashMap, encodeFilterValues, decodeMangaPageResult, decodeManga, decodePageList, decodeFilterList, decodeString, decodeVec, decodeBool, concatBytes, decodeHomeLayout, decodeHomeComponent, } from "./postcard";',
       },
       {
+        label: "runtime legacy select filter definitions",
+        before: "                        const convertToSwiftFilter = (f) => {",
+        after:
+          "                        const legacyFilterDefinitions = this.getFilters();\n                        const findLegacyFilter = (items, name) => {\n                            for (const item of items) {\n                                if (item.type === FilterType.Select && item.name === name)\n                                    return item;\n                                if (item.type === FilterType.Group && Array.isArray(item.filters)) {\n                                    const nested = findLegacyFilter(item.filters, name);\n                                    if (nested)\n                                        return nested;\n                                }\n                            }\n                            return undefined;\n                        };\n                        const legacySelectIndex = (filter) => {\n                            const definition = findLegacyFilter(legacyFilterDefinitions, filter.name);\n                            const options = Array.isArray(definition?.options) ? definition.options : [];\n                            const ids = Array.isArray(definition?.ids) ? definition.ids : [];\n                            const value = filter.value;\n                            if (typeof value === \"number\" && Number.isInteger(value))\n                                return value;\n                            if (typeof value === \"string\") {\n                                const idIndex = ids.indexOf(value);\n                                if (idIndex >= 0)\n                                    return idIndex;\n                                const optionIndex = options.indexOf(value);\n                                if (optionIndex >= 0)\n                                    return optionIndex;\n                                const numericIndex = Number(value);\n                                if (Number.isInteger(numericIndex))\n                                    return numericIndex;\n                            }\n                            return 0;\n                        };\n                        const convertToSwiftFilter = (f) => {",
+      },
+      {
+        label: "runtime legacy select filter index",
+        before:
+          "                                    return { type: SwiftFilterType.select, name: f.name, value: f.value };",
+        after:
+          "                                    return { type: SwiftFilterType.select, name: f.name, value: legacySelectIndex(f) };",
+      },
+      {
         label: "runtime result-decoder import",
         before:
           'import { readResultPayload, decodeRidFromPayload, RuntimeMode, detectRuntimeMode, } from "./result-decoder";',

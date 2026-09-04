@@ -55,6 +55,20 @@ export function firstPageIndexForMobileReaderSpread(
   return spreads[clamped]?.[0] ?? 0;
 }
 
+/** Steps one visual spread in source reading order and returns its anchor page. */
+export function pageIndexForMobileReaderSpreadStep(
+  spreads: number[][],
+  pageIndex: number,
+  direction: "previous" | "next",
+): number | null {
+  if (spreads.length === 0) return null;
+  const currentSpreadIndex = findMobileReaderSpreadIndex(spreads, pageIndex);
+  const nextSpreadIndex =
+    currentSpreadIndex + (direction === "next" ? 1 : -1);
+  if (nextSpreadIndex < 0 || nextSpreadIndex >= spreads.length) return null;
+  return firstPageIndexForMobileReaderSpread(spreads, nextSpreadIndex);
+}
+
 export function visualPageIndexesForMobileReaderSpread(
   spread: number[],
   mode: ReadingMode

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   StyleSheet,
@@ -44,6 +44,7 @@ type MobileAddBooksSheetProps = {
   saving: boolean;
   error?: string | null;
   onClose: () => void;
+  onDismiss?: () => void;
   onErrorDismiss?: () => void;
   onSave: (selectedLibraryItemIds: Set<string>) => Promise<boolean>;
 };
@@ -84,6 +85,7 @@ function MobileAddBooksSheetContent({
   saving,
   error,
   onClose,
+  onDismiss,
   onErrorDismiss,
   onSave,
   initialSelected,
@@ -97,6 +99,20 @@ function MobileAddBooksSheetContent({
     [entries]
   );
   const [selectedIds, setSelectedIds] = useState(() => new Set(initialSelected));
+  const wasVisibleRef = useRef(false);
+  const closeRequestedRef = useRef(false);
+
+  useEffect(() => {
+    if (visible && !wasVisibleRef.current) {
+      // Reopening the retained native host starts a fresh edit session. This
+      // intentionally synchronizes local draft state with that external
+      // visibility transition rather than with every membership refresh.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelectedIds(new Set(initialSelected));
+      closeRequestedRef.current = false;
+    }
+    wasVisibleRef.current = visible;
+  }, [initialSelected, visible]);
 
   const diff = useMemo(
     () => diffLibraryItemSelection(initialSelected, selectedIds, validLibraryItemIds),
@@ -120,8 +136,21 @@ function MobileAddBooksSheetContent({
   });
 
   const requestClose = () => {
-    const action = getMobileCollectionMembershipRequestCloseAction({ busy: closeDisabled });
+    // This sheet holds no text draft: its only unsaved state is the selection,
+    // which the footer action owns.
+    const action = getMobileCollectionMembershipRequestCloseAction({
+      busy: closeDisabled,
+      dirty: false,
+    });
     if (action === "ignore") return;
+    if (closeRequestedRef.current) return;
+    closeRequestedRef.current = true;
+    void hapticPress();
+    onClose();
+  };
+  const handleNativeClose = () => {
+    if (closeRequestedRef.current) return;
+    closeRequestedRef.current = true;
     void hapticPress();
     onClose();
   };
@@ -130,6 +159,7 @@ function MobileAddBooksSheetContent({
     if (saveDisabled) return;
     const saved = await onSave(selectedIds);
     if (getMobileCollectionMembershipSaveResultAction({ saved }) === "close-sheet") {
+      closeRequestedRef.current = true;
       onClose();
     }
   };
@@ -166,7 +196,7 @@ function MobileAddBooksSheetContent({
         style={[
           styles.bookRow,
           {
-            backgroundColor: selected ? `${tokens.primary}16` : tokens.muted,
+            backgroundColor: selected ? tokens.primarySoft : tokens.muted,
             borderColor: selected ? tokens.primary : tokens.border,
             opacity: saving ? 0.68 : 1,
           },
@@ -226,39 +256,19 @@ function MobileAddBooksSheetContent({
   return (
     <MobileNativeSheetScaffold
       visible={visible}
-      onClose={requestClose}
+      onClose={handleNativeClose}
+      onDismiss={onDismiss}
+      title={strings.library.addBooksTitle}
+      subtitle={formatMobileString(strings.library.addBooksDescription, {
+        name: collectionName,
+      })}
+      dismissLabel={strings.library.closeAddBooks}
+      dismissDisabled={closeDisabled}
       snapPoints={sheetLayout.snapPoints}
       fillContent={sheetLayout.bounded}
       enablePanDownToClose={!closeDisabled}
       contentStyle={styles.sheet}
     >
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text style={[styles.title, { color: tokens.foreground }]}>
-            {strings.library.addBooksTitle}
-          </Text>
-          <Text numberOfLines={2} style={[styles.subtitle, { color: tokens.mutedForeground }]}>
-            {formatMobileString(strings.library.addBooksDescription, {
-              name: collectionName,
-            })}
-          </Text>
-        </View>
-        <NemuPressable
-          accessibilityRole="button"
-          accessibilityLabel={strings.library.closeAddBooks}
-          accessibilityState={{ disabled: closeDisabled }}
-          disabled={closeDisabled}
-          hapticFeedback="none"
-          onPress={requestClose}
-          style={[
-            styles.closeButton,
-            { backgroundColor: tokens.muted, opacity: closeDisabled ? 0.58 : 1 },
-          ]}
-        >
-          <Ionicons name="close-outline" size={20} color={tokens.mutedForeground} />
-        </NemuPressable>
-      </View>
-
       {sheetLayout.bounded ? (
         <FlatList
           style={styles.scroll}
@@ -322,34 +332,6 @@ const styles = StyleSheet.create({
     flex: 1,
     maxHeight: "100%",
     gap: 14,
-    padding: 14,
-  },
-  header: {
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  headerCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  title: {
-    fontSize: 20,
-    lineHeight: 25,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  subtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  closeButton: {
-    width: 38,
-    height: 38,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
   },
   scroll: {
     flex: 1,

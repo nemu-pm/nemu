@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { radius } from "@/design/tokens";
-import { nemuText } from "@/design/typography";
+import { nemuMaxFontSizeMultiplier, nemuText } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { MobileCachedImage } from "./MobileCachedImage";
 import { NemuPressable } from "./NemuPressable";
@@ -63,11 +63,16 @@ export function NemuListRow({
         ) : null}
       </View>
       <View style={styles.copy}>
-        <Text numberOfLines={1} style={[nemuText.rowTitle, { color: tokens.foreground }]}>
+        <Text
+          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+          numberOfLines={1}
+          style={[nemuText.rowTitle, { color: tokens.foreground }]}
+        >
           {title}
         </Text>
         {subtitle ? (
           <Text
+            maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
             numberOfLines={2}
             style={[nemuText.rowSubtitle, { color: tokens.mutedForeground }]}
           >

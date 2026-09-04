@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   StyleSheet,
-  Text,
   TextInput,
   View,
   useWindowDimensions,
@@ -11,13 +11,15 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   MobileCachedImage,
   MobileNativeSheetScaffold,
+  NemuTextFieldClearAction,
   NemuPressable,
+  NemuText,
+  nemuColorWithAlpha,
   radius,
   nemuFontWeight,
   useNemuTheme,
   NemuButton,
 } from "@/design-system";
-import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import {
@@ -99,6 +101,7 @@ import {
   describeMobileErrorDetail,
   getMobileSourceErrorPresentation,
 } from "@/lib/mobileSourceErrors";
+import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
 import {
   buildMobileLiveSearchProgressGroups,
   buildMobileSourceTitlePool,
@@ -123,6 +126,8 @@ type MobileSourceManagerSheetProps = {
   entry: LibraryEntry;
   selectedSourceId?: string | null;
   onClose: () => void;
+  /** Called after the native sheet has fully finished dismissing. */
+  onDismiss?: () => void;
   onSelectSource: (sourceId: string | null) => void;
   onEntryChange: (entry: LibraryEntry) => void;
 };
@@ -330,12 +335,13 @@ function SourceManagerRow({
         </View>
         <View style={styles.rowText}>
           <View style={styles.titleLine}>
-            <Text
+            <NemuText
+              density="compact"
               numberOfLines={1}
               style={[styles.rowTitle, { color: tokens.foreground }]}
             >
               {name}
-            </Text>
+            </NemuText>
             {selected ? (
               <View
                 style={[
@@ -343,49 +349,43 @@ function SourceManagerRow({
                   { backgroundColor: tokens.primary },
                 ]}
               >
-                <Text
+                <NemuText
+                  density="compact"
                   style={[
                     styles.selectedText,
                     { color: tokens.primaryForeground },
                   ]}
                 >
                   {strings.sourceManager.active}
-                </Text>
+                </NemuText>
               </View>
             ) : null}
           </View>
-          <Text
+          <NemuText
+            density="compact"
             numberOfLines={1}
             style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}
           >
             {subtitle}
-          </Text>
+          </NemuText>
         </View>
       </NemuPressable>
 
       {/* Delete button. */}
-      <NemuPressable
-        accessibilityRole="button"
+      <NemuButton
         accessibilityLabel={formatMobileString(
           strings.sourceManager.removeSourceConfirm,
           { name },
         )}
-        accessibilityState={{ disabled: !canRemove }}
+        accessibilityState={{ disabled: !canRemove, busy: busy || undefined }}
         disabled={!canRemove}
         hapticFeedback={canRemove ? "press" : "none"}
+        icon="trash-outline"
+        loading={busy}
         onPress={onRemove}
-        pressedScale={0.9}
-        style={[
-          styles.deleteButton,
-          { opacity: canRemove ? 1 : 0.4 },
-        ]}
-      >
-        {busy ? (
-          <ActivityIndicator size="small" color={tokens.danger} />
-        ) : (
-          <Ionicons name="trash-outline" size={18} color={tokens.danger} />
-        )}
-      </NemuPressable>
+        size="icon-sm"
+        variant="destructive"
+      />
       </View>
     </View>
   );
@@ -437,19 +437,21 @@ function AddSearchResultRow({
         )}
       </View>
       <View style={styles.resultText}>
-        <Text
+        <NemuText
+          density="compact"
           numberOfLines={1}
           style={[styles.resultTitle, { color: tokens.foreground }]}
         >
           {title}
-        </Text>
-        <Text
+        </NemuText>
+        <NemuText
+          density="compact"
           numberOfLines={1}
           style={[styles.resultSubtitle, { color: tokens.mutedForeground }]}
         >
           {sourceName}
           {manga.authors?.length ? ` / ${manga.authors.join(", ")}` : ""}
-        </Text>
+        </NemuText>
       </View>
       <NemuButton
         accessibilityLabel={formatAddSourceResultAccessibilityLabel({
@@ -515,19 +517,21 @@ function MergeCandidateRow({
         )}
       </View>
       <View style={styles.resultText}>
-        <Text
+        <NemuText
+          density="compact"
           numberOfLines={1}
           style={[styles.resultTitle, { color: tokens.foreground }]}
         >
           {title}
-        </Text>
-        <Text
+        </NemuText>
+        <NemuText
+          density="compact"
           numberOfLines={1}
           style={[styles.resultSubtitle, { color: tokens.mutedForeground }]}
         >
           {sourceCountText(entry.sources.length, strings)}
           {similarity > 0.3 ? ` / ${strings.sourceManager.likelyMatch}` : ""}
-        </Text>
+        </NemuText>
       </View>
       <NemuButton
         accessibilityLabel={formatMergeCandidateAccessibilityLabel({
@@ -553,6 +557,7 @@ export function MobileSourceManagerSheet({
   entry,
   selectedSourceId,
   onClose,
+  onDismiss,
   onSelectSource,
   onEntryChange,
 }: MobileSourceManagerSheetProps) {
@@ -641,14 +646,19 @@ export function MobileSourceManagerSheet({
     addQuery,
     sourceManagerActionState,
   );
+  // Ranking the whole library does not depend on the query, so it must not be
+  // redone on every keystroke — only the filter below is query-shaped.
+  const rankedMergeCandidates = useMemo(
+    () => sortMobileLibraryMergeCandidates(entry, library.data, progressIndex),
+    [entry, library.data, progressIndex],
+  );
   const mergeCandidates = useMemo(() => {
     const normalizedQuery = addQuery.trim().toLowerCase();
-    return sortMobileLibraryMergeCandidates(entry, library.data, progressIndex)
-      .filter(({ entry: candidate }) => {
-        if (!normalizedQuery) return true;
-        return getEntryTitle(candidate).toLowerCase().includes(normalizedQuery);
-      });
-  }, [addQuery, entry, library.data, progressIndex]);
+    if (!normalizedQuery) return rankedMergeCandidates;
+    return rankedMergeCandidates.filter(({ entry: candidate }) =>
+      getEntryTitle(candidate).toLowerCase().includes(normalizedQuery),
+    );
+  }, [addQuery, rankedMergeCandidates]);
 
   useEffect(() => {
     setMergeCandidatePage(0);
@@ -1289,45 +1299,138 @@ export function MobileSourceManagerSheet({
     sourceCount: sources.length,
     width,
   });
+  const headerMetrics = resolveMobileSheetHeaderMetrics(Platform.OS);
+  const headerActionLabel = addPanelOpen
+    ? strings.common.back
+    : strings.settings.addSource;
+  const confirmationAccentColor = confirmationDetails?.destructive
+    ? tokens.danger
+    : tokens.primary;
 
   return (
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={handleRequestClose}
-      snapPoints={sheetLayout.snapPoints}
-      scroll={sheetLayout.fillContent}
+      onDismiss={onDismiss}
+      onHardwareBackPress={() => {
+        if (!addPanelOpen && confirmation === null) return false;
+        handleRequestClose();
+        return true;
+      }}
+      title={
+        confirmationDetails?.title ??
+        (addPanelOpen
+          ? strings.sourceManager.modeSearch
+          : strings.sourceManager.manageSources)
+      }
+      subtitle={
+        confirmationDetails?.description ??
+        (addPanelOpen
+          ? strings.sourceManager.addPanelIdle
+          : strings.sourceManager.subtitle)
+      }
+      headerLeading={
+        confirmationDetails ? (
+          <View
+            style={[
+              styles.confirmationIconShell,
+              {
+                backgroundColor: nemuColorWithAlpha(
+                  confirmationAccentColor,
+                  0.09,
+                ),
+              },
+            ]}
+          >
+            <Ionicons
+              name={confirmationDetails.iconName}
+              size={22}
+              color={confirmationAccentColor}
+            />
+          </View>
+        ) : undefined
+      }
+      headerTrailing={
+        confirmationDetails ? undefined : (
+          <NemuButton
+            accessibilityLabel={
+              addPanelOpen
+                ? strings.sourceManager.backToSourceList
+                : strings.settings.addSource
+            }
+            disabled={sourceManagerActionBusy}
+            icon={addPanelOpen ? "arrow-back-outline" : "add-outline"}
+            label={
+              headerMetrics.showActionLabels ? headerActionLabel : undefined
+            }
+            onPress={handleToggleAddPanel}
+            size={headerMetrics.showActionLabels ? "sm" : "icon-sm"}
+            variant="secondary"
+          />
+        )
+      }
+      snapPoints={confirmationDetails ? undefined : sheetLayout.snapPoints}
+      scroll={confirmationDetails ? false : sheetLayout.fillContent}
       enablePanDownToClose={canNativeDismissSheet}
       contentStyle={styles.sheet}
     >
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text style={[styles.title, { color: tokens.foreground }]}>
-            {addPanelOpen ? strings.sourceManager.modeSearch : strings.sourceManager.manageSources}
-          </Text>
-          <Text
-            style={[styles.subtitle, { color: tokens.mutedForeground }]}
-          >
-            {addPanelOpen
-              ? strings.sourceManager.addPanelIdle
-              : strings.sourceManager.subtitle}
-          </Text>
+      {confirmationDetails ? (
+        <View style={styles.confirmationPanel}>
+          {confirmationDetails.subject ? (
+            <View
+              style={[
+                styles.confirmationSubject,
+                { backgroundColor: tokens.muted },
+              ]}
+            >
+              <NemuText
+                density="compact"
+                numberOfLines={2}
+                style={[
+                  styles.confirmationSubjectText,
+                  { color: tokens.foreground },
+                ]}
+              >
+                {confirmationDetails.subject}
+              </NemuText>
+            </View>
+          ) : null}
+          {actionError ? (
+            <MobileInlineErrorBanner
+              title={strings.sourceManager.sourceActionFailed}
+              detail={actionError}
+              dismissLabel={strings.common.clear}
+              onDismiss={() => setActionError(null)}
+              variant="embedded"
+            />
+          ) : null}
+          <View style={styles.confirmationActions}>
+            <NemuButton
+              accessibilityLabel={strings.common.cancel}
+              containerStyle={styles.confirmationAction}
+              disabled={confirmationDetails.loading}
+              label={strings.common.cancel}
+              onPress={() => setConfirmation(null)}
+              variant="secondary"
+            />
+            <NemuButton
+              accessibilityLabel={
+                confirmationDetails.confirmAccessibilityLabel
+              }
+              containerStyle={styles.confirmationAction}
+              disabled={confirmationDetails.loading}
+              label={confirmationDetails.confirmLabel}
+              loading={confirmationDetails.loading}
+              onPress={runConfirmedAction}
+              variant={
+                confirmationDetails.destructive ? "destructive" : "default"
+              }
+            />
+          </View>
         </View>
-        <NemuButton
-          accessibilityLabel={
-            addPanelOpen
-              ? strings.sourceManager.backToSourceList
-              : strings.settings.addSource
-          }
-          disabled={sourceManagerActionBusy}
-          icon={addPanelOpen ? "arrow-back-outline" : "add-outline"}
-          label={addPanelOpen ? strings.common.back : strings.settings.addSource}
-          onPress={handleToggleAddPanel}
-          size="sm"
-          variant="secondary"
-        />
-      </View>
-
-      <View style={styles.listContent}>
+      ) : (
+        <>
+          <View style={styles.listContent}>
         {actionError ? (
           <MobileInlineErrorBanner
             title={strings.sourceManager.sourceActionFailed}
@@ -1393,7 +1496,8 @@ export function MobileSourceManagerSheet({
                           : tokens.mutedForeground
                       }
                     />
-                    <Text
+                    <NemuText
+                      density="compact"
                       style={[
                         styles.modeText,
                         {
@@ -1406,43 +1510,55 @@ export function MobileSourceManagerSheet({
                       {nextMode === "search"
                         ? strings.sourceManager.modeSearch
                         : strings.sourceManager.modeMerge}
-                    </Text>
+                    </NemuText>
                   </NemuPressable>
                 );
               })}
             </View>
 
             <View style={styles.searchRow}>
-              <TextInput
-                accessibilityLabel={strings.sourceManager.searchSources}
-                accessibilityRole="search"
-                autoCapitalize="none"
-                editable={!sourceManagerActionBusy}
-                enterKeyHint="search"
-                onChangeText={setAddQuery}
-                onSubmitEditing={() => {
-                  if (addMode === "search" && canSearchSources) {
-                    void runAddSearch();
-                  }
-                }}
-                placeholder={
-                  addMode === "search"
-                    ? strings.sourceManager.sourceSearchPlaceholder
-                    : strings.sourceManager.librarySearchPlaceholder
-                }
-                placeholderTextColor={tokens.mutedForeground}
-                returnKeyType="search"
-                selectionColor={tokens.primary}
-                value={addQuery}
+              <View
                 style={[
-                  styles.searchInput,
+                  styles.searchInputShell,
                   {
                     backgroundColor: tokens.muted,
-                    color: tokens.foreground,
                     opacity: sourceManagerActionBusy ? 0.72 : 1,
                   },
                 ]}
-              />
+              >
+                <TextInput
+                  accessibilityLabel={strings.sourceManager.searchSources}
+                  accessibilityRole="search"
+                  autoCapitalize="none"
+                  editable={!sourceManagerActionBusy}
+                  enterKeyHint="search"
+                  onChangeText={setAddQuery}
+                  onSubmitEditing={() => {
+                    if (addMode === "search" && canSearchSources) {
+                      void runAddSearch();
+                    }
+                  }}
+                  placeholder={
+                    addMode === "search"
+                      ? strings.sourceManager.sourceSearchPlaceholder
+                      : strings.sourceManager.librarySearchPlaceholder
+                  }
+                  placeholderTextColor={tokens.mutedForeground}
+                  returnKeyType="search"
+                  selectionColor={tokens.primary}
+                  value={addQuery}
+                  style={[styles.searchInput, { color: tokens.foreground }]}
+                />
+                {addQuery.length > 0 ? (
+                  <NemuTextFieldClearAction
+                    accessibilityLabel={strings.common.clear}
+                    disabled={sourceManagerActionBusy}
+                    onPress={() => setAddQuery("")}
+                    testID="SourceManagerSearchClearAction"
+                    trailingInset={12}
+                  />
+                ) : null}
+              </View>
               {addMode === "search" ? (
                 <NemuButton
                   accessibilityLabel={strings.sourceManager.searchSources}
@@ -1473,14 +1589,15 @@ export function MobileSourceManagerSheet({
                       size={17}
                       color={tokens.mutedForeground}
                     />
-                    <Text
+                    <NemuText
+                      density="compact"
                       style={[
                         styles.noticeText,
                         { color: tokens.mutedForeground },
                       ]}
                     >
                       {strings.sourceManager.allInstalledLinked}
-                    </Text>
+                    </NemuText>
                   </View>
                 ) : addSearchState.status === "ready" ? (
                   addSearchState.groups.some(
@@ -1507,7 +1624,8 @@ export function MobileSourceManagerSheet({
                             style={styles.resultGroup}
                           >
                             <View style={styles.resultGroupHeader}>
-                              <Text
+                              <NemuText
+                                density="compact"
                                 numberOfLines={1}
                                 style={[
                                   styles.resultGroupTitle,
@@ -1515,7 +1633,7 @@ export function MobileSourceManagerSheet({
                                 ]}
                               >
                                 {sourceName}
-                              </Text>
+                              </NemuText>
                             </View>
                             <View
                               style={[
@@ -1527,14 +1645,15 @@ export function MobileSourceManagerSheet({
                                 size="small"
                                 color={tokens.primary}
                               />
-                              <Text
+                              <NemuText
+                                density="compact"
                                 style={[
                                   styles.noticeText,
                                   { color: tokens.mutedForeground },
                                 ]}
                               >
                                 {strings.search.searching}
-                              </Text>
+                              </NemuText>
                             </View>
                           </View>
                         );
@@ -1547,7 +1666,8 @@ export function MobileSourceManagerSheet({
                             style={styles.resultGroup}
                           >
                             <View style={styles.resultGroupHeader}>
-                              <Text
+                              <NemuText
+                                density="compact"
                                 numberOfLines={1}
                                 style={[
                                   styles.resultGroupTitle,
@@ -1555,7 +1675,7 @@ export function MobileSourceManagerSheet({
                                 ]}
                               >
                                 {sourceName}
-                              </Text>
+                              </NemuText>
                             </View>
                             <View
                               style={[
@@ -1570,7 +1690,8 @@ export function MobileSourceManagerSheet({
                               />
                               <View style={styles.noticeCopy}>
                                 {group.title ? (
-                                  <Text
+                                  <NemuText
+                                    density="compact"
                                     numberOfLines={1}
                                     style={[
                                       styles.noticeTitle,
@@ -1578,9 +1699,10 @@ export function MobileSourceManagerSheet({
                                     ]}
                                   >
                                     {group.title}
-                                  </Text>
+                                  </NemuText>
                                 ) : null}
-                                <Text
+                                <NemuText
+                                  density="compact"
                                   numberOfLines={group.title ? 2 : 3}
                                   style={[
                                     styles.noticeDetail,
@@ -1588,7 +1710,7 @@ export function MobileSourceManagerSheet({
                                   ]}
                                 >
                                   {group.detail}
-                                </Text>
+                                </NemuText>
                               </View>
                             </View>
                           </View>
@@ -1635,7 +1757,8 @@ export function MobileSourceManagerSheet({
                           style={styles.resultGroup}
                         >
                           <View style={styles.resultGroupHeader}>
-                            <Text
+                            <NemuText
+                              density="compact"
                               numberOfLines={1}
                               style={[
                                 styles.resultGroupTitle,
@@ -1643,11 +1766,10 @@ export function MobileSourceManagerSheet({
                               ]}
                             >
                               {sourceName}
-                            </Text>
+                            </NemuText>
                             {!addedManga && totalPages > 1 ? (
                               <View style={styles.resultPager}>
-                                <NemuPressable
-                                  accessibilityRole="button"
+                                <NemuButton
                                   accessibilityLabel={
                                     strings.sourceManager.previousResults
                                   }
@@ -1655,29 +1777,14 @@ export function MobileSourceManagerSheet({
                                     disabled: page === 0 || sourceManagerActionBusy,
                                   }}
                                   disabled={page === 0 || sourceManagerActionBusy}
+                                  icon="chevron-back-outline"
                                   onPress={() =>
                                     setAddResultPage(group, page - 1)
                                   }
-                                  pressedScale={0.94}
-                                  style={[
-                                    styles.resultPagerButton,
-                                    {
-                                      backgroundColor: tokens.muted,
-                                      opacity:
-                                        page === 0 || sourceManagerActionBusy
-                                          ? 0.45
-                                          : 1,
-                                    },
-                                  ]}
-                                >
-                                  <Ionicons
-                                    name="chevron-back-outline"
-                                    size={16}
-                                    color={tokens.mutedForeground}
-                                  />
-                                </NemuPressable>
-                                <NemuPressable
-                                  accessibilityRole="button"
+                                  size="icon-sm"
+                                  variant="secondary"
+                                />
+                                <NemuButton
                                   accessibilityLabel={
                                     strings.sourceManager.nextResults
                                   }
@@ -1690,28 +1797,13 @@ export function MobileSourceManagerSheet({
                                     page >= totalPages - 1 ||
                                     sourceManagerActionBusy
                                   }
+                                  icon="chevron-forward-outline"
                                   onPress={() =>
                                     setAddResultPage(group, page + 1)
                                   }
-                                  pressedScale={0.94}
-                                  style={[
-                                    styles.resultPagerButton,
-                                    {
-                                      backgroundColor: tokens.muted,
-                                      opacity:
-                                        page >= totalPages - 1 ||
-                                        sourceManagerActionBusy
-                                          ? 0.45
-                                          : 1,
-                                    },
-                                  ]}
-                                >
-                                  <Ionicons
-                                    name="chevron-forward-outline"
-                                    size={16}
-                                    color={tokens.mutedForeground}
-                                  />
-                                </NemuPressable>
+                                  size="icon-sm"
+                                  variant="secondary"
+                                />
                               </View>
                             ) : null}
                           </View>
@@ -1762,7 +1854,8 @@ export function MobileSourceManagerSheet({
                         size={17}
                         color={tokens.mutedForeground}
                       />
-                      <Text
+                      <NemuText
+                        density="compact"
                         style={[
                           styles.noticeText,
                           { color: tokens.mutedForeground },
@@ -1774,7 +1867,7 @@ export function MobileSourceManagerSheet({
                             query: addSearchState.query,
                           },
                         )}
-                      </Text>
+                      </NemuText>
                     </View>
                   )
                 ) : (
@@ -1796,7 +1889,8 @@ export function MobileSourceManagerSheet({
                     {addSearchState.status === "error" &&
                     addSearchState.title ? (
                       <View style={styles.noticeCopy}>
-                        <Text
+                        <NemuText
+                          density="compact"
                           numberOfLines={1}
                           style={[
                             styles.noticeTitle,
@@ -1804,8 +1898,9 @@ export function MobileSourceManagerSheet({
                           ]}
                         >
                           {addSearchState.title}
-                        </Text>
-                        <Text
+                        </NemuText>
+                        <NemuText
+                          density="compact"
                           numberOfLines={2}
                           style={[
                             styles.noticeDetail,
@@ -1813,17 +1908,18 @@ export function MobileSourceManagerSheet({
                           ]}
                         >
                           {addSearchState.detail}
-                        </Text>
+                        </NemuText>
                       </View>
                     ) : (
-                      <Text
+                      <NemuText
+                        density="compact"
                         style={[
                           styles.noticeText,
                           { color: tokens.mutedForeground },
                         ]}
                       >
                         {addSearchState.detail}
-                      </Text>
+                      </NemuText>
                     )}
                   </View>
                 )}
@@ -1841,21 +1937,21 @@ export function MobileSourceManagerSheet({
                       size="small"
                       color={tokens.primary}
                     />
-                    <Text
+                    <NemuText
+                      density="compact"
                       style={[
                         styles.noticeText,
                         { color: tokens.mutedForeground },
                       ]}
                     >
                       {strings.sourceManager.loadingLibraryTitles}
-                    </Text>
+                    </NemuText>
                   </View>
                 ) : mergeCandidates.length ? (
                   <>
                     {pagedMergeCandidates.totalPages > 1 ? (
                       <View style={styles.resultPager}>
-                        <NemuPressable
-                          accessibilityRole="button"
+                        <NemuButton
                           accessibilityLabel={
                             strings.sourceManager.previousResults
                           }
@@ -1868,32 +1964,16 @@ export function MobileSourceManagerSheet({
                             pagedMergeCandidates.page === 0 ||
                             sourceManagerActionBusy
                           }
+                          icon="chevron-back-outline"
                           onPress={() =>
                             setMergeCandidateResultPage(
                               pagedMergeCandidates.page - 1,
                             )
                           }
-                          pressedScale={0.94}
-                          style={[
-                            styles.resultPagerButton,
-                            {
-                              backgroundColor: tokens.muted,
-                              opacity:
-                                pagedMergeCandidates.page === 0 ||
-                                sourceManagerActionBusy
-                                  ? 0.45
-                                  : 1,
-                            },
-                          ]}
-                        >
-                          <Ionicons
-                            name="chevron-back-outline"
-                            size={16}
-                            color={tokens.mutedForeground}
-                          />
-                        </NemuPressable>
-                        <NemuPressable
-                          accessibilityRole="button"
+                          size="icon-sm"
+                          variant="secondary"
+                        />
+                        <NemuButton
                           accessibilityLabel={
                             strings.sourceManager.nextResults
                           }
@@ -1908,31 +1988,15 @@ export function MobileSourceManagerSheet({
                               pagedMergeCandidates.totalPages - 1 ||
                             sourceManagerActionBusy
                           }
+                          icon="chevron-forward-outline"
                           onPress={() =>
                             setMergeCandidateResultPage(
                               pagedMergeCandidates.page + 1,
                             )
                           }
-                          pressedScale={0.94}
-                          style={[
-                            styles.resultPagerButton,
-                            {
-                              backgroundColor: tokens.muted,
-                              opacity:
-                                pagedMergeCandidates.page >=
-                                  pagedMergeCandidates.totalPages - 1 ||
-                                sourceManagerActionBusy
-                                  ? 0.45
-                                  : 1,
-                            },
-                          ]}
-                        >
-                          <Ionicons
-                            name="chevron-forward-outline"
-                            size={16}
-                            color={tokens.mutedForeground}
-                          />
-                        </NemuPressable>
+                          size="icon-sm"
+                          variant="secondary"
+                        />
                       </View>
                     ) : null}
                     {pagedMergeCandidates.items.map(
@@ -1968,14 +2032,15 @@ export function MobileSourceManagerSheet({
                       size={17}
                       color={tokens.mutedForeground}
                     />
-                    <Text
+                    <NemuText
+                      density="compact"
                       style={[
                         styles.noticeText,
                         { color: tokens.mutedForeground },
                       ]}
                     >
                       {strings.sourceManager.noLibraryMatches}
-                    </Text>
+                    </NemuText>
                   </View>
                 )}
               </View>
@@ -1992,14 +2057,15 @@ export function MobileSourceManagerSheet({
                   size={17}
                   color={tokens.mutedForeground}
                 />
-                <Text
+                <NemuText
+                  density="compact"
                   style={[
                     styles.noticeText,
                     { color: tokens.mutedForeground },
                   ]}
                 >
                   {strings.sourceManager.everyTitleNeedsSource}
-                </Text>
+                </NemuText>
               </View>
             ) : (
               <>
@@ -2026,60 +2092,35 @@ export function MobileSourceManagerSheet({
                   />
                 ))}
                 {sources.length > 1 ? (
-                  <Text
+                  <NemuText
+                    density="compact"
                     style={[
                       styles.dragToReorderHint,
                       { color: tokens.mutedForeground },
                     ]}
                   >
                     {strings.sourceManager.dragToReorder}
-                  </Text>
+                  </NemuText>
                 ) : null}
               </>
             )}
           </>
         )}
-      </View>
+          </View>
 
-      {!addPanelOpen ? (
-        <NemuButton
-          accessibilityLabel={strings.common.done}
-          containerStyle={styles.footerButton}
-          disabled={sourceManagerActionBusy}
-          icon="checkmark-outline"
-          label={strings.common.done}
-          onPress={handleRequestClose}
-          variant="default"
-        />
-      ) : null}
-
-      {confirmationDetails ? (
-        <MobileConfirmationSheet
-          visible
-          title={confirmationDetails.title}
-          description={confirmationDetails.description}
-          subject={confirmationDetails.subject}
-          iconName={confirmationDetails.iconName}
-          cancelLabel={strings.common.cancel}
-          confirmLabel={confirmationDetails.confirmLabel}
-          confirmAccessibilityLabel={
-            confirmationDetails.confirmAccessibilityLabel
-          }
-          loading={confirmationDetails.loading}
-          destructive={confirmationDetails.destructive}
-          onCancel={() => setConfirmation(null)}
-          onConfirm={runConfirmedAction}
-        >
-          {actionError ? (
-            <MobileInlineErrorBanner
-              title={strings.sourceManager.sourceActionFailed}
-              detail={actionError}
-              dismissLabel={strings.common.clear}
-              onDismiss={() => setActionError(null)}
+          {!addPanelOpen ? (
+            <NemuButton
+              accessibilityLabel={strings.common.done}
+              containerStyle={styles.footerButton}
+              disabled={sourceManagerActionBusy}
+              icon="checkmark-outline"
+              label={strings.common.done}
+              onPress={handleRequestClose}
+              variant="default"
             />
           ) : null}
-        </MobileConfirmationSheet>
-      ) : null}
+        </>
+      )}
     </MobileNativeSheetScaffold>
   );
 }
@@ -2088,31 +2129,39 @@ const styles = StyleSheet.create({
   sheet: {
     maxHeight: "100%",
     gap: 14,
-    padding: 14,
-  },
-  header: {
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  headerCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  title: {
-    fontSize: 20,
-    lineHeight: 25,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  subtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    lineHeight: 16,
   },
   listContent: {
     gap: 10,
     paddingBottom: 2,
+  },
+  confirmationPanel: {
+    gap: 14,
+  },
+  confirmationIconShell: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.lg,
+  },
+  confirmationSubject: {
+    minHeight: 42,
+    justifyContent: "center",
+    borderRadius: radius.lg,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  confirmationSubjectText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: nemuFontWeight.medium,
+  },
+  confirmationActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  confirmationAction: {
+    flex: 1,
   },
   addPanel: {
     gap: 10,
@@ -2138,21 +2187,27 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.semibold,
   },
   searchRow: {
-    minHeight: 44,
+    minHeight: 48,
     flexDirection: "row",
     gap: 8,
   },
-  searchInput: {
-    minHeight: 44,
+  searchInputShell: {
+    minHeight: 48,
     flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: radius.lg,
     paddingHorizontal: 12,
+  },
+  searchInput: {
+    minHeight: 48,
+    flex: 1,
     fontSize: 14,
     lineHeight: 18,
   },
   searchButton: {
-    width: 44,
-    height: 44,
+    width: 48,
+    height: 48,
   },
   addResults: {
     gap: 10,
@@ -2178,13 +2233,6 @@ const styles = StyleSheet.create({
   resultPager: {
     flexDirection: "row",
     gap: 6,
-  },
-  resultPagerButton: {
-    width: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
   },
   addResultRow: {
     minHeight: 66,
@@ -2305,12 +2353,6 @@ const styles = StyleSheet.create({
   rowSubtitle: {
     fontSize: 11,
     lineHeight: 15,
-  },
-  deleteButton: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
   },
   dragToReorderHint: {
     textAlign: "center",

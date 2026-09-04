@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   PanResponder,
+  Platform,
   StyleSheet,
   View,
   type LayoutChangeEvent,
@@ -12,7 +13,11 @@ type MobileSliderTrackProps = {
   progress: number;
   direction?: "ltr" | "rtl";
   disabled?: boolean;
+  onRatioStart?: (ratio: number) => void;
   onRatioChange: (ratio: number) => void;
+  onRatioEnd?: (ratio: number) => void;
+  onRatioCancel?: () => void;
+  /** Legacy release callback. Prefer onRatioEnd for new gesture-aware callers. */
   onRatioCommit?: (ratio: number) => void;
 };
 
@@ -20,7 +25,10 @@ export function MobileSliderTrack({
   progress,
   direction = "ltr",
   disabled = false,
+  onRatioStart,
   onRatioChange,
+  onRatioEnd,
+  onRatioCancel,
   onRatioCommit,
 }: MobileSliderTrackProps) {
   const { tokens } = useNemuTheme();
@@ -30,9 +38,14 @@ export function MobileSliderTrack({
     direction === "rtl" ? 1 - clampedProgress : clampedProgress;
 
   const panResponder = useMemo(() => {
-    const emitRatio = (locationX: number, handler?: (ratio: number) => void) => {
-      if (disabled || !handler) return;
+    const ratioFromLocation = (locationX: number) => {
+      if (disabled) return null;
       const ratio = sliderRatioFromLocation(locationX, trackWidth);
+      return ratio;
+    };
+    const emitRatio = (locationX: number, handler?: (ratio: number) => void) => {
+      if (!handler) return;
+      const ratio = ratioFromLocation(locationX);
       if (ratio === null) return;
       handler(ratio);
     };
@@ -43,16 +56,38 @@ export function MobileSliderTrack({
       onMoveShouldSetPanResponder: () => !disabled,
       onMoveShouldSetPanResponderCapture: () => !disabled,
       onPanResponderTerminationRequest: () => false,
-      onPanResponderGrant: (event) =>
-        emitRatio(event.nativeEvent.locationX, onRatioChange),
+      onPanResponderGrant: (event) => {
+        const ratio = ratioFromLocation(event.nativeEvent.locationX);
+        if (ratio === null) return;
+        onRatioStart?.(ratio);
+        onRatioChange(ratio);
+      },
       onPanResponderMove: (event) =>
         emitRatio(event.nativeEvent.locationX, onRatioChange),
       onPanResponderRelease: (event) =>
-        emitRatio(event.nativeEvent.locationX, onRatioCommit ?? onRatioChange),
-      onPanResponderTerminate: (event) =>
-        emitRatio(event.nativeEvent.locationX, onRatioCommit ?? onRatioChange),
+        emitRatio(
+          event.nativeEvent.locationX,
+          onRatioEnd ?? onRatioCommit ?? onRatioChange,
+        ),
+      onPanResponderTerminate: (event) => {
+        if (onRatioCancel) {
+          onRatioCancel();
+          return;
+        }
+        // Preserve the historical behavior for callers that have not adopted
+        // the explicit cancellation lifecycle yet.
+        emitRatio(event.nativeEvent.locationX, onRatioCommit ?? onRatioChange);
+      },
     });
-  }, [disabled, onRatioChange, onRatioCommit, trackWidth]);
+  }, [
+    disabled,
+    onRatioCancel,
+    onRatioChange,
+    onRatioCommit,
+    onRatioEnd,
+    onRatioStart,
+    trackWidth,
+  ]);
 
   const onTrackLayout = (event: LayoutChangeEvent) => {
     setTrackWidth(event.nativeEvent.layout.width);
@@ -100,7 +135,7 @@ const TRACK_HEIGHT = 8;
 
 const styles = StyleSheet.create({
   touchTarget: {
-    minHeight: 32,
+    minHeight: Platform.OS === "android" ? 48 : 44,
     justifyContent: "center",
   },
   trackShell: {

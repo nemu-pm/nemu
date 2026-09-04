@@ -1,4 +1,9 @@
-export const IOS_LIQUID_GLASS_MIN_VERSION = 26;
+import {
+  NEMU_LIQUID_GLASS_MIN_IOS_VERSION,
+  supportsNemuLiquidGlass,
+} from "@/lib/nemuLiquidGlass";
+
+export const IOS_LIQUID_GLASS_MIN_VERSION = NEMU_LIQUID_GLASS_MIN_IOS_VERSION;
 
 /**
  * Glass tints aligned with web `.reader-ui-panel` in `src/index.css`:
@@ -21,20 +26,12 @@ export const READER_CHROME_GLASS_SHADOW = {
   light: "rgba(0, 0, 0, 0.22)",
 } as const;
 
+/** Reader alias for the shared app-wide Liquid Glass gate. */
 export function supportsIosLiquidGlass(
   platformOS: string,
   platformVersion: string | number,
 ): boolean {
-  if (platformOS !== "ios") {
-    return false;
-  }
-
-  const version =
-    typeof platformVersion === "string"
-      ? Number.parseInt(platformVersion, 10)
-      : platformVersion;
-
-  return Number.isFinite(version) && version >= IOS_LIQUID_GLASS_MIN_VERSION;
+  return supportsNemuLiquidGlass(platformOS, platformVersion);
 }
 
 /**

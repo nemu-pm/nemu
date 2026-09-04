@@ -1,5 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getLocales } from "expo-localization";
+import {
+  addNetworkStateListener,
+  getNetworkStateAsync,
+} from "expo-network";
+import { AppState, Platform } from "react-native";
+import {
+  classifyMobileNetworkState,
+  shouldRetryAfterMobileConnectivityChange,
+  type MobileConnectivityStatus,
+} from "@/lib/mobileConnectivity";
+import {
+  keepMapOfSetsIfUnchanged,
+  keepReferenceIfUnchanged,
+  stabilizeListReferences,
+} from "@/lib/mobileStableData";
+import NemuAidokuModule from "../../modules/nemu-aidoku/src/NemuAidokuModule";
+import type { NemuNetworkAccessState } from "../../modules/nemu-aidoku/src/NemuAidoku.types";
 import { useMobileDataStore } from "./mobileDataContext";
 import type {
   AppLanguage,
@@ -23,6 +39,15 @@ import {
   type MobileRegistrySource,
 } from "@/sources/aidokuRegistry";
 import {
+  loadCachedRegistryIndex,
+  loadCachedRegistryIndexSnapshot,
+  saveCachedRegistryIndex,
+} from "@/sources/mobileRegistryIndexCache";
+import {
+  createMobileRegistryCatalogScheduler,
+  MOBILE_REGISTRY_CATALOG_FRESHNESS_MS,
+} from "./mobileRegistryCatalogScheduler";
+import {
   cacheSourcePackage,
   clearCachedSourcePackage,
   clearCachedSourcePackages,
@@ -35,6 +60,7 @@ import {
   resolveMobileSourcePackageCacheKey,
 } from "@/sources/mobileSourceRuntime";
 import { defaultMobileSourceSessionCache } from "@/sources/mobileSourceExecutorCache";
+import { registerMobileSourceProfileTransitionHandler } from "@/sources/mobileSourceProfileScope";
 import {
   clearMobileAidokuSandboxDataForProfile,
   clearMobileAidokuSandboxDataForSource,
@@ -42,6 +68,12 @@ import {
 import { clearMobileSourceImageRequestCache } from "@/sources/mobileSourceImages";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";
 import { clearMobileImageCache } from "@/lib/mobileImageCache";
+import { clearMobileReaderPageListCache } from "@/sources/mobileReaderPageListCache";
+import { clearMobileSourceListingCache } from "@/lib/mobileSourceListingCache";
+import {
+  clearMobileSourceDetailCache,
+  clearMobileSourceDetailCacheForSource,
+} from "@/lib/mobileSourceDetailCache";
 import { clearMobileJapaneseLearningTtsCache } from "@/lib/mobileJapaneseLearningTts";
 import { clearMobileDualReaderDhashCache } from "@/lib/mobileDualReaderDhashCache";
 import { findMobileInstalledSourceForRegistrySource } from "@/lib/mobileBrowseSources";
@@ -60,15 +92,7 @@ import {
   normalizeReaderProcessPageImages,
   normalizeReaderTwoPageMode,
 } from "@/lib/mobileReaderSettings";
-import {
-  DEFAULT_APP_LANGUAGE,
-  DEFAULT_METADATA_LANGUAGE_PREFERENCE,
-  getEffectiveMetadataLanguage,
-  normalizeAppLanguage,
-  normalizeMetadataLanguagePreference,
-  resolveDeviceAppLanguage,
-  resolveInitialAppLanguage,
-} from "@/lib/mobileLanguageSettings";
+import { useMobileLanguageContext } from "./mobileLanguageState";
 import { findMobileSourceUpdates } from "@/lib/mobileSourceUpdates";
 import {
   markMobilePerformance,
@@ -263,7 +287,17 @@ export function useLibraryEntries(): LoadState<LibraryEntry[]> {
     try {
       setError(null);
       const entries = await store.getLibraryEntries();
-      setData(entries);
+      // Library emits fire for single-item changes; keep sibling entry
+      // references so grid cards and detail memos only recompute for the
+      // entry that actually changed.
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            entries,
+            (entry) => entry.item.libraryItemId,
+          ) as LibraryEntry[],
+      );
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -290,7 +324,14 @@ export function useMangaProgress(): LoadState<LocalMangaProgress[]> {
     try {
       setError(null);
       const progress = await store.getMangaProgress();
-      setData(progress);
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            progress,
+            (item) => item.id,
+          ) as LocalMangaProgress[],
+      );
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -308,7 +349,7 @@ export function useMangaProgress(): LoadState<LocalMangaProgress[]> {
 
 export function useInstalledSources(): LoadState<InstalledSource[]> {
   const store = useMobileDataStore();
-  const revision = useMobileDataRevision(["settings"]);
+  const revision = useMobileDataRevision(["sources"]);
   const [data, setData] = useState<InstalledSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -317,7 +358,17 @@ export function useInstalledSources(): LoadState<InstalledSource[]> {
     try {
       setError(null);
       const sources = await store.getInstalledSources();
-      setData(sources);
+      // Per-item reference stability: hydrating one source's package must not
+      // invalidate memos (and through them screen load effects) keyed on its
+      // siblings; an unchanged list keeps the previous array reference.
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            sources,
+            (source) => source.id,
+          ) as InstalledSource[],
+      );
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -337,7 +388,7 @@ export function useInstalledSource(
   sourceId: string | null | undefined,
 ): LoadState<InstalledSource | null> {
   const store = useMobileDataStore();
-  const revision = useMobileDataRevision(["settings"]);
+  const revision = useMobileDataRevision(["sources"]);
   const normalizedSourceId = sourceId?.trim() || null;
   const [data, setData] = useState<InstalledSource | null>(null);
   const [loading, setLoading] = useState(true);
@@ -346,11 +397,10 @@ export function useInstalledSource(
   const reload = useCallback(async () => {
     try {
       setError(null);
-      setData(
-        normalizedSourceId
-          ? await store.getInstalledSource(normalizedSourceId)
-          : null,
-      );
+      const source = normalizedSourceId
+        ? await store.getInstalledSource(normalizedSourceId)
+        : null;
+      setData((current) => keepReferenceIfUnchanged(current, source));
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -379,11 +429,10 @@ export function useLibraryItem(
   const reload = useCallback(async () => {
     try {
       setError(null);
-      setData(
-        normalizedLibraryItemId
-          ? await store.getLibraryItem(normalizedLibraryItemId)
-          : null,
-      );
+      const item = normalizedLibraryItemId
+        ? await store.getLibraryItem(normalizedLibraryItemId)
+        : null;
+      setData((current) => keepReferenceIfUnchanged(current, item));
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -416,15 +465,17 @@ export function useMangaChapterProgress(
   const reload = useCallback(async () => {
     try {
       setError(null);
-      setData(
+      const progress =
         normalizedRegistryId && normalizedSourceId && normalizedMangaId
           ? await store.getMangaChapterProgress(
               normalizedRegistryId,
               normalizedSourceId,
               normalizedMangaId,
             )
-          : {},
-      );
+          : {};
+      // Progress emits fire on every page turn; an unchanged map must not
+      // re-key chapter-list memos.
+      setData((current) => keepReferenceIfUnchanged(current, progress));
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -501,7 +552,16 @@ export function useSourceSettings(
       savedUserData.current = {};
       setData(defaults);
     }
-    setLoading(true);
+    // Only a new source (or schema) starts from a loading state. A revision
+    // reload for the same source refreshes in the background, so consumers
+    // keyed on `loading` (browse search/filter effects, the login probe) do
+    // not reset on every settings write.
+    if (
+      sourceChanged ||
+      loadedSourceSettingsSignature.current !== sourceSettingsLoadSignature
+    ) {
+      setLoading(true);
+    }
     try {
       setError(null);
       if (!currentSourceKey) {
@@ -533,7 +593,7 @@ export function useSourceSettings(
         savedData.current = values;
         userDataRef.current = userValues;
         savedUserData.current = userValues;
-        setData(values);
+        setData((current) => keepReferenceIfUnchanged(current, values));
       }
     } catch (nextError) {
       if (
@@ -712,12 +772,21 @@ export function useCollections(): LoadState<LocalCollection[]> & {
         store.getCollections(),
         store.getCollectionItems(),
       ]);
-      setData(
-        sortCollections(
-          collections.filter((collection) => !collection.removed),
-        ),
+      const sorted = sortCollections(
+        collections.filter((collection) => !collection.removed),
       );
-      setMembership(buildCollectionMembership(collectionItems));
+      const nextMembership = buildCollectionMembership(collectionItems);
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            sorted,
+            (collection) => collection.collectionId,
+          ) as LocalCollection[],
+      );
+      setMembership((current) =>
+        keepMapOfSetsIfUnchanged(current, nextMembership),
+      );
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -825,7 +894,14 @@ export function useSourceRegistries(): LoadState<SourceRegistry[]> {
     try {
       setError(null);
       const registries = await store.getRegistries();
-      setData(registries);
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            registries,
+            (registry) => registry.id,
+          ) as SourceRegistry[],
+      );
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -839,6 +915,107 @@ export function useSourceRegistries(): LoadState<SourceRegistry[]> {
   }, [reload, revision]);
 
   return { data, loading, error, reload };
+}
+
+const DEFAULT_HAPTICS_FEEDBACK_ENABLED = true;
+const DEFAULT_CHAPTER_COMPLETE_CELEBRATION = false;
+
+/**
+ * User-facing feedback switches: the haptics master gate and the
+ * end-of-chapter celebration. Both default per product spec and persist
+ * through the shared settings row.
+ */
+export function useMobileFeedbackSettings(): {
+  hapticsFeedbackEnabled: boolean;
+  chapterCompleteCelebration: boolean;
+  setHapticsFeedbackEnabled: (enabled: boolean) => Promise<void>;
+  setChapterCompleteCelebration: (enabled: boolean) => Promise<void>;
+} {
+  const store = useMobileDataStore();
+  const revision = useMobileDataRevision(["settings"]);
+  const [hapticsFeedbackEnabled, setHapticsState] = useState(
+    DEFAULT_HAPTICS_FEEDBACK_ENABLED,
+  );
+  const [chapterCompleteCelebration, setCelebrationState] = useState(
+    DEFAULT_CHAPTER_COMPLETE_CELEBRATION,
+  );
+  const hapticsRun = useRef(0);
+  const celebrationRun = useRef(0);
+  const savedHaptics = useRef(DEFAULT_HAPTICS_FEEDBACK_ENABLED);
+  const savedCelebration = useRef(DEFAULT_CHAPTER_COMPLETE_CELEBRATION);
+
+  useEffect(() => {
+    let mounted = true;
+    store
+      .getSettings()
+      .then((settings) => {
+        if (!mounted) return;
+        const nextHaptics = settings.hapticsFeedbackEnabled ?? DEFAULT_HAPTICS_FEEDBACK_ENABLED;
+        setHapticsState(nextHaptics);
+        savedHaptics.current = nextHaptics;
+        const nextCelebration =
+          settings.chapterCompleteCelebration ?? DEFAULT_CHAPTER_COMPLETE_CELEBRATION;
+        setCelebrationState(nextCelebration);
+        savedCelebration.current = nextCelebration;
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, [revision, store]);
+
+  const setHapticsFeedbackEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (enabled === hapticsFeedbackEnabled) return;
+      const run = hapticsRun.current + 1;
+      hapticsRun.current = run;
+      setHapticsState(enabled);
+      try {
+        await store.updateSettings((settings) => ({
+          ...settings,
+          hapticsFeedbackEnabled: enabled,
+        }));
+        savedHaptics.current = enabled;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (hapticsRun.current === run) {
+          setHapticsState(savedHaptics.current);
+        }
+        throw error;
+      }
+    },
+    [hapticsFeedbackEnabled, store],
+  );
+
+  const setChapterCompleteCelebration = useCallback(
+    async (enabled: boolean) => {
+      if (enabled === chapterCompleteCelebration) return;
+      const run = celebrationRun.current + 1;
+      celebrationRun.current = run;
+      setCelebrationState(enabled);
+      try {
+        await store.updateSettings((settings) => ({
+          ...settings,
+          chapterCompleteCelebration: enabled,
+        }));
+        savedCelebration.current = enabled;
+        emitMobileDataChanged("settings");
+      } catch (error) {
+        if (celebrationRun.current === run) {
+          setCelebrationState(savedCelebration.current);
+        }
+        throw error;
+      }
+    },
+    [chapterCompleteCelebration, store],
+  );
+
+  return {
+    hapticsFeedbackEnabled,
+    chapterCompleteCelebration,
+    setHapticsFeedbackEnabled,
+    setChapterCompleteCelebration,
+  };
 }
 
 export function useReadingMode(): {
@@ -1053,23 +1230,6 @@ export function useReadingMode(): {
   };
 }
 
-/**
- * Device locale, resolved once per process. `expo-localization` reads native
- * settings synchronously; the guard keeps this safe under Jest/bun where the
- * native module may be absent.
- */
-let cachedDeviceAppLanguage: AppLanguage | null | undefined;
-
-function readDeviceAppLanguage(): AppLanguage | null {
-  if (cachedDeviceAppLanguage !== undefined) return cachedDeviceAppLanguage;
-  try {
-    cachedDeviceAppLanguage = resolveDeviceAppLanguage(getLocales());
-  } catch {
-    cachedDeviceAppLanguage = null;
-  }
-  return cachedDeviceAppLanguage;
-}
-
 export function useMobileLanguageSettings(): {
   appLanguage: AppLanguage;
   metadataLanguagePreference: MetadataLanguagePreference;
@@ -1079,88 +1239,7 @@ export function useMobileLanguageSettings(): {
     preference: MetadataLanguagePreference,
   ) => Promise<void>;
 } {
-  const store = useMobileDataStore();
-  const revision = useMobileDataRevision(["settings"]);
-  const [appLanguage, setAppLanguageState] = useState<AppLanguage>(
-    () => readDeviceAppLanguage() ?? DEFAULT_APP_LANGUAGE,
-  );
-  const [metadataLanguagePreference, setMetadataLanguagePreferenceState] =
-    useState<MetadataLanguagePreference>(DEFAULT_METADATA_LANGUAGE_PREFERENCE);
-
-  useEffect(() => {
-    let mounted = true;
-    store
-      .getSettings()
-      .then((settings) => {
-        if (!mounted) return;
-        // A persisted choice always wins. Only fresh installs (no stored
-        // value) fall back to the device locale.
-        setAppLanguageState(
-          resolveInitialAppLanguage(
-            settings.appLanguage,
-            readDeviceAppLanguage(),
-          ),
-        );
-        setMetadataLanguagePreferenceState(
-          normalizeMetadataLanguagePreference(
-            settings.metadataLanguagePreference,
-          ),
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      mounted = false;
-    };
-  }, [revision, store]);
-
-  const setAppLanguage = useCallback(
-    async (language: AppLanguage) => {
-      const nextLanguage = normalizeAppLanguage(language);
-      if (nextLanguage === appLanguage) return;
-      setAppLanguageState(nextLanguage);
-      try {
-        await store.updateSettings((settings) => ({
-          ...settings,
-          appLanguage: nextLanguage,
-        }));
-        emitMobileDataChanged("settings");
-      } catch (error) {
-        setAppLanguageState(appLanguage);
-        throw error;
-      }
-    },
-    [appLanguage, store],
-  );
-
-  const setMetadataLanguagePreference = useCallback(
-    async (preference: MetadataLanguagePreference) => {
-      const nextPreference = normalizeMetadataLanguagePreference(preference);
-      if (nextPreference === metadataLanguagePreference) return;
-      setMetadataLanguagePreferenceState(nextPreference);
-      try {
-        await store.updateSettings((settings) => ({
-          ...settings,
-          metadataLanguagePreference: nextPreference,
-        }));
-        emitMobileDataChanged("settings");
-      } catch (error) {
-        setMetadataLanguagePreferenceState(metadataLanguagePreference);
-        throw error;
-      }
-    },
-    [metadataLanguagePreference, store],
-  );
-
-  return {
-    appLanguage,
-    metadataLanguagePreference,
-    effectiveMetadataLanguage: getEffectiveMetadataLanguage(
-      metadataLanguagePreference,
-      appLanguage,
-    ),
-    setAppLanguage,
-    setMetadataLanguagePreference,
-  };
+  return useMobileLanguageContext();
 }
 
 export function useMobileDataManagement(): {
@@ -1181,6 +1260,9 @@ export function useMobileDataManagement(): {
           clearCachedSourcePackages,
           () => defaultMobileSourceSessionCache.clear(),
           clearMobileImageCache,
+          clearMobileReaderPageListCache,
+          clearMobileSourceListingCache,
+          clearMobileSourceDetailCache,
           clearMobileJapaneseLearningTtsCache,
           clearMobileDualReaderDhashCache,
           clearMobileSourceImageRequestCache,
@@ -1189,7 +1271,10 @@ export function useMobileDataManagement(): {
       } finally {
         // Earlier steps may have succeeded even if another backend failed.
         // Refresh dependents so the UI never keeps stale package/settings data.
-        emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
+        emitMobileSettingsDataChanged({
+          sourceSettingsChanged: true,
+          installedSourcesChanged: true,
+        });
       }
     } finally {
       setClearingMode(null);
@@ -1273,7 +1358,18 @@ export function useMobileReaderPlugins(): LoadState<
     try {
       setError(null);
       const settings = await store.getSettings();
-      setData(getMobileReaderPluginStates(settings, strings));
+      const plugins = getMobileReaderPluginStates(settings, strings);
+      // Plugin state is plain data derived from settings; every settings
+      // write reloads it, so unchanged plugins must keep their references or
+      // the reader re-derives its plugin pipeline on each write.
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            plugins,
+            (plugin) => plugin.id,
+          ) as MobileReaderPluginState[],
+      );
     } catch (nextError) {
       setError(errorMessage(nextError));
       throw nextError;
@@ -1376,105 +1472,292 @@ export function useMobileReaderPlugins(): LoadState<
   };
 }
 
-export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
+/**
+ * The one registry catalog every `useAvailableSources` consumer shares. Browse,
+ * the welcome wizard, and the Settings sources section can all be mounted at
+ * once; without this they each downloaded every registry index and each ran the
+ * silent source auto-update pass.
+ */
+const registryCatalogScheduler =
+  createMobileRegistryCatalogScheduler<MobileRegistrySource[]>();
+
+// A profile switch inside the freshness window would otherwise hand the new
+// account the previous profile's snapshot: `fetch` returns it without loading,
+// so `saveRegistry` never runs against the new profile database and the
+// "registries" event never fires.
+registerMobileSourceProfileTransitionHandler("registry-catalog-scheduler", () =>
+  registryCatalogScheduler.reset(),
+);
+
+async function loadMobileRegistryCatalog(
+  store: MobileDataStore,
+  signal: AbortSignal,
+): Promise<MobileRegistrySource[]> {
+  const isAccountMutationBlocked = () =>
+    Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId);
+  const sources = await fetchAllAidokuRegistrySources(AIDOKU_REGISTRIES, {
+    signal,
+  });
+  assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
+  await Promise.all(
+    AIDOKU_REGISTRIES.map((registry) =>
+      store.saveRegistry({
+        id: registry.id,
+        name: registry.name,
+        type: "url" as const,
+        url: registry.indexUrl,
+      }),
+    ),
+  );
+  assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
+  emitMobileDataChanged("registries");
+  void saveCachedRegistryIndex(sources);
+  return sources;
+}
+
+/**
+ * Download every package whose installed copy is behind the catalog. Runs at
+ * most once per catalog fetch across all mounted consumers.
+ */
+async function runMobileRegistrySourceUpdatePass(
+  store: MobileDataStore,
+  sources: MobileRegistrySource[],
+  signal: AbortSignal,
+): Promise<string[]> {
+  const isAccountMutationBlocked = () =>
+    Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId);
+  const installedSources = await store.getInstalledSources();
+  assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
+  const updateSources = findMobileSourceUpdates(installedSources, sources);
+  if (updateSources.length === 0) return [];
+
+  const updatedNames = await Promise.all(
+    updateSources.map(async (source) => {
+      try {
+        const saved = await saveMobileRegistrySourceInstall(store, source, {
+          signal,
+          updateOnly: true,
+        });
+        return saved ? source.name : null;
+      } catch (nextError) {
+        if (isMobileSourceInstallCancellation(nextError)) throw nextError;
+        console.warn(
+          `[MobileSources] Failed to update ${source.registryId}:${source.id}:`,
+          errorMessage(nextError),
+        );
+        return null;
+      }
+    }),
+  );
+  assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
+  return updatedNames.filter((name): name is string => name !== null);
+}
+
+export function useAvailableSources(
+  options: {
+    /**
+     * Screens that only need the catalog for one section pass `false` while
+     * that section is closed, so opening Settings never starts registry
+     * discovery on its own.
+     */
+    enabled?: boolean;
+  } = {},
+): LoadState<MobileRegistrySource[]> & {
   sourceUpdateNotice: MobileSourceUpdateNotice | null;
+  networkAccessState: NemuNetworkAccessState;
+  catalogCachedAt: number | null;
 } {
+  const enabled = options.enabled ?? true;
   const store = useMobileDataStore();
   const [data, setData] = useState<MobileRegistrySource[]>([]);
-  const [loading, setLoading] = useState(true);
+  // A disabled consumer never starts a load, so it must not report one either.
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const [sourceUpdateNotice, setSourceUpdateNotice] =
     useState<MobileSourceUpdateNotice | null>(null);
+  const [catalogCachedAt, setCatalogCachedAt] = useState<number | null>(null);
+  const [networkAccessState, setNetworkAccessState] =
+    useState<NemuNetworkAccessState>(() =>
+      Platform.OS === "ios"
+        ? NemuAidokuModule.getNetworkAccessState()
+        : "notRestricted",
+    );
   const reloadAbortRef = useRef<AbortController | null>(null);
   const reloadRunRef = useRef(0);
+  const dataRef = useRef(data);
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
-  const reload = useCallback(async () => {
-    reloadAbortRef.current?.abort();
-    const controller = new AbortController();
-    const run = reloadRunRef.current + 1;
-    reloadRunRef.current = run;
-    reloadAbortRef.current = controller;
-    const isCurrent = () =>
-      reloadAbortRef.current === controller && reloadRunRef.current === run;
-    try {
-      setLoading(true);
-      setError(null);
-      setSourceUpdateNotice(null);
-      const sources = await fetchAllAidokuRegistrySources(AIDOKU_REGISTRIES, {
-        signal: controller.signal,
-      });
-      assertMobileSourceInstallActive(controller.signal, () =>
-        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
-      );
-      await Promise.all(
-        AIDOKU_REGISTRIES.map((registry) =>
-          store.saveRegistry({
-            id: registry.id,
-            name: registry.name,
-            type: "url" as const,
-            url: registry.indexUrl,
-          }),
-        ),
-      );
-      assertMobileSourceInstallActive(controller.signal, () =>
-        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
-      );
-      emitMobileDataChanged("registries");
-      const installedSources = await store.getInstalledSources();
-      assertMobileSourceInstallActive(controller.signal, () =>
-        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
-      );
-      const updateSources = findMobileSourceUpdates(installedSources, sources);
-      const updatedNames: string[] = [];
-      for (const source of updateSources) {
-        try {
-          const saved = await saveMobileRegistrySourceInstall(store, source, {
-            signal: controller.signal,
-            updateOnly: true,
-          });
-          if (saved) updatedNames.push(source.name);
-        } catch (nextError) {
-          if (isMobileSourceInstallCancellation(nextError)) throw nextError;
-          console.warn(
-            `[MobileSources] Failed to update ${source.registryId}:${source.id}:`,
-            errorMessage(nextError),
-          );
+  const runReload = useCallback(
+    async (ttlMs: number) => {
+      reloadAbortRef.current?.abort();
+      const controller = new AbortController();
+      const run = reloadRunRef.current + 1;
+      reloadRunRef.current = run;
+      reloadAbortRef.current = controller;
+      const isCurrent = () =>
+        reloadAbortRef.current === controller && reloadRunRef.current === run;
+      const hasPaintedData = dataRef.current.length > 0;
+      try {
+        if (!hasPaintedData) {
+          setLoading(true);
+        }
+        setError(null);
+        setSourceUpdateNotice(null);
+
+        // Stale-while-revalidate: paint the persisted catalog immediately so
+        // cold starts and offline launches see a usable source list while the
+        // network refresh is still in flight.
+        if (!hasPaintedData) {
+          const cachedSnapshot = await loadCachedRegistryIndexSnapshot();
+          const cached = cachedSnapshot?.sources ?? (await loadCachedRegistryIndex());
+          if (!isCurrent()) return;
+          if (cached && cached.length > 0) {
+            setData(cached);
+            setCatalogCachedAt(cachedSnapshot?.savedAt ?? null);
+            setLoading(false);
+          }
+        }
+
+        const { fetchId, value: sources } = await registryCatalogScheduler.fetch(
+          (signal) => loadMobileRegistryCatalog(store, signal),
+          { ttlMs, signal: controller.signal },
+        );
+
+        // Paint the fresh catalog before downloading update packages so slow
+        // or sequential-feeling updates can't hold the list hostage.
+        if (!isCurrent()) return;
+        setSourceUpdateNotice(null);
+        setCatalogCachedAt(null);
+        setData(
+          (current) =>
+            stabilizeListReferences(
+              current,
+              sources,
+              (source) => `${source.registryId}:${source.id}`,
+            ) as MobileRegistrySource[],
+        );
+
+        const pass = await registryCatalogScheduler.runUpdatePass(
+          fetchId,
+          // The pass runs on the scheduler's own signal: this consumer
+          // unmounting must not cancel the install pass every other consumer
+          // is waiting on (and permanently mark this snapshot as passed).
+          (passSignal) =>
+            runMobileRegistrySourceUpdatePass(store, sources, passSignal),
+          { signal: controller.signal },
+        );
+        if (!isCurrent() || !pass.ran) return;
+        const names = pass.value ?? [];
+        if (names.length > 0) {
+          emitMobileDataChanged("sources");
+          setSourceUpdateNotice({ id: Date.now(), names });
+        }
+      } catch (nextError) {
+        if (isCurrent() && !isMobileSourceInstallCancellation(nextError)) {
+          setError(errorMessage(nextError));
+        }
+        throw nextError;
+      } finally {
+        if (isCurrent()) {
+          reloadAbortRef.current = null;
+          setLoading(false);
         }
       }
-      assertMobileSourceInstallActive(controller.signal, () =>
-        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
-      );
-      if (!isCurrent()) return;
-      if (updatedNames.length > 0) {
-        emitMobileDataChanged("settings");
-        setSourceUpdateNotice({ id: Date.now(), names: updatedNames });
-      } else {
-        setSourceUpdateNotice(null);
-      }
-      setData(sources);
-    } catch (nextError) {
-      if (isCurrent() && !isMobileSourceInstallCancellation(nextError)) {
-        setError(errorMessage(nextError));
-      }
-      throw nextError;
-    } finally {
-      if (isCurrent()) {
-        reloadAbortRef.current = null;
-        setLoading(false);
-      }
-    }
-  }, [store]);
+    },
+    [store],
+  );
+
+  // The public reload is always an explicit user action (pull-to-refresh, an
+  // error retry), so it bypasses the shared freshness window.
+  const reload = useCallback(() => runReload(0), [runReload]);
 
   useEffect(() => {
-    ignoreReloadError(reload);
+    if (!enabled) {
+      // Disabling mid-load aborts the run, and the aborted run's `finally`
+      // sees a stale `isCurrent()` so it never clears the flag. Without this
+      // a consumer that closes its section while the catalog is still loading
+      // reports `loading: true` until it is re-enabled.
+      setLoading(false);
+      return;
+    }
+    const reloadIfStale = () =>
+      ignoreReloadError(() =>
+        runReload(MOBILE_REGISTRY_CATALOG_FRESHNESS_MS),
+      );
+    reloadIfStale();
+
+    let previousAppState = AppState.currentState;
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      (nextAppState) => {
+        const returnedToForeground =
+          previousAppState !== "active" && nextAppState === "active";
+        previousAppState = nextAppState;
+        // The freshness window itself is shared, so a second mounted consumer
+        // returning to the foreground cannot re-trigger the fetch.
+        if (returnedToForeground) reloadIfStale();
+      },
+    );
+
+    // A load that failed while offline self-heals as soon as connectivity
+    // returns, instead of waiting for the user to background the app or find
+    // a retry button.
+    let previousConnectivity: MobileConnectivityStatus | null = null;
+    void getNetworkStateAsync()
+      .then((state) => {
+        if (previousConnectivity === null) {
+          previousConnectivity = classifyMobileNetworkState(state);
+        }
+      })
+      .catch(() => undefined);
+    const connectivitySubscription = addNetworkStateListener((state) => {
+      const next = classifyMobileNetworkState(state);
+      const shouldRetry = shouldRetryAfterMobileConnectivityChange({
+        previous: previousConnectivity,
+        next,
+      });
+      previousConnectivity = next;
+      if (shouldRetry) ignoreReloadError(reload);
+    });
+
+    let cellularSubscription: { remove: () => void } | null = null;
+    if (Platform.OS === "ios") {
+      let previousNetworkAccessState = NemuAidokuModule.getNetworkAccessState();
+      setNetworkAccessState(previousNetworkAccessState);
+      cellularSubscription = NemuAidokuModule.addListener(
+        "nemuNetworkAccessChanged",
+        ({ state }) => {
+          const shouldRetry =
+            state === "notRestricted" &&
+            previousNetworkAccessState !== "notRestricted";
+          previousNetworkAccessState = state;
+          setNetworkAccessState(state);
+          if (shouldRetry) ignoreReloadError(reload);
+        },
+      );
+    }
+
     return () => {
+      cellularSubscription?.remove();
+      connectivitySubscription.remove();
+      appStateSubscription.remove();
       reloadAbortRef.current?.abort();
       reloadAbortRef.current = null;
       reloadRunRef.current += 1;
     };
-  }, [reload]);
+  }, [enabled, reload, runReload]);
 
-  return { data, loading, error, reload, sourceUpdateNotice };
+  return {
+    data,
+    loading,
+    error,
+    reload,
+    sourceUpdateNotice,
+    networkAccessState,
+    catalogCachedAt,
+  };
 }
 
 /**
@@ -1500,7 +1783,10 @@ export function useSourceInstaller(): {
   const installAbortRef = useRef<AbortController | null>(null);
 
   const cancelInstall = useCallback(() => {
-    installAbortRef.current?.abort();
+    const controller = installAbortRef.current;
+    installAbortRef.current = null;
+    setInstallingKey(null);
+    controller?.abort();
   }, []);
 
   useEffect(() => {
@@ -1535,7 +1821,7 @@ export function useSourceInstaller(): {
             signal: controller.signal,
           }),
         );
-        emitMobileDataChanged("settings");
+        emitMobileDataChanged("sources");
         measureMobilePerformance("source.install.action.complete", startedAt, {
           key,
         });
@@ -1591,6 +1877,14 @@ export function useSourceInstaller(): {
             settingsKeys,
             resetSourceSettings: (settingsKey) =>
               store.resetSourceSettings(settingsKey),
+            clearSourceDetailCache: () =>
+              clearMobileSourceDetailCacheForSource(
+                existing
+                  ? makeMobileRuntimeSourceKey(
+                      normalizeInstalledSource(existing),
+                    )
+                  : key,
+              ),
             removeInstalledSource: () =>
               store.removeInstalledSource(
                 removeId,
@@ -1598,7 +1892,8 @@ export function useSourceInstaller(): {
               ),
           });
         });
-        emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
+        emitMobileDataChanged("sources");
+        emitMobileDataChanged("sourceSettings");
         measureMobilePerformance(
           "source.uninstall.action.complete",
           startedAt,

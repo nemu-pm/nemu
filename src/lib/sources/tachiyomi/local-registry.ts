@@ -197,6 +197,14 @@ export class TachiyomiLocalRegistry implements SourceRegistryProvider {
     );
   }
 
+  /**
+   * Whether a source instance is already live in memory. Cheap synchronous
+   * check that lets callers skip storage lookups in isInstalled().
+   */
+  isLoaded(sourceId: string): boolean {
+    return this.loadedSources.has(sourceId);
+  }
+
   async isInstalled(sourceId: string): Promise<boolean> {
     await this.ensureInitialized();
     return this.extensions.has(sourceId);

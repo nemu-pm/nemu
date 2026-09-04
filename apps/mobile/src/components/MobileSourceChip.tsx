@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import {
   MobileCachedImage,
   nemuFontWeight,
+  radius,
   useNemuTheme,
   NemuPressable,
 } from "@/design-system";
@@ -104,7 +105,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: 10,
   },
   iconImage: {
@@ -123,7 +124,7 @@ const styles = StyleSheet.create({
   },
   badge: {
     flexShrink: 0,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: 5,
     paddingVertical: 1,
   },

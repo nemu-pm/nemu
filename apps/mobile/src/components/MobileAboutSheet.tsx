@@ -1,6 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Linking,
   Platform,
   StyleSheet,
@@ -31,7 +33,11 @@ import {
 } from "@/lib/mobileAboutActions";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
-import { getMobileAboutSheetLayout } from "@/lib/mobileAboutLayout";
+import {
+  getMobileAboutSheetLayout,
+  MOBILE_ABOUT_VERSION_PULSE,
+  shouldAnimateMobileAboutVersionPulse,
+} from "@/lib/mobileAboutLayout";
 
 const APP_VERSION = packageJson.version;
 const SOURCE_URL = "https://github.com/nemu-pm/nemu";
@@ -48,6 +54,47 @@ type MobileAboutSheetProps = {
   visible: boolean;
   onClose: () => void;
 };
+
+function MobileVersionPulseDot({ active, color }: { active: boolean; color: string }) {
+  const { reduceMotion } = useNemuTheme();
+  const [opacity] = useState(() => new Animated.Value(1));
+
+  useEffect(() => {
+    opacity.stopAnimation();
+    if (!shouldAnimateMobileAboutVersionPulse(active, reduceMotion)) {
+      opacity.setValue(1);
+      return;
+    }
+
+    const [easeX1, easeY1, easeX2, easeY2] =
+      MOBILE_ABOUT_VERSION_PULSE.easing;
+    const webPulseEase = Easing.bezier(easeX1, easeY1, easeX2, easeY2);
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          duration: MOBILE_ABOUT_VERSION_PULSE.duration / 2,
+          easing: webPulseEase,
+          toValue: MOBILE_ABOUT_VERSION_PULSE.midpointOpacity,
+          useNativeDriver: Platform.OS !== "web",
+        }),
+        Animated.timing(opacity, {
+          duration: MOBILE_ABOUT_VERSION_PULSE.duration / 2,
+          easing: webPulseEase,
+          toValue: 1,
+          useNativeDriver: Platform.OS !== "web",
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [active, opacity, reduceMotion]);
+
+  return (
+    <Animated.View
+      style={[styles.versionDot, { backgroundColor: color, opacity }]}
+    />
+  );
+}
 
 export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
   const { tokens } = useNemuTheme();
@@ -131,7 +178,7 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
 
       <View style={styles.versionWrap}>
         <View style={[styles.versionBadge, { backgroundColor: tokens.muted }]}>
-          <View style={[styles.versionDot, { backgroundColor: tokens.success }]} />
+          <MobileVersionPulseDot active={visible} color={tokens.success} />
           <Text
             maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
             style={[styles.versionText, { color: tokens.mutedForeground }]}
@@ -287,13 +334,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: 12,
   },
   versionDot: {
     width: 6,
     height: 6,
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
   versionText: {
     fontSize: 12,

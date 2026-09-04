@@ -3,22 +3,92 @@ import {
   canSaveMobileMetadataEditorForm,
   canSelectMobileMetadataStatusOption,
   canStartMobileMetadataEditorAction,
+  getMobileMetadataEditorDirtyFields,
   getMobileMetadataEditorRequestCloseAction,
   getMobileMetadataEditorSaveResultAction,
   isMobileMetadataEditorActionBusy,
+  type MobileMetadataEditorFormSnapshot,
 } from "./mobileMetadataEditorBackBehavior";
+
+const BASE_FORM: MobileMetadataEditorFormSnapshot = {
+  title: "Frieren",
+  authorsText: "Kanehito Yamada",
+  description: "After the hero party.",
+  tagsText: "Fantasy",
+  coverUrl: "https://example.test/cover.jpg",
+  status: 1,
+};
 
 describe("mobile metadata editor back behavior", () => {
   test("keeps the sheet open while metadata work is in flight", () => {
-    expect(getMobileMetadataEditorRequestCloseAction({ busy: true })).toBe(
-      "ignore",
-    );
+    expect(
+      getMobileMetadataEditorRequestCloseAction({ busy: true, dirty: false }),
+    ).toBe("ignore");
+    // In-flight work outranks the draft: a save can still land.
+    expect(
+      getMobileMetadataEditorRequestCloseAction({ busy: true, dirty: true }),
+    ).toBe("ignore");
   });
 
-  test("closes the sheet when the editor is idle", () => {
-    expect(getMobileMetadataEditorRequestCloseAction({ busy: false })).toBe(
-      "close-sheet",
-    );
+  test("closes the sheet when the editor is idle and untouched", () => {
+    expect(
+      getMobileMetadataEditorRequestCloseAction({ busy: false, dirty: false }),
+    ).toBe("close-sheet");
+  });
+
+  test("confirms before an idle sheet throws away a dirty draft", () => {
+    expect(
+      getMobileMetadataEditorRequestCloseAction({ busy: false, dirty: true }),
+    ).toBe("confirm-discard");
+  });
+
+  test("names the changed fields in editor order", () => {
+    expect(
+      getMobileMetadataEditorDirtyFields({
+        form: BASE_FORM,
+        initialForm: BASE_FORM,
+        hasSelectedCoverAsset: false,
+      }),
+    ).toEqual([]);
+
+    expect(
+      getMobileMetadataEditorDirtyFields({
+        form: {
+          ...BASE_FORM,
+          status: 2,
+          description: "Rewritten.",
+          title: "Frieren: Beyond Journey's End",
+        },
+        initialForm: BASE_FORM,
+        hasSelectedCoverAsset: false,
+      }),
+    ).toEqual(["title", "description", "status"]);
+
+    expect(
+      getMobileMetadataEditorDirtyFields({
+        form: { ...BASE_FORM, authorsText: "Tsukasa Abe", tagsText: "Drama" },
+        initialForm: BASE_FORM,
+        hasSelectedCoverAsset: false,
+      }),
+    ).toEqual(["authors", "tags"]);
+  });
+
+  test("counts a picked cover asset as a cover change", () => {
+    expect(
+      getMobileMetadataEditorDirtyFields({
+        form: BASE_FORM,
+        initialForm: BASE_FORM,
+        hasSelectedCoverAsset: true,
+      }),
+    ).toEqual(["cover"]);
+    // A picked asset and an edited URL still report the cover once.
+    expect(
+      getMobileMetadataEditorDirtyFields({
+        form: { ...BASE_FORM, coverUrl: "https://example.test/other.jpg" },
+        initialForm: BASE_FORM,
+        hasSelectedCoverAsset: true,
+      }),
+    ).toEqual(["cover"]);
   });
 
   test("keeps the editor open after failed saves so the draft is preserved", () => {

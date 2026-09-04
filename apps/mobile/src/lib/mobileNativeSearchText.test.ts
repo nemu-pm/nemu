@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   coerceMobileNativeSearchText,
+  getMobileTextFieldTrailingAccessoryMargin,
+  getMobileSearchFieldTrailingAccessories,
   resolveMobileNativeSearchSubmitText,
 } from "./mobileNativeSearchText";
 
@@ -29,5 +31,38 @@ describe("resolveMobileNativeSearchSubmitText", () => {
     expect(resolveMobileNativeSearchSubmitText(undefined, "Chainsaw")).toBe(
       "Chainsaw",
     );
+  });
+});
+
+describe("getMobileSearchFieldTrailingAccessories", () => {
+  test("keeps the clear action at the physical trailing edge while loading", () => {
+    expect(
+      getMobileSearchFieldTrailingAccessories({ loading: true, canClear: true }),
+    ).toEqual(["loading", "clear"]);
+  });
+
+  test("omits absent accessories without inserting layout placeholders", () => {
+    expect(
+      getMobileSearchFieldTrailingAccessories({ loading: false, canClear: true }),
+    ).toEqual(["clear"]);
+    expect(
+      getMobileSearchFieldTrailingAccessories({ loading: true, canClear: false }),
+    ).toEqual(["loading"]);
+    expect(
+      getMobileSearchFieldTrailingAccessories({ loading: false, canClear: false }),
+    ).toEqual([]);
+  });
+});
+
+describe("getMobileTextFieldTrailingAccessoryMargin", () => {
+  test("cancels the containing field's trailing padding", () => {
+    expect(getMobileTextFieldTrailingAccessoryMargin(14)).toBe(-14);
+    expect(getMobileTextFieldTrailingAccessoryMargin(12)).toBe(-12);
+  });
+
+  test("does not turn missing or invalid insets into unsafe layout values", () => {
+    expect(getMobileTextFieldTrailingAccessoryMargin(undefined)).toBe(0);
+    expect(getMobileTextFieldTrailingAccessoryMargin(Number.NaN)).toBe(0);
+    expect(getMobileTextFieldTrailingAccessoryMargin(-8)).toBe(0);
   });
 });

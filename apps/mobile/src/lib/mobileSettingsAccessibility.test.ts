@@ -25,7 +25,19 @@ describe("mobile settings native accessibility contracts", () => {
 
     expect(source).toContain("swiftAccessibilityHidden()");
     expect(source).toContain('accessibilityRole="tab"');
-    expect(source).toContain("selected: option.value === value");
+    expect(source).toContain("selected: option.value === displayedValue");
+    expect(source).toContain("selection={displayedValue}");
+    expect(source).toContain("setOptimisticValue(nextValue)");
+    expect(source).toContain(
+      'screenReaderEnabled || interactionLocked ? "auto" : "none"',
+    );
+    expect(source).toContain("const interactionBlocked = disabled || interactionLocked");
+    expect(source).toContain(
+      "...(disabled ? [swiftDisabled(true)] : []),",
+    );
+    expect(source).not.toContain(
+      "...(interactionBlocked ? [swiftDisabled(true)] : []),",
+    );
     expect(source).not.toContain(
       '<View accessibilityRole="tablist" style={styles.nativeSegmentedShell}>',
     );

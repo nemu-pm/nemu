@@ -5,6 +5,7 @@ const files = new Map<string, StoredFile>();
 const directories = new Set<string>(["/cache"]);
 let failMoveDestination: RegExp | null = null;
 let directoryListCalls = 0;
+let existenceChecks = 0;
 
 const pathFrom = (value: unknown): string => {
   if (value instanceof FakeDirectory || value instanceof FakeFile)
@@ -27,6 +28,7 @@ class FakeFile {
     return this.path.slice(this.path.lastIndexOf("/") + 1);
   }
   get exists() {
+    existenceChecks += 1;
     return files.has(this.path);
   }
   info() {
@@ -177,6 +179,7 @@ describe("native segmented cache publication", () => {
     directories.add("/cache");
     failMoveDestination = null;
     directoryListCalls = 0;
+    existenceChecks = 0;
   });
 
   test("publishes manifest last and never exposes it as binary bytes", async () => {
@@ -340,5 +343,201 @@ describe("native segmented cache publication", () => {
     expect(files.size).toBe(0);
     expect(directoryListCalls).toBeLessThanOrEqual(4);
     expect(elapsedMs).toBeLessThan(1_000);
+  });
+});
+
+const plainPolicy = {
+  maxBytes: 1_000_000,
+  maxEntries: 10,
+  // Far beyond any fixture timestamp: these cases exercise ordering, not age.
+  maxAgeMs: 10_000_000_000_000,
+  maxEntryBytes: 100_000,
+};
+
+function writePlainFile(name: string, modifiedAt: number, size = 4) {
+  const file = new FakeFile(`/cache/images/${name}`);
+  file.write(new Uint8Array(size).fill(1));
+  files.get(file.path)!.modifiedAt = modifiedAt;
+  return file;
+}
+
+describe("native cache file name index", () => {
+  beforeEach(() => {
+    files.clear();
+    directories.clear();
+    directories.add("/cache");
+    failMoveDestination = null;
+    directoryListCalls = 0;
+    existenceChecks = 0;
+  });
+
+  test("serves a cached file without probing every extension", async () => {
+    directories.add("/cache/images");
+    // `wav` is last in the extension probe order, so the old linear scan cost
+    // one `exists` call per known extension on every single hit.
+    writePlainFile("cover.wav", 1_000);
+    const cache = new FileSystemBinaryCache("images", plainPolicy);
+
+    expect(await cache.getUri("cover")).toBe("file:///cache/images/cover.wav");
+    existenceChecks = 0;
+    expect(await cache.getUri("cover")).toBe("file:///cache/images/cover.wav");
+
+    expect(existenceChecks).toBeLessThanOrEqual(2);
+  });
+
+  test("tracks writes and removals in the name index", async () => {
+    const cache = new FileSystemBinaryCache("images", plainPolicy);
+    await cache.setBytes("cover", new Uint8Array([1, 2, 3]), "image/png");
+
+    existenceChecks = 0;
+    expect(await cache.getUri("cover")).toBe("file:///cache/images/cover.png");
+    expect(existenceChecks).toBeLessThanOrEqual(2);
+
+    await cache.remove("cover");
+    expect(await cache.getUri("cover")).toBeNull();
+  });
+
+  test("re-indexes a name whose file disappeared underneath it", async () => {
+    const cache = new FileSystemBinaryCache("images", plainPolicy);
+    await cache.setBytes("cover", new Uint8Array([1, 2, 3]), "image/png");
+    files.delete("/cache/images/cover.png");
+
+    expect(await cache.getUri("cover")).toBeNull();
+  });
+});
+
+describe("native cache read recency", () => {
+  beforeEach(() => {
+    files.clear();
+    directories.clear();
+    directories.add("/cache");
+    failMoveDestination = null;
+    directoryListCalls = 0;
+    existenceChecks = 0;
+  });
+
+  test("persists a read hit and protects it from write-age eviction", async () => {
+    directories.add("/cache/images");
+    writePlainFile("old.jpg", 1_000);
+    writePlainFile("new.jpg", 2_000);
+
+    const first = new FileSystemBinaryCache("images", {
+      ...plainPolicy,
+      maxEntries: 2,
+    });
+    expect(await first.getUri("old")).toBe("file:///cache/images/old.jpg");
+    // The sidecar is flushed on the next index pass, not on the read itself.
+    await first.getStats();
+    expect(files.has("/cache/images/nemu-access-index.json")).toBe(true);
+
+    const second = new FileSystemBinaryCache("images", {
+      ...plainPolicy,
+      maxEntries: 1,
+    });
+    await second.getStats();
+
+    expect(files.has("/cache/images/old.jpg")).toBe(true);
+    expect(files.has("/cache/images/new.jpg")).toBe(false);
+  });
+
+  test("evicts by write time when nothing has been read", async () => {
+    directories.add("/cache/images");
+    writePlainFile("old.jpg", 1_000);
+    writePlainFile("new.jpg", 2_000);
+
+    const cache = new FileSystemBinaryCache("images", {
+      ...plainPolicy,
+      maxEntries: 1,
+    });
+    await cache.getStats();
+
+    expect(files.has("/cache/images/old.jpg")).toBe(false);
+    expect(files.has("/cache/images/new.jpg")).toBe(true);
+  });
+
+  test("trims an oversized recency sidecar instead of losing it wholesale", async () => {
+    // Sidecar names are encoded URLs. Without a write cap the file outgrows
+    // ACCESS_INDEX_MAX_BYTES and the next load deletes it, dropping every
+    // recorded read hit at once.
+    const ACCESS_INDEX_MAX_BYTES = 512 * 1024;
+    directories.add("/cache/images");
+    const keys = Array.from(
+      { length: 200 },
+      (_, index) => `k${String(index).padStart(4, "0")}${"x".repeat(3_000)}`,
+    );
+    for (const key of keys) writePlainFile(`${key}.jpg`, 1_000);
+
+    const cache = new FileSystemBinaryCache("images", {
+      ...plainPolicy,
+      maxBytes: 100_000_000,
+      maxEntries: 10_000,
+    });
+    await cache.getStats();
+    for (const key of keys) {
+      expect(await cache.getUri(key)).toBe(`file:///cache/images/${key}.jpg`);
+    }
+    await cache.getStats();
+
+    const sidecar = files.get("/cache/images/nemu-access-index.json");
+    expect(sidecar).toBeDefined();
+    // Untrimmed this would be ~600 KB.
+    expect(sidecar!.bytes.byteLength).toBeLessThanOrEqual(
+      ACCESS_INDEX_MAX_BYTES,
+    );
+    const persisted = JSON.parse(
+      new TextDecoder().decode(sidecar!.bytes),
+    ) as { access: Record<string, number> };
+    expect(Object.keys(persisted.access).length).toBeGreaterThan(0);
+    expect(Object.keys(persisted.access).length).toBeLessThan(keys.length);
+
+    // The next process still finds a usable sidecar rather than deleting it.
+    const reopened = new FileSystemBinaryCache("images", {
+      ...plainPolicy,
+      maxBytes: 100_000_000,
+      maxEntries: 10_000,
+    });
+    await reopened.getStats();
+    expect(files.has("/cache/images/nemu-access-index.json")).toBe(true);
+  });
+
+  test("caps the persisted recency map at the policy entry limit", async () => {
+    directories.add("/cache/images");
+    const keys = Array.from({ length: 6 }, (_, index) => `cover-${index}`);
+    for (const [index, key] of keys.entries()) {
+      writePlainFile(`${key}.jpg`, 1_000 + index);
+    }
+
+    const cache = new FileSystemBinaryCache("images", {
+      ...plainPolicy,
+      maxEntries: 10_000,
+    });
+    await cache.getStats();
+    for (const key of keys) await cache.getUri(key);
+    await cache.getStats();
+
+    const persisted = JSON.parse(
+      new TextDecoder().decode(
+        files.get("/cache/images/nemu-access-index.json")!.bytes,
+      ),
+    ) as { access: Record<string, number> };
+    expect(Object.keys(persisted.access).sort()).toEqual(
+      keys.map((key) => `${key}.jpg`).sort(),
+    );
+  });
+
+  test("keeps the recency sidecar out of the cache entry budget", async () => {
+    directories.add("/cache/images");
+    writePlainFile("cover.jpg", 1_000);
+    const cache = new FileSystemBinaryCache("images", {
+      ...plainPolicy,
+      maxEntries: 1,
+    });
+
+    expect(await cache.getUri("cover")).toBe("file:///cache/images/cover.jpg");
+    const stats = await cache.getStats();
+
+    expect(files.has("/cache/images/nemu-access-index.json")).toBe(true);
+    expect(stats.entries).toBe(1);
+    expect(files.has("/cache/images/cover.jpg")).toBe(true);
   });
 });

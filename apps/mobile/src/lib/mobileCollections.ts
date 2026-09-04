@@ -205,13 +205,14 @@ export function canRetryMobileCollectionMembershipLoadError({
 }
 
 export function getMobileCollectionSelectionSessionKey({
-  visible,
   targetId,
 }: {
   visible: boolean;
   targetId: string;
 }): string {
-  return visible ? `open:${targetId}` : "closed";
+  // Keep the native host mounted while controlled visibility animates closed.
+  // A new target still receives a fresh staged-selection component.
+  return `target:${targetId}`;
 }
 
 export function collectionSelectionForLibraryItem(

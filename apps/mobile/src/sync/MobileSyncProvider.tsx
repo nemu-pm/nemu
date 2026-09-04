@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ConvexProvider,
   ConvexReactClient,
@@ -6,10 +6,6 @@ import {
   usePaginatedQuery,
   useQuery,
 } from "convex/react";
-import {
-  ConvexBetterAuthProvider,
-  type AuthClient as ConvexAuthClient,
-} from "@convex-dev/better-auth/react";
 import { api } from "../../../../convex/_generated/api";
 import {
   emitMobileDataChanged,
@@ -41,6 +37,16 @@ import {
   toCloudLibrarySaveInputBatches,
 } from "@nemu/core";
 import { mobileAuthClient } from "./mobileAuthClient";
+import { MobileConvexAuthProvider } from "./mobileConvexAuth";
+import { didMobileInstalledSourcesApplyChange } from "./mobileInstalledSourcesApply";
+import { mobileSyncApplyRetryDelayMs } from "./mobileSyncApplyRetry";
+import {
+  beginMobileSyncProgress,
+  getMobileSyncProgress,
+  markMobileSyncProgressDomain,
+  pauseMobileSyncProgress,
+  resetMobileSyncProgress,
+} from "./mobileSyncProgress";
 import { mobileSyncConfig } from "./mobileSyncConfig";
 import {
   mapCloudChapterProgress,
@@ -559,12 +565,9 @@ export function MobileSyncProvider({ children }: { children: ReactNode }) {
 
   return (
     <ConvexProvider client={convex}>
-      <ConvexBetterAuthProvider
-        client={convex}
-        authClient={mobileAuthClient as unknown as ConvexAuthClient}
-      >
+      <MobileConvexAuthProvider client={convex}>
         {children}
-      </ConvexBetterAuthProvider>
+      </MobileConvexAuthProvider>
     </ConvexProvider>
   );
 }
@@ -592,6 +595,75 @@ function ConfiguredMobileSyncBridge() {
     !isAuthenticated ||
     !areSyncAccountIdentitiesAligned(sessionUserId, convexUserId);
 
+  // Apply-failure retry. The three apply effects below only re-run when their
+  // cloud snapshot inputs change; without this revision a thrown error (store
+  // failure, network failure inside a reconciliation mutation) would leave
+  // that domain unapplied until the cloud data changed again or the app
+  // restarted. Same contract as the web bridge's retry-backoff.
+  type MobileSyncApplyDomain = "library-collections" | "progress" | "settings";
+  const [syncApplyRetryRevision, setSyncApplyRetryRevision] = useState<
+    Record<MobileSyncApplyDomain, number>
+  >({
+    "library-collections": 0,
+    progress: 0,
+    settings: 0,
+  });
+  const libraryRetryRevision = syncApplyRetryRevision["library-collections"];
+  const progressRetryRevision = syncApplyRetryRevision.progress;
+  const settingsRetryRevision = syncApplyRetryRevision.settings;
+  const syncApplyRetryTimersRef = useRef(
+    new Map<MobileSyncApplyDomain, ReturnType<typeof setTimeout>>(),
+  );
+  const syncApplyRetryAttemptsRef = useRef(
+    new Map<MobileSyncApplyDomain, number>(),
+  );
+
+  const markSyncApplySucceeded = useCallback(
+    (domain: MobileSyncApplyDomain) => {
+      const timer = syncApplyRetryTimersRef.current.get(domain);
+      if (timer) clearTimeout(timer);
+      syncApplyRetryTimersRef.current.delete(domain);
+      syncApplyRetryAttemptsRef.current.delete(domain);
+    },
+    [],
+  );
+
+  const markSyncApplyFailed = useCallback(
+    (domain: MobileSyncApplyDomain, error: unknown, shouldContinue: () => boolean) => {
+      if (!shouldContinue()) return;
+      console.error(
+        `[MobileSync] Failed to apply ${domain} snapshot:`,
+        error,
+      );
+      if (syncApplyRetryTimersRef.current.has(domain)) return;
+      const attempt = (syncApplyRetryAttemptsRef.current.get(domain) ?? 0) + 1;
+      syncApplyRetryAttemptsRef.current.set(domain, attempt);
+      const timer = setTimeout(() => {
+        syncApplyRetryTimersRef.current.delete(domain);
+        setSyncApplyRetryRevision((current) => ({
+          ...current,
+          [domain]: current[domain] + 1,
+        }));
+      }, mobileSyncApplyRetryDelayMs(attempt));
+      syncApplyRetryTimersRef.current.set(domain, timer);
+    },
+    [],
+  );
+
+  // Retry state belongs to one account's profile store. On unmount, and on
+  // every account/store swap, drop pending timers and the accumulated backoff
+  // so the next account does not inherit a maxed-out delay (or get its
+  // effects re-driven by the previous account's timer).
+  useEffect(() => {
+    const timers = syncApplyRetryTimersRef.current;
+    const attempts = syncApplyRetryAttemptsRef.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+      attempts.clear();
+    };
+  }, [sessionUserId, store]);
+
   useEffect(() => {
     let cancelled = false;
     if (skipSubscriptions || !sessionUserId) {
@@ -610,6 +682,23 @@ function ConfiguredMobileSyncBridge() {
           blockedGeneration:
             state?.status === "budget-exceeded" ? state.generation : null,
         });
+        // First sync = this profile store has never recorded a healthy
+        // snapshot run. Begin toast progress tracking; routine incremental
+        // syncs (healthy state on record) stay silent. A persisted budget
+        // gate blocks the subscription pass entirely, so park immediately —
+        // the in-pass budget effect below never fires while blocked.
+        //
+        // A healthy state must NOT cancel a run already in flight: it is
+        // recorded as soon as the cloud pages finish downloading, which is
+        // before the apply effects finish writing, and recording it bumps the
+        // syncStatus revision that re-runs this very effect. Cancelling there
+        // dismissed the progress toast mid-sync and swallowed the completion.
+        if (state?.status !== "healthy") {
+          beginMobileSyncProgress(sessionUserId);
+          if (state?.status === "budget-exceeded") {
+            pauseMobileSyncProgress(sessionUserId);
+          }
+        }
       })
       .catch((error) => {
         if (cancelled) return;
@@ -632,6 +721,7 @@ function ConfiguredMobileSyncBridge() {
     // the previous store before any subscription effect in this component
     // starts for the new one.
     invalidateMobileSyncEpoch();
+    resetMobileSyncProgress();
     setActiveMobileSyncStore(store);
     return () => {
       setActiveMobileSyncStore(null);
@@ -988,6 +1078,9 @@ function ConfiguredMobileSyncBridge() {
       convexUserId,
       syncEpoch,
     });
+    // The in-memory snapshot pass cannot proceed; park the first-sync toast
+    // (the Settings recovery surface owns the retry).
+    pauseMobileSyncProgress(expectedUserId);
 
     void recordMobileSyncSnapshotState(
       store,
@@ -1149,7 +1242,7 @@ function ConfiguredMobileSyncBridge() {
         } else {
           const [localItems, localLinks] = await Promise.all([
             store.getAllLibraryItems({ includeRemoved: true }),
-            store.getAllSourceLinks(),
+            store.getAllSourceLinks({ includeRemoved: true }),
           ]);
           if (!shouldContinue()) return;
           const merged = mergeLibrarySnapshot(
@@ -1271,11 +1364,21 @@ function ConfiguredMobileSyncBridge() {
           if (libraryChanged) emitMobileDataChanged("library");
           if (collectionsChanged) emitMobileDataChanged("collections");
         }
+        if (shouldContinue()) {
+          markSyncApplySucceeded("library-collections");
+          const progressSnapshot = getMobileSyncProgress();
+          const counts =
+            progressSnapshot.status === "syncing" &&
+            progressSnapshot.accountUserId === expectedUserId
+              ? {
+                  libraryCount: await store.countLibraryEntries(),
+                }
+              : {};
+          if (!shouldContinue()) return;
+          markMobileSyncProgressDomain(expectedUserId, "library", counts);
+        }
       } catch (error) {
-        console.error(
-          "[MobileSync] Failed to apply library/collections snapshot:",
-          error,
-        );
+        markSyncApplyFailed("library-collections", error, shouldContinue);
       }
     })();
 
@@ -1289,6 +1392,9 @@ function ConfiguredMobileSyncBridge() {
     cloudSourceLinks,
     convexUserId,
     isAuthenticated,
+    libraryRetryRevision,
+    markSyncApplyFailed,
+    markSyncApplySucceeded,
     sessionUserId,
     snapshotGeneration,
     store,
@@ -1339,9 +1445,13 @@ function ConfiguredMobileSyncBridge() {
           snapshotGeneration,
           expectedUserId,
         );
-        if (applied) emitMobileDataChanged("progress");
+        if (applied) {
+          emitMobileDataChanged("progress");
+          markSyncApplySucceeded("progress");
+          markMobileSyncProgressDomain(expectedUserId, "progress");
+        }
       } catch (error) {
-        console.error("[MobileSync] Failed to apply progress snapshot:", error);
+        markSyncApplyFailed("progress", error, shouldContinue);
       }
     })();
 
@@ -1353,6 +1463,9 @@ function ConfiguredMobileSyncBridge() {
     cloudMangaProgress,
     convexUserId,
     isAuthenticated,
+    markSyncApplyFailed,
+    markSyncApplySucceeded,
+    progressRetryRevision,
     sessionUserId,
     snapshotGeneration,
     store,
@@ -1416,6 +1529,14 @@ function ConfiguredMobileSyncBridge() {
           },
         );
         if (!shouldContinue()) return;
+        // `applyInstalledSourcesSnapshot` returns void in every store, so the
+        // bridge derives changed-ness from the pre-apply local rows using the
+        // store's own updatedAt write rule.
+        const sourcesChanged = didMobileInstalledSourcesApplyChange(
+          localSettings.installedSources,
+          hydratedSources,
+        );
+        let usedLegacySettingsWrite = false;
         if (store.applyInstalledSourcesSnapshot) {
           // Writes only installed-source rows (never the scalar settings
           // blob, which a concurrent theme/preference toggle may own).
@@ -1431,6 +1552,7 @@ function ConfiguredMobileSyncBridge() {
             await store.applyInstalledSourcesSnapshot!(hydratedSources);
           });
         } else {
+          usedLegacySettingsWrite = true;
           await runWithMobileRemoteSnapshot(async () => {
             if (
               !(await isSnapshotGenerationCurrent(
@@ -1456,9 +1578,27 @@ function ConfiguredMobileSyncBridge() {
             snapshotGeneration,
             expectedUserId,
           );
-        if (shouldContinue()) emitMobileDataChanged("settings");
+        if (shouldContinue()) {
+          // Only notify subscribers when the apply actually wrote rows —
+          // unchanged snapshots must not retrigger source-list queries. Same
+          // guard as the library/collections apply above.
+          //
+          // No `settings` event: the atomic path writes installed-source rows
+          // only, never the scalar settings blob (a concurrent theme toggle
+          // owns that). The legacy fallback below it does rewrite settings, so
+          // it keeps its own event.
+          if (sourcesChanged) {
+            if (usedLegacySettingsWrite) emitMobileDataChanged("settings");
+            emitMobileDataChanged("sources");
+          }
+          markSyncApplySucceeded("settings");
+          markMobileSyncProgressDomain(expectedUserId, "settings", {
+            sourceCount: hydratedSources.filter((source) => !source.removed)
+              .length,
+          });
+        }
       } catch (error) {
-        console.error("[MobileSync] Failed to apply settings snapshot:", error);
+        markSyncApplyFailed("settings", error, shouldContinue);
       }
     })();
 
@@ -1469,7 +1609,10 @@ function ConfiguredMobileSyncBridge() {
     cloudSettings,
     convexUserId,
     isAuthenticated,
+    markSyncApplyFailed,
+    markSyncApplySucceeded,
     sessionUserId,
+    settingsRetryRevision,
     snapshotGeneration,
     store,
   ]);

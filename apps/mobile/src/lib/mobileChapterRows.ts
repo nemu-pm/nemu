@@ -13,6 +13,11 @@ export type MobileChapterRow = {
   key: string;
 };
 
+/** Hoisted so a chapter list never allocates a `keyExtractor` per render. */
+export function mobileChapterRowKeyExtractor(row: MobileChapterRow): string {
+  return row.key;
+}
+
 function rowKey(
   first: ChapterSummary,
   second: ChapterSummary | undefined,

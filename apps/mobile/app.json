@@ -2,6 +2,7 @@
   "expo": {
     "name": "Nemu",
     "slug": "nemu-mobile",
+    "owner": "nemu-pm",
     "scheme": "nemu",
     "version": "0.1.0",
     "runtimeVersion": {
@@ -17,7 +18,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "pm.nemu.mobile",
+      "bundleIdentifier": "pm.nemu",
       "buildNumber": "1",
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
@@ -61,7 +62,7 @@
       }
     },
     "android": {
-      "package": "pm.nemu.mobile",
+      "package": "pm.nemu",
       "versionCode": 1,
       "allowBackup": false,
       "adaptiveIcon": {
@@ -85,7 +86,10 @@
       "enabled": false
     },
     "extra": {
-      "nemuJsEngine": "jsc"
+      "nemuJsEngine": "jsc",
+      "eas": {
+        "projectId": "14ee8845-644a-4721-88fc-e0dacbce4aca"
+      }
     },
     "plugins": [
       "expo-router",
@@ -128,13 +132,13 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#fbfbfd",
+          "backgroundColor": "#f8fafe",
           "dark": {
-            "image": "./assets/icon.png",
             "backgroundColor": "#090a0d"
+          },
+          "android": {
+            "image": "./assets/adaptive-icon.png",
+            "imageWidth": 200
           }
         }
       ]

@@ -78,6 +78,15 @@ export type MobileReaderPageProcessor = {
   cacheByteSize?(): number;
 };
 
+/** The first-paint half of a refresh: pages without the chapter index. */
+export type MobileReaderPagesFirstPaint = {
+  runtime: MobileSourceExecutorRuntime;
+  pages: MobileReaderPage[];
+  pageProcessor?: MobileReaderPageProcessor;
+  chapter: ChapterSummary;
+  fetchedAt: number;
+};
+
 export type MobileReaderPagesRefresh =
   | {
       status: "ready";
@@ -85,6 +94,13 @@ export type MobileReaderPagesRefresh =
       pages: MobileReaderPage[];
       pageProcessor?: MobileReaderPageProcessor;
       chapters: ChapterSummary[];
+      /**
+       * Whether the chapter index came back. `"unavailable"` means the index
+       * request failed and `chapters` is empty for that reason alone — callers
+       * must not persist that emptiness into the page-list cache, or a single
+       * failed index would serve an empty chapter list for the cache's life.
+       */
+      chapterIndexStatus: "ready" | "unavailable";
       chapter: ChapterSummary;
       fetchedAt: number;
     }
@@ -111,6 +127,13 @@ export type MobileReaderPagesOptions = {
   pageProcessingWindowRadius?: number;
   pageProcessingCacheSize?: number;
   pageProcessingCacheMaxBytes?: number;
+  /**
+   * Called the moment the page list is renderable, before the chapter index
+   * resolves. The returned promise still carries the full result (chapters
+   * included); this only exists so a reader can paint its first page without
+   * waiting on a request it needs solely for adjacent-chapter navigation.
+   */
+  onPagesReady?: (firstPaint: MobileReaderPagesFirstPaint) => void;
 };
 
 export const MOBILE_READER_PAGE_PROCESSING_WINDOW_RADIUS = 2;
@@ -125,6 +148,32 @@ export const MOBILE_READER_PAGE_PROCESSING_INPUT_MAX_BYTES = 8 * 1024 * 1024;
 export const MOBILE_READER_PROCESSED_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 export const MOBILE_READER_PROCESSED_IMAGE_CACHE_MAX_BYTES =
   MOBILE_READER_PAGE_IMAGE_CACHE_MAX_BYTES;
+
+/**
+ * Chapter index to keep when a refresh comes back.
+ *
+ * `chapterIndexStatus: "unavailable"` means the index request failed and
+ * `chapters` is empty for that reason alone. Both the page-list cache and the
+ * reader's in-memory state have to fall back to the last index they know about
+ * — otherwise a single failed index request drops adjacent-chapter navigation
+ * (for the cache's whole life, or for the rest of the session). Empty
+ * fallbacks are skipped: the reader blanks its index on first paint, before
+ * the real one lands.
+ *
+ * Returns `undefined` when nothing is known, which is the caller's cue to skip
+ * the cache write entirely.
+ */
+export function resolveMobileReaderChapterIndex(options: {
+  chapterIndexStatus: "ready" | "unavailable";
+  chapters: ChapterSummary[];
+  previousChapters?: ChapterSummary[];
+  persistedChapters?: ChapterSummary[];
+}): ChapterSummary[] | undefined {
+  if (options.chapterIndexStatus === "ready") return options.chapters;
+  if (options.previousChapters?.length) return options.previousChapters;
+  if (options.persistedChapters?.length) return options.persistedChapters;
+  return undefined;
+}
 
 const BASE64_CHARS =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -728,17 +777,24 @@ export async function refreshMobileReaderPages(
         };
       }
 
-      const chapters = await session.source.getChapterList({ key: mangaId });
-      const chapterSummaries = sortChapterSummaries(
-        chapters.map(mapAidokuChapterToSummary),
-      );
-      const sourceChapter =
-        chapters.find((item) => item.key === chapter.id) ??
-        chapterFromSummary(chapter);
-      const rawPages = await session.source.getPageList(
+      const requestedChapter = chapterFromSummary(chapter);
+      // The route already carries a safe chapter summary, so the page list is
+      // requested straight away and never waits on the chapter index. Order
+      // matters: iOS dispatches sandbox operations onto one serial queue, so
+      // whichever call is issued first owns it. Only the page list gates the
+      // first paint — the index exists for adjacent-chapter navigation — so it
+      // goes first and the index queues behind it.
+      const pagesRequest = session.source.getPageList(
         { key: mangaId },
-        sourceChapter,
+        requestedChapter,
       );
+      const chaptersRequest = session.source
+        .getChapterList({ key: mangaId })
+        // A chapter index that fails must not take an already-rendered page
+        // list down with it, and must never surface as an unhandled rejection
+        // while the page list is still being turned into a first paint.
+        .catch(() => null);
+      const rawPages = await pagesRequest;
       const shouldProcessPageImages = options.processPageImages === true;
       const hasProcessorContext =
         shouldProcessPageImages &&
@@ -768,14 +824,36 @@ export async function refreshMobileReaderPages(
           })
         : undefined;
 
+      // One timestamp for both halves: the reader keys its restore/scroll
+      // identity on `fetchedAt`, so the chapter index landing must not look
+      // like a different fetch.
+      const fetchedAt = options.now?.() ?? Date.now();
+      options.onPagesReady?.({
+        runtime: session.runtime,
+        pages,
+        pageProcessor,
+        chapter: mapAidokuChapterToSummary(requestedChapter),
+        fetchedAt,
+      });
+
+      // Still inside the pinned session: awaiting here (rather than letting the
+      // promise escape) is what keeps the runtime alive for this request.
+      const chapters = await chaptersRequest;
+      const chapterSummaries = chapters
+        ? sortChapterSummaries(chapters.map(mapAidokuChapterToSummary))
+        : [];
+      const sourceChapter =
+        chapters?.find((item) => item.key === chapter.id) ?? requestedChapter;
+
       return {
         status: "ready",
         runtime: session.runtime,
         pages,
         pageProcessor,
         chapters: chapterSummaries,
+        chapterIndexStatus: chapters ? "ready" : "unavailable",
         chapter: mapAidokuChapterToSummary(sourceChapter),
-        fetchedAt: options.now?.() ?? Date.now(),
+        fetchedAt,
       };
     },
   );

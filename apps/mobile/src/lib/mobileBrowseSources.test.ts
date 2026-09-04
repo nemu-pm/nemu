@@ -10,6 +10,8 @@ import {
   findMobileInstalledSourceForRegistrySource,
   getMobileAvailableSourceLanguageOptions,
   getMobileInstalledSourceRegistryDisplayName,
+  getMobileSourceInstallHandoff,
+  getMobileSourceQuickActionHandoff,
   getMobileSourceInstallResultAction,
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
@@ -17,6 +19,7 @@ import {
   isMobileUnsupportedInstalledSource,
   mergeMobileInstalledSourceRegistryMetadata,
   shouldRenderMobileBrowseSkeleton,
+  shouldReopenMobileAddSourceSheetAfterInstall,
   type MobileBrowseLanguageSource,
   type MobileBrowseSource,
 } from "./mobileBrowseSources";
@@ -181,6 +184,64 @@ describe("mobile browse source filtering", () => {
       "fr",
       "other",
     ]);
+  });
+
+  test("lists chinese variants directly under chinese, not after the tail", () => {
+    const sources = [
+      source("vietnamese", { languages: ["vi"] }),
+      source("traditional", { languages: ["zh-Hant"] }),
+      source("brazilian", { languages: ["pt-BR"] }),
+      source("simplified", { languages: ["zh-hans"] }),
+      source("portuguese", { languages: ["pt"] }),
+      source("taiwanese", { languages: ["zh-TW"] }),
+      source("chinese", { languages: ["zh"] }),
+      source("latam", { languages: ["es-419"] }),
+      source("spanish", { languages: ["es"] }),
+      source("japanese", { languages: ["ja"] }),
+    ];
+
+    expect(getMobileAvailableSourceLanguageOptions(sources, "zh")).toEqual([
+      "ja",
+      "zh",
+      "zh-hans",
+      "zh-hant",
+      "zh-tw",
+      "es",
+      "es-419",
+      "pt",
+      "pt-br",
+      "vi",
+    ]);
+  });
+
+  test("collapses the registry All bucket onto multi in the option list", () => {
+    const sources = [
+      source("everything", { languages: ["All"] }),
+      source("japanese", { languages: ["ja"] }),
+      source("chinese", { languages: ["zh"] }),
+    ];
+
+    expect(getMobileAvailableSourceLanguageOptions(sources, "en")).toEqual([
+      "ja",
+      "zh",
+      "multi",
+    ]);
+  });
+
+  test("matches an All source when the multi option is selected", () => {
+    const sources = [
+      source("everything", { languages: ["All"] }),
+      source("japanese", { languages: ["ja"] }),
+    ];
+
+    expect(
+      filterMobileAvailableSources(sources, {
+        query: "",
+        selectedLanguages: ["multi"],
+        showAdult: true,
+        appLanguage: "en",
+      }).map((entry) => entry.id),
+    ).toEqual(["everything"]);
   });
 
   test("groups filtered sources by language priority and source name", () => {
@@ -502,6 +563,52 @@ describe("mobile browse source filtering", () => {
     expect(getMobileSourceInstallResultAction({ succeeded: false })).toBe(
       "keep-confirmation-open",
     );
+  });
+
+  test("dismisses the add source sheet before every install", () => {
+    // The toast host lives under the native sheet: an install started while
+    // the sheet is up hides its own progress toast.
+    expect(getMobileSourceInstallHandoff({ warningCount: 0 })).toBe(
+      "install-after-dismiss",
+    );
+    expect(getMobileSourceInstallHandoff({ warningCount: 2 })).toBe(
+      "confirm-after-dismiss",
+    );
+  });
+
+  test("never re-presents the add source sheet after an install starts", () => {
+    expect(shouldReopenMobileAddSourceSheetAfterInstall()).toBe(false);
+  });
+
+  test("dismisses the quick actions before every sheet-bound destination", () => {
+    // Two native `@expo/ui` bottom sheets cannot be presented at once: a
+    // confirmation raised while the quick actions are still up never appears,
+    // which is exactly how long-press Uninstall silently did nothing.
+    expect(getMobileSourceQuickActionHandoff("uninstall")).toBe(
+      "dismiss-then-confirm-uninstall",
+    );
+    expect(getMobileSourceQuickActionHandoff("settings")).toBe(
+      "dismiss-then-open-settings",
+    );
+  });
+
+  test("dismisses the quick actions before starting a source update", () => {
+    // The install's sticky progress toast renders under the native sheet.
+    expect(getMobileSourceQuickActionHandoff("update")).toBe(
+      "dismiss-then-install-update",
+    );
+  });
+
+  test("opens a source homepage without waiting for the quick actions", () => {
+    // Leaving the app needs no sheet handoff, so this row stays immediate.
+    expect(getMobileSourceQuickActionHandoff("openInBrowser")).toBe("open-url");
+  });
+
+  test("routes every quick action row to exactly one handoff", () => {
+    const handoffs = (
+      ["settings", "update", "openInBrowser", "uninstall"] as const
+    ).map(getMobileSourceQuickActionHandoff);
+    expect(new Set(handoffs).size).toBe(handoffs.length);
   });
 
   test("matches web warning metadata for source install rows", () => {

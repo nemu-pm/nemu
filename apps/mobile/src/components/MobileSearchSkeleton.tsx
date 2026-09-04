@@ -1,4 +1,9 @@
 import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
+import {
+  useSkeletonDisplayDelay,
+  useSkeletonPulse,
+} from "@/lib/useSkeletonPulse";
 import {
   createNemuShadowStyle,
   radius,
@@ -17,15 +22,19 @@ type MobileSearchSkeletonProps = {
 export function MobileSearchSkeleton({
   accessibilityLabel,
 }: MobileSearchSkeletonProps) {
-  const { tokens } = useNemuTheme();
+  const { tokens, reduceMotion } = useNemuTheme();
+  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const skeletonReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
 
+  if (!skeletonReady) return null;
+
   return (
-    <View
+    <Animated.View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={styles.stack}
+      style={[styles.stack, { opacity: skeletonOpacity }]}
     >
       <GlassSurface style={styles.searchShell} contentStyle={styles.searchContent}>
         <View
@@ -94,22 +103,34 @@ export function MobileSearchSkeleton({
                       },
                     ]}
                   />
-                  <View
-                    style={[styles.titleLine, { backgroundColor: skeletonColor }]}
-                  />
-                  <View
-                    style={[
-                      styles.subtitleLine,
-                      { backgroundColor: subtleSkeletonColor },
-                    ]}
-                  />
+                  <View style={styles.textBlock}>
+                    <View
+                      style={[
+                        styles.titleLine,
+                        { backgroundColor: skeletonColor },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.titleLine,
+                        styles.titleLineSecond,
+                        { backgroundColor: skeletonColor },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.subtitleLine,
+                        { backgroundColor: subtleSkeletonColor },
+                      ]}
+                    />
+                  </View>
                 </View>
               ))}
             </View>
           </View>
         ))}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -131,13 +152,11 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: radius.sm,
-    opacity: 0.78,
   },
   searchLine: {
     flex: 1,
     height: 16,
     borderRadius: radius.sm,
-    opacity: 0.78,
   },
   filterBlock: {
     gap: 10,
@@ -147,7 +166,6 @@ const styles = StyleSheet.create({
     width: 118,
     height: 12,
     borderRadius: radius.sm,
-    opacity: 0.78,
   },
   chipRow: {
     flexDirection: "row",
@@ -157,10 +175,10 @@ const styles = StyleSheet.create({
   },
   chip: {
     width: 94,
-    height: 34,
-    borderRadius: radius.md,
+    // Search filter chips are 30pt pills; the skeleton matches that shape.
+    height: 30,
+    borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
-    opacity: 0.78,
   },
   resultStack: {
     gap: 18,
@@ -179,19 +197,16 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 6,
     borderWidth: StyleSheet.hairlineWidth,
-    opacity: 0.82,
   },
   resultTitle: {
     flex: 1,
     height: 16,
     borderRadius: radius.sm,
-    opacity: 0.78,
   },
   countBadge: {
     width: 32,
     height: 24,
     borderRadius: radius.md,
-    opacity: 0.72,
   },
   resultsGrid: {
     flexDirection: "row",
@@ -205,19 +220,26 @@ const styles = StyleSheet.create({
     aspectRatio: 2 / 3,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    opacity: 0.78,
+  },
+  textBlock: {
+    // Mirrors MangaCard's reserved 60pt copy block.
+    minHeight: 60,
+    marginTop: 8,
+    paddingHorizontal: 2,
   },
   titleLine: {
     height: 13,
-    marginTop: 8,
+    width: "92%",
     borderRadius: radius.sm,
-    opacity: 0.78,
+  },
+  titleLineSecond: {
+    width: "60%",
+    marginTop: 4,
   },
   subtitleLine: {
-    width: "72%",
-    height: 11,
-    marginTop: 5,
+    width: "45%",
+    height: 12,
+    marginTop: 6,
     borderRadius: radius.sm,
-    opacity: 0.72,
   },
 });

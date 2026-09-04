@@ -40,4 +40,40 @@ describe("mobile source uninstall ordering", () => {
 
     expect(events).toEqual(["reset:source:current", "remove"]);
   });
+
+  test("clears cached source details alongside the settings scrub", async () => {
+    const events: string[] = [];
+    await removeMobileSourceAfterSettingsCleanup({
+      settingsKeys: ["source:current"],
+      async resetSourceSettings(key) {
+        events.push(`reset:${key}`);
+      },
+      async removeInstalledSource() {
+        events.push("remove");
+      },
+      async clearSourceDetailCache() {
+        events.push("clear-detail-cache");
+      },
+    });
+
+    expect(events).toEqual(["reset:source:current", "clear-detail-cache", "remove"]);
+  });
+
+  test("a detail-cache clearing failure never blocks the uninstall", async () => {
+    const events: string[] = [];
+    await removeMobileSourceAfterSettingsCleanup({
+      settingsKeys: ["source:current"],
+      async resetSourceSettings(key) {
+        events.push(`reset:${key}`);
+      },
+      async removeInstalledSource() {
+        events.push("remove");
+      },
+      async clearSourceDetailCache() {
+        throw new Error("detail cache unavailable");
+      },
+    });
+
+    expect(events).toEqual(["reset:source:current", "remove"]);
+  });
 });

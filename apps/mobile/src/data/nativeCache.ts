@@ -118,6 +118,16 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     this.entries.clear();
   }
 
+  async getStats(): Promise<{ bytes: number; entries: number }> {
+    return {
+      bytes: [...this.entries.values()].reduce(
+        (total, entry) => total + entry.bytes.byteLength,
+        0,
+      ),
+      entries: this.entries.size,
+    };
+  }
+
   retainSegmentedImageManifest(locatorUri: string): () => void {
     void locatorUri;
     return () => undefined;

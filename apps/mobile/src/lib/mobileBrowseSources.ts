@@ -11,8 +11,10 @@ import {
   mobileInstalledSourceMatchesRoute,
 } from "./mobileInstalledSourceKeys";
 import {
-  getLanguageCategory,
+  compareMobileLanguageCodes,
   getLanguagePriorityOrder,
+  getLanguageCategory,
+  normalizeMobileLanguageCode,
   sortSourcesByLanguagePriority,
   type MobileLanguageSource,
 } from "./mobileLanguageSettings";
@@ -58,7 +60,9 @@ export function filterMobileAvailableSources<T extends MobileBrowseSource>(
     .filter((source) => {
       if (selectedLanguages.size === 0) return true;
       if (!source.languages?.length) return selectedLanguages.has("other");
-      return source.languages.some((language) => selectedLanguages.has(language));
+      return source.languages.some((language) =>
+        selectedLanguages.has(normalizeMobileLanguageCode(language)),
+      );
     })
     .filter((source) => {
       if (!normalized) return true;
@@ -106,14 +110,14 @@ export function groupMobileSourcesByLanguage<T extends MobileBrowseLanguageSourc
 
   const priorityOrder = getLanguagePriorityOrder(appLanguage);
   return [...grouped.entries()]
-    .sort(([languageA], [languageB]) => {
-      const priorityA = priorityOrder.indexOf(languageA);
-      const priorityB = priorityOrder.indexOf(languageB);
-      if (priorityA !== -1 && priorityB !== -1) return priorityA - priorityB;
-      if (priorityA !== -1) return -1;
-      if (priorityB !== -1) return 1;
-      return languageA.localeCompare(languageB);
-    })
+    .sort(([languageA], [languageB]) =>
+      compareMobileLanguageCodes(
+        languageA,
+        languageB,
+        appLanguage,
+        priorityOrder,
+      ),
+    )
     .map(([label, sectionSources]) => ({
       label,
       sources: options.sortSourcesByName
@@ -132,19 +136,14 @@ export function getMobileAvailableSourceLanguageOptions<
       continue;
     }
     for (const language of source.languages) {
-      languages.add(language);
+      languages.add(normalizeMobileLanguageCode(language));
     }
   }
 
   const priorityOrder = getLanguagePriorityOrder(appLanguage);
-  return [...languages].sort((a, b) => {
-    const priorityA = priorityOrder.indexOf(a);
-    const priorityB = priorityOrder.indexOf(b);
-    if (priorityA !== -1 && priorityB !== -1) return priorityA - priorityB;
-    if (priorityA !== -1) return -1;
-    if (priorityB !== -1) return 1;
-    return a.localeCompare(b);
-  });
+  return [...languages].sort((a, b) =>
+    compareMobileLanguageCodes(a, b, appLanguage, priorityOrder),
+  );
 }
 
 export function canStartMobileSourceInstall(
@@ -163,6 +162,73 @@ export function getMobileSourceInstallResultAction({
   succeeded: boolean;
 }): MobileSourceInstallResultAction {
   return succeeded ? "close-confirmation" : "keep-confirmation-open";
+}
+
+/**
+ * Tapping Install always dismisses the Add Source sheet first. The toast host
+ * lives in the root React Native tree, underneath the native sheet, so a
+ * progress toast raised while the sheet is presented stays invisible until the
+ * user closes the sheet by hand. Warned sources dismiss into the confirmation
+ * sheet; everything else dismisses straight into the install.
+ */
+export type MobileSourceInstallHandoff =
+  | "confirm-after-dismiss"
+  | "install-after-dismiss";
+
+export function getMobileSourceInstallHandoff({
+  warningCount,
+}: {
+  warningCount: number;
+}): MobileSourceInstallHandoff {
+  return warningCount > 0 ? "confirm-after-dismiss" : "install-after-dismiss";
+}
+
+/**
+ * The Add Source sheet never re-presents itself once an install has started.
+ * Re-opening it would cover the progress/success toast that is the only
+ * feedback surface for the install, which is exactly the bug this policy
+ * pins closed. Cancelling the warning confirmation is the one path that
+ * returns to the sheet, and it never reaches this policy.
+ */
+export function shouldReopenMobileAddSourceSheetAfterInstall(): boolean {
+  return false;
+}
+
+/** Rows offered by the installed-source long-press quick-action sheet. */
+export type MobileSourceQuickActionId =
+  | "settings"
+  | "update"
+  | "openInBrowser"
+  | "uninstall";
+
+/**
+ * Where a quick-action row is allowed to act. The quick-action sheet is a
+ * native `@expo/ui` bottom sheet and only one of those can be presented at a
+ * time, so every row whose destination is another sheet — or whose only
+ * feedback surface is the toast host that sits *underneath* the sheet — has to
+ * dismiss the quick actions first and run from the post-dismiss callback.
+ * Opening a homepage leaves the app entirely, so it is the one row that may act
+ * while the sheet is still on screen.
+ */
+export type MobileSourceQuickActionHandoff =
+  | "dismiss-then-open-settings"
+  | "dismiss-then-install-update"
+  | "dismiss-then-confirm-uninstall"
+  | "open-url";
+
+export function getMobileSourceQuickActionHandoff(
+  action: MobileSourceQuickActionId,
+): MobileSourceQuickActionHandoff {
+  switch (action) {
+    case "settings":
+      return "dismiss-then-open-settings";
+    case "update":
+      return "dismiss-then-install-update";
+    case "uninstall":
+      return "dismiss-then-confirm-uninstall";
+    case "openInBrowser":
+      return "open-url";
+  }
 }
 
 export function getMobileSourceWarningMessages(

@@ -194,6 +194,27 @@ export function countRenderableSourceSettings(
   );
 }
 
+/**
+ * Row count the sheet will actually paint for the current values. Sources like
+ * MANGA Plus declare rows gated behind a switch (`requires`), so the declared
+ * count overshoots the rendered form and a detent sized from it reserves a
+ * large empty tail; layout callers should size sheets from this count instead.
+ */
+export function countVisibleSourceSettings(
+  settings: SourcePackageSetting[],
+  values: Record<string, unknown>,
+  features: MobileSourceSettingFeatureFlags = {},
+): number {
+  let count = 0;
+  walkVisibleSourceSettings(settings, values, features, (setting) => {
+    if (setting.type !== "group" && isRenderableSourceSetting(setting)) {
+      count += 1;
+    }
+    return false;
+  });
+  return count;
+}
+
 export function hasVisibleSourceSettingRows(
   settings: SourcePackageSetting[],
   values: Record<string, unknown>,

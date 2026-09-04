@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { LibraryEntry } from "@/data/schema";
 import {
   canClearMobileSearchQuery,
-  canChangeMobileSearchSourceSelection,
   groupLocalSearchResults,
   normalizeMobileSearchRouteQuery,
   normalizeSearchSelectionForSources,
@@ -171,11 +170,6 @@ describe("mobile search helpers", () => {
     expect(toggleSearchSourceSelection(ids, null, "b")).toEqual(["a", "c"]);
     expect(toggleSearchSourceSelection(ids, ["a", "c"], "b")).toBeNull();
     expect(normalizeSearchSelection(ids, ["a", "stale"])).toEqual(["a"]);
-  });
-
-  test("gates source selection changes while preferences are saving", () => {
-    expect(canChangeMobileSearchSourceSelection({ savingSelection: false })).toBe(true);
-    expect(canChangeMobileSearchSourceSelection({ savingSelection: true })).toBe(false);
   });
 
   test("shows the native search skeleton only while initial search data is unresolved", () => {

@@ -22,17 +22,26 @@ import { MobileDualReaderFab } from "./MobileDualReaderFab";
 import { MobileDualReaderSessionManager } from "./MobileDualReaderSessionManager";
 import { MobileDualReaderSecondaryPrefetcher } from "./MobileDualReaderSecondaryPrefetcher";
 
-export type MobileDualReaderRootProps = MobileDualReaderContextValue;
+export type MobileDualReaderRootProps = MobileDualReaderContextValue & {
+  showFloatingControls: boolean;
+};
 
-export function MobileDualReaderRoot(props: MobileDualReaderRootProps) {
+export function MobileDualReaderRoot({
+  showFloatingControls,
+  ...props
+}: MobileDualReaderRootProps) {
   return (
     <MobileDualReaderContext.Provider value={props}>
       <MobileDualReaderSessionManager />
       <MobileDualReaderSecondaryPrefetcher />
       <MobileDualReaderAutoAligner />
       <MobileDualReaderConfigSheet />
-      <MobileDualReaderDebugOverlay />
-      <MobileDualReaderFab />
+      {showFloatingControls ? (
+        <>
+          <MobileDualReaderDebugOverlay />
+          <MobileDualReaderFab />
+        </>
+      ) : null}
     </MobileDualReaderContext.Provider>
   );
 }

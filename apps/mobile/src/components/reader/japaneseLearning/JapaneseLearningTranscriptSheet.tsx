@@ -1,10 +1,21 @@
-import { useMemo } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   MobileSheetScaffold,
+  nemuColorWithAlpha,
   nemuFontWeight,
+  nemuText,
+  NemuButton,
   NemuPressable,
+  NEMU_PROMINENT_CTA_SIZE,
   radius,
   useNemuTheme,
 } from "@/design-system";
@@ -14,8 +25,10 @@ import {
   sortedMobileOcrLines,
 } from "@/lib/mobileJapaneseLearningReaderHelpers";
 import type { MobileOcrDetection, MobileJapaneseLearningOcrResult } from "@/lib/mobileJapaneseLearningOcr";
+import { describeJapaneseLearningOcrError } from "@/lib/mobileJapaneseLearningOcr";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { formatMobileString } from "@/lib/mobileI18n";
+import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
 
 export interface JapaneseLearningTranscriptTtsStateLike {
   status: "idle" | "loading" | "playing" | "error";
@@ -35,6 +48,7 @@ interface TranscriptSheetProps {
   ttsState: JapaneseLearningTranscriptTtsStateLike;
   minConfidence: number;
   onClose: () => void;
+  onDismiss?: () => void;
   onRetryOcr: () => void;
   onSelectDetection: (detection: MobileOcrDetection) => void;
   onToggleTts: (text: string) => void;
@@ -57,11 +71,19 @@ export function JapaneseLearningTranscriptSheet({
   ttsState,
   minConfidence,
   onClose,
+  onDismiss,
   onRetryOcr,
   onSelectDetection,
   onToggleTts,
 }: TranscriptSheetProps) {
   const { tokens } = useNemuTheme();
+  const headerMetrics = resolveMobileSheetHeaderMetrics(Platform.OS);
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
+
+  const ocrErrorCopy =
+    ocrStatus === "error"
+      ? describeJapaneseLearningOcrError(ocrErrorDetail, strings)
+      : null;
 
   const lines = useMemo(() => {
     if (!ocrResult) return [];
@@ -80,6 +102,9 @@ export function JapaneseLearningTranscriptSheet({
     ttsState.source === "transcript";
   const transcriptTtsLoading =
     ttsState.status === "loading" && ttsState.source === "transcript";
+  const transcriptActionLabel = transcriptTtsBusy
+    ? strings.reader.pluginJapaneseLearningStopListening
+    : strings.reader.pluginJapaneseLearningListen;
 
   const title =
     ocrResult?.source === "source-text"
@@ -91,21 +116,13 @@ export function JapaneseLearningTranscriptSheet({
       visible={visible}
       onRequestClose={onClose}
       backdropOnPress={onClose}
-      frameMaxHeight={lines.length > 0 ? "70%" : "auto"}
-      contentStyle={{ padding: 0, gap: 0 }}
-    >
-      <View style={[styles.header, { borderBottomColor: tokens.border }]}>
-        <Text style={[styles.title, { color: tokens.foreground }]} numberOfLines={1}>
-          {title}
-        </Text>
-        {transcriptText ? (
+      onDismiss={onDismiss}
+      title={title}
+      headerTrailing={
+        transcriptText ? (
           <NemuPressable
             accessibilityRole="button"
-            accessibilityLabel={
-              transcriptTtsBusy
-                ? strings.reader.pluginJapaneseLearningStopListening
-                : strings.reader.pluginJapaneseLearningListen
-            }
+            accessibilityLabel={transcriptActionLabel}
             accessibilityState={{ disabled: !transcriptText }}
             disabled={!transcriptText}
             onPress={() => onToggleTts(transcriptText)}
@@ -127,15 +144,20 @@ export function JapaneseLearningTranscriptSheet({
                 color={tokens.foreground}
               />
             )}
-            <Text style={[styles.listenText, { color: tokens.foreground }]} numberOfLines={1}>
-              {transcriptTtsBusy
-                ? strings.reader.pluginJapaneseLearningStopListening
-                : strings.reader.pluginJapaneseLearningListen}
-            </Text>
+            {headerMetrics.showActionLabels ? (
+              <Text
+                style={[styles.listenText, { color: tokens.foreground }]}
+                numberOfLines={1}
+              >
+                {transcriptActionLabel}
+              </Text>
+            ) : null}
           </NemuPressable>
-        ) : null}
-      </View>
-
+        ) : undefined
+      }
+      frameMaxHeight={lines.length > 0 ? "70%" : "auto"}
+      contentStyle={{ gap: 0 }}
+    >
       {lines.length > 0 ? (
         <ScrollView
           style={styles.linesScroll}
@@ -159,7 +181,9 @@ export function JapaneseLearningTranscriptSheet({
                 style={[
                   styles.line,
                   {
-                    backgroundColor: selected ? `${color}22` : tokens.card,
+                    backgroundColor: selected
+                      ? nemuColorWithAlpha(color, 0.13)
+                      : tokens.card,
                     borderColor: selected ? color : tokens.border,
                   },
                 ]}
@@ -176,12 +200,79 @@ export function JapaneseLearningTranscriptSheet({
         <View style={styles.stateContent}>
           {ocrStatus === "loading" ? (
             <ActivityIndicator size="small" color={tokens.primary} />
-          ) : ocrStatus === "error" ? (
-            <Ionicons
-              name="alert-circle-outline"
-              size={24}
-              color={tokens.danger}
-            />
+          ) : ocrStatus === "error" && ocrErrorCopy ? (
+            <>
+              <Ionicons
+                name={
+                  ocrErrorCopy.kind === "unavailable"
+                    ? "cloud-offline-outline"
+                    : "alert-circle-outline"
+                }
+                size={24}
+                color={tokens.mutedForeground}
+              />
+              <Text
+                accessibilityLiveRegion="assertive"
+                accessibilityRole="alert"
+                style={[styles.stateTitle, { color: tokens.foreground }]}
+              >
+                {ocrErrorCopy.title}
+              </Text>
+              <Text
+                style={[
+                  styles.stateDescription,
+                  { color: tokens.mutedForeground },
+                ]}
+              >
+                {ocrErrorCopy.description}
+              </Text>
+              {ocrErrorCopy.diagnostic ? (
+                <View style={styles.diagnostic}>
+                  <NemuPressable
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: diagnosticOpen }}
+                    accessibilityLabel={strings.feedback.technicalDetails}
+                    hapticFeedback="selection"
+                    pressProfile="row"
+                    onPress={() => setDiagnosticOpen((open) => !open)}
+                    style={styles.diagnosticToggle}
+                  >
+                    <Ionicons
+                      name={
+                        diagnosticOpen
+                          ? "chevron-down-outline"
+                          : "chevron-forward-outline"
+                      }
+                      size={12}
+                      color={tokens.mutedForeground}
+                    />
+                    <Text
+                      style={[
+                        nemuText.caption,
+                        { color: tokens.mutedForeground },
+                      ]}
+                    >
+                      {strings.feedback.technicalDetails}
+                    </Text>
+                  </NemuPressable>
+                  {diagnosticOpen ? (
+                    <Text
+                      selectable
+                      style={[
+                        styles.diagnosticBody,
+                        styles.diagnosticMono,
+                        {
+                          backgroundColor: tokens.secondary,
+                          color: tokens.mutedForeground,
+                        },
+                      ]}
+                    >
+                      {ocrErrorCopy.diagnostic}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </>
           ) : (
             <Ionicons
               name="scan-outline"
@@ -189,49 +280,46 @@ export function JapaneseLearningTranscriptSheet({
               color={tokens.mutedForeground}
             />
           )}
-          <Text
-            style={[
-              styles.emptyText,
-              {
-                color:
-                  ocrStatus === "error" ? tokens.danger : tokens.mutedForeground,
-              },
-            ]}
-          >
-            {ocrStatus === "loading"
-              ? strings.reader.pluginJapaneseLearningDetectingText
-              : ocrStatus === "error"
-                ? ocrErrorDetail || strings.reader.pluginJapaneseLearningOcrFailed
+          {ocrStatus !== "error" ? (
+            <Text
+              style={[styles.emptyText, { color: tokens.mutedForeground }]}
+            >
+              {ocrStatus === "loading"
+                ? strings.reader.pluginJapaneseLearningDetectingText
                 : ocrResult
                   ? ocrResult.text || strings.reader.pluginJapaneseLearningNoText
                   : strings.reader.pluginJapaneseLearningTranscriptHint}
-          </Text>
-          {ocrStatus === "error" || ocrStatus === "idle" ? (
+            </Text>
+          ) : null}
+          {ocrStatus === "error" ? (
+            <NemuButton
+              accessibilityLabel={strings.common.retry}
+              icon="refresh"
+              label={strings.common.retry}
+              containerStyle={styles.retryCtaContainer}
+              onPress={onRetryOcr}
+              size={NEMU_PROMINENT_CTA_SIZE}
+              variant="default"
+            />
+          ) : ocrStatus === "idle" ? (
             <NemuPressable
               accessibilityRole="button"
-              accessibilityLabel={
-                ocrStatus === "error"
-                  ? strings.common.retry
-                  : strings.reader.pluginJapaneseLearningDetectText
-              }
+              accessibilityLabel={strings.reader.pluginJapaneseLearningDetectText}
+              minimumTouchTarget
               onPress={onRetryOcr}
               pressedScale={0.98}
               containerStyle={styles.retryButtonContainer}
               style={[styles.retryButton, { backgroundColor: tokens.primary }]}
             >
               <Ionicons
-                name={
-                  ocrStatus === "error" ? "refresh-outline" : "scan-outline"
-                }
+                name="scan-outline"
                 size={16}
                 color={tokens.primaryForeground}
               />
               <Text
                 style={[styles.retryText, { color: tokens.primaryForeground }]}
               >
-                {ocrStatus === "error"
-                  ? strings.common.retry
-                  : strings.reader.pluginJapaneseLearningDetectText}
+                {strings.reader.pluginJapaneseLearningDetectText}
               </Text>
             </NemuPressable>
           ) : null}
@@ -239,7 +327,11 @@ export function JapaneseLearningTranscriptSheet({
       )}
 
       {ttsState.status === "error" && ttsState.source === "transcript" ? (
-        <Text style={[styles.errorText, { color: tokens.danger }]}>
+        <Text
+          accessibilityLiveRegion="assertive"
+          accessibilityRole="alert"
+          style={[styles.errorText, { color: tokens.danger }]}
+        >
           {ttsState.detail}
         </Text>
       ) : null}
@@ -248,21 +340,8 @@ export function JapaneseLearningTranscriptSheet({
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  title: {
-    fontSize: 14,
-    fontWeight: nemuFontWeight.semibold,
-    flex: 1,
-  },
   listenButton: {
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
@@ -280,7 +359,7 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   linesContent: {
-    padding: 12,
+    paddingVertical: 12,
     gap: 4,
   },
   line: {
@@ -307,6 +386,43 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.medium,
     textAlign: "center",
   },
+  stateTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: nemuFontWeight.semibold,
+    textAlign: "center",
+  },
+  stateDescription: {
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  diagnostic: {
+    alignSelf: "stretch",
+    alignItems: "center",
+    gap: 4,
+  },
+  diagnosticToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  diagnosticBody: {
+    alignSelf: "stretch",
+    padding: 10,
+    borderRadius: 8,
+  },
+  diagnosticMono: {
+    fontFamily: Platform.select({
+      ios: "Menlo",
+      android: "monospace",
+      default: "monospace",
+    }),
+    fontSize: 11,
+    lineHeight: 15,
+  },
   stateContent: {
     alignItems: "center",
     gap: 10,
@@ -319,7 +435,7 @@ const styles = StyleSheet.create({
   },
   retryButton: {
     width: "100%",
-    minHeight: 40,
+    minHeight: 48,
     borderRadius: radius.md,
     flexDirection: "row",
     alignItems: "center",
@@ -330,6 +446,9 @@ const styles = StyleSheet.create({
   },
   retryButtonContainer: {
     minWidth: 112,
+  },
+  retryCtaContainer: {
+    width: "100%",
   },
   retryText: {
     fontSize: 13,

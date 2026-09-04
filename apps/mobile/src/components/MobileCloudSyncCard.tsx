@@ -8,9 +8,10 @@ import {
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import {
   MobileNativeSheetScaffold,
+  nemuColorWithAlpha,
   NemuPressable,
   radius,
   nemuFontWeight,
@@ -29,6 +30,7 @@ import {
 } from "@/lib/mobileI18n";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
+import { retryMobileConvexAuth } from "@/sync/mobileConvexAuthRetry";
 import { isMobileAuthStorageUnavailable } from "@/sync/mobileAuthSecureStorage";
 import { unregisterMobileBackgroundSyncAsync } from "@/sync/mobileBackgroundSync";
 import { signOutAndUnregisterMobileBackgroundSync } from "@/sync/mobileBackgroundSyncLifecycle";
@@ -166,7 +168,7 @@ function SignOutChoiceSheet({
   const { tokens } = useNemuTheme();
 
   const requestClose = () => {
-    if (!loading) {
+    if (visible && !loading) {
       onCancel();
     }
   };
@@ -182,22 +184,17 @@ function SignOutChoiceSheet({
       visible={visible}
       onClose={requestClose}
       title={strings.settings.cloudSyncSignOutTitle}
-      dismissLabel={strings.common.cancel}
-      showDismissButton={!loading}
-      enablePanDownToClose={!loading}
-      contentStyle={styles.sheetContent}
-    >
-      <View style={styles.sheetHeader}>
+      subtitle={strings.settings.cloudSyncSignOutMessage}
+      headerLeading={
         <View style={styles.sheetIconFrame}>
           <Ionicons name="log-out-outline" size={22} color={tokens.danger} />
         </View>
-        <Text
-          style={[styles.sheetDescription, { color: tokens.mutedForeground }]}
-        >
-          {strings.settings.cloudSyncSignOutMessage}
-        </Text>
-      </View>
-
+      }
+      dismissLabel={strings.common.cancel}
+      dismissDisabled={loading}
+      enablePanDownToClose={!loading}
+      contentStyle={styles.sheetContent}
+    >
       <View style={styles.signOutOptions}>
         <SignOutOption
           active={keepData}
@@ -293,7 +290,9 @@ function SignOutOption({
       style={[
         styles.optionRow,
         {
-          backgroundColor: active ? `${activeColor}16` : tokens.muted,
+          backgroundColor: active
+            ? nemuColorWithAlpha(activeColor, 0.09)
+            : tokens.muted,
           borderColor: active ? activeColor : tokens.border,
           opacity: disabled ? 0.65 : 1,
         },
@@ -373,6 +372,10 @@ function MobileCloudSyncConfiguredCard({
   const announcedSyncStorageErrorRef = useRef<string | null>(null);
   const [retryingSync, setRetryingSync] = useState(false);
   const retryingSyncRef = useRef(false);
+  // Re-arming the Convex token fetch is fire-and-forget (it bumps an epoch the
+  // provider watches), so the button gets a bounded busy window of its own
+  // rather than borrowing the unrelated snapshot-retry state.
+  const [transportRetryPending, setTransportRetryPending] = useState(false);
   const [recoverySheetOpen, setRecoverySheetOpen] = useState(false);
   const [recoverySheetAccountId, setRecoverySheetAccountId] = useState<
     string | null
@@ -384,8 +387,26 @@ function MobileCloudSyncConfiguredCard({
     null,
   );
   const syncStatusRevision = useMobileDataRevision(["syncStatus"]);
+  // The Better Auth session and the Convex websocket are independent
+  // transports. A signed-in session whose Convex token fetch failed twice is
+  // permanently signed out at the sync layer (see mobileConvexAuth.tsx) —
+  // surface that state instead of an eternally empty library.
+  const {
+    isAuthenticated: convexAuthenticated,
+    isLoading: convexAuthLoading,
+  } = useConvexAuth();
   const user = session?.user;
   const signedIn = Boolean(user);
+  const convexAuthStalled =
+    signedIn && !convexAuthLoading && !convexAuthenticated;
+  const retryingTransport = transportRetryPending && convexAuthStalled;
+  useEffect(() => {
+    if (!transportRetryPending) return;
+    // Bounded: a re-arm reports back through convexAuthStalled clearing, and
+    // a re-arm that keeps failing must not pin the spinner forever.
+    const timer = setTimeout(() => setTransportRetryPending(false), 8_000);
+    return () => clearTimeout(timer);
+  }, [transportRetryPending]);
   const rawOAuthProvider = useQuery(
     api.auth.getOAuthProvider,
     signedIn ? {} : "skip",
@@ -899,6 +920,24 @@ function MobileCloudSyncConfiguredCard({
             </View>
           )}
 
+          {convexAuthStalled ? (
+            <View accessibilityLiveRegion="polite">
+              <MobileInlineErrorBanner
+                actionDisabled={retryingTransport || signingOut}
+                actionLabel={strings.settings.cloudSyncRetry}
+                actionLoading={retryingTransport}
+                detail={strings.settings.cloudSyncTransportStalledDetail}
+                iconName="cloud-offline-outline"
+                onActionPress={() => {
+                  setTransportRetryPending(true);
+                  retryMobileConvexAuth();
+                }}
+                title={strings.settings.cloudSyncTransportStalled}
+                variant="embedded"
+              />
+            </View>
+          ) : null}
+
           {signedIn &&
           syncSnapshotAccountId === user?.id &&
           syncSnapshotState?.status === "budget-exceeded" ? (
@@ -1015,7 +1054,7 @@ function MobileCloudSyncConfiguredCard({
             styles.recoveryAcknowledgement,
             {
               backgroundColor: recoveryAcknowledged
-                ? `${tokens.danger}12`
+                ? nemuColorWithAlpha(tokens.danger, 0.07)
                 : tokens.muted,
               borderColor: recoveryAcknowledged ? tokens.danger : tokens.border,
             },
@@ -1210,22 +1249,11 @@ const styles = StyleSheet.create({
   sheetContent: {
     gap: 16,
   },
-  sheetHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
   sheetIconFrame: {
     width: 24,
     height: 24,
     alignItems: "center",
     justifyContent: "center",
-  },
-  sheetDescription: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 13,
-    lineHeight: 18,
   },
   signOutOptions: {
     gap: 10,
@@ -1265,7 +1293,7 @@ const styles = StyleSheet.create({
     height: 22,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 999,
+    borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
   },
   sheetActions: {

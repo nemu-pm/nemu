@@ -5,6 +5,18 @@ const WEB_ICON_RADIUS = 16;
 const WEB_GLOW_CANVAS_SIZE = 360;
 const WEB_GLOW_BLUR_RADIUS = 40;
 
+export const NEMU_APP_ICON_PRESS_MOTION = {
+  duration: 300,
+  rotateDegrees: -4,
+  scale: 0.82,
+} as const;
+
+export function shouldAnimateNemuAppIconPress(
+  reduceMotion: boolean | null,
+): boolean {
+  return reduceMotion === false;
+}
+
 export function getNemuAppIconHaloRenderMode(
   platform: string,
 ): NemuAppIconHaloRenderMode {

@@ -3,6 +3,7 @@ import type { ThemePreference } from "@/data/schema";
 import type { NemuColorScheme, NemuTokens } from "./tokens";
 
 export type NemuTheme = {
+  reduceMotion: boolean | null;
   scheme: NemuColorScheme;
   themePreference: ThemePreference;
   tokens: NemuTokens;

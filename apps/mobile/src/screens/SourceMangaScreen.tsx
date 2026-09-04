@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type ListRenderItemInfo,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
@@ -21,6 +22,8 @@ import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
   MobileMangaChapterRow,
   MobileMangaChapterSectionHeader,
+  MobileMangaChapterSortAction,
+  MobileMangaChapterToolbar,
 } from "@/components/MobileMangaChapterSection";
 import { MobileMangaDetailSurface } from "@/components/MobileMangaDetailSurface";
 import { MobileMangaPageSkeleton } from "@/components/MobileMangaPageSkeleton";
@@ -45,6 +48,7 @@ import {
 } from "@/data/schema";
 import {
   MobileNativeSheetScaffold,
+  nemuColorWithAlpha,
   NemuPressable,
   PageListScaffold,
   PageScaffold,
@@ -59,7 +63,16 @@ import { hapticConfirm, hapticError } from "@/lib/haptics";
 import {
   MOBILE_CHAPTER_LIST_PERFORMANCE,
   buildMobileChapterRows,
+  mobileChapterRowKeyExtractor,
+  type MobileChapterRow,
 } from "@/lib/mobileChapterRows";
+import {
+  DEFAULT_MOBILE_CHAPTER_LIST_PREFERENCE,
+  filterAndSortMobileChapters,
+  getMobileChapterLanguages,
+  normalizeMobileChapterListPreference,
+  type MobileChapterListPreference,
+} from "@/lib/mobileChapterFilters";
 import {
   formatMobileString,
   getMobileStrings,
@@ -72,7 +85,10 @@ import {
   mobileInstalledSourceMatchesRoute,
 } from "@/lib/mobileInstalledSourceKeys";
 import { applyMobileSourceDetailsRefresh } from "@/lib/mobileLibraryDetails";
-import { makeSourceDetailsLibraryImport } from "@/lib/mobileLibraryImport";
+import {
+  makeSourceDetailsLibraryImport,
+  makeSourceDetailsSnapshotLibraryImport,
+} from "@/lib/mobileLibraryImport";
 import {
   findMobileMangaProgressForSource,
   loadMobileChapterProgressForSource,
@@ -90,6 +106,11 @@ import {
   shouldShowMobileSourceMangaDetailLoadError,
   type MobileSourceMangaReaderActionState,
 } from "@/lib/mobileSourceMangaActions";
+import {
+  getCachedMobileSourceDetail,
+  makeMobileSourceDetailCacheKey,
+  setCachedMobileSourceDetail,
+} from "@/lib/mobileSourceDetailCache";
 import { getMobileSourceDisplayRouteRef } from "@/lib/mobileSourceRouteRef";
 import { nextSyncTimestamp } from "@nemu/core";
 import {
@@ -110,7 +131,20 @@ import {
   type MobileSourceErrorRecoveryAction,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
-import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
+import { useMobileStickySourceCover } from "@/lib/useMobileSourceImageRequest";
+import { takeMobileSourceDetailSeed } from "@/lib/mobileSourceDetailSeed";
+import {
+  mergeDefinedMangaMetadata,
+  resolveMobileSeedCoverHeaders,
+} from "@/lib/mobileLibraryDetails";
+import { withMobileSourceOperationTimeout } from "@/sources/mobileSourceOperationTimeout";
+import { normalizeReaderProcessPageImages } from "@/lib/mobileReaderSettings";
+import { refreshMobileReaderPages } from "@/sources/mobileSourcePages";
+import {
+  disposeMobileReaderPagesPrefetchResult,
+  makeMobileReaderPagesPrefetchKey,
+  mobileReaderPagesPrefetchCache,
+} from "@/sources/mobileReaderPagesPrefetch";
 import {
   refreshMobileSourceDetails,
   resolveMobileSourceMangaMetadataTitle,
@@ -130,10 +164,22 @@ type SourceMangaDetailState =
   | { status: "loading"; detail: string }
   | {
       status: "ready";
-      refresh: Extract<MobileSourceDetailsRefresh, { status: "ready" }>;
+      // A live source refresh (network-backed). Null when rendered from the
+      // persisted detail cache, which carries no source runtime.
+      refresh: Extract<MobileSourceDetailsRefresh, { status: "ready" }> | null;
       metadata: MangaMetadata;
       chapters: ChapterSummary[];
       detail: string;
+      // Set when the persisted copy was painted (fetchedAt of that snapshot).
+      cachedFetchedAt?: number;
+      // A background/forced refresh failed while cached content is on
+      // screen: keep the content and surface a standard inline notice.
+      staleError?: {
+        title?: string;
+        detail: string;
+        error: boolean;
+        recoveryAction?: MobileSourceErrorRecoveryAction | null;
+      };
     }
   | {
       status: "blocked";
@@ -250,7 +296,7 @@ export function SourceMangaScreen() {
         sourceRecord.updatedAt,
       );
       if (!saved) return;
-      emitMobileDataChanged("settings");
+      emitMobileDataChanged("sources");
     },
     [store],
   );
@@ -264,6 +310,28 @@ export function SourceMangaScreen() {
     status: "idle",
     detail: strings.sourceManga.detailsNotLoaded,
   });
+  const [chapterListPreference, setChapterListPreference] =
+    useState<MobileChapterListPreference>(
+      DEFAULT_MOBILE_CHAPTER_LIST_PREFERENCE,
+    );
+  const chapterListPreferenceKey = `${registryId}:${sourceId}:${mangaId}`;
+  useEffect(() => {
+    let active = true;
+    void store
+      .getSettings()
+      .then((settings) => {
+        if (!active) return;
+        setChapterListPreference(
+          normalizeMobileChapterListPreference(
+            settings.mobileChapterListPreferences?.[chapterListPreferenceKey],
+          ),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [chapterListPreferenceKey, store]);
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
   const [removing, setRemoving] = useState(false);
@@ -275,10 +343,18 @@ export function SourceMangaScreen() {
   const [retryRun, setRetryRun] = useState(0);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [collectionSheetOpen, setCollectionSheetOpen] = useState(false);
+  const [collectionSheetPresentation, setCollectionSheetPresentation] =
+    useState<{ libraryItemId: string; title: string } | null>(null);
   const [libraryOptionsOpen, setLibraryOptionsOpen] = useState(false);
-  const collectionSheetOpenTimerRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  const [libraryOptionsPresentationMode, setLibraryOptionsPresentationMode] =
+    useState<"add" | "in-library" | null>(null);
+  const libraryOptionsNextSheetRef = useRef<
+    | "close-only"
+    | "collections"
+    | "remove-confirm"
+    | { kind: "reader"; chapter: ChapterSummary }
+    | null
+  >(null);
   // Lets the detail-refresh effect report Cloudflare failures to the bypass
   // sheet without adding the sheet controller to the effect's deps (which
   // would re-trigger the refresh on every render).
@@ -292,9 +368,7 @@ export function SourceMangaScreen() {
 
   useEffect(
     () => () => {
-      if (collectionSheetOpenTimerRef.current) {
-        clearTimeout(collectionSheetOpenTimerRef.current);
-      }
+      libraryOptionsNextSheetRef.current = null;
     },
     [],
   );
@@ -369,6 +443,83 @@ export function SourceMangaScreen() {
     }, [reloadLocalState]),
   );
 
+  const detailCacheKey = makeMobileSourceDetailCacheKey(
+    registryId,
+    sourceId,
+    mangaId,
+  );
+  const fetchSourceDetails = useCallback(
+    async (installedSource: InstalledSource) =>
+      withMobileSourceOperationTimeout(
+        refreshMobileSourceDetails(installedSource, mangaId, {
+          getSourceSettings: async (_sourceKey, sourceRecord) => {
+            const normalized = normalizeInstalledSource(sourceRecord);
+            const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
+            const saved = await loadMobileSourceSettingsByKeys(store, [
+              runtimeSourceKey,
+              ...getMobileInstalledSourceSettingsKeys(sourceRecord),
+            ]);
+            return mergeSourceSettingValues(
+              sourceRecord.packageMetadata?.settings ?? [],
+              saved?.values,
+            );
+          },
+          onSourcePackageHydrated: saveSourcePackageHydration,
+        }),
+        { message: strings.sourceBrowse.sourceOperationTimedOut },
+      ),
+    [
+      mangaId,
+      saveSourcePackageHydration,
+      store,
+      strings.sourceBrowse.sourceOperationTimedOut,
+    ],
+  );
+  const applyDetailsRefreshToLibrary = useCallback(
+    async (
+      installedSource: InstalledSource,
+      existingEntry: LibraryEntry | null,
+      refreshed: Extract<MobileSourceDetailsRefresh, { status: "ready" }>,
+    ): Promise<LibraryEntry | null> => {
+      let nextEntry = existingEntry;
+      const existingSource = existingEntry?.sources.find(
+        (source) =>
+          mobileInstalledSourceMatchesLink(installedSource, source) &&
+          source.sourceMangaId === mangaId,
+      );
+      if (existingEntry && existingSource) {
+        const applied = applyMobileSourceDetailsRefresh(
+          existingEntry,
+          existingSource,
+          refreshed,
+        );
+        await Promise.all([
+          store.saveLibraryItem(applied.item),
+          store.saveSourceLink(applied.sourceLink),
+        ]);
+        emitMobileDataChanged("library");
+        nextEntry = {
+          item: applied.item,
+          sources: existingEntry.sources.map((source) =>
+            source.id === applied.sourceLink.id ? applied.sourceLink : source,
+          ),
+        };
+      }
+      return nextEntry;
+    },
+    [mangaId, store],
+  );
+  const persistFetchedDetails = useCallback(
+    (refreshed: Extract<MobileSourceDetailsRefresh, { status: "ready" }>) => {
+      void setCachedMobileSourceDetail(detailCacheKey, {
+        metadata: refreshed.metadata,
+        chapters: refreshed.chapters,
+        fetchedAt: refreshed.fetchedAt,
+      }).catch(() => undefined);
+    },
+    [detailCacheKey],
+  );
+
   useEffect(() => {
     let cancelled = false;
     const reportRetryResult = retryDataGuardRef.current;
@@ -380,7 +531,27 @@ export function SourceMangaScreen() {
     });
 
     void (async () => {
+      // Cached-copy resilience: with a cache hit the network failure stays
+      // silent and the error banner only appears with no cached copy at all.
+      let hadCachedDetails = false;
       try {
+        const cachedEntry = await getCachedMobileSourceDetail(detailCacheKey);
+        if (cancelled) return;
+        hadCachedDetails = cachedEntry !== null;
+        if (cachedEntry) {
+          setDetailState({
+            status: "ready",
+            refresh: null,
+            metadata: cachedEntry.payload.metadata,
+            chapters: cachedEntry.payload.chapters,
+            detail: loadedChapterCountText(
+              cachedEntry.payload.chapters.length,
+              strings,
+            ),
+            cachedFetchedAt: cachedEntry.payload.fetchedAt,
+          });
+        }
+
         const nextLocalState = await reloadLocalState({
           includeInstalledSource: true,
         });
@@ -406,28 +577,17 @@ export function SourceMangaScreen() {
           return;
         }
 
-        const refreshed = await refreshMobileSourceDetails(
-          installedSource,
-          mangaId,
-          {
-            getSourceSettings: async (_sourceKey, sourceRecord) => {
-              const normalized = normalizeInstalledSource(sourceRecord);
-              const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
-              const saved = await loadMobileSourceSettingsByKeys(store, [
-                runtimeSourceKey,
-                ...getMobileInstalledSourceSettingsKeys(sourceRecord),
-              ]);
-              return mergeSourceSettingValues(
-                sourceRecord.packageMetadata?.settings ?? [],
-                saved?.values,
-              );
-            },
-            onSourcePackageHydrated: saveSourcePackageHydration,
-          },
-        );
+        // A fresh cached copy answers the screen by itself; a stale one is
+        // painted immediately and revalidated below in the background.
+        if (cachedEntry && !cachedEntry.isStale && !reportRetryResult) {
+          return;
+        }
+
+        const refreshed = await fetchSourceDetails(installedSource);
 
         if (cancelled) return;
         if (refreshed.status === "blocked") {
+          if (hadCachedDetails) return;
           setDetailState({
             status: "blocked",
             detail: refreshed.detail,
@@ -438,36 +598,18 @@ export function SourceMangaScreen() {
           return;
         }
 
-        let nextEntry = existingEntry;
-        const existingSource = existingEntry?.sources.find(
-          (source) =>
-            mobileInstalledSourceMatchesLink(installedSource, source) &&
-            source.sourceMangaId === mangaId,
+        const nextEntry = await applyDetailsRefreshToLibrary(
+          installedSource,
+          existingEntry,
+          refreshed,
         );
-        if (existingEntry && existingSource) {
-          const applied = applyMobileSourceDetailsRefresh(
-            existingEntry,
-            existingSource,
-            refreshed,
-          );
-          await Promise.all([
-            store.saveLibraryItem(applied.item),
-            store.saveSourceLink(applied.sourceLink),
-          ]);
-          emitMobileDataChanged("library");
-          nextEntry = {
-            item: applied.item,
-            sources: existingEntry.sources.map((source) =>
-              source.id === applied.sourceLink.id ? applied.sourceLink : source,
-            ),
-          };
-        }
 
         if (cancelled) return;
         setLocalState((current) => ({
           ...current,
           libraryEntry: nextEntry,
         }));
+        persistFetchedDetails(refreshed);
         setDetailState({
           status: "ready",
           refresh: refreshed,
@@ -480,6 +622,34 @@ export function SourceMangaScreen() {
         }
       } catch (error) {
         if (cancelled) return;
+        if (hadCachedDetails) {
+          // Cached content stays on screen. An explicit retry still reports
+          // the failure; a background revalidation stays fully silent.
+          if (reportRetryResult) {
+            const presentation = getMobileSourceErrorPresentation(
+              error,
+              strings,
+            );
+            setDetailState((current) =>
+              current.status === "ready"
+                ? {
+                    ...current,
+                    staleError: {
+                      title: presentation.title,
+                      detail: presentation.detail,
+                      error: true,
+                      recoveryAction: getMobileSourceErrorRecoveryAction(
+                        presentation,
+                        strings,
+                      ),
+                    },
+                  }
+                : current,
+            );
+            await hapticError();
+          }
+          return;
+        }
         const presentation = getMobileSourceErrorPresentation(error, strings);
         setDetailState({
           status: "error",
@@ -509,13 +679,15 @@ export function SourceMangaScreen() {
       cancelled = true;
     };
   }, [
+    applyDetailsRefreshToLibrary,
+    detailCacheKey,
+    fetchSourceDetails,
     mangaId,
+    persistFetchedDetails,
     registryId,
     reloadLocalState,
     retryRun,
-    saveSourcePackageHydration,
     sourceId,
-    store,
     strings,
   ]);
 
@@ -543,10 +715,29 @@ export function SourceMangaScreen() {
     mangaId,
   );
   const inLibrary = Boolean(librarySource);
+  // Consume the listing seed once: the tapped card already knew the title,
+  // cover, and authors, so paint them instead of a blank skeleton.
+  const seedMetadata = useMemo(
+    () => takeMobileSourceDetailSeed(registryId, sourceId, mangaId),
+    [mangaId, registryId, sourceId],
+  );
+  const listingMetadata = seedMetadata
+    ? {
+        title: seedMetadata.title,
+        cover: seedMetadata.cover,
+        authors: seedMetadata.authors,
+        description: seedMetadata.description,
+        tags: seedMetadata.tags,
+        status: seedMetadata.status,
+        url: seedMetadata.url,
+      }
+    : null;
   const metadata =
     detailState.status === "ready"
-      ? detailState.metadata
-      : (localState.libraryEntry?.item.metadata ?? null);
+      ? listingMetadata
+        ? mergeDefinedMangaMetadata(listingMetadata, detailState.metadata)
+        : detailState.metadata
+      : (localState.libraryEntry?.item.metadata ?? listingMetadata);
   const title = resolveMobileSourceMangaMetadataTitle(
     metadata?.title,
     mangaId,
@@ -555,17 +746,80 @@ export function SourceMangaScreen() {
   const cover = localState.libraryEntry
     ? getEntryCover(localState.libraryEntry)
     : metadata?.cover;
-  const coverRequest = useMobileSourceImageRequest(
-    localState.installedSource,
+  // The tapped card's cover was already rewritten by the source runtime, so
+  // reuse its headers while the cover URL is still that one. Details return a
+  // raw cover, which re-triggers the rewrite; the sticky hook keeps the cover
+  // that is on screen until the new request settles, so a finished detail load
+  // can no longer blank the hero image.
+  const seedCoverHeaders = resolveMobileSeedCoverHeaders({
     cover,
-  );
+    seedCover: seedMetadata?.cover,
+    seedCoverHeaders: seedMetadata?.coverHeaders,
+  });
+  const coverImage = useMobileStickySourceCover({
+    source: localState.installedSource,
+    cover,
+    coverHeaders: seedCoverHeaders,
+  });
   const chapters = useMemo(
     () => (detailState.status === "ready" ? detailState.chapters : []),
     [detailState],
   );
-  const chapterRows = useMemo(
-    () => buildMobileChapterRows(chapters),
+  const chapterLanguages = useMemo(
+    () => getMobileChapterLanguages(chapters),
     [chapters],
+  );
+  const effectiveChapterListPreference = useMemo(
+    () => ({
+      ...chapterListPreference,
+      languages: chapterListPreference.languages.filter((language) =>
+        chapterLanguages.includes(language),
+      ),
+    }),
+    [chapterLanguages, chapterListPreference],
+  );
+  // The chapter subtitle only repeats the language while the visible list can
+  // actually mix languages: one selected language makes it noise.
+  const showChapterLanguage =
+    chapterLanguages.length > 1 &&
+    effectiveChapterListPreference.languages.length !== 1;
+  const visibleChapters = useMemo(
+    () =>
+      filterAndSortMobileChapters(
+        chapters,
+        localState.chapterProgress,
+        effectiveChapterListPreference,
+      ),
+    [chapters, effectiveChapterListPreference, localState.chapterProgress],
+  );
+  const unreadChapterCount = useMemo(
+    () =>
+      chapters.reduce(
+        (count, chapter) =>
+          count + (localState.chapterProgress[chapter.id]?.completed ? 0 : 1),
+        0,
+      ),
+    [chapters, localState.chapterProgress],
+  );
+  const chapterRows = useMemo(
+    () => buildMobileChapterRows(visibleChapters),
+    [visibleChapters],
+  );
+  const changeChapterListPreference = useCallback(
+    (nextPreference: MobileChapterListPreference) => {
+      setChapterListPreference(nextPreference);
+      void store
+        .updateSettings((settings) => ({
+          ...settings,
+          mobileChapterListPreferences: {
+            ...settings.mobileChapterListPreferences,
+            [chapterListPreferenceKey]: nextPreference,
+          },
+        }))
+        .then(() => emitMobileDataChanged("settings"))
+        .catch(() => undefined);
+    },
+    [chapterListPreferenceKey, store],
   );
   const continueTarget = getMobileSourceMangaContinueTarget(
     chapters,
@@ -642,6 +896,41 @@ export function SourceMangaScreen() {
       }
       openingReaderRef.current = true;
       setOpeningReader(true);
+      const installedSource = localState.installedSource;
+      if (installedSource) {
+        void Promise.all([
+          store.getSettings(),
+          loadMobileSourceSettingsByKeys(store, [
+            makeMobileRuntimeSourceKey(normalizeInstalledSource(installedSource)),
+            ...getMobileInstalledSourceSettingsKeys(installedSource),
+          ]),
+        ]).then(([settings, saved]) => {
+          const processPageImages = normalizeReaderProcessPageImages(
+            settings.readerProcessPageImages,
+          );
+          const key = makeMobileReaderPagesPrefetchKey({
+            registryId: routeRef.registryId,
+            sourceId: routeRef.sourceId,
+            mangaId,
+            chapterId: chapter.id,
+            processPageImages,
+          });
+          mobileReaderPagesPrefetchCache.start(
+            key,
+            () =>
+              refreshMobileReaderPages(installedSource, mangaId, chapter, {
+                processPageImages,
+                getSourceSettings: async () =>
+                  mergeSourceSettingValues(
+                    installedSource.packageMetadata?.settings ?? [],
+                    saved?.values,
+                  ),
+                onSourcePackageHydrated: saveSourcePackageHydration,
+              }),
+            disposeMobileReaderPagesPrefetchResult,
+          );
+        }).catch(() => undefined);
+      }
       try {
         router.push(
           getMobileSourceReaderHref({
@@ -660,73 +949,133 @@ export function SourceMangaScreen() {
     },
     [
       getGuardedReaderActionState,
+      localState.installedSource,
       mangaId,
       routeRef.registryId,
       routeRef.sourceId,
+      saveSourcePackageHydration,
+      store,
       title,
     ],
   );
+  // The row is memoized, so its props have to keep their identity across a
+  // re-render of this screen; an inline `renderItem` re-rendered every mounted
+  // chapter row on each state change.
+  const renderChapterRow = useCallback(
+    ({ item, index }: ListRenderItemInfo<MobileChapterRow>) => (
+      <MobileMangaChapterRow
+        busy={readerActionBusy}
+        chapters={item.chapters}
+        first={index === 0}
+        openChapterTemplate={strings.sourceManga.openChapter}
+        progressByChapterId={localState.chapterProgress}
+        strings={strings}
+        onPressChapter={openReader}
+        appLanguage={appLanguage}
+        showLanguage={showChapterLanguage}
+      />
+    ),
+    [
+      appLanguage,
+      localState.chapterProgress,
+      openReader,
+      readerActionBusy,
+      showChapterLanguage,
+      strings,
+    ],
+  );
 
-  const addToLibrary = useCallback(async (): Promise<boolean> => {
-    if (openingReaderRef.current || addingRef.current || removingRef.current) {
-      return false;
-    }
+  const addToLibrary = useCallback(
+    async (afterClose?: {
+      kind: "reader";
+      chapter: ChapterSummary;
+    }): Promise<boolean> => {
+      if (openingReaderRef.current || addingRef.current || removingRef.current) {
+        return false;
+      }
 
-    if (inLibrary) {
-      setLibraryOptionsOpen(false);
-      return true;
-    }
+      const claimedTransition = afterClose ?? "close-only";
+      if (libraryOptionsNextSheetRef.current) return false;
 
-    if (!sourceDisplay || detailState.status !== "ready") {
-      setActionError(strings.sourceManga.actionFailedDetail);
-      await hapticError();
-      return false;
-    }
-    addingRef.current = true;
-    setAdding(true);
-    setActionError(null);
-    try {
-      const imported = makeSourceDetailsLibraryImport(
-        sourceDisplay,
-        mangaId,
-        detailState.refresh,
-        nextSyncTimestamp(),
-      );
-      await store.saveLibraryItem(imported.item);
-      await store.saveSourceLink(imported.sourceLink);
-      emitMobileDataChanged("library");
-      setLocalState((current) => ({
-        ...current,
-        libraryEntry: {
-          item: imported.item,
-          sources: [imported.sourceLink],
-        },
-      }));
-      setRemoveConfirmOpen(false);
-      setLibraryOptionsOpen(false);
-      await hapticConfirm();
-      return true;
-    } catch (error) {
-      setActionError(
-        describeMobileErrorDetail(
-          error,
-          strings.sourceManga.actionFailedDetail,
-        ),
-      );
-      await hapticError();
-      return false;
-    } finally {
-      addingRef.current = false;
-      setAdding(false);
-    }
-  }, [
-    detailState,
-    inLibrary,
-    mangaId,
-    sourceDisplay,
-    store,
-    strings.sourceManga.actionFailedDetail,
-  ]);
+      if (inLibrary) {
+        libraryOptionsNextSheetRef.current = claimedTransition;
+        setLibraryOptionsOpen(false);
+        return true;
+      }
+
+      if (!sourceDisplay || detailState.status !== "ready") {
+        setActionError(strings.sourceManga.actionFailedDetail);
+        await hapticError();
+        return false;
+      }
+      libraryOptionsNextSheetRef.current = claimedTransition;
+      addingRef.current = true;
+      setAdding(true);
+      setActionError(null);
+      try {
+        const imported =
+          detailState.refresh !== null
+            ? makeSourceDetailsLibraryImport(
+                sourceDisplay,
+                mangaId,
+                detailState.refresh,
+                nextSyncTimestamp(),
+              )
+            : makeSourceDetailsSnapshotLibraryImport(
+                sourceDisplay,
+                mangaId,
+                {
+                  metadata: detailState.metadata,
+                  latestChapter: detailState.chapters[0],
+                  fetchedAt: detailState.cachedFetchedAt,
+                },
+                nextSyncTimestamp(),
+              );
+        await store.saveLibraryItem(imported.item);
+        await store.saveSourceLink(imported.sourceLink);
+        emitMobileDataChanged("library");
+        setLocalState((current) => ({
+          ...current,
+          libraryEntry: {
+            item: imported.item,
+            sources: [imported.sourceLink],
+          },
+        }));
+        setRemoveConfirmOpen(false);
+        await hapticConfirm();
+        // The queued reader opens from the native sheet's post-dismiss callback.
+        // Release the mutation guard before requesting that dismissal so the
+        // reader action cannot be rejected if the native animation is fast.
+        addingRef.current = false;
+        setAdding(false);
+        setLibraryOptionsOpen(false);
+        return true;
+      } catch (error) {
+        if (libraryOptionsNextSheetRef.current === claimedTransition) {
+          libraryOptionsNextSheetRef.current = null;
+        }
+        setActionError(
+          describeMobileErrorDetail(
+            error,
+            strings.sourceManga.actionFailedDetail,
+          ),
+        );
+        await hapticError();
+        return false;
+      } finally {
+        addingRef.current = false;
+        setAdding(false);
+      }
+    },
+    [
+      detailState,
+      inLibrary,
+      mangaId,
+      sourceDisplay,
+      store,
+      strings.sourceManga.actionFailedDetail,
+    ],
+  );
 
   const openLibraryOptions = useCallback(() => {
     const guardedActionState = {
@@ -739,32 +1088,51 @@ export function SourceMangaScreen() {
     if (!canPressMobileSourceMangaLibraryAction(guardedActionState)) return;
 
     setActionError(null);
+    libraryOptionsNextSheetRef.current = null;
+    setLibraryOptionsPresentationMode(inLibrary ? "in-library" : "add");
     setLibraryOptionsOpen(true);
   }, [adding, detailState.status, inLibrary, openingReader, removing]);
 
-  const openCollectionSheetFromLibraryOptions = useCallback(() => {
-    if (libraryActionBusy) return;
-    setActionError(null);
+  const closeLibraryOptionsTo = useCallback(
+    (nextSheet: "collections" | "remove-confirm") => {
+      if (libraryActionBusy) return;
+      if (libraryOptionsNextSheetRef.current) return;
+      setActionError(null);
+      libraryOptionsNextSheetRef.current = nextSheet;
+      setLibraryOptionsOpen(false);
+    },
+    [libraryActionBusy],
+  );
+
+  const handleLibraryOptionsClosed = useCallback(() => {
     setLibraryOptionsOpen(false);
-    if (collectionSheetOpenTimerRef.current) {
-      clearTimeout(collectionSheetOpenTimerRef.current);
+    const nextSheet = libraryOptionsNextSheetRef.current;
+    libraryOptionsNextSheetRef.current = null;
+    setLibraryOptionsPresentationMode(null);
+    if (nextSheet === "collections") {
+      const libraryItemId = localState.libraryEntry?.item.libraryItemId;
+      if (libraryItemId) {
+        setCollectionSheetPresentation({ libraryItemId, title });
+        setCollectionSheetOpen(true);
+      }
+    } else if (nextSheet === "remove-confirm") {
+      setRemoveConfirmOpen(true);
+    } else if (
+      nextSheet !== null &&
+      typeof nextSheet === "object" &&
+      nextSheet.kind === "reader"
+    ) {
+      openReader(nextSheet.chapter);
     }
-    collectionSheetOpenTimerRef.current = setTimeout(() => {
-      collectionSheetOpenTimerRef.current = null;
-      setCollectionSheetOpen(true);
-    }, 250);
-  }, [libraryActionBusy]);
+  }, [localState.libraryEntry?.item.libraryItemId, openReader, title]);
 
   const addToLibraryAndRead = useCallback(async () => {
     if (!continueChapter) {
       await hapticError();
       return;
     }
-    const added = await addToLibrary();
-    if (added) {
-      openReader(continueChapter);
-    }
-  }, [addToLibrary, continueChapter, openReader]);
+    await addToLibrary({ kind: "reader", chapter: continueChapter });
+  }, [addToLibrary, continueChapter]);
 
   const removeFromLibrary = useCallback(async () => {
     if (openingReaderRef.current || addingRef.current || removingRef.current)
@@ -820,6 +1188,89 @@ export function SourceMangaScreen() {
     setRetryingData(true);
     setRetryRun((current) => current + 1);
   };
+  const [refreshingDetails, setRefreshingDetails] = useState(false);
+  const pullRefreshGuardRef = useRef(false);
+  // Pull-to-refresh always bypasses the detail-cache staleness check and
+  // forces a network fetch. Cached content stays on screen the whole time:
+  // success silently refreshes it, failure swaps in the standard retryable
+  // inline notice instead of an error screen.
+  const pullRefreshSourceMangaDetails = useCallback(async () => {
+    const installedSource = localState.installedSource;
+    if (!installedSource || pullRefreshGuardRef.current) return;
+    pullRefreshGuardRef.current = true;
+    setRefreshingDetails(true);
+    try {
+      const refreshed = await fetchSourceDetails(installedSource);
+      if (refreshed.status === "blocked") {
+        setDetailState((current) =>
+          current.status === "ready"
+            ? {
+                ...current,
+                staleError: {
+                  detail: refreshed.detail,
+                  error: false,
+                  recoveryAction: null,
+                },
+              }
+            : current,
+        );
+        return;
+      }
+      const nextEntry = await applyDetailsRefreshToLibrary(
+        installedSource,
+        localState.libraryEntry,
+        refreshed,
+      );
+      persistFetchedDetails(refreshed);
+      setLocalState((current) => ({
+        ...current,
+        libraryEntry: nextEntry,
+      }));
+      setDetailState((current) =>
+        current.status === "ready"
+          ? {
+              ...current,
+              refresh: refreshed,
+              metadata: refreshed.metadata,
+              chapters: refreshed.chapters,
+              detail: loadedChapterCountText(refreshed.chapters.length, strings),
+              cachedFetchedAt: undefined,
+              staleError: undefined,
+            }
+          : current,
+      );
+    } catch (error) {
+      const presentation = getMobileSourceErrorPresentation(error, strings);
+      setDetailState((current) =>
+        current.status === "ready"
+          ? {
+              ...current,
+              staleError: {
+                title: presentation.title,
+                detail: presentation.detail,
+                error: true,
+                recoveryAction: getMobileSourceErrorRecoveryAction(
+                  presentation,
+                  strings,
+                ),
+              },
+            }
+          : current,
+      );
+      cloudflareSheetRef.current?.reportError(error);
+      await hapticError();
+    } finally {
+      pullRefreshGuardRef.current = false;
+      setRefreshingDetails(false);
+    }
+  }, [
+    applyDetailsRefreshToLibrary,
+    fetchSourceDetails,
+    localState.installedSource,
+    localState.libraryEntry,
+    persistFetchedDetails,
+    strings,
+  ]);
   const cloudflareSheet = useNemuAgentSheet({
     onSuccess: retrySourceMangaDetails,
   });
@@ -893,32 +1344,29 @@ export function SourceMangaScreen() {
       <PageListScaffold
         nativeHeader
         data={chapterRows}
-        keyExtractor={(row) => row.key}
+        keyExtractor={mobileChapterRowKeyExtractor}
         initialNumToRender={MOBILE_CHAPTER_LIST_PERFORMANCE.initialNumToRender}
+        onRefresh={() => {
+          void pullRefreshSourceMangaDetails();
+        }}
+        refreshDisabled={!localState.installedSource}
+        refreshLabel={strings.sourceBrowse.refreshSource}
+        refreshing={refreshingDetails}
         maxToRenderPerBatch={
           MOBILE_CHAPTER_LIST_PERFORMANCE.maxToRenderPerBatch
         }
         windowSize={MOBILE_CHAPTER_LIST_PERFORMANCE.windowSize}
         removeClippedSubviews={Platform.OS === "android"}
-        renderItem={({ item, index }) => (
-          <MobileMangaChapterRow
-            busy={readerActionBusy}
-            chapters={item.chapters}
-            first={index === 0}
-            openChapterTemplate={strings.sourceManga.openChapter}
-            progressByChapterId={localState.chapterProgress}
-            strings={strings}
-            onPressChapter={openReader}
-          />
-        )}
+        renderItem={renderChapterRow}
         ListHeaderComponent={
           <>
-            {collectionSheetOpen && localState.libraryEntry ? (
+            {collectionSheetPresentation ? (
               <MobileCollectionMembershipSheet
                 visible={collectionSheetOpen}
-                libraryItemId={localState.libraryEntry.item.libraryItemId}
-                title={title}
+                libraryItemId={collectionSheetPresentation.libraryItemId}
+                title={collectionSheetPresentation.title}
                 onClose={() => setCollectionSheetOpen(false)}
+                onDismiss={() => setCollectionSheetPresentation(null)}
               />
             ) : null}
             <MobileConfirmationSheet
@@ -953,37 +1401,26 @@ export function SourceMangaScreen() {
             </MobileConfirmationSheet>
             <MobileNativeSheetScaffold
               visible={libraryOptionsOpen}
-              onClose={() => {
-                if (libraryActionBusy) return;
-                setLibraryOptionsOpen(false);
-              }}
+              onClose={() => setLibraryOptionsOpen(false)}
+              onDismiss={handleLibraryOptionsClosed}
+              title={
+                libraryOptionsPresentationMode === "in-library"
+                  ? strings.sourceManga.libraryOptionsTitle
+                  : strings.sourceManga.addOptionsTitle
+              }
+              subtitle={
+                libraryOptionsPresentationMode === "in-library"
+                  ? strings.sourceManga.libraryOptionsDescription
+                  : strings.sourceManga.addOptionsDescription
+              }
+              dismissLabel={strings.common.done}
+              dismissDisabled={libraryActionBusy}
+              enablePanDownToClose={!libraryActionBusy}
               contentStyle={styles.libraryOptionsSheet}
               testID="SourceMangaLibraryOptionsSheet"
             >
-              <View style={styles.libraryOptionsHeader}>
-                <Text
-                  style={[
-                    styles.libraryOptionsTitle,
-                    { color: tokens.foreground },
-                  ]}
-                >
-                  {inLibrary
-                    ? strings.sourceManga.libraryOptionsTitle
-                    : strings.sourceManga.addOptionsTitle}
-                </Text>
-                <Text
-                  style={[
-                    styles.libraryOptionsDescription,
-                    { color: tokens.mutedForeground },
-                  ]}
-                >
-                  {inLibrary
-                    ? strings.sourceManga.libraryOptionsDescription
-                    : strings.sourceManga.addOptionsDescription}
-                </Text>
-              </View>
               <View style={styles.libraryOptionsList}>
-                {inLibrary ? (
+                {libraryOptionsPresentationMode === "in-library" ? (
                   <>
                     <NemuPressable
                       accessibilityRole="button"
@@ -994,7 +1431,7 @@ export function SourceMangaScreen() {
                       accessibilityState={{ disabled: libraryActionBusy }}
                       disabled={libraryActionBusy}
                       onPress={() => {
-                        openCollectionSheetFromLibraryOptions();
+                        closeLibraryOptionsTo("collections");
                       }}
                       pressedScale={0.985}
                       style={[
@@ -1053,10 +1490,7 @@ export function SourceMangaScreen() {
                       disabled={libraryActionBusy}
                       hapticFeedback="warning"
                       onPress={() => {
-                        if (libraryActionBusy) return;
-                        setActionError(null);
-                        setLibraryOptionsOpen(false);
-                        setRemoveConfirmOpen(true);
+                        closeLibraryOptionsTo("remove-confirm");
                       }}
                       pressedScale={0.985}
                       style={[
@@ -1199,7 +1633,10 @@ export function SourceMangaScreen() {
                           style={[
                             styles.libraryOptionIcon,
                             {
-                              backgroundColor: `${tokens.primaryForeground}22`,
+                              backgroundColor: nemuColorWithAlpha(
+                                tokens.primaryForeground,
+                                0.13,
+                              ),
                             },
                           ]}
                         >
@@ -1230,7 +1667,12 @@ export function SourceMangaScreen() {
                             numberOfLines={2}
                             style={[
                               styles.libraryOptionDescription,
-                              { color: `${tokens.primaryForeground}CC` },
+                              {
+                                color: nemuColorWithAlpha(
+                                  tokens.primaryForeground,
+                                  0.8,
+                                ),
+                              },
                             ]}
                           >
                             {strings.sourceManga.addAndStartReadingHint}
@@ -1256,14 +1698,9 @@ export function SourceMangaScreen() {
               <MobileMangaDetailSurface
                 title={title}
                 authors={metadata?.authors}
-                coverSource={
-                  cover
-                    ? {
-                        uri: coverRequest?.url ?? cover,
-                        headers: coverRequest?.headers,
-                      }
-                    : null
-                }
+                coverSource={coverImage.source}
+                onCoverError={coverImage.onCoverError}
+                onCoverLoad={coverImage.onCoverLoad}
                 status={metadata?.status}
                 strings={strings}
                 badges={[
@@ -1333,12 +1770,43 @@ export function SourceMangaScreen() {
                     router.navigate("/settings?focus=agent");
                   }}
                 />
+              ) : detailState.status === "ready" && detailState.staleError ? (
+                <MobileSourceErrorNotice
+                  title={detailState.staleError.title}
+                  detail={detailState.staleError.detail}
+                  error={detailState.staleError.error}
+                  actionLabel={detailState.staleError.recoveryAction?.label}
+                  onActionPress={() => {
+                    router.navigate("/settings?focus=agent");
+                  }}
+                />
               ) : null}
 
               <MobileMangaChapterSectionHeader
                 title={strings.sourceManga.chapters}
                 loading={detailState.status === "loading"}
-                hasChapters={chapters.length > 0}
+                hasChapters={visibleChapters.length > 0}
+                sortAction={
+                  chapters.length > 0 ? (
+                    <MobileMangaChapterSortAction
+                      preference={effectiveChapterListPreference}
+                      strings={strings}
+                      onChange={changeChapterListPreference}
+                    />
+                  ) : null
+                }
+                toolbar={
+                  chapters.length > 0 ? (
+                    <MobileMangaChapterToolbar
+                      appLanguage={appLanguage}
+                      languages={chapterLanguages}
+                      preference={effectiveChapterListPreference}
+                      strings={strings}
+                      unreadCount={unreadChapterCount}
+                      onChange={changeChapterListPreference}
+                    />
+                  ) : null
+                }
                 emptyTitle={
                   detailState.status === "loading"
                     ? detailState.detail
@@ -1366,20 +1834,6 @@ const styles = StyleSheet.create({
   },
   libraryOptionsSheet: {
     gap: 16,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-  },
-  libraryOptionsHeader: {
-    gap: 4,
-  },
-  libraryOptionsTitle: {
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: nemuFontWeight.bold,
-  },
-  libraryOptionsDescription: {
-    fontSize: 13,
-    lineHeight: 18,
   },
   libraryOptionsList: {
     gap: 10,

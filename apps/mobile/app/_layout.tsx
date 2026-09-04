@@ -1,14 +1,25 @@
 import "react-native-gesture-handler";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Stack, usePathname, type ErrorBoundaryProps } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  DarkTheme,
+  DefaultTheme,
+  Stack,
+  ThemeProvider,
+  usePathname,
+  type ErrorBoundaryProps,
+} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { Platform, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FloatingTabBar } from "@/components/FloatingTabBar";
 import { MobileErrorBoundaryScreen } from "@/components/MobileErrorBoundaryScreen";
+import { MobileFeedbackSettingsBridge } from "@/components/MobileFeedbackSettingsBridge";
+import { MobileSyncProgressToast } from "@/components/MobileSyncProgressToast";
+import { MobileToastProvider } from "@/components/MobileToast";
 import { MobileWelcomeWizard } from "@/components/MobileWelcomeWizard";
 import { MobileDataProvider } from "@/data/mobileData";
+import { MobileLanguageProvider } from "@/data/mobileLanguageContext";
 import { NemuThemeProvider, useNemuTheme } from "@/design-system";
 import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
 import { getMobileWelcomeUnderlyingContentState } from "@/lib/mobileWelcome";
@@ -55,6 +66,21 @@ function RootStack({
 }) {
   const { scheme, tokens } = useNemuTheme();
   const pathname = usePathname();
+  const navigationTheme = useMemo(() => {
+    const baseTheme = scheme === "dark" ? DarkTheme : DefaultTheme;
+    return {
+      ...baseTheme,
+      colors: {
+        ...baseTheme.colors,
+        primary: tokens.primary,
+        background: tokens.background,
+        card: tokens.background,
+        text: tokens.foreground,
+        border: tokens.border,
+        notification: tokens.danger,
+      },
+    };
+  }, [scheme, tokens]);
   const underlyingContentState = getMobileWelcomeUnderlyingContentState(
     welcomeBlocksAccessibility,
   );
@@ -87,29 +113,31 @@ function RootStack({
   }, []);
 
   return (
-    <View
-      accessibilityElementsHidden={
-        underlyingContentState.accessibilityElementsHidden
-      }
-      aria-hidden={underlyingContentState.ariaHidden}
-      importantForAccessibility={
-        underlyingContentState.importantForAccessibility
-      }
-      onLayout={hideSplashAfterLayout}
-      pointerEvents={underlyingContentState.pointerEvents}
-      style={[styles.root, { backgroundColor: tokens.background }]}
-    >
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: tokens.background },
-          statusBarStyle: scheme === "dark" ? "light" : "dark",
-        }}
-      />
-      {Platform.OS !== "ios" && shouldShowMobileFloatingTabBar(pathname) ? (
-        <FloatingTabBar />
-      ) : null}
-    </View>
+    <ThemeProvider value={navigationTheme}>
+      <View
+        accessibilityElementsHidden={
+          underlyingContentState.accessibilityElementsHidden
+        }
+        aria-hidden={underlyingContentState.ariaHidden}
+        importantForAccessibility={
+          underlyingContentState.importantForAccessibility
+        }
+        onLayout={hideSplashAfterLayout}
+        pointerEvents={underlyingContentState.pointerEvents}
+        style={[styles.root, { backgroundColor: tokens.background }]}
+      >
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: tokens.background },
+            statusBarStyle: scheme === "dark" ? "light" : "dark",
+          }}
+        />
+        {Platform.OS !== "ios" && shouldShowMobileFloatingTabBar(pathname) ? (
+          <FloatingTabBar />
+        ) : null}
+      </View>
+    </ThemeProvider>
   );
 }
 
@@ -122,16 +150,22 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <MobileSyncProvider>
           <MobileDataProvider>
-            <MobileSyncBridge />
-            <MobileBackgroundSyncRegistrar />
-            <NemuThemeProvider>
-              <RootStack
-                welcomeBlocksAccessibility={welcomeBlocksAccessibility}
-              />
-              <MobileWelcomeWizard
-                onVisibilityChange={setWelcomeBlocksAccessibility}
-              />
-            </NemuThemeProvider>
+            <MobileLanguageProvider>
+              <MobileSyncBridge />
+              <MobileFeedbackSettingsBridge />
+              <MobileBackgroundSyncRegistrar />
+              <NemuThemeProvider>
+                <MobileToastProvider>
+                  <RootStack
+                    welcomeBlocksAccessibility={welcomeBlocksAccessibility}
+                  />
+                  <MobileSyncProgressToast />
+                  <MobileWelcomeWizard
+                    onVisibilityChange={setWelcomeBlocksAccessibility}
+                  />
+                </MobileToastProvider>
+              </NemuThemeProvider>
+            </MobileLanguageProvider>
           </MobileDataProvider>
         </MobileSyncProvider>
       </SafeAreaProvider>

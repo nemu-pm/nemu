@@ -1,6 +1,7 @@
 export type NemuNativeToolbarSymbol =
   | "chevron.left"
   | "ellipsis.circle"
+  | "line.3.horizontal.decrease"
   | "magnifyingglass"
   | "pencil"
   | "plus"

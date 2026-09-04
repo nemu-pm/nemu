@@ -282,9 +282,9 @@ describe("mobile sync data store", () => {
         futureLink.sourceId,
         futureLink.sourceMangaId,
       );
-      const removed = (await base.getAllSourceLinks()).find(
-        (link) => link.id === futureLink.id,
-      );
+      const removed = (
+        await base.getAllSourceLinks({ includeRemoved: true })
+      ).find((link) => link.id === futureLink.id);
       const pending = await base.getPendingSyncDeletions();
       expect(removed).toMatchObject({ removed: true, updatedAt: 501 });
       expect(pending[0]).toMatchObject({
@@ -538,7 +538,7 @@ describe("mobile sync data store", () => {
       ),
     ).toMatchObject({ inLibrary: false });
     expect(
-      (await store.getAllSourceLinks()).find(
+      (await store.getAllSourceLinks({ includeRemoved: true })).find(
         (item) => item.id === sourceLink().id,
       ),
     ).toMatchObject({ removed: true });

@@ -4,6 +4,7 @@ import {
   buildMobileReaderSpreads,
   findMobileReaderSpreadIndex,
   firstPageIndexForMobileReaderSpread,
+  pageIndexForMobileReaderSpreadStep,
   visualPageIndexesForMobileReaderSpread,
 } from "./mobileReaderSpreads";
 
@@ -51,6 +52,19 @@ describe("mobile reader spreads", () => {
     expect(findMobileReaderSpreadIndex(spreads, -4)).toBe(0);
     expect(firstPageIndexForMobileReaderSpread(spreads, 2)).toBe(3);
     expect(firstPageIndexForMobileReaderSpread(spreads, 99)).toBe(3);
+  });
+
+  test("steps whole spreads instead of stopping on the paired page", () => {
+    const book = buildMobileReaderSpreads(5, "book");
+    expect(pageIndexForMobileReaderSpreadStep(book, 0, "next")).toBe(2);
+    expect(pageIndexForMobileReaderSpreadStep(book, 1, "next")).toBe(2);
+    expect(pageIndexForMobileReaderSpreadStep(book, 3, "previous")).toBe(0);
+    expect(pageIndexForMobileReaderSpreadStep(book, 0, "previous")).toBeNull();
+    expect(pageIndexForMobileReaderSpreadStep(book, 4, "next")).toBeNull();
+
+    const manga = buildMobileReaderDisplaySpreads(5, "manga", "rtl");
+    expect(pageIndexForMobileReaderSpreadStep(manga, 0, "next")).toBe(1);
+    expect(pageIndexForMobileReaderSpreadStep(manga, 2, "next")).toBe(3);
   });
 
   test("places the first-read page on the reading-direction side", () => {

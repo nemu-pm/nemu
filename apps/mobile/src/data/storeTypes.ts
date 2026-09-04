@@ -116,6 +116,11 @@ export type MobileDataStore = {
   saveRegistry(registry: SourceRegistry): Promise<void>;
   removeRegistry(id: string): Promise<void>;
   getLibraryEntries(): Promise<LibraryEntry[]>;
+  /**
+   * Number of in-library items, without materializing (and JSON-parsing)
+   * every row. Sync progress only needs the count.
+   */
+  countLibraryEntries(): Promise<number>;
   getLibraryItem(libraryItemId: string): Promise<LocalLibraryItem | null>;
   getAllLibraryItems(options?: { includeRemoved?: boolean }): Promise<LocalLibraryItem[]>;
   getSourceLinksForItem(
@@ -123,7 +128,14 @@ export type MobileDataStore = {
     options?: { includeRemoved?: boolean },
   ): Promise<LocalSourceLink[]>;
   getSourceLink(id: string): Promise<LocalSourceLink | null>;
-  getAllSourceLinks(): Promise<LocalSourceLink[]>;
+  /**
+   * Source links, tombstones excluded by default (matching
+   * `getAllLibraryItems`/`getSourceLinksForItem`). Sync merge paths that
+   * need removal markers pass `includeRemoved`.
+   */
+  getAllSourceLinks(options?: {
+    includeRemoved?: boolean;
+  }): Promise<LocalSourceLink[]>;
   saveLibraryItem(item: LocalLibraryItem, expectedGeneration?: number): Promise<void>;
   saveLibrarySnapshot(items: LocalLibraryItem[], links: LocalSourceLink[]): Promise<void>;
   removeLibraryItem(
@@ -131,6 +143,12 @@ export type MobileDataStore = {
     updatedAt?: number,
     expectedGeneration?: number,
   ): Promise<void>;
+  /**
+   * Inverse of `removeLibraryItem`: flips the item back to `inLibrary` and
+   * un-removes its collection memberships in one transaction, so an undo can
+   * restore exactly what the removal touched.
+   */
+  restoreLibraryItem(libraryItemId: string, updatedAt?: number): Promise<void>;
   saveSourceLink(link: LocalSourceLink, expectedGeneration?: number): Promise<void>;
   removeSourceLink(
     registryId: string,
@@ -158,6 +176,11 @@ export type MobileDataStore = {
   ): Promise<void>;
   getMangaProgress(): Promise<LocalMangaProgress[]>;
   getAllMangaProgress(): Promise<LocalMangaProgress[]>;
+  /**
+   * Point lookup by primary key. Callers that only need one row must use this
+   * instead of scanning `getMangaProgress()`, which decodes every stored row.
+   */
+  getMangaProgressById(id: string): Promise<LocalMangaProgress | null>;
   saveMangaProgress(progress: LocalMangaProgress, expectedGeneration?: number): Promise<void>;
   saveMangaProgressBatch(
     progress: LocalMangaProgress[],

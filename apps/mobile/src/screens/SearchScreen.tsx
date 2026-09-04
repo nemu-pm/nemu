@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,23 +17,41 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import type { SearchBarCommands } from "react-native-screens";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
+import {
+  QuickActionSheet,
+  type QuickAction,
+} from "@/components/QuickActionSheet";
+import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
+import { MobileListFooter } from "@/components/MobileListFooter";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { MobilePageEmpty } from "@/components/MobilePageEmpty";
 import { MobileSearchSkeleton } from "@/components/MobileSearchSkeleton";
 import { MobileSourceChip } from "@/components/MobileSourceChip";
+import { useMobileToast } from "@/components/MobileToastContext";
 import { useMobileDataStore } from "@/data/mobileDataContext";
-import { emitMobileDataChanged } from "@/data/mobileDataEvents";
+import {
+  emitMobileDataChanged,
+  emitMobileLibraryDataChanged,
+} from "@/data/mobileDataEvents";
 import {
   useInstalledSources,
   useLibraryEntries,
   useMobileLanguageSettings,
 } from "@/data/mobileHooks";
-import { entryHasAnyUpdate, getEntryCover, getEntryTitle, type InstalledSource } from "@/data/schema";
+import {
+  entryHasAnyUpdate,
+  getEntryCover,
+  getEntryTitle,
+  type InstalledSource,
+  type LibraryEntry,
+} from "@/data/schema";
 import {
   GlassSurface,
   MangaCard,
   MobileCachedImage,
+  NemuText,
+  NemuTextFieldClearAction,
   NemuPressable,
   NemuInlineEmptyState,
   PageHeader,
@@ -40,6 +59,7 @@ import {
   PageScaffold,
   createNemuShadowStyle,
   nemuColorWithAlpha,
+  nemuText,
   radius,
   nemuFontWeight,
   useNemuTheme,
@@ -57,25 +77,32 @@ import {
   MOBILE_MANGA_GRID_GAP,
 } from "@/lib/mobileAdaptiveGrid";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";
+import { findInstalledSourceForLink } from "@/lib/mobileLibraryRefresh";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
 import {
   coerceMobileNativeSearchText,
+  getMobileSearchFieldTrailingAccessories,
   resolveMobileNativeSearchSubmitText,
 } from "@/lib/mobileNativeSearchText";
 import {
   describeMobileErrorDetail,
   getMobileSourceErrorPresentation,
+  sanitizeMobileErrorDiagnostic,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
 import {
   loadMobileSourceSettingsByKeys,
   mergeSourceSettingValues,
 } from "@/lib/mobileSourceSettings";
-import { getMobileSourceMangaHref } from "@/lib/mobileSourceRoutes";
+import {
+  getMobileSourceBrowseSearchHref,
+  getMobileSourceMangaHref,
+} from "@/lib/mobileSourceRoutes";
+import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
+import { useStableList } from "@/lib/useStableList";
 import {
   groupLocalSearchResults,
   canClearMobileSearchQuery,
-  canChangeMobileSearchSourceSelection,
   normalizeMobileSearchRouteQuery,
   normalizeSearchSelectionForSources,
   resolveSearchSourcePressSelection,
@@ -118,6 +145,7 @@ type LiveSearchResult = {
 
 type LiveResultAction = {
   onPressResult: (source: SearchSourceDisplay, manga: MobileLiveSearchManga) => void;
+  onViewAll: (source: SearchSourceDisplay) => void;
 };
 
 type LocalSearchResultRow =
@@ -456,19 +484,15 @@ function LiveSourceResultSection({
   return (
     <View style={styles.resultSection}>
       <View style={styles.resultHeader}>
-        <SourceIcon source={group.source} size={24} />
-        <Text numberOfLines={1} style={[styles.resultTitle, { color: tokens.foreground }]}>
-          {group.source.name}
+        <SourceIcon source={group.source} size={20} />
+        <Text
+          numberOfLines={1}
+          style={[styles.resultTitle, { color: tokens.mutedForeground }]}
+        >
+          {group.status === "ready"
+            ? `${group.source.name} · ${group.items.length}${group.hasMore ? "+" : ""}`
+            : group.source.name}
         </Text>
-        <View style={[styles.countBadge, { backgroundColor: tokens.muted }]}>
-          <Text style={[styles.countText, { color: tokens.mutedForeground }]}>
-            {group.status === "loading"
-              ? "..."
-              : group.status === "ready"
-                ? group.items.length
-                : "!"}
-          </Text>
-        </View>
       </View>
 
       {group.status === "loading" ? (
@@ -483,20 +507,47 @@ function LiveSourceResultSection({
           description={group.title ? group.detail : undefined}
         />
       ) : group.items.length ? (
-        <View style={styles.resultsGrid}>
-          {group.items.map((item) => {
-            const resultKey = `${group.source.id}:${item.id}`;
-            return (
-              <View key={resultKey} style={[styles.resultItem, resultItemStyle]}>
-                <LiveMangaCard
-                  item={item}
-                  strings={strings}
-                  onPress={() => action.onPressResult(group.source, item)}
-                />
-              </View>
-            );
-          })}
-        </View>
+        <>
+          <View style={styles.resultsGrid}>
+            {group.items.map((item) => {
+              const resultKey = `${group.source.id}:${item.id}`;
+              return (
+                <View key={resultKey} style={[styles.resultItem, resultItemStyle]}>
+                  <LiveMangaCard
+                    item={item}
+                    strings={strings}
+                    onPress={() => action.onPressResult(group.source, item)}
+                  />
+                </View>
+              );
+            })}
+          </View>
+          {group.hasMore ? (
+            <NemuPressable
+              accessibilityLabel={formatMobileString(
+                strings.feedback.viewAllInSource,
+                { source: group.source.name },
+              )}
+              accessibilityRole="button"
+              hapticFeedback="selection"
+              onPress={() => action.onViewAll(group.source)}
+              pressProfile="row"
+              style={styles.viewAllAction}
+            >
+              <NemuText
+                variant="actionLabel"
+                color={tokens.primary}
+                numberOfLines={1}
+                style={styles.viewAllText}
+              >
+                {formatMobileString(strings.feedback.viewAllInSource, {
+                  source: group.source.name,
+                })}
+              </NemuText>
+              <Ionicons name="chevron-forward" size={16} color={tokens.primary} />
+            </NemuPressable>
+          ) : null}
+        </>
       ) : (
         <NemuInlineEmptyState
           icon="search-outline"
@@ -518,8 +569,6 @@ function LiveSearchResults({
   action: LiveResultAction;
   resultItemStyle: StyleProp<ViewStyle>;
 }) {
-  const { tokens } = useNemuTheme();
-
   if (state.status === "idle") return null;
   const hasLoadingGroups =
     state.status === "ready" && state.groups.some((group) => group.status === "loading");
@@ -549,9 +598,10 @@ function LiveSearchResults({
             />
           ))}
           {hasLoadingGroups ? (
-            <ActivityIndicator
-              accessibilityLabel={strings.search.searchingSelectedSources}
-              color={tokens.primary}
+            <MobileListFooter
+              loadingLabel={strings.search.searchingSelectedSources}
+              state="loading"
+              strings={strings}
             />
           ) : null}
         </View>
@@ -571,31 +621,54 @@ const LocalSearchResultHeader = memo(function LocalSearchResultHeader({
 
   return (
     <View style={styles.resultHeader}>
-      <SourceIcon source={group.source} size={24} />
-      <Text numberOfLines={1} style={[styles.resultTitle, { color: tokens.foreground }]}>
-        {group.source.name}
+      <SourceIcon source={group.source} size={20} />
+      <Text
+        numberOfLines={1}
+        style={[styles.resultTitle, { color: tokens.mutedForeground }]}
+      >
+        {`${group.source.name} · ${count}`}
       </Text>
-      <View style={[styles.countBadge, { backgroundColor: tokens.muted }]}>
-        <Text style={[styles.countText, { color: tokens.mutedForeground }]}>
-          {count}
-        </Text>
-      </View>
     </View>
   );
+});
+
+const LocalSearchResultCard = memo(function LocalSearchResultCard({
+  item,
+  onLongPressItem,
+}: {
+  item: MangaCardModel;
+  onLongPressItem: (libraryItemId: string) => void;
+}) {
+  // Keeps the card's callback identity tied to the row, not to the render, so
+  // `memo(MangaCard)` can actually hold.
+  const handleLongPress = useCallback(() => {
+    onLongPressItem(item.id);
+  }, [item.id, onLongPressItem]);
+
+  return <MangaCard item={item} onLongPress={handleLongPress} />;
 });
 
 const LocalSearchResultItems = memo(function LocalSearchResultItems({
   items,
   resultItemStyle,
+  onLongPressItem,
 }: {
   items: MangaCardModel[];
   resultItemStyle: StyleProp<ViewStyle>;
+  onLongPressItem: (libraryItemId: string) => void;
 }) {
   return (
     <View style={styles.resultsGrid}>
       {items.map((item) => (
         <View key={item.id} style={[styles.resultItem, resultItemStyle]}>
-          <MangaCard item={item} />
+          {/*
+            MangaCard's own NemuPressable fires the long-press haptic, so the
+            quick menu must not play a second one on the way up.
+          */}
+          <LocalSearchResultCard
+            item={item}
+            onLongPressItem={onLongPressItem}
+          />
         </View>
       ))}
       {items.length === 1 ? (
@@ -621,6 +694,7 @@ export function SearchScreen() {
   const { tokens } = useNemuTheme();
   const { width: windowWidth } = useWindowDimensions();
   const store = useMobileDataStore();
+  const toast = useMobileToast();
   const params = useLocalSearchParams<{ q?: string | string[] }>();
   const routeQuery = normalizeMobileSearchRouteQuery(params.q);
   const [query, setQuery] = useState(routeQuery);
@@ -632,10 +706,13 @@ export function SearchScreen() {
   const [preferenceError, setPreferenceError] = useState<string | null>(null);
   const [liveSearchResult, setLiveSearchResult] = useState<LiveSearchResult | null>(null);
   const selectionSaveRun = useRef(0);
-  const selectionSavingRef = useRef(false);
-  const [selectionSaving, setSelectionSaving] = useState(false);
   const [retryingData, setRetryingData] = useState(false);
   const retryDataGuardRef = useRef(false);
+  const [quickActionEntry, setQuickActionEntry] = useState<LibraryEntry | null>(
+    null,
+  );
+  const [membershipSheetEntry, setMembershipSheetEntry] =
+    useState<LibraryEntry | null>(null);
   // Bumped by the Nemu Agent sheet's onSuccess to force the live-search effect
   // to re-run after a Cloudflare challenge is solved.
   const [searchRefreshNonce, setSearchRefreshNonce] = useState(0);
@@ -663,9 +740,13 @@ export function SearchScreen() {
     () => new Set(selectedLiveSources.map((source) => source.id)),
     [selectedLiveSources],
   );
-  const selectedInstalledSources = useMemo(
-    () => installed.data.filter((source) => selectedLiveSourceIdSet.has(source.id)),
-    [installed.data, selectedLiveSourceIdSet],
+  // Stable while the selected subset is unchanged, so another source's
+  // package hydration cannot abort and restart a running live search.
+  const selectedInstalledSources = useStableList(
+    useMemo(
+      () => installed.data.filter((source) => selectedLiveSourceIdSet.has(source.id)),
+      [installed.data, selectedLiveSourceIdSet],
+    ),
   );
   const showSourceFilter = sources.length > 1;
   const resultItemWidth = useMemo(
@@ -693,6 +774,16 @@ export function SearchScreen() {
     );
   }, [resultItemWidth, windowWidth]);
   const trimmedQuery = submittedQuery.trim();
+  const retainedLiveSearchRef = useRef<{
+    query: string;
+    result: LiveSearchResult;
+  } | null>(null);
+  if (liveSearchResult?.state.status === "ready") {
+    retainedLiveSearchRef.current = {
+      query: trimmedQuery,
+      result: liveSearchResult,
+    };
+  }
   const resultGroups = useMemo(
     () => groupLocalSearchResults(library.data, sources, effectiveSelectedSourceIds, trimmedQuery),
     [effectiveSelectedSourceIds, library.data, sources, trimmedQuery]
@@ -731,9 +822,6 @@ export function SearchScreen() {
     installedCount: installed.data.length,
     libraryCount: library.data.length,
     hasError: Boolean(error),
-  });
-  const canChangeSourceSelection = canChangeMobileSearchSourceSelection({
-    savingSelection: selectionSaving,
   });
   const liveSearchKey = useMemo(() => {
     if (
@@ -780,6 +868,20 @@ export function SearchScreen() {
     }
 
     const completedGroups = new Map<string, MobileLiveSearchGroup>();
+    const retainedResult = retainedLiveSearchRef.current;
+    if (
+      retainedResult?.query === trimmedQuery &&
+      retainedResult.result.state.status === "ready"
+    ) {
+      const selectedIds = new Set(
+        selectedInstalledSources.map((source) => source.id),
+      );
+      for (const group of retainedResult.result.state.groups) {
+        if (group.status !== "loading" && selectedIds.has(group.source.id)) {
+          completedGroups.set(group.source.id, group);
+        }
+      }
+    }
     const compareTitles = trimmedQuery ? [trimmedQuery] : [];
     const publishProgress = () => {
       const result: LiveSearchResult = {
@@ -932,20 +1034,10 @@ export function SearchScreen() {
 
   const changeSelection = useCallback(
     (selection: SearchSourceSelection) => {
-      if (
-        !canChangeMobileSearchSourceSelection({
-          savingSelection: selectionSavingRef.current || selectionSaving,
-        })
-      ) {
-        return;
-      }
-
       const normalized = normalizeSearchSelectionForSources(sources, selection);
       const previousSelection = selectedSourceIds;
       const saveRun = selectionSaveRun.current + 1;
       selectionSaveRun.current = saveRun;
-      selectionSavingRef.current = true;
-      setSelectionSaving(true);
       setPreferenceError(null);
       setSelectedSourceIds(normalized);
       void saveSelection(normalized)
@@ -964,18 +1056,11 @@ export function SearchScreen() {
             ),
           );
           void hapticError();
-        })
-        .finally(() => {
-          if (selectionSaveRun.current === saveRun) {
-            selectionSavingRef.current = false;
-            setSelectionSaving(false);
-          }
         });
     },
     [
       saveSelection,
       selectedSourceIds,
-      selectionSaving,
       sources,
       strings.search.preferencesSaveFailedDetail,
     ]
@@ -1000,7 +1085,6 @@ export function SearchScreen() {
     setQuery("");
     setSubmittedQuery("");
     router.setParams({ q: undefined });
-    void hapticPress();
   }, [query]);
 
   const handleLiveResultPress = useCallback(
@@ -1016,6 +1100,32 @@ export function SearchScreen() {
     },
     []
   );
+  const handleViewAllInSource = useCallback(
+    (source: SearchSourceDisplay) => {
+      router.push(
+        getMobileSourceBrowseSearchHref({
+          registryId: source.registryId,
+          sourceId: source.rawSourceId,
+          query: trimmedQuery,
+        }),
+      );
+    },
+    [trimmedQuery],
+  );
+  const libraryEntriesById = useMemo(
+    () =>
+      new Map(library.data.map((entry) => [entry.item.libraryItemId, entry])),
+    [library.data],
+  );
+  const openQuickActionForItem = useCallback(
+    (libraryItemId: string) => {
+      // `toMangaCard` keys every saved-result card by its library item id, so
+      // the pressed card always maps back to a full entry.
+      const entry = libraryEntriesById.get(libraryItemId);
+      if (entry) setQuickActionEntry(entry);
+    },
+    [libraryEntriesById],
+  );
   const renderLocalSearchRow = useCallback(
     ({ item }: ListRenderItemInfo<LocalSearchResultRow>) => {
       if (item.type === "header") {
@@ -1025,10 +1135,11 @@ export function SearchScreen() {
         <LocalSearchResultItems
           items={item.items}
           resultItemStyle={resultItemStyle}
+          onLongPressItem={openQuickActionForItem}
         />
       );
     },
-    [resultItemStyle],
+    [openQuickActionForItem, resultItemStyle],
   );
 
   const retrySearchData = async () => {
@@ -1051,6 +1162,157 @@ export function SearchScreen() {
     onSuccess: () => setSearchRefreshNonce((value) => value + 1),
   });
   cloudflareSheetRef.current = cloudflareSheet;
+
+  const handleQuickActionMarkAllRead = useCallback(
+    async (entry: LibraryEntry) => {
+      const now = Date.now();
+      let acked = 0;
+      try {
+        for (const link of entry.sources) {
+          if (!link.latestChapter) continue;
+          const latest = link.latestChapter.chapterNumber;
+          const ack = link.updateAckChapter?.chapterNumber;
+          if (latest == null || (ack != null && ack >= latest)) continue;
+          await store.saveSourceLink({
+            ...link,
+            updateAckChapter: link.latestChapter,
+            updateAckChapterSortKey: link.latestChapterSortKey,
+            updateAckAt: now,
+            updatedAt: now,
+          });
+          acked += 1;
+        }
+      } catch {
+        toast.show({
+          tone: "danger",
+          title: strings.mangaDetail.actionFailedDetail,
+        });
+        return;
+      }
+      if (acked > 0) {
+        emitMobileDataChanged("library");
+        await hapticConfirm();
+      }
+      toast.show({
+        tone: "success",
+        title: strings.feedback.markedAllRead,
+      });
+    },
+    [store, strings, toast],
+  );
+
+  const handleQuickActionRemove = useCallback(
+    async (entry: LibraryEntry) => {
+      try {
+        await store.removeLibraryItem(entry.item.libraryItemId);
+        emitMobileLibraryDataChanged({ collectionsChanged: true });
+      } catch {
+        toast.show({
+          tone: "danger",
+          title: strings.mangaDetail.actionFailedDetail,
+        });
+        return;
+      }
+      toast.show({
+        tone: "info",
+        title: strings.feedback.removedFromLibrary,
+        detail: strings.feedback.removedFromLibraryHint,
+        action: {
+          label: strings.feedback.undo,
+          onPress: () => {
+            store
+              .restoreLibraryItem(entry.item.libraryItemId)
+              .then(() =>
+                emitMobileLibraryDataChanged({ collectionsChanged: true }),
+              )
+              .catch(() =>
+                toast.show({
+                  tone: "danger",
+                  title: strings.mangaDetail.actionFailedDetail,
+                }),
+              );
+          },
+        },
+      });
+    },
+    [store, strings, toast],
+  );
+
+  const quickActionLink = quickActionEntry?.sources[0] ?? null;
+  const quickActionSource = useMemo(
+    () =>
+      quickActionLink
+        ? findInstalledSourceForLink(installed.data, quickActionLink)
+        : null,
+    [installed.data, quickActionLink],
+  );
+  const quickActionCoverRequest = useMobileSourceImageRequest(
+    quickActionSource,
+    quickActionEntry ? getEntryCover(quickActionEntry) : null,
+  );
+  const quickActions = useMemo<QuickAction[]>(() => {
+    const entry = quickActionEntry;
+    if (!entry) return [];
+    const link = quickActionLink;
+    const actions: QuickAction[] = [
+      {
+        id: "markAllRead",
+        label: strings.feedback.quickMenuMarkAllRead,
+        icon: "checkmark-done-outline",
+        onPress: () => {
+          setQuickActionEntry(null);
+          void handleQuickActionMarkAllRead(entry);
+        },
+      },
+      {
+        id: "addToCollection",
+        label: strings.feedback.quickMenuAddToCollection,
+        icon: "albums-outline",
+        onPress: () => {
+          setQuickActionEntry(null);
+          setMembershipSheetEntry(entry);
+        },
+      },
+    ];
+    if (link) {
+      actions.push({
+        id: "openInSource",
+        label: formatMobileString(strings.feedback.quickMenuOpenInSource, {
+          source: quickActionSource?.name ?? link.sourceId,
+        }),
+        icon: "open-outline",
+        onPress: () => {
+          setQuickActionEntry(null);
+          router.push(
+            getMobileSourceMangaHref({
+              registryId: link.registryId,
+              sourceId: link.sourceId,
+              mangaId: link.sourceMangaId,
+              mangaTitle: getEntryTitle(entry),
+            }),
+          );
+        },
+      });
+    }
+    actions.push({
+      id: "remove",
+      label: strings.mangaDetail.removeFromLibrary,
+      icon: "trash-outline",
+      destructive: true,
+      onPress: () => {
+        setQuickActionEntry(null);
+        void handleQuickActionRemove(entry);
+      },
+    });
+    return actions;
+  }, [
+    handleQuickActionMarkAllRead,
+    handleQuickActionRemove,
+    quickActionEntry,
+    quickActionLink,
+    quickActionSource,
+    strings,
+  ]);
 
   if (
     shouldShowMobileSearchNoSourcesEmpty({
@@ -1093,14 +1355,6 @@ export function SearchScreen() {
             hideWhenScrolling={false}
             hintTextColor={tokens.mutedForeground}
             obscureBackground={false}
-            onBlur={() =>
-              submitSearch({
-                query: resolveMobileNativeSearchSubmitText(
-                  undefined,
-                  queryRef.current,
-                ),
-              })
-            }
             onCancelButtonPress={clearSearch}
             onChangeText={(event) => {
               const nextQuery = coerceMobileNativeSearchText(
@@ -1146,7 +1400,11 @@ export function SearchScreen() {
             {error ? (
               <EmptyLibrary
                 title={strings.search.searchUnavailable}
-                description={error}
+                description={strings.common.sourceErrorDescription}
+                diagnostic={
+                  sanitizeMobileErrorDiagnostic(error) ?? error
+                }
+                diagnosticDetailsLabel={strings.errorBoundary.detailsLabel}
                 actionLabel={strings.common.retry}
                 actionDisabled={retryingData}
                 actionLoading={retryingData}
@@ -1179,9 +1437,6 @@ export function SearchScreen() {
                     returnKeyType="search"
                     selectionColor={tokens.primary}
                     value={query}
-                    onBlur={() =>
-                      submitSearch({ query: queryRef.current })
-                    }
                     onChangeText={(nextQuery) => {
                       queryRef.current = nextQuery;
                       setQuery(nextQuery);
@@ -1194,23 +1449,23 @@ export function SearchScreen() {
                     }
                     style={[styles.input, { color: tokens.foreground }]}
                   />
-                  {canClearMobileSearchQuery(query) ? (
-                    <NemuPressable
-                      accessibilityLabel={strings.common.clear}
-                      accessibilityRole="button"
-                      onPress={clearSearch}
-                      pressedScale={0.94}
-                      style={[styles.clearButton, { backgroundColor: tokens.muted }]}
-                    >
-                      <Ionicons
-                        name="close-outline"
-                        size={17}
-                        color={tokens.mutedForeground}
+                  {getMobileSearchFieldTrailingAccessories({
+                    loading,
+                    canClear: canClearMobileSearchQuery(query),
+                  }).map((accessory) =>
+                    accessory === "loading" ? (
+                      <ActivityIndicator key={accessory} color={tokens.primary} />
+                    ) : (
+                      <NemuTextFieldClearAction
+                        key={accessory}
+                        accessibilityLabel={strings.common.clear}
+                        onPress={clearSearch}
+                        testID="InstalledSourceSearchClearAction"
+                        trailingInset={14}
                       />
-                    </NemuPressable>
-                  ) : null}
-                  {loading ? <ActivityIndicator color={tokens.primary} /> : null}
-                  </GlassSurface>
+                    ),
+                  )}
+                </GlassSurface>
                 )}
 
                 {showSourceFilter ? (
@@ -1218,7 +1473,6 @@ export function SearchScreen() {
                     sources={sources}
                     strings={strings}
                     selectedSourceIds={effectiveSelectedSourceIds}
-                    disabled={!canChangeSourceSelection}
                     onChangeSelection={changeSelection}
                   />
                 ) : null}
@@ -1307,6 +1561,7 @@ export function SearchScreen() {
                 strings={strings}
                 action={{
                   onPressResult: handleLiveResultPress,
+                  onViewAll: handleViewAllInSource,
                 }}
                 resultItemStyle={resultItemStyle}
               />
@@ -1321,6 +1576,29 @@ export function SearchScreen() {
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />
+      <QuickActionSheet
+        visible={quickActionEntry !== null}
+        variant="cover"
+        title={quickActionEntry ? getEntryTitle(quickActionEntry) : ""}
+        subtitle={quickActionSource?.name ?? quickActionLink?.sourceId}
+        image={
+          quickActionCoverRequest?.url ??
+          (quickActionEntry ? getEntryCover(quickActionEntry) : undefined)
+        }
+        imageHeaders={quickActionCoverRequest?.headers}
+        actions={quickActions}
+        testID="MangaQuickActionSheet"
+        onClose={() => setQuickActionEntry(null)}
+        onDismiss={() => setQuickActionEntry(null)}
+      />
+      {membershipSheetEntry ? (
+        <MobileCollectionMembershipSheet
+          visible
+          libraryItemId={membershipSheetEntry.item.libraryItemId}
+          title={getEntryTitle(membershipSheetEntry)}
+          onClose={() => setMembershipSheetEntry(null)}
+        />
+      ) : null}
     </>
   );
 }
@@ -1330,7 +1608,11 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   nativeSearchSections: {
-    marginTop: 0,
+    // iOS insets the list for the in-header search bar and adds its own bottom
+    // padding under the field; pull the chip row up so it sits ~14pt below the
+    // search bar instead of ~30pt. Android lays content out below the toolbar
+    // and needs no correction.
+    marginTop: Platform.OS === "ios" ? -16 : 0,
   },
   searchShell: {
     minHeight: 52,
@@ -1347,13 +1629,6 @@ const styles = StyleSheet.create({
     height: 52,
     fontSize: 16,
     lineHeight: 20,
-  },
-  clearButton: {
-    width: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
   },
   sourceFilterFrame: {
     marginHorizontal: -18,
@@ -1426,27 +1701,25 @@ const styles = StyleSheet.create({
   resultTitle: {
     flex: 1,
     minWidth: 0,
-    fontSize: 16,
-    lineHeight: 21,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  countBadge: {
-    minWidth: 28,
-    minHeight: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-    paddingHorizontal: 8,
-  },
-  countText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
+    ...nemuText.label,
+    letterSpacing: 0.48,
+    textTransform: "uppercase",
   },
   resultsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: MOBILE_MANGA_GRID_GAP,
+  },
+  viewAllAction: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 4,
+  },
+  viewAllText: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   resultItem: {
     minWidth: 0,

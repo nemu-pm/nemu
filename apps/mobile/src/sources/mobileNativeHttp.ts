@@ -6,6 +6,7 @@ import type {
 } from "../../modules/nemu-aidoku/src/NemuAidoku.types";
 import { MOBILE_NATIVE_HTTP_DEFAULT_MAX_RESPONSE_BYTES } from "./mobileNativeHttpLimits";
 import { throwIfMobileNativeHttpAborted } from "./mobileNativeHttpAbort";
+import { runMobileHttpRequestWithRetry } from "./mobileNativeHttpRetry";
 
 export type MobileNativeHttpStatus = NemuAidokuHttpClientStatus;
 
@@ -82,38 +83,47 @@ export async function mobileNativeFetch(
   if (requireHttps && new URL(input).protocol !== "https:") {
     throw new Error("This native HTTP request requires HTTPS.");
   }
-  const response = await fetch(input, {
-    ...requestInit,
-    body: bodyToString(init.body),
-    // Browsers do not expose every cross-origin redirect target for us to
-    // revalidate. Refuse redirects entirely in this non-native fallback when
-    // the caller requests the stronger contract.
-    redirect: requireHttps ? "error" : requestInit.redirect,
-  });
-  const contentLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
-    throw new Error(
-      `HTTP response exceeds the ${maxResponseBytes} byte safety limit.`,
-    );
-  }
-  const buffer = await response.arrayBuffer();
-  throwIfMobileNativeHttpAborted(init.signal);
-  const bytes = new Uint8Array(buffer);
-  if (bytes.byteLength > maxResponseBytes) {
-    throw new Error(
-      `HTTP response exceeds the ${maxResponseBytes} byte safety limit.`,
-    );
-  }
-  const body = responseMode === "bytes" ? "" : new TextDecoder().decode(bytes);
+  const method = (init.method ?? "GET").toUpperCase();
+  // Mirror the native retry policy: idempotent requests only, transient
+  // transport failures only, caller aborts always win.
+  const idempotent = init.body == null && (method === "GET" || method === "HEAD");
+  const download = async (): Promise<MobileNativeFetchResponse> => {
+    const response = await fetch(input, {
+      ...requestInit,
+      body: bodyToString(init.body),
+      // Browsers do not expose every cross-origin redirect target for us to
+      // revalidate. Refuse redirects entirely in this non-native fallback when
+      // the caller requests the stronger contract.
+      redirect: requireHttps ? "error" : requestInit.redirect,
+    });
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
+      throw new Error(
+        `HTTP response exceeds the ${maxResponseBytes} byte safety limit.`,
+      );
+    }
+    const buffer = await response.arrayBuffer();
+    throwIfMobileNativeHttpAborted(init.signal);
+    const bytes = new Uint8Array(buffer);
+    if (bytes.byteLength > maxResponseBytes) {
+      throw new Error(
+        `HTTP response exceeds the ${maxResponseBytes} byte safety limit.`,
+      );
+    }
+    const body = responseMode === "bytes" ? "" : new TextDecoder().decode(bytes);
 
-  return {
-    ok: response.ok,
-    status: response.status,
-    headers: headersToRecord(response.headers),
-    body,
-    bytes,
-    text: async () => body,
-    json: async () => JSON.parse(body) as unknown,
-    arrayBuffer: async () => buffer,
+    return {
+      ok: response.ok,
+      status: response.status,
+      headers: headersToRecord(response.headers),
+      body,
+      bytes,
+      text: async () => body,
+      json: async () => JSON.parse(body) as unknown,
+      arrayBuffer: async () => buffer,
+    };
   };
+  return idempotent
+    ? runMobileHttpRequestWithRetry(download, { signal: init.signal })
+    : download();
 }

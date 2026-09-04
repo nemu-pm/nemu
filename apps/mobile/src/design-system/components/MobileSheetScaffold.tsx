@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   StyleSheet,
   type DimensionValue,
@@ -10,11 +10,19 @@ import { MobileNativeSheetScaffold } from "./MobileNativeSheetScaffold";
 type MobileSheetScaffoldProps = {
   visible: boolean;
   onRequestClose: () => void;
+  /** Called after the platform-native sheet has fully dismissed. */
+  onDismiss?: () => void;
+  /** Handles Android Back inside an in-sheet subflow without dismissing it. */
+  onHardwareBackPress?: () => boolean;
   backdropOnPress?: () => void;
   backdropDisabled?: boolean;
   /** Optional chrome title, independent of the caller-provided dismiss action. */
   title?: string;
+  subtitle?: string;
+  headerLeading?: ReactNode;
+  headerTrailing?: ReactNode;
   dismissLabel?: string;
+  dismissDisabled?: boolean;
   showDismissButton?: boolean;
   frameMaxHeight?: DimensionValue;
   sheetMinHeight?: DimensionValue;
@@ -35,24 +43,39 @@ function snapPointsFromMaxHeight(
 export function MobileSheetScaffold({
   visible,
   onRequestClose,
+  onDismiss,
+  onHardwareBackPress,
   backdropOnPress,
   backdropDisabled = false,
   title,
+  subtitle,
+  headerLeading,
+  headerTrailing,
   dismissLabel,
+  dismissDisabled,
   showDismissButton,
   frameMaxHeight,
   sheetMinHeight,
   contentStyle,
   children,
 }: MobileSheetScaffoldProps) {
-  const snapPoints = snapPointsFromMaxHeight(frameMaxHeight);
+  const snapPoints = useMemo(
+    () => snapPointsFromMaxHeight(frameMaxHeight),
+    [frameMaxHeight],
+  );
 
   return (
     <MobileNativeSheetScaffold
       visible={visible}
       onClose={backdropOnPress ?? onRequestClose}
+      onDismiss={onDismiss}
+      onHardwareBackPress={onHardwareBackPress}
       title={title}
+      subtitle={subtitle}
+      headerLeading={headerLeading}
+      headerTrailing={headerTrailing}
       {...(dismissLabel ? { dismissLabel } : {})}
+      dismissDisabled={dismissDisabled}
       showDismissButton={showDismissButton}
       snapPoints={snapPoints}
       fillContent={Boolean(snapPoints)}
@@ -72,6 +95,5 @@ export function MobileSheetScaffold({
 const styles = StyleSheet.create({
   sheet: {
     gap: 14,
-    padding: 16,
   },
 });

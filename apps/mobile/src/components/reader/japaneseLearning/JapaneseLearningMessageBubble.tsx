@@ -5,6 +5,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   nemuFontWeight,
   NemuPressable,
+  radius,
   useNemuTheme,
 } from "@/design-system";
 import { hapticPress } from "@/lib/haptics";
@@ -70,6 +71,7 @@ function VoicePlayer({
       }
       accessibilityState={{ disabled }}
       disabled={disabled}
+      minimumTouchTarget
       onPress={onToggle}
       pressedScale={0.96}
       style={[styles.voicePlayer, { opacity: disabled ? 0.64 : 1 }]}
@@ -103,6 +105,7 @@ interface MessageBubbleProps {
   ttsLoading: boolean;
   ttsPlaying: boolean;
   ttsDisabled: boolean;
+  ttsErrorDetail?: string;
   onVoiceAction: (message: JapaneseLearningChatThreadMessage) => void;
 }
 
@@ -117,6 +120,7 @@ export function JapaneseLearningMessageBubble({
   ttsLoading,
   ttsPlaying,
   ttsDisabled,
+  ttsErrorDetail,
   onVoiceAction,
 }: MessageBubbleProps) {
   const { tokens, scheme } = useNemuTheme();
@@ -221,6 +225,15 @@ export function JapaneseLearningMessageBubble({
             {text}
           </Text>
         )}
+        {ttsErrorDetail ? (
+          <Text
+            accessibilityLiveRegion="assertive"
+            accessibilityRole="alert"
+            style={[styles.ttsErrorText, { color: tokens.danger }]}
+          >
+            {ttsErrorDetail}
+          </Text>
+        ) : null}
       </View>
       {showTimestamp ? (
         <Text
@@ -344,6 +357,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
+  ttsErrorText: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: nemuFontWeight.medium,
+    marginTop: 6,
+  },
   assistantTime: {
     alignSelf: "flex-end",
     paddingBottom: 2,
@@ -353,7 +372,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   datePill: {
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: 12,
     paddingVertical: 4,
   },

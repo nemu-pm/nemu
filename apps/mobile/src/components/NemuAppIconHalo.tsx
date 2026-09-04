@@ -1,6 +1,10 @@
+import { useEffect, useState } from "react";
 import {
+  Animated,
+  Easing,
   Image,
   Platform,
+  Pressable,
   StyleSheet,
   View,
   type ImageSourcePropType,
@@ -14,12 +18,17 @@ import Svg, {
   Rect,
 } from "react-native-svg";
 import {
+  NEMU_APP_ICON_PRESS_MOTION,
   getNemuAppIconHaloMetrics,
   getNemuAppIconHaloRenderMode,
+  shouldAnimateNemuAppIconPress,
 } from "@/lib/nemuAppIconHalo";
+import { useNemuTheme } from "@/design-system";
 import appIconGlow from "../../assets/app-icon-glow.png";
 
 const WEB_GLOW_SCALE = 1.25;
+const useNativeAnimationDriver = Platform.OS !== "web";
+const webIconPressEase = Easing.bezier(0.34, 1.56, 0.64, 1);
 
 function scaleAroundCenter(canvasSize: number, scale: number) {
   const center = canvasSize / 2;
@@ -41,6 +50,7 @@ export function NemuAppIconHalo({
   style,
   testID,
 }: NemuAppIconHaloProps) {
+  const { reduceMotion } = useNemuTheme();
   const {
     canvasSize,
     glowBlurRadius,
@@ -53,11 +63,50 @@ export function NemuAppIconHalo({
     width: iconSize + 32,
     height: iconSize + 16,
   };
+  const [pressProgress] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    if (shouldAnimateNemuAppIconPress(reduceMotion)) return;
+    pressProgress.stopAnimation();
+    pressProgress.setValue(0);
+  }, [pressProgress, reduceMotion]);
+
+  const animatePress = (toValue: 0 | 1) => {
+    if (!shouldAnimateNemuAppIconPress(reduceMotion)) {
+      pressProgress.setValue(0);
+      return;
+    }
+    pressProgress.stopAnimation();
+    Animated.timing(pressProgress, {
+      toValue,
+      duration: NEMU_APP_ICON_PRESS_MOTION.duration,
+      easing: webIconPressEase,
+      useNativeDriver: useNativeAnimationDriver,
+    }).start();
+  };
+  const iconScale = pressProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, NEMU_APP_ICON_PRESS_MOTION.scale],
+  });
+  const iconRotation = pressProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", `${NEMU_APP_ICON_PRESS_MOTION.rotateDegrees}deg`],
+  });
 
   return (
-    <View style={[styles.root, defaultRootSize, style]} testID={testID}>
+    <Pressable
+      accessible
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="image"
+      hitSlop={6}
+      onPressIn={() => animatePress(1)}
+      onPressOut={() => animatePress(0)}
+      style={[styles.root, defaultRootSize, style]}
+      testID={testID}
+    >
       {renderMode === "raster-glow" ? (
         <Image
+          accessible={false}
           fadeDuration={0}
           resizeMode="stretch"
           source={appIconGlow}
@@ -75,6 +124,7 @@ export function NemuAppIconHalo({
         />
       ) : (
         <Svg
+          accessible={false}
           height={canvasSize}
           pointerEvents="none"
           style={[
@@ -109,23 +159,30 @@ export function NemuAppIconHalo({
           />
         </Svg>
       )}
-      <View
-        accessibilityLabel={accessibilityLabel}
-        accessibilityRole="image"
+      <Animated.View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
         style={[
           styles.iconShadow,
           {
             borderRadius: iconRadius,
             height: iconSize,
+            transform: [{ scale: iconScale }, { rotate: iconRotation }],
             width: iconSize,
           },
         ]}
       >
         <View style={[styles.iconClip, { borderRadius: iconRadius }]}>
-          <Image fadeDuration={0} resizeMode="cover" source={source} style={styles.iconImage} />
+          <Image
+            accessible={false}
+            fadeDuration={0}
+            resizeMode="cover"
+            source={source}
+            style={styles.iconImage}
+          />
         </View>
-      </View>
-    </View>
+      </Animated.View>
+    </Pressable>
   );
 }
 
@@ -143,6 +200,8 @@ const styles = StyleSheet.create({
   },
   iconShadow: {
     position: "relative",
+    borderColor: "rgba(255,255,255,0.10)",
+    borderWidth: 1,
     boxShadow:
       "0px 10px 15px -3px rgba(0,0,0,0.10), 0px 4px 6px -4px rgba(0,0,0,0.10)",
   },

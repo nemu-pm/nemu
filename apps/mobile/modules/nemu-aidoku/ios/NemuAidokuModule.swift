@@ -1,12 +1,13 @@
 import ExpoModulesCore
 import Foundation
+import CoreTelephony
 
 private let nemuNativeHttpVersion = "built-in"
 private let nemuAsyncHttpMaxTimeoutSeconds = 30.0
 private let nemuSyncHttpMaxTimeoutSeconds = 12.0
 private let nemuIOSAidokuMaxHttpResponseBytes = 16 * 1024 * 1024
 private let nemuMobileUserAgent =
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1"
 
 private final class NemuAidokuSandboxException: Exception, @unchecked Sendable {
   private let detail: String
@@ -123,9 +124,7 @@ struct NemuAidokuHttpFileRequest: Record, @unchecked Sendable {
   @Field
   var maxImagePixels: Int?
 
-  // Android alone may return a segmented manifest. Keeping the defaulted
-  // field explicit makes Expo Record decoding stable while iOS deliberately
-  // continues its single-file fail-closed behavior.
+  // Both native platforms may return the same bounded segmented manifest.
   @Field
   var allowLongStripSegments: Bool = false
 }
@@ -140,9 +139,22 @@ private struct NemuNativeHttpResult {
 private struct NemuNativeHttpFileResult {
   var status: Int
   var headers: [String: String]
+  var kind: String = "file"
   var fileURL: URL?
   var byteLength: Int64?
+  var manifestVersion: Int?
+  var imageWidth: Int64?
+  var imageHeight: Int64?
+  var imageSegments: [NemuNativeHttpImageSegmentResult] = []
   var error: String?
+}
+
+private struct NemuNativeHttpImageSegmentResult: Sendable {
+  let fileURL: URL
+  let byteLength: Int64
+  let width: Int64
+  let height: Int64
+  let mimeType: String
 }
 
 /// URLSession completion handlers are `@Sendable` in the current SDK. Keep the
@@ -858,6 +870,12 @@ private final class NemuSyncHttpCoordinator {
     return wasPrepared || task != nil
   }
 
+  func isCancelled(id: String) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return cancelled.contains(id)
+  }
+
   func release(id: String) {
     lock.lock()
     let task = pending.removeValue(forKey: id)
@@ -1102,6 +1120,9 @@ private final class NemuNativeHttpFileAsyncOperation: @unchecked Sendable {
       if let fileURL = result.fileURL {
         try? FileManager.default.removeItem(at: fileURL)
       }
+      for segment in result.imageSegments {
+        try? FileManager.default.removeItem(at: segment.fileURL)
+      }
       return
     }
     settled = true
@@ -1119,6 +1140,24 @@ private final class NemuNativeHttpFileAsyncOperation: @unchecked Sendable {
     completion(result)
   }
 
+  func extendTimeout(_ timeoutSeconds: Double) {
+    let timeout = DispatchWorkItem { [weak self] in self?.timeOut() }
+    lock.lock()
+    guard !settled else {
+      lock.unlock()
+      timeout.cancel()
+      return
+    }
+    let previous = timeoutWorkItem
+    timeoutWorkItem = timeout
+    lock.unlock()
+    previous?.cancel()
+    DispatchQueue.global(qos: .utility).asyncAfter(
+      deadline: .now() + timeoutSeconds,
+      execute: timeout
+    )
+  }
+
   private func timeOut() {
     _ = coordinator.cancel(id: requestId)
     finish(NemuNativeHttpFileResult(
@@ -1132,6 +1171,23 @@ private final class NemuNativeHttpFileAsyncOperation: @unchecked Sendable {
 }
 
 public class NemuAidokuModule: Module {
+  private let cellularData = CTCellularData()
+
+  private static func networkAccessStateName(
+    _ state: CTCellularDataRestrictedState
+  ) -> String {
+    switch state {
+    case .restrictedStateUnknown:
+      return "unknown"
+    case .restricted:
+      return "restricted"
+    case .notRestricted:
+      return "notRestricted"
+    @unknown default:
+      return "unknown"
+    }
+  }
+
   private lazy var iosSandboxManager = NemuAidokuIOSandboxManager(
     httpRequest: Self.sendAidokuSandboxHttpRequest
   )
@@ -1148,11 +1204,31 @@ public class NemuAidokuModule: Module {
       "nemuAidokuCfWaiting",
       "nemuAidokuCfCaptcha",
       "nemuAidokuCfSuccess",
-      "nemuAidokuCfFailed"
+      "nemuAidokuCfFailed",
+      "nemuNetworkAccessChanged"
     )
+
+    OnStartObserving("nemuNetworkAccessChanged") {
+      self.cellularData.cellularDataRestrictionDidUpdateNotifier = { [weak self] state in
+        guard let self else { return }
+        DispatchQueue.main.async {
+          self.sendEvent("nemuNetworkAccessChanged", [
+            "state": Self.networkAccessStateName(state),
+          ])
+        }
+      }
+    }
+
+    OnStopObserving("nemuNetworkAccessChanged") {
+      self.cellularData.cellularDataRestrictionDidUpdateNotifier = nil
+    }
 
     Function("isAvailable") {
       return true
+    }
+
+    Function("getNetworkAccessState") {
+      return Self.networkAccessStateName(self.cellularData.restrictedState)
     }
 
     Function("getHttpClientStatus") {
@@ -1467,6 +1543,13 @@ public class NemuAidokuModule: Module {
         ))
         return
       }
+      if request.allowLongStripSegments && imagePolicy == nil {
+        promiseBox.promise.resolve(Self.fileResponse(
+          status: 0,
+          error: "Segmented image output requires paired image safety limits."
+        ))
+        return
+      }
 
       let trimmedCookieScope = request.cookieScope?.trimmingCharacters(
         in: .whitespacesAndNewlines
@@ -1595,14 +1678,75 @@ public class NemuAidokuModule: Module {
               ]
             )
           }
+          let outputDirectory = FileManager.default.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+          )[0].appendingPathComponent(
+            "nemu-native-http-downloads",
+            isDirectory: true
+          )
+          try FileManager.default.createDirectory(
+            at: outputDirectory,
+            withIntermediateDirectories: true
+          )
           if let imagePolicy {
-            _ = try NemuImageMetadataPolicy.validateFile(
-              location,
-              policy: imagePolicy
-            )
+            do {
+              _ = try NemuImageMetadataPolicy.validateFile(
+                location,
+                policy: imagePolicy
+              )
+            } catch {
+              guard
+                request.allowLongStripSegments,
+                Int64(request.maxResponseBytes) >
+                  NemuIOSLongStripImageTranscoder.manifestReserveBytes
+              else { throw error }
+              operation.extendTimeout(120)
+              let transcoded = try NemuIOSLongStripImageTranscoder.transcodeSegments(
+                source: location,
+                outputDirectory: outputDirectory,
+                policy: imagePolicy,
+                maximumOutputBytes:
+                  Int64(request.maxResponseBytes) -
+                    NemuIOSLongStripImageTranscoder.manifestReserveBytes,
+                isCancelled: {
+                  coordinator.isCancelled(id: nativeRequestId)
+                }
+              )
+              let mimeType = transcoded.segments.first?.mimeType ?? "image/jpeg"
+              var rewrittenHeaders = headers.filter {
+                $0.key.caseInsensitiveCompare("content-length") != .orderedSame &&
+                  $0.key.caseInsensitiveCompare("content-encoding") != .orderedSame &&
+                  $0.key.caseInsensitiveCompare("content-type") != .orderedSame
+              }
+              rewrittenHeaders["Content-Type"] = mimeType
+              operation.finish(NemuNativeHttpFileResult(
+                status: status,
+                headers: rewrittenHeaders,
+                kind: "segmented-image",
+                fileURL: nil,
+                byteLength: transcoded.byteLength,
+                manifestVersion: 1,
+                imageWidth: transcoded.dimensions.width,
+                imageHeight: transcoded.dimensions.height,
+                imageSegments: transcoded.segments.map { segment in
+                  NemuNativeHttpImageSegmentResult(
+                    fileURL: segment.fileURL,
+                    byteLength: segment.byteLength,
+                    width: segment.dimensions.width,
+                    height: segment.dimensions.height,
+                    mimeType: segment.mimeType
+                  )
+                },
+                error: nil
+              ))
+              return
+            }
           }
-          let output = FileManager.default.temporaryDirectory
-            .appendingPathComponent("nemu-native-http-export-\(UUID().uuidString)")
+          let output = outputDirectory.appendingPathComponent(
+            "nemu-http-\(DispatchTime.now().uptimeNanoseconds).part",
+            isDirectory: false
+          )
           try FileManager.default.moveItem(at: location, to: output)
           operation.finish(NemuNativeHttpFileResult(
             status: status,
@@ -2287,7 +2431,30 @@ public class NemuAidokuModule: Module {
 
   private static func pruneNativeHttpTemporaryFiles() {
     let fileManager = FileManager.default
-    let directory = fileManager.temporaryDirectory
+    pruneNativeHttpOrphans(
+      in: fileManager.temporaryDirectory,
+      prefix: "nemu-native-http-"
+    )
+    // Streamed downloads are published into Caches, not the temporary
+    // directory, so they were never covered by the sweep above. A crash or a
+    // reload between the native move and the JS handoff left a `.part` file
+    // that nothing ever deleted, and the directory grew without bound.
+    if let caches = fileManager.urls(
+      for: .cachesDirectory,
+      in: .userDomainMask
+    ).first {
+      pruneNativeHttpOrphans(
+        in: caches.appendingPathComponent(
+          "nemu-native-http-downloads",
+          isDirectory: true
+        ),
+        prefix: "nemu-http-"
+      )
+    }
+  }
+
+  private static func pruneNativeHttpOrphans(in directory: URL, prefix: String) {
+    let fileManager = FileManager.default
     let keys: Set<URLResourceKey> = [
       .contentModificationDateKey,
       .fileSizeKey,
@@ -2300,9 +2467,7 @@ public class NemuAidokuModule: Module {
 
     let now = Date()
     var candidates: [(url: URL, modified: Date, bytes: Int)] = []
-    for url in urls where
-      url.lastPathComponent.hasPrefix("nemu-native-http-")
-    {
+    for url in urls where url.lastPathComponent.hasPrefix(prefix) {
       let values = try? url.resourceValues(forKeys: keys)
       candidates.append((
         url,
@@ -2373,13 +2538,26 @@ public class NemuAidokuModule: Module {
   private static func fileResponse(
     from result: NemuNativeHttpFileResult
   ) -> [String: Any?] {
-    return fileResponse(
-      status: result.status,
-      headers: result.headers,
-      fileURL: result.fileURL,
-      byteLength: result.byteLength,
-      error: result.error
-    )
+    return [
+      "status": result.status,
+      "headers": result.headers,
+      "kind": result.kind,
+      "fileUri": result.fileURL?.absoluteString,
+      "byteLength": result.byteLength,
+      "manifestVersion": result.manifestVersion,
+      "imageWidth": result.imageWidth,
+      "imageHeight": result.imageHeight,
+      "imageSegments": result.imageSegments.map { segment in
+        [
+          "fileUri": segment.fileURL.absoluteString,
+          "byteLength": segment.byteLength,
+          "width": segment.width,
+          "height": segment.height,
+          "mimeType": segment.mimeType,
+        ]
+      },
+      "error": result.error,
+    ]
   }
 
   private static func fileResponse(
@@ -2392,6 +2570,7 @@ public class NemuAidokuModule: Module {
     return [
       "status": status,
       "headers": headers,
+      "kind": "file",
       "fileUri": fileURL?.absoluteString,
       "byteLength": byteLength,
       "error": error,

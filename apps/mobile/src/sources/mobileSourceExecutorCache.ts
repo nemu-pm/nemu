@@ -58,7 +58,21 @@ export type MobileSourceSessionCacheConfig = {
 
 export type AcquireOptions = MobileSourceExecutorOptions & {
   cacheBust?: boolean;
+  /**
+   * The caller's lifetime. `withSession` serializes per source key, so a
+   * cancelled request can still be sitting in the queue long after the screen
+   * that issued it is gone; checking the signal when its turn arrives skips the
+   * WASM session entirely instead of running work nobody will read.
+   */
+  signal?: AbortSignal;
 };
+
+export class MobileSourceSessionAbortedError extends Error {
+  constructor() {
+    super("The source session request was aborted.");
+    this.name = "AbortError";
+  }
+}
 
 type ReadySession = Extract<MobileSourceExecutorSession, { status: "ready" }>;
 
@@ -104,10 +118,24 @@ export interface MobileSourceSessionCache {
   size(): number;
 }
 
-// Two warm sessions cover the primary + secondary source used by Dual Reader.
-// Keeping more compiled third-party runtimes alive for five minutes increases
-// low-memory pressure without improving the common navigation path.
-const DEFAULT_MAX_ENTRIES = 2;
+/**
+ * Warm sessions kept alive at once.
+ *
+ * Two covers Dual Reader's primary + secondary source, but two is also exactly
+ * the multi-source live-search fan-out, so every search used to evict both
+ * pinned reader sessions and recompile their WASM on the next page turn. Three
+ * lets a search (which runs at `poolSize - 1`, see
+ * `MOBILE_LIVE_SEARCH_SOURCE_CONCURRENCY`) proceed while one reader session
+ * survives. Above four, keeping compiled third-party runtimes alive for five
+ * minutes costs more low-memory pressure than it saves on navigation.
+ *
+ * Deliberately one constant rather than a per-device derivation: the search
+ * fan-out (`MOBILE_LIVE_SEARCH_SOURCE_CONCURRENCY`) is a module constant
+ * derived from this one, so a pool size that varied at runtime would desync it.
+ */
+export const MOBILE_SOURCE_SESSION_POOL_SIZE = 3;
+
+const DEFAULT_MAX_ENTRIES = MOBILE_SOURCE_SESSION_POOL_SIZE;
 const DEFAULT_IDLE_TTL_MS = 5 * 60_000;
 const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
 
@@ -484,6 +512,11 @@ export function createMobileSourceSessionCache(
       // it rather than letting the delayed turn recreate the invalidated key.
       if (!invalidationGenerationIsCurrent(key, queuedGeneration)) {
         throw invalidatedError(key);
+      }
+      // Likewise for a caller that gave up while queued: never touch the
+      // runtime on behalf of an abandoned request.
+      if (resolvedOptions.signal?.aborted) {
+        throw new MobileSourceSessionAbortedError();
       }
       const acquired = await acquireEntry(source, resolvedOptions);
       const session = acquired.session;

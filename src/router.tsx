@@ -18,6 +18,7 @@ import {
   Globe02Icon,
 } from "@hugeicons/core-free-icons";
 import { FadingOverlay } from "@/components/fading-overlay";
+import { SourceBrowsePageSkeleton } from "@/components/page-skeletons";
 import { useTranslation } from "react-i18next";
 import type { BrowsableSource } from "@/lib/sources/aidoku/adapter";
 import type { TachiyomiBrowsableSource } from "@/lib/sources/tachiyomi/adapter";
@@ -416,6 +417,9 @@ const sourceBrowseRoute = createRoute({
   },
   staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   component: SourceBrowsePage,
+  // Show a skeleton immediately while the loader spins up the source
+  // (WASM worker + listings/home fetches) instead of blocking navigation.
+  pendingComponent: SourceBrowsePageSkeleton,
 });
 
 // Library manga detail search params

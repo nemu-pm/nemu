@@ -25,8 +25,9 @@ function runMobileBackgroundSyncOnce(
   });
 }
 
-// Minimal store mock: records calls and returns canned data. Only the methods
-// the runner touches are implemented.
+// Store double: records calls and returns canned data. It satisfies
+// `MobileDataStore` structurally (no cast), so adding a method to the store
+// interface fails this file instead of silently leaving the double behind.
 function makeStore(overrides: Partial<MobileDataStore> = {}): MobileDataStore {
   const base: MobileDataStore = {
     getSyncGeneration: async () => 0,
@@ -36,6 +37,7 @@ function makeStore(overrides: Partial<MobileDataStore> = {}): MobileDataStore {
     getSettings: async () => ({ installedSources: [] }) as never,
     getSyncSettings: async () => ({ installedSources: [] }) as never,
     saveSettings: async () => undefined,
+    updateSettings: async (updater) => updater({ installedSources: [] }),
     clearPackageCacheReferences: async () => undefined,
     clearAllUserData: async () => undefined,
     getInstalledSources: async () => [],
@@ -50,6 +52,7 @@ function makeStore(overrides: Partial<MobileDataStore> = {}): MobileDataStore {
     saveRegistry: async () => undefined,
     removeRegistry: async () => undefined,
     getLibraryEntries: async () => [],
+    countLibraryEntries: async () => 0,
     getLibraryItem: async () => null,
     getAllLibraryItems: async () => [],
     getSourceLinksForItem: async () => [],
@@ -58,6 +61,7 @@ function makeStore(overrides: Partial<MobileDataStore> = {}): MobileDataStore {
     saveLibraryItem: async () => undefined,
     saveLibrarySnapshot: async () => undefined,
     removeLibraryItem: async () => undefined,
+    restoreLibraryItem: async () => undefined,
     saveSourceLink: async () => undefined,
     removeSourceLink: async () => undefined,
     getChapterProgress: async () => null,
@@ -66,10 +70,12 @@ function makeStore(overrides: Partial<MobileDataStore> = {}): MobileDataStore {
     saveChapterProgress: async () => undefined,
     saveChapterProgressBatch: async () => undefined,
     getMangaProgress: async () => [],
+    getMangaProgressById: async () => null,
     getAllMangaProgress: async () => [],
     saveMangaProgress: async () => undefined,
     saveMangaProgressBatch: async () => undefined,
     getCollections: async () => [],
+    getCollection: async () => null,
     getCollectionItems: async () => [],
     saveCollectionsSnapshot: async () => undefined,
     saveCollection: async () => undefined,
@@ -79,7 +85,7 @@ function makeStore(overrides: Partial<MobileDataStore> = {}): MobileDataStore {
     clearAccountData: async () => undefined,
     hasSyncedData: async () => false,
     ...overrides,
-  } as MobileDataStore;
+  };
   return base;
 }
 

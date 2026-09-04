@@ -71,6 +71,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.xl,
-    overflow: "hidden",
   },
 });

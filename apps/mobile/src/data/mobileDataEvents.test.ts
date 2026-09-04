@@ -66,4 +66,22 @@ describe("mobile data events", () => {
 
     expect(scopes).toEqual(["settings", "sourceSettings"]);
   });
+
+  test("emits the sources scope when a settings write also rewrites installed sources", () => {
+    const scopes: MobileDataChangeScope[] = [];
+    const unsubscribe = subscribeMobileDataChanges((scope) => {
+      scopes.push(scope);
+    });
+
+    try {
+      emitMobileSettingsDataChanged({
+        sourceSettingsChanged: true,
+        installedSourcesChanged: true,
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    expect(scopes).toEqual(["settings", "sourceSettings", "sources"]);
+  });
 });

@@ -285,12 +285,14 @@
   },
   "about": {
     "title": "About",
-    "tagline": "A magical manga reader",
+    "tagline": "魔法の漫画リーダー",
     "description": "nemu is a web-based cross-platform manga reader that lets you discover and read manga from various online sources.",
     "sourceCode": "Source Code"
   },
   "settings": {
     "aboutNemu": "About nemu",
+    "aboutBeforeBrand": "About ",
+    "aboutAfterBrand": "",
     "loading": "Loading settings...",
     "sourceUpdated": "Updated source: {{name}}",
     "sourcesUpdated": "Updated {{count}} sources: {{names}}",

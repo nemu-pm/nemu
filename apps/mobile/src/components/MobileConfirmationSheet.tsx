@@ -7,6 +7,7 @@ import {
   nemuFontWeight,
   useNemuTheme,
   NemuButton,
+  NEMU_PROMINENT_CTA_SIZE,
 } from "@/design-system";
 import { hapticPress } from "@/lib/haptics";
 
@@ -22,10 +23,13 @@ type MobileConfirmationSheetProps = {
   subject?: string;
   iconName?: IoniconName;
   loading?: boolean;
+  cancelDisabled?: boolean;
   confirmDisabled?: boolean;
   destructive?: boolean;
   children?: ReactNode;
   onCancel: () => void;
+  /** Called after the native sheet has fully finished dismissing. */
+  onDismiss?: () => void;
   onConfirm: () => void;
 };
 
@@ -39,19 +43,25 @@ export function MobileConfirmationSheet({
   subject,
   iconName = "alert-circle-outline",
   loading = false,
+  cancelDisabled = loading,
   confirmDisabled = false,
   destructive = false,
   children,
   onCancel,
+  onDismiss,
   onConfirm,
 }: MobileConfirmationSheetProps) {
   const { tokens } = useNemuTheme();
-  const accentColor = destructive ? tokens.danger : tokens.primary;
 
-  // The sheet only reports a close once it has actually closed, so swallowing
-  // it while loading would leave the caller's `visible` flag stuck true with
-  // nothing on screen. Always let the dismissal through.
   const handleRequestClose = () => {
+    // Non-abortable mutations keep every cancellation route disabled until
+    // they settle. This prevents the native sheet and its caller from
+    // disagreeing about whether an in-flight destructive action is visible.
+    if (cancelDisabled) return;
+    // A controlled `visible={false}` also completes through this callback.
+    // Only turn a still-visible native dismissal into a cancellation intent;
+    // explicit Cancel already sent that intent before asking React to hide it.
+    if (!visible) return;
     void hapticPress();
     onCancel();
   };
@@ -60,27 +70,33 @@ export function MobileConfirmationSheet({
     <MobileSheetScaffold
       visible={visible}
       onRequestClose={handleRequestClose}
-      dismissLabel={cancelLabel}
+      onDismiss={onDismiss}
       showDismissButton={false}
-      // Pan-down stays off during an in-flight confirm so the sheet cannot be
-      // swiped away by accident. The always-live Cancel button below remains
-      // the explicit escape without duplicating it in empty sheet chrome.
-      backdropDisabled={loading}
+      // Pan-down/backdrop dismissal follows the same availability as Cancel.
+      backdropDisabled={loading || cancelDisabled}
     >
+      {/*
+        Same composed header as the plugin/source settings sheets: the glyph
+        rides IN the centered title row instead of stranding in a leading
+        slot above a centered title.
+      */}
       <View style={styles.header}>
-        <View
-          style={[styles.iconShell, { backgroundColor: `${accentColor}18` }]}
-        >
-          <Ionicons name={iconName} size={22} color={accentColor} />
-        </View>
-        <View style={styles.headerCopy}>
-          <Text style={[styles.title, { color: tokens.foreground }]}>
+        <View style={styles.titleRow}>
+          <Ionicons name={iconName} size={20} color={tokens.mutedForeground} />
+          <Text
+            accessibilityRole="header"
+            numberOfLines={2}
+            style={[styles.title, { color: tokens.foreground }]}
+          >
             {title}
           </Text>
-          <Text style={[styles.description, { color: tokens.mutedForeground }]}>
-            {description}
-          </Text>
         </View>
+        <Text
+          numberOfLines={3}
+          style={[styles.description, { color: tokens.mutedForeground }]}
+        >
+          {description}
+        </Text>
       </View>
       {subject ? (
         <View style={[styles.subjectPill, { backgroundColor: tokens.muted }]}>
@@ -97,12 +113,11 @@ export function MobileConfirmationSheet({
         <NemuButton
           accessibilityLabel={cancelLabel}
           containerStyle={styles.actionButton}
-          // Cancel stays live while the confirm is in flight — it is the
-          // sheet's escape route. Callers that can abort should do so; the
-          // rest let the operation settle in the background.
+          disabled={cancelDisabled}
           hapticFeedback="none"
           label={cancelLabel}
           onPress={onCancel}
+          size={NEMU_PROMINENT_CTA_SIZE}
           variant="secondary"
         />
         <NemuButton
@@ -113,6 +128,7 @@ export function MobileConfirmationSheet({
           label={confirmLabel}
           loading={loading}
           onPress={onConfirm}
+          size={NEMU_PROMINENT_CTA_SIZE}
           variant={destructive ? "destructive" : "default"}
         />
       </View>
@@ -122,29 +138,26 @@ export function MobileConfirmationSheet({
 
 const styles = StyleSheet.create({
   header: {
-    flexDirection: "row",
-    gap: 12,
+    alignItems: "center",
+    gap: 6,
   },
-  iconShell: {
-    width: 42,
-    height: 42,
+  titleRow: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: radius.lg,
-  },
-  headerCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 4,
+    gap: 8,
   },
   title: {
+    flexShrink: 1,
     fontSize: 17,
     lineHeight: 22,
     fontWeight: nemuFontWeight.semibold,
+    textAlign: "center",
   },
   description: {
     fontSize: 13,
-    lineHeight: 19,
+    lineHeight: 18,
+    textAlign: "center",
   },
   subjectPill: {
     minHeight: 42,
@@ -159,10 +172,11 @@ const styles = StyleSheet.create({
     fontWeight: nemuFontWeight.medium,
   },
   actions: {
-    flexDirection: "row",
+    alignItems: "stretch",
+    flexDirection: "column",
     gap: 10,
   },
   actionButton: {
-    flex: 1,
+    width: "100%",
   },
 });

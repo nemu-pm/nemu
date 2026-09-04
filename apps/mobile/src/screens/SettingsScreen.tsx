@@ -1,11 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  AccessibilityInfo,
   ActivityIndicator,
   Image,
   Linking,
   Platform,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
   type ImageStyle,
@@ -38,6 +45,7 @@ import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileSettingsSkeleton } from "@/components/MobileSettingsSkeleton";
 import { MobileSourceSettingsCard } from "@/components/MobileSourceSettingsCard";
+import { MobileStorageBreakdown } from "@/components/MobileStorageBreakdown";
 import dualReadIconImage from "../../../../src/lib/plugins/builtin/dual-reader/icon.png";
 import japaneseLearningIconImage from "../../../../src/lib/plugins/builtin/japanese-learning/icon.png";
 import { useMobileDataStore } from "@/data/mobileDataContext";
@@ -51,6 +59,7 @@ import {
   useMobileDataManagement,
   useInstalledSources,
   useMobileLanguageSettings,
+  useMobileFeedbackSettings,
   useMobileReaderPlugins,
   useReadingMode,
   useSourceSettings,
@@ -65,13 +74,14 @@ import type {
 } from "@/data/schema";
 import {
   MobileNativeSheetScaffold,
-  MobileCachedImage,
   NemuButton,
   NemuNativeSwitch,
   NemuPressable,
+  NemuText,
   PageScaffold,
   radius,
   nemuBrandTextStyle,
+  nemuColorWithAlpha,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
   useNemuTheme,
@@ -104,11 +114,13 @@ import {
 import {
   canRetryMobileSourceSettingsLoadError,
   countRenderableSourceSettings,
+  countVisibleSourceSettings,
   getMobileSourceSettingsNavigationResetKey,
   makeMobileSourceKey,
   sourceSettingRequestsDataRefresh,
 } from "@/lib/mobileSourceSettings";
 import { removeMobileSourceAfterSettingsCleanup } from "@/lib/mobileSourceUninstall";
+import { clearMobileSourceDetailCacheForSource } from "@/lib/mobileSourceDetailCache";
 import { normalizeMobileSourceExternalUrl } from "@/lib/mobileSourceExternalUrl";
 import {
   resolveMobileSourceSettingAction,
@@ -126,6 +138,25 @@ import {
   type MobileSettingsActionState,
 } from "@/lib/mobileSettingsActions";
 import { getMobileSettingsSheetLayout } from "@/lib/mobileSettingsSheetLayout";
+import {
+  getMobileInstalledSourceName,
+  getMobileInstalledSourceSubtitle,
+} from "@/lib/mobileInstalledSourcePresentation";
+import {
+  buildMobileSourceIconIndex,
+  resolveMobileInstalledSourceIconUri,
+} from "@/lib/mobileSourceIconResolution";
+import {
+  MobileInstalledSourceSettingsSheet,
+  MobileSourceIcon as SourceIcon,
+} from "@/components/MobileInstalledSourceSettingsSheet";
+import { useMobileSourceSettingsTransientSheets } from "@/components/useMobileSourceSettingsTransientSheets";
+import {
+  isMobileSourceSettingsConfirmation,
+  resolveMobileFirstQueuedSheetHandoff,
+  resolveMobileSourceSettingsPostDismissAction,
+  shouldReopenMobileSourceSettingsAfterConfirmation,
+} from "@/lib/mobileSettingsSheetHandoff";
 import {
   makeMobileRuntimeSourceKey,
   normalizeInstalledSource,
@@ -164,6 +195,11 @@ type SettingsConfirmation =
   | { type: "clear-all-data" }
   | { type: "source-logout"; setting: SourcePackageSetting }
   | { type: "source-button"; setting: SourcePackageSetting };
+
+type SourceSettingsConfirmation = Extract<
+  SettingsConfirmation,
+  { type: "source-logout" | "source-button" }
+>;
 
 const readingModes: Array<{
   mode: ReadingMode;
@@ -205,41 +241,8 @@ function ResolvedSettingsImage({
   );
 }
 
-function SourceIcon({ icon }: { icon?: string }) {
-  const { tokens } = useNemuTheme();
-  const [failed, setFailed] = useState(false);
-  const iconUri = icon && !failed ? icon : null;
-
-  return (
-    <View
-      style={[styles.sourceIcon, { backgroundColor: tokens.sourceIconGlass }]}
-    >
-      {iconUri ? (
-        <MobileCachedImage
-          uriOwnership="source"
-          source={{ uri: iconUri }}
-          style={styles.sourceIconImage}
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <Ionicons
-          name="globe-outline"
-          size={22}
-          color={tokens.mutedForeground}
-        />
-      )}
-    </View>
-  );
-}
-
 function sourceName(source: InstalledSource): string {
-  const { sourceId } = sourceParts(source);
-  return source.name ?? source.packageMetadata?.name ?? sourceId;
-}
-
-function sourceRegistryLabel(source: InstalledSource): string {
-  const { registryId } = sourceParts(source);
-  return registryId;
+  return getMobileInstalledSourceName(source);
 }
 
 function sourceSettingsKey(source: InstalledSource): string {
@@ -284,14 +287,12 @@ function languageLabel(language: AppLanguage, strings: MobileStrings): string {
 }
 
 function sourceSubtitle(source: InstalledSource): string {
-  const languages = source.languages?.length
-    ? source.languages.join(", ").toUpperCase()
-    : source.packageMetadata?.languages?.join(", ").toUpperCase();
-  return [languages, sourceRegistryLabel(source)].filter(Boolean).join(" / ");
+  return getMobileInstalledSourceSubtitle(source);
 }
 
 function SourceManagementRow({
   source,
+  iconUri,
   strings,
   removing,
   disabled,
@@ -300,6 +301,7 @@ function SourceManagementRow({
   onRemove,
 }: {
   source: InstalledSource;
+  iconUri: string | null;
   strings: MobileStrings;
   removing: boolean;
   disabled: boolean;
@@ -336,10 +338,10 @@ function SourceManagementRow({
         containerStyle={styles.sourceMainContainer}
         style={[styles.sourceMain, browseDisabled && styles.disabledMain]}
       >
-        <SourceIcon icon={source.icon} />
+        <SourceIcon icon={iconUri} />
         <View style={styles.sourceText}>
           <View style={styles.sourceTitleRow}>
-            <Text
+            <NemuText
               numberOfLines={1}
               style={[
                 styles.rowTitle,
@@ -348,39 +350,40 @@ function SourceManagementRow({
               ]}
             >
               {name}
-            </Text>
+            </NemuText>
             <View
               style={[styles.versionBadge, { backgroundColor: tokens.muted }]}
             >
-              <Text
+              <NemuText
                 style={[styles.versionText, { color: tokens.mutedForeground }]}
               >
                 v{source.version}
-              </Text>
+              </NemuText>
             </View>
             {unsupported ? (
               <View
                 style={[styles.versionBadge, { backgroundColor: tokens.muted }]}
               >
-                <Text style={[styles.versionText, { color: tokens.danger }]}>
+                <NemuText
+                  style={[styles.versionText, { color: tokens.danger }]}
+                >
                   {strings.common.sourceUnsupportedBadge}
-                </Text>
+                </NemuText>
               </View>
             ) : null}
           </View>
-          <Text
+          <NemuText
             numberOfLines={2}
             style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}
           >
             {unsupported
               ? strings.common.sourceUnsupportedTachiyomiDescription
               : sourceSubtitle(source)}
-          </Text>
+          </NemuText>
         </View>
       </NemuPressable>
       <View style={styles.sourceActions}>
-        <NemuPressable
-          accessibilityRole="button"
+        <NemuButton
           accessibilityLabel={formatMobileString(
             strings.settings.editSourceSettings,
             { name },
@@ -388,27 +391,15 @@ function SourceManagementRow({
           accessibilityState={{ disabled }}
           disabled={disabled}
           hapticFeedback={canOpenSettings ? "press" : "none"}
+          icon="settings-outline"
           onPress={() => {
             if (!canOpenSettings) return;
             onSettings();
           }}
-          pressedScale={0.94}
-          style={[
-            styles.iconButton,
-            {
-              backgroundColor: tokens.muted,
-              opacity: disabled ? 0.65 : 1,
-            },
-          ]}
-        >
-          <Ionicons
-            name="settings-outline"
-            size={17}
-            color={tokens.mutedForeground}
-          />
-        </NemuPressable>
-        <NemuPressable
-          accessibilityRole="button"
+          size="icon-sm"
+          variant="secondary"
+        />
+        <NemuButton
           accessibilityLabel={formatMobileString(
             strings.settings.uninstallSourceNamed,
             { name },
@@ -418,28 +409,29 @@ function SourceManagementRow({
             busy: removing || undefined,
           }}
           disabled={removeDisabled}
+          icon="trash-outline"
+          loading={removing}
           onPress={onRemove}
-          pressedScale={0.94}
-          style={[
-            styles.iconButton,
-            {
-              backgroundColor: tokens.muted,
-              opacity: removeDisabled ? 0.65 : 1,
-            },
-          ]}
-        >
-          {removing ? (
-            <ActivityIndicator size="small" color={tokens.danger} />
-          ) : (
-            <Ionicons name="trash-outline" size={17} color={tokens.danger} />
-          )}
-        </NemuPressable>
+          size="icon-sm"
+          variant="destructive"
+        />
       </View>
     </View>
   );
 }
 
-function ReaderPluginIcon({ plugin }: { plugin: MobileReaderPluginState }) {
+/**
+ * `row` is the boxed 40pt list artwork. `title` is the bare mark that sits on
+ * the baseline of a sheet title: no tinted frame, sized to the title line box
+ * so the icon and the title read as one centered unit.
+ */
+function ReaderPluginIcon({
+  plugin,
+  placement = "row",
+}: {
+  plugin: MobileReaderPluginState;
+  placement?: "row" | "title";
+}) {
   const { tokens } = useNemuTheme();
   const [failed, setFailed] = useState(false);
   const source =
@@ -448,15 +440,14 @@ function ReaderPluginIcon({ plugin }: { plugin: MobileReaderPluginState }) {
       : plugin.id === "dual-reader"
         ? readerPluginArtworkSources["dual-reader"]
         : null;
+  const inTitle = placement === "title";
+  const frameStyle = inTitle
+    ? styles.pluginTitleArtwork
+    : [styles.pluginArtwork, { backgroundColor: tokens.sourceIconGlass }];
 
   if (source && !failed) {
     return (
-      <View
-        style={[
-          styles.pluginArtwork,
-          { backgroundColor: tokens.sourceIconGlass },
-        ]}
-      >
+      <View style={frameStyle}>
         <ResolvedSettingsImage
           accessibilityLabel={plugin.name}
           source={source}
@@ -468,15 +459,10 @@ function ReaderPluginIcon({ plugin }: { plugin: MobileReaderPluginState }) {
   }
 
   return (
-    <View
-      style={[
-        styles.pluginArtwork,
-        { backgroundColor: tokens.sourceIconGlass },
-      ]}
-    >
+    <View style={frameStyle}>
       <Ionicons
         name={plugin.icon}
-        size={24}
+        size={inTitle ? 22 : 20}
         color={plugin.enabled ? tokens.primary : tokens.mutedForeground}
       />
     </View>
@@ -510,24 +496,23 @@ function ReaderPluginManagementRow({
       <View style={[styles.pluginMain, !plugin.enabled && styles.disabledMain]}>
         <ReaderPluginIcon plugin={plugin} />
         <View style={styles.sourceText}>
-          <Text
+          <NemuText
             numberOfLines={1}
-            style={[styles.rowTitle, { color: tokens.foreground }]}
+            style={[styles.settingTitle, { color: tokens.foreground }]}
           >
             {plugin.name}
-          </Text>
-          <Text
+          </NemuText>
+          <NemuText
             numberOfLines={2}
-            style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}
+            style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
           >
             {plugin.description}
-          </Text>
+          </NemuText>
         </View>
       </View>
       <View style={styles.pluginActions}>
         {hasSettings ? (
-          <NemuPressable
-            accessibilityRole="button"
+          <NemuButton
             accessibilityLabel={formatMobileString(
               strings.settings.editReaderPluginSettings,
               {
@@ -537,23 +522,15 @@ function ReaderPluginManagementRow({
             accessibilityState={{ disabled: selectDisabled }}
             disabled={selectDisabled}
             hapticFeedback={canOpenSettings ? "press" : "none"}
+            icon="settings-outline"
             onPress={() => {
               if (!canOpenSettings) return;
               onSelect();
             }}
-            pressedScale={0.94}
-            style={[
-              styles.actionIconButton,
-              { opacity: selectDisabled ? 0.38 : 1 },
-            ]}
+            size="icon-sm"
             testID={`ReaderPluginSettings:${plugin.id}`}
-          >
-            <Ionicons
-              name="settings-outline"
-              size={18}
-              color={tokens.mutedForeground}
-            />
-          </NemuPressable>
+            variant="secondary"
+          />
         ) : null}
         <NemuNativeSwitch
           accessibilityLabel={formatMobileString(
@@ -589,7 +566,9 @@ function ReaderPluginManagementRow({
           styles.pluginEmbeddedRow,
           { borderColor: tokens.border },
           selected &&
-            plugin.enabled && { backgroundColor: `${tokens.primary}08` },
+            plugin.enabled && {
+              backgroundColor: nemuColorWithAlpha(tokens.primary, 0.03),
+            },
         ]}
       >
         {rowContent}
@@ -602,7 +581,9 @@ function ReaderPluginManagementRow({
       style={[
         styles.pluginRowShell,
         selected &&
-          plugin.enabled && { backgroundColor: `${tokens.primary}08` },
+          plugin.enabled && {
+            backgroundColor: nemuColorWithAlpha(tokens.primary, 0.03),
+          },
       ]}
       contentStyle={styles.pluginRow}
     >
@@ -647,178 +628,80 @@ function MobileReaderPluginSettingsSheet({
   const sheetLayout = getMobileSettingsSheetLayout({
     fontScale,
     height,
-    rowCount: countRenderableSourceSettings(plugin.settings),
+    rowCount: countVisibleSourceSettings(plugin.settings, plugin.values),
     width,
+  });
+  // Multi-select and string-list settings open their dedicated sheets through
+  // the shared dismiss-then-present handoff (this sheet has no login rows).
+  const transientSheets = useMobileSourceSettingsTransientSheets({
+    visible,
+    disabled,
+    values: plugin.values,
+    strings,
+    onChange,
+    onClose,
   });
 
   return (
-    <MobileNativeSheetScaffold
-      visible={visible}
-      onClose={onClose}
-      scroll={sheetLayout.scroll}
-      snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
-      testID={`ReaderPluginSettingsSheet:${plugin.id}`}
-      contentStyle={styles.readerPluginSheet}
-    >
-      <View style={styles.readerPluginSheetHeader}>
-        <ReaderPluginIcon plugin={plugin} />
-        <View style={styles.readerPluginSheetTitleBlock}>
-          <Text
-            numberOfLines={1}
-            style={[
-              styles.readerPluginSheetTitle,
-              { color: tokens.foreground },
-            ]}
-          >
-            {plugin.name}
-          </Text>
-          <Text
-            numberOfLines={2}
-            style={[
-              styles.readerPluginSheetSubtitle,
-              { color: tokens.mutedForeground },
-            ]}
-          >
-            {plugin.description}
-          </Text>
+    <>
+      <MobileNativeSheetScaffold
+        {...transientSheets.settingsSheetProps}
+        scroll={sheetLayout.scroll}
+        snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
+        testID={`ReaderPluginSettingsSheet:${plugin.id}`}
+      >
+        {/*
+          The plugin mark belongs to the title, not to the sheet chrome: a
+          leading header slot leaves the icon stranded in the top-left corner
+          while the title stays optically centered. Compose both into one
+          centered row and center the description under it.
+        */}
+        <View style={styles.pluginSheetHeader}>
+          <View style={styles.pluginSheetTitleRow}>
+            <ReaderPluginIcon plugin={plugin} placement="title" />
+            <NemuText
+              accessibilityRole="header"
+              color={tokens.foreground}
+              density="compact"
+              numberOfLines={2}
+              style={styles.pluginSheetTitle}
+              variant="sheetTitle"
+            >
+              {plugin.name}
+            </NemuText>
+          </View>
+          {plugin.description ? (
+            <NemuText
+              color={tokens.mutedForeground}
+              density="compact"
+              style={styles.pluginSheetDescription}
+              variant="rowSubtitle"
+            >
+              {plugin.description}
+            </NemuText>
+          ) : null}
         </View>
-      </View>
-
-      <MobileSourceSettingsCard
-        settings={plugin.settings}
-        values={plugin.values}
-        loading={loading}
-        error={error}
-        title={strings.settings.pluginSettings}
-        hideSubtitle
-        navigationResetKey={plugin.id}
-        emptyMessage={strings.settings.noPluginSettings}
-        showEmpty
-        disabled={disabled}
-        retryDisabled={retryDisabled}
-        retrying={retrying}
-        onRetry={onRetry}
-        onReset={onReset}
-        onChange={onChange}
-      />
-    </MobileNativeSheetScaffold>
-  );
-}
-
-function MobileInstalledSourceSettingsSheet({
-  source,
-  strings,
-  visible,
-  disabled,
-  settings,
-  values,
-  loading,
-  error,
-  retryDisabled,
-  retrying,
-  navigationResetKey,
-  onClose,
-  onRetry,
-  onReset,
-  onChange,
-  onAction,
-  onLogin,
-  onLogout,
-  loginCapabilities,
-}: {
-  source: InstalledSource;
-  strings: MobileStrings;
-  visible: boolean;
-  disabled: boolean;
-  settings: SourcePackageSetting[];
-  values: Record<string, unknown>;
-  loading: boolean;
-  error: string | null;
-  retryDisabled: boolean;
-  retrying: boolean;
-  navigationResetKey: string | number | null;
-  onClose: () => void;
-  onRetry: () => void;
-  onReset: () => void;
-  onChange: (
-    key: string,
-    value: unknown,
-    setting: SourcePackageSetting,
-  ) => void;
-  onAction: (setting: SourcePackageSetting) => void;
-  onLogin: (
-    setting: SourcePackageSetting,
-    submission: MobileSourceLoginSubmission,
-    options?: { signal?: AbortSignal },
-  ) => Promise<string | null>;
-  onLogout: (setting: SourcePackageSetting) => void;
-  loginCapabilities: MobileSourceLoginCapabilities | null;
-}) {
-  const { tokens } = useNemuTheme();
-  const name = sourceName(source);
-  const { fontScale, height, width } = useWindowDimensions();
-  const sheetLayout = getMobileSettingsSheetLayout({
-    fontScale,
-    height,
-    rowCount: countRenderableSourceSettings(settings),
-    width,
-  });
-
-  return (
-    <MobileNativeSheetScaffold
-      visible={visible}
-      onClose={onClose}
-      scroll={sheetLayout.scroll}
-      snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
-      testID={`InstalledSourceSettingsSheet:${source.id}`}
-      contentStyle={styles.readerPluginSheet}
-    >
-      <View style={styles.readerPluginSheetHeader}>
-        <SourceIcon icon={source.icon} />
-        <View style={styles.readerPluginSheetTitleBlock}>
-          <Text
-            numberOfLines={1}
-            style={[
-              styles.readerPluginSheetTitle,
-              { color: tokens.foreground },
-            ]}
-          >
-            {name}
-          </Text>
-          <Text
-            numberOfLines={1}
-            style={[
-              styles.readerPluginSheetSubtitle,
-              { color: tokens.mutedForeground },
-            ]}
-          >
-            {sourceSubtitle(source)}
-          </Text>
-        </View>
-      </View>
-
-      <MobileSourceSettingsCard
-        settings={settings}
-        values={values}
-        loading={loading}
-        error={error}
-        title={strings.settings.sourceSettingsDefaultTitle}
-        hideSubtitle
-        navigationResetKey={navigationResetKey}
-        emptyMessage={strings.settings.sourceSettingsEmpty}
-        showEmpty
-        disabled={disabled}
-        retryDisabled={retryDisabled}
-        retrying={retrying}
-        onRetry={onRetry}
-        onReset={onReset}
-        onChange={onChange}
-        onAction={onAction}
-        onLogin={onLogin}
-        onLogout={onLogout}
-        loginCapabilities={loginCapabilities}
-      />
-    </MobileNativeSheetScaffold>
+        <MobileSourceSettingsCard
+          settings={plugin.settings}
+          values={plugin.values}
+          loading={loading}
+          error={error}
+          title={strings.settings.pluginSettings}
+          hideSubtitle
+          navigationResetKey={plugin.id}
+          emptyMessage={strings.settings.noPluginSettings}
+          showEmpty
+          disabled={disabled}
+          retryDisabled={retryDisabled}
+          retrying={retrying}
+          onRetry={onRetry}
+          onReset={onReset}
+          onChange={onChange}
+          {...transientSheets.cardProps}
+        />
+      </MobileNativeSheetScaffold>
+      {transientSheets.renderTransientSheet()}
+    </>
   );
 }
 
@@ -852,7 +735,9 @@ function ClearCloudDataOption({
       style={[
         styles.cloudClearOption,
         {
-          backgroundColor: checked ? `${tokens.danger}12` : tokens.muted,
+          backgroundColor: checked
+            ? nemuColorWithAlpha(tokens.danger, 0.07)
+            : tokens.muted,
           borderColor: checked ? tokens.danger : tokens.border,
           opacity: disabled ? 0.72 : 1,
         },
@@ -876,17 +761,21 @@ function ClearCloudDataOption({
         ) : null}
       </View>
       <View style={styles.cloudClearCopy}>
-        <Text style={[styles.cloudClearTitle, { color: tokens.foreground }]}>
+        <NemuText
+          density="compact"
+          style={[styles.cloudClearTitle, { color: tokens.foreground }]}
+        >
           {strings.settings.clearCloudData}
-        </Text>
-        <Text
+        </NemuText>
+        <NemuText
+          density="compact"
           style={[
             styles.cloudClearDescription,
             { color: tokens.mutedForeground },
           ]}
         >
           {strings.settings.clearCloudDataDescription}
-        </Text>
+        </NemuText>
       </View>
     </NemuPressable>
   );
@@ -896,6 +785,27 @@ type SettingsSegmentedOption<Value extends string> = {
   value: Value;
   label: string;
 };
+
+function useScreenReaderEnabled(): boolean {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    void AccessibilityInfo.isScreenReaderEnabled().then((nextEnabled) => {
+      if (mounted) setEnabled(nextEnabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener(
+      "screenReaderChanged",
+      setEnabled,
+    );
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  return enabled;
+}
 
 export type SettingsSectionId = "reader" | "sources" | "appearance" | "data";
 
@@ -988,23 +898,38 @@ function PressableSettingsSurface({
 function SettingsSegmentedPicker<Value extends string>({
   accessibilityLabel,
   disabled,
+  interactionLocked = false,
   options,
   value,
   onSelect,
 }: {
   accessibilityLabel: string;
   disabled: boolean;
+  interactionLocked?: boolean;
   options: Array<SettingsSegmentedOption<Value>>;
   value: Value;
   onSelect: (value: Value) => void;
 }) {
   const { scheme, tokens } = useNemuTheme();
+  const screenReaderEnabled = useScreenReaderEnabled();
+  const interactionBlocked = disabled || interactionLocked;
+  const [optimisticValue, setOptimisticValue] = useState<Value | null>(null);
+  const displayedValue = optimisticValue ?? value;
   const selectedIndex = Math.max(
     0,
-    options.findIndex((option) => option.value === value),
+    options.findIndex((option) => option.value === displayedValue),
   );
   const selectValue = (nextValue: Value) => {
-    if (disabled || nextValue === value) return;
+    if (interactionBlocked || nextValue === displayedValue) return;
+    // Preserve the native control's new selection while the async settings
+    // mutation catches up. Otherwise an intermediate render can briefly feed
+    // the old controlled value back into SwiftUI and make the thumb flash.
+    setOptimisticValue(nextValue);
+    requestAnimationFrame(() => {
+      setOptimisticValue((current) =>
+        current === nextValue ? null : current,
+      );
+    });
     void hapticSelection();
     onSelect(nextValue);
   };
@@ -1025,7 +950,7 @@ function SettingsSegmentedPicker<Value extends string>({
               tint(tokens.primary),
               ...(disabled ? [swiftDisabled(true)] : []),
             ]}
-            selection={value}
+            selection={displayedValue}
             onSelectionChange={(nextValue) => {
               const nextOption = options.find(
                 (option) => option.value === nextValue,
@@ -1041,18 +966,29 @@ function SettingsSegmentedPicker<Value extends string>({
             ))}
           </SwiftPicker>
         </SwiftHost>
-        <View style={styles.nativeSegmentedAccessibilityOverlay}>
+        <View
+          // Let the SwiftUI picker own ordinary touches so UISegmentedControl
+          // can run its native selection transition. VoiceOver still receives
+          // the individually-labelled React Native tabs used by this overlay.
+          // While the current value is being persisted, the overlay also
+          // blocks repeat taps without visually disabling and redrawing the
+          // native picker midway through its selection animation.
+          pointerEvents={
+            screenReaderEnabled || interactionLocked ? "auto" : "none"
+          }
+          style={styles.nativeSegmentedAccessibilityOverlay}
+        >
           {options.map((option) => (
             <NemuPressable
               key={option.value}
               accessibilityLabel={option.label}
               accessibilityRole="tab"
               accessibilityState={{
-                disabled,
-                selected: option.value === value,
+                disabled: interactionBlocked,
+                selected: option.value === displayedValue,
               }}
               containerStyle={styles.nativeSegmentedAccessibilityOption}
-              disabled={disabled}
+              disabled={interactionBlocked}
               hapticFeedback="none"
               hitSlop={0}
               pressedScale={1}
@@ -1070,7 +1006,7 @@ function SettingsSegmentedPicker<Value extends string>({
   return (
     <SegmentedControl
       appearance={scheme}
-      enabled={!disabled}
+      enabled={!interactionBlocked}
       selectedIndex={selectedIndex}
       style={styles.nativeSegmented}
       testID={accessibilityLabel}
@@ -1113,19 +1049,19 @@ function SettingsMenuRow({
           <Ionicons name={icon} size={19} color={tokens.primary} />
         </View>
         <View style={styles.menuText}>
-          <Text
+          <NemuText
             maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
             style={[styles.menuTitle, { color: tokens.foreground }]}
           >
             {title}
-          </Text>
-          <Text
+          </NemuText>
+          <NemuText
             maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
             numberOfLines={2}
             style={[styles.menuSubtitle, { color: tokens.mutedForeground }]}
           >
             {subtitle}
-          </Text>
+          </NemuText>
         </View>
         <Ionicons
           name="chevron-forward-outline"
@@ -1137,6 +1073,105 @@ function SettingsMenuRow({
   );
 }
 
+/**
+ * Same geometry as `DataActionRow`: a bordered row with the copy on the left
+ * and the trailing control on the right, no leading icon frame.
+ */
+function FeedbackSettingRow({
+  title,
+  subtitle,
+  value,
+  onToggle,
+}: {
+  title: string;
+  subtitle: string;
+  value: boolean;
+  onToggle: (nextValue: boolean) => void;
+}) {
+  const { tokens } = useNemuTheme();
+
+  return (
+    <View style={[styles.dataAction, { borderColor: tokens.border }]}>
+      <View style={styles.dataActionText}>
+        <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
+          {title}
+        </NemuText>
+        <NemuText
+          style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
+        >
+          {subtitle}
+        </NemuText>
+      </View>
+      <NemuNativeSwitch
+        accessibilityLabel={title}
+        value={value}
+        onValueChange={(nextValue) => {
+          void hapticSelection();
+          onToggle(nextValue);
+        }}
+      />
+    </View>
+  );
+}
+
+/**
+ * Haptics and the chapter-completion cue used to float as two unparented rows
+ * on the settings landing page. They now live inside the reader section under
+ * a titled card so every landing row belongs to a group, and the rows reuse
+ * the data-management row geometry so both sections read the same.
+ */
+function MobileFeedbackSettingsCard() {
+  const { tokens } = useNemuTheme();
+  const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
+  const {
+    hapticsFeedbackEnabled,
+    chapterCompleteCelebration,
+    setHapticsFeedbackEnabled,
+    setChapterCompleteCelebration,
+  } = useMobileFeedbackSettings();
+
+  return (
+    <SettingsSurface
+      style={styles.rowShell}
+      contentStyle={styles.dataManagementCard}
+    >
+      <View style={styles.readerHeader}>
+        <View style={styles.iconFrame}>
+          <Ionicons name="sparkles-outline" size={20} color={tokens.primary} />
+        </View>
+        <View style={styles.rowText}>
+          <NemuText style={[styles.rowTitle, { color: tokens.foreground }]}>
+            {strings.settings.feedbackSection}
+          </NemuText>
+          <NemuText
+            style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}
+          >
+            {strings.settings.feedbackSectionDescription}
+          </NemuText>
+        </View>
+      </View>
+      <View style={styles.dataActions} testID="FeedbackSettingsCard">
+        <FeedbackSettingRow
+          title={strings.feedback.hapticsFeedback}
+          subtitle={strings.feedback.hapticsFeedbackHint}
+          value={hapticsFeedbackEnabled}
+          onToggle={(nextValue) => {
+            void setHapticsFeedbackEnabled(nextValue);
+          }}
+        />
+        <FeedbackSettingRow
+          title={strings.feedback.chapterCompleteFeedback}
+          subtitle={strings.feedback.chapterCompleteFeedbackHint}
+          value={chapterCompleteCelebration}
+          onToggle={(nextValue) => {
+            void setChapterCompleteCelebration(nextValue);
+          }}
+        />
+      </View>
+    </SettingsSurface>
+  );
+}
+
 function SegmentedSetting<Value extends string>({
   title,
   subtitle,
@@ -1144,6 +1179,7 @@ function SegmentedSetting<Value extends string>({
   value,
   onSelect,
   disabled = false,
+  interactionLocked = false,
 }: {
   title: string;
   subtitle: string;
@@ -1151,25 +1187,27 @@ function SegmentedSetting<Value extends string>({
   value: Value;
   onSelect: (value: Value) => void;
   disabled?: boolean;
+  interactionLocked?: boolean;
 }) {
   const { tokens } = useNemuTheme();
 
   return (
     <View style={styles.settingBlock}>
       <View style={styles.settingCopy}>
-        <Text style={[styles.settingTitle, { color: tokens.foreground }]}>
+        <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
           {title}
-        </Text>
-        <Text
+        </NemuText>
+        <NemuText
           style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
         >
           {subtitle}
-        </Text>
+        </NemuText>
       </View>
       <View style={styles.nativeSegmentedShell}>
         <SettingsSegmentedPicker
           accessibilityLabel={title}
           disabled={disabled}
+          interactionLocked={interactionLocked}
           options={options}
           value={value}
           onSelect={onSelect}
@@ -1199,47 +1237,31 @@ function DataActionRow({
   onPress: () => void;
 }) {
   const { tokens } = useNemuTheme();
-  const actionColor = destructive ? tokens.danger : tokens.primary;
 
   return (
     <View style={[styles.dataAction, { borderColor: tokens.border }]}>
       <View style={styles.dataActionText}>
-        <Text style={[styles.settingTitle, { color: tokens.foreground }]}>
+        <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
           {title}
-        </Text>
-        <Text
+        </NemuText>
+        <NemuText
           style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
         >
           {subtitle}
-        </Text>
+        </NemuText>
       </View>
-      <NemuPressable
-        accessibilityRole="button"
+      <NemuButton
         accessibilityLabel={title}
-        accessibilityState={{ disabled }}
+        accessibilityState={{ disabled, busy: busy || undefined }}
+        containerStyle={styles.dataActionButton}
         disabled={disabled}
+        icon={icon}
+        label={actionLabel}
+        loading={busy}
         onPress={onPress}
-        pressedScale={0.96}
-        style={[
-          styles.dataActionButton,
-          {
-            backgroundColor: tokens.background,
-            borderColor: tokens.border,
-            opacity: disabled ? 0.68 : 1,
-          },
-        ]}
-      >
-        {busy ? (
-          <ActivityIndicator size="small" color={actionColor} />
-        ) : (
-          <>
-            <Ionicons name={icon} size={14} color={actionColor} />
-            <Text style={[styles.dataActionButtonText, { color: actionColor }]}>
-              {actionLabel}
-            </Text>
-          </>
-        )}
-      </NemuPressable>
+        size="sm"
+        variant={destructive ? "destructive" : "outline"}
+      />
     </View>
   );
 }
@@ -1269,16 +1291,16 @@ function AboutSettingsRow({
             color={tokens.mutedForeground}
           />
         </View>
-        <Text
+        <NemuText
           maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
           style={[styles.aboutTitle, { color: tokens.foreground }]}
         >
           {strings.settings.aboutNemuBeforeBrand}
-          <Text style={[nemuBrandTextStyle, { color: tokens.primary }]}>
+          <NemuText style={[nemuBrandTextStyle, { color: tokens.primary }]}>
             nemu
-          </Text>
+          </NemuText>
           {strings.settings.aboutNemuAfterBrand}
-        </Text>
+        </NemuText>
         <Ionicons
           name="chevron-forward-outline"
           size={17}
@@ -1321,7 +1343,12 @@ export function SettingsScreen({
   const readerPlugins = useMobileReaderPlugins();
   const store = useMobileDataStore();
   const sources = useInstalledSources();
-  const availableSources = useAvailableSources();
+  // Registry discovery only feeds the Sources section. Mounting it from the
+  // settings root (or Reader/Appearance/Data) would start a catalog download
+  // and a silent source auto-update pass no visible row can use.
+  const availableSources = useAvailableSources({
+    enabled: section === "sources",
+  });
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null);
   const [removingSourceId, setRemovingSourceId] = useState<string | null>(null);
@@ -1338,6 +1365,13 @@ export function SettingsScreen({
   const [confirmation, setConfirmation] = useState<SettingsConfirmation | null>(
     null,
   );
+  const [confirmationVisible, setConfirmationVisible] = useState(false);
+  const confirmationVisibleRef = useRef(false);
+  const [sourceSettingsSheetVisible, setSourceSettingsSheetVisible] =
+    useState(false);
+  const queuedSourceConfirmationRef =
+    useRef<SourceSettingsConfirmation | null>(null);
+  const reopenSourceSettingsAfterConfirmationRef = useRef(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [clearCloudData, setClearCloudData] = useState(false);
@@ -1363,6 +1397,12 @@ export function SettingsScreen({
       ),
     [availableSources.data, sources.data],
   );
+  // Same catalog join Browse uses, so a record whose stored icon is missing or
+  // relative still paints the catalog artwork here.
+  const sourceIconIndex = useMemo(
+    () => buildMobileSourceIconIndex(availableSources.data),
+    [availableSources.data],
+  );
 
   const selectedSource = useMemo(() => {
     if (!selectedSourceId) return null;
@@ -1370,6 +1410,80 @@ export function SettingsScreen({
       displayedSources.find((source) => source.id === selectedSourceId) ?? null
     );
   }, [displayedSources, selectedSourceId]);
+
+  const openSourceSettings = useCallback((sourceId: string) => {
+    queuedSourceConfirmationRef.current = null;
+    setOperationError(null);
+    setSelectedSourceId(sourceId);
+    setSourceSettingsSheetVisible(true);
+  }, []);
+
+  const presentSettingsConfirmation = useCallback((next: SettingsConfirmation) => {
+    reopenSourceSettingsAfterConfirmationRef.current = false;
+    confirmationVisibleRef.current = true;
+    setConfirmation(next);
+    setConfirmationVisible(true);
+  }, []);
+
+  const queueSourceSettingsConfirmation = useCallback(
+    (next: SourceSettingsConfirmation) => {
+      const queued = resolveMobileFirstQueuedSheetHandoff({
+        current: queuedSourceConfirmationRef.current,
+        next,
+      });
+      if (!queued.accepted) return false;
+      queuedSourceConfirmationRef.current = queued.queued;
+      setSourceSettingsSheetVisible(false);
+      return true;
+    },
+    [],
+  );
+
+  const dismissSettingsConfirmation = useCallback((reopenSourceSettings = false) => {
+    if (!confirmationVisibleRef.current) return;
+    confirmationVisibleRef.current = false;
+    reopenSourceSettingsAfterConfirmationRef.current =
+      reopenSourceSettingsAfterConfirmationRef.current || reopenSourceSettings;
+    setConfirmationVisible(false);
+  }, []);
+
+  const handleSourceSettingsDismiss = useCallback(() => {
+    const queuedConfirmation = queuedSourceConfirmationRef.current;
+    queuedSourceConfirmationRef.current = null;
+    if (
+      resolveMobileSourceSettingsPostDismissAction(
+        queuedConfirmation !== null,
+      ) === "present-confirmation" &&
+      queuedConfirmation
+    ) {
+      presentSettingsConfirmation(queuedConfirmation);
+      return;
+    }
+    setSelectedSourceId(null);
+    setOperationError(null);
+  }, [presentSettingsConfirmation]);
+
+  const handleConfirmationDismiss = useCallback(() => {
+    const dismissedConfirmation = confirmation;
+    const reopenSourceSettings =
+      reopenSourceSettingsAfterConfirmationRef.current &&
+      shouldReopenMobileSourceSettingsAfterConfirmation({
+        activeSection,
+        confirmation: dismissedConfirmation,
+        sourceAvailable: selectedSource !== null,
+      });
+    reopenSourceSettingsAfterConfirmationRef.current = false;
+    confirmationVisibleRef.current = false;
+    setConfirmation(null);
+    if (reopenSourceSettings) {
+      setSourceSettingsSheetVisible(true);
+      return;
+    }
+    if (isMobileSourceSettingsConfirmation(dismissedConfirmation)) {
+      setSelectedSourceId(null);
+    }
+  }, [activeSection, confirmation, selectedSource]);
+
   const selectedRuntimeSource = useMemo(
     () => (selectedSource ? normalizeInstalledSource(selectedSource) : null),
     [selectedSource],
@@ -1381,9 +1495,9 @@ export function SettingsScreen({
       (source) => source.id === sourceParam,
     );
     if (!routedSource) return;
-    setSelectedSourceId(routedSource.id);
+    openSourceSettings(routedSource.id);
     router.setParams({ sourceId: undefined });
-  }, [activeSection, displayedSources, sourceParam]);
+  }, [activeSection, displayedSources, openSourceSettings, sourceParam]);
 
   const selectedPlugin = useMemo(() => {
     if (!selectedPluginId) return null;
@@ -1414,9 +1528,16 @@ export function SettingsScreen({
   const [selectedSourceLoginCapabilities, setSelectedSourceLoginCapabilities] =
     useState<MobileSourceLoginCapabilities | null>(null);
 
+  const probedLoginSourceRef = useRef(selectedRuntimeSource);
   useEffect(() => {
     let active = true;
-    setSelectedSourceLoginCapabilities(null);
+    // Only a different source starts from an unknown login state. Re-probing
+    // after a setting toggle keeps the current answer visible until the new
+    // one arrives instead of blanking the login row on every write.
+    if (probedLoginSourceRef.current !== selectedRuntimeSource) {
+      probedLoginSourceRef.current = selectedRuntimeSource;
+      setSelectedSourceLoginCapabilities(null);
+    }
     if (!selectedRuntimeSource || selectedSourceSettings.loading) {
       return () => {
         active = false;
@@ -1882,7 +2003,7 @@ export function SettingsScreen({
           return;
         }
         await reloadSelectedSourceSettingScopes(setting);
-        setConfirmation(null);
+        dismissSettingsConfirmation(true);
         await hapticConfirm();
       },
     );
@@ -1916,8 +2037,12 @@ export function SettingsScreen({
     }
     if (decision.kind !== "run-button") return;
     if (decision.confirmation) {
+      if (
+        !queueSourceSettingsConfirmation({ type: "source-button", setting })
+      ) {
+        return;
+      }
       setOperationError(null);
-      setConfirmation({ type: "source-button", setting });
       return;
     }
     void runSelectedSourceButton(setting);
@@ -1940,7 +2065,7 @@ export function SettingsScreen({
             clearSandbox: clearMobileAidokuSandboxDataForSource,
             persistSettings: selectedSourceSettings.setSettings,
           });
-          setConfirmation(null);
+          dismissSettingsConfirmation(true);
           await reloadSelectedSourceSettingScopes(setting);
           await hapticConfirm();
         } catch {
@@ -2046,9 +2171,12 @@ export function SettingsScreen({
           makeMobileRuntimeSourceKey(normalizeInstalledSource(installedSource)),
         );
         emitMobileDataChanged("registries");
-        emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
+        emitMobileSettingsDataChanged({
+          sourceSettingsChanged: true,
+          installedSourcesChanged: true,
+        });
         await sources.reload();
-        setSelectedSourceId(installedSource.id);
+        openSourceSettings(installedSource.id);
         await hapticConfirm();
       } catch (error) {
         await reportSettingsError(error);
@@ -2075,17 +2203,27 @@ export function SettingsScreen({
       await removeMobileSourceAfterSettingsCleanup({
         settingsKeys: getMobileInstalledSourceSettingsKeys(source),
         resetSourceSettings: (key) => store.resetSourceSettings(key),
+        clearSourceDetailCache: () =>
+          clearMobileSourceDetailCacheForSource(
+            makeMobileRuntimeSourceKey(normalizeInstalledSource(source)),
+          ),
         removeInstalledSource: () =>
           store.removeInstalledSource(source.id, source.registryId),
       });
-      emitMobileSettingsDataChanged({ sourceSettingsChanged: true });
-      if (selectedSourceId === source.id) setSelectedSourceId(null);
+      emitMobileSettingsDataChanged({
+          sourceSettingsChanged: true,
+          installedSourcesChanged: true,
+        });
+      if (selectedSourceId === source.id) {
+        setSourceSettingsSheetVisible(false);
+        setSelectedSourceId(null);
+      }
       await sources.reload();
       if (
         getMobileSettingsMutationResultAction({ succeeded: true }) ===
         "close-confirmation"
       ) {
-        setConfirmation(null);
+        dismissSettingsConfirmation();
       }
       await hapticConfirm();
     } catch (error) {
@@ -2093,7 +2231,7 @@ export function SettingsScreen({
         getMobileSettingsMutationResultAction({ succeeded: false }) ===
         "close-confirmation"
       ) {
-        setConfirmation(null);
+        dismissSettingsConfirmation();
       }
       await reportSettingsError(error);
     } finally {
@@ -2126,7 +2264,7 @@ export function SettingsScreen({
   const confirmRemoveSource = (source: InstalledSource) => {
     if (!canStartMobileSettingsAction(getGuardedSettingsActionState())) return;
     setOperationError(null);
-    setConfirmation({
+    presentSettingsConfirmation({
       type: "uninstall-source",
       source,
       name: sourceName(source),
@@ -2145,7 +2283,7 @@ export function SettingsScreen({
         getMobileSettingsMutationResultAction({ succeeded: true }) ===
         "close-confirmation"
       ) {
-        setConfirmation(null);
+        dismissSettingsConfirmation();
       }
       await hapticConfirm();
     } catch (error) {
@@ -2153,7 +2291,7 @@ export function SettingsScreen({
         getMobileSettingsMutationResultAction({ succeeded: false }) ===
         "close-confirmation"
       ) {
-        setConfirmation(null);
+        dismissSettingsConfirmation();
       }
       await reportSettingsError(error);
     } finally {
@@ -2173,6 +2311,7 @@ export function SettingsScreen({
       await dataManagement.clearAllData({
         clearCloud: clearCloudData,
       });
+      setSourceSettingsSheetVisible(false);
       setSelectedSourceId(null);
       setSelectedPluginId(null);
       setClearCloudData(false);
@@ -2184,7 +2323,7 @@ export function SettingsScreen({
         getMobileSettingsMutationResultAction({ succeeded: true }) ===
         "close-confirmation"
       ) {
-        setConfirmation(null);
+        dismissSettingsConfirmation();
       }
       await hapticConfirm();
     } catch (error) {
@@ -2192,7 +2331,7 @@ export function SettingsScreen({
         getMobileSettingsMutationResultAction({ succeeded: false }) ===
         "close-confirmation"
       ) {
-        setConfirmation(null);
+        dismissSettingsConfirmation();
       }
       await reportSettingsError(error);
     } finally {
@@ -2206,14 +2345,14 @@ export function SettingsScreen({
   const confirmClearCache = () => {
     if (!canStartMobileSettingsAction(getGuardedSettingsActionState())) return;
     setOperationError(null);
-    setConfirmation({ type: "clear-cache" });
+    presentSettingsConfirmation({ type: "clear-cache" });
   };
 
   const confirmClearAllData = () => {
     if (!canStartMobileSettingsAction(getGuardedSettingsActionState())) return;
     setOperationError(null);
     setClearCloudData(false);
-    setConfirmation({ type: "clear-all-data" });
+    presentSettingsConfirmation({ type: "clear-all-data" });
   };
 
   const runConfirmedAction = () => {
@@ -2307,7 +2446,9 @@ export function SettingsScreen({
                     <SettingsMenuRow
                       icon="book-outline"
                       title={strings.reader.title}
-                      subtitle={strings.reader.description}
+                      subtitle={
+                        strings.settings.readerDescriptionWithFeedback
+                      }
                       disabled={settingsActionBusy}
                       onPress={() => router.push(settingsSectionHref("reader"))}
                     />
@@ -2359,28 +2500,34 @@ export function SettingsScreen({
                         />
                       </View>
                       <View style={styles.rowText}>
-                        <Text
+                        <NemuText
                           style={[
                             styles.rowTitle,
                             { color: tokens.foreground },
                           ]}
                         >
                           {strings.reader.title}
-                        </Text>
-                        <Text
+                        </NemuText>
+                        <NemuText
                           style={[
                             styles.rowSubtitle,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.reader.description}
-                        </Text>
+                        </NemuText>
                       </View>
                     </View>
                     <View style={styles.nativeSegmentedShell}>
                       <SettingsSegmentedPicker
                         accessibilityLabel={strings.reader.title}
-                        disabled={settingsActionBusy}
+                        disabled={
+                          settingsActionBusy &&
+                          settingsMutationKey !== "reading-mode"
+                        }
+                        interactionLocked={
+                          settingsMutationKey === "reading-mode"
+                        }
                         options={readingModes.map((item) => ({
                           value: item.mode,
                           label: strings.reader[item.labelKey],
@@ -2414,22 +2561,22 @@ export function SettingsScreen({
                         />
                       </View>
                       <View style={styles.rowText}>
-                        <Text
+                        <NemuText
                           style={[
                             styles.rowTitle,
                             { color: tokens.foreground },
                           ]}
                         >
                           {strings.settings.plugins}
-                        </Text>
-                        <Text
+                        </NemuText>
+                        <NemuText
                           style={[
                             styles.rowSubtitle,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.pluginsDescription}
-                        </Text>
+                        </NemuText>
                       </View>
                     </View>
                     {readerPlugins.error ? (
@@ -2439,7 +2586,7 @@ export function SettingsScreen({
                           size={22}
                           color={tokens.danger}
                         />
-                        <Text
+                        <NemuText
                           style={[
                             styles.emptyText,
                             { color: tokens.mutedForeground },
@@ -2449,9 +2596,8 @@ export function SettingsScreen({
                             readerPlugins.error,
                             strings.settings.settingsActionFailedDetail,
                           )}
-                        </Text>
-                        <NemuPressable
-                          accessibilityRole="button"
+                        </NemuText>
+                        <NemuButton
                           accessibilityLabel={strings.common.retry}
                           accessibilityState={{
                             disabled: !canRetryReaderPluginsError,
@@ -2461,28 +2607,12 @@ export function SettingsScreen({
                           hapticFeedback={
                             canRetryReaderPluginsError ? "press" : "none"
                           }
+                          icon="refresh-outline"
+                          loading={retryingReaderPlugins}
                           onPress={retryReaderPlugins}
-                          style={[
-                            styles.iconButton,
-                            {
-                              backgroundColor: tokens.muted,
-                              opacity: canRetryReaderPluginsError ? 1 : 0.58,
-                            },
-                          ]}
-                        >
-                          {retryingReaderPlugins ? (
-                            <ActivityIndicator
-                              size="small"
-                              color={tokens.primary}
-                            />
-                          ) : (
-                            <Ionicons
-                              name="refresh-outline"
-                              size={17}
-                              color={tokens.primary}
-                            />
-                          )}
-                        </NemuPressable>
+                          size="icon-sm"
+                          variant="secondary"
+                        />
                       </View>
                     ) : readerPlugins.loading && !readerPlugins.data.length ? (
                       <View style={styles.emptyRow}>
@@ -2490,14 +2620,14 @@ export function SettingsScreen({
                           size="small"
                           color={tokens.primary}
                         />
-                        <Text
+                        <NemuText
                           style={[
                             styles.emptyText,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.loadingReaderPlugins}
-                        </Text>
+                        </NemuText>
                       </View>
                     ) : (
                       <View style={styles.pluginEmbeddedList}>
@@ -2507,7 +2637,10 @@ export function SettingsScreen({
                             plugin={plugin}
                             strings={strings}
                             selected={selectedPluginId === plugin.id}
-                            disabled={settingsActionBusy}
+                            disabled={
+                              settingsMutationKey ===
+                              `reader-plugin:${plugin.id}`
+                            }
                             embedded
                             onSelect={() => {
                               if (settingsActionBusy) return;
@@ -2521,6 +2654,8 @@ export function SettingsScreen({
                       </View>
                     )}
                   </SettingsSurface>
+
+                  <MobileFeedbackSettingsCard />
                 </>
               ) : null}
 
@@ -2538,19 +2673,19 @@ export function SettingsScreen({
                       />
                     </View>
                     <View style={styles.rowText}>
-                      <Text
+                      <NemuText
                         style={[styles.rowTitle, { color: tokens.foreground }]}
                       >
                         {strings.settings.appearance}
-                      </Text>
-                      <Text
+                      </NemuText>
+                      <NemuText
                         style={[
                           styles.rowSubtitle,
                           { color: tokens.mutedForeground },
                         ]}
                       >
                         {strings.settings.appearanceDescription}
-                      </Text>
+                      </NemuText>
                     </View>
                   </View>
                   <SegmentedSetting
@@ -2558,7 +2693,13 @@ export function SettingsScreen({
                     subtitle={strings.settings.languageDescription}
                     options={appLanguageOptions}
                     value={appLanguage}
-                    disabled={settingsActionBusy}
+                    disabled={
+                      settingsActionBusy &&
+                      settingsMutationKey !== "app-language"
+                    }
+                    interactionLocked={
+                      settingsMutationKey === "app-language"
+                    }
                     onSelect={(value) => {
                       void selectAppLanguage(value);
                     }}
@@ -2568,7 +2709,10 @@ export function SettingsScreen({
                     subtitle={strings.settings.themeDescription}
                     options={themeOptions}
                     value={themePreference}
-                    disabled={settingsActionBusy}
+                    disabled={
+                      settingsActionBusy && settingsMutationKey !== "theme"
+                    }
+                    interactionLocked={settingsMutationKey === "theme"}
                     onSelect={(value) => {
                       void selectThemePreference(value);
                     }}
@@ -2578,7 +2722,13 @@ export function SettingsScreen({
                     subtitle={metadataLanguageSubtitle}
                     options={metadataLanguageOptions}
                     value={metadataLanguagePreference}
-                    disabled={settingsActionBusy}
+                    disabled={
+                      settingsActionBusy &&
+                      settingsMutationKey !== "metadata-language"
+                    }
+                    interactionLocked={
+                      settingsMutationKey === "metadata-language"
+                    }
                     onSelect={(value) => {
                       void selectMetadataLanguagePreference(value);
                     }}
@@ -2601,38 +2751,24 @@ export function SettingsScreen({
                         />
                       </View>
                       <View style={styles.rowText}>
-                        <Text
+                        <NemuText
                           style={[
                             styles.rowTitle,
                             { color: tokens.foreground },
                           ]}
                         >
                           {strings.settings.installedSources}
-                        </Text>
-                        <Text
+                        </NemuText>
+                        <NemuText
                           style={[
                             styles.rowSubtitle,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.installedSourcesDescription}
-                        </Text>
+                        </NemuText>
                       </View>
                       <View style={styles.sourceHeaderActions}>
-                        <NemuButton
-                          accessibilityLabel={strings.settings.importSource}
-                          disabled={settingsActionBusy}
-                          icon="document-attach-outline"
-                          label={
-                            importingSource
-                              ? strings.settings.importingSource
-                              : strings.settings.importSource
-                          }
-                          loading={importingSource}
-                          onPress={importSourcePackage}
-                          size="sm"
-                          variant="secondary"
-                        />
                         <NemuButton
                           accessibilityLabel={strings.settings.addSource}
                           disabled={settingsActionBusy}
@@ -2653,14 +2789,14 @@ export function SettingsScreen({
                           size="small"
                           color={tokens.primary}
                         />
-                        <Text
+                        <NemuText
                           style={[
                             styles.emptyText,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.loading}
-                        </Text>
+                        </NemuText>
                       </View>
                     ) : sources.error ? (
                       <View style={styles.emptyRow}>
@@ -2669,7 +2805,7 @@ export function SettingsScreen({
                           size={22}
                           color={tokens.danger}
                         />
-                        <Text
+                        <NemuText
                           style={[
                             styles.emptyText,
                             { color: tokens.mutedForeground },
@@ -2679,9 +2815,8 @@ export function SettingsScreen({
                             sources.error,
                             strings.browse.sourcesUnavailable,
                           )}
-                        </Text>
-                        <NemuPressable
-                          accessibilityRole="button"
+                        </NemuText>
+                        <NemuButton
                           accessibilityLabel={strings.common.retry}
                           accessibilityState={{
                             disabled: !canRetryInstalledSourcesError,
@@ -2691,28 +2826,12 @@ export function SettingsScreen({
                           hapticFeedback={
                             canRetryInstalledSourcesError ? "press" : "none"
                           }
+                          icon="refresh-outline"
+                          loading={retryingInstalledSources}
                           onPress={retryInstalledSources}
-                          style={[
-                            styles.iconButton,
-                            {
-                              backgroundColor: tokens.muted,
-                              opacity: canRetryInstalledSourcesError ? 1 : 0.58,
-                            },
-                          ]}
-                        >
-                          {retryingInstalledSources ? (
-                            <ActivityIndicator
-                              size="small"
-                              color={tokens.primary}
-                            />
-                          ) : (
-                            <Ionicons
-                              name="refresh-outline"
-                              size={17}
-                              color={tokens.primary}
-                            />
-                          )}
-                        </NemuPressable>
+                          size="icon-sm"
+                          variant="secondary"
+                        />
                       </View>
                     ) : displayedSources.length ? (
                       <View style={styles.sourceList}>
@@ -2720,12 +2839,16 @@ export function SettingsScreen({
                           <SourceManagementRow
                             key={source.id}
                             source={source}
+                            iconUri={resolveMobileInstalledSourceIconUri(
+                              source,
+                              sourceIconIndex,
+                            )}
                             strings={strings}
                             removing={removingSourceId === source.id}
                             disabled={settingsActionBusy}
                             onSettings={() => {
                               if (settingsActionBusy) return;
-                              setSelectedSourceId(source.id);
+                              openSourceSettings(source.id);
                             }}
                             onBrowse={() => openSource(source)}
                             onRemove={() => confirmRemoveSource(source)}
@@ -2739,22 +2862,83 @@ export function SettingsScreen({
                           size={22}
                           color={tokens.mutedForeground}
                         />
-                        <Text
+                        <NemuText
                           style={[
                             styles.emptyText,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.noSourceManagement}
-                        </Text>
+                        </NemuText>
                       </View>
                     )}
+                  </SettingsSurface>
+                  {/*
+                    AIX import is a separate, deliberate flow rather than a
+                    second header pill competing with Add: it opens the system
+                    file picker and installs from local storage.
+                  */}
+                  <SettingsSurface
+                    style={styles.sourceSectionShell}
+                    contentStyle={styles.importSourceCard}
+                  >
+                    <View style={styles.readerHeader}>
+                      <View style={styles.iconFrame}>
+                        <Ionicons
+                          name="document-attach-outline"
+                          size={20}
+                          color={tokens.primary}
+                        />
+                      </View>
+                      <View style={styles.rowText}>
+                        <NemuText
+                          style={[
+                            styles.rowTitle,
+                            { color: tokens.foreground },
+                          ]}
+                        >
+                          {strings.settings.importSourceCardTitle}
+                        </NemuText>
+                        <NemuText
+                          style={[
+                            styles.rowSubtitle,
+                            { color: tokens.mutedForeground },
+                          ]}
+                        >
+                          {strings.settings.importSourceCardDescription}
+                        </NemuText>
+                      </View>
+                    </View>
+                    <NemuButton
+                      accessibilityLabel={strings.settings.importSource}
+                      containerStyle={styles.importSourceAction}
+                      disabled={settingsActionBusy}
+                      icon="document-attach-outline"
+                      label={
+                        importingSource
+                          ? strings.settings.importingSource
+                          : strings.settings.importSourceChooseFile
+                      }
+                      loading={importingSource}
+                      onPress={importSourcePackage}
+                      size="lg"
+                      style={styles.importSourceButton}
+                      variant="outline"
+                    />
                   </SettingsSurface>
                 </>
               ) : null}
 
               {activeSection === "data" ? (
                 <>
+                  <MobileStorageBreakdown
+                    clearAllBusy={
+                      pendingClearMode === "cache" ||
+                      dataManagement.clearingMode === "cache"
+                    }
+                    strings={strings}
+                    onClearAllCache={confirmClearCache}
+                  />
                   <SettingsSurface
                     style={styles.rowShell}
                     contentStyle={styles.dataManagementCard}
@@ -2768,22 +2952,22 @@ export function SettingsScreen({
                         />
                       </View>
                       <View style={styles.rowText}>
-                        <Text
+                        <NemuText
                           style={[
                             styles.rowTitle,
                             { color: tokens.foreground },
                           ]}
                         >
                           {strings.settings.dataManagement}
-                        </Text>
-                        <Text
+                        </NemuText>
+                        <NemuText
                           style={[
                             styles.rowSubtitle,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.dataManagementDescription}
-                        </Text>
+                        </NemuText>
                       </View>
                     </View>
                     <View style={styles.dataActions}>
@@ -2829,7 +3013,7 @@ export function SettingsScreen({
         </View>
         {confirmationDetails ? (
           <MobileConfirmationSheet
-            visible
+            visible={confirmationVisible}
             title={confirmationDetails.title}
             description={confirmationDetails.description}
             subject={confirmationDetails.subject}
@@ -2843,8 +3027,15 @@ export function SettingsScreen({
             destructive={confirmationDetails.destructive}
             onCancel={() => {
               setClearCloudData(false);
-              setConfirmation(null);
+              dismissSettingsConfirmation(
+                shouldReopenMobileSourceSettingsAfterConfirmation({
+                  activeSection,
+                  confirmation,
+                  sourceAvailable: selectedSource !== null,
+                }),
+              );
             }}
+            onDismiss={handleConfirmationDismiss}
             onConfirm={runConfirmedAction}
           >
             {operationError ? (
@@ -2871,8 +3062,14 @@ export function SettingsScreen({
         {selectedSource ? (
           <MobileInstalledSourceSettingsSheet
             source={selectedSource}
+            iconUri={resolveMobileInstalledSourceIconUri(
+              selectedSource,
+              sourceIconIndex,
+            )}
             strings={strings}
-            visible={activeSection === "sources"}
+            visible={
+              activeSection === "sources" && sourceSettingsSheetVisible
+            }
             disabled={settingsActionBusy}
             settings={selectedSourceSchema}
             values={selectedSourceSettings.data}
@@ -2885,16 +3082,8 @@ export function SettingsScreen({
             loginCapabilities={selectedSourceLoginCapabilities}
             retryDisabled={!canRetrySelectedSourceSettingsError}
             retrying={retryingSelectedSourceSettings}
-            onClose={() => {
-              setSelectedSourceId(null);
-              setOperationError(null);
-              setConfirmation((current) =>
-                current?.type === "source-logout" ||
-                current?.type === "source-button"
-                  ? null
-                  : current,
-              );
-            }}
+            onClose={() => setSourceSettingsSheetVisible(false)}
+            onDismiss={handleSourceSettingsDismiss}
             onRetry={retrySelectedSourceSettings}
             onReset={() => {
               if (!selectedSourceKey || !selectedRuntimeSource) return;
@@ -2918,8 +3107,15 @@ export function SettingsScreen({
             onAction={handleSelectedSourceAction}
             onLogin={loginToSelectedSource}
             onLogout={(setting) => {
+              if (
+                !queueSourceSettingsConfirmation({
+                  type: "source-logout",
+                  setting,
+                })
+              ) {
+                return;
+              }
               setOperationError(null);
-              setConfirmation({ type: "source-logout", setting });
             }}
             onChange={(key, value, setting) => {
               if (!selectedSourceKey) return;
@@ -3151,20 +3347,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   dataActionButton: {
-    minWidth: 74,
-    minHeight: 34,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-  },
-  dataActionButtonText: {
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.medium,
+    minWidth: 92,
   },
   nativeSegmentedShell: {
     minHeight: 34,
@@ -3252,7 +3435,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
+    // Same half trailing inset as the installed-source rows.
+    paddingLeft: 12,
+    paddingRight: 6,
     paddingVertical: 10,
   },
   pluginRowShell: {
@@ -3272,7 +3457,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
+    // The trailing action buttons sit half the leading inset from the row
+    // edge so the gear/trash cluster reads as part of the row, not adrift.
+    paddingLeft: 12,
+    paddingRight: 6,
     paddingVertical: 10,
   },
   sourceMainContainer: {
@@ -3297,8 +3485,10 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   pluginArtwork: {
-    width: 40,
-    height: 40,
+    // One notch under the old 40pt tile so the plugin rows read at the same
+    // scale as the sibling 34pt source icon tiles next to them.
+    width: 34,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -3308,8 +3498,43 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  pluginTitleArtwork: {
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderRadius: radius.sm,
+  },
+  pluginSheetHeader: {
+    alignItems: "center",
+    gap: 4,
+  },
+  pluginSheetTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  pluginSheetTitle: {
+    flexShrink: 1,
+    textAlign: "center",
+  },
+  pluginSheetDescription: {
+    textAlign: "center",
+  },
   disabledMain: {
     opacity: 0.62,
+  },
+  importSourceCard: {
+    gap: 12,
+    padding: 12,
+  },
+  importSourceAction: {
+    alignSelf: "stretch",
+  },
+  importSourceButton: {
+    alignSelf: "stretch",
   },
   pluginActions: {
     minWidth: 92,
@@ -3318,47 +3543,13 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     gap: 6,
   },
-  actionIconButton: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  readerPluginSheet: {
-    gap: 14,
-    paddingTop: 4,
-  },
-  readerPluginSheetHeader: {
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  readerPluginSheetTitleBlock: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  readerPluginSheetTitle: {
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  readerPluginSheetSubtitle: {
-    fontSize: 13,
-    lineHeight: 17,
-  },
-  sourceIcon: {
-    width: 34,
-    height: 34,
+  sourceTitleIcon: {
+    width: 26,
+    height: 26,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    borderRadius: radius.md,
-  },
-  sourceIconImage: {
-    width: "100%",
-    height: "100%",
+    borderRadius: radius.sm,
   },
   sourceText: {
     flex: 1,
@@ -3391,13 +3582,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 6,
-  },
-  iconButton: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
   },
   emptyRow: {
     minHeight: 78,

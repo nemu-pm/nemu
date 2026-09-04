@@ -302,8 +302,8 @@ describe("Android Aidoku sandbox bundle", () => {
       "node_modules/.bin/esbuild",
     );
     try {
-      const result = Bun.spawnSync(
-        [
+      const result = Bun.spawnSync({
+        cmd: [
           esbuildPath,
           entry,
           "--bundle",
@@ -316,10 +316,13 @@ describe("Android Aidoku sandbox bundle", () => {
           "--log-level=silent",
           `--outfile=${outputPath}`,
         ],
-        { cwd: mobileRoot, stderr: "pipe", stdout: "pipe" },
-      );
+        cwd: mobileRoot,
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+      });
 
-      expect(result.exitCode, result.stderr.toString()).toBe(0);
+      expect(result.success).toBe(true);
       expect(readFileSync(outputPath, "utf8")).toBe(
         readFileSync(bundlePath, "utf8"),
       );

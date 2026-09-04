@@ -1,27 +1,39 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stack, router, type Href } from "expo-router";
 import {
+  Linking,
   Platform,
   SectionList,
   StyleSheet,
   Text,
-  TextInput,
   View,
+  useWindowDimensions,
+  type LayoutChangeEvent,
   type SectionListData,
   type SectionListRenderItemInfo,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileBrowseSkeleton } from "@/components/MobileBrowseSkeleton";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
+import { MobileInlineToast } from "@/components/MobileInlineToast";
 import { MobilePageEmpty } from "@/components/MobilePageEmpty";
-import { MobileSourceInstallSheet } from "@/components/MobileSourceInstallSheet";
+import { MobileSourceQuickSettingsSheet } from "@/components/MobileSourceQuickSettingsSheet";
+import {
+  QuickActionSheet,
+  type QuickAction,
+} from "@/components/QuickActionSheet";
+import { useMobileToast } from "@/components/MobileToastContext";
 import {
   NemuButton,
   GlassSurface,
   MobileCachedImage,
   MobileNativeSheetScaffold,
+  NemuNativeSearchField,
+  NemuNativeSheetHeaderAction,
+  NemuNativeSwitch,
   NemuPressable,
   PageHeader,
   PageScaffold,
@@ -42,10 +54,10 @@ import {
   useMobileLanguageSettings,
   useSourceInstaller,
 } from "@/data/mobileHooks";
+import type { AppLanguage, InstalledSource } from "@/data/schema";
 import {
   hapticConfirm,
   hapticError,
-  hapticPress,
   hapticSelection,
 } from "@/lib/haptics";
 import { prefetchCachedMobileImages } from "@/lib/mobileImageCache";
@@ -54,24 +66,42 @@ import {
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
+import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
 import {
   buildMobileInstalledSourceKeySet,
-  canClearMobileBrowseSourceQuery,
   canSelectMobileBrowseAllLanguages,
   canStartMobileSourceInstall,
   filterMobileAvailableSources,
   getMobileAvailableSourceLanguageOptions,
+  getMobileSourceInstallHandoff,
   getMobileSourceInstallResultAction,
+  getMobileSourceQuickActionHandoff,
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
   groupMobileSourcesByLanguage,
   isMobileUnsupportedInstalledSource,
   mergeMobileInstalledSourceRegistryMetadata,
   shouldRenderMobileBrowseSkeleton,
+  shouldReopenMobileAddSourceSheetAfterInstall,
+  type MobileSourceQuickActionId,
 } from "@/lib/mobileBrowseSources";
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
-import { getMobileSourceErrorPresentation } from "@/lib/mobileSourceErrors";
-import { sortSourcesByLanguagePriority } from "@/lib/mobileLanguageSettings";
+import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
+import { normalizeMobileSourceExternalUrl } from "@/lib/mobileSourceExternalUrl";
+import {
+  buildMobileSourceIconIndex,
+  resolveMobileInstalledSourceIconUri,
+} from "@/lib/mobileSourceIconResolution";
+import { findMobileSourceUpdates } from "@/lib/mobileSourceUpdates";
+import {
+  getMobileSourceErrorPresentation,
+  sanitizeMobileErrorDiagnostic,
+  splitMobileInlineErrorDetail,
+} from "@/lib/mobileSourceErrors";
+import {
+  formatMobileLanguageDisplayName,
+  sortSourcesByLanguagePriority,
+} from "@/lib/mobileLanguageSettings";
 import {
   markMobilePerformance,
   measureMobilePerformance,
@@ -80,8 +110,6 @@ import {
   makeSourceKey,
   type MobileRegistrySource,
 } from "@/sources/aidokuRegistry";
-
-const SOURCE_WARNING_COLOR = "#f59e0b";
 
 type BrowseConfirmation = {
   type: "install-warning";
@@ -95,6 +123,25 @@ type SourceActionError = {
 };
 
 type BrowseSheet = "add-source" | "source-language";
+
+type AddSourceDismissAction =
+  | { type: "open-language" }
+  | { type: "open-confirmation"; confirmation: BrowseConfirmation }
+  | { type: "start-install"; source: MobileRegistrySource };
+
+/**
+ * Only one native `@expo/ui` bottom sheet can be presented at a time, so the
+ * quick-action rows queue their destination here and the sheet's post-dismiss
+ * callback performs it. See `getMobileSourceQuickActionHandoff`.
+ */
+type SourceQuickActionDismissAction =
+  | { type: "open-settings" }
+  | { type: "confirm-uninstall"; source: InstalledSource }
+  | { type: "install-update"; source: MobileRegistrySource };
+
+type ConfirmationDismissAction =
+  | { type: "reopen-add-source" }
+  | { type: "start-install"; source: MobileRegistrySource };
 
 type AvailableSourceSection = {
   label: string;
@@ -202,35 +249,18 @@ function formatLanguages(languages?: string[]): string | undefined {
 function formatSourceLanguageLabel(
   language: string,
   strings: MobileStrings,
-  appLanguage: string,
+  appLanguage: AppLanguage,
 ): string {
-  if (language === "other") return strings.browse.otherLanguages;
-  if (language === "multi") return strings.sourceBrowse.multiLanguage;
-
-  try {
-    const displayNamesCtor = (
-      Intl as unknown as {
-        DisplayNames?: new (
-          locales: string[],
-          options: { type: "language" },
-        ) => { of: (code: string) => string | undefined };
-      }
-    ).DisplayNames;
-    const label = displayNamesCtor
-      ? new displayNamesCtor([appLanguage], { type: "language" }).of(language)
-      : undefined;
-    if (label) return label.charAt(0).toUpperCase() + label.slice(1);
-  } catch {
-    // Some native runtimes ship a smaller Intl surface.
-  }
-
-  return language.toUpperCase();
+  return formatMobileLanguageDisplayName(language, appLanguage, {
+    multi: strings.sourceBrowse.multiLanguage,
+    other: strings.browse.otherLanguages,
+  });
 }
 
 function formatLanguageSelectionLabel(
   selectedLanguages: Set<string>,
   strings: MobileStrings,
-  appLanguage: string,
+  appLanguage: AppLanguage,
 ): string {
   if (selectedLanguages.size === 0) return strings.browse.allLanguages;
   if (selectedLanguages.size === 1) {
@@ -254,14 +284,6 @@ function sourceActionErrorPresentation(
   return { title: presentation.title, detail: presentation.detail };
 }
 
-function waitForInstallSheetFrame() {
-  return new Promise<void>((resolve) => {
-    requestAnimationFrame(() => {
-      resolve();
-    });
-  });
-}
-
 function colorWithOpacity(color: string, opacity: number) {
   const hexMatch = /^#([0-9a-f]{6})$/i.exec(color);
   if (!hexMatch) return color;
@@ -272,73 +294,56 @@ function colorWithOpacity(color: string, opacity: number) {
   return `${color}${alpha}`;
 }
 
-function LanguageFilterMenu({
-  languages,
-  selectedLanguages,
-  strings,
-  appLanguage,
-  onOpenLanguageList,
+function formatCatalogCacheAge(savedAt: number | null, appLanguage: string): string | null {
+  if (!savedAt || savedAt > Date.now()) return null;
+  const elapsedMinutes = Math.max(1, Math.round((Date.now() - savedAt) / 60_000));
+  const locale = appLanguage === "zh" ? "zh-CN" : appLanguage === "ja" ? "ja-JP" : "en-US";
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  if (elapsedMinutes < 60) return formatter.format(-elapsedMinutes, "minute");
+  const hours = Math.round(elapsedMinutes / 60);
+  if (hours < 24) return formatter.format(-hours, "hour");
+  return formatter.format(-Math.round(hours / 24), "day");
+}
+
+/**
+ * One removable active filter. Selected chips carry the toolbar-action surface
+ * rather than a flat muted rectangle, so they read as the same primitive as the
+ * chapter toolbar chips.
+ */
+function ActiveFilterChip({
+  label,
+  removeLabel,
+  onPress,
 }: {
-  languages: string[];
-  selectedLanguages: Set<string>;
-  strings: MobileStrings;
-  appLanguage: string;
-  onOpenLanguageList: () => void;
+  label: string;
+  removeLabel: string;
+  onPress: () => void;
 }) {
   const { tokens } = useNemuTheme();
-  const visibleLanguages = languages.filter((language) => language !== "all");
-  if (visibleLanguages.length === 0) return null;
-  const allLanguagesSelected = selectedLanguages.size === 0;
-  const selectedLabel = formatLanguageSelectionLabel(
-    selectedLanguages,
-    strings,
-    appLanguage,
-  );
 
   return (
     <NemuPressable
-      accessibilityLabel={formatMobileString(
-        strings.browse.languageFilterOption,
-        {
-          language: selectedLabel,
-        },
-      )}
+      accessibilityLabel={`${removeLabel} ${label}`}
       accessibilityRole="button"
-      buttonDepth={allLanguagesSelected ? "secondary" : "primary"}
-      onPress={() => {
-        void hapticSelection();
-        onOpenLanguageList();
-      }}
-      pressedScale={0.98}
-      style={styles.languageFallbackButton}
+      accessibilityState={{ selected: true }}
+      hapticFeedback="selection"
+      onPress={onPress}
+      pressedScale={0.97}
+      style={[
+        styles.activeFilterChip,
+        {
+          backgroundColor: tokens.toolbarAction,
+          borderColor: tokens.toolbarActionBorder,
+        },
+      ]}
     >
-      <Ionicons
-        name="language-outline"
-        size={15}
-        color={
-          allLanguagesSelected
-            ? tokens.mutedForeground
-            : tokens.primaryForeground
-        }
-      />
       <Text
         numberOfLines={1}
-        style={[
-          styles.languageFallbackText,
-          {
-            color: allLanguagesSelected
-              ? tokens.foreground
-              : tokens.primaryForeground,
-          },
-        ]}
+        style={[styles.activeFilterChipText, { color: tokens.primary }]}
       >
-        {selectedLabel}
+        {label}
       </Text>
-      <Ionicons
-        name="chevron-down-outline"
-        size={14}
-        color={allLanguagesSelected ? tokens.primary : tokens.primaryForeground}
-      />
+      <Ionicons name="close" size={14} color={tokens.primary} />
     </NemuPressable>
   );
 }
@@ -405,14 +410,19 @@ function LanguageFilterSheetSection({
   appLanguage,
   onSelectAll,
   onToggleLanguage,
+  showAdult,
+  onToggleAdult,
 }: {
   languages: string[];
   selectedLanguages: Set<string>;
   strings: MobileStrings;
-  appLanguage: string;
+  appLanguage: AppLanguage;
   onSelectAll: () => void;
   onToggleLanguage: (language: string) => void;
+  showAdult: boolean;
+  onToggleAdult: () => void;
 }) {
+  const { tokens } = useNemuTheme();
   const visibleLanguages = languages.filter((language) => language !== "all");
   const allLanguagesSelected = selectedLanguages.size === 0;
   const pinnedLanguages = visibleLanguages.filter(
@@ -507,6 +517,55 @@ function LanguageFilterSheetSection({
           })}
         </GlassSurface>
       ) : null}
+      {/*
+        The explicit-content toggle is a settings row, not a language option,
+        so it gets its own card group under the language groups. Every child
+        rides one centre line — fixed-height icon tile, copy block, and the
+        switch in a box as tall as the switch itself — so nothing sits offset
+        or tilted inside the row.
+      */}
+      <GlassSurface
+        style={styles.languageListSection}
+        contentStyle={styles.languageListContent}
+      >
+        <View style={styles.adultToggleRow}>
+          <View
+            style={[
+              styles.adultToggleIcon,
+              { backgroundColor: tokens.sourceIconGlass },
+            ]}
+          >
+            <Ionicons name="eye-outline" size={20} color={tokens.primary} />
+          </View>
+          <View style={styles.adultToggleCopy}>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.adultToggleTitle,
+                { color: tokens.foreground },
+              ]}
+            >
+              {strings.browse.adult}
+            </Text>
+            <Text
+              numberOfLines={2}
+              style={[
+                styles.adultToggleSubtitle,
+                { color: tokens.mutedForeground },
+              ]}
+            >
+              {strings.browse.adultSourcesDescription}
+            </Text>
+          </View>
+          <View style={styles.adultToggleAccessory}>
+            <NemuNativeSwitch
+              accessibilityLabel={strings.browse.adultSourcesSwitch}
+              value={showAdult}
+              onValueChange={onToggleAdult}
+            />
+          </View>
+        </View>
+      </GlassSurface>
     </>
   );
 }
@@ -616,7 +675,7 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
                 <Ionicons
                   name="alert-circle-outline"
                   size={15}
-                  color={SOURCE_WARNING_COLOR}
+                  color={tokens.warning}
                 />
               </View>
             ) : null}
@@ -682,22 +741,57 @@ function AvailableRowSeparator() {
   return <View style={styles.availableRowSeparator} />;
 }
 
-function AvailableSectionSeparator() {
+/**
+ * `SectionList` renders a section separator on both sides of a header. A header
+ * belongs to the rows beneath it, so only the gap that follows the previous
+ * group's last card gets the 18pt of air; the 8pt under the header comes from
+ * the header's own margin. The first header keeps the list's padding only,
+ * because nothing leads it.
+ */
+function AvailableSectionSeparator({
+  leadingItem,
+}: {
+  leadingItem?: MobileRegistrySource;
+}) {
+  if (leadingItem === undefined) return null;
   return <View style={styles.availableSectionSeparator} />;
 }
+
+/**
+ * The Add Sources sheet sizes its iOS detent to its content instead of
+ * parking a blank tail under a short (or filtered) list:
+ *
+ *   scaffold header chrome + the scaffold body's top padding + the sheet's
+ *   own header stack + the measured list content + corner clearance
+ *
+ * The list's own 24pt bottom padding is already inside the measured content,
+ * so the clearance is pure extra tail (~36pt total under the last row) —
+ * enough air above the screen's rounded corners when scrolled to the very
+ * bottom. The detent clamps to `[320, 88%]` of the scaffold's available
+ * height (`windowHeight - insets.top - insets.bottom`, mirroring
+ * `MobileNativeSheetScaffold`); longer catalogs stay at the ceiling and
+ * scroll inside the sheet (`fillContent`).
+ */
+const ADD_SOURCE_SHEET_MAX_DETENT_FRACTION = 0.88;
+const ADD_SOURCE_SHEET_MIN_DETENT = 320;
+const ADD_SOURCE_SHEET_CORNER_CLEARANCE = 12;
 
 export function BrowseScreen() {
   const { tokens } = useNemuTheme();
   const [query, setQuery] = useState("");
   const [showAdult, setShowAdult] = useState(false);
   const [activeSheet, setActiveSheet] = useState<BrowseSheet | null>(null);
-  const [addSourceSheetKey, setAddSourceSheetKey] = useState(0);
+  const [activeSheetVisible, setActiveSheetVisible] = useState(false);
+  const addSourceDismissActionRef = useRef<AddSourceDismissAction | null>(null);
   const [selectedLanguages, setSelectedLanguages] = useState<Set<string>>(
     () => new Set(),
   );
   const [confirmation, setConfirmation] = useState<BrowseConfirmation | null>(
     null,
   );
+  const [confirmationVisible, setConfirmationVisible] = useState(false);
+  const confirmationDismissActionRef =
+    useRef<ConfirmationDismissAction | null>(null);
   const [pendingInstallKey, setPendingInstallKey] = useState<string | null>(
     null,
   );
@@ -712,23 +806,17 @@ export function BrowseScreen() {
   const installed = useInstalledSources();
   const available = useAvailableSources();
   const installer = useSourceInstaller();
+  const toast = useMobileToast();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
+  const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const usesNativeHeader = usesNemuNativeHeader;
 
   const installedKeys = useMemo(
     () => buildMobileInstalledSourceKeySet(installed.data),
     [installed.data],
   );
-
-  const availableByKey = useMemo(() => {
-    return new Map(
-      available.data.map((source) => [
-        makeSourceKey(source.registryId, source.id),
-        source,
-      ]),
-    );
-  }, [available.data]);
 
   const installedSources = useMemo<InstalledSourceCardModel[]>(() => {
     const merged = mergeMobileInstalledSourceRegistryMetadata(
@@ -755,6 +843,152 @@ export function BrowseScreen() {
     () => groupMobileSourcesByLanguage(installedSources, appLanguage),
     [appLanguage, installedSources],
   );
+
+  // Long-press quick actions for an installed source. Kept next to the card
+  // that opens them; a short press still routes into the source.
+  const [quickActionSourceId, setQuickActionSourceId] = useState<string | null>(
+    null,
+  );
+  const [quickActionVisible, setQuickActionVisible] = useState(false);
+  const [quickActionSettingsVisible, setQuickActionSettingsVisible] =
+    useState(false);
+  const [quickActionUninstall, setQuickActionUninstall] =
+    useState<InstalledSource | null>(null);
+  const [quickActionUninstallVisible, setQuickActionUninstallVisible] =
+    useState(false);
+  const [uninstallingSourceId, setUninstallingSourceId] = useState<
+    string | null
+  >(null);
+  const quickActionDismissRef = useRef<SourceQuickActionDismissAction | null>(
+    null,
+  );
+  // `installSource` is declared further down; the quick-action handoff runs
+  // long after this render, so it reaches the latest closure through a ref.
+  const installSourceRef = useRef<
+    ((source: MobileRegistrySource) => Promise<void>) | null
+  >(null);
+  const mergedInstalledSources = useMemo(
+    () =>
+      mergeMobileInstalledSourceRegistryMetadata(installed.data, available.data),
+    [available.data, installed.data],
+  );
+  const quickActionSource = useMemo(
+    () =>
+      quickActionSourceId
+        ? (mergedInstalledSources.find(
+            (source) => source.id === quickActionSourceId,
+          ) ?? null)
+        : null,
+    [mergedInstalledSources, quickActionSourceId],
+  );
+  const quickActionUpdate = useMemo(
+    () =>
+      quickActionSource
+        ? (findMobileSourceUpdates([quickActionSource], available.data)[0] ??
+          null)
+        : null,
+    [available.data, quickActionSource],
+  );
+  const quickActionHomepage = useMemo(() => {
+    for (const url of quickActionSource?.packageMetadata?.urls ?? []) {
+      const normalized = normalizeMobileSourceExternalUrl(url);
+      if (normalized) return normalized;
+    }
+    return null;
+  }, [quickActionSource]);
+  // Passing the raw catalog rebuilt the icon index on every render of this
+  // screen; the same join Settings keeps memoized.
+  const sourceIconIndex = useMemo(
+    () => buildMobileSourceIconIndex(available.data),
+    [available.data],
+  );
+  const quickActionIconUri = quickActionSource
+    ? resolveMobileInstalledSourceIconUri(quickActionSource, sourceIconIndex)
+    : null;
+
+  // `MobileNativeSheetScaffold` fires `onClose` *and then* `onDismiss` from the
+  // same native close. This handler is the `onClose` half, so it must never
+  // touch the queued handoff — clearing it here would wipe the destination one
+  // statement before `handleQuickActionsDismissed` reads it.
+  const closeQuickActions = useCallback(() => {
+    setQuickActionVisible(false);
+  }, []);
+
+  const requestQuickActionDismissal = useCallback(
+    (next: SourceQuickActionDismissAction) => {
+      // Native dismissal is asynchronous. The first accepted tap owns this
+      // visibility cycle so a second row cannot replace its queued destination.
+      if (quickActionDismissRef.current) return;
+      quickActionDismissRef.current = next;
+      setQuickActionVisible(false);
+    },
+    [],
+  );
+
+  const handleQuickActionsDismissed = useCallback(() => {
+    const next = quickActionDismissRef.current;
+    quickActionDismissRef.current = null;
+    if (next?.type === "open-settings") {
+      setQuickActionSettingsVisible(true);
+      return;
+    }
+    if (next?.type === "confirm-uninstall") {
+      setQuickActionUninstall(next.source);
+      setQuickActionUninstallVisible(true);
+      return;
+    }
+    if (next?.type === "install-update") {
+      // The install raises a sticky progress toast, and the toast host sits
+      // under the native sheet; starting it only after the dismissal keeps
+      // that progress visible.
+      const source = next.source;
+      setQuickActionSourceId(null);
+      void installSourceRef.current?.(source);
+      return;
+    }
+    setQuickActionSourceId(null);
+  }, []);
+
+  const runQuickActionUninstall = useCallback(async () => {
+    const source = quickActionUninstall;
+    if (!source || uninstallingSourceId) return;
+    const { registryId, sourceId } = getMobileInstalledSourceRegistryRef(source);
+    setUninstallingSourceId(source.id);
+    try {
+      await installer.uninstallSource({
+        id: sourceId,
+        registryId,
+        registryName: registryId,
+        name: getMobileInstalledSourceName(source),
+        version: source.version,
+      });
+      await installed.reload();
+      setQuickActionUninstallVisible(false);
+      toast.show({
+        id: `source-uninstall:${source.id}`,
+        tone: "info",
+        title: formatMobileString(strings.browse.uninstalledSource, {
+          name: getMobileInstalledSourceName(source),
+        }),
+      });
+      await hapticConfirm();
+    } catch (error) {
+      setQuickActionUninstallVisible(false);
+      setActionError(sourceActionErrorPresentation(error, strings));
+      await hapticError();
+    } finally {
+      setUninstallingSourceId((current) =>
+        current === source.id ? null : current,
+      );
+    }
+  }, [
+    installed,
+    installer,
+    quickActionUninstall,
+    strings,
+    toast,
+    uninstallingSourceId,
+  ]);
 
   const filteredAvailable = useMemo(() => {
     return filterMobileAvailableSources(available.data, {
@@ -786,11 +1020,24 @@ export function BrowseScreen() {
   );
 
   const loading = installed.loading || available.loading;
-  const error = installed.error ?? available.error;
+  // Registry discovery enriches the Add Source sheet, but it must never hide
+  // already-installed sources on the main Browse screen.
+  const error = installed.error;
   const errorPresentation = useMemo(
     () => (error ? getMobileSourceErrorPresentation(error, strings) : null),
     [error, strings],
   );
+  // The presentation `detail` follows the error-copy contract: localized copy
+  // first, sanitized exception text second. The full-page state renders those
+  // as two separate affordances instead of one run-on paragraph.
+  const errorCopy = useMemo(() => {
+    if (!error || !errorPresentation) return null;
+    const split = splitMobileInlineErrorDetail(errorPresentation.detail);
+    return {
+      description: split.description,
+      diagnostic: split.diagnostic ?? sanitizeMobileErrorDiagnostic(error),
+    };
+  }, [error, errorPresentation]);
   const showSkeleton = shouldRenderMobileBrowseSkeleton({
     loading,
     installedCount: installed.data.length,
@@ -798,11 +1045,88 @@ export function BrowseScreen() {
     hasError: Boolean(error),
   });
   const activeInstallKey = pendingInstallKey ?? installer.installingKey;
-  const activeInstallSource = activeInstallKey
-    ? (availableByKey.get(activeInstallKey) ?? null)
-    : null;
-  const activeInstallSourceName = activeInstallSource?.name;
   const refreshDisabled = refreshingSources || activeInstallKey !== null;
+  const catalogCacheAge = formatCatalogCacheAge(
+    available.catalogCachedAt,
+    appLanguage,
+  );
+  const selectedFilterLabel = formatLanguageSelectionLabel(
+    selectedLanguages,
+    strings,
+    appLanguage,
+  );
+  const activeFilterCount = selectedLanguages.size + (showAdult ? 1 : 0);
+
+  // Measured Add Sources sheet detent (iOS). Both inputs come from the
+  // sheet's own layout: the header stack's `onLayout` and the list's
+  // `onContentSizeChange`, which reports natural content height because the
+  // list's content container does not stretch (`availableListContent` opts
+  // out of `flexGrow` for exactly this reason). Until the first measurement
+  // lands, the detent stays at the 88% ceiling so the snap-point prop is
+  // always a one-element numeric array — iOS animates numeric detent changes
+  // in place, but it must never see `undefined` swap in for the array.
+  const [
+    addSourceHeaderStackHeight,
+    setAddSourceHeaderStackHeight,
+  ] = useState(0);
+  const [
+    addSourceListContentHeight,
+    setAddSourceListContentHeight,
+  ] = useState(0);
+  const addSourceSheetSnapPoint = useMemo(() => {
+    const metrics = resolveMobileSheetHeaderMetrics(Platform.OS);
+    const maxDetent = Math.round(
+      ADD_SOURCE_SHEET_MAX_DETENT_FRACTION *
+        (windowHeight - insets.top - insets.bottom),
+    );
+    const measuredDetent =
+      metrics.minimumHeight +
+      metrics.bodyTopPadding +
+      addSourceHeaderStackHeight +
+      addSourceListContentHeight +
+      ADD_SOURCE_SHEET_CORNER_CLEARANCE;
+    const detent =
+      addSourceHeaderStackHeight > 0 && addSourceListContentHeight > 0
+        ? measuredDetent
+        : maxDetent;
+    return Math.min(
+      Math.max(Math.round(detent), ADD_SOURCE_SHEET_MIN_DETENT),
+      maxDetent,
+    );
+  }, [
+    addSourceHeaderStackHeight,
+    addSourceListContentHeight,
+    insets.bottom,
+    insets.top,
+    windowHeight,
+  ]);
+  const handleAddSourceHeaderStackLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+      setAddSourceHeaderStackHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight,
+      );
+    },
+    [],
+  );
+  // A virtualized list re-reports its content height on every render batch,
+  // and each report re-ran the detent memo and re-rendered the sheet. The
+  // detent only needs one number: the first measurement wins and the next
+  // dismissal clears it for the next open.
+  const handleAvailableListContentSizeChange = useCallback(
+    (_contentWidth: number, contentHeight: number) => {
+      const nextHeight = Math.ceil(contentHeight);
+      setAddSourceListContentHeight((currentHeight) =>
+        currentHeight > 0 ? currentHeight : nextHeight,
+      );
+    },
+    [],
+  );
+
+  const restoreAddSourceSheet = useCallback(() => {
+    setActiveSheet("add-source");
+    setActiveSheetVisible(true);
+  }, []);
 
   useEffect(() => {
     if (activeSheet !== "add-source") return;
@@ -851,7 +1175,9 @@ export function BrowseScreen() {
     };
   }, [activeInstallKey, confirmation, strings]);
 
-  const installSource = async (source: MobileRegistrySource) => {
+  const installSource = async (
+    source: MobileRegistrySource,
+  ): Promise<void> => {
     const key = makeSourceKey(source.registryId, source.id);
     const guardedInstallKey =
       installGuardKeyRef.current ?? installer.installingKey;
@@ -860,19 +1186,24 @@ export function BrowseScreen() {
     installGuardKeyRef.current = key;
     setPendingInstallKey(key);
     setActionError(null);
+    const installToastId = `source-install:${key}`;
+    toast.show({
+      id: installToastId,
+      title: formatMobileString(strings.browse.installingSourceDescription, {
+        name: source.name,
+      }),
+      loading: true,
+      duration: "sticky",
+      action: {
+        label: strings.common.cancel,
+        onPress: installer.cancelInstall,
+      },
+    });
     const installStartedAt = markMobilePerformance("source.install.start", {
       key,
       name: source.name,
     });
     try {
-      await waitForInstallSheetFrame();
-      measureMobilePerformance(
-        "source.install.sheet-visible",
-        installStartedAt,
-        {
-          key,
-        },
-      );
       if (source.icon) {
         void prefetchCachedMobileImages([{ uri: source.icon }]);
       }
@@ -895,11 +1226,19 @@ export function BrowseScreen() {
       ) {
         setConfirmation(null);
       }
+      toast.show({
+        id: installToastId,
+        tone: "success",
+        title: formatMobileString(strings.browse.installedSource, {
+          name: source.name,
+        }),
+      });
       await hapticConfirm();
     } catch (error) {
-      // A user-requested cancel is not a failure; just close the sheet.
+      // A user-requested cancel is not a failure; remove the progress toast.
       if (isMobileSourceInstallCancellation(error)) {
         setConfirmation(null);
+        toast.dismiss(installToastId);
         return;
       }
       await hapticError();
@@ -909,7 +1248,20 @@ export function BrowseScreen() {
       ) {
         setConfirmation(null);
       }
-      setActionError(sourceActionErrorPresentation(error, strings));
+      const presentation = sourceActionErrorPresentation(error, strings);
+      setActionError(presentation);
+      toast.show({
+        id: installToastId,
+        tone: "danger",
+        title: presentation.title,
+        detail: presentation.detail,
+        action: {
+          label: strings.common.retry,
+          onPress: () => {
+            void installSource(source);
+          },
+        },
+      });
     } finally {
       if (installGuardKeyRef.current === key) {
         installGuardKeyRef.current = null;
@@ -918,19 +1270,53 @@ export function BrowseScreen() {
     }
   };
 
+  const startInstallAfterAddSourceDismissal = (
+    source: MobileRegistrySource,
+  ) => {
+    const key = makeSourceKey(source.registryId, source.id);
+    const guardedInstallKey =
+      installGuardKeyRef.current ?? installer.installingKey;
+    // The sheet stays closed either way: the running install already owns a
+    // sticky progress toast, and re-presenting the sheet would cover it.
+    if (shouldReopenMobileAddSourceSheetAfterInstall()) {
+      restoreAddSourceSheet();
+    }
+    if (!canStartMobileSourceInstall(key, guardedInstallKey)) return;
+
+    void installSource(source);
+  };
+
+  const requestAddSourceDismissal = (next: AddSourceDismissAction) => {
+    // Native dismissal is asynchronous. The first accepted tap owns this
+    // visibility cycle so a second row cannot replace its queued destination.
+    if (addSourceDismissActionRef.current) return;
+    addSourceDismissActionRef.current = next;
+    setActiveSheetVisible(false);
+  };
+
   const confirmInstallSource = (source: MobileRegistrySource) => {
     setActionError(null);
     const warnings = getMobileSourceWarningMessages(source, strings.browse);
-    if (warnings.length === 0) {
-      void installSource(source);
+    // Install always dismisses the sheet first: the toast host sits under the
+    // native sheet, so a progress toast raised behind it is invisible until
+    // the sheet is closed by hand.
+    if (
+      getMobileSourceInstallHandoff({ warningCount: warnings.length }) ===
+      "install-after-dismiss"
+    ) {
+      requestAddSourceDismissal({ type: "start-install", source });
       return;
     }
 
-    setConfirmation({ type: "install-warning", source, warnings });
+    requestAddSourceDismissal({
+      type: "open-confirmation",
+      confirmation: { type: "install-warning", source, warnings },
+    });
   };
   const confirmInstallSourceRef = useRef(confirmInstallSource);
   useEffect(() => {
     confirmInstallSourceRef.current = confirmInstallSource;
+    installSourceRef.current = installSource;
   });
   const handleInstallSource = useCallback((source: MobileRegistrySource) => {
     confirmInstallSourceRef.current(source);
@@ -984,9 +1370,12 @@ export function BrowseScreen() {
 
   const runConfirmedAction = () => {
     if (!confirmation) return;
-    const source = confirmation.source;
-    setConfirmation(null);
-    void installSource(source);
+    if (confirmationDismissActionRef.current) return;
+    confirmationDismissActionRef.current = {
+      type: "start-install",
+      source: confirmation.source,
+    };
+    setConfirmationVisible(false);
   };
 
   const refreshSources = async () => {
@@ -1019,37 +1408,155 @@ export function BrowseScreen() {
     });
   };
 
-  const clearSourceQuery = () => {
-    if (!canClearMobileBrowseSourceQuery(query)) return;
-    setQuery("");
-    void hapticPress();
-  };
   const openAddSourceSheet = () => {
     // A registry query is useful only for the current sheet visit. Keeping it
     // after installing or dismissing a source makes a later visit look empty
     // until the user notices and clears the stale filter.
     setQuery("");
+    addSourceDismissActionRef.current = null;
     setActiveSheet("add-source");
+    setActiveSheetVisible(true);
   };
   const closeAddSourceSheet = () => {
+    setActiveSheetVisible(false);
+  };
+  const handleAddSourceSheetDismissed = () => {
+    const next = addSourceDismissActionRef.current;
+    addSourceDismissActionRef.current = null;
     setActiveSheet(null);
+    setActiveSheetVisible(false);
+    setAddSourceListContentHeight(0);
+
+    if (next?.type === "open-language") {
+      setActiveSheet("source-language");
+      setActiveSheetVisible(true);
+      return;
+    }
+    if (next?.type === "start-install") {
+      startInstallAfterAddSourceDismissal(next.source);
+      return;
+    }
+    if (next?.type === "open-confirmation") {
+      // Leave the destination unclaimed while the confirmation is visible.
+      // Its first Cancel or Confirm tap owns the handoff; a native dismissal
+      // falls back to reopening Add Source in the post-dismiss callback.
+      confirmationDismissActionRef.current = null;
+      setConfirmation(next.confirmation);
+      setConfirmationVisible(true);
+      return;
+    }
   };
   const openLanguageSheet = () => {
-    setActiveSheet("source-language");
+    requestAddSourceDismissal({ type: "open-language" });
   };
   const closeLanguageSheet = () => {
-    setAddSourceSheetKey((key) => key + 1);
-    setActiveSheet(null);
-    requestAnimationFrame(() => {
-      setActiveSheet("add-source");
-    });
+    setActiveSheetVisible(false);
   };
+  const handleLanguageSheetDismissed = () => {
+    restoreAddSourceSheet();
+  };
+  const cancelInstallConfirmation = () => {
+    if (confirmationDismissActionRef.current) return;
+    confirmationDismissActionRef.current = { type: "reopen-add-source" };
+    setConfirmationVisible(false);
+  };
+  const handleInstallConfirmationDismissed = () => {
+    const next = confirmationDismissActionRef.current ?? {
+      type: "reopen-add-source" as const,
+    };
+    confirmationDismissActionRef.current = null;
+    setConfirmation(null);
+    setConfirmationVisible(false);
+
+    if (next.type === "start-install") {
+      startInstallAfterAddSourceDismissal(next.source);
+      return;
+    }
+    restoreAddSourceSheet();
+  };
+  const runQuickAction = (action: MobileSourceQuickActionId) => {
+    const source = quickActionSource;
+    if (!source) return;
+    switch (getMobileSourceQuickActionHandoff(action)) {
+      case "dismiss-then-open-settings":
+        requestQuickActionDismissal({ type: "open-settings" });
+        return;
+      case "dismiss-then-install-update":
+        if (!quickActionUpdate) return;
+        requestQuickActionDismissal({
+          type: "install-update",
+          source: quickActionUpdate,
+        });
+        return;
+      case "dismiss-then-confirm-uninstall":
+        requestQuickActionDismissal({ type: "confirm-uninstall", source });
+        return;
+      case "open-url": {
+        if (!quickActionHomepage) return;
+        // Leaving the app is the one destination that does not need the sheet
+        // gone first, so it opens directly and lets the sheet close behind it.
+        const homepage = quickActionHomepage;
+        closeQuickActions();
+        void Linking.openURL(homepage).catch(() => undefined);
+        return;
+      }
+    }
+  };
+  const quickActions = ((): QuickAction<MobileSourceQuickActionId>[] => {
+    if (!quickActionSource) return [];
+    const actions: QuickAction<MobileSourceQuickActionId>[] = [
+      {
+        id: "settings",
+        label: strings.settings.sourceSettingsDefaultTitle,
+        icon: "options-outline",
+        onPress: () => runQuickAction("settings"),
+      },
+    ];
+    if (quickActionUpdate) {
+      actions.push({
+        id: "update",
+        label: formatMobileString(strings.browse.updateSourceToVersion, {
+          version: quickActionUpdate.version,
+        }),
+        icon: "arrow-up-circle-outline",
+        onPress: () => runQuickAction("update"),
+      });
+    }
+    if (quickActionHomepage) {
+      actions.push({
+        id: "openInBrowser",
+        label: strings.browse.openSourceHomepage,
+        icon: "open-outline",
+        onPress: () => runQuickAction("openInBrowser"),
+      });
+    }
+    actions.push({
+      id: "uninstall",
+      label: strings.common.uninstall,
+      icon: "trash-outline",
+      destructive: true,
+      onPress: () => runQuickAction("uninstall"),
+    });
+    return actions;
+  })();
+
+
   const nativeHeaderActions: NemuNativeHeaderAction[] = [
     {
       icon: "plus",
       label: strings.browse.addSources,
       disabled: activeInstallKey !== null,
       onPress: openAddSourceSheet,
+    },
+    {
+      icon: "square.stack.3d.up",
+      label: strings.browse.manageSources,
+      onPress: () => {
+        router.push({
+          pathname: "/(tabs)/settings/[section]",
+          params: { section: "sources" },
+        });
+      },
     },
   ];
 
@@ -1098,8 +1605,9 @@ export function BrowseScreen() {
               errorPresentation?.title ?? strings.browse.sourcesUnavailable
             }
             description={
-              errorPresentation?.detail ?? strings.browse.sourcesUnavailable
+              errorCopy?.description ?? strings.browse.sourcesUnavailable
             }
+            diagnostic={errorCopy?.diagnostic ?? undefined}
             actionLabel={strings.common.retry}
             actionDisabled={refreshDisabled}
             actionLoading={refreshingSources}
@@ -1185,7 +1693,10 @@ export function BrowseScreen() {
                                 key={source.id}
                                 item={source}
                                 onLongPress={() => {
-                                  router.push(sourceSettingsHref(source));
+                                  void hapticSelection();
+                                  quickActionDismissRef.current = null;
+                                  setQuickActionSourceId(source.id);
+                                  setQuickActionVisible(true);
                                 }}
                               />
                             ),
@@ -1211,108 +1722,120 @@ export function BrowseScreen() {
 
       {activeSheet === "add-source" ? (
         <MobileNativeSheetScaffold
-          key={`add-source-${addSourceSheetKey}`}
-          visible
+          visible={activeSheetVisible}
           onClose={closeAddSourceSheet}
+          onDismiss={handleAddSourceSheetDismissed}
           title={strings.browse.addSources}
           dismissLabel={strings.common.done}
-          snapPoints={Platform.OS === "android" ? ["100%"] : ["88%"]}
+          dismissAsIcon
+          headerLeading={
+            <NemuNativeSheetHeaderAction
+              accessibilityLabel={formatMobileString(
+                strings.browse.languageFilterOption,
+                { language: selectedFilterLabel },
+              )}
+              androidIcon="filter-outline"
+              iosSystemImage="line.3.horizontal.decrease"
+              badgeCount={activeFilterCount}
+              onPress={() => {
+                void hapticSelection();
+                openLanguageSheet();
+              }}
+            />
+          }
+          snapPoints={
+            Platform.OS === "android" ? ["100%"] : [addSourceSheetSnapPoint]
+          }
           fillContent
           contentBottomInset={0}
-          contentStyle={styles.addSourceSheet}
           testID="AddSourceSheet"
         >
           <View style={styles.addSourceSheetBody}>
+            {/*
+              Everything above the list lives in one stack so the scroll
+              container's top edge sits exactly at the search field's bottom.
+              The 12pt separation belongs to the list's own content inset
+              (`availableListContent`) instead of a flex gap: rows then slide
+              under the field while scrolling instead of being clipped at a
+              hard edge floating in an empty gap, and the first row still
+              starts 12pt clear of the field at rest.
+            */}
             <View
-              style={[
-                styles.searchShell,
-                {
-                  backgroundColor: tokens.card,
-                  borderColor: tokens.border,
-                },
-              ]}
+              onLayout={handleAddSourceHeaderStackLayout}
+              style={styles.addSourceSheetHeaderStack}
             >
-              <Ionicons
-                name="search-outline"
-                size={18}
-                color={tokens.mutedForeground}
-              />
-              <TextInput
+              {available.error ? (
+                <MobileInlineToast
+                  title={strings.feedback.catalogUnavailableTitle}
+                  detail={[
+                    strings.feedback.catalogUnavailableDetail,
+                    catalogCacheAge,
+                  ].filter(Boolean).join(" · ")}
+                  actionLabel={strings.common.retry}
+                  actionDisabled={refreshingSources}
+                  actionLoading={refreshingSources}
+                  onActionPress={() => {
+                    void refreshSources();
+                  }}
+                />
+              ) : null}
+              {/*
+                iOS renders this as a real SwiftUI `TextField` (`Host > HStack >
+                magnifier / TextField / clear Button`) via `@expo/ui/swift-ui`;
+                every other platform keeps the RN `TextInput` capsule. Both live
+                in `NemuNativeSearchField`, which also documents the SwiftUI
+                first-responder/IME caveat of hosting a text field inside the
+                sheet's own SwiftUI presentation and how to fall back.
+              */}
+              <NemuNativeSearchField
                 accessibilityLabel={strings.browse.searchRegistries}
-                accessibilityRole="search"
-                autoCapitalize="none"
-                autoCorrect={false}
-                enterKeyHint="search"
-                value={query}
+                clearAccessibilityLabel={strings.common.clear}
+                clearActionTestID="AddSourceSearchClearAction"
                 onChangeText={setQuery}
                 placeholder={strings.browse.searchRegistries}
-                placeholderTextColor={tokens.mutedForeground}
-                returnKeyType="search"
-                selectionColor={tokens.primary}
-                style={[styles.searchInput, { color: tokens.foreground }]}
+                value={query}
               />
-              {canClearMobileBrowseSourceQuery(query) ? (
-                <NemuPressable
-                  accessibilityLabel={strings.common.clear}
-                  accessibilityRole="button"
-                  onPress={clearSourceQuery}
-                  pressedScale={0.94}
-                  style={[
-                    styles.clearButton,
-                    { backgroundColor: tokens.muted },
-                  ]}
-                >
-                  <Ionicons
-                    name="close-outline"
-                    size={17}
-                    color={tokens.mutedForeground}
-                  />
-                </NemuPressable>
+
+              {selectedLanguages.size > 0 || showAdult ? (
+                <View style={styles.activeFilterChips}>
+                  {[...selectedLanguages].map((language) => (
+                    <ActiveFilterChip
+                      key={language}
+                      label={formatSourceLanguageLabel(
+                        language,
+                        strings,
+                        appLanguage,
+                      )}
+                      removeLabel={strings.common.remove}
+                      onPress={() => toggleLanguage(language)}
+                    />
+                  ))}
+                  {showAdult ? (
+                    <ActiveFilterChip
+                      label={strings.browse.adult}
+                      removeLabel={strings.common.remove}
+                      onPress={() => setShowAdult(false)}
+                    />
+                  ) : null}
+                </View>
+              ) : null}
+
+              {actionError ? (
+                <MobileInlineErrorBanner
+                  variant="embedded"
+                  title={actionError.title}
+                  detail={actionError.detail}
+                  dismissLabel={strings.common.clear}
+                  onDismiss={() => setActionError(null)}
+                />
               ) : null}
             </View>
-
-            <View style={styles.sheetFilterControls}>
-              <LanguageFilterMenu
-                languages={languageOptions}
-                selectedLanguages={selectedLanguages}
-                strings={strings}
-                appLanguage={appLanguage}
-                onOpenLanguageList={openLanguageSheet}
-              />
-              <NemuPressable
-                accessibilityLabel={strings.browse.adultSourcesSwitch}
-                accessibilityRole="switch"
-                accessibilityState={{ checked: showAdult }}
-                buttonDepth={showAdult ? "primary" : "secondary"}
-                hapticFeedback="selection"
-                onPress={() => setShowAdult((value) => !value)}
-                style={styles.adultToggle}
-              >
-                <Ionicons
-                  name={showAdult ? "eye-outline" : "eye-off-outline"}
-                  size={16}
-                  color={
-                    showAdult
-                      ? tokens.primaryForeground
-                      : tokens.mutedForeground
-                  }
-                />
-              </NemuPressable>
-            </View>
-
-            {actionError ? (
-              <MobileInlineErrorBanner
-                title={actionError.title}
-                detail={actionError.detail}
-                dismissLabel={strings.common.clear}
-                onDismiss={() => setActionError(null)}
-              />
-            ) : null}
 
             <SectionList
               alwaysBounceVertical={false}
               automaticallyAdjustContentInsets={false}
               contentInsetAdjustmentBehavior="never"
+              onContentSizeChange={handleAvailableListContentSizeChange}
               initialNumToRender={18}
               maxToRenderPerBatch={18}
               keyboardDismissMode="interactive"
@@ -1360,14 +1883,14 @@ export function BrowseScreen() {
 
       {activeSheet === "source-language" ? (
         <MobileNativeSheetScaffold
-          visible
+          visible={activeSheetVisible}
           onClose={closeLanguageSheet}
+          onDismiss={handleLanguageSheetDismissed}
           title={strings.browse.languageFilter}
           dismissLabel={strings.common.done}
           snapPoints={["82%"]}
           scroll
           scrollContentBottomInset={18}
-          contentStyle={styles.languageSheet}
           testID="SourceLanguageSheet"
         >
           <LanguageFilterSheetSection
@@ -1377,13 +1900,15 @@ export function BrowseScreen() {
             appLanguage={appLanguage}
             onSelectAll={() => setSelectedLanguages(new Set())}
             onToggleLanguage={toggleLanguage}
+            showAdult={showAdult}
+            onToggleAdult={() => setShowAdult((value) => !value)}
           />
         </MobileNativeSheetScaffold>
       ) : null}
 
       {confirmationDetails ? (
         <MobileConfirmationSheet
-          visible
+          visible={confirmationVisible}
           title={confirmationDetails.title}
           description={confirmationDetails.description}
           subject={confirmationDetails.subject}
@@ -1395,11 +1920,13 @@ export function BrowseScreen() {
           }
           loading={confirmationDetails.loading}
           destructive={confirmationDetails.destructive}
-          onCancel={() => setConfirmation(null)}
+          onCancel={cancelInstallConfirmation}
+          onDismiss={handleInstallConfirmationDismissed}
           onConfirm={runConfirmedAction}
         >
           {actionError ? (
             <MobileInlineErrorBanner
+              variant="embedded"
               title={actionError.title}
               detail={actionError.detail}
               dismissLabel={strings.common.clear}
@@ -1409,18 +1936,56 @@ export function BrowseScreen() {
         </MobileConfirmationSheet>
       ) : null}
 
-      <MobileSourceInstallSheet
-        visible={activeInstallKey !== null}
-        title={
-          activeInstallSourceName
-            ? formatMobileString(strings.browse.installingSourceDescription, {
-                name: activeInstallSourceName,
-              })
-            : strings.browse.installingSourceDescriptionGeneric
-        }
-        sourceIcon={activeInstallSource?.icon}
-        onCancel={installer.cancelInstall}
-      />
+      {quickActionSource ? (
+        <QuickActionSheet
+          visible={quickActionVisible}
+          variant="icon"
+          title={getMobileInstalledSourceName(quickActionSource)}
+          image={quickActionIconUri}
+          actions={quickActions}
+          testID="SourceQuickActionSheet"
+          onClose={closeQuickActions}
+          onDismiss={handleQuickActionsDismissed}
+        />
+      ) : null}
+      {quickActionSource && quickActionSettingsVisible ? (
+        <MobileSourceQuickSettingsSheet
+          source={quickActionSource}
+          iconUri={quickActionIconUri}
+          strings={strings}
+          visible={quickActionSettingsVisible}
+          onClose={() => setQuickActionSettingsVisible(false)}
+          onDismiss={() => setQuickActionSourceId(null)}
+        />
+      ) : null}
+      {quickActionUninstall ? (
+        <MobileConfirmationSheet
+          visible={quickActionUninstallVisible}
+          title={strings.settings.uninstallSource}
+          description={formatMobileString(
+            strings.settings.uninstallSourceConfirm,
+            { name: getMobileInstalledSourceName(quickActionUninstall) },
+          )}
+          subject={getMobileInstalledSourceName(quickActionUninstall)}
+          iconName="trash-outline"
+          cancelLabel={strings.common.cancel}
+          confirmLabel={strings.common.uninstall}
+          confirmAccessibilityLabel={formatMobileString(
+            strings.settings.uninstallSourceNamed,
+            { name: getMobileInstalledSourceName(quickActionUninstall) },
+          )}
+          loading={uninstallingSourceId === quickActionUninstall.id}
+          destructive
+          onCancel={() => setQuickActionUninstallVisible(false)}
+          onDismiss={() => {
+            setQuickActionUninstall(null);
+            setQuickActionSourceId(null);
+          }}
+          onConfirm={() => {
+            void runQuickActionUninstall();
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -1429,24 +1994,34 @@ const styles = StyleSheet.create({
   sections: {
     gap: 26,
   },
-  addSourceSheet: {
-    paddingHorizontal: 16,
-    paddingTop: 0,
-  },
   addSourceSheetBody: {
     flex: 1,
     minHeight: 0,
+  },
+  addSourceSheetHeaderStack: {
     gap: 14,
   },
-  languageSheet: {
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingTop: 0,
+  activeFilterChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
   },
-  sheetFilterControls: {
+  activeFilterChip: {
+    minHeight: 30,
+    maxWidth: 200,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+  },
+  activeFilterChipText: {
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: nemuFontWeight.medium,
   },
   sourceHeader: {
     minHeight: 32,
@@ -1467,8 +2042,17 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   availableListContent: {
-    flexGrow: 1,
+    // The gap under the search field is a content inset, not a flex gap, so
+    // the scroll viewport starts at the field's bottom edge and nothing is
+    // ever clipped in the empty space between them.
+    paddingTop: 12,
+    // Rounded-corner tail: the measured detent adds 12pt of clearance on top
+    // of this padding, leaving ~36pt under the last row at full scroll.
     paddingBottom: 24,
+    // No `flexGrow`: a content container stretched to the viewport would
+    // report the viewport height from `onContentSizeChange`, and the sheet's
+    // measured detent depends on that callback reporting the natural content
+    // height to stay out of a feedback loop.
   },
   availableRowSeparator: {
     height: 12,
@@ -1477,6 +2061,10 @@ const styles = StyleSheet.create({
     height: 18,
   },
   availableSourceLanguageHeader: {
+    // Section titles (日本語, …) need real separation from the preceding
+    // section's rows — and from the search field for the first section — so
+    // they read as group headers rather than floating labels.
+    marginTop: 10,
     marginBottom: 8,
   },
   sourceLanguageSection: {
@@ -1551,53 +2139,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  searchShell: {
-    minHeight: 50,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-  },
-  searchInput: {
-    flex: 1,
-    minHeight: 50,
-    fontSize: 15,
-  },
-  clearButton: {
-    width: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-  },
-  adultToggle: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 8,
-    overflow: "hidden",
-  },
-  languageFallbackButton: {
-    alignSelf: "flex-start",
-    maxWidth: 220,
-    minHeight: 34,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    overflow: "hidden",
-  },
-  languageFallbackText: {
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.medium,
-  },
   languageListSection: {
     borderRadius: radius.xl,
   },
@@ -1621,6 +2162,46 @@ const styles = StyleSheet.create({
   languageOptionAccessory: {
     width: 24,
     alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  // The explicit-content toggle row mirrors the language option rows' group
+  // chrome with every child centred on one line (itemsCenter, fixed
+  // heights), so the switch cannot sit rotated or offset in its container.
+  adultToggleRow: {
+    minHeight: 60,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  adultToggleIcon: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderRadius: radius.md,
+  },
+  adultToggleCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  adultToggleTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: nemuFontWeight.medium,
+  },
+  adultToggleSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  adultToggleAccessory: {
+    // Exactly the switch's own 31pt frame: `alignItems: "center"` on the row
+    // then seats the switch on the same centre line as the icon tile.
+    minHeight: 31,
+    alignItems: "center",
     justifyContent: "center",
   },
   availableShell: {

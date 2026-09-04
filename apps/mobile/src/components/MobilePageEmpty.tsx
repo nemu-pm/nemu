@@ -1,6 +1,22 @@
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useState } from "react";
+import {
+  Platform,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { nemuText, useNemuTheme, NemuButton } from "@/design-system";
+import { useMobileLanguageSettings } from "@/data/mobileHooks";
+import {
+  nemuText,
+  radius,
+  useNemuTheme,
+  NEMU_PROMINENT_CTA_SIZE,
+  NemuButton,
+  NemuPressable,
+} from "@/design-system";
+import { getMobileStrings } from "@/lib/mobileI18n";
 import { shouldUseCompactMobilePageEmptyLayout } from "@/lib/mobilePageEmptyLayout";
 
 type MobilePageEmptyProps = {
@@ -13,6 +29,10 @@ type MobilePageEmptyProps = {
   onActionPress?: () => void;
   actionDisabled?: boolean;
   actionLoading?: boolean;
+  /** Raw diagnostic string (e.g. describeMobileErrorDetail output). */
+  diagnostic?: string;
+  /** Optional override; the localized "Technical details" label is default. */
+  diagnosticDetailsLabel?: string;
 };
 
 export function MobilePageEmpty({
@@ -25,11 +45,18 @@ export function MobilePageEmpty({
   onActionPress,
   actionDisabled,
   actionLoading,
+  diagnostic,
+  diagnosticDetailsLabel,
 }: MobilePageEmptyProps) {
   const { tokens } = useNemuTheme();
+  const { appLanguage } = useMobileLanguageSettings();
+  const strings = getMobileStrings(appLanguage);
+  const detailsLabel =
+    diagnosticDetailsLabel ?? strings.feedback.technicalDetails;
   const { height } = useWindowDimensions();
   const compactHeight = shouldUseCompactMobilePageEmptyLayout(height);
   const disabled = Boolean(actionDisabled || actionLoading);
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
 
   return (
     <View
@@ -67,6 +94,45 @@ export function MobilePageEmpty({
             {description}
           </Text>
         ) : null}
+        {diagnostic && !compactHeight ? (
+          <View style={styles.diagnostic}>
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: diagnosticOpen }}
+              accessibilityLabel={detailsLabel}
+              hapticFeedback="selection"
+              pressProfile="row"
+              onPress={() => setDiagnosticOpen((open) => !open)}
+              style={styles.diagnosticToggle}
+            >
+              <Ionicons
+                name={diagnosticOpen ? "chevron-down-outline" : "chevron-forward-outline"}
+                size={12}
+                color={tokens.mutedForeground}
+              />
+              <Text
+                style={[nemuText.caption, { color: tokens.mutedForeground }]}
+              >
+                {detailsLabel}
+              </Text>
+            </NemuPressable>
+            {diagnosticOpen ? (
+              <Text
+                selectable
+                style={[
+                  styles.diagnosticBody,
+                  styles.diagnosticMono,
+                  {
+                    backgroundColor: tokens.secondary,
+                    color: tokens.mutedForeground,
+                  },
+                ]}
+              >
+                {diagnostic}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
       </View>
       {actionLabel && onActionPress ? (
         <NemuButton
@@ -75,6 +141,9 @@ export function MobilePageEmpty({
           icon={actionIcon}
           label={actionLabel}
           loading={actionLoading}
+          // Same geometry as the library empty state and onboarding CTA so the
+          // primary empty-state action never changes size between pages.
+          size={NEMU_PROMINENT_CTA_SIZE}
           onPress={onActionPress}
           variant="default"
         />
@@ -82,6 +151,12 @@ export function MobilePageEmpty({
     </View>
   );
 }
+
+const MONOSPACE_FONT_FAMILY = Platform.select({
+  ios: "Menlo",
+  android: "monospace",
+  default: "monospace",
+});
 
 const styles = StyleSheet.create({
   root: {
@@ -113,7 +188,7 @@ const styles = StyleSheet.create({
     height: 96,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 999,
+    borderRadius: radius.pill,
     marginBottom: 8,
   },
   compactMedia: {
@@ -126,5 +201,27 @@ const styles = StyleSheet.create({
   },
   description: {
     textAlign: "center",
+  },
+  diagnostic: {
+    alignSelf: "stretch",
+    alignItems: "center",
+    gap: 4,
+  },
+  diagnosticToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  diagnosticBody: {
+    alignSelf: "stretch",
+    padding: 10,
+    borderRadius: 8,
+  },
+  diagnosticMono: {
+    fontFamily: MONOSPACE_FONT_FAMILY,
+    fontSize: 11,
+    lineHeight: 15,
   },
 });

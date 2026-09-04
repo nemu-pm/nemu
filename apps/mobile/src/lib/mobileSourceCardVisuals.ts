@@ -1,12 +1,18 @@
-import type { NemuColorScheme } from "@/design-system";
+import type { ViewStyle } from "react-native";
+import { createNemuShadowStyle, type NemuColorScheme } from "@/design-system";
 
 export type SourceCardVisuals = {
   cardBackground: string;
   cardBorder: string;
-  cardShadow: string;
+  /**
+   * Card lift, built by the shared shadow helper so native gets real
+   * `shadow*`/`elevation` values instead of a CSS string. The icon frame's
+   * recess is carried by `iconBackground` + `iconBorder`: an inset shadow has
+   * no native equivalent.
+   */
+  cardShadow: ViewStyle;
   iconBackground: string;
   iconBorder: string;
-  iconShadow: string;
   skeletonBlock: string;
 };
 
@@ -19,12 +25,15 @@ export function resolveSourceCardVisuals(
     return {
       cardBackground: "rgba(255,255,255,0.04)",
       cardBorder: "rgba(255,255,255,0.08)",
-      cardShadow:
-        "0px 2px 8px rgba(0,0,0,0.25), 0px 4px 16px rgba(0,0,0,0.15), inset 0px 0.5px 0px rgba(255,255,255,0.06)",
+      cardShadow: createNemuShadowStyle({
+        color: "#000000",
+        offsetY: 3,
+        radius: 12,
+        opacity: 0.28,
+        elevation: 5,
+      }),
       iconBackground: "rgba(255,255,255,0.06)",
       iconBorder: "rgba(255,255,255,0.08)",
-      iconShadow:
-        "inset 0px 1px 3px rgba(0,0,0,0.15), inset 0px 0.5px 0px rgba(255,255,255,0.04)",
       skeletonBlock: "rgba(255,255,255,0.08)",
     };
   }
@@ -32,12 +41,15 @@ export function resolveSourceCardVisuals(
   return {
     cardBackground: "#fbfcff",
     cardBorder: "rgba(222,225,234,0.92)",
-    cardShadow:
-      "0px 1px 3px rgba(15,23,42,0.04), 0px 8px 20px rgba(15,23,42,0.05), inset 0px 0.5px 0px rgba(255,255,255,0.70)",
+    cardShadow: createNemuShadowStyle({
+      color: "#0f172a",
+      offsetY: 5,
+      radius: 16,
+      opacity: 0.07,
+      elevation: 2,
+    }),
     iconBackground: "rgba(0,0,0,0.025)",
     iconBorder: "rgba(222,225,234,0.92)",
-    iconShadow:
-      "inset 0px 1px 2px rgba(15,23,42,0.035), inset 0px 0.5px 0px rgba(255,255,255,0.35)",
     skeletonBlock: "rgba(0,0,0,0.06)",
   };
 }

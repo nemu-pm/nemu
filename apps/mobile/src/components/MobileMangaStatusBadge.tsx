@@ -1,5 +1,11 @@
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
-import { createNemuShadowStyle, radius, nemuFontWeight } from "@/design-system";
+import {
+  createNemuShadowStyle,
+  nemuColorWithAlpha,
+  nemuFontWeight,
+  nemuTokens,
+  radius,
+} from "@/design-system";
 import type { MobileStrings } from "@/lib/mobileI18n";
 
 const MangaStatus = {
@@ -12,45 +18,48 @@ const MangaStatus = {
 
 type StatusConfig = {
   label: string;
-  backgroundColor: string;
-  borderColor: string;
-  dotColor: string;
-  textColor: string;
+  accent: string;
 };
 
-function statusConfig(status: number, strings: MobileStrings): StatusConfig | null {
+/**
+ * Badge fill strength. The chip floats over cover art, so the semantic accent
+ * is laid down near-opaque with a lighter rim of the same hue.
+ */
+const BADGE_FILL_ALPHA = 0.72;
+const BADGE_RIM_ALPHA = 0.38;
+
+/**
+ * The badge floats over cover art under near-white text, so its accent is
+ * always the light scheme's deep hue. The dark scheme's lighter accents read
+ * at ~1.7–2.3:1 behind that text; pinning the palette keeps both themes on the
+ * deep fill the text needs. No new colours — these are the same tokens.
+ */
+const BADGE_ACCENT = nemuTokens.light;
+
+function statusConfig(
+  status: number,
+  strings: MobileStrings,
+): StatusConfig | null {
   switch (status) {
     case MangaStatus.Ongoing:
       return {
         label: strings.metadataEditor.statusOngoing,
-        backgroundColor: "rgba(5,150,105,0.72)",
-        borderColor: "rgba(16,185,129,0.38)",
-        dotColor: "#10b981",
-        textColor: "#ffffff",
+        accent: BADGE_ACCENT.success,
       };
     case MangaStatus.Completed:
       return {
         label: strings.metadataEditor.statusCompleted,
-        backgroundColor: "rgba(2,132,199,0.72)",
-        borderColor: "rgba(14,165,233,0.38)",
-        dotColor: "#0ea5e9",
-        textColor: "#ffffff",
+        accent: BADGE_ACCENT.primary,
       };
     case MangaStatus.Hiatus:
       return {
         label: strings.metadataEditor.statusHiatus,
-        backgroundColor: "rgba(217,119,6,0.72)",
-        borderColor: "rgba(245,158,11,0.4)",
-        dotColor: "#f59e0b",
-        textColor: "#ffffff",
+        accent: BADGE_ACCENT.warning,
       };
     case MangaStatus.Cancelled:
       return {
         label: strings.metadataEditor.statusCancelled,
-        backgroundColor: "rgba(225,29,72,0.72)",
-        borderColor: "rgba(244,63,94,0.4)",
-        dotColor: "#f43f5e",
-        textColor: "#ffffff",
+        accent: BADGE_ACCENT.danger,
       };
     default:
       return null;
@@ -78,14 +87,17 @@ export function MobileMangaStatusBadge({
       style={[
         styles.badge,
         {
-          backgroundColor: config.backgroundColor,
-          borderColor: config.borderColor,
+          backgroundColor: nemuColorWithAlpha(config.accent, BADGE_FILL_ALPHA),
+          borderColor: nemuColorWithAlpha(config.accent, BADGE_RIM_ALPHA),
         },
         style,
       ]}
     >
-      <View style={[styles.dot, { backgroundColor: config.dotColor }]} />
-      <Text numberOfLines={1} style={[styles.text, { color: config.textColor }]}>
+      <View style={[styles.dot, { backgroundColor: config.accent }]} />
+      <Text
+        numberOfLines={1}
+        style={[styles.text, { color: BADGE_ACCENT.primaryForeground }]}
+      >
         {config.label.toUpperCase()}
       </Text>
     </View>

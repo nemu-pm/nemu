@@ -21,6 +21,7 @@ const ACCOUNT_MUTATION_METHODS = new Set<keyof MobileDataStore>([
   "saveLibraryItem",
   "saveLibrarySnapshot",
   "removeLibraryItem",
+  "restoreLibraryItem",
   "saveSourceLink",
   "removeSourceLink",
   "saveChapterProgress",

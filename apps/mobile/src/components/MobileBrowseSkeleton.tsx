@@ -1,4 +1,12 @@
 import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
+import {
+  SKELETON_LINE_OPACITY,
+  SKELETON_SUBTLE_LINE_OPACITY,
+  SKELETON_SURFACE_OPACITY,
+  useSkeletonDisplayDelay,
+  useSkeletonPulse,
+} from "@/lib/useSkeletonPulse";
 import { radius, useNemuTheme } from "@/design-system";
 import { resolveSourceCardVisuals } from "@/lib/mobileSourceCardVisuals";
 
@@ -12,15 +20,19 @@ type MobileBrowseSkeletonProps = {
 export function MobileBrowseSkeleton({
   accessibilityLabel,
 }: MobileBrowseSkeletonProps) {
-  const { scheme } = useNemuTheme();
+  const { scheme, reduceMotion } = useNemuTheme();
+  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
+  const skeletonReady = useSkeletonDisplayDelay(150);
   const visuals = resolveSourceCardVisuals(scheme);
   const skeletonColor = visuals.skeletonBlock;
 
+  if (!skeletonReady) return null;
+
   return (
-    <View
+    <Animated.View
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="progressbar"
-      style={styles.stack}
+      style={[styles.stack, { opacity: skeletonOpacity }]}
     >
       {SKELETON_SECTIONS.map((section) => (
         <View key={section} style={styles.section}>
@@ -36,8 +48,8 @@ export function MobileBrowseSkeleton({
                   {
                     backgroundColor: visuals.cardBackground,
                     borderColor: visuals.cardBorder,
-                    boxShadow: visuals.cardShadow,
                   },
+                  visuals.cardShadow,
                 ]}
               >
                 <View
@@ -46,7 +58,6 @@ export function MobileBrowseSkeleton({
                     {
                       backgroundColor: visuals.iconBackground,
                       borderColor: visuals.iconBorder,
-                      boxShadow: visuals.iconShadow,
                     },
                   ]}
                 />
@@ -69,7 +80,7 @@ export function MobileBrowseSkeleton({
           </View>
         </View>
       ))}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -84,7 +95,7 @@ const styles = StyleSheet.create({
     width: 108,
     height: 14,
     borderRadius: radius.sm,
-    opacity: 0.78,
+    opacity: SKELETON_LINE_OPACITY,
   },
   list: {
     gap: 12,
@@ -103,7 +114,7 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    opacity: 0.86,
+    opacity: SKELETON_SURFACE_OPACITY,
   },
   copy: {
     flex: 1,
@@ -114,12 +125,12 @@ const styles = StyleSheet.create({
     width: "64%",
     height: 16,
     borderRadius: radius.sm,
-    opacity: 0.78,
+    opacity: SKELETON_LINE_OPACITY,
   },
   subtitleLine: {
     width: "42%",
     height: 12,
     borderRadius: radius.sm,
-    opacity: 0.72,
+    opacity: SKELETON_SUBTLE_LINE_OPACITY,
   },
 });

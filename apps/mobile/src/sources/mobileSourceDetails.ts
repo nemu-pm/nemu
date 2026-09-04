@@ -22,6 +22,10 @@ import {
   makeMobileRuntimeSourceKey,
   normalizeInstalledSource,
 } from "./mobileSourceRuntime";
+import {
+  DEFAULT_MOBILE_SOURCE_OPERATION_TIMEOUT_MS,
+  withMobileSourceOperationTimeout,
+} from "./mobileSourceOperationTimeout";
 import { mergeAuthors } from "@nemu/core/sources";
 
 export type MobileSourceDetailsRefresh =
@@ -88,7 +92,35 @@ export type MobileSourceDetailsOptions = {
   sessionCache?: MobileSourceSessionCache;
   onSourcePackageHydrated?: MobileSourcePackageHydrationHandler;
   now?: () => number;
+  /** Whole-refresh bound, inherited by every caller. */
+  timeoutMs?: number;
+  /** Localized copy for the timeout error, when the caller has strings. */
+  timeoutMessage?: string;
 };
+
+/**
+ * A details refresh is package hydration plus one or two WASM runtime calls,
+ * each of which can wedge on a hostile source. Bound the whole refresh here so
+ * no caller can forget to — screens that already wrap the call with their own
+ * localized timeout keep that wrap; the inner bound is the floor, not a second
+ * user-visible failure mode.
+ *
+ * `getMangaDetails` and `getChapterList` stay sequential on purpose. Both run
+ * through `NemuAidokuModule.executeAidokuSandboxOperation`, and the iOS sandbox
+ * manager dispatches every operation onto one serial queue
+ * (`pm.nemu.aidoku.ios-sandbox`), so issuing them concurrently would not
+ * overlap any work — it would only queue a chapter-list call that a failed
+ * details call has already made pointless.
+ */
+function withDetailsTimeout<T>(
+  operation: () => Promise<T>,
+  options: MobileSourceDetailsOptions,
+): Promise<T> {
+  return withMobileSourceOperationTimeout(operation, {
+    timeoutMs: options.timeoutMs ?? DEFAULT_MOBILE_SOURCE_OPERATION_TIMEOUT_MS,
+    message: options.timeoutMessage,
+  });
+}
 
 export function isMobileSourceMangaTitlePathLike(value: string): boolean {
   const title = value.trim();
@@ -179,37 +211,41 @@ export async function refreshMobileSourceDetails(
   )(sourceKey, source);
   const cache = options.sessionCache ?? defaultMobileSourceSessionCache;
 
-  return cache.withSession(
-    normalized,
-    { ...options.executor, settings },
-    async (session): Promise<MobileSourceDetailsRefresh> => {
-      await notifyMobileSourcePackageHydrated(
-        source,
-        session.sourcePackageHydration,
-        options.onSourcePackageHydrated,
-      );
-      if (session.status === "blocked") {
-        return {
-          status: "blocked",
-          reason: session.reason,
-          detail: session.detail,
-        };
-      }
-      const manga = await session.source.getMangaDetails({ key: mangaId });
-      const chapters = sortChapterSummaries(
-        (await session.source.getChapterList({ key: mangaId })).map(
-          mapAidokuChapterToSummary,
-        ),
-      );
-      return {
-        status: "ready",
-        runtime: session.runtime,
-        metadata: mapAidokuMangaToMetadata(manga, mangaId),
-        chapters,
-        latestChapter: chapters[0],
-        fetchedAt: options.now?.() ?? Date.now(),
-      };
-    },
+  return withDetailsTimeout(
+    () =>
+      cache.withSession(
+        normalized,
+        { ...options.executor, settings },
+        async (session): Promise<MobileSourceDetailsRefresh> => {
+          await notifyMobileSourcePackageHydrated(
+            source,
+            session.sourcePackageHydration,
+            options.onSourcePackageHydrated,
+          );
+          if (session.status === "blocked") {
+            return {
+              status: "blocked",
+              reason: session.reason,
+              detail: session.detail,
+            };
+          }
+          const manga = await session.source.getMangaDetails({ key: mangaId });
+          const chapters = sortChapterSummaries(
+            (await session.source.getChapterList({ key: mangaId })).map(
+              mapAidokuChapterToSummary,
+            ),
+          );
+          return {
+            status: "ready",
+            runtime: session.runtime,
+            metadata: mapAidokuMangaToMetadata(manga, mangaId),
+            chapters,
+            latestChapter: chapters[0],
+            fetchedAt: options.now?.() ?? Date.now(),
+          };
+        },
+      ),
+    options,
   );
 }
 
@@ -225,30 +261,34 @@ export async function refreshMobileSourceMetadata(
   )(sourceKey, source);
   const cache = options.sessionCache ?? defaultMobileSourceSessionCache;
 
-  return cache.withSession(
-    normalized,
-    { ...options.executor, settings },
-    async (session): Promise<MobileSourceMetadataRefresh> => {
-      await notifyMobileSourcePackageHydrated(
-        source,
-        session.sourcePackageHydration,
-        options.onSourcePackageHydrated,
-      );
-      if (session.status === "blocked") {
-        return {
-          status: "blocked",
-          reason: session.reason,
-          detail: session.detail,
-        };
-      }
-      const manga = await session.source.getMangaDetails({ key: mangaId });
-      return {
-        status: "ready",
-        runtime: session.runtime,
-        metadata: mapAidokuMangaToMetadata(manga, mangaId),
-        fetchedAt: options.now?.() ?? Date.now(),
-      };
-    },
+  return withDetailsTimeout(
+    () =>
+      cache.withSession(
+        normalized,
+        { ...options.executor, settings },
+        async (session): Promise<MobileSourceMetadataRefresh> => {
+          await notifyMobileSourcePackageHydrated(
+            source,
+            session.sourcePackageHydration,
+            options.onSourcePackageHydrated,
+          );
+          if (session.status === "blocked") {
+            return {
+              status: "blocked",
+              reason: session.reason,
+              detail: session.detail,
+            };
+          }
+          const manga = await session.source.getMangaDetails({ key: mangaId });
+          return {
+            status: "ready",
+            runtime: session.runtime,
+            metadata: mapAidokuMangaToMetadata(manga, mangaId),
+            fetchedAt: options.now?.() ?? Date.now(),
+          };
+        },
+      ),
+    options,
   );
 }
 
@@ -279,34 +319,38 @@ export async function refreshMobileSourceChapters(
   )(sourceKey, source);
   const cache = options.sessionCache ?? defaultMobileSourceSessionCache;
 
-  return cache.withSession(
-    normalized,
-    { ...options.executor, settings },
-    async (session): Promise<MobileSourceChaptersRefresh> => {
-      await notifyMobileSourcePackageHydrated(
-        source,
-        session.sourcePackageHydration,
-        options.onSourcePackageHydrated,
-      );
-      if (session.status === "blocked") {
-        return {
-          status: "blocked",
-          reason: session.reason,
-          detail: session.detail,
-        };
-      }
-      const chapters = sortChapterSummaries(
-        (await session.source.getChapterList({ key: mangaId })).map(
-          mapAidokuChapterToSummary,
-        ),
-      );
-      return {
-        status: "ready",
-        runtime: session.runtime,
-        chapters,
-        latestChapter: chapters[0],
-        fetchedAt: options.now?.() ?? Date.now(),
-      };
-    },
+  return withDetailsTimeout(
+    () =>
+      cache.withSession(
+        normalized,
+        { ...options.executor, settings },
+        async (session): Promise<MobileSourceChaptersRefresh> => {
+          await notifyMobileSourcePackageHydrated(
+            source,
+            session.sourcePackageHydration,
+            options.onSourcePackageHydrated,
+          );
+          if (session.status === "blocked") {
+            return {
+              status: "blocked",
+              reason: session.reason,
+              detail: session.detail,
+            };
+          }
+          const chapters = sortChapterSummaries(
+            (await session.source.getChapterList({ key: mangaId })).map(
+              mapAidokuChapterToSummary,
+            ),
+          );
+          return {
+            status: "ready",
+            runtime: session.runtime,
+            chapters,
+            latestChapter: chapters[0],
+            fetchedAt: options.now?.() ?? Date.now(),
+          };
+        },
+      ),
+    options,
   );
 }

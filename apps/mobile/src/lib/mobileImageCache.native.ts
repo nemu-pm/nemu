@@ -21,6 +21,7 @@ import { parseNativeSegmentedImageCacheManifest } from "@/data/nativeSegmentedIm
 export type MobileImageCacheSource = {
   uri?: string | null;
   headers?: Record<string, string>;
+  cacheKind?: "cover" | "page";
 };
 
 export type MobileCachedImageFileAsset = Readonly<{
@@ -55,7 +56,7 @@ export function retainCachedMobileImageAsset(
   asset: MobileCachedImageAsset | null | undefined,
 ): () => void {
   return asset?.kind === "segmented-image"
-    ? mobileImageCache.retainSegmentedImageManifest(asset.manifestUri)
+    ? cacheForManifestUri(asset.manifestUri).retainSegmentedImageManifest(asset.manifestUri)
     : () => undefined;
 }
 
@@ -111,29 +112,77 @@ function readCachedMobileImageAsset(
 
 export const MOBILE_IMAGE_CACHE_REQUIRES_LOCAL_FILE = true;
 
-export const MOBILE_IMAGE_DISK_CACHE_POLICY: NativeBinaryCachePolicy = {
-  maxBytes: 192 * 1024 * 1024,
+const MOBILE_COVER_IMAGE_DISK_CACHE_POLICY: NativeBinaryCachePolicy = {
+  maxBytes: 96 * 1024 * 1024,
   maxEntries: 500,
+  targetBytes: 80 * 1024 * 1024,
+  targetEntries: 420,
   maxAgeMs: 30 * 24 * 60 * 60 * 1000,
   maxEntryBytes: MOBILE_REMOTE_IMAGE_MAX_BYTES,
 };
+const MOBILE_READER_PAGE_IMAGE_DISK_CACHE_POLICY: NativeBinaryCachePolicy = {
+  maxBytes: 256 * 1024 * 1024,
+  maxEntries: 320,
+  targetBytes: 216 * 1024 * 1024,
+  targetEntries: 270,
+  maxAgeMs: 14 * 24 * 60 * 60 * 1000,
+  maxEntryBytes: MOBILE_REMOTE_IMAGE_MAX_BYTES,
+};
 
-const mobileImageCache = new FileSystemBinaryCache(
+const mobileCoverImageCache = new FileSystemBinaryCache(
+  // Keep the legacy directory as the cover cache so upgrades do not orphan
+  // prior files; Reader pages move into the new independent budget.
   "nemu-image-cache",
-  MOBILE_IMAGE_DISK_CACHE_POLICY,
+  MOBILE_COVER_IMAGE_DISK_CACHE_POLICY,
+);
+const mobileReaderPageImageCache = new FileSystemBinaryCache(
+  "nemu-reader-page-image-cache",
+  MOBILE_READER_PAGE_IMAGE_DISK_CACHE_POLICY,
 );
 const MAX_RESOLVED_IMAGE_URIS = 600;
-const MAX_IMAGE_LOAD_CONCURRENCY = 4;
+const MAX_IMAGE_LOAD_CONCURRENCY = 8;
+// Matches what the platform's real browser currently sends: Chrome mobile
+// ships the reduced UA ("Android 10; K"), and Safari 26 freezes the OS token
+// at 18_7 while Version/ carries the real Safari major.
 const MOBILE_IMAGE_DEFAULT_USER_AGENT = Platform.select({
   android:
-    "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
-  ios: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
+  ios: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
 });
-const mobileImageCacheCoordinator = new MobileImageCacheCoordinator(
-  mobileImageCache,
+const mobileCoverImageCacheCoordinator = new MobileImageCacheCoordinator(
+  mobileCoverImageCache,
   MAX_RESOLVED_IMAGE_URIS,
   MAX_IMAGE_LOAD_CONCURRENCY,
 );
+const mobileReaderPageImageCacheCoordinator = new MobileImageCacheCoordinator(
+  mobileReaderPageImageCache,
+  MAX_RESOLVED_IMAGE_URIS,
+  MAX_IMAGE_LOAD_CONCURRENCY,
+);
+
+function cacheForSource(source: MobileImageCacheSource) {
+  return source.cacheKind === "page"
+    ? mobileReaderPageImageCache
+    : mobileCoverImageCache;
+}
+
+function coordinatorForSource(source: MobileImageCacheSource) {
+  return source.cacheKind === "page"
+    ? mobileReaderPageImageCacheCoordinator
+    : mobileCoverImageCacheCoordinator;
+}
+
+function cacheForManifestUri(uri: string) {
+  return uri.includes("nemu-reader-page-image-cache")
+    ? mobileReaderPageImageCache
+    : mobileCoverImageCache;
+}
+
+function coordinatorForStorageKey(storageKey: string) {
+  return storageKey.startsWith("page:")
+    ? mobileReaderPageImageCacheCoordinator
+    : mobileCoverImageCacheCoordinator;
+}
 
 function isCacheableMobileImageUri(uri: string) {
   return /^https?:\/\//i.test(uri);
@@ -144,7 +193,13 @@ function mobileImageCacheStorageKey(
   cacheKey?: string,
   executionScope = getActiveMobileSourceProfileScope(),
 ) {
-  return makeMobileImageCacheStorageKey(executionScope, source, cacheKey);
+  const storageKey = makeMobileImageCacheStorageKey(
+    executionScope,
+    source,
+    cacheKey,
+  );
+  // Preserve legacy cover keys so an upgrade can reuse existing entries.
+  return source.cacheKind === "page" ? `page:${storageKey}` : storageKey;
 }
 
 function imageContentTypeForUri(uri: string) {
@@ -191,7 +246,7 @@ export function getCachedMobileImageUriSync(
   executionScope = getActiveMobileSourceProfileScope(),
 ): string | null {
   if (!source?.uri || !isCacheableMobileImageUri(source.uri)) return null;
-  return mobileImageCacheCoordinator.getResolvedUri(
+  return coordinatorForSource(source).getResolvedUri(
     mobileImageCacheStorageKey(source, cacheKey, executionScope),
   );
 }
@@ -212,7 +267,7 @@ export function getCachedMobileImageAssetByStorageKeySync(
   storageKey: string,
 ): MobileCachedImageAsset | null {
   if (!storageKey) return null;
-  const locator = mobileImageCacheCoordinator.getResolvedUri(storageKey);
+  const locator = coordinatorForStorageKey(storageKey).getResolvedUri(storageKey);
   return locator ? readCachedMobileImageAsset(locator) : null;
 }
 
@@ -224,13 +279,13 @@ export async function resolveCachedMobileImageUri(
 ): Promise<string | null> {
   if (!source?.uri || !isCacheableMobileImageUri(source.uri)) return null;
   const key = mobileImageCacheStorageKey(source, cacheKey, executionScope);
-  return mobileImageCacheCoordinator.resolve(
+  return coordinatorForSource(source).resolve(
     key,
     async (signal) => {
       // The native SSRF-protected file seam streams directly to disk. Keeping
       // cover bytes out of both the bridge response and JS avoids several
       // simultaneous 20 MiB copies while still validating every redirect/peer.
-      return mobileImageCache.downloadFile(
+      return cacheForSource(source).downloadFile(
         key,
         source.uri!,
         imageContentTypeForUri(source.uri!),
@@ -255,10 +310,10 @@ export async function resolveCachedMobileImageAsset(
 ): Promise<MobileCachedImageAsset | null> {
   if (!source?.uri || !isCacheableMobileImageUri(source.uri)) return null;
   const key = mobileImageCacheStorageKey(source, cacheKey, executionScope);
-  const locator = await mobileImageCacheCoordinator.resolve(
+  const locator = await coordinatorForSource(source).resolve(
     key,
     (signal) =>
-      mobileImageCache.downloadFile(
+      cacheForSource(source).downloadFile(
         key,
         source.uri!,
         imageContentTypeForUri(source.uri!),
@@ -267,7 +322,8 @@ export async function resolveCachedMobileImageAsset(
           maxBytes: MOBILE_REMOTE_IMAGE_MAX_BYTES,
           maxImageDimension: MOBILE_IMAGE_MAX_DIMENSION,
           maxImagePixels: MOBILE_IMAGE_MAX_DECODED_PIXELS,
-          allowLongStripSegments: Platform.OS === "android",
+          allowLongStripSegments:
+            Platform.OS === "android" || Platform.OS === "ios",
           signal,
         },
       ),
@@ -278,7 +334,7 @@ export async function resolveCachedMobileImageAsset(
   if (asset) return asset;
   // A manifest locator without a complete validated generation is corrupt.
   // Remove it before a bounded retry can repopulate the key.
-  await mobileImageCacheCoordinator.invalidate(key);
+  await coordinatorForSource(source).invalidate(key);
   throw new Error("The segmented image cache entry is incomplete.");
 }
 
@@ -290,7 +346,7 @@ export function invalidateCachedMobileImage(
   if (!source?.uri || !isCacheableMobileImageUri(source.uri)) {
     return Promise.resolve();
   }
-  return mobileImageCacheCoordinator.invalidate(
+  return coordinatorForSource(source).invalidate(
     mobileImageCacheStorageKey(source, cacheKey, executionScope),
   );
 }
@@ -309,11 +365,34 @@ export async function prefetchCachedMobileImages(
 }
 
 export async function clearMobileImageCache(): Promise<void> {
-  await mobileImageCacheCoordinator.clearAll(() => mobileImageCache.clearAll());
+  await Promise.all([
+    clearMobileCoverImageCache(),
+    clearMobileReaderPageImageCache(),
+  ]);
+}
+
+export async function clearMobileCoverImageCache(): Promise<void> {
+  await mobileCoverImageCacheCoordinator.clearAll(() => mobileCoverImageCache.clearAll());
+}
+
+export async function clearMobileReaderPageImageCache(): Promise<void> {
+  await mobileReaderPageImageCacheCoordinator.clearAll(() => mobileReaderPageImageCache.clearAll());
+}
+
+export async function getMobileImageCacheStats(): Promise<{
+  covers: { bytes: number; entries: number };
+  pages: { bytes: number; entries: number };
+}> {
+  const [covers, pages] = await Promise.all([
+    mobileCoverImageCache.getStats(),
+    mobileReaderPageImageCache.getStats(),
+  ]);
+  return { covers, pages };
 }
 
 export function clearMobileImageMemoryCacheForProfileTransition(): void {
-  mobileImageCacheCoordinator.clearMemory();
+  mobileCoverImageCacheCoordinator.clearMemory();
+  mobileReaderPageImageCacheCoordinator.clearMemory();
 }
 
 registerMobileSourceProfileTransitionHandler(

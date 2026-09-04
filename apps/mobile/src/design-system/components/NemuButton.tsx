@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  Animated,
   ActivityIndicator,
+  Easing,
+  Platform,
   type AccessibilityRole,
   type AccessibilityState,
   StyleSheet,
-  Text,
+  View,
   type StyleProp,
   type TextStyle,
   type ViewStyle,
@@ -13,7 +16,13 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, { Path } from "react-native-svg";
 import { createNemuButtonDepthStyle } from "@/design/nemuButtonDepthStyle";
 import {
+  getNemuButtonPressMotion,
   getNemuButtonDepthVisual,
+  getNemuButtonDefaultCrossAxisAlignment,
+  hasNemuButtonShadowOverride,
+  resolveNemuButtonTouchTargetStyle,
+  shouldAnimateNemuButtonPress,
+  splitNemuButtonStyle,
   type NemuButtonDepthVariant,
 } from "@/design/nemuButtonDepth";
 import type { NemuPressableHapticFeedback } from "@/lib/nemuPressable";
@@ -38,6 +47,9 @@ export type NemuButtonSize =
   | "icon-xs"
   | "icon-sm"
   | "icon-lg";
+
+/** Shared geometry for the high-emphasis CTA used by onboarding and page empty states. */
+export const NEMU_PROMINENT_CTA_SIZE: NemuButtonSize = "default";
 
 type NemuButtonProps = {
   label?: string;
@@ -136,12 +148,34 @@ const buttonSizeStyles: Record<NemuButtonSize, ViewStyle> = {
 const buttonIconSizes: Record<NemuButtonSize, number> = {
   default: 16,
   xs: 12,
-  sm: 15,
-  lg: 17,
-  icon: 17,
+  sm: 16,
+  lg: 16,
+  icon: 16,
   "icon-xs": 12,
-  "icon-sm": 15,
-  "icon-lg": 18,
+  "icon-sm": 16,
+  "icon-lg": 16,
+};
+
+const buttonLabelStyles: Record<NemuButtonSize, TextStyle> = {
+  default: { fontSize: 14, lineHeight: 20 },
+  xs: { fontSize: 12, lineHeight: 16 },
+  sm: { fontSize: 14, lineHeight: 20 },
+  lg: { fontSize: 14, lineHeight: 20 },
+  icon: { fontSize: 14, lineHeight: 20 },
+  "icon-xs": { fontSize: 12, lineHeight: 16 },
+  "icon-sm": { fontSize: 14, lineHeight: 20 },
+  "icon-lg": { fontSize: 14, lineHeight: 20 },
+};
+
+const buttonRadii: Record<NemuButtonSize, number> = {
+  default: 10,
+  xs: 6,
+  sm: 8,
+  lg: 10,
+  icon: 10,
+  "icon-xs": 6,
+  "icon-sm": 8,
+  "icon-lg": 10,
 };
 
 function resolveButtonVariant(
@@ -191,8 +225,9 @@ export function NemuButton({
   onPress,
   testID,
 }: NemuButtonProps) {
-  const { scheme, tokens } = useNemuTheme();
-  const [pressed, setPressed] = useState(false);
+  const { reduceMotion, scheme, tokens } = useNemuTheme();
+  const [surfacePressProgress] = useState(() => new Animated.Value(0));
+  const pressedRef = useRef(false);
   const {
     accessibilityState: resolvedAccessibilityState,
     disabled: resolvedDisabled,
@@ -203,15 +238,82 @@ export function NemuButton({
   });
   const resolvedVariant = resolveButtonVariant(variant, tone);
   const depthVariant = variantDepthMap[resolvedVariant];
-  const visual = getNemuButtonDepthVisual({
+  const restVisual = getNemuButtonDepthVisual({
     variant: depthVariant,
-    state: pressed && !resolvedDisabled ? "pressed" : "rest",
+    state: "rest",
     scheme,
     tokens,
   });
-  const foregroundColor = visual.foregroundColor ?? tokens.foreground;
+  const pressedVisual = getNemuButtonDepthVisual({
+    variant: depthVariant,
+    state: "pressed",
+    scheme,
+    tokens,
+  });
+  const restForegroundColor = restVisual.foregroundColor ?? tokens.foreground;
+  const pressedForegroundColor = pressedVisual.foregroundColor ?? tokens.foreground;
   const sizeStyle = buttonSizeStyles[size];
   const iconSize = buttonIconSizes[size];
+  const iconOnly = size.startsWith("icon");
+  const surfaceRadius = buttonRadii[size];
+  const flattenedContainerStyle = StyleSheet.flatten(containerStyle);
+  const touchTargetStyle = resolveNemuButtonTouchTargetStyle({
+    callerStyle: flattenedContainerStyle,
+    platform: Platform.OS,
+  });
+  const {
+    layoutStyle: callerLayoutStyle,
+    surfaceShapeStyle: callerSurfaceShapeStyle,
+    surfaceStyle: callerSurfaceStyle,
+  } = splitNemuButtonStyle(StyleSheet.flatten(style));
+  const callerOverridesShadow = hasNemuButtonShadowOverride(callerSurfaceStyle);
+  const pressMotion = getNemuButtonPressMotion(depthVariant);
+  const animatePressMotion = shouldAnimateNemuButtonPress(reduceMotion);
+  const [easeX1, easeY1, easeX2, easeY2] = pressMotion.easing;
+  const animateSurface = (toValue: 0 | 1) => {
+    surfacePressProgress.stopAnimation();
+    if (!animatePressMotion) {
+      surfacePressProgress.setValue(toValue);
+      return;
+    }
+    Animated.timing(surfacePressProgress, {
+      toValue,
+      duration: pressMotion.duration,
+      easing: Easing.bezier(easeX1, easeY1, easeX2, easeY2),
+      useNativeDriver: false,
+    }).start();
+  };
+  const surfaceBackgroundColor = surfacePressProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [restVisual.backgroundColor, pressedVisual.backgroundColor],
+  });
+  const surfaceBorderColor = surfacePressProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [restVisual.borderColor, pressedVisual.borderColor],
+  });
+  const foregroundColor = surfacePressProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [restForegroundColor, pressedForegroundColor],
+  });
+  const restShadowOpacity = surfacePressProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
+
+  useEffect(() => {
+    if (!resolvedDisabled) return;
+    pressedRef.current = false;
+    surfacePressProgress.stopAnimation();
+    surfacePressProgress.setValue(0);
+  }, [resolvedDisabled, surfacePressProgress]);
+
+  useEffect(() => {
+    if (animatePressMotion) return;
+    surfacePressProgress.stopAnimation();
+    surfacePressProgress.setValue(
+      pressedRef.current && !resolvedDisabled ? 1 : 0,
+    );
+  }, [animatePressMotion, resolvedDisabled, surfacePressProgress]);
 
   return (
     <NemuPressable
@@ -225,51 +327,152 @@ export function NemuButton({
         (resolvedVariant === "destructive" ? "warning" : "press")
       }
       onPress={onPress}
-      pressedScale={0.97}
-      containerStyle={containerStyle}
-      onPressIn={() => setPressed(true)}
-      onPressOut={() => setPressed(false)}
+      pressedScale={pressMotion.scale}
+      pressAnimationDuration={pressMotion.duration}
+      pressAnimationEnabled={animatePressMotion}
+      hitSlop={0}
+      containerStyle={[
+        styles.touchTarget,
+        { alignItems: getNemuButtonDefaultCrossAxisAlignment(iconOnly) },
+        touchTargetStyle,
+      ]}
+      onPressIn={() => {
+        pressedRef.current = true;
+        animateSurface(1);
+      }}
+      onPressOut={() => {
+        pressedRef.current = false;
+        animateSurface(0);
+      }}
       style={[
         styles.button,
         sizeStyle,
-        createNemuButtonDepthStyle(visual),
         {
           opacity: resolvedDisabled ? 0.5 : 1,
         },
-        style,
+        callerLayoutStyle,
       ]}
       testID={testID}
     >
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.surface,
+          createNemuButtonDepthStyle(restVisual),
+            {
+              backgroundColor: surfaceBackgroundColor,
+              borderColor: surfaceBorderColor,
+              borderRadius: surfaceRadius,
+              boxShadow: "none",
+            },
+            callerSurfaceStyle,
+          ]}
+        />
+      {!callerOverridesShadow ? (
+        <>
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.surface,
+              styles.shadowSurface,
+              {
+                borderRadius: surfaceRadius,
+                boxShadow: restVisual.boxShadow,
+                opacity: restShadowOpacity,
+              },
+              callerSurfaceShapeStyle,
+            ]}
+          />
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.surface,
+              styles.shadowSurface,
+              {
+                borderRadius: surfaceRadius,
+                boxShadow: pressedVisual.boxShadow,
+                opacity: surfacePressProgress,
+              },
+              callerSurfaceShapeStyle,
+            ]}
+          />
+        </>
+      ) : null}
       {loading ? (
-        <ActivityIndicator size="small" color={foregroundColor} />
+        <ActivityIndicator size="small" color={restForegroundColor} />
       ) : null}
       {!loading && icon === "add-outline" ? (
-        <NemuWebPlusIcon size={iconSize} color={foregroundColor} />
+        <View style={{ height: iconSize, width: iconSize }}>
+          <NemuWebPlusIcon size={iconSize} color={restForegroundColor} />
+          {restForegroundColor !== pressedForegroundColor ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.foregroundOverlay, { opacity: surfacePressProgress }]}
+            >
+              <NemuWebPlusIcon size={iconSize} color={pressedForegroundColor} />
+            </Animated.View>
+          ) : null}
+        </View>
       ) : !loading && icon ? (
-        <Ionicons name={icon} size={iconSize} color={foregroundColor} />
+        <View style={{ height: iconSize, width: iconSize }}>
+          <Ionicons name={icon} size={iconSize} color={restForegroundColor} />
+          {restForegroundColor !== pressedForegroundColor ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.foregroundOverlay, { opacity: surfacePressProgress }]}
+            >
+              <Ionicons name={icon} size={iconSize} color={pressedForegroundColor} />
+            </Animated.View>
+          ) : null}
+        </View>
       ) : null}
       {label ? (
-        <Text
+        <Animated.Text
           maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-          style={[styles.label, { color: foregroundColor }, textStyle]}
+          style={[
+            styles.label,
+            buttonLabelStyles[size],
+            { color: foregroundColor },
+            textStyle,
+          ]}
         >
           {label}
-        </Text>
+        </Animated.Text>
       ) : null}
     </NemuPressable>
   );
 }
 
 const styles = StyleSheet.create({
+  touchTarget: {
+    justifyContent: "center",
+  },
   button: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 10,
   },
+  surface: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  shadowSurface: {
+    backgroundColor: "transparent",
+    borderColor: "transparent",
+    borderWidth: 0,
+  },
+  foregroundOverlay: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
   label: {
-    fontSize: 14,
-    lineHeight: 20,
     fontWeight: nemuFontWeight.medium,
     letterSpacing: 0,
     textAlign: "center",

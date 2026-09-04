@@ -67,6 +67,7 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
   private sourceIndex: Map<string, NormalizedSourceEntry> = new Map();
   private loadedSources: Map<string, MangaSource> = new Map();
   private fetchPromise: Promise<void> | null = null;
+  private refreshPromise: Promise<void> | null = null;
   // Prevent race condition when loading same source concurrently
   private loadingPromises: Map<string, Promise<MangaSource | null>> = new Map();
 
@@ -91,18 +92,62 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
 
   private async ensureFetched(): Promise<void> {
     if (this.fetchPromise) return this.fetchPromise;
-    this.fetchPromise = this.fetchIndex();
+    this.fetchPromise = this.loadIndex();
     return this.fetchPromise;
   }
 
-  private async fetchIndex(): Promise<void> {
-    const url = (this.info as { url: string }).url;
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`Failed to fetch registry index: ${res.status}`);
+  /**
+   * Cache-first index load. A cached index resolves immediately so startup
+   * never blocks on the network; the fresh index refreshes in the background.
+   * Without a cache the initial network fetch must complete.
+   */
+  private async loadIndex(): Promise<void> {
+    const cached = await this.readCachedIndex();
+    if (cached) {
+      this.applyIndexEntries(cached);
+      this.refreshIndex().catch((e) => {
+        console.warn(
+          "[Aidoku] Registry index refresh failed; using cached index:",
+          e,
+        );
+      });
+      return;
     }
-    const data = await res.json();
-    const entries = this.parseIndex(data);
+    await this.refreshIndex();
+  }
+
+  private async readCachedIndex(): Promise<NormalizedSourceEntry[] | null> {
+    try {
+      const data = await this.cacheStore.getJson<unknown>(
+        CacheKeys.registryIndex(this.info.id),
+      );
+      if (!data) return null;
+      return this.parseIndex(data);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Fetch the index from the network and update the in-memory + persisted cache. */
+  private async refreshIndex(): Promise<void> {
+    if (this.refreshPromise) return this.refreshPromise;
+    this.refreshPromise = (async () => {
+      const url = (this.info as { url: string }).url;
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch registry index: ${res.status}`);
+      }
+      const data = await res.json();
+      this.applyIndexEntries(this.parseIndex(data));
+      await this.cacheStore.setJson(CacheKeys.registryIndex(this.info.id), data);
+    })().finally(() => {
+      this.refreshPromise = null;
+    });
+    return this.refreshPromise;
+  }
+
+  private applyIndexEntries(entries: NormalizedSourceEntry[]): void {
+    this.sourceIndex.clear();
     for (const entry of entries) {
       this.sourceIndex.set(entry.id, entry);
     }
@@ -182,6 +227,11 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     expectedGeneration?: number | null,
   ): Promise<void> {
     await this.ensureFetched();
+    // Installs act on fresh registry data whenever a background index
+    // refresh is already in flight (e.g. startup served a cached index).
+    if (this.refreshPromise) {
+      await this.refreshPromise.catch(() => {});
+    }
     const entry = this.sourceIndex.get(sourceId);
     if (!entry) {
       throw new Error(`Source not found: ${sourceId}`);
@@ -258,6 +308,11 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     if (!aixData) {
       // Not installed at all - try to install
       await this.ensureFetched();
+      // A stale cached index may not know a brand-new source yet; if a
+      // background refresh is in flight, wait for it before giving up.
+      if (this.refreshPromise) {
+        await this.refreshPromise.catch(() => {});
+      }
       if (!this.sourceIndex.has(sourceId)) {
         return null;
       }
@@ -310,6 +365,14 @@ export class AidokuUrlRegistry implements SourceRegistryProvider {
     }
 
     return source;
+  }
+
+  /**
+   * Whether a source instance is already live in memory. Cheap synchronous
+   * check that lets callers skip the IndexedDB blob read in isInstalled().
+   */
+  isLoaded(sourceId: string): boolean {
+    return this.loadedSources.has(sourceId);
   }
 
   async isInstalled(sourceId: string): Promise<boolean> {

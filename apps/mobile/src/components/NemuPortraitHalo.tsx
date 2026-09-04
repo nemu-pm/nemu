@@ -1,10 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { useFocusEffect } from "expo-router";
+import { useEffect, useState } from "react";
 import {
-  AccessibilityInfo,
-  Animated,
   AppState,
-  Easing,
   Image,
   Platform,
   StyleSheet,
@@ -13,49 +9,40 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import Reanimated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
 import portrait from "../../assets/portrait.png";
-import portraitBlur from "../../assets/portrait-blur.png";
-import portraitGlow from "../../assets/portrait-glow.png";
 import {
+  getNemuPortraitGlowRasterLayout,
+  getNemuPortraitGlowStageWidth,
   getNemuPortraitHaloRenderMode,
+  getNemuPortraitStageHeight,
+  NEMU_WEB_PORTRAIT_GLOW,
+  shouldAnimateNemuPortraitGlow,
   shouldAnimateNemuPortraitHalo,
 } from "@/lib/nemuPortraitHalo";
+import { getNemuPortraitGlowAssets } from "@/lib/nemuPortraitGlowAssets";
+import { useNemuTheme } from "@/design-system";
 
-const PORTRAIT_ASSET_WIDTH = 390;
-const PORTRAIT_ASSET_HEIGHT = 456;
-const PORTRAIT_MAX_WIDTH = 390;
-const PORTRAIT_STAGE_ASPECT_RATIO = PORTRAIT_ASSET_HEIGHT / PORTRAIT_ASSET_WIDTH;
-const useNativeAnimationDriver = Platform.OS !== "web";
+const PORTRAIT_MAX_WIDTH = 639;
+const webEaseInOut = Easing.bezier(0.42, 0, 0.58, 1);
 
-function getDelayedLoopValue(duration: number, negativeDelay: number) {
-  if (!negativeDelay) return 0;
-
-  const phase = ((Math.abs(negativeDelay) % duration) / duration);
-  return phase <= 0.5 ? phase * 2 : (1 - phase) * 2;
-}
-
-function createWebKeyframeLoop(
-  value: Animated.Value,
-  duration: number,
-  negativeDelay = 0,
-) {
-  value.setValue(getDelayedLoopValue(duration, negativeDelay));
-
-  return Animated.loop(
-    Animated.sequence([
-      Animated.timing(value, {
-        toValue: 1,
-        duration: duration / 2,
-        easing: Easing.inOut(Easing.ease),
-        useNativeDriver: useNativeAnimationDriver,
-      }),
-      Animated.timing(value, {
-        toValue: 0,
-        duration: duration / 2,
-        easing: Easing.inOut(Easing.ease),
-        useNativeDriver: useNativeAnimationDriver,
-      }),
-    ]),
+function startPingPong(value: SharedValue<number>, duration: number) {
+  value.value = withRepeat(
+    withSequence(
+      withTiming(1, { duration: duration / 2, easing: webEaseInOut }),
+      withTiming(0, { duration: duration / 2, easing: webEaseInOut }),
+    ),
+    -1,
+    false,
   );
 }
 
@@ -70,117 +57,120 @@ export function NemuPortraitHalo({
   style,
   testID,
 }: NemuPortraitHaloProps) {
+  const { reduceMotion } = useNemuTheme();
   const { width: windowWidth } = useWindowDimensions();
   const stageWidth = Math.max(
     1,
-    Math.min(PORTRAIT_MAX_WIDTH, maxWidth, windowWidth - 56),
+    Math.round(Math.min(PORTRAIT_MAX_WIDTH, maxWidth, windowWidth)),
   );
-  const stageHeight = Math.round(stageWidth * PORTRAIT_STAGE_ASPECT_RATIO);
+  const stageHeight = getNemuPortraitStageHeight(stageWidth);
+  const glowStageWidth = getNemuPortraitGlowStageWidth(stageWidth);
+  const glowStageHeight = getNemuPortraitStageHeight(glowStageWidth);
+  const glowAssets = getNemuPortraitGlowAssets(glowStageWidth);
+  const glowRasterLayout = getNemuPortraitGlowRasterLayout({
+    containerStageHeight: stageHeight,
+    containerStageWidth: stageWidth,
+    stageHeight: glowStageHeight,
+    stageWidth: glowStageWidth,
+  });
 
-  const [float] = useState(() => new Animated.Value(0));
-  const [sway] = useState(() => new Animated.Value(0));
-  const [breathe] = useState(() => new Animated.Value(0));
-  const [rotate] = useState(() => new Animated.Value(0));
-  const [glowPulse] = useState(() => new Animated.Value(0));
-  const [glowDrift] = useState(() => new Animated.Value(0));
-  const [reduceMotion, setReduceMotion] = useState(false);
-  const [focused, setFocused] = useState(true);
+  const float = useSharedValue(0);
+  const sway = useSharedValue(0);
+  const breathe = useSharedValue(0);
+  const rotate = useSharedValue(0);
+  const glowPulse = useSharedValue(0);
+  const glowDrift = useSharedValue(0);
   const [appActive, setAppActive] = useState(AppState.currentState === "active");
   const haloRenderMode = getNemuPortraitHaloRenderMode(Platform.OS);
 
-  useFocusEffect(
-    useCallback(() => {
-      setFocused(true);
-      return () => setFocused(false);
-    }, []),
-  );
-
   useEffect(() => {
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .then(setReduceMotion)
-      .catch(() => undefined);
-    const reduceMotionSubscription = AccessibilityInfo.addEventListener(
-      "reduceMotionChanged",
-      setReduceMotion,
-    );
     const appStateSubscription = AppState.addEventListener("change", (state) => {
       setAppActive(state === "active");
     });
     return () => {
-      reduceMotionSubscription.remove();
       appStateSubscription.remove();
     };
   }, []);
 
   const animate = shouldAnimateNemuPortraitHalo({
     appActive,
-    focused,
+    focused: true,
     platform: Platform.OS,
     reduceMotion,
   });
+  const animateGlow = animate && shouldAnimateNemuPortraitGlow(Platform.OS);
 
   useEffect(() => {
     if (!animate) {
-      [float, sway, breathe, rotate, glowPulse, glowDrift].forEach((value) => {
-        value.stopAnimation();
-        value.setValue(0);
-      });
+      cancelAnimation(float);
+      cancelAnimation(sway);
+      cancelAnimation(breathe);
+      cancelAnimation(rotate);
+      cancelAnimation(glowPulse);
+      cancelAnimation(glowDrift);
       return;
     }
-    const animations = [
-      createWebKeyframeLoop(float, 5000),
-      createWebKeyframeLoop(sway, 7000, -2500),
-      createWebKeyframeLoop(breathe, 4000, -1200),
-      createWebKeyframeLoop(rotate, 9000, -4000),
-      createWebKeyframeLoop(glowPulse, 4000),
-      createWebKeyframeLoop(glowDrift, 6000, -3000),
-    ];
 
-    animations.forEach((animation) => animation.start());
+    startPingPong(float, 5_000);
+    startPingPong(sway, 7_000);
+    startPingPong(breathe, 4_000);
+    startPingPong(rotate, 9_000);
+    if (animateGlow) {
+      startPingPong(glowPulse, NEMU_WEB_PORTRAIT_GLOW.primary.duration);
+      startPingPong(glowDrift, NEMU_WEB_PORTRAIT_GLOW.secondary.duration);
+    }
+
     return () => {
-      animations.forEach((animation) => animation.stop());
+      cancelAnimation(float);
+      cancelAnimation(sway);
+      cancelAnimation(breathe);
+      cancelAnimation(rotate);
+      cancelAnimation(glowPulse);
+      cancelAnimation(glowDrift);
     };
-  }, [animate, breathe, float, glowDrift, glowPulse, rotate, sway]);
+  }, [
+    animate,
+    animateGlow,
+    breathe,
+    float,
+    glowDrift,
+    glowPulse,
+    rotate,
+    sway,
+  ]);
 
-  const floatTranslateY = float.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -12],
+  const portraitMotionStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: float.value * -12 },
+      { translateX: sway.value * 4 },
+      { rotate: `${-0.5 + rotate.value}deg` },
+      { scale: 1 + breathe.value * 0.012 },
+    ],
+  }));
+  const glowPulseStyle = useAnimatedStyle(() => {
+    const [y0, y1] = NEMU_WEB_PORTRAIT_GLOW.primary.translateY;
+    const [scale0, scale1] = NEMU_WEB_PORTRAIT_GLOW.primary.scale;
+    // CSS multiplies 0.25–0.4 onto a live gradient. The PNG already contains
+    // those stops; another 0.25 against white washes the aura out. Pulse the
+    // full baked layer instead.
+    return {
+      opacity: 0.62 + 0.38 * glowPulse.value,
+      transform: [
+        { translateY: y0 + (y1 - y0) * glowPulse.value },
+        { scale: scale0 + (scale1 - scale0) * glowPulse.value },
+      ],
+    };
   });
-  const swayTranslateX = sway.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 4],
-  });
-  const breatheScale = breathe.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.012],
-  });
-  const rotateDeg = rotate.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["-0.5deg", "0.5deg"],
-  });
-  const glowPulseOpacity = glowPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.38, 0.55],
-  });
-  const glowPulseTranslateY = glowPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [8, 14],
-  });
-  const glowPulseScale = glowPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.06],
-  });
-  const glowDriftOpacity = glowDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.24, 0.36],
-  });
-  const glowDriftTranslateX = glowDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-4, 4],
-  });
-  const glowDriftTranslateY = glowDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [12, 18],
+  const glowDriftStyle = useAnimatedStyle(() => {
+    const [x0, x1] = NEMU_WEB_PORTRAIT_GLOW.secondary.translateX;
+    const [y0, y1] = NEMU_WEB_PORTRAIT_GLOW.secondary.translateY;
+    return {
+      opacity: 0.45 + 0.4 * glowDrift.value,
+      transform: [
+        { translateY: y0 + (y1 - y0) * glowDrift.value },
+        { translateX: x0 + (x1 - x0) * glowDrift.value },
+      ],
+    };
   });
 
   return (
@@ -189,90 +179,56 @@ export function NemuPortraitHalo({
       style={[styles.root, style, { height: stageHeight, width: stageWidth }]}
       testID={testID}
     >
-      {haloRenderMode === "raster-glow" ? (
+      {haloRenderMode === "static-composite-raster" ? (
         <Image
           fadeDuration={0}
           resizeMode="stretch"
-          source={portraitGlow}
-          style={[styles.rasterGlow, { height: stageHeight, width: stageWidth }]}
+          source={glowAssets.composite}
+          style={[styles.rasterGlow, glowRasterLayout]}
         />
       ) : (
-        <Animated.View
-          style={[
-            styles.glowPortraitWrap,
-            {
-              opacity: glowPulseOpacity,
-              transform: [
-                { translateY: glowPulseTranslateY },
-                { scale: glowPulseScale },
-              ],
-            },
-          ]}
-        >
-          <Animated.Image
-            blurRadius={28}
-            fadeDuration={0}
-            resizeMode="contain"
-            source={portraitBlur}
-            style={[
-              styles.glowPortrait,
-              styles.primaryGlowPortrait,
-              { height: stageHeight, width: stageWidth },
-            ]}
-          />
-        </Animated.View>
+        <Reanimated.Image
+          fadeDuration={0}
+          resizeMode="stretch"
+          source={glowAssets.primary}
+          style={[styles.rasterGlow, glowRasterLayout, glowPulseStyle]}
+        />
       )}
 
-      {haloRenderMode === "blurred-images" && animate ? (
-        <Animated.View
-          style={[
-            styles.glowPortraitWrap,
-            {
-              opacity: glowDriftOpacity,
-              transform: [
-                { translateY: glowDriftTranslateY },
-                { translateX: glowDriftTranslateX },
-              ],
-            },
-          ]}
-        >
-          <Animated.Image
-            blurRadius={18}
-            fadeDuration={0}
-            resizeMode="contain"
-            source={portraitBlur}
-            style={[
-              styles.glowPortrait,
-              styles.secondaryGlowPortrait,
-              { height: stageHeight, width: stageWidth },
-            ]}
-          />
-        </Animated.View>
+      {haloRenderMode === "animated-raster-layers" ? (
+        <Reanimated.Image
+          fadeDuration={0}
+          resizeMode="stretch"
+          source={glowAssets.secondary}
+          style={[styles.rasterGlow, glowRasterLayout, glowDriftStyle]}
+        />
       ) : null}
 
-      <Animated.View
-        style={[
-          styles.motionLayer,
-          {
-            transform: [{ translateY: floatTranslateY }],
-          },
-        ]}
-      >
-        <Animated.View style={{ transform: [{ translateX: swayTranslateX }] }}>
-          <Animated.View style={{ transform: [{ rotate: rotateDeg }] }}>
-            <Animated.View style={{ transform: [{ scale: breatheScale }] }}>
-              <View style={[styles.portraitShadow, { height: stageHeight, width: stageWidth }]}>
-                <Image
-                  fadeDuration={0}
-                  resizeMode="contain"
-                  source={portrait}
-                  style={styles.portrait}
-                />
-              </View>
-            </Animated.View>
-          </Animated.View>
-        </Animated.View>
-      </Animated.View>
+      <Reanimated.View style={[styles.motionLayer, portraitMotionStyle]}>
+        <View
+          style={[
+            styles.portraitStack,
+            { height: stageHeight, width: stageWidth },
+          ]}
+        >
+          <Image
+            fadeDuration={0}
+            resizeMode="stretch"
+            source={glowAssets.shadow}
+            style={[
+              styles.rasterGlow,
+              { opacity: NEMU_WEB_PORTRAIT_GLOW.shadow.opacity },
+              glowRasterLayout,
+            ]}
+          />
+          <Image
+            fadeDuration={0}
+            resizeMode="contain"
+            source={portrait}
+            style={styles.portrait}
+          />
+        </View>
+      </Reanimated.View>
     </View>
   );
 }
@@ -283,28 +239,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "visible",
   },
-  glowPortraitWrap: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  glowPortrait: {
-    opacity: 1,
-  },
   rasterGlow: {
     position: "absolute",
-    top: 0,
-    left: 0,
-  },
-  primaryGlowPortrait: {
-    tintColor: "#7b9ad0",
-  },
-  secondaryGlowPortrait: {
-    tintColor: "#c4a6d6",
   },
   motionLayer: {
     alignItems: "center",
@@ -312,11 +248,8 @@ const styles = StyleSheet.create({
     height: "100%",
     width: "100%",
   },
-  portraitShadow: {
-    shadowColor: "#7b9ad0",
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.15,
-    shadowRadius: 40,
+  portraitStack: {
+    overflow: "visible",
   },
   portrait: {
     height: "100%",

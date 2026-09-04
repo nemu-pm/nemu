@@ -20,8 +20,8 @@ Pod::Spec.new do |s|
   s.source_files = "**/*.{h,m,mm,swift,hpp,cpp}"
   s.resource_bundles = {
     'NemuAidokuRuntime' => [
-      '../runtime/assets/nemu_aidoku_sandbox.js',
-      '../runtime/ios/nemu_aidoku_worker_host.js'
+      'Resources/nemu_aidoku_sandbox.js',
+      'Resources/nemu_aidoku_worker_host.js'
     ]
   }
 end
