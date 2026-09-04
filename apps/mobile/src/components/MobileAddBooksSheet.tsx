@@ -136,7 +136,12 @@ function MobileAddBooksSheetContent({
   });
 
   const requestClose = () => {
-    const action = getMobileCollectionMembershipRequestCloseAction({ busy: closeDisabled });
+    // This sheet holds no text draft: its only unsaved state is the selection,
+    // which the footer action owns.
+    const action = getMobileCollectionMembershipRequestCloseAction({
+      busy: closeDisabled,
+      dirty: false,
+    });
     if (action === "ignore") return;
     if (closeRequestedRef.current) return;
     closeRequestedRef.current = true;
@@ -191,7 +196,7 @@ function MobileAddBooksSheetContent({
         style={[
           styles.bookRow,
           {
-            backgroundColor: selected ? `${tokens.primary}16` : tokens.muted,
+            backgroundColor: selected ? tokens.primarySoft : tokens.muted,
             borderColor: selected ? tokens.primary : tokens.border,
             opacity: saving ? 0.68 : 1,
           },

@@ -14,6 +14,7 @@ import {
   type ImageProps,
   type ImageURISource,
 } from "react-native";
+import { useNemuTheme } from "@/design/useNemuTheme";
 import {
   getCachedMobileImageAssetByStorageKeySync,
   getMobileImageCacheSourceKey,
@@ -50,8 +51,6 @@ type MobileCachedImageProps = Omit<ImageProps, "source" | "onError"> & {
   onSegmentedImage?: (asset: MobileCachedSegmentedImageAsset | null) => void;
   fallback?: ReactNode;
   onError?: (error: string) => void;
-  /** Opt out of the 240ms fade-in (e.g. reader pages). */
-  fadeDisabled?: boolean;
 };
 
 function boundedLocalImageSourceKey(
@@ -83,13 +82,15 @@ export function MobileCachedImage({
   onError,
   onLoad,
   style,
-  fadeDisabled = false,
   ...props
 }: MobileCachedImageProps) {
+  const { reduceMotion } = useNemuTheme();
+  // Reduce Motion turns the 240ms cover fade into an instant reveal.
+  const skipFade = reduceMotion === true;
   const sourceUri = source.uri;
   const sourceHeaders = source.headers;
   const [imageFadeRef] = useState(
-    () => new ReactAnimated.Value(fadeDisabled ? 1 : 0),
+    () => new ReactAnimated.Value(skipFade ? 1 : 0),
   );
   const uriPolicy = useMemo(
     () => getMobileImageUriPolicy(sourceUri, uriOwnership),
@@ -359,7 +360,9 @@ export function MobileCachedImage({
         );
         reportedErrorSourceKeyRef.current = null;
       }
-      if (!fadeDisabled) {
+      if (skipFade) {
+        imageFadeRef.setValue(1);
+      } else {
         ReactAnimated.timing(imageFadeRef, {
           toValue: 1,
           duration: 240,
@@ -368,14 +371,24 @@ export function MobileCachedImage({
       }
       onLoad?.(event);
     },
-    [fadeDisabled, imageFadeRef, onLoad, sourceKey],
+    [imageFadeRef, onLoad, skipFade, sourceKey],
   );
 
   // Restart the fade whenever the source changes so a recycled cover cell
   // fades into its new image instead of popping.
+  const fadedSourceKeyRef = useRef(sourceKey);
   useEffect(() => {
-    imageFadeRef.setValue(fadeDisabled ? 1 : 0);
-  }, [fadeDisabled, imageFadeRef, sourceKey]);
+    const sourceChanged = fadedSourceKeyRef.current !== sourceKey;
+    fadedSourceKeyRef.current = sourceKey;
+    if (skipFade) {
+      imageFadeRef.setValue(1);
+      return;
+    }
+    // Only a new source restarts the fade from 0. Reduce Motion switching back
+    // off must not reset an image that is already revealed: no further `onLoad`
+    // would arrive to fade it in again, so the cover would stay blank.
+    if (sourceChanged) imageFadeRef.setValue(0);
+  }, [imageFadeRef, skipFade, sourceKey]);
 
   if (!imageSource && fallback !== undefined) return fallback;
 

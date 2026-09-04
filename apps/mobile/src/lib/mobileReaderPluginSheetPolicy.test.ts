@@ -47,7 +47,7 @@ describe("reader plugin settings sheet policy", () => {
     const source = mobileSource("screens/ReaderScreen.tsx");
 
     expect(source).toContain(
-      "onContinuousScrollMetricsChange={\n          onReaderContinuousScrollMetricsChange\n        }",
+      "onContinuousScrollMetricsChange={onReaderContinuousScrollMetricsChange}",
     );
     expect(source).toContain("pageIndex={visibleProgressPageIndex}");
     expect(source).toContain("scrubIndex={");

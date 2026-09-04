@@ -54,10 +54,10 @@ import {
 import { useNemuTheme } from "@/design/useNemuTheme";
 import type { NemuNativeSearchFieldProps } from "./NemuNativeSearchField.types";
 
-/** iOS 26 search field metrics: a 36pt capsule with 17pt text. */
+/** iOS search field metrics: a 36pt capsule with 15pt text. */
 const FIELD_HEIGHT = 36;
 const FIELD_HORIZONTAL_INSET = 12;
-const FIELD_FONT_SIZE = 17;
+const FIELD_FONT_SIZE = 15;
 const GLYPH_POINT_SIZE = 15;
 const CLEAR_GLYPH_POINT_SIZE = 17;
 const CONTENT_SPACING = 8;

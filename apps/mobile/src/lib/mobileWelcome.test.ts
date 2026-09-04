@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { InstalledSource } from "@/data/schema";
+import { getMobileStrings } from "@/lib/mobileI18n";
 import type { MobileRegistrySource } from "@/sources/aidokuRegistry";
 import {
   buildMobileWelcomeInstalledSourceKeySet,
@@ -11,25 +12,24 @@ import {
   createMobileWelcomeCompletionWriteCoordinator,
   getMobileWelcomeAvailableSources,
   getMobileWelcomeDefaultSelection,
+  getMobileWelcomeInstallErrorCopy,
   getMobileWelcomePendingSourceInstallCount,
-  getMobileWelcomeSourceStepLayout,
   getMobileWelcomeUnderlyingContentState,
   getMobileWelcomeRecommendedSources,
   mobileWelcomeSourceKey,
   shouldScrollMobileWelcomeContent,
   shouldBlockMobileWelcomeUnderlyingContent,
-  shouldUseContentSizedMobileWelcomeSheet,
   shouldStackMobileWelcomeActions,
   resolveMobileWelcomeNativeSheetPresentation,
   MOBILE_WELCOME_ANDROID_SNAP_POINTS,
   MOBILE_WELCOME_ICON_SIZE,
-  MOBILE_WELCOME_SOURCE_LIST_MIN_HEIGHT,
-  MOBILE_WELCOME_SOURCE_PLACEHOLDER_HEIGHT,
-  MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT,
-  MOBILE_WELCOME_SOURCE_SHEET_MAX_HEIGHT,
 } from "./mobileWelcome";
 
-function source(registryId: string, id: string, name = id): MobileRegistrySource {
+function source(
+  registryId: string,
+  id: string,
+  name = id,
+): MobileRegistrySource {
   return {
     id,
     registryId,
@@ -100,10 +100,41 @@ describe("mobile welcome helpers", () => {
     expect(writeCount).toBe(3);
   });
 
+  test("reads install timeouts as retryable network errors, not device failures", () => {
+    const strings = getMobileStrings("en");
+
+    // Our own install watchdog and a raw CFNetwork timeout both classify as
+    // network errors — the package download simply failed to finish.
+    for (const error of [
+      new Error("Source installation timed out."),
+      new Error("The request timed out."),
+      new Error("Network request failed"),
+    ]) {
+      const copy = getMobileWelcomeInstallErrorCopy(error, strings);
+      expect(copy.title).toBe(strings.common.sourceNetworkError);
+      expect(copy.detail).toBe(strings.common.sourceNetworkErrorDescription);
+    }
+
+    // Unclassified package failures keep the install-specific copy, with the
+    // sanitized diagnostic appended as the secondary line.
+    const copy = getMobileWelcomeInstallErrorCopy(
+      new Error("package identity mismatch"),
+      strings,
+    );
+    expect(copy.title).toBe(strings.welcome.sourceInstallFailed);
+    expect(copy.detail).toBe(
+      `${strings.welcome.sourceInstallFailedDetail}\npackage identity mismatch`,
+    );
+  });
+
   test("keeps every native onboarding step reachable at large text sizes", () => {
     for (const step of ["welcome", "language", "sources", "done"] as const) {
-      expect(shouldScrollMobileWelcomeContent({ platform: "android", step })).toBe(true);
-      expect(shouldScrollMobileWelcomeContent({ platform: "ios", step })).toBe(true);
+      expect(
+        shouldScrollMobileWelcomeContent({ platform: "android", step }),
+      ).toBe(true);
+      expect(shouldScrollMobileWelcomeContent({ platform: "ios", step })).toBe(
+        true,
+      );
     }
     expect(
       shouldScrollMobileWelcomeContent({ platform: "web", step: "welcome" }),
@@ -113,66 +144,37 @@ describe("mobile welcome helpers", () => {
     ).toBe(true);
   });
 
-  test("content-sizes short iOS steps only when the viewport can safely fit them", () => {
-    for (const step of ["welcome", "language", "done"] as const) {
-      expect(
-        shouldUseContentSizedMobileWelcomeSheet({
-          platform: "ios",
-          step,
-          fontScale: 1,
-          availableHeight: 800,
-        }),
-      ).toBe(true);
+  test("presents every iOS step with one stable content-sized sheet", () => {
+    // Regression: the original mixed model (content-sized short steps plus a
+    // fixed-detent sources step) made the expo iOS BottomSheet flip its
+    // fitToContents/matchContents hosting mode between steps; the RNHostView
+    // rebuild could orphan its RCTSurfaceTouchHandler and the step then
+    // ignored every tap. Every step must therefore share ONE presentation —
+    // uniformly content-sized (snapPoints absent) and uniformly scrollable —
+    // so the hosting mode never flips.
+    for (const step of ["welcome", "language", "sources", "done"] as const) {
+      const presentation = resolveMobileWelcomeNativeSheetPresentation({
+        platform: "ios",
+      });
+      expect(presentation.snapPoints).toBeUndefined();
+      expect(presentation.scroll).toBe(true);
+      expect(presentation.boundSourceList).toBe(false);
+      expect(presentation.enablePanDownToClose).toBe(false);
+      expect(step).toBeDefined();
     }
 
-    expect(
-      shouldUseContentSizedMobileWelcomeSheet({
-        platform: "ios",
-        step: "sources",
-        fontScale: 1,
-        availableHeight: 800,
-      }),
-    ).toBe(false);
-    expect(
-      shouldUseContentSizedMobileWelcomeSheet({
-        platform: "ios",
-        step: "welcome",
-        fontScale: 1.6,
-        availableHeight: 800,
-      }),
-    ).toBe(false);
-    expect(
-      shouldUseContentSizedMobileWelcomeSheet({
-        platform: "ios",
-        step: "welcome",
-        fontScale: 1,
-        availableHeight: 519,
-      }),
-    ).toBe(false);
-    expect(
-      shouldUseContentSizedMobileWelcomeSheet({
-        platform: "android",
-        step: "welcome",
-        fontScale: 1,
-        availableHeight: 800,
-      }),
-    ).toBe(false);
+    const android = resolveMobileWelcomeNativeSheetPresentation({
+      platform: "android",
+    });
+    expect(android.snapPoints).not.toBeUndefined();
   });
 
   test("keeps one stable guarded Material sheet presentation across Android steps", () => {
     const welcome = resolveMobileWelcomeNativeSheetPresentation({
       platform: "android",
-      step: "welcome",
-      fontScale: 1,
-      availableHeight: 800,
-      nativeSheetHeight: 520,
     });
     const sources = resolveMobileWelcomeNativeSheetPresentation({
       platform: "android",
-      step: "sources",
-      fontScale: 1.8,
-      availableHeight: 430,
-      nativeSheetHeight: 410,
     });
 
     expect(welcome.snapPoints).toBe(MOBILE_WELCOME_ANDROID_SNAP_POINTS);
@@ -187,120 +189,6 @@ describe("mobile welcome helpers", () => {
     expect(welcome.enablePanDownToClose).toBe(false);
   });
 
-  test("preserves fitted and scrollable detent behavior on iOS", () => {
-    expect(
-      resolveMobileWelcomeNativeSheetPresentation({
-        platform: "ios",
-        step: "welcome",
-        fontScale: 1,
-        availableHeight: 800,
-        nativeSheetHeight: 520,
-      }),
-    ).toEqual({
-      boundSourceList: false,
-      enablePanDownToClose: false,
-      scroll: false,
-      snapPoints: undefined,
-    });
-    expect(
-      resolveMobileWelcomeNativeSheetPresentation({
-        platform: "ios",
-        step: "sources",
-        fontScale: 1,
-        availableHeight: 800,
-        nativeSheetHeight: 620,
-      }),
-    ).toEqual({
-      boundSourceList: true,
-      enablePanDownToClose: false,
-      scroll: false,
-      snapPoints: [620],
-    });
-  });
-
-  test("keeps the iOS source step pinned and scrolls only for banners", () => {
-    const pinned = resolveMobileWelcomeNativeSheetPresentation({
-      platform: "ios",
-      step: "sources",
-      fontScale: 1,
-      availableHeight: 800,
-      nativeSheetHeight: 480,
-    });
-    const recovering = resolveMobileWelcomeNativeSheetPresentation({
-      platform: "ios",
-      step: "sources",
-      fontScale: 1,
-      availableHeight: 800,
-      nativeSheetHeight: 480,
-      bannerVisible: true,
-    });
-
-    expect(pinned.boundSourceList).toBe(true);
-    expect(pinned.scroll).toBe(false);
-    // An unbudgeted recovery banner must stay reachable, so the whole sheet
-    // falls back to scrolling.
-    expect(recovering.boundSourceList).toBe(false);
-    expect(recovering.scroll).toBe(true);
-    expect(recovering.snapPoints).toEqual([480]);
-  });
-
-  test("sizes the source step so only its list scrolls", () => {
-    const threeRows = getMobileWelcomeSourceStepLayout({
-      rowCount: 3,
-      bottomInset: 34,
-      availableHeight: 800,
-    });
-
-    expect(threeRows.contentBottomInset).toBe(34);
-    // 3 * 61 + 2 * 8
-    expect(threeRows.listHeight).toBe(199);
-    expect(threeRows.sheetHeight).toBe(
-      MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT + 199 + 34,
-    );
-
-    const placeholder = getMobileWelcomeSourceStepLayout({
-      rowCount: 0,
-      bottomInset: 0,
-      availableHeight: 800,
-    });
-    expect(placeholder.contentBottomInset).toBe(18);
-    expect(placeholder.listHeight).toBe(
-      MOBILE_WELCOME_SOURCE_PLACEHOLDER_HEIGHT,
-    );
-  });
-
-  test("shrinks the source list instead of the pinned actions", () => {
-    const clamped = getMobileWelcomeSourceStepLayout({
-      rowCount: 8,
-      bottomInset: 34,
-      availableHeight: 420,
-    });
-
-    expect(clamped.sheetHeight).toBe(420);
-    expect(clamped.listHeight).toBe(
-      420 - MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT - 34,
-    );
-
-    const tiny = getMobileWelcomeSourceStepLayout({
-      rowCount: 8,
-      bottomInset: 34,
-      availableHeight: 240,
-    });
-    expect(tiny.listHeight).toBe(MOBILE_WELCOME_SOURCE_LIST_MIN_HEIGHT);
-
-    const huge = getMobileWelcomeSourceStepLayout({
-      rowCount: 20,
-      bottomInset: 34,
-      availableHeight: 2000,
-    });
-    expect(huge.sheetHeight).toBe(MOBILE_WELCOME_SOURCE_SHEET_MAX_HEIGHT);
-    expect(huge.listHeight).toBe(
-      MOBILE_WELCOME_SOURCE_SHEET_MAX_HEIGHT -
-        MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT -
-        34,
-    );
-  });
-
   test("forbids hand-built Android sheet chrome in onboarding", () => {
     const source = readFileSync(
       path.join(import.meta.dir, "../components/MobileWelcomeWizard.tsx"),
@@ -310,15 +198,17 @@ describe("mobile welcome helpers", () => {
     expect(source).toContain("<MobileNativeSheetScaffold");
     expect(source).not.toContain("<Modal");
     expect(source).not.toMatch(/android(?:Overlay|Backdrop|Sheet|Handle)/);
-    expect(source).toContain("afterSheetDismissRef.current = afterComplete ?? null;");
+    expect(source).toContain(
+      "afterSheetDismissRef.current = afterComplete ?? null;",
+    );
     expect(source).toContain("onClose={handleWelcomeSheetClosed}");
     expect(source).toMatch(
       /const handleWelcomeSheetClosed[\s\S]*?onCompleted\(\);[\s\S]*?afterDismiss\?\.\(\);/,
     );
-    expect(source).not.toContain("setSheetVisible(false);\n      afterComplete?.();");
-    expect(source).toContain(
-      "accessibilityLabel={strings.about.appIconLabel}",
+    expect(source).not.toContain(
+      "setSheetVisible(false);\n      afterComplete?.();",
     );
+    expect(source).toContain("accessibilityLabel={strings.about.appIconLabel}");
     expect(source).not.toContain('accessibilityLabel="nemu"');
   });
 
@@ -350,24 +240,40 @@ describe("mobile welcome helpers", () => {
     );
 
     // The language picker is a row of depth buttons, not hand-painted chips.
-    expect(welcomeSource).toContain('variant={selected ? "default" : "secondary"}');
+    expect(welcomeSource).toContain(
+      'variant={selected ? "default" : "secondary"}',
+    );
     expect(welcomeSource).not.toContain("segmentText");
-    // Selection on a source card must read as a deliberate ring.
-    expect(welcomeSource).toMatch(/selectedSourceOption: \{\s*borderWidth: 1\.5,/);
+    // Selection on a source card must read as a deliberate ring, one full
+    // point so it stays visible without reading as a heavy outline.
+    expect(welcomeSource).toMatch(/selectedSourceOption: \{\s*borderWidth: 1,/);
     // Only the recommended source list scrolls.
-    expect(welcomeSource).toContain("boundSourceList ? (");
-    expect(welcomeSource).toContain("{ height: sourceStepLayout.listHeight }");
+    // The source list renders in-place; the content-sized sheet scrolls as
+    // a whole when a long catalog overflows.
+    expect(welcomeSource).toContain(
+      "<View style={styles.sourceList}>{sourceListBody}</View>",
+    );
+    expect(welcomeSource).not.toContain("boundSourceList");
   });
 
   test("hides the underlying navigation tree only while onboarding is visible", () => {
     expect(
-      shouldBlockMobileWelcomeUnderlyingContent({ checking: true, visible: false }),
+      shouldBlockMobileWelcomeUnderlyingContent({
+        checking: true,
+        visible: false,
+      }),
     ).toBe(false);
     expect(
-      shouldBlockMobileWelcomeUnderlyingContent({ checking: false, visible: true }),
+      shouldBlockMobileWelcomeUnderlyingContent({
+        checking: false,
+        visible: true,
+      }),
     ).toBe(true);
     expect(
-      shouldBlockMobileWelcomeUnderlyingContent({ checking: false, visible: false }),
+      shouldBlockMobileWelcomeUnderlyingContent({
+        checking: false,
+        visible: false,
+      }),
     ).toBe(false);
   });
 
@@ -387,19 +293,23 @@ describe("mobile welcome helpers", () => {
   });
 
   test("matches web recommended source order by app language", () => {
-    expect(getMobileWelcomeRecommendedSources("en").map(mobileWelcomeSourceKey)).toEqual([
+    expect(
+      getMobileWelcomeRecommendedSources("en").map(mobileWelcomeSourceKey),
+    ).toEqual([
       "aidoku-community:multi.mangaplus",
       "aidoku-community:multi.mangadex",
       "aidoku-community:ja.shonenjumpplus",
     ]);
-    expect(getMobileWelcomeRecommendedSources("zh").map(mobileWelcomeSourceKey)).toEqual([
+    expect(
+      getMobileWelcomeRecommendedSources("zh").map(mobileWelcomeSourceKey),
+    ).toEqual([
       "aidoku-zh:zh.manhuaren",
       "aidoku-community:zh.copymanga",
       "aidoku-community:ja.shonenjumpplus",
     ]);
-    expect(getMobileWelcomeRecommendedSources("ja").map(mobileWelcomeSourceKey)[0]).toBe(
-      "aidoku-community:ja.shonenjumpplus"
-    );
+    expect(
+      getMobileWelcomeRecommendedSources("ja").map(mobileWelcomeSourceKey)[0],
+    ).toBe("aidoku-community:ja.shonenjumpplus");
   });
 
   test("keeps only available recommended sources for the install list", () => {
@@ -409,17 +319,18 @@ describe("mobile welcome helpers", () => {
       source("other", "source"),
     ];
 
-    expect(getMobileWelcomeAvailableSources("en", available).map((item) => item.name)).toEqual([
-      "MangaDex",
-      "Shonen Jump+",
-    ]);
+    expect(
+      getMobileWelcomeAvailableSources("en", available).map(
+        (item) => item.name,
+      ),
+    ).toEqual(["MangaDex", "Shonen Jump+"]);
   });
 
   test("defaults to available recommendations when registries have loaded", () => {
     expect(
       getMobileWelcomeDefaultSelection("en", [
         source("aidoku-community", "multi.mangadex"),
-      ])
+      ]),
     ).toEqual(["aidoku-community:multi.mangadex"]);
 
     expect(getMobileWelcomeDefaultSelection("en", [])).toEqual([

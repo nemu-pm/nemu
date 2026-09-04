@@ -10,7 +10,9 @@ import {
   getMobileSearchQueryForSource,
   mapAidokuMangaToLiveSearchManga,
   mapAidokuMangasToLiveSearchMangaWithImageRequests,
+  MOBILE_LIVE_SEARCH_SOURCE_CONCURRENCY,
   presentMobileLiveSearchGroup,
+  resolveMobileLiveSearchSourceConcurrency,
   searchMobileSource,
   searchMobileSources,
   selectInstalledSourcesForSearch,
@@ -20,7 +22,11 @@ import type {
   MobileAidokuExecutorBridge,
   MobileAidokuExecutorSource,
 } from "./mobileSourceExecutor";
-import { defaultMobileSourceSessionCache } from "./mobileSourceExecutorCache";
+import {
+  createMobileSourceSessionCache,
+  defaultMobileSourceSessionCache,
+  MOBILE_SOURCE_SESSION_POOL_SIZE,
+} from "./mobileSourceExecutorCache";
 
 function makeAixPackage(sourceId = "en.example", language = "en"): Uint8Array {
   return zipSync({
@@ -859,5 +865,51 @@ describe("mobile source search", () => {
         reason: "native-bridge-missing",
       },
     ]);
+  });
+
+  test("keeps the search fan-out one below the warm session pool", () => {
+    // A search that occupies every pooled session evicts (and forces a WASM
+    // recompile of) whatever the reader still has warm.
+    expect(MOBILE_LIVE_SEARCH_SOURCE_CONCURRENCY).toBe(
+      MOBILE_SOURCE_SESSION_POOL_SIZE - 1,
+    );
+    expect(resolveMobileLiveSearchSourceConcurrency(4)).toBe(3);
+    expect(resolveMobileLiveSearchSourceConcurrency(2)).toBe(1);
+    expect(resolveMobileLiveSearchSourceConcurrency(1)).toBe(1);
+    expect(resolveMobileLiveSearchSourceConcurrency(Number.NaN)).toBe(1);
+  });
+
+  test("an aborted search never reaches the runtime through a queued session", async () => {
+    let searched = 0;
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        const source = makeExecutorSource();
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: {
+            ...source,
+            async getSearchMangaList(query, page, filters) {
+              searched += 1;
+              return source.getSearchMangaList(query, page, filters);
+            },
+          },
+        };
+      },
+    };
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      searchMobileSource(installedSource(), "blue", {
+        executor: {
+          bridge,
+          readBytes: async () => makeAixPackage(),
+        },
+        sessionCache: createMobileSourceSessionCache(),
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(/aborted/i);
+    expect(searched).toBe(0);
   });
 });

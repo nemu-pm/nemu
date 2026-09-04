@@ -7,14 +7,14 @@ import {
   useNemuTheme,
 } from "@/design-system";
 
-export type ReaderSegmentedChipOption<T extends string> = {
+type ReaderSegmentedChipOption<T extends string> = {
   value: T;
   label: string;
   /** Falls back to `label` when the visible label is an abbreviation. */
   accessibilityLabel?: string;
 };
 
-export type ReaderSegmentedChipRowProps<T extends string> = {
+type ReaderSegmentedChipRowProps<T extends string> = {
   accessibilityLabel?: string;
   disabled?: boolean;
   options: readonly ReaderSegmentedChipOption<T>[];
@@ -24,8 +24,8 @@ export type ReaderSegmentedChipRowProps<T extends string> = {
 
 /**
  * The design-system fallback for a native segmented control: a row of 30pt
- * pills. Selected pills use the toolbar-action surface so they read as the
- * same family as the reader chrome; unselected pills stay on `secondary`.
+ * pills painted by the shared chip depth visuals — selected pills float on
+ * the primary surface, unselected pills sit as pressed-in wells.
  */
 export function ReaderSegmentedChipRow<T extends string>({
   accessibilityLabel,
@@ -50,6 +50,7 @@ export function ReaderSegmentedChipRow<T extends string>({
             accessibilityRole="button"
             accessibilityLabel={option.accessibilityLabel ?? option.label}
             accessibilityState={{ selected, disabled }}
+            buttonDepth={selected ? "chip-selected" : "chip"}
             containerStyle={styles.chipContainer}
             disabled={disabled}
             hapticFeedback={selected ? "none" : "selection"}
@@ -61,18 +62,12 @@ export function ReaderSegmentedChipRow<T extends string>({
             style={[
               styles.chip,
               {
-                backgroundColor: selected
-                  ? tokens.toolbarAction
-                  : tokens.secondary,
-                borderColor: selected
-                  ? tokens.toolbarActionBorder
-                  : "transparent",
                 opacity: disabled ? 0.56 : 1,
               },
             ]}
           >
             <NemuText
-              color={selected ? tokens.primary : tokens.secondaryForeground}
+              color={selected ? tokens.primaryForeground : tokens.mutedForeground}
               numberOfLines={1}
               style={styles.chipLabel}
             >

@@ -1,3 +1,4 @@
+import { memo, useCallback } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { MobileChapterProgressAccessory } from "@/components/MobileChapterProgressAccessory";
 import {
@@ -31,11 +32,15 @@ type MobileChapterCellProps = {
   openChapterTemplate: string;
   progress: LocalChapterProgress | undefined;
   strings: MobileStrings;
-  onPress: () => void;
+  /**
+   * Takes the chapter so the caller can pass one stable handler for the whole
+   * grid instead of allocating a closure per cell (which defeats `memo`).
+   */
+  onPress: (chapter: ChapterSummary) => void;
   showLanguage?: boolean;
 };
 
-export function MobileChapterCell({
+export const MobileChapterCell = memo(function MobileChapterCell({
   appLanguage = DEFAULT_APP_LANGUAGE,
   busy,
   chapter,
@@ -46,6 +51,9 @@ export function MobileChapterCell({
   showLanguage = false,
 }: MobileChapterCellProps) {
   const { tokens } = useNemuTheme();
+  const handlePress = useCallback(() => {
+    onPress(chapter);
+  }, [chapter, onPress]);
   const chapterPresentation = getMobileChapterPresentation(chapter, progress);
   const chapterVisualState = getMobileChapterVisualState(chapterPresentation);
   const cellPalette = getMobileChapterRowPalette(chapterVisualState, tokens);
@@ -92,7 +100,7 @@ export function MobileChapterCell({
       accessibilityRole="button"
       accessibilityState={{ disabled: chapterDisabled }}
       disabled={chapterDisabled}
-      onPress={onPress}
+      onPress={handlePress}
       pressedScale={0.985}
       style={[
         styles.cell,
@@ -131,7 +139,7 @@ export function MobileChapterCell({
       ) : null}
     </NemuPressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   cell: {

@@ -17,19 +17,35 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import type { SearchBarCommands } from "react-native-screens";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
+import {
+  QuickActionSheet,
+  type QuickAction,
+} from "@/components/QuickActionSheet";
+import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
+import { MobileListFooter } from "@/components/MobileListFooter";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { MobilePageEmpty } from "@/components/MobilePageEmpty";
 import { MobileSearchSkeleton } from "@/components/MobileSearchSkeleton";
 import { MobileSourceChip } from "@/components/MobileSourceChip";
+import { useMobileToast } from "@/components/MobileToastContext";
 import { useMobileDataStore } from "@/data/mobileDataContext";
-import { emitMobileDataChanged } from "@/data/mobileDataEvents";
+import {
+  emitMobileDataChanged,
+  emitMobileLibraryDataChanged,
+} from "@/data/mobileDataEvents";
 import {
   useInstalledSources,
   useLibraryEntries,
   useMobileLanguageSettings,
 } from "@/data/mobileHooks";
-import { entryHasAnyUpdate, getEntryCover, getEntryTitle, type InstalledSource } from "@/data/schema";
+import {
+  entryHasAnyUpdate,
+  getEntryCover,
+  getEntryTitle,
+  type InstalledSource,
+  type LibraryEntry,
+} from "@/data/schema";
 import {
   GlassSurface,
   MangaCard,
@@ -61,6 +77,7 @@ import {
   MOBILE_MANGA_GRID_GAP,
 } from "@/lib/mobileAdaptiveGrid";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";
+import { findInstalledSourceForLink } from "@/lib/mobileLibraryRefresh";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
 import {
   coerceMobileNativeSearchText,
@@ -81,6 +98,7 @@ import {
   getMobileSourceBrowseSearchHref,
   getMobileSourceMangaHref,
 } from "@/lib/mobileSourceRoutes";
+import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import { useStableList } from "@/lib/useStableList";
 import {
   groupLocalSearchResults,
@@ -551,8 +569,6 @@ function LiveSearchResults({
   action: LiveResultAction;
   resultItemStyle: StyleProp<ViewStyle>;
 }) {
-  const { tokens } = useNemuTheme();
-
   if (state.status === "idle") return null;
   const hasLoadingGroups =
     state.status === "ready" && state.groups.some((group) => group.status === "loading");
@@ -582,9 +598,10 @@ function LiveSearchResults({
             />
           ))}
           {hasLoadingGroups ? (
-            <ActivityIndicator
-              accessibilityLabel={strings.search.searchingSelectedSources}
-              color={tokens.primary}
+            <MobileListFooter
+              loadingLabel={strings.search.searchingSelectedSources}
+              state="loading"
+              strings={strings}
             />
           ) : null}
         </View>
@@ -615,18 +632,43 @@ const LocalSearchResultHeader = memo(function LocalSearchResultHeader({
   );
 });
 
+const LocalSearchResultCard = memo(function LocalSearchResultCard({
+  item,
+  onLongPressItem,
+}: {
+  item: MangaCardModel;
+  onLongPressItem: (libraryItemId: string) => void;
+}) {
+  // Keeps the card's callback identity tied to the row, not to the render, so
+  // `memo(MangaCard)` can actually hold.
+  const handleLongPress = useCallback(() => {
+    onLongPressItem(item.id);
+  }, [item.id, onLongPressItem]);
+
+  return <MangaCard item={item} onLongPress={handleLongPress} />;
+});
+
 const LocalSearchResultItems = memo(function LocalSearchResultItems({
   items,
   resultItemStyle,
+  onLongPressItem,
 }: {
   items: MangaCardModel[];
   resultItemStyle: StyleProp<ViewStyle>;
+  onLongPressItem: (libraryItemId: string) => void;
 }) {
   return (
     <View style={styles.resultsGrid}>
       {items.map((item) => (
         <View key={item.id} style={[styles.resultItem, resultItemStyle]}>
-          <MangaCard item={item} />
+          {/*
+            MangaCard's own NemuPressable fires the long-press haptic, so the
+            quick menu must not play a second one on the way up.
+          */}
+          <LocalSearchResultCard
+            item={item}
+            onLongPressItem={onLongPressItem}
+          />
         </View>
       ))}
       {items.length === 1 ? (
@@ -652,6 +694,7 @@ export function SearchScreen() {
   const { tokens } = useNemuTheme();
   const { width: windowWidth } = useWindowDimensions();
   const store = useMobileDataStore();
+  const toast = useMobileToast();
   const params = useLocalSearchParams<{ q?: string | string[] }>();
   const routeQuery = normalizeMobileSearchRouteQuery(params.q);
   const [query, setQuery] = useState(routeQuery);
@@ -665,6 +708,11 @@ export function SearchScreen() {
   const selectionSaveRun = useRef(0);
   const [retryingData, setRetryingData] = useState(false);
   const retryDataGuardRef = useRef(false);
+  const [quickActionEntry, setQuickActionEntry] = useState<LibraryEntry | null>(
+    null,
+  );
+  const [membershipSheetEntry, setMembershipSheetEntry] =
+    useState<LibraryEntry | null>(null);
   // Bumped by the Nemu Agent sheet's onSuccess to force the live-search effect
   // to re-run after a Cloudflare challenge is solved.
   const [searchRefreshNonce, setSearchRefreshNonce] = useState(0);
@@ -1064,6 +1112,20 @@ export function SearchScreen() {
     },
     [trimmedQuery],
   );
+  const libraryEntriesById = useMemo(
+    () =>
+      new Map(library.data.map((entry) => [entry.item.libraryItemId, entry])),
+    [library.data],
+  );
+  const openQuickActionForItem = useCallback(
+    (libraryItemId: string) => {
+      // `toMangaCard` keys every saved-result card by its library item id, so
+      // the pressed card always maps back to a full entry.
+      const entry = libraryEntriesById.get(libraryItemId);
+      if (entry) setQuickActionEntry(entry);
+    },
+    [libraryEntriesById],
+  );
   const renderLocalSearchRow = useCallback(
     ({ item }: ListRenderItemInfo<LocalSearchResultRow>) => {
       if (item.type === "header") {
@@ -1073,10 +1135,11 @@ export function SearchScreen() {
         <LocalSearchResultItems
           items={item.items}
           resultItemStyle={resultItemStyle}
+          onLongPressItem={openQuickActionForItem}
         />
       );
     },
-    [resultItemStyle],
+    [openQuickActionForItem, resultItemStyle],
   );
 
   const retrySearchData = async () => {
@@ -1099,6 +1162,157 @@ export function SearchScreen() {
     onSuccess: () => setSearchRefreshNonce((value) => value + 1),
   });
   cloudflareSheetRef.current = cloudflareSheet;
+
+  const handleQuickActionMarkAllRead = useCallback(
+    async (entry: LibraryEntry) => {
+      const now = Date.now();
+      let acked = 0;
+      try {
+        for (const link of entry.sources) {
+          if (!link.latestChapter) continue;
+          const latest = link.latestChapter.chapterNumber;
+          const ack = link.updateAckChapter?.chapterNumber;
+          if (latest == null || (ack != null && ack >= latest)) continue;
+          await store.saveSourceLink({
+            ...link,
+            updateAckChapter: link.latestChapter,
+            updateAckChapterSortKey: link.latestChapterSortKey,
+            updateAckAt: now,
+            updatedAt: now,
+          });
+          acked += 1;
+        }
+      } catch {
+        toast.show({
+          tone: "danger",
+          title: strings.mangaDetail.actionFailedDetail,
+        });
+        return;
+      }
+      if (acked > 0) {
+        emitMobileDataChanged("library");
+        await hapticConfirm();
+      }
+      toast.show({
+        tone: "success",
+        title: strings.feedback.markedAllRead,
+      });
+    },
+    [store, strings, toast],
+  );
+
+  const handleQuickActionRemove = useCallback(
+    async (entry: LibraryEntry) => {
+      try {
+        await store.removeLibraryItem(entry.item.libraryItemId);
+        emitMobileLibraryDataChanged({ collectionsChanged: true });
+      } catch {
+        toast.show({
+          tone: "danger",
+          title: strings.mangaDetail.actionFailedDetail,
+        });
+        return;
+      }
+      toast.show({
+        tone: "info",
+        title: strings.feedback.removedFromLibrary,
+        detail: strings.feedback.removedFromLibraryHint,
+        action: {
+          label: strings.feedback.undo,
+          onPress: () => {
+            store
+              .restoreLibraryItem(entry.item.libraryItemId)
+              .then(() =>
+                emitMobileLibraryDataChanged({ collectionsChanged: true }),
+              )
+              .catch(() =>
+                toast.show({
+                  tone: "danger",
+                  title: strings.mangaDetail.actionFailedDetail,
+                }),
+              );
+          },
+        },
+      });
+    },
+    [store, strings, toast],
+  );
+
+  const quickActionLink = quickActionEntry?.sources[0] ?? null;
+  const quickActionSource = useMemo(
+    () =>
+      quickActionLink
+        ? findInstalledSourceForLink(installed.data, quickActionLink)
+        : null,
+    [installed.data, quickActionLink],
+  );
+  const quickActionCoverRequest = useMobileSourceImageRequest(
+    quickActionSource,
+    quickActionEntry ? getEntryCover(quickActionEntry) : null,
+  );
+  const quickActions = useMemo<QuickAction[]>(() => {
+    const entry = quickActionEntry;
+    if (!entry) return [];
+    const link = quickActionLink;
+    const actions: QuickAction[] = [
+      {
+        id: "markAllRead",
+        label: strings.feedback.quickMenuMarkAllRead,
+        icon: "checkmark-done-outline",
+        onPress: () => {
+          setQuickActionEntry(null);
+          void handleQuickActionMarkAllRead(entry);
+        },
+      },
+      {
+        id: "addToCollection",
+        label: strings.feedback.quickMenuAddToCollection,
+        icon: "albums-outline",
+        onPress: () => {
+          setQuickActionEntry(null);
+          setMembershipSheetEntry(entry);
+        },
+      },
+    ];
+    if (link) {
+      actions.push({
+        id: "openInSource",
+        label: formatMobileString(strings.feedback.quickMenuOpenInSource, {
+          source: quickActionSource?.name ?? link.sourceId,
+        }),
+        icon: "open-outline",
+        onPress: () => {
+          setQuickActionEntry(null);
+          router.push(
+            getMobileSourceMangaHref({
+              registryId: link.registryId,
+              sourceId: link.sourceId,
+              mangaId: link.sourceMangaId,
+              mangaTitle: getEntryTitle(entry),
+            }),
+          );
+        },
+      });
+    }
+    actions.push({
+      id: "remove",
+      label: strings.mangaDetail.removeFromLibrary,
+      icon: "trash-outline",
+      destructive: true,
+      onPress: () => {
+        setQuickActionEntry(null);
+        void handleQuickActionRemove(entry);
+      },
+    });
+    return actions;
+  }, [
+    handleQuickActionMarkAllRead,
+    handleQuickActionRemove,
+    quickActionEntry,
+    quickActionLink,
+    quickActionSource,
+    strings,
+  ]);
 
   if (
     shouldShowMobileSearchNoSourcesEmpty({
@@ -1141,14 +1355,6 @@ export function SearchScreen() {
             hideWhenScrolling={false}
             hintTextColor={tokens.mutedForeground}
             obscureBackground={false}
-            onBlur={() =>
-              submitSearch({
-                query: resolveMobileNativeSearchSubmitText(
-                  undefined,
-                  queryRef.current,
-                ),
-              })
-            }
             onCancelButtonPress={clearSearch}
             onChangeText={(event) => {
               const nextQuery = coerceMobileNativeSearchText(
@@ -1231,9 +1437,6 @@ export function SearchScreen() {
                     returnKeyType="search"
                     selectionColor={tokens.primary}
                     value={query}
-                    onBlur={() =>
-                      submitSearch({ query: queryRef.current })
-                    }
                     onChangeText={(nextQuery) => {
                       queryRef.current = nextQuery;
                       setQuery(nextQuery);
@@ -1373,6 +1576,29 @@ export function SearchScreen() {
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />
+      <QuickActionSheet
+        visible={quickActionEntry !== null}
+        variant="cover"
+        title={quickActionEntry ? getEntryTitle(quickActionEntry) : ""}
+        subtitle={quickActionSource?.name ?? quickActionLink?.sourceId}
+        image={
+          quickActionCoverRequest?.url ??
+          (quickActionEntry ? getEntryCover(quickActionEntry) : undefined)
+        }
+        imageHeaders={quickActionCoverRequest?.headers}
+        actions={quickActions}
+        testID="MangaQuickActionSheet"
+        onClose={() => setQuickActionEntry(null)}
+        onDismiss={() => setQuickActionEntry(null)}
+      />
+      {membershipSheetEntry ? (
+        <MobileCollectionMembershipSheet
+          visible
+          libraryItemId={membershipSheetEntry.item.libraryItemId}
+          title={getEntryTitle(membershipSheetEntry)}
+          onClose={() => setMembershipSheetEntry(null)}
+        />
+      ) : null}
     </>
   );
 }

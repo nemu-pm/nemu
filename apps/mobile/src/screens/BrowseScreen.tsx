@@ -7,9 +7,12 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
+  type LayoutChangeEvent,
   type SectionListData,
   type SectionListRenderItemInfo,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileBrowseSkeleton } from "@/components/MobileBrowseSkeleton";
@@ -19,16 +22,15 @@ import { MobileInlineToast } from "@/components/MobileInlineToast";
 import { MobilePageEmpty } from "@/components/MobilePageEmpty";
 import { MobileSourceQuickSettingsSheet } from "@/components/MobileSourceQuickSettingsSheet";
 import {
-  SourceQuickActionSheet,
-  type SourceQuickAction,
-} from "@/components/SourceQuickActionSheet";
+  QuickActionSheet,
+  type QuickAction,
+} from "@/components/QuickActionSheet";
 import { useMobileToast } from "@/components/MobileToastContext";
 import {
   NemuButton,
   GlassSurface,
   MobileCachedImage,
   MobileNativeSheetScaffold,
-  NemuListRow,
   NemuNativeSearchField,
   NemuNativeSheetHeaderAction,
   NemuNativeSwitch,
@@ -64,6 +66,7 @@ import {
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
+import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
 import {
   buildMobileInstalledSourceKeySet,
   canSelectMobileBrowseAllLanguages,
@@ -85,9 +88,16 @@ import {
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
 import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
 import { normalizeMobileSourceExternalUrl } from "@/lib/mobileSourceExternalUrl";
-import { resolveMobileInstalledSourceIconUri } from "@/lib/mobileSourceIconResolution";
+import {
+  buildMobileSourceIconIndex,
+  resolveMobileInstalledSourceIconUri,
+} from "@/lib/mobileSourceIconResolution";
 import { findMobileSourceUpdates } from "@/lib/mobileSourceUpdates";
-import { getMobileSourceErrorPresentation } from "@/lib/mobileSourceErrors";
+import {
+  getMobileSourceErrorPresentation,
+  sanitizeMobileErrorDiagnostic,
+  splitMobileInlineErrorDetail,
+} from "@/lib/mobileSourceErrors";
 import {
   formatMobileLanguageDisplayName,
   sortSourcesByLanguagePriority,
@@ -100,8 +110,6 @@ import {
   makeSourceKey,
   type MobileRegistrySource,
 } from "@/sources/aidokuRegistry";
-
-const SOURCE_WARNING_COLOR = "#f59e0b";
 
 type BrowseConfirmation = {
   type: "install-warning";
@@ -414,6 +422,7 @@ function LanguageFilterSheetSection({
   showAdult: boolean;
   onToggleAdult: () => void;
 }) {
+  const { tokens } = useNemuTheme();
   const visibleLanguages = languages.filter((language) => language !== "all");
   const allLanguagesSelected = selectedLanguages.size === 0;
   const pinnedLanguages = visibleLanguages.filter(
@@ -509,22 +518,54 @@ function LanguageFilterSheetSection({
         </GlassSurface>
       ) : null}
       {/*
-        The explicit-content toggle is a settings row, not a language option, so
-        it gets its own card group under the language groups instead of a bare
-        row floating on the sheet background.
+        The explicit-content toggle is a settings row, not a language option,
+        so it gets its own card group under the language groups. Every child
+        rides one centre line — fixed-height icon tile, copy block, and the
+        switch in a box as tall as the switch itself — so nothing sits offset
+        or tilted inside the row.
       */}
-      <NemuListRow
-        accessory={
-          <NemuNativeSwitch
-            accessibilityLabel={strings.browse.adultSourcesSwitch}
-            value={showAdult}
-            onValueChange={onToggleAdult}
-          />
-        }
-        icon="eye-outline"
-        subtitle={strings.browse.adultSourcesDescription}
-        title={strings.browse.adult}
-      />
+      <GlassSurface
+        style={styles.languageListSection}
+        contentStyle={styles.languageListContent}
+      >
+        <View style={styles.adultToggleRow}>
+          <View
+            style={[
+              styles.adultToggleIcon,
+              { backgroundColor: tokens.sourceIconGlass },
+            ]}
+          >
+            <Ionicons name="eye-outline" size={20} color={tokens.primary} />
+          </View>
+          <View style={styles.adultToggleCopy}>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.adultToggleTitle,
+                { color: tokens.foreground },
+              ]}
+            >
+              {strings.browse.adult}
+            </Text>
+            <Text
+              numberOfLines={2}
+              style={[
+                styles.adultToggleSubtitle,
+                { color: tokens.mutedForeground },
+              ]}
+            >
+              {strings.browse.adultSourcesDescription}
+            </Text>
+          </View>
+          <View style={styles.adultToggleAccessory}>
+            <NemuNativeSwitch
+              accessibilityLabel={strings.browse.adultSourcesSwitch}
+              value={showAdult}
+              onValueChange={onToggleAdult}
+            />
+          </View>
+        </View>
+      </GlassSurface>
     </>
   );
 }
@@ -634,7 +675,7 @@ const AvailableSourceRow = memo(function AvailableSourceRow({
                 <Ionicons
                   name="alert-circle-outline"
                   size={15}
-                  color={SOURCE_WARNING_COLOR}
+                  color={tokens.warning}
                 />
               </View>
             ) : null}
@@ -716,6 +757,25 @@ function AvailableSectionSeparator({
   return <View style={styles.availableSectionSeparator} />;
 }
 
+/**
+ * The Add Sources sheet sizes its iOS detent to its content instead of
+ * parking a blank tail under a short (or filtered) list:
+ *
+ *   scaffold header chrome + the scaffold body's top padding + the sheet's
+ *   own header stack + the measured list content + corner clearance
+ *
+ * The list's own 24pt bottom padding is already inside the measured content,
+ * so the clearance is pure extra tail (~36pt total under the last row) —
+ * enough air above the screen's rounded corners when scrolled to the very
+ * bottom. The detent clamps to `[320, 88%]` of the scaffold's available
+ * height (`windowHeight - insets.top - insets.bottom`, mirroring
+ * `MobileNativeSheetScaffold`); longer catalogs stay at the ceiling and
+ * scroll inside the sheet (`fillContent`).
+ */
+const ADD_SOURCE_SHEET_MAX_DETENT_FRACTION = 0.88;
+const ADD_SOURCE_SHEET_MIN_DETENT = 320;
+const ADD_SOURCE_SHEET_CORNER_CLEARANCE = 12;
+
 export function BrowseScreen() {
   const { tokens } = useNemuTheme();
   const [query, setQuery] = useState("");
@@ -749,6 +809,8 @@ export function BrowseScreen() {
   const toast = useMobileToast();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
+  const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const usesNativeHeader = usesNemuNativeHeader;
 
   const installedKeys = useMemo(
@@ -834,8 +896,14 @@ export function BrowseScreen() {
     }
     return null;
   }, [quickActionSource]);
+  // Passing the raw catalog rebuilt the icon index on every render of this
+  // screen; the same join Settings keeps memoized.
+  const sourceIconIndex = useMemo(
+    () => buildMobileSourceIconIndex(available.data),
+    [available.data],
+  );
   const quickActionIconUri = quickActionSource
-    ? resolveMobileInstalledSourceIconUri(quickActionSource, available.data)
+    ? resolveMobileInstalledSourceIconUri(quickActionSource, sourceIconIndex)
     : null;
 
   // `MobileNativeSheetScaffold` fires `onClose` *and then* `onDismiss` from the
@@ -959,6 +1027,17 @@ export function BrowseScreen() {
     () => (error ? getMobileSourceErrorPresentation(error, strings) : null),
     [error, strings],
   );
+  // The presentation `detail` follows the error-copy contract: localized copy
+  // first, sanitized exception text second. The full-page state renders those
+  // as two separate affordances instead of one run-on paragraph.
+  const errorCopy = useMemo(() => {
+    if (!error || !errorPresentation) return null;
+    const split = splitMobileInlineErrorDetail(errorPresentation.detail);
+    return {
+      description: split.description,
+      diagnostic: split.diagnostic ?? sanitizeMobileErrorDiagnostic(error),
+    };
+  }, [error, errorPresentation]);
   const showSkeleton = shouldRenderMobileBrowseSkeleton({
     loading,
     installedCount: installed.data.length,
@@ -977,6 +1056,72 @@ export function BrowseScreen() {
     appLanguage,
   );
   const activeFilterCount = selectedLanguages.size + (showAdult ? 1 : 0);
+
+  // Measured Add Sources sheet detent (iOS). Both inputs come from the
+  // sheet's own layout: the header stack's `onLayout` and the list's
+  // `onContentSizeChange`, which reports natural content height because the
+  // list's content container does not stretch (`availableListContent` opts
+  // out of `flexGrow` for exactly this reason). Until the first measurement
+  // lands, the detent stays at the 88% ceiling so the snap-point prop is
+  // always a one-element numeric array — iOS animates numeric detent changes
+  // in place, but it must never see `undefined` swap in for the array.
+  const [
+    addSourceHeaderStackHeight,
+    setAddSourceHeaderStackHeight,
+  ] = useState(0);
+  const [
+    addSourceListContentHeight,
+    setAddSourceListContentHeight,
+  ] = useState(0);
+  const addSourceSheetSnapPoint = useMemo(() => {
+    const metrics = resolveMobileSheetHeaderMetrics(Platform.OS);
+    const maxDetent = Math.round(
+      ADD_SOURCE_SHEET_MAX_DETENT_FRACTION *
+        (windowHeight - insets.top - insets.bottom),
+    );
+    const measuredDetent =
+      metrics.minimumHeight +
+      metrics.bodyTopPadding +
+      addSourceHeaderStackHeight +
+      addSourceListContentHeight +
+      ADD_SOURCE_SHEET_CORNER_CLEARANCE;
+    const detent =
+      addSourceHeaderStackHeight > 0 && addSourceListContentHeight > 0
+        ? measuredDetent
+        : maxDetent;
+    return Math.min(
+      Math.max(Math.round(detent), ADD_SOURCE_SHEET_MIN_DETENT),
+      maxDetent,
+    );
+  }, [
+    addSourceHeaderStackHeight,
+    addSourceListContentHeight,
+    insets.bottom,
+    insets.top,
+    windowHeight,
+  ]);
+  const handleAddSourceHeaderStackLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+      setAddSourceHeaderStackHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight,
+      );
+    },
+    [],
+  );
+  // A virtualized list re-reports its content height on every render batch,
+  // and each report re-ran the detent memo and re-rendered the sheet. The
+  // detent only needs one number: the first measurement wins and the next
+  // dismissal clears it for the next open.
+  const handleAvailableListContentSizeChange = useCallback(
+    (_contentWidth: number, contentHeight: number) => {
+      const nextHeight = Math.ceil(contentHeight);
+      setAddSourceListContentHeight((currentHeight) =>
+        currentHeight > 0 ? currentHeight : nextHeight,
+      );
+    },
+    [],
+  );
 
   const restoreAddSourceSheet = useCallback(() => {
     setActiveSheet("add-source");
@@ -1280,6 +1425,7 @@ export function BrowseScreen() {
     addSourceDismissActionRef.current = null;
     setActiveSheet(null);
     setActiveSheetVisible(false);
+    setAddSourceListContentHeight(0);
 
     if (next?.type === "open-language") {
       setActiveSheet("source-language");
@@ -1356,9 +1502,9 @@ export function BrowseScreen() {
       }
     }
   };
-  const quickActions = ((): SourceQuickAction[] => {
+  const quickActions = ((): QuickAction<MobileSourceQuickActionId>[] => {
     if (!quickActionSource) return [];
-    const actions: SourceQuickAction[] = [
+    const actions: QuickAction<MobileSourceQuickActionId>[] = [
       {
         id: "settings",
         label: strings.settings.sourceSettingsDefaultTitle,
@@ -1459,8 +1605,9 @@ export function BrowseScreen() {
               errorPresentation?.title ?? strings.browse.sourcesUnavailable
             }
             description={
-              errorPresentation?.detail ?? strings.browse.sourcesUnavailable
+              errorCopy?.description ?? strings.browse.sourcesUnavailable
             }
+            diagnostic={errorCopy?.diagnostic ?? undefined}
             actionLabel={strings.common.retry}
             actionDisabled={refreshDisabled}
             actionLoading={refreshingSources}
@@ -1596,7 +1743,9 @@ export function BrowseScreen() {
               }}
             />
           }
-          snapPoints={Platform.OS === "android" ? ["100%"] : ["88%"]}
+          snapPoints={
+            Platform.OS === "android" ? ["100%"] : [addSourceSheetSnapPoint]
+          }
           fillContent
           contentBottomInset={0}
           testID="AddSourceSheet"
@@ -1611,7 +1760,10 @@ export function BrowseScreen() {
               hard edge floating in an empty gap, and the first row still
               starts 12pt clear of the field at rest.
             */}
-            <View style={styles.addSourceSheetHeaderStack}>
+            <View
+              onLayout={handleAddSourceHeaderStackLayout}
+              style={styles.addSourceSheetHeaderStack}
+            >
               {available.error ? (
                 <MobileInlineToast
                   title={strings.feedback.catalogUnavailableTitle}
@@ -1670,6 +1822,7 @@ export function BrowseScreen() {
 
               {actionError ? (
                 <MobileInlineErrorBanner
+                  variant="embedded"
                   title={actionError.title}
                   detail={actionError.detail}
                   dismissLabel={strings.common.clear}
@@ -1682,6 +1835,7 @@ export function BrowseScreen() {
               alwaysBounceVertical={false}
               automaticallyAdjustContentInsets={false}
               contentInsetAdjustmentBehavior="never"
+              onContentSizeChange={handleAvailableListContentSizeChange}
               initialNumToRender={18}
               maxToRenderPerBatch={18}
               keyboardDismissMode="interactive"
@@ -1772,6 +1926,7 @@ export function BrowseScreen() {
         >
           {actionError ? (
             <MobileInlineErrorBanner
+              variant="embedded"
               title={actionError.title}
               detail={actionError.detail}
               dismissLabel={strings.common.clear}
@@ -1782,18 +1937,13 @@ export function BrowseScreen() {
       ) : null}
 
       {quickActionSource ? (
-        <SourceQuickActionSheet
+        <QuickActionSheet
           visible={quickActionVisible}
+          variant="icon"
           title={getMobileInstalledSourceName(quickActionSource)}
-          subtitle={[
-            formatLanguages(quickActionSource.languages),
-            getMobileInstalledSourceRegistryRef(quickActionSource).registryId,
-            `v${quickActionSource.version}`,
-          ]
-            .filter(Boolean)
-            .join(" / ")}
-          icon={quickActionIconUri}
+          image={quickActionIconUri}
           actions={quickActions}
+          testID="SourceQuickActionSheet"
           onClose={closeQuickActions}
           onDismiss={handleQuickActionsDismissed}
         />
@@ -1892,12 +2042,17 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   availableListContent: {
-    flexGrow: 1,
     // The gap under the search field is a content inset, not a flex gap, so
     // the scroll viewport starts at the field's bottom edge and nothing is
     // ever clipped in the empty space between them.
     paddingTop: 12,
+    // Rounded-corner tail: the measured detent adds 12pt of clearance on top
+    // of this padding, leaving ~36pt under the last row at full scroll.
     paddingBottom: 24,
+    // No `flexGrow`: a content container stretched to the viewport would
+    // report the viewport height from `onContentSizeChange`, and the sheet's
+    // measured detent depends on that callback reporting the natural content
+    // height to stay out of a feedback loop.
   },
   availableRowSeparator: {
     height: 12,
@@ -1906,6 +2061,10 @@ const styles = StyleSheet.create({
     height: 18,
   },
   availableSourceLanguageHeader: {
+    // Section titles (日本語, …) need real separation from the preceding
+    // section's rows — and from the search field for the first section — so
+    // they read as group headers rather than floating labels.
+    marginTop: 10,
     marginBottom: 8,
   },
   sourceLanguageSection: {
@@ -2003,6 +2162,46 @@ const styles = StyleSheet.create({
   languageOptionAccessory: {
     width: 24,
     alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  // The explicit-content toggle row mirrors the language option rows' group
+  // chrome with every child centred on one line (itemsCenter, fixed
+  // heights), so the switch cannot sit rotated or offset in its container.
+  adultToggleRow: {
+    minHeight: 60,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  adultToggleIcon: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderRadius: radius.md,
+  },
+  adultToggleCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  adultToggleTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: nemuFontWeight.medium,
+  },
+  adultToggleSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  adultToggleAccessory: {
+    // Exactly the switch's own 31pt frame: `alignItems: "center"` on the row
+    // then seats the switch on the same centre line as the icon tile.
+    minHeight: 31,
+    alignItems: "center",
     justifyContent: "center",
   },
   availableShell: {

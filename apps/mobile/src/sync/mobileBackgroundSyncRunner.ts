@@ -348,7 +348,7 @@ async function pullAndMergeLibrary(
 
   const [localItems, localLinks] = await Promise.all([
     store.getAllLibraryItems({ includeRemoved: true }),
-    store.getAllSourceLinks(),
+    store.getAllSourceLinks({ includeRemoved: true }),
   ]);
   if (shouldStop(deps)) return;
 

@@ -15,6 +15,7 @@ import {
   isMobileTachiyomiUnsupportedError,
   redactMobileCloudflareUrlForDisplay,
   sanitizeMobileErrorDiagnostic,
+  splitMobileInlineErrorDetail,
 } from "./mobileSourceErrors";
 
 describe("mobile source error presentation", () => {
@@ -304,5 +305,42 @@ describe("mobile source error presentation", () => {
         },
       }),
     ).toBeNull();
+  });
+});
+
+describe("splitMobileInlineErrorDetail", () => {
+  test("splits the describeMobileErrorDetail join into description and diagnostic", () => {
+    const detail = describeMobileErrorDetail(
+      new Error("Request timed out."),
+      "The source could not be reached.",
+    );
+
+    expect(splitMobileInlineErrorDetail(detail)).toEqual({
+      description: "The source could not be reached.",
+      diagnostic: "Request timed out.",
+    });
+  });
+
+  test("keeps single-line details intact without a diagnostic", () => {
+    expect(splitMobileInlineErrorDetail("Something failed.")).toEqual({
+      description: "Something failed.",
+      diagnostic: null,
+    });
+  });
+
+  test("trims whitespace around both halves", () => {
+    expect(
+      splitMobileInlineErrorDetail("  Localized copy  \n\n  raw diagnostic  "),
+    ).toEqual({
+      description: "Localized copy",
+      diagnostic: "raw diagnostic",
+    });
+  });
+
+  test("collapses a leading separator instead of rendering an empty description", () => {
+    expect(splitMobileInlineErrorDetail("\nraw diagnostic")).toEqual({
+      description: "raw diagnostic",
+      diagnostic: null,
+    });
   });
 });

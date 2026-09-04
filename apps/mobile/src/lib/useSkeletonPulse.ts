@@ -12,7 +12,7 @@ import {
  * The one skeleton breathing curve. Every skeleton surface in the app shares
  * these numbers so placeholders across screens pulse in the same rhythm.
  */
-export const SKELETON_PULSE = {
+const SKELETON_PULSE = {
   /** Opacity at the bottom of the breath. */
   minOpacity: 0.55,
   /** Opacity at the top of the breath. */
@@ -31,16 +31,32 @@ export const SKELETON_PULSE = {
  */
 export const SKELETON_DISPLAY_DELAY_MS = 150;
 
+/** Tonal placeholder block (icon frames, cover plates). */
+export const SKELETON_SURFACE_OPACITY = 0.86;
+/** Primary copy line (titles, section headings). */
+export const SKELETON_LINE_OPACITY = 0.78;
+/** Secondary copy line, one step quieter than the title above it. */
+export const SKELETON_SUBTLE_LINE_OPACITY = 0.72;
+
 /**
  * Shared skeleton breathing animation: opacity 1 → 0.55 → 1 over 1.2s.
  * Under Reduce Motion the value settles at the static skeleton opacity.
+ *
+ * `active` lets a host that outlives its placeholder (the reader stage, the
+ * storage card) stop the infinite repeat once the real content is on screen;
+ * an always-placeholder skeleton screen leaves it at the default.
  */
-export function useSkeletonPulse(reduceMotion: boolean) {
+export function useSkeletonPulse(reduceMotion: boolean, active = true) {
   const opacity = useSharedValue<number>(
     reduceMotion ? SKELETON_PULSE.reduceMotionOpacity : SKELETON_PULSE.maxOpacity,
   );
 
   useEffect(() => {
+    if (!active) {
+      cancelAnimation(opacity);
+      opacity.value = SKELETON_PULSE.maxOpacity;
+      return;
+    }
     if (reduceMotion) {
       cancelAnimation(opacity);
       opacity.value = withTiming(SKELETON_PULSE.reduceMotionOpacity, {
@@ -65,7 +81,7 @@ export function useSkeletonPulse(reduceMotion: boolean) {
     return () => {
       cancelAnimation(opacity);
     };
-  }, [opacity, reduceMotion]);
+  }, [active, opacity, reduceMotion]);
 
   return opacity;
 }

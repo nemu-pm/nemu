@@ -4,11 +4,11 @@ import {
   Image,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
 import { File as ExpoFile } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
@@ -23,6 +23,8 @@ import {
   GlassSurface,
   NemuTextFieldClearAction,
   NemuPressable,
+  NemuText,
+  nemuColorWithAlpha,
 } from "@/design-system";
 import type { InstalledSource, LibraryEntry, MangaMetadata } from "@/data/schema";
 import {
@@ -48,9 +50,11 @@ import {
   canSaveMobileMetadataEditorForm,
   canSelectMobileMetadataStatusOption,
   canStartMobileMetadataEditorAction,
+  getMobileMetadataEditorDirtyFields,
   getMobileMetadataEditorRequestCloseAction,
   isMobileMetadataEditorActionBusy,
   type MobileMetadataEditorActionState,
+  type MobileMetadataEditorDirtyField,
 } from "@/lib/mobileMetadataEditorBackBehavior";
 import {
   MOBILE_METADATA_MATCH_FIELD_ORDER,
@@ -66,6 +70,7 @@ import {
 import { hapticConfirm, hapticError, hapticPress } from "@/lib/haptics";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
+  formatMobileList,
   formatMobileString,
   getMobileStrings,
   type MobileStrings,
@@ -210,6 +215,26 @@ function matchFieldLabel(field: MobileMetadataMatchFieldKey, strings: MobileStri
   }
 }
 
+function dirtyFieldLabel(
+  field: MobileMetadataEditorDirtyField,
+  strings: MobileStrings,
+): string {
+  switch (field) {
+    case "title":
+      return strings.metadataEditor.titleField;
+    case "authors":
+      return strings.metadataEditor.authors;
+    case "description":
+      return strings.metadataEditor.description;
+    case "tags":
+      return strings.metadataEditor.tags;
+    case "cover":
+      return strings.metadataEditor.cover;
+    case "status":
+      return strings.metadataEditor.status;
+  }
+}
+
 function matchFieldIcon(field: MobileMetadataMatchFieldKey): IoniconName {
   switch (field) {
     case "title":
@@ -246,9 +271,12 @@ function MetadataTextField({
   return (
     <View style={styles.field}>
       <View style={styles.fieldLabelRow}>
-        <Text style={[styles.fieldLabel, { color: tokens.mutedForeground }]}>
+        <NemuText
+          density="compact"
+          style={[styles.fieldLabel, { color: tokens.mutedForeground }]}
+        >
           {label}
-        </Text>
+        </NemuText>
         {isOverridden && onReset && resetLabel ? (
           <NemuButton
             accessibilityLabel={resetAccessibilityLabel ?? resetLabel}
@@ -329,6 +357,18 @@ export function MobileMetadataEditorSheet({
   const pickingCoverRef = useRef(false);
   const [saveInFlight, setSaveInFlight] = useState(false);
   const saveInFlightRef = useRef(false);
+  // Sheets are serialized on both platforms, so the discard prompt owns the
+  // screen alone: the editor hides while it is up and comes back only after
+  // the prompt has finished dismissing.
+  const [discardConfirm, setDiscardConfirm] = useState<
+    "hidden" | "asking" | "cancelling" | "closing"
+  >("hidden");
+  const suppressDismissRef = useRef(false);
+  // `MobileNativeSheetScaffold` reports `onClose` and `onDismiss` in the same
+  // synchronous tick, so a swipe-down on the prompt would run its `onDismiss`
+  // before React committed the `"cancelling"` state and strand the editor
+  // hidden. A ref settles the intent before that pairing can read it.
+  const discardCancelRef = useRef(false);
   const formRef = useRef(form);
   const wasVisibleRef = useRef(false);
   const visibleLibraryItemIdRef = useRef<string | null>(null);
@@ -412,14 +452,58 @@ export function MobileMetadataEditorSheet({
     form.title,
     editorActionBusy
   );
+  const dirtyFields = useMemo(
+    () =>
+      getMobileMetadataEditorDirtyFields({
+        form,
+        initialForm,
+        hasSelectedCoverAsset: selectedCoverAsset !== null,
+      }),
+    [form, initialForm, selectedCoverAsset],
+  );
+  const discardDescription = formatMobileString(
+    strings.metadataEditor.discardDescription,
+    {
+      fields: formatMobileList(
+        dirtyFields.map((field) => dirtyFieldLabel(field, strings)),
+        strings,
+      ),
+    },
+  );
   const requestClose = () => {
     if (!visible) return;
     const action = getMobileMetadataEditorRequestCloseAction({
       busy: closeBusy,
+      dirty: dirtyFields.length > 0,
     });
     if (action === "ignore") return;
+    if (action === "confirm-discard") {
+      // The scaffold reports the close AFTER the native dismissal, and it
+      // re-presents while `visible` stays true. Swallow the paired dismissal
+      // so the owner does not tear the editor (and its draft) down.
+      suppressDismissRef.current = true;
+      setDiscardConfirm("asking");
+      return;
+    }
     void hapticPress();
     onClose();
+  };
+  const handleScaffoldDismiss = () => {
+    if (suppressDismissRef.current) return;
+    onDismiss?.();
+  };
+  const discardDraft = () => {
+    setDiscardConfirm("closing");
+    setForm(initialForm);
+    setSelectedCoverAsset(null);
+    setCoverPreviewSourceId(null);
+    setCoverError(null);
+    suppressDismissRef.current = false;
+    discardCancelRef.current = false;
+    void hapticPress();
+    onClose();
+    // The scaffold is already hidden, so it will never report this dismissal.
+    onDismiss?.();
   };
 
   useEffect(() => {
@@ -446,6 +530,9 @@ export function MobileMetadataEditorSheet({
       pickingCoverRef.current = false;
       setSaveInFlight(false);
       saveInFlightRef.current = false;
+      setDiscardConfirm("hidden");
+      suppressDismissRef.current = false;
+      discardCancelRef.current = false;
     }
     wasVisibleRef.current = visible;
     visibleLibraryItemIdRef.current = visible ? entry.item.libraryItemId : null;
@@ -752,10 +839,11 @@ export function MobileMetadataEditorSheet({
   ]);
 
   return (
+    <>
     <MobileNativeSheetScaffold
-      visible={visible}
+      visible={visible && discardConfirm === "hidden"}
       onClose={requestClose}
-      onDismiss={onDismiss}
+      onDismiss={handleScaffoldDismiss}
       title={strings.metadataEditor.title}
       subtitle={strings.metadataEditor.subtitle}
       dismissLabel={strings.metadataEditor.close}
@@ -794,7 +882,10 @@ export function MobileMetadataEditorSheet({
                 <MobileCachedImage
                   fallback={
                     <LinearGradient
-                      colors={[`${tokens.primary}55`, tokens.muted]}
+                      colors={[
+                        nemuColorWithAlpha(tokens.primary, 0.33),
+                        tokens.muted,
+                      ]}
                       style={styles.coverPlaceholder}
                     />
                   }
@@ -807,18 +898,27 @@ export function MobileMetadataEditorSheet({
               )
             ) : (
               <LinearGradient
-                colors={[`${tokens.primary}55`, tokens.muted]}
+                colors={[
+                  nemuColorWithAlpha(tokens.primary, 0.33),
+                  tokens.muted,
+                ]}
                 style={styles.coverPlaceholder}
               />
             )}
           </View>
           <View style={styles.coverCopy}>
-            <Text style={[styles.coverTitle, { color: tokens.foreground }]}>
+            <NemuText
+              density="compact"
+              style={[styles.coverTitle, { color: tokens.foreground }]}
+            >
               {strings.metadataEditor.coverTitle}
-            </Text>
-            <Text style={[styles.coverText, { color: tokens.mutedForeground }]}>
+            </NemuText>
+            <NemuText
+              density="compact"
+              style={[styles.coverText, { color: tokens.mutedForeground }]}
+            >
               {strings.metadataEditor.coverDescription}
-            </Text>
+            </NemuText>
             <View style={styles.coverActions}>
               <View style={styles.coverActionButtons}>
                 <NemuButton
@@ -854,18 +954,22 @@ export function MobileMetadataEditorSheet({
                 ) : null}
               </View>
               {selectedCoverAsset ? (
-                <Text
+                <NemuText
+                  density="compact"
                   numberOfLines={1}
                   style={[styles.coverSelectedText, { color: tokens.mutedForeground }]}
                 >
                   {strings.metadataEditor.coverSelected}
-                </Text>
+                </NemuText>
               ) : null}
             </View>
             {coverError ? (
-              <Text style={[styles.coverError, { color: tokens.danger }]}>
+              <NemuText
+                density="compact"
+                style={[styles.coverError, { color: tokens.danger }]}
+              >
                 {coverError}
-              </Text>
+              </NemuText>
             ) : null}
           </View>
         </View>
@@ -881,12 +985,18 @@ export function MobileMetadataEditorSheet({
                 />
               </View>
               <View style={styles.sourceHeaderCopy}>
-                <Text style={[styles.sourceTitle, { color: tokens.foreground }]}>
+                <NemuText
+                  density="compact"
+                  style={[styles.sourceTitle, { color: tokens.foreground }]}
+                >
                   {strings.metadataEditor.sourceFetchTitle}
-                </Text>
-                <Text style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}>
+                </NemuText>
+                <NemuText
+                  density="compact"
+                  style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}
+                >
                   {strings.metadataEditor.sourceFetchSubtitle}
-                </Text>
+                </NemuText>
               </View>
             </View>
 
@@ -950,14 +1060,16 @@ export function MobileMetadataEditorSheet({
                       )}
                     </View>
                     <View style={styles.sourceChoiceCopy}>
-                      <Text
+                      <NemuText
+                        density="compact"
                         numberOfLines={1}
                         style={[styles.sourceChoiceTitle, { color: tokens.foreground }]}
                       >
                         {choice.label}
-                      </Text>
+                      </NemuText>
                       {choice.detail ? (
-                        <Text
+                        <NemuText
+                          density="compact"
                           numberOfLines={1}
                           style={[
                             styles.sourceChoiceDetail,
@@ -965,7 +1077,7 @@ export function MobileMetadataEditorSheet({
                           ]}
                         >
                           {choice.detail}
-                        </Text>
+                        </NemuText>
                       ) : null}
                     </View>
                     {loadingSource ? (
@@ -995,13 +1107,15 @@ export function MobileMetadataEditorSheet({
                   color={tokens.danger}
                 />
                 <View style={styles.sourceErrorCopy}>
-                  <Text
+                  <NemuText
+                    density="compact"
                     numberOfLines={1}
                     style={[styles.sourceErrorTitle, { color: tokens.foreground }]}
                   >
                     {sourceError.title}
-                  </Text>
-                  <Text
+                  </NemuText>
+                  <NemuText
+                    density="compact"
                     numberOfLines={2}
                     style={[
                       styles.sourceErrorDetail,
@@ -1009,7 +1123,7 @@ export function MobileMetadataEditorSheet({
                     ]}
                   >
                     {sourceError.detail}
-                  </Text>
+                  </NemuText>
                 </View>
               </View>
             ) : null}
@@ -1022,12 +1136,18 @@ export function MobileMetadataEditorSheet({
               <Ionicons name="sparkles-outline" size={17} color={tokens.primaryForeground} />
             </View>
             <View style={styles.matchHeaderCopy}>
-              <Text style={[styles.matchTitle, { color: tokens.foreground }]}>
+              <NemuText
+                density="compact"
+                style={[styles.matchTitle, { color: tokens.foreground }]}
+              >
                 {strings.metadataEditor.matchTitle}
-              </Text>
-              <Text style={[styles.matchSubtitle, { color: tokens.mutedForeground }]}>
+              </NemuText>
+              <NemuText
+                density="compact"
+                style={[styles.matchSubtitle, { color: tokens.mutedForeground }]}
+              >
                 {strings.metadataEditor.matchSubtitle}
-              </Text>
+              </NemuText>
             </View>
           </View>
 
@@ -1086,9 +1206,12 @@ export function MobileMetadataEditorSheet({
           </View>
 
           {matchError ? (
-            <Text style={[styles.matchError, { color: tokens.danger }]}>
+            <NemuText
+              density="compact"
+              style={[styles.matchError, { color: tokens.danger }]}
+            >
               {matchError}
-            </Text>
+            </NemuText>
           ) : null}
 
           {matchResults.length ? (
@@ -1147,26 +1270,29 @@ export function MobileMetadataEditorSheet({
                         )}
                       </View>
                       <View style={styles.matchResultCopy}>
-                        <Text
+                        <NemuText
+                          density="compact"
                           numberOfLines={1}
                           style={[styles.matchResultTitle, { color: tokens.foreground }]}
                         >
                           {result.title}
-                        </Text>
+                        </NemuText>
                         {result.subtitle ? (
-                          <Text
+                          <NemuText
+                            density="compact"
                             numberOfLines={1}
                             style={[styles.matchResultSubtitle, { color: tokens.mutedForeground }]}
                           >
                             {result.subtitle}
-                          </Text>
+                          </NemuText>
                         ) : null}
-                        <Text
+                        <NemuText
+                          density="compact"
                           numberOfLines={1}
                           style={[styles.matchResultMeta, { color: tokens.mutedForeground }]}
                         >
                           {matchSummary(result)}
-                        </Text>
+                        </NemuText>
                       </View>
                       <Ionicons name="add-circle-outline" size={21} color={tokens.primary} />
                     </NemuPressable>
@@ -1233,9 +1359,12 @@ export function MobileMetadataEditorSheet({
 
         <View style={styles.field}>
           <View style={styles.fieldLabelRow}>
-            <Text style={[styles.fieldLabel, { color: tokens.mutedForeground }]}>
+            <NemuText
+              density="compact"
+              style={[styles.fieldLabel, { color: tokens.mutedForeground }]}
+            >
               {strings.metadataEditor.status}
-            </Text>
+            </NemuText>
             {fieldOverrides.status ? (
               <NemuButton
                 accessibilityLabel={resetFieldAccessibilityLabel(
@@ -1287,7 +1416,8 @@ export function MobileMetadataEditorSheet({
                     },
                   ]}
                 >
-                  <Text
+                  <NemuText
+                    density="compact"
                     numberOfLines={1}
                     style={[
                       styles.statusChipText,
@@ -1295,7 +1425,7 @@ export function MobileMetadataEditorSheet({
                     ]}
                   >
                     {label}
-                  </Text>
+                  </NemuText>
                 </NemuPressable>
               );
             })}
@@ -1404,6 +1534,29 @@ export function MobileMetadataEditorSheet({
         />
       </View>
     </MobileNativeSheetScaffold>
+    <MobileConfirmationSheet
+      visible={discardConfirm === "asking"}
+      title={strings.metadataEditor.discardTitle}
+      description={discardDescription}
+      iconName="trash-outline"
+      cancelLabel={strings.metadataEditor.discardKeepEditing}
+      confirmLabel={strings.metadataEditor.discardConfirm}
+      destructive
+      onCancel={() => {
+        discardCancelRef.current = true;
+        setDiscardConfirm("cancelling");
+      }}
+      onConfirm={discardDraft}
+      onDismiss={() => {
+        if (!discardCancelRef.current) return;
+        // Editing continues, so the editor owns its own dismissal again and
+        // re-presents only once the prompt is fully gone.
+        discardCancelRef.current = false;
+        suppressDismissRef.current = false;
+        setDiscardConfirm("hidden");
+      }}
+    />
+    </>
   );
 }
 

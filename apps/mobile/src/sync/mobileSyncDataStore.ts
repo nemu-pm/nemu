@@ -381,6 +381,10 @@ class MobileSyncDataStore implements MobileDataStore {
     return this.base.getLibraryEntries();
   }
 
+  countLibraryEntries() {
+    return this.base.countLibraryEntries();
+  }
+
   getLibraryItem(libraryItemId: string): Promise<LocalLibraryItem | null> {
     return this.base.getLibraryItem(libraryItemId);
   }
@@ -402,8 +406,10 @@ class MobileSyncDataStore implements MobileDataStore {
     return this.base.getSourceLink(id);
   }
 
-  getAllSourceLinks(): Promise<LocalSourceLink[]> {
-    return this.base.getAllSourceLinks();
+  getAllSourceLinks(options?: {
+    includeRemoved?: boolean;
+  }): Promise<LocalSourceLink[]> {
+    return this.base.getAllSourceLinks(options);
   }
 
   async saveLibraryItem(item: LocalLibraryItem): Promise<void> {
@@ -419,7 +425,7 @@ class MobileSyncDataStore implements MobileDataStore {
         await this.base.saveLibraryItem(localItem, localGeneration ?? undefined);
         const [latestItem, allLinks] = await Promise.all([
           this.base.getLibraryItem(localItem.libraryItemId),
-          this.base.getAllSourceLinks(),
+          this.base.getAllSourceLinks({ includeRemoved: true }),
         ]);
         return {
           latestItem,
@@ -528,9 +534,9 @@ class MobileSyncDataStore implements MobileDataStore {
     const { generation, value } = await runLocalSyncMutation(
       this.base,
       async (localGeneration) => {
-        const existing = (await this.base.getAllSourceLinks()).find(
-          (candidate) => candidate.id === link.id,
-        );
+        const existing = (
+          await this.base.getAllSourceLinks({ includeRemoved: true })
+        ).find((candidate) => candidate.id === link.id);
         const localLink =
           !existing || link.updatedAt > existing.updatedAt
             ? link
@@ -538,9 +544,11 @@ class MobileSyncDataStore implements MobileDataStore {
         await this.base.saveSourceLink(localLink, localGeneration ?? undefined);
         const [item, latestLink] = await Promise.all([
           this.base.getLibraryItem(link.libraryItemId),
-          this.base.getAllSourceLinks().then((links) =>
-            links.find((candidate) => candidate.id === localLink.id),
-          ),
+          this.base
+            .getAllSourceLinks({ includeRemoved: true })
+            .then((links) =>
+              links.find((candidate) => candidate.id === localLink.id),
+            ),
         ]);
         return { item, latestLink };
       },
@@ -569,7 +577,9 @@ class MobileSyncDataStore implements MobileDataStore {
     const { generation, value } = await runLocalSyncMutation(
       this.base,
       async (localGeneration) => {
-        const existing = (await this.base.getAllSourceLinks()).find(
+        const existing = (
+          await this.base.getAllSourceLinks({ includeRemoved: true })
+        ).find(
           (link) =>
             link.registryId === registryId &&
             link.sourceId === sourceId &&
@@ -688,11 +698,13 @@ class MobileSyncDataStore implements MobileDataStore {
     return this.base.getAllMangaProgress();
   }
 
+  getMangaProgressById(id: string): Promise<LocalMangaProgress | null> {
+    return this.base.getMangaProgressById(id);
+  }
+
   async saveMangaProgress(progress: LocalMangaProgress): Promise<void> {
     await runLocalSyncMutation(this.base, async (generation) => {
-      const existing = (await this.base.getMangaProgress()).find(
-        (entry) => entry.id === progress.id,
-      );
+      const existing = await this.base.getMangaProgressById(progress.id);
       const localProgress =
         !existing || progress.updatedAt > existing.updatedAt
           ? progress
@@ -728,9 +740,7 @@ class MobileSyncDataStore implements MobileDataStore {
     generation: number | null,
   ): Promise<void> {
     const derived = mangaProgressFromChapterProgress(progress);
-    const existing = (await this.base.getMangaProgress()).find(
-      (entry) => entry.id === derived.id,
-    );
+    const existing = await this.base.getMangaProgressById(derived.id);
     if (!existing || progress.updatedAt > existing.updatedAt) {
       await this.base.saveMangaProgress({
         ...derived,
@@ -953,7 +963,7 @@ class MobileSyncDataStore implements MobileDataStore {
     }
     const [localItems, localLinks] = await Promise.all([
       this.base.getAllLibraryItems({ includeRemoved: true }),
-      this.base.getAllSourceLinks(),
+      this.base.getAllSourceLinks({ includeRemoved: true }),
     ]);
     const merged = mergeLibrarySnapshot(localItems, localLinks, cloudItems, cloudLinks);
     await this.base.saveLibrarySnapshot(merged.items, merged.links);

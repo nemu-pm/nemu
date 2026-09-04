@@ -15,6 +15,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FloatingTabBar } from "@/components/FloatingTabBar";
 import { MobileErrorBoundaryScreen } from "@/components/MobileErrorBoundaryScreen";
 import { MobileFeedbackSettingsBridge } from "@/components/MobileFeedbackSettingsBridge";
+import { MobileSyncProgressToast } from "@/components/MobileSyncProgressToast";
 import { MobileToastProvider } from "@/components/MobileToast";
 import { MobileWelcomeWizard } from "@/components/MobileWelcomeWizard";
 import { MobileDataProvider } from "@/data/mobileData";
@@ -158,6 +159,7 @@ export default function RootLayout() {
                   <RootStack
                     welcomeBlocksAccessibility={welcomeBlocksAccessibility}
                   />
+                  <MobileSyncProgressToast />
                   <MobileWelcomeWizard
                     onVisibilityChange={setWelcomeBlocksAccessibility}
                   />

@@ -130,6 +130,26 @@ export function describeMobileErrorDetail(
   return `${localizedDetail}\n${diagnostic}`;
 }
 
+/**
+ * Splits a banner `detail` produced by `describeMobileErrorDetail` into the
+ * localized description (first line) and the trailing raw diagnostic, so
+ * compact surfaces can collapse the diagnostic behind a "technical details"
+ * disclosure instead of always rendering it as a third line.
+ */
+export function splitMobileInlineErrorDetail(detail: string): {
+  description: string;
+  diagnostic: string | null;
+} {
+  const separatorIndex = detail.indexOf("\n");
+  if (separatorIndex === -1) {
+    return { description: detail.trim(), diagnostic: null };
+  }
+  const description = detail.slice(0, separatorIndex).trim();
+  const diagnostic = detail.slice(separatorIndex + 1).trim();
+  if (!description) return { description: diagnostic, diagnostic: null };
+  return { description, diagnostic: diagnostic || null };
+}
+
 export function isMobileTachiyomiUnsupportedError(error: unknown): boolean {
   return errorMessage(error).includes(MOBILE_TACHIYOMI_UNSUPPORTED_MARKER);
 }

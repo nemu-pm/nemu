@@ -334,13 +334,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: 12,
   },
   versionDot: {
     width: 6,
     height: 6,
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
   versionText: {
     fontSize: 12,

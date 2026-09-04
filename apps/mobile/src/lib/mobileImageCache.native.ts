@@ -112,7 +112,7 @@ function readCachedMobileImageAsset(
 
 export const MOBILE_IMAGE_CACHE_REQUIRES_LOCAL_FILE = true;
 
-export const MOBILE_COVER_IMAGE_DISK_CACHE_POLICY: NativeBinaryCachePolicy = {
+const MOBILE_COVER_IMAGE_DISK_CACHE_POLICY: NativeBinaryCachePolicy = {
   maxBytes: 96 * 1024 * 1024,
   maxEntries: 500,
   targetBytes: 80 * 1024 * 1024,
@@ -120,7 +120,7 @@ export const MOBILE_COVER_IMAGE_DISK_CACHE_POLICY: NativeBinaryCachePolicy = {
   maxAgeMs: 30 * 24 * 60 * 60 * 1000,
   maxEntryBytes: MOBILE_REMOTE_IMAGE_MAX_BYTES,
 };
-export const MOBILE_READER_PAGE_IMAGE_DISK_CACHE_POLICY: NativeBinaryCachePolicy = {
+const MOBILE_READER_PAGE_IMAGE_DISK_CACHE_POLICY: NativeBinaryCachePolicy = {
   maxBytes: 256 * 1024 * 1024,
   maxEntries: 320,
   targetBytes: 216 * 1024 * 1024,
@@ -128,7 +128,6 @@ export const MOBILE_READER_PAGE_IMAGE_DISK_CACHE_POLICY: NativeBinaryCachePolicy
   maxAgeMs: 14 * 24 * 60 * 60 * 1000,
   maxEntryBytes: MOBILE_REMOTE_IMAGE_MAX_BYTES,
 };
-export const MOBILE_IMAGE_DISK_CACHE_POLICY = MOBILE_COVER_IMAGE_DISK_CACHE_POLICY;
 
 const mobileCoverImageCache = new FileSystemBinaryCache(
   // Keep the legacy directory as the cover cache so upgrades do not orphan

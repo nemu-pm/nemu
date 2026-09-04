@@ -3,6 +3,8 @@ import {
   READER_TAP_EDGE_ZONE_RATIO,
   isReaderStageTapEnabled,
   isReaderTapInsideChrome,
+  readerCentreTapBand,
+  readerTapDispatchForZone,
   readerTapZoneForPosition,
 } from "./readerTapZones";
 
@@ -161,5 +163,119 @@ describe("reader tap zones", () => {
         edgeRatio: 0.9,
       }),
     ).toBe("next");
+  });
+});
+
+describe("reader tap dispatch", () => {
+  test("turns the page immediately, with or without a recent centre tap", () => {
+    for (const isSecondCentreTap of [false, true]) {
+      expect(
+        readerTapDispatchForZone({ zone: "next", isSecondCentreTap }),
+      ).toEqual({ kind: "turn", zone: "next" });
+      expect(
+        readerTapDispatchForZone({ zone: "previous", isSecondCentreTap }),
+      ).toEqual({ kind: "turn", zone: "previous" });
+    }
+  });
+
+  test("defers the centre chrome toggle so double-tap zoom can win", () => {
+    expect(
+      readerTapDispatchForZone({ zone: "toggle", isSecondCentreTap: false }),
+    ).toEqual({ kind: "deferToggle" });
+    expect(
+      readerTapDispatchForZone({ zone: "toggle", isSecondCentreTap: true }),
+    ).toEqual({ kind: "cancelPendingToggle" });
+  });
+
+  test("a zoomed page keeps its edge bands from turning the page", () => {
+    // A zoomed page's double tap resets the zoom wherever it lands, so an edge
+    // tap that also turned the page would page twice and stay zoomed.
+    expect(
+      readerTapDispatchForZone({
+        zone: "next",
+        isSecondCentreTap: false,
+        pageZoomed: true,
+      }),
+    ).toEqual({ kind: "deferToggle" });
+    expect(
+      readerTapDispatchForZone({
+        zone: "previous",
+        isSecondCentreTap: true,
+        pageZoomed: true,
+      }),
+    ).toEqual({ kind: "cancelPendingToggle" });
+    // The second tap of the reset still cancels the pending chrome toggle.
+    expect(
+      readerTapDispatchForZone({
+        zone: "toggle",
+        isSecondCentreTap: true,
+        pageZoomed: true,
+      }),
+    ).toEqual({ kind: "cancelPendingToggle" });
+  });
+
+  test("an unzoomed page still turns on its edge bands", () => {
+    for (const zoneName of ["next", "previous"] as const) {
+      expect(
+        readerTapDispatchForZone({
+          zone: zoneName,
+          isSecondCentreTap: false,
+          pageZoomed: false,
+        }),
+      ).toEqual({ kind: "turn", zone: zoneName });
+      expect(
+        readerTapDispatchForZone({ zone: zoneName, isSecondCentreTap: false }),
+      ).toEqual({ kind: "turn", zone: zoneName });
+    }
+  });
+
+  test("maps every stage position to its behaviour in one pass", () => {
+    const dispatchAt = (x: number, isSecondCentreTap = false) =>
+      readerTapDispatchForZone({
+        zone: readerTapZoneForPosition({
+          x,
+          width: WIDTH,
+          mode: "ltr",
+          pagedMode: true,
+        }),
+        isSecondCentreTap,
+      });
+    // Edge bands never wait: the turn is the dispatch itself.
+    expect(dispatchAt(20).kind).toBe("turn");
+    expect(dispatchAt(380).kind).toBe("turn");
+    // Only the centre band can schedule (or cancel) a deferred toggle.
+    expect(dispatchAt(200).kind).toBe("deferToggle");
+    expect(dispatchAt(200, true).kind).toBe("cancelPendingToggle");
+    // Scrolling mode has no edge bands, so it is centre behaviour everywhere.
+    expect(
+      readerTapDispatchForZone({
+        zone: readerTapZoneForPosition({
+          x: 20,
+          width: WIDTH,
+          mode: "scrolling",
+          pagedMode: false,
+        }),
+        isSecondCentreTap: false,
+      }).kind,
+    ).toBe("deferToggle");
+  });
+});
+
+describe("reader centre zoom band", () => {
+  test("matches the centre band the tap zones already use", () => {
+    const band = readerCentreTapBand({ width: WIDTH });
+    expect(band).toEqual({ start: 140, end: 260 });
+    // Everything the band admits toggles rather than turns, and everything it
+    // rejects turns — the two helpers cannot disagree about the stage.
+    for (const x of [0, 20, 139, 140, 200, 260, 261, 399]) {
+      const inBand = Boolean(band && x >= band.start && x <= band.end);
+      expect(inBand).toBe(zone(x, "ltr") === "toggle");
+    }
+  });
+
+  test("returns no restriction when the stage has no edge bands", () => {
+    expect(readerCentreTapBand({ width: 0 })).toBeNull();
+    expect(readerCentreTapBand({ width: Number.NaN })).toBeNull();
+    expect(readerCentreTapBand({ width: WIDTH, edgeRatio: 0 })).toBeNull();
   });
 });

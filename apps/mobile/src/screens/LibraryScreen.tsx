@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -20,7 +21,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetTextInput } from "@expo/ui/community/bottom-sheet";
 import { Stack, router, useFocusEffect } from "expo-router";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
-import { MangaQuickActionSheet, type MangaQuickAction } from "@/components/MangaQuickActionSheet";
+import { QuickActionSheet, type QuickAction } from "@/components/QuickActionSheet";
 import { MobileAddBooksSheet } from "@/components/MobileAddBooksSheet";
 import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
@@ -42,6 +43,7 @@ import {
   type InstalledSource,
   type LibraryEntry,
   type LocalCollection,
+  type LocalMangaProgress,
   type LocalSourceLink,
 } from "@/data/schema";
 import {
@@ -50,6 +52,7 @@ import {
   MangaCard,
   MobileNativeSheetScaffold,
   NemuButton,
+  nemuColorWithAlpha,
   NemuPressable,
   PageHeader,
   PageListScaffold,
@@ -65,7 +68,6 @@ import {
 import {
   hapticConfirm,
   hapticError,
-  hapticSelection,
 } from "@/lib/haptics";
 import {
   formatMobileString,
@@ -104,6 +106,7 @@ import {
 import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
 import {
   buildMobileEntryProgressMap,
+  buildMobileLibraryEntryProgressMaps,
   buildMobileProgressIndex,
   getMobileEntryMostRecentSource,
   getMobileCollectionBookSubtitle,
@@ -113,6 +116,7 @@ import {
   shouldShowMobileLibraryEmptyOnboarding,
   shouldShowMobileLibraryLoadError,
   sortMobileLibraryEntries,
+  type MobileLibraryEntryProgressMaps,
   type MobileLibraryProgressIndex,
 } from "@/lib/mobileLibraryPresentation";
 import {
@@ -138,8 +142,14 @@ function toMangaCard(
   progressIndex: MobileLibraryProgressIndex,
   strings: MobileStrings,
   coverRequest: MobileSourceImageRequest | null = null,
+  entryProgress?: Map<string, LocalMangaProgress>,
 ): MangaCardModel {
-  const progressInfo = getMobileLibraryProgressInfo(entry, progressIndex, strings);
+  const progressInfo = getMobileLibraryProgressInfo(
+    entry,
+    progressIndex,
+    strings,
+    entryProgress,
+  );
   const cover = getEntryCover(entry);
   return {
     id: entry.item.libraryItemId,
@@ -166,28 +176,35 @@ function findInstalledSourceForLink(
 function selectLibraryCoverSource(
   entry: LibraryEntry,
   progressIndex: MobileLibraryProgressIndex,
+  entryProgress?: Map<string, LocalMangaProgress>,
 ): LocalSourceLink | undefined {
-  const progress = buildMobileEntryProgressMap(entry, progressIndex);
+  const progress =
+    entryProgress ?? buildMobileEntryProgressMap(entry, progressIndex);
   return getMobileEntryMostRecentSource(entry, progress) ?? entry.sources[0];
 }
 
-function LibraryGridItem({
+// Memoized so a list-level state change (a sheet opening, a refresh flag)
+// re-renders only the cells whose own inputs moved. Every prop is either a
+// primitive or a value the screen keeps referentially stable.
+const LibraryGridItem = memo(function LibraryGridItem({
   entry,
+  entryProgress,
   progressIndex,
   strings,
   installedSources,
   onLongPress,
 }: {
   entry: LibraryEntry;
+  entryProgress?: Map<string, LocalMangaProgress>;
   progressIndex: MobileLibraryProgressIndex;
   strings: MobileStrings;
   installedSources: InstalledSource[];
-  onLongPress?: () => void;
+  onLongPress?: (entry: LibraryEntry) => void;
 }) {
   const cover = getEntryCover(entry);
   const sourceLink = useMemo(
-    () => selectLibraryCoverSource(entry, progressIndex),
-    [entry, progressIndex],
+    () => selectLibraryCoverSource(entry, progressIndex, entryProgress),
+    [entry, entryProgress, progressIndex],
   );
   const installedSource = useMemo(
     () => findInstalledSourceForLink(installedSources, sourceLink),
@@ -195,12 +212,22 @@ function LibraryGridItem({
   );
   const coverRequest = useMobileSourceImageRequest(installedSource, cover);
   const item = useMemo(
-    () => toMangaCard(entry, progressIndex, strings, coverRequest),
-    [coverRequest, entry, progressIndex, strings],
+    () =>
+      toMangaCard(entry, progressIndex, strings, coverRequest, entryProgress),
+    [coverRequest, entry, entryProgress, progressIndex, strings],
   );
+  // Keeps the card's callback identity tied to the row, not to the render.
+  const handleLongPress = useCallback(() => {
+    onLongPress?.(entry);
+  }, [entry, onLongPress]);
 
-  return <MangaCard item={item} onLongPress={onLongPress} />;
-}
+  return (
+    <MangaCard
+      item={item}
+      onLongPress={onLongPress ? handleLongPress : undefined}
+    />
+  );
+});
 
 function collectionBookCountText(count: number, strings: MobileStrings): string {
   return formatMobileString(
@@ -215,6 +242,10 @@ const LIBRARY_TITLE_MENU_ALL = "library:all";
 const LIBRARY_TITLE_MENU_MANAGE = "library:manage";
 const LIBRARY_TITLE_MENU_COLLECTION_PREFIX = "library:collection:";
 const LIBRARY_GRID_COLUMNS = 3;
+
+function libraryEntryKey(entry: LibraryEntry): string {
+  return entry.item.libraryItemId;
+}
 
 type LibrarySheetTransitionSource =
   | "title-menu"
@@ -289,8 +320,12 @@ function LibraryTitleMenuSheet({
       style={[
         styles.titleMenuSheetRow,
         {
-          backgroundColor: selected ? `${tokens.primary}12` : tokens.card,
-          borderColor: selected ? `${tokens.primary}55` : tokens.border,
+          backgroundColor: selected
+            ? nemuColorWithAlpha(tokens.primary, 0.07)
+            : tokens.card,
+          borderColor: selected
+            ? nemuColorWithAlpha(tokens.primary, 0.33)
+            : tokens.border,
         },
       ]}
     >
@@ -560,8 +595,12 @@ function CollectionsManagerSheet({
                 style={[
                   styles.managerRow,
                   {
-                    backgroundColor: selected ? `${tokens.primary}12` : tokens.card,
-                    borderColor: selected ? `${tokens.primary}66` : tokens.border,
+                    backgroundColor: selected
+                      ? nemuColorWithAlpha(tokens.primary, 0.07)
+                      : tokens.card,
+                    borderColor: selected
+                      ? nemuColorWithAlpha(tokens.primary, 0.4)
+                      : tokens.border,
                     opacity: actionBusy ? 0.68 : 1,
                   },
                 ]}
@@ -841,7 +880,7 @@ function ManageCollectionPanel({
               style={[
                 styles.bookRow,
                 {
-                  backgroundColor: member ? `${tokens.primary}16` : tokens.muted,
+                  backgroundColor: member ? tokens.primarySoft : tokens.muted,
                   borderColor: member ? tokens.primary : tokens.border,
                   opacity: collectionActionBusy ? 0.68 : 1,
                 },
@@ -1080,9 +1119,14 @@ export function LibraryScreen({
     },
     [store],
   );
-  const sortedLibraryEntries = useMemo(
-    () => sortMobileLibraryEntries(libraryEntries, progressIndex),
+  const entryProgressMaps: MobileLibraryEntryProgressMaps = useMemo(
+    () => buildMobileLibraryEntryProgressMaps(libraryEntries, progressIndex),
     [libraryEntries, progressIndex]
+  );
+  const sortedLibraryEntries = useMemo(
+    () =>
+      sortMobileLibraryEntries(libraryEntries, progressIndex, entryProgressMaps),
+    [entryProgressMaps, libraryEntries, progressIndex]
   );
   const manageCollectionSheetLayout = getMobileManageCollectionSheetLayout({
     collectionCount: sortedLibraryEntries.length,
@@ -1837,11 +1881,11 @@ export function LibraryScreen({
     strings,
   ]);
 
-  const quickActions = useMemo<MangaQuickAction[]>(() => {
+  const quickActions = useMemo<QuickAction[]>(() => {
     const entry = quickActionEntry;
     if (!entry) return [];
     const link = quickActionLink;
-    const actions: MangaQuickAction[] = [
+    const actions: QuickAction[] = [
       {
         id: "markAllRead",
         label: strings.feedback.quickMenuMarkAllRead,
@@ -1895,21 +1939,42 @@ export function LibraryScreen({
     openEntryInSource,
   ]);
 
-  const renderLibraryGridItem = ({
-    item: entry,
-  }: ListRenderItemInfo<LibraryEntry>) => (
-    <View style={styles.gridItem}>
-      <LibraryGridItem
-        entry={entry}
-        progressIndex={progressIndex}
-        strings={strings}
-        installedSources={installedSources.data}
-        onLongPress={() => {
-          void hapticSelection();
-          setQuickActionEntry(entry);
-        }}
-      />
-    </View>
+  // The card's own NemuPressable already fires the long-press haptic; a
+  // second manual pulse here made every long press buzz twice.
+  const handleGridItemLongPress = useCallback((entry: LibraryEntry) => {
+    setQuickActionEntry(entry);
+  }, []);
+  const renderLibraryGridItem = useCallback(
+    ({ item: entry }: ListRenderItemInfo<LibraryEntry>) => (
+      <View style={styles.gridItem}>
+        <LibraryGridItem
+          entry={entry}
+          entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
+          progressIndex={progressIndex}
+          strings={strings}
+          installedSources={installedSources.data}
+          onLongPress={handleGridItemLongPress}
+        />
+      </View>
+    ),
+    [
+      entryProgressMaps,
+      handleGridItemLongPress,
+      installedSources.data,
+      progressIndex,
+      strings,
+    ],
+  );
+  // A literal here is a new object on every render, so the cell bail-out
+  // never fired; the memoized value only changes when a cell input does.
+  const libraryGridExtraData = useMemo(
+    () => ({
+      entryProgressMaps,
+      installedSources: installedSources.data,
+      progressIndex,
+      strings,
+    }),
+    [entryProgressMaps, installedSources.data, progressIndex, strings],
   );
 
   if (showLoadError) {
@@ -2000,15 +2065,11 @@ export function LibraryScreen({
     ) : null}
     <PageListScaffold
       data={showSkeleton ? [] : visibleEntries}
-      keyExtractor={(entry) => entry.item.libraryItemId}
+      keyExtractor={libraryEntryKey}
       numColumns={LIBRARY_GRID_COLUMNS}
       columnWrapperStyle={styles.gridRow}
       renderItem={renderLibraryGridItem}
-      extraData={{
-        installedSources: installedSources.data,
-        progressIndex,
-        strings,
-      }}
+      extraData={libraryGridExtraData}
       nativeHeader={usesNativeHeader}
       onRefresh={() => {
         void refreshLatestChapters({ force: true, interactive: true });
@@ -2138,16 +2199,18 @@ export function LibraryScreen({
         setShowTitleMenuSheet(false);
       }}
     />
-    <MangaQuickActionSheet
+    <QuickActionSheet
       visible={quickActionEntry !== null}
+      variant="cover"
       title={quickActionEntry ? getEntryTitle(quickActionEntry) : ""}
       subtitle={quickActionSubtitle}
-      cover={
+      image={
         quickActionCoverRequest?.url ??
         (quickActionEntry ? getEntryCover(quickActionEntry) : undefined)
       }
-      coverHeaders={quickActionCoverRequest?.headers}
+      imageHeaders={quickActionCoverRequest?.headers}
       actions={quickActions}
+      testID="MangaQuickActionSheet"
       onClose={() => setQuickActionEntry(null)}
       onDismiss={() => setQuickActionEntry(null)}
     />

@@ -768,6 +768,15 @@ DELETE FROM sync_health;
       .sort((a, b) => b.item.updatedAt - a.item.updatedAt);
   }
 
+  async countLibraryEntries(): Promise<number> {
+    // Counting in SQLite avoids two full-table scans plus a JSON.parse
+    // per row for a number the caller only reports.
+    const row = await this.db.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM library_items WHERE inLibrary = 1",
+    );
+    return row?.count ?? 0;
+  }
+
   async getLibraryItem(
     libraryItemId: string,
   ): Promise<LocalLibraryItem | null> {
@@ -1096,11 +1105,26 @@ DELETE FROM sync_health;
     return this.getMangaProgress();
   }
 
+  private async getMangaProgressByIdFrom(
+    db: SQLiteExecutor,
+    id: string,
+  ): Promise<LocalMangaProgress | null> {
+    const row = await db.getFirstAsync<JsonRow>(
+      "SELECT json FROM manga_progress WHERE id = ?",
+      id,
+    );
+    return decodeJson<LocalMangaProgress>(row);
+  }
+
+  async getMangaProgressById(id: string): Promise<LocalMangaProgress | null> {
+    return this.getMangaProgressByIdFrom(this.db, id);
+  }
+
   async saveMangaProgress(progress: LocalMangaProgress): Promise<void> {
     await this.runWrite(async () => {
-      const existing = (await this.getMangaProgress()).find(
-        (entry) => entry.id === progress.id,
-      );
+      const existing =
+        (await this.getMangaProgressByIdFrom(this.db, progress.id)) ??
+        undefined;
       const merged = mergeMangaProgressForSave(existing, progress);
       await this.putMangaProgress(this.db, merged);
     });
@@ -1375,9 +1399,17 @@ DELETE FROM sync_health;
     });
   }
 
-  async getAllSourceLinks(): Promise<LocalSourceLink[]> {
+  async getAllSourceLinks(options?: {
+    includeRemoved?: boolean;
+  }): Promise<LocalSourceLink[]> {
+    // `removed` only lives inside the JSON blob (there is no column for it), so
+    // the predicate goes through SQLite's JSON1 extension. Filtering in SQL
+    // keeps tombstones off the bridge and out of `JSON.parse` on every library
+    // hydration; sync merges opt back in with `includeRemoved`.
     const rows = await this.db.getAllAsync<JsonRow>(
-      "SELECT json FROM source_links ORDER BY createdAt ASC",
+      options?.includeRemoved
+        ? "SELECT json FROM source_links ORDER BY createdAt ASC"
+        : "SELECT json FROM source_links WHERE json_extract(json, '$.removed') IS NOT 1 ORDER BY createdAt ASC",
     );
     return decodeJsonRows<LocalSourceLink>(rows);
   }

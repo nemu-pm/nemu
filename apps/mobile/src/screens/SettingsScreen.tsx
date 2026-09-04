@@ -13,7 +13,6 @@ import {
   Linking,
   Platform,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
   type ImageStyle,
@@ -82,6 +81,7 @@ import {
   PageScaffold,
   radius,
   nemuBrandTextStyle,
+  nemuColorWithAlpha,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
   useNemuTheme,
@@ -114,11 +114,13 @@ import {
 import {
   canRetryMobileSourceSettingsLoadError,
   countRenderableSourceSettings,
+  countVisibleSourceSettings,
   getMobileSourceSettingsNavigationResetKey,
   makeMobileSourceKey,
   sourceSettingRequestsDataRefresh,
 } from "@/lib/mobileSourceSettings";
 import { removeMobileSourceAfterSettingsCleanup } from "@/lib/mobileSourceUninstall";
+import { clearMobileSourceDetailCacheForSource } from "@/lib/mobileSourceDetailCache";
 import { normalizeMobileSourceExternalUrl } from "@/lib/mobileSourceExternalUrl";
 import {
   resolveMobileSourceSettingAction,
@@ -148,6 +150,7 @@ import {
   MobileInstalledSourceSettingsSheet,
   MobileSourceIcon as SourceIcon,
 } from "@/components/MobileInstalledSourceSettingsSheet";
+import { useMobileSourceSettingsTransientSheets } from "@/components/useMobileSourceSettingsTransientSheets";
 import {
   isMobileSourceSettingsConfirmation,
   resolveMobileFirstQueuedSheetHandoff,
@@ -338,7 +341,7 @@ function SourceManagementRow({
         <SourceIcon icon={iconUri} />
         <View style={styles.sourceText}>
           <View style={styles.sourceTitleRow}>
-            <Text
+            <NemuText
               numberOfLines={1}
               style={[
                 styles.rowTitle,
@@ -347,34 +350,36 @@ function SourceManagementRow({
               ]}
             >
               {name}
-            </Text>
+            </NemuText>
             <View
               style={[styles.versionBadge, { backgroundColor: tokens.muted }]}
             >
-              <Text
+              <NemuText
                 style={[styles.versionText, { color: tokens.mutedForeground }]}
               >
                 v{source.version}
-              </Text>
+              </NemuText>
             </View>
             {unsupported ? (
               <View
                 style={[styles.versionBadge, { backgroundColor: tokens.muted }]}
               >
-                <Text style={[styles.versionText, { color: tokens.danger }]}>
+                <NemuText
+                  style={[styles.versionText, { color: tokens.danger }]}
+                >
                   {strings.common.sourceUnsupportedBadge}
-                </Text>
+                </NemuText>
               </View>
             ) : null}
           </View>
-          <Text
+          <NemuText
             numberOfLines={2}
             style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}
           >
             {unsupported
               ? strings.common.sourceUnsupportedTachiyomiDescription
               : sourceSubtitle(source)}
-          </Text>
+          </NemuText>
         </View>
       </NemuPressable>
       <View style={styles.sourceActions}>
@@ -457,7 +462,7 @@ function ReaderPluginIcon({
     <View style={frameStyle}>
       <Ionicons
         name={plugin.icon}
-        size={inTitle ? 22 : 24}
+        size={inTitle ? 22 : 20}
         color={plugin.enabled ? tokens.primary : tokens.mutedForeground}
       />
     </View>
@@ -491,18 +496,18 @@ function ReaderPluginManagementRow({
       <View style={[styles.pluginMain, !plugin.enabled && styles.disabledMain]}>
         <ReaderPluginIcon plugin={plugin} />
         <View style={styles.sourceText}>
-          <Text
+          <NemuText
             numberOfLines={1}
-            style={[styles.rowTitle, { color: tokens.foreground }]}
+            style={[styles.settingTitle, { color: tokens.foreground }]}
           >
             {plugin.name}
-          </Text>
-          <Text
+          </NemuText>
+          <NemuText
             numberOfLines={2}
-            style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}
+            style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
           >
             {plugin.description}
-          </Text>
+          </NemuText>
         </View>
       </View>
       <View style={styles.pluginActions}>
@@ -561,7 +566,9 @@ function ReaderPluginManagementRow({
           styles.pluginEmbeddedRow,
           { borderColor: tokens.border },
           selected &&
-            plugin.enabled && { backgroundColor: `${tokens.primary}08` },
+            plugin.enabled && {
+              backgroundColor: nemuColorWithAlpha(tokens.primary, 0.03),
+            },
         ]}
       >
         {rowContent}
@@ -574,7 +581,9 @@ function ReaderPluginManagementRow({
       style={[
         styles.pluginRowShell,
         selected &&
-          plugin.enabled && { backgroundColor: `${tokens.primary}08` },
+          plugin.enabled && {
+            backgroundColor: nemuColorWithAlpha(tokens.primary, 0.03),
+          },
       ]}
       contentStyle={styles.pluginRow}
     >
@@ -619,67 +628,80 @@ function MobileReaderPluginSettingsSheet({
   const sheetLayout = getMobileSettingsSheetLayout({
     fontScale,
     height,
-    rowCount: countRenderableSourceSettings(plugin.settings),
+    rowCount: countVisibleSourceSettings(plugin.settings, plugin.values),
     width,
+  });
+  // Multi-select and string-list settings open their dedicated sheets through
+  // the shared dismiss-then-present handoff (this sheet has no login rows).
+  const transientSheets = useMobileSourceSettingsTransientSheets({
+    visible,
+    disabled,
+    values: plugin.values,
+    strings,
+    onChange,
+    onClose,
   });
 
   return (
-    <MobileNativeSheetScaffold
-      visible={visible}
-      onClose={onClose}
-      scroll={sheetLayout.scroll}
-      snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
-      testID={`ReaderPluginSettingsSheet:${plugin.id}`}
-    >
-      {/*
-        The plugin mark belongs to the title, not to the sheet chrome: a
-        leading header slot leaves the icon stranded in the top-left corner
-        while the title stays optically centered. Compose both into one
-        centered row and center the description under it.
-      */}
-      <View style={styles.pluginSheetHeader}>
-        <View style={styles.pluginSheetTitleRow}>
-          <ReaderPluginIcon plugin={plugin} placement="title" />
-          <NemuText
-            accessibilityRole="header"
-            color={tokens.foreground}
-            density="compact"
-            numberOfLines={2}
-            style={styles.pluginSheetTitle}
-            variant="sheetTitle"
-          >
-            {plugin.name}
-          </NemuText>
+    <>
+      <MobileNativeSheetScaffold
+        {...transientSheets.settingsSheetProps}
+        scroll={sheetLayout.scroll}
+        snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
+        testID={`ReaderPluginSettingsSheet:${plugin.id}`}
+      >
+        {/*
+          The plugin mark belongs to the title, not to the sheet chrome: a
+          leading header slot leaves the icon stranded in the top-left corner
+          while the title stays optically centered. Compose both into one
+          centered row and center the description under it.
+        */}
+        <View style={styles.pluginSheetHeader}>
+          <View style={styles.pluginSheetTitleRow}>
+            <ReaderPluginIcon plugin={plugin} placement="title" />
+            <NemuText
+              accessibilityRole="header"
+              color={tokens.foreground}
+              density="compact"
+              numberOfLines={2}
+              style={styles.pluginSheetTitle}
+              variant="sheetTitle"
+            >
+              {plugin.name}
+            </NemuText>
+          </View>
+          {plugin.description ? (
+            <NemuText
+              color={tokens.mutedForeground}
+              density="compact"
+              style={styles.pluginSheetDescription}
+              variant="rowSubtitle"
+            >
+              {plugin.description}
+            </NemuText>
+          ) : null}
         </View>
-        {plugin.description ? (
-          <NemuText
-            color={tokens.mutedForeground}
-            density="compact"
-            style={styles.pluginSheetDescription}
-            variant="rowSubtitle"
-          >
-            {plugin.description}
-          </NemuText>
-        ) : null}
-      </View>
-      <MobileSourceSettingsCard
-        settings={plugin.settings}
-        values={plugin.values}
-        loading={loading}
-        error={error}
-        title={strings.settings.pluginSettings}
-        hideSubtitle
-        navigationResetKey={plugin.id}
-        emptyMessage={strings.settings.noPluginSettings}
-        showEmpty
-        disabled={disabled}
-        retryDisabled={retryDisabled}
-        retrying={retrying}
-        onRetry={onRetry}
-        onReset={onReset}
-        onChange={onChange}
-      />
-    </MobileNativeSheetScaffold>
+        <MobileSourceSettingsCard
+          settings={plugin.settings}
+          values={plugin.values}
+          loading={loading}
+          error={error}
+          title={strings.settings.pluginSettings}
+          hideSubtitle
+          navigationResetKey={plugin.id}
+          emptyMessage={strings.settings.noPluginSettings}
+          showEmpty
+          disabled={disabled}
+          retryDisabled={retryDisabled}
+          retrying={retrying}
+          onRetry={onRetry}
+          onReset={onReset}
+          onChange={onChange}
+          {...transientSheets.cardProps}
+        />
+      </MobileNativeSheetScaffold>
+      {transientSheets.renderTransientSheet()}
+    </>
   );
 }
 
@@ -713,7 +735,9 @@ function ClearCloudDataOption({
       style={[
         styles.cloudClearOption,
         {
-          backgroundColor: checked ? `${tokens.danger}12` : tokens.muted,
+          backgroundColor: checked
+            ? nemuColorWithAlpha(tokens.danger, 0.07)
+            : tokens.muted,
           borderColor: checked ? tokens.danger : tokens.border,
           opacity: disabled ? 0.72 : 1,
         },
@@ -737,17 +761,21 @@ function ClearCloudDataOption({
         ) : null}
       </View>
       <View style={styles.cloudClearCopy}>
-        <Text style={[styles.cloudClearTitle, { color: tokens.foreground }]}>
+        <NemuText
+          density="compact"
+          style={[styles.cloudClearTitle, { color: tokens.foreground }]}
+        >
           {strings.settings.clearCloudData}
-        </Text>
-        <Text
+        </NemuText>
+        <NemuText
+          density="compact"
           style={[
             styles.cloudClearDescription,
             { color: tokens.mutedForeground },
           ]}
         >
           {strings.settings.clearCloudDataDescription}
-        </Text>
+        </NemuText>
       </View>
     </NemuPressable>
   );
@@ -1021,19 +1049,19 @@ function SettingsMenuRow({
           <Ionicons name={icon} size={19} color={tokens.primary} />
         </View>
         <View style={styles.menuText}>
-          <Text
+          <NemuText
             maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
             style={[styles.menuTitle, { color: tokens.foreground }]}
           >
             {title}
-          </Text>
-          <Text
+          </NemuText>
+          <NemuText
             maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
             numberOfLines={2}
             style={[styles.menuSubtitle, { color: tokens.mutedForeground }]}
           >
             {subtitle}
-          </Text>
+          </NemuText>
         </View>
         <Ionicons
           name="chevron-forward-outline"
@@ -1065,14 +1093,14 @@ function FeedbackSettingRow({
   return (
     <View style={[styles.dataAction, { borderColor: tokens.border }]}>
       <View style={styles.dataActionText}>
-        <Text style={[styles.settingTitle, { color: tokens.foreground }]}>
+        <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
           {title}
-        </Text>
-        <Text
+        </NemuText>
+        <NemuText
           style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
         >
           {subtitle}
-        </Text>
+        </NemuText>
       </View>
       <NemuNativeSwitch
         accessibilityLabel={title}
@@ -1112,14 +1140,14 @@ function MobileFeedbackSettingsCard() {
           <Ionicons name="sparkles-outline" size={20} color={tokens.primary} />
         </View>
         <View style={styles.rowText}>
-          <Text style={[styles.rowTitle, { color: tokens.foreground }]}>
+          <NemuText style={[styles.rowTitle, { color: tokens.foreground }]}>
             {strings.settings.feedbackSection}
-          </Text>
-          <Text
+          </NemuText>
+          <NemuText
             style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}
           >
             {strings.settings.feedbackSectionDescription}
-          </Text>
+          </NemuText>
         </View>
       </View>
       <View style={styles.dataActions} testID="FeedbackSettingsCard">
@@ -1166,14 +1194,14 @@ function SegmentedSetting<Value extends string>({
   return (
     <View style={styles.settingBlock}>
       <View style={styles.settingCopy}>
-        <Text style={[styles.settingTitle, { color: tokens.foreground }]}>
+        <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
           {title}
-        </Text>
-        <Text
+        </NemuText>
+        <NemuText
           style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
         >
           {subtitle}
-        </Text>
+        </NemuText>
       </View>
       <View style={styles.nativeSegmentedShell}>
         <SettingsSegmentedPicker
@@ -1213,14 +1241,14 @@ function DataActionRow({
   return (
     <View style={[styles.dataAction, { borderColor: tokens.border }]}>
       <View style={styles.dataActionText}>
-        <Text style={[styles.settingTitle, { color: tokens.foreground }]}>
+        <NemuText style={[styles.settingTitle, { color: tokens.foreground }]}>
           {title}
-        </Text>
-        <Text
+        </NemuText>
+        <NemuText
           style={[styles.settingSubtitle, { color: tokens.mutedForeground }]}
         >
           {subtitle}
-        </Text>
+        </NemuText>
       </View>
       <NemuButton
         accessibilityLabel={title}
@@ -1263,16 +1291,16 @@ function AboutSettingsRow({
             color={tokens.mutedForeground}
           />
         </View>
-        <Text
+        <NemuText
           maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
           style={[styles.aboutTitle, { color: tokens.foreground }]}
         >
           {strings.settings.aboutNemuBeforeBrand}
-          <Text style={[nemuBrandTextStyle, { color: tokens.primary }]}>
+          <NemuText style={[nemuBrandTextStyle, { color: tokens.primary }]}>
             nemu
-          </Text>
+          </NemuText>
           {strings.settings.aboutNemuAfterBrand}
-        </Text>
+        </NemuText>
         <Ionicons
           name="chevron-forward-outline"
           size={17}
@@ -1315,7 +1343,12 @@ export function SettingsScreen({
   const readerPlugins = useMobileReaderPlugins();
   const store = useMobileDataStore();
   const sources = useInstalledSources();
-  const availableSources = useAvailableSources();
+  // Registry discovery only feeds the Sources section. Mounting it from the
+  // settings root (or Reader/Appearance/Data) would start a catalog download
+  // and a silent source auto-update pass no visible row can use.
+  const availableSources = useAvailableSources({
+    enabled: section === "sources",
+  });
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null);
   const [removingSourceId, setRemovingSourceId] = useState<string | null>(null);
@@ -2170,6 +2203,10 @@ export function SettingsScreen({
       await removeMobileSourceAfterSettingsCleanup({
         settingsKeys: getMobileInstalledSourceSettingsKeys(source),
         resetSourceSettings: (key) => store.resetSourceSettings(key),
+        clearSourceDetailCache: () =>
+          clearMobileSourceDetailCacheForSource(
+            makeMobileRuntimeSourceKey(normalizeInstalledSource(source)),
+          ),
         removeInstalledSource: () =>
           store.removeInstalledSource(source.id, source.registryId),
       });
@@ -2463,22 +2500,22 @@ export function SettingsScreen({
                         />
                       </View>
                       <View style={styles.rowText}>
-                        <Text
+                        <NemuText
                           style={[
                             styles.rowTitle,
                             { color: tokens.foreground },
                           ]}
                         >
                           {strings.reader.title}
-                        </Text>
-                        <Text
+                        </NemuText>
+                        <NemuText
                           style={[
                             styles.rowSubtitle,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.reader.description}
-                        </Text>
+                        </NemuText>
                       </View>
                     </View>
                     <View style={styles.nativeSegmentedShell}>
@@ -2524,22 +2561,22 @@ export function SettingsScreen({
                         />
                       </View>
                       <View style={styles.rowText}>
-                        <Text
+                        <NemuText
                           style={[
                             styles.rowTitle,
                             { color: tokens.foreground },
                           ]}
                         >
                           {strings.settings.plugins}
-                        </Text>
-                        <Text
+                        </NemuText>
+                        <NemuText
                           style={[
                             styles.rowSubtitle,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.pluginsDescription}
-                        </Text>
+                        </NemuText>
                       </View>
                     </View>
                     {readerPlugins.error ? (
@@ -2549,7 +2586,7 @@ export function SettingsScreen({
                           size={22}
                           color={tokens.danger}
                         />
-                        <Text
+                        <NemuText
                           style={[
                             styles.emptyText,
                             { color: tokens.mutedForeground },
@@ -2559,7 +2596,7 @@ export function SettingsScreen({
                             readerPlugins.error,
                             strings.settings.settingsActionFailedDetail,
                           )}
-                        </Text>
+                        </NemuText>
                         <NemuButton
                           accessibilityLabel={strings.common.retry}
                           accessibilityState={{
@@ -2583,14 +2620,14 @@ export function SettingsScreen({
                           size="small"
                           color={tokens.primary}
                         />
-                        <Text
+                        <NemuText
                           style={[
                             styles.emptyText,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.loadingReaderPlugins}
-                        </Text>
+                        </NemuText>
                       </View>
                     ) : (
                       <View style={styles.pluginEmbeddedList}>
@@ -2636,19 +2673,19 @@ export function SettingsScreen({
                       />
                     </View>
                     <View style={styles.rowText}>
-                      <Text
+                      <NemuText
                         style={[styles.rowTitle, { color: tokens.foreground }]}
                       >
                         {strings.settings.appearance}
-                      </Text>
-                      <Text
+                      </NemuText>
+                      <NemuText
                         style={[
                           styles.rowSubtitle,
                           { color: tokens.mutedForeground },
                         ]}
                       >
                         {strings.settings.appearanceDescription}
-                      </Text>
+                      </NemuText>
                     </View>
                   </View>
                   <SegmentedSetting
@@ -2714,22 +2751,22 @@ export function SettingsScreen({
                         />
                       </View>
                       <View style={styles.rowText}>
-                        <Text
+                        <NemuText
                           style={[
                             styles.rowTitle,
                             { color: tokens.foreground },
                           ]}
                         >
                           {strings.settings.installedSources}
-                        </Text>
-                        <Text
+                        </NemuText>
+                        <NemuText
                           style={[
                             styles.rowSubtitle,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.installedSourcesDescription}
-                        </Text>
+                        </NemuText>
                       </View>
                       <View style={styles.sourceHeaderActions}>
                         <NemuButton
@@ -2752,14 +2789,14 @@ export function SettingsScreen({
                           size="small"
                           color={tokens.primary}
                         />
-                        <Text
+                        <NemuText
                           style={[
                             styles.emptyText,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.loading}
-                        </Text>
+                        </NemuText>
                       </View>
                     ) : sources.error ? (
                       <View style={styles.emptyRow}>
@@ -2768,7 +2805,7 @@ export function SettingsScreen({
                           size={22}
                           color={tokens.danger}
                         />
-                        <Text
+                        <NemuText
                           style={[
                             styles.emptyText,
                             { color: tokens.mutedForeground },
@@ -2778,7 +2815,7 @@ export function SettingsScreen({
                             sources.error,
                             strings.browse.sourcesUnavailable,
                           )}
-                        </Text>
+                        </NemuText>
                         <NemuButton
                           accessibilityLabel={strings.common.retry}
                           accessibilityState={{
@@ -2825,14 +2862,14 @@ export function SettingsScreen({
                           size={22}
                           color={tokens.mutedForeground}
                         />
-                        <Text
+                        <NemuText
                           style={[
                             styles.emptyText,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.noSourceManagement}
-                        </Text>
+                        </NemuText>
                       </View>
                     )}
                   </SettingsSurface>
@@ -2854,22 +2891,22 @@ export function SettingsScreen({
                         />
                       </View>
                       <View style={styles.rowText}>
-                        <Text
+                        <NemuText
                           style={[
                             styles.rowTitle,
                             { color: tokens.foreground },
                           ]}
                         >
                           {strings.settings.importSourceCardTitle}
-                        </Text>
-                        <Text
+                        </NemuText>
+                        <NemuText
                           style={[
                             styles.rowSubtitle,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.importSourceCardDescription}
-                        </Text>
+                        </NemuText>
                       </View>
                     </View>
                     <NemuButton
@@ -2915,22 +2952,22 @@ export function SettingsScreen({
                         />
                       </View>
                       <View style={styles.rowText}>
-                        <Text
+                        <NemuText
                           style={[
                             styles.rowTitle,
                             { color: tokens.foreground },
                           ]}
                         >
                           {strings.settings.dataManagement}
-                        </Text>
-                        <Text
+                        </NemuText>
+                        <NemuText
                           style={[
                             styles.rowSubtitle,
                             { color: tokens.mutedForeground },
                           ]}
                         >
                           {strings.settings.dataManagementDescription}
-                        </Text>
+                        </NemuText>
                       </View>
                     </View>
                     <View style={styles.dataActions}>
@@ -3398,7 +3435,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
+    // Same half trailing inset as the installed-source rows.
+    paddingLeft: 12,
+    paddingRight: 6,
     paddingVertical: 10,
   },
   pluginRowShell: {
@@ -3418,7 +3457,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
+    // The trailing action buttons sit half the leading inset from the row
+    // edge so the gear/trash cluster reads as part of the row, not adrift.
+    paddingLeft: 12,
+    paddingRight: 6,
     paddingVertical: 10,
   },
   sourceMainContainer: {
@@ -3443,8 +3485,10 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   pluginArtwork: {
-    width: 40,
-    height: 40,
+    // One notch under the old 40pt tile so the plugin rows read at the same
+    // scale as the sibling 34pt source icon tiles next to them.
+    width: 34,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -3506,18 +3550,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "hidden",
     borderRadius: radius.sm,
-  },
-  sourceIcon: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    borderRadius: radius.md,
-  },
-  sourceIconImage: {
-    width: "100%",
-    height: "100%",
   },
   sourceText: {
     flex: 1,

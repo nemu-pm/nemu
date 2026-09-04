@@ -2,12 +2,12 @@ import { createContext, useContext } from "react";
 
 export type MobileToastTone = "success" | "info" | "warning" | "danger";
 
-export type MobileToastAction = {
+type MobileToastAction = {
   label: string;
   onPress: () => void;
 };
 
-export type MobileToastDuration = "normal" | "long" | "sticky";
+type MobileToastDuration = "normal" | "long" | "sticky";
 
 export type MobileToastOptions = {
   tone?: MobileToastTone;

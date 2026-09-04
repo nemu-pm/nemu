@@ -2,8 +2,8 @@
  * Android / web / test fallback for the sheet search capsule.
  *
  * This is the previous Add Source sheet markup moved out of `BrowseScreen`
- * unchanged: an RN `TextInput` dressed as the iOS 26 search field —
- * secondary-filled capsule, 17pt system text, muted leading magnifier, and the
+ * unchanged: an RN `TextInput` dressed as the iOS search field —
+ * secondary-filled capsule, 15pt system text, muted leading magnifier, and the
  * shared `NemuTextFieldClearAction` in the trailing slot.
  *
  * iOS resolves `NemuNativeSearchField.ios.tsx` instead, which hosts a real
@@ -20,8 +20,12 @@ import { useNemuTheme } from "@/design/useNemuTheme";
 import { NemuTextFieldClearAction } from "./NemuTextFieldClearAction";
 import type { NemuNativeSearchFieldProps } from "./NemuNativeSearchField.types";
 
-/** Horizontal padding of the capsule; the clear action negates it to reach the edge. */
+/**
+ * Horizontal padding of the capsule; the clear action negates it to reach the edge.
+ */
 const SHELL_HORIZONTAL_INSET = 12;
+/** Matches the iOS SwiftUI field so the platforms read identically. */
+const FIELD_FONT_SIZE = 15;
 
 export function NemuNativeSearchField({
   value,
@@ -73,8 +77,8 @@ export function NemuNativeSearchField({
 }
 
 const styles = StyleSheet.create({
-  // iOS 26 search field metrics: a 36pt capsule on a secondary fill, with the
-  // glyph and the 17pt text sharing one baseline. Android keeps a taller target
+  // iOS search field metrics: a 36pt capsule on a secondary fill, with the
+  // glyph and the 15pt text sharing one baseline. Android keeps a taller target
   // so the Material clear action fits inside the field.
   searchShell: {
     height: 36,
@@ -94,6 +98,6 @@ const styles = StyleSheet.create({
     // top-align the text against the leading glyph.
     padding: 0,
     textAlignVertical: "center",
-    fontSize: 17,
+    fontSize: FIELD_FONT_SIZE,
   },
 });

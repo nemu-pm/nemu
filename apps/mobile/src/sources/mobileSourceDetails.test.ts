@@ -16,6 +16,7 @@ import type {
   MobileAidokuExecutorSource,
 } from "./mobileSourceExecutor";
 import { createMobileSourceSessionCache } from "./mobileSourceExecutorCache";
+import { isMobileSourceOperationTimeoutError } from "./mobileSourceOperationTimeout";
 
 function makeAixPackage(): Uint8Array {
   return zipSync({
@@ -413,5 +414,100 @@ describe("mobile source details refresh", () => {
     });
     expect(mangaDetailsCalled).toBe(false);
     expect(disposed).toBe(false); // cached session is retained, not disposed
+  });
+
+  test("bounds a wedged refresh without a caller-side timeout wrap", async () => {
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        const source = makeExecutorSource();
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: {
+            ...source,
+            // A hostile source that never answers the first runtime call.
+            getMangaDetails: () => new Promise(() => {}),
+          },
+        };
+      },
+    };
+
+    const refresh = refreshMobileSourceDetails(installedSource(), "wedged", {
+      executor: {
+        bridge,
+        readBytes: async () => makeAixPackage(),
+      },
+      sessionCache: createMobileSourceSessionCache(),
+      timeoutMs: 20,
+      timeoutMessage: "Source operation timed out.",
+    });
+
+    await expect(refresh).rejects.toThrow("Source operation timed out.");
+    await refresh.catch((error: unknown) => {
+      expect(isMobileSourceOperationTimeoutError(error)).toBe(true);
+    });
+  });
+
+  test("bounds a wedged chapter refresh the same way", async () => {
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        const source = makeExecutorSource();
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: {
+            ...source,
+            getChapterList: () => new Promise(() => {}),
+          },
+        };
+      },
+    };
+
+    await expect(
+      refreshMobileSourceChapters(installedSource(), "wedged", {
+        executor: {
+          bridge,
+          readBytes: async () => makeAixPackage(),
+        },
+        sessionCache: createMobileSourceSessionCache(),
+        timeoutMs: 20,
+      }),
+    ).rejects.toThrow(/timed out/i);
+  });
+
+  test("reads manga details before chapters on the one serial runtime queue", async () => {
+    const calls: string[] = [];
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        const source = makeExecutorSource();
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: {
+            ...source,
+            async getMangaDetails(manga) {
+              calls.push("details:start");
+              await Promise.resolve();
+              calls.push("details:end");
+              return source.getMangaDetails(manga);
+            },
+            async getChapterList(manga) {
+              calls.push("chapters:start");
+              return source.getChapterList(manga);
+            },
+          },
+        };
+      },
+    };
+
+    await refreshMobileSourceDetails(installedSource(), "blue-lock", {
+      executor: {
+        bridge,
+        readBytes: async () => makeAixPackage(),
+      },
+      sessionCache: createMobileSourceSessionCache(),
+    });
+
+    expect(calls).toEqual(["details:start", "details:end", "chapters:start"]);
   });
 });

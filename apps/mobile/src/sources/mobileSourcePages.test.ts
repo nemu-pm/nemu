@@ -6,6 +6,7 @@ import {
   MOBILE_READER_PROCESSED_IMAGE_MAX_BYTES,
   mapAidokuPageToReaderPage,
   refreshMobileReaderPages,
+  resolveMobileReaderChapterIndex,
 } from "./mobileSourcePages";
 import { defaultMobileSourceSessionCache } from "./mobileSourceExecutorCache";
 import type {
@@ -331,6 +332,96 @@ describe("mobile source reader pages", () => {
 
     expect(result.status).toBe("ready");
     expect(pageListStartedBeforeChapterListResolved).toBe(true);
+  });
+
+  test("hands over the first paint before the chapter index resolves", async () => {
+    let chapterListSettled = false;
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getChapterList() {
+              await new Promise((resolve) => setTimeout(resolve, 20));
+              chapterListSettled = true;
+              return [{ key: "c2", chapterNumber: 2, title: "Selected" }];
+            },
+          }),
+        };
+      },
+    };
+
+    const firstPaints: {
+      pages: number;
+      chapterId: string;
+      fetchedAt: number;
+      chapterListSettled: boolean;
+    }[] = [];
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      {
+        executor: { bridge, readBytes: async () => makeAixPackage() },
+        now: () => 1234,
+        onPagesReady: (firstPaint) => {
+          firstPaints.push({
+            pages: firstPaint.pages.length,
+            chapterId: firstPaint.chapter.id,
+            fetchedAt: firstPaint.fetchedAt,
+            chapterListSettled,
+          });
+        },
+      },
+    );
+
+    // The page list is handed over while the chapter index is still in flight.
+    expect(firstPaints).toEqual([
+      {
+        pages: 2,
+        chapterId: "c2",
+        fetchedAt: 1234,
+        chapterListSettled: false,
+      },
+    ]);
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") throw new Error("expected ready");
+    // Both halves describe the same fetch, so the reader's restore identity
+    // does not change when the index lands.
+    expect(result.fetchedAt).toBe(1234);
+    expect(result.pages).toHaveLength(2);
+    expect(result.chapters.map((item) => item.id)).toEqual(["c2"]);
+  });
+
+  test("keeps the pages when the chapter index request fails", async () => {
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getChapterList() {
+              throw new Error("chapter index unavailable");
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      { executor: { bridge, readBytes: async () => makeAixPackage() } },
+    );
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") throw new Error("expected ready");
+    expect(result.pages).toHaveLength(2);
+    // No adjacent-chapter navigation, but the chapter still reads.
+    expect(result.chapters).toEqual([]);
+    expect(result.chapter.id).toBe("c2");
   });
 
   test("trusts only validated resolvePageImage data as app-owned", async () => {
@@ -923,6 +1014,131 @@ describe("mobile source reader pages", () => {
     ]);
   });
 
+  test("issues the page list before the chapter index", async () => {
+    // iOS runs sandbox operations on one serial queue, so the request issued
+    // first owns it. The page list is the only half that gates the first paint.
+    const issued: string[] = [];
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getChapterList() {
+              issued.push("chapters");
+              return [{ key: "c2", chapterNumber: 2 }];
+            },
+            async getPageList(_manga, chapter) {
+              issued.push("pages");
+              return [
+                { index: 0, url: `https://example.test/${chapter.key}/001.jpg` },
+              ];
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      { executor: { bridge, readBytes: async () => makeAixPackage() } },
+    );
+
+    expect(result.status).toBe("ready");
+    expect(issued).toEqual(["pages", "chapters"]);
+  });
+
+  test("reports a resolved chapter index as ready", async () => {
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(),
+        };
+      },
+    };
+
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      { executor: { bridge, readBytes: async () => makeAixPackage() } },
+    );
+
+    expect(result).toMatchObject({
+      status: "ready",
+      chapterIndexStatus: "ready",
+    });
+    expect(
+      result.status === "ready" ? result.chapters.length : 0,
+    ).toBeGreaterThan(0);
+  });
+
+  test("an empty chapter index is still ready, not unavailable", async () => {
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getChapterList() {
+              return [];
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      { executor: { bridge, readBytes: async () => makeAixPackage() } },
+    );
+
+    expect(result).toMatchObject({
+      status: "ready",
+      chapters: [],
+      chapterIndexStatus: "ready",
+    });
+  });
+
+  test("marks a failed chapter index unavailable instead of an empty list", async () => {
+    // The reader persists ready refreshes into a 7-day page-list cache; an
+    // index failure must be distinguishable from a genuinely empty index.
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getChapterList() {
+              throw new Error("chapter index unavailable");
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      { executor: { bridge, readBytes: async () => makeAixPackage() } },
+    );
+
+    expect(result).toMatchObject({
+      status: "ready",
+      chapters: [],
+      chapterIndexStatus: "unavailable",
+    });
+    // The pages still paint: a failed index never fails the refresh.
+    expect(result.status === "ready" ? result.pages.length : 0).toBe(2);
+  });
+
   test("returns blocked pages when the executor cannot load", async () => {
     await expect(
       refreshMobileReaderPages(installedSource(), "blue-lock", { id: "c1" }, {
@@ -934,5 +1150,67 @@ describe("mobile source reader pages", () => {
       status: "blocked",
       reason: "native-bridge-missing",
     });
+  });
+});
+
+describe("resolveMobileReaderChapterIndex", () => {
+  const chapters = [{ id: "c1" }, { id: "c2" }];
+  const cached = [{ id: "c0" }];
+
+  test("a ready index always wins, even when it is legitimately empty", () => {
+    expect(
+      resolveMobileReaderChapterIndex({
+        chapterIndexStatus: "ready",
+        chapters,
+        persistedChapters: cached,
+      }),
+    ).toBe(chapters);
+    expect(
+      resolveMobileReaderChapterIndex({
+        chapterIndexStatus: "ready",
+        chapters: [],
+        persistedChapters: cached,
+      }),
+    ).toEqual([]);
+  });
+
+  test("an unavailable index keeps the last known chapters", () => {
+    // Regression: the cache preserved them but the in-memory state took the
+    // empty list, so adjacent-chapter navigation vanished for the session.
+    expect(
+      resolveMobileReaderChapterIndex({
+        chapterIndexStatus: "unavailable",
+        chapters: [],
+        previousChapters: chapters,
+        persistedChapters: cached,
+      }),
+    ).toBe(chapters);
+    expect(
+      resolveMobileReaderChapterIndex({
+        chapterIndexStatus: "unavailable",
+        chapters: [],
+        persistedChapters: cached,
+      }),
+    ).toBe(cached);
+  });
+
+  test("empty fallbacks are skipped so first paint cannot pin an empty index", () => {
+    // The reader blanks `chapters` on first paint, before the index lands.
+    expect(
+      resolveMobileReaderChapterIndex({
+        chapterIndexStatus: "unavailable",
+        chapters: [],
+        previousChapters: [],
+        persistedChapters: cached,
+      }),
+    ).toBe(cached);
+    expect(
+      resolveMobileReaderChapterIndex({
+        chapterIndexStatus: "unavailable",
+        chapters: [],
+        previousChapters: [],
+        persistedChapters: [],
+      }),
+    ).toBeUndefined();
   });
 });

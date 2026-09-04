@@ -135,6 +135,10 @@
           "backgroundColor": "#f8fafe",
           "dark": {
             "backgroundColor": "#090a0d"
+          },
+          "android": {
+            "image": "./assets/adaptive-icon.png",
+            "imageWidth": 200
           }
         }
       ]

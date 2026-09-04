@@ -24,6 +24,11 @@ async function drainMicrotasks(): Promise<void> {
   await Promise.resolve();
 }
 
+/** Flushes every pending microtask, including the pre-slot disk probe. */
+async function flushAsyncWork(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe("MobileImageCacheCoordinator", () => {
   test("rejects an invalid global load concurrency limit", () => {
     expect(() => new MobileImageCacheCoordinator(new FakeUriStore(), 4, 0)).toThrow(
@@ -258,6 +263,65 @@ describe("MobileImageCacheCoordinator", () => {
     expect(downloads).toBe(1);
   });
 
+  test("keeps the bypass armed when the load is cancelled before its slot", async () => {
+    // The disk probe runs before a concurrency slot is taken. A consumer that
+    // unmounts in that window must not spend the bypass: the known-bad file is
+    // still on disk, so the next resolve has to skip it too.
+    const store = new FakeUriStore();
+    const coordinator = new MobileImageCacheCoordinator(store, 4, 1);
+    store.entries.set("cover", "file:///cache/corrupt.jpg");
+    await coordinator.resolve("cover", async () => null);
+    store.removeError = new Error("busy");
+    await expect(coordinator.invalidate("cover")).rejects.toThrow("busy");
+
+    const leaving = new AbortController();
+    const cancelled = coordinator.resolve("cover", async () => null, {
+      signal: leaving.signal,
+    });
+    leaving.abort();
+    await expect(cancelled).resolves.toBeNull();
+    await flushAsyncWork();
+
+    // The file that could not be deleted must still be bypassed.
+    let downloads = 0;
+    expect(
+      await coordinator.resolve("cover", async () => {
+        downloads += 1;
+        const uri = "file:///cache/repaired.jpg";
+        store.entries.set("cover", uri);
+        return uri;
+      }),
+    ).toBe("file:///cache/repaired.jpg");
+    expect(downloads).toBe(1);
+  });
+
+  test("spends the bypass once a replacement file lands", async () => {
+    const store = new FakeUriStore();
+    const coordinator = new MobileImageCacheCoordinator(store, 4);
+    store.entries.set("cover", "file:///cache/corrupt.jpg");
+    await coordinator.resolve("cover", async () => null);
+    store.removeError = new Error("busy");
+    await expect(coordinator.invalidate("cover")).rejects.toThrow("busy");
+
+    expect(
+      await coordinator.resolve("cover", async () => {
+        const uri = "file:///cache/repaired.jpg";
+        store.entries.set("cover", uri);
+        return uri;
+      }),
+    ).toBe("file:///cache/repaired.jpg");
+
+    // The bypass is spent: the repaired file is served straight from disk.
+    let downloads = 0;
+    expect(
+      await coordinator.resolve("cover", async () => {
+        downloads += 1;
+        return null;
+      }),
+    ).toBe("file:///cache/repaired.jpg");
+    expect(downloads).toBe(0);
+  });
+
   test("allows only one cached-file retry per mounted source key", () => {
     expect(
       shouldRetryCachedMobileImageError({
@@ -328,12 +392,17 @@ describe("MobileImageCacheCoordinator", () => {
     const store = new FakeUriStore();
     const coordinator = new MobileImageCacheCoordinator(store, 4);
     const download = Promise.withResolvers<string | null>();
+    let writing = false;
     const loading = coordinator.resolve("cover", async () => {
+      writing = true;
       const uri = await download.promise;
       if (uri) store.entries.set("cover", uri);
       return uri;
     });
-    await Promise.resolve();
+    // The disk probe now runs before the load takes a slot, so the writer is
+    // only in flight once that probe has missed.
+    await flushAsyncWork();
+    expect(writing).toBe(true);
 
     let clearCalls = 0;
     const clearing = coordinator.clearAll(async () => {
@@ -349,6 +418,50 @@ describe("MobileImageCacheCoordinator", () => {
     expect(clearCalls).toBe(1);
     expect(store.entries.size).toBe(0);
     expect(coordinator.getResolvedUri("cover")).toBeNull();
+  });
+
+  test("returns a disk hit without waiting for a concurrency slot", async () => {
+    const store = new FakeUriStore();
+    const coordinator = new MobileImageCacheCoordinator(store, 8, 1);
+    store.entries.set("cached", "file:///cache/cached.jpg");
+    const download = Promise.withResolvers<string | null>();
+    let downloads = 0;
+
+    const downloading = coordinator.resolve("missing", async () => {
+      downloads += 1;
+      return download.promise;
+    });
+    await flushAsyncWork();
+    expect(downloads).toBe(1);
+
+    // The single slot is occupied by the download; a disk hit must not queue.
+    await expect(coordinator.resolve("cached", async () => null)).resolves.toBe(
+      "file:///cache/cached.jpg",
+    );
+    expect(coordinator.getResolvedUri("cached")).toBe("file:///cache/cached.jpg");
+
+    download.resolve("file:///cache/downloaded.jpg");
+    await expect(downloading).resolves.toBe("file:///cache/downloaded.jpg");
+  });
+
+  test("still queues a disk miss behind the concurrency limit", async () => {
+    const store = new FakeUriStore();
+    const coordinator = new MobileImageCacheCoordinator(store, 8, 1);
+    const download = Promise.withResolvers<string | null>();
+    let secondStarts = 0;
+
+    const first = coordinator.resolve("first", async () => download.promise);
+    const second = coordinator.resolve("second", async () => {
+      secondStarts += 1;
+      return "file:///cache/second.jpg";
+    });
+    await flushAsyncWork();
+    expect(secondStarts).toBe(0);
+
+    download.resolve("file:///cache/first.jpg");
+    await expect(first).resolves.toBe("file:///cache/first.jpg");
+    await expect(second).resolves.toBe("file:///cache/second.jpg");
+    expect(secondStarts).toBe(1);
   });
 
   test("serializes repair behind an in-flight invalidation", async () => {

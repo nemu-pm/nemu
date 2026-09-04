@@ -12,8 +12,10 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   MobileSheetScaffold,
+  nemuColorWithAlpha,
   nemuFontWeight,
   NemuPressable,
+  radius,
   useNemuTheme,
 } from "@/design-system";
 import type { AppLanguage } from "@/data/schema";
@@ -259,7 +261,9 @@ export function JapaneseLearningNemuChatDrawer({
           styles.inputBar,
           {
             backgroundColor:
-              scheme === "dark" ? "rgba(0,0,0,0.40)" : `${tokens.background}CC`,
+              scheme === "dark"
+                ? "rgba(0,0,0,0.40)"
+                : nemuColorWithAlpha(tokens.background, 0.8),
             borderTopColor: tokens.border,
           },
         ]}
@@ -371,7 +375,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 40,
     maxHeight: 100,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 16,

@@ -1,14 +1,15 @@
 import { withTiming } from "react-native-reanimated";
+import { readerChromeMotionVariant } from "./mobileReaderChromeMotion";
 
 /**
  * Durations / offsets shared by the reader top/bottom chrome enter/exit
  * worklets. Extracted from ReaderScreen so the animation definitions can be
  * reused and unit-referenced without pulling in the screen's state.
  */
-export const READER_CONTROLS_FADE_MS = 300;
-export const READER_CONTROLS_SLIDE_PX = 8;
+const READER_CONTROLS_FADE_MS = 300;
+const READER_CONTROLS_SLIDE_PX = 8;
 
-export function readerTopBarEntering() {
+function readerTopBarEntering() {
   "worklet";
   return {
     initialValues: {
@@ -24,7 +25,7 @@ export function readerTopBarEntering() {
   };
 }
 
-export function readerTopBarExiting() {
+function readerTopBarExiting() {
   "worklet";
   return {
     initialValues: { opacity: 1, transform: [{ translateY: 0 }] },
@@ -41,7 +42,7 @@ export function readerTopBarExiting() {
   };
 }
 
-export function readerBottomBarEntering() {
+function readerBottomBarEntering() {
   "worklet";
   return {
     initialValues: {
@@ -57,7 +58,7 @@ export function readerBottomBarEntering() {
   };
 }
 
-export function readerBottomBarExiting() {
+function readerBottomBarExiting() {
   "worklet";
   return {
     initialValues: { opacity: 1, transform: [{ translateY: 0 }] },
@@ -72,4 +73,49 @@ export function readerBottomBarExiting() {
       ],
     },
   };
+}
+
+/** Reduce Motion variant: the same fade, without the translate. */
+function readerChromeFadeEntering() {
+  "worklet";
+  return {
+    initialValues: { opacity: 0 },
+    animations: {
+      opacity: withTiming(1, { duration: READER_CONTROLS_FADE_MS }),
+    },
+  };
+}
+
+function readerChromeFadeExiting() {
+  "worklet";
+  return {
+    initialValues: { opacity: 1 },
+    animations: {
+      opacity: withTiming(0, { duration: READER_CONTROLS_FADE_MS }),
+    },
+  };
+}
+
+/**
+ * Stable animation identities per variant — Reanimated reads `entering`/
+ * `exiting` when the chrome mounts, so these must not be rebuilt per render.
+ */
+const READER_CHROME_ANIMATIONS = {
+  slide: {
+    topEntering: readerTopBarEntering,
+    topExiting: readerTopBarExiting,
+    bottomEntering: readerBottomBarEntering,
+    bottomExiting: readerBottomBarExiting,
+  },
+  fade: {
+    topEntering: readerChromeFadeEntering,
+    topExiting: readerChromeFadeExiting,
+    bottomEntering: readerChromeFadeEntering,
+    bottomExiting: readerChromeFadeExiting,
+  },
+};
+
+/** Reader chrome enter/exit worklets for the current Reduce Motion setting. */
+export function readerChromeAnimationsForMotion(reduceMotion: boolean | null) {
+  return READER_CHROME_ANIMATIONS[readerChromeMotionVariant(reduceMotion)];
 }

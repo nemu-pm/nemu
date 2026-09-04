@@ -5,7 +5,12 @@ import {
   useFocusEffect,
   useLocalSearchParams,
 } from "expo-router";
-import { Platform, StyleSheet, View } from "react-native";
+import {
+  Platform,
+  StyleSheet,
+  View,
+  type ListRenderItemInfo,
+} from "react-native";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
@@ -57,6 +62,8 @@ import { hapticConfirm, hapticError } from "@/lib/haptics";
 import {
   MOBILE_CHAPTER_LIST_PERFORMANCE,
   buildMobileChapterRows,
+  mobileChapterRowKeyExtractor,
+  type MobileChapterRow,
 } from "@/lib/mobileChapterRows";
 import {
   DEFAULT_MOBILE_CHAPTER_LIST_PREFERENCE,
@@ -337,6 +344,11 @@ export function MangaDetailScreen() {
   // Bumped by the Nemu Agent sheet's onSuccess to force the source-detail
   // refresh effect to re-run after a Cloudflare challenge is solved.
   const [detailRefreshNonce, setDetailRefreshNonce] = useState(0);
+  // Pull-to-refresh re-reads the local record and replays the source-detail
+  // effect. The spinner is released on the loading -> settled transition that
+  // replay produces, so it tracks the real work instead of the local read.
+  const [pullRefreshing, setPullRefreshing] = useState(false);
+  const pullRefreshGuardRef = useRef(false);
   const cloudflareSheetRef = useRef<{
     reportError: (error: unknown) => boolean;
   } | null>(null);
@@ -832,6 +844,19 @@ export function MangaDetailScreen() {
     strings,
   ]);
 
+  const previousLiveDetailStatusRef = useRef(liveDetailState.status);
+  useEffect(() => {
+    const previousStatus = previousLiveDetailStatusRef.current;
+    previousLiveDetailStatusRef.current = liveDetailState.status;
+    // Only the loading -> settled edge ends a pull. Releasing on the local
+    // read alone would retract the spinner while the source refresh is still
+    // in flight.
+    if (previousStatus !== "loading" || liveDetailState.status === "loading") {
+      return;
+    }
+    setPullRefreshing((refreshing) => (refreshing ? false : refreshing));
+  }, [liveDetailState.status]);
+
   useEffect(() => {
     let cancelled = false;
     const pendingSources = sources.filter((source) => {
@@ -1205,6 +1230,32 @@ export function MangaDetailScreen() {
       title,
     ],
   );
+  // The row is memoized, so its props have to keep their identity across a
+  // re-render of this screen; an inline `renderItem` re-rendered every mounted
+  // chapter row on each state change.
+  const renderChapterRow = useCallback(
+    ({ item, index }: ListRenderItemInfo<MobileChapterRow>) => (
+      <MobileMangaChapterRow
+        busy={detailActionBusy}
+        chapters={item.chapters}
+        first={index === 0}
+        openChapterTemplate={strings.mangaDetail.openChapter}
+        progressByChapterId={state.selectedChapterProgress}
+        strings={strings}
+        onPressChapter={openReader}
+        appLanguage={appLanguage}
+        showLanguage={showChapterLanguage}
+      />
+    ),
+    [
+      appLanguage,
+      detailActionBusy,
+      openReader,
+      showChapterLanguage,
+      state.selectedChapterProgress,
+      strings,
+    ],
+  );
 
   const fetchMetadataFromSource = useCallback(
     async (sourceId: string) => {
@@ -1392,6 +1443,23 @@ export function MangaDetailScreen() {
     loading,
     hasError: Boolean(error),
   });
+
+  const pullRefreshDetail = () => {
+    if (pullRefreshGuardRef.current || !selectedSource) return;
+    pullRefreshGuardRef.current = true;
+    setPullRefreshing(true);
+    setDetailRefreshNonce((value) => value + 1);
+    void (async () => {
+      try {
+        const nextState = await reloadLocalDetailState();
+        if (nextState) applyLocalDetailState(nextState);
+      } catch {
+        await hapticError();
+      } finally {
+        pullRefreshGuardRef.current = false;
+      }
+    })();
+  };
 
   const retryLocalDetailData = async () => {
     if (retryDataGuardRef.current) return;
@@ -1681,26 +1749,18 @@ export function MangaDetailScreen() {
       <PageListScaffold
         nativeHeader={usesNativeHeader}
         data={chapterRows}
-        keyExtractor={(row) => row.key}
+        keyExtractor={mobileChapterRowKeyExtractor}
+        onRefresh={pullRefreshDetail}
+        refreshDisabled={!selectedSource}
+        refreshLabel={strings.sourceBrowse.refreshSource}
+        refreshing={pullRefreshing}
         initialNumToRender={MOBILE_CHAPTER_LIST_PERFORMANCE.initialNumToRender}
         maxToRenderPerBatch={
           MOBILE_CHAPTER_LIST_PERFORMANCE.maxToRenderPerBatch
         }
         windowSize={MOBILE_CHAPTER_LIST_PERFORMANCE.windowSize}
         removeClippedSubviews={Platform.OS === "android"}
-        renderItem={({ item, index }) => (
-          <MobileMangaChapterRow
-            busy={detailActionBusy}
-            chapters={item.chapters}
-            first={index === 0}
-            openChapterTemplate={strings.mangaDetail.openChapter}
-            progressByChapterId={state.selectedChapterProgress}
-            strings={strings}
-            onPressChapter={openReader}
-            appLanguage={appLanguage}
-            showLanguage={showChapterLanguage}
-          />
-        )}
+        renderItem={renderChapterRow}
         ListHeaderComponent={
           <>
             {usesNativeHeader ? null : (
@@ -1831,6 +1891,7 @@ export function MangaDetailScreen() {
                 <MobileMangaChapterSectionHeader
                   title={strings.mangaDetail.chapters}
                   loading={liveDetailState.status === "loading"}
+                  loadingLabel={strings.mangaDetail.refreshingSource}
                   sourceSelector={
                     sources.length > 0 ? (
                       <MobileSourceSelector

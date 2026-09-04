@@ -1,5 +1,13 @@
 import type { AppLanguage, InstalledSource } from "@/data/schema";
-import { makeSourceKey, type MobileRegistrySource } from "@/sources/aidokuRegistry";
+import {
+  makeSourceKey,
+  type MobileRegistrySource,
+} from "@/sources/aidokuRegistry";
+import type { MobileStrings } from "@/lib/mobileI18n";
+import {
+  describeMobileErrorDetail,
+  getMobileSourceErrorPresentation,
+} from "./mobileSourceErrors";
 import { getMobileInstalledSourceRegistryKeys } from "./mobileInstalledSourceKeys";
 
 export type MobileWelcomeSourceRef = {
@@ -23,75 +31,15 @@ export const MOBILE_WELCOME_ANDROID_SNAP_POINTS: (string | number)[] = [
  */
 export const MOBILE_WELCOME_SOURCE_ROW_HEIGHT = 61;
 export const MOBILE_WELCOME_SOURCE_ROW_GAP = 8;
-/** Height reserved for the loading / error / "no recommendations" states. */
-export const MOBILE_WELCOME_SOURCE_PLACEHOLDER_HEIGHT = 84;
-/**
- * Everything the source step renders around the scrollable list: the native
- * grabber area (32), the content top padding (18), the title + description
- * header (56), the hint line (25) and the action row plus the three content
- * gaps (100).
- */
-export const MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT = 231;
-export const MOBILE_WELCOME_SOURCE_LIST_MIN_HEIGHT = 64;
-export const MOBILE_WELCOME_SOURCE_SHEET_MIN_HEIGHT = 320;
-export const MOBILE_WELCOME_SOURCE_SHEET_MAX_HEIGHT = 620;
-export const MOBILE_WELCOME_SOURCE_SHEET_MIN_BOTTOM_INSET = 18;
 
-export type MobileWelcomeSourceStepLayout = {
-  /** Bottom padding the sheet content must reserve for the home indicator. */
-  contentBottomInset: number;
-  /** Fixed height of the in-sheet scrollable source list. */
-  listHeight: number;
-  /** Native detent height for the whole source step. */
-  sheetHeight: number;
-};
-
-/**
- * The source step is a fixed-height sheet whose header, hint and actions stay
- * pinned; only the recommended-source list scrolls. Deriving the list height
- * from the resolved detent keeps those two in sync, so a clamped sheet shrinks
- * the list instead of pushing the install action off-screen.
- */
-export function getMobileWelcomeSourceStepLayout({
-  rowCount,
-  bottomInset,
-  availableHeight,
+export function shouldScrollMobileWelcomeContent({
+  platform,
+  step,
 }: {
-  rowCount: number;
-  bottomInset: number;
-  availableHeight: number;
-}): MobileWelcomeSourceStepLayout {
-  const contentBottomInset = Math.max(
-    bottomInset,
-    MOBILE_WELCOME_SOURCE_SHEET_MIN_BOTTOM_INSET,
-  );
-  const naturalListHeight =
-    rowCount > 0
-      ? rowCount * MOBILE_WELCOME_SOURCE_ROW_HEIGHT +
-        (rowCount - 1) * MOBILE_WELCOME_SOURCE_ROW_GAP
-      : MOBILE_WELCOME_SOURCE_PLACEHOLDER_HEIGHT;
-  const preferredHeight =
-    MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT +
-    naturalListHeight +
-    contentBottomInset;
-  const sheetHeight = Math.min(
-    MOBILE_WELCOME_SOURCE_SHEET_MAX_HEIGHT,
-    Math.max(
-      MOBILE_WELCOME_SOURCE_SHEET_MIN_HEIGHT,
-      Math.min(preferredHeight, availableHeight),
-    ),
-  );
-  const listHeight = Math.max(
-    MOBILE_WELCOME_SOURCE_LIST_MIN_HEIGHT,
-    Math.min(
-      naturalListHeight,
-      sheetHeight -
-        MOBILE_WELCOME_SOURCE_SHEET_CHROME_HEIGHT -
-        contentBottomInset,
-    ),
-  );
-
-  return { contentBottomInset, listHeight, sheetHeight };
+  platform: "android" | "ios" | "web";
+  step: MobileWelcomeStep;
+}): boolean {
+  return platform !== "web" || step === "sources";
 }
 
 export function shouldStackMobileWelcomeActions(width: number): boolean {
@@ -126,36 +74,6 @@ export function getMobileWelcomeUnderlyingContentState(blocked: boolean): {
   };
 }
 
-export function shouldScrollMobileWelcomeContent({
-  platform,
-  step,
-}: {
-  platform: "android" | "ios" | "web";
-  step: MobileWelcomeStep;
-}): boolean {
-  return platform !== "web" || step === "sources";
-}
-
-export function shouldUseContentSizedMobileWelcomeSheet({
-  platform,
-  step,
-  fontScale,
-  availableHeight,
-}: {
-  platform: "android" | "ios" | "web";
-  step: MobileWelcomeStep;
-  fontScale: number;
-  availableHeight: number;
-}): boolean {
-  if (platform !== "ios" || step === "sources") return false;
-
-  // Native fitted sheets are the cleanest presentation for the short steps,
-  // but they stop being safe once large Dynamic Type or a compact-height
-  // viewport can make the content taller than the available presentation.
-  // Those cases keep the explicit, scrollable detent instead.
-  return fontScale <= 1.5 && availableHeight >= 520;
-}
-
 export type MobileWelcomeNativeSheetPresentation = {
   /** The source list owns scrolling; the rest of the sheet stays pinned. */
   boundSourceList: boolean;
@@ -165,31 +83,27 @@ export type MobileWelcomeNativeSheetPresentation = {
 };
 
 /**
- * Android's Material sheet exposes one partial and one expanded state. Keep the
- * same snap-point array across every onboarding render so changing steps never
- * replaces the native host. Dismiss gestures remain disabled because setup is
- * modal, while the sheet's scroll view keeps every control reachable.
+ * One structurally stable native presentation for EVERY iOS onboarding step:
+ * content-sized (`snapPoints: undefined` → the sheet hugs its content), with
+ * in-sheet scrolling as the overflow escape hatch. The earlier mixed model —
+ * content-sized short steps plus a fixed-detent sources step — made the expo
+ * iOS BottomSheet flip its `fitToContents`/`matchContents` hosting mode when
+ * the wizard stepped between snapPoints-absent and snapPoints-present states.
+ * That flip tears down and rebuilds the SwiftUI `RNHostView`, and its
+ * `RCTSurfaceTouchHandler` re-attach races the old branch's detach
+ * (`ExpoUITouchHandlerHelper` returns nil while any handler still exists, so
+ * the rebuilt host can silently end up with none). Observed result: a step
+ * rendered, still dragged, and ignored every tap. Uniform mode across steps
+ * never flips, so touches survive; a long source list simply scrolls inside
+ * the capped sheet. Android already pins one snap-point array across steps
+ * for the same reason (Material has no content-sized detent).
  */
 export function resolveMobileWelcomeNativeSheetPresentation({
   platform,
-  step,
-  fontScale,
-  availableHeight,
-  nativeSheetHeight,
-  bannerVisible = false,
 }: {
   platform: "android" | "ios";
-  step: MobileWelcomeStep;
-  fontScale: number;
-  availableHeight: number;
-  nativeSheetHeight: number;
-  /** A recovery banner is on screen and must stay reachable. */
-  bannerVisible?: boolean;
 }): MobileWelcomeNativeSheetPresentation {
   if (platform === "android") {
-    // Material only exposes a partial and an expanded state, so the source
-    // step cannot get an exact detent to size a pinned list against. Keep the
-    // sheet itself scrollable there.
     return {
       boundSourceList: false,
       enablePanDownToClose: false,
@@ -198,23 +112,11 @@ export function resolveMobileWelcomeNativeSheetPresentation({
     };
   }
 
-  const contentSized = shouldUseContentSizedMobileWelcomeSheet({
-    platform,
-    step,
-    fontScale,
-    availableHeight,
-  });
-  // An error banner is unbudgeted extra height, so fall back to scrolling the
-  // whole sheet rather than clipping the recovery action out of reach.
-  const boundSourceList = step === "sources" && !bannerVisible;
   return {
-    boundSourceList,
+    boundSourceList: false,
     enablePanDownToClose: false,
-    scroll:
-      !contentSized &&
-      !boundSourceList &&
-      shouldScrollMobileWelcomeContent({ platform, step }),
-    snapPoints: contentSized ? undefined : [nativeSheetHeight],
+    scroll: true,
+    snapPoints: undefined,
   };
 }
 
@@ -227,6 +129,30 @@ export type MobileWelcomeActionState = {
   startupBlocked?: boolean;
 };
 
+/**
+ * Banner copy for a failed onboarding install. A transient network failure
+ * (cold proxy, cellular stall, our own install timeout) classifies through the
+ * shared source-error presentation, so it reads as a retryable network error
+ * instead of the install-specific "this device cannot install sources" copy.
+ * Only unclassified source-package failures keep that device framing.
+ */
+export function getMobileWelcomeInstallErrorCopy(
+  error: unknown,
+  strings: MobileStrings,
+): { title: string; detail: string } {
+  const presentation = getMobileSourceErrorPresentation(error, strings);
+  if (presentation.kind !== "source") {
+    return { title: presentation.title, detail: presentation.detail };
+  }
+  return {
+    title: strings.welcome.sourceInstallFailed,
+    detail: describeMobileErrorDetail(
+      error,
+      strings.welcome.sourceInstallFailedDetail,
+    ),
+  };
+}
+
 export type MobileWelcomeCompletionWriteCoordinator = {
   run: (write: () => Promise<void>) => Promise<void>;
 };
@@ -235,8 +161,7 @@ export type MobileWelcomeCompletionWriteCoordinator = {
  * Coalesces every successful completion request for one wizard mount. A failed
  * write is released so the visible final actions can retry it.
  */
-export function createMobileWelcomeCompletionWriteCoordinator(
-): MobileWelcomeCompletionWriteCoordinator {
+export function createMobileWelcomeCompletionWriteCoordinator(): MobileWelcomeCompletionWriteCoordinator {
   let completion: Promise<void> | null = null;
 
   return {
@@ -276,7 +201,7 @@ export function mobileWelcomeSourceKey(source: MobileWelcomeSourceRef): string {
 }
 
 export function getMobileWelcomeRecommendedSources(
-  language: AppLanguage
+  language: AppLanguage,
 ): MobileWelcomeSourceRef[] {
   if (language === "zh") return CHINESE_SOURCES;
   if (language === "ja") return JAPANESE_SOURCES;
@@ -285,10 +210,13 @@ export function getMobileWelcomeRecommendedSources(
 
 export function getMobileWelcomeAvailableSources(
   language: AppLanguage,
-  sources: MobileRegistrySource[]
+  sources: MobileRegistrySource[],
 ): MobileRegistrySource[] {
   const byKey = new Map(
-    sources.map((source) => [makeSourceKey(source.registryId, source.id), source])
+    sources.map((source) => [
+      makeSourceKey(source.registryId, source.id),
+      source,
+    ]),
   );
 
   return getMobileWelcomeRecommendedSources(language)
@@ -298,14 +226,18 @@ export function getMobileWelcomeAvailableSources(
 
 export function getMobileWelcomeDefaultSelection(
   language: AppLanguage,
-  sources: MobileRegistrySource[]
+  sources: MobileRegistrySource[],
 ): string[] {
   const available = getMobileWelcomeAvailableSources(language, sources);
   if (available.length > 0) {
-    return available.map((source) => makeSourceKey(source.registryId, source.id));
+    return available.map((source) =>
+      makeSourceKey(source.registryId, source.id),
+    );
   }
 
-  return getMobileWelcomeRecommendedSources(language).map(mobileWelcomeSourceKey);
+  return getMobileWelcomeRecommendedSources(language).map(
+    mobileWelcomeSourceKey,
+  );
 }
 
 export function getMobileWelcomePendingSourceInstallCount(

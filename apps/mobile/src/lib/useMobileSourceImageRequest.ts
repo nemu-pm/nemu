@@ -1,17 +1,111 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMobileDataStore } from "@/data/mobileDataContext";
-import { useMobileDataRevision } from "@/data/mobileDataEvents";
+import {
+  subscribeMobileDataChanges,
+  useMobileDataRevision,
+} from "@/data/mobileDataEvents";
 import type { InstalledSource } from "@/data/schema";
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";
 import {
   loadMobileSourceSettingsByKeys,
   mergeSourceSettingValues,
+  type MobileSourceSettingsReader,
 } from "@/lib/mobileSourceSettings";
 import {
   resolveCachedMobileSourceImageRequest,
   type MobileSourceImageRequest,
 } from "@/sources/mobileSourceImages";
+import {
+  getActiveMobileSourceProfileScope,
+  registerMobileSourceProfileTransitionHandler,
+} from "@/sources/mobileSourceProfileScope";
 import { makeMobileRuntimeSourceKey, normalizeInstalledSource } from "@/sources/mobileSourceRuntime";
+
+/**
+ * Resolved per-source settings, shared by every cover on screen.
+ *
+ * Each miss costs 3-4 store reads (SQLite plus the Keychain-backed vault) and
+ * a merge against the package's setting defaults, and the source-image path
+ * used to pay that once per cover card — on Library mount and again on every
+ * `sourceSettings` save. Keying on the settings revision keeps one in-flight
+ * promise per source per revision instead.
+ */
+const sourceImageSettingsCache = new Map<
+  string,
+  Promise<Record<string, unknown>>
+>();
+const MAX_SOURCE_IMAGE_SETTINGS_CACHE_SIZE = 64;
+
+export function clearMobileSourceImageSettingsCache(): void {
+  sourceImageSettingsCache.clear();
+}
+
+// A settings save already bumps the revision every mounted cover keys on, so
+// the stale generations are unreachable; dropping them keeps the map bounded.
+subscribeMobileDataChanges((scope) => {
+  if (scope === "sourceSettings" || scope === "all") {
+    clearMobileSourceImageSettingsCache();
+  }
+});
+
+registerMobileSourceProfileTransitionHandler(
+  "source-image-settings-cache",
+  clearMobileSourceImageSettingsCache,
+);
+
+export function makeMobileSourceImageSettingsCacheKey(
+  source: InstalledSource,
+  settingsRevision: number,
+  executionScope = getActiveMobileSourceProfileScope(),
+): string {
+  return [
+    executionScope,
+    makeMobileRuntimeSourceKey(normalizeInstalledSource(source)),
+    source.packageCacheKey ?? "",
+    source.version,
+    source.updatedAt ?? "",
+    settingsRevision,
+  ].join("|");
+}
+
+/**
+ * Reads and merges one source's settings, deduplicated across every caller
+ * sharing the same source and settings revision.
+ */
+export function loadMobileSourceImageSettings(
+  reader: MobileSourceSettingsReader,
+  source: InstalledSource,
+  settingsRevision: number,
+): Promise<Record<string, unknown>> {
+  const key = makeMobileSourceImageSettingsCacheKey(source, settingsRevision);
+  const cached = sourceImageSettingsCache.get(key);
+  if (cached) return cached;
+
+  if (sourceImageSettingsCache.size >= MAX_SOURCE_IMAGE_SETTINGS_CACHE_SIZE) {
+    const oldestKey = sourceImageSettingsCache.keys().next().value;
+    if (oldestKey) sourceImageSettingsCache.delete(oldestKey);
+  }
+
+  const pending = (async () => {
+    const normalized = normalizeInstalledSource(source);
+    const saved = await loadMobileSourceSettingsByKeys(reader, [
+      makeMobileRuntimeSourceKey(normalized),
+      ...getMobileInstalledSourceSettingsKeys(source),
+    ]);
+    return mergeSourceSettingValues(
+      source.packageMetadata?.settings ?? [],
+      saved?.values,
+    );
+  })().catch((error: unknown) => {
+    // A failed read must not be latched for the life of the revision.
+    if (sourceImageSettingsCache.get(key) === pending) {
+      sourceImageSettingsCache.delete(key);
+    }
+    throw error;
+  });
+  sourceImageSettingsCache.set(key, pending);
+  return pending;
+}
 
 export type MobileSourceImageRequestStatus = "idle" | "pending" | "settled";
 
@@ -26,7 +120,7 @@ export type MobileSourceImageRequestState = {
   request: MobileSourceImageRequest | null;
 };
 
-export function useMobileSourceImageRequestState(
+function useMobileSourceImageRequestState(
   source: InstalledSource | null | undefined,
   url: string | null | undefined,
 ): MobileSourceImageRequestState {
@@ -61,19 +155,9 @@ export function useMobileSourceImageRequestState(
     request: MobileSourceImageRequest | null;
   } | null>(null);
   const getSourceSettings = useCallback(
-    async (_sourceKey: string, sourceRecord: InstalledSource) => {
-      const normalized = normalizeInstalledSource(sourceRecord);
-      const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
-      const saved = await loadMobileSourceSettingsByKeys(store, [
-        runtimeSourceKey,
-        ...getMobileInstalledSourceSettingsKeys(sourceRecord),
-      ]);
-      return mergeSourceSettingValues(
-        sourceRecord.packageMetadata?.settings ?? [],
-        saved?.values,
-      );
-    },
-    [store],
+    (_sourceKey: string, sourceRecord: InstalledSource) =>
+      loadMobileSourceImageSettings(store, sourceRecord, sourceSettingsRevision),
+    [sourceSettingsRevision, store],
   );
 
   useEffect(() => {

@@ -25,11 +25,14 @@ import type { NemuNativeSheetHeaderActionProps } from "./NemuNativeSheetHeaderAc
  */
 const CONTROL_BOX = 44;
 /**
- * Navigation-bar glyph metrics. 17pt medium is what UIKit uses for bar button
- * symbols; `.controlSize(.large)` then pads it out to the system's ~40pt glass
- * circle, which is what the rest of the iOS 26 nav bar draws.
+ * Navigation-bar glyph metrics. 20pt medium keeps the filter / close symbols
+ * from reading undersized inside `.controlSize(.large)`'s ~40pt glass circle
+ * (the UIKit bar-button default of 17pt was too small per owner review);
+ * Android's bare 48dp target draws its own glyph at 22 in
+ * `NemuNativeSheetHeaderAction.tsx`. `.controlSize(.large)` still pads the
+ * circle out to the system's size, so only the glyph moves.
  */
-const GLYPH_POINT_SIZE = 17;
+const GLYPH_POINT_SIZE = 20;
 
 /**
  * The system draws and sizes the chrome; we only choose the glyph.

@@ -24,7 +24,6 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(source.match(/\{bodyDescription\}/g)).toHaveLength(2);
     expect(source).toContain("disabled={dismissDisabled}");
     expect(source).toContain("accessibilityLabel={resolvedDismissLabel}");
-    expect(source).toContain('androidIcon="close-outline"');
     expect(source).toContain("index={sheetPresented ? 0 : -1}");
     expect(source).toContain("closeRequestedRef.current = true;");
     expect(source).toContain("setCloseInteractionLocked(true);");
@@ -83,7 +82,7 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(source).toContain('buttonStyle(glass ? "glass" : "bordered")');
     expect(source).toContain('buttonBorderShape("circle")');
     expect(source).toContain('controlSize("large")');
-    expect(source).toContain("const GLYPH_POINT_SIZE = 17");
+    expect(source).toContain("const GLYPH_POINT_SIZE = 20");
     expect(source).toContain(
       "font({ size: GLYPH_POINT_SIZE, weight: \"medium\" })",
     );

@@ -33,19 +33,26 @@ export function base64ToBytes(base64: string): Uint8Array {
  * Decodes a base64 string to bytes. Prefers the native `atob` fast path when
  * available (React Native provides `globalThis.atob`); falls back to a pure-JS
  * streaming decoder for runtimes without it. Used to decode native HTTP
- * response bodies (`bytesBase64`) from the Aidoku native module.
+ * response bodies (`bytesBase64`), cached image bytes, and local image files.
+ *
+ * `atob` rejects input the pure-JS decoders skip over (stray characters), so a
+ * throw falls through to the tolerant path rather than propagating.
  */
 export function decodeBase64(value: string): Uint8Array {
   if (!value) return new Uint8Array(0);
 
   const atob = globalThis.atob;
   if (typeof atob === "function") {
-    const binary = atob(value);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
+    try {
+      const binary = atob(value);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return bytes;
+    } catch {
+      // Malformed input: fall through to the tolerant pure-JS decoder.
     }
-    return bytes;
   }
 
   const bytes: number[] = [];

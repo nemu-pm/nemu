@@ -131,6 +131,71 @@ describe("mobile language settings helpers", () => {
     ]);
   });
 
+  test("reads each source's language category exactly once per sort", () => {
+    // The comparator used to derive both categories inside every comparison,
+    // which is 2 * O(n log n) reads (and normalize passes) for an n-element
+    // list. Decorating up front makes it exactly n.
+    let reads = 0;
+    const codes = [
+      "fr",
+      "multi",
+      "zh-Hant",
+      "en",
+      "ja",
+      "pt-BR",
+      "es",
+      "de",
+      "ko",
+      "it",
+      "ru",
+      "vi",
+    ];
+    const sources = codes.map((code, index) => ({
+      id: `${code}:${index}`,
+      get languages() {
+        reads += 1;
+        return [code];
+      },
+    }));
+
+    const sorted = sortSourcesByLanguagePriority(sources, "en");
+
+    expect(reads).toBe(sources.length);
+    expect(sorted.map((source) => source.id.split(":")[0])).toEqual([
+      "ja",
+      "zh-Hant",
+      "en",
+      "multi",
+      "de",
+      "es",
+      "fr",
+      "it",
+      "ko",
+      "pt-BR",
+      "ru",
+      "vi",
+    ]);
+  });
+
+  test("an explicit priority order matches the derived one", () => {
+    const pairs: [string, string][] = [
+      ["zh-hant", "en"],
+      ["fr", "de"],
+      ["multi", "ja"],
+      ["zh", "zh-hans"],
+    ];
+    for (const [left, right] of pairs) {
+      expect(
+        compareMobileLanguageCodes(
+          left,
+          right,
+          "en",
+          getLanguagePriorityOrder("en"),
+        ),
+      ).toBe(compareMobileLanguageCodes(left, right, "en"));
+    }
+  });
+
   test("ranks the app language after multi but before alphabetical order", () => {
     const sources = [
       { id: "pt", languages: ["pt"] },

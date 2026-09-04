@@ -5,6 +5,8 @@ import {
   clampMobileReaderZoomOffset,
   clampMobileReaderZoomScale,
   mobileReaderZoomOffsetBound,
+  mobileReaderStripOffsetBound,
+  clampMobileReaderStripOffset,
   shouldResetMobileReaderZoom,
 } from "./mobileReaderZoom";
 
@@ -32,5 +34,18 @@ describe("mobile reader zoom helpers", () => {
     expect(clampMobileReaderZoomOffset(-260, 400, 2)).toBe(-200);
     expect(clampMobileReaderZoomOffset(80, 400, 2)).toBe(80);
     expect(clampMobileReaderZoomOffset(80, 0, 2)).toBe(0);
+  });
+
+  test("bounds strip pan by the scaled content, not just the viewport", () => {
+    // Scale 1 never pans.
+    expect(mobileReaderStripOffsetBound(400, 4000, 1)).toBe(0);
+    // Unknown content falls back to viewport overflow.
+    expect(mobileReaderStripOffsetBound(400, 0, 2)).toBe(200);
+    // Content longer than the viewport scales the overflow accordingly.
+    expect(mobileReaderStripOffsetBound(400, 4000, 2)).toBe(3800);
+    expect(clampMobileReaderStripOffset(9999, 400, 4000, 2)).toBe(3800);
+    expect(clampMobileReaderStripOffset(-9999, 400, 4000, 2)).toBe(-3800);
+    expect(clampMobileReaderStripOffset(120, 400, 4000, 2)).toBe(120);
+    expect(clampMobileReaderStripOffset(Number.NaN, 400, 4000, 2)).toBe(0);
   });
 });

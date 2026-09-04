@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+// eslint-disable-next-line no-restricted-imports -- test needs the runtime alpha helper; importing from @/design-system pulls the component barrel, which loads react-native's Flow-typed index.js and breaks bun's test runner.
+import { nemuColorWithAlpha } from "@/design/colorAlpha";
 import {
   getMobileChapterRowPalette,
   getMobileChapterPresentation,
@@ -96,7 +98,9 @@ describe("mobile chapter presentation", () => {
   test("maps completed and in-progress states to web-matching mobile row tones", () => {
     const tokens = {
       success: "#20a464",
+      successSoft: "rgba(32,164,100,0.09)",
       primary: "#3b6df6",
+      primarySoft: "rgba(59,109,246,0.09)",
       sourceGlass: "#f8fafc",
       border: "#dbe3ef",
       mutedForeground: "#6b7280",
@@ -104,13 +108,13 @@ describe("mobile chapter presentation", () => {
     } as Parameters<typeof getMobileChapterRowPalette>[1];
 
     expect(getMobileChapterRowPalette("read", tokens)).toEqual({
-      backgroundColor: `${tokens.success}16`,
-      borderColor: `${tokens.success}30`,
+      backgroundColor: tokens.successSoft,
+      borderColor: nemuColorWithAlpha(tokens.success, 0.19),
       titleColor: tokens.mutedForeground,
     });
     expect(getMobileChapterRowPalette("progress", tokens)).toEqual({
-      backgroundColor: `${tokens.primary}16`,
-      borderColor: `${tokens.primary}30`,
+      backgroundColor: tokens.primarySoft,
+      borderColor: nemuColorWithAlpha(tokens.primary, 0.19),
       titleColor: tokens.foreground,
     });
   });

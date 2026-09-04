@@ -388,7 +388,16 @@ export function MobileNativeSheetScaffold({
             contentInsetAdjustmentBehavior="never"
             keyboardShouldPersistTaps="handled"
             style={styles.scroll}
-            contentContainerStyle={content}
+            contentContainerStyle={[
+              content,
+              // The SwiftUI-hosted scroll view sizes its content intrinsically,
+              // so flexGrow cannot resolve against the detent. An explicit
+              // pixel floor lets in-content auto margins (pinned action rows)
+              // absorb the leftover height.
+              fillContent && boundedContentHeight
+                ? { minHeight: boundedContentHeight }
+                : null,
+            ]}
             testID={testID}
           >
             {bodyDescription}

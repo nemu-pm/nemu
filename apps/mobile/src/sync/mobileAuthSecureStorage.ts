@@ -1,4 +1,5 @@
 import { sha256Bytes } from "@nemu/core";
+import { runMobileHttpRequestWithRetry } from "../sources/mobileNativeHttpRetry";
 
 export interface MobileAuthSecureStorage {
   getItem(key: string): string | null;
@@ -372,12 +373,54 @@ export function createMobileAuthChunkCleanupStorage(
 // Better Auth caller receives its normal `{ data: null, error }` result. Keep
 // this wrapper at the network boundary: parser and lifecycle-hook bugs must
 // still throw rather than being silently classified as offline behavior.
+//
+// Transient transport failures on *safe* requests are retried before
+// classification: the native HTTPS transport's first cold egress after process
+// start (DNS resolution / pinned-IP connect through the loopback proxy)
+// routinely fails once and succeeds on an immediate retry — reporting
+// "network unavailable" for that window is a false network error while
+// connectivity is fine. Caller aborts and non-transient errors propagate
+// untouched.
+/** HTTP methods with no side effects, so a lost response may be re-requested. */
+const SAFE_MOBILE_AUTH_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/** Whether this request may be replayed after a transport failure. */
+function isSafeMobileAuthRequest(
+  input: Parameters<MobileAuthFetch>[0],
+  init?: Parameters<MobileAuthFetch>[1],
+): boolean {
+  const method =
+    init?.method ??
+    (typeof input === "object" && input !== null && "method" in input
+      ? (input as { method?: string }).method
+      : undefined) ??
+    "GET";
+  return SAFE_MOBILE_AUTH_METHODS.has(method.toUpperCase());
+}
+
 export function createFailClosedMobileAuthFetch(
   fetchImpl: MobileAuthFetch = globalThis.fetch,
+  retryOptions: {
+    attempts?: number;
+    backoffMs?: (attempt: number) => number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
 ): MobileAuthFetch {
   return async (input, init) => {
     try {
-      return await fetchImpl(input, init);
+      // A transport failure gives no evidence about whether the server saw the
+      // request, so only safe methods may be replayed. Better Auth's read
+      // endpoints — `/get-session` and the `/convex/token` fetch this retry
+      // exists for — are GETs; sign-in/sign-up/sign-out and the one-time-token
+      // exchange are POSTs whose replay would consume a single-use credential
+      // or surface a spurious "already exists".
+      const retryable = isSafeMobileAuthRequest(input, init);
+      return await runMobileHttpRequestWithRetry(() => fetchImpl(input, init), {
+        signal: init?.signal ?? null,
+        attempts: retryable ? retryOptions.attempts : 1,
+        backoffMs: retryOptions.backoffMs,
+        sleep: retryOptions.sleep,
+      });
     } catch {
       return new Response(
         JSON.stringify({

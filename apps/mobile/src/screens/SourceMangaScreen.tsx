@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type ListRenderItemInfo,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
@@ -47,6 +48,7 @@ import {
 } from "@/data/schema";
 import {
   MobileNativeSheetScaffold,
+  nemuColorWithAlpha,
   NemuPressable,
   PageListScaffold,
   PageScaffold,
@@ -61,6 +63,8 @@ import { hapticConfirm, hapticError } from "@/lib/haptics";
 import {
   MOBILE_CHAPTER_LIST_PERFORMANCE,
   buildMobileChapterRows,
+  mobileChapterRowKeyExtractor,
+  type MobileChapterRow,
 } from "@/lib/mobileChapterRows";
 import {
   DEFAULT_MOBILE_CHAPTER_LIST_PREFERENCE,
@@ -81,7 +85,10 @@ import {
   mobileInstalledSourceMatchesRoute,
 } from "@/lib/mobileInstalledSourceKeys";
 import { applyMobileSourceDetailsRefresh } from "@/lib/mobileLibraryDetails";
-import { makeSourceDetailsLibraryImport } from "@/lib/mobileLibraryImport";
+import {
+  makeSourceDetailsLibraryImport,
+  makeSourceDetailsSnapshotLibraryImport,
+} from "@/lib/mobileLibraryImport";
 import {
   findMobileMangaProgressForSource,
   loadMobileChapterProgressForSource,
@@ -99,6 +106,11 @@ import {
   shouldShowMobileSourceMangaDetailLoadError,
   type MobileSourceMangaReaderActionState,
 } from "@/lib/mobileSourceMangaActions";
+import {
+  getCachedMobileSourceDetail,
+  makeMobileSourceDetailCacheKey,
+  setCachedMobileSourceDetail,
+} from "@/lib/mobileSourceDetailCache";
 import { getMobileSourceDisplayRouteRef } from "@/lib/mobileSourceRouteRef";
 import { nextSyncTimestamp } from "@nemu/core";
 import {
@@ -152,10 +164,22 @@ type SourceMangaDetailState =
   | { status: "loading"; detail: string }
   | {
       status: "ready";
-      refresh: Extract<MobileSourceDetailsRefresh, { status: "ready" }>;
+      // A live source refresh (network-backed). Null when rendered from the
+      // persisted detail cache, which carries no source runtime.
+      refresh: Extract<MobileSourceDetailsRefresh, { status: "ready" }> | null;
       metadata: MangaMetadata;
       chapters: ChapterSummary[];
       detail: string;
+      // Set when the persisted copy was painted (fetchedAt of that snapshot).
+      cachedFetchedAt?: number;
+      // A background/forced refresh failed while cached content is on
+      // screen: keep the content and surface a standard inline notice.
+      staleError?: {
+        title?: string;
+        detail: string;
+        error: boolean;
+        recoveryAction?: MobileSourceErrorRecoveryAction | null;
+      };
     }
   | {
       status: "blocked";
@@ -419,6 +443,83 @@ export function SourceMangaScreen() {
     }, [reloadLocalState]),
   );
 
+  const detailCacheKey = makeMobileSourceDetailCacheKey(
+    registryId,
+    sourceId,
+    mangaId,
+  );
+  const fetchSourceDetails = useCallback(
+    async (installedSource: InstalledSource) =>
+      withMobileSourceOperationTimeout(
+        refreshMobileSourceDetails(installedSource, mangaId, {
+          getSourceSettings: async (_sourceKey, sourceRecord) => {
+            const normalized = normalizeInstalledSource(sourceRecord);
+            const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
+            const saved = await loadMobileSourceSettingsByKeys(store, [
+              runtimeSourceKey,
+              ...getMobileInstalledSourceSettingsKeys(sourceRecord),
+            ]);
+            return mergeSourceSettingValues(
+              sourceRecord.packageMetadata?.settings ?? [],
+              saved?.values,
+            );
+          },
+          onSourcePackageHydrated: saveSourcePackageHydration,
+        }),
+        { message: strings.sourceBrowse.sourceOperationTimedOut },
+      ),
+    [
+      mangaId,
+      saveSourcePackageHydration,
+      store,
+      strings.sourceBrowse.sourceOperationTimedOut,
+    ],
+  );
+  const applyDetailsRefreshToLibrary = useCallback(
+    async (
+      installedSource: InstalledSource,
+      existingEntry: LibraryEntry | null,
+      refreshed: Extract<MobileSourceDetailsRefresh, { status: "ready" }>,
+    ): Promise<LibraryEntry | null> => {
+      let nextEntry = existingEntry;
+      const existingSource = existingEntry?.sources.find(
+        (source) =>
+          mobileInstalledSourceMatchesLink(installedSource, source) &&
+          source.sourceMangaId === mangaId,
+      );
+      if (existingEntry && existingSource) {
+        const applied = applyMobileSourceDetailsRefresh(
+          existingEntry,
+          existingSource,
+          refreshed,
+        );
+        await Promise.all([
+          store.saveLibraryItem(applied.item),
+          store.saveSourceLink(applied.sourceLink),
+        ]);
+        emitMobileDataChanged("library");
+        nextEntry = {
+          item: applied.item,
+          sources: existingEntry.sources.map((source) =>
+            source.id === applied.sourceLink.id ? applied.sourceLink : source,
+          ),
+        };
+      }
+      return nextEntry;
+    },
+    [mangaId, store],
+  );
+  const persistFetchedDetails = useCallback(
+    (refreshed: Extract<MobileSourceDetailsRefresh, { status: "ready" }>) => {
+      void setCachedMobileSourceDetail(detailCacheKey, {
+        metadata: refreshed.metadata,
+        chapters: refreshed.chapters,
+        fetchedAt: refreshed.fetchedAt,
+      }).catch(() => undefined);
+    },
+    [detailCacheKey],
+  );
+
   useEffect(() => {
     let cancelled = false;
     const reportRetryResult = retryDataGuardRef.current;
@@ -430,7 +531,27 @@ export function SourceMangaScreen() {
     });
 
     void (async () => {
+      // Cached-copy resilience: with a cache hit the network failure stays
+      // silent and the error banner only appears with no cached copy at all.
+      let hadCachedDetails = false;
       try {
+        const cachedEntry = await getCachedMobileSourceDetail(detailCacheKey);
+        if (cancelled) return;
+        hadCachedDetails = cachedEntry !== null;
+        if (cachedEntry) {
+          setDetailState({
+            status: "ready",
+            refresh: null,
+            metadata: cachedEntry.payload.metadata,
+            chapters: cachedEntry.payload.chapters,
+            detail: loadedChapterCountText(
+              cachedEntry.payload.chapters.length,
+              strings,
+            ),
+            cachedFetchedAt: cachedEntry.payload.fetchedAt,
+          });
+        }
+
         const nextLocalState = await reloadLocalState({
           includeInstalledSource: true,
         });
@@ -456,31 +577,17 @@ export function SourceMangaScreen() {
           return;
         }
 
-        const refreshed = await withMobileSourceOperationTimeout(
-          refreshMobileSourceDetails(
-            installedSource,
-            mangaId,
-            {
-            getSourceSettings: async (_sourceKey, sourceRecord) => {
-              const normalized = normalizeInstalledSource(sourceRecord);
-              const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
-              const saved = await loadMobileSourceSettingsByKeys(store, [
-                runtimeSourceKey,
-                ...getMobileInstalledSourceSettingsKeys(sourceRecord),
-              ]);
-              return mergeSourceSettingValues(
-                sourceRecord.packageMetadata?.settings ?? [],
-                saved?.values,
-              );
-            },
-              onSourcePackageHydrated: saveSourcePackageHydration,
-            },
-          ),
-          { message: strings.sourceBrowse.sourceOperationTimedOut },
-        );
+        // A fresh cached copy answers the screen by itself; a stale one is
+        // painted immediately and revalidated below in the background.
+        if (cachedEntry && !cachedEntry.isStale && !reportRetryResult) {
+          return;
+        }
+
+        const refreshed = await fetchSourceDetails(installedSource);
 
         if (cancelled) return;
         if (refreshed.status === "blocked") {
+          if (hadCachedDetails) return;
           setDetailState({
             status: "blocked",
             detail: refreshed.detail,
@@ -491,36 +598,18 @@ export function SourceMangaScreen() {
           return;
         }
 
-        let nextEntry = existingEntry;
-        const existingSource = existingEntry?.sources.find(
-          (source) =>
-            mobileInstalledSourceMatchesLink(installedSource, source) &&
-            source.sourceMangaId === mangaId,
+        const nextEntry = await applyDetailsRefreshToLibrary(
+          installedSource,
+          existingEntry,
+          refreshed,
         );
-        if (existingEntry && existingSource) {
-          const applied = applyMobileSourceDetailsRefresh(
-            existingEntry,
-            existingSource,
-            refreshed,
-          );
-          await Promise.all([
-            store.saveLibraryItem(applied.item),
-            store.saveSourceLink(applied.sourceLink),
-          ]);
-          emitMobileDataChanged("library");
-          nextEntry = {
-            item: applied.item,
-            sources: existingEntry.sources.map((source) =>
-              source.id === applied.sourceLink.id ? applied.sourceLink : source,
-            ),
-          };
-        }
 
         if (cancelled) return;
         setLocalState((current) => ({
           ...current,
           libraryEntry: nextEntry,
         }));
+        persistFetchedDetails(refreshed);
         setDetailState({
           status: "ready",
           refresh: refreshed,
@@ -533,6 +622,34 @@ export function SourceMangaScreen() {
         }
       } catch (error) {
         if (cancelled) return;
+        if (hadCachedDetails) {
+          // Cached content stays on screen. An explicit retry still reports
+          // the failure; a background revalidation stays fully silent.
+          if (reportRetryResult) {
+            const presentation = getMobileSourceErrorPresentation(
+              error,
+              strings,
+            );
+            setDetailState((current) =>
+              current.status === "ready"
+                ? {
+                    ...current,
+                    staleError: {
+                      title: presentation.title,
+                      detail: presentation.detail,
+                      error: true,
+                      recoveryAction: getMobileSourceErrorRecoveryAction(
+                        presentation,
+                        strings,
+                      ),
+                    },
+                  }
+                : current,
+            );
+            await hapticError();
+          }
+          return;
+        }
         const presentation = getMobileSourceErrorPresentation(error, strings);
         setDetailState({
           status: "error",
@@ -562,13 +679,15 @@ export function SourceMangaScreen() {
       cancelled = true;
     };
   }, [
+    applyDetailsRefreshToLibrary,
+    detailCacheKey,
+    fetchSourceDetails,
     mangaId,
+    persistFetchedDetails,
     registryId,
     reloadLocalState,
     retryRun,
-    saveSourcePackageHydration,
     sourceId,
-    store,
     strings,
   ]);
 
@@ -839,6 +958,32 @@ export function SourceMangaScreen() {
       title,
     ],
   );
+  // The row is memoized, so its props have to keep their identity across a
+  // re-render of this screen; an inline `renderItem` re-rendered every mounted
+  // chapter row on each state change.
+  const renderChapterRow = useCallback(
+    ({ item, index }: ListRenderItemInfo<MobileChapterRow>) => (
+      <MobileMangaChapterRow
+        busy={readerActionBusy}
+        chapters={item.chapters}
+        first={index === 0}
+        openChapterTemplate={strings.sourceManga.openChapter}
+        progressByChapterId={localState.chapterProgress}
+        strings={strings}
+        onPressChapter={openReader}
+        appLanguage={appLanguage}
+        showLanguage={showChapterLanguage}
+      />
+    ),
+    [
+      appLanguage,
+      localState.chapterProgress,
+      openReader,
+      readerActionBusy,
+      showChapterLanguage,
+      strings,
+    ],
+  );
 
   const addToLibrary = useCallback(
     async (afterClose?: {
@@ -868,12 +1013,24 @@ export function SourceMangaScreen() {
       setAdding(true);
       setActionError(null);
       try {
-        const imported = makeSourceDetailsLibraryImport(
-          sourceDisplay,
-          mangaId,
-          detailState.refresh,
-          nextSyncTimestamp(),
-        );
+        const imported =
+          detailState.refresh !== null
+            ? makeSourceDetailsLibraryImport(
+                sourceDisplay,
+                mangaId,
+                detailState.refresh,
+                nextSyncTimestamp(),
+              )
+            : makeSourceDetailsSnapshotLibraryImport(
+                sourceDisplay,
+                mangaId,
+                {
+                  metadata: detailState.metadata,
+                  latestChapter: detailState.chapters[0],
+                  fetchedAt: detailState.cachedFetchedAt,
+                },
+                nextSyncTimestamp(),
+              );
         await store.saveLibraryItem(imported.item);
         await store.saveSourceLink(imported.sourceLink);
         emitMobileDataChanged("library");
@@ -1031,6 +1188,89 @@ export function SourceMangaScreen() {
     setRetryingData(true);
     setRetryRun((current) => current + 1);
   };
+  const [refreshingDetails, setRefreshingDetails] = useState(false);
+  const pullRefreshGuardRef = useRef(false);
+  // Pull-to-refresh always bypasses the detail-cache staleness check and
+  // forces a network fetch. Cached content stays on screen the whole time:
+  // success silently refreshes it, failure swaps in the standard retryable
+  // inline notice instead of an error screen.
+  const pullRefreshSourceMangaDetails = useCallback(async () => {
+    const installedSource = localState.installedSource;
+    if (!installedSource || pullRefreshGuardRef.current) return;
+    pullRefreshGuardRef.current = true;
+    setRefreshingDetails(true);
+    try {
+      const refreshed = await fetchSourceDetails(installedSource);
+      if (refreshed.status === "blocked") {
+        setDetailState((current) =>
+          current.status === "ready"
+            ? {
+                ...current,
+                staleError: {
+                  detail: refreshed.detail,
+                  error: false,
+                  recoveryAction: null,
+                },
+              }
+            : current,
+        );
+        return;
+      }
+      const nextEntry = await applyDetailsRefreshToLibrary(
+        installedSource,
+        localState.libraryEntry,
+        refreshed,
+      );
+      persistFetchedDetails(refreshed);
+      setLocalState((current) => ({
+        ...current,
+        libraryEntry: nextEntry,
+      }));
+      setDetailState((current) =>
+        current.status === "ready"
+          ? {
+              ...current,
+              refresh: refreshed,
+              metadata: refreshed.metadata,
+              chapters: refreshed.chapters,
+              detail: loadedChapterCountText(refreshed.chapters.length, strings),
+              cachedFetchedAt: undefined,
+              staleError: undefined,
+            }
+          : current,
+      );
+    } catch (error) {
+      const presentation = getMobileSourceErrorPresentation(error, strings);
+      setDetailState((current) =>
+        current.status === "ready"
+          ? {
+              ...current,
+              staleError: {
+                title: presentation.title,
+                detail: presentation.detail,
+                error: true,
+                recoveryAction: getMobileSourceErrorRecoveryAction(
+                  presentation,
+                  strings,
+                ),
+              },
+            }
+          : current,
+      );
+      cloudflareSheetRef.current?.reportError(error);
+      await hapticError();
+    } finally {
+      pullRefreshGuardRef.current = false;
+      setRefreshingDetails(false);
+    }
+  }, [
+    applyDetailsRefreshToLibrary,
+    fetchSourceDetails,
+    localState.installedSource,
+    localState.libraryEntry,
+    persistFetchedDetails,
+    strings,
+  ]);
   const cloudflareSheet = useNemuAgentSheet({
     onSuccess: retrySourceMangaDetails,
   });
@@ -1104,26 +1344,20 @@ export function SourceMangaScreen() {
       <PageListScaffold
         nativeHeader
         data={chapterRows}
-        keyExtractor={(row) => row.key}
+        keyExtractor={mobileChapterRowKeyExtractor}
         initialNumToRender={MOBILE_CHAPTER_LIST_PERFORMANCE.initialNumToRender}
+        onRefresh={() => {
+          void pullRefreshSourceMangaDetails();
+        }}
+        refreshDisabled={!localState.installedSource}
+        refreshLabel={strings.sourceBrowse.refreshSource}
+        refreshing={refreshingDetails}
         maxToRenderPerBatch={
           MOBILE_CHAPTER_LIST_PERFORMANCE.maxToRenderPerBatch
         }
         windowSize={MOBILE_CHAPTER_LIST_PERFORMANCE.windowSize}
         removeClippedSubviews={Platform.OS === "android"}
-        renderItem={({ item, index }) => (
-          <MobileMangaChapterRow
-            busy={readerActionBusy}
-            chapters={item.chapters}
-            first={index === 0}
-            openChapterTemplate={strings.sourceManga.openChapter}
-            progressByChapterId={localState.chapterProgress}
-            strings={strings}
-            onPressChapter={openReader}
-            appLanguage={appLanguage}
-            showLanguage={showChapterLanguage}
-          />
-        )}
+        renderItem={renderChapterRow}
         ListHeaderComponent={
           <>
             {collectionSheetPresentation ? (
@@ -1399,7 +1633,10 @@ export function SourceMangaScreen() {
                           style={[
                             styles.libraryOptionIcon,
                             {
-                              backgroundColor: `${tokens.primaryForeground}22`,
+                              backgroundColor: nemuColorWithAlpha(
+                                tokens.primaryForeground,
+                                0.13,
+                              ),
                             },
                           ]}
                         >
@@ -1430,7 +1667,12 @@ export function SourceMangaScreen() {
                             numberOfLines={2}
                             style={[
                               styles.libraryOptionDescription,
-                              { color: `${tokens.primaryForeground}CC` },
+                              {
+                                color: nemuColorWithAlpha(
+                                  tokens.primaryForeground,
+                                  0.8,
+                                ),
+                              },
                             ]}
                           >
                             {strings.sourceManga.addAndStartReadingHint}
@@ -1524,6 +1766,16 @@ export function SourceMangaScreen() {
                   detail={detailState.detail}
                   error={detailState.status === "error"}
                   actionLabel={detailState.recoveryAction?.label}
+                  onActionPress={() => {
+                    router.navigate("/settings?focus=agent");
+                  }}
+                />
+              ) : detailState.status === "ready" && detailState.staleError ? (
+                <MobileSourceErrorNotice
+                  title={detailState.staleError.title}
+                  detail={detailState.staleError.detail}
+                  error={detailState.staleError.error}
+                  actionLabel={detailState.staleError.recoveryAction?.label}
                   onActionPress={() => {
                     router.navigate("/settings?focus=agent");
                   }}

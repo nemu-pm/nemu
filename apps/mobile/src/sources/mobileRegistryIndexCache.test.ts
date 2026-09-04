@@ -6,7 +6,7 @@ import {
   isMobileRegistrySourceShape,
   loadCachedRegistryIndex,
   saveCachedRegistryIndex,
-} from "./mobileRegistryIndexCache";
+} from "./mobileRegistryIndexCacheCore";
 import type { MobileRegistrySource } from "./aidokuRegistry";
 
 function source(overrides: Partial<MobileRegistrySource> = {}) {

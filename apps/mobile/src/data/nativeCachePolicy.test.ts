@@ -82,6 +82,50 @@ describe("native binary cache policy", () => {
     ).toEqual([]);
   });
 
+  test("keeps a recently read entry that was written long ago", () => {
+    expect(
+      selectNativeBinaryCacheEvictions(
+        [
+          // Written first, but read most recently: an LRU cache must keep it.
+          { id: "hot", size: 60, modifiedAt: 2_100, lastAccessAt: 2_900 },
+          { id: "cold", size: 60, modifiedAt: 2_400 },
+        ],
+        policy,
+        3_000,
+      ),
+    ).toEqual(["cold"]);
+  });
+
+  test("treats a read as a recency refresh for the age limit", () => {
+    expect(
+      selectNativeBinaryCacheEvictions(
+        [{ id: "stale-write", size: 5, modifiedAt: 1_000, lastAccessAt: 2_800 }],
+        policy,
+        3_000,
+      ),
+    ).toEqual([]);
+    expect(
+      selectNativeBinaryCacheEvictions(
+        [{ id: "stale-read", size: 5, modifiedAt: 1_000, lastAccessAt: 1_500 }],
+        policy,
+        3_000,
+      ),
+    ).toEqual(["stale-read"]);
+  });
+
+  test("ignores an unusable access timestamp", () => {
+    expect(
+      selectNativeBinaryCacheEvictions(
+        [
+          { id: "a", size: 60, modifiedAt: 2_500, lastAccessAt: Number.NaN },
+          { id: "b", size: 60, modifiedAt: 2_600 },
+        ],
+        policy,
+        3_000,
+      ),
+    ).toEqual(["a"]);
+  });
+
   test("keeps a newly written entry while evicting equal-time older files", () => {
     expect(
       selectNativeBinaryCacheEvictions(

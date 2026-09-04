@@ -1,8 +1,9 @@
 import { Directory, File, Paths } from "expo-file-system";
 import type { NativeBinaryCache } from "./contracts";
-import { base64ToBytes } from "@/lib/mobileBase64";
+import { decodeBase64 } from "@/lib/mobileBase64";
 import { downloadMobileNativeHttpFile } from "@/sources/mobileNativeHttpFile";
 import {
+  nativeBinaryCacheEntryRecency,
   selectNativeBinaryCacheEvictions,
   type NativeBinaryCachePolicy,
 } from "./nativeCachePolicy";
@@ -56,11 +57,35 @@ const SEGMENT_MEMBER_PATTERN =
 const SEGMENT_STAGE_PATTERN =
   /^(.*)\.segments-stage-([a-z0-9]{10}-[a-z0-9]{6}-[a-z0-9]{10})\.part$/;
 const MAX_CACHE_PHYSICAL_FILES = 4_096;
+/**
+ * Sidecar holding read recency. `expo-file-system` can read `modificationTime`
+ * but cannot set it, so a cache hit cannot touch its file; the timestamps live
+ * in memory and are flushed here on eviction passes so they survive a launch.
+ */
+const ACCESS_INDEX_FILE_NAME = "nemu-access-index.json";
+const ACCESS_INDEX_MAX_BYTES = 512 * 1024;
+// Cap for caches constructed without a policy; a policy's `maxEntries` is
+// the real bound, since recency is only ever tracked per cache entry.
+const ACCESS_INDEX_DEFAULT_MAX_ENTRIES = 2_000;
+// `{"version":1,"access":{}}` plus a little slack for the closing braces.
+const ACCESS_INDEX_ENVELOPE_BYTES = 32;
+
+function cacheFileNameFromUri(uri: string): string {
+  return uri.slice(uri.lastIndexOf("/") + 1);
+}
+
+function encodedKeyForCacheFileName(fileName: string): string | null {
+  const dot = fileName.lastIndexOf(".");
+  return dot > 0 ? fileName.slice(0, dot) : null;
+}
 
 type IndexedCacheEntry = {
   id: string;
   size: number;
   modifiedAt: number;
+  lastAccessAt?: number;
+  /** Set only for plain single-file entries, which `getUri` indexes by name. */
+  plainFileName?: string;
   files: File[];
 };
 
@@ -104,6 +129,12 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
   private readonly segmentedManifestConsumers = new Map<string, number>();
   /** Validated latest generation per key, refreshed only by index/mutation. */
   private latestSegmentManifests = new Map<string, ValidSegmentManifest>();
+  /** Read recency by file name; see `ACCESS_INDEX_FILE_NAME`. */
+  private readonly lastAccessAt = new Map<string, number>();
+  private accessIndexLoaded = false;
+  private accessIndexDirty = false;
+  /** encodedKey -> plain cache file name, so `getUri` never probes 13 names. */
+  private cacheFileNames = new Map<string, string>();
   private indexed = false;
   private indexedBytes = 0;
   private indexedEntries = 0;
@@ -130,7 +161,113 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     if (!this.cacheDir.exists) return [];
     return this.cacheDir
       .list()
-      .filter((entry): entry is File => entry instanceof File);
+      .filter(
+        (entry): entry is File =>
+          entry instanceof File && entry.name !== ACCESS_INDEX_FILE_NAME,
+      );
+  }
+
+  private loadAccessIndex(): void {
+    if (this.accessIndexLoaded) return;
+    this.accessIndexLoaded = true;
+    if (!this.cacheDir.exists) return;
+    const file = new File(this.cacheDir, ACCESS_INDEX_FILE_NAME);
+    try {
+      if (!file.exists) return;
+      const size = file.info().size ?? 0;
+      if (size <= 0 || size > ACCESS_INDEX_MAX_BYTES) {
+        file.delete();
+        return;
+      }
+      const parsed = JSON.parse(file.textSync()) as unknown;
+      const access =
+        parsed && typeof parsed === "object"
+          ? (parsed as { access?: unknown }).access
+          : null;
+      if (!access || typeof access !== "object") return;
+      for (const [name, value] of Object.entries(
+        access as Record<string, unknown>,
+      )) {
+        if (
+          typeof value === "number" &&
+          Number.isFinite(value) &&
+          value > 0 &&
+          name.length > 0 &&
+          !name.includes("/")
+        ) {
+          this.lastAccessAt.set(name, value);
+        }
+      }
+    } catch {
+      // A corrupt sidecar only costs recency; fall back to write ordering.
+      this.lastAccessAt.clear();
+    }
+  }
+
+  /**
+   * The most-recent slice of the recency map that is worth persisting.
+   *
+   * Keys are encoded URLs, so the sidecar can outgrow the read cap
+   * (`ACCESS_INDEX_MAX_BYTES`) — and an oversized sidecar is deleted wholesale
+   * on the next load, losing every read hit. Writing only the newest entries
+   * that fit keeps the recency signal for the files that still matter, since
+   * anything past `maxEntries` is a future eviction candidate anyway.
+   */
+  private accessIndexEntriesToPersist(): [string, number][] {
+    const maxEntries =
+      this.policy?.maxEntries ?? ACCESS_INDEX_DEFAULT_MAX_ENTRIES;
+    const ordered = [...this.lastAccessAt.entries()].sort(
+      (left, right) => right[1] - left[1],
+    );
+    const kept: [string, number][] = [];
+    let bytes = ACCESS_INDEX_ENVELOPE_BYTES;
+    for (const entry of ordered) {
+      if (kept.length >= maxEntries) break;
+      // `"name":timestamp,`
+      const cost =
+        JSON.stringify(entry[0]).length + String(entry[1]).length + 2;
+      if (bytes + cost > ACCESS_INDEX_MAX_BYTES) break;
+      bytes += cost;
+      kept.push(entry);
+    }
+    return kept;
+  }
+
+  private saveAccessIndex(): void {
+    if (!this.accessIndexDirty) return;
+    this.accessIndexDirty = false;
+    try {
+      if (!this.cacheDir.exists) return;
+      const file = new File(this.cacheDir, ACCESS_INDEX_FILE_NAME);
+      const access = this.accessIndexEntriesToPersist();
+      if (access.length === 0) {
+        if (file.exists) file.delete();
+        return;
+      }
+      file.write(
+        JSON.stringify({
+          version: 1,
+          access: Object.fromEntries(access),
+        }),
+      );
+    } catch {
+      // Best effort: recency is an optimization, never a correctness input.
+    }
+  }
+
+  private touchCacheFile(uri: string): void {
+    const name = cacheFileNameFromUri(uri);
+    if (!name) return;
+    this.lastAccessAt.set(name, Date.now());
+    this.accessIndexDirty = true;
+  }
+
+  private forgetCacheFile(fileName: string): void {
+    const encodedKey = encodedKeyForCacheFileName(fileName);
+    if (encodedKey && this.cacheFileNames.get(encodedKey) === fileName) {
+      this.cacheFileNames.delete(encodedKey);
+    }
+    if (this.lastAccessAt.delete(fileName)) this.accessIndexDirty = true;
   }
 
   private segmentManifestFile(encodedKey: string, generation: string): File {
@@ -312,6 +449,7 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
           (latest, info) => Math.max(latest, info.modificationTime ?? 0),
           0,
         ),
+        lastAccessAt: this.lastAccessAt.get(latest.file.name),
         files: groupFiles,
       });
     });
@@ -329,15 +467,53 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
         id: file.uri,
         size: info.size ?? 0,
         modifiedAt: info.modificationTime ?? 0,
+        lastAccessAt: this.lastAccessAt.get(file.name),
+        plainFileName: file.name,
         files: [file],
       });
     }
     return entries;
   }
 
+  /** Rebuilt from the directory listing so `getUri` is a single map lookup. */
+  private rebuildCacheFileNames(
+    indexedEntries: IndexedCacheEntry[],
+    evictions?: ReadonlySet<string>,
+  ): void {
+    const names = new Map<string, string>();
+    for (const entry of indexedEntries) {
+      if (!entry.plainFileName || evictions?.has(entry.id)) continue;
+      const encodedKey = encodedKeyForCacheFileName(entry.plainFileName);
+      if (encodedKey) names.set(encodedKey, entry.plainFileName);
+    }
+    this.cacheFileNames = names;
+  }
+
+  /** Keeps the recency sidecar bounded by the files that actually remain. */
+  private pruneAccessIndex(
+    indexedEntries: IndexedCacheEntry[],
+    evictions?: ReadonlySet<string>,
+  ): void {
+    if (this.lastAccessAt.size === 0) return;
+    const retained = new Set<string>();
+    for (const entry of indexedEntries) {
+      if (evictions?.has(entry.id)) continue;
+      for (const file of entry.files) retained.add(file.name);
+    }
+    for (const name of [...this.lastAccessAt.keys()]) {
+      if (retained.has(name)) continue;
+      this.lastAccessAt.delete(name);
+      this.accessIndexDirty = true;
+    }
+  }
+
   private indexAndEnforcePolicy(protectedUri?: string): void {
+    this.loadAccessIndex();
     if (!this.cacheDir.exists) {
       this.latestSegmentManifests.clear();
+      this.cacheFileNames.clear();
+      this.lastAccessAt.clear();
+      this.accessIndexDirty = false;
       this.indexed = true;
       this.indexedBytes = 0;
       this.indexedEntries = 0;
@@ -347,6 +523,9 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     const indexedEntries = this.indexedCacheEntries();
     if (!this.policy) {
       this.latestSegmentManifests = this.sweepSegmentArtifacts();
+      this.rebuildCacheFileNames(indexedEntries);
+      this.pruneAccessIndex(indexedEntries);
+      this.saveAccessIndex();
       this.indexed = true;
       this.indexedBytes = 0;
       this.indexedEntries = 0;
@@ -356,11 +535,14 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
       );
       return;
     }
-    const entries = indexedEntries.map(({ id, size, modifiedAt }) => ({
-      id,
-      size,
-      modifiedAt,
-    }));
+    const entries = indexedEntries.map(
+      ({ id, size, modifiedAt, lastAccessAt }) => ({
+        id,
+        size,
+        modifiedAt,
+        lastAccessAt,
+      }),
+    );
     const consumerProtectedIds = new Set(
       indexedEntries
         .filter((entry) =>
@@ -395,7 +577,10 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
       .sort((left, right) => {
         if (left.id === protectedUri && right.id !== protectedUri) return 1;
         if (right.id === protectedUri && left.id !== protectedUri) return -1;
-        return left.modifiedAt - right.modifiedAt;
+        return (
+          nativeBinaryCacheEntryRecency(left) -
+          nativeBinaryCacheEntryRecency(right)
+        );
       });
     for (const entry of remainingPolicyCandidates) {
       if (
@@ -427,7 +612,10 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     ].sort((left, right) => {
       if (left.id === protectedUri && right.id !== protectedUri) return 1;
       if (right.id === protectedUri && left.id !== protectedUri) return -1;
-      return left.modifiedAt - right.modifiedAt;
+      return (
+        nativeBinaryCacheEntryRecency(left) -
+        nativeBinaryCacheEntryRecency(right)
+      );
     });
     for (const entry of physicalPressureOrder) {
       if (retainedPhysicalFiles <= MAX_CACHE_PHYSICAL_FILES) break;
@@ -440,6 +628,7 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
         if (file.exists) file.delete();
         this.retiredSegmentManifests.delete(file.name);
         this.segmentedManifestConsumers.delete(file.name);
+        this.forgetCacheFile(file.name);
       });
     }
 
@@ -453,6 +642,9 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
       .filter((entry) => !evictions.has(entry.id))
       .reduce((total, entry) => total + entry.files.length, 0);
     this.latestSegmentManifests = this.sweepSegmentArtifacts();
+    this.rebuildCacheFileNames(indexedEntries, evictions);
+    this.pruneAccessIndex(indexedEntries, evictions);
+    this.saveAccessIndex();
     this.indexed = true;
   }
 
@@ -463,7 +655,9 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
   private removeTrackedFile(file: File): void {
     if (!file.exists) return;
     const size = this.policy && this.indexed ? (file.info().size ?? 0) : 0;
+    const fileName = file.name;
     file.delete();
+    this.forgetCacheFile(fileName);
     if (this.policy && this.indexed) {
       this.indexedBytes = Math.max(0, this.indexedBytes - size);
       this.indexedEntries = Math.max(0, this.indexedEntries - 1);
@@ -511,10 +705,28 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
       this.ensureIndexed();
       segmented = this.latestSegmentManifests.get(encodedKey);
     }
-    if (segmented) return segmented.file.uri;
+    if (segmented) {
+      this.touchCacheFile(segmented.file.uri);
+      return segmented.file.uri;
+    }
+    const indexedName = this.cacheFileNames.get(encodedKey);
+    if (indexedName) {
+      const file = new File(this.cacheDir, indexedName);
+      if (file.exists) {
+        this.touchCacheFile(file.uri);
+        return file.uri;
+      }
+      this.cacheFileNames.delete(encodedKey);
+    }
+    // Fallback for a key the directory index has not seen yet. A hit records
+    // its name so every later read is one map lookup instead of 13 stats.
     for (const ext of CACHE_EXTENSIONS) {
       const file = new File(this.cacheDir, `${encodedKey}.${ext}`);
-      if (file.exists) return file.uri;
+      if (file.exists) {
+        this.cacheFileNames.set(encodedKey, file.name);
+        this.touchCacheFile(file.uri);
+        return file.uri;
+      }
     }
     return null;
   }
@@ -524,7 +736,7 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     if (!uri) return null;
     // A segment manifest is a typed image locator, never image/binary payload.
     if (SEGMENT_MANIFEST_PATTERN.test(new File(uri).name)) return null;
-    return base64ToBytes(await new File(uri).base64());
+    return decodeBase64(await new File(uri).base64());
   }
 
   async setBytes(
@@ -560,6 +772,7 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
         const file = new File(this.cacheDir, `${encodedKey}.${nextExtension}`);
         this.removeTrackedFile(file);
         file.write(bytes);
+        this.cacheFileNames.set(encodedKey, file.name);
         this.assertCurrentWrite(writeLease);
         if (this.policy) {
           this.indexedBytes += bytes.byteLength;
@@ -942,6 +1155,7 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
             "The cache download was superseded by a newer write.",
           );
         }
+        this.cacheFileNames.set(encodedKey, finalFile.name);
         const replacedSegmentGroup = this.removeSegmentArtifacts(encodedKey);
         if (replacedSegmentGroup) {
           this.indexAndEnforcePolicy(finalFile.uri);
@@ -993,6 +1207,7 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
         const file = new File(this.cacheDir, `${encodedKey}.${ext}`);
         this.removeTrackedFile(file);
       }
+      this.cacheFileNames.delete(encodedKey);
       this.indexed = false;
       this.latestSegmentManifests.delete(encodedKey);
     });
@@ -1012,6 +1227,10 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
       this.retiredSegmentManifests.clear();
       this.segmentedManifestConsumers.clear();
       this.latestSegmentManifests.clear();
+      this.cacheFileNames.clear();
+      this.lastAccessAt.clear();
+      this.accessIndexLoaded = true;
+      this.accessIndexDirty = false;
     });
   }
 

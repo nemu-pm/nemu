@@ -1,5 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { emitMobileDataChanged } from "@/data/mobileDataEvents";
+import type { InstalledSource, LocalSourceSettings } from "@/data/schema";
 import {
+  clearMobileSourceImageSettingsCache,
+  loadMobileSourceImageSettings,
   makeMobileCoverRequestKey,
   resolveMobileStickyCover,
   selectMobileCoverAfterError,
@@ -196,5 +200,106 @@ describe("cover fallback after a failed load", () => {
     expect(
       selectMobileCoverAfterError(null, { failedKey: null, lastLoaded }),
     ).toBeNull();
+  });
+});
+
+describe("source image settings request cache", () => {
+  const source: InstalledSource = {
+    id: "aidoku-community:en.example",
+    registryId: "aidoku-community",
+    sourceId: "en.example",
+    version: 3,
+    updatedAt: 42,
+  };
+
+  function countingReader() {
+    const reads: string[] = [];
+    return {
+      reads,
+      async getSourceSettings(
+        sourceKey: string,
+      ): Promise<LocalSourceSettings | null> {
+        reads.push(sourceKey);
+        return null;
+      },
+    };
+  }
+
+  beforeEach(() => {
+    clearMobileSourceImageSettingsCache();
+  });
+
+  test("resolves settings once per source per revision", async () => {
+    const reader = countingReader();
+
+    // Every cover card on a screen asks for the same source's settings.
+    const results = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        loadMobileSourceImageSettings(reader, source, 0),
+      ),
+    );
+
+    expect(reader.reads.length).toBeGreaterThan(0);
+    const readsForOneResolve = reader.reads.length;
+    expect(results).toHaveLength(12);
+    expect(results.every((value) => value === results[0])).toBe(true);
+
+    // A later mount on the same revision costs nothing.
+    await loadMobileSourceImageSettings(reader, source, 0);
+    expect(reader.reads).toHaveLength(readsForOneResolve);
+  });
+
+  test("re-reads once the settings revision moves", async () => {
+    const reader = countingReader();
+    await loadMobileSourceImageSettings(reader, source, 0);
+    const afterFirst = reader.reads.length;
+
+    await loadMobileSourceImageSettings(reader, source, 1);
+    expect(reader.reads.length).toBe(afterFirst * 2);
+  });
+
+  test("keeps sources and package versions apart", async () => {
+    const reader = countingReader();
+    await loadMobileSourceImageSettings(reader, source, 0);
+    const afterFirst = reader.reads.length;
+
+    await loadMobileSourceImageSettings(
+      reader,
+      { ...source, id: "aidoku-community:en.other", sourceId: "en.other" },
+      0,
+    );
+    expect(reader.reads.length).toBeGreaterThan(afterFirst);
+
+    const afterSecond = reader.reads.length;
+    await loadMobileSourceImageSettings(reader, { ...source, version: 4 }, 0);
+    expect(reader.reads.length).toBeGreaterThan(afterSecond);
+  });
+
+  test("a sourceSettings change drops the cached generation", async () => {
+    const reader = countingReader();
+    await loadMobileSourceImageSettings(reader, source, 0);
+    const afterFirst = reader.reads.length;
+
+    emitMobileDataChanged("sourceSettings");
+    await loadMobileSourceImageSettings(reader, source, 0);
+    expect(reader.reads.length).toBe(afterFirst * 2);
+  });
+
+  test("a failed read is not latched for the whole revision", async () => {
+    let attempts = 0;
+    const reader = {
+      async getSourceSettings(): Promise<LocalSourceSettings | null> {
+        attempts += 1;
+        if (attempts === 1) throw new Error("vault unavailable");
+        return null;
+      },
+    };
+
+    await expect(
+      loadMobileSourceImageSettings(reader, source, 0),
+    ).rejects.toThrow("vault unavailable");
+    await expect(
+      loadMobileSourceImageSettings(reader, source, 0),
+    ).resolves.toBeDefined();
   });
 });

@@ -2431,7 +2431,30 @@ public class NemuAidokuModule: Module {
 
   private static func pruneNativeHttpTemporaryFiles() {
     let fileManager = FileManager.default
-    let directory = fileManager.temporaryDirectory
+    pruneNativeHttpOrphans(
+      in: fileManager.temporaryDirectory,
+      prefix: "nemu-native-http-"
+    )
+    // Streamed downloads are published into Caches, not the temporary
+    // directory, so they were never covered by the sweep above. A crash or a
+    // reload between the native move and the JS handoff left a `.part` file
+    // that nothing ever deleted, and the directory grew without bound.
+    if let caches = fileManager.urls(
+      for: .cachesDirectory,
+      in: .userDomainMask
+    ).first {
+      pruneNativeHttpOrphans(
+        in: caches.appendingPathComponent(
+          "nemu-native-http-downloads",
+          isDirectory: true
+        ),
+        prefix: "nemu-http-"
+      )
+    }
+  }
+
+  private static func pruneNativeHttpOrphans(in directory: URL, prefix: String) {
+    let fileManager = FileManager.default
     let keys: Set<URLResourceKey> = [
       .contentModificationDateKey,
       .fileSizeKey,
@@ -2444,9 +2467,7 @@ public class NemuAidokuModule: Module {
 
     let now = Date()
     var candidates: [(url: URL, modified: Date, bytes: Int)] = []
-    for url in urls where
-      url.lastPathComponent.hasPrefix("nemu-native-http-")
-    {
+    for url in urls where url.lastPathComponent.hasPrefix(prefix) {
       let values = try? url.resourceValues(forKeys: keys)
       candidates.append((
         url,

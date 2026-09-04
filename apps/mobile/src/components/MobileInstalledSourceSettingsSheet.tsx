@@ -10,16 +10,14 @@ import {
   useNemuTheme,
 } from "@/design-system";
 import type { MobileStrings } from "@/lib/mobileI18n";
-import {
-  getMobileInstalledSourceName,
-  getMobileInstalledSourceSubtitle,
-} from "@/lib/mobileInstalledSourcePresentation";
+import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
 import { normalizeMobileSourceIconUri } from "@/lib/mobileSourceIconResolution";
 import { getMobileSettingsSheetLayout } from "@/lib/mobileSettingsSheetLayout";
-import { countRenderableSourceSettings } from "@/lib/mobileSourceSettings";
+import { countVisibleSourceSettings } from "@/lib/mobileSourceSettings";
 import type { MobileSourceLoginSubmission } from "@/lib/mobileSourceSettingActions";
 import type { MobileSourceLoginCapabilities } from "@/sources/mobileSourceSettingsExecutor";
 import { MobileSourceSettingsCard } from "./MobileSourceSettingsCard";
+import { useMobileSourceSettingsTransientSheets } from "./useMobileSourceSettingsTransientSheets";
 
 /**
  * Installed-source artwork. `icon` is the already-resolved URI from
@@ -79,7 +77,9 @@ export function MobileSourceIcon({
  *
  * `onAction`/`onLogin`/`onLogout` are optional: `MobileSourceSettingsCard`
  * disables the rows that need them, which is how the reader-plugin sheet
- * already renders.
+ * already renders. Login and the rich setting kinds (multi-select, string
+ * list) layer as their own sheets through the shared dismiss-then-present
+ * handoff.
  */
 export function MobileInstalledSourceSettingsSheet({
   source,
@@ -141,78 +141,85 @@ export function MobileInstalledSourceSettingsSheet({
   const sheetLayout = getMobileSettingsSheetLayout({
     fontScale,
     height,
-    rowCount: countRenderableSourceSettings(settings),
+    // Size the detent from the rows the current values actually render;
+    // sources gate settings behind switches, and sizing from the declared
+    // count reserved a large empty tail for shapes like MANGA Plus.
+    rowCount: countVisibleSourceSettings(settings, values),
     width,
+  });
+  const transientSheets = useMobileSourceSettingsTransientSheets({
+    visible,
+    disabled,
+    values,
+    strings,
+    onChange,
+    onClose,
+    onDismiss,
+    ...(onLogin ? { onLogin } : null),
   });
 
   return (
-    <MobileNativeSheetScaffold
-      visible={visible}
-      onClose={onClose}
-      onDismiss={onDismiss}
-      onHardwareBackPress={() => {
-        const handler = embeddedBackHandlerRef.current;
-        if (!handler) return false;
-        handler();
-        return true;
-      }}
-      scroll={sheetLayout.scroll}
-      snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
-      testID={`InstalledSourceSettingsSheet:${source.id}`}
-    >
-      {/*
-        Same treatment as the plugin settings sheet: a leading header slot
-        strands the source mark in the top-left corner while the title stays
-        optically centered, so compose both into one centered row.
-      */}
-      <View style={styles.header}>
-        <View style={styles.titleRow}>
-          <MobileSourceIcon icon={iconUri} placement="title" />
-          <NemuText
-            accessibilityRole="header"
-            color={tokens.foreground}
-            density="compact"
-            numberOfLines={2}
-            style={styles.title}
-            variant="sheetTitle"
-          >
-            {name}
-          </NemuText>
-        </View>
-        <NemuText
-          color={tokens.mutedForeground}
-          density="compact"
-          style={styles.description}
-          variant="rowSubtitle"
-        >
-          {getMobileInstalledSourceSubtitle(source)}
-        </NemuText>
-      </View>
-      <MobileSourceSettingsCard
-        settings={settings}
-        values={values}
-        loading={loading}
-        error={error}
-        title={strings.settings.sourceSettingsDefaultTitle}
-        hideSubtitle
-        navigationResetKey={navigationResetKey}
-        emptyMessage={strings.settings.sourceSettingsEmpty}
-        showEmpty
-        disabled={disabled}
-        retryDisabled={retryDisabled}
-        retrying={retrying}
-        onEmbeddedBackHandlerChange={(handler) => {
-          embeddedBackHandlerRef.current = handler;
+    <>
+      <MobileNativeSheetScaffold
+        {...transientSheets.settingsSheetProps}
+        onHardwareBackPress={() => {
+          const handler = embeddedBackHandlerRef.current;
+          if (!handler) return false;
+          handler();
+          return true;
         }}
-        onRetry={onRetry}
-        onReset={onReset}
-        onChange={onChange}
-        onAction={onAction}
-        onLogin={onLogin}
-        onLogout={onLogout}
-        loginCapabilities={loginCapabilities}
-      />
-    </MobileNativeSheetScaffold>
+        scroll={sheetLayout.scroll}
+        snapPoints={sheetLayout.snapPoint ? [sheetLayout.snapPoint] : undefined}
+        testID={`InstalledSourceSettingsSheet:${source.id}`}
+      >
+        {/*
+          Same treatment as the plugin settings sheet: a leading header slot
+          strands the source mark in the top-left corner while the title stays
+          optically centered, so compose both into one centered row.
+        */}
+        <View style={styles.header}>
+          <View style={styles.titleRow}>
+            <MobileSourceIcon icon={iconUri} placement="title" />
+            <NemuText
+              accessibilityRole="header"
+              color={tokens.foreground}
+              density="compact"
+              numberOfLines={2}
+              style={styles.title}
+              variant="sheetTitle"
+            >
+              {name}
+            </NemuText>
+          </View>
+        </View>
+        <MobileSourceSettingsCard
+          settings={settings}
+          values={values}
+          loading={loading}
+          error={error}
+          title={strings.settings.sourceSettingsDefaultTitle}
+          hideSubtitle
+          navigationResetKey={navigationResetKey}
+          emptyMessage={strings.settings.sourceSettingsEmpty}
+          showEmpty
+          disabled={disabled}
+          retryDisabled={retryDisabled}
+          retrying={retrying}
+          onEmbeddedBackHandlerChange={(handler) => {
+            embeddedBackHandlerRef.current = handler;
+          }}
+          onRetry={onRetry}
+          onReset={onReset}
+          onChange={onChange}
+          onAction={onAction}
+          onLogin={onLogin}
+          onLogout={onLogout}
+          loginCapabilities={loginCapabilities}
+          {...transientSheets.cardProps}
+        />
+      </MobileNativeSheetScaffold>
+      {transientSheets.renderTransientSheet()}
+    </>
   );
 }
 
@@ -229,9 +236,6 @@ const styles = StyleSheet.create({
   },
   title: {
     flexShrink: 1,
-    textAlign: "center",
-  },
-  description: {
     textAlign: "center",
   },
   titleIcon: {

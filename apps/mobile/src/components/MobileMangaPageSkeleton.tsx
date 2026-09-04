@@ -269,12 +269,12 @@ const styles = StyleSheet.create({
     minHeight: 36,
     flex: 1,
     minWidth: 0,
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
   secondaryAction: {
     width: 36,
     height: 36,
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
   section: {
     // Matches MobileMangaChapterSection's 16pt section rhythm.

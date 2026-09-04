@@ -5,6 +5,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   nemuFontWeight,
   NemuPressable,
+  radius,
   useNemuTheme,
 } from "@/design-system";
 import { hapticPress } from "@/lib/haptics";
@@ -371,7 +372,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   datePill: {
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: 12,
     paddingVertical: 4,
   },

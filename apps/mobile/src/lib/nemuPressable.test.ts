@@ -84,7 +84,7 @@ describe("NemuPressable helpers", () => {
     expect(canRunNemuPressableHaptic("error", true)).toBe(false);
   });
 
-  test("keeps depth motion unresolved-safe without changing plain pressables", () => {
+  test("keeps every pressable's motion unresolved-safe", () => {
     for (const reduceMotion of [null, true] as const) {
       expect(
         resolveNemuPressableAnimationEnabled({
@@ -92,13 +92,23 @@ describe("NemuPressable helpers", () => {
           reduceMotion,
         }),
       ).toBe(false);
+      // Changed deliberately: plain pressables used to spring regardless of
+      // the setting. Reduce Motion now suppresses every press animation, and
+      // an unresolved (`null`) read stays still rather than animating first.
       expect(
         resolveNemuPressableAnimationEnabled({
           hasButtonDepth: false,
           reduceMotion,
         }),
-      ).toBe(true);
+      ).toBe(false);
     }
+
+    expect(
+      resolveNemuPressableAnimationEnabled({
+        hasButtonDepth: false,
+        reduceMotion: false,
+      }),
+    ).toBe(true);
 
     expect(
       resolveNemuPressableAnimationEnabled({

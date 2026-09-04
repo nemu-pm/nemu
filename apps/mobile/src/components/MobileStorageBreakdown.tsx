@@ -56,7 +56,6 @@ export function MobileStorageBreakdown({
   onClearAllCache?: () => void;
 }) {
   const { tokens, reduceMotion } = useNemuTheme();
-  const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
   const [stats, setStats] = useState({
     covers: { bytes: 0, entries: 0 },
     pages: { bytes: 0, entries: 0 },
@@ -65,6 +64,9 @@ export function MobileStorageBreakdown({
   });
   const [loading, setLoading] = useState(true);
   const [clearing, setClearing] = useState<"covers" | "pages" | null>(null);
+  // The card outlives its placeholder rows, so the infinite pulse stops as
+  // soon as the real numbers land.
+  const skeletonOpacity = useSkeletonPulse(reduceMotion === true, loading);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -146,17 +148,16 @@ export function MobileStorageBreakdown({
       )}`,
     },
     {
-      key: "offline",
-      label: strings.settings.storageOfflineChapters,
-      value: formatCount(
-        strings.settings.storageCountChapters,
-        stats.other.entries,
-      ),
-    },
-    {
+      // One store backs this row: the reader's page-list cache. It used to be
+      // split into an "Offline chapters" count and an "Other" byte total, which
+      // read as two separate caches and implied downloaded chapters this app
+      // does not keep.
       key: "other",
-      label: strings.settings.storageRowOther,
-      value: formatBytes(stats.other.bytes, strings),
+      label: strings.settings.storagePageLists,
+      value: `${formatBytes(stats.other.bytes, strings)} · ${formatCount(
+        strings.settings.storageCountPageLists,
+        stats.other.entries,
+      )}`,
     },
   ];
 
@@ -253,22 +254,24 @@ export function MobileStorageBreakdown({
                   color={tokens.foreground}
                   numberOfLines={1}
                   style={styles.rowLabel}
+                  variant="body"
                 >
                   {row.label}
                 </NemuText>
                 <NemuText
                   color={tokens.mutedForeground}
                   style={styles.rowValue}
+                  variant="body"
                 >
                   {row.value}
                 </NemuText>
               </View>
             ))}
         <View style={[styles.row, styles.totalRow]}>
-          <NemuText color={tokens.foreground} style={styles.totalLabel}>
+          <NemuText color={tokens.foreground} style={styles.totalLabel} variant="body">
             {strings.settings.storageTotalLabel}
           </NemuText>
-          <NemuText color={tokens.foreground} style={styles.totalValue}>
+          <NemuText color={tokens.foreground} style={styles.totalValue} variant="body">
             {formatBytes(totalBytes, strings)}
           </NemuText>
         </View>

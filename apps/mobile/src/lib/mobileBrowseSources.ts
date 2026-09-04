@@ -12,6 +12,7 @@ import {
 } from "./mobileInstalledSourceKeys";
 import {
   compareMobileLanguageCodes,
+  getLanguagePriorityOrder,
   getLanguageCategory,
   normalizeMobileLanguageCode,
   sortSourcesByLanguagePriority,
@@ -107,9 +108,15 @@ export function groupMobileSourcesByLanguage<T extends MobileBrowseLanguageSourc
     }
   }
 
+  const priorityOrder = getLanguagePriorityOrder(appLanguage);
   return [...grouped.entries()]
     .sort(([languageA], [languageB]) =>
-      compareMobileLanguageCodes(languageA, languageB, appLanguage),
+      compareMobileLanguageCodes(
+        languageA,
+        languageB,
+        appLanguage,
+        priorityOrder,
+      ),
     )
     .map(([label, sectionSources]) => ({
       label,
@@ -133,8 +140,9 @@ export function getMobileAvailableSourceLanguageOptions<
     }
   }
 
+  const priorityOrder = getLanguagePriorityOrder(appLanguage);
   return [...languages].sort((a, b) =>
-    compareMobileLanguageCodes(a, b, appLanguage),
+    compareMobileLanguageCodes(a, b, appLanguage, priorityOrder),
   );
 }
 

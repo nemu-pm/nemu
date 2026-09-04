@@ -28,7 +28,7 @@ import {
   nemuFontWeight,
   radius,
   useNemuTheme,
-  type NemuTokens,
+  nemuToneColor,
 } from "@/design-system";
 import { getMobileFloatingTabBarOverlayExtent } from "@/lib/mobileFloatingTabBarClearance";
 import { getMobileStrings } from "@/lib/mobileI18n";
@@ -49,21 +49,14 @@ const toneIcons: Record<MobileToastTone, keyof typeof Ionicons.glyphMap> = {
   danger: "warning",
 };
 
-function toneColor(tokens: NemuTokens, tone: MobileToastTone): string {
-  if (tone === "success") return tokens.success;
-  if (tone === "danger") return tokens.danger;
-  if (tone === "warning") return tokens.warning;
-  return tokens.primary;
-}
-
-export type MobileToastSurfaceAction = {
+type MobileToastSurfaceAction = {
   label: string;
   onPress: () => void;
   disabled?: boolean;
   loading?: boolean;
 };
 
-export type MobileToastSurfaceProps = {
+type MobileToastSurfaceProps = {
   tone?: MobileToastTone;
   /** Overrides the tone's default glyph; always drawn bare (no shell). */
   icon?: keyof typeof Ionicons.glyphMap;
@@ -114,7 +107,7 @@ export function MobileToastSurface({
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
-  const resolvedIconColor = iconColor ?? toneColor(tokens, tone);
+  const resolvedIconColor = iconColor ?? nemuToneColor(tokens, tone);
   const announcement = [title, detail].filter(Boolean).join(". ");
   const hasTrailingControl = Boolean(action) || Boolean(onDismiss);
 

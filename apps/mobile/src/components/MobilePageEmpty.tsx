@@ -10,6 +10,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
   nemuText,
+  radius,
   useNemuTheme,
   NEMU_PROMINENT_CTA_SIZE,
   NemuButton,
@@ -187,7 +188,7 @@ const styles = StyleSheet.create({
     height: 96,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 999,
+    borderRadius: radius.pill,
     marginBottom: 8,
   },
   compactMedia: {

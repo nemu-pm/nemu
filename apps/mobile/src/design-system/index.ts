@@ -1,10 +1,12 @@
 export {
   nemuTokens,
+  nemuToneColor,
   iconSize,
   radius,
   spacing,
   type NemuColorScheme,
   type NemuTokens,
+  type NemuTone,
 } from "@/design/tokens";
 export {
   nemuBrandTextStyle,
@@ -28,6 +30,7 @@ export {
   usesNemuNativeHeader,
   type NemuNativeHeaderAction,
 } from "@/design/navigation";
+export { NemuThemeContext, type NemuTheme } from "@/design/themeContext";
 export { NemuThemeProvider } from "@/design/theme";
 export { useNemuTheme } from "@/design/useNemuTheme";
 
@@ -60,6 +63,7 @@ export {
 } from "./components/NemuRingSpinner";
 export {
   NemuText,
+  type NemuTextDensity,
   type NemuTextProps,
   type NemuTextVariant,
 } from "./components/NemuText";

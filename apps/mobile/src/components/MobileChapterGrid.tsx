@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { StyleSheet, View } from "react-native";
 import { MobileChapterCell } from "@/components/MobileChapterCell";
 import type { AppLanguage, ChapterSummary, LocalChapterProgress } from "@/data/schema";
@@ -15,7 +16,7 @@ type MobileChapterGridProps = {
   showLanguage?: boolean;
 };
 
-export function MobileChapterGrid({
+export const MobileChapterGrid = memo(function MobileChapterGrid({
   appLanguage,
   busy,
   chapters,
@@ -36,14 +37,14 @@ export function MobileChapterGrid({
             busy={busy}
             openChapterTemplate={openChapterTemplate}
             strings={strings}
-            onPress={() => onPressChapter(chapter)}
+            onPress={onPressChapter}
             showLanguage={showLanguage}
           />
         </View>
       ))}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   grid: {

@@ -179,29 +179,57 @@ export class MobileImageCacheCoordinator {
     });
   }
 
+  private async probeDisk(load: MobileImageCacheLoad): Promise<string | null> {
+    // `has`, not `delete`: the bypass is only spent once a replacement file
+    // exists (see `executeLoad`). Consuming it here let a load cancelled
+    // between the probe and its concurrency slot burn the bypass without ever
+    // reaching the network, so the next resolve handed back the known-bad file.
+    if (this.bypassDiskOnce.has(load.key)) return null;
+    try {
+      return await this.store.getUri(load.key);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The disk probe runs before a concurrency slot is taken. It is a local stat,
+   * not network work, so making a cache hit queue behind up to N in-flight
+   * downloads stalled scrolling on an already fully cached library.
+   */
+  private beginLoad(load: MobileImageCacheLoad): void {
+    void this.probeDisk(load).then(
+      (cachedUri) => {
+        if (load.settled) return;
+        if (load.cancelRequested) {
+          this.finishLoad(load, null);
+          return;
+        }
+        if (cachedUri) {
+          this.remember(load.key, cachedUri);
+          this.finishLoad(load, cachedUri);
+          return;
+        }
+        // An in-memory hit whose file was quota-evicted is stale. Remove it
+        // before network work begins so native readers wait for a
+        // policy-checked repair.
+        this.resolvedUris.delete(load.key);
+        this.loadQueue.push(load);
+        this.startQueuedLoads();
+      },
+      (error: unknown) => this.finishLoad(load, null, error),
+    );
+  }
+
   private async executeLoad(load: MobileImageCacheLoad): Promise<string | null> {
-    const bypassDisk = this.bypassDiskOnce.delete(load.key);
-    let cachedUri: string | null = null;
-    if (!bypassDisk) {
-      try {
-        cachedUri = await this.store.getUri(load.key);
-      } catch {
-        cachedUri = null;
-      }
-    }
-
-    if (load.cancelRequested) return null;
-    if (cachedUri) {
-      this.remember(load.key, cachedUri);
-      return cachedUri;
-    }
-
-    // An in-memory hit whose file was quota-evicted is stale. Remove it before
-    // network work begins so native readers wait for a policy-checked repair.
-    this.resolvedUris.delete(load.key);
     const loadedUri = await load.loadMissing(load.controller.signal);
     if (load.cancelRequested) return null;
-    if (loadedUri) this.remember(load.key, loadedUri);
+    if (loadedUri) {
+      // The known-bad file has now been replaced, so the disk probe may be
+      // trusted again. A cancelled or failed load leaves the bypass armed.
+      this.bypassDiskOnce.delete(load.key);
+      this.remember(load.key, loadedUri);
+    }
     return loadedUri;
   }
 
@@ -271,9 +299,8 @@ export class MobileImageCacheCoordinator {
       loadPriorityValue(options.priority),
     );
     this.loaders.set(key, loader);
-    this.loadQueue.push(loader);
     const result = this.subscribeToLoad(loader, options.signal);
-    this.startQueuedLoads();
+    this.beginLoad(loader);
     return result;
   }
 

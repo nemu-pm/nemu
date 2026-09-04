@@ -11,6 +11,12 @@ import { formatMobileString, type MobileStrings } from "./mobileI18n";
 
 export type MobileLibraryProgressIndex = Map<string, LocalMangaProgress>;
 
+/** Per-entry source progress, keyed by `libraryItemId`. */
+export type MobileLibraryEntryProgressMaps = Map<
+  string,
+  Map<string, LocalMangaProgress>
+>;
+
 export type MobileLibraryProgressInfo = {
   badge?: string;
   subtitle: string;
@@ -140,28 +146,95 @@ export function buildMobileEntryProgressMap(
   progressIndex: MobileLibraryProgressIndex
 ): Map<string, LocalMangaProgress> {
   const progress = new Map<string, LocalMangaProgress>();
+  const aliasIndex = getMobileLibraryAliasIndex(progressIndex);
   for (const source of entry.sources) {
     const item =
       progressIndex.get(source.id) ??
-      findMobileSourceProgressByLibraryAlias(entry, source, progressIndex);
+      findMobileSourceProgressByLibraryAlias(entry, source, aliasIndex);
     if (item) progress.set(source.id, item);
   }
   return progress;
 }
 
+/**
+ * Precomputes the per-entry source progress maps once for a whole library
+ * page. Sorting and card rendering both need them, and rebuilding one per
+ * comparison turned the sort into an O(n log n * sources) scan of every
+ * progress row.
+ */
+export function buildMobileLibraryEntryProgressMaps(
+  entries: LibraryEntry[],
+  progressIndex: MobileLibraryProgressIndex
+): MobileLibraryEntryProgressMaps {
+  const maps: MobileLibraryEntryProgressMaps = new Map();
+  for (const entry of entries) {
+    maps.set(
+      entry.item.libraryItemId,
+      buildMobileEntryProgressMap(entry, progressIndex)
+    );
+  }
+  return maps;
+}
+
+function resolveMobileEntryProgressMap(
+  entry: LibraryEntry,
+  progressIndex: MobileLibraryProgressIndex,
+  entryProgress?: Map<string, LocalMangaProgress>
+): Map<string, LocalMangaProgress> {
+  return entryProgress ?? buildMobileEntryProgressMap(entry, progressIndex);
+}
+
+function libraryAliasKey(
+  libraryItemId: string,
+  registryId: string,
+  sourceMangaId: string
+): string {
+  return `${libraryItemId}\u0000${registryId}\u0000${sourceMangaId}`;
+}
+
+// A `null` value marks an ambiguous alias: the linear scan this replaces only
+// accepted a unique match, so more than one row for a key resolves to nothing.
+type MobileLibraryAliasIndex = Map<string, LocalMangaProgress | null>;
+
+const mobileLibraryAliasIndexes = new WeakMap<
+  MobileLibraryProgressIndex,
+  MobileLibraryAliasIndex
+>();
+
+/** Built once per progress index identity; the index is treated as frozen. */
+function getMobileLibraryAliasIndex(
+  progressIndex: MobileLibraryProgressIndex
+): MobileLibraryAliasIndex {
+  const cached = mobileLibraryAliasIndexes.get(progressIndex);
+  if (cached) return cached;
+  const index: MobileLibraryAliasIndex = new Map();
+  for (const item of progressIndex.values()) {
+    if (!item.libraryItemId) continue;
+    const key = libraryAliasKey(
+      item.libraryItemId,
+      item.registryId,
+      item.sourceMangaId
+    );
+    index.set(key, index.has(key) ? null : item);
+  }
+  mobileLibraryAliasIndexes.set(progressIndex, index);
+  return index;
+}
+
 function findMobileSourceProgressByLibraryAlias(
   entry: LibraryEntry,
   source: LocalSourceLink,
-  progressIndex: MobileLibraryProgressIndex
+  aliasIndex: MobileLibraryAliasIndex
 ): LocalMangaProgress | undefined {
-  const candidates = [...progressIndex.values()].filter(
-    (item) =>
-      item.libraryItemId === entry.item.libraryItemId &&
-      item.registryId === source.registryId &&
-      item.sourceMangaId === source.sourceMangaId,
+  return (
+    aliasIndex.get(
+      libraryAliasKey(
+        entry.item.libraryItemId,
+        source.registryId,
+        source.sourceMangaId
+      )
+    ) ?? undefined
   );
-
-  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 export function getMobileEntryMostRecentSource(
@@ -218,9 +291,14 @@ function progressChapter(progress: LocalMangaProgress | undefined): ChapterSumma
 export function getMobileLibraryProgressInfo(
   entry: LibraryEntry,
   progressIndex: MobileLibraryProgressIndex,
-  strings: MobileStrings
+  strings: MobileStrings,
+  entryProgress?: Map<string, LocalMangaProgress>
 ): MobileLibraryProgressInfo {
-  const progress = buildMobileEntryProgressMap(entry, progressIndex);
+  const progress = resolveMobileEntryProgressMap(
+    entry,
+    progressIndex,
+    entryProgress
+  );
   const recentSource = getMobileEntryMostRecentSource(entry, progress);
   if (!recentSource) {
     return {
@@ -257,27 +335,38 @@ export function getMobileLibraryProgressInfo(
   };
 }
 
+/**
+ * Schwartzian transform: each entry is decorated once with the three sort
+ * keys, so a comparison never rebuilds a progress map or re-reads a title.
+ * Ordering is identical to the previous per-comparison implementation.
+ */
 export function sortMobileLibraryEntries(
   entries: LibraryEntry[],
-  progressIndex: MobileLibraryProgressIndex
+  progressIndex: MobileLibraryProgressIndex,
+  entryProgressMaps?: MobileLibraryEntryProgressMaps
 ): LibraryEntry[] {
-  return [...entries].sort((a, b) => {
-    const aUpdated = entryHasAnyUpdate(a);
-    const bUpdated = entryHasAnyUpdate(b);
-    if (aUpdated !== bUpdated) return aUpdated ? -1 : 1;
-
-    const aProgress = buildMobileEntryProgressMap(a, progressIndex);
-    const bProgress = buildMobileEntryProgressMap(b, progressIndex);
-    const aSource = getMobileEntryMostRecentSource(a, aProgress);
-    const bSource = getMobileEntryMostRecentSource(b, bProgress);
-    const aReadTime = aSource ? (aProgress.get(aSource.id)?.lastReadAt ?? 0) : 0;
-    const bReadTime = bSource ? (bProgress.get(bSource.id)?.lastReadAt ?? 0) : 0;
-    const aTime = Math.max(aReadTime, getMobileEntryAddedAt(a));
-    const bTime = Math.max(bReadTime, getMobileEntryAddedAt(b));
-    if (aTime !== bTime) return bTime - aTime;
-
-    return getEntryTitle(a).localeCompare(getEntryTitle(b));
-  });
+  return entries
+    .map((entry) => {
+      const progress = resolveMobileEntryProgressMap(
+        entry,
+        progressIndex,
+        entryProgressMaps?.get(entry.item.libraryItemId)
+      );
+      const source = getMobileEntryMostRecentSource(entry, progress);
+      const readTime = source ? (progress.get(source.id)?.lastReadAt ?? 0) : 0;
+      return {
+        entry,
+        updated: entryHasAnyUpdate(entry),
+        time: Math.max(readTime, getMobileEntryAddedAt(entry)),
+        title: getEntryTitle(entry),
+      };
+    })
+    .sort((a, b) => {
+      if (a.updated !== b.updated) return a.updated ? -1 : 1;
+      if (a.time !== b.time) return b.time - a.time;
+      return a.title.localeCompare(b.title);
+    })
+    .map((decorated) => decorated.entry);
 }
 
 export function sortMobileLibraryMergeCandidates(

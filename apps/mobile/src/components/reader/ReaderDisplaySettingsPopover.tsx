@@ -18,6 +18,7 @@ import {
   NemuNativeSheetHeaderAction,
   NemuNativeSwitch,
   NemuText,
+  NEMU_PROMINENT_CTA_SIZE,
   iconSize,
   nemuFontWeight,
   useNemuTheme,
@@ -73,34 +74,26 @@ function readerModeLabel(mode: ReadingMode, strings: MobileStrings): string {
 /**
  * One popover row: a 20pt leading glyph, a 14/500 label (with an optional
  * secondary line) and a trailing control. Blocks whose control needs the full
- * width pass `below` instead of `control`.
+ * width pass `below` instead of `control`. Rows are separated by spacing
+ * alone — no hairlines.
  */
 function ReaderSettingRow({
   below,
   control,
   description,
-  first = false,
   icon,
   title,
 }: {
   below?: ReactNode;
   control?: ReactNode;
   description?: string;
-  first?: boolean;
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
 }) {
   const { tokens } = useNemuTheme();
 
   return (
-    <View
-      style={[
-        styles.settingBlock,
-        first
-          ? null
-          : { borderTopWidth: StyleSheet.hairlineWidth, borderColor: tokens.border },
-      ]}
-    >
+    <View style={styles.settingBlock}>
       <View style={styles.settingRow}>
         <View style={styles.settingLabel}>
           <Ionicons
@@ -273,7 +266,6 @@ export function ReaderDisplaySettingsPopover({
           </View>
 
           <ReaderSettingRow
-            first
             icon="swap-horizontal-outline"
             title={strings.reader.readingDirection}
             below={
@@ -334,7 +326,6 @@ export function ReaderDisplaySettingsPopover({
           <ReaderSettingRow
             icon="color-wand-outline"
             title={strings.reader.processPageImages}
-            description={strings.reader.processPageImagesDescription}
             control={
               <NemuNativeSwitch
                 accessibilityLabel={strings.reader.processPageImages}
@@ -350,24 +341,26 @@ export function ReaderDisplaySettingsPopover({
               icon="resize-outline"
               title={strings.reader.pageWidth}
               control={
-                <NemuText
-                  color={tokens.mutedForeground}
-                  style={styles.settingValue}
-                >
-                  {`${activeScrollWidthPct}%`}
-                </NemuText>
-              }
-              below={
-                <View style={styles.settingControlBlock}>
-                  <MobileReaderWidthSlider
-                    value={activeScrollWidthPct}
-                    strings={strings}
-                    disabled={busy}
-                    onPreview={onPreviewScrollWidth}
-                    onCommit={onCommitScrollWidth}
-                    onInteractionStart={onScrollWidthInteractionStart}
-                    onInteractionEnd={onScrollWidthInteractionEnd}
-                  />
+                // Inline like the mock's slider row: label left, track
+                // middle, percent right — not a stacked control block.
+                <View style={styles.inlineSliderControl}>
+                  <View style={styles.inlineSliderTrack}>
+                    <MobileReaderWidthSlider
+                      value={activeScrollWidthPct}
+                      strings={strings}
+                      disabled={busy}
+                      onPreview={onPreviewScrollWidth}
+                      onCommit={onCommitScrollWidth}
+                      onInteractionStart={onScrollWidthInteractionStart}
+                      onInteractionEnd={onScrollWidthInteractionEnd}
+                    />
+                  </View>
+                  <NemuText
+                    color={tokens.mutedForeground}
+                    style={styles.settingValue}
+                  >
+                    {`${activeScrollWidthPct}%`}
+                  </NemuText>
                 </View>
               }
             />
@@ -413,11 +406,11 @@ export function ReaderDisplaySettingsPopover({
                   : strings.reader.markComplete
               }
               loading={saving}
+              // Same geometry as the onboarding / empty-state CTA.
               containerStyle={styles.completeButtonContainer}
               onPress={onMarkComplete}
-              size="lg"
-              style={styles.completeButton}
-              tone="primary"
+              size={NEMU_PROMINENT_CTA_SIZE}
+              variant="default"
             />
           ) : null}
           </ScrollView>
@@ -450,7 +443,7 @@ const styles = StyleSheet.create({
   readerSettingsPopoverHeader: {
     minHeight: 44,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
   },
   readerSettingsPopoverTitleBlock: {
@@ -468,11 +461,15 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   settingBlock: {
-    gap: 10,
-    paddingTop: 12,
+    // Tight label→control coupling; the block's own bottom padding (plus the
+    // next block's top padding) sets the inter-block rhythm so a stacked
+    // control like the reading-mode picker doesn't crowd the row under it.
+    gap: 6,
+    paddingTop: 6,
+    paddingBottom: 8,
   },
   settingRow: {
-    minHeight: 32,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -510,12 +507,18 @@ const styles = StyleSheet.create({
   settingControlBlock: {
     width: "100%",
   },
+  inlineSliderControl: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  inlineSliderTrack: {
+    flex: 1,
+    minWidth: 120,
+  },
   completeButtonContainer: {
     width: "100%",
     marginTop: 14,
-  },
-  completeButton: {
-    width: "100%",
-    minHeight: 44,
   },
 });

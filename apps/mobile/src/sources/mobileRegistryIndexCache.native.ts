@@ -5,7 +5,7 @@ import {
   decodeRegistryIndexCacheSnapshot,
   encodeRegistryIndexCache,
   type MobileRegistryIndexCacheSnapshot,
-} from "./mobileRegistryIndexCache";
+} from "./mobileRegistryIndexCacheCore";
 
 // Native registry-index cache: a single JSON file in the OS cache directory.
 // Public catalog data only; best-effort persistence that never blocks loads.

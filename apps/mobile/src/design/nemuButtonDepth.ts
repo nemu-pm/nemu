@@ -1,5 +1,6 @@
 import type { ViewStyle } from "react-native";
 import type { NemuColorScheme, NemuTokens } from "./tokens";
+import { nemuColorWithAlpha } from "./colorAlpha";
 import {
   resolveNemuWebButtonSurface,
   type NemuWebButtonSchemePalette,
@@ -236,6 +237,18 @@ function primaryPressedColor(dark: boolean): string {
   return dark ? "#7a9eff" : "#6689ff";
 }
 
+/**
+ * Unselected chips read as pressed-in wells with the light reversed: dark
+ * inset from the top, light inset from the bottom, no outer drop shadow.
+ * Inset boxShadow renders on New Architecture (iOS; Android 10+); older
+ * Android skips the paint and keeps the flat well background + hairline.
+ */
+const CHIP_INSET_SHADOW: Record<NemuColorScheme, string> = {
+  light:
+    "inset 0px 1px 2px rgba(15,23,42,0.12), inset 0px -0.5px 0px rgba(255,255,255,0.8)",
+  dark: "inset 0px 1px 2px rgba(0,0,0,0.5), inset 0px -0.5px 0px rgba(255,255,255,0.05)",
+};
+
 export function getNemuButtonDepthVisual({
   variant,
   state,
@@ -320,8 +333,10 @@ function toolbarDepthVisual({
   );
   return {
     ...outline,
-    backgroundColor: danger ? `${tokens.danger}24` : tokens.toolbarAction,
-    borderColor: danger ? `${tokens.danger}40` : tokens.toolbarActionBorder,
+    backgroundColor: danger ? tokens.dangerSoft : tokens.toolbarAction,
+    borderColor: danger
+      ? nemuColorWithAlpha(tokens.danger, 0.25)
+      : tokens.toolbarActionBorder,
     foregroundColor: danger ? tokens.danger : tokens.primary,
   };
 }
@@ -365,11 +380,13 @@ function chipDepthVisual({
   if (!pressed) {
     return {
       backgroundColor: scheme === "dark" ? "rgba(34,36,40,0.50)" : "rgba(237,240,248,0.50)",
-      borderColor: tokens.border,
-      boxShadow: "none",
+      borderColor: "transparent",
+      boxShadow: CHIP_INSET_SHADOW[scheme],
       foregroundColor: tokens.mutedForeground,
     };
   }
+  // Pressing pops the well up toward the raised state via the outline
+  // pressed surface (lightened fill + outer raise shadow).
   const outline = resolveNemuWebButtonSurface("outline", scheme, "pressed", tokenOverrides);
   return {
     ...outline,

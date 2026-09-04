@@ -197,16 +197,30 @@ export function compareMobileLanguageCodes(
   left: string,
   right: string,
   appLanguage: AppLanguage,
+  // A sort calls this O(n log n) times, and the priority order is the same for
+  // every one of those calls. Callers that sort pass it in once; the default
+  // keeps the three-argument call sites honest.
+  priorityOrder: readonly string[] = getLanguagePriorityOrder(appLanguage),
 ): number {
-  const a = normalizeMobileLanguageCode(left);
-  const b = normalizeMobileLanguageCode(right);
+  return compareNormalizedMobileLanguageCodes(
+    normalizeMobileLanguageCode(left),
+    normalizeMobileLanguageCode(right),
+    priorityOrder,
+  );
+}
+
+/** The ordering itself, on codes a caller has already normalized. */
+function compareNormalizedMobileLanguageCodes(
+  a: string,
+  b: string,
+  priorityOrder: readonly string[],
+): number {
   if (a === b) return 0;
 
   const baseA = getMobileLanguageBaseCode(a);
   const baseB = getMobileLanguageBaseCode(b);
 
   if (baseA !== baseB) {
-    const priorityOrder = getLanguagePriorityOrder(appLanguage);
     const priorityA = priorityOrder.indexOf(baseA);
     const priorityB = priorityOrder.indexOf(baseB);
 
@@ -226,11 +240,16 @@ export function sortSourcesByLanguagePriority<T extends MobileLanguageSource>(
   sources: T[],
   appLanguage: AppLanguage
 ): T[] {
-  return [...sources].sort((a, b) =>
-    compareMobileLanguageCodes(
-      getLanguageCategory(a.languages),
-      getLanguageCategory(b.languages),
-      appLanguage,
-    ),
+  const priorityOrder = getLanguagePriorityOrder(appLanguage);
+  // `getLanguageCategory` already returns a normalized code, so decorating the
+  // list up front pays it once per source instead of twice per comparison.
+  // `Array.prototype.sort` is stable, so equal categories keep input order.
+  const decorated = sources.map((source) => ({
+    source,
+    category: getLanguageCategory(source.languages),
+  }));
+  decorated.sort((a, b) =>
+    compareNormalizedMobileLanguageCodes(a.category, b.category, priorityOrder),
   );
+  return decorated.map((entry) => entry.source);
 }

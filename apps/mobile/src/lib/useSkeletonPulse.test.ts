@@ -23,22 +23,30 @@ const hookSource = readFileSync(
 );
 
 describe("useSkeletonPulse", () => {
-  test("breathes 1 → 0.55 → 1 over 1.2s and settles under reduce motion", () => {
-    expect(hookSource).toContain("minOpacity: 0.55");
-    expect(hookSource).toContain("maxOpacity: 1,");
-    expect(hookSource).toContain("halfCycleMs: 600");
-    expect(hookSource).toContain("reduceMotionOpacity: 0.78");
-    expect(hookSource).toContain("reduceMotionSettleMs: 120");
+  test("stops the infinite repeat when the host is no longer loading", () => {
+    expect(hookSource).toContain(
+      "export function useSkeletonPulse(reduceMotion: boolean, active = true)",
+    );
+    // The `!active` branch has to cancel before the repeat is ever scheduled,
+    // otherwise `withRepeat(…, -1)` keeps running for the host's whole life.
+    const activeGuard = hookSource.indexOf("if (!active) {");
+    expect(activeGuard).toBeGreaterThan(-1);
+    expect(activeGuard).toBeLessThan(hookSource.indexOf("withRepeat("));
+    expect(hookSource).toContain("cancelAnimation(opacity);");
+    expect(hookSource).toContain("}, [active, opacity, reduceMotion]);");
   });
 
-  test("holds placeholders back for the classic 150ms threshold", () => {
-    expect(hookSource).toContain("SKELETON_DISPLAY_DELAY_MS = 150");
-    expect(hookSource).toContain("delayMs = SKELETON_DISPLAY_DELAY_MS");
-  });
-
-  test("keeps the pulse and the delay in one module", () => {
-    expect(hookSource).toContain("export function useSkeletonPulse");
-    expect(hookSource).toContain("export function useSkeletonDisplayDelay");
+  test("long-lived hosts gate the pulse on their own loading flag", () => {
+    const gallery = readFileSync(
+      path.join(import.meta.dir, "../components/reader/MobileReaderGallery.tsx"),
+      "utf8",
+    );
+    expect(gallery).toContain("reduceMotion === true,\n    isReaderLoading,");
+    const storage = readFileSync(
+      path.join(import.meta.dir, "../components/MobileStorageBreakdown.tsx"),
+      "utf8",
+    );
+    expect(storage).toContain("useSkeletonPulse(reduceMotion === true, loading)");
   });
 });
 
@@ -54,10 +62,13 @@ describe("skeleton components", () => {
   test("no skeleton pins a static opacity that fights the animated one", () => {
     for (const name of SKELETON_COMPONENTS) {
       // MobileBrowseSkeleton is the reference implementation and keeps its
-      // tonal opacities; every other skeleton derives contrast from color.
-      if (name === "MobileBrowseSkeleton.tsx") continue;
+      // tonal opacities, but only through the shared named constants; every
+      // other skeleton derives contrast from color.
       expect(readComponent(name)).not.toContain("opacity: 0.");
     }
+    expect(readComponent("MobileBrowseSkeleton.tsx")).toContain(
+      "opacity: SKELETON_SURFACE_OPACITY",
+    );
   });
 
   test("library and search cards reserve MangaCard's copy block", () => {

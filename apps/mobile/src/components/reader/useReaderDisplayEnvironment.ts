@@ -20,13 +20,20 @@ const KEEP_AWAKE_TAG = "nemu-reader";
  */
 export function useReaderDisplayEnvironment({
   keepAwakeEnabled,
+  keepAwakeReady = true,
   lockPortraitEnabled,
 }: {
   keepAwakeEnabled: boolean;
+  /**
+   * Hold the keep-awake activation until there is something to read. A chapter
+   * that never resolves its pages (offline, blocked source, an error the user
+   * walks away from) should not pin the display on.
+   */
+  keepAwakeReady?: boolean;
   lockPortraitEnabled: boolean;
 }): void {
   useEffect(() => {
-    if (!keepAwakeEnabled) return;
+    if (!keepAwakeEnabled || !keepAwakeReady) return;
     void KeepAwake.activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(
       () => undefined,
     );
@@ -35,7 +42,7 @@ export function useReaderDisplayEnvironment({
         () => undefined,
       );
     };
-  }, [keepAwakeEnabled]);
+  }, [keepAwakeEnabled, keepAwakeReady]);
 
   useEffect(() => {
     if (lockPortraitEnabled) {

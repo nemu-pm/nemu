@@ -8,7 +8,6 @@ import {
   READER_CHROME_PANEL_MIN_HEIGHT,
   READER_CHROME_PANEL_VERTICAL_PADDING,
   READER_CHROME_LOADING_OPACITY,
-  READER_CHROME_PAGE_COUNT_PLACEHOLDER,
   READER_CHROME_POPOVER_GAP,
   getMobileReaderTitle,
   isReaderChromeLoading,
@@ -128,21 +127,30 @@ describe("reader chrome loading state", () => {
     expect(READER_CHROME_LOADING_OPACITY).toBeCloseTo(0.4);
   });
 
-  test("em-dashes the page counter until the page list resolves", () => {
+  test("hides the page counter until the page list resolves", () => {
+    // No "— / —" placeholder: an unresolved chapter shows the ring spinner
+    // alone, and the counter appears only once it can count something.
     expect(
       readerChromePageCountLabel({
         pagesStatus: "loading",
         pageNumber: 1,
         pageCount: 38,
       }),
-    ).toBe(READER_CHROME_PAGE_COUNT_PLACEHOLDER);
+    ).toBeNull();
+    expect(
+      readerChromePageCountLabel({
+        pagesStatus: "error",
+        pageNumber: 1,
+        pageCount: 38,
+      }),
+    ).toBeNull();
     expect(
       readerChromePageCountLabel({
         pagesStatus: "ready",
         pageNumber: 0,
         pageCount: 0,
       }),
-    ).toBe(READER_CHROME_PAGE_COUNT_PLACEHOLDER);
+    ).toBeNull();
     expect(
       readerChromePageCountLabel({
         pagesStatus: "ready",

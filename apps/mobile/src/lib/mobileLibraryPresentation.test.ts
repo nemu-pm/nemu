@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  entryHasAnyUpdate,
+  getEntryTitle,
   makeMangaProgressId,
   makeSourceLinkId,
   type LibraryEntry,
@@ -8,10 +10,12 @@ import {
 } from "@/data/schema";
 import {
   buildMobileEntryProgressMap,
+  buildMobileLibraryEntryProgressMaps,
   buildMobileProgressIndex,
   getMobileCollectionBookSubtitle,
   getMobileEntryMostRecentSource,
   getMobileLibraryEmptyState,
+  getMobileEntryAddedAt,
   getMobileLibraryProgressInfo,
   paginateMobileLibraryMergeCandidates,
   shouldRenderMobileLibrarySkeleton,
@@ -472,5 +476,177 @@ describe("mobile library presentation", () => {
         hasError: false,
       }),
     ).toBe(false);
+  });
+});
+
+// The pre-Schwartzian comparator, kept verbatim as the ordering oracle.
+function legacySortMobileLibraryEntries(
+  entries: LibraryEntry[],
+  progressIndex: ReturnType<typeof buildMobileProgressIndex>
+): LibraryEntry[] {
+  return [...entries].sort((a, b) => {
+    const aUpdated = entryHasAnyUpdate(a);
+    const bUpdated = entryHasAnyUpdate(b);
+    if (aUpdated !== bUpdated) return aUpdated ? -1 : 1;
+
+    const aProgress = buildMobileEntryProgressMap(a, progressIndex);
+    const bProgress = buildMobileEntryProgressMap(b, progressIndex);
+    const aSource = getMobileEntryMostRecentSource(a, aProgress);
+    const bSource = getMobileEntryMostRecentSource(b, bProgress);
+    const aReadTime = aSource ? (aProgress.get(aSource.id)?.lastReadAt ?? 0) : 0;
+    const bReadTime = bSource ? (bProgress.get(bSource.id)?.lastReadAt ?? 0) : 0;
+    const aTime = Math.max(aReadTime, getMobileEntryAddedAt(a));
+    const bTime = Math.max(bReadTime, getMobileEntryAddedAt(b));
+    if (aTime !== bTime) return bTime - aTime;
+
+    return getEntryTitle(a).localeCompare(getEntryTitle(b));
+  });
+}
+
+function aliasProgress(
+  libraryItemId: string,
+  sourceMangaId: string,
+  lastReadAt: number,
+  sourceId: string
+): LocalMangaProgress {
+  const registryId = "aidoku-community";
+  return {
+    id: makeMangaProgressId(registryId, sourceId, sourceMangaId),
+    registryId,
+    sourceId,
+    sourceMangaId,
+    libraryItemId,
+    lastReadAt,
+    lastReadSourceChapterId: "c4",
+    lastReadChapterNumber: 4,
+    updatedAt: lastReadAt,
+  };
+}
+
+describe("mobile library entry progress indexing", () => {
+  test("resolves a renamed-source alias without scanning every progress row", () => {
+    const link = sourceLink("alias-manga");
+    const aliased = entry("alias-item", 5, [link]);
+    const progressIndex = buildMobileProgressIndex([
+      // Same registry + sourceMangaId, different sourceId: the direct id
+      // lookup misses and only the library alias can resolve it.
+      aliasProgress("alias-item", "alias-manga", 700, "en.example-renamed"),
+      aliasProgress("other-item", "other-manga", 900, "en.example"),
+    ]);
+
+    const resolved = buildMobileEntryProgressMap(aliased, progressIndex);
+    expect(resolved.get(link.id)?.lastReadAt).toBe(700);
+  });
+
+  test("leaves an ambiguous alias unresolved, as the linear scan did", () => {
+    const link = sourceLink("alias-manga");
+    const aliased = entry("alias-item", 5, [link]);
+    const progressIndex = buildMobileProgressIndex([
+      aliasProgress("alias-item", "alias-manga", 700, "en.example-a"),
+      aliasProgress("alias-item", "alias-manga", 800, "en.example-b"),
+    ]);
+
+    expect(buildMobileEntryProgressMap(aliased, progressIndex).size).toBe(0);
+  });
+
+  test("precomputed entry progress maps match per-entry construction", () => {
+    const first = entry("first", 5, [sourceLink("first")]);
+    const second = entry("second", 6, [sourceLink("second")]);
+    const progressIndex = buildMobileProgressIndex([
+      progress("first", 100),
+      aliasProgress("second", "second", 200, "en.example-renamed"),
+    ]);
+    const maps = buildMobileLibraryEntryProgressMaps(
+      [first, second],
+      progressIndex
+    );
+
+    expect([...maps.keys()]).toEqual(["first", "second"]);
+    for (const item of [first, second]) {
+      expect([...maps.get(item.item.libraryItemId)!.entries()]).toEqual([
+        ...buildMobileEntryProgressMap(item, progressIndex).entries(),
+      ]);
+    }
+  });
+});
+
+describe("mobile library sort parity", () => {
+  const updatedTie = entry(
+    "updated-tie",
+    50,
+    [
+      sourceLink("updated-tie", {
+        latestChapter: { id: "c5", chapterNumber: 5 },
+        updateAckChapter: { id: "c3", chapterNumber: 3 },
+      }),
+    ],
+    "Alpha"
+  );
+  const updatedTieTwin = entry(
+    "updated-tie-twin",
+    50,
+    [
+      sourceLink("updated-tie-twin", {
+        latestChapter: { id: "c9", chapterNumber: 9 },
+        updateAckChapter: { id: "c2", chapterNumber: 2 },
+      }),
+    ],
+    "Beta"
+  );
+  const aliasRead = entry("alias-read", 10, [sourceLink("alias-read")], "Gamma");
+  const ambiguousAlias = entry(
+    "ambiguous",
+    40,
+    [sourceLink("ambiguous")],
+    "Delta"
+  );
+  const plainTie = entry("plain-tie", 40, [sourceLink("plain-tie")], "Epsilon");
+  const directRead = entry("direct-read", 1, [sourceLink("direct-read")], "Zeta");
+  const noProgress = entry("no-progress", 5, [sourceLink("no-progress")], "Eta");
+  const entries = [
+    noProgress,
+    directRead,
+    plainTie,
+    ambiguousAlias,
+    aliasRead,
+    updatedTieTwin,
+    updatedTie,
+  ];
+  const progressIndex = buildMobileProgressIndex([
+    progress("direct-read", 900),
+    aliasProgress("alias-read", "alias-read", 40, "en.example-renamed"),
+    aliasProgress("ambiguous", "ambiguous", 5_000, "en.example-a"),
+    aliasProgress("ambiguous", "ambiguous", 6_000, "en.example-b"),
+  ]);
+
+  test("orders exactly like the per-comparison implementation", () => {
+    const ids = (list: LibraryEntry[]) =>
+      list.map((item) => item.item.libraryItemId);
+
+    expect(ids(sortMobileLibraryEntries(entries, progressIndex))).toEqual(
+      ids(legacySortMobileLibraryEntries(entries, progressIndex))
+    );
+  });
+
+  test("orders identically when the progress maps are precomputed", () => {
+    const maps = buildMobileLibraryEntryProgressMaps(entries, progressIndex);
+
+    expect(
+      sortMobileLibraryEntries(entries, progressIndex, maps).map(
+        (item) => item.item.libraryItemId
+      )
+    ).toEqual(
+      sortMobileLibraryEntries(entries, progressIndex).map(
+        (item) => item.item.libraryItemId
+      )
+    );
+  });
+
+  test("does not mutate the entries it is given", () => {
+    const input = [...entries];
+
+    sortMobileLibraryEntries(input, progressIndex);
+
+    expect(input).toEqual(entries);
   });
 });

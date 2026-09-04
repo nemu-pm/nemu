@@ -6,19 +6,27 @@ import {
   MobileNativeSheetScaffold,
   NemuPressable,
   NemuText,
+  radius,
   useNemuTheme,
   nemuFontWeight,
 } from "@/design-system";
+import { normalizeMobileSourceIconUri } from "@/lib/mobileSourceIconResolution";
 
-export type MangaQuickAction = {
-  id: "markAllRead" | "addToCollection" | "openInSource" | "remove";
+export type QuickAction<TId extends string = string> = {
+  id: TId;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   destructive?: boolean;
   onPress: () => void;
 };
 
-function QuickActionRow({ action }: { action: MangaQuickAction }) {
+/**
+ * Which artwork the header anchors to: a 40x60 manga cover, or a 40pt source
+ * mark. The variant also owns the two spacing beats that differ between them.
+ */
+type QuickActionSheetVariant = "cover" | "icon";
+
+function QuickActionRow({ action }: { action: QuickAction }) {
   const { tokens } = useNemuTheme();
   const [pressed, setPressed] = useState(false);
   const color = action.destructive ? tokens.danger : tokens.foreground;
@@ -58,35 +66,47 @@ function QuickActionRow({ action }: { action: MangaQuickAction }) {
 }
 
 /**
- * Compact quick-action sheet opened by long-pressing a library manga card.
- * The header anchors the sheet to the pressed card (40x60 cover, title,
- * source + progress), and the rows are plain: no card fill, no border, a bare
- * 20pt tinted glyph 12pt from a 15/500 label.
+ * Compact quick-action sheet opened by long-pressing a library/search manga
+ * card or a Browse source card. The header anchors the sheet to the pressed
+ * card (artwork, title, optional subtitle), and the rows are plain: no card
+ * fill, no border, a bare 20pt tinted glyph 12pt from a 15/500 label.
+ *
+ * A short press still opens the card's destination, so nothing here duplicates
+ * that.
  */
-export function MangaQuickActionSheet({
+export function QuickActionSheet<TId extends string>({
   visible,
+  variant,
   title,
   subtitle,
-  cover,
-  coverHeaders,
+  image,
+  imageHeaders,
   actions,
+  testID,
   onClose,
   onDismiss,
 }: {
   visible: boolean;
+  variant: QuickActionSheetVariant;
   title: string;
   subtitle?: string;
-  cover?: string;
-  coverHeaders?: Record<string, string>;
-  actions: MangaQuickAction[];
+  image?: string | null;
+  imageHeaders?: Record<string, string>;
+  actions: QuickAction<TId>[];
+  testID: string;
   onClose: () => void;
   onDismiss?: () => void;
 }) {
   const { tokens } = useNemuTheme();
   const { fontScale, height } = useWindowDimensions();
+  const isIcon = variant === "icon";
+  const uri = isIcon ? normalizeMobileSourceIconUri(image) : (image ?? undefined);
   const effectiveFontScale = Math.max(1, Math.min(fontScale, 2));
   const estimatedHeight = 84 + actions.length * 44 * effectiveFontScale;
   const scroll = estimatedHeight > Math.max(280, height * 0.72);
+  const placeholder = isIcon ? (
+    <Ionicons name="globe-outline" size={22} color={tokens.mutedForeground} />
+  ) : null;
 
   return (
     <MobileNativeSheetScaffold
@@ -95,18 +115,28 @@ export function MangaQuickActionSheet({
       onDismiss={onDismiss}
       snapPoints={scroll ? ["48%"] : undefined}
       scroll={scroll}
-      contentStyle={styles.sheet}
-      testID="MangaQuickActionSheet"
+      contentStyle={isIcon ? styles.iconSheet : styles.sheet}
+      testID={testID}
     >
-      <View style={styles.header}>
-        <View style={[styles.thumb, { backgroundColor: tokens.muted }]}>
-          {cover ? (
+      <View style={isIcon ? styles.iconHeader : styles.header}>
+        <View
+          style={[
+            isIcon ? styles.iconThumb : styles.thumb,
+            {
+              backgroundColor: isIcon ? tokens.sourceIconGlass : tokens.muted,
+            },
+          ]}
+        >
+          {uri ? (
             <MobileCachedImage
-              source={{ uri: cover, headers: coverHeaders }}
+              fallback={placeholder ?? undefined}
+              source={{ uri, headers: imageHeaders }}
               style={styles.thumbImage}
               uriOwnership="source"
             />
-          ) : null}
+          ) : (
+            placeholder
+          )}
         </View>
         <View style={styles.headerText}>
           <NemuText
@@ -137,24 +167,50 @@ export function MangaQuickActionSheet({
   );
 }
 
+const sheetBase = {
+  paddingHorizontal: 16,
+  paddingBottom: 12,
+} as const;
+
+const headerBase = {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 12,
+  paddingHorizontal: 4,
+  paddingTop: 2,
+} as const;
+
 const styles = StyleSheet.create({
   sheet: {
+    ...sheetBase,
     gap: 2,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+  },
+  iconSheet: {
+    ...sheetBase,
+    // No inter-row gap: each row already carries its own 44pt box with 6pt of
+    // vertical padding.
+    gap: 0,
   },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 4,
-    paddingTop: 2,
+    ...headerBase,
     paddingBottom: 10,
+  },
+  iconHeader: {
+    ...headerBase,
+    paddingBottom: 12,
   },
   thumb: {
     width: 40,
     height: 60,
     borderRadius: 6,
+    overflow: "hidden",
+  },
+  iconThumb: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.md,
     overflow: "hidden",
   },
   thumbImage: {

@@ -1,6 +1,7 @@
 import type { AppLanguage, ChapterSummary, LocalChapterProgress } from "@/data/schema";
 import {
   compareMobileLanguageCodes,
+  getLanguagePriorityOrder,
   DEFAULT_APP_LANGUAGE,
 } from "./mobileLanguageSettings";
 
@@ -40,8 +41,11 @@ export function getMobileChapterLanguages(
   chapters: ChapterSummary[],
   appLanguage: AppLanguage = DEFAULT_APP_LANGUAGE,
 ): string[] {
+  const priorityOrder = getLanguagePriorityOrder(appLanguage);
   return [...new Set(chapters.map((chapter) => chapter.lang).filter((lang): lang is string => Boolean(lang)))]
-    .sort((left, right) => compareMobileLanguageCodes(left, right, appLanguage));
+    .sort((left, right) =>
+      compareMobileLanguageCodes(left, right, appLanguage, priorityOrder),
+    );
 }
 
 export function filterAndSortMobileChapters(

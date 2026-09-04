@@ -31,6 +31,8 @@ export type MobileSourceLoginSheetProps = {
   submitting: boolean;
   error: string | null;
   onClose: () => void;
+  /** Called when the standalone sheet's native dismissal has fully finished. */
+  onDismiss?: () => void;
   onSubmit: (submission: MobileSourceLoginSubmission) => void;
 };
 
@@ -41,6 +43,7 @@ export function MobileSourceLoginSheet({
   submitting,
   error,
   onClose,
+  onDismiss,
   onSubmit,
 }: MobileSourceLoginSheetProps) {
   const { tokens } = useNemuTheme();
@@ -217,6 +220,7 @@ export function MobileSourceLoginSheet({
       // Pan-down is disabled while credentials are in flight; the explicit
       // Cancel action remains available so the request can be fenced safely.
       onRequestClose={onClose}
+      onDismiss={onDismiss}
       title={title}
       subtitle={subtitle}
       dismissLabel={strings.common.cancel}

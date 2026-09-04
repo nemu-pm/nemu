@@ -44,6 +44,10 @@ import {
   saveCachedRegistryIndex,
 } from "@/sources/mobileRegistryIndexCache";
 import {
+  createMobileRegistryCatalogScheduler,
+  MOBILE_REGISTRY_CATALOG_FRESHNESS_MS,
+} from "./mobileRegistryCatalogScheduler";
+import {
   cacheSourcePackage,
   clearCachedSourcePackage,
   clearCachedSourcePackages,
@@ -56,6 +60,7 @@ import {
   resolveMobileSourcePackageCacheKey,
 } from "@/sources/mobileSourceRuntime";
 import { defaultMobileSourceSessionCache } from "@/sources/mobileSourceExecutorCache";
+import { registerMobileSourceProfileTransitionHandler } from "@/sources/mobileSourceProfileScope";
 import {
   clearMobileAidokuSandboxDataForProfile,
   clearMobileAidokuSandboxDataForSource,
@@ -64,6 +69,11 @@ import { clearMobileSourceImageRequestCache } from "@/sources/mobileSourceImages
 import { getMobileInstalledSourceSettingsKeys } from "@/lib/mobileInstalledSourceKeys";
 import { clearMobileImageCache } from "@/lib/mobileImageCache";
 import { clearMobileReaderPageListCache } from "@/sources/mobileReaderPageListCache";
+import { clearMobileSourceListingCache } from "@/lib/mobileSourceListingCache";
+import {
+  clearMobileSourceDetailCache,
+  clearMobileSourceDetailCacheForSource,
+} from "@/lib/mobileSourceDetailCache";
 import { clearMobileJapaneseLearningTtsCache } from "@/lib/mobileJapaneseLearningTts";
 import { clearMobileDualReaderDhashCache } from "@/lib/mobileDualReaderDhashCache";
 import { findMobileInstalledSourceForRegistrySource } from "@/lib/mobileBrowseSources";
@@ -907,8 +917,8 @@ export function useSourceRegistries(): LoadState<SourceRegistry[]> {
   return { data, loading, error, reload };
 }
 
-export const DEFAULT_HAPTICS_FEEDBACK_ENABLED = true;
-export const DEFAULT_CHAPTER_COMPLETE_CELEBRATION = false;
+const DEFAULT_HAPTICS_FEEDBACK_ENABLED = true;
+const DEFAULT_CHAPTER_COMPLETE_CELEBRATION = false;
 
 /**
  * User-facing feedback switches: the haptics master gate and the
@@ -1251,6 +1261,8 @@ export function useMobileDataManagement(): {
           () => defaultMobileSourceSessionCache.clear(),
           clearMobileImageCache,
           clearMobileReaderPageListCache,
+          clearMobileSourceListingCache,
+          clearMobileSourceDetailCache,
           clearMobileJapaneseLearningTtsCache,
           clearMobileDualReaderDhashCache,
           clearMobileSourceImageRequestCache,
@@ -1460,14 +1472,106 @@ export function useMobileReaderPlugins(): LoadState<
   };
 }
 
-export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
+/**
+ * The one registry catalog every `useAvailableSources` consumer shares. Browse,
+ * the welcome wizard, and the Settings sources section can all be mounted at
+ * once; without this they each downloaded every registry index and each ran the
+ * silent source auto-update pass.
+ */
+const registryCatalogScheduler =
+  createMobileRegistryCatalogScheduler<MobileRegistrySource[]>();
+
+// A profile switch inside the freshness window would otherwise hand the new
+// account the previous profile's snapshot: `fetch` returns it without loading,
+// so `saveRegistry` never runs against the new profile database and the
+// "registries" event never fires.
+registerMobileSourceProfileTransitionHandler("registry-catalog-scheduler", () =>
+  registryCatalogScheduler.reset(),
+);
+
+async function loadMobileRegistryCatalog(
+  store: MobileDataStore,
+  signal: AbortSignal,
+): Promise<MobileRegistrySource[]> {
+  const isAccountMutationBlocked = () =>
+    Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId);
+  const sources = await fetchAllAidokuRegistrySources(AIDOKU_REGISTRIES, {
+    signal,
+  });
+  assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
+  await Promise.all(
+    AIDOKU_REGISTRIES.map((registry) =>
+      store.saveRegistry({
+        id: registry.id,
+        name: registry.name,
+        type: "url" as const,
+        url: registry.indexUrl,
+      }),
+    ),
+  );
+  assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
+  emitMobileDataChanged("registries");
+  void saveCachedRegistryIndex(sources);
+  return sources;
+}
+
+/**
+ * Download every package whose installed copy is behind the catalog. Runs at
+ * most once per catalog fetch across all mounted consumers.
+ */
+async function runMobileRegistrySourceUpdatePass(
+  store: MobileDataStore,
+  sources: MobileRegistrySource[],
+  signal: AbortSignal,
+): Promise<string[]> {
+  const isAccountMutationBlocked = () =>
+    Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId);
+  const installedSources = await store.getInstalledSources();
+  assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
+  const updateSources = findMobileSourceUpdates(installedSources, sources);
+  if (updateSources.length === 0) return [];
+
+  const updatedNames = await Promise.all(
+    updateSources.map(async (source) => {
+      try {
+        const saved = await saveMobileRegistrySourceInstall(store, source, {
+          signal,
+          updateOnly: true,
+        });
+        return saved ? source.name : null;
+      } catch (nextError) {
+        if (isMobileSourceInstallCancellation(nextError)) throw nextError;
+        console.warn(
+          `[MobileSources] Failed to update ${source.registryId}:${source.id}:`,
+          errorMessage(nextError),
+        );
+        return null;
+      }
+    }),
+  );
+  assertMobileSourceInstallActive(signal, isAccountMutationBlocked);
+  return updatedNames.filter((name): name is string => name !== null);
+}
+
+export function useAvailableSources(
+  options: {
+    /**
+     * Screens that only need the catalog for one section pass `false` while
+     * that section is closed, so opening Settings never starts registry
+     * discovery on its own.
+     */
+    enabled?: boolean;
+  } = {},
+): LoadState<MobileRegistrySource[]> & {
   sourceUpdateNotice: MobileSourceUpdateNotice | null;
   networkAccessState: NemuNetworkAccessState;
   catalogCachedAt: number | null;
 } {
+  const enabled = options.enabled ?? true;
   const store = useMobileDataStore();
   const [data, setData] = useState<MobileRegistrySource[]>([]);
-  const [loading, setLoading] = useState(true);
+  // A disabled consumer never starts a load, so it must not report one either.
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const [sourceUpdateNotice, setSourceUpdateNotice] =
     useState<MobileSourceUpdateNotice | null>(null);
@@ -1480,129 +1584,109 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
     );
   const reloadAbortRef = useRef<AbortController | null>(null);
   const reloadRunRef = useRef(0);
-  const lastForegroundReloadAtRef = useRef(0);
   const dataRef = useRef(data);
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
 
-  const reload = useCallback(async () => {
-    reloadAbortRef.current?.abort();
-    const controller = new AbortController();
-    const run = reloadRunRef.current + 1;
-    reloadRunRef.current = run;
-    reloadAbortRef.current = controller;
-    const isCurrent = () =>
-      reloadAbortRef.current === controller && reloadRunRef.current === run;
-    const hasPaintedData = dataRef.current.length > 0;
-    try {
-      if (!hasPaintedData) {
-        setLoading(true);
-      }
-      setError(null);
-      setSourceUpdateNotice(null);
+  const runReload = useCallback(
+    async (ttlMs: number) => {
+      reloadAbortRef.current?.abort();
+      const controller = new AbortController();
+      const run = reloadRunRef.current + 1;
+      reloadRunRef.current = run;
+      reloadAbortRef.current = controller;
+      const isCurrent = () =>
+        reloadAbortRef.current === controller && reloadRunRef.current === run;
+      const hasPaintedData = dataRef.current.length > 0;
+      try {
+        if (!hasPaintedData) {
+          setLoading(true);
+        }
+        setError(null);
+        setSourceUpdateNotice(null);
 
-      // Stale-while-revalidate: paint the persisted catalog immediately so
-      // cold starts and offline launches see a usable source list while the
-      // network refresh is still in flight.
-      if (!hasPaintedData) {
-        const cachedSnapshot = await loadCachedRegistryIndexSnapshot();
-        const cached = cachedSnapshot?.sources ?? (await loadCachedRegistryIndex());
+        // Stale-while-revalidate: paint the persisted catalog immediately so
+        // cold starts and offline launches see a usable source list while the
+        // network refresh is still in flight.
+        if (!hasPaintedData) {
+          const cachedSnapshot = await loadCachedRegistryIndexSnapshot();
+          const cached = cachedSnapshot?.sources ?? (await loadCachedRegistryIndex());
+          if (!isCurrent()) return;
+          if (cached && cached.length > 0) {
+            setData(cached);
+            setCatalogCachedAt(cachedSnapshot?.savedAt ?? null);
+            setLoading(false);
+          }
+        }
+
+        const { fetchId, value: sources } = await registryCatalogScheduler.fetch(
+          (signal) => loadMobileRegistryCatalog(store, signal),
+          { ttlMs, signal: controller.signal },
+        );
+
+        // Paint the fresh catalog before downloading update packages so slow
+        // or sequential-feeling updates can't hold the list hostage.
         if (!isCurrent()) return;
-        if (cached && cached.length > 0) {
-          setData(cached);
-          setCatalogCachedAt(cachedSnapshot?.savedAt ?? null);
+        setSourceUpdateNotice(null);
+        setCatalogCachedAt(null);
+        setData(
+          (current) =>
+            stabilizeListReferences(
+              current,
+              sources,
+              (source) => `${source.registryId}:${source.id}`,
+            ) as MobileRegistrySource[],
+        );
+
+        const pass = await registryCatalogScheduler.runUpdatePass(
+          fetchId,
+          // The pass runs on the scheduler's own signal: this consumer
+          // unmounting must not cancel the install pass every other consumer
+          // is waiting on (and permanently mark this snapshot as passed).
+          (passSignal) =>
+            runMobileRegistrySourceUpdatePass(store, sources, passSignal),
+          { signal: controller.signal },
+        );
+        if (!isCurrent() || !pass.ran) return;
+        const names = pass.value ?? [];
+        if (names.length > 0) {
+          emitMobileDataChanged("sources");
+          setSourceUpdateNotice({ id: Date.now(), names });
+        }
+      } catch (nextError) {
+        if (isCurrent() && !isMobileSourceInstallCancellation(nextError)) {
+          setError(errorMessage(nextError));
+        }
+        throw nextError;
+      } finally {
+        if (isCurrent()) {
+          reloadAbortRef.current = null;
           setLoading(false);
         }
       }
+    },
+    [store],
+  );
 
-      const sources = await fetchAllAidokuRegistrySources(AIDOKU_REGISTRIES, {
-        signal: controller.signal,
-      });
-      assertMobileSourceInstallActive(controller.signal, () =>
-        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
-      );
-      await Promise.all(
-        AIDOKU_REGISTRIES.map((registry) =>
-          store.saveRegistry({
-            id: registry.id,
-            name: registry.name,
-            type: "url" as const,
-            url: registry.indexUrl,
-          }),
-        ),
-      );
-      assertMobileSourceInstallActive(controller.signal, () =>
-        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
-      );
-      emitMobileDataChanged("registries");
-      void saveCachedRegistryIndex(sources);
-      const installedSources = await store.getInstalledSources();
-      assertMobileSourceInstallActive(controller.signal, () =>
-        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
-      );
-      const updateSources = findMobileSourceUpdates(installedSources, sources);
-
-      // Paint the fresh catalog before downloading update packages so slow
-      // or sequential-feeling updates can't hold the list hostage.
-      if (!isCurrent()) return;
-      setSourceUpdateNotice(null);
-      setCatalogCachedAt(null);
-      setData(
-        (current) =>
-          stabilizeListReferences(
-            current,
-            sources,
-            (source) => `${source.registryId}:${source.id}`,
-          ) as MobileRegistrySource[],
-      );
-      if (updateSources.length === 0) return;
-
-      const updatedNames = await Promise.all(
-        updateSources.map(async (source) => {
-          try {
-            const saved = await saveMobileRegistrySourceInstall(store, source, {
-              signal: controller.signal,
-              updateOnly: true,
-            });
-            return saved ? source.name : null;
-          } catch (nextError) {
-            if (isMobileSourceInstallCancellation(nextError)) throw nextError;
-            console.warn(
-              `[MobileSources] Failed to update ${source.registryId}:${source.id}:`,
-              errorMessage(nextError),
-            );
-            return null;
-          }
-        }),
-      );
-      assertMobileSourceInstallActive(controller.signal, () =>
-        Boolean(getMobileDataProfileSnapshot().pendingCleanupProfileId),
-      );
-      if (!isCurrent()) return;
-      const names = updatedNames.filter(
-        (name): name is string => name !== null,
-      );
-      if (names.length > 0) {
-        emitMobileDataChanged("sources");
-        setSourceUpdateNotice({ id: Date.now(), names });
-      }
-    } catch (nextError) {
-      if (isCurrent() && !isMobileSourceInstallCancellation(nextError)) {
-        setError(errorMessage(nextError));
-      }
-      throw nextError;
-    } finally {
-      if (isCurrent()) {
-        reloadAbortRef.current = null;
-        setLoading(false);
-      }
-    }
-  }, [store]);
+  // The public reload is always an explicit user action (pull-to-refresh, an
+  // error retry), so it bypasses the shared freshness window.
+  const reload = useCallback(() => runReload(0), [runReload]);
 
   useEffect(() => {
-    lastForegroundReloadAtRef.current = Date.now();
-    ignoreReloadError(reload);
+    if (!enabled) {
+      // Disabling mid-load aborts the run, and the aborted run's `finally`
+      // sees a stale `isCurrent()` so it never clears the flag. Without this
+      // a consumer that closes its section while the catalog is still loading
+      // reports `loading: true` until it is re-enabled.
+      setLoading(false);
+      return;
+    }
+    const reloadIfStale = () =>
+      ignoreReloadError(() =>
+        runReload(MOBILE_REGISTRY_CATALOG_FRESHNESS_MS),
+      );
+    reloadIfStale();
 
     let previousAppState = AppState.currentState;
     const appStateSubscription = AppState.addEventListener(
@@ -1611,13 +1695,9 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
         const returnedToForeground =
           previousAppState !== "active" && nextAppState === "active";
         previousAppState = nextAppState;
-        if (
-          returnedToForeground &&
-          Date.now() - lastForegroundReloadAtRef.current >= 5 * 60_000
-        ) {
-          lastForegroundReloadAtRef.current = Date.now();
-          ignoreReloadError(reload);
-        }
+        // The freshness window itself is shared, so a second mounted consumer
+        // returning to the foreground cannot re-trigger the fetch.
+        if (returnedToForeground) reloadIfStale();
       },
     );
 
@@ -1667,7 +1747,7 @@ export function useAvailableSources(): LoadState<MobileRegistrySource[]> & {
       reloadAbortRef.current = null;
       reloadRunRef.current += 1;
     };
-  }, [reload]);
+  }, [enabled, reload, runReload]);
 
   return {
     data,
@@ -1797,6 +1877,14 @@ export function useSourceInstaller(): {
             settingsKeys,
             resetSourceSettings: (settingsKey) =>
               store.resetSourceSettings(settingsKey),
+            clearSourceDetailCache: () =>
+              clearMobileSourceDetailCacheForSource(
+                existing
+                  ? makeMobileRuntimeSourceKey(
+                      normalizeInstalledSource(existing),
+                    )
+                  : key,
+              ),
             removeInstalledSource: () =>
               store.removeInstalledSource(
                 removeId,

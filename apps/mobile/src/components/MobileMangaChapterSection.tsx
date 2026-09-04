@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { MobileChapterGrid } from "@/components/MobileChapterGrid";
 import type { AppLanguage, ChapterSummary, LocalChapterProgress } from "@/data/schema";
 import {
@@ -8,6 +8,7 @@ import {
   useNemuTheme,
   NemuInlineEmptyState,
   NemuPressable,
+  NemuRingSpinner,
   radius,
 } from "@/design-system";
 import type { MobileChapterListPreference } from "@/lib/mobileChapterFilters";
@@ -20,6 +21,8 @@ type MobileMangaChapterSectionHeaderProps = {
   emptyTitle: string;
   hasChapters: boolean;
   loading?: boolean;
+  /** Announced by the loading ring while chapters refresh. */
+  loadingLabel?: string;
   notice?: ReactNode;
   sortAction?: ReactNode;
   sourceSelector?: ReactNode;
@@ -206,6 +209,7 @@ export function MobileMangaChapterSectionHeader({
   emptyTitle,
   hasChapters,
   loading = false,
+  loadingLabel,
   notice,
   sortAction,
   sourceSelector,
@@ -221,7 +225,11 @@ export function MobileMangaChapterSectionHeader({
           {title}
         </Text>
         {loading ? (
-          <ActivityIndicator size="small" color={tokens.primary} />
+          <NemuRingSpinner
+            size={16}
+            color={tokens.primary}
+            accessibilityLabel={loadingLabel}
+          />
         ) : (
           sortAction
         )}
@@ -236,7 +244,7 @@ export function MobileMangaChapterSectionHeader({
   );
 }
 
-export function MobileMangaChapterRow({
+export const MobileMangaChapterRow = memo(function MobileMangaChapterRow({
   appLanguage,
   busy,
   chapters,
@@ -261,7 +269,7 @@ export function MobileMangaChapterRow({
       />
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   section: {

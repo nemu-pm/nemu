@@ -12,6 +12,12 @@ export type NativeBinaryCacheEntry = {
   id: string;
   size: number;
   modifiedAt: number;
+  /**
+   * Last read hit, when the cache tracked one. `expo-file-system`'s File API
+   * exposes `modificationTime` but cannot set it, so a read cannot touch the
+   * file itself; the cache supplies its own access timestamps instead.
+   */
+  lastAccessAt?: number;
 };
 
 function safeSize(size: number): number {
@@ -19,9 +25,28 @@ function safeSize(size: number): number {
 }
 
 /**
- * Selects expired entries first, then evicts the oldest remaining files until
- * both the byte and entry-count limits are satisfied. The native cache uses
- * file modification time, so replacement writes naturally refresh recency.
+ * Recency of an entry: the later of its write time and its last recorded read.
+ * Without the read signal a frequently displayed cover is evicted purely for
+ * being written long ago.
+ */
+export function nativeBinaryCacheEntryRecency(
+  entry: NativeBinaryCacheEntry,
+): number {
+  const modified = Number.isFinite(entry.modifiedAt)
+    ? entry.modifiedAt
+    : Number.NEGATIVE_INFINITY;
+  const accessed = Number.isFinite(entry.lastAccessAt)
+    ? (entry.lastAccessAt as number)
+    : Number.NEGATIVE_INFINITY;
+  const recency = Math.max(modified, accessed);
+  return Number.isFinite(recency) ? recency : Number.NaN;
+}
+
+/**
+ * Selects expired entries first, then evicts the least recently used remaining
+ * files until both the byte and entry-count limits are satisfied. Replacement
+ * writes refresh recency through the file's modification time; plain reads
+ * refresh it through `lastAccessAt`.
  */
 export function selectNativeBinaryCacheEvictions(
   entries: NativeBinaryCacheEntry[],
@@ -33,18 +58,26 @@ export function selectNativeBinaryCacheEvictions(
   protectedId?: string,
 ): string[] {
   const evicted = new Set<string>();
+  const recencyById = new Map(
+    entries.map((entry) => [entry.id, nativeBinaryCacheEntryRecency(entry)]),
+  );
+  const recencyOf = (entry: NativeBinaryCacheEntry) =>
+    recencyById.get(entry.id) ?? entry.modifiedAt;
   const oldestFirst = [...entries].sort((left, right) => {
-    if (left.modifiedAt !== right.modifiedAt) {
-      return left.modifiedAt - right.modifiedAt;
+    const leftRecency = recencyOf(left);
+    const rightRecency = recencyOf(right);
+    if (leftRecency !== rightRecency) {
+      return leftRecency - rightRecency;
     }
     return left.id.localeCompare(right.id);
   });
 
   for (const entry of oldestFirst) {
-    const age = Math.max(0, now - entry.modifiedAt);
+    const recency = recencyOf(entry);
+    const age = Math.max(0, now - recency);
     if (
       entry.id !== protectedId &&
-      (!Number.isFinite(entry.modifiedAt) || age > policy.maxAgeMs)
+      (!Number.isFinite(recency) || age > policy.maxAgeMs)
     ) {
       evicted.add(entry.id);
     }

@@ -6,12 +6,14 @@ import {
   assertMobileJapaneseLearningOcrEncodedImageLength,
   assertMobileJapaneseLearningOcrImageByteLength,
   bytesToBase64,
+  describeJapaneseLearningOcrError,
   getMobileOcrApiBase,
   parseMobileOcrResponse,
   runMobileJapaneseLearningOcr,
   textFromMobileOcrDetections,
   type MobileOcrDetection,
 } from "./mobileJapaneseLearningOcr";
+import { getMobileStrings } from "./mobileI18n";
 
 function detection(order: number, text: string): MobileOcrDetection {
   return {
@@ -187,5 +189,63 @@ describe("mobile Japanese Learning OCR", () => {
 
   test("normalizes OCR API base URLs", () => {
     expect(getMobileOcrApiBase("https://ocr.example///")).toBe("https://ocr.example");
+  });
+
+  test("classifies 5xx / timeout / network OCR failures as service-unavailable", () => {
+    const en = getMobileStrings("en");
+    const wrapped =
+      "Text detection failed. (OCR /ocr failed: 521 server error)";
+    const unavailable = describeJapaneseLearningOcrError(wrapped, en);
+
+    expect(unavailable.kind).toBe("unavailable");
+    expect(unavailable.title).toBe("Text recognition is unavailable");
+    expect(unavailable.description).toBe(
+      "The OCR service did not respond. Try again in a moment.",
+    );
+    expect(unavailable.diagnostic).toContain("OCR /ocr failed: 521");
+
+    for (const message of [
+      "OCR /ocr failed: 503 Service Unavailable",
+      "The request timed out.",
+      "Network request failed",
+    ]) {
+      expect(describeJapaneseLearningOcrError(message, en).kind).toBe(
+        "unavailable",
+      );
+    }
+
+    expect(
+      describeJapaneseLearningOcrError(new Error("fetch timeout"), en).kind,
+    ).toBe("unavailable");
+  });
+
+  test("keeps localized zh/ja copy and a generic fallback for other failures", () => {
+    const zh = getMobileStrings("zh");
+    const ja = getMobileStrings("ja");
+    const en = getMobileStrings("en");
+
+    expect(describeJapaneseLearningOcrError("OCR /ocr failed: 521", zh)).toMatchObject({
+      kind: "unavailable",
+      title: "文字识别暂时不可用",
+      description: "OCR 服务没有响应，请稍后重试。",
+    });
+    expect(describeJapaneseLearningOcrError("OCR /ocr failed: 521", ja)).toMatchObject({
+      kind: "unavailable",
+      title: "文字認識を利用できません",
+    });
+
+    const failed = describeJapaneseLearningOcrError(
+      "OCR response did not include detections.",
+      en,
+    );
+    expect(failed.kind).toBe("failed");
+    expect(failed.title).toBe("Text recognition failed");
+    expect(failed.description).toBe(
+      "Something went wrong while recognizing text. Try again in a moment.",
+    );
+    expect(failed.diagnostic).toContain("detections");
+
+    expect(describeJapaneseLearningOcrError(undefined, en).kind).toBe("failed");
+    expect(describeJapaneseLearningOcrError(undefined, en).diagnostic).toBeNull();
   });
 });

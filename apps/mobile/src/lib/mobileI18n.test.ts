@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { statSync } from "node:fs";
+import path from "node:path";
 import {
   formatMobileSettingsCount,
   formatMobileString,
@@ -607,10 +609,10 @@ describe("mobile i18n helpers", () => {
       ),
     ).toBe("Author 文本筛选");
     expect(
-      formatMobileString(getMobileStrings("ja").sourceBrowse.allFilters, {
+      formatMobileString(getMobileStrings("ja").feedback.noMoreResultsTotal, {
         count: 4,
       }),
-    ).toBe("4 件すべてのフィルター");
+    ).toBe("これ以上ありません · 全4件");
   });
 
   test("formats setting counts for plural and non-plural languages", () => {
@@ -673,5 +675,26 @@ describe("mobile i18n helpers", () => {
     expect(getMobileStrings("zh").library.collectionNotFoundDescription).toBe(
       "这个收藏可能已经被删除。",
     );
+  });
+});
+
+describe("mobile i18n module budget", () => {
+  // The three locale catalogs live in `mobileI18n.{en,zh,ja}.ts` and are
+  // `require`d lazily. This stem must stay types + helpers only: anything that
+  // lands here is evaluated on cold start (and in every worklet runtime).
+  const MOBILE_I18N_STEM_MAX_BYTES = 60 * 1024;
+
+  test("keeps the eagerly evaluated stem free of locale catalogs", () => {
+    const stem = path.join(import.meta.dir, "mobileI18n.ts");
+    expect(statSync(stem).size).toBeLessThanOrEqual(
+      MOBILE_I18N_STEM_MAX_BYTES,
+    );
+  });
+
+  test("each locale catalog lives in its own module", () => {
+    for (const locale of ["en", "zh", "ja"] as const) {
+      const file = path.join(import.meta.dir, `mobileI18n.${locale}.ts`);
+      expect(statSync(file).size).toBeGreaterThan(1024);
+    }
   });
 });

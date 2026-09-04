@@ -18,6 +18,7 @@ import {
 } from "./mobileSourceExecutor";
 import {
   defaultMobileSourceSessionCache,
+  MOBILE_SOURCE_SESSION_POOL_SIZE,
   type MobileSourceSessionCache,
 } from "./mobileSourceExecutorCache";
 import {
@@ -93,7 +94,22 @@ export type MobileLiveSearchOptions = {
 
 const MOBILE_SEARCH_IMAGE_REQUEST_CONCURRENCY = 4;
 const MOBILE_SEARCH_IMAGE_REQUEST_DEADLINE_MS = 2_000;
-export const MOBILE_LIVE_SEARCH_SOURCE_CONCURRENCY = 3;
+/**
+ * Sources searched at once.
+ *
+ * Held one below the session pool so a multi-source search cannot evict every
+ * warm session: at pool size N the fan-out compiles at most N-1 runtimes and
+ * leaves room for a session the reader still has pinned. Never below 1.
+ */
+export function resolveMobileLiveSearchSourceConcurrency(
+  poolSize: number,
+): number {
+  if (!Number.isFinite(poolSize)) return 1;
+  return Math.max(1, Math.trunc(poolSize) - 1);
+}
+
+export const MOBILE_LIVE_SEARCH_SOURCE_CONCURRENCY =
+  resolveMobileLiveSearchSourceConcurrency(MOBILE_SOURCE_SESSION_POOL_SIZE);
 
 function boundedPositiveInteger(
   value: number | undefined,
@@ -456,7 +472,7 @@ export async function searchMobileSource(
 
   return cache.withSession(
     normalized,
-    { ...options.executor, settings },
+    { ...options.executor, settings, signal: options.signal },
     async (session): Promise<MobileLiveSearchGroup> => {
       if (options.signal?.aborted) {
         const error = new Error("The source search was aborted.");

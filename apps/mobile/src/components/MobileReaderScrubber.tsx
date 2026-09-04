@@ -172,6 +172,8 @@ export function MobileReaderScrubber({
     : strings.reader.nextPage;
   const lastMenuPageHapticRef = useRef(clampedScrubIndex);
   const lastPreviewPageHapticRef = useRef<number | null>(null);
+  const pendingPreviewRatioRef = useRef<number | null>(null);
+  const previewFrameRef = useRef<number | null>(null);
   const [previewPageIndex, setPreviewPageIndex] = useState<number | null>(null);
 
   useEffect(() => {
@@ -263,7 +265,7 @@ export function MobileReaderScrubber({
     [scrubberDirection],
   );
 
-  const publishPreviewForRatio = useCallback(
+  const publishPreviewForRatioNow = useCallback(
     (ratio: number) => {
       const logicalProgress = logicalProgressForVisualRatio(ratio);
       const nextScrubIndex = continuousScroll
@@ -296,12 +298,42 @@ export function MobileReaderScrubber({
       scrubCount,
     ],
   );
+  const publishPreviewForRatioNowRef = useRef(publishPreviewForRatioNow);
+  useEffect(() => {
+    publishPreviewForRatioNowRef.current = publishPreviewForRatioNow;
+  }, [publishPreviewForRatioNow]);
+
+  const cancelPendingPreviewFrame = useCallback(() => {
+    if (previewFrameRef.current != null) {
+      cancelAnimationFrame(previewFrameRef.current);
+      previewFrameRef.current = null;
+    }
+    pendingPreviewRatioRef.current = null;
+  }, []);
+
+  // A pan emits far more moves than the display has frames, and each publish
+  // lifted a page index all the way to the reader screen. Coalescing to one
+  // publish per frame keeps the newest ratio and drops the rest.
+  const publishPreviewForRatio = useCallback((ratio: number) => {
+    pendingPreviewRatioRef.current = ratio;
+    if (previewFrameRef.current != null) return;
+    previewFrameRef.current = requestAnimationFrame(() => {
+      previewFrameRef.current = null;
+      const pendingRatio = pendingPreviewRatioRef.current;
+      pendingPreviewRatioRef.current = null;
+      if (pendingRatio == null) return;
+      publishPreviewForRatioNowRef.current(pendingRatio);
+    });
+  }, []);
+
+  useEffect(() => cancelPendingPreviewFrame, [cancelPendingPreviewFrame]);
 
   const clearPreview = useCallback(() => {
+    cancelPendingPreviewFrame();
     lastPreviewPageHapticRef.current = null;
     setPreviewPageIndex(null);
     onPreviewPageIndexChange?.(null);
-  }, [onPreviewPageIndexChange]);
+  }, [cancelPendingPreviewFrame, onPreviewPageIndexChange]);
 
   const onRatioStart = useCallback(
     (ratio: number) => {
@@ -535,36 +567,40 @@ const styles = StyleSheet.create({
   previewBubble: {
     position: "absolute",
     bottom: 39,
-    width: 58,
-    minHeight: 66,
-    marginLeft: -29,
-    padding: 5,
-    gap: 3,
+    width: 60,
+    minHeight: 98,
+    marginLeft: -30,
+    paddingTop: 8,
+    paddingHorizontal: 8,
+    paddingBottom: 6,
+    gap: 6,
     alignItems: "center",
     borderRadius: 12,
     borderWidth: 0.5,
+    boxShadow: "0px 8px 24px -8px rgba(0,0,0,0.5)",
     overflow: "hidden",
     zIndex: 4,
     elevation: 4,
   },
   previewImage: {
-    width: 48,
-    height: 42,
-    borderRadius: 7,
+    width: 44,
+    height: 62,
+    borderRadius: 4,
     backgroundColor: "rgba(255,255,255,0.09)",
   },
   previewPlaceholder: {
-    width: 48,
-    height: 42,
-    borderRadius: 7,
+    width: 44,
+    height: 62,
+    borderRadius: 4,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.09)",
   },
   previewLabel: {
     color: "rgba(235,238,245,0.96)",
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 12,
+    lineHeight: 15,
     fontWeight: nemuFontWeight.semibold,
+    fontVariant: ["tabular-nums"],
   },
 });

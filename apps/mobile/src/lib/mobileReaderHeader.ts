@@ -73,13 +73,18 @@ export function readerChromeSettingsPopoverBottomOffset(
  * never appears empty or interactive-but-broken.
  */
 export const READER_CHROME_LOADING_OPACITY = 0.4;
-export const READER_CHROME_PAGE_COUNT_PLACEHOLDER = "— / —";
 
 export function isReaderChromeLoading(pagesStatus: string): boolean {
   return pagesStatus !== "ready";
 }
 
-/** The top panel's page counter, em-dashed until the page list resolves. */
+/**
+ * The top panel's page counter, or `null` while the page list is unresolved.
+ *
+ * A counter that cannot count reads as broken chrome, so the slot renders
+ * nothing until there is a real page total: the spinner beside it already
+ * says the chapter is still resolving.
+ */
 export function readerChromePageCountLabel({
   pagesStatus,
   pageNumber,
@@ -88,9 +93,9 @@ export function readerChromePageCountLabel({
   pagesStatus: string;
   pageNumber: number;
   pageCount: number;
-}): string {
+}): string | null {
   if (isReaderChromeLoading(pagesStatus) || pageCount <= 0) {
-    return READER_CHROME_PAGE_COUNT_PLACEHOLDER;
+    return null;
   }
   return `${pageNumber} / ${pageCount}`;
 }

@@ -5,8 +5,11 @@ import { defaultMobileSourceSessionCache } from "@/sources/mobileSourceExecutorC
 import { clearMobileSourceImageRequestCache } from "@/sources/mobileSourceImages";
 import { clearCachedRegistryIndex } from "@/sources/mobileRegistryIndexCache";
 import { clearMobileImageCache } from "@/lib/mobileImageCache";
+import { clearMobileReaderPageListCache } from "@/sources/mobileReaderPageListCache";
 import { clearMobileJapaneseLearningTtsCache } from "@/lib/mobileJapaneseLearningTts";
 import { clearMobileDualReaderDhashCache } from "@/lib/mobileDualReaderDhashCache";
+import { clearMobileSourceDetailCache } from "@/lib/mobileSourceDetailCache";
+import { clearMobileSourceListingCache } from "@/lib/mobileSourceListingCache";
 
 /**
  * Clear every non-sandbox Nemu data backend used by the mobile app. Each step
@@ -23,10 +26,13 @@ export async function clearAllMobileDeviceData(
       clearCachedSourcePackages,
       () => defaultMobileSourceSessionCache.clear(),
       clearMobileImageCache,
+      clearMobileReaderPageListCache,
       clearMobileJapaneseLearningTtsCache,
       clearMobileDualReaderDhashCache,
       clearMobileSourceImageRequestCache,
       clearCachedRegistryIndex,
+      clearMobileSourceDetailCache,
+      clearMobileSourceListingCache,
     ]);
   } catch (error) {
     cacheFailed = true;

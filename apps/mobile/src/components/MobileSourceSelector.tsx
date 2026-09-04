@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   MobileCachedImage,
+  nemuColorWithAlpha,
   NemuPressable,
   radius,
   nemuFontWeight,
@@ -129,7 +130,7 @@ export function MobileSourceSelector({
                       styles.count,
                       {
                         backgroundColor: showsUpdate
-                          ? `${tokens.primary}24`
+                          ? nemuColorWithAlpha(tokens.primary, 0.14)
                           : tokens.sourceIconGlass,
                       },
                     ]}
@@ -202,7 +203,7 @@ const styles = StyleSheet.create({
     minHeight: 20,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: 6,
   },
   countText: {

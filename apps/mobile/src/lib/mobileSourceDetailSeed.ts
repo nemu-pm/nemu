@@ -11,7 +11,7 @@ const MOBILE_SOURCE_DETAIL_SEED_LIMIT = 32;
 
 const seeds = new Map<string, MobileLiveSearchManga>();
 
-export function makeMobileSourceDetailSeedKey(
+function makeMobileSourceDetailSeedKey(
   registryId: string,
   sourceId: string,
   mangaId: string,

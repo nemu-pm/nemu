@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -7,6 +7,7 @@ import Animated, {
   useReducedMotion,
 } from "react-native-reanimated";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
+import { nemuColorWithAlpha } from "@/design/colorAlpha";
 import { createNemuShadowStyle } from "@/design/shadows";
 import { radius } from "@/design/tokens";
 import { nemuFontWeight, nemuMaxFontSizeMultiplier } from "@/design/typography";
@@ -25,7 +26,10 @@ export type MangaCardModel = {
   coverHeaders?: Record<string, string>;
 };
 
-export function MangaCard({
+// Grid cells are the hot path of every list screen. Both props are stable by
+// contract (a memoized model object and a row-scoped callback), so the shallow
+// compare lets an unrelated list re-render skip the whole card subtree.
+export const MangaCard = memo(function MangaCard({
   item,
   onLongPress,
 }: {
@@ -93,7 +97,7 @@ export function MangaCard({
           <MobileCachedImage
             fallback={
               <LinearGradient
-                colors={[`${tokens.primary}55`, tokens.muted]}
+                colors={[nemuColorWithAlpha(tokens.primary, 0.33), tokens.muted]}
                 style={styles.placeholder}
               />
             }
@@ -103,7 +107,7 @@ export function MangaCard({
           />
         ) : (
           <LinearGradient
-            colors={[`${tokens.primary}55`, tokens.muted]}
+            colors={[nemuColorWithAlpha(tokens.primary, 0.33), tokens.muted]}
             style={styles.placeholder}
           />
         )}
@@ -151,7 +155,7 @@ export function MangaCard({
       </View>
     </NemuPressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   root: {

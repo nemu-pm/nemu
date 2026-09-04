@@ -1,24 +1,29 @@
 import { useMemo, useState } from "react";
 import * as Clipboard from "expo-clipboard";
-import { BlurView } from "expo-blur";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePathname, type ErrorBoundaryProps } from "expo-router";
 import {
-  ActivityIndicator,
-  Pressable,
+  Platform,
   ScrollView,
   StyleSheet,
-  Text,
   useColorScheme,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+// The root ErrorBoundary replaces the layout tree, so it renders ABOVE
+// NemuThemeProvider (which itself needs the data store). The theme context is
+// published from the design-system barrel so this screen can subscribe to it
+// directly and still use the shared depth controls.
 import {
-  createNemuShadowStyle,
+  NemuButton,
+  NemuPressable,
+  NemuText,
+  NemuThemeContext,
+  type NemuTheme,
   nemuTokens,
+  nemuText,
   radius,
   spacing,
-  nemuFontWeight,
 } from "@/design-system";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
 import { getMobileStrings } from "@/lib/mobileI18n";
@@ -45,12 +50,24 @@ export function MobileErrorBoundaryScreen({ error, retry }: ErrorBoundaryProps) 
   const strings = getMobileStrings(resolveMobileErrorBoundaryLanguage(systemLocale()));
   const pathname = usePathname();
   const [retrying, setRetrying] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [copyState, setCopyState] = useState<CopyState>(null);
   const logText = useMemo(
     () => formatMobileErrorLog({ error, routePath: pathname }),
     [error, pathname],
   );
   const summary = formatMobileErrorSummary(error);
+  const theme = useMemo<NemuTheme>(
+    () => ({
+      // Motion-safe default: the boundary never runs the accessibility probe.
+      reduceMotion: null,
+      scheme,
+      themePreference: "system",
+      tokens,
+      setThemePreference: () => Promise.resolve(),
+    }),
+    [scheme, tokens],
+  );
 
   const copyLog = async () => {
     setCopyState(null);
@@ -78,135 +95,127 @@ export function MobileErrorBoundaryScreen({ error, retry }: ErrorBoundaryProps) 
   };
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: tokens.background }]}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        <BlurView
-          intensity={24}
-          tint={scheme}
-          style={[
-            styles.cardShell,
-            {
-              backgroundColor: tokens.card,
-              borderColor: tokens.border,
-              ...createNemuShadowStyle({
-                color: tokens.shadow,
-                offsetY: 8,
-                radius: 22,
-                elevation: 8,
-              }),
-            },
-          ]}
+    <NemuThemeContext.Provider value={theme}>
+      <SafeAreaView style={[styles.root, { backgroundColor: tokens.background }]}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
         >
-          <View style={styles.card}>
-            <View style={styles.header}>
-              <View style={[styles.iconFrame, { backgroundColor: `${tokens.danger}18` }]}>
-                <Ionicons name="alert-circle-outline" size={27} color={tokens.danger} />
-              </View>
-              <View style={styles.headerCopy}>
-                <Text style={[styles.title, { color: tokens.foreground }]}>
-                  {strings.errorBoundary.title}
-                </Text>
-                <Text style={[styles.description, { color: tokens.mutedForeground }]}>
-                  {strings.errorBoundary.description}
-                </Text>
-              </View>
-            </View>
-
-            <View style={[styles.messageBox, { backgroundColor: tokens.muted }]}>
-              <Text style={[styles.boxLabel, { color: tokens.mutedForeground }]}>
-                {strings.errorBoundary.messageLabel}
-              </Text>
-              <Text selectable style={[styles.messageText, { color: tokens.foreground }]}>
-                {summary}
-              </Text>
-            </View>
-
-            <View style={[styles.detailsBox, { backgroundColor: tokens.muted }]}>
-              <Text style={[styles.boxLabel, { color: tokens.mutedForeground }]}>
-                {strings.errorBoundary.detailsLabel}
-              </Text>
-              <ScrollView nestedScrollEnabled style={styles.detailsScroll}>
-                <Text selectable style={[styles.detailsText, { color: tokens.mutedForeground }]}>
-                  {logText}
-                </Text>
-              </ScrollView>
-            </View>
-
-            {copyState ? (
-              <Text
-                accessibilityLiveRegion="polite"
-                style={[
-                  styles.copyState,
-                  {
-                    color:
-                      copyState === "copied" ? tokens.success : tokens.danger,
-                  },
-                ]}
-              >
-                {copyState === "copied"
-                  ? strings.errorBoundary.copied
-                  : strings.errorBoundary.copyFailed}
-              </Text>
-            ) : null}
-
-            <View style={styles.actions}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={strings.errorBoundary.copyLog}
-                onPress={() => {
-                  void copyLog();
-                }}
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  { backgroundColor: tokens.muted },
-                  pressed && styles.buttonPressed,
-                ]}
-              >
-                <Ionicons name="copy-outline" size={17} color={tokens.mutedForeground} />
-                <Text style={[styles.secondaryButtonText, { color: tokens.mutedForeground }]}>
-                  {strings.errorBoundary.copyLog}
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={strings.errorBoundary.retry}
-                accessibilityState={{ busy: retrying || undefined }}
-                disabled={retrying}
-                onPress={() => {
-                  void retryRoute();
-                }}
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  {
-                    backgroundColor: tokens.primary,
-                    opacity: retrying ? 0.72 : 1,
-                  },
-                  pressed && styles.buttonPressed,
-                ]}
-              >
-                {retrying ? (
-                  <ActivityIndicator size="small" color={tokens.primaryForeground} />
-                ) : (
-                  <Ionicons
-                    name="refresh-outline"
-                    size={17}
-                    color={tokens.primaryForeground}
-                  />
-                )}
-                <Text style={[styles.primaryButtonText, { color: tokens.primaryForeground }]}>
-                  {retrying ? strings.errorBoundary.retrying : strings.errorBoundary.retry}
-                </Text>
-              </Pressable>
-            </View>
+          <View style={styles.header}>
+            <Ionicons name="alert-circle-outline" size={44} color={tokens.danger} />
+            <NemuText style={[nemuText.pageEmptyTitle, styles.centered, { color: tokens.foreground }]}>
+              {strings.errorBoundary.title}
+            </NemuText>
+            <NemuText
+              style={[
+                nemuText.pageEmptyDescription,
+                styles.centered,
+                { color: tokens.mutedForeground },
+              ]}
+            >
+              {strings.errorBoundary.description}
+            </NemuText>
+            <NemuText
+              accessibilityLabel={`${strings.errorBoundary.messageLabel}: ${summary}`}
+              selectable
+              style={[nemuText.caption, styles.centered, { color: tokens.foreground }]}
+            >
+              {summary}
+            </NemuText>
           </View>
-        </BlurView>
-      </ScrollView>
-    </SafeAreaView>
+
+          <View style={styles.diagnostic}>
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: detailsOpen }}
+              accessibilityLabel={strings.errorBoundary.detailsLabel}
+              hapticFeedback="selection"
+              pressProfile="row"
+              onPress={() => setDetailsOpen((open) => !open)}
+              style={styles.diagnosticToggle}
+            >
+              <Ionicons
+                name={detailsOpen ? "chevron-down-outline" : "chevron-forward-outline"}
+                size={12}
+                color={tokens.mutedForeground}
+              />
+              <NemuText style={[nemuText.caption, { color: tokens.mutedForeground }]}>
+                {strings.errorBoundary.detailsLabel}
+              </NemuText>
+            </NemuPressable>
+            {detailsOpen ? (
+              <ScrollView nestedScrollEnabled style={styles.diagnosticScroll}>
+                <NemuText
+                  selectable
+                  style={[
+                    styles.diagnosticBody,
+                    styles.diagnosticMono,
+                    {
+                      backgroundColor: tokens.secondary,
+                      color: tokens.mutedForeground,
+                    },
+                  ]}
+                >
+                  {logText}
+                </NemuText>
+              </ScrollView>
+            ) : null}
+          </View>
+
+          {copyState ? (
+            <NemuText
+              accessibilityLiveRegion="polite"
+              accessibilityRole="alert"
+              style={[
+                nemuText.caption,
+                styles.centered,
+                {
+                  color: copyState === "copied" ? tokens.success : tokens.danger,
+                },
+              ]}
+            >
+              {copyState === "copied"
+                ? strings.errorBoundary.copied
+                : strings.errorBoundary.copyFailed}
+            </NemuText>
+          ) : null}
+
+          <View style={styles.actions}>
+            <NemuButton
+              accessibilityLabel={strings.errorBoundary.copyLog}
+              icon="copy-outline"
+              label={strings.errorBoundary.copyLog}
+              onPress={() => {
+                void copyLog();
+              }}
+              variant="secondary"
+            />
+            <NemuButton
+              accessibilityLabel={strings.errorBoundary.retry}
+              accessibilityState={{ busy: retrying || undefined }}
+              disabled={retrying}
+              icon="refresh-outline"
+              label={
+                retrying ? strings.errorBoundary.retrying : strings.errorBoundary.retry
+              }
+              loading={retrying}
+              onPress={() => {
+                void retryRoute();
+              }}
+              variant="default"
+            />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </NemuThemeContext.Provider>
   );
 }
+
+const MONOSPACE_FONT_FAMILY = Platform.select({
+  ios: "Menlo",
+  android: "monospace",
+  default: "monospace",
+});
 
 const styles = StyleSheet.create({
   root: {
@@ -214,114 +223,51 @@ const styles = StyleSheet.create({
   },
   content: {
     flexGrow: 1,
+    alignItems: "center",
     justifyContent: "center",
+    gap: 16,
     paddingTop: spacing.pageTop,
     paddingBottom: 104,
     paddingHorizontal: spacing.pageX,
   },
-  cardShell: {
-    overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.xl,
-  },
-  card: {
-    gap: 16,
-    padding: 16,
-  },
   header: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  iconFrame: {
-    width: 48,
-    height: 48,
+    maxWidth: 320,
     alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.xl,
-  },
-  headerCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  title: {
-    fontSize: 21,
-    lineHeight: 27,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  description: {
-    marginTop: 4,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  messageBox: {
-    gap: 7,
-    borderRadius: radius.lg,
-    padding: 12,
-  },
-  detailsBox: {
-    maxHeight: 230,
     gap: 8,
-    borderRadius: radius.lg,
-    padding: 12,
   },
-  detailsScroll: {
-    maxHeight: 184,
+  centered: {
+    textAlign: "center",
   },
-  boxLabel: {
+  diagnostic: {
+    alignSelf: "stretch",
+    alignItems: "center",
+    gap: 4,
+  },
+  diagnosticToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  diagnosticScroll: {
+    alignSelf: "stretch",
+    maxHeight: 220,
+  },
+  diagnosticBody: {
+    alignSelf: "stretch",
+    padding: 10,
+    borderRadius: radius.md,
+  },
+  diagnosticMono: {
+    fontFamily: MONOSPACE_FONT_FAMILY,
     fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.semibold,
-    textTransform: "uppercase",
-  },
-  messageText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.bold,
-  },
-  detailsText: {
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  copyState: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: nemuFontWeight.medium,
+    lineHeight: 15,
   },
   actions: {
     flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 9,
-  },
-  buttonPressed: {
-    opacity: 0.78,
-  },
-  primaryButton: {
-    minHeight: 44,
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
-  },
-  primaryButtonText: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  secondaryButton: {
-    minHeight: 44,
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
-  },
-  secondaryButtonText: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.semibold,
   },
 });

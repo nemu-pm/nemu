@@ -1,9 +1,10 @@
 import { router, usePathname } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useState } from "react";
-import { Animated, Easing, Platform, StyleSheet, Text, View } from "react-native";
+import { Animated, Platform, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  nemuColorWithAlpha,
   radius,
   spacing,
   nemuFontWeight,
@@ -59,10 +60,12 @@ export function FloatingTabBar() {
       pillProgress.setValue(activeIndex);
       return;
     }
-    Animated.timing(pillProgress, {
+    Animated.spring(pillProgress, {
       toValue: activeIndex,
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
+      damping: 22,
+      stiffness: 320,
+      mass: 1,
+      overshootClamping: false,
       useNativeDriver: true,
     }).start();
   }, [activeIndex, pillProgress, reduceMotion]);
@@ -74,7 +77,7 @@ export function FloatingTabBar() {
         style={[
           styles.selectionPill,
           {
-            backgroundColor: `${tokens.primary}24`,
+            backgroundColor: nemuColorWithAlpha(tokens.primary, 0.14),
             transform: [
               {
                 translateX: pillProgress.interpolate({

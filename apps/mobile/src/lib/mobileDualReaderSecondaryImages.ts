@@ -23,7 +23,7 @@ import { mobileNativeFetch } from "@/sources/mobileNativeHttp";
 import type { SecondaryRenderPlan } from "@nemu/core/dual-reader";
 import {
   base64DecodedByteLength,
-  base64ToBytes,
+  decodeBase64,
 } from "./mobileBase64";
 import {
   MobileDualReaderDecodeCancelledError,
@@ -99,7 +99,7 @@ export async function fetchMobilePageBytes(
     assertMobileDualReaderEncodedByteLength(
       base64DecodedByteLength(base64),
     );
-    return base64ToBytes(base64);
+    return decodeBase64(base64);
   }
   if (!uri.startsWith("http://") && !uri.startsWith("https://")) {
     const bytes = await readFileBytes(uri);
