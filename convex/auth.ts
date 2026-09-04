@@ -20,6 +20,10 @@ const mobileTrustedOrigins = [
   "nemu://*",
   "pm.nemu://",
   "pm.nemu://*",
+  // Legacy bundle identifier scheme; keep until installs built before the
+  // pm.nemu rename have rolled over.
+  "pm.nemu.mobile://",
+  "pm.nemu.mobile://*",
 ];
 
 export const authComponent = createClient<DataModel>(components.betterAuth);
