@@ -114,7 +114,15 @@ export function NemuNativeSwitch({
         accessibilityState={{ checked: value, disabled }}
         style={styles.host}
       >
-        <SwiftHost colorScheme={scheme} matchContents style={styles.swiftHost}>
+        {/*
+          Fixed 51x31 host (no `matchContents`), and `ignoreSafeArea="all"`:
+          UIHostingController applies the window's safe-area insets inside the
+          host, so a switch sitting near the home indicator was laid out in a
+          region shrunk by the bottom inset and drew above its own frame. The
+          RN layout was already centred (measured); only the SwiftUI drawing
+          moved.
+        */}
+        <SwiftHost colorScheme={scheme} ignoreSafeArea="all" style={styles.swiftHost}>
           <ExpoSwitch
             disabled={disabled}
             modifiers={[

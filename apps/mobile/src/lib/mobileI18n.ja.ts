@@ -416,6 +416,7 @@ export const mobileStringsJa: MobileStrings = {
     excludeFilter: "除外",
     filterCountOne: "1 件のフィルター",
     filterCountOther: "{{count}} 件のフィルター",
+    filterSelectedCountOther: "{{count}} 件選択",
     includeFilter: "含める",
     installBeforeExecutor:
       "実行環境を確認する前にソースをインストールしてください。",
@@ -448,6 +449,7 @@ export const mobileStringsJa: MobileStrings = {
       "このリストからはまだ漫画を読み込んでいません。",
     noPackageListings: "このソースはパッケージリストを公開していません。",
     noSourceHome: "利用可能なソースホームセクションはありません。",
+    homeUnavailable: "ソースのホームを読み込めませんでした。再試行してください。",
     notFilter: "{{option}} を除外",
     sourceOperationTimedOut: "ソースの応答がタイムアウトしました。",
     openAllFilters: "すべてのソースフィルターを開く",
@@ -528,6 +530,7 @@ export const mobileStringsJa: MobileStrings = {
     sortAscending: "昇順",
     sortDescending: "降順",
     source: "ソース",
+    sourceFilterChipHint: "このフィルターの選択肢を開きます。",
     sourceFilterCycleHint: "押すと、含める、除外、任意の順に切り替わります。",
     sourceFilterExcludeHint: "長押しするとこの項目を除外します。",
     sourceFilterOption: "{{filter}}: {{option}}",

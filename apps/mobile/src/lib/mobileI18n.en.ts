@@ -417,6 +417,7 @@ export const mobileStringsEn: MobileStrings = {
     excludeFilter: "Exclude",
     filterCountOne: "1 filter",
     filterCountOther: "{{count}} filters",
+    filterSelectedCountOther: "{{count}} selected",
     includeFilter: "Include",
     installBeforeExecutor: "Install the source before checking the executor.",
     installBeforeOpening:
@@ -446,6 +447,7 @@ export const mobileStringsEn: MobileStrings = {
     noMangaLoadedFromListing: "No manga loaded from this listing yet.",
     noPackageListings: "This source does not expose package listings.",
     noSourceHome: "No source home sections are available.",
+    homeUnavailable: "The source home page did not load. Retry to fetch it again.",
     notFilter: "Not {{option}}",
     sourceOperationTimedOut: "The source took too long to respond.",
     openAllFilters: "Open all source filters",
@@ -524,6 +526,7 @@ export const mobileStringsEn: MobileStrings = {
     sortAscending: "ascending",
     sortDescending: "descending",
     source: "Source",
+    sourceFilterChipHint: "Opens the options for this filter.",
     sourceFilterCycleHint:
       "Press to cycle between include, exclude, and any.",
     sourceFilterExcludeHint: "Long press to exclude this option.",

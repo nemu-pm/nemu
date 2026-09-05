@@ -92,6 +92,13 @@ jobs:
 
           if [ -z "$BASE_SHA" ] || printf '%s' "$BASE_SHA" | grep -Eq '^0+$'; then
             git diff-tree --root --no-commit-id --name-only -r "$HEAD_SHA" > /tmp/native-changes.txt
+          elif ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            # After a force-push `github.event.before` points at a commit that
+            # no longer exists, so there is nothing to diff against. Run the
+            # native jobs rather than silently skipping them.
+            echo "Base commit $BASE_SHA is unreachable; assuming native changes." >&2
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
           else
             git diff --name-only "$BASE_SHA...$HEAD_SHA" > /tmp/native-changes.txt
           fi

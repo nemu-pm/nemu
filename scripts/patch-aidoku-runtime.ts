@@ -252,6 +252,17 @@ const patches: FilePatch[] = [
         after:
           "                catch (e) {\n                    if (e instanceof CloudflareBlockedError)\n                        throw e;\n                    console.error(\"[Aidoku] getListings error:\", e);\n                    return [];\n                }\n",
       },
+      {
+        // Upstream: https://github.com/nemu-pm/aidoku-js/pull/3 — remove this
+        // entry once @nemu.pm/aidoku-runtime ships a release containing it.
+        // A swallowed getHome failure is indistinguishable from "no home page"
+        // and rendered as an empty home with no retry.
+        label: "runtime getHome rethrows failures (aidoku-js#3)",
+        before:
+          "catch (e) {\n                if (e instanceof CloudflareBlockedError)\n                    throw e;\n                console.error(\"[Aidoku] getHome error:\", e);\n                store.onPartialHomeBytes = null;\n                return null;\n            }\n",
+        after:
+          "catch (e) {\n                store.onPartialHomeBytes = null;\n                store.partialHomeResultBytes = [];\n                throw e;\n            }\n",
+      },
     ],
   },
   {

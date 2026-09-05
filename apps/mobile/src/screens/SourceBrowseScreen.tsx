@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LayoutAnimation,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -55,6 +56,7 @@ import {
 import {
   GlassSurface,
   MobileCachedImage,
+  MobileChip,
   MobileNativeSheetScaffold,
   NemuButton,
   NemuInlineEmptyState,
@@ -68,6 +70,7 @@ import {
   radius,
   renderNemuNativeToolbarButtons,
   nemuFontWeight,
+  spacing,
   useNemuTheme,
   type NemuNativeHeaderAction,
 } from "@/design-system";
@@ -90,6 +93,7 @@ import {
   mobileInstalledSourceMatchesRoute,
 } from "@/lib/mobileInstalledSourceKeys";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
+import { MobileSourceMultiSelectSheet } from "@/components/MobileSourceSettingsSubSheets";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
 import {
   coerceMobileNativeSearchText,
@@ -126,6 +130,14 @@ import {
   getMobileSortFilterSelection,
   updateMobileSourceFilterValues,
 } from "@/lib/mobileSourceFilterValues";
+import {
+  getMobileSourceFilterChipModels,
+  getMobileSourceFilterChipOptions,
+  getMobileSourceFilterChipSelectedValues,
+  getNextMobileSourceFilterChipValue,
+  shouldCloseMobileSourceFilterChipSheet,
+  type MobileSourceFilterChipModel,
+} from "@/lib/mobileSourceFilterChips";
 import { getMobileSourceFilterSheetLayout } from "@/lib/mobileSourceFilterSheetLayout";
 import {
   loadMobileSourceSettingsByKeys,
@@ -149,6 +161,7 @@ import {
   shouldRunMobileSourceBrowseSearchSubmitFeedback,
   shouldShowCenterSourceBrowseSearchProgress,
   shouldShowMobileSourceBrowseListingTabBar,
+  shouldShowMobileSourceBrowseNoMatches,
   shouldShowMobileSourceBrowseNotInstalled,
   shouldShowSourceBrowseBootstrapping,
   shouldShowSourceBrowseHomeSkeleton,
@@ -639,6 +652,86 @@ function SourceFilterChip({
   );
 }
 
+/**
+ * The whole browse filter surface in one row: a funnel that opens the full
+ * panel, then one compact chip per top-level group. Menu chips summarise their
+ * current value and hand off to a picker sheet; check groups stay in-place
+ * toggles because a tri-state boolean has nothing to pick from. This replaced
+ * the stacked per-group chip rows, which pushed the first cover off-screen on
+ * a phone.
+ */
+function SourceFilterChipRow({
+  chips,
+  activeFilterCount,
+  strings,
+  onOpenPanel,
+  onOpenGroup,
+  onToggleCheck,
+}: {
+  chips: MobileSourceFilterChipModel[];
+  activeFilterCount: number;
+  strings: MobileStrings;
+  onOpenPanel: () => void;
+  onOpenGroup: (filter: Filter) => void;
+  onToggleCheck: (filter: Filter) => void;
+}) {
+  return (
+    <View style={styles.sourceFilterChipRowFrame}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.sourceFilterChipRowContent}
+      >
+        <MobileChip
+          accessibilityLabel={strings.sourceBrowse.openAllFilters}
+          accessibilityHint={strings.sourceBrowse.openAllFilters}
+          badge={activeFilterCount ? String(activeFilterCount) : undefined}
+          fallbackIcon="funnel-outline"
+          hapticFeedback="press"
+          onPress={onOpenPanel}
+          selected={activeFilterCount > 0}
+          testID="SourceFilterFunnelChip"
+          variant="icon"
+        />
+        {chips.map((chip, index) =>
+          chip.kind === "toggle" ? (
+            <MobileChip
+              key={`${chip.filter.name}:${chip.filter.type}:${index}`}
+              accessibilityHint={
+                "canExclude" in chip.filter && chip.filter.canExclude
+                  ? strings.sourceBrowse.sourceFilterCycleHint
+                  : undefined
+              }
+              accessibilityLabel={sourceFilterOptionAccessibilityLabel(
+                chip.filter,
+                chip.label,
+                strings,
+              )}
+              accessibilityRole="checkbox"
+              label={chip.label}
+              onPress={() => onToggleCheck(chip.filter)}
+              selected={chip.active}
+              variant="toggle"
+            />
+          ) : (
+            <MobileChip
+              key={`${chip.filter.name}:${chip.filter.type}:${index}`}
+              accessibilityHint={strings.sourceBrowse.sourceFilterChipHint}
+              accessibilityLabel={chip.label}
+              accessibilityRole="button"
+              hapticFeedback="press"
+              label={chip.label}
+              onPress={() => onOpenGroup(chip.filter)}
+              selected={chip.active}
+              variant="menu"
+            />
+          ),
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
 function visibleFilterOptions(
   filter: Filter,
   optionLimit: number | null | undefined,
@@ -991,6 +1084,91 @@ function SourceFilterControl({
   return null;
 }
 
+/**
+ * One filter group presented as the same selection sub-sheet the source
+ * settings card uses, so a picker looks identical wherever it is opened from.
+ * Every tap applies immediately through the screen's existing debounce/abort
+ * path — there is no confirm step, matching the retired inline chips.
+ *
+ * Single-choice groups (select/sort) lead with a synthetic "any" row so the
+ * filter can still be cleared; sort groups additionally allow re-tapping the
+ * current option to flip the direction. Genre groups keep the tri-state
+ * semantics of the old chips: tap includes, long press excludes.
+ */
+function SourceFilterGroupSheet({
+  filter,
+  value,
+  visible,
+  strings,
+  onChange,
+  onClose,
+  onDismiss,
+}: {
+  filter: Filter;
+  value?: FilterValue;
+  visible: boolean;
+  strings: MobileStrings;
+  onChange: (filter: Filter, value: FilterValue["value"] | undefined) => void;
+  onClose: () => void;
+  onDismiss: () => void;
+}) {
+  const multiSelect = filter.type === FilterType.Genre;
+  const canExclude =
+    multiSelect && "canExclude" in filter && Boolean(filter.canExclude);
+
+  return (
+    <MobileSourceMultiSelectSheet
+      allowReselect={filter.type === FilterType.Sort}
+      disabled={false}
+      formatOptionAccessibilityLabel={(option) =>
+        sourceFilterOptionAccessibilityLabel(filter, option.label, strings)
+      }
+      optionHint={
+        canExclude ? strings.sourceBrowse.sourceFilterExcludeHint : undefined
+      }
+      options={getMobileSourceFilterChipOptions(filter, value, strings)}
+      selectedValues={getMobileSourceFilterChipSelectedValues(filter, value)}
+      setting={{ title: filterLabel(filter) }}
+      single={!multiSelect}
+      strings={strings}
+      visible={visible}
+      onClose={onClose}
+      onDismiss={onDismiss}
+      onLongPressOption={
+        canExclude
+          ? (optionValue) => {
+              onChange(
+                filter,
+                getNextMobileSourceFilterChipValue({
+                  filter,
+                  value,
+                  optionValue,
+                  mode: "exclude",
+                }),
+              );
+            }
+          : undefined
+      }
+      onToggle={(optionValue) => {
+        onChange(
+          filter,
+          getNextMobileSourceFilterChipValue({
+            filter,
+            value,
+            optionValue,
+            mode: "select",
+          }),
+        );
+        if (
+          shouldCloseMobileSourceFilterChipSheet({ filter, value, optionValue })
+        ) {
+          onClose();
+        }
+      }}
+    />
+  );
+}
+
 function SourceFilterPanel({
   visible,
   filters,
@@ -1216,6 +1394,13 @@ export function SourceBrowseScreen() {
     [],
   );
   const [sourceFilterPanelOpen, setSourceFilterPanelOpen] = useState(false);
+  // The per-group picker is addressed by filter name, not by object, so a
+  // filters refetch that rebuilds the `Filter[]` cannot strand an open sheet
+  // on a stale group.
+  const [sourceFilterGroupName, setSourceFilterGroupName] = useState<
+    string | null
+  >(null);
+  const [sourceFilterGroupOpen, setSourceFilterGroupOpen] = useState(false);
   const [sourceFilterPresentation, setSourceFilterPresentation] = useState<{
     filters: Filter[];
     values: FilterValue[];
@@ -1400,6 +1585,24 @@ export function SourceBrowseScreen() {
   const sourceFilterCount = useMemo(
     () => getMobileActiveSourceFilterCount(sourceFilterValues),
     [sourceFilterValues],
+  );
+  const sourceFilterChips = useMemo(
+    () =>
+      getMobileSourceFilterChipModels(
+        inlineSourceFilters,
+        sourceFilterValues,
+        strings,
+      ),
+    [inlineSourceFilters, sourceFilterValues, strings],
+  );
+  const sourceFilterGroup = useMemo(
+    () =>
+      sourceFilterGroupName
+        ? (sourceFilters.find(
+            (filter) => filter.name === sourceFilterGroupName,
+          ) ?? null)
+        : null,
+    [sourceFilterGroupName, sourceFilters],
   );
   const sourceSearchTerm = submittedSourceSearchQuery.trim();
   const sourceHome = sourceHomeState.home;
@@ -1869,6 +2072,18 @@ export function SourceBrowseScreen() {
           return;
         }
         sourceHomeResultKeyRef.current = resultKey;
+        if (result.hasHomeProvider && !result.onlySearch && !result.home) {
+          // The Aidoku runtime swallows getHome failures into a null layout,
+          // so a timed-out or errored home request arrives here looking like
+          // "no sections". A source that declares a home provider and hands
+          // back nothing is a failure the user can retry, not an empty page.
+          setSourceHomeState({
+            status: "error",
+            home: null,
+            detail: strings.sourceBrowse.homeUnavailable,
+          });
+          return;
+        }
         setSourceHomeState({
           status: "ready",
           result,
@@ -2138,11 +2353,25 @@ export function SourceBrowseScreen() {
     }
     if (loadedSourceSearchKeyRef.current === sourceSearchRequestKey) return;
     loadedSourceSearchKeyRef.current = sourceSearchRequestKey;
+    const attemptedKey = sourceSearchRequestKey;
+    let settled = false;
     const debounce = setTimeout(() => {
-      void loadSourceSearch(1);
+      void loadSourceSearch(1).finally(() => {
+        settled = true;
+      });
     }, 250);
     return () => {
       clearTimeout(debounce);
+      // The guard exists so incidental dep churn (installed-source identity,
+      // string tables, a settings-loading flip) cannot re-run a search that
+      // already produced results. It must not also swallow the *restart* of an
+      // attempt this cleanup is cancelling: marking the key loaded before the
+      // request ran meant a churn during the 250ms debounce — or during a
+      // 12s source HTTP timeout — aborted the only attempt and then declined
+      // to start another, leaving the screen on its pre-request idle state.
+      if (!settled && loadedSourceSearchKeyRef.current === attemptedKey) {
+        loadedSourceSearchKeyRef.current = null;
+      }
       sourceSearchAbortRef.current?.abort();
     };
   }, [
@@ -2543,6 +2772,40 @@ export function SourceBrowseScreen() {
     setSourceFilterPanelOpen(false);
   }, []);
 
+  const openSourceFilterGroup = useCallback(
+    (filter: Filter) => {
+      // Only one native sheet can be presented at a time; the funnel's full
+      // panel always wins.
+      if (sourceFilterPresentation) return;
+      setSourceFilterGroupName(filter.name);
+      setSourceFilterGroupOpen(true);
+    },
+    [sourceFilterPresentation],
+  );
+
+  const closeSourceFilterGroup = useCallback(() => {
+    setSourceFilterGroupOpen(false);
+  }, []);
+
+  const handleSourceFilterGroupDismissed = useCallback(() => {
+    setSourceFilterGroupOpen(false);
+    setSourceFilterGroupName(null);
+  }, []);
+
+  const toggleSourceCheckFilter = useCallback(
+    (filter: Filter) => {
+      if (filter.type !== FilterType.Check) return;
+      changeSourceFilter(
+        filter,
+        getNextMobileCheckFilterValue(
+          filter,
+          sourceFilterValueMap.get(filterValueKey(filter)),
+        ),
+      );
+    },
+    [changeSourceFilter, sourceFilterValueMap],
+  );
+
   const sourceSearchLoadMoreBusy = isMobileSourceBrowseLoadMoreBusy({
     loading:
       sourceSearchState.status === "loading" &&
@@ -2703,40 +2966,21 @@ export function SourceBrowseScreen() {
           <View
             style={[
               styles.previewSection,
+              styles.sourceFilterHeaderSpacing,
               hasListingGridItems
                 ? styles.gridHeaderSpacing
                 : styles.emptyGridHeaderSpacing,
             ]}
           >
-            {sourceFilterCount > 0 ? (
-              <Text
-                style={[
-                  styles.filterSummary,
-                  { color: tokens.mutedForeground },
-                ]}
-              >
-                {formatSourceBrowseCount(
-                  sourceFilterCount,
-                  strings.sourceBrowse.activeFilterCountOne,
-                  strings.sourceBrowse.activeFilterCountOther,
-                )}
-              </Text>
-            ) : null}
-
             {sourceFilters.length ? (
-              <View style={styles.sourceFilterList}>
-                {inlineSourceFilters.map((filter, index) => (
-                  <SourceFilterControl
-                    key={`${filter.name}:${filter.type}:${index}`}
-                    filter={filter}
-                    value={sourceFilterValueMap.get(
-                      filterValueKey(filter),
-                    )}
-                    onChange={changeSourceFilter}
-                    strings={strings}
-                  />
-                ))}
-              </View>
+              <SourceFilterChipRow
+                activeFilterCount={sourceFilterCount}
+                chips={sourceFilterChips}
+                strings={strings}
+                onOpenGroup={openSourceFilterGroup}
+                onOpenPanel={openSourceFilterPanel}
+                onToggleCheck={toggleSourceCheckFilter}
+              />
             ) : sourceFiltersState.status === "blocked" &&
               packageMetadata?.filters.length ? (
               <SourceBrowseBlockedNotice
@@ -2873,19 +3117,19 @@ export function SourceBrowseScreen() {
       </View>
     ),
     [
-      changeSourceFilter,
       handleHomeFilterPress,
       handleHomeListingPress,
       handleListingMangaPress,
       handleListingTabsScroll,
       hasListingGridItems,
-      inlineSourceFilters,
       installedSource,
       listingGridAttached,
       listingTabFadeColor,
       listingTabFadeTransparent,
       listingTabsLeadingFadeStyle,
       listingTabsTrailingFadeStyle,
+      openSourceFilterGroup,
+      openSourceFilterPanel,
       packageMetadata?.filters.length,
       selectSourceHome,
       selectSourceListing,
@@ -2896,8 +3140,8 @@ export function SourceBrowseScreen() {
       showSourceHomeTab,
       showSourceSearchHeader,
       source,
+      sourceFilterChips,
       sourceFilterCount,
-      sourceFilterValueMap,
       sourceFilters.length,
       sourceFiltersState,
       sourceHome,
@@ -2908,7 +3152,7 @@ export function SourceBrowseScreen() {
       sourceRuntimeUnavailableDetail,
       sourceSearchActive,
       strings,
-      tokens.mutedForeground,
+      toggleSourceCheckFilter,
       visibleListings,
     ],
   );
@@ -3153,7 +3397,17 @@ export function SourceBrowseScreen() {
               ) : (
                 <NemuInlineEmptyState
                   icon="search-outline"
-                  title={strings.sourceBrowse.noLiveMatches}
+                  title={
+                    // Only a *completed* search can honestly report "no
+                    // matches". An idle/loading state here means the request
+                    // never ran or never landed, and calling that an empty
+                    // result hid real source failures behind it.
+                    shouldShowMobileSourceBrowseNoMatches(
+                      sourceSearchState.status,
+                    )
+                      ? strings.sourceBrowse.noLiveMatches
+                      : strings.sourceBrowse.searchOrChooseFilters
+                  }
                 />
               )
             ) : !sourceSearchActive &&
@@ -3236,6 +3490,18 @@ export function SourceBrowseScreen() {
           strings={strings}
         />
       ) : null}
+      {sourceFilterGroup ? (
+        <SourceFilterGroupSheet
+          key={`source-filter-group:${sourceFilterGroup.name}`}
+          filter={sourceFilterGroup}
+          value={sourceFilterValueMap.get(filterValueKey(sourceFilterGroup))}
+          visible={sourceFilterGroupOpen}
+          strings={strings}
+          onChange={changeSourceFilter}
+          onClose={closeSourceFilterGroup}
+          onDismiss={handleSourceFilterGroupDismissed}
+        />
+      ) : null}
       <MobileNemuAgentSheet
         visible={cloudflareSheet.visible}
         status={cloudflareSheet.status}
@@ -3254,6 +3520,17 @@ const styles = StyleSheet.create({
   previewSection: {
     gap: 9,
   },
+  // The chip row sits under the native header search bar. iOS insets the list
+  // for the bar and pads under it, which left ~30pt above the chips; pull the
+  // row up and trim the space before the grid so the chips read as part of the
+  // search field, the way the Search tab's source chips do.
+  sourceFilterHeaderSpacing: {
+    // Measured on the simulator: ~13pt from the search field to the chips and
+    // ~13pt from the chips to the first grid row. iOS insets the list for its
+    // header search bar, hence the deeper pull-up there.
+    marginTop: Platform.OS === "ios" ? -17 : -3,
+    marginBottom: -23,
+  },
   previewSectionListingGrid: {
     gap: 0,
     marginBottom: 9,
@@ -3261,13 +3538,23 @@ const styles = StyleSheet.create({
   listingGridListHeader: {
     paddingBottom: 0,
   },
-  filterSummary: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: nemuFontWeight.medium,
+  // The chip row bleeds past the page gutter so a scrolled chip runs to the
+  // screen edge, then pays the gutter back as content padding — the same
+  // pattern the Search tab's source chip row uses.
+  //
+  // Vertical rhythm around the row lives in `sourceFilterHeaderSpacing` on the
+  // wrapping header section; this frame only owns the horizontal bleed.
+  sourceFilterChipRowFrame: {
+    marginHorizontal: -spacing.pageX,
+    overflow: "visible",
   },
-  sourceFilterList: {
-    gap: 10,
+  sourceFilterChipRowContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: spacing.pageX,
+    // Reserves room for the depth surface's box-shadow halo below the chips.
+    paddingBottom: 6,
   },
   sourceFilterGroup: {
     gap: 7,

@@ -281,6 +281,19 @@ export function shouldShowMobileSourceBrowseLoadError({
   return !loading && !hasSource && hasError;
 }
 
+/**
+ * "No matches" is a claim about a search that ran and came back empty. An
+ * `idle` state (the request was never started, or an in-flight attempt was
+ * cancelled and never restarted) and a `loading` state are not that, and
+ * labelling them "no matches" is how a failed source operation used to reach
+ * the user as an empty result instead of an error with a retry.
+ */
+export function shouldShowMobileSourceBrowseNoMatches(
+  searchStatus: "idle" | "loading" | "ready" | "blocked" | "error",
+): boolean {
+  return searchStatus === "ready";
+}
+
 export function shouldShowMobileSourceBrowseNotInstalled({
   loading,
   hasSource,

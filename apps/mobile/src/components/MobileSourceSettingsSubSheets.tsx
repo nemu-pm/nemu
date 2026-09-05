@@ -30,26 +30,51 @@ import {
 /** Options lists beyond this many rows scroll inside a bounded detent. */
 const SCROLLING_OPTION_LIMIT = 6;
 
+/**
+ * The sheet only ever needs a heading and a footnote from its subject, so a
+ * `SourcePackageSetting` and a source browse filter group can both drive it.
+ */
+export type MobileSourceOptionSheetSubject = {
+  title: string;
+  subtitle?: string;
+};
+
 export function MobileSourceMultiSelectSheet({
   setting,
   options,
   selectedValues,
   visible,
   single,
+  allowReselect = false,
   disabled,
   strings,
+  optionHint,
+  formatOptionAccessibilityLabel,
   onToggle,
+  onLongPressOption,
   onClose,
   onDismiss,
 }: {
-  setting: SourcePackageSetting;
+  setting: MobileSourceOptionSheetSubject;
   options: Array<{ label: string; value: string }>;
   selectedValues: string[];
   visible: boolean;
   single: boolean;
+  /**
+   * Single-choice rows normally swallow a tap on the current selection. Sort
+   * groups reuse that tap to flip the sort direction, so they opt back in.
+   */
+  allowReselect?: boolean;
   disabled: boolean;
   strings: MobileStrings;
+  optionHint?: string;
+  formatOptionAccessibilityLabel?: (option: {
+    label: string;
+    value: string;
+  }) => string;
   onToggle: (value: string) => void;
+  /** Tri-state groups hang their "exclude" affordance off a long press. */
+  onLongPressOption?: (value: string) => void;
   onClose: () => void;
   onDismiss?: () => void;
 }) {
@@ -78,23 +103,35 @@ export function MobileSourceMultiSelectSheet({
           return (
             <NemuPressable
               key={`${option.value}:${index}`}
-              accessibilityLabel={formatMobileString(
-                strings.settings.sourceSettingsToggleOption,
-                {
-                  name: setting.title,
-                  option: option.label,
-                },
-              )}
+              accessibilityLabel={
+                formatOptionAccessibilityLabel?.(option) ??
+                formatMobileString(
+                  strings.settings.sourceSettingsToggleOption,
+                  {
+                    name: setting.title,
+                    option: option.label,
+                  },
+                )
+              }
+              accessibilityHint={optionHint}
               accessibilityRole={single ? "radio" : "checkbox"}
               accessibilityState={{ checked: selected, disabled }}
+              delayLongPress={260}
               disabled={disabled}
               hapticFeedback={
-                disabled || (single && selected) ? "none" : "selection"
+                disabled || (single && selected && !allowReselect)
+                  ? "none"
+                  : "selection"
               }
               onPress={() => {
-                if (single && selected) return;
+                if (single && selected && !allowReselect) return;
                 onToggle(option.value);
               }}
+              onLongPress={
+                onLongPressOption
+                  ? () => onLongPressOption(option.value)
+                  : undefined
+              }
               pressedScale={0.99}
               style={[
                 styles.optionRow,

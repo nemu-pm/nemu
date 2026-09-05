@@ -30,6 +30,7 @@ import {
   NemuButton,
   GlassSurface,
   MobileCachedImage,
+  MobileChip,
   MobileNativeSheetScaffold,
   NemuNativeSearchField,
   NemuNativeSheetHeaderAction,
@@ -306,9 +307,9 @@ function formatCatalogCacheAge(savedAt: number | null, appLanguage: string): str
 }
 
 /**
- * One removable active filter. Selected chips carry the toolbar-action surface
- * rather than a flat muted rectangle, so they read as the same primitive as the
- * chapter toolbar chips.
+ * One removable active filter: the shared chip primitive's `toggle` variant in
+ * its selected (plain primary surface) state, with a trailing `close` glyph.
+ * Same pill as the Search tab's source chips.
  */
 function ActiveFilterChip({
   label,
@@ -319,32 +320,16 @@ function ActiveFilterChip({
   removeLabel: string;
   onPress: () => void;
 }) {
-  const { tokens } = useNemuTheme();
-
   return (
-    <NemuPressable
+    <MobileChip
       accessibilityLabel={`${removeLabel} ${label}`}
       accessibilityRole="button"
-      accessibilityState={{ selected: true }}
-      hapticFeedback="selection"
+      label={label}
       onPress={onPress}
-      pressedScale={0.97}
-      style={[
-        styles.activeFilterChip,
-        {
-          backgroundColor: tokens.toolbarAction,
-          borderColor: tokens.toolbarActionBorder,
-        },
-      ]}
-    >
-      <Text
-        numberOfLines={1}
-        style={[styles.activeFilterChipText, { color: tokens.primary }]}
-      >
-        {label}
-      </Text>
-      <Ionicons name="close" size={14} color={tokens.primary} />
-    </NemuPressable>
+      selected
+      trailingIcon="close"
+      variant="toggle"
+    />
   );
 }
 
@@ -524,18 +509,22 @@ function LanguageFilterSheetSection({
         switch in a box as tall as the switch itself — so nothing sits offset
         or tilted inside the row.
       */}
-      <GlassSurface
-        style={styles.languageListSection}
-        contentStyle={styles.languageListContent}
+      {/*
+        A plain card, not GlassSurface: the native switch is a SwiftUI host,
+        and inside expo-blur's UIVisualEffectView it renders several points
+        above its layout box. The settings card uses the same plain surface
+        and its switches sit on the row's centre line.
+      */}
+      <View
+        style={[
+          styles.languageListSection,
+          styles.adultToggleCard,
+          { backgroundColor: tokens.card, borderColor: tokens.border },
+        ]}
       >
         <View style={styles.adultToggleRow}>
-          <View
-            style={[
-              styles.adultToggleIcon,
-              { backgroundColor: tokens.sourceIconGlass },
-            ]}
-          >
-            <Ionicons name="eye-outline" size={20} color={tokens.primary} />
+          <View style={styles.adultToggleIcon}>
+            <Ionicons name="eye-outline" size={22} color={tokens.primary} />
           </View>
           <View style={styles.adultToggleCopy}>
             <Text
@@ -565,7 +554,7 @@ function LanguageFilterSheetSection({
             />
           </View>
         </View>
-      </GlassSurface>
+      </View>
     </>
   );
 }
@@ -2006,23 +1995,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
-  activeFilterChip: {
-    minHeight: 30,
-    maxWidth: 200,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
-  },
-  activeFilterChipText: {
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: nemuFontWeight.medium,
-  },
   sourceHeader: {
     minHeight: 32,
     flexDirection: "row",
@@ -2167,6 +2139,10 @@ const styles = StyleSheet.create({
   // The explicit-content toggle row mirrors the language option rows' group
   // chrome with every child centred on one line (itemsCenter, fixed
   // heights), so the switch cannot sit rotated or offset in its container.
+  adultToggleCard: {
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   adultToggleRow: {
     minHeight: 60,
     flexDirection: "row",
@@ -2176,12 +2152,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   adultToggleIcon: {
+    // Bare glyph, no tile: keeps the row's column alignment with the language
+    // rows above without boxing the icon.
     width: 38,
     height: 38,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
-    borderRadius: radius.md,
   },
   adultToggleCopy: {
     flex: 1,
@@ -2198,10 +2174,11 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   adultToggleAccessory: {
-    // Exactly the switch's own 31pt frame: `alignItems: "center"` on the row
-    // then seats the switch on the same centre line as the icon tile.
-    minHeight: 31,
-    alignItems: "center",
+    // Same shape as the settings card's `settingControl`: let the native
+    // switch host report its own height and let the row's `alignItems:
+    // "center"` seat it — a fixed-height box here pushed the toggle upward.
+    minWidth: 54,
+    alignItems: "flex-end",
     justifyContent: "center",
   },
   availableShell: {

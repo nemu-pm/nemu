@@ -2094,8 +2094,12 @@ const styles = StyleSheet.create({
   // The comfortable padding, label size, and 34pt frame mirror the card's
   // standard small NemuButton surfaces so it reads as a pressable, and the row
   // keeps it vertically centered next to the sibling switches.
+  // `settingRow` is a flex row, so the cross axis is vertical: `alignSelf:
+  // "flex-end"` bottom-aligned the pill against the title/subtitle block
+  // instead of pushing it to the trailing edge (the flex:1 text block already
+  // does that). `center` is what actually centres it on the text.
   settingMenuShell: {
-    alignSelf: "flex-end",
+    alignSelf: "center",
     minHeight: 34,
     alignItems: "center",
     justifyContent: "center",
@@ -2107,7 +2111,7 @@ const styles = StyleSheet.create({
     height: 32,
   },
   settingMaterialMenu: {
-    alignSelf: "flex-end",
+    alignSelf: "center",
   },
   settingMaterialMenuTrigger: {
     minHeight: 34,

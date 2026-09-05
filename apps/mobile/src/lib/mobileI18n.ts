@@ -375,6 +375,7 @@ export type MobileStrings = {
     excludeFilter: string;
     filterCountOne: string;
     filterCountOther: string;
+    filterSelectedCountOther: string;
     includeFilter: string;
     installBeforeExecutor: string;
     installBeforeOpening: string;
@@ -403,6 +404,7 @@ export type MobileStrings = {
     noMangaLoadedFromListing: string;
     noPackageListings: string;
     noSourceHome: string;
+    homeUnavailable: string;
     notFilter: string;
     sourceOperationTimedOut: string;
     openAllFilters: string;
@@ -464,6 +466,7 @@ export type MobileStrings = {
     sortAscending: string;
     sortDescending: string;
     source: string;
+    sourceFilterChipHint: string;
     sourceFilterCycleHint: string;
     sourceFilterExcludeHint: string;
     sourceFilterOption: string;

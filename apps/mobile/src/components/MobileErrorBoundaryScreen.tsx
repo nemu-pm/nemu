@@ -9,6 +9,7 @@ import {
   useColorScheme,
   View,
 } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 // The root ErrorBoundary replaces the layout tree, so it renders ABOVE
 // NemuThemeProvider (which itself needs the data store). The theme context is
@@ -57,16 +58,19 @@ export function MobileErrorBoundaryScreen({ error, retry }: ErrorBoundaryProps) 
     [error, pathname],
   );
   const summary = formatMobileErrorSummary(error);
+  // The boundary never mounts NemuThemeProvider, so read the OS setting
+  // directly: every pressable only animates once reduceMotion is a known
+  // `false`, and a `null` here would leave the buttons without press feedback.
+  const reduceMotion = useReducedMotion();
   const theme = useMemo<NemuTheme>(
     () => ({
-      // Motion-safe default: the boundary never runs the accessibility probe.
-      reduceMotion: null,
+      reduceMotion,
       scheme,
       themePreference: "system",
       tokens,
       setThemePreference: () => Promise.resolve(),
     }),
-    [scheme, tokens],
+    [reduceMotion, scheme, tokens],
   );
 
   const copyLog = async () => {

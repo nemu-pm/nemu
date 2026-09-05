@@ -1,5 +1,8 @@
 import type { ViewStyle } from "react-native";
-import { createNemuShadowStyle, type NemuColorScheme } from "@/design-system";
+// eslint-disable-next-line no-restricted-imports -- SourceCard (in the design-system barrel) imports this module, so importing the barrel back would create a require cycle.
+import { createNemuShadowStyle } from "@/design/shadows";
+// eslint-disable-next-line no-restricted-imports -- type-only; same cycle reason as above.
+import type { NemuColorScheme } from "@/design/tokens";
 
 export type SourceCardVisuals = {
   cardBackground: string;

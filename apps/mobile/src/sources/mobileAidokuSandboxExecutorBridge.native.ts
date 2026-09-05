@@ -27,6 +27,7 @@ import {
   measureMobilePerformance,
 } from "@/lib/mobilePerformance";
 import { getMobileImageUriPolicy } from "@/lib/mobileImageUriPolicy";
+import { sanitizeMobileErrorDiagnostic } from "@/lib/mobileSourceErrors";
 
 type SandboxCapabilities = {
   id: string;
@@ -150,6 +151,11 @@ function wrapSandboxSource({
           error instanceof Error && error.name
             ? error.name
             : "unknown-error",
+        // The bare `name` made every native sandbox failure log as a plain
+        // "Error" with no way to tell a source HTTP timeout from a parse
+        // failure. The message is sanitized (URLs/credentials redacted) the
+        // same way user-facing diagnostics are.
+        detail: sanitizeMobileErrorDiagnostic(error) ?? "",
       });
       throw error;
     }

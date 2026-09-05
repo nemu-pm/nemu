@@ -17,6 +17,7 @@ import {
   shouldShowCenterSourceBrowseSearchProgress,
   shouldShowMobileSourceBrowseListingTabBar,
   shouldShowMobileSourceBrowseLoadError,
+  shouldShowMobileSourceBrowseNoMatches,
   shouldShowMobileSourceBrowseNotInstalled,
   shouldShowSourceBrowseBootstrapping,
   shouldShowSourceBrowseHomeSkeleton,
@@ -512,4 +513,15 @@ describe("mobile source browse route helpers", () => {
       }),
     ).toBe(false);
   });
+});
+
+test("only a completed search may report no matches", () => {
+  expect(shouldShowMobileSourceBrowseNoMatches("ready")).toBe(true);
+  // An attempt that never ran, is still running, was blocked, or failed is not
+  // an empty result — those states own their own copy (skeleton, blocked
+  // notice, error + retry, or the neutral prompt).
+  expect(shouldShowMobileSourceBrowseNoMatches("idle")).toBe(false);
+  expect(shouldShowMobileSourceBrowseNoMatches("loading")).toBe(false);
+  expect(shouldShowMobileSourceBrowseNoMatches("blocked")).toBe(false);
+  expect(shouldShowMobileSourceBrowseNoMatches("error")).toBe(false);
 });
