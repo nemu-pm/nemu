@@ -28,7 +28,7 @@
     "@expo/material-symbols": "^0.1.1",
     "@expo/ui": "~56.0.25",
     "@expo/vector-icons": "^15.0.2",
-    "@nemu.pm/aidoku-runtime": "^0.6.0",
+    "@nemu.pm/aidoku-runtime": "^0.7.0",
     "@nemu/core": "workspace:*",
     "@react-native-community/javascriptcore": "^0.2.0",
     "@shopify/react-native-skia": "2.6.2",
