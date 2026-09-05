@@ -1,6 +1,10 @@
 // AndroidX JavaScriptEngine exposes a deliberately small ECMAScript runtime.
-// Aidoku's runtime additionally requires the Encoding and URL standards, so
-// bundle deterministic implementations instead of depending on WebView globals.
+// Aidoku's runtime additionally requires the Encoding, URL and base64
+// standards, so bundle deterministic implementations instead of depending on
+// WebView globals. cheerio's `entities` dependency calls `atob` while its
+// module initialises, so the sandbox entry must import this module before
+// `@nemu.pm/aidoku-runtime`.
+import "../../../src/polyfills/base64";
 import "../../../src/polyfills/textEncoding";
 import {
   URL as StandardsURL,
@@ -35,6 +39,8 @@ export async function probeAidokuSandboxGlobals(): Promise<void> {
     typeof TextDecoder !== "function" ||
     typeof URL !== "function" ||
     typeof URLSearchParams !== "function" ||
+    typeof atob !== "function" ||
+    typeof btoa !== "function" ||
     typeof BigInt !== "function" ||
     typeof WebAssembly !== "object" ||
     typeof WebAssembly.compile !== "function" ||
@@ -46,6 +52,11 @@ export async function probeAidokuSandboxGlobals(): Promise<void> {
   const text = "猫と🍙";
   if (new TextDecoder().decode(new TextEncoder().encode(text)) !== text) {
     throw new Error("The isolated Aidoku text encoding runtime is invalid.");
+  }
+
+  const binary = "çat";
+  if (btoa(binary) !== "52F0" || atob("52F0") !== binary) {
+    throw new Error("The isolated Aidoku base64 runtime is invalid.");
   }
 
   const url = new URL("../猫", "https://example.test/a/b/");
