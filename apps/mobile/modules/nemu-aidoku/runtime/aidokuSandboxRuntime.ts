@@ -1,3 +1,7 @@
+// Keep this import first: it installs the standards polyfills (base64, text
+// encoding, URL) that `@nemu.pm/aidoku-runtime`'s dependencies read while
+// their modules initialise. ESM evaluates imports in source order.
+import { probeAidokuSandboxGlobals } from "./aidokuSandboxGlobals";
 import {
   CloudflareBlockedError,
   createLoadSource,
@@ -31,7 +35,6 @@ import {
   decodeAidokuSandboxCanvasPlan,
   SANDBOX_IMAGE_MAX_COMPRESSED_BYTES,
 } from "./aidokuSandboxCanvas";
-import { probeAidokuSandboxGlobals } from "./aidokuSandboxGlobals";
 import { prepareMobileAidokuWasm } from "./aidokuWasmSafety";
 import {
   decodeSandboxPersistedSettings,
