@@ -3435,9 +3435,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    // Same half trailing inset as the installed-source rows.
+    // The list bleeds to the card edge (`pluginEmbeddedList` cancels the
+    // card's 12pt padding), so this row supplies the whole trailing inset.
+    // 24 = the card padding plus the 12pt inner-row padding the sibling
+    // "触感与提示" toggle rows use, so every switch on the screen shares one
+    // right edge. The installed-source rows can sit at 6 because their icon
+    // buttons carry a 44pt touch target around a 32pt pill; the bare 51pt
+    // native switch has no such slack.
     paddingLeft: 12,
-    paddingRight: 6,
+    paddingRight: 24,
     paddingVertical: 10,
   },
   pluginRowShell: {
@@ -3537,7 +3543,12 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
   },
   pluginActions: {
-    minWidth: 92,
+    // The trailing cluster is sized by its content (44pt gear touch target +
+    // 6pt gap + 54pt switch box) and never shrinks; `pluginMain` is the flex
+    // child that absorbs a narrow screen or enlarged type, so the row can not
+    // grow wider than its card. The old `minWidth: 92` was below that content
+    // width and only obscured the real geometry.
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",

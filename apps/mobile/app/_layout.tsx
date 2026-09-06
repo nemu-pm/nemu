@@ -21,6 +21,7 @@ import { MobileWelcomeWizard } from "@/components/MobileWelcomeWizard";
 import { MobileDataProvider } from "@/data/mobileData";
 import { MobileLanguageProvider } from "@/data/mobileLanguageContext";
 import { NemuThemeProvider, useNemuTheme } from "@/design-system";
+import { MOBILE_STACK_EDGE_ONLY_GESTURE_OPTIONS } from "@/lib/mobileReaderRouteOptions";
 import { shouldShowMobileFloatingTabBar } from "@/lib/mobileRootTabs";
 import { getMobileWelcomeUnderlyingContentState } from "@/lib/mobileWelcome";
 import {
@@ -131,6 +132,12 @@ function RootStack({
             headerShown: false,
             contentStyle: { backgroundColor: tokens.background },
             statusBarStyle: scheme === "dark" ? "light" : "dark",
+            // The root stack hosts the whole sources flow (manga detail and
+            // reader) in one screen. iOS 26 turns the native full-screen
+            // content-pop gesture on by default, so without this a horizontal
+            // drag anywhere — including a reader page turn or a scrub — pops
+            // straight out of the flow. Edge-swipe back is unaffected.
+            ...MOBILE_STACK_EDGE_ONLY_GESTURE_OPTIONS,
           }}
         />
         {Platform.OS !== "ios" && shouldShowMobileFloatingTabBar(pathname) ? (

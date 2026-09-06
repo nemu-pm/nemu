@@ -137,6 +137,32 @@ export function updateMobileSourceFilterValues(
   return next;
 }
 
+/**
+ * The chip row is source browse *chrome*, not a search result: it belongs on
+ * screen from the first paint, or the whole header re-lays out the moment the
+ * runtime metadata lands. The filters persisted with the installed package
+ * stand in until the runtime answers — the runtime result merges those same
+ * package fields back in, so the stand-in row is always a subset of the final
+ * one and chips are only ever added, never pulled out from under a tap. A
+ * blocked or failed filters fetch falls back to the runtime's own (empty)
+ * answer so a stale row cannot outlive the notice that replaced it.
+ */
+export function resolveMobileSourceBrowseFilters({
+  filtersStatus,
+  runtimeFilters,
+  packageFilters,
+}: {
+  filtersStatus: "idle" | "loading" | "ready" | "blocked" | "error" | string;
+  runtimeFilters: Filter[];
+  packageFilters: Filter[];
+}): Filter[] {
+  if (runtimeFilters.length > 0) return runtimeFilters;
+  if (filtersStatus === "idle" || filtersStatus === "loading") {
+    return packageFilters;
+  }
+  return runtimeFilters;
+}
+
 export function isMobileInlineSourceFilter(filter: Filter): boolean {
   if ((filter as Filter & { hideFromHeader?: boolean }).hideFromHeader) {
     return false;

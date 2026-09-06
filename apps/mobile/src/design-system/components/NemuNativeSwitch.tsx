@@ -3,6 +3,7 @@ import { Switch as ExpoSwitch } from "@expo/ui";
 import { Host as SwiftHost } from "@expo/ui/swift-ui";
 import {
   accessibilityLabel as swiftAccessibilityLabel,
+  dynamicTypeSize,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
 import { Platform, Pressable, StyleSheet, Switch as RNSwitch, View } from "react-native";
@@ -121,8 +122,23 @@ export function NemuNativeSwitch({
           region shrunk by the bottom inset and drew above its own frame. The
           RN layout was already centred (measured); only the SwiftUI drawing
           moved.
+
+          `dynamicTypeSize("large")` pins the SwiftUI environment to the default
+          text size for the same reason. SwiftUI's `Toggle` scales its control
+          with Dynamic Type while UIKit's `UISwitch` never does, so at larger
+          text sizes the drawn switch outgrew this measured frame and any
+          ancestor clipping its bounds (the settings cards) sheared the
+          trailing edge off. Pinned, the control stays the platform's own
+          51x31 at every Dynamic Type setting, so what Yoga reserves is exactly
+          what SwiftUI paints. Nothing inside the host is text, so no copy is
+          held back from scaling.
         */}
-        <SwiftHost colorScheme={scheme} ignoreSafeArea="all" style={styles.swiftHost}>
+        <SwiftHost
+          colorScheme={scheme}
+          ignoreSafeArea="all"
+          modifiers={[dynamicTypeSize("large")]}
+          style={styles.swiftHost}
+        >
           <ExpoSwitch
             disabled={disabled}
             modifiers={[

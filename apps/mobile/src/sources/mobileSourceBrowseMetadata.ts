@@ -263,7 +263,7 @@ function packageFieldToRuntimeFilter(
   return null;
 }
 
-function mergeRuntimeAndPackageFilters(
+export function mergeRuntimeAndPackageFilters(
   runtimeFilters: Filter[],
   packageFields: SourcePackageField[],
 ): Filter[] {

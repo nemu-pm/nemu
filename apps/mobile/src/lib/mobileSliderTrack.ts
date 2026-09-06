@@ -26,3 +26,23 @@ export function sliderRatioFromLocation(
   if (trackWidth <= 0) return null;
   return Math.max(0, Math.min(1, locationX / trackWidth));
 }
+
+/** Diameter of the slider thumb rendered by `MobileSliderTrack`. */
+export const MOBILE_SLIDER_THUMB_SIZE = 18;
+
+/**
+ * Window-space box of a slider track, in points.
+ *
+ * It must come from `measureInWindow`, never from a touch's `pageX/pageY`:
+ * inside the reader's Liquid Glass toolbar the slider is hosted by `@expo/ui`'s
+ * `RNHostView`, which attaches its own `RCTSurfaceTouchHandler` to the hosted
+ * view (`RNHostView.swift`), so `pagePoint` is measured from that panel rather
+ * than the window. `measureInWindow` resolves against the surface's root shadow
+ * node instead and stays window-relative on the glass and plain paths alike.
+ */
+export type MobileSliderTrackWindowFrame = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};

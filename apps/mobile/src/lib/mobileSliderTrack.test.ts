@@ -38,3 +38,4 @@ describe("sliderRatioFromLocation", () => {
     expect(sliderRatioFromLocation(140, 100)).toBe(1);
   });
 });
+
