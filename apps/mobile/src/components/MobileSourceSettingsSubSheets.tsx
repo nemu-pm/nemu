@@ -3,6 +3,7 @@ import { StyleSheet, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   GlassSurface,
+  MobileChip,
   MobileSheetScaffold,
   NemuButton,
   NemuPressable,
@@ -275,31 +276,17 @@ export function MobileSourceStringListSheet({
       {items.length ? (
         <View style={styles.editorItems}>
           {items.map((item, index) => (
-            <NemuPressable
+            <MobileChip
               key={`${item}:${index}`}
               accessibilityRole="button"
               accessibilityLabel={`${strings.common.remove} ${item}`}
               accessibilityState={{ disabled }}
               disabled={disabled}
+              label={item}
               onPress={() => onRemove(index)}
-              pressedScale={0.96}
-              style={[styles.editorChip, { backgroundColor: tokens.muted }]}
-            >
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.editorChipText,
-                  { color: tokens.mutedForeground },
-                ]}
-              >
-                {item}
-              </Text>
-              <Ionicons
-                name="close-outline"
-                size={14}
-                color={tokens.mutedForeground}
-              />
-            </NemuPressable>
+              trailingIcon="close-outline"
+              variant="toggle"
+            />
           ))}
         </View>
       ) : (
@@ -363,20 +350,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 6,
-  },
-  editorChip: {
-    minHeight: 28,
-    maxWidth: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    borderRadius: radius.md,
-    paddingHorizontal: 9,
-  },
-  editorChipText: {
-    maxWidth: 260,
-    fontSize: 12,
-    lineHeight: 16,
   },
   footnote: {
     fontSize: 12,

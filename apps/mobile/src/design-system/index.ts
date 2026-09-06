@@ -44,6 +44,7 @@ export { MobileCachedImage } from "./components/MobileCachedImage";
 export {
   MobileChip,
   type MobileChipProps,
+  type MobileChipSize,
   type MobileChipVariant,
 } from "./components/MobileChip";
 export { MobileSheetBackdrop } from "./components/MobileSheetBackdrop";

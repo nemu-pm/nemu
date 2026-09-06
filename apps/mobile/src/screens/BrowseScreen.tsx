@@ -206,21 +206,12 @@ function UnsupportedSourceRow({
           >
             {source.name}
           </Text>
-          <View
-            style={[
-              styles.unsupportedSourceBadge,
-              { backgroundColor: tokens.card, borderColor: tokens.border },
-            ]}
-          >
-            <Text
-              style={[
-                styles.unsupportedSourceBadgeText,
-                { color: tokens.mutedForeground },
-              ]}
-            >
-              {strings.common.sourceUnsupportedBadge}
-            </Text>
-          </View>
+          <MobileChip
+            accessibilityLabel={strings.common.sourceUnsupportedBadge}
+            label={strings.common.sourceUnsupportedBadge}
+            size="sm"
+            variant="static"
+          />
         </View>
         <Text
           numberOfLines={2}
@@ -2074,18 +2065,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontWeight: nemuFontWeight.semibold,
-  },
-  unsupportedSourceBadge: {
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-  },
-  unsupportedSourceBadgeText: {
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
-    textTransform: "uppercase",
   },
   unsupportedSourceSubtitle: {
     fontSize: 11,

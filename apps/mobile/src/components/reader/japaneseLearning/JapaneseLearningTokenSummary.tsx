@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   posTag: {
-    borderRadius: radius.sm,
+    borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 8,
     paddingVertical: 2,

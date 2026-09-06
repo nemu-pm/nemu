@@ -10,6 +10,7 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useConvexAuth, useQuery } from "convex/react";
 import {
+  MobileChip,
   MobileNativeSheetScaffold,
   nemuColorWithAlpha,
   NemuPressable,
@@ -93,19 +94,9 @@ type SignOutChoiceSheetProps = {
   onConfirm: () => void;
 };
 
+/** The sync state reads as a read-only chip, so it is the `static` pill. */
 function SyncStatusBadge({ label }: { label: string }) {
-  const { tokens } = useNemuTheme();
-
-  return (
-    <View style={[styles.statusBadge, { backgroundColor: tokens.muted }]}>
-      <Text
-        maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-        style={[styles.statusBadgeText, { color: tokens.mutedForeground }]}
-      >
-        {label}
-      </Text>
-    </View>
-  );
+  return <MobileChip accessibilityLabel={label} label={label} variant="static" />;
 }
 
 function MobileCloudSyncUnavailableCard({
@@ -1155,17 +1146,6 @@ const styles = StyleSheet.create({
   detail: {
     fontSize: 12,
     lineHeight: 16,
-  },
-  statusBadge: {
-    minHeight: 26,
-    justifyContent: "center",
-    borderRadius: radius.md,
-    paddingHorizontal: 9,
-  },
-  statusBadgeText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.semibold,
   },
   loadingRow: {
     minHeight: 34,

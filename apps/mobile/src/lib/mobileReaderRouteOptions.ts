@@ -12,17 +12,17 @@ export type MobileStackGestureOptions = {
 };
 
 /**
- * iOS 26 ships a native full-screen "content pop" gesture, and
- * react-native-screens treats an unset `fullScreenGestureEnabled` as *enabled*
- * there (`RNSScreenView.isFullScreenSwipeEffectivelyEnabled`). Every stack in
- * the app therefore has to opt out explicitly, or a horizontal drag anywhere
- * on screen pops the top screen of *that* stack — including the outer stack
- * that hosts the whole sources flow, which is why disabling the gesture on the
- * reader screen alone was not enough. Screens keep the usual edge swipe back.
+ * iOS 26 ships a native full-screen "content pop" gesture, and the owner wants
+ * it on everywhere: react-native-screens treats an unset
+ * `fullScreenGestureEnabled` as enabled there already, but every stack states
+ * it explicitly so the intent survives a library default change. The reader
+ * is the one place that must not pop on a horizontal drag; it opts out with
+ * `MOBILE_READER_STACK_GESTURE_OPTIONS` (its own route) plus the host lock
+ * below (the outer stack screen that contains the whole sources flow).
  */
-export const MOBILE_STACK_EDGE_ONLY_GESTURE_OPTIONS: MobileStackGestureOptions =
+export const MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS: MobileStackGestureOptions =
   {
-    fullScreenGestureEnabled: false,
+    fullScreenGestureEnabled: true,
     gestureEnabled: true,
   };
 
@@ -36,6 +36,40 @@ export const MOBILE_READER_STACK_GESTURE_OPTIONS: MobileStackGestureOptions = {
   fullScreenGestureEnabled: false,
   gestureEnabled: false,
 };
+
+type SetStackGestureOptions = (options: MobileStackGestureOptions) => void;
+
+let readerHostGestureLocks = 0;
+
+/**
+ * The sources flow (manga detail + reader) is a single screen of the root
+ * stack, so the root stack's full-screen pop gesture would pop the whole flow
+ * on a reader page turn or scrub. While at least one reader is mounted, the
+ * host screen takes the reader's gesture options; the last reader to unmount
+ * restores the app-wide options. Counted rather than toggled because a chapter
+ * switch (`router.replace`) mounts the next reader before the previous one
+ * unmounts — a plain restore-on-unmount would re-enable the pop mid-read.
+ */
+export function acquireMobileReaderHostGestureLock(
+  setOptions: SetStackGestureOptions | undefined,
+): () => void {
+  readerHostGestureLocks += 1;
+  setOptions?.(MOBILE_READER_STACK_GESTURE_OPTIONS);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    readerHostGestureLocks = Math.max(0, readerHostGestureLocks - 1);
+    if (readerHostGestureLocks === 0) {
+      setOptions?.(MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS);
+    }
+  };
+}
+
+/** Exposed for tests. */
+export function resetMobileReaderHostGestureLocksForTesting(): void {
+  readerHostGestureLocks = 0;
+}
 
 export type MobileReaderScreenOptions = {
   statusBarAnimation: "fade";

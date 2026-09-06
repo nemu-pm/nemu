@@ -366,7 +366,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   japaneseLearningPosPill: {
-    borderRadius: radius.sm,
+    borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 6,
     paddingVertical: 2,

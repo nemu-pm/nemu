@@ -13,7 +13,7 @@ import {
   type AudioPlayer,
 } from "expo-audio";
 import * as Clipboard from "expo-clipboard";
-import { router, Stack, useLocalSearchParams } from "expo-router";
+import { router, Stack, useLocalSearchParams, useNavigation } from "expo-router";
 import {
   ActivityIndicator,
   AppState,
@@ -216,7 +216,10 @@ import {
   isReaderChromeLoading,
   readerChromePageCountLabel,
 } from "@/lib/mobileReaderHeader";
-import { mobileReaderScreenOptions } from "@/lib/mobileReaderRouteOptions";
+import {
+  acquireMobileReaderHostGestureLock,
+  mobileReaderScreenOptions,
+} from "@/lib/mobileReaderRouteOptions";
 import { useMobileConnectivity } from "@/lib/useMobileConnectivity";
 import { readerChromeAnimationsForMotion } from "@/lib/mobileReaderChromeAnimations";
 import {
@@ -2259,6 +2262,16 @@ export function ReaderScreen() {
   // Only the status bar follows the chrome here. The pop gesture is disabled
   // statically on the route (app/sources/_layout.tsx) and on the root stack
   // that hosts the flow (app/_layout.tsx) — see mobileReaderRouteOptions.
+  const navigation = useNavigation();
+  useEffect(() => {
+    // The root stack keeps the iOS 26 full-screen back swipe on; the sources
+    // flow is one screen of it, so a page turn or scrub here would pop the
+    // whole flow. Hold the host screen's gesture off for the reader's lifetime.
+    const parent = navigation.getParent();
+    return acquireMobileReaderHostGestureLock(
+      parent ? (options) => parent.setOptions(options) : undefined,
+    );
+  }, [navigation]);
   const readerScreenOptions = useMemo(
     () => mobileReaderScreenOptions({ showControls }),
     [showControls],

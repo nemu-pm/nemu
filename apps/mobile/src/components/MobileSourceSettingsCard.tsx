@@ -30,6 +30,7 @@ import { MobileSourceLoginSheet } from "@/components/MobileSourceLoginSheet";
 import {
   createNemuButtonDepthStyle,
   getNemuButtonDepthVisual,
+  MobileChip,
   NemuButton,
   NemuNativeSwitch,
   radius,
@@ -474,7 +475,7 @@ function SourceSettingSelectMenu({
           disabled,
         });
         return (
-          <NemuPressable
+          <MobileChip
             key={`${option.value}:${index}`}
             accessibilityLabel={formatMobileString(
               strings.settings.sourceSettingsSelectOption,
@@ -487,35 +488,14 @@ function SourceSettingSelectMenu({
             accessibilityState={{ checked: selected, disabled }}
             disabled={disabled}
             hapticFeedback={canSelect ? "selection" : "none"}
+            label={option.label}
             onPress={() => {
               if (!canSelect) return;
               onSelect(option.value);
             }}
-            pressedScale={0.98}
-            style={[
-              styles.settingOption,
-              {
-                backgroundColor: selected ? tokens.primary : tokens.muted,
-                borderColor: selected ? tokens.primary : tokens.border,
-                opacity: disabled ? 0.62 : 1,
-              },
-            ]}
-          >
-            <NemuText
-              density="compact"
-              numberOfLines={1}
-              style={[
-                styles.settingOptionText,
-                {
-                  color: selected
-                    ? tokens.primaryForeground
-                    : tokens.mutedForeground,
-                },
-              ]}
-            >
-              {option.label}
-            </NemuText>
-          </NemuPressable>
+            selected={selected}
+            variant="toggle"
+          />
         );
       })}
     </View>
@@ -638,7 +618,7 @@ function SourceSettingControl({
               disabled,
             });
             return (
-              <NemuPressable
+              <MobileChip
                 key={`${setting.key}:${option.value}`}
                 accessibilityLabel={formatMobileString(
                   strings.settings.sourceSettingsSelectOption,
@@ -651,35 +631,14 @@ function SourceSettingControl({
                 accessibilityState={{ checked: selected, disabled }}
                 disabled={disabled}
                 hapticFeedback={canSelect ? "selection" : "none"}
+                label={option.label}
                 onPress={() => {
                   if (!canSelect) return;
                   setValue(option.value);
                 }}
-                pressedScale={0.98}
-                style={[
-                  styles.settingOption,
-                  {
-                    backgroundColor: selected ? tokens.primary : tokens.muted,
-                    borderColor: selected ? tokens.primary : tokens.border,
-                    opacity: disabled ? 0.62 : 1,
-                  },
-                ]}
-              >
-                <NemuText
-                  density="compact"
-                  numberOfLines={1}
-                  style={[
-                    styles.settingOptionText,
-                    {
-                      color: selected
-                        ? tokens.primaryForeground
-                        : tokens.mutedForeground,
-                    },
-                  ]}
-                >
-                  {option.label}
-                </NemuText>
-              </NemuPressable>
+                selected={selected}
+                variant="toggle"
+              />
             );
           })}
         </View>
@@ -714,7 +673,7 @@ function SourceSettingControl({
         {options.map((option, index) => {
           const selected = selectedValues.includes(option.value);
           return (
-            <NemuPressable
+            <MobileChip
               key={`${option.value}:${index}`}
               accessibilityLabel={formatMobileString(
                 strings.settings.sourceSettingsToggleOption,
@@ -729,6 +688,7 @@ function SourceSettingControl({
               hapticFeedback={
                 disabled || (setting.single && selected) ? "none" : "selection"
               }
+              label={option.label}
               onPress={() => {
                 if (setting.single) {
                   if (!selected) setValue([option.value]);
@@ -739,31 +699,9 @@ function SourceSettingControl({
                   : [...selectedValues, option.value];
                 setValue(next);
               }}
-              pressedScale={0.98}
-              style={[
-                styles.settingOption,
-                {
-                  backgroundColor: selected ? tokens.primary : tokens.muted,
-                  borderColor: selected ? tokens.primary : tokens.border,
-                  opacity: disabled ? 0.62 : 1,
-                },
-              ]}
-            >
-              <NemuText
-                density="compact"
-                numberOfLines={1}
-                style={[
-                  styles.settingOptionText,
-                  {
-                    color: selected
-                      ? tokens.primaryForeground
-                      : tokens.mutedForeground,
-                  },
-                ]}
-              >
-                {option.label}
-              </NemuText>
-            </NemuPressable>
+              selected={selected}
+              variant="toggle"
+            />
           );
         })}
       </View>
@@ -903,42 +841,21 @@ function SourceSettingControl({
         {currentItems.length ? (
           <View style={styles.editableListItems}>
             {currentItems.map((item, index) => (
-              <NemuPressable
+              <MobileChip
                 key={`${item}:${index}`}
                 accessibilityRole="button"
                 accessibilityLabel={`${strings.common.remove} ${item}`}
                 accessibilityState={{ disabled }}
                 disabled={disabled}
+                label={item}
                 onPress={() => {
                   setValue(
                     currentItems.filter((_, itemIndex) => itemIndex !== index),
                   );
                 }}
-                pressedScale={0.96}
-                style={[
-                  styles.editableListChip,
-                  {
-                    backgroundColor: tokens.muted,
-                    opacity: disabled ? 0.62 : 1,
-                  },
-                ]}
-              >
-                <NemuText
-                  density="compact"
-                  numberOfLines={1}
-                  style={[
-                    styles.editableListChipText,
-                    { color: tokens.mutedForeground },
-                  ]}
-                >
-                  {item}
-                </NemuText>
-                <Ionicons
-                  name="close-outline"
-                  size={14}
-                  color={tokens.mutedForeground}
-                />
-              </NemuPressable>
+                trailingIcon="close-outline"
+                variant="toggle"
+              />
             ))}
           </View>
         ) : (
@@ -1005,16 +922,13 @@ function SourceSettingControl({
     );
   }
 
+  const valueSummary = describeSourceSettingValue(setting, values, strings);
   return (
-    <View style={[styles.settingValuePill, { backgroundColor: tokens.muted }]}>
-      <NemuText
-        density="compact"
-        numberOfLines={1}
-        style={[styles.settingValueText, { color: tokens.mutedForeground }]}
-      >
-        {describeSourceSettingValue(setting, values, strings)}
-      </NemuText>
-    </View>
+    <MobileChip
+      accessibilityLabel={valueSummary}
+      label={valueSummary}
+      variant="static"
+    />
   );
 }
 
@@ -2076,19 +1990,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     gap: 6,
   },
-  settingOption: {
-    minHeight: 28,
-    maxWidth: 116,
-    justifyContent: "center",
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 9,
-  },
-  settingOptionText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
-  },
   // The select trigger is a depth button, not a flat well: it hugs its label
   // and sits at the row's trailing edge instead of stretching to a fixed width.
   // The comfortable padding, label size, and 34pt frame mirror the card's
@@ -2127,18 +2028,6 @@ const styles = StyleSheet.create({
     maxWidth: 180,
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: nemuFontWeight.medium,
-  },
-  settingValuePill: {
-    minHeight: 28,
-    maxWidth: "48%",
-    justifyContent: "center",
-    borderRadius: radius.md,
-    paddingHorizontal: 9,
-  },
-  settingValueText: {
-    fontSize: 11,
-    lineHeight: 14,
     fontWeight: nemuFontWeight.medium,
   },
   settingInputShell: {
@@ -2182,21 +2071,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     justifyContent: "flex-end",
     gap: 5,
-  },
-  editableListChip: {
-    minHeight: 26,
-    maxWidth: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    borderRadius: radius.md,
-    paddingHorizontal: 8,
-  },
-  editableListChipText: {
-    maxWidth: 132,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
   },
   editableListEmpty: {
     fontSize: 11,

@@ -13,11 +13,13 @@ import { File as ExpoFile } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import {
+  MobileChip,
   MobileNativeSheetScaffold,
   MobileCachedImage,
   createNemuShadowStyle,
+  iconSize,
   radius,
-  nemuFontWeight,
+  spacing,
   useNemuTheme,
   NemuButton,
   GlassSurface,
@@ -36,7 +38,6 @@ import {
   uploadMobileRemoteCover,
 } from "@/lib/mobileCoverUpload";
 import {
-  MOBILE_MANGA_STATUS_OPTIONS,
   getMobileMetadataFieldOverrideState,
   canResetMobileMetadataEditorForm,
   listToMetadataInput,
@@ -48,6 +49,7 @@ import {
   type MobileMetadataFormValues,
 } from "@/lib/mobileMetadataOverrides";
 import { stripMobileMetadataFieldNewlines } from "@/lib/mobileMetadataEditorFieldLayout";
+import { getMobileMetadataStatusChipModels } from "@/lib/mobileMetadataEditorStatusChips";
 import {
   canSaveMobileMetadataEditorForm,
   canSelectMobileMetadataStatusOption,
@@ -168,21 +170,6 @@ function matchSummary(result: MobileMetadataMatchResult): string {
   return [result.providerLabel, authors, tags].filter(Boolean).join(" / ");
 }
 
-function metadataStatusLabel(status: number, strings: MobileStrings): string {
-  switch (status) {
-    case 1:
-      return strings.metadataEditor.statusOngoing;
-    case 2:
-      return strings.metadataEditor.statusCompleted;
-    case 3:
-      return strings.metadataEditor.statusCancelled;
-    case 4:
-      return strings.metadataEditor.statusHiatus;
-    default:
-      return strings.metadataEditor.statusUnknown;
-  }
-}
-
 function applySourceMetadataToForm(
   form: MobileMetadataFormValues,
   metadata: MangaMetadata
@@ -254,6 +241,88 @@ function matchFieldIcon(field: MobileMetadataMatchFieldKey): IoniconName {
   }
 }
 
+/**
+ * Every section in the editor opens the same way: a `sectionTitle` heading with
+ * an optional caption under it, then the section's own surface. The heading
+ * carries the copy that used to sit inside each card next to a filled icon
+ * tile, so the cards hold controls only.
+ */
+function MetadataSectionHeader({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle?: string;
+}) {
+  const { tokens } = useNemuTheme();
+
+  return (
+    <View style={styles.sectionHeader}>
+      <NemuText
+        color={tokens.foreground}
+        density="compact"
+        numberOfLines={2}
+        variant="sectionTitle"
+      >
+        {title}
+      </NemuText>
+      {subtitle ? (
+        <NemuText
+          color={tokens.mutedForeground}
+          density="compact"
+          variant="caption"
+        >
+          {subtitle}
+        </NemuText>
+      ) : null}
+    </View>
+  );
+}
+
+function MetadataFieldLabelRow({
+  label,
+  disabled,
+  isOverridden,
+  resetAccessibilityLabel,
+  resetLabel,
+  onReset,
+}: {
+  label: string;
+  disabled: boolean;
+  isOverridden: boolean;
+  resetAccessibilityLabel?: string;
+  resetLabel?: string;
+  onReset?: () => void;
+}) {
+  const { tokens } = useNemuTheme();
+
+  return (
+    <View style={styles.fieldLabelRow}>
+      <NemuText
+        color={tokens.mutedForeground}
+        density="compact"
+        numberOfLines={1}
+        style={styles.fieldLabel}
+        variant="label"
+      >
+        {label}
+      </NemuText>
+      {isOverridden && onReset && resetLabel ? (
+        <NemuButton
+          accessibilityLabel={resetAccessibilityLabel ?? resetLabel}
+          accessibilityState={{ disabled }}
+          disabled={disabled}
+          icon="refresh-outline"
+          label={resetLabel}
+          onPress={onReset}
+          size="xs"
+          variant="secondary"
+        />
+      ) : null}
+    </View>
+  );
+}
+
 function MetadataTextField({
   label,
   value,
@@ -283,26 +352,14 @@ function MetadataTextField({
 
   return (
     <View style={styles.field}>
-      <View style={styles.fieldLabelRow}>
-        <NemuText
-          density="compact"
-          style={[styles.fieldLabel, { color: tokens.mutedForeground }]}
-        >
-          {label}
-        </NemuText>
-        {isOverridden && onReset && resetLabel ? (
-          <NemuButton
-            accessibilityLabel={resetAccessibilityLabel ?? resetLabel}
-            accessibilityState={{ disabled }}
-            disabled={disabled}
-            icon="refresh-outline"
-            label={resetLabel}
-            onPress={onReset}
-            size="xs"
-            variant="secondary"
-          />
-        ) : null}
-      </View>
+      <MetadataFieldLabelRow
+        disabled={disabled}
+        isOverridden={isOverridden}
+        label={label}
+        onReset={onReset}
+        resetAccessibilityLabel={resetAccessibilityLabel}
+        resetLabel={resetLabel}
+      />
       <GlassSurface
         style={[styles.inputShell, multiline && styles.textAreaShell]}
         contentStyle={[styles.inputContent, grows && styles.growingField]}
@@ -481,6 +538,10 @@ export function MobileMetadataEditorSheet({
         hasSelectedCoverAsset: selectedCoverAsset !== null,
       }),
     [form, initialForm, selectedCoverAsset],
+  );
+  const statusChips = useMemo(
+    () => getMobileMetadataStatusChipModels({ status: form.status, strings }),
+    [form.status, strings],
   );
   const discardDescription = formatMobileString(
     strings.metadataEditor.discardDescription,
@@ -880,148 +941,124 @@ export function MobileMetadataEditorSheet({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        <View style={styles.coverRow}>
-          <View
-            accessibilityRole="image"
-            accessibilityLabel={strings.metadataEditor.coverPreview}
-            style={[
-              styles.coverPreview,
-              {
-                backgroundColor: tokens.muted,
-                borderColor: tokens.coverBorder,
-                ...createNemuShadowStyle({
-                  color: tokens.shadow,
-                  offsetY: 5,
-                  radius: 14,
-                  elevation: 4,
-                }),
-              },
-            ]}
-          >
-            {coverPreviewImageSource ? (
-              selectedCoverAsset === null ? (
-                <MobileCachedImage
-                  fallback={
-                    <LinearGradient
-                      colors={[
-                        nemuColorWithAlpha(tokens.primary, 0.33),
-                        tokens.muted,
-                      ]}
-                      style={styles.coverPlaceholder}
-                    />
-                  }
-                  uriOwnership="source"
-                  source={coverPreviewImageSource}
-                  style={styles.coverImage}
-                />
-              ) : (
-                <Image source={coverPreviewImageSource} style={styles.coverImage} />
-              )
-            ) : (
-              <LinearGradient
-                colors={[
-                  nemuColorWithAlpha(tokens.primary, 0.33),
-                  tokens.muted,
+        <View style={styles.section}>
+          <MetadataSectionHeader
+            title={strings.metadataEditor.coverTitle}
+            subtitle={strings.metadataEditor.coverDescription}
+          />
+          <GlassSurface style={styles.card} contentStyle={styles.cardContent}>
+            <View style={styles.coverRow}>
+              <View
+                accessibilityRole="image"
+                accessibilityLabel={strings.metadataEditor.coverPreview}
+                style={[
+                  styles.coverPreview,
+                  {
+                    backgroundColor: tokens.muted,
+                    borderColor: tokens.coverBorder,
+                    ...createNemuShadowStyle({
+                      color: tokens.shadow,
+                      offsetY: 5,
+                      radius: 14,
+                      elevation: 4,
+                    }),
+                  },
                 ]}
-                style={styles.coverPlaceholder}
-              />
-            )}
-          </View>
-          <View style={styles.coverCopy}>
-            <NemuText
-              density="compact"
-              style={[styles.coverTitle, { color: tokens.foreground }]}
-            >
-              {strings.metadataEditor.coverTitle}
-            </NemuText>
-            <NemuText
-              density="compact"
-              style={[styles.coverText, { color: tokens.mutedForeground }]}
-            >
-              {strings.metadataEditor.coverDescription}
-            </NemuText>
-            <View style={styles.coverActions}>
-              <View style={styles.coverActionButtons}>
-                <NemuButton
-                  accessibilityLabel={strings.metadataEditor.chooseCoverImage}
-                  accessibilityState={{
-                    busy: pickingCover || undefined,
-                    disabled: editorActionBusy,
-                  }}
-                  disabled={editorActionBusy}
-                  icon="image-outline"
-                  label={strings.metadataEditor.chooseCoverImage}
-                  loading={pickingCover}
-                  onPress={() => {
-                    void handlePickCover();
-                  }}
-                  size="sm"
-                  variant="secondary"
-                />
-                {coverUrlOverridden ? (
+              >
+                {coverPreviewImageSource ? (
+                  selectedCoverAsset === null ? (
+                    <MobileCachedImage
+                      fallback={
+                        <LinearGradient
+                          colors={[
+                            nemuColorWithAlpha(tokens.primary, 0.33),
+                            tokens.muted,
+                          ]}
+                          style={styles.coverPlaceholder}
+                        />
+                      }
+                      uriOwnership="source"
+                      source={coverPreviewImageSource}
+                      style={styles.coverImage}
+                    />
+                  ) : (
+                    <Image source={coverPreviewImageSource} style={styles.coverImage} />
+                  )
+                ) : (
+                  <LinearGradient
+                    colors={[
+                      nemuColorWithAlpha(tokens.primary, 0.33),
+                      tokens.muted,
+                    ]}
+                    style={styles.coverPlaceholder}
+                  />
+                )}
+              </View>
+              <View style={styles.coverCopy}>
+                <View style={styles.coverActionButtons}>
                   <NemuButton
-                    accessibilityLabel={resetFieldAccessibilityLabel(
-                      strings.metadataEditor.cover
-                    )}
-                    accessibilityState={{ disabled: editorActionBusy }}
+                    accessibilityLabel={strings.metadataEditor.chooseCoverImage}
+                    accessibilityState={{
+                      busy: pickingCover || undefined,
+                      disabled: editorActionBusy,
+                    }}
                     disabled={editorActionBusy}
-                    hapticFeedback="press"
-                    icon="trash-outline"
-                    label={strings.common.clear}
-                    onPress={() => resetField("coverUrl")}
+                    icon="image-outline"
+                    label={strings.metadataEditor.chooseCoverImage}
+                    loading={pickingCover}
+                    onPress={() => {
+                      void handlePickCover();
+                    }}
                     size="sm"
                     variant="secondary"
                   />
+                  {coverUrlOverridden ? (
+                    <NemuButton
+                      accessibilityLabel={resetFieldAccessibilityLabel(
+                        strings.metadataEditor.cover
+                      )}
+                      accessibilityState={{ disabled: editorActionBusy }}
+                      disabled={editorActionBusy}
+                      hapticFeedback="press"
+                      icon="trash-outline"
+                      label={strings.common.clear}
+                      onPress={() => resetField("coverUrl")}
+                      size="sm"
+                      variant="secondary"
+                    />
+                  ) : null}
+                </View>
+                {selectedCoverAsset ? (
+                  <NemuText
+                    color={tokens.mutedForeground}
+                    density="compact"
+                    numberOfLines={2}
+                    variant="caption"
+                  >
+                    {strings.metadataEditor.coverSelected}
+                  </NemuText>
                 ) : null}
               </View>
-              {selectedCoverAsset ? (
-                <NemuText
-                  density="compact"
-                  numberOfLines={1}
-                  style={[styles.coverSelectedText, { color: tokens.mutedForeground }]}
-                >
-                  {strings.metadataEditor.coverSelected}
-                </NemuText>
-              ) : null}
             </View>
             {coverError ? (
               <NemuText
+                color={tokens.danger}
                 density="compact"
-                style={[styles.coverError, { color: tokens.danger }]}
+                variant="caption"
               >
                 {coverError}
               </NemuText>
             ) : null}
-          </View>
+          </GlassSurface>
         </View>
 
         {canFetchFromSource ? (
-          <GlassSurface style={styles.sourcePanel} contentStyle={styles.sourcePanelContent}>
-            <View style={styles.sourceHeader}>
-              <View style={[styles.sourceHeaderIcon, { backgroundColor: tokens.primary }]}>
-                <Ionicons
-                  name="download-outline"
-                  size={17}
-                  color={tokens.primaryForeground}
-                />
-              </View>
-              <View style={styles.sourceHeaderCopy}>
-                <NemuText
-                  density="compact"
-                  style={[styles.sourceTitle, { color: tokens.foreground }]}
-                >
-                  {strings.metadataEditor.sourceFetchTitle}
-                </NemuText>
-                <NemuText
-                  density="compact"
-                  style={[styles.sourceSubtitle, { color: tokens.mutedForeground }]}
-                >
-                  {strings.metadataEditor.sourceFetchSubtitle}
-                </NemuText>
-              </View>
-            </View>
-
-            <View style={styles.sourceList}>
+          <View style={styles.section}>
+            <MetadataSectionHeader
+              title={strings.metadataEditor.sourceFetchTitle}
+              subtitle={strings.metadataEditor.sourceFetchSubtitle}
+            />
+            <View style={styles.rowList}>
               {sourceChoices.map((choice) => {
                 const loadingSource = fetchingSourceId === choice.id;
                 return (
@@ -1042,74 +1079,67 @@ export function MobileMetadataEditorSheet({
                     }}
                     pressedScale={0.985}
                     style={[
-                      styles.sourceChoice,
+                      styles.listRow,
                       {
-                        backgroundColor: tokens.muted,
+                        backgroundColor: tokens.card,
                         borderColor: tokens.border,
                         opacity: editorActionBusy && !loadingSource ? 0.55 : 1,
                       },
                     ]}
                   >
-                    <View
-                      style={[
-                        styles.sourceChoiceIcon,
-                        {
-                          backgroundColor: tokens.sourceIconGlass,
-                          borderColor: tokens.coverBorder,
-                        },
-                      ]}
-                    >
+                    <View style={styles.rowIcon}>
                       {choice.icon ? (
                         <MobileCachedImage
                           fallback={
                             <Ionicons
                               name="albums-outline"
-                              size={17}
+                              size={iconSize.md}
                               color={tokens.mutedForeground}
                             />
                           }
                           uriOwnership="source"
                           source={{ uri: choice.icon }}
-                          style={styles.sourceChoiceImage}
+                          style={styles.rowIconImage}
                         />
                       ) : (
                         <Ionicons
                           name="albums-outline"
-                          size={17}
+                          size={iconSize.md}
                           color={tokens.mutedForeground}
                         />
                       )}
                     </View>
-                    <View style={styles.sourceChoiceCopy}>
+                    <View style={styles.rowCopy}>
                       <NemuText
+                        color={tokens.foreground}
                         density="compact"
                         numberOfLines={1}
-                        style={[styles.sourceChoiceTitle, { color: tokens.foreground }]}
+                        variant="rowTitle"
                       >
                         {choice.label}
                       </NemuText>
                       {choice.detail ? (
                         <NemuText
+                          color={tokens.mutedForeground}
                           density="compact"
                           numberOfLines={1}
-                          style={[
-                            styles.sourceChoiceDetail,
-                            { color: tokens.mutedForeground },
-                          ]}
+                          variant="rowSubtitle"
                         >
                           {choice.detail}
                         </NemuText>
                       ) : null}
                     </View>
-                    {loadingSource ? (
-                      <ActivityIndicator color={tokens.mutedForeground} size="small" />
-                    ) : (
-                      <Ionicons
-                        name="cloud-download-outline"
-                        size={20}
-                        color={tokens.primary}
-                      />
-                    )}
+                    <View style={styles.rowAccessory}>
+                      {loadingSource ? (
+                        <ActivityIndicator color={tokens.mutedForeground} size="small" />
+                      ) : (
+                        <Ionicons
+                          name="cloud-download-outline"
+                          size={iconSize.md}
+                          color={tokens.primary}
+                        />
+                      )}
+                    </View>
                   </NemuPressable>
                 );
               })}
@@ -1118,59 +1148,43 @@ export function MobileMetadataEditorSheet({
             {sourceError ? (
               <View
                 style={[
-                  styles.sourceErrorNotice,
+                  styles.noticeRow,
                   { backgroundColor: tokens.muted, borderColor: tokens.border },
                 ]}
               >
                 <Ionicons
                   name="alert-circle-outline"
-                  size={16}
+                  size={iconSize.sm}
                   color={tokens.danger}
                 />
-                <View style={styles.sourceErrorCopy}>
+                <View style={styles.rowCopy}>
                   <NemuText
+                    color={tokens.foreground}
                     density="compact"
                     numberOfLines={1}
-                    style={[styles.sourceErrorTitle, { color: tokens.foreground }]}
+                    variant="label"
                   >
                     {sourceError.title}
                   </NemuText>
                   <NemuText
+                    color={tokens.mutedForeground}
                     density="compact"
                     numberOfLines={2}
-                    style={[
-                      styles.sourceErrorDetail,
-                      { color: tokens.mutedForeground },
-                    ]}
+                    variant="caption"
                   >
                     {sourceError.detail}
                   </NemuText>
                 </View>
               </View>
             ) : null}
-          </GlassSurface>
+          </View>
         ) : null}
 
-        <GlassSurface style={styles.matchPanel} contentStyle={styles.matchPanelContent}>
-          <View style={styles.matchHeader}>
-            <View style={[styles.matchIcon, { backgroundColor: tokens.primary }]}>
-              <Ionicons name="sparkles-outline" size={17} color={tokens.primaryForeground} />
-            </View>
-            <View style={styles.matchHeaderCopy}>
-              <NemuText
-                density="compact"
-                style={[styles.matchTitle, { color: tokens.foreground }]}
-              >
-                {strings.metadataEditor.matchTitle}
-              </NemuText>
-              <NemuText
-                density="compact"
-                style={[styles.matchSubtitle, { color: tokens.mutedForeground }]}
-              >
-                {strings.metadataEditor.matchSubtitle}
-              </NemuText>
-            </View>
-          </View>
+        <View style={styles.section}>
+          <MetadataSectionHeader
+            title={strings.metadataEditor.matchTitle}
+            subtitle={strings.metadataEditor.matchSubtitle}
+          />
 
           <View style={styles.matchSearchRow}>
             <GlassSurface style={styles.matchInputShell} contentStyle={styles.matchInputContent}>
@@ -1228,10 +1242,7 @@ export function MobileMetadataEditorSheet({
           </View>
 
           {matchError ? (
-            <NemuText
-              density="compact"
-              style={[styles.matchError, { color: tokens.danger }]}
-            >
+            <NemuText color={tokens.danger} density="compact" variant="caption">
               {matchError}
             </NemuText>
           ) : null}
@@ -1257,9 +1268,9 @@ export function MobileMetadataEditorSheet({
                       }}
                       pressedScale={0.985}
                       style={[
-                        styles.matchResult,
+                        styles.listRow,
                         {
-                          backgroundColor: tokens.muted,
+                          backgroundColor: tokens.card,
                           borderColor: tokens.border,
                           opacity: editorActionBusy ? 0.7 : 1,
                         },
@@ -1269,7 +1280,7 @@ export function MobileMetadataEditorSheet({
                         style={[
                           styles.matchCover,
                           {
-                            backgroundColor: tokens.sourceIconGlass,
+                            backgroundColor: tokens.muted,
                             borderColor: tokens.coverBorder,
                           },
                         ]}
@@ -1279,7 +1290,7 @@ export function MobileMetadataEditorSheet({
                             fallback={
                               <Ionicons
                                 name="image-outline"
-                                size={17}
+                                size={iconSize.sm}
                                 color={tokens.mutedForeground}
                               />
                             }
@@ -1288,48 +1299,62 @@ export function MobileMetadataEditorSheet({
                             style={styles.matchCoverImage}
                           />
                         ) : (
-                          <Ionicons name="image-outline" size={17} color={tokens.mutedForeground} />
+                          <Ionicons
+                            name="image-outline"
+                            size={iconSize.sm}
+                            color={tokens.mutedForeground}
+                          />
                         )}
                       </View>
-                      <View style={styles.matchResultCopy}>
+                      <View style={styles.rowCopy}>
                         <NemuText
+                          color={tokens.foreground}
                           density="compact"
                           numberOfLines={1}
-                          style={[styles.matchResultTitle, { color: tokens.foreground }]}
+                          variant="rowTitle"
                         >
                           {result.title}
                         </NemuText>
                         {result.subtitle ? (
                           <NemuText
+                            color={tokens.mutedForeground}
                             density="compact"
                             numberOfLines={1}
-                            style={[styles.matchResultSubtitle, { color: tokens.mutedForeground }]}
+                            variant="rowSubtitle"
                           >
                             {result.subtitle}
                           </NemuText>
                         ) : null}
                         <NemuText
+                          color={tokens.mutedForeground}
                           density="compact"
                           numberOfLines={1}
-                          style={[styles.matchResultMeta, { color: tokens.mutedForeground }]}
+                          variant="caption"
                         >
                           {matchSummary(result)}
                         </NemuText>
                       </View>
-                      <Ionicons name="add-circle-outline" size={21} color={tokens.primary} />
+                      <View style={styles.rowAccessory}>
+                        <Ionicons
+                          name="add-circle-outline"
+                          size={iconSize.lg}
+                          color={tokens.primary}
+                        />
+                      </View>
                     </NemuPressable>
 
                     <ScrollView
                       horizontal
+                      keyboardShouldPersistTaps="handled"
                       showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.matchFieldActions}
+                      contentContainerStyle={styles.chipRowContent}
                     >
                       {MOBILE_METADATA_MATCH_FIELD_ORDER.filter(
                         (field) => availability[field],
                       ).map((field) => {
                         const fieldLabel = matchFieldLabel(field, strings);
                         return (
-                          <NemuButton
+                          <MobileChip
                             key={field}
                             accessibilityLabel={formatMobileString(
                               strings.metadataEditor.applyMatchField,
@@ -1338,19 +1363,19 @@ export function MobileMetadataEditorSheet({
                                 provider: result.providerLabel,
                               }
                             )}
+                            accessibilityRole="button"
                             accessibilityState={{
-                              busy: matchApplying || undefined,
                               disabled: editorActionBusy,
                             }}
-                            containerStyle={styles.matchFieldButton}
                             disabled={editorActionBusy}
-                            icon={matchFieldIcon(field)}
+                            fallbackIcon={matchFieldIcon(field)}
+                            hapticFeedback="press"
                             label={fieldLabel}
                             onPress={() => {
                               void handleApplyMatchField(result, field);
                             }}
-                            size="xs"
-                            variant="secondary"
+                            selected={false}
+                            variant="toggle"
                           />
                         );
                       })}
@@ -1360,164 +1385,141 @@ export function MobileMetadataEditorSheet({
               })}
             </View>
           ) : null}
-        </GlassSurface>
-
-        <MetadataTextField
-          label={strings.metadataEditor.titleField}
-          value={form.title}
-          placeholder={
-            fieldOverrides.title ? baseForm.title : undefined
-          }
-          autoCapitalize="words"
-          isOverridden={fieldOverrides.title}
-          disabled={editorActionBusy}
-          resetAccessibilityLabel={resetFieldAccessibilityLabel(
-            strings.metadataEditor.titleField
-          )}
-          resetLabel={strings.metadataEditor.reset}
-          onChangeText={(value) => setField("title", value)}
-          onReset={() => resetField("title")}
-        />
-
-        <View style={styles.field}>
-          <View style={styles.fieldLabelRow}>
-            <NemuText
-              density="compact"
-              style={[styles.fieldLabel, { color: tokens.mutedForeground }]}
-            >
-              {strings.metadataEditor.status}
-            </NemuText>
-            {fieldOverrides.status ? (
-              <NemuButton
-                accessibilityLabel={resetFieldAccessibilityLabel(
-                  strings.metadataEditor.status
-                )}
-                accessibilityState={{ disabled: editorActionBusy }}
-                disabled={editorActionBusy}
-                icon="refresh-outline"
-                label={strings.metadataEditor.reset}
-                onPress={() => resetField("status")}
-                size="xs"
-                variant="secondary"
-              />
-            ) : null}
-          </View>
-          <View accessibilityRole="tablist" style={styles.statusGrid}>
-            {MOBILE_MANGA_STATUS_OPTIONS.map((option) => {
-              const selected = form.status === option.value;
-              const label = metadataStatusLabel(option.value, strings);
-              const canSelect = canSelectMobileMetadataStatusOption({
-                selected,
-                disabled: editorActionBusy,
-              });
-              return (
-                <NemuPressable
-                  key={option.value}
-                  accessibilityLabel={formatMobileString(
-                    strings.metadataEditor.selectStatus,
-                    {
-                      status: label,
-                    },
-                  )}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected, disabled: editorActionBusy }}
-                  disabled={editorActionBusy}
-                  hapticFeedback={canSelect ? "selection" : "none"}
-                  onPress={() => {
-                    if (canSelect) {
-                      setField("status", option.value);
-                    }
-                  }}
-                  pressedScale={0.98}
-                  style={[
-                    styles.statusChip,
-                    {
-                      backgroundColor: selected ? tokens.primary : tokens.muted,
-                      borderColor: selected ? tokens.primary : tokens.border,
-                      opacity: editorActionBusy ? 0.64 : 1,
-                    },
-                  ]}
-                >
-                  <NemuText
-                    density="compact"
-                    numberOfLines={1}
-                    style={[
-                      styles.statusChipText,
-                      { color: selected ? tokens.primaryForeground : tokens.mutedForeground },
-                    ]}
-                  >
-                    {label}
-                  </NemuText>
-                </NemuPressable>
-              );
-            })}
-          </View>
         </View>
 
-        <MetadataTextField
-          label={strings.metadataEditor.authors}
-          value={form.authorsText}
-          placeholder={strings.metadataEditor.authorsPlaceholder}
-          autoCapitalize="words"
-          isOverridden={fieldOverrides.authorsText}
-          disabled={editorActionBusy}
-          resetAccessibilityLabel={resetFieldAccessibilityLabel(
-            strings.metadataEditor.authors
-          )}
-          resetLabel={strings.metadataEditor.reset}
-          onChangeText={(value) => setField("authorsText", value)}
-          onReset={() => resetField("authorsText")}
-        />
-        <MetadataTextField
-          label={strings.metadataEditor.description}
-          value={form.description}
-          placeholder={
-            fieldOverrides.description ? baseForm.description : undefined
-          }
-          multiline
-          isOverridden={fieldOverrides.description}
-          disabled={editorActionBusy}
-          resetAccessibilityLabel={resetFieldAccessibilityLabel(
-            strings.metadataEditor.description
-          )}
-          resetLabel={strings.metadataEditor.reset}
-          onChangeText={(value) => setField("description", value)}
-          onReset={() => resetField("description")}
-        />
-        <MetadataTextField
-          label={strings.metadataEditor.tags}
-          value={form.tagsText}
-          placeholder={strings.metadataEditor.tagsPlaceholder}
-          autoCapitalize="words"
-          isOverridden={fieldOverrides.tagsText}
-          disabled={editorActionBusy}
-          resetAccessibilityLabel={resetFieldAccessibilityLabel(
-            strings.metadataEditor.tags
-          )}
-          resetLabel={strings.metadataEditor.reset}
-          onChangeText={(value) => setField("tagsText", value)}
-          onReset={() => resetField("tagsText")}
-        />
-        <MetadataTextField
-          label={strings.metadataEditor.coverUrl}
-          value={form.coverUrl}
-          keyboardType="url"
-          autoCapitalize="none"
-          placeholder={strings.metadataEditor.coverUrlPlaceholder}
-          isOverridden={coverUrlOverridden}
-          disabled={editorActionBusy}
-          resetAccessibilityLabel={resetFieldAccessibilityLabel(
-            strings.metadataEditor.coverUrl
-          )}
-          resetLabel={strings.metadataEditor.reset}
-          onChangeText={(value) => {
-            setSelectedCoverAsset(null);
-            setCoverPreviewSourceId(null);
-            setCoverError(null);
-            setField("coverUrl", value);
-          }}
-          onReset={() => resetField("coverUrl")}
-        />
+        <View style={styles.fields}>
+          <MetadataTextField
+            label={strings.metadataEditor.titleField}
+            value={form.title}
+            placeholder={
+              fieldOverrides.title ? baseForm.title : undefined
+            }
+            autoCapitalize="words"
+            isOverridden={fieldOverrides.title}
+            disabled={editorActionBusy}
+            resetAccessibilityLabel={resetFieldAccessibilityLabel(
+              strings.metadataEditor.titleField
+            )}
+            resetLabel={strings.metadataEditor.reset}
+            onChangeText={(value) => setField("title", value)}
+            onReset={() => resetField("title")}
+          />
+
+          <View style={styles.field}>
+            <MetadataFieldLabelRow
+              disabled={editorActionBusy}
+              isOverridden={fieldOverrides.status}
+              label={strings.metadataEditor.status}
+              onReset={() => resetField("status")}
+              resetAccessibilityLabel={resetFieldAccessibilityLabel(
+                strings.metadataEditor.status
+              )}
+              resetLabel={strings.metadataEditor.reset}
+            />
+            <View accessibilityRole="radiogroup">
+              <ScrollView
+                horizontal
+                keyboardShouldPersistTaps="handled"
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipRowContent}
+              >
+                {statusChips.map((chip) => {
+                  const canSelect = canSelectMobileMetadataStatusOption({
+                    selected: chip.selected,
+                    disabled: editorActionBusy,
+                  });
+                  return (
+                    <MobileChip
+                      key={chip.value}
+                      accessibilityLabel={chip.accessibilityLabel}
+                      accessibilityRole="radio"
+                      accessibilityState={{
+                        checked: chip.selected,
+                        disabled: editorActionBusy,
+                      }}
+                      disabled={editorActionBusy}
+                      hapticFeedback={canSelect ? "selection" : "none"}
+                      label={chip.label}
+                      onPress={() => {
+                        if (canSelect) {
+                          setField("status", chip.value);
+                        }
+                      }}
+                      selected={chip.selected}
+                      testID={`MetadataStatusChip:${chip.value}`}
+                      variant="toggle"
+                    />
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+
+          <MetadataTextField
+            label={strings.metadataEditor.authors}
+            value={form.authorsText}
+            placeholder={strings.metadataEditor.authorsPlaceholder}
+            autoCapitalize="words"
+            isOverridden={fieldOverrides.authorsText}
+            disabled={editorActionBusy}
+            resetAccessibilityLabel={resetFieldAccessibilityLabel(
+              strings.metadataEditor.authors
+            )}
+            resetLabel={strings.metadataEditor.reset}
+            onChangeText={(value) => setField("authorsText", value)}
+            onReset={() => resetField("authorsText")}
+          />
+          <MetadataTextField
+            label={strings.metadataEditor.description}
+            value={form.description}
+            placeholder={
+              fieldOverrides.description ? baseForm.description : undefined
+            }
+            multiline
+            isOverridden={fieldOverrides.description}
+            disabled={editorActionBusy}
+            resetAccessibilityLabel={resetFieldAccessibilityLabel(
+              strings.metadataEditor.description
+            )}
+            resetLabel={strings.metadataEditor.reset}
+            onChangeText={(value) => setField("description", value)}
+            onReset={() => resetField("description")}
+          />
+          <MetadataTextField
+            label={strings.metadataEditor.tags}
+            value={form.tagsText}
+            placeholder={strings.metadataEditor.tagsPlaceholder}
+            autoCapitalize="words"
+            isOverridden={fieldOverrides.tagsText}
+            disabled={editorActionBusy}
+            resetAccessibilityLabel={resetFieldAccessibilityLabel(
+              strings.metadataEditor.tags
+            )}
+            resetLabel={strings.metadataEditor.reset}
+            onChangeText={(value) => setField("tagsText", value)}
+            onReset={() => resetField("tagsText")}
+          />
+          <MetadataTextField
+            label={strings.metadataEditor.coverUrl}
+            value={form.coverUrl}
+            keyboardType="url"
+            autoCapitalize="none"
+            placeholder={strings.metadataEditor.coverUrlPlaceholder}
+            isOverridden={coverUrlOverridden}
+            disabled={editorActionBusy}
+            resetAccessibilityLabel={resetFieldAccessibilityLabel(
+              strings.metadataEditor.coverUrl
+            )}
+            resetLabel={strings.metadataEditor.reset}
+            onChangeText={(value) => {
+              setSelectedCoverAsset(null);
+              setCoverPreviewSourceId(null);
+              setCoverError(null);
+              setField("coverUrl", value);
+            }}
+            onReset={() => resetField("coverUrl")}
+          />
+        </View>
       </ScrollView>
 
       <View style={styles.footer}>
@@ -1586,22 +1588,35 @@ const styles = StyleSheet.create({
   sheet: {
     flex: 1,
     maxHeight: "100%",
-    gap: 14,
+    gap: spacing.md,
   },
   scroll: {
     flex: 1,
   },
   scrollContent: {
-    gap: 13,
+    gap: spacing.lg,
     paddingBottom: 2,
+  },
+  section: {
+    gap: spacing.sm,
+  },
+  sectionHeader: {
+    gap: 2,
+  },
+  card: {
+    borderRadius: radius.xl,
+  },
+  cardContent: {
+    gap: spacing.md,
+    padding: spacing.md,
   },
   coverRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: spacing.md,
   },
   coverPreview: {
-    width: 76,
+    width: 68,
     aspectRatio: 2 / 3,
     overflow: "hidden",
     borderRadius: radius.lg,
@@ -1617,176 +1632,67 @@ const styles = StyleSheet.create({
   coverCopy: {
     flex: 1,
     minWidth: 0,
-  },
-  coverTitle: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  coverText: {
-    marginTop: 3,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  coverActions: {
-    marginTop: 9,
-    gap: 6,
+    gap: spacing.sm,
   },
   coverActionButtons: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6,
+    gap: spacing.sm,
   },
-  coverSelectedText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
+  rowList: {
+    gap: spacing.sm,
   },
-  coverError: {
-    marginTop: 7,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: nemuFontWeight.medium,
-  },
-  sourcePanel: {
-    borderRadius: radius.xl,
-  },
-  sourcePanelContent: {
-    gap: 10,
-    padding: 12,
-  },
-  sourceHeader: {
-    minHeight: 34,
+  // The shared row geometry for a fetchable source and a metadata match: the
+  // same 64pt list row `NemuListRow` draws, with the busy/press states this
+  // editor needs on top.
+  listRow: {
+    minHeight: 64,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-  },
-  sourceHeaderIcon: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
-  },
-  sourceHeaderCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  sourceTitle: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  sourceSubtitle: {
-    marginTop: 1,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
-  },
-  sourceList: {
-    gap: 8,
-  },
-  sourceChoice: {
-    minHeight: 58,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+    gap: spacing.md,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.lg,
-    padding: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
   },
-  sourceChoiceIcon: {
-    width: 36,
-    height: 36,
+  // Sized, but unfilled: a source mark is the icon, so it needs no tile behind
+  // it, and the frame only keeps the row's copy aligned while an icon loads.
+  rowIcon: {
+    width: 38,
+    height: 38,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
   },
-  sourceChoiceImage: {
+  rowIconImage: {
     width: "100%",
     height: "100%",
   },
-  sourceChoiceCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  sourceChoiceTitle: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  sourceChoiceDetail: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
-  },
-  sourceErrorNotice: {
-    minHeight: 58,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-  },
-  sourceErrorCopy: {
+  rowCopy: {
     flex: 1,
     minWidth: 0,
   },
-  sourceErrorTitle: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: nemuFontWeight.medium,
-  },
-  sourceErrorDetail: {
-    marginTop: 1,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  matchPanel: {
-    borderRadius: radius.xl,
-  },
-  matchPanelContent: {
-    gap: 10,
-    padding: 12,
-  },
-  matchHeader: {
-    minHeight: 34,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  matchIcon: {
-    width: 34,
-    height: 34,
+  rowAccessory: {
+    minWidth: 22,
     alignItems: "center",
     justifyContent: "center",
+  },
+  noticeRow: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.lg,
-  },
-  matchHeaderCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  matchTitle: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  matchSubtitle: {
-    marginTop: 1,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
   },
   matchSearchRow: {
     minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: spacing.sm,
   },
   matchInputShell: {
     minHeight: 48,
@@ -1810,25 +1716,11 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
   },
-  matchError: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: nemuFontWeight.medium,
-  },
   matchResults: {
-    gap: 8,
+    gap: spacing.md,
   },
   matchResultGroup: {
-    gap: 7,
-  },
-  matchResult: {
-    minHeight: 70,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    padding: 8,
+    gap: spacing.sm,
   },
   matchCover: {
     width: 38,
@@ -1843,52 +1735,32 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  matchResultCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  matchResultTitle: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  matchResultSubtitle: {
-    fontSize: 11,
-    lineHeight: 14,
-  },
-  matchResultMeta: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
-  },
-  matchFieldActions: {
-    minHeight: 30,
+  // Shared by the status selector and the per-field apply chips. The bottom
+  // padding reserves room for the depth surface's shadow halo, which the
+  // horizontal scroller would otherwise clip.
+  chipRowContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: spacing.sm,
+    paddingBottom: 6,
     paddingRight: 2,
   },
-  matchFieldButton: {
-    maxWidth: 120,
+  fields: {
+    gap: spacing.md,
   },
   field: {
-    gap: 7,
+    gap: 6,
   },
   fieldLabelRow: {
-    minHeight: 26,
+    minHeight: 24,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: spacing.sm,
   },
   fieldLabel: {
     flex: 1,
     minWidth: 0,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.semibold,
-    textTransform: "uppercase",
   },
   inputShell: {
     minHeight: 44,
@@ -1901,7 +1773,7 @@ const styles = StyleSheet.create({
     minHeight: 118,
   },
   inputContent: {
-    paddingHorizontal: 12,
+    paddingHorizontal: spacing.md,
   },
   growingField: {
     /*
@@ -1932,27 +1804,9 @@ const styles = StyleSheet.create({
     minHeight: 118,
     paddingTop: 11,
   },
-  statusGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  statusChip: {
-    minHeight: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
-  },
-  statusChipText: {
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.semibold,
-  },
   footer: {
     flexDirection: "row",
-    gap: 9,
+    gap: spacing.sm,
   },
   resetButtonSlot: {
     flex: 0.42,

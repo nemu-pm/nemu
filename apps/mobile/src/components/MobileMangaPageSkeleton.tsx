@@ -237,10 +237,11 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
+  // Mirrors the 30pt static tag chips MobileTagList renders once loaded.
   tag: {
     width: 64,
-    height: 28,
-    borderRadius: radius.md,
+    height: 30,
+    borderRadius: radius.pill,
   },
   description: {
     gap: 7,
