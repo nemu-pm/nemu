@@ -97,6 +97,7 @@ Keep shared logic in `packages/core` as pure TypeScript with no DOM or `react-na
   shipping a frontend that uses `/oauth-proxy-v2`.
 - `bun run build` is deterministic and must not mutate deployment state. `bun run deploy` explicitly generates the Apple secret before deploying Convex.
 - Key env vars (`.env.local`): `CONVEX_DEPLOYMENT`, `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `VITE_TACHIYOMI_LOCAL_PATH`. Preview deploys need correctly scoped staging credentials; treat a failed preview as a deployment blocker until its cause is verified.
+- Mobile bundles read the same root files through `apps/mobile/loadRootEnv.cjs`, keyed on `NODE_ENV` like Vite: Metro dev servers and Debug builds use `.env.local` (dev deployment); Release archives, `expo export`, and EAS production builds use `.env.production.local` / `.env.production` or `EXPO_PUBLIC_CONVEX_URL` from the environment and never fall back to `.env.local`. The bundler logs `[loadRootEnv] mode=… files=… convexUrl=…` so a release build's target is visible in the build output.
 
 The source proxy treats destinations and headers as untrusted. It accepts only
 credential-free HTTP(S) targets on the default ports, lexically rejects local,

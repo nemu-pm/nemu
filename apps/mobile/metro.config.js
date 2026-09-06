@@ -3,9 +3,33 @@ const {
   getBundleModeMetroConfig,
 } = require("react-native-worklets/bundleMode");
 const path = require("path");
-require("./loadRootEnv.cjs")();
+const crypto = require("crypto");
+const rootEnv = require("./loadRootEnv.cjs")();
 
 const config = getDefaultConfig(__dirname);
+
+// babel-preset-expo inlines EXPO_PUBLIC_* values at transform time, but
+// Metro's transform cache (shared between `expo export` and the Xcode/Gradle
+// bundle phase under $TMPDIR/metro-cache) does not key on them. A release
+// bundle once reused modules transformed against the dev Convex deployment
+// after the env changed. Fold the mode and every public env value into the
+// cache version so an env change invalidates the cache automatically.
+const publicEnvFingerprint = crypto
+  .createHash("sha1")
+  .update(rootEnv.mode)
+  .update(
+    JSON.stringify(
+      Object.keys(process.env)
+        .filter((key) => key.startsWith("EXPO_PUBLIC_"))
+        .sort()
+        .map((key) => [key, process.env[key]]),
+    ),
+  )
+  .digest("hex")
+  .slice(0, 16);
+config.cacheVersion = [config.cacheVersion, publicEnvFingerprint]
+  .filter(Boolean)
+  .join(":");
 const defaultResolveRequest = config.resolver.resolveRequest;
 const defaultGetModulesRunBeforeMainModule =
   config.serializer.getModulesRunBeforeMainModule;
