@@ -44,6 +44,10 @@ import {
   type MobileReaderContinuousScrubberHandle,
 } from "@/components/MobileReaderContinuousScrubber";
 import { MobileReaderScrubber } from "@/components/MobileReaderScrubber";
+import {
+  MobileReaderScrubberPreview,
+  type MobileReaderScrubberPreviewHandle,
+} from "@/components/reader/MobileReaderScrubberPreview";
 import { ReaderChromeLoadingTrack } from "@/components/reader/ReaderChromeLoadingTrack";
 import { ReaderChromePanel } from "@/components/reader/ReaderChromePanel";
 import { ReaderDisplaySettingsPopover } from "@/components/reader/ReaderDisplaySettingsPopover";
@@ -212,6 +216,7 @@ import {
   isReaderChromeLoading,
   readerChromePageCountLabel,
 } from "@/lib/mobileReaderHeader";
+import { mobileReaderScreenOptions } from "@/lib/mobileReaderRouteOptions";
 import { useMobileConnectivity } from "@/lib/useMobileConnectivity";
 import { readerChromeAnimationsForMotion } from "@/lib/mobileReaderChromeAnimations";
 import {
@@ -1277,6 +1282,12 @@ export function ReaderScreen() {
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [readerScrubPreviewPageIndex, setReaderScrubPreviewPageIndex] =
     useState<number | null>(null);
+  // The preview bubble is drawn by an overlay outside the clipped chrome panel;
+  // the scrubber pushes thumb geometry straight into it so a drag repaints the
+  // bubble without re-rendering the reader.
+  const readerScrubPreviewRef =
+    useRef<MobileReaderScrubberPreviewHandle | null>(null);
+  const readerBottomPanelAnchorRef = useRef<View | null>(null);
   // How the reader reached `currentPageIndex`. Only a genuine forward turn may
   // auto-complete a chapter — see shouldAutoCompleteMobileReaderChapter.
   const [pageArrival, setPageArrival] =
@@ -2245,19 +2256,11 @@ export function ReaderScreen() {
     [],
   );
   const readerBackgroundColor = "#000000";
+  // Only the status bar follows the chrome here. The pop gesture is disabled
+  // statically on the route (app/sources/_layout.tsx) and on the root stack
+  // that hosts the flow (app/_layout.tsx) — see mobileReaderRouteOptions.
   const readerScreenOptions = useMemo(
-    () => ({
-      // The reader owns its own back affordance, and its page pan/scrub
-      // gestures must not compete with the iOS interactive-pop gesture.
-      fullScreenGestureEnabled: false,
-      gestureEnabled: false,
-      // Native-stack status-bar options use the scene's view controller on
-      // iOS. The legacy UIApplication path is a no-op when linked with the
-      // iOS 27 SDK.
-      statusBarAnimation: "fade" as const,
-      statusBarHidden: !showControls,
-      statusBarStyle: "light" as const,
-    }),
+    () => mobileReaderScreenOptions({ showControls }),
     [showControls],
   );
   const readerChromeTopPadding = showReaderChrome
@@ -6251,6 +6254,15 @@ export function ReaderScreen() {
               pointerEvents="box-none"
               style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}
             >
+              {/* Plain main-tree box around the toolbar panel. On iOS the panel
+                  is a SwiftUI host, and anything measured inside it can be
+                  reported in that host's own space; this wrapper gives the
+                  scrub preview overlay the panel's frame in window space. */}
+              <View
+                ref={readerBottomPanelAnchorRef}
+                pointerEvents="box-none"
+                style={styles.readerChromePanelShellAnchor}
+              >
               <ReaderChromePanel
                 panelStyle={readerChromePanelStyle}
                 style={styles.readerChromePanelShell}
@@ -6334,7 +6346,7 @@ export function ReaderScreen() {
                           onPreviewPageIndexChange={
                             setReaderScrubPreviewPageIndex
                           }
-                          previewImageUri={readerScrubPreviewImageUri}
+                          previewRef={readerScrubPreviewRef}
                         />
                       ) : (
                         <MobileReaderContinuousScrubber
@@ -6369,7 +6381,7 @@ export function ReaderScreen() {
                           onPreviewPageIndexChange={
                             setReaderScrubPreviewPageIndex
                           }
-                          previewImageUri={readerScrubPreviewImageUri}
+                          previewRef={readerScrubPreviewRef}
                         />
                       )}
                     </View>
@@ -6593,8 +6605,20 @@ export function ReaderScreen() {
                   </View>
                 </View>
               </ReaderChromePanel>
+              </View>
             </Animated.View>
           ) : null}
+          {/* Sibling of the toolbar, not a child: the glass panel clips its
+              content, so the scrub bubble is drawn here and anchored to the
+              thumb from window coordinates. */}
+          <MobileReaderScrubberPreview
+            ref={readerScrubPreviewRef}
+            panelAnchorRef={readerBottomPanelAnchorRef}
+            pageIndex={readerScrubPreviewPageIndex}
+            pageCount={pageCount}
+            mode={mode}
+            imageUri={readerScrubPreviewImageUri}
+          />
         </View>
       ) : null}
       <MobileNemuAgentSheet
@@ -6663,6 +6687,11 @@ const styles = StyleSheet.create({
     right: READER_CHROME_PANEL_HORIZONTAL_INSET,
     top: 0,
     alignItems: "center",
+  },
+  // Matches the shell box exactly, so measuring the anchor measures the panel.
+  readerChromePanelShellAnchor: {
+    width: "100%",
+    maxWidth: READER_CHROME_PANEL_MAX_WIDTH,
   },
   // Both chrome panels share one shell so the top info bar and the bottom
   // toolbar read as the same surface: same height, inset and corner radius.

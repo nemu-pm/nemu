@@ -5,10 +5,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type RefObject,
 } from "react";
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { Image, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { MobileSliderTrack } from "@/components/MobileSliderTrack";
+import type { MobileReaderScrubberPreviewHandle } from "@/components/reader/MobileReaderScrubberPreview";
 import type { ReadingMode } from "@/data/schema";
 import { hapticPress, hapticSelection } from "@/lib/haptics";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
@@ -24,12 +25,8 @@ import {
   readerSourceStepTargetForDisplayIndex,
   shouldRunReaderMenuPageSwitchHaptic,
 } from "@/lib/mobileReaderProgress";
-import { nemuFontWeight, useNemuTheme } from "@/design-system";
 import { READER_CHROME_PANEL_CONTENT_MIN_HEIGHT } from "@/lib/mobileReaderHeader";
-import {
-  READER_CHROME_GLASS_BORDER,
-  READER_CHROME_GLASS_TINT,
-} from "@/components/reader/readerChromeGlass";
+import type { MobileSliderTrackWindowFrame } from "@/lib/mobileSliderTrack";
 
 export type MobileReaderScrubberProps = {
   pageIndex: number;
@@ -59,8 +56,12 @@ export type MobileReaderScrubberProps = {
   getPreviewPageIndex?: (scrubIndex: number) => number;
   /** Publishes the temporary page shown while the thumb is moving. */
   onPreviewPageIndexChange?: (pageIndex: number | null) => void;
-  /** A synchronous disk-cache hit for the currently previewed page. */
-  previewImageUri?: string | null;
+  /**
+   * Overlay that draws the preview bubble. It lives outside the reader's
+   * clipped glass toolbar, so the thumb geometry is handed to it imperatively
+   * — a drag then repaints the bubble without re-rendering the reader.
+   */
+  previewRef?: RefObject<MobileReaderScrubberPreviewHandle | null>;
 };
 
 export function MobileReaderScrubber({
@@ -85,9 +86,8 @@ export function MobileReaderScrubber({
   interactionScopeKey,
   getPreviewPageIndex,
   onPreviewPageIndexChange,
-  previewImageUri,
+  previewRef,
 }: MobileReaderScrubberProps) {
-  const { scheme } = useNemuTheme();
   const clampedPageIndex = clampReaderPageIndex(pageIndex, pageCount);
   const clampedScrubIndex = clampReaderPageIndex(scrubIndex, scrubCount);
   const discreteProgress = readerProgressRatio(clampedScrubIndex, scrubCount);
@@ -174,7 +174,13 @@ export function MobileReaderScrubber({
   const lastPreviewPageHapticRef = useRef<number | null>(null);
   const pendingPreviewRatioRef = useRef<number | null>(null);
   const previewFrameRef = useRef<number | null>(null);
-  const [previewPageIndex, setPreviewPageIndex] = useState<number | null>(null);
+  const trackWindowFrameRef = useRef<MobileSliderTrackWindowFrame | null>(null);
+  const onTrackWindowFrame = useCallback(
+    (frame: MobileSliderTrackWindowFrame) => {
+      trackWindowFrameRef.current = frame;
+    },
+    [],
+  );
 
   useEffect(() => {
     lastMenuPageHapticRef.current = clampedScrubIndex;
@@ -285,8 +291,16 @@ export function MobileReaderScrubber({
         void hapticSelection();
       }
       lastPreviewPageHapticRef.current = nextPageIndex;
-      setPreviewPageIndex(nextPageIndex);
       onPreviewPageIndexChange?.(nextPageIndex);
+      const track = trackWindowFrameRef.current;
+      if (track) {
+        // `ratio` is already the thumb's visual position, so RTL needs no
+        // mirroring here — the track and the bubble read the same number.
+        previewRef?.current?.setGeometry({
+          ratio: Math.max(0, Math.min(1, ratio)),
+          track,
+        });
+      }
     },
     [
       continuousScroll,
@@ -295,6 +309,7 @@ export function MobileReaderScrubber({
       mode,
       onPreviewPageIndexChange,
       pageCount,
+      previewRef,
       scrubCount,
     ],
   );
@@ -331,9 +346,16 @@ export function MobileReaderScrubber({
   const clearPreview = useCallback(() => {
     cancelPendingPreviewFrame();
     lastPreviewPageHapticRef.current = null;
-    setPreviewPageIndex(null);
     onPreviewPageIndexChange?.(null);
-  }, [cancelPendingPreviewFrame, onPreviewPageIndexChange]);
+    previewRef?.current?.setGeometry(null);
+  }, [cancelPendingPreviewFrame, onPreviewPageIndexChange, previewRef]);
+  const clearPreviewRef = useRef(clearPreview);
+  useEffect(() => {
+    clearPreviewRef.current = clearPreview;
+  }, [clearPreview]);
+  // A chapter switch can unmount the scrubber mid-drag; the bubble lives in a
+  // sibling overlay, so it has to be told to go away.
+  useEffect(() => () => clearPreviewRef.current(), []);
 
   const onRatioStart = useCallback(
     (ratio: number) => {
@@ -502,47 +524,6 @@ export function MobileReaderScrubber({
       }}
       style={styles.root}
     >
-      {dragProgress != null && previewPageIndex != null ? (
-        <View
-          pointerEvents="none"
-          style={[
-            styles.previewBubble,
-            {
-              left: `${
-                (scrubberDirection === "rtl"
-                  ? 1 - trackProgress
-                  : trackProgress) * 100
-              }%`,
-              backgroundColor: READER_CHROME_GLASS_TINT[scheme],
-              borderColor: READER_CHROME_GLASS_BORDER[scheme],
-            },
-          ]}
-        >
-          {previewImageUri ? (
-            <Image
-              accessibilityIgnoresInvertColors
-              resizeMode="cover"
-              source={{ uri: previewImageUri }}
-              style={styles.previewImage}
-            />
-          ) : (
-            <View style={styles.previewPlaceholder}>
-              <Ionicons
-                name="image-outline"
-                size={15}
-                color="rgba(235,238,245,0.66)"
-              />
-            </View>
-          )}
-          <Text style={styles.previewLabel}>
-            {readerRoutePageForDisplayIndex(
-              previewPageIndex,
-              pageCount,
-              mode,
-            )}
-          </Text>
-        </View>
-      ) : null}
       <MobileSliderTrack
         progress={trackProgress}
         direction={scrubberDirection}
@@ -551,6 +532,7 @@ export function MobileReaderScrubber({
         onRatioChange={onRatioPreview}
         onRatioEnd={onRatioEnd}
         onRatioCancel={onRatioCancel}
+        onTrackWindowFrame={onTrackWindowFrame}
       />
     </View>
   );
@@ -563,44 +545,5 @@ const styles = StyleSheet.create({
     minHeight: READER_CHROME_PANEL_CONTENT_MIN_HEIGHT,
     justifyContent: "center",
     position: "relative",
-  },
-  previewBubble: {
-    position: "absolute",
-    bottom: 39,
-    width: 60,
-    minHeight: 98,
-    marginLeft: -30,
-    paddingTop: 8,
-    paddingHorizontal: 8,
-    paddingBottom: 6,
-    gap: 6,
-    alignItems: "center",
-    borderRadius: 12,
-    borderWidth: 0.5,
-    boxShadow: "0px 8px 24px -8px rgba(0,0,0,0.5)",
-    overflow: "hidden",
-    zIndex: 4,
-    elevation: 4,
-  },
-  previewImage: {
-    width: 44,
-    height: 62,
-    borderRadius: 4,
-    backgroundColor: "rgba(255,255,255,0.09)",
-  },
-  previewPlaceholder: {
-    width: 44,
-    height: 62,
-    borderRadius: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.09)",
-  },
-  previewLabel: {
-    color: "rgba(235,238,245,0.96)",
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.semibold,
-    fontVariant: ["tabular-nums"],
   },
 });

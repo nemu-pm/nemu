@@ -128,6 +128,7 @@ import {
   getMobileCheckFilterState,
   getNextMobileCheckFilterValue,
   getMobileSortFilterSelection,
+  resolveMobileSourceBrowseFilters,
   updateMobileSourceFilterValues,
 } from "@/lib/mobileSourceFilterValues";
 import {
@@ -154,6 +155,7 @@ import {
   hasMobileSourceBrowseRouteQuery,
   makeMobileSourceBrowseSearchRouteQuery,
   isMobileSourceBrowseHomeTabPending,
+  isMobileSourceBrowseSearchRequestPending,
   normalizeMobileSourceBrowseRouteQuery,
   normalizeMobileSourceBrowseRouteTab,
   shouldPreserveSourceBrowseSearchItemsOnDeactivate,
@@ -207,6 +209,7 @@ import {
 import { hashSettings } from "@/sources/mobileSourceExecutorCache";
 import {
   fetchMobileSourceBrowseMetadata,
+  mergeRuntimeAndPackageFilters,
   type MobileSourceBrowseMetadataResult,
 } from "@/sources/mobileSourceBrowseMetadata";
 import {
@@ -1565,7 +1568,22 @@ export function SourceBrowseScreen() {
     () => mergeMobileSourceListingTabs(listings, selectedRuntimeListing),
     [listings, selectedRuntimeListing],
   );
-  const sourceFilters = sourceFiltersState.filters;
+  // Filters shipped with the installed package, shaped exactly the way the
+  // runtime metadata will shape them. They stand in for the runtime answer
+  // while it is in flight so the chip row and the filter toolbar button are
+  // part of the first paint instead of arriving a metadata fetch later.
+  const packageSourceFilters = useMemo(
+    () =>
+      filterSourceBrowseControls(
+        mergeRuntimeAndPackageFilters([], packageMetadata?.filters ?? []),
+      ),
+    [packageMetadata?.filters],
+  );
+  const sourceFilters = resolveMobileSourceBrowseFilters({
+    filtersStatus: sourceFiltersState.status,
+    runtimeFilters: sourceFiltersState.filters,
+    packageFilters: packageSourceFilters,
+  });
   const sourceFilterValueMap = useMemo(() => {
     const map = new Map<string, FilterValue>();
     for (const value of sourceFilterValues) {
@@ -1617,6 +1635,15 @@ export function SourceBrowseScreen() {
     routeSourceSearchActive ||
     sourceSearchTerm.length > 0 ||
     sourceFilterCount > 0;
+  // In search mode the screen always has a request coming: an empty query with
+  // no filters still asks the source for its default page. So an `idle` search
+  // state here is the pre-request window (browse metadata in flight, or the
+  // 250ms search debounce), not an invitation to type.
+  const sourceSearchRequestPending = isMobileSourceBrowseSearchRequestPending({
+    sourceSearchActive,
+    hasSource: Boolean(source),
+    searchStatus: sourceSearchState.status,
+  });
   const showSourceSearchControls = sourceFilters.length > 0;
   const sourceHomeProviderKnown =
     !!runtimeBrowseMetadata ||
@@ -1725,6 +1752,7 @@ export function SourceBrowseScreen() {
   const showSourceBrowseHomeSkeleton = shouldShowSourceBrowseHomeSkeleton({
     showSourceHomeSection,
     sourceHasHomeProvider,
+    sourceHomeProviderKnown,
     homeStatus: sourceHomeState.status,
     sourceHomeHasComponents,
   });
@@ -2892,6 +2920,7 @@ export function SourceBrowseScreen() {
       listingItemCount: listingGridItems.length,
       searchStatus: sourceSearchState.status,
       filtersStatus: sourceFiltersState.status,
+      searchRequestPending: sourceSearchRequestPending,
     });
 
   useEffect(() => {
@@ -3387,11 +3416,11 @@ export function SourceBrowseScreen() {
               ) : showCenterSourceBrowseSearchProgress ? (
                 <MobileSourceGridSkeleton
                   accessibilityLabel={
-                    sourceFiltersState.status === "loading"
-                      ? strings.sourceBrowse.loadingFilters
-                      : sourceSearchState.status === "loading"
-                        ? sourceSearchState.detail
-                        : strings.sourceBrowse.searchOrChooseFilters
+                    sourceSearchState.status === "loading"
+                      ? sourceSearchState.detail
+                      : sourceFiltersState.status === "ready"
+                        ? strings.sourceBrowse.searchThisSource
+                        : strings.sourceBrowse.loadingFilters
                   }
                 />
               ) : (

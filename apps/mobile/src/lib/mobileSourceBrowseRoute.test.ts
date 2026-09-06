@@ -8,6 +8,7 @@ import {
   getMobileSourceBrowseRouteTabForListingId,
   hasMobileSourceBrowseRouteQuery,
   isMobileSourceBrowseHomeTabPending,
+  isMobileSourceBrowseSearchRequestPending,
   makeMobileSourceHomeGenerationKey,
   makeMobileSourceBrowseSearchRouteQuery,
   normalizeMobileSourceBrowseRouteQuery,
@@ -358,6 +359,7 @@ describe("mobile source browse route helpers", () => {
         listingItemCount: 0,
         searchStatus: "loading",
         filtersStatus: "ready",
+        searchRequestPending: true,
       }),
     ).toBe(true);
     expect(
@@ -366,6 +368,7 @@ describe("mobile source browse route helpers", () => {
         listingItemCount: 0,
         searchStatus: "idle",
         filtersStatus: "loading",
+        searchRequestPending: true,
       }),
     ).toBe(true);
     expect(
@@ -374,6 +377,98 @@ describe("mobile source browse route helpers", () => {
         listingItemCount: 3,
         searchStatus: "loading",
         filtersStatus: "loading",
+        searchRequestPending: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("counts an active search mode with no request in flight as pending", () => {
+    // Opening a source browse screen that is already in search mode: the
+    // browse metadata that carries the filters is still in flight (which
+    // leaves the filters state `idle`, not `loading`) and the first search sits
+    // behind its debounce. Both windows have to read as progress or the
+    // "search this source or choose filters" prompt flashes over the skeleton.
+    expect(
+      isMobileSourceBrowseSearchRequestPending({
+        sourceSearchActive: true,
+        hasSource: true,
+        searchStatus: "idle",
+      }),
+    ).toBe(true);
+    expect(
+      isMobileSourceBrowseSearchRequestPending({
+        sourceSearchActive: true,
+        hasSource: true,
+        searchStatus: "loading",
+      }),
+    ).toBe(true);
+    expect(
+      isMobileSourceBrowseSearchRequestPending({
+        sourceSearchActive: true,
+        hasSource: true,
+        searchStatus: "ready",
+      }),
+    ).toBe(false);
+    expect(
+      isMobileSourceBrowseSearchRequestPending({
+        sourceSearchActive: true,
+        hasSource: true,
+        searchStatus: "error",
+      }),
+    ).toBe(false);
+    expect(
+      isMobileSourceBrowseSearchRequestPending({
+        sourceSearchActive: false,
+        hasSource: true,
+        searchStatus: "idle",
+      }),
+    ).toBe(false);
+    expect(
+      isMobileSourceBrowseSearchRequestPending({
+        sourceSearchActive: true,
+        hasSource: false,
+        searchStatus: "idle",
+      }),
+    ).toBe(false);
+  });
+
+  test("keeps the search prompt out of the pre-request bootstrap window", () => {
+    expect(
+      shouldShowCenterSourceBrowseSearchProgress({
+        sourceSearchActive: true,
+        listingItemCount: 0,
+        searchStatus: "idle",
+        filtersStatus: "idle",
+        searchRequestPending: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowCenterSourceBrowseSearchProgress({
+        sourceSearchActive: true,
+        listingItemCount: 0,
+        searchStatus: "idle",
+        filtersStatus: "ready",
+        searchRequestPending: true,
+      }),
+    ).toBe(true);
+    // A search that came back empty is a result, not progress: the grid keeps
+    // its own "no matches" state.
+    expect(
+      shouldShowCenterSourceBrowseSearchProgress({
+        sourceSearchActive: true,
+        listingItemCount: 0,
+        searchStatus: "ready",
+        filtersStatus: "ready",
+        searchRequestPending: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowCenterSourceBrowseSearchProgress({
+        sourceSearchActive: false,
+        listingItemCount: 0,
+        searchStatus: "idle",
+        filtersStatus: "idle",
+        searchRequestPending: false,
       }),
     ).toBe(false);
   });
@@ -435,6 +530,7 @@ describe("mobile source browse route helpers", () => {
       shouldShowSourceBrowseHomeSkeleton({
         showSourceHomeSection: true,
         sourceHasHomeProvider: true,
+        sourceHomeProviderKnown: true,
         homeStatus: "idle",
         sourceHomeHasComponents: false,
       }),
@@ -443,8 +539,45 @@ describe("mobile source browse route helpers", () => {
       shouldShowSourceBrowseHomeSkeleton({
         showSourceHomeSection: true,
         sourceHasHomeProvider: true,
+        sourceHomeProviderKnown: true,
         homeStatus: "ready",
         sourceHomeHasComponents: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("treats an unknown home provider as a loading home, not a missing one", () => {
+    // Before the browse metadata answers, `sourceHasHomeProvider` is `false`
+    // only because nothing has answered yet. The home section is already on
+    // screen, so this window is a skeleton — not the "no home page" empty
+    // state it used to flash.
+    expect(
+      shouldShowSourceBrowseHomeSkeleton({
+        showSourceHomeSection: true,
+        sourceHasHomeProvider: false,
+        sourceHomeProviderKnown: false,
+        homeStatus: "idle",
+        sourceHomeHasComponents: false,
+      }),
+    ).toBe(true);
+    // Once the source has answered "no home provider", the empty state is the
+    // truth and must not be papered over with a skeleton.
+    expect(
+      shouldShowSourceBrowseHomeSkeleton({
+        showSourceHomeSection: true,
+        sourceHasHomeProvider: false,
+        sourceHomeProviderKnown: true,
+        homeStatus: "idle",
+        sourceHomeHasComponents: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowSourceBrowseHomeSkeleton({
+        showSourceHomeSection: true,
+        sourceHasHomeProvider: false,
+        sourceHomeProviderKnown: false,
+        homeStatus: "error",
+        sourceHomeHasComponents: false,
       }),
     ).toBe(false);
   });

@@ -14,6 +14,7 @@ import {
   getMobileCheckFilterState,
   getNextMobileCheckFilterValue,
   getMobileSortFilterSelection,
+  resolveMobileSourceBrowseFilters,
   updateMobileSourceFilterValues,
 } from "./mobileSourceFilterValues";
 
@@ -318,5 +319,67 @@ describe("mobile source filter values", () => {
       "No default",
       "Status",
     ]);
+  });
+
+  test("stands package filters in for the runtime answer while it loads", () => {
+    const packageFilters = [
+      inlineFilter(FilterType.Select, "Status"),
+      inlineFilter(FilterType.Sort, "Sort"),
+    ];
+    const runtimeFilters = [
+      inlineFilter(FilterType.Select, "Status"),
+      inlineFilter(FilterType.Sort, "Sort"),
+      inlineFilter(FilterType.Select, "Category"),
+    ];
+
+    // Bootstrap: the browse metadata fetch leaves the filters state `idle`, so
+    // the chip row has to come from the installed package or it lands a whole
+    // metadata fetch after the first paint.
+    expect(
+      resolveMobileSourceBrowseFilters({
+        filtersStatus: "idle",
+        runtimeFilters: [],
+        packageFilters,
+      }),
+    ).toEqual(packageFilters);
+    expect(
+      resolveMobileSourceBrowseFilters({
+        filtersStatus: "loading",
+        runtimeFilters: [],
+        packageFilters,
+      }),
+    ).toEqual(packageFilters);
+    // The runtime answer always wins once it lands.
+    expect(
+      resolveMobileSourceBrowseFilters({
+        filtersStatus: "ready",
+        runtimeFilters,
+        packageFilters,
+      }),
+    ).toEqual(runtimeFilters);
+    // A source that really has no filters must not keep showing the package
+    // stand-in, and a blocked or failed fetch must not leave a stale row
+    // sitting next to the notice that replaced it.
+    expect(
+      resolveMobileSourceBrowseFilters({
+        filtersStatus: "ready",
+        runtimeFilters: [],
+        packageFilters,
+      }),
+    ).toEqual([]);
+    expect(
+      resolveMobileSourceBrowseFilters({
+        filtersStatus: "blocked",
+        runtimeFilters: [],
+        packageFilters,
+      }),
+    ).toEqual([]);
+    expect(
+      resolveMobileSourceBrowseFilters({
+        filtersStatus: "error",
+        runtimeFilters: [],
+        packageFilters,
+      }),
+    ).toEqual([]);
   });
 });

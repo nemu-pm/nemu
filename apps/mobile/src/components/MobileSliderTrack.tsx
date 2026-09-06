@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   PanResponder,
   Platform,
@@ -7,7 +7,11 @@ import {
   type LayoutChangeEvent,
 } from "react-native";
 import { radius, useNemuTheme } from "@/design-system";
-import { sliderRatioFromLocation } from "@/lib/mobileSliderTrack";
+import {
+  MOBILE_SLIDER_THUMB_SIZE,
+  sliderRatioFromLocation,
+  type MobileSliderTrackWindowFrame,
+} from "@/lib/mobileSliderTrack";
 
 type MobileSliderTrackProps = {
   progress: number;
@@ -19,6 +23,12 @@ type MobileSliderTrackProps = {
   onRatioCancel?: () => void;
   /** Legacy release callback. Prefer onRatioEnd for new gesture-aware callers. */
   onRatioCommit?: (ratio: number) => void;
+  /**
+   * Reports the track's window-space box on layout and again when a drag
+   * starts, for callers that anchor an overlay to the thumb from outside the
+   * track's own view tree.
+   */
+  onTrackWindowFrame?: (frame: MobileSliderTrackWindowFrame) => void;
 };
 
 export function MobileSliderTrack({
@@ -30,12 +40,25 @@ export function MobileSliderTrack({
   onRatioEnd,
   onRatioCancel,
   onRatioCommit,
+  onTrackWindowFrame,
 }: MobileSliderTrackProps) {
   const { tokens } = useNemuTheme();
+  const trackRef = useRef<View | null>(null);
   const [trackWidth, setTrackWidth] = useState(0);
   const clampedProgress = Math.max(0, Math.min(1, progress));
   const visualProgress =
     direction === "rtl" ? 1 - clampedProgress : clampedProgress;
+
+  // Window coordinates come from the shadow tree, which spans the whole
+  // surface. A touch's `pageX/pageY` would not: inside a SwiftUI host they are
+  // measured from that host's own touch handler root, i.e. the toolbar panel.
+  const measureTrackWindowFrame = useCallback(() => {
+    if (!onTrackWindowFrame) return;
+    trackRef.current?.measureInWindow((x, y, width, height) => {
+      if (!(width > 0) || !(height > 0)) return;
+      onTrackWindowFrame({ x, y, width, height });
+    });
+  }, [onTrackWindowFrame]);
 
   const panResponder = useMemo(() => {
     const ratioFromLocation = (locationX: number) => {
@@ -59,6 +82,9 @@ export function MobileSliderTrack({
       onPanResponderGrant: (event) => {
         const ratio = ratioFromLocation(event.nativeEvent.locationX);
         if (ratio === null) return;
+        // The track cannot move mid-drag, so one sample per gesture is enough;
+        // taking it here also refreshes a frame left stale by chrome animations.
+        measureTrackWindowFrame();
         onRatioStart?.(ratio);
         onRatioChange(ratio);
       },
@@ -81,6 +107,7 @@ export function MobileSliderTrack({
     });
   }, [
     disabled,
+    measureTrackWindowFrame,
     onRatioCancel,
     onRatioChange,
     onRatioCommit,
@@ -91,10 +118,12 @@ export function MobileSliderTrack({
 
   const onTrackLayout = (event: LayoutChangeEvent) => {
     setTrackWidth(event.nativeEvent.layout.width);
+    measureTrackWindowFrame();
   };
 
   return (
     <View
+      ref={trackRef}
       {...panResponder.panHandlers}
       style={styles.touchTarget}
       onLayout={onTrackLayout}
@@ -130,7 +159,7 @@ export function MobileSliderTrack({
   );
 }
 
-const THUMB_SIZE = 18;
+const THUMB_SIZE = MOBILE_SLIDER_THUMB_SIZE;
 const TRACK_HEIGHT = 8;
 
 const styles = StyleSheet.create({

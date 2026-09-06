@@ -25,6 +25,7 @@ import {
   NemuPressable,
   NemuText,
   nemuColorWithAlpha,
+  nemuMaxFontSizeMultiplier,
 } from "@/design-system";
 import type { InstalledSource, LibraryEntry, MangaMetadata } from "@/data/schema";
 import {
@@ -46,6 +47,7 @@ import {
   type MobileMetadataFieldKey,
   type MobileMetadataFormValues,
 } from "@/lib/mobileMetadataOverrides";
+import { stripMobileMetadataFieldNewlines } from "@/lib/mobileMetadataEditorFieldLayout";
 import {
   canSaveMobileMetadataEditorForm,
   canSelectMobileMetadataStatusOption,
@@ -268,6 +270,17 @@ function MetadataTextField({
 }: MetadataTextFieldProps) {
   const { tokens } = useNemuTheme();
 
+  /*
+    Every field is a `multiline` input, including the ones that hold a single
+    logical line (title, cover URL, the comma lists): a single-line iOS field
+    can only scroll a long value out of sight. The growing ones then have to
+    escape `GlassSurface`'s `flex: 1` content view, which `styles.growingField`
+    does — see the note there — so the text's own measured height drives the
+    shell instead of the shell capping the text. `submitBehavior` keeps Return
+    dismissing the keyboard rather than inserting a break.
+  */
+  const grows = !multiline;
+
   return (
     <View style={styles.field}>
       <View style={styles.fieldLabelRow}>
@@ -292,7 +305,7 @@ function MetadataTextField({
       </View>
       <GlassSurface
         style={[styles.inputShell, multiline && styles.textAreaShell]}
-        contentStyle={styles.inputContent}
+        contentStyle={[styles.inputContent, grows && styles.growingField]}
       >
         <TextInput
           accessibilityLabel={label}
@@ -300,17 +313,25 @@ function MetadataTextField({
           autoCorrect={keyboardType !== "url"}
           keyboardType={keyboardType}
           editable={!disabled}
-          multiline={multiline}
-          onChangeText={onChangeText}
+          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+          multiline
+          onChangeText={
+            grows
+              ? (next) => onChangeText(stripMobileMetadataFieldNewlines(next))
+              : onChangeText
+          }
           placeholder={placeholder ?? label}
           placeholderTextColor={tokens.mutedForeground}
+          returnKeyType={grows ? "done" : undefined}
+          scrollEnabled={!grows}
           selectionColor={tokens.primary}
           style={[
             styles.input,
             multiline && styles.textArea,
             { color: tokens.foreground, opacity: disabled ? 0.72 : 1 },
           ]}
-          textAlignVertical={multiline ? "top" : "center"}
+          submitBehavior={grows ? "blurAndSubmit" : "newline"}
+          textAlignVertical="top"
           value={value}
         />
       </GlassSurface>
@@ -1164,6 +1185,7 @@ export function MobileMetadataEditorSheet({
                   if (!canSearchMatches) return;
                   void handleSearchMatches();
                 }}
+                maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
                 placeholder={strings.metadataEditor.matchSearchPlaceholder}
                 placeholderTextColor={tokens.mutedForeground}
                 returnKeyType="search"
@@ -1777,10 +1799,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
   },
   matchInput: {
+    // Stays a single-line field: it scrolls a long query horizontally instead
+    // of growing, so the search button beside it keeps its place. See
+    // `styles.input` for why it carries no `lineHeight`.
     minHeight: 48,
     flex: 1,
     fontSize: 14,
-    lineHeight: 18,
   },
   matchSearchButton: {
     width: 48,
@@ -1868,6 +1892,9 @@ const styles = StyleSheet.create({
   },
   inputShell: {
     minHeight: 44,
+    // Centres a growing field's text block while it is still shorter than the
+    // 44pt floor; once the text is taller there is no slack left to centre.
+    justifyContent: "center",
     borderRadius: radius.lg,
   },
   textAreaShell: {
@@ -1876,10 +1903,30 @@ const styles = StyleSheet.create({
   inputContent: {
     paddingHorizontal: 12,
   },
+  growingField: {
+    /*
+      `flex: 0` overrides the `flex: 1` that `GlassSurface` puts on its content
+      view, and that override is what makes these fields grow at all. With
+      `flex: 1` the content view takes its height from the shell rather than
+      from the text, so React Native measured the input against a maximum
+      height of one line (`BaseTextInputShadowNode::measureContent` clamps the
+      measured text to the layout constraints it is given) and the wrapped
+      lines below the first were laid out into a box that could never grow to
+      hold them. Sized by content instead, the text's own height drives the
+      content view, the content view drives the shell, and `minHeight: 44` on
+      the shell is left as a floor.
+    */
+    flex: 0,
+    paddingVertical: 8,
+  },
   input: {
-    minHeight: 44,
+    // No `lineHeight`: React Native turns it into the paragraph style's
+    // minimum *and maximum* line height, and a maximum below the font's own
+    // line box shears the glyphs — which is what a 18pt cap does to CJK text
+    // at 14pt (PingFang and Hiragino need ~20pt), and to every script once
+    // Dynamic Type scales the cap and the font together. The natural line
+    // height keeps full ascenders and descenders in every language.
     fontSize: 14,
-    lineHeight: 18,
   },
   textArea: {
     minHeight: 118,

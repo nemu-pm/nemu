@@ -186,19 +186,45 @@ export function shouldRenderMobileSourceBrowseSearchHeader({
   );
 }
 
+/**
+ * Search mode always issues a request: an empty query with no filters still
+ * asks the source for its default page. So an `idle` search state while search
+ * mode is active is never "your turn to type" — it is "the debounced first
+ * request has not fired yet", which is also the window the browse metadata
+ * that carries the filters is fetched in (that fetch leaves the filters state
+ * `idle`, not `loading`). Treating it as a user prompt is what flashed
+ * "search this source or choose filters" over what is really a loading screen
+ * on every source open.
+ */
+export function isMobileSourceBrowseSearchRequestPending({
+  sourceSearchActive,
+  hasSource,
+  searchStatus,
+}: {
+  sourceSearchActive: boolean;
+  hasSource: boolean;
+  searchStatus: "idle" | "loading" | "ready" | "blocked" | "error" | string;
+}): boolean {
+  if (!sourceSearchActive || !hasSource) return false;
+  return searchStatus === "idle" || searchStatus === "loading";
+}
+
 export function shouldShowCenterSourceBrowseSearchProgress({
   sourceSearchActive,
   listingItemCount,
   searchStatus,
   filtersStatus,
+  searchRequestPending,
 }: {
   sourceSearchActive: boolean;
   listingItemCount: number;
   searchStatus: "idle" | "loading" | "ready" | "blocked" | "error" | string;
   filtersStatus: "idle" | "loading" | "ready" | "blocked" | "error" | string;
+  searchRequestPending: boolean;
 }): boolean {
   if (!sourceSearchActive || listingItemCount > 0) return false;
-  return searchStatus === "loading" || filtersStatus === "loading";
+  if (searchStatus === "loading" || filtersStatus === "loading") return true;
+  return searchRequestPending;
 }
 
 export function shouldShowSourceBrowseBootstrapping({
@@ -248,17 +274,25 @@ export function shouldPreserveSourceBrowseSearchItemsOnDeactivate({
 export function shouldShowSourceBrowseHomeSkeleton({
   showSourceHomeSection,
   sourceHasHomeProvider,
+  sourceHomeProviderKnown,
   homeStatus,
   sourceHomeHasComponents,
 }: {
   showSourceHomeSection: boolean;
   sourceHasHomeProvider: boolean;
+  sourceHomeProviderKnown: boolean;
   homeStatus: "idle" | "loading" | "ready" | "blocked" | "error" | string;
   sourceHomeHasComponents: boolean;
 }): boolean {
   if (!showSourceHomeSection || sourceHomeHasComponents) return false;
   if (homeStatus === "loading") return true;
-  return homeStatus === "idle" && sourceHasHomeProvider;
+  if (homeStatus !== "idle") return false;
+  // Before the browse metadata lands, `sourceHasHomeProvider` reads `false`
+  // because nothing has answered yet, not because the source has no home. The
+  // section is on screen either way, so an unknown provider is still a loading
+  // state — reporting it as "no home page" flashed that empty state over the
+  // skeleton for the frames before the home request started.
+  return sourceHasHomeProvider || !sourceHomeProviderKnown;
 }
 
 export function canSelectMobileSourceBrowseTab({
