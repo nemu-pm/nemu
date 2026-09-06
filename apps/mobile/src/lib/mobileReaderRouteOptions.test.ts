@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   MOBILE_READER_ROUTE_NAME,
   MOBILE_READER_STACK_GESTURE_OPTIONS,
-  MOBILE_STACK_EDGE_ONLY_GESTURE_OPTIONS,
+  MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS,
+  acquireMobileReaderHostGestureLock,
   mobileReaderScreenOptions,
+  resetMobileReaderHostGestureLocksForTesting,
 } from "./mobileReaderRouteOptions";
 
 describe("mobile reader route options", () => {
@@ -21,11 +23,41 @@ describe("mobile reader route options", () => {
     });
   });
 
-  test("keeps edge-swipe back on every other screen while opting out of the iOS 26 full-screen pop", () => {
-    expect(MOBILE_STACK_EDGE_ONLY_GESTURE_OPTIONS).toEqual({
-      fullScreenGestureEnabled: false,
+  test("keeps the iOS 26 full-screen back swipe on for every other screen", () => {
+    expect(MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS).toEqual({
+      fullScreenGestureEnabled: true,
       gestureEnabled: true,
     });
+  });
+
+  test("locks the host screen's pop gesture while any reader is mounted", () => {
+    resetMobileReaderHostGestureLocksForTesting();
+    const calls: unknown[] = [];
+    const setOptions = (options: unknown) => calls.push(options);
+
+    const releaseFirst = acquireMobileReaderHostGestureLock(setOptions);
+    expect(calls).toEqual([MOBILE_READER_STACK_GESTURE_OPTIONS]);
+
+    // A chapter switch mounts the next reader before the previous unmounts.
+    const releaseSecond = acquireMobileReaderHostGestureLock(setOptions);
+    releaseFirst();
+    expect(calls).toEqual([
+      MOBILE_READER_STACK_GESTURE_OPTIONS,
+      MOBILE_READER_STACK_GESTURE_OPTIONS,
+    ]);
+
+    releaseSecond();
+    expect(calls.at(-1)).toEqual(MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS);
+
+    // Releasing twice is a no-op.
+    releaseSecond();
+    expect(calls.length).toBe(3);
+  });
+
+  test("tolerates a missing parent navigator", () => {
+    resetMobileReaderHostGestureLocksForTesting();
+    const release = acquireMobileReaderHostGestureLock(undefined);
+    expect(() => release()).not.toThrow();
   });
 
   test("only the status bar follows the reader chrome", () => {

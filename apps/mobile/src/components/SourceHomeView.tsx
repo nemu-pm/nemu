@@ -35,6 +35,7 @@ import type {
 import type { InstalledSource } from "@/data/schema";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
+  MobileChip,
   NemuPressable,
   MobileCachedImage,
   createNemuShadowStyle,
@@ -855,23 +856,13 @@ function FeaturedSection({
                     {item.tags?.length ? (
                       <View style={styles.tagRow}>
                         {item.tags.slice(0, 3).map((tag) => (
-                          <View
+                          <MobileChip
                             key={tag}
-                            style={[
-                              styles.tagPill,
-                              { backgroundColor: tokens.muted },
-                            ]}
-                          >
-                            <Text
-                              numberOfLines={1}
-                              style={[
-                                styles.tagText,
-                                { color: tokens.mutedForeground },
-                              ]}
-                            >
-                              {tag}
-                            </Text>
-                          </View>
+                            accessibilityLabel={tag}
+                            label={tag}
+                            size="sm"
+                            variant="static"
+                          />
                         ))}
                       </View>
                     ) : null}
@@ -1531,7 +1522,6 @@ const HomeFiltersSection = memo(function HomeFiltersSection({
   strings: MobileStrings;
   onFilterPress: (values: FilterValue[]) => void;
 }) {
-  const { tokens } = useNemuTheme();
   const filterItems = getMobileSourceHomeFilterItems(items);
   if (!filterItems.length) return null;
   return (
@@ -1544,34 +1534,21 @@ const HomeFiltersSection = memo(function HomeFiltersSection({
       />
       <View style={styles.filterGrid}>
         {filterItems.map((item, index) => (
-          <NemuPressable
+          <MobileChip
             key={`${item.title}:${index}`}
-            accessibilityRole="button"
             accessibilityLabel={openHomeFilterAccessibilityLabel(
               item.title,
               strings,
             )}
+            accessibilityRole="button"
+            fallbackIcon="options-outline"
+            hapticFeedback="press"
+            label={item.title}
             onPress={() => {
               onFilterPress(item.values ?? []);
             }}
-            pressedScale={0.98}
-            style={[
-              styles.filterPill,
-              { backgroundColor: tokens.muted, borderColor: tokens.border },
-            ]}
-          >
-            <Ionicons
-              name="options-outline"
-              size={14}
-              color={tokens.mutedForeground}
-            />
-            <Text
-              numberOfLines={1}
-              style={[styles.filterPillText, { color: tokens.mutedForeground }]}
-            >
-              {item.title}
-            </Text>
-          </NemuPressable>
+            variant="toggle"
+          />
         ))}
       </View>
     </View>
@@ -2040,10 +2017,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     opacity: 0.72,
   },
+  // Mirrors the `sm` static tag chips the loaded featured card renders.
   homeSkeletonTagPill: {
     width: 44,
-    height: 20,
-    borderRadius: radius.sm,
+    height: 22,
+    borderRadius: radius.pill,
     opacity: 0.72,
   },
   featuredCard: {
@@ -2083,18 +2061,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 5,
     marginTop: "auto",
-  },
-  tagPill: {
-    maxWidth: 84,
-    minHeight: 22,
-    justifyContent: "center",
-    borderRadius: radius.sm,
-    paddingHorizontal: 7,
-  },
-  tagText: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: nemuFontWeight.medium,
   },
   featuredDots: {
     minHeight: 20,
@@ -2202,21 +2168,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-  },
-  filterPill: {
-    maxWidth: "48%",
-    minHeight: 34,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
-  },
-  filterPillText: {
-    flexShrink: 1,
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.medium,
   },
 });

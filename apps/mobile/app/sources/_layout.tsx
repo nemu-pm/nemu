@@ -2,7 +2,7 @@ import { Stack } from "expo-router";
 import {
   MOBILE_READER_ROUTE_NAME,
   MOBILE_READER_STACK_GESTURE_OPTIONS,
-  MOBILE_STACK_EDGE_ONLY_GESTURE_OPTIONS,
+  MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS,
 } from "@/lib/mobileReaderRouteOptions";
 
 export default function SourcesLayout() {
@@ -10,9 +10,9 @@ export default function SourcesLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        // Keep edge-swipe back, but don't let full-width pans (e.g. the reader
-        // scrubber) compete with the interactive-pop gesture.
-        ...MOBILE_STACK_EDGE_ONLY_GESTURE_OPTIONS,
+        // Full-screen back swipe on manga detail like everywhere else; the
+        // reader route below is the only screen without a pop gesture.
+        ...MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS,
       }}
     >
       {/* Declared statically: options set from inside the reader only reach

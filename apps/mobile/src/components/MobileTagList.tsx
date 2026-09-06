@@ -1,11 +1,16 @@
-import { StyleSheet, Text, View } from "react-native";
-import { radius, nemuFontWeight, useNemuTheme } from "@/design-system";
+import { StyleSheet, View } from "react-native";
+import { MobileChip } from "@/design-system";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import {
   getMobileTagOverflowCount,
   getMobileVisibleTags,
 } from "@/lib/mobileTags";
 
+/**
+ * Manga tags/genres. They are read-only, so they use the chip primitive's
+ * `static` variant: the same pill as every interactive chip, minus the press
+ * state and the 44pt touch frame.
+ */
 export function MobileTagList({
   tags,
   strings,
@@ -13,7 +18,6 @@ export function MobileTagList({
   tags: string[];
   strings: MobileStrings;
 }) {
-  const { tokens } = useNemuTheme();
   const visibleTags = getMobileVisibleTags(tags);
   const overflowCount = getMobileTagOverflowCount(tags);
 
@@ -22,28 +26,21 @@ export function MobileTagList({
   return (
     <View style={styles.tagRow}>
       {visibleTags.map((tag) => (
-        <View key={tag.key} style={[styles.tag, { backgroundColor: tokens.muted }]}>
-          <Text style={[styles.tagText, { color: tokens.mutedForeground }]}>{tag.label}</Text>
-        </View>
+        <MobileChip
+          key={tag.key}
+          accessibilityLabel={tag.label}
+          label={tag.label}
+          variant="static"
+        />
       ))}
       {overflowCount > 0 ? (
-        <View
-          accessible
+        <MobileChip
           accessibilityLabel={formatMobileString(strings.common.moreTags, {
             count: overflowCount,
           })}
-          style={[
-            styles.overflowTag,
-            {
-              borderColor: tokens.border,
-              backgroundColor: tokens.card,
-            },
-          ]}
-        >
-          <Text style={[styles.tagText, { color: tokens.mutedForeground }]}>
-            +{overflowCount}
-          </Text>
-        </View>
+          label={`+${overflowCount}`}
+          variant="static"
+        />
       ) : null}
     </View>
   );
@@ -54,23 +51,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-  },
-  tag: {
-    minHeight: 28,
-    justifyContent: "center",
-    borderRadius: radius.md,
-    paddingHorizontal: 9,
-  },
-  overflowTag: {
-    minHeight: 28,
-    justifyContent: "center",
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 9,
-  },
-  tagText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
   },
 });

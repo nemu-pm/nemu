@@ -11,6 +11,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import {
   GlassSurface,
   MobileCachedImage,
+  MobileChip,
   nemuColorWithAlpha,
   NemuPressable,
   NemuRingSpinner,
@@ -316,40 +317,16 @@ export function MobileMangaDetailSurface({
           </View>
           {badges.length ? (
             <View style={styles.badgeRow}>
-              {badges.map((badge) => {
-                const primary = badge.tone === "primary";
-                return (
-                  <View
-                    key={badge.key}
-                    style={[
-                      styles.badge,
-                      {
-                        backgroundColor: primary ? tokens.primary : tokens.muted,
-                      },
-                    ]}
-                  >
-                    {badge.iconUri ? (
-                      <MobileCachedImage
-                        fallback={null}
-                        uriOwnership="source"
-                        source={{ uri: badge.iconUri }}
-                        style={styles.sourceBadgeIcon}
-                      />
-                    ) : null}
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        styles.badgeText,
-                        {
-                          color: primary ? tokens.primaryForeground : tokens.mutedForeground,
-                        },
-                      ]}
-                    >
-                      {badge.label}
-                    </Text>
-                  </View>
-                );
-              })}
+              {badges.map((badge) => (
+                <MobileChip
+                  key={badge.key}
+                  accessibilityLabel={badge.label}
+                  icon={badge.iconUri ?? undefined}
+                  label={badge.label}
+                  selected={badge.tone === "primary"}
+                  variant="static"
+                />
+              ))}
             </View>
           ) : null}
         </View>
@@ -442,29 +419,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
     marginTop: 2,
-  },
-  badge: {
-    minHeight: 26,
-    maxWidth: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    justifyContent: "center",
-    borderRadius: radius.md,
-    paddingHorizontal: 9,
-  },
-  sourceBadgeIcon: {
-    flexShrink: 0,
-    width: 14,
-    height: 14,
-    borderRadius: 4,
-  },
-  badgeText: {
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: nemuFontWeight.medium,
   },
   actionRow: {
     flexDirection: "row",

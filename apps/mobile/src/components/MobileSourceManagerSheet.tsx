@@ -10,6 +10,7 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   MobileCachedImage,
+  MobileChip,
   MobileNativeSheetScaffold,
   NemuTextFieldClearAction,
   NemuPressable,
@@ -343,22 +344,13 @@ function SourceManagerRow({
               {name}
             </NemuText>
             {selected ? (
-              <View
-                style={[
-                  styles.selectedBadge,
-                  { backgroundColor: tokens.primary },
-                ]}
-              >
-                <NemuText
-                  density="compact"
-                  style={[
-                    styles.selectedText,
-                    { color: tokens.primaryForeground },
-                  ]}
-                >
-                  {strings.sourceManager.active}
-                </NemuText>
-              </View>
+              <MobileChip
+                accessibilityLabel={strings.sourceManager.active}
+                label={strings.sourceManager.active}
+                selected
+                size="sm"
+                variant="static"
+              />
             ) : null}
           </View>
           <NemuText
@@ -2336,18 +2328,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: nemuFontWeight.semibold,
-  },
-  selectedBadge: {
-    minHeight: 20,
-    flexShrink: 0,
-    justifyContent: "center",
-    borderRadius: radius.sm,
-    paddingHorizontal: 6,
-  },
-  selectedText: {
-    fontSize: 10,
-    lineHeight: 13,
     fontWeight: nemuFontWeight.semibold,
   },
   rowSubtitle: {

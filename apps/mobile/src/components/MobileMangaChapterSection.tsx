@@ -6,10 +6,10 @@ import type { AppLanguage, ChapterSummary, LocalChapterProgress } from "@/data/s
 import {
   nemuFontWeight,
   useNemuTheme,
+  MobileChip,
   NemuInlineEmptyState,
   NemuPressable,
   NemuRingSpinner,
-  radius,
 } from "@/design-system";
 import type { MobileChapterListPreference } from "@/lib/mobileChapterFilters";
 import type { MobileChapterRow } from "@/lib/mobileChapterRows";
@@ -57,6 +57,11 @@ type MobileMangaChapterSortActionProps = {
   onChange: (preference: MobileChapterListPreference) => void;
 };
 
+/**
+ * The chapter toolbar's unread/language filters: the shared chip primitive's
+ * `toggle` variant, so they paint the same pill as the Search tab's source
+ * chips and the browse filter row.
+ */
 function MobileChapterToolbarChip({
   accessibilityLabel,
   badge,
@@ -70,47 +75,16 @@ function MobileChapterToolbarChip({
   selected: boolean;
   onPress: () => void;
 }) {
-  const { tokens } = useNemuTheme();
-
   return (
-    <NemuPressable
+    <MobileChip
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
-      accessibilityState={{ selected }}
-      hapticFeedback="selection"
+      badge={badge}
+      label={label}
       onPress={onPress}
-      pressedScale={0.97}
-      style={[
-        styles.toolbarChip,
-        {
-          backgroundColor: selected ? tokens.toolbarAction : tokens.secondary,
-          borderColor: selected ? tokens.toolbarActionBorder : "transparent",
-        },
-      ]}
-    >
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.toolbarChipText,
-          { color: selected ? tokens.primary : tokens.secondaryForeground },
-        ]}
-      >
-        {label}
-      </Text>
-      {badge ? (
-        <View style={[styles.toolbarChipBadge, { backgroundColor: tokens.primary }]}>
-          <Text
-            numberOfLines={1}
-            style={[
-              styles.toolbarChipBadgeText,
-              { color: tokens.primaryForeground },
-            ]}
-          >
-            {badge}
-          </Text>
-        </View>
-      ) : null}
-    </NemuPressable>
+      selected={selected}
+      variant="toggle"
+    />
   );
 }
 
@@ -301,31 +275,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-  },
-  toolbarChip: {
-    minHeight: 30,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
-  },
-  toolbarChipText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: nemuFontWeight.medium,
-  },
-  toolbarChipBadge: {
-    flexShrink: 0,
-    borderRadius: radius.pill,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  toolbarChipBadgeText: {
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: nemuFontWeight.semibold,
   },
   firstChapterRow: {
     marginTop: 16,

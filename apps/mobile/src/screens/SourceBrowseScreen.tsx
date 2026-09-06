@@ -589,6 +589,11 @@ function SourceListingTab({
   );
 }
 
+/**
+ * One option inside the expanded filter panel. The panel's options are the
+ * same pill as the chip row above it, so this is a thin `MobileChip` wrapper
+ * that only defaults the accessibility label to the visible one.
+ */
 function SourceFilterChip({
   label,
   accessibilityLabel,
@@ -596,7 +601,6 @@ function SourceFilterChip({
   accessibilityRole = "button",
   accessibilityState,
   selected,
-  muted,
   hapticFeedback,
   onPress,
   onLongPress,
@@ -607,51 +611,26 @@ function SourceFilterChip({
   accessibilityRole?: "button" | "checkbox" | "radio";
   accessibilityState?: { checked?: boolean; selected?: boolean };
   selected: boolean;
-  muted?: boolean;
   hapticFeedback?: NemuPressableHapticFeedback;
   onPress: () => void;
   onLongPress?: () => void;
 }) {
-  const { tokens } = useNemuTheme();
-  const resolvedAccessibilityState = accessibilityState ?? { selected };
   return (
-    <NemuPressable
+    <MobileChip
       accessibilityRole={accessibilityRole}
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityHint={accessibilityHint}
-      accessibilityState={resolvedAccessibilityState}
-      delayLongPress={260}
+      accessibilityState={accessibilityState}
       hapticFeedback={
         hapticFeedback ??
         (accessibilityRole === "button" ? "press" : "selection")
       }
+      label={label}
       onLongPress={onLongPress}
       onPress={onPress}
-      pressedScale={0.98}
-      style={[
-        styles.sourceFilterChip,
-        {
-          backgroundColor: selected ? tokens.primary : tokens.muted,
-          borderColor: selected ? tokens.primary : tokens.border,
-        },
-      ]}
-    >
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.sourceFilterChipText,
-          {
-            color: selected
-              ? tokens.primaryForeground
-              : muted
-                ? tokens.mutedForeground
-                : tokens.foreground,
-          },
-        ]}
-      >
-        {label}
-      </Text>
-    </NemuPressable>
+      selected={selected}
+      variant="toggle"
+    />
   );
 }
 
@@ -1066,7 +1045,6 @@ function SourceFilterControl({
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: selected }}
                   selected={selected}
-                  muted={excluded.has(optionValue)}
                   onLongPress={
                     filter.canExclude
                       ? () => {
@@ -3603,19 +3581,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-  },
-  sourceFilterChip: {
-    minHeight: 34,
-    maxWidth: 168,
-    justifyContent: "center",
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 11,
-  },
-  sourceFilterChipText: {
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: nemuFontWeight.medium,
   },
   sourceTextFilterShell: {
     minHeight: 54,

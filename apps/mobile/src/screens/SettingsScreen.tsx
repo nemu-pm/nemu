@@ -73,6 +73,7 @@ import type {
   ThemePreference,
 } from "@/data/schema";
 import {
+  MobileChip,
   MobileNativeSheetScaffold,
   NemuButton,
   NemuNativeSwitch,
@@ -351,25 +352,19 @@ function SourceManagementRow({
             >
               {name}
             </NemuText>
-            <View
-              style={[styles.versionBadge, { backgroundColor: tokens.muted }]}
-            >
-              <NemuText
-                style={[styles.versionText, { color: tokens.mutedForeground }]}
-              >
-                v{source.version}
-              </NemuText>
-            </View>
+            <MobileChip
+              accessibilityLabel={`v${source.version}`}
+              label={`v${source.version}`}
+              size="sm"
+              variant="static"
+            />
             {unsupported ? (
-              <View
-                style={[styles.versionBadge, { backgroundColor: tokens.muted }]}
-              >
-                <NemuText
-                  style={[styles.versionText, { color: tokens.danger }]}
-                >
-                  {strings.common.sourceUnsupportedBadge}
-                </NemuText>
-              </View>
+              <MobileChip
+                accessibilityLabel={strings.common.sourceUnsupportedBadge}
+                label={strings.common.sourceUnsupportedBadge}
+                size="sm"
+                variant="static"
+              />
             ) : null}
           </View>
           <NemuText
@@ -3575,17 +3570,6 @@ const styles = StyleSheet.create({
   sourceTitle: {
     minWidth: 0,
     flexShrink: 1,
-  },
-  versionBadge: {
-    minHeight: 20,
-    justifyContent: "center",
-    borderRadius: radius.sm,
-    paddingHorizontal: 6,
-  },
-  versionText: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: nemuFontWeight.medium,
   },
   sourceActions: {
     minWidth: 74,
