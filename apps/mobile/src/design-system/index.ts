@@ -18,6 +18,7 @@ export { createNemuShadowStyle } from "@/design/shadows";
 export { nemuColorWithAlpha } from "@/design/colorAlpha";
 export {
   getNemuButtonDepthVisual,
+  getNemuButtonMinimumTargetSize,
   type NemuButtonDepthState,
   type NemuButtonDepthVariant,
   type NemuButtonDepthVisual,

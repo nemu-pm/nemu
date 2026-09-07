@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps 
 import {
   ActivityIndicator,
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -28,6 +29,7 @@ import {
   NemuText,
   nemuColorWithAlpha,
   nemuMaxFontSizeMultiplier,
+  getNemuButtonMinimumTargetSize,
 } from "@/design-system";
 import type { InstalledSource, LibraryEntry, MangaMetadata } from "@/data/schema";
 import {
@@ -1655,7 +1657,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   rowAccessory: {
-    minWidth: 22,
+    // Same layout box as an `icon-sm` NemuButton (the cover row's trailing
+    // control), so this row's bare glyph and that button share one centre x.
+    width: getNemuButtonMinimumTargetSize(Platform.OS),
     alignItems: "center",
     justifyContent: "center",
   },
