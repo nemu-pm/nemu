@@ -178,6 +178,7 @@ import {
   getMobileSourceListingEmptyTitle,
   getMobileSourceListingLabel,
   mergeMobileSourceListingTabs,
+  normalizeMobileSourceListings,
 } from "@/lib/mobileSourceListingsPresentation";
 import type {
   Filter,
@@ -1509,7 +1510,9 @@ export function SourceBrowseScreen() {
   }
   gridColumnsRef.current = gridColumns;
   const staticListings = useMemo(
-    () => packageMetadata?.listings ?? [],
+    // Persisted metadata from before ids were normalised can still carry
+    // id-less listings; normalise on read so every tab has one identity.
+    () => normalizeMobileSourceListings(packageMetadata?.listings ?? []),
     [packageMetadata?.listings],
   );
 

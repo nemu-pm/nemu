@@ -4,6 +4,7 @@ import {
   getMobileSourceListingEmptyTitle,
   getMobileSourceListingLabel,
   mergeMobileSourceListingTabs,
+  normalizeMobileSourceListings,
 } from "./mobileSourceListingsPresentation";
 
 const popular: SourcePackageListing = { id: "popular", name: "Popular" };
@@ -71,5 +72,35 @@ describe("mobile source listing presentation", () => {
     expect(mergeMobileSourceListingTabs(listings, null).at(-1)?.id).toBe(
       "listing-12"
     );
+  });
+
+  test("falls back to the listing name when a legacy manifest omits the id", () => {
+    expect(
+      normalizeMobileSourceListings([
+        { name: "人气榜" },
+        { name: " 收藏榜 " },
+        { id: "", name: "新作榜", kind: 1 },
+      ]),
+    ).toEqual([
+      { id: "人气榜", name: "人气榜" },
+      { id: "收藏榜", name: "收藏榜" },
+      { id: "新作榜", name: "新作榜", kind: 1 },
+    ]);
+  });
+
+  test("gives nameless listings a positional id and drops duplicate identities", () => {
+    expect(
+      normalizeMobileSourceListings([
+        {},
+        { id: "popular", name: "Popular" },
+        { id: "popular", name: "Popular again" },
+        null,
+        { name: "Popular" },
+      ]),
+    ).toEqual([
+      { id: "listing-0", name: "listing-0" },
+      { id: "popular", name: "Popular" },
+      { id: "Popular", name: "Popular" },
+    ]);
   });
 });

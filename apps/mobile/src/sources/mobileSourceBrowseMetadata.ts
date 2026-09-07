@@ -10,7 +10,9 @@ import {
   toSearchSourceDisplay,
   type SearchSourceDisplay,
 } from "@/lib/mobileSearch";
-import { getMobileSourceListingLabel } from "@/lib/mobileSourceListingsPresentation";
+import {
+  normalizeMobileSourceListings,
+} from "@/lib/mobileSourceListingsPresentation";
 import {
   type Listing,
   type MobileSourceExecutorOptions,
@@ -61,13 +63,6 @@ export type MobileSourceBrowseMetadataOptions = {
   sessionCache?: MobileSourceSessionCache;
 };
 
-function normalizeRuntimeListing(listing: Listing): SourcePackageListing {
-  return {
-    id: listing.id,
-    name: getMobileSourceListingLabel(listing),
-    ...(listing.kind === 0 || listing.kind === 1 ? { kind: listing.kind } : {}),
-  };
-}
 
 function filterTypeLabel(filter: Filter): string {
   switch (filter.type) {
@@ -383,7 +378,9 @@ export async function fetchMobileSourceBrowseMetadata(
       const hasHomeProvider = await session.source.hasHomeProvider();
       const hasListingProvider = await session.source.hasListingProvider();
       const onlySearch = await session.source.isOnlySearch();
-      const normalizedListings = listings.map(normalizeRuntimeListing);
+      // Legacy sources return listings without ids; normalise before these are
+      // compared, keyed, and written back into the persisted package metadata.
+      const normalizedListings = normalizeMobileSourceListings(listings);
       const runtimeSettings =
         parseMobileRuntimeSettingsSchema(settingsSchemaJson);
 
