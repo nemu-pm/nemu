@@ -16,15 +16,15 @@ import {
   MobileChip,
   MobileNativeSheetScaffold,
   MobileCachedImage,
-  createNemuShadowStyle,
   iconSize,
   radius,
   spacing,
   useNemuTheme,
   NemuButton,
   GlassSurface,
-  NemuTextFieldClearAction,
+  NemuNativeSearchField,
   NemuPressable,
+  NemuRingSpinner,
   NemuText,
   nemuColorWithAlpha,
   nemuMaxFontSizeMultiplier,
@@ -49,6 +49,7 @@ import {
   type MobileMetadataFormValues,
 } from "@/lib/mobileMetadataOverrides";
 import { stripMobileMetadataFieldNewlines } from "@/lib/mobileMetadataEditorFieldLayout";
+import { getMobileMetadataCoverRowSubtitle } from "@/lib/mobileMetadataEditorCoverRow";
 import { getMobileMetadataStatusChipModels } from "@/lib/mobileMetadataEditorStatusChips";
 import {
   canSaveMobileMetadataEditorForm,
@@ -539,6 +540,11 @@ export function MobileMetadataEditorSheet({
       }),
     [form, initialForm, selectedCoverAsset],
   );
+  const coverRowSubtitle = getMobileMetadataCoverRowSubtitle({
+    hasSelectedCoverAsset: selectedCoverAsset !== null,
+    coverUrl: form.coverUrl,
+    strings,
+  });
   const statusChips = useMemo(
     () => getMobileMetadataStatusChipModels({ status: form.status, strings }),
     [form.status, strings],
@@ -946,110 +952,120 @@ export function MobileMetadataEditorSheet({
             title={strings.metadataEditor.coverTitle}
             subtitle={strings.metadataEditor.coverDescription}
           />
-          <GlassSurface style={styles.card} contentStyle={styles.cardContent}>
-            <View style={styles.coverRow}>
-              <View
-                accessibilityRole="image"
-                accessibilityLabel={strings.metadataEditor.coverPreview}
-                style={[
-                  styles.coverPreview,
-                  {
-                    backgroundColor: tokens.muted,
-                    borderColor: tokens.coverBorder,
-                    ...createNemuShadowStyle({
-                      color: tokens.shadow,
-                      offsetY: 5,
-                      radius: 14,
-                      elevation: 4,
-                    }),
-                  },
-                ]}
-              >
-                {coverPreviewImageSource ? (
-                  selectedCoverAsset === null ? (
-                    <MobileCachedImage
-                      fallback={
-                        <LinearGradient
-                          colors={[
-                            nemuColorWithAlpha(tokens.primary, 0.33),
-                            tokens.muted,
-                          ]}
-                          style={styles.coverPlaceholder}
-                        />
-                      }
-                      uriOwnership="source"
-                      source={coverPreviewImageSource}
-                      style={styles.coverImage}
-                    />
-                  ) : (
-                    <Image source={coverPreviewImageSource} style={styles.coverImage} />
-                  )
+          {/*
+            The cover is one row in the same family as the source rows below
+            it: artwork, what the cover currently resolves to, and the two
+            actions that change it. The row itself is not pressable — picking
+            and clearing are the only affordances, so they stay explicit
+            buttons instead of a whole-row tap with a hidden meaning.
+          */}
+          <View
+            style={[
+              styles.listRow,
+              styles.coverRow,
+              { backgroundColor: tokens.card, borderColor: tokens.border },
+            ]}
+          >
+            <View
+              accessibilityRole="image"
+              accessibilityLabel={strings.metadataEditor.coverPreview}
+              style={[
+                styles.coverThumb,
+                {
+                  backgroundColor: tokens.muted,
+                  borderColor: tokens.coverBorder,
+                },
+              ]}
+            >
+              {coverPreviewImageSource ? (
+                selectedCoverAsset === null ? (
+                  <MobileCachedImage
+                    fallback={
+                      <LinearGradient
+                        colors={[
+                          nemuColorWithAlpha(tokens.primary, 0.33),
+                          tokens.muted,
+                        ]}
+                        style={styles.coverPlaceholder}
+                      />
+                    }
+                    uriOwnership="source"
+                    source={coverPreviewImageSource}
+                    style={styles.coverImage}
+                  />
                 ) : (
-                  <LinearGradient
-                    colors={[
-                      nemuColorWithAlpha(tokens.primary, 0.33),
-                      tokens.muted,
-                    ]}
-                    style={styles.coverPlaceholder}
-                  />
-                )}
-              </View>
-              <View style={styles.coverCopy}>
-                <View style={styles.coverActionButtons}>
-                  <NemuButton
-                    accessibilityLabel={strings.metadataEditor.chooseCoverImage}
-                    accessibilityState={{
-                      busy: pickingCover || undefined,
-                      disabled: editorActionBusy,
-                    }}
-                    disabled={editorActionBusy}
-                    icon="image-outline"
-                    label={strings.metadataEditor.chooseCoverImage}
-                    loading={pickingCover}
-                    onPress={() => {
-                      void handlePickCover();
-                    }}
-                    size="sm"
-                    variant="secondary"
-                  />
-                  {coverUrlOverridden ? (
-                    <NemuButton
-                      accessibilityLabel={resetFieldAccessibilityLabel(
-                        strings.metadataEditor.cover
-                      )}
-                      accessibilityState={{ disabled: editorActionBusy }}
-                      disabled={editorActionBusy}
-                      hapticFeedback="press"
-                      icon="trash-outline"
-                      label={strings.common.clear}
-                      onPress={() => resetField("coverUrl")}
-                      size="sm"
-                      variant="secondary"
-                    />
-                  ) : null}
-                </View>
-                {selectedCoverAsset ? (
-                  <NemuText
-                    color={tokens.mutedForeground}
-                    density="compact"
-                    numberOfLines={2}
-                    variant="caption"
-                  >
-                    {strings.metadataEditor.coverSelected}
-                  </NemuText>
-                ) : null}
-              </View>
+                  <Image source={coverPreviewImageSource} style={styles.coverImage} />
+                )
+              ) : (
+                <LinearGradient
+                  colors={[
+                    nemuColorWithAlpha(tokens.primary, 0.33),
+                    tokens.muted,
+                  ]}
+                  style={styles.coverPlaceholder}
+                />
+              )}
             </View>
-            {coverError ? (
+            <View style={styles.rowCopy}>
               <NemuText
-                color={tokens.danger}
+                color={tokens.foreground}
                 density="compact"
-                variant="caption"
+                numberOfLines={1}
+                variant="rowTitle"
               >
-                {coverError}
+                {strings.metadataEditor.cover}
               </NemuText>
-            ) : null}
-          </GlassSurface>
+              {coverRowSubtitle ? (
+                <NemuText
+                  color={tokens.mutedForeground}
+                  density="compact"
+                  // A URL truncates in the middle so the host and the file name
+                  // both survive; the picked-image copy is short either way.
+                  ellipsizeMode="middle"
+                  numberOfLines={1}
+                  variant="rowSubtitle"
+                >
+                  {coverRowSubtitle}
+                </NemuText>
+              ) : null}
+            </View>
+            <View style={styles.rowActions}>
+              <NemuButton
+                accessibilityLabel={strings.metadataEditor.chooseCoverImage}
+                accessibilityState={{
+                  busy: pickingCover || undefined,
+                  disabled: editorActionBusy,
+                }}
+                disabled={editorActionBusy}
+                icon="image-outline"
+                loading={pickingCover}
+                onPress={() => {
+                  void handlePickCover();
+                }}
+                size="icon-sm"
+                variant="secondary"
+              />
+              {coverUrlOverridden ? (
+                <NemuButton
+                  accessibilityLabel={resetFieldAccessibilityLabel(
+                    strings.metadataEditor.cover
+                  )}
+                  accessibilityState={{ disabled: editorActionBusy }}
+                  disabled={editorActionBusy}
+                  hapticFeedback="press"
+                  icon="trash-outline"
+                  onPress={() => resetField("coverUrl")}
+                  size="icon-sm"
+                  variant="secondary"
+                />
+              ) : null}
+            </View>
+          </View>
+          {coverError ? (
+            <NemuText color={tokens.danger} density="compact" variant="caption">
+              {coverError}
+            </NemuText>
+          ) : null}
         </View>
 
         {canFetchFromSource ? (
@@ -1186,60 +1202,41 @@ export function MobileMetadataEditorSheet({
             subtitle={strings.metadataEditor.matchSubtitle}
           />
 
-          <View style={styles.matchSearchRow}>
-            <GlassSurface style={styles.matchInputShell} contentStyle={styles.matchInputContent}>
-              <TextInput
-                accessibilityLabel={strings.metadataEditor.matchSearchPlaceholder}
-                accessibilityRole="search"
-                autoCapitalize="words"
-                autoCorrect={false}
-                editable={!editorActionBusy}
-                onChangeText={setMatchQuery}
-                onSubmitEditing={() => {
-                  if (!canSearchMatches) return;
-                  void handleSearchMatches();
-                }}
-                maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-                placeholder={strings.metadataEditor.matchSearchPlaceholder}
-                placeholderTextColor={tokens.mutedForeground}
-                returnKeyType="search"
-                selectionColor={tokens.primary}
-                style={[
-                  styles.matchInput,
-                  {
-                    color: tokens.foreground,
-                    opacity: editorActionBusy ? 0.7 : 1,
-                  },
-                ]}
-                value={matchQuery}
-              />
-              {matchQuery.length > 0 ? (
-                <NemuTextFieldClearAction
-                  accessibilityLabel={strings.common.clear}
-                  disabled={editorActionBusy}
-                  onPress={() => setMatchQuery("")}
-                  testID="MetadataMatchSearchClearAction"
-                  trailingInset={11}
-                />
-              ) : null}
-            </GlassSurface>
-            <NemuButton
-              accessibilityLabel={strings.metadataEditor.searchMatches}
-              accessibilityState={{
-                busy: matchLoading || undefined,
-                disabled: !canSearchMatches,
-              }}
-              containerStyle={styles.matchSearchButton}
-              disabled={!canSearchMatches}
-              icon="search-outline"
-              loading={matchLoading}
-              onPress={() => {
-                void handleSearchMatches();
-              }}
-              size="icon-lg"
-              variant="default"
-            />
-          </View>
+          {/*
+            The same native search capsule the add-source sheet presents: a
+            full-width SwiftUI field on iOS (the RN capsule everywhere else)
+            that runs the search from the keyboard's search key, so the editor
+            carries no desktop-style button beside its field.
+            `canRunMobileMetadataMatchSearch` still owns whether a submit does
+            anything, which is what makes a submit during an in-flight search a
+            no-op instead of a second request.
+          */}
+          <NemuNativeSearchField
+            accessibilityLabel={strings.metadataEditor.searchMatches}
+            clearAccessibilityLabel={strings.common.clear}
+            clearActionTestID="MetadataMatchSearchClearAction"
+            onChangeText={setMatchQuery}
+            onSubmit={() => {
+              if (!canSearchMatches) return;
+              void handleSearchMatches();
+            }}
+            placeholder={strings.metadataEditor.matchSearchPlaceholder}
+            testID="MetadataMatchSearchField"
+            value={matchQuery}
+          />
+
+          {matchLoading ? (
+            <View style={styles.matchStatusRow}>
+              <NemuRingSpinner size={16} />
+              <NemuText
+                color={tokens.mutedForeground}
+                density="compact"
+                variant="caption"
+              >
+                {strings.search.searching}
+              </NemuText>
+            </View>
+          ) : null}
 
           {matchError ? (
             <NemuText color={tokens.danger} density="compact" variant="caption">
@@ -1603,23 +1600,17 @@ const styles = StyleSheet.create({
   sectionHeader: {
     gap: 2,
   },
-  card: {
-    borderRadius: radius.xl,
-  },
-  cardContent: {
-    gap: spacing.md,
-    padding: spacing.md,
-  },
+  // A 2:3 thumbnail is taller than the 38pt source mark, so the cover row
+  // trades some of the shared row padding back to the artwork rather than
+  // growing past its neighbours.
   coverRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
+    paddingVertical: 6,
   },
-  coverPreview: {
-    width: 68,
+  coverThumb: {
+    width: 44,
     aspectRatio: 2 / 3,
     overflow: "hidden",
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
   },
   coverImage: {
@@ -1628,16 +1619,6 @@ const styles = StyleSheet.create({
   },
   coverPlaceholder: {
     flex: 1,
-  },
-  coverCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing.sm,
-  },
-  coverActionButtons: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
   },
   rowList: {
     gap: spacing.sm,
@@ -1678,6 +1659,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  rowActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
   noticeRow: {
     minHeight: 56,
     flexDirection: "row",
@@ -1688,33 +1674,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
   },
-  matchSearchRow: {
-    minHeight: 48,
+  matchStatusRow: {
+    minHeight: 20,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-  },
-  matchInputShell: {
-    minHeight: 48,
-    flex: 1,
-    borderRadius: radius.lg,
-  },
-  matchInputContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 11,
-  },
-  matchInput: {
-    // Stays a single-line field: it scrolls a long query horizontally instead
-    // of growing, so the search button beside it keeps its place. See
-    // `styles.input` for why it carries no `lineHeight`.
-    minHeight: 48,
-    flex: 1,
-    fontSize: 14,
-  },
-  matchSearchButton: {
-    width: 48,
-    height: 48,
   },
   matchResults: {
     gap: spacing.md,
