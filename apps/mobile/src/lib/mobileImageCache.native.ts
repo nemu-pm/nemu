@@ -1,3 +1,4 @@
+import { normalizeMobileImageCacheSource } from "@/lib/mobileImageCacheSource";
 import { FileSystemBinaryCache } from "@/data/nativeCache";
 import { File } from "expo-file-system";
 import type { NativeBinaryCachePolicy } from "@/data/nativeCachePolicy";
@@ -235,6 +236,7 @@ export function getMobileImageCacheSourceKey(
   cacheKey?: string,
   executionScope = getActiveMobileSourceProfileScope(),
 ): string {
+  source = normalizeMobileImageCacheSource(source);
   if (!source?.uri) return "";
   if (!isCacheableMobileImageUri(source.uri)) return source.uri;
   return mobileImageCacheStorageKey(source, cacheKey, executionScope);
@@ -245,6 +247,7 @@ export function getCachedMobileImageUriSync(
   cacheKey?: string,
   executionScope = getActiveMobileSourceProfileScope(),
 ): string | null {
+  source = normalizeMobileImageCacheSource(source);
   if (!source?.uri || !isCacheableMobileImageUri(source.uri)) return null;
   return coordinatorForSource(source).getResolvedUri(
     mobileImageCacheStorageKey(source, cacheKey, executionScope),
@@ -256,6 +259,7 @@ export function getCachedMobileImageAssetSync(
   cacheKey?: string,
   executionScope = getActiveMobileSourceProfileScope(),
 ): MobileCachedImageAsset | null {
+  source = normalizeMobileImageCacheSource(source);
   if (!source?.uri || !isCacheableMobileImageUri(source.uri)) return null;
   return getCachedMobileImageAssetByStorageKeySync(
     mobileImageCacheStorageKey(source, cacheKey, executionScope),
@@ -277,6 +281,7 @@ export async function resolveCachedMobileImageUri(
   executionScope = getActiveMobileSourceProfileScope(),
   options: MobileImageCacheResolveOptions = {},
 ): Promise<string | null> {
+  source = normalizeMobileImageCacheSource(source);
   if (!source?.uri || !isCacheableMobileImageUri(source.uri)) return null;
   const key = mobileImageCacheStorageKey(source, cacheKey, executionScope);
   return coordinatorForSource(source).resolve(
@@ -308,6 +313,7 @@ export async function resolveCachedMobileImageAsset(
   executionScope = getActiveMobileSourceProfileScope(),
   options: MobileImageCacheResolveOptions = {},
 ): Promise<MobileCachedImageAsset | null> {
+  source = normalizeMobileImageCacheSource(source);
   if (!source?.uri || !isCacheableMobileImageUri(source.uri)) return null;
   const key = mobileImageCacheStorageKey(source, cacheKey, executionScope);
   const locator = await coordinatorForSource(source).resolve(
@@ -343,6 +349,7 @@ export function invalidateCachedMobileImage(
   cacheKey?: string,
   executionScope = getActiveMobileSourceProfileScope(),
 ): Promise<void> {
+  source = normalizeMobileImageCacheSource(source);
   if (!source?.uri || !isCacheableMobileImageUri(source.uri)) {
     return Promise.resolve();
   }

@@ -1,8 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import type { LocalChapterProgress } from "@/data/schema";
 import {
+  NemuText,
   nemuColorWithAlpha,
   nemuFontWeight,
   useNemuTheme,
@@ -52,7 +53,7 @@ export function MobileChapterProgressAccessory({
         importantForAccessibility="no-hide-descendants"
         style={styles.completed}
       >
-        <Ionicons name="checkmark-circle" size={20} color={tone} />
+        <Ionicons name="checkmark-circle-outline" size={20} color={tone} />
       </View>
     );
   }
@@ -64,9 +65,9 @@ export function MobileChapterProgressAccessory({
         importantForAccessibility="no-hide-descendants"
         style={styles.progressGroup}
       >
-        <Text style={[styles.progressText, { color: tokens.mutedForeground }]}>
+        <NemuText style={[styles.progressText, { color: tokens.mutedForeground }]}>
           {accessory.page}/{accessory.total}
-        </Text>
+        </NemuText>
         <Svg
           width={RING_SIZE}
           height={RING_SIZE}
@@ -78,7 +79,7 @@ export function MobileChapterProgressAccessory({
             cy={RING_CENTER}
             r={RING_RADIUS}
             fill="none"
-            stroke={nemuColorWithAlpha(tone, 0.14)}
+            stroke={nemuColorWithAlpha(tone, 0.2)}
             strokeWidth={RING_STROKE}
           />
           <Circle
@@ -120,7 +121,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   progressGroup: {
-    minWidth: 68,
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",

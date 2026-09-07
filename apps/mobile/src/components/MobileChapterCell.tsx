@@ -1,8 +1,9 @@
 import { memo, useCallback } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { MobileChapterProgressAccessory } from "@/components/MobileChapterProgressAccessory";
 import {
   NemuPressable,
+  NemuText,
   createNemuShadowStyle,
   radius,
   nemuFontWeight,
@@ -108,25 +109,24 @@ export const MobileChapterCell = memo(function MobileChapterCell({
         {
           backgroundColor: cellPalette.backgroundColor,
           borderColor: cellPalette.borderColor,
-          opacity: chapterPresentation.isRead
-            ? 0.55
-            : chapterDisabled
-              ? 0.72
-              : 1,
+          opacity: chapterDisabled ? 0.72 : 1,
         },
       ]}
     >
       <View style={styles.text}>
-        <Text numberOfLines={1} style={[styles.title, { color: cellPalette.titleColor }]}>
+        <NemuText
+          numberOfLines={1}
+          style={[styles.title, { color: cellPalette.titleColor }]}
+        >
           {formatChapterTitle(chapter, strings)}
-        </Text>
+        </NemuText>
         {chapterSubtitle ? (
-          <Text
+          <NemuText
             numberOfLines={1}
             style={[styles.subtitle, { color: tokens.mutedForeground }]}
           >
             {chapterSubtitle}
-          </Text>
+          </NemuText>
         ) : null}
       </View>
       <MobileChapterProgressAccessory
@@ -134,9 +134,6 @@ export const MobileChapterCell = memo(function MobileChapterCell({
         locked={chapterPresentation.isLocked}
         showChevron={false}
       />
-      {!chapterPresentation.isRead ? (
-        <View style={[styles.unreadDot, { backgroundColor: tokens.primary }]} />
-      ) : null}
     </NemuPressable>
   );
 });
@@ -165,13 +162,5 @@ const styles = StyleSheet.create({
     marginTop: 1,
     fontSize: 11,
     lineHeight: 14,
-  },
-  unreadDot: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
   },
 });
