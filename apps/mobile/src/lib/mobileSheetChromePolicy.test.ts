@@ -144,7 +144,8 @@ describe("mobile sheet and text-field chrome policy", () => {
     // The Add Source sheet's field moved into the shared design-system search
     // component so iOS can host a real SwiftUI TextField. BrowseScreen now only
     // names the clear action's test ID; the clear-action contract itself lives
-    // with that component's RN fallback.
+    // with that component's RN fallback. The metadata editor's match search is
+    // the same component, so it names its test ID the same way.
     const addSourceSearchField = readMobileSource(
       "design-system/components/NemuNativeSearchField.tsx",
     );
@@ -161,7 +162,10 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(browse).not.toContain("clearButtonMode=");
     expect(addSourceSearchField).toContain("testID={clearActionTestID}");
     expect(search).toContain('testID="InstalledSourceSearchClearAction"');
-    expect(metadata).toContain('testID="MetadataMatchSearchClearAction"');
+    expect(metadata).toContain(
+      'clearActionTestID="MetadataMatchSearchClearAction"',
+    );
+    expect(metadata).not.toContain("clearButtonMode=");
     expect(sourceManager).toContain(
       'testID="SourceManagerSearchClearAction"',
     );
@@ -173,7 +177,6 @@ describe("mobile sheet and text-field chrome policy", () => {
     for (const source of [
       addSourceSearchField,
       search,
-      metadata,
       sourceManager,
       sourceBrowse,
     ]) {

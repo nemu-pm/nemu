@@ -18,12 +18,12 @@
  *
  * Controlled/uncontrolled: `@expo/ui`'s `TextField` is uncontrolled — it owns
  * its text natively and reports edits through `onTextChange` (there is no
- * `value` prop in `@expo/ui` 56; `text` takes an `ObservableState` and the
- * imperative `ref` exposes `setText`/`clear`). The caller still owns `value`,
- * so an effect mirrors it back through the ref whenever it changes out of band
- * — a programmatic clear, or a sheet reopening with the query reset. Echoing
- * every keystroke back is deliberately avoided: writes from JS reach the UI
- * thread asynchronously and would fight the user's own typing.
+ * `value` prop in `@expo/ui` 56; `text` takes an `ObservableState`). The
+ * caller still owns `value`: the observable state is seeded with it on mount
+ * and an effect writes it back whenever it changes out of band — a
+ * programmatic clear, or a sheet reopening with the query reset. Echoing every
+ * keystroke back is deliberately avoided: writes from JS reach the UI thread
+ * asynchronously and would fight the user's own typing.
  */
 import { useEffect, useRef } from "react";
 import { StyleSheet } from "react-native";
@@ -33,7 +33,7 @@ import {
   Host as SwiftHost,
   Image as SwiftImage,
   TextField as SwiftTextField,
-  type TextFieldRef,
+  useNativeState,
 } from "@expo/ui/swift-ui";
 import {
   accessibilityLabel as swiftAccessibilityLabel,
@@ -73,17 +73,21 @@ export function NemuNativeSearchField({
   clearActionTestID,
 }: NemuNativeSearchFieldProps) {
   const { scheme, tokens } = useNemuTheme();
-  const fieldRef = useRef<TextFieldRef | null>(null);
-  // Mirrors what SwiftUI currently holds. Seeded with the field's own native
-  // starting text ("") rather than `value`, so a field mounted with a
-  // non-empty query still gets pushed down on the first effect pass.
-  const nativeTextRef = useRef("");
+  // `@expo/ui`'s TextField owns its text natively; the supported way to seed
+  // and drive it from JS is an observable state (`useNativeState`), which the
+  // native view reads on mount. The metadata editor mounts this field with the
+  // manga title already set, and `ref.setText` issued before the SwiftUI view
+  // existed was silently dropped — the state object has no such race.
+  const textState = useNativeState(value);
+  // Mirrors what SwiftUI currently holds so an unchanged `value` prop does not
+  // schedule a redundant UI-thread write on every render.
+  const nativeTextRef = useRef(value);
 
   useEffect(() => {
     if (nativeTextRef.current === value) return;
     nativeTextRef.current = value;
-    void fieldRef.current?.setText(value);
-  }, [value]);
+    textState.set(value);
+  }, [textState, value]);
 
   const handleTextChange = (next: string) => {
     nativeTextRef.current = next;
@@ -92,7 +96,7 @@ export function NemuNativeSearchField({
 
   const handleClear = () => {
     nativeTextRef.current = "";
-    void fieldRef.current?.setText("");
+    textState.set("");
     onChangeText("");
   };
 
@@ -120,7 +124,7 @@ export function NemuNativeSearchField({
           size={GLYPH_POINT_SIZE}
         />
         <SwiftTextField
-          ref={fieldRef}
+          text={textState}
           placeholder={placeholder}
           onTextChange={handleTextChange}
           modifiers={[
