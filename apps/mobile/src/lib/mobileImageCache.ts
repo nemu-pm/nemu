@@ -1,3 +1,4 @@
+import { normalizeMobileImageCacheSource } from "@/lib/mobileImageCacheSource";
 import { getActiveMobileSourceProfileScope } from "@/sources/mobileSourceProfileScope";
 import { makeMobileImageCacheStorageKey } from "./mobileImageCacheKey";
 import type { MobileImageCacheResolveOptions } from "./mobileImageCacheCoordinator";
@@ -49,6 +50,7 @@ export function getMobileImageCacheSourceKey(
   cacheKey?: string,
   executionScope = getActiveMobileSourceProfileScope(),
 ): string {
+  source = normalizeMobileImageCacheSource(source);
   if (!source?.uri) return "";
   return makeMobileImageCacheStorageKey(executionScope, source, cacheKey);
 }
@@ -69,6 +71,7 @@ export function getCachedMobileImageAssetSync(
   cacheKey?: string,
   executionScope = getActiveMobileSourceProfileScope(),
 ): MobileCachedImageAsset | null {
+  source = normalizeMobileImageCacheSource(source);
   const uri = getCachedMobileImageUriSync(source, cacheKey, executionScope);
   return uri ? { kind: "file", uri } : null;
 }

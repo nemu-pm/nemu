@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 // eslint-disable-next-line no-restricted-imports -- test needs the runtime alpha helper; importing from @/design-system pulls the component barrel, which loads react-native's Flow-typed index.js and breaks bun's test runner.
 import { nemuColorWithAlpha } from "@/design/colorAlpha";
 import {
@@ -101,6 +103,8 @@ describe("mobile chapter presentation", () => {
       successSoft: "rgba(32,164,100,0.09)",
       primary: "#3b6df6",
       primarySoft: "rgba(59,109,246,0.09)",
+      warning: "#c2801a",
+      warningSoft: "rgba(194,128,26,0.14)",
       sourceGlass: "#f8fafc",
       border: "#dbe3ef",
       mutedForeground: "#6b7280",
@@ -117,5 +121,59 @@ describe("mobile chapter presentation", () => {
       borderColor: nemuColorWithAlpha(tokens.primary, 0.19),
       titleColor: tokens.foreground,
     });
+    // Web tints new chapters amber, keeping the primary tint for the cell the
+    // reader is actually in the middle of.
+    expect(getMobileChapterRowPalette("new", tokens)).toEqual({
+      backgroundColor: tokens.warningSoft,
+      borderColor: nemuColorWithAlpha(tokens.warning, 0.19),
+      titleColor: tokens.foreground,
+    });
+    // Unread cells are a plain surface on web - no accent, no marker.
+    expect(getMobileChapterRowPalette("default", tokens)).toEqual({
+      backgroundColor: tokens.sourceGlass,
+      borderColor: tokens.border,
+      titleColor: tokens.foreground,
+    });
+  });
+});
+
+// The components pull in react-native, which cannot load under the Bun test
+// runner, so these are source-parity assertions in the style of the other
+// mobile layout tests.
+function readComponent(name: string): string {
+  return readFileSync(path.join(import.meta.dir, "../components", name), "utf8");
+}
+
+describe("mobile chapter cell web parity", () => {
+  const cell = readComponent("MobileChapterCell.tsx");
+  const accessory = readComponent("MobileChapterProgressAccessory.tsx");
+
+  test("unread chapters carry no marker", () => {
+    // Web's `<ChapterProgress>` renders nothing for unread chapters and the
+    // cell has no badge of its own.
+    expect(cell).not.toContain("unreadDot");
+    expect(cell).toContain("showChevron={false}");
+  });
+
+  test("read chapters keep the muted title instead of a washed-out cell", () => {
+    // Web only recolors the title (`.chapter-cell-read .chapter-cell-title`);
+    // the cell surface and the check glyph stay at full strength.
+    expect(cell).toContain("opacity: chapterDisabled ? 0.72 : 1,");
+    expect(cell).not.toContain("0.55");
+    expect(cell).toContain("color: cellPalette.titleColor");
+  });
+
+  test("still announces the new and progress states", () => {
+    expect(cell).toContain("chapterPresentation.isNew ? strings.common.new : null");
+    expect(cell).toContain("progressLabel,");
+  });
+
+  test("trailing accessory mirrors the web check glyph and ring", () => {
+    expect(accessory).toContain('name="checkmark-circle-outline"');
+    expect(accessory).not.toContain('name="checkmark-circle"');
+    // Label then ring, right-aligned, matching web's `flex items-center gap-2`.
+    expect(accessory).toContain("{accessory.page}/{accessory.total}");
+    expect(accessory).toContain('justifyContent: "flex-end"');
+    expect(accessory).toContain("flexShrink: 0");
   });
 });

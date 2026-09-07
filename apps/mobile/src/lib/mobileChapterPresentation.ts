@@ -74,9 +74,12 @@ export function getMobileChapterRowPalette(
         titleColor: tokens.mutedForeground,
       };
     case "new":
+      // Web tints fresh chapters amber (`.chapter-cell-new`) so they read as
+      // "recently uploaded" instead of competing with the primary-tinted
+      // in-progress cell.
       return {
-        backgroundColor: tokens.primarySoft,
-        borderColor: tokens.primary,
+        backgroundColor: tokens.warningSoft,
+        borderColor: nemuColorWithAlpha(tokens.warning, 0.19),
         titleColor: tokens.foreground,
       };
     case "progress":
