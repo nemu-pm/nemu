@@ -19,7 +19,7 @@ import {
 } from "./mobileSourceErrors";
 
 describe("mobile source error presentation", () => {
-  test("classifies Cloudflare challenges with the secure fail-closed compatibility message", () => {
+  test("classifies Cloudflare challenges with capability-neutral copy", () => {
     const error = new Error(
       "Cloudflare challenge detected for https://example.com/read (status 403)",
     );
@@ -31,10 +31,14 @@ describe("mobile source error presentation", () => {
     expect(isMobileCloudflareError(error)).toBe(true);
     expect(presentation.kind).toBe("cloudflare");
     expect(presentation.title).toBe("Cloudflare protection detected");
+    // The banner copy must not claim verification is unavailable: iOS and
+    // Android now implement the on-demand solver, and the "unavailable on this
+    // platform" wording belongs only to the capability-false sheet state.
     expect(presentation.detail).toBe(
-      "This source requires Cloudflare verification, which is not securely available in this mobile build.",
+      "This source requires Cloudflare verification. Nemu Agent can complete the check so you can try again.",
     );
     expect(presentation.detail).not.toContain("verification window");
+    expect(presentation.detail).not.toContain("not securely available");
     expect(presentation.displayUrl).toBe("https://example.com/read");
     expect(
       getMobileSourceErrorRecoveryAction(presentation, getMobileStrings("en")),

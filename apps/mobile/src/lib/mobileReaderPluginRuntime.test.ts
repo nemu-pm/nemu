@@ -273,6 +273,50 @@ describe("mobile reader plugin runtime", () => {
     expect(targets[1]?.chapter?.id).toBe("secondary-latest");
   });
 
+  test("drops a disabled install from the dual-read candidate picker", () => {
+    const selected = source({
+      id: "selected",
+      registryId: "aidoku-community",
+      sourceId: "alpha",
+      sourceMangaId: "primary",
+    });
+    const off = source({
+      id: "off",
+      registryId: "aidoku-community",
+      sourceId: "beta",
+      sourceMangaId: "secondary",
+    });
+    const alternate = source({
+      id: "alternate",
+      registryId: "aidoku-community",
+      sourceId: "gamma",
+      sourceMangaId: "tertiary",
+    });
+    const installed = [
+      installedSource({
+        id: "aidoku-community:beta",
+        sourceId: "beta",
+        disabled: true,
+      }),
+      installedSource({ id: "aidoku-community:gamma", sourceId: "gamma" }),
+    ];
+
+    expect(
+      getMobileDualReadCandidateSources(
+        [selected, off, alternate],
+        selected,
+        installed,
+      ).map((item) => item.id),
+    ).toEqual(["alternate"]);
+
+    // With no install list the caller cannot tell, so links stay in place.
+    expect(
+      getMobileDualReadCandidateSources([selected, off, alternate], selected).map(
+        (item) => item.id,
+      ),
+    ).toEqual(["off", "alternate"]);
+  });
+
   test("filters registry and runtime aliases from dual-read candidates", () => {
     const selected = source({
       id: "selected",

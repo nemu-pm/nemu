@@ -3,6 +3,7 @@ import { pickSecondaryChapterId } from "@nemu/core/dual-reader";
 import { formatChapterTitle } from "./formatChapter";
 import type { MobileStrings } from "./mobileI18n";
 import { mobileInstalledSourceMatchesLink } from "./mobileInstalledSourceKeys";
+import { isMobileInstalledSourceDisabled } from "@/sources/mobileSourceRuntime";
 
 export type MobileDualReadTarget = {
   source: LocalSourceLink;
@@ -65,6 +66,22 @@ function isSameMobileRuntimeSource(
   return a.registryId === b.registryId && a.sourceId === b.sourceId;
 }
 
+/**
+ * A link whose install the user disabled can never be the dual-read secondary:
+ * the executor would refuse it, so it is dropped from the picker instead of
+ * being offered and failing on selection. Links with no matching install are
+ * left in place — the caller may simply not have loaded the install list.
+ */
+function isMobileDualReadSourceDisabled(
+  link: LocalSourceLink,
+  installedSources: InstalledSource[],
+): boolean {
+  const installed = installedSources.find((item) =>
+    mobileInstalledSourceMatchesLink(item, link),
+  );
+  return installed != null && isMobileInstalledSourceDisabled(installed);
+}
+
 export function getMobileDualReadCandidateSources(
   sources: LocalSourceLink[],
   selectedSource: LocalSourceLink | null | undefined,
@@ -74,7 +91,8 @@ export function getMobileDualReadCandidateSources(
   return sources.filter(
     (source) =>
       source.id !== selectedSource.id &&
-      !isSameMobileRuntimeSource(source, selectedSource, installedSources),
+      !isSameMobileRuntimeSource(source, selectedSource, installedSources) &&
+      !isMobileDualReadSourceDisabled(source, installedSources),
   );
 }
 

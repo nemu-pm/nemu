@@ -257,6 +257,35 @@ describe("mobile source settings schema safety", () => {
     expect(settings[3]?.icon).toBeUndefined();
   });
 
+  test("parses the login clear-cookies-on-logout flag", () => {
+    const [camel, snake, wrong, absent] = sanitizeMobileSourceSettings([
+      {
+        type: "login",
+        key: "camel",
+        title: "Camel",
+        clearCookiesOnLogOut: true,
+      },
+      {
+        type: "login",
+        key: "snake",
+        title: "Snake",
+        clear_cookies_on_log_out: true,
+      },
+      {
+        type: "login",
+        key: "wrong",
+        title: "Wrong",
+        clearCookiesOnLogOut: "yes",
+      },
+      { type: "login", key: "absent", title: "Absent" },
+    ]);
+
+    expect(camel?.clearCookiesOnLogOut).toBe(true);
+    expect(snake?.clearCookiesOnLogOut).toBe(true);
+    expect(wrong?.clearCookiesOnLogOut).toBeUndefined();
+    expect(absent?.clearCookiesOnLogOut).toBeUndefined();
+  });
+
   test("parses only bounded own runtime schema envelopes", () => {
     expect(
       parseMobileRuntimeSettingsSchema(

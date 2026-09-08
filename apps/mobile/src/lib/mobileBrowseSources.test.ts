@@ -6,6 +6,7 @@ import {
   canClearMobileBrowseSourceQuery,
   canSelectMobileBrowseAllLanguages,
   canStartMobileSourceInstall,
+  filterEnabledMobileInstalledSources,
   filterMobileAvailableSources,
   findMobileInstalledSourceForRegistrySource,
   getMobileAvailableSourceLanguageOptions,
@@ -713,5 +714,37 @@ describe("mobile browse source filtering", () => {
         sourceKind: "aidoku",
       }),
     ).toBe(false);
+  });
+
+  test("drops disabled installs from the browse card list", () => {
+    // Browse joins catalog metadata onto the installed records first; the
+    // disable toggle has to survive that join so the card list can filter on it.
+    const merged = mergeMobileInstalledSourceRegistryMetadata(
+      [
+        installedSource("aidoku-community:en.alpha", { sourceId: "en.alpha" }),
+        installedSource("aidoku-community:en.beta", {
+          sourceId: "en.beta",
+          disabled: true,
+        }),
+      ],
+      [registrySource("en.alpha"), registrySource("en.beta")],
+    );
+
+    expect(merged.map((item) => item.disabled)).toEqual([undefined, true]);
+    expect(
+      filterEnabledMobileInstalledSources(merged).map((item) => item.id),
+    ).toEqual(["aidoku-community:en.alpha"]);
+  });
+
+  test("still counts a disabled install as installed for the add-source catalog", () => {
+    // Disabling is not uninstalling: the catalog must not offer a fresh install.
+    expect(
+      buildMobileInstalledSourceKeySet([
+        installedSource("aidoku-community:en.beta", {
+          sourceId: "en.beta",
+          disabled: true,
+        }),
+      ]).has("aidoku-community:en.beta"),
+    ).toBe(true);
   });
 });

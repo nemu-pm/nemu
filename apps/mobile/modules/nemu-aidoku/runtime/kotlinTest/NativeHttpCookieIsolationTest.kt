@@ -3,6 +3,7 @@ package pm.nemu.mobile.aidoku
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -65,6 +66,76 @@ class NativeHttpCookieIsolationTest {
     val newProfileJar = store.get("source-key")
     assertNotSame(oldProfileJar, newProfileJar)
     assertTrue(newProfileJar.loadForRequest(url).isEmpty())
+  }
+
+  @Test
+  fun sourceLogOutClearsOnlyItsOwnScopeInBothStores() {
+    // `clear_cookies_on_log_out` must not sign the user out of every other
+    // installed source, so the per-scope clear stays inside one source key.
+    val nativeStore = NemuNativeHttpCookieStore()
+    val sandboxStore = AidokuSandboxCookieStore()
+    val loggingOut = "local::registry:source-a"
+    val other = "local::registry:source-b"
+
+    for (jar in listOf(nativeStore.get(loggingOut), sandboxStore.get(loggingOut))) {
+      jar.saveFromCookieHeader(url, "session=source-a")
+    }
+    for (jar in listOf(nativeStore.get(other), sandboxStore.get(other))) {
+      jar.saveFromCookieHeader(url, "session=source-b")
+    }
+
+    nativeStore.clearScope(loggingOut)
+    sandboxStore.clearScope(loggingOut)
+
+    for (jar in listOf(nativeStore.get(loggingOut), sandboxStore.get(loggingOut))) {
+      assertEquals(0, jar.sizeForTesting())
+      assertTrue(jar.loadForRequest(url).isEmpty())
+    }
+    for (jar in listOf(nativeStore.get(other), sandboxStore.get(other))) {
+      assertEquals(
+        "source-b",
+        jar.loadForRequest(url).single { it.name == "session" }.value
+      )
+    }
+  }
+
+  @Test
+  fun clearedScopeJarIsDroppedSoALateResponseCannotRepopulateIt() {
+    val store = NemuNativeHttpCookieStore()
+    val scope = "local::registry:source-a"
+    val jarBeforeLogOut = store.get(scope)
+    jarBeforeLogOut.saveFromCookieHeader(url, "session=before-log-out")
+
+    store.clearScope(scope)
+    // A response still unwinding from the logged-out request keeps its jar
+    // reference; the next request must not read what it writes there.
+    jarBeforeLogOut.saveFromCookieHeader(url, "session=late-log-out")
+
+    val jarAfterLogOut = store.get(scope)
+    assertNotSame(jarBeforeLogOut, jarAfterLogOut)
+    assertTrue(jarAfterLogOut.loadForRequest(url).isEmpty())
+  }
+
+  @Test
+  fun cookieScopeValidationMatchesTheNativeHttpRules() {
+    assertEquals("local::registry:source", nemuValidatedCookieScope("local::registry:source"))
+    assertEquals("trimmed", nemuValidatedCookieScope("  trimmed  "))
+    assertEquals(
+      "a".repeat(NEMU_COOKIE_SCOPE_MAX_CHARACTERS),
+      nemuValidatedCookieScope("a".repeat(NEMU_COOKIE_SCOPE_MAX_CHARACTERS))
+    )
+    for (
+      invalid in listOf(
+        null,
+        "",
+        "   ",
+        "sco\npe",
+        "sco\u0000pe",
+        "a".repeat(NEMU_COOKIE_SCOPE_MAX_CHARACTERS + 1)
+      )
+    ) {
+      assertNull(nemuValidatedCookieScope(invalid))
+    }
   }
 
   @Test

@@ -1,6 +1,6 @@
 import type { NemuAidokuHttpClientStatus } from "../../modules/nemu-aidoku/src/NemuAidoku.types";
 
-export const MOBILE_NATIVE_HTTP_REQUIRED_ABI_VERSION = 6;
+export const MOBILE_NATIVE_HTTP_REQUIRED_ABI_VERSION = 7;
 
 type MobileNativeHttpModuleCapabilities = {
   prepareHttpRequest?: unknown;
@@ -10,6 +10,7 @@ type MobileNativeHttpModuleCapabilities = {
   sendHttpRequest?: unknown;
   sendHttpRequestSync?: unknown;
   resetMobileSourceProfileAuthState?: unknown;
+  clearSourceCookies?: unknown;
 };
 
 const STALE_NATIVE_HTTP_DETAIL =
@@ -29,6 +30,7 @@ export function resolveMobileNativeHttpCapabilityStatus(
     module.sendHttpRequest,
     module.sendHttpRequestSync,
     module.resetMobileSourceProfileAuthState,
+    module.clearSourceCookies,
   ].every((method) => typeof method === "function");
   const abiVersion = reportedStatus.abiVersion;
   const hasCompatibleAbi =

@@ -36,6 +36,8 @@ export const mobileStringsZh: MobileStrings = {
     listLastSeparator: "和",
     merge: "合并",
     moreTags: "还有 {{count}} 个标签",
+    moveDown: "下移",
+    moveUp: "上移",
     new: "新",
     openSettings: "打开设置",
     pageNotFound: "页面不存在",
@@ -45,7 +47,7 @@ export const mobileStringsZh: MobileStrings = {
     save: "保存",
     sourceCloudflareBlocked: "检测到 Cloudflare 保护",
     sourceCloudflareBlockedDescription:
-      "此源需要 Cloudflare 验证，但当前移动端构建无法安全提供该验证。",
+      "此源需要 Cloudflare 验证。Nemu Agent 可以完成验证，之后你可以重试。",
     sourceError: "源错误",
     sourceErrorDescription: "此源无法完成该请求。请稍后重试。",
     sourceNetworkError: "网络错误",
@@ -67,6 +69,12 @@ export const mobileStringsZh: MobileStrings = {
     agentSheetFailed: "无法自动解决挑战。请重试，或在设置中查看 Nemu Agent。",
     agentSheetUnavailable:
       "移动端目前无法安全提供 Cloudflare 验证。该源在提供直连端点前无法打开。",
+    agentSheetVerifying: "正在向 Cloudflare 验证…",
+    agentSheetBrowserHint: "如果验证需要你参与，将会打开浏览器面板。",
+    agentSheetFailedCancelled: "验证已取消。",
+    agentSheetFailedTimeout: "Cloudflare 未在规定时间内完成验证。",
+    agentSheetFailedBlocked: "无法安全验证该挑战地址。",
+    agentSheetFailedUnsolicitedHost: "该网站并非此源请求的站点，已拒绝验证。",
   },
   errorBoundary: {
     copied: "错误日志已复制。",
@@ -947,6 +955,11 @@ export const mobileStringsZh: MobileStrings = {
     uninstallSourceConfirm:
       "要从此设备移除 {{name}} 吗？书架条目会保留，但实时浏览需要重新安装该源。",
     uninstallSourceNamed: "卸载 {{name}}",
+    sourceDisabledBadge: "已停用",
+    sourceDisabledSubtitle: "已停用。书架链接与设置会保留，浏览和搜索会跳过此源。",
+    toggleSourceEnabled: "启用 {{name}}",
+    sourceDisabledToast: "已停用 {{name}}",
+    sourceEnabledToast: "已启用 {{name}}",
   },
   sourceManager: {
     active: "当前",

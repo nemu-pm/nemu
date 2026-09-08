@@ -86,6 +86,7 @@ import {
   MAX_SOURCE_SETTING_VALUE_ARRAY_ITEMS,
   MAX_SOURCE_SETTING_VALUE_STRING_LENGTH,
   MAX_SOURCE_SETTING_VALUES_STRING_CHARS,
+  moveSourceSettingListItem,
   sanitizeSourceSettingValues,
 } from "@nemu/core";
 
@@ -789,6 +790,18 @@ function SourceSettingControl({
       setDraftListItem("");
       if (options?.haptic) void hapticPress();
     };
+    // Sources read an editable list in order, so entries can be reordered.
+    const moveItem = (fromIndex: number, toIndex: number) => {
+      if (disabled) return;
+      const reordered = moveSourceSettingListItem(
+        currentItems,
+        fromIndex,
+        toIndex,
+      );
+      if (!reordered) return;
+      setValue(reordered);
+      void hapticPress();
+    };
 
     return (
       <View style={styles.editableList}>
@@ -841,21 +854,42 @@ function SourceSettingControl({
         {currentItems.length ? (
           <View style={styles.editableListItems}>
             {currentItems.map((item, index) => (
-              <MobileChip
-                key={`${item}:${index}`}
-                accessibilityRole="button"
-                accessibilityLabel={`${strings.common.remove} ${item}`}
-                accessibilityState={{ disabled }}
-                disabled={disabled}
-                label={item}
-                onPress={() => {
-                  setValue(
-                    currentItems.filter((_, itemIndex) => itemIndex !== index),
-                  );
-                }}
-                trailingIcon="close-outline"
-                variant="toggle"
-              />
+              <View key={`${item}:${index}`} style={styles.editableListItemRow}>
+                <NemuButton
+                  accessibilityLabel={`${strings.common.moveUp} ${item}`}
+                  accessibilityState={{ disabled: disabled || index === 0 }}
+                  disabled={disabled || index === 0}
+                  icon="chevron-up"
+                  onPress={() => moveItem(index, index - 1)}
+                  size="icon-xs"
+                  variant="secondary"
+                />
+                <NemuButton
+                  accessibilityLabel={`${strings.common.moveDown} ${item}`}
+                  accessibilityState={{
+                    disabled: disabled || index === currentItems.length - 1,
+                  }}
+                  disabled={disabled || index === currentItems.length - 1}
+                  icon="chevron-down"
+                  onPress={() => moveItem(index, index + 1)}
+                  size="icon-xs"
+                  variant="secondary"
+                />
+                <MobileChip
+                  accessibilityRole="button"
+                  accessibilityLabel={`${strings.common.remove} ${item}`}
+                  accessibilityState={{ disabled }}
+                  disabled={disabled}
+                  label={item}
+                  onPress={() => {
+                    setValue(
+                      currentItems.filter((_, itemIndex) => itemIndex !== index),
+                    );
+                  }}
+                  trailingIcon="close-outline"
+                  variant="toggle"
+                />
+              </View>
             ))}
           </View>
         ) : (
@@ -2067,10 +2101,15 @@ const styles = StyleSheet.create({
   },
   editableListItems: {
     width: "100%",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
+    alignItems: "flex-end",
     gap: 5,
+  },
+  editableListItemRow: {
+    maxWidth: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 4,
   },
   editableListEmpty: {
     fontSize: 11,

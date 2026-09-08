@@ -6,8 +6,24 @@ private let nemuNativeHttpVersion = "built-in"
 private let nemuAsyncHttpMaxTimeoutSeconds = 30.0
 private let nemuSyncHttpMaxTimeoutSeconds = 12.0
 private let nemuIOSAidokuMaxHttpResponseBytes = 16 * 1024 * 1024
+private let nemuMaxCookieScopeCharacters = 512
 private let nemuMobileUserAgent =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1"
+
+/// The scope a cookie API may act on, or nil when the caller's scope is not
+/// one the HTTP path would accept. Blank scopes are rejected rather than
+/// treated as the stateless context: there is no jar there to clear.
+private func nemuValidatedCookieScope(_ raw: String) -> String? {
+  let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+  guard
+    !trimmed.isEmpty,
+    trimmed.count <= nemuMaxCookieScopeCharacters,
+    !trimmed.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+  else {
+    return nil
+  }
+  return trimmed
+}
 
 private final class NemuAidokuSandboxException: Exception, @unchecked Sendable {
   private let detail: String
@@ -62,6 +78,21 @@ enum NemuAidokuCookieMerge {
       : HTTPCookie.requestHeaderFields(with: filteredCookies)["Cookie"]
     return merge(storedHeader: storedHeader, explicitHeader: explicitHeader)
   }
+}
+
+/// Options for the on-demand Cloudflare solver. Both fields are optional so
+/// `solveCloudflare(url)` stays callable with a single argument.
+struct NemuAidokuCloudflareSolveOptions: Record {
+  /// Which per-source cookie jar a solved clearance cookie is written into.
+  /// Absent means the stateless jar, so the clearance only helps unscoped
+  /// requests in this process.
+  @Field
+  var cookieScope: String?
+
+  /// The User-Agent the follow-up source requests will send. A clearance cookie
+  /// is bound to it, so a mismatch makes the solve useless.
+  @Field
+  var userAgent: String?
 }
 
 struct NemuAidokuHttpRequest: Record {
@@ -899,6 +930,20 @@ private final class NemuSyncHttpCoordinator {
     }
   }
 
+  /// Empties one source scope's jar, leaving every other scope, the stateless
+  /// context, and the WebView cookie store untouched. A scope with no context
+  /// yet has no cookies, so none is created just to clear it.
+  func clearCookies(cookieScope: String) {
+    lock.lock()
+    let context = scopedContexts[cookieScope]
+    lock.unlock()
+    guard let context else { return }
+    let storage = context.cookieStorage
+    for cookie in storage.cookies ?? [] {
+      storage.deleteCookie(cookie)
+    }
+  }
+
   func clearCookieScopes() {
     lock.lock()
     let contexts = Array(scopedContexts.values)
@@ -921,11 +966,118 @@ private final class NemuSyncHttpCoordinator {
   }
 }
 
+/**
+ * Narrow bridge that lets the Cloudflare solver read and update the same
+ * per-source cookie jars `sendHttpRequest`/`sendHttpRequestSync` use, without
+ * exposing the coordinator's file-private session types.
+ *
+ * Every access hops onto one serial queue so a solve's cookie write cannot
+ * interleave with the coordinator's own scope bookkeeping, and completions come
+ * back on the main queue because the caller is main-thread WebKit code.
+ */
+enum NemuAidokuScopedCookieJars {
+  private static let queue = DispatchQueue(
+    label: "pm.nemu.aidoku-scoped-cookies",
+    qos: .userInitiated
+  )
+  /// Bounds one solve's contribution so a hostile challenge page cannot grow a
+  /// jar the size caps in `NemuAidokuCookieMerge.mergedHeader` then have to
+  /// discard on every later request.
+  private static let maxAdoptedCookies = 48
+  private static let maxAdoptedCookieBytes = 32 * 1024
+
+  /// Drops every cookie one source holds, for a log out that asked for its
+  /// cookies to be cleared. Sharing this queue with the solver's reads and
+  /// writes keeps a solve in flight from re-adding a clearance cookie between
+  /// the read and the delete.
+  static func clear(cookieScope: String, completion: @escaping () -> Void) {
+    queue.async {
+      NemuSyncHttpCoordinator.shared.clearCookies(cookieScope: cookieScope)
+      DispatchQueue.main.async { completion() }
+    }
+  }
+
+  /// The `cf_clearance` the source already holds for this url, if any. Used as
+  /// the baseline a solve has to beat before it counts as solved.
+  static func clearanceValue(
+    cookieScope: String?,
+    url: URL,
+    completion: @escaping (String?) -> Void
+  ) {
+    queue.async {
+      let context = NemuSyncHttpCoordinator.shared.sessionContext(
+        cookieScope: cookieScope,
+        url: url
+      )
+      let value = context.cookieStorage.cookies(for: url)?.first {
+        $0.name == nemuCloudflareClearanceCookieName
+      }?.value
+      DispatchQueue.main.async { completion(value) }
+    }
+  }
+
+  /// Adopts a solved challenge's cookies into the scoped jar the source's next
+  /// request will read. Any older clearance cookie for the same host tree is
+  /// removed first so a stale value cannot win the RFC 6265 path ordering.
+  static func store(
+    cookies: [HTTPCookie],
+    cookieScope: String?,
+    url: URL,
+    challengeHost: String,
+    completion: @escaping () -> Void
+  ) {
+    queue.async {
+      let storage = NemuSyncHttpCoordinator.shared.sessionContext(
+        cookieScope: cookieScope,
+        url: url
+      ).cookieStorage
+
+      if let existing = storage.cookies {
+        for cookie in existing where cookie.name == nemuCloudflareClearanceCookieName
+          && NemuCloudflareChallengePolicy.cookieDomainCoversChallengeHost(
+            cookie.domain,
+            challengeHost: challengeHost
+          ) {
+          storage.deleteCookie(cookie)
+        }
+      }
+
+      var adopted = 0
+      var adoptedBytes = 0
+      for cookie in cookies {
+        guard adopted < maxAdoptedCookies else { break }
+        let size = cookie.name.utf8.count + cookie.value.utf8.count
+        guard adoptedBytes + size <= maxAdoptedCookieBytes else { continue }
+        storage.setCookie(cookie)
+        adopted += 1
+        adoptedBytes += size
+      }
+      DispatchQueue.main.async { completion() }
+    }
+  }
+}
+
 private final class NemuNativeHttpPromiseBox: @unchecked Sendable {
   let promise: Promise
 
   init(_ promise: Promise) {
     self.promise = promise
+  }
+}
+
+/// One-shot settlement guard. A queued solver callback can in principle be
+/// reached twice (teardown racing a late navigation callback); an Expo promise
+/// must only be resolved once.
+final class NemuAidokuAtomicFlag: @unchecked Sendable {
+  private let lock = NSLock()
+  private var claimed = false
+
+  func claim() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    if claimed { return false }
+    claimed = true
+    return true
   }
 }
 
@@ -1234,9 +1386,9 @@ public class NemuAidokuModule: Module {
     Function("getHttpClientStatus") {
       return [
         "available": true,
-        "abiVersion": 6,
+        "abiVersion": 7,
         "supportsRequestLifecycle": true,
-        "supportsCloudflareSolver": false,
+        "supportsCloudflareSolver": true,
         "version": nemuNativeHttpVersion,
         "platform": "ios",
         "detail": "Built-in native source networking is available.",
@@ -1262,9 +1414,36 @@ public class NemuAidokuModule: Module {
     AsyncFunction("resetMobileSourceProfileAuthState") { (promise: Promise) in
       // All source sessions use isolated jars. Clear them directly so neither
       // scoped nor stateless authentication can cross a profile transition.
+      // A solve in flight would otherwise write a clearance cookie into a jar
+      // that belongs to the profile being left.
+      NemuAidokuCloudflareSolver.shared.cancelAll()
+      NemuCloudflareChallengeHostRegistry.shared.clear()
       NemuSyncHttpCoordinator.shared.clearCookieScopes()
       NemuSyncHttpCoordinator.shared.resetSharedCookieContext()
       promise.resolve()
+    }
+
+    AsyncFunction("cancelCloudflareSolve") { (promise: Promise) in
+      // The JS sheet was dismissed. Drop the queue, abort the in-flight solve
+      // and dismiss its challenge sheet; each one reports `cancelled`.
+      NemuAidokuCloudflareSolver.shared.cancelUserSolves()
+      promise.resolve()
+    }
+
+    AsyncFunction("clearSourceCookies") { (cookieScope: String, promise: Promise) in
+      guard let scope = nemuValidatedCookieScope(cookieScope) else {
+        promise.reject(
+          "E_SOURCE_COOKIE_SCOPE",
+          "An invalid source cookie scope cannot be cleared."
+        )
+        return
+      }
+      // One source's log out. Other scopes, the stateless context, and the
+      // WebView cookie store the solver shares across sources stay intact.
+      NemuCloudflareChallengeHostRegistry.shared.clearScope(scope)
+      NemuAidokuScopedCookieJars.clear(cookieScope: scope) {
+        promise.resolve()
+      }
     }
 
     AsyncFunction("sendHttpRequest") { (request: NemuAidokuHttpRequest, promise: Promise) in
@@ -1352,11 +1531,22 @@ public class NemuAidokuModule: Module {
       }
     }
 
-    // Keep the ABI while failing closed. WKWebView cannot route every redirect,
-    // subresource, or service-worker fetch through the native SSRF peer gate,
-    // so source-controlled challenge pages must never be loaded here.
-    AsyncFunction("solveCloudflare") { (url: String, promise: Promise) in
-      Self.solveCloudflareAsync(module: self, url: url, promise: promise)
+    // Explicit, never-inline Cloudflare verification. JS calls this only after
+    // the runtime already classified a source failure as a challenge; the
+    // synchronous WASM HTTP path is untouched. A WKWebView cannot be routed
+    // through the native SSRF peer gate, so the solver gets its own narrower
+    // boundary instead (`NemuCloudflareChallengePolicy`): the address policy
+    // validates the url, then a compiled `WKContentRuleList` plus
+    // `decidePolicyFor` confine it to the challenge host tree and Cloudflare's
+    // challenge platform, over https only.
+    AsyncFunction("solveCloudflare") {
+        (url: String, options: NemuAidokuCloudflareSolveOptions?, promise: Promise) in
+      Self.solveCloudflareAsync(
+        module: self,
+        url: url,
+        options: options,
+        promise: promise
+      )
     }
 
     // A Metro/native app-context reload does not necessarily generate another
@@ -1380,6 +1570,8 @@ public class NemuAidokuModule: Module {
     OnAppContextDestroys {
       NemuSyncHttpCoordinator.shared.cancelAll()
       NemuSyncHttpCoordinator.shared.clearCookieScopes()
+      // No solver WebView may outlive the app context that hosts it.
+      NemuAidokuCloudflareSolver.shared.cancelAll()
       self.iosSandboxManager.close()
     }
   }
@@ -1451,6 +1643,12 @@ public class NemuAidokuModule: Module {
       sessionContext: sessionContext,
       explicitCookieHeader: explicitCookieHeader
     )
+    recordCloudflareChallengeHost(
+      cookieScope: request.sourceKey,
+      url: url,
+      status: result.status,
+      headers: result.headers
+    )
     return NemuAidokuIOSandboxHTTPResponse(
       status: result.status,
       headers: result.headers,
@@ -1490,12 +1688,49 @@ public class NemuAidokuModule: Module {
     return output
   }
 
-  private static func solveCloudflareAsync(module: NemuAidokuModule, url: String, promise: Promise) {
-    module.sendEvent("nemuAidokuCfFailed", [
-      "url": url,
-      "reason": "Secure Cloudflare verification is unavailable on this platform."
-    ])
-    promise.resolve(false)
+  /// Remembers a host that answered this source's request with a Cloudflare
+  /// mitigation, so a later `solveCloudflare` can tell an origin the source
+  /// really reached from one a hostile package simply named. The registry
+  /// decides what counts as a mitigation; everything else is dropped.
+  private static func recordCloudflareChallengeHost(
+    cookieScope: String?,
+    url: URL?,
+    status: Int,
+    headers: [String: String]
+  ) {
+    NemuCloudflareChallengeHostRegistry.shared.record(
+      cookieScope: cookieScope,
+      host: url?.host,
+      status: status,
+      headers: headers
+    )
+  }
+
+  private static func solveCloudflareAsync(
+    module: NemuAidokuModule,
+    url: String,
+    options: NemuAidokuCloudflareSolveOptions?,
+    promise: Promise
+  ) {
+    let promiseBox = NemuNativeHttpPromiseBox(promise)
+    let settled = NemuAidokuAtomicFlag()
+    NemuAidokuCloudflareSolver.shared.solve(
+      urlString: url,
+      cookieScope: options?.cookieScope,
+      userAgent: options?.userAgent,
+      emit: { [weak module] name, payload in
+        module?.sendEvent(name, payload)
+      },
+      presenterProvider: { [weak module] in
+        module?.appContext?.utilities?.currentViewController()
+      },
+      completion: { solved in
+        // Expected failures resolve `false`; the JS sheet drives its copy from
+        // the `nemuAidokuCfFailed` reason instead of a rejection.
+        guard settled.claim() else { return }
+        promiseBox.promise.resolve(solved)
+      }
+    )
   }
 
   private static func downloadHttpFileAsync(
@@ -1556,7 +1791,7 @@ public class NemuAidokuModule: Module {
       )
       let cookieScope = trimmedCookieScope?.isEmpty == false ? trimmedCookieScope : nil
       if let cookieScope, (
-        cookieScope.count > 512 ||
+        cookieScope.count > nemuMaxCookieScopeCharacters ||
         cookieScope.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
       ) {
         promiseBox.promise.resolve(Self.fileResponse(
@@ -1622,6 +1857,12 @@ public class NemuAidokuModule: Module {
         sessionContext: sessionContext,
         requestId: nativeRequestId
       ) { result in
+        Self.recordCloudflareChallengeHost(
+          cookieScope: cookieScope,
+          url: url,
+          status: result.status,
+          headers: result.headers
+        )
         promiseBox.promise.resolve(Self.fileResponse(from: result))
       }
       let task = coordinator.makeDownloadTask(
@@ -1802,7 +2043,7 @@ public class NemuAidokuModule: Module {
     )
     let cookieScope = trimmedCookieScope?.isEmpty == false ? trimmedCookieScope : nil
     if let cookieScope, (
-      cookieScope.count > 512 ||
+      cookieScope.count > nemuMaxCookieScopeCharacters ||
       cookieScope.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
     ) {
       promise.resolve(response(status: 0, error: "Invalid Aidoku cookie scope."))
@@ -1845,6 +2086,12 @@ public class NemuAidokuModule: Module {
       explicitCookieHeader: explicitCookieHeader,
       requireHttps: request.requireHttps
     ) { result in
+      recordCloudflareChallengeHost(
+        cookieScope: cookieScope,
+        url: url,
+        status: result.status,
+        headers: result.headers
+      )
       promiseBox.promise.resolve(
         response(
           from: result,
@@ -2034,7 +2281,7 @@ public class NemuAidokuModule: Module {
     )
     let cookieScope = trimmedCookieScope?.isEmpty == false ? trimmedCookieScope : nil
     if let cookieScope, (
-      cookieScope.count > 512 ||
+      cookieScope.count > nemuMaxCookieScopeCharacters ||
       cookieScope.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
     ) {
       return response(status: 0, error: "Invalid Aidoku cookie scope.")
@@ -2067,17 +2314,24 @@ public class NemuAidokuModule: Module {
     // host import must return synchronously; waiting here freezes the RN JS
     // thread. aidoku-runtime classifies the response and the Nemu Agent sheet
     // performs the non-blocking solveCloudflare + retry path.
+    let result = performRequest(
+      urlRequest,
+      timeoutSeconds: timeoutSeconds,
+      maxResponseBytes: request.maxResponseBytes,
+      requestId: request.requestId,
+      allowBackground: allowBackground,
+      sessionContext: sessionContext,
+      explicitCookieHeader: explicitCookieHeader,
+      requireHttps: request.requireHttps
+    )
+    recordCloudflareChallengeHost(
+      cookieScope: cookieScope,
+      url: url,
+      status: result.status,
+      headers: result.headers
+    )
     return response(
-      from: performRequest(
-        urlRequest,
-        timeoutSeconds: timeoutSeconds,
-        maxResponseBytes: request.maxResponseBytes,
-        requestId: request.requestId,
-        allowBackground: allowBackground,
-        sessionContext: sessionContext,
-        explicitCookieHeader: explicitCookieHeader,
-        requireHttps: request.requireHttps
-      ),
+      from: result,
       handledCloudflare: false,
       responseMode: request.responseMode
     )

@@ -677,6 +677,108 @@ describe("mobile source settings executor", () => {
     expect(removedSessions).toEqual(["aidoku-community:en.example"]);
   });
 
+  test("clears the native cookie jars when the login asks for it", async () => {
+    const visibleSettings: Record<string, unknown> = {
+      auth: "logged_in",
+      "auth.username": "reader",
+    };
+    const clearedScopes: string[] = [];
+    const cache = readyCache({}, []);
+    cache.remove = () => undefined;
+
+    const result = await completeMobileSourceLogout({
+      cache,
+      source: runtimeSource,
+      schema: [
+        {
+          key: "auth",
+          type: "login",
+          title: "Log in",
+          clearCookiesOnLogOut: true,
+        },
+      ],
+      setting: {
+        key: "auth",
+        type: "login",
+        title: "Log in",
+        clearCookiesOnLogOut: true,
+      },
+      currentSettings: { ...visibleSettings },
+      async clearSandbox() {},
+      async persistSettings(patch, deleteKeys) {
+        for (const key of deleteKeys) delete visibleSettings[key];
+        Object.assign(visibleSettings, patch);
+      },
+      async clearNativeCookies(cookieScope) {
+        clearedScopes.push(cookieScope);
+      },
+    });
+
+    expect(result).toEqual({ status: "complete" });
+    expect(visibleSettings).toEqual({});
+    // Only the logging-out source's own profile-scoped execution key, which
+    // is exactly what its requests pass as their native `cookieScope`.
+    expect(clearedScopes).toEqual(["local::aidoku-community:en.example"]);
+  });
+
+  test("clears the cookie jars after the source logout notification runs", async () => {
+    const order: string[] = [];
+    const cache = readyCache(
+      {
+        async handleNotification() {
+          order.push("notification");
+        },
+      },
+      [],
+    );
+    cache.remove = () => undefined;
+
+    const setting = {
+      key: "auth",
+      type: "login",
+      title: "Log in",
+      notification: "login-changed",
+      clearCookiesOnLogOut: true,
+    } as const;
+
+    const result = await completeMobileSourceLogout({
+      cache,
+      source: runtimeSource,
+      schema: [{ ...setting }],
+      setting: { ...setting },
+      currentSettings: { auth: "logged_in" },
+      async clearSandbox() {},
+      async persistSettings() {},
+      async clearNativeCookies() {
+        order.push("cookies");
+      },
+    });
+
+    expect(result).toEqual({ status: "complete" });
+    expect(order).toEqual(["notification", "cookies"]);
+  });
+
+  test("leaves the cookie jars alone without the flag", async () => {
+    let cookieClears = 0;
+    const cache = readyCache({}, []);
+    cache.remove = () => undefined;
+
+    await completeMobileSourceLogout({
+      cache,
+      source: runtimeSource,
+      schema: [{ key: "auth", type: "login", title: "Log in" }],
+      setting: { key: "auth", type: "login", title: "Log in" },
+      currentSettings: { auth: "logged_in" },
+      async clearSandbox() {},
+      async persistSettings() {},
+      async clearNativeCookies() {
+        cookieClears += 1;
+      },
+    });
+
+    expect(cookieClears).toBe(0);
+  });
+
   test("restores visible credentials when native logout cleanup fails", async () => {
     const originalSettings: Record<string, unknown> = {
       auth: "logged_in",

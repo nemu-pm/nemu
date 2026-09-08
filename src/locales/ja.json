@@ -323,6 +323,13 @@
     "uninstallSourceDescription": "「{{name}}」をアンインストールしてもよろしいですか？ソースは削除されますが、ライブラリデータは保持されます。",
     "configureSource": "{{name}}を設定",
     "uninstallSourceLabel": "{{name}}をアンインストール",
+    "sourceDisabledBadge": "無効",
+    "disableSource": "ソースを無効化",
+    "enableSource": "ソースを有効化",
+    "toggleSourceLabel": "{{name}} を有効化",
+    "sourceDisabledError": "「{{name}}」は無効です。設定で有効にすると新しいコンテンツを読み込めます。",
+    "sourceDisabledToast": "{{name}} を無効にしました",
+    "sourceEnabledToast": "{{name}} を有効にしました",
     "uninstall": "アンインストール",
     "plugins": "プラグイン",
     "noPlugins": "プラグインがインストールされていません。",
@@ -461,7 +468,9 @@
     "proxyUpgradeRequired": "安全なログインリレーを利用できないか、更新が必要です。認証コードは送信されていません。時間をおいて再試行してください。",
     "oauthRelayDisclosure": "この PKCE ログインでは、Nemu のセキュリティ強化済みリレーを通じて、認証コードと一回限りの検証子をプロバイダへ送信します。現在のローカル Agent は必要な OAuth 保護をまだ強制できないため使用されません。",
     "logoutConfirm": "このソースからログアウトしますか？",
-    "notificationFailed": "ソース設定の処理に失敗しました。"
+    "notificationFailed": "ソース設定の処理に失敗しました。",
+    "moveUp": "上へ移動",
+    "moveDown": "下へ移動"
   },
   "pluginSettings": {
     "noSettings": "このプラグインには設定可能な項目がありません。"

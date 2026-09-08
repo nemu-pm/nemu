@@ -4,6 +4,7 @@ import {
   isCloudflareErrorMessage,
   isNetworkSourceError,
   readErrorUrl,
+  sanitizeSourceErrorDiagnostic,
 } from "@nemu/core/sources";
 
 /**
@@ -57,63 +58,18 @@ function errorMessage(error: unknown): string {
   }
 }
 
-const MOBILE_ERROR_DIAGNOSTIC_MAX_LENGTH = 500;
-
-function sanitizeDiagnosticUrl(match: string): string {
-  const trailing = match.match(/[),.;!?]+$/)?.[0] ?? "";
-  const rawUrl = trailing ? match.slice(0, -trailing.length) : match;
-  try {
-    const url = new URL(rawUrl);
-    url.username = "";
-    url.password = "";
-    url.search = "";
-    url.hash = "";
-    return `${url.toString()}${trailing}`;
-  } catch {
-    return `${rawUrl.replace(/[?#].*$/, "")}${trailing}`;
-  }
-}
-
-function replaceUnsafeControlCharacters(value: string): string {
-  return Array.from(value, (character) => {
-    const code = character.charCodeAt(0);
-    const unsafe =
-      (code <= 0x1f && code !== 0x09 && code !== 0x0a && code !== 0x0d) ||
-      code === 0x7f;
-    return unsafe ? " " : character;
-  }).join("");
-}
-
 /**
  * Produces a bounded secondary diagnostic suitable for a user-visible error
  * banner. Stable localized copy must still be supplied separately.
+ *
+ * The rules themselves are platform-neutral and live in
+ * `@nemu/core/sources`; mobile only contributes the marker it stamps onto
+ * unsupported-source details.
  */
 export function sanitizeMobileErrorDiagnostic(error: unknown): string | null {
-  let detail = errorMessage(error)
-    .replace(MOBILE_TACHIYOMI_UNSUPPORTED_MARKER, "")
-    .trim();
-  if (!detail || detail === "[object Object]") return null;
-
-  detail = replaceUnsafeControlCharacters(
-    detail
-      .replace(/\bhttps?:\/\/[^\s<>"']+/gi, sanitizeDiagnosticUrl)
-      .replace(
-        /\b(cookie|set-cookie|authorization|proxy-authorization)\b\s*:\s*[^\r\n]+/gi,
-        "$1: [redacted]",
-      )
-      .replace(/\b(bearer|basic)\s+[A-Za-z0-9._~+/-]+=*/gi, "$1 [redacted]")
-      .replace(
-        /\b(password|passwd|access[_-]?token|refresh[_-]?token|id[_-]?token|csrf[_-]?token|token|api[_-]?key|client[_-]?secret|secret|code[_-]?verifier|session)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-        "$1$2[redacted]",
-      ),
-  )
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-
-  if (!detail) return null;
-  return detail.length > MOBILE_ERROR_DIAGNOSTIC_MAX_LENGTH
-    ? `${detail.slice(0, MOBILE_ERROR_DIAGNOSTIC_MAX_LENGTH - 1).trimEnd()}…`
-    : detail;
+  return sanitizeSourceErrorDiagnostic(error, {
+    stripMarkers: [MOBILE_TACHIYOMI_UNSUPPORTED_MARKER],
+  });
 }
 
 /**

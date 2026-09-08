@@ -18,12 +18,14 @@ import {
   shouldOfferNemuAgentVerificationAction,
   type NemuAgentSheetStatus,
 } from "@/lib/nemuAgentSheetReducer";
-import NemuAidoku from "../../modules/nemu-aidoku/src/NemuAidokuModule";
+import { supportsMobileCloudflareSolver } from "@/lib/useNemuAgentSheet";
 
 type MobileNemuAgentSheetProps = {
   visible: boolean;
   status: NemuAgentSheetStatus;
   url?: string;
+  /** Machine-readable reason from the last native failure, when there is one. */
+  failureReason?: string;
   onVerify: () => void;
   onDismiss: () => void;
 };
@@ -44,9 +46,14 @@ const INFLIGHT_STATUSES: ReadonlySet<NemuAgentSheetStatus> = new Set([
 ]);
 
 /**
- * Nemu Agent sheet for Cloudflare-classified failures. The native capability
- * flag is fail-closed: current iOS/Android builds explain that secure embedded
- * verification is unavailable and never offer a retry action that cannot work.
+ * Nemu Agent sheet for Cloudflare-classified failures.
+ *
+ * The native capability flag still gates everything: where
+ * `supportsCloudflareSolver` is false (web, or any build that fails closed) the
+ * sheet only explains that embedded verification is unavailable and offers no
+ * action. Where it is true, `useNemuAgentSheet` starts the solve as the sheet
+ * opens, so this is progress UI and Verify/Retry is the recovery affordance for
+ * the `failed` state.
  *
  * Styling matches `MobileAgentStatusCard` (hardware-chip identity, token
  * colors, `radius.lg`) so the sheet reads as the same Nemu Agent the settings
@@ -56,16 +63,22 @@ export function MobileNemuAgentSheet({
   visible,
   status,
   url,
+  failureReason,
   onVerify,
   onDismiss,
 }: MobileNemuAgentSheetProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
-  const secureVerificationAvailable = supportsSecureCloudflareVerification();
+  const secureVerificationAvailable = supportsMobileCloudflareSolver();
   const displayUrl = url ? redactMobileCloudflareUrlForDisplay(url) : undefined;
 
-  const visual = statusVisual(status, strings, secureVerificationAvailable);
+  const visual = statusVisual(
+    status,
+    strings,
+    secureVerificationAvailable,
+    failureReason,
+  );
   const accentColor = nemuToneColor(tokens, visual.tone);
   const inFlight = INFLIGHT_STATUSES.has(status);
   const showAction = shouldOfferNemuAgentVerificationAction(
@@ -120,6 +133,12 @@ export function MobileNemuAgentSheet({
         </Text>
       </View>
 
+      {secureVerificationAvailable && INFLIGHT_STATUSES.has(status) ? (
+        <Text style={[styles.hintText, { color: tokens.mutedForeground }]}>
+          {strings.common.agentSheetBrowserHint}
+        </Text>
+      ) : null}
+
       {displayUrl ? (
         <View style={[styles.subjectPill, { backgroundColor: tokens.muted }]}>
           <Text numberOfLines={2} style={[styles.subjectText, { color: tokens.foreground }]}>
@@ -167,7 +186,9 @@ function statusVisual(
   status: NemuAgentSheetStatus,
   strings: ReturnType<typeof getMobileStrings>,
   secureVerificationAvailable: boolean,
+  failureReason: string | undefined,
 ): StatusVisual {
+  // Only claim "unavailable on this platform" when native really says so.
   if (!secureVerificationAvailable) {
     return {
       copy: strings.common.agentSheetUnavailable,
@@ -185,13 +206,17 @@ function statusVisual(
     case "opening":
       return { copy: strings.common.agentSheetOpening, icon: null, tone: "primary" };
     case "waiting":
-      return { copy: strings.common.agentSheetWaiting, icon: null, tone: "primary" };
+      return { copy: strings.common.agentSheetVerifying, icon: null, tone: "primary" };
     case "captcha":
       return { copy: strings.common.agentSheetCaptcha, icon: "alert-circle-outline", tone: "danger" };
     case "success":
       return { copy: strings.common.agentSheetSuccess, icon: "checkmark-circle-outline", tone: "success" };
     case "failed":
-      return { copy: strings.common.agentSheetFailed, icon: "close-circle-outline", tone: "danger" };
+      return {
+        copy: failureCopy(failureReason, strings),
+        icon: "close-circle-outline",
+        tone: "danger",
+      };
     default:
       return {
         copy: strings.common.sourceCloudflareBlockedDescription,
@@ -201,11 +226,28 @@ function statusVisual(
   }
 }
 
-function supportsSecureCloudflareVerification(): boolean {
-  try {
-    return NemuAidoku.getHttpClientStatus().supportsCloudflareSolver === true;
-  } catch {
-    return false;
+/**
+ * Native reports a stable reason code. Known codes get their own localized
+ * line; anything else (including a code a newer native build adds) falls back
+ * to the generic failure copy rather than surfacing a raw identifier.
+ */
+function failureCopy(
+  failureReason: string | undefined,
+  strings: ReturnType<typeof getMobileStrings>,
+): string {
+  switch (failureReason) {
+    case "cancelled":
+      return strings.common.agentSheetFailedCancelled;
+    case "timeout":
+      return strings.common.agentSheetFailedTimeout;
+    case "blocked-destination":
+    case "unsupported-url":
+      return strings.common.agentSheetFailedBlocked;
+    case "unsolicited-host":
+      // Native refuses to solve a host the source never actually requested.
+      return strings.common.agentSheetFailedUnsolicitedHost;
+    default:
+      return strings.common.agentSheetFailed;
   }
 }
 
@@ -260,6 +302,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: nemuFontWeight.medium,
+  },
+  hintText: {
+    fontSize: 12,
+    lineHeight: 16,
+    paddingHorizontal: 2,
   },
   subjectPill: {
     minHeight: 42,

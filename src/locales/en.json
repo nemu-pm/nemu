@@ -328,6 +328,13 @@
     "uninstallSourceDescription": "Are you sure you want to uninstall \"{{name}}\"? This will remove the source but keep your library data.",
     "configureSource": "Configure {{name}}",
     "uninstallSourceLabel": "Uninstall {{name}}",
+    "sourceDisabledBadge": "Disabled",
+    "disableSource": "Disable source",
+    "enableSource": "Enable source",
+    "toggleSourceLabel": "Enable {{name}}",
+    "sourceDisabledError": "\"{{name}}\" is disabled. Enable it in Settings to load new content.",
+    "sourceDisabledToast": "Disabled {{name}}",
+    "sourceEnabledToast": "Enabled {{name}}",
     "uninstall": "Uninstall",
     "plugins": "Plugins",
     "noPlugins": "No plugins installed.",
@@ -472,7 +479,9 @@
     "proxyUpgradeRequired": "The secure login relay is unavailable or needs an update. No authorization code was sent. Try again later.",
     "oauthRelayDisclosure": "For this PKCE login, Nemu sends the authorization code and one-time verifier to the provider through Nemu's security-hardened relay. The current local Agent is not used because it cannot yet enforce these OAuth safeguards.",
     "logoutConfirm": "Log out from this source?",
-    "notificationFailed": "Failed to apply the source setting action."
+    "notificationFailed": "Failed to apply the source setting action.",
+    "moveUp": "Move up",
+    "moveDown": "Move down"
   },
   "pluginSettings": {
     "noSettings": "This plugin has no configurable settings."

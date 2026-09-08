@@ -192,6 +192,13 @@ export interface LoginSetting extends BaseSetting {
   localStorageKeys?: string[];
   /** Show email wording instead of username */
   useEmail?: boolean;
+  /**
+   * Drop the runtime's cookie jar on logout.
+   *
+   * `Setting::Login { clear_cookies_on_log_out }` in aidoku-rs; the key arrives
+   * camelCased like the rest of the login schema.
+   */
+  clearCookiesOnLogOut?: boolean;
 }
 
 /**

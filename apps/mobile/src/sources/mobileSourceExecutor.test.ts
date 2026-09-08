@@ -354,6 +354,47 @@ describe("createMobileSourceExecutorSession", () => {
     }
   });
 
+  test("refuses a disabled source before touching its cached package", async () => {
+    let reads = 0;
+    let loads = 0;
+    await expect(
+      createMobileSourceExecutorSession(installedSource({ disabled: true }), {
+        readBytes: async () => {
+          reads += 1;
+          return makeAixPackage();
+        },
+        bridge: {
+          loadSource: async () => {
+            loads += 1;
+            throw new Error("must not load a disabled source");
+          },
+        } as unknown as MobileAidokuExecutorBridge,
+      }),
+    ).resolves.toMatchObject({
+      status: "blocked",
+      sourceKey: "aidoku-community:en.example",
+      reason: "source-disabled",
+      detail: expect.stringContaining("disabled"),
+    });
+    expect(reads).toBe(0);
+    expect(loads).toBe(0);
+  });
+
+  test("still runs a source whose disabled flag is absent or false", async () => {
+    await expect(
+      createMobileSourceExecutorSession(installedSource({ disabled: false }), {
+        readBytes: async () => makeAixPackage(),
+        bridge: {
+          loadSource: async () => ({
+            status: "ready" as const,
+            runtime: "web-aidoku" as const,
+            source: {} as MobileAidokuExecutorSource,
+          }),
+        } as unknown as MobileAidokuExecutorBridge,
+      }),
+    ).resolves.toMatchObject({ status: "ready" });
+  });
+
   test("blocks Tachiyomi before reading an unusable cached APK", async () => {
     let reads = 0;
     await expect(

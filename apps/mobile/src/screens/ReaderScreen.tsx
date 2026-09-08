@@ -124,6 +124,8 @@ import {
   sanitizeMobileErrorDiagnostic,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
+import type { NemuAgentSheetContext } from "@/lib/nemuAgentSheetReducer";
+import { readMobileCloudflareUserAgent } from "@/sources/mobileAidokuUserAgent";
 import {
   canRetryMobileReaderPluginSettingsLoadError,
   canStartMobileReaderSettingsAction,
@@ -1443,7 +1445,10 @@ export function ReaderScreen() {
   } | null>(null);
   const [pagesRefreshNonce, setPagesRefreshNonce] = useState(0);
   const cloudflareSheetRef = useRef<{
-    reportError: (error: unknown) => boolean;
+    reportError: (
+      error: unknown,
+      context?: NemuAgentSheetContext,
+    ) => boolean;
   } | null>(null);
 
   const clearReaderProgrammaticScroll = useCallback(() => {
@@ -4924,7 +4929,14 @@ export function ReaderScreen() {
       } catch (nextError) {
         if (readerPagesRequestRunRef.current !== requestRun) return;
         if (restoredPersistedPageList) return;
-        cloudflareSheetRef.current?.reportError(nextError);
+        cloudflareSheetRef.current?.reportError(nextError, {
+          sourceKey: selectedInstalledSource
+            ? makeMobileRuntimeSourceKey(
+                normalizeInstalledSource(selectedInstalledSource),
+              )
+            : undefined,
+          userAgent: readMobileCloudflareUserAgent(nextError),
+        });
         const presentation = getMobileSourceErrorPresentation(
           nextError,
           effectStrings,
@@ -6638,6 +6650,7 @@ export function ReaderScreen() {
         visible={cloudflareSheet.visible && !endOfChapterPromptVisible}
         status={cloudflareSheet.status}
         url={cloudflareSheet.url}
+        failureReason={cloudflareSheet.failureReason}
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />

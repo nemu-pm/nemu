@@ -323,6 +323,13 @@
     "uninstallSourceDescription": "确定要卸载「{{name}}」吗？这将移除源但保留您的书架数据。",
     "configureSource": "设置{{name}}",
     "uninstallSourceLabel": "卸载{{name}}",
+    "sourceDisabledBadge": "已停用",
+    "disableSource": "停用源",
+    "enableSource": "启用源",
+    "toggleSourceLabel": "启用 {{name}}",
+    "sourceDisabledError": "“{{name}}”已停用。请在设置中启用后再加载新内容。",
+    "sourceDisabledToast": "已停用 {{name}}",
+    "sourceEnabledToast": "已启用 {{name}}",
     "uninstall": "卸载",
     "plugins": "插件",
     "noPlugins": "未安装插件。",
@@ -461,7 +468,9 @@
     "proxyUpgradeRequired": "安全登录中继不可用或需要更新。授权码尚未发送，请稍后重试。",
     "oauthRelayDisclosure": "此次 PKCE 登录会通过 Nemu 的安全强化中继，将授权码和一次性校验值发送给提供商。当前本地 Agent 尚无法强制执行这些 OAuth 安全措施，因此不会用于此流程。",
     "logoutConfirm": "要从此源登出吗？",
-    "notificationFailed": "应用源设置操作失败。"
+    "notificationFailed": "应用源设置操作失败。",
+    "moveUp": "上移",
+    "moveDown": "下移"
   },
   "pluginSettings": {
     "noSettings": "此插件没有可配置的设置。"

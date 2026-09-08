@@ -8,6 +8,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
+import { safeErrorCategory } from "@/lib/error-diagnostic";
 import { hapticPress } from "@/lib/haptics";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -397,8 +398,12 @@ const sourceBrowseRoute = createRoute({
       if (hasHomeProvider && !onlySearch) {
         try {
           initialHome = await loadedSource.getHome(false); // Use cache if available
-        } catch {
-          // Ignore errors - home will be loaded in component
+        } catch (error) {
+          // Non-fatal: home is retried in the component, but keep the reason visible.
+          console.warn(
+            "[SourceBrowse] Initial home load failed:",
+            safeErrorCategory(error)
+          );
         }
       }
 

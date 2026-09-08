@@ -659,6 +659,7 @@ export function ReaderPage() {
           setError(e instanceof Error ? e.message : String(e));
         } else {
           console.error("[Reader] Failed to load chapter pages:", e);
+          handleSourceError(e, "Failed to load chapter pages");
         }
         return null;
       } finally {
@@ -1196,7 +1197,9 @@ export function ReaderPage() {
       if (!item || item.kind !== "page") return null;
       try {
         return await item.page.getImage();
-      } catch {
+      } catch (e) {
+        // Callers treat null as "no image"; keep it silent for the user but logged.
+        console.error("[Reader] Failed to read page image blob:", e);
         return null;
       }
     },

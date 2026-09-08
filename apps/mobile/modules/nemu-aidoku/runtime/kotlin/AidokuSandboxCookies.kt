@@ -8,6 +8,20 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import java.util.concurrent.atomic.AtomicLong
 
+internal const val NEMU_COOKIE_SCOPE_MAX_CHARACTERS = 512
+
+/**
+ * The scope a cookie API may act on, or null when the caller's scope is not
+ * one the native HTTP path would accept. Blank scopes are rejected rather than
+ * treated as stateless: there is no jar there to clear.
+ */
+internal fun nemuValidatedCookieScope(raw: String?): String? {
+  val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+  if (trimmed.length > NEMU_COOKIE_SCOPE_MAX_CHARACTERS) return null
+  if (trimmed.any { it.isISOControl() }) return null
+  return trimmed
+}
+
 private const val AIDOKU_COOKIE_MAX_COUNT = 512
 private const val AIDOKU_COOKIE_MAX_CHARACTERS = 256 * 1024
 private const val CLOUDFLARE_CLEARANCE_COOKIE = "cf_clearance"
@@ -119,7 +133,41 @@ internal class NemuCookieJar(
     includeName: (String) -> Boolean = { true }
   ) {
     if (!isActive()) return
-    val parsed = cookieHeader
+    mergeIntoMemory(parseCookieHeader(url, cookieHeader, includeName), System.currentTimeMillis())
+  }
+
+  /**
+   * Adopts the cookies an interactive Cloudflare solve produced for [url].
+   *
+   * Any existing cookie of the same name whose domain covers the url's host is
+   * dropped first: `mergeIntoMemory` only replaces an exact
+   * (name, domain, path) match, so a stale `cf_clearance` stored from a
+   * `domain=.example.com` Set-Cookie would otherwise survive next to the
+   * freshly issued host-only one and could win RFC 6265's path ordering.
+   */
+  @Synchronized
+  fun adoptSolvedCookies(url: HttpUrl, cookieHeader: String) {
+    if (!isActive()) return
+    val parsed = parseCookieHeader(url, cookieHeader) { true }
+    if (parsed.isEmpty()) return
+    val names = parsed.mapTo(mutableSetOf()) { it.name }
+    cookies.removeAll { existing ->
+      existing.name in names && domainCoversHost(existing.domain, url.host)
+    }
+    mergeIntoMemory(parsed, System.currentTimeMillis())
+  }
+
+  private fun domainCoversHost(domain: String, host: String): Boolean {
+    val normalized = domain.removePrefix(".")
+    return host == normalized || host.endsWith(".$normalized")
+  }
+
+  private fun parseCookieHeader(
+    url: HttpUrl,
+    cookieHeader: String,
+    includeName: (String) -> Boolean
+  ): List<Cookie> {
+    return cookieHeader
       .split(";")
       .asSequence()
       .map { it.trim() }
@@ -131,7 +179,12 @@ internal class NemuCookieJar(
         Cookie.parse(url, cookie)
       }
       .toList()
-    mergeIntoMemory(parsed, System.currentTimeMillis())
+  }
+
+  /** Drops every cookie this jar holds, for one source's log out. */
+  @Synchronized
+  fun clear() {
+    cookies.clear()
   }
 
   @Synchronized
@@ -209,6 +262,19 @@ internal class NemuNativeHttpCookieStore(
   fun clear() {
     generation.incrementAndGet()
     jars.clear()
+  }
+
+  /**
+   * Drops one scope's cookies on a source log out, leaving every other scope
+   * alone. The jar is emptied and then dropped from the map, so a response
+   * already in flight for that scope reads nothing and writes into an orphan
+   * jar the next request never sees.
+   */
+  @Synchronized
+  fun clearScope(cookieScope: String) {
+    val normalizedScope = cookieScope.trim()
+    if (normalizedScope.isEmpty()) return
+    jars.remove(normalizedScope)?.clear()
   }
 
   @Synchronized
@@ -342,6 +408,16 @@ internal class AidokuSandboxCookieStore(
   fun clear() {
     generation.incrementAndGet()
     jars.clear()
+  }
+
+  /**
+   * Drops one source's sandbox cookies on its own log out, leaving every other
+   * source's jar alone. Keyed exactly like [get], which takes the sandbox
+   * session's source key verbatim.
+   */
+  @Synchronized
+  fun clearScope(sourceKey: String) {
+    jars.remove(sourceKey)?.clear()
   }
 
   @Synchronized

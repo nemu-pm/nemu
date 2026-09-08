@@ -131,6 +131,8 @@ import {
   type MobileSourceErrorRecoveryAction,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
+import type { NemuAgentSheetContext } from "@/lib/nemuAgentSheetReducer";
+import { readMobileCloudflareUserAgent } from "@/sources/mobileAidokuUserAgent";
 import { useMobileStickySourceCover } from "@/lib/useMobileSourceImageRequest";
 import { takeMobileSourceDetailSeed } from "@/lib/mobileSourceDetailSeed";
 import {
@@ -359,7 +361,10 @@ export function SourceMangaScreen() {
   // sheet without adding the sheet controller to the effect's deps (which
   // would re-trigger the refresh on every render).
   const cloudflareSheetRef = useRef<{
-    reportError: (error: unknown) => boolean;
+    reportError: (
+      error: unknown,
+      context?: NemuAgentSheetContext,
+    ) => boolean;
   } | null>(null);
   // NOTE: despite the legacy name, this drives the Nemu Agent sheet
   // (`useNemuAgentSheet` / `MobileNemuAgentSheet`) — kept to minimize churn in
@@ -534,6 +539,10 @@ export function SourceMangaScreen() {
       // Cached-copy resilience: with a cache hit the network failure stays
       // silent and the error banner only appears with no cached copy at all.
       let hadCachedDetails = false;
+      // Hoisted so the catch below can tell the Nemu Agent sheet which source
+      // jar a solved clearance cookie belongs in; `localState.installedSource`
+      // is still the render-time value on a first load.
+      let requestSourceKey: string | undefined;
       try {
         const cachedEntry = await getCachedMobileSourceDetail(detailCacheKey);
         if (cancelled) return;
@@ -557,6 +566,11 @@ export function SourceMangaScreen() {
         });
         const installedSource = nextLocalState.installedSource ?? null;
         const existingEntry = nextLocalState.libraryEntry;
+        if (installedSource) {
+          requestSourceKey = makeMobileRuntimeSourceKey(
+            normalizeInstalledSource(installedSource),
+          );
+        }
 
         if (cancelled) return;
         setLocalState({
@@ -660,10 +674,13 @@ export function SourceMangaScreen() {
             strings,
           ),
         });
-        // Surface Cloudflare-classified failures on the bypass sheet (the
-        // native solver already ran automatically inside the blocking HTTP
-        // call; this is the post-failure retry seam).
-        cloudflareSheetRef.current?.reportError(error);
+        // Surface Cloudflare-classified failures on the Nemu Agent sheet.
+        // The blocking HTTP call never runs the solver inline; this is where
+        // the explicit, non-blocking verification starts.
+        cloudflareSheetRef.current?.reportError(error, {
+          sourceKey: requestSourceKey,
+          userAgent: readMobileCloudflareUserAgent(error),
+        });
         if (reportRetryResult) {
           await hapticError();
         }
@@ -1257,7 +1274,12 @@ export function SourceMangaScreen() {
             }
           : current,
       );
-      cloudflareSheetRef.current?.reportError(error);
+      cloudflareSheetRef.current?.reportError(error, {
+        sourceKey: makeMobileRuntimeSourceKey(
+          normalizeInstalledSource(installedSource),
+        ),
+        userAgent: readMobileCloudflareUserAgent(error),
+      });
       await hapticError();
     } finally {
       pullRefreshGuardRef.current = false;
@@ -1821,6 +1843,7 @@ export function SourceMangaScreen() {
         visible={cloudflareSheet.visible}
         status={cloudflareSheet.status}
         url={cloudflareSheet.url}
+        failureReason={cloudflareSheet.failureReason}
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />

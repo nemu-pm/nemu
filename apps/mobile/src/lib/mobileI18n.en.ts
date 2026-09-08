@@ -36,6 +36,8 @@ export const mobileStringsEn: MobileStrings = {
     listLastSeparator: " and ",
     merge: "Merge",
     moreTags: "{{count}} more tags",
+    moveDown: "Move down",
+    moveUp: "Move up",
     new: "New",
     openSettings: "Open Settings",
     pageNotFound: "Page not found",
@@ -45,7 +47,7 @@ export const mobileStringsEn: MobileStrings = {
     save: "Save",
     sourceCloudflareBlocked: "Cloudflare protection detected",
     sourceCloudflareBlockedDescription:
-      "This source requires Cloudflare verification, which is not securely available in this mobile build.",
+      "This source requires Cloudflare verification. Nemu Agent can complete the check so you can try again.",
     sourceError: "Source error",
     sourceErrorDescription:
       "This source could not complete the request. Try again in a moment.",
@@ -69,6 +71,15 @@ export const mobileStringsEn: MobileStrings = {
       "Couldn't solve the challenge automatically. Try again, or open Settings to check Nemu Agent.",
     agentSheetUnavailable:
       "Secure Cloudflare verification is unavailable on mobile. This source cannot be opened until it offers a direct endpoint.",
+    agentSheetVerifying: "Verifying with Cloudflare…",
+    agentSheetBrowserHint:
+      "A browser sheet will open if the check needs you.",
+    agentSheetFailedCancelled: "Verification cancelled.",
+    agentSheetFailedTimeout: "Cloudflare did not finish in time.",
+    agentSheetFailedBlocked:
+      "This challenge address could not be verified safely.",
+    agentSheetFailedUnsolicitedHost:
+      "This site was not requested by the source, so verification was refused.",
   },
   errorBoundary: {
     copied: "Error log copied.",
@@ -1027,6 +1038,12 @@ export const mobileStringsEn: MobileStrings = {
     uninstallSourceConfirm:
       "Remove {{name}} from this device? Library entries remain, but live source browsing requires installing it again.",
     uninstallSourceNamed: "Uninstall {{name}}",
+    sourceDisabledBadge: "Disabled",
+    sourceDisabledSubtitle:
+      "Disabled. Library links and settings are kept; browsing and search skip this source.",
+    toggleSourceEnabled: "Enable {{name}}",
+    sourceDisabledToast: "{{name}} disabled",
+    sourceEnabledToast: "{{name}} enabled",
   },
   sourceManager: {
     active: "Active",

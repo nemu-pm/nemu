@@ -51,6 +51,8 @@ export type InstalledSource = {
   version: number;
   updatedAt?: number;
   removed?: boolean;
+  /** User-disabled install: kept and synced, but never run. */
+  disabled?: boolean;
 };
 
 export type SourcePackageListing = {
@@ -105,6 +107,11 @@ export type SourcePackageSetting = {
   logoutTitle?: string;
   localStorageKeys?: string[];
   useEmail?: boolean;
+  /**
+   * `Setting::Login { clear_cookies_on_log_out }` in aidoku-rs: drop the
+   * source's native cookie jars on logout, not just its stored credentials.
+   */
+  clearCookiesOnLogOut?: boolean;
   external?: boolean;
   destructive?: boolean;
   confirmTitle?: string;

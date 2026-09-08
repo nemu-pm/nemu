@@ -118,6 +118,7 @@ type SandboxCapabilities = {
   handlesWebLogin: boolean;
   hasImageRequestProvider: boolean;
   hasImageProcessor: boolean;
+  hasCoverImageProcessor: boolean;
 };
 
 const sessions = new Map<string, SandboxSession>();
@@ -139,6 +140,57 @@ class ReplayControlError extends CloudflareBlockedError {
 function boundedErrorMessage(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
   return detail.slice(0, 2_048) || "The isolated Aidoku runtime failed.";
+}
+
+/**
+ * Errors whose identity has to survive the flattening to a JSON envelope.
+ *
+ * `AidokuResultError` is how the runtime now reports "the source itself
+ * failed", and `CloudflareBlockedError` is how it reports a challenge, so the
+ * React Native side has to be able to tell them apart from a decode bug. The
+ * set is closed on purpose: a hostile source must not be able to make the host
+ * reconstruct an arbitrary error class.
+ */
+const PROPAGATED_ERROR_NAMES = new Set([
+  "AidokuResultError",
+  "CloudflareBlockedError",
+]);
+
+const PROPAGATED_ERROR_URL_FIELDS = {
+  url: "errorUrl",
+  host: "errorHost",
+  userAgent: "errorUserAgent",
+} as const;
+
+function boundedErrorIdentity(error: unknown): JsonRecord {
+  if (!(error instanceof Error) || !PROPAGATED_ERROR_NAMES.has(error.name)) {
+    return {};
+  }
+  const identity: JsonRecord = { errorName: error.name };
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === "number" && Number.isSafeInteger(code)) {
+    identity.errorCode = code;
+  }
+  for (const [field, key] of Object.entries(PROPAGATED_ERROR_URL_FIELDS)) {
+    const value = (error as unknown as Record<string, unknown>)[field];
+    if (typeof value === "string" && value.length > 0) {
+      identity[key] = value.slice(0, MAX_REQUEST_URL_LENGTH);
+    }
+  }
+  return identity;
+}
+
+/**
+ * Image-processing rounds, which arrive over the image transport.
+ *
+ * The native sandbox managers forward the caller's `kind` when it is one of
+ * these two and otherwise stamp `process-page-image`, so anything reaching
+ * this isolate over that transport is already one of the two image rounds.
+ */
+function isImageProcessingOperation(input: JsonRecord): boolean {
+  return (
+    input.kind === "process-page-image" || input.kind === "process-cover-image"
+  );
 }
 
 function result(value: JsonRecord): string {
@@ -762,6 +814,8 @@ function sourceCapabilities(
     hasImageRequestProvider: source.hasImageRequestProvider,
     hasImageProcessor:
       source.hasImageProcessor && session.imageProcessorTransportAvailable,
+    hasCoverImageProcessor:
+      source.hasCoverImageProcessor && session.imageProcessorTransportAvailable,
   };
 }
 
@@ -852,14 +906,34 @@ async function executeSourceOperation(
             >),
       );
     }
+    case "process-cover-image":
     case "process-page-image": {
+      const cover = operation.kind === "process-cover-image";
       if (
-        !source.hasImageProcessor ||
+        !(cover ? source.hasCoverImageProcessor : source.hasImageProcessor) ||
         !session.imageProcessorTransportAvailable
       ) {
         return null;
       }
       if (!imageBytes) throw new Error("Aidoku image input is unavailable.");
+      const requestUrl = assertString(
+        operation.requestUrl,
+        "Image request URL",
+        MAX_REQUEST_URL_LENGTH,
+      );
+      const requestHeaders = normalizeHeaders(operation.requestHeaders ?? {});
+      const responseCode = Number(operation.responseCode);
+      const responseHeaders = normalizeHeaders(operation.responseHeaders ?? {});
+      // Covers take no page context; everything else matches the page round.
+      if (cover) {
+        return source.processCoverImage(
+          imageBytes,
+          requestUrl,
+          requestHeaders,
+          responseCode,
+          responseHeaders,
+        );
+      }
       return source.processPageImage(
         imageBytes,
         operation.context == null
@@ -868,14 +942,10 @@ async function executeSourceOperation(
               string,
               string
             >),
-        assertString(
-          operation.requestUrl,
-          "Image request URL",
-          MAX_REQUEST_URL_LENGTH,
-        ),
-        normalizeHeaders(operation.requestHeaders ?? {}),
-        Number(operation.responseCode),
-        normalizeHeaders(operation.responseHeaders ?? {}),
+        requestUrl,
+        requestHeaders,
+        responseCode,
+        responseHeaders,
       );
     }
     default:
@@ -928,7 +998,7 @@ async function runOperation(state: SandboxOperation): Promise<string> {
   let source: AidokuSource | null = null;
   state.pendingRequest = null;
   try {
-    if (state.input.kind === "process-page-image" && state.imageBytes == null) {
+    if (isImageProcessingOperation(state.input) && state.imageBytes == null) {
       const imageDataName = assertString(
         state.input.imageDataName,
         "Image named-data ID",
@@ -987,7 +1057,7 @@ async function runOperation(state: SandboxOperation): Promise<string> {
       });
     }
     const settingsPatch = settingsTransaction.encodedPatch();
-    if (state.input.kind === "process-page-image") {
+    if (isImageProcessingOperation(state.input)) {
       if (value == null) return success(null, settingsPatch);
       if (!(value instanceof Uint8Array)) {
         throw new Error("Aidoku image processor returned invalid data.");
@@ -1030,6 +1100,9 @@ async function runOperation(state: SandboxOperation): Promise<string> {
       status: "error",
       code: "runtime-failed",
       detail: boundedErrorMessage(error),
+      // Keep a typed source failure (or a Cloudflare challenge) recognizable
+      // once the envelope has flattened it to JSON.
+      ...boundedErrorIdentity(error),
     });
   } finally {
     Date.now = originalDateNow;

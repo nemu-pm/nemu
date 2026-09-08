@@ -19,10 +19,12 @@ import { PageHeader } from "@/components/page-header";
 import { PageEmpty } from "@/components/page-empty";
 import { FilterDrawer, FilterHeaderBar } from "@/components/filters/aidoku";
 import { BrowseSearchBar, BrowseListingTabs } from "@/components/browse";
+import { Button } from "@/components/ui/button";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Search01Icon, Home11Icon, Refresh01Icon } from "@hugeicons/core-free-icons";
+import { Search01Icon, Home11Icon, Refresh01Icon, Alert02Icon } from "@hugeicons/core-free-icons";
 import { SourceImageProvider } from "@/hooks/use-source-image";
 import { handleSourceError } from "@/lib/sources/error-handler";
+import { sanitizeSourceErrorDiagnostic } from "@nemu/core/sources";
 
 export interface AidokuBrowseData {
   source: BrowsableSource;
@@ -90,6 +92,7 @@ export function AidokuBrowse({ data }: AidokuBrowseProps) {
 
   // Home state
   const [home, setHome] = useState<HomeLayout | null>(initialHome);
+  const [homeError, setHomeError] = useState<string | null>(null);
   const [homeLoading, setHomeLoading] = useState(false);
   const [homeRefreshing, setHomeRefreshing] = useState(false);
   const [listingRefreshKey, setListingRefreshKey] = useState(0);
@@ -130,6 +133,7 @@ export function AidokuBrowse({ data }: AidokuBrowseProps) {
 
     async function loadHome() {
       const isFirstVisit = !hasHomeBeenRefreshed(currentSource.sourceKey);
+      setHomeError(null);
 
       if (!initialHome) {
         setHomeLoading(true);
@@ -160,6 +164,7 @@ export function AidokuBrowse({ data }: AidokuBrowseProps) {
       } catch (e) {
         if (!abortController.signal.aborted) {
           handleSourceError(e, "Failed to load home");
+          setHomeError(e instanceof Error ? e.message : String(e));
         }
       } finally {
         if (!abortController.signal.aborted) {
@@ -358,6 +363,13 @@ export function AidokuBrowse({ data }: AidokuBrowseProps) {
               sourceId={sourceId}
               onListingClick={handleHomeListingClick}
             />
+          ) : homeError ? (
+            <PageEmpty
+              icon={Alert02Icon}
+              title={t("error.sourceError")}
+              description={sanitizeSourceErrorDiagnostic(homeError) ?? undefined}
+              variant="inline"
+            />
           ) : (
             <PageEmpty
               icon={Home11Icon}
@@ -374,11 +386,28 @@ export function AidokuBrowse({ data }: AidokuBrowseProps) {
             loading={loadingMore}
             onLoadMore={handleLoadMore}
             emptyState={
-              <PageEmpty
-                icon={Search01Icon}
-                title={t("browse.noResults")}
-                variant="inline"
-              />
+              activeQuery.isError ? (
+                <PageEmpty
+                  icon={Alert02Icon}
+                  title={t("error.sourceError")}
+                  description={
+                    sanitizeSourceErrorDiagnostic(activeQuery.error) ??
+                    undefined
+                  }
+                  variant="inline"
+                  action={
+                    <Button variant="outline" onClick={() => activeQuery.refetch()}>
+                      {t("common.retry")}
+                    </Button>
+                  }
+                />
+              ) : (
+                <PageEmpty
+                  icon={Search01Icon}
+                  title={t("browse.noResults")}
+                  variant="inline"
+                />
+              )
             }
           />
         )}

@@ -12,6 +12,14 @@ const MOBILE_TACHIYOMI_LOCAL_REGISTRY_ID = "tachiyomi-local";
  */
 export const MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL = `${MOBILE_TACHIYOMI_UNSUPPORTED_MARKER} Tachiyomi extensions need a native Tachiyomi bridge on mobile because Expo/React Native does not provide the Web Worker runtime used by the web implementation.`;
 
+/**
+ * Technical, untranslated detail for a source the user has switched off. Kept
+ * in English for logs; the presentation layer wraps it in a localized title.
+ * The word "disabled" is load-bearing — surfaces match on it.
+ */
+export const MOBILE_SOURCE_DISABLED_DETAIL =
+  "This source is disabled. Enable it in Settings › Sources to load new content.";
+
 export type MobileSourceKind = "aidoku" | "tachiyomi";
 
 /**
@@ -61,7 +69,33 @@ export type MobileRuntimeSource = {
   packageUri?: string | null;
   packageCacheKey?: string | null;
   packageMetadata?: SourcePackageMetadata | null;
+  /** User-disabled install: kept, synced and listed, but never executed. */
+  disabled?: boolean;
 };
+
+/**
+ * A disabled source keeps its library links, its per-source settings and its
+ * sync record; it is only hidden from every list that performs source work
+ * (browse, search, home, library refresh, the auto-update pass) and refused by
+ * the executor. The source manager deliberately keeps listing it so the user
+ * can turn it back on.
+ */
+export function isMobileInstalledSourceDisabled(
+  source:
+    | Pick<InstalledSource, "disabled">
+    | Pick<MobileRuntimeSource, "disabled">
+    | null
+    | undefined,
+): boolean {
+  return source?.disabled === true;
+}
+
+/** Drops user-disabled installs from a list that is about to run sources. */
+export function filterEnabledMobileInstalledSources<
+  T extends Pick<InstalledSource, "disabled">,
+>(sources: readonly T[]): T[] {
+  return sources.filter((source) => !isMobileInstalledSourceDisabled(source));
+}
 
 export function getMobileSourceKind(
   source:
@@ -114,6 +148,7 @@ export function normalizeInstalledSource(source: InstalledSource): MobileRuntime
     packageUri: source.packageUri,
     packageCacheKey: source.packageCacheKey,
     packageMetadata: source.packageMetadata,
+    ...(source.disabled == null ? {} : { disabled: source.disabled }),
   };
 }
 

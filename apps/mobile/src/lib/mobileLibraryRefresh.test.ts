@@ -171,6 +171,39 @@ describe("mobile library refresh", () => {
     ).toBe(false);
   });
 
+  test("skips a disabled source and counts it as blocked, not missing", async () => {
+    const stale = sourceLink("stale", { latestFetchedAt: 1_000 });
+    const off = installedSource({ disabled: true });
+
+    expect(canRefreshInstalledSource(off)).toBe(false);
+    expect(
+      hasMobileLibraryStaleSourceLinks([entry([stale])], 10_000, 2_000, [off]),
+    ).toBe(false);
+
+    const saved: LocalSourceLink[] = [];
+    const result = await refreshMobileLibraryLatestChapters({
+      entries: [entry([stale])],
+      installedSources: [off],
+      getSourceSettings: async () => ({}),
+      saveSourceLink: async (link) => {
+        saved.push(link);
+      },
+      refreshLatestChapter: async () => {
+        throw new Error("must not fetch through a disabled source");
+      },
+      force: true,
+      now: () => 10_000,
+    });
+
+    expect(result).toMatchObject({
+      checked: 0,
+      refreshed: 0,
+      blocked: 1,
+      skippedMissingSource: 0,
+    });
+    expect(saved).toEqual([]);
+  });
+
   test("matches installed source records after runtime normalization", () => {
     expect(
       findInstalledSourceForLink(

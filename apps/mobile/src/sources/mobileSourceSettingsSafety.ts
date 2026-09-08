@@ -779,6 +779,19 @@ function sanitizeNode(
       "useEmail",
       takeBoolean(context, ownValue(record, "useEmail")),
     );
+    addOptional(
+      setting,
+      "clearCookiesOnLogOut",
+      takeBoolean(
+        context,
+        // `clear_cookies_on_log_out` arrives camelCased like the rest of the
+        // login schema; the snake_case spelling is accepted defensively.
+        firstOwnValue(record, [
+          "clearCookiesOnLogOut",
+          "clear_cookies_on_log_out",
+        ]),
+      ),
+    );
     return { setting };
   }
 

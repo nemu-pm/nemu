@@ -81,6 +81,7 @@ import {
   getMobileSourceWarningMessages,
   groupMobileSourcesByLanguage,
   isMobileUnsupportedInstalledSource,
+  filterEnabledMobileInstalledSources,
   mergeMobileInstalledSourceRegistryMetadata,
   shouldRenderMobileBrowseSkeleton,
   shouldReopenMobileAddSourceSheetAfterInstall,
@@ -798,10 +799,14 @@ export function BrowseScreen() {
     [installed.data],
   );
 
+  // Browse is a source operation: a disabled install gets no card. It stays
+  // reachable (and re-enablable) from Settings › Sources.
   const installedSources = useMemo<InstalledSourceCardModel[]>(() => {
-    const merged = mergeMobileInstalledSourceRegistryMetadata(
-      installed.data,
-      available.data,
+    const merged = filterEnabledMobileInstalledSources(
+      mergeMobileInstalledSourceRegistryMetadata(
+        installed.data,
+        available.data,
+      ),
     );
     const cards = merged.map((source) => {
       const { registryId, sourceId } =

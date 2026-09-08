@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import {
   subscribeMobileDataChanges,
@@ -12,9 +12,15 @@ import {
   type MobileSourceSettingsReader,
 } from "@/lib/mobileSourceSettings";
 import {
+  forgetMobileSourceImageRequest,
   resolveCachedMobileSourceImageRequest,
   type MobileSourceImageRequest,
 } from "@/sources/mobileSourceImages";
+import {
+  reportMobileSourceImageRepaired,
+  shouldRepairMobileSourceImageRequest,
+  subscribeMobileSourceImageLoadFailures,
+} from "@/lib/mobileSourceImageRepair";
 import {
   getActiveMobileSourceProfileScope,
   registerMobileSourceProfileTransitionHandler,
@@ -154,6 +160,18 @@ function useMobileSourceImageRequestState(
     identityKey: string;
     request: MobileSourceImageRequest | null;
   } | null>(null);
+  // A processed cover resolves to an app-local `file://` URI that is memoized
+  // for this identity. If the file is pruned or lost the memoized entry is
+  // still a hit, so nothing re-resolves and the cover stays broken. The render
+  // path reports the failing URI; this holder then drops its own cache entry
+  // and resolves once more, exactly once per (identity, URI) pair.
+  const [repairNonce, setRepairNonce] = useState(0);
+  const resolvedRef = useRef<{
+    cacheKey: string | null;
+    request: MobileSourceImageRequest | null;
+  }>({ cacheKey: null, request: null });
+  const repairedUrisRef = useRef<Set<string>>(new Set());
+  const pendingRepairUriRef = useRef<string | null>(null);
   const getSourceSettings = useCallback(
     (_sourceKey: string, sourceRecord: InstalledSource) =>
       loadMobileSourceImageSettings(store, sourceRecord, sourceSettingsRevision),
@@ -166,10 +184,25 @@ function useMobileSourceImageRequestState(
     let active = true;
     void resolveCachedMobileSourceImageRequest(source, url, {
       getSourceSettings,
+      onCacheKey: (cacheKey) => {
+        resolvedRef.current = { cacheKey, request: resolvedRef.current.request };
+      },
     })
       .catch(() => null)
       .then((request) => {
         if (!active) return;
+        resolvedRef.current = {
+          cacheKey: resolvedRef.current.cacheKey,
+          request,
+        };
+        const repairedUri = pendingRepairUriRef.current;
+        pendingRepairUriRef.current = null;
+        // The repaired file comes back under the same deterministic name, so
+        // the URI is unchanged and the view needs to be told explicitly that
+        // it is worth another attempt.
+        if (repairedUri && request?.url === repairedUri) {
+          reportMobileSourceImageRepaired(repairedUri);
+        }
         setState((current) =>
           // A failed refresh keeps the last good request for the same image.
           request === null &&
@@ -183,7 +216,41 @@ function useMobileSourceImageRequestState(
     return () => {
       active = false;
     };
-  }, [getSourceSettings, imageIdentityKey, source, sourceRequestKey, url]);
+  }, [
+    getSourceSettings,
+    imageIdentityKey,
+    repairNonce,
+    source,
+    sourceRequestKey,
+    url,
+  ]);
+
+  // A new image identity gets a fresh repair budget.
+  useEffect(() => {
+    repairedUrisRef.current = new Set();
+  }, [sourceRequestKey]);
+
+  useEffect(() => {
+    if (!source || !url || !sourceRequestKey) return;
+    return subscribeMobileSourceImageLoadFailures((failedUri) => {
+      const { cacheKey, request } = resolvedRef.current;
+      if (
+        !cacheKey ||
+        !shouldRepairMobileSourceImageRequest({
+          failedUri,
+          requestUrl: request?.url,
+          alreadyRepaired: repairedUrisRef.current.has(failedUri),
+        })
+      ) {
+        return;
+      }
+      repairedUrisRef.current.add(failedUri);
+      pendingRepairUriRef.current = failedUri;
+      forgetMobileSourceImageRequest(cacheKey);
+      resolvedRef.current = { cacheKey: null, request: null };
+      setRepairNonce((current) => current + 1);
+    });
+  }, [source, sourceRequestKey, url]);
 
   const settledRequest =
     state?.identityKey === imageIdentityKey ? state.request : null;

@@ -264,6 +264,16 @@ function SourceSection({ result, addedMangaIds, addingKey, isSourceAdding, onAdd
     );
   }
 
+  if (result.error) {
+    // A failed source must stay visible; otherwise the failure looks like "no results".
+    return (
+      <div className="space-y-2">
+        <SourceSectionHeader result={result} />
+        <p className="text-sm text-destructive">{t("search.error")}: {result.error}</p>
+      </div>
+    );
+  }
+
   if (result.items.length === 0) {
     return null; // Don't show sources with no results
   }
@@ -751,7 +761,7 @@ export function SourceAddDrawer({
 }: SourceAddDrawerProps) {
   const { t } = useTranslation();
   const { useSettingsStore, useLibraryStore } = useStores();
-  const { installedSources, availableSources, getSource } = useSettingsStore();
+  const { enabledSources, availableSources, getSource } = useSettingsStore();
   const { addSource, entries: libraryEntries, mergeManga } = useLibraryStore();
   const progressIndex = useAllMangaProgress();
   const appLanguage = languageStore?.((s) => s.language) ?? "en";
@@ -788,7 +798,7 @@ export function SourceAddDrawer({
       entry.sources.map((s) => `${s.registryId}:${s.sourceId}`)
     );
 
-    const sourceInfos = installedSources
+    const sourceInfos = enabledSources
       .map((installed) => {
         const { registryId, sourceId: rawSourceId } = parseSourceKey(installed.id);
         const info = availableSources.find(
@@ -805,7 +815,7 @@ export function SourceAddDrawer({
       .filter((s) => !linkedSourceIds.has(`${s.registryId}:${s.sourceId}`));
 
     return sortSourcesByLanguagePriority(sourceInfos, appLanguage);
-  }, [installedSources, availableSources, appLanguage, entry.sources]);
+  }, [enabledSources, availableSources, appLanguage, entry.sources]);
 
   // Reset on open
   useEffect(() => {
@@ -1032,11 +1042,15 @@ export function SourceAddDrawer({
         onSourceAdded?.();
 
         // Cache manga details (title, etc.) for source manage dialog
-        getSource(registryId, sourceId).then((source) => {
-          if (source) {
-            source.getManga(manga.id).catch(() => {});
-          }
-        });
+        // Best-effort detail warm-up; a disabled or broken source must not
+        // surface as an unhandled rejection here.
+        getSource(registryId, sourceId)
+          .then((source) => {
+            if (source) {
+              source.getManga(manga.id).catch(() => {});
+            }
+          })
+          .catch(() => {});
       } catch (e) {
         console.error("[SourceAdd] Add source error:", e);
       } finally {
