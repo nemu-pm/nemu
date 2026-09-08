@@ -171,9 +171,9 @@ const patches: FilePatch[] = [
       {
         label: "runtime result-decoder import",
         before:
-          'import { readResultPayload, decodeRidFromPayload, RuntimeMode, detectRuntimeMode, } from "./result-decoder";',
+          'import { readResultPayload, decodeRidFromPayload, readResultOrThrow, AidokuResultError, RuntimeMode, detectRuntimeMode, } from "./result-decoder";',
         after:
-          'import { readResultPayload, decodeRidFromPayload, RuntimeMode, detectRuntimeMode, getResultErrorMessage, } from "./result-decoder";',
+          'import { readResultPayload, decodeRidFromPayload, readResultOrThrow, AidokuResultError, RuntimeMode, detectRuntimeMode, getResultErrorMessage, } from "./result-decoder";',
       },
       {
         label: "runtime auth export detection",
@@ -185,9 +185,9 @@ const patches: FilePatch[] = [
       {
         label: "runtime auth helpers",
         before:
-          "        function readResult(ptr) {\n            if (ptr <= 0)\n                return null;\n            try {\n                const view = new DataView(memory.buffer);\n                const len = view.getInt32(ptr, true);\n                if (len <= 8)\n                    return null;\n                const data = new Uint8Array(memory.buffer, ptr + 8, len - 8);\n                return data.slice();\n            }\n            catch {\n                return null;\n            }\n        }\n        // Helper to convert decoded filter to Filter type\n",
+          "        function readResult(ptr) {\n            if (ptr <= 0)\n                return null;\n            try {\n                const view = new DataView(memory.buffer);\n                const len = view.getInt32(ptr, true);\n                if (len <= 8)\n                    return null;\n                const data = new Uint8Array(memory.buffer, ptr + 8, len - 8);\n                return data.slice();\n            }\n            catch {\n                return null;\n            }\n        }\n        // Shared driver for the image processing exports:",
         after:
-          "        function readResult(ptr) {\n            if (ptr <= 0)\n                return null;\n            try {\n                const view = new DataView(memory.buffer);\n                const len = view.getInt32(ptr, true);\n                if (len <= 8)\n                    return null;\n                const data = new Uint8Array(memory.buffer, ptr + 8, len - 8);\n                return data.slice();\n            }\n            catch {\n                return null;\n            }\n        }\n        function readBooleanResult(resultPtr, action) {\n            if (resultPtr < 0) {\n                throw new Error(getResultErrorMessage(memory, resultPtr) ?? `${action} failed: ${resultPtr}`);\n            }\n            const payload = readResultPayload(memory, resultPtr);\n            if (freeResult && resultPtr > 0) {\n                freeResult(resultPtr);\n            }\n            if (!payload) {\n                return false;\n            }\n            const [result] = decodeBool(payload, 0);\n            return result;\n        }\n        function assertSuccess(resultCode, action) {\n            if (resultCode < 0) {\n                throw new Error(getResultErrorMessage(memory, resultCode) ?? `${action} failed: ${resultCode}`);\n            }\n        }\n        // Helper to convert decoded filter to Filter type\n",
+          "        function readResult(ptr) {\n            if (ptr <= 0)\n                return null;\n            try {\n                const view = new DataView(memory.buffer);\n                const len = view.getInt32(ptr, true);\n                if (len <= 8)\n                    return null;\n                const data = new Uint8Array(memory.buffer, ptr + 8, len - 8);\n                return data.slice();\n            }\n            catch {\n                return null;\n            }\n        }\n        function readBooleanResult(resultPtr, action) {\n            if (resultPtr < 0) {\n                throw new Error(getResultErrorMessage(memory, resultPtr) ?? `${action} failed: ${resultPtr}`);\n            }\n            const payload = readResultPayload(memory, resultPtr);\n            if (freeResult && resultPtr > 0) {\n                freeResult(resultPtr);\n            }\n            if (!payload) {\n                return false;\n            }\n            const [result] = decodeBool(payload, 0);\n            return result;\n        }\n        function assertSuccess(resultCode, action) {\n            if (resultCode < 0) {\n                throw new Error(getResultErrorMessage(memory, resultCode) ?? `${action} failed: ${resultCode}`);\n            }\n        }\n        // Shared driver for the image processing exports:",
       },
       {
         label: "runtime auth capability flags",
@@ -234,9 +234,9 @@ const patches: FilePatch[] = [
       {
         label: "runtime image-processor control-flow errors",
         before:
-          "                catch {\n                    return null;\n                }\n                finally {\n                    scope.cleanup();\n                }\n            },\n            getMangaListForListing(listing, page) {\n",
+          "            catch {\n                return null;\n            }\n            finally {\n                scope.cleanup();\n            }\n        }\n        // Helper to convert decoded filter to Filter type\n",
         after:
-          "                catch (e) {\n                    if (e instanceof CloudflareBlockedError)\n                        throw e;\n                    return null;\n                }\n                finally {\n                    scope.cleanup();\n                }\n            },\n            getMangaListForListing(listing, page) {\n",
+          "            catch (e) {\n                if (e instanceof CloudflareBlockedError)\n                    throw e;\n                return null;\n            }\n            finally {\n                scope.cleanup();\n            }\n        }\n        // Helper to convert decoded filter to Filter type\n",
       },
       {
         label: "runtime source disposal",
@@ -267,9 +267,9 @@ const patches: FilePatch[] = [
       {
         label: "runtime source disposal type",
         before:
-          "    processPageImage(imageData: Uint8Array, context: Record<string, string> | null, requestUrl: string, requestHeaders: Record<string, string>, responseCode: number, responseHeaders: Record<string, string>): Promise<Uint8Array | null>;\n}\n",
+          "    processCoverImage(imageData: Uint8Array, requestUrl: string, requestHeaders: Record<string, string>, responseCode: number, responseHeaders: Record<string, string>): Promise<Uint8Array | null>;\n}\n",
         after:
-          "    processPageImage(imageData: Uint8Array, context: Record<string, string> | null, requestUrl: string, requestHeaders: Record<string, string>, responseCode: number, responseHeaders: Record<string, string>): Promise<Uint8Array | null>;\n    dispose(): void;\n}\n",
+          "    processCoverImage(imageData: Uint8Array, requestUrl: string, requestHeaders: Record<string, string>, responseCode: number, responseHeaders: Record<string, string>): Promise<Uint8Array | null>;\n    dispose(): void;\n}\n",
       },
     ],
   },

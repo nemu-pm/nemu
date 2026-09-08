@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import okhttp3.Call
 import okhttp3.CookieJar
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -40,7 +41,6 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 private const val NEMU_NATIVE_HTTP_VERSION = "built-in"
 private const val NEMU_ASYNC_HTTP_MAX_TIMEOUT_MS = 30_000
 private const val NEMU_SYNC_HTTP_MAX_TIMEOUT_MS = 12_000
-private const val NEMU_COOKIE_SCOPE_MAX_CHARACTERS = 512
 private const val NEMU_NATIVE_HTTP_TEMP_MAX_AGE_MS = 60 * 60 * 1_000L
 private const val NEMU_NATIVE_HTTP_TEMP_ACTIVE_GRACE_MS = 5 * 60 * 1_000L
 private const val NEMU_NATIVE_HTTP_TEMP_MAX_FILES = 128
@@ -51,6 +51,28 @@ private val NEMU_NATIVE_HTTP_TEMP_FILE_PATTERN = Regex(
 )
 private const val MOBILE_USER_AGENT =
   "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36"
+
+/**
+ * Options for the on-demand Cloudflare solver. Both fields are optional so
+ * `solveCloudflare(url)` stays callable with a single argument.
+ */
+@OptimizedRecord
+class NemuAidokuCloudflareSolveOptions : Record {
+  /**
+   * Which per-source cookie jars a solved clearance cookie is written into.
+   * Absent means nothing is adopted, so the clearance only lives in the shared
+   * WebView CookieManager.
+   */
+  @Field
+  var cookieScope: String? = null
+
+  /**
+   * The User-Agent the follow-up source requests will send. A clearance cookie
+   * is bound to it, so a mismatch makes the solve useless.
+   */
+  @Field
+  var userAgent: String? = null
+}
 
 @OptimizedRecord
 class NemuAidokuHttpRequest : Record {
@@ -149,6 +171,10 @@ private data class NativeHttpImageSegmentResult(
 class NemuAidokuModule : Module() {
   private val nativeHttpCookieStore = NemuNativeHttpCookieStore()
   private val sandboxCookieStore = AidokuSandboxCookieStore()
+  // Hosts that answered this source's own requests with a Cloudflare
+  // mitigation. `solveCloudflare` renders a source-named url in a WebView, so
+  // it may only be pointed at an origin the source actually reached.
+  private val cloudflareChallengeHosts = NemuCloudflareChallengeHostRegistry()
   private val sandboxManagerOwner = AidokuSandboxManagerOwner<AidokuSandboxManager>()
   // `newBuilder()` shares the dispatcher's connection pool and thread pool.
   // Creating a brand-new client per WASM request prevented keep-alive reuse and
@@ -177,6 +203,18 @@ class NemuAidokuModule : Module() {
   private val appIsActive = AtomicBoolean(true)
   private var imageMemoryCallbacks: ComponentCallbacks2? = null
   private var imageMemoryCallbacksContext: Context? = null
+  // Explicit, never-inline Cloudflare verification. The solver owns its own
+  // narrower boundary (`NemuCloudflareChallengePolicy`) because a WebView
+  // cannot be routed through OkHttp's DNS + connected-peer gate.
+  private val cloudflareSolver by lazy {
+    NemuCloudflareSolver(
+      activityProvider = { appContext.currentActivity },
+      emit = { name, payload -> sendEvent(name, payload) },
+      adoptCookies = ::adoptSolvedCloudflareCookies,
+      storedClearance = ::storedCloudflareClearance,
+      allowsChallengeHost = cloudflareChallengeHosts::allows
+    )
+  }
 
   override fun definition() = ModuleDefinition {
     Name("NemuAidoku")
@@ -205,9 +243,9 @@ class NemuAidokuModule : Module() {
     Function("getHttpClientStatus") {
       mapOf(
         "available" to true,
-        "abiVersion" to 6,
+        "abiVersion" to 7,
         "supportsRequestLifecycle" to true,
-        "supportsCloudflareSolver" to false,
+        "supportsCloudflareSolver" to true,
         "version" to NEMU_NATIVE_HTTP_VERSION,
         "platform" to "android",
         "detail" to "Built-in native source networking is available."
@@ -266,6 +304,8 @@ class NemuAidokuModule : Module() {
     OnDestroy {
       appIsActive.set(false)
       unregisterImageMemoryCallbacks()
+      // No solver WebView may outlive the app context that hosts it.
+      cloudflareSolver.cancelAll()
       cancelInFlightWork()
       nativeHttpCookieStore.close()
       sandboxManagerOwner.destroy { it.close() }
@@ -278,6 +318,17 @@ class NemuAidokuModule : Module() {
 
     AsyncFunction("resetMobileSourceProfileAuthState") { promise: Promise ->
       resetMobileSourceProfileAuthState(promise)
+    }
+
+    AsyncFunction("clearSourceCookies") { cookieScope: String, promise: Promise ->
+      clearSourceCookies(cookieScope, promise)
+    }
+
+    AsyncFunction("cancelCloudflareSolve") { promise: Promise ->
+      // The JS sheet was dismissed. Drop the queue, abort the in-flight solve
+      // and dismiss its challenge dialog; each one reports `cancelled`.
+      cloudflareSolver.cancelUserSolves()
+      promise.resolve(null)
     }
 
     AsyncFunction("sendHttpRequest") { request: NemuAidokuHttpRequest, promise: Promise ->
@@ -383,11 +434,18 @@ class NemuAidokuModule : Module() {
       }
     }
 
-    // Keep the ABI while failing closed. Android WebView cannot route every
-    // redirect/subresource/service-worker fetch through our protected OkHttp
-    // DNS + connected-peer boundary, so it must never load an untrusted URL.
-    AsyncFunction("solveCloudflare") { url: String, promise: Promise ->
-      solveCloudflareAsync(url, promise)
+    // Explicit, never-inline Cloudflare verification. JS calls this only after
+    // the runtime already classified a source failure as a challenge; the
+    // synchronous WASM HTTP path is untouched. A WebView cannot route every
+    // redirect/subresource/worker fetch through the protected OkHttp DNS +
+    // connected-peer boundary, so the solver validates the url with the same
+    // address policy and then confines the WebView to the challenge host tree
+    // and Cloudflare's challenge platform, over https only.
+    AsyncFunction("solveCloudflare") {
+        url: String,
+        options: NemuAidokuCloudflareSolveOptions?,
+        promise: Promise ->
+      solveCloudflareAsync(url, options, promise)
     }
   }
 
@@ -459,13 +517,49 @@ class NemuAidokuModule : Module() {
     imageMemoryCallbacksContext = null
   }
 
+  /**
+   * Clears the cookies of exactly one source, for a `clear_cookies_on_log_out`
+   * log out. Both jars are keyed by the same profile-scoped source key. The
+   * global WebView [CookieManager] is deliberately left alone: it is shared by
+   * every source's interactive solve, so one source logging out must not drop
+   * another's clearance.
+   */
+  private fun clearSourceCookies(cookieScope: String, promise: Promise) {
+    val scope = nemuValidatedCookieScope(cookieScope)
+    if (scope == null) {
+      promise.reject(
+        "E_SOURCE_COOKIE_SCOPE",
+        "An invalid source cookie scope cannot be cleared.",
+        null
+      )
+      return
+    }
+    try {
+      nativeHttpCookieStore.clearScope(scope)
+      sandboxCookieStore.clearScope(scope)
+      cloudflareChallengeHosts.clearScope(scope)
+    } catch (error: Throwable) {
+      promise.reject(
+        "E_SOURCE_COOKIE_CLEAR",
+        "Could not clear this source's Android cookies.",
+        error
+      )
+      return
+    }
+    promise.resolve(null)
+  }
+
   private fun resetMobileSourceProfileAuthState(promise: Promise) {
     // Cancel native source work before clearing every scoped and WebView cookie
     // store so a stale response cannot repopulate the next profile. The sandbox
     // jars are the ones `executeSandboxHttpRequest` and image decoration use,
     // so leaving them behind would carry a source login across the transition.
+    // A solve in flight would otherwise write a clearance cookie into jars that
+    // belong to the profile being left.
+    cloudflareSolver.cancelAll()
     nativeHttpCookieStore.clear()
     sandboxCookieStore.clear()
+    cloudflareChallengeHosts.clear()
     cancelInFlightWork()
 
     val settled = AtomicBoolean(false)
@@ -627,6 +721,7 @@ class NemuAidokuModule : Module() {
       maxResponseBytes = NEMU_AIDOKU_SANDBOX_MAX_HTTP_BYTES
     }
     val response = executeRequest(client, nativeRequest, allowBackground = true)
+    recordCloudflareChallengeHost(request.sourceKey, request.url, response)
     return AidokuSandboxHttpResponse(
       status = response.status,
       headers = response.headers,
@@ -695,8 +790,10 @@ class NemuAidokuModule : Module() {
       // RN JS thread for up to 45 seconds. The 403/429/503 response is surfaced
       // as CloudflareBlockedError by aidoku-runtime; the Nemu Agent sheet then
       // invokes the non-blocking `solveCloudflare` API and retries explicitly.
+      val result = executeRequest(client, request, allowBackground)
+      recordCloudflareChallengeHost(cookieScope, request.url, result)
       return response(
-        executeRequest(client, request, allowBackground),
+        result,
         handledCloudflare = false,
         responseMode = request.responseMode
       )
@@ -763,14 +860,14 @@ class NemuAidokuModule : Module() {
       val context = appContext.reactContext?.applicationContext
         ?: return fileResponse(status = 0, error = "React Native context is unavailable.")
       pruneNativeHttpTemporaryFiles(context.cacheDir)
-      return fileResponse(
-        executeFileRequest(
-          clientBuilder.build(),
-          request,
-          context.cacheDir,
-          imagePolicy
-        )
+      val result = executeFileRequest(
+        clientBuilder.build(),
+        request,
+        context.cacheDir,
+        imagePolicy
       )
+      recordCloudflareChallengeHost(cookieScope, request.url, result.status, result.headers)
+      return fileResponse(result)
     } finally {
       if (requestId != null) releaseHttpRequest(requestId)
     }
@@ -1143,15 +1240,83 @@ class NemuAidokuModule : Module() {
     }
   }
 
-  private fun solveCloudflareAsync(url: String, promise: Promise) {
-    sendEvent(
-      "nemuAidokuCfFailed",
-      mapOf(
-        "url" to url,
-        "reason" to "Secure Cloudflare verification is unavailable on this platform."
-      )
-    )
-    promise.resolve(false)
+  private fun solveCloudflareAsync(
+    url: String,
+    options: NemuAidokuCloudflareSolveOptions?,
+    promise: Promise
+  ) {
+    val settled = AtomicBoolean(false)
+    // The solver's SSRF pre-flight resolves the challenge host, and Expo runs
+    // every default AsyncFunction on one shared HandlerThread. Do the blocking
+    // lookup on the lifecycle-bound IO scope so a slow resolver cannot stall
+    // unrelated Expo modules; the solver itself hops to the main thread.
+    appContext.backgroundCoroutineScope.launch {
+      cloudflareSolver.solve(
+        urlString = url,
+        cookieScope = options?.cookieScope,
+        userAgent = options?.userAgent
+      ) { solved ->
+        // Expected failures resolve `false`; the JS sheet drives its copy from
+        // the `nemuAidokuCfFailed` reason instead of a rejection.
+        if (settled.compareAndSet(false, true)) promise.resolve(solved)
+      }
+    }
+  }
+
+  /**
+   * Publishes a solved challenge's cookies into both jars a source reads from:
+   * `sandboxCookieStore` for isolated-runtime HTTP and image header
+   * decoration, and `nativeHttpCookieStore` for direct native HTTP. Both are
+   * keyed by the profile-scoped execution key JS passes as `cookieScope`
+   * (`<profileScope>::<registryId>:<sourceId>`) — the same key the source's
+   * own requests use — so one scope value covers both and the clearance lands
+   * in the jar the next request reads. Their count/byte caps still apply.
+   */
+  private fun recordCloudflareChallengeHost(
+    cookieScope: String?,
+    urlString: String,
+    result: NativeHttpResult
+  ) = recordCloudflareChallengeHost(cookieScope, urlString, result.status, result.headers)
+
+  /**
+   * Remembers a host that answered this source's request with a Cloudflare
+   * mitigation, so a later `solveCloudflare` can tell an origin the source
+   * really reached from one a hostile package simply named. The registry
+   * decides what counts as a mitigation; everything else is dropped.
+   */
+  private fun recordCloudflareChallengeHost(
+    cookieScope: String?,
+    urlString: String,
+    status: Int,
+    headers: Map<String, String>
+  ) {
+    val host = urlString.toHttpUrlOrNull()?.host ?: return
+    cloudflareChallengeHosts.record(cookieScope, host, status, headers)
+  }
+
+  private fun adoptSolvedCloudflareCookies(
+    cookieScope: String?,
+    url: HttpUrl,
+    cookieHeader: String
+  ) {
+    val scope = cookieScope?.trim()?.takeIf { it.isNotEmpty() } ?: return
+    if (cookieHeader.isBlank()) return
+    runCatching { sandboxCookieStore.get(scope).adoptSolvedCookies(url, cookieHeader) }
+    runCatching { nativeHttpCookieStore.get(scope).adoptSolvedCookies(url, cookieHeader) }
+  }
+
+  /**
+   * The `cf_clearance` the source already holds, used as the baseline a solve
+   * has to beat before it counts as solved.
+   */
+  private fun storedCloudflareClearance(cookieScope: String?, url: HttpUrl): String? {
+    val scope = cookieScope?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return runCatching {
+      sandboxCookieStore.get(scope)
+        .loadForRequest(url)
+        .firstOrNull { it.name == NEMU_CLOUDFLARE_CLEARANCE_COOKIE }
+        ?.value
+    }.getOrNull()
   }
 
   private fun response(

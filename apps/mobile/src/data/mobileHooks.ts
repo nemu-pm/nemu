@@ -119,6 +119,7 @@ import {
   normalizeMobileSourceSettingsKeys,
 } from "@/lib/mobileSourceSettings";
 import { removeMobileSourceAfterSettingsCleanup } from "@/lib/mobileSourceUninstall";
+import { setMobileInstalledSourceDisabled } from "./mobileSourceEnablement";
 import {
   emitMobileDataChanged,
   emitMobileSettingsDataChanged,
@@ -233,6 +234,10 @@ async function saveMobileRegistrySourceInstall(
     version: packageMetadata?.version ?? source.version,
     updatedAt: nextSyncTimestamp(existing?.updatedAt),
     removed: false,
+    // A reinstall or an update rewrites the whole record; carry the user's
+    // disable toggle across so it is not silently dropped. Re-enabling stays
+    // an explicit action in Settings › Sources.
+    ...(existing?.disabled == null ? {} : { disabled: existing.disabled }),
   };
   const persisted = await persistMobileRegistrySourceInstall({
     store,
@@ -1909,4 +1914,42 @@ export function useSourceInstaller(): {
   );
 
   return { installingKey, installSource, cancelInstall, uninstallSource };
+}
+
+export function useInstalledSourceDisabler(): {
+  togglingSourceId: string | null;
+  setSourceDisabled: (
+    source: InstalledSource,
+    disabled: boolean,
+  ) => Promise<void>;
+} {
+  const store = useMobileDataStore();
+  const [togglingSourceId, setTogglingSourceId] = useState<string | null>(null);
+
+  const setSourceDisabled = useCallback(
+    async (source: InstalledSource, disabled: boolean) => {
+      setTogglingSourceId(source.id);
+      try {
+        const changed = await setMobileInstalledSourceDisabled(
+          store,
+          source,
+          disabled,
+          (evicted) => {
+            defaultMobileSourceSessionCache.remove(
+              makeMobileRuntimeSourceKey(normalizeInstalledSource(evicted)),
+            );
+          },
+        );
+        if (!changed) return;
+        // Also emits the "sources" scope, so every installed-source consumer
+        // reloads alongside the settings screen.
+        emitMobileSettingsDataChanged({ installedSourcesChanged: true });
+      } finally {
+        setTogglingSourceId(null);
+      }
+    },
+    [store],
+  );
+
+  return { togglingSourceId, setSourceDisabled };
 }

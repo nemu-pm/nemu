@@ -43,6 +43,13 @@ export type MobileNativeHttpDownloadResponse =
   | MobileNativeHttpFileResponse
   | MobileNativeHttpSegmentedImageResponse;
 
+/**
+ * Native-only. There are no temporary download files to release off-device.
+ */
+export function releaseMobileNativeHttpFile(fileUri: string | null): void {
+  void fileUri;
+}
+
 /** Native-only. The base module deliberately has no browser download fallback. */
 export async function downloadMobileNativeHttpFile(
   request: MobileNativeHttpFileRequest,

@@ -269,6 +269,36 @@ describe("settings schema sanitizer", () => {
     ).toHaveLength(MAX_SETTING_OPTIONS);
   });
 
+  test("parses the login clear-cookies-on-logout flag", () => {
+    const [camel, snake, wrong, absent] = sanitizeSettingsSchema([
+      {
+        type: "login",
+        key: "camel",
+        title: "Camel",
+        clearCookiesOnLogOut: true,
+      },
+      {
+        type: "login",
+        key: "snake",
+        title: "Snake",
+        clear_cookies_on_log_out: true,
+      },
+      {
+        type: "login",
+        key: "wrong",
+        title: "Wrong",
+        clearCookiesOnLogOut: "yes",
+      },
+      { type: "login", key: "absent", title: "Absent" },
+    ]);
+
+    expect(camel).toMatchObject({ type: "login", clearCookiesOnLogOut: true });
+    expect(snake).toMatchObject({ type: "login", clearCookiesOnLogOut: true });
+    expect(wrong).toMatchObject({ type: "login" });
+    expect(wrong).not.toHaveProperty("clearCookiesOnLogOut");
+    expect(absent).not.toHaveProperty("clearCookiesOnLogOut");
+  });
+
   test("is idempotent and returns an empty schema for invalid roots", () => {
     const once = sanitizeSettingsSchema([
       {

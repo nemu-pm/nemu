@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { useStores, useAuth, useSyncStore } from "@/data/context";
 import { parseSourceKey } from "@/data/keys";
 import type { SyncStore } from "@/stores/sync";
@@ -94,6 +95,7 @@ export function SettingsPage() {
     installedSources,
     loading,
     uninstallSource,
+    setSourceDisabled,
     reloadSource,
   } = useSettingsStore();
   const currentLanguage = languageStore
@@ -109,6 +111,7 @@ export function SettingsPage() {
   const [signInOpen, setSignInOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [uninstalling, setUninstalling] = useState<string | null>(null);
+  const [togglingSource, setTogglingSource] = useState<string | null>(null);
   // Source settings - separate open state from data so data persists during exit animation
   const [settingsSourceOpen, setSettingsSourceOpen] = useState(false);
   const [settingsSourceData, setSettingsSourceData] = useState<{
@@ -149,6 +152,31 @@ export function SettingsPage() {
       icon: info?.icon,
     };
   });
+
+  // A disabled source keeps its library links, its settings and its sync
+  // record; it is only hidden from browse/search and refused by the runtime.
+  const handleToggleSourceDisabled = async (
+    source: { registryId: string; sourceId: string; name: string },
+    nextEnabled: boolean
+  ) => {
+    const key = `${source.registryId}:${source.sourceId}`;
+    setTogglingSource(key);
+    try {
+      await setSourceDisabled(source.registryId, source.sourceId, !nextEnabled);
+      toast.success(
+        t(
+          nextEnabled
+            ? "settings.sourceEnabledToast"
+            : "settings.sourceDisabledToast",
+          { name: source.name }
+        )
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTogglingSource(null);
+    }
+  };
 
   const handleUninstallConfirm = async () => {
     if (!uninstallConfirm) return;
@@ -242,12 +270,18 @@ export function SettingsPage() {
             </p>
           ) : (
             <div className="space-y-2">
-              {installedSourcesInfo.map((source) => (
+              {installedSourcesInfo.map((source) => {
+                const sourceEnabled = source.disabled !== true;
+                return (
                 <div
                   key={source.id}
                   className="flex items-center justify-between rounded-lg border p-3"
                 >
-                  <div className="flex items-center gap-3">
+                  <div
+                    className={`flex items-center gap-3 ${
+                      sourceEnabled ? "" : "opacity-50"
+                    }`}
+                  >
                     {source.icon ? (
                       <img
                         src={source.icon}
@@ -261,6 +295,11 @@ export function SettingsPage() {
                       <div className="flex items-center gap-1">
                         <p className="font-medium">{source.name}</p>
                         <Badge variant="secondary">v{source.version}</Badge>
+                        {sourceEnabled ? null : (
+                          <Badge variant="outline">
+                            {t("settings.sourceDisabledBadge")}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm text-muted-foreground">
                         {source.registryId}
@@ -272,6 +311,9 @@ export function SettingsPage() {
                       type="button"
                       variant="ghost"
                       size="icon-sm"
+                      // Source settings load the source through getSource,
+                      // which refuses a disabled install.
+                      disabled={!sourceEnabled}
                       aria-label={t("settings.configureSource", {
                         name: source.name,
                       })}
@@ -292,6 +334,31 @@ export function SettingsPage() {
                     >
                       <HugeiconsIcon icon={Settings02Icon} className="size-4" />
                     </Button>
+                    <Switch
+                      checked={sourceEnabled}
+                      disabled={
+                        togglingSource ===
+                        `${source.registryId}:${source.sourceId}`
+                      }
+                      aria-label={t("settings.toggleSourceLabel", {
+                        name: source.name,
+                      })}
+                      title={t(
+                        sourceEnabled
+                          ? "settings.disableSource"
+                          : "settings.enableSource"
+                      )}
+                      onCheckedChange={(checked) => {
+                        void handleToggleSourceDisabled(
+                          {
+                            registryId: source.registryId,
+                            sourceId: source.sourceId,
+                            name: source.name,
+                          },
+                          checked
+                        );
+                      }}
+                    />
                     <Button
                       type="button"
                       variant="ghost"
@@ -314,7 +381,8 @@ export function SettingsPage() {
                     </Button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

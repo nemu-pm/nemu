@@ -62,6 +62,55 @@ describe("native HTTP SSRF policy", () => {
     expect(policy).toContain("route()?.socketAddress?.address");
     expect(policy).toContain("first == 100 && second in 64..127");
     expect(policy).toContain("2000::/3");
+
+    // The Cloudflare solver is a WebView, so it cannot inherit the OkHttp DNS
+    // + connected-peer boundary above. Pin the narrower boundary it gets: the
+    // address policy validates the url, then every request is checked against
+    // the challenge host tree and Cloudflare's challenge platform.
+    expect(module).toContain('"supportsCloudflareSolver" to true');
+    expect(module).toContain("cloudflareSolver.solve(");
+    expect(module).toContain("promise.resolve(solved)");
+    expect(module).toContain("sandboxCookieStore.get(scope).adoptSolvedCookies(");
+    expect(module).toContain(
+      "nativeHttpCookieStore.get(scope).adoptSolvedCookies(",
+    );
+
+    const solver = read("runtime/kotlin/NemuCloudflareSolver.kt");
+    const challengePolicy = read(
+      "runtime/kotlin/NemuCloudflareChallengePolicy.kt",
+    );
+    expect(solver).toContain(
+      "NemuNativeHttpAddressPolicy.requirePublicDestination(challengeHost)",
+    );
+    expect(solver).toContain(
+      "NemuNativeHttpAddressPolicy.resolvePublicAddresses(challengeHost)",
+    );
+    expect(solver).toContain("override fun shouldInterceptRequest(");
+    expect(solver).toContain("override fun shouldOverrideUrlLoading(");
+    expect(solver).toContain('"Blocked",');
+    expect(solver).toContain("allowFileAccess = false");
+    expect(solver).toContain("allowContentAccess = false");
+    expect(solver).toContain("allowFileAccessFromFileURLs = false");
+    expect(solver).toContain("allowUniversalAccessFromFileURLs = false");
+    expect(solver).toContain("javaScriptEnabled = true");
+    expect(solver).toContain(
+      "mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW",
+    );
+
+    expect(challengePolicy).toContain(
+      'CHALLENGE_PLATFORM_HOST = "challenges.cloudflare.com"',
+    );
+    expect(challengePolicy).toContain(
+      'CHALLENGE_PLATFORM_PATH_PREFIX = "/cdn-cgi/challenge-platform/"',
+    );
+    expect(challengePolicy).toContain('!"https".equals(scheme, ignoreCase = true)');
+    expect(challengePolicy).toContain(
+      "NemuNativeHttpAddressPolicy.isNumericHostname(normalized)",
+    );
+    expect(challengePolicy).toContain(
+      "NemuNativeHttpAddressPolicy.isForbiddenHostname(normalized)",
+    );
+    expect(challengePolicy).toContain("cookieDomainCoversChallengeHost");
   });
 
   test("iOS pins validated IPs behind an authenticated no-failover loopback proxy", () => {
@@ -87,7 +136,12 @@ describe("native HTTP SSRF policy", () => {
         /NemuNativeHttpLoopbackProxy\.shared\.harden\(configuration\)/g,
       ),
     ).toHaveLength(2);
-    expect(module).toContain('"supportsCloudflareSolver": false');
+    // The Cloudflare solver is a WebView, so it cannot inherit this loopback
+    // proxy boundary. Pin the narrower boundary it gets instead: the address
+    // policy validates the url, a compiled allow-list plus `decidePolicyFor`
+    // confine every request to the challenge host tree and Cloudflare's
+    // challenge platform, and the WebView never carries app cookies.
+    expect(module).toContain('"supportsCloudflareSolver": true');
     const solveStart = module.indexOf(
       "private static func solveCloudflareAsync(",
     );
@@ -95,10 +149,49 @@ describe("native HTTP SSRF policy", () => {
       "private static func downloadHttpFileAsync(",
     );
     const solve = module.slice(solveStart, solveEnd);
-    expect(solve).toContain("Secure Cloudflare verification is unavailable");
-    expect(solve).toContain("promise.resolve(false)");
-    expect(solve).not.toContain("WKWebView");
-    expect(solve).not.toContain(".solveAsync(");
+    expect(solve).toContain("NemuAidokuCloudflareSolver.shared.solve(");
+    expect(solve).toContain("promise.resolve(solved)");
+    expect(solve).not.toContain("promise.reject(");
+
+    const solver = read("ios/NemuAidokuCloudflareSolver.swift");
+    const challengePolicy = read("ios/NemuCloudflareChallengePolicy.swift");
+    expect(solver).toContain(
+      "NemuNativeHttpAddressPolicy.validatedURL(urlString)",
+    );
+    expect(solver).toContain(
+      "NemuCloudflareChallengePolicy.challengeHost(for: url)",
+    );
+    expect(solver).toContain("WKWebsiteDataStore.nonPersistent()");
+    expect(solver).toContain(
+      "NemuCloudflareChallengePolicy.contentRuleListJSON(challengeHost: challengeHost)",
+    );
+    expect(solver).toContain("store.compileContentRuleList(");
+    expect(solver).toContain("configuration.userContentController.add(ruleList)");
+    // Fail closed: no load at all without the compiled allow-list.
+    expect(solver).toContain("self.fail(.ruleListUnavailable)");
+    expect(solver).toContain(
+      "NemuCloudflareChallengePolicy.allowsMainFrameNavigation(",
+    );
+    expect(solver).toContain("NemuCloudflareChallengePolicy.allowsSubresource(");
+    expect(solver).toContain("decisionHandler(allowed ? .allow : .cancel");
+    expect(solver).toContain("createWebViewWith");
+    expect(solver).not.toContain("allowsContentJavaScript = false");
+
+    expect(challengePolicy).toContain('challengePlatformHost = "challenges.cloudflare.com"');
+    expect(challengePolicy).toContain(
+      'challengePlatformPathPrefix = "/cdn-cgi/challenge-platform/"',
+    );
+    expect(challengePolicy).toContain('url.scheme?.lowercased() == "https"');
+    expect(challengePolicy).toContain(
+      "NemuNativeHttpAddressPolicy.isNumericHostname(host)",
+    );
+    expect(challengePolicy).toContain(
+      "NemuNativeHttpAddressPolicy.isForbiddenHostname(host)",
+    );
+    expect(challengePolicy).toContain('"url-filter": ".*"');
+    expect(challengePolicy).toContain('"type": "block"');
+    expect(challengePolicy).toContain('"type": "ignore-previous-rules"');
+    expect(challengePolicy).toContain("cookieDomainCoversChallengeHost");
     expect(policy).toContain("isPublicAddress(address) ||");
     expect(policy).toContain(
       "allowProxySyntheticAddresses && isProxySyntheticAddress(address)",
@@ -183,6 +276,10 @@ describe("native HTTP SSRF policy", () => {
     const requestHeaderExecutable = path.join(
       directory,
       "request-header-policy-tests",
+    );
+    const cloudflarePolicyExecutable = path.join(
+      directory,
+      "cloudflare-challenge-policy-tests",
     );
     try {
       const compileAddress = runCommand(
@@ -331,6 +428,40 @@ describe("native HTTP SSRF policy", () => {
         throw new Error(
           runRequestHeader.stderr ||
             runRequestHeader.stdout ||
+            "Swift policy test failed",
+        );
+      }
+
+      const compileCloudflare = runCommand(
+        "xcrun",
+        [
+          "swiftc",
+          path.join(moduleRoot, "ios/NemuCloudflareChallengePolicy.swift"),
+          path.join(moduleRoot, "ios/NemuNativeHttpAddressPolicy.swift"),
+          path.join(moduleRoot, "ios/NemuNativeHttpLoopbackProxy.swift"),
+          path.join(
+            moduleRoot,
+            "runtime/iosTest/NemuCloudflareChallengePolicyTests.swift",
+          ),
+          "-framework",
+          "Network",
+          "-o",
+          cloudflarePolicyExecutable,
+        ],
+        { env: swiftEnvironment(moduleCache) },
+      );
+      if (compileCloudflare.status !== 0) {
+        throw new Error(
+          compileCloudflare.stderr ||
+            compileCloudflare.stdout ||
+            "swiftc failed",
+        );
+      }
+      const runCloudflare = runCommand(cloudflarePolicyExecutable, []);
+      if (runCloudflare.status !== 0) {
+        throw new Error(
+          runCloudflare.stderr ||
+            runCloudflare.stdout ||
             "Swift policy test failed",
         );
       }

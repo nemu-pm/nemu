@@ -19,10 +19,12 @@ import { PageHeader } from "@/components/page-header";
 import { PageEmpty } from "@/components/page-empty";
 import { TachiyomiFilterDrawer, TachiyomiFilterHeaderBar } from "@/components/filters/tachiyomi";
 import { BrowseSearchBar, BrowseListingTabs } from "@/components/browse";
+import { Button } from "@/components/ui/button";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Search01Icon, Refresh01Icon } from "@hugeicons/core-free-icons";
+import { Search01Icon, Refresh01Icon, Alert02Icon } from "@hugeicons/core-free-icons";
 import { SourceImageProvider } from "@/hooks/use-source-image";
 import { handleSourceError } from "@/lib/sources/error-handler";
+import { sanitizeSourceErrorDiagnostic } from "@nemu/core/sources";
 
 export interface TachiyomiBrowseData {
   source: TachiyomiBrowsableSource;
@@ -259,11 +261,27 @@ export function TachiyomiBrowse({ data }: TachiyomiBrowseProps) {
           loading={loadingMore}
           onLoadMore={handleLoadMore}
           emptyState={
-            <PageEmpty
-              icon={Search01Icon}
-              title={t("browse.noResults")}
-              variant="inline"
-            />
+            activeQuery.isError ? (
+              <PageEmpty
+                icon={Alert02Icon}
+                title={t("error.sourceError")}
+                description={
+                  sanitizeSourceErrorDiagnostic(activeQuery.error) ?? undefined
+                }
+                variant="inline"
+                action={
+                  <Button variant="outline" onClick={() => activeQuery.refetch()}>
+                    {t("common.retry")}
+                  </Button>
+                }
+              />
+            ) : (
+              <PageEmpty
+                icon={Search01Icon}
+                title={t("browse.noResults")}
+                variant="inline"
+              />
+            )
           }
         />
 

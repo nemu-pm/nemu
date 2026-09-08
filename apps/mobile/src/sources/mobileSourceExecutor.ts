@@ -19,6 +19,8 @@ import {
   type ResolveCachedMobileSourcePackageUri,
 } from "./mobileSourcePackageLoader";
 import {
+  isMobileInstalledSourceDisabled,
+  MOBILE_SOURCE_DISABLED_DETAIL,
   MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL,
   type MobileRuntimeSource,
 } from "./mobileSourceRuntime";
@@ -74,6 +76,21 @@ export type MobileAidokuExecutorSource = Omit<
    * signature as applied must await it — see the session cache. */
   updateSettings: (settings: Record<string, unknown>) => void | Promise<void>;
   getSettingsSchema?: () => Promise<string | null>;
+  /**
+   * Cover processing, when the bridge exposes it.
+   *
+   * Optional for the same reason as the auth handlers below: a bridge that
+   * predates the capability simply omits it, and cover resolution then keeps
+   * the plain url+headers path.
+   */
+  hasCoverImageProcessor?: () => Promise<boolean>;
+  processCoverImage?: (
+    imageData: Uint8Array,
+    requestUrl: string,
+    requestHeaders: Record<string, string>,
+    responseCode: number,
+    responseHeaders: Record<string, string>,
+  ) => Promise<Uint8Array | null>;
   handleBasicLogin?: (
     key: string,
     username: string,
@@ -121,6 +138,7 @@ export type MobileSourceExecutorFailure =
   | "unsupported-platform"
   | "unsupported-package"
   | "unsafe-runtime-disabled"
+  | "source-disabled"
   | "bridge-load-failed"
   | "invalid-native-session";
 
@@ -155,6 +173,17 @@ export async function createMobileSourceExecutorSession(
   source: MobileRuntimeSource | null | undefined,
   options: MobileSourceExecutorOptions = {}
 ): Promise<MobileSourceExecutorSession> {
+  if (source && isMobileInstalledSourceDisabled(source)) {
+    // Refuse before package hydration: a disabled source must not read its
+    // cached package, spin up a bridge, or reach the network at all.
+    return {
+      status: "blocked",
+      sourceKey: `${source.registryId}:${source.sourceId}`,
+      reason: "source-disabled",
+      detail: MOBILE_SOURCE_DISABLED_DETAIL,
+    };
+  }
+
   if (source?.sourceKind === "tachiyomi") {
     // This build intentionally has no native Tachiyomi runtime. Fail before
     // package hydration or a cache read: an APK can be tens of MiB and no

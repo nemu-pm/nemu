@@ -47,12 +47,29 @@ export interface SourceInfo extends RegistrySourceInfo {
   installed: boolean;
 }
 
+/**
+ * A disabled source stays installed — its library links, its per-source
+ * settings and its sync record all survive — but nothing may run it. Every
+ * consumer that performs source work (browse tabs, global search, metadata
+ * matching, the background auto-update pass) reads `enabledSources`; the
+ * library and the source-management UI keep reading `installedSources` so a
+ * disabled source stays visible and re-enablable.
+ */
+export function filterEnabledSources<T extends { disabled?: boolean }>(
+  sources: T[],
+): T[] {
+  return sources.filter((source) => source.disabled !== true);
+}
+
 interface SettingsState {
   manager: RegistryManager;
   // All available sources from registries
   availableSources: SourceInfo[];
-  // Currently installed sources
+  // Currently installed sources (includes user-disabled installs)
   installedSources: InstalledSource[];
+  // Installed sources the user has not disabled; the list every source
+  // operation must iterate.
+  enabledSources: InstalledSource[];
   // Reading preferences
   readingMode: ReadingMode;
   loading: boolean;
@@ -71,6 +88,11 @@ interface SettingsState {
   ) => void;
   installSource: (registryId: string, sourceId: string) => Promise<void>;
   uninstallSource: (registryId: string, sourceId: string) => Promise<void>;
+  setSourceDisabled: (
+    registryId: string,
+    sourceId: string,
+    disabled: boolean,
+  ) => Promise<void>;
   getSource: (
     registryId: string,
     sourceId: string,
@@ -105,6 +127,13 @@ export function createSettingsStore(
       }
       return token;
     };
+    // Keeps `enabledSources` in lockstep with every `installedSources` write.
+    const installedSourcesUpdate = (
+      sources: InstalledSource[],
+    ): Pick<SettingsState, "installedSources" | "enabledSources"> => ({
+      installedSources: sources,
+      enabledSources: filterEnabledSources(sources),
+    });
     const setIfCurrent = (
       token: StoreGenerationToken,
       update:
@@ -118,6 +147,7 @@ export function createSettingsStore(
       manager,
       availableSources: [],
       installedSources: [],
+      enabledSources: [],
       readingMode: "rtl",
       loading: true,
       error: null,
@@ -132,7 +162,7 @@ export function createSettingsStore(
           // The visible/account state still fails closed if source disposal fails.
         }
         set((state) => ({
-          installedSources: [],
+          ...installedSourcesUpdate([]),
           availableSources: state.availableSources.map((source) => ({
             ...source,
             installed: false,
@@ -147,7 +177,7 @@ export function createSettingsStore(
         if (generationGate.currentGeneration !== generation) return;
         const installedIds = new Set(sources.map((source) => source.id));
         set((state) => ({
-          installedSources: sources,
+          ...installedSourcesUpdate(sources),
           availableSources: state.availableSources.map((source) => ({
             ...source,
             installed: installedIds.has(`${source.registryId}:${source.id}`),
@@ -205,7 +235,7 @@ export function createSettingsStore(
           // background so slow networks can't hold the first render hostage.
           setIfCurrent(token, {
             availableSources,
-            installedSources,
+            ...installedSourcesUpdate(installedSources),
             readingMode,
             loading: false,
           });
@@ -214,7 +244,11 @@ export function createSettingsStore(
           // the state is live; the refreshed install list lands when done.
           void (async () => {
             try {
-              const outdated = installedSources.flatMap((installed) => {
+              // Disabled sources are not run, so they are not auto-updated
+              // either; a broken source stays pinned until re-enabled.
+              const outdated = filterEnabledSources(
+                installedSources,
+              ).flatMap((installed) => {
                 const { registryId, sourceId } = parseSourceKey(installed.id);
                 const registrySource = allSources.find(
                   (s) => s.registryId === registryId && s.id === sourceId,
@@ -268,7 +302,7 @@ export function createSettingsStore(
                   finalInstalledSources.map((s) => s.id),
                 );
                 return {
-                  installedSources: finalInstalledSources,
+                  ...installedSourcesUpdate(finalInstalledSources),
                   availableSources: state.availableSources.map((s) => ({
                     ...s,
                     installed: finalInstalledIds.has(
@@ -322,7 +356,7 @@ export function createSettingsStore(
           const installedIds = new Set(installedSources.map((s) => s.id));
 
           setIfCurrent(token, (state) => ({
-            installedSources,
+            ...installedSourcesUpdate(installedSources),
             availableSources: state.availableSources.map((s) => ({
               ...s,
               installed: installedIds.has(Keys.source(s.registryId, s.id)),
@@ -359,7 +393,7 @@ export function createSettingsStore(
         const installedIds = new Set(installedSources.map((s) => s.id));
 
         setIfCurrent(token, (state) => ({
-          installedSources,
+          ...installedSourcesUpdate(installedSources),
           availableSources: state.availableSources.map((s) => ({
             ...s,
             installed: installedIds.has(Keys.source(s.registryId, s.id)),
@@ -367,9 +401,58 @@ export function createSettingsStore(
         }));
       },
 
+      setSourceDisabled: async (
+        registryId: string,
+        sourceId: string,
+        disabled: boolean,
+      ) => {
+        const token = await beginAction();
+        const compositeId = Keys.source(registryId, sourceId);
+        const existing = await ops.getInstalledSource(compositeId);
+        if (!existing) return;
+        if ((existing.disabled === true) === disabled) return;
+
+        // Disabling must stop the running instance too: leaving a loaded source
+        // in the registry keeps it answering calls until something evicts it.
+        if (disabled) {
+          try {
+            manager.getRegistry(registryId)?.unloadSource(sourceId);
+          } catch {
+            // A failed dispose must not block the persisted state change.
+          }
+        }
+
+        // Same write-through path as install/uninstall: the local store bumps
+        // updatedAt off the sync clock and the Convex mutation follows, so a
+        // toggle wins last-writer-wins against a stale remote record.
+        await ops.saveInstalledSource(
+          { ...existing, disabled },
+          token.generation,
+        );
+
+        const installedSources = await ops.getInstalledSources();
+        setIfCurrent(token, installedSourcesUpdate(installedSources));
+      },
+
       getSource: async (registryId: string, sourceId: string) => {
         const token = await beginAction();
-        const { manager, availableSources } = get();
+        const { manager, availableSources, installedSources } = get();
+
+        // A disabled source stays installed and its cached pages stay readable,
+        // but any live fetch must fail loudly rather than silently returning
+        // nothing. Checked against warm state — getSource is on the hot path
+        // for every reader page and source image.
+        const compositeId = Keys.source(registryId, sourceId);
+        const installed = installedSources.find(
+          (source) => source.id === compositeId,
+        );
+        if (installed?.disabled === true) {
+          throw new Error(
+            i18n.t("settings.sourceDisabledError", {
+              name: installed.name ?? sourceId,
+            }),
+          );
+        }
 
         // Registry is the single source of truth for loaded sources
         const registry = manager.getRegistry(registryId);
@@ -408,7 +491,7 @@ export function createSettingsStore(
             const installedSources = await ops.getInstalledSources();
             const installedIds = new Set(installedSources.map((s) => s.id));
             setIfCurrent(token, (state) => ({
-              installedSources,
+              ...installedSourcesUpdate(installedSources),
               availableSources: state.availableSources.map((s) => ({
                 ...s,
                 installed: installedIds.has(Keys.source(s.registryId, s.id)),
@@ -472,7 +555,7 @@ export function createSettingsStore(
 
         // Reload installed sources
         const installedSources = await ops.getInstalledSources();
-        setIfCurrent(token, { installedSources });
+        setIfCurrent(token, installedSourcesUpdate(installedSources));
       },
 
       setReadingMode: (mode: ReadingMode) => {

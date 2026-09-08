@@ -118,6 +118,7 @@ import { getMobileSyncEpoch } from "@/sync/mobileSyncRuntime";
 import { nextSyncTimestamp } from "@nemu/core";
 import { refreshMobileSourceMetadata } from "@/sources/mobileSourceDetails";
 import {
+  filterEnabledMobileInstalledSources,
   makeMobileRuntimeSourceKey,
   normalizeInstalledSource,
 } from "@/sources/mobileSourceRuntime";
@@ -595,7 +596,11 @@ export function MobileSourceManagerSheet({
   );
   const searchableSources = useMemo(
     () => {
-      const unlinkedSources = installedSources.data
+      // Matching a new link searches the source, so a disabled install is not
+      // offered here; its already-linked rows below stay visible.
+      const unlinkedSources = filterEnabledMobileInstalledSources(
+        installedSources.data,
+      )
         .filter(
           (source) =>
             !entry.sources.some((link) =>

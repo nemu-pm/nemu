@@ -6,6 +6,7 @@ import type {
   NemuAidokuHttpFileResponse,
   NemuAidokuHttpRequest,
   NemuAidokuHttpResponse,
+  NemuAidokuCloudflareSolveOptions,
   NemuAidokuSandboxStatus,
   NemuNetworkAccessState,
 } from "./NemuAidoku.types";
@@ -73,6 +74,10 @@ class NemuAidokuModule extends NativeModule<NemuAidokuEventsMap> {
 
   async resetMobileSourceProfileAuthState(): Promise<void> {}
 
+  async clearSourceCookies(cookieScope: string): Promise<void> {
+    void cookieScope;
+  }
+
   async createAidokuSandboxSession(): Promise<string> {
     throw new Error("The isolated Android Aidoku runtime is not available on web.");
   }
@@ -97,10 +102,16 @@ class NemuAidokuModule extends NativeModule<NemuAidokuEventsMap> {
     return '{"status":"disposed"}';
   }
 
-  async solveCloudflare(url: string): Promise<boolean> {
+  async solveCloudflare(
+    url: string,
+    options?: NemuAidokuCloudflareSolveOptions | null,
+  ): Promise<boolean> {
     void url;
+    void options;
     throw new Error("NemuAidoku Cloudflare solver is not available on web.");
   }
+
+  async cancelCloudflareSolve(): Promise<void> {}
 }
 
 export default registerWebModule(NemuAidokuModule, "NemuAidoku");

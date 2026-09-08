@@ -863,6 +863,15 @@ function sanitizeSettingNode(
         "useEmail",
         takeBoolean(context, ownValue(record, "useEmail")),
       );
+      addOptional(
+        setting,
+        "clearCookiesOnLogOut",
+        takeBoolean(
+          context,
+          ownValue(record, "clearCookiesOnLogOut") ??
+            ownValue(record, "clear_cookies_on_log_out"),
+        ),
+      );
       claimKey(context, key);
       return { setting };
     }

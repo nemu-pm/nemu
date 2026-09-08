@@ -40,6 +40,17 @@ import { hasAgent, agentProxyFetch } from "@/lib/agent";
 import { handleSourceError } from "@/lib/sources/error-handler";
 
 /**
+ * Which source processor an image fetch belongs to.
+ *
+ * `AidokuPage.context` is optional, so the presence of a context can never be
+ * used to tell a page apart from a cover: a source that exports
+ * `process_cover_image` would otherwise run the cover processor over a
+ * context-less page. The call site declares the kind instead, and `context`
+ * stays purely the page processor's argument.
+ */
+export type AidokuImageKind = "page" | "cover";
+
+/**
  * Track which sources have had their home refreshed this session.
  * On first visit to a source in a session, auto-refresh is triggered.
  * This is cleared on page reload.
@@ -273,13 +284,18 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
   private currentSearch: { query: string; page: number; filters: FilterValue[] } | null = null;
   private currentListing: { listing: Listing; page: number } | null = null;
   private _hasImageProcessor: boolean | null = null;
+  private _hasCoverImageProcessor: boolean | null = null;
   private proxyFetch?: ProxyFetch;
 
   // Memoized fetchers - handle caching + concurrent request deduplication
   private fetchChapters: (mangaId: string) => Promise<AidokuChapter[]>;
   private fetchMangaDetails: (mangaId: string) => Promise<AidokuManga>;
   private fetchRawPages: (mangaId: string, chapterId: string) => Promise<AidokuPage[]>;
-  private fetchImageBlob: (url: string, context: Record<string, string> | null) => Promise<Blob>;
+  private fetchImageBlob: (
+    kind: AidokuImageKind,
+    url: string,
+    context: Record<string, string> | null,
+  ) => Promise<Blob>;
 
   constructor(asyncSource: AidokuAsyncSourceWithAuth, manifest: SourceManifest, sourceKey: string, cacheStore: CacheStore, icon?: string, proxyFetch?: ProxyFetch) {
     this.asyncSource = asyncSource;
@@ -313,9 +329,17 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
     );
     
     this.fetchImageBlob = pMemoize(
-      async (url: string, context: Record<string, string> | null) => {
-        // Check IndexedDB cache first
-        const cacheKey = CacheKeys.image(`${url}:${JSON.stringify(context)}`);
+      async (
+        kind: AidokuImageKind,
+        url: string,
+        context: Record<string, string> | null,
+      ) => {
+        // Check IndexedDB cache first. The kind is part of the identity: the
+        // same URL fetched as a page and as a cover runs through different
+        // source processors and therefore yields different bytes.
+        const cacheKey = CacheKeys.image(
+          `${kind}:${url}:${JSON.stringify(context)}`,
+        );
         try {
           const cached = await this.cacheStore.get(cacheKey);
           if (cached && cached.byteLength > 0) {
@@ -361,28 +385,50 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
           throw err;
         }
         
-        // Check if we need to process (descramble) the image
-        // Only process if context is provided - cover images (context=null) don't need descrambling
-        if (this._hasImageProcessor === null) {
-          this._hasImageProcessor = await asyncSource.hasImageProcessor();
+        // Check if we need to process (descramble) the image.
+        // The call site declares which processor applies: pages go through the
+        // page processor, covers through the source's cover processor. This is
+        // never inferred from `context`, which is optional on `AidokuPage` — a
+        // context-less page would otherwise be handed to the cover processor.
+        let processImage: ((imageBytes: Uint8Array) => Promise<Uint8Array | null>) | null = null;
+        if (kind === "page") {
+          if (this._hasImageProcessor === null) {
+            this._hasImageProcessor = await asyncSource.hasImageProcessor();
+          }
+          if (this._hasImageProcessor) {
+            processImage = (imageBytes) => asyncSource.processPageImage(
+              imageBytes,
+              context,
+              requestUrl,
+              headers,
+              response.status,
+              Object.fromEntries(response.headers.entries())
+            );
+          }
+        } else {
+          if (this._hasCoverImageProcessor === null) {
+            this._hasCoverImageProcessor = await asyncSource.hasCoverImageProcessor();
+          }
+          if (this._hasCoverImageProcessor) {
+            processImage = (imageBytes) => asyncSource.processCoverImage(
+              imageBytes,
+              requestUrl,
+              headers,
+              response.status,
+              Object.fromEntries(response.headers.entries())
+            );
+          }
         }
-        
+
         let blob: Blob;
-        if (this._hasImageProcessor && context !== null) {
+        if (processImage) {
           const responseBuffer = await response.arrayBuffer();
-          // Clone buffer before processPageImage - Comlink.transfer detaches the original
+          // Clone buffer before processing - Comlink.transfer detaches the original
           const imageBytesForFallback = new Uint8Array(responseBuffer.slice(0));
           const imageBytes = new Uint8Array(responseBuffer);
-          
-          const processed = await asyncSource.processPageImage(
-            imageBytes,
-            context,
-            requestUrl,
-            headers,
-            response.status,
-            Object.fromEntries(response.headers.entries())
-          );
-          
+
+          const processed = await processImage(imageBytes);
+
           if (processed) {
             // Processed data is PNG bytes
             blob = new Blob([processed as BlobPart], { type: "image/png" });
@@ -401,8 +447,11 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
         
         return blob;
       },
-      // In-memory dedup key includes context
-      { cacheKey: ([url, context]) => `${url}:${JSON.stringify(context)}` }
+      // In-memory dedup key includes the processor kind and the context
+      {
+        cacheKey: ([kind, url, context]) =>
+          `${kind}:${url}:${JSON.stringify(context)}`,
+      }
     );
   }
 
@@ -637,13 +686,13 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
       getImage: () => {
         console.log(`[Aidoku] getImage called for page ${index}: ${page.url?.substring(0, 60)}...`);
         if (!page.url) throw new Error("Page URL is empty");
-        return this.fetchImageBlob(page.url, page.context ?? null);
+        return this.fetchImageBlob("page", page.url, page.context ?? null);
       },
     }));
   }
 
   async fetchImage(url: string): Promise<Blob> {
-    return this.fetchImageBlob(url, null);
+    return this.fetchImageBlob("cover", url, null);
   }
 
   async handlesBasicLogin(): Promise<boolean> {

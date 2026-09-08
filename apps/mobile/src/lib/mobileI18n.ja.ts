@@ -36,6 +36,8 @@ export const mobileStringsJa: MobileStrings = {
     listLastSeparator: "と",
     merge: "統合",
     moreTags: "他 {{count}} 件のタグ",
+    moveDown: "下へ移動",
+    moveUp: "上へ移動",
     new: "新規",
     openSettings: "設定を開く",
     pageNotFound: "ページが見つかりません",
@@ -45,7 +47,7 @@ export const mobileStringsJa: MobileStrings = {
     save: "保存",
     sourceCloudflareBlocked: "Cloudflare 保護を検出",
     sourceCloudflareBlockedDescription:
-      "このソースには Cloudflare 認証が必要ですが、現在のモバイルビルドでは安全に利用できません。",
+      "このソースには Cloudflare 認証が必要です。Nemu Agent が確認を完了できるので、その後もう一度お試しください。",
     sourceError: "ソースエラー",
     sourceErrorDescription:
       "このソースはリクエストを完了できませんでした。しばらくしてからもう一度お試しください。",
@@ -69,6 +71,14 @@ export const mobileStringsJa: MobileStrings = {
       "チャレンジを自動で解決できませんでした。再試行するか、設定で Nemu Agent を確認してください。",
     agentSheetUnavailable:
       "安全な Cloudflare 認証はモバイルでは利用できません。直接接続できるエンドポイントが提供されるまで、このソースは開けません。",
+    agentSheetVerifying: "Cloudflare で認証しています…",
+    agentSheetBrowserHint:
+      "確認が必要な場合はブラウザーシートが開きます。",
+    agentSheetFailedCancelled: "認証をキャンセルしました。",
+    agentSheetFailedTimeout: "Cloudflare の認証が時間内に完了しませんでした。",
+    agentSheetFailedBlocked: "このチャレンジのアドレスを安全に検証できませんでした。",
+    agentSheetFailedUnsolicitedHost:
+      "このサイトはソースが要求したものではないため、認証を拒否しました。",
   },
   errorBoundary: {
     copied: "エラーログをコピーしました。",
@@ -1046,6 +1056,12 @@ export const mobileStringsJa: MobileStrings = {
     uninstallSourceConfirm:
       "{{name}} をこのデバイスから削除しますか？ライブラリエントリは保持されますが、ライブブラウズには再インストールが必要です。",
     uninstallSourceNamed: "{{name}} をアンインストール",
+    sourceDisabledBadge: "無効",
+    sourceDisabledSubtitle:
+      "無効です。ライブラリのリンクと設定は保持され、ブラウズと検索はこのソースをスキップします。",
+    toggleSourceEnabled: "{{name}} を有効化",
+    sourceDisabledToast: "{{name}} を無効にしました",
+    sourceEnabledToast: "{{name}} を有効にしました",
   },
   sourceManager: {
     active: "使用中",

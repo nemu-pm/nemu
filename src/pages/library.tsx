@@ -16,6 +16,7 @@ import {
   getEntryMostRecentSource,
   getEntryAddedAt,
 } from "@/data/view";
+import { Keys } from "@/data/keys";
 import { formatChapterShort } from "@/lib/format-chapter";
 import type { Chapter } from "@/lib/sources";
 import { CollectionsManagerDialog } from "@/components/collections/collections-manager-dialog";
@@ -125,7 +126,7 @@ export function LibraryPage() {
   const { useLibraryStore, useSettingsStore, useCollectionsStore } = useStores();
   const progressIndex = useAllMangaProgress();
   const { entries, loading: libraryLoading, updateLatestChapter } = useLibraryStore();
-  const { installedSources, loading: settingsLoading, getSource } = useSettingsStore();
+  const { installedSources, enabledSources, loading: settingsLoading, getSource } = useSettingsStore();
   const { collections } = useCollectionsStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [collectionsManagerOpen, setCollectionsManagerOpen] = useState(false);
@@ -152,6 +153,9 @@ export function LibraryPage() {
     if (refreshingRef.current || entries.length === 0) return;
     refreshingRef.current = true;
     setIsRefreshing(true);
+    // A batch refresh must not touch a disabled source; the library keeps
+    // listing its entries, it just stops fetching through it.
+    const enabledSourceKeys = new Set(enabledSources.map((s) => s.id));
 
     try {
       // Process entries in chunks of MAX_CONCURRENT_REQUESTS
@@ -163,6 +167,13 @@ export function LibraryPage() {
             await Promise.all(
               entry.sources.map(async (sourceLink) => {
                 try {
+                  if (
+                    !enabledSourceKeys.has(
+                      Keys.source(sourceLink.registryId, sourceLink.sourceId)
+                    )
+                  ) {
+                    return;
+                  }
                   const source = await getSource(sourceLink.registryId, sourceLink.sourceId);
                   if (!source) return;
 
@@ -194,7 +205,7 @@ export function LibraryPage() {
       refreshingRef.current = false;
       setIsRefreshing(false);
     }
-  }, [entries, getSource, updateLatestChapter]);
+  }, [enabledSources, entries, getSource, updateLatestChapter]);
 
   // Check if refresh is needed (stale > 30 min)
   const checkAndRefresh = useCallback(() => {

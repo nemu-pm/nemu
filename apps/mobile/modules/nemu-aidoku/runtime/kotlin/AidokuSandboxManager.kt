@@ -176,6 +176,15 @@ internal fun aidokuSandboxSessionNeedsRegistration(
   runtimeGeneration: Long
 ): Boolean = registeredGeneration != runtimeGeneration
 
+/**
+ * The image round the isolate should dispatch, from the caller's `kind`.
+ *
+ * Only the two image kinds are forwarded, so a malformed payload cannot use
+ * the image transport to reach an unrelated operation.
+ */
+internal fun aidokuSandboxImageOperationKind(requested: String?): String =
+  if (requested == "process-cover-image") "process-cover-image" else "process-page-image"
+
 internal enum class AidokuSandboxResetScope {
   ISOLATE,
   SANDBOX_CONNECTION
@@ -542,7 +551,7 @@ internal class AidokuSandboxManager(
       var imageDataConsumed = false
       try {
         provideNamedData(activeIsolate, dataName, imageBytes)
-        operation.put("kind", "process-page-image")
+        operation.put("kind", aidokuSandboxImageOperationKind(operation.optString("kind")))
         operation.put("imageDataName", dataName)
         operation.put("imageWidth", dimensions.first)
         operation.put("imageHeight", dimensions.second)

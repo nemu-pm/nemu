@@ -14,8 +14,10 @@ export function findMobileSourceUpdates(
   availableSources: MobileRegistrySource[],
 ): MobileRegistrySource[] {
   const installedByKey = new Map(
+    // A disabled source is not run, so it is not auto-updated either: a broken
+    // source stays pinned at its installed version until the user re-enables it.
     installedSources
-      .filter((source) => !source.removed)
+      .filter((source) => !source.removed && source.disabled !== true)
       .flatMap((source) =>
         getMobileInstalledSourceRegistryKeys(source).map((key) => [key, source] as const),
       ),

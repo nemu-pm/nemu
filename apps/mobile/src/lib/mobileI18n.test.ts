@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   formatMobileSettingsCount,
@@ -111,6 +111,40 @@ describe("mobile i18n helpers", () => {
       "token-exchange-failed": "The source rejected the token exchange.",
       "oversized-token": "The source returned too much token data.",
     });
+  });
+
+  test("localizes every Cloudflare solve failure reason the sheet maps", () => {
+    const sheet = readFileSync(
+      path.join(import.meta.dir, "..", "components", "MobileNemuAgentSheet.tsx"),
+      "utf8",
+    );
+    // Every reason code the sheet branches on must reach a real string, and
+    // the newest one (native refusing a host the source never hit) included.
+    expect(sheet).toContain('case "unsolicited-host":');
+    expect(sheet).toContain(
+      "return strings.common.agentSheetFailedUnsolicitedHost;",
+    );
+
+    for (const language of ["en", "zh", "ja"] as const) {
+      const common = getMobileStrings(language).common;
+      for (const key of [
+        "agentSheetFailed",
+        "agentSheetFailedCancelled",
+        "agentSheetFailedTimeout",
+        "agentSheetFailedBlocked",
+        "agentSheetFailedUnsolicitedHost",
+      ] as const) {
+        expect(common[key], `${language}.${key}`).toBeTruthy();
+      }
+      expect(
+        common.agentSheetFailedUnsolicitedHost,
+        language,
+      ).not.toBe(common.agentSheetFailedBlocked);
+    }
+
+    expect(getMobileStrings("en").common.agentSheetFailedUnsolicitedHost).toBe(
+      "This site was not requested by the source, so verification was refused.",
+    );
   });
 
   test("localizes the drag-handle accessibility label", () => {

@@ -56,12 +56,13 @@ function formatSectionLabel(
 export function BrowsePage() {
   const { t } = useTranslation();
   const { useSettingsStore } = useStores();
-  const { availableSources, installedSources, loading } = useSettingsStore();
+  const { availableSources, enabledSources, loading } = useSettingsStore();
   const appLanguage = languageStore ? languageStore((state) => state.language) : undefined;
   const [addSourceOpen, setAddSourceOpen] = useState(false);
 
+  // Browse tabs are a source operation: a disabled source gets no tab.
   const installedSourcesInfo: SourceInfo[] = useMemo(() => {
-    return installedSources.map((installed) => {
+    return enabledSources.map((installed) => {
       const { registryId, sourceId } = parseSourceKey(installed.id);
       const info = availableSources.find(
         (s) => s.id === sourceId && s.registryId === registryId
@@ -74,7 +75,7 @@ export function BrowsePage() {
         languages: info?.languages,
       };
     });
-  }, [installedSources, availableSources]);
+  }, [enabledSources, availableSources]);
 
   const groupedSources = useMemo(() => {
     return groupSourcesByLanguage(installedSourcesInfo, appLanguage);

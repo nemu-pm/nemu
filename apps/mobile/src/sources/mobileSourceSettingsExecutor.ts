@@ -17,7 +17,9 @@ import {
   assertActiveMobileSourceProfileScope,
   getActiveMobileSourceProfileScope,
   isMobileSourceProfileChangedError,
+  makeMobileSourceExecutionKey,
 } from "./mobileSourceProfileScope";
+import { clearMobileSourceNativeCookies } from "./mobileSourceProfileNative";
 
 export type MobileSourceSettingsOperation =
   | {
@@ -398,6 +400,7 @@ export async function completeMobileSourceLogout({
   currentSettings,
   clearSandbox,
   persistSettings,
+  clearNativeCookies = clearMobileSourceNativeCookies,
 }: {
   cache?: MobileSourceSessionCache;
   source: MobileRuntimeSource;
@@ -409,6 +412,11 @@ export async function completeMobileSourceLogout({
     patch: Record<string, unknown>,
     deleteKeys: string[],
   ) => Promise<void>;
+  /**
+   * Drops the native cookie jars of one source, keyed by the same scope its
+   * requests use. Every other source keeps its transport session.
+   */
+  clearNativeCookies?: (cookieScope: string) => Promise<void>;
 }): Promise<MobileSourceSettingsOperationResult> {
   const executionScope = getActiveMobileSourceProfileScope();
   assertActiveMobileSourceProfileScope(executionScope);
@@ -429,6 +437,22 @@ export async function completeMobileSourceLogout({
     throw error;
   }
 
+  // Deleting the stored credentials leaves the session cookies in the native
+  // jars, so a `clear_cookies_on_log_out` source stays logged in at the
+  // transport. Run this after the source's own logout notification, which may
+  // still need its session to reach the server.
+  const clearCookiesIfRequested = async (): Promise<void> => {
+    if (setting.clearCookiesOnLogOut !== true) return;
+    assertActiveMobileSourceProfileScope(executionScope);
+    await clearNativeCookies(
+      makeMobileSourceExecutionKey(
+        makeMobileRuntimeSourceKey(source),
+        executionScope,
+      ),
+    );
+    assertActiveMobileSourceProfileScope(executionScope);
+  };
+
   const notification = setting.notification?.trim();
   if (notification) {
     try {
@@ -441,7 +465,10 @@ export async function completeMobileSourceLogout({
         executionScope,
       });
       assertActiveMobileSourceProfileScope(executionScope);
-      if (result.status === "complete") return result;
+      if (result.status === "complete") {
+        await clearCookiesIfRequested();
+        return result;
+      }
     } catch (error) {
       if (isMobileSourceProfileChangedError(error)) {
         try {
@@ -469,6 +496,7 @@ export async function completeMobileSourceLogout({
       executionScope,
     );
     assertActiveMobileSourceProfileScope(executionScope);
+    await clearCookiesIfRequested();
     return { status: "complete" };
   } catch (error) {
     // A profile transition intentionally keeps the captured profile logged out:

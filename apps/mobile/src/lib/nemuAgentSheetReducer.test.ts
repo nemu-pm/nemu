@@ -1,9 +1,19 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
+  makeMobileSourceExecutionKey,
+  resetMobileSourceProfileScopeForTesting,
+  transitionMobileSourceProfile,
+} from "@/sources/mobileSourceProfileScope";
+import {
+  acceptsNemuAgentSheetReport,
   initialNemuAgentSheetState,
   reduceNemuAgentSheet,
+  resolveNemuAgentSolveCookieScope,
   shouldOfferNemuAgentVerificationAction,
   type NemuAgentSheetState,
+  type NemuAgentSheetStatus,
 } from "./nemuAgentSheetReducer";
 
 function cloudflareError(url = "https://example.test/manga"): unknown {
@@ -224,6 +234,74 @@ describe("reduceNemuAgentSheet", () => {
     });
   });
 
+  test("captures the native solve context when the sheet opens", () => {
+    const state = reduceNemuAgentSheet(initialNemuAgentSheetState, {
+      type: "report-error",
+      error: cloudflareError("https://x.test/manga"),
+      context: { sourceKey: "aidoku:demo.source", userAgent: "Mozilla/5.0 (test)" },
+    });
+    expect(state.visible).toBe(true);
+    expect(state.sourceKey).toBe("aidoku:demo.source");
+    expect(state.userAgent).toBe("Mozilla/5.0 (test)");
+  });
+
+  test("drops blank, oversized, and control-bearing context values", () => {
+    const state = reduceNemuAgentSheet(initialNemuAgentSheetState, {
+      type: "report-error",
+      error: cloudflareError("https://x.test/manga"),
+      context: { sourceKey: "   ", userAgent: "Mozilla\n5.0" },
+    });
+    expect(state.sourceKey).toBeUndefined();
+    expect(state.userAgent).toBeUndefined();
+
+    const oversized = reduceNemuAgentSheet(initialNemuAgentSheetState, {
+      type: "report-error",
+      error: cloudflareError("https://x.test/manga"),
+      context: { sourceKey: "a".repeat(513) },
+    });
+    expect(oversized.sourceKey).toBeUndefined();
+  });
+
+  test("records the native failure reason and clears it on the next start", () => {
+    let state = reduceNemuAgentSheet(opened("https://x.test/manga"), {
+      type: "event",
+      event: "nemuAidokuCfFailed",
+      reason: "cancelled",
+    });
+    expect(state.status).toBe("failed");
+    expect(state.failureReason).toBe("cancelled");
+
+    state = reduceNemuAgentSheet(state, { type: "start" });
+    expect(state.status).toBe("opening");
+    expect(state.failureReason).toBeUndefined();
+
+    state = reduceNemuAgentSheet(state, {
+      type: "event",
+      event: "nemuAidokuCfSuccess",
+    });
+    expect(state.failureReason).toBeUndefined();
+  });
+
+  test("keeps the solve context across the whole lifecycle", () => {
+    let state = reduceNemuAgentSheet(initialNemuAgentSheetState, {
+      type: "report-error",
+      error: cloudflareError("https://x.test/manga"),
+      context: { sourceKey: "aidoku:demo.source" },
+    });
+    state = reduceNemuAgentSheet(state, { type: "start" });
+    state = reduceNemuAgentSheet(state, {
+      type: "event",
+      event: "nemuAidokuCfSolveStart",
+    });
+    state = reduceNemuAgentSheet(state, {
+      type: "event",
+      event: "nemuAidokuCfCaptcha",
+    });
+    expect(state.sourceKey).toBe("aidoku:demo.source");
+    state = reduceNemuAgentSheet(state, { type: "dismiss" });
+    expect(state.sourceKey).toBeUndefined();
+  });
+
   test("full lifecycle: error -> start -> waiting -> captcha -> success", () => {
     let state = reduceNemuAgentSheet(initialNemuAgentSheetState, {
       type: "report-error",
@@ -243,5 +321,149 @@ describe("reduceNemuAgentSheet", () => {
     expect(state.status).toBe("success");
     state = reduceNemuAgentSheet(state, { type: "dismiss" });
     expect(state.visible).toBe(false);
+  });
+});
+
+/**
+ * `reportError` starts the native solve itself, before the reducer's own next
+ * state is readable. Gating that on the same predicate the reducer uses is
+ * what keeps a dropped report — a duplicate arriving during the post-success
+ * hold, say — from leaving a solve running with no sheet attached to it.
+ */
+describe("acceptsNemuAgentSheetReport", () => {
+  test("rejects anything that is not Cloudflare-classified", () => {
+    expect(
+      acceptsNemuAgentSheetReport(initialNemuAgentSheetState, new Error("boom")),
+    ).toBe(false);
+    expect(acceptsNemuAgentSheetReport(initialNemuAgentSheetState, null)).toBe(
+      false,
+    );
+    expect(
+      acceptsNemuAgentSheetReport(initialNemuAgentSheetState, cloudflareError()),
+    ).toBe(true);
+  });
+
+  test("rejects a report while a solve is in flight or holding success", () => {
+    const inFlight: NemuAgentSheetStatus[] = [
+      "opening",
+      "waiting",
+      "captcha",
+      "success",
+    ];
+    for (const status of inFlight) {
+      expect(
+        acceptsNemuAgentSheetReport(
+          { ...opened(), status },
+          cloudflareError(),
+        ),
+        status,
+      ).toBe(false);
+    }
+    for (const status of ["needs-verification", "failed"] as const) {
+      expect(
+        acceptsNemuAgentSheetReport(
+          { ...opened(), status },
+          cloudflareError(),
+        ),
+        status,
+      ).toBe(true);
+    }
+  });
+
+  test("agrees with the reducer on every status", () => {
+    const statuses: NemuAgentSheetStatus[] = [
+      "needs-verification",
+      "opening",
+      "waiting",
+      "captcha",
+      "success",
+      "failed",
+    ];
+    for (const status of statuses) {
+      for (const error of [cloudflareError(), new Error("boom")]) {
+        const state: NemuAgentSheetState = { ...opened(), status };
+        const next = reduceNemuAgentSheet(state, {
+          type: "report-error",
+          error,
+        });
+        expect(acceptsNemuAgentSheetReport(state, error), status).toBe(
+          next !== state,
+        );
+      }
+    }
+  });
+
+  test("the hook gates its auto-start on the predicate", () => {
+    const hook = readFileSync(
+      path.join(import.meta.dir, "useNemuAgentSheet.ts"),
+      "utf8",
+    );
+
+    expect(hook).toContain(
+      "const accepted = acceptsNemuAgentSheetReport(stateRef.current, error);",
+    );
+    expect(hook).toContain("accepted &&\n        !solveInFlightRef.current");
+    // The gate is only useful if the ref actually tracks the reducer state.
+    expect(hook).toContain("stateRef.current = state;");
+    const gateIndex = hook.indexOf("const accepted = acceptsNemuAgentSheetReport(");
+    const solveIndex = hook.indexOf("if (url) startSolve(url, context);");
+    expect(gateIndex).toBeGreaterThan(0);
+    expect(solveIndex).toBeGreaterThan(gateIndex);
+  });
+});
+
+/**
+ * A solved clearance cookie is only useful in the jar the retried source
+ * request actually reads, which is the profile-scoped execution key.
+ */
+describe("resolveNemuAgentSolveCookieScope", () => {
+  afterEach(async () => {
+    await resetMobileSourceProfileScopeForTesting();
+  });
+
+  test("scopes the canonical source key to the active profile", () => {
+    expect(resolveNemuAgentSolveCookieScope("aidoku-community:en.example")).toBe(
+      makeMobileSourceExecutionKey("aidoku-community:en.example"),
+    );
+    expect(resolveNemuAgentSolveCookieScope("aidoku-community:en.example")).toBe(
+      "local::aidoku-community:en.example",
+    );
+  });
+
+  test("follows the profile in effect at solve time", async () => {
+    await transitionMobileSourceProfile("user-42");
+
+    expect(resolveNemuAgentSolveCookieScope("aidoku-community:en.example")).toBe(
+      "user-42::aidoku-community:en.example",
+    );
+  });
+
+  test("honours an explicit profile scope", () => {
+    expect(
+      resolveNemuAgentSolveCookieScope("registry:source", "user-7"),
+    ).toBe("user-7::registry:source");
+  });
+
+  test("falls back to the stateless jar without a source key", () => {
+    expect(resolveNemuAgentSolveCookieScope(undefined)).toBeNull();
+    expect(resolveNemuAgentSolveCookieScope("")).toBeNull();
+    expect(resolveNemuAgentSolveCookieScope("   ")).toBeNull();
+  });
+
+  test("the hook hands native the derived scope, never the bare source key", () => {
+    const hook = readFileSync(
+      path.join(import.meta.dir, "useNemuAgentSheet.ts"),
+      "utf8",
+    );
+
+    expect(hook).toContain(
+      "cookieScope: resolveNemuAgentSolveCookieScope(context?.sourceKey),",
+    );
+    expect(hook).not.toContain("cookieScope: context?.sourceKey ?? null,");
+    // `verify()` must reach the same call, so the state's source key is
+    // scoped identically to the auto-start's.
+    expect(hook).toContain(
+      "startSolve(url, { sourceKey: state.sourceKey, userAgent: state.userAgent });",
+    );
   });
 });

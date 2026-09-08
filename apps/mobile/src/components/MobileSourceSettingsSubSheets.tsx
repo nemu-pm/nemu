@@ -18,6 +18,7 @@ import {
   MAX_SOURCE_SETTING_VALUE_ARRAY_ITEMS,
   MAX_SOURCE_SETTING_VALUE_STRING_LENGTH,
   MAX_SOURCE_SETTING_VALUES_STRING_CHARS,
+  moveSourceSettingListItem,
 } from "@nemu/core";
 
 /**
@@ -188,6 +189,7 @@ export function MobileSourceStringListSheet({
   strings,
   onAdd,
   onRemove,
+  onMove,
   onClose,
   onDismiss,
 }: {
@@ -198,6 +200,8 @@ export function MobileSourceStringListSheet({
   strings: MobileStrings;
   onAdd: (item: string) => void;
   onRemove: (index: number) => void;
+  /** Sources read the list in order, so entries can be reordered in place. */
+  onMove: (fromIndex: number, toIndex: number) => void;
   onClose: () => void;
   onDismiss?: () => void;
 }) {
@@ -227,6 +231,13 @@ export function MobileSourceStringListSheet({
     if (addDisabled) return;
     onAdd(trimmedDraft);
     setDraft("");
+    void hapticPress();
+  };
+
+  const moveItem = (fromIndex: number, toIndex: number) => {
+    if (disabled) return;
+    if (!moveSourceSettingListItem(items, fromIndex, toIndex)) return;
+    onMove(fromIndex, toIndex);
     void hapticPress();
   };
 
@@ -276,17 +287,38 @@ export function MobileSourceStringListSheet({
       {items.length ? (
         <View style={styles.editorItems}>
           {items.map((item, index) => (
-            <MobileChip
-              key={`${item}:${index}`}
-              accessibilityRole="button"
-              accessibilityLabel={`${strings.common.remove} ${item}`}
-              accessibilityState={{ disabled }}
-              disabled={disabled}
-              label={item}
-              onPress={() => onRemove(index)}
-              trailingIcon="close-outline"
-              variant="toggle"
-            />
+            <View key={`${item}:${index}`} style={styles.editorItemRow}>
+              <MobileChip
+                accessibilityRole="button"
+                accessibilityLabel={`${strings.common.remove} ${item}`}
+                accessibilityState={{ disabled }}
+                disabled={disabled}
+                label={item}
+                onPress={() => onRemove(index)}
+                trailingIcon="close-outline"
+                variant="toggle"
+              />
+              <NemuButton
+                accessibilityLabel={`${strings.common.moveUp} ${item}`}
+                accessibilityState={{ disabled: disabled || index === 0 }}
+                disabled={disabled || index === 0}
+                icon="chevron-up"
+                onPress={() => moveItem(index, index - 1)}
+                size="icon-sm"
+                variant="secondary"
+              />
+              <NemuButton
+                accessibilityLabel={`${strings.common.moveDown} ${item}`}
+                accessibilityState={{
+                  disabled: disabled || index === items.length - 1,
+                }}
+                disabled={disabled || index === items.length - 1}
+                icon="chevron-down"
+                onPress={() => moveItem(index, index + 1)}
+                size="icon-sm"
+                variant="secondary"
+              />
+            </View>
           ))}
         </View>
       ) : (
@@ -347,8 +379,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   editorItems: {
+    gap: 6,
+  },
+  editorItemRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
     gap: 6,
   },
   footnote: {

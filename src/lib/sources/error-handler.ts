@@ -10,6 +10,7 @@ import {
   extractCfUrlFromMessage,
   isCloudflareErrorMessage,
   readErrorUrl,
+  sanitizeSourceErrorDiagnostic,
 } from "@nemu/core/sources";
 // Note: Don't import from ./aidoku here to avoid circular dependency
 
@@ -41,6 +42,18 @@ function extractCfUrl(error: unknown): string | undefined {
 }
 
 /**
+ * Whether an error is a typed source result error.
+ *
+ * The Aidoku runtime rejects with `AidokuResultError` (name + numeric `code`)
+ * instead of reporting an empty result, so a failure is distinguishable from
+ * "nothing found". Kept `instanceof Error`-gated like the Cloudflare check so a
+ * plain string is never classified as a source error on web.
+ */
+export function isSourceResultError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AidokuResultError";
+}
+
+/**
  * Handle a source error and show appropriate UI
  * Returns true if error was handled (shown to user), false if not
  */
@@ -56,10 +69,21 @@ export function handleSourceError(error: unknown, context?: string): boolean {
     return true;
   }
 
+  // Typed source errors carry the source's own explanation of the failure.
+  // The localized title stays the primary copy and the source-controlled text
+  // is only ever shown through the shared bounded sanitizer.
+  if (isSourceResultError(error)) {
+    toast.error(i18n.t("error.sourceError"), {
+      description: sanitizeSourceErrorDiagnostic(error) ?? undefined,
+      duration: 4000,
+    });
+    return true;
+  }
+
   // Network errors
   if (error instanceof Error && error.message.includes("fetch")) {
     toast.error(i18n.t("error.networkError"), {
-      description: context || error.message,
+      description: context || sanitizeSourceErrorDiagnostic(error) || undefined,
       duration: 3000,
     });
     return true;

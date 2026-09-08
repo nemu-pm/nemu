@@ -72,6 +72,12 @@ export type InstalledSource = {
   version: number;
   updatedAt?: number;
   removed?: boolean;
+  /**
+   * User-disabled install. Synced (never a local-only field) so disabling on
+   * one device hides the source everywhere; the install, its library links and
+   * its settings are all left intact.
+   */
+  disabled?: boolean;
 };
 
 export type CloudInstalledSource = Omit<InstalledSource, "updatedAt"> & {
@@ -474,6 +480,7 @@ export function toCloudInstalledSource(
     version: source.version,
     updatedAt: normalizeSyncClock(source.updatedAt),
     removed: source.removed,
+    disabled: source.disabled,
   };
 }
 

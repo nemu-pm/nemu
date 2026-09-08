@@ -53,10 +53,12 @@ import {
   emitMobileDataChanged,
   emitMobileSettingsDataChanged,
 } from "@/data/mobileDataEvents";
+import { useMobileToast } from "@/components/MobileToastContext";
 import {
   useAvailableSources,
   type MobileDataClearMode,
   useMobileDataManagement,
+  useInstalledSourceDisabler,
   useInstalledSources,
   useMobileLanguageSettings,
   useMobileFeedbackSettings,
@@ -109,6 +111,7 @@ import {
 } from "@/lib/mobileInstalledSourceKeys";
 import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
 import {
+  isMobileInstalledSourceDisabled,
   isMobileUnsupportedInstalledSource,
   mergeMobileInstalledSourceRegistryMetadata,
 } from "@/lib/mobileBrowseSources";
@@ -296,28 +299,36 @@ function SourceManagementRow({
   iconUri,
   strings,
   removing,
+  toggling,
   disabled,
   onBrowse,
   onSettings,
   onRemove,
+  onToggleEnabled,
 }: {
   source: InstalledSource;
   iconUri: string | null;
   strings: MobileStrings;
   removing: boolean;
+  toggling: boolean;
   disabled: boolean;
   onBrowse: () => void;
   onSettings: () => void;
   onRemove: () => void;
+  onToggleEnabled: (enabled: boolean) => void;
 }) {
   const { tokens } = useNemuTheme();
   const name = sourceName(source);
   const removeDisabled = disabled || removing;
-  const canOpenSettings = !disabled;
   // Tachiyomi records can arrive through cloud sync; this build cannot run
   // them, so the row says so up front instead of failing on tap.
   const unsupported = isMobileUnsupportedInstalledSource(source);
-  const browseDisabled = disabled || unsupported;
+  // The user switched this source off: it keeps its links and settings but is
+  // not runnable, so browse and its settings sheet are closed off here too.
+  const sourceDisabled = isMobileInstalledSourceDisabled(source);
+  const canOpenSettings = !disabled && !sourceDisabled;
+  const browseDisabled = disabled || unsupported || sourceDisabled;
+  const toggleDisabled = disabled || removing || toggling;
 
   return (
     <View style={[styles.sourceEmbeddedRow, { borderColor: tokens.border }]}>
@@ -325,7 +336,9 @@ function SourceManagementRow({
         accessibilityLabel={
           unsupported
             ? `${name}. ${strings.common.sourceUnsupported}`
-            : formatMobileString(strings.settings.browseSource, { name })
+            : sourceDisabled
+              ? `${name}. ${strings.settings.sourceDisabledBadge}`
+              : formatMobileString(strings.settings.browseSource, { name })
         }
         accessibilityRole="button"
         accessibilityState={{ disabled: browseDisabled }}
@@ -366,6 +379,14 @@ function SourceManagementRow({
                 variant="static"
               />
             ) : null}
+            {sourceDisabled ? (
+              <MobileChip
+                accessibilityLabel={strings.settings.sourceDisabledBadge}
+                label={strings.settings.sourceDisabledBadge}
+                size="sm"
+                variant="static"
+              />
+            ) : null}
           </View>
           <NemuText
             numberOfLines={2}
@@ -373,7 +394,9 @@ function SourceManagementRow({
           >
             {unsupported
               ? strings.common.sourceUnsupportedTachiyomiDescription
-              : sourceSubtitle(source)}
+              : sourceDisabled
+                ? strings.settings.sourceDisabledSubtitle
+                : sourceSubtitle(source)}
           </NemuText>
         </View>
       </NemuPressable>
@@ -383,8 +406,8 @@ function SourceManagementRow({
             strings.settings.editSourceSettings,
             { name },
           )}
-          accessibilityState={{ disabled }}
-          disabled={disabled}
+          accessibilityState={{ disabled: !canOpenSettings }}
+          disabled={!canOpenSettings}
           hapticFeedback={canOpenSettings ? "press" : "none"}
           icon="settings-outline"
           onPress={() => {
@@ -394,6 +417,29 @@ function SourceManagementRow({
           size="icon-sm"
           variant="secondary"
         />
+        {unsupported ? null : (
+          <NemuNativeSwitch
+            accessibilityLabel={formatMobileString(
+              strings.settings.toggleSourceEnabled,
+              { name },
+            )}
+            disabled={toggleDisabled}
+            value={!sourceDisabled}
+            onValueChange={(nextValue) => {
+              if (
+                !canRunMobileSwitchSelectionFeedback({
+                  checked: !sourceDisabled,
+                  disabled: toggleDisabled,
+                  nextChecked: nextValue,
+                })
+              ) {
+                return;
+              }
+              void hapticSelection();
+              onToggleEnabled(nextValue);
+            }}
+          />
+        )}
         <NemuButton
           accessibilityLabel={formatMobileString(
             strings.settings.uninstallSourceNamed,
@@ -1338,6 +1384,8 @@ export function SettingsScreen({
   const readerPlugins = useMobileReaderPlugins();
   const store = useMobileDataStore();
   const sources = useInstalledSources();
+  const sourceDisabler = useInstalledSourceDisabler();
+  const toast = useMobileToast();
   // Registry discovery only feeds the Sources section. Mounting it from the
   // settings root (or Reader/Appearance/Data) would start a catalog download
   // and a silent source auto-update pass no visible row can use.
@@ -2179,6 +2227,37 @@ export function SettingsScreen({
     });
   };
 
+  // Disabling keeps the install, its library links, its per-source settings
+  // and its cloud record; it only stops the source from being run.
+  const toggleSourceEnabled = async (
+    source: InstalledSource,
+    nextEnabled: boolean,
+  ) => {
+    if (!canStartMobileSettingsAction(getGuardedSettingsActionState())) return;
+    setOperationError(null);
+    try {
+      await sourceDisabler.setSourceDisabled(source, !nextEnabled);
+      if (!nextEnabled && selectedSourceId === source.id) {
+        setSourceSettingsSheetVisible(false);
+        setSelectedSourceId(null);
+      }
+      await sources.reload();
+      toast.show({
+        id: `source-disabled:${source.id}`,
+        tone: nextEnabled ? "success" : "info",
+        title: formatMobileString(
+          nextEnabled
+            ? strings.settings.sourceEnabledToast
+            : strings.settings.sourceDisabledToast,
+          { name: sourceName(source) },
+        ),
+      });
+      await hapticConfirm();
+    } catch (error) {
+      await reportSettingsError(error);
+    }
+  };
+
   const removeSource = async (source: InstalledSource) => {
     if (!canStartMobileSettingsAction(getGuardedSettingsActionState())) return;
     removingSourceIdRef.current = source.id;
@@ -2840,6 +2919,9 @@ export function SettingsScreen({
                             )}
                             strings={strings}
                             removing={removingSourceId === source.id}
+                            toggling={
+                              sourceDisabler.togglingSourceId === source.id
+                            }
                             disabled={settingsActionBusy}
                             onSettings={() => {
                               if (settingsActionBusy) return;
@@ -2847,6 +2929,9 @@ export function SettingsScreen({
                             }}
                             onBrowse={() => openSource(source)}
                             onRemove={() => confirmRemoveSource(source)}
+                            onToggleEnabled={(nextEnabled) => {
+                              void toggleSourceEnabled(source, nextEnabled);
+                            }}
                           />
                         ))}
                       </View>

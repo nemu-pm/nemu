@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import { SourceImageProvider } from "@/hooks/use-source-image";
+import { handleSourceError } from "@/lib/sources/error-handler";
 
 const SELECTED_SOURCES_KEY = "search-selected-sources";
 
@@ -49,7 +50,7 @@ export function SearchPage() {
   const { q } = useSearch({ strict: false }) as { q: string };
   const navigate = useNavigate();
   const { useSettingsStore } = useStores();
-  const { installedSources, availableSources, getSource } = useSettingsStore();
+  const { enabledSources, availableSources, getSource } = useSettingsStore();
 
   const [query, setQuery] = useState(q ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -70,9 +71,10 @@ export function SearchPage() {
     }
   );
 
-  // Build display info for all installed sources
+  // Global search is a source operation: disabled sources are neither listed
+  // in the filter bar nor searched.
   const sourceDisplayInfo = useMemo<SourceDisplayInfo[]>(() => {
-    return installedSources.map((source) => {
+    return enabledSources.map((source) => {
       const { registryId, sourceId: rawSourceId } = parseSourceKey(source.id);
       const info = availableSources.find(
         (a) => a.id === rawSourceId && a.registryId === registryId
@@ -85,7 +87,7 @@ export function SearchPage() {
         icon: info?.icon,
       };
     });
-  }, [installedSources, availableSources]);
+  }, [enabledSources, availableSources]);
 
   // Save to localStorage when selection changes
   useEffect(() => {
@@ -101,16 +103,16 @@ export function SearchPage() {
 
   // Filter installed sources by selection
   const filteredSources = useMemo(() => {
-    if (selectedSources === null) return installedSources;
-    return installedSources.filter((s) => selectedSources.has(s.id));
-  }, [installedSources, selectedSources]);
+    if (selectedSources === null) return enabledSources;
+    return enabledSources.filter((s) => selectedSources.has(s.id));
+  }, [enabledSources, selectedSources]);
 
   const toggleSource = useCallback(
     (sourceId: string) => {
       setSelectedSources((prev) => {
         if (prev === null) {
           // First toggle: select all except this one
-          const allIds = new Set(installedSources.map((s) => s.id));
+          const allIds = new Set(enabledSources.map((s) => s.id));
           allIds.delete(sourceId);
           return allIds;
         }
@@ -121,13 +123,13 @@ export function SearchPage() {
           next.add(sourceId);
         }
         // If all selected, reset to null
-        if (next.size === installedSources.length) {
+        if (next.size === enabledSources.length) {
           return null;
         }
         return next;
       });
     },
-    [installedSources]
+    [enabledSources]
   );
 
   // Select only this source (for double-click)
@@ -201,6 +203,20 @@ export function SearchPage() {
     });
   }, [searchQueries, filteredSources, availableSources]);
 
+  // Surface per-source failures: Cloudflare blocks open the bypass dialog and
+  // typed source errors toast the source's own message. Each error object is
+  // handled once so a re-render doesn't re-toast it.
+  const handledErrorsRef = useRef<WeakSet<object>>(new WeakSet());
+  useEffect(() => {
+    searchQueries.forEach((searchQuery, index) => {
+      const error = searchQuery.error;
+      if (!error || typeof error !== "object") return;
+      if (handledErrorsRef.current.has(error)) return;
+      handledErrorsRef.current.add(error);
+      const sourceName = results[index]?.sourceName;
+      handleSourceError(error, sourceName ? `Search: ${sourceName}` : "Search");
+    });
+  }, [searchQueries, results]);
 
   // Execute search - navigate to update URL
   const executeSearch = useCallback(() => {
@@ -226,14 +242,15 @@ export function SearchPage() {
   }, [executeSearch]);
 
   const totalResults = results.reduce((sum, r) => sum + r.items.length, 0);
+  const erroredSources = results.filter((r) => r.error).length;
   const isSearching = results.some((r) => r.loading);
 
   // Count of selected sources (for badge)
-  const selectedCount = selectedSources?.size ?? installedSources.length;
-  const showBadge = selectedSources !== null && selectedCount < installedSources.length;
+  const selectedCount = selectedSources?.size ?? enabledSources.length;
+  const showBadge = selectedSources !== null && selectedCount < enabledSources.length;
 
   // No sources installed
-  if (installedSources.length === 0) {
+  if (enabledSources.length === 0) {
     return (
       <NoSourcesEmpty
         icon={Search01Icon}
@@ -275,7 +292,7 @@ export function SearchPage() {
         onSelectOnly={selectOnlySource}
         showBadge={showBadge}
         selectedCount={selectedCount}
-        totalCount={installedSources.length}
+        totalCount={enabledSources.length}
       />
 
       {/* No sources selected */}
@@ -308,8 +325,8 @@ export function SearchPage() {
             />
           ))}
 
-          {/* No results from any source */}
-          {!isSearching && totalResults === 0 && (
+          {/* No results from any source (each errored source reports its own failure) */}
+          {!isSearching && totalResults === 0 && erroredSources < results.length && (
             <Empty className="h-[40vh]">
               <EmptyHeader>
                 <EmptyMedia>

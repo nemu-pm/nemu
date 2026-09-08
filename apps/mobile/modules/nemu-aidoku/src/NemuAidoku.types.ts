@@ -99,13 +99,58 @@ export type NemuNetworkAccessEventPayload = {
 };
 
 /**
+ * Options for the on-demand Cloudflare solver. Both fields are optional, so
+ * `solveCloudflare(url)` stays a valid single-argument call.
+ */
+export type NemuAidokuCloudflareSolveOptions = {
+  /**
+   * Which per-source cookie jar a solved clearance cookie is written into,
+   * and which source's recorded challenge hosts the url is checked against.
+   *
+   * Must be the exact scope the source's own requests use — the profile-scoped
+   * execution key (`<profileScope>::<registryId>:<sourceId>`). Native matches
+   * it verbatim, so any other spelling addresses a different jar and fails
+   * with `unsolicited-host`. Required: a solve without a scope is refused.
+   */
+  cookieScope?: string | null;
+  /**
+   * The User-Agent the follow-up source requests will send. A clearance cookie
+   * is bound to it, so a mismatch makes the solve useless. Omit to use the
+   * Aidoku runtime's default (`MOBILE_AIDOKU_DEFAULT_USER_AGENT`).
+   */
+  userAgent?: string | null;
+};
+
+/**
+ * Stable, machine-readable `nemuAidokuCfFailed` reasons. The Nemu Agent sheet
+ * maps these onto localized copy; anything else falls back to generic failure
+ * copy, so native may add codes without a JS change.
+ */
+export type NemuAidokuCfFailureReason =
+  | "unsupported-url"
+  | "blocked-destination"
+  | "rule-list-unavailable"
+  | "no-presenter"
+  | "navigation-failed"
+  | "timeout"
+  | "cancelled"
+  | "queue-overflow"
+  | "interrupted"
+  /**
+   * The url named a host this source never reached, or named it without a
+   * cookie scope. Only hosts that answered one of this source's own requests
+   * with a Cloudflare mitigation can be solved.
+   */
+  | "unsolicited-host";
+
+/**
  * Cloudflare solver lifecycle events emitted by `solveCloudflare`. Each event
  * carries the url being solved; `nemuAidokuCfFailed` adds a `reason` when one
  * is known. These drive the live "Nemu Agent" sheet (see `useNemuAgentSheet`).
  */
 export type NemuAidokuCfSolveEventPayload = {
   url: string;
-  reason?: string;
+  reason?: NemuAidokuCfFailureReason | string;
 };
 
 export type NemuAidokuCfEventsMap = {

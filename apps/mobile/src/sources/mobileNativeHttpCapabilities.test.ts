@@ -13,6 +13,7 @@ const completeModule = {
   async sendHttpRequest() {},
   sendHttpRequestSync() {},
   async resetMobileSourceProfileAuthState() {},
+  async clearSourceCookies() {},
 };
 
 describe("mobile native HTTP capability negotiation", () => {

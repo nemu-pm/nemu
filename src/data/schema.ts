@@ -61,6 +61,10 @@ export const InstalledSourceSchema = z.object({
   version: z.number(),
   updatedAt: z.number().optional(), // For LWW sync conflict resolution
   removed: z.boolean().optional(), // Tombstone: true = uninstalled
+  // Temporarily disabled by the user: the install, its library links and its
+  // settings all survive, but the source is hidden from browse/search/home and
+  // refused by the runtime layer until it is re-enabled.
+  disabled: z.boolean().optional(),
 });
 
 /**

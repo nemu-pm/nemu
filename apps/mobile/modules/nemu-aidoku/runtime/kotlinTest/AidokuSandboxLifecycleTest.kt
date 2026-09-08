@@ -53,6 +53,23 @@ class AidokuSandboxLifecycleTest {
   }
 
   @Test
+  fun imageOperationKindForwardsOnlyTheTwoImageRounds() {
+    assertEquals(
+      "process-cover-image",
+      aidokuSandboxImageOperationKind("process-cover-image")
+    )
+    assertEquals(
+      "process-page-image",
+      aidokuSandboxImageOperationKind("process-page-image")
+    )
+    // Anything else must not reach an unrelated operation over the image
+    // transport; `optString` also yields "" for a missing or non-string kind.
+    for (requested in listOf(null, "", "  ", "listing-page", "PROCESS-COVER-IMAGE")) {
+      assertEquals("process-page-image", aidokuSandboxImageOperationKind(requested))
+    }
+  }
+
+  @Test
   fun pendingSandboxConnectionIsRetainedAcrossAnAbandonedWaitAndReused() {
     val tracker = AidokuPendingSandboxConnection<CompletableFuture<String>>()
     val first = CompletableFuture<String>()

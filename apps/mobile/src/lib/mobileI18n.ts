@@ -31,6 +31,8 @@ export type MobileStrings = {
     listLastSeparator: string;
     merge: string;
     moreTags: string;
+    moveDown: string;
+    moveUp: string;
     new: string;
     openSettings: string;
     pageNotFound: string;
@@ -57,6 +59,12 @@ export type MobileStrings = {
     agentSheetSuccess: string;
     agentSheetFailed: string;
     agentSheetUnavailable: string;
+    agentSheetVerifying: string;
+    agentSheetBrowserHint: string;
+    agentSheetFailedCancelled: string;
+    agentSheetFailedTimeout: string;
+    agentSheetFailedBlocked: string;
+    agentSheetFailedUnsolicitedHost: string;
   };
   errorBoundary: {
     copied: string;
@@ -891,6 +899,11 @@ export type MobileStrings = {
     uninstallSource: string;
     uninstallSourceConfirm: string;
     uninstallSourceNamed: string;
+    sourceDisabledBadge: string;
+    sourceDisabledSubtitle: string;
+    toggleSourceEnabled: string;
+    sourceDisabledToast: string;
+    sourceEnabledToast: string;
   };
   sourceManager: {
     active: string;
