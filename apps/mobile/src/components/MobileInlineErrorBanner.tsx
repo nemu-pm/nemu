@@ -103,10 +103,13 @@ export function MobileInlineErrorBanner({
             }
             style={[styles.detail, { color: tokens.mutedForeground }]}
           >
-            {embedded ? description : detail}
+            {description}
           </Text>
         </View>
-        {embedded && diagnostic ? (
+        {/* Both variants collapse the diagnostic: the glass banner used to
+            print the raw exception as body copy, which is untranslated and
+            pushes the retry action off a phone-width row. */}
+        {diagnostic ? (
           <View style={styles.diagnostic}>
             <NemuPressable
               accessibilityRole="button"
@@ -134,7 +137,9 @@ export function MobileInlineErrorBanner({
             </NemuPressable>
             {diagnosticOpen ? (
               <Text
-                numberOfLines={EMBEDDED_DIAGNOSTIC_MAX_LINES}
+                numberOfLines={
+                  embedded ? EMBEDDED_DIAGNOSTIC_MAX_LINES : undefined
+                }
                 selectable
                 style={[
                   styles.diagnosticBody,

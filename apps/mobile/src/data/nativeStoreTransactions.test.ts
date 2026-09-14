@@ -114,12 +114,18 @@ describe("NativeUserDataStore transactions", () => {
     let transactionWrites = 0;
     let ownerReads = 0;
     let ownerWrites = 0;
+    const statements: string[] = [];
     const txn = {
-      execAsync: async () => undefined,
+      execAsync: async (sql: string) => {
+        statements.push(sql);
+        return undefined;
+      },
       getAllAsync: async () => [],
-      getFirstAsync: async () => {
+      getFirstAsync: async (sql: string) => {
         transactionReads += 1;
-        return null;
+        // A stored generation makes generation 7 a true remote reset rather
+        // than the first-sign-in adoption of never-synced local rows.
+        return sql.includes("sync_state") ? { generation: 3 } : null;
       },
       runAsync: async () => {
         transactionWrites += 1;
@@ -155,6 +161,47 @@ describe("NativeUserDataStore transactions", () => {
     expect(transactionWrites).toBe(1);
     expect(ownerReads).toBe(0);
     expect(ownerWrites).toBe(0);
+    expect(statements.join("\n")).toContain("DELETE FROM library_items");
+  });
+
+  test("adopts never-synced local rows instead of deleting them on first sign-in", async () => {
+    const statements: string[] = [];
+    const writes: string[] = [];
+    const txn = {
+      execAsync: async (sql: string) => {
+        statements.push(sql);
+        return undefined;
+      },
+      getAllAsync: async () => [],
+      // No sync_state row: this database has never carried a generation.
+      getFirstAsync: async () => null,
+      runAsync: async (sql: string) => {
+        writes.push(sql);
+        return {} as never;
+      },
+    } as unknown as TransactionExecutor;
+    const db = {
+      withExclusiveTransactionAsync: async (
+        task: (executor: TransactionExecutor) => Promise<void>,
+      ) => task(txn),
+    } as unknown as SQLiteDatabase;
+
+    await expect(
+      new NativeUserDataStore(db).applySyncGeneration(7),
+    ).resolves.toBe("reset");
+
+    const executed = statements.join("\n");
+    expect(executed).not.toContain("DELETE FROM library_items");
+    expect(executed).not.toContain("DELETE FROM chapter_progress");
+    expect(executed).not.toContain("DELETE FROM manga_progress");
+    expect(executed).not.toContain("DELETE FROM collection_items");
+    expect(executed).not.toContain("DELETE FROM installed_sources");
+    expect(executed).not.toContain("DELETE FROM pending_sync_deletions");
+    // Snapshot health is generation-scoped bookkeeping, not user data.
+    expect(executed).toContain("DELETE FROM sync_health");
+    // The settings row keeps its installed sources; only the generation moves.
+    expect(writes.some((sql) => sql.includes("UPDATE settings"))).toBe(false);
+    expect(writes.some((sql) => sql.includes("sync_state"))).toBe(true);
   });
 
   test("orders snapshot health durably across wall-clock rollback and fences stale generations", async () => {

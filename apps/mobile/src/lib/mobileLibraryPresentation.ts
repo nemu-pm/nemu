@@ -37,6 +37,8 @@ export type MobileLibraryMergeCandidatePage<T> = {
 export type MobileLibraryEmptyState = {
   title: string;
   description: string;
+  /** Raw failure text, shown only behind the collapsed "technical details". */
+  diagnostic?: string;
   actionLabel: string;
   actionRoute: "/browse" | "/search";
 };
@@ -72,9 +74,13 @@ export function getMobileLibraryEmptyState({
   strings: MobileStrings;
 }): MobileLibraryEmptyState {
   if (error) {
+    // The raw text is an untranslated exception message (`QuotaExceededError:
+    // …`), so it belongs behind the diagnostic disclosure rather than in the
+    // body copy a ja/zh reader sees under the mascot.
     return {
       title: strings.library.unavailable,
-      description: error,
+      description: strings.common.sourceErrorDescription,
+      diagnostic: error,
       actionLabel: strings.library.addSource,
       actionRoute: "/browse",
     };
@@ -119,6 +125,23 @@ export function shouldShowMobileLibraryLoadError({
   hasError: boolean;
 }): boolean {
   return !loading && !hasLibraryData && hasError;
+}
+
+/**
+ * The full-screen takeover above only fires when there is nothing to show.
+ * With cached entries on screen the same failure still has to surface, or
+ * collections silently disappear from the title menu and covers lose their
+ * source headers with no message and no way to retry — so the inline banner
+ * covers exactly the case the takeover skips.
+ */
+export function shouldShowMobileLibraryLoadErrorBanner({
+  hasLibraryData,
+  hasError,
+}: {
+  hasLibraryData: boolean;
+  hasError: boolean;
+}): boolean {
+  return hasError && hasLibraryData;
 }
 
 export function shouldShowMobileLibraryEmptyOnboarding({

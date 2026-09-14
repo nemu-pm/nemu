@@ -327,7 +327,7 @@ describe("mobile sync data store", () => {
     expect(calls).toEqual([]);
   });
 
-  test("keeps unknown-generation writes local until a remote generation is adopted", async () => {
+  test("adopts unknown-generation writes when a remote generation first arrives", async () => {
     const calls: MutationCall[] = [];
     installConvexRecorder(calls);
     const base = new WebUserDataStore();
@@ -342,8 +342,15 @@ describe("mobile sync data store", () => {
 
     await runWithMobileSyncWrite(() => base.applySyncGeneration(2));
     expect(await base.getSyncGeneration()).toBe(2);
-    expect(await base.getAllLibraryItems({ includeRemoved: true })).toEqual([]);
-    expect(await base.getAllSourceLinks()).toEqual([]);
+    // These rows were never part of an older generation and were never pushed,
+    // so the first sign-in must adopt them for the snapshot merge to reconcile
+    // rather than delete the user's only copy.
+    expect(
+      (await base.getAllLibraryItems({ includeRemoved: true })).map(
+        (item) => item.libraryItemId,
+      ),
+    ).toEqual(["library-1"]);
+    expect(await base.getAllSourceLinks()).toHaveLength(1);
   });
 
   test("orders an in-flight local write before reset and preserves writes started after reset", async () => {

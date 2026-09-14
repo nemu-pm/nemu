@@ -59,6 +59,33 @@ describe("mobile image cache account key", () => {
     expect(second).toMatch(/^mobile-image:profile:b:[a-f0-9]{64}$/);
   });
 
+  test("stays correct once the digest memo has evicted an earlier identity", () => {
+    // The memo is bounded, so a long chapter (or several in a session) pushes
+    // early identities out; a recomputed digest must match the first one.
+    const first = makeMobileImageCacheStorageKey("profile:a", {
+      uri: "https://private.example/page-0.jpg",
+      headers: { authorization: "token" },
+    });
+    for (let index = 1; index <= 1024; index += 1) {
+      makeMobileImageCacheStorageKey("profile:a", {
+        uri: `https://private.example/page-${index}.jpg`,
+      });
+    }
+    expect(
+      makeMobileImageCacheStorageKey("profile:a", {
+        uri: "https://private.example/page-0.jpg",
+        headers: { authorization: "token" },
+      }),
+    ).toBe(first);
+    // A different identity must not pick up the evicted entry's digest.
+    expect(
+      makeMobileImageCacheStorageKey("profile:a", {
+        uri: "https://private.example/page-0.jpg",
+        headers: { authorization: "other" },
+      }),
+    ).not.toBe(first);
+  });
+
   test("keeps source URI identity when a repeated page-id discriminator is present", () => {
     const first = makeMobileImageCacheStorageKey(
       "profile:a",

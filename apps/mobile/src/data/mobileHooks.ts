@@ -17,6 +17,11 @@ import {
 import NemuAidokuModule from "../../modules/nemu-aidoku/src/NemuAidokuModule";
 import type { NemuNetworkAccessState } from "../../modules/nemu-aidoku/src/NemuAidoku.types";
 import { useMobileDataStore } from "./mobileDataContext";
+import {
+  applyMangaProgressPatch,
+  mangaProgressWriteCursor,
+  mangaProgressWritesSince,
+} from "./mangaProgressChangeLog";
 import type {
   AppLanguage,
   InstalledSource,
@@ -319,11 +324,17 @@ export function useMangaProgress(): LoadState<LocalMangaProgress[]> {
   const [data, setData] = useState<LocalMangaProgress[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // `null` means "never read this store", which forces the first full scan.
+  const writeCursorRef = useRef<number | null>(null);
 
   const reload = useCallback(async () => {
     try {
       setError(null);
+      // Capture the cursor before the read so a write that lands during it is
+      // replayed by the next delta instead of being silently skipped.
+      const cursor = mangaProgressWriteCursor();
       const progress = await store.getMangaProgress();
+      writeCursorRef.current = cursor;
       setData(
         (current) =>
           stabilizeListReferences(
@@ -340,9 +351,55 @@ export function useMangaProgress(): LoadState<LocalMangaProgress[]> {
     }
   }, [store]);
 
+  /**
+   * Persisting a page turn emits `"progress"` about twice a second while
+   * reading, and this hook stays mounted behind the Library tab. Re-reading and
+   * re-parsing every stored manga row on each of those events costs more the
+   * longer the user's history is, so re-read only the rows the stores recorded
+   * as written and fall back to the full scan when the delta is unknown.
+   */
+  const refresh = useCallback(async () => {
+    const cursor = writeCursorRef.current;
+    const delta =
+      cursor === null ? null : mangaProgressWritesSince(cursor);
+    if (!delta) {
+      await reload();
+      return;
+    }
+    if (delta.ids.length === 0) {
+      setLoading(false);
+      return;
+    }
+    try {
+      setError(null);
+      const rows = await Promise.all(
+        delta.ids.map((id) => store.getMangaProgressById(id)),
+      );
+      writeCursorRef.current = delta.cursor;
+      setData(
+        (current) =>
+          stabilizeListReferences(
+            current,
+            applyMangaProgressPatch(current, delta.ids, rows),
+            (item) => item.id,
+          ) as LocalMangaProgress[],
+      );
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+      throw nextError;
+    } finally {
+      setLoading(false);
+    }
+  }, [reload, store]);
+
   useEffect(() => {
-    ignoreReloadError(reload);
-  }, [reload, revision]);
+    // A store swap (profile change) invalidates the cursor with it.
+    writeCursorRef.current = null;
+  }, [store]);
+
+  useEffect(() => {
+    ignoreReloadError(refresh);
+  }, [refresh, revision]);
 
   return { data, loading, error, reload };
 }

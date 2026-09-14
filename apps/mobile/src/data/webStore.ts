@@ -27,11 +27,16 @@ import {
   sourceHasCachedPackage,
 } from "@/lib/mobileDataManagement";
 import {
+  recordMangaProgressBulkChange,
+  recordMangaProgressWrite,
+} from "./mangaProgressChangeLog";
+import {
   mergeChapterProgressForSave,
   mergeMangaProgressForSave,
 } from "./progressMerge";
 import {
   decideSyncGeneration,
+  decideSyncGenerationResetScope,
   mergeChapterProgressSnapshot,
   mergeMangaProgressSnapshot,
   nextSyncTimestamp,
@@ -182,6 +187,20 @@ export class WebUserDataStore implements MobileDataStore {
       this.writeState({ ...state, syncGeneration: generation });
       return decision;
     }
+    // An adoption reset (no generation was ever stored) is the first sign-in on
+    // a store that only ever held local-only work. Deleting it here would
+    // destroy the user's only copy before anything has been pushed; the
+    // snapshot merges that follow reconcile it against the cloud instead. Only
+    // snapshot health, which is generation-scoped bookkeeping, is dropped.
+    if (
+      decideSyncGenerationResetScope(state.syncGeneration, generation) ===
+      "adopt-local"
+    ) {
+      this.writeState({ ...state, syncGeneration: generation });
+      this.volatileSyncSnapshotState = null;
+      return decision;
+    }
+    recordMangaProgressBulkChange();
     this.writeState({
       ...DEFAULT_STATE,
       syncGeneration: generation,
@@ -339,11 +358,13 @@ export class WebUserDataStore implements MobileDataStore {
   }
 
   async clearAllUserData(): Promise<void> {
+    recordMangaProgressBulkChange();
     this.writeState(DEFAULT_STATE);
     this.volatileSyncSnapshotState = null;
   }
 
   async clearAccountData(): Promise<void> {
+    recordMangaProgressBulkChange();
     this.updateState((state) => ({
       ...DEFAULT_STATE,
       registries: state.registries,
@@ -779,6 +800,7 @@ export class WebUserDataStore implements MobileDataStore {
   }
 
   async saveMangaProgress(progress: LocalMangaProgress): Promise<void> {
+    recordMangaProgressWrite(progress.id);
     this.updateState((state) => ({
       ...state,
       mangaProgress: [
@@ -797,6 +819,7 @@ export class WebUserDataStore implements MobileDataStore {
     const state = this.readState();
     const result = mergeMangaProgressSnapshot(state.mangaProgress, progress);
     if (result.changed.length > 0) {
+      for (const entry of result.changed) recordMangaProgressWrite(entry.id);
       this.writeState({ ...state, mangaProgress: result.progress });
     }
     return result;

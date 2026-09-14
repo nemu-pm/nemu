@@ -211,6 +211,7 @@ export const mobileStringsEn: MobileStrings = {
     emptyDescription: "Search for manga and add them to your library",
     progressCaughtUp: "Caught up",
     progressUnread: "Unread",
+    refreshLibrary: "Refresh library",
     removeCollection: "Remove collection",
     removeCollectionConfirm:
       "Remove this collection? Library manga stays saved.",
@@ -448,6 +449,7 @@ export const mobileStringsEn: MobileStrings = {
     noPackageListings: "This source does not expose package listings.",
     noSourceHome: "No source home sections are available.",
     homeUnavailable: "The source home page did not load. Retry to fetch it again.",
+    homeSectionEmpty: "This section has nothing to show right now.",
     notFilter: "Not {{option}}",
     sourceOperationTimedOut: "The source took too long to respond.",
     openAllFilters: "Open all source filters",

@@ -15,9 +15,24 @@ import { JapaneseLearningNemuAvatar } from "./JapaneseLearningNemuAvatar";
 const DOT_COUNT = 3;
 const DOT_BOUNCE_MS = 600;
 
-function TypingDot({ index, color }: { index: number; color: string }) {
+function TypingDot({
+  index,
+  color,
+  animate,
+}: {
+  index: number;
+  color: string;
+  animate: boolean;
+}) {
   const offset = useSharedValue(0);
   useEffect(() => {
+    // An unbounded `withRepeat` ignores the system Reduce Motion setting, and
+    // this indicator can stay mounted for a whole assistant turn.
+    if (!animate) {
+      cancelAnimation(offset);
+      offset.value = 0;
+      return;
+    }
     offset.value = 0;
     offset.value = withRepeat(
       withTiming(1, {
@@ -28,9 +43,10 @@ function TypingDot({ index, color }: { index: number; color: string }) {
       false,
     );
     return () => cancelAnimation(offset);
-  }, [offset]);
+  }, [animate, offset]);
 
   const animatedStyle = useAnimatedStyle(() => {
+    if (!animate) return { transform: [{ translateY: 0 }] };
     const phase = (offset.value + index / DOT_COUNT) % 1;
     const translateY = -5 * Math.sin(phase * Math.PI * 2);
     return { transform: [{ translateY }] };
@@ -49,7 +65,7 @@ export function JapaneseLearningTypingIndicator({
 }: {
   showAvatar?: boolean;
 }) {
-  const { scheme } = useNemuTheme();
+  const { reduceMotion, scheme } = useNemuTheme();
   const assistantColors = getJapaneseLearningAssistantBubbleColors(scheme, false);
   const dotColor = scheme === "dark" ? "#999999" : "rgba(94, 99, 111, 0.5)";
 
@@ -69,7 +85,12 @@ export function JapaneseLearningTypingIndicator({
       >
         <View style={styles.dotsRow}>
           {Array.from({ length: DOT_COUNT }).map((_, i) => (
-            <TypingDot key={i} index={i} color={dotColor} />
+            <TypingDot
+              key={i}
+              index={i}
+              color={dotColor}
+              animate={reduceMotion !== true}
+            />
           ))}
         </View>
       </View>

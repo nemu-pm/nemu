@@ -37,6 +37,7 @@ import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import {
   MobileChip,
   NemuPressable,
+  NemuText,
   MobileCachedImage,
   createNemuShadowStyle,
   radius,
@@ -54,6 +55,10 @@ import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import type { SearchSourceDisplay } from "@/lib/mobileSearch";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import { normalizeMobileSourceExternalUrl } from "@/lib/mobileSourceExternalUrl";
+import {
+  resolveMobileSourceHomeSectionPlaceholder,
+  type MobileSourceHomeSectionStatus,
+} from "@/lib/mobileSourceHomeSectionState";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
 import { getMobileSourceHomeImageScrollerCardSize } from "@/lib/mobileSourceHomeImageScroller";
 import {
@@ -70,6 +75,12 @@ import {
 
 type SourceHomeViewProps = {
   home: HomeLayout;
+  /**
+   * Whether the layout above is still being fetched. Without it a section
+   * with no entries is indistinguishable from one that is still loading, and
+   * both render as skeleton cards forever.
+   */
+  status: MobileSourceHomeSectionStatus;
   source: SearchSourceDisplay;
   installedSource?: InstalledSource | null;
   importingKey: string | null;
@@ -502,6 +513,36 @@ function HomeActionCard({
   );
 }
 
+/**
+ * Inline replacement for the skeleton cards once a section has resolved with
+ * nothing in it — a region-blocked rail or a legacy listing the runtime could
+ * not expand. A skeleton there reads as "still loading" forever.
+ */
+function HomeSectionEmpty({ strings }: { strings: MobileStrings }) {
+  const { tokens } = useNemuTheme();
+  return (
+    <View
+      style={[
+        styles.sectionEmpty,
+        { backgroundColor: tokens.muted, borderColor: tokens.border },
+      ]}
+    >
+      <Ionicons
+        name="file-tray-outline"
+        size={15}
+        color={tokens.mutedForeground}
+      />
+      <NemuText
+        variant="caption"
+        color={tokens.mutedForeground}
+        style={styles.sectionEmptyText}
+      >
+        {strings.sourceBrowse.homeSectionEmpty}
+      </NemuText>
+    </View>
+  );
+}
+
 function HomeScrollerSkeletonItems() {
   const { tokens } = useNemuTheme();
   const skeletonColor = tokens.muted;
@@ -547,6 +588,7 @@ function HomeScrollerSkeletonItems() {
 const HorizontalLinkSection = memo(function HorizontalLinkSection({
   component,
   links,
+  status,
   source,
   importingKey,
   strings,
@@ -556,6 +598,7 @@ const HorizontalLinkSection = memo(function HorizontalLinkSection({
 }: {
   component: HomeComponent;
   links: HomeLink[];
+  status: MobileSourceHomeSectionStatus;
   source: SearchSourceDisplay;
   importingKey: string | null;
   strings: MobileStrings;
@@ -566,8 +609,29 @@ const HorizontalLinkSection = memo(function HorizontalLinkSection({
   onListingPress: (listing: Listing) => void;
   onOpenLink: OpenLinkHandler;
 }) {
-  const showScrollerSkeleton =
-    !links.length && component.value.type === "scroller";
+  const placeholder = resolveMobileSourceHomeSectionPlaceholder({
+    status,
+    itemCount: links.length,
+  });
+
+  if (placeholder === "empty") {
+    return (
+      <View style={styles.homeSection}>
+        <SectionHeader
+          title={component.title}
+          subtitle={component.subtitle}
+          listing={
+            "listing" in component.value ? component.value.listing : undefined
+          }
+          strings={strings}
+          onListingPress={onListingPress}
+        />
+        <HomeSectionEmpty strings={strings} />
+      </View>
+    );
+  }
+
+  const showScrollerSkeleton = placeholder === "skeleton";
 
   return (
     <View style={styles.homeSection}>
@@ -704,6 +768,7 @@ function FeaturedSectionSkeleton() {
 function FeaturedSection({
   component,
   entries,
+  status,
   source,
   importingKey,
   strings,
@@ -711,6 +776,7 @@ function FeaturedSection({
 }: {
   component: HomeComponent;
   entries: MobileLiveSearchManga[];
+  status: MobileSourceHomeSectionStatus;
   source: SearchSourceDisplay;
   importingKey: string | null;
   strings: MobileStrings;
@@ -724,7 +790,11 @@ function FeaturedSection({
   const pagerRef = useRef<ScrollView | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const featuredEntries = getMobileSourceHomeFeaturedEntries(entries);
-  if (!featuredEntries.length) {
+  const placeholder = resolveMobileSourceHomeSectionPlaceholder({
+    status,
+    itemCount: featuredEntries.length,
+  });
+  if (placeholder !== "none") {
     return (
       <View style={styles.homeSection}>
         <SectionHeader
@@ -733,7 +803,11 @@ function FeaturedSection({
           strings={strings}
           onListingPress={() => {}}
         />
-        <FeaturedSectionSkeleton />
+        {placeholder === "empty" ? (
+          <HomeSectionEmpty strings={strings} />
+        ) : (
+          <FeaturedSectionSkeleton />
+        )}
       </View>
     );
   }
@@ -999,6 +1073,7 @@ const MangaListSection = memo(function MangaListSection({
   links,
   ranking,
   pageSize,
+  status,
   source,
   importingKey,
   strings,
@@ -1009,6 +1084,7 @@ const MangaListSection = memo(function MangaListSection({
   component: HomeComponent;
   links: HomeLink[];
   ranking: boolean;
+  status: MobileSourceHomeSectionStatus;
   pageSize?: number;
   source: SearchSourceDisplay;
   importingKey: string | null;
@@ -1022,7 +1098,10 @@ const MangaListSection = memo(function MangaListSection({
 }) {
   const { tokens } = useNemuTheme();
   const displayed = pageSize ? links.slice(0, pageSize) : links;
-  const isEmpty = displayed.length === 0;
+  const placeholder = resolveMobileSourceHomeSectionPlaceholder({
+    status,
+    itemCount: displayed.length,
+  });
   const skeletonCount = getMobileSourceHomeListSkeletonCount(pageSize);
 
   return (
@@ -1037,7 +1116,9 @@ const MangaListSection = memo(function MangaListSection({
         onListingPress={onListingPress}
       />
       <View style={styles.listStack}>
-        {isEmpty ? (
+        {placeholder === "empty" ? (
+          <HomeSectionEmpty strings={strings} />
+        ) : placeholder === "skeleton" ? (
           <HomeListSkeletonRows
             count={skeletonCount}
             ranking={ranking}
@@ -1240,6 +1321,7 @@ const ChapterListSection = memo(function ChapterListSection({
   component,
   entries,
   pageSize,
+  status,
   source,
   strings,
   onPressManga,
@@ -1248,6 +1330,7 @@ const ChapterListSection = memo(function ChapterListSection({
   component: HomeComponent;
   entries: MangaWithChapter[];
   pageSize?: number;
+  status: MobileSourceHomeSectionStatus;
   source: SearchSourceDisplay;
   strings: MobileStrings;
   onPressManga: (
@@ -1258,7 +1341,10 @@ const ChapterListSection = memo(function ChapterListSection({
 }) {
   const { tokens } = useNemuTheme();
   const displayed = pageSize ? entries.slice(0, pageSize) : entries;
-  const isEmpty = displayed.length === 0;
+  const placeholder = resolveMobileSourceHomeSectionPlaceholder({
+    status,
+    itemCount: displayed.length,
+  });
   const skeletonCount = getMobileSourceHomeListSkeletonCount(pageSize);
 
   return (
@@ -1273,7 +1359,9 @@ const ChapterListSection = memo(function ChapterListSection({
         onListingPress={onListingPress}
       />
       <View style={styles.listStack}>
-        {isEmpty ? (
+        {placeholder === "empty" ? (
+          <HomeSectionEmpty strings={strings} />
+        ) : placeholder === "skeleton" ? (
           <HomeListSkeletonRows count={skeletonCount} />
         ) : (
           displayed.map((entry, index) => {
@@ -1368,6 +1456,7 @@ const ChapterListSection = memo(function ChapterListSection({
 const BannerSection = memo(function BannerSection({
   component,
   links,
+  status,
   source,
   importingKey,
   strings,
@@ -1377,6 +1466,7 @@ const BannerSection = memo(function BannerSection({
 }: {
   component: HomeComponent;
   links: HomeLink[];
+  status: MobileSourceHomeSectionStatus;
   source: SearchSourceDisplay;
   importingKey: string | null;
   strings: MobileStrings;
@@ -1396,6 +1486,24 @@ const BannerSection = memo(function BannerSection({
           height: value.height,
         })
       : getMobileSourceHomeImageScrollerCardSize({});
+  const placeholder = resolveMobileSourceHomeSectionPlaceholder({
+    status,
+    itemCount: links.length,
+  });
+
+  if (placeholder === "empty") {
+    return (
+      <View style={styles.homeSection}>
+        <SectionHeader
+          title={component.title}
+          subtitle={component.subtitle}
+          strings={strings}
+          onListingPress={onListingPress}
+        />
+        <HomeSectionEmpty strings={strings} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.homeSection}>
@@ -1563,6 +1671,7 @@ const HomeComponentView = memo(function HomeComponentView(
 ) {
   const {
     component,
+    status,
     source,
     importingKey,
     strings,
@@ -1578,6 +1687,7 @@ const HomeComponentView = memo(function HomeComponentView(
       <HorizontalLinkSection
         component={component}
         links={value.entries}
+        status={status}
         source={source}
         importingKey={importingKey}
         strings={strings}
@@ -1593,6 +1703,7 @@ const HomeComponentView = memo(function HomeComponentView(
       <FeaturedSection
         component={component}
         entries={value.entries.map(mapAidokuMangaToLiveSearchManga)}
+        status={status}
         source={source}
         importingKey={importingKey}
         strings={strings}
@@ -1608,6 +1719,7 @@ const HomeComponentView = memo(function HomeComponentView(
         links={value.entries}
         ranking={value.ranking}
         pageSize={value.pageSize}
+        status={status}
         source={source}
         importingKey={importingKey}
         strings={strings}
@@ -1624,6 +1736,7 @@ const HomeComponentView = memo(function HomeComponentView(
         component={component}
         entries={value.entries}
         pageSize={value.pageSize}
+        status={status}
         source={source}
         strings={strings}
         onPressManga={onPressManga}
@@ -1637,6 +1750,7 @@ const HomeComponentView = memo(function HomeComponentView(
       <BannerSection
         component={component}
         links={value.links}
+        status={status}
         source={source}
         importingKey={importingKey}
         strings={strings}
@@ -1663,6 +1777,7 @@ const HomeComponentView = memo(function HomeComponentView(
       <HorizontalLinkSection
         component={component}
         links={value.links}
+        status={status}
         source={source}
         importingKey={importingKey}
         strings={strings}
@@ -2075,6 +2190,19 @@ const styles = StyleSheet.create({
   },
   listStack: {
     gap: 2,
+  },
+  sectionEmpty: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+  },
+  sectionEmptyText: {
+    flex: 1,
+    minWidth: 0,
   },
   listRow: {
     minHeight: 86,

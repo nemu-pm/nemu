@@ -180,6 +180,7 @@ import {
   mergeMobileSourceListingTabs,
   normalizeMobileSourceListings,
 } from "@/lib/mobileSourceListingsPresentation";
+import { resolveMobileSourceHomeSectionStatus } from "@/lib/mobileSourceHomeSectionState";
 import type {
   Filter,
   FilterValue,
@@ -1606,6 +1607,12 @@ export function SourceBrowseScreen() {
   const sourceSearchTerm = submittedSourceSearchQuery.trim();
   const sourceHome = sourceHomeState.home;
   const sourceHomeHasComponents = !!sourceHome?.components.length;
+  // A partially filled layout is still being fetched; once the fetch settles,
+  // a section with no entries is final and must say so instead of pulsing a
+  // skeleton row forever.
+  const sourceHomeSectionStatus = resolveMobileSourceHomeSectionStatus(
+    sourceHomeState.status,
+  );
   const sourceOnlySearch =
     runtimeBrowseMetadata?.onlySearch ??
     (sourceHomeState.status === "ready"
@@ -3112,6 +3119,7 @@ export function SourceBrowseScreen() {
               <View style={styles.previewSection}>
                 <SourceHomeView
                   home={sourceHome}
+                  status={sourceHomeSectionStatus}
                   source={sourceHomeDisplay}
                   importingKey={null}
                   strings={strings}
@@ -3157,6 +3165,7 @@ export function SourceBrowseScreen() {
       sourceHome,
       sourceHomeDisplay,
       sourceHomeHasComponents,
+      sourceHomeSectionStatus,
       sourceHomeTabCanSelect,
       sourceHomeTabSelected,
       sourceRuntimeUnavailableDetail,

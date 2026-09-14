@@ -5,6 +5,7 @@ import {
   completeSyncSnapshot,
   consistentSyncGeneration,
   decideSyncGeneration,
+  decideSyncGenerationResetScope,
   estimateSyncSnapshotRowBytes,
   fetchAllSyncSnapshotPages,
   fetchBoundedSyncSnapshotPages,
@@ -38,6 +39,23 @@ describe("sync generation helpers", () => {
   test("resets unversioned or older local state for a newer generation", () => {
     expect(decideSyncGeneration(null, 2)).toBe("reset");
     expect(decideSyncGeneration(1, 2)).toBe("reset");
+  });
+
+  test("adopts never-versioned local state and discards only a true remote reset", () => {
+    // Signing in on a device whose database never carried a generation (the
+    // anonymous library the first account inherits): its rows were never part
+    // of an older generation and were never pushed, so deleting them here is
+    // unrecoverable data loss.
+    expect(decideSyncGenerationResetScope(null, 2)).toBe("adopt-local");
+    // The account's cloud data really was reset under a newer generation.
+    expect(decideSyncGenerationResetScope(1, 2)).toBe("discard-local");
+  });
+
+  test("reports no reset scope for non-reset decisions", () => {
+    expect(decideSyncGenerationResetScope(null, 0)).toBeNull();
+    expect(decideSyncGenerationResetScope(2, 2)).toBeNull();
+    expect(decideSyncGenerationResetScope(2, 1)).toBeNull();
+    expect(decideSyncGenerationResetScope(null, -1)).toBeNull();
   });
 
   test("makes a lost reset response retry idempotent and rejects delayed rows", () => {

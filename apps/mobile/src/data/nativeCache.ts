@@ -29,6 +29,10 @@ export type NativeBinaryCacheDownloadOptions = {
   signal?: AbortSignal;
 };
 
+/** Native twin persists each cache's read-recency sidecar; nothing to do for
+ * the in-memory stub. */
+export async function flushNativeBinaryCacheAccessIndexes(): Promise<void> {}
+
 export class FileSystemBinaryCache implements NativeBinaryCache {
   private readonly entries = new Map<
     string,
@@ -42,6 +46,8 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
     void _directoryName;
     void _policy;
   }
+
+  async flushAccessIndex(): Promise<void> {}
 
   async getUri(key: string): Promise<string | null> {
     const entry = this.entries.get(key);

@@ -37,14 +37,18 @@ describe("mobile inline error banner", () => {
     expect(source).toMatch(
       /numberOfLines=\{\s*embedded \? EMBEDDED_DESCRIPTION_MAX_LINES : undefined\s*\}/,
     );
-    expect(source).toContain(
-      "numberOfLines={EMBEDDED_DIAGNOSTIC_MAX_LINES}",
+    expect(source).toMatch(
+      /numberOfLines=\{\s*embedded \? EMBEDDED_DIAGNOSTIC_MAX_LINES : undefined\s*\}/,
     );
   });
 
   test("collapses the raw diagnostic behind a technical-details disclosure", () => {
     expect(source).toContain("splitMobileInlineErrorDetail(detail)");
-    expect(source).toContain("{embedded && diagnostic ? (");
+    // Both variants collapse it: the glass banner used to print the raw
+    // exception as body copy, untranslated and unbounded.
+    expect(source).toContain("{diagnostic ? (");
+    expect(source).not.toContain("{embedded && diagnostic ? (");
+    expect(source).not.toContain("{embedded ? description : detail}");
     expect(source).toContain("accessibilityState={{ expanded: diagnosticOpen }}");
     expect(source).toContain("styles.diagnosticMono");
   });
