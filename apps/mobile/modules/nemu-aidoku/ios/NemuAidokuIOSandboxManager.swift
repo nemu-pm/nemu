@@ -806,6 +806,16 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
         if NemuAidokuSandboxSessionPolicy.indicatesLostRegistration(status: parsed) {
           throw Self.lostRegistrationError(detail)
         }
+        // A typed source failure keeps its identity: the bounded envelope is the
+        // operation's result and the protocol layer on the React Native side
+        // rebuilds the error, url and host included. See
+        // `NemuAidokuSandboxSessionPolicy.propagatedErrorEnvelope`.
+        if let envelope = NemuAidokuSandboxSessionPolicy.propagatedErrorEnvelope(parsed) {
+          return NemuAidokuIOSandboxOperationResult(
+            json: try Self.jsonString(envelope),
+            namedData: [:]
+          )
+        }
         throw Self.error(detail)
       default:
         throw Self.error("The isolated Aidoku runtime returned an invalid response.")

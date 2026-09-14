@@ -9,6 +9,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -204,5 +205,61 @@ class AidokuSandboxLifecycleTest {
       releaseFactory.countDown()
       executor.shutdownNow()
     }
+  }
+
+  /**
+   * A typed source failure crosses to React Native as a bounded envelope so the
+   * protocol layer can rebuild it (name, code, url, host); anything else stays
+   * a native exception so the reset/retry paths keyed on exceptions are
+   * untouched.
+   */
+  @Test
+  fun typedSourceFailuresPropagateAsBoundedEnvelopes() {
+    val cloudflare = JSONObject()
+      .put("status", "error")
+      .put("code", "runtime-failed")
+      .put("detail", "Cloudflare challenge detected for https://reader.example.com/x (status 403)")
+      .put("errorName", "CloudflareBlockedError")
+      .put("errorUrl", "https://reader.example.com/x")
+      .put("errorHost", "reader.example.com")
+      .put("errorUserAgent", "UA")
+      .put("ignored", "dropped")
+    val envelope = aidokuSandboxPropagatedErrorEnvelope(cloudflare)
+    assertTrue(envelope != null)
+    assertEquals("error", envelope!!.getString("status"))
+    assertEquals("CloudflareBlockedError", envelope.getString("errorName"))
+    assertEquals("https://reader.example.com/x", envelope.getString("errorUrl"))
+    assertEquals("reader.example.com", envelope.getString("errorHost"))
+    assertEquals("UA", envelope.getString("errorUserAgent"))
+    assertFalse(envelope.has("ignored"))
+
+    val sourceFailure = JSONObject()
+      .put("status", "error")
+      .put("errorName", "AidokuResultError")
+      .put("errorCode", -2)
+    assertEquals(-2, aidokuSandboxPropagatedErrorEnvelope(sourceFailure)!!.getInt("errorCode"))
+
+    assertNull(
+      aidokuSandboxPropagatedErrorEnvelope(
+        JSONObject().put("status", "error").put("detail", "boom").put("errorName", "MobileSourceDisabledError")
+      )
+    )
+    assertNull(
+      aidokuSandboxPropagatedErrorEnvelope(
+        JSONObject().put("status", "error").put("code", "replay-rejected").put("detail", "Aidoku operation expired.")
+      )
+    )
+    assertNull(
+      aidokuSandboxPropagatedErrorEnvelope(
+        JSONObject().put("status", "complete").put("errorName", "CloudflareBlockedError")
+      )
+    )
+
+    val long = "a".repeat(5_000)
+    val bounded = aidokuSandboxPropagatedErrorEnvelope(
+      JSONObject().put("status", "error").put("errorName", "AidokuResultError").put("detail", long).put("errorUrl", long)
+    )!!
+    assertEquals(2_048, bounded.getString("detail").length)
+    assertEquals(2_048, bounded.getString("errorUrl").length)
   }
 }

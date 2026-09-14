@@ -863,9 +863,17 @@ internal class AidokuSandboxManager(
             parsed.remove("settingsPatch")
             return parsed.toString()
           }
-          "error" -> throw IllegalStateException(
-            parsed.optString("detail", "The isolated Aidoku runtime failed.")
-          )
+          "error" -> {
+            // A typed source failure keeps its identity: the bounded envelope
+            // is the operation's result and the protocol layer on the React
+            // Native side rebuilds the error, url and host included. See
+            // [aidokuSandboxPropagatedErrorEnvelope].
+            val envelope = aidokuSandboxPropagatedErrorEnvelope(parsed)
+            if (envelope != null) return envelope.toString()
+            throw IllegalStateException(
+              parsed.optString("detail", "The isolated Aidoku runtime failed.")
+            )
+          }
           "http-request" -> {
             if (round >= SANDBOX_MAX_REPLAY_ROUNDS) {
               throw IllegalStateException("Aidoku source exceeded the HTTP replay limit.")
