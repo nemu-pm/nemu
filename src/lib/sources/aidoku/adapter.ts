@@ -37,7 +37,8 @@ import {
 import { extractDefaults } from "@/lib/settings";
 import pMemoize, { pMemoizeClear } from "p-memoize";
 import { hasAgent, agentProxyFetch } from "@/lib/agent";
-import { handleSourceError } from "@/lib/sources/error-handler";
+import { handleSourceError, isCloudflareError } from "@/lib/sources/error-handler";
+import { safeErrorCategory } from "@/lib/error-diagnostic";
 
 /**
  * Which source processor an image fetch belongs to.
@@ -49,6 +50,24 @@ import { handleSourceError } from "@/lib/sources/error-handler";
  * stays purely the page processor's argument.
  */
 export type AidokuImageKind = "page" | "cover";
+
+/**
+ * IndexedDB cache key for a fetched image.
+ *
+ * Pages keep the legacy un-prefixed key. Their bytes are unchanged by the
+ * page/cover split, so prefixing them would strand every cached page on
+ * upgrade — a full re-download of everything already read offline. Only
+ * covers take the `cover:` prefix, because a source's cover processor can now
+ * turn the same URL into different bytes than the page processor would.
+ */
+export function aidokuImageCacheKey(
+  kind: AidokuImageKind,
+  url: string,
+  context: Record<string, string> | null,
+): string {
+  const identity = `${url}:${JSON.stringify(context)}`;
+  return CacheKeys.image(kind === "cover" ? `cover:${identity}` : identity);
+}
 
 /**
  * Track which sources have had their home refreshed this session.
@@ -334,12 +353,10 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
         url: string,
         context: Record<string, string> | null,
       ) => {
-        // Check IndexedDB cache first. The kind is part of the identity: the
+        // Check IndexedDB cache first. Covers are keyed apart from pages: the
         // same URL fetched as a page and as a cover runs through different
         // source processors and therefore yields different bytes.
-        const cacheKey = CacheKeys.image(
-          `${kind}:${url}:${JSON.stringify(context)}`,
-        );
+        const cacheKey = aidokuImageCacheKey(kind, url, context);
         try {
           const cached = await this.cacheStore.get(cacheKey);
           if (cached && cached.byteLength > 0) {
@@ -427,7 +444,20 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
           const imageBytesForFallback = new Uint8Array(responseBuffer.slice(0));
           const imageBytes = new Uint8Array(responseBuffer);
 
-          const processed = await processImage(imageBytes);
+          let processed: Uint8Array | null = null;
+          try {
+            processed = await processImage(imageBytes);
+          } catch (e) {
+            // A processor that throws must not blank the image (a whole cover
+            // grid, in the cover case): fall back to the bytes as fetched. A
+            // Cloudflare block is different — it is actionable, so it keeps
+            // propagating out to handleSourceError.
+            if (isCloudflareError(e)) throw e;
+            console.warn(
+              `[Aidoku] ${kind} image processing failed, using raw bytes:`,
+              safeErrorCategory(e),
+            );
+          }
 
           if (processed) {
             // Processed data is PNG bytes

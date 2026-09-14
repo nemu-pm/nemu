@@ -45,7 +45,9 @@ enum NemuCloudflareChallengePolicyTests {
       ) == nil
     )
 
-    // Subresources: the challenge host tree plus Cloudflare's platform.
+    // Subresources: exactly the validated challenge host plus Cloudflare's
+    // platform host. A sibling or a subdomain of either is a different host
+    // that was never address-validated, so it is refused.
     precondition(
       NemuCloudflareChallengePolicy.allowsSubresource(
         URL(string: "https://reader.example.com/cdn-cgi/challenge-platform/h/b/x")!,
@@ -53,8 +55,20 @@ enum NemuCloudflareChallengePolicyTests {
       )
     )
     precondition(
-      NemuCloudflareChallengePolicy.allowsSubresource(
+      !NemuCloudflareChallengePolicy.allowsSubresource(
         URL(string: "https://static.reader.example.com/app.js")!,
+        challengeHost: host
+      )
+    )
+    precondition(
+      !NemuCloudflareChallengePolicy.allowsSubresource(
+        URL(string: "https://gw.reader.example.com/probe")!,
+        challengeHost: host
+      )
+    )
+    precondition(
+      !NemuCloudflareChallengePolicy.allowsSubresource(
+        URL(string: "https://assets.challenges.cloudflare.com/x.js")!,
         challengeHost: host
       )
     )
@@ -140,11 +154,17 @@ enum NemuCloudflareChallengePolicyTests {
       )
     )
 
-    // Main-frame navigation is narrower: never off the challenge host tree,
-    // not even onto Cloudflare's platform host.
+    // Main-frame navigation is narrower: never off the exact challenge host,
+    // not onto a subdomain of it and not onto Cloudflare's platform host.
     precondition(
       NemuCloudflareChallengePolicy.allowsMainFrameNavigation(
         URL(string: "https://reader.example.com/manga/1")!,
+        challengeHost: host
+      )
+    )
+    precondition(
+      !NemuCloudflareChallengePolicy.allowsMainFrameNavigation(
+        URL(string: "https://www.reader.example.com/manga/1")!,
         challengeHost: host
       )
     )
@@ -157,6 +177,62 @@ enum NemuCloudflareChallengePolicyTests {
     precondition(
       !NemuCloudflareChallengePolicy.allowsMainFrameNavigation(
         URL(string: "https://phish.example.net/login")!,
+        challengeHost: host
+      )
+    )
+
+    // The single decision both WebKit policy phases route through.
+    precondition(
+      NemuCloudflareChallengePolicy.allowsRequest(
+        isForMainFrame: true,
+        url: URL(string: "https://reader.example.com/manga/1")!,
+        challengeHost: host
+      )
+    )
+    precondition(
+      !NemuCloudflareChallengePolicy.allowsRequest(
+        isForMainFrame: true,
+        url: URL(string: "https://challenges.cloudflare.com/turnstile")!,
+        challengeHost: host
+      )
+    )
+    precondition(
+      NemuCloudflareChallengePolicy.allowsRequest(
+        isForMainFrame: false,
+        url: URL(string: "https://challenges.cloudflare.com/turnstile/v0/api.js")!,
+        challengeHost: host
+      )
+    )
+    precondition(
+      !NemuCloudflareChallengePolicy.allowsRequest(
+        isForMainFrame: false,
+        url: URL(string: "https://cdn.reader.example.com/a.js")!,
+        challengeHost: host
+      )
+    )
+    // Inert in-page schemes are subframe-only: the widget's blob: worker must
+    // run, but nothing inert may ever become the top-level document.
+    precondition(NemuCloudflareChallengePolicy.isInertResourceURL(URL(string: "blob:https://reader.example.com/uuid")!))
+    precondition(NemuCloudflareChallengePolicy.isInertResourceURL(URL(string: "data:text/html,hi")!))
+    precondition(!NemuCloudflareChallengePolicy.isInertResourceURL(URL(string: "https://reader.example.com/")!))
+    precondition(
+      NemuCloudflareChallengePolicy.allowsRequest(
+        isForMainFrame: false,
+        url: URL(string: "blob:https://reader.example.com/uuid")!,
+        challengeHost: host
+      )
+    )
+    precondition(
+      !NemuCloudflareChallengePolicy.allowsRequest(
+        isForMainFrame: true,
+        url: URL(string: "blob:https://reader.example.com/uuid")!,
+        challengeHost: host
+      )
+    )
+    precondition(
+      !NemuCloudflareChallengePolicy.allowsRequest(
+        isForMainFrame: false,
+        url: URL(string: "file:///etc/hosts")!,
         challengeHost: host
       )
     )
@@ -192,12 +268,90 @@ enum NemuCloudflareChallengePolicyTests {
         challengeHost: host
       )
     )
+    // A registry suffix is not a parent domain: `co.uk` does not cover
+    // `reader.co.uk`, while the host's own registrable domain still does.
+    precondition(NemuCloudflareChallengePolicy.isPublicSuffix("com"))
+    precondition(NemuCloudflareChallengePolicy.isPublicSuffix("co.uk"))
+    precondition(NemuCloudflareChallengePolicy.isPublicSuffix("github.io"))
+    precondition(!NemuCloudflareChallengePolicy.isPublicSuffix("example.com"))
+    precondition(!NemuCloudflareChallengePolicy.isPublicSuffix("reader.co.uk"))
+    precondition(
+      !NemuCloudflareChallengePolicy.cookieDomainCoversChallengeHost(
+        ".co.uk",
+        challengeHost: "reader.co.uk"
+      )
+    )
+    precondition(
+      !NemuCloudflareChallengePolicy.cookieDomainCoversChallengeHost(
+        "co.uk",
+        challengeHost: "reader.co.uk"
+      )
+    )
+    precondition(
+      NemuCloudflareChallengePolicy.cookieDomainCoversChallengeHost(
+        ".reader.co.uk",
+        challengeHost: "reader.co.uk"
+      )
+    )
+    precondition(
+      !NemuCloudflareChallengePolicy.cookieDomainCoversChallengeHost(
+        ".github.io",
+        challengeHost: "someone.github.io"
+      )
+    )
+
+    // Cookie-jar diffing (the Android solver's process-wide CookieManager):
+    // only what a solve produced is adopted, and expiry enumerates every
+    // Domain=/Path= spelling a leftover cookie could hide behind.
+    let pairs = NemuCloudflareChallengePolicy.cookiePairs(in: "a=1; b=2 ; a=3; =x; novalue; c=")
+    precondition(pairs.map { $0.name } == ["a", "b", "c"])
+    precondition(pairs.map { $0.value } == ["1", "2", ""])
+    precondition(
+      NemuCloudflareChallengePolicy.newOrChangedCookieHeader(
+        before: "a=1; b=2",
+        after: "a=1; b=3; c=4"
+      ) == "b=3; c=4"
+    )
+    precondition(
+      NemuCloudflareChallengePolicy.newOrChangedCookieHeader(
+        before: "",
+        after: "cf_clearance=fresh"
+      ) == "cf_clearance=fresh"
+    )
+    // A stale clearance another scope left behind is unchanged, so it is not
+    // adopted — the cross-scope transfer this diff exists to prevent.
+    precondition(
+      NemuCloudflareChallengePolicy.newOrChangedCookieHeader(
+        before: "cf_clearance=stale",
+        after: "cf_clearance=stale"
+      ) == ""
+    )
+    precondition(
+      NemuCloudflareChallengePolicy.cookieExpiryDomains(for: "a.b.reader.example.com")
+        == [nil, ".a.b.reader.example.com", ".b.reader.example.com", ".reader.example.com", ".example.com"]
+    )
+    precondition(
+      NemuCloudflareChallengePolicy.cookieExpiryDomains(for: "reader.co.uk") == [nil, ".reader.co.uk"]
+    )
+    precondition(NemuCloudflareChallengePolicy.cookieExpiryDomains(for: "localhost") == [nil])
+    precondition(
+      NemuCloudflareChallengePolicy.cookieExpiryPaths(for: "/manga/1/read")
+        == ["/", "/manga", "/manga/1", "/manga/1/read"]
+    )
+    precondition(NemuCloudflareChallengePolicy.cookieExpiryPaths(for: "/") == ["/"])
+    precondition(NemuCloudflareChallengePolicy.cookieExpiryPaths(for: "") == ["/"])
+    precondition(
+      NemuCloudflareChallengePolicy.cookieExpiryPaths(
+        for: "/a/b/c/d/e/f/g/h/i/j/k"
+      ).count == NemuCloudflareChallengePolicy.maxCookieExpiryPathSegments + 1
+    )
 
     // Non-punycode hosts cannot be expressed in a url-filter at all.
     precondition(NemuCloudflareChallengePolicy.normalizedHost("рид.example") == nil)
     precondition(NemuCloudflareChallengePolicy.normalizedHost("Reader.Example.COM.") == host)
 
-    // The compiled allow-list blocks everything, then re-allows both trees.
+    // The compiled allow-list blocks everything, then re-allows exactly the
+    // two hosts.
     let json = NemuCloudflareChallengePolicy.contentRuleListJSON(challengeHost: host)!
     precondition(json.contains("\"block\""))
     precondition(json.contains("ignore-previous-rules"))
@@ -221,8 +375,9 @@ enum NemuCloudflareChallengePolicyTests {
     precondition(filters.contains("^blob:") && filters.contains("^data:"))
     precondition(!filters.contains { $0.hasPrefix("^http:") || $0.hasPrefix("^ws") || $0.hasPrefix("^file") })
 
-    // A pathological url must not slip through the subdomain prefix group.
-    let filter = NemuCloudflareChallengePolicy.hostTreeURLFilter(host)
+    // The authority is pinned exactly: no subdomain prefix, no userinfo shape,
+    // no host that merely starts with the allow-listed one.
+    let filter = NemuCloudflareChallengePolicy.exactHostURLFilter(host)
     let regex = try! NSRegularExpression(pattern: filter, options: [.caseInsensitive])
     func matches(_ value: String) -> Bool {
       regex.firstMatch(
@@ -231,12 +386,15 @@ enum NemuCloudflareChallengePolicyTests {
       ) != nil
     }
     precondition(matches("https://reader.example.com/"))
-    precondition(matches("https://cdn.reader.example.com/a.js"))
+    precondition(matches("https://reader.example.com/manga/1?cf=1"))
+    precondition(matches("https://reader.example.com:8443/x"))
+    precondition(!matches("https://cdn.reader.example.com/a.js"))
     precondition(!matches("https://evil.test/?next=https://reader.example.com/"))
     precondition(!matches("https://xreader.example.com/"))
     precondition(!matches("http://reader.example.com/"))
-    precondition(matches("https://reader.example.com:8443/x"))
     precondition(!matches("https://reader.example.com.evil.test/"))
+    precondition(!matches("https://reader.example.com@evil.test/"))
+    precondition(!matches("https://reader.example.com:pw@evil.test/"))
     // WebKit's content-blocker regex has no alternation; the filter must not
     // contain one or the rule list fails to compile at runtime.
     precondition(!filter.contains("|"))

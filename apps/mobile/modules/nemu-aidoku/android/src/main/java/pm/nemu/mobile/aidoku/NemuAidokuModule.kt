@@ -201,6 +201,15 @@ class NemuAidokuModule : Module() {
   private val preparedHttpRequestIds = ConcurrentHashMap.newKeySet<String>()
   private val cancelledHttpRequestIds = ConcurrentHashMap.newKeySet<String>()
   private val appIsActive = AtomicBoolean(true)
+  /**
+   * Latched in `OnDestroy` before anything is torn down. The solver's teardown
+   * path posts its failure events to the main looper, so they land *after* the
+   * module's app context has gone; `sendEvent` on a destroyed module is at best
+   * a no-op and at worst a crash. iOS gets this for free by capturing the
+   * module weakly (`[weak module]` in `solveCloudflareAsync`); Kotlin lambdas
+   * capture strongly, so the guard has to be explicit.
+   */
+  private val isDestroyed = AtomicBoolean(false)
   private var imageMemoryCallbacks: ComponentCallbacks2? = null
   private var imageMemoryCallbacksContext: Context? = null
   // Explicit, never-inline Cloudflare verification. The solver owns its own
@@ -209,7 +218,7 @@ class NemuAidokuModule : Module() {
   private val cloudflareSolver by lazy {
     NemuCloudflareSolver(
       activityProvider = { appContext.currentActivity },
-      emit = { name, payload -> sendEvent(name, payload) },
+      emit = { name, payload -> emitModuleEvent(name, payload) },
       adoptCookies = ::adoptSolvedCloudflareCookies,
       storedClearance = ::storedCloudflareClearance,
       allowsChallengeHost = cloudflareChallengeHosts::allows
@@ -303,6 +312,10 @@ class NemuAidokuModule : Module() {
 
     OnDestroy {
       appIsActive.set(false)
+      // Before `cancelAll()` below: its failure events are posted to the main
+      // looper and would otherwise be delivered through a module that no longer
+      // has an app context.
+      isDestroyed.set(true)
       unregisterImageMemoryCallbacks()
       // No solver WebView may outlive the app context that hosts it.
       cloudflareSolver.cancelAll()
@@ -439,8 +452,9 @@ class NemuAidokuModule : Module() {
     // synchronous WASM HTTP path is untouched. A WebView cannot route every
     // redirect/subresource/worker fetch through the protected OkHttp DNS +
     // connected-peer boundary, so the solver validates the url with the same
-    // address policy and then confines the WebView to the challenge host tree
-    // and Cloudflare's challenge platform, over https only.
+    // address policy and then confines the WebView to the exact validated
+    // challenge host and Cloudflare's challenge platform, over https only
+    // (WebSocket handshakes excepted; see `NemuCloudflareSolver.kt`).
     AsyncFunction("solveCloudflare") {
         url: String,
         options: NemuAidokuCloudflareSolveOptions?,
@@ -1292,6 +1306,17 @@ class NemuAidokuModule : Module() {
   ) {
     val host = urlString.toHttpUrlOrNull()?.host ?: return
     cloudflareChallengeHosts.record(cookieScope, host, status, headers)
+  }
+
+  /**
+   * `sendEvent`, but never after `OnDestroy`. Solver callbacks are posted to
+   * the main looper and can outlive the module by a tick; a dropped progress
+   * event is correct at that point, and the solve's own completion still
+   * resolves its promise.
+   */
+  private fun emitModuleEvent(name: String, payload: Map<String, Any?>) {
+    if (isDestroyed.get()) return
+    runCatching { sendEvent(name, payload) }
   }
 
   private fun adoptSolvedCloudflareCookies(

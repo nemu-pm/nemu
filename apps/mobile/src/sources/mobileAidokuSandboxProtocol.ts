@@ -65,8 +65,13 @@ function boundedErrorField(value: unknown): string | null {
  * name that URL's own host (case-insensitively, with or without the port) and
  * is derived from the URL when the envelope omitted it. A mismatch — the shape
  * a compromised isolate would use to point the solver at a host the request
- * never went to — drops both fields rather than picking one, so the
- * reconstructed error cannot start a solve at all.
+ * never went to — drops both fields rather than picking one.
+ *
+ * Dropping them is what stops the solve: `extractMobileCloudflareSolveUrl`
+ * reads only the structured `url` property this function sets, and ignores any
+ * url the isolate also spelled out in the error *message*. So an error rebuilt
+ * without `url` can still be classified and described, but cannot start a
+ * native solve.
  */
 function consistentSandboxErrorOrigin(
   fields: MobileAidokuSandboxErrorFields,
@@ -108,8 +113,9 @@ function consistentSandboxErrorOrigin(
  * carried across when the isolate reported them. The url/host pair is only
  * restored when the two agree on one HTTPS origin (see
  * `consistentSandboxErrorOrigin`); otherwise the error is rebuilt without
- * either, so nothing can start a native solve from it. Anything outside the
- * allow-list becomes a plain `Error` with the sanitized detail message.
+ * either, and since only this structured `url` can start a native solve,
+ * nothing can. Anything outside the allow-list becomes a plain `Error` with
+ * the sanitized detail message.
  */
 export function reconstructMobileAidokuSandboxError(
   fields: MobileAidokuSandboxErrorFields,

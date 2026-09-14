@@ -134,3 +134,130 @@ export function shouldRepairMobileSourceImageRequest(
     decision.isRepairableUri ?? isRepairableMobileSourceImageUri;
   return isRepairableUri(failedUri);
 }
+
+/** Minimum shape the coordinator needs of a resolved source image request. */
+export type MobileSourceImageRepairRequest = { url: string };
+
+export type MobileSourceImageRepairResolution<
+  TRequest extends MobileSourceImageRepairRequest,
+> = {
+  /** The image-request cache entry `request` was memoized under. */
+  cacheKey: string | null;
+  request: TRequest | null;
+};
+
+export type MobileSourceImageResolveAttempt<
+  TRequest extends MobileSourceImageRepairRequest,
+> = {
+  /** False once a newer attempt started or this one was cancelled. */
+  readonly active: boolean;
+  /** Remembers the cache key this resolve is memoizing under. */
+  observeCacheKey: (cacheKey: string) => void;
+  /**
+   * Publishes `{ cacheKey, request }` as one pair and returns the URI whose
+   * repair this resolve completed (so the caller can announce it), or null.
+   * A superseded attempt publishes nothing.
+   */
+  settle: (request: TRequest | null) => string | null;
+  /** Abandons this attempt without publishing anything. */
+  cancel: () => void;
+};
+
+export type MobileSourceImageRepairCoordinator<
+  TRequest extends MobileSourceImageRepairRequest,
+> = {
+  beginResolve: () => MobileSourceImageResolveAttempt<TRequest>;
+  /**
+   * Returns the cache key to forget when this holder owns the failing URI and
+   * still has its one repair for it, and arms the repair announcement.
+   * Returns null otherwise.
+   */
+  handleLoadFailure: (
+    failedUri: string,
+    isRepairableUri?: (uri: string) => boolean,
+  ) => string | null;
+  /** A new image identity gets a fresh repair budget. */
+  resetRepairBudget: () => void;
+  /** The pair currently published for this holder. */
+  readonly resolution: MobileSourceImageRepairResolution<TRequest>;
+};
+
+/**
+ * Per-holder bookkeeping for the repair handshake, free of React.
+ *
+ * Two invariants live here and nowhere else:
+ *
+ * 1. `cacheKey` and `request` are only ever published together, by the attempt
+ *    that produced both. They are a pair — forgetting one resolve's cache key
+ *    because another resolve's URI failed evicts the wrong entry — and the
+ *    cache key arrives (via `onCacheKey`) strictly before the request does, so
+ *    a superseded resolve would otherwise be able to staple its key onto the
+ *    live request.
+ * 2. Each (identity, URI) pair is repaired at most once. `resetRepairBudget`
+ *    is the only thing that hands a holder a new budget, so a cover that is
+ *    genuinely unpaintable settles into a broken image rather than looping
+ *    between the loader and the source.
+ */
+export function createMobileSourceImageRepairCoordinator<
+  TRequest extends MobileSourceImageRepairRequest,
+>(): MobileSourceImageRepairCoordinator<TRequest> {
+  let generation = 0;
+  let resolution: MobileSourceImageRepairResolution<TRequest> = {
+    cacheKey: null,
+    request: null,
+  };
+  let repairedUris = new Set<string>();
+  let pendingRepairUri: string | null = null;
+
+  return {
+    get resolution() {
+      return resolution;
+    },
+    beginResolve() {
+      const token = (generation += 1);
+      const isActive = () => token === generation;
+      let observedCacheKey: string | null = null;
+      return {
+        get active() {
+          return isActive();
+        },
+        observeCacheKey(cacheKey: string) {
+          observedCacheKey = cacheKey;
+        },
+        settle(request: TRequest | null) {
+          if (!isActive()) return null;
+          resolution = { cacheKey: observedCacheKey, request };
+          const repairedUri = pendingRepairUri;
+          pendingRepairUri = null;
+          return repairedUri && request?.url === repairedUri
+            ? repairedUri
+            : null;
+        },
+        cancel() {
+          if (isActive()) generation += 1;
+        },
+      };
+    },
+    handleLoadFailure(failedUri, isRepairableUri) {
+      const { cacheKey, request } = resolution;
+      if (
+        !cacheKey ||
+        !shouldRepairMobileSourceImageRequest({
+          failedUri,
+          requestUrl: request?.url,
+          alreadyRepaired: repairedUris.has(failedUri),
+          isRepairableUri,
+        })
+      ) {
+        return null;
+      }
+      repairedUris.add(failedUri);
+      pendingRepairUri = failedUri;
+      resolution = { cacheKey: null, request: null };
+      return cacheKey;
+    },
+    resetRepairBudget() {
+      repairedUris = new Set();
+    },
+  };
+}

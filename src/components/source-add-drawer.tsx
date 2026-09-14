@@ -64,6 +64,8 @@ import {
   entryHasAnyUpdate,
   getEntryMostRecentSource,
 } from "@/data/view";
+import { sanitizeSourceErrorDiagnostic } from "@nemu/core/sources";
+import i18n from "@/lib/i18n";
 
 // =============================================================================
 // Types
@@ -265,11 +267,16 @@ function SourceSection({ result, addedMangaIds, addingKey, isSourceAdding, onAdd
   }
 
   if (result.error) {
-    // A failed source must stay visible; otherwise the failure looks like "no results".
+    // A failed source must stay visible; otherwise the failure looks like "no
+    // results". The message is source-controlled text, so it only reaches the
+    // DOM through the shared bounded sanitizer.
     return (
       <div className="space-y-2">
         <SourceSectionHeader result={result} />
-        <p className="text-sm text-destructive">{t("search.error")}: {result.error}</p>
+        <p className="text-sm text-destructive">
+          {t("search.error")}:{" "}
+          {sanitizeSourceErrorDiagnostic(result.error) ?? t("error.sourceError")}
+        </p>
       </div>
     );
   }
@@ -949,7 +956,12 @@ export function SourceAddDrawer({
         try {
           const source = await getSource(result.registryId, result.sourceId);
           if (!source) {
-            return { index, items: [] as ScoredManga[], bestSimilarity: 0, error: "Source not found" };
+            return {
+              index,
+              items: [] as ScoredManga[],
+              bestSimilarity: 0,
+              error: i18n.t("manga.sourceNotFound"),
+            };
           }
 
           // Determine search query
@@ -977,7 +989,13 @@ export function SourceAddDrawer({
           return { index, items: scoredItems, bestSimilarity, error: null };
         } catch (e) {
           console.error(`[SourceAdd] Search error for ${result.sourceName}:`, e);
-          return { index, items: [] as ScoredManga[], bestSimilarity: 0, error: e instanceof Error ? e.message : String(e) };
+          return {
+            index,
+            items: [] as ScoredManga[],
+            bestSimilarity: 0,
+            error:
+              sanitizeSourceErrorDiagnostic(e) ?? i18n.t("error.sourceError"),
+          };
         }
       });
 

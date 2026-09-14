@@ -273,114 +273,119 @@ export function SettingsPage() {
               {installedSourcesInfo.map((source) => {
                 const sourceEnabled = source.disabled !== true;
                 return (
-                <div
-                  key={source.id}
-                  className="flex items-center justify-between rounded-lg border p-3"
-                >
                   <div
-                    className={`flex items-center gap-3 ${
-                      sourceEnabled ? "" : "opacity-50"
-                    }`}
+                    key={source.id}
+                    className="flex items-center justify-between rounded-lg border p-3"
                   >
-                    {source.icon ? (
-                      <img
-                        src={source.icon}
-                        alt=""
-                        className="size-10 rounded-md object-cover"
-                      />
-                    ) : (
-                      <div className="size-10 rounded-md bg-muted" />
-                    )}
-                    <div>
-                      <div className="flex items-center gap-1">
-                        <p className="font-medium">{source.name}</p>
-                        <Badge variant="secondary">v{source.version}</Badge>
-                        {sourceEnabled ? null : (
-                          <Badge variant="outline">
-                            {t("settings.sourceDisabledBadge")}
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {source.registryId}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      // Source settings load the source through getSource,
-                      // which refuses a disabled install.
-                      disabled={!sourceEnabled}
-                      aria-label={t("settings.configureSource", {
-                        name: source.name,
-                      })}
-                      title={t("settings.configureSource", {
-                        name: source.name,
-                      })}
-                      onClick={() => {
-                        setSettingsSourceData({
-                          key: source.id,
-                          registryId: source.registryId,
-                          sourceId: source.sourceId,
-                          name: source.name,
-                          icon: source.icon,
-                          version: source.version,
-                        });
-                        setSettingsSourceOpen(true);
-                      }}
+                    <div
+                      className={`flex items-center gap-3 ${
+                        sourceEnabled ? "" : "opacity-50"
+                      }`}
                     >
-                      <HugeiconsIcon icon={Settings02Icon} className="size-4" />
-                    </Button>
-                    <Switch
-                      checked={sourceEnabled}
-                      disabled={
-                        togglingSource ===
-                        `${source.registryId}:${source.sourceId}`
-                      }
-                      aria-label={t("settings.toggleSourceLabel", {
-                        name: source.name,
-                      })}
-                      title={t(
-                        sourceEnabled
-                          ? "settings.disableSource"
-                          : "settings.enableSource"
+                      {source.icon ? (
+                        <img
+                          src={source.icon}
+                          alt=""
+                          className="size-10 rounded-md object-cover"
+                        />
+                      ) : (
+                        <div className="size-10 rounded-md bg-muted" />
                       )}
-                      onCheckedChange={(checked) => {
-                        void handleToggleSourceDisabled(
-                          {
+                      <div>
+                        <div className="flex items-center gap-1">
+                          <p className="font-medium">{source.name}</p>
+                          <Badge variant="secondary">v{source.version}</Badge>
+                          {sourceEnabled ? null : (
+                            <Badge variant="outline">
+                              {t("settings.sourceDisabledBadge")}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {source.registryId}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        // Source settings load the source through getSource,
+                        // which refuses a disabled install.
+                        disabled={!sourceEnabled}
+                        aria-label={t("settings.configureSource", {
+                          name: source.name,
+                        })}
+                        title={t("settings.configureSource", {
+                          name: source.name,
+                        })}
+                        onClick={() => {
+                          setSettingsSourceData({
+                            key: source.id,
                             registryId: source.registryId,
                             sourceId: source.sourceId,
                             name: source.name,
-                          },
-                          checked
-                        );
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t("settings.uninstallSourceLabel", {
-                        name: source.name,
-                      })}
-                      title={t("settings.uninstallSourceLabel", {
-                        name: source.name,
-                      })}
-                      onClick={() =>
-                        setUninstallConfirm({
-                          registryId: source.registryId,
-                          sourceId: source.sourceId,
+                            icon: source.icon,
+                            version: source.version,
+                          });
+                          setSettingsSourceOpen(true);
+                        }}
+                      >
+                        <HugeiconsIcon icon={Settings02Icon} className="size-4" />
+                      </Button>
+                      <Switch
+                        checked={sourceEnabled}
+                        disabled={
+                          togglingSource ===
+                          `${source.registryId}:${source.sourceId}`
+                        }
+                        // The switch action is the opposite of the current
+                        // state: an enabled source's toggle disables it.
+                        aria-label={t(
+                          sourceEnabled
+                            ? "settings.toggleSourceDisableLabel"
+                            : "settings.toggleSourceLabel",
+                          { name: source.name }
+                        )}
+                        title={t(
+                          sourceEnabled
+                            ? "settings.disableSource"
+                            : "settings.enableSource"
+                        )}
+                        onCheckedChange={(checked) => {
+                          void handleToggleSourceDisabled(
+                            {
+                              registryId: source.registryId,
+                              sourceId: source.sourceId,
+                              name: source.name,
+                            },
+                            checked
+                          );
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={t("settings.uninstallSourceLabel", {
                           name: source.name,
-                        })
-                      }
-                    >
-                      <HugeiconsIcon icon={Delete02Icon} className="size-4" />
-                    </Button>
+                        })}
+                        title={t("settings.uninstallSourceLabel", {
+                          name: source.name,
+                        })}
+                        onClick={() =>
+                          setUninstallConfirm({
+                            registryId: source.registryId,
+                            sourceId: source.sourceId,
+                            name: source.name,
+                          })
+                        }
+                      >
+                        <HugeiconsIcon icon={Delete02Icon} className="size-4" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
                 );
               })}
             </div>

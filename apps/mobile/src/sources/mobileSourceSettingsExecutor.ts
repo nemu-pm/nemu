@@ -441,15 +441,29 @@ export async function completeMobileSourceLogout({
   // jars, so a `clear_cookies_on_log_out` source stays logged in at the
   // transport. Run this after the source's own logout notification, which may
   // still need its session to reach the server.
+  //
+  // Best-effort by construction: by the time this runs the credentials are
+  // already deleted and the sandbox already cleared, so the user IS logged
+  // out. A jar that refuses to drop must never reach the rollback below and
+  // write those credentials back — the worst case here is a stale session
+  // cookie that the next login replaces. The profile assertions stay outside
+  // the swallow: a profile transition mid-logout is not a cookie failure, and
+  // its own handling (keep the captured profile logged out, never restore)
+  // must still run.
   const clearCookiesIfRequested = async (): Promise<void> => {
     if (setting.clearCookiesOnLogOut !== true) return;
     assertActiveMobileSourceProfileScope(executionScope);
-    await clearNativeCookies(
-      makeMobileSourceExecutionKey(
-        makeMobileRuntimeSourceKey(source),
-        executionScope,
-      ),
-    );
+    try {
+      await clearNativeCookies(
+        makeMobileSourceExecutionKey(
+          makeMobileRuntimeSourceKey(source),
+          executionScope,
+        ),
+      );
+    } catch {
+      // Logout has already succeeded; a transport-level cleanup failure is not
+      // worth undoing it.
+    }
     assertActiveMobileSourceProfileScope(executionScope);
   };
 

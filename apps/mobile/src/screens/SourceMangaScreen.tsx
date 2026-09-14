@@ -128,6 +128,7 @@ import {
   describeMobileErrorDetail,
   getMobileSourceErrorPresentation,
   getMobileSourceErrorRecoveryAction,
+  getMobileSourceErrorRecoveryHref,
   type MobileSourceErrorRecoveryAction,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
@@ -602,9 +603,21 @@ export function SourceMangaScreen() {
         if (cancelled) return;
         if (refreshed.status === "blocked") {
           if (hadCachedDetails) return;
+          // `detail` is an untranslated technical sentence; the presentation
+          // layer is what turns a marked one (disabled source, unsupported
+          // runtime) into localized copy.
+          const blocked = getMobileSourceErrorPresentation(
+            refreshed.detail,
+            strings,
+          );
           setDetailState({
             status: "blocked",
-            detail: refreshed.detail,
+            title: blocked.title,
+            detail: blocked.detail,
+            recoveryAction: getMobileSourceErrorRecoveryAction(
+              blocked,
+              strings,
+            ),
           });
           if (reportRetryResult) {
             await hapticError();
@@ -1219,14 +1232,22 @@ export function SourceMangaScreen() {
     try {
       const refreshed = await fetchSourceDetails(installedSource);
       if (refreshed.status === "blocked") {
+        const blocked = getMobileSourceErrorPresentation(
+          refreshed.detail,
+          strings,
+        );
         setDetailState((current) =>
           current.status === "ready"
             ? {
                 ...current,
                 staleError: {
-                  detail: refreshed.detail,
+                  title: blocked.title,
+                  detail: blocked.detail,
                   error: false,
-                  recoveryAction: null,
+                  recoveryAction: getMobileSourceErrorRecoveryAction(
+                    blocked,
+                    strings,
+                  ),
                 },
               }
             : current,
@@ -1789,7 +1810,12 @@ export function SourceMangaScreen() {
                   error={detailState.status === "error"}
                   actionLabel={detailState.recoveryAction?.label}
                   onActionPress={() => {
-                    router.navigate("/settings?focus=agent");
+                    if (!detailState.recoveryAction) return;
+                    router.navigate(
+                      getMobileSourceErrorRecoveryHref(
+                        detailState.recoveryAction,
+                      ),
+                    );
                   }}
                 />
               ) : detailState.status === "ready" && detailState.staleError ? (
@@ -1799,7 +1825,9 @@ export function SourceMangaScreen() {
                   error={detailState.staleError.error}
                   actionLabel={detailState.staleError.recoveryAction?.label}
                   onActionPress={() => {
-                    router.navigate("/settings?focus=agent");
+                    const action = detailState.staleError?.recoveryAction;
+                    if (!action) return;
+                    router.navigate(getMobileSourceErrorRecoveryHref(action));
                   }}
                 />
               ) : null}

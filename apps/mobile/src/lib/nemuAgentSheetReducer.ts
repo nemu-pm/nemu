@@ -1,5 +1,5 @@
 import {
-  extractMobileCloudflareUrl,
+  extractMobileCloudflareSolveUrl,
   isMobileCloudflareError,
   validateMobileCloudflareOperationalUrl,
 } from "@/lib/mobileSourceErrors";
@@ -105,6 +105,27 @@ export function acceptsNemuAgentSheetReport(
 }
 
 /**
+ * The challenge url the hook's auto-start may solve for this report, or null.
+ *
+ * Every condition that can suppress an unattended solve lives here: the
+ * reducer would ignore the report; a solve is already in flight; the platform
+ * has no solver; or — the security-relevant one — the error carries no
+ * *structured* challenge url. A url the source only spelled out in its
+ * exception text is display copy, never an operational target, or a package
+ * could aim a WebView solve bound to its own cookie jar at any host it likes
+ * with no user interaction (`extractMobileCloudflareSolveUrl`).
+ */
+export function resolveNemuAgentAutoSolveUrl(
+  state: NemuAgentSheetState,
+  error: unknown,
+  options: { solveInFlight: boolean; solverSupported: boolean },
+): string | null {
+  if (options.solveInFlight || !options.solverSupported) return null;
+  if (!acceptsNemuAgentSheetReport(state, error)) return null;
+  return extractMobileCloudflareSolveUrl(error) ?? null;
+}
+
+/**
  * The native cookie jar a solved clearance cookie has to land in.
  *
  * Native source HTTP is scoped by the *execution* key — the active profile
@@ -169,7 +190,12 @@ export function reduceNemuAgentSheet(
       // needs-verification. `acceptsNemuAgentSheetReport` is the single
       // definition of that rule, shared with the hook's auto-start gate.
       if (!acceptsNemuAgentSheetReport(state, action.error)) return state;
-      const url = extractMobileCloudflareUrl(action.error);
+      // `state.url` is what `verify()` hands to the native solver, so it is an
+      // operational value and only a structured challenge url qualifies. An
+      // error that merely names a host in its message opens the sheet with no
+      // url, which also withholds the Verify affordance
+      // (`shouldOfferNemuAgentVerificationAction` gates on it).
+      const url = extractMobileCloudflareSolveUrl(action.error);
       return {
         visible: true,
         status: "needs-verification",

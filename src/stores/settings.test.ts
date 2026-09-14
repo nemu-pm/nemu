@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CacheStore } from "@/data/cache";
 import type { InstalledSource } from "@/data/schema";
 import type { RegistryManager, SourceRegistryProvider } from "@/lib/sources/registry";
+import type { MangaSource } from "@/lib/sources/types";
 import { createSettingsStore } from "./settings";
 
 const cache: CacheStore = {
@@ -117,12 +118,17 @@ describe("SettingsStore disabled sources", () => {
       generation?: number | null;
     }> = [];
     const unloaded: string[] = [];
+    const storageReads: string[] = [];
+    const loadedSource = { id: "loaded" } as unknown as MangaSource;
     let sources = initial;
     const registry = {
       installSource: async () => {},
       unloadSource: (sourceId: string) => {
         unloaded.push(sourceId);
       },
+      isLoaded: () => true,
+      isInstalled: async () => true,
+      getSource: async () => loadedSource,
     } as unknown as SourceRegistryProvider;
     const manager = {
       initialize: async () => {},
@@ -133,8 +139,10 @@ describe("SettingsStore disabled sources", () => {
     const store = createSettingsStore(
       {
         getInstalledSources: async () => sources,
-        getInstalledSource: async (id: string) =>
-          sources.find((source) => source.id === id) ?? null,
+        getInstalledSource: async (id: string) => {
+          storageReads.push(id);
+          return sources.find((source) => source.id === id) ?? null;
+        },
         saveInstalledSource: async (source, generation) => {
           saved.push({ source, generation });
           sources = [
@@ -147,7 +155,14 @@ describe("SettingsStore disabled sources", () => {
       cache,
       manager,
     );
-    return { store, saved, unloaded, currentSources: () => sources };
+    return {
+      store,
+      saved,
+      unloaded,
+      storageReads,
+      loadedSource,
+      currentSources: () => sources,
+    };
   }
 
   test("persists the toggle through saveInstalledSource and unloads the source", async () => {
@@ -223,5 +238,35 @@ describe("SettingsStore disabled sources", () => {
     await expect(
       store.getState().getSource("registry", "broken"),
     ).rejects.toThrow(/disabled/i);
+  });
+
+  test("getSource refuses a disabled source before hydration lands", async () => {
+    const source: InstalledSource = {
+      ...installed("broken", 1),
+      name: "Broken Source",
+      disabled: true,
+    };
+    const { store } = createDisableHarness([source]);
+    // No initialize(): a router loader can call getSource while the store is
+    // still cold, and warm state would then say "not installed" for every id.
+    expect(store.getState().installedSources).toEqual([]);
+
+    await expect(
+      store.getState().getSource("registry", "broken"),
+    ).rejects.toThrow(/disabled/i);
+  });
+
+  test("getSource answers from warm state once hydrated", async () => {
+    const source = installed("good", 2);
+    const { store, storageReads, loadedSource } = createDisableHarness([source]);
+
+    await store.getState().initialize();
+    storageReads.length = 0;
+
+    await expect(store.getState().getSource("registry", "good")).resolves.toBe(
+      loadedSource,
+    );
+    // The hot path (every reader page, every source image) stays in memory.
+    expect(storageReads).toEqual([]);
   });
 });

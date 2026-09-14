@@ -440,12 +440,15 @@ export function createSettingsStore(
 
         // A disabled source stays installed and its cached pages stay readable,
         // but any live fetch must fail loudly rather than silently returning
-        // nothing. Checked against warm state — getSource is on the hot path
-        // for every reader page and source image.
+        // nothing. A warm hit answers the hot path immediately (getSource runs
+        // for every reader page and source image); a warm miss is not proof the
+        // source is absent, because `installedSources` is empty until the first
+        // storage read lands, so a call that races hydration (a router loader,
+        // an early image fetch) confirms against storage before running it.
         const compositeId = Keys.source(registryId, sourceId);
-        const installed = installedSources.find(
-          (source) => source.id === compositeId,
-        );
+        const installed =
+          installedSources.find((source) => source.id === compositeId) ??
+          (await ops.getInstalledSource(compositeId));
         if (installed?.disabled === true) {
           throw new Error(
             i18n.t("settings.sourceDisabledError", {

@@ -127,6 +127,7 @@ import {
   describeMobileErrorDetail,
   getMobileSourceErrorPresentation,
   getMobileSourceErrorRecoveryAction,
+  getMobileSourceErrorRecoveryHref,
   type MobileSourceErrorRecoveryAction,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
@@ -774,9 +775,21 @@ export function MangaDetailScreen() {
 
         if (cancelled) return;
         if (refreshed.status === "blocked") {
+          // Same contract as the error path below: `detail` is an untranslated
+          // technical sentence, and only the presentation layer turns a marked
+          // one into localized copy.
+          const blocked = getMobileSourceErrorPresentation(
+            refreshed.detail,
+            strings,
+          );
           setLiveDetailState({
             status: "blocked",
-            detail: refreshed.detail,
+            title: blocked.title,
+            detail: blocked.detail,
+            recoveryAction: getMobileSourceErrorRecoveryAction(
+              blocked,
+              strings,
+            ),
           });
           return;
         }
@@ -1950,7 +1963,11 @@ export function MangaDetailScreen() {
                         error={liveDetailState.status === "error"}
                         actionLabel={liveDetailState.recoveryAction?.label}
                         onActionPress={() => {
-                          router.navigate("/settings?focus=agent");
+                          const action = liveDetailState.recoveryAction;
+                          if (!action) return;
+                          router.navigate(
+                            getMobileSourceErrorRecoveryHref(action),
+                          );
                         }}
                       />
                     ) : null

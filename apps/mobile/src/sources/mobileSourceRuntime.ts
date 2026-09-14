@@ -1,5 +1,8 @@
 import type { InstalledSource, SourcePackageMetadata } from "@/data/schema";
-import { MOBILE_TACHIYOMI_UNSUPPORTED_MARKER } from "@/lib/mobileSourceErrors";
+import {
+  MOBILE_SOURCE_DISABLED_MARKER,
+  MOBILE_TACHIYOMI_UNSUPPORTED_MARKER,
+} from "@/lib/mobileSourceErrors";
 import { mergeSourceSettingValues } from "@/lib/mobileSourceSettings";
 import { makeAixCacheKey, parseSourceKey } from "./aidokuRegistry";
 import { makeTachiyomiExtensionCacheKey } from "./sourcePackageCacheTypes";
@@ -14,11 +17,11 @@ export const MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL = `${MOBILE_TACHIYOMI_UNSUPPORT
 
 /**
  * Technical, untranslated detail for a source the user has switched off. Kept
- * in English for logs; the presentation layer wraps it in a localized title.
- * The word "disabled" is load-bearing — surfaces match on it.
+ * in English for logs; the marker prefix is the load-bearing part — it is what
+ * `getMobileSourceErrorPresentation` matches on to swap in localized copy, so
+ * this sentence never reaches a zh/ja user. Nothing matches on its wording.
  */
-export const MOBILE_SOURCE_DISABLED_DETAIL =
-  "This source is disabled. Enable it in Settings › Sources to load new content.";
+export const MOBILE_SOURCE_DISABLED_DETAIL = `${MOBILE_SOURCE_DISABLED_MARKER} This source is disabled. Enable it in Settings › Sources to load new content.`;
 
 export type MobileSourceKind = "aidoku" | "tachiyomi";
 

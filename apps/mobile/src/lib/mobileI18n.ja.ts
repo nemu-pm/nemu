@@ -48,6 +48,10 @@ export const mobileStringsJa: MobileStrings = {
     sourceCloudflareBlocked: "Cloudflare 保護を検出",
     sourceCloudflareBlockedDescription:
       "このソースには Cloudflare 認証が必要です。Nemu Agent が確認を完了できるので、その後もう一度お試しください。",
+    sourceDisabled: "ソースが無効になっています",
+    sourceDisabledAction: "ソース設定を開く",
+    sourceDisabledDescription:
+      "このソースは無効になっているため、Nemu は新しいコンテンツを読み込みません。設定 › ソース から有効にしてください。",
     sourceError: "ソースエラー",
     sourceErrorDescription:
       "このソースはリクエストを完了できませんでした。しばらくしてからもう一度お試しください。",

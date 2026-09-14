@@ -1,5 +1,6 @@
 import type { InstalledSource } from "@/data/schema";
 import { makeSourceKey, type MobileRegistrySource } from "@/sources/aidokuRegistry";
+import { isMobileInstalledSourceDisabled } from "@/sources/mobileSourceRuntime";
 import {
   getMobileInstalledSourceRegistryKey,
   getMobileInstalledSourceRegistryKeys,
@@ -17,7 +18,9 @@ export function findMobileSourceUpdates(
     // A disabled source is not run, so it is not auto-updated either: a broken
     // source stays pinned at its installed version until the user re-enables it.
     installedSources
-      .filter((source) => !source.removed && source.disabled !== true)
+      .filter(
+        (source) => !source.removed && !isMobileInstalledSourceDisabled(source),
+      )
       .flatMap((source) =>
         getMobileInstalledSourceRegistryKeys(source).map((key) => [key, source] as const),
       ),

@@ -11,6 +11,7 @@ import {
   selectMobileProcessedCoverEvictions,
   MOBILE_PROCESSED_COVER_INPUT_MAX_BYTES,
   MOBILE_PROCESSED_COVER_MAX_FILES,
+  MOBILE_PROCESSED_COVER_MAX_TOTAL_BYTES,
   MOBILE_PROCESSED_COVER_OUTPUT_MAX_BYTES,
 } from "./mobileSourceCoverProcessing";
 
@@ -224,6 +225,47 @@ describe("processed cover cache sizing", () => {
   test("holds more files than the request cache can memoize URIs for", () => {
     expect(MOBILE_PROCESSED_COVER_MAX_FILES).toBeGreaterThan(
       MOBILE_SOURCE_IMAGE_REQUEST_CACHE_MAX_SIZE,
+    );
+  });
+
+  test("the byte ceiling can still prune a memoized cover", () => {
+    // Honest version of the sizing invariant: the file-count ordering is not a
+    // guarantee. The 64 MB cap evicts in the same pass, so a run of large
+    // covers binds first and prunes files whose URIs are still memoized. That
+    // shortfall is covered by repair (`lib/mobileSourceImageRepair.ts`), not
+    // by sizing, and this test exists so the comment cannot quietly become a
+    // false promise again.
+    const now = 10 * HOUR_MS;
+    // Sized so that a full request cache of covers is twice the byte cap while
+    // staying far below the file cap: the byte rule, not the count rule, binds.
+    const byteLength = Math.ceil(
+      (2 * MOBILE_PROCESSED_COVER_MAX_TOTAL_BYTES) /
+        MOBILE_SOURCE_IMAGE_REQUEST_CACHE_MAX_SIZE,
+    );
+    const files = Array.from(
+      { length: MOBILE_SOURCE_IMAGE_REQUEST_CACHE_MAX_SIZE },
+      (_, index) => ({
+        name: makeMobileProcessedCoverFileName(`memoized-${index}`),
+        byteLength,
+        modifiedAt: now - index,
+      }),
+    );
+
+    // Still well under the file cap...
+    expect(files.length).toBeLessThan(MOBILE_PROCESSED_COVER_MAX_FILES);
+    // ...but over the byte cap, so the oldest memoized covers are evicted.
+    const evictions = selectMobileProcessedCoverEvictions(files, { now });
+    expect(evictions.length).toBeGreaterThan(0);
+    // Oldest first: the tail of the list is what goes.
+    expect(evictions[0]).toBe(
+      makeMobileProcessedCoverFileName(
+        `memoized-${MOBILE_SOURCE_IMAGE_REQUEST_CACHE_MAX_SIZE - 1}`,
+      ),
+    );
+    // And it stops as soon as the total fits again.
+    const remainingBytes = (files.length - evictions.length) * byteLength;
+    expect(remainingBytes).toBeLessThanOrEqual(
+      MOBILE_PROCESSED_COVER_MAX_TOTAL_BYTES,
     );
   });
 

@@ -23,6 +23,8 @@ import {
 import { cn } from "@/lib/utils";
 import { SourceImageProvider } from "@/hooks/use-source-image";
 import { handleSourceError } from "@/lib/sources/error-handler";
+import { sanitizeSourceErrorDiagnostic } from "@nemu/core/sources";
+import i18n from "@/lib/i18n";
 
 const SELECTED_SOURCES_KEY = "search-selected-sources";
 
@@ -198,7 +200,12 @@ export function SearchPage() {
         sourceIcon: info?.icon,
         items: query.data?.items ?? [],
         loading: query.isLoading,
-        error: query.error ? (query.error as Error).message : null,
+        // Source-controlled text reaches the UI only through the shared
+        // bounded sanitizer; the localized label stays the primary copy.
+        error: query.error
+          ? sanitizeSourceErrorDiagnostic(query.error) ??
+            i18n.t("error.sourceError")
+          : null,
       };
     });
   }, [searchQueries, filteredSources, availableSources]);
@@ -495,6 +502,7 @@ function SourceResultSection({ result }: { result: SourceResults }) {
           )}
           <h2 className="text-lg font-semibold">{result.sourceName}</h2>
         </div>
+        {/* `error` is already bounded and redacted where the results are built. */}
         <p className="text-sm text-destructive">{t("search.error")}: {result.error}</p>
       </section>
     );

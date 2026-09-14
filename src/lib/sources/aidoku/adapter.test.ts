@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import type { CacheStore } from "@/data/cache";
+import { CacheKeys } from "@/data/keys";
 
 const loadSourceMock = mock(async () => fakeAsyncSource);
 const getAgentStatusMock = mock(async () => ({ available: false }));
@@ -70,8 +71,8 @@ type FakeAsyncSource = {
 let fakeAsyncSource = createFakeAsyncSource();
 const originalFetch = globalThis.fetch;
 
-function createCacheStore(): CacheStore {
-  const values = new Map<string, unknown>();
+function createCacheStore(seed?: Map<string, unknown>): CacheStore {
+  const values = seed ?? new Map<string, unknown>();
 
   return {
     async get(key) {
@@ -419,5 +420,159 @@ describe("createAidokuMangaSource", () => {
     expect(fakeAsyncSource.processCoverImage).toHaveBeenCalledTimes(1);
     expect(coverBlob.type).toBe("image/png");
     expect(new Uint8Array(await coverBlob.arrayBuffer())).toEqual(coverBytes);
+  });
+  it("keeps serving pages cached under the pre-upgrade key", async () => {
+    // The kind split must not orphan already-downloaded pages: a page's
+    // persisted key stays the legacy un-prefixed `url:context` identity.
+    const cachedBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const legacyKey = CacheKeys.image(
+      `/uploads/pages/page-1.jpg:${JSON.stringify({
+        width: "800",
+        height: "1200",
+      })}`
+    );
+    const seed = new Map<string, unknown>([[legacyKey, cachedBytes.buffer]]);
+
+    globalThis.fetch = mock(async () => {
+      throw new Error("network must not be used for a cached page");
+    }) as unknown as typeof fetch;
+
+    const { createAidokuMangaSource } = await import("./adapter");
+    const { source } = await createAidokuMangaSource(
+      new ArrayBuffer(0),
+      "registry:test.source",
+      createCacheStore(seed)
+    );
+
+    const [page] = await source.getPages("manga-1", "chapter-1");
+    const blob = await page.getImage();
+
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(cachedBytes);
+    expect(fakeAsyncSource.modifyImageRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not serve a cover from the legacy page cache entry", async () => {
+    // Cover bytes can differ from page bytes for the same URL, so covers are
+    // the only kind that moved to a prefixed key.
+    const legacyKey = CacheKeys.image("https://images.example/shared.jpg:null");
+    const seed = new Map<string, unknown>([
+      [legacyKey, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]).buffer],
+    ]);
+    const freshBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    fakeAsyncSource.modifyImageRequest = mock(async (url: string) => ({
+      url,
+      headers: {},
+    }));
+
+    globalThis.fetch = mock(
+      async () =>
+        new Response(freshBytes, { headers: { "Content-Type": "image/png" } })
+    ) as unknown as typeof fetch;
+
+    const { createAidokuMangaSource } = await import("./adapter");
+    const { source } = await createAidokuMangaSource(
+      new ArrayBuffer(0),
+      "registry:test.source",
+      createCacheStore(seed)
+    );
+
+    const blob = await source.fetchImage("https://images.example/shared.jpg");
+
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(freshBytes);
+  });
+
+  it("falls back to the raw cover bytes when the cover processor throws", async () => {
+    // A throwing processor used to reject out of fetchImage and blank the
+    // whole grid; the unprocessed bytes are still a usable cover.
+    fakeAsyncSource.hasCoverImageProcessor = mock(async () => true);
+    fakeAsyncSource.processCoverImage = mock(async () => {
+      throw new Error("processor exploded");
+    });
+    fakeAsyncSource.modifyImageRequest = mock(async () => ({
+      url: "https://images.example/covers/cover-4.jpg",
+      headers: {},
+    }));
+
+    globalThis.fetch = mock(
+      async () =>
+        new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), {
+          headers: { "Content-Type": "image/jpeg" },
+        })
+    ) as unknown as typeof fetch;
+
+    const { createAidokuMangaSource } = await import("./adapter");
+    const { source } = await createAidokuMangaSource(
+      new ArrayBuffer(0),
+      "registry:test.source",
+      createCacheStore()
+    );
+
+    const blob = await source.fetchImage("/covers/cover-4.jpg");
+
+    expect(fakeAsyncSource.processCoverImage).toHaveBeenCalledTimes(1);
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(
+      new Uint8Array([0xff, 0xd8, 0xff, 0xd9])
+    );
+  });
+
+  it("falls back to the raw page bytes when the page processor throws", async () => {
+    fakeAsyncSource.hasImageProcessor = mock(async () => true);
+    fakeAsyncSource.processPageImage = mock(async () => {
+      throw new Error("processor exploded");
+    });
+
+    globalThis.fetch = mock(
+      async () =>
+        new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), {
+          headers: { "Content-Type": "image/jpeg" },
+        })
+    ) as unknown as typeof fetch;
+
+    const { createAidokuMangaSource } = await import("./adapter");
+    const { source } = await createAidokuMangaSource(
+      new ArrayBuffer(0),
+      "registry:test.source",
+      createCacheStore()
+    );
+
+    const [page] = await source.getPages("manga-1", "chapter-1");
+    const blob = await page.getImage();
+
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(
+      new Uint8Array([0xff, 0xd8, 0xff, 0xd9])
+    );
+  });
+
+  it("lets a Cloudflare block from the cover processor propagate", async () => {
+    // The bypass dialog is driven by this rejection reaching handleSourceError,
+    // so a Cloudflare block must not be swallowed by the fallback.
+    const blocked = new Error("blocked by challenge page");
+    blocked.name = "CloudflareBlockedError";
+    fakeAsyncSource.hasCoverImageProcessor = mock(async () => true);
+    fakeAsyncSource.processCoverImage = mock(async () => {
+      throw blocked;
+    });
+    fakeAsyncSource.modifyImageRequest = mock(async () => ({
+      url: "https://images.example/covers/cover-5.jpg",
+      headers: {},
+    }));
+
+    globalThis.fetch = mock(
+      async () =>
+        new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), {
+          headers: { "Content-Type": "image/jpeg" },
+        })
+    ) as unknown as typeof fetch;
+
+    const { createAidokuMangaSource } = await import("./adapter");
+    const { source } = await createAidokuMangaSource(
+      new ArrayBuffer(0),
+      "registry:test.source",
+      createCacheStore()
+    );
+
+    await expect(source.fetchImage("/covers/cover-5.jpg")).rejects.toThrow(
+      "blocked by challenge page"
+    );
   });
 });

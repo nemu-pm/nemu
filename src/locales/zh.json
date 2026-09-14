@@ -201,6 +201,8 @@
     "refresh": "刷新",
     "search": "搜索",
     "otherLanguages": "其他",
+    "sourceUnavailable": "源不可用",
+    "sourceUnavailableDescription": "无法打开此源，请在设置中检查。",
     "listing": {
       "popular": "热门",
       "latest": "最新"
@@ -327,6 +329,7 @@
     "disableSource": "停用源",
     "enableSource": "启用源",
     "toggleSourceLabel": "启用 {{name}}",
+    "toggleSourceDisableLabel": "停用 {{name}}",
     "sourceDisabledError": "“{{name}}”已停用。请在设置中启用后再加载新内容。",
     "sourceDisabledToast": "已停用 {{name}}",
     "sourceEnabledToast": "已启用 {{name}}",

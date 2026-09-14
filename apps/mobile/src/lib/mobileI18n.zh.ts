@@ -48,6 +48,10 @@ export const mobileStringsZh: MobileStrings = {
     sourceCloudflareBlocked: "检测到 Cloudflare 保护",
     sourceCloudflareBlockedDescription:
       "此源需要 Cloudflare 验证。Nemu Agent 可以完成验证，之后你可以重试。",
+    sourceDisabled: "源已停用",
+    sourceDisabledAction: "打开源设置",
+    sourceDisabledDescription:
+      "此源已停用，Nemu 不会再从中加载新内容。请在“设置 › 源”中重新启用。",
     sourceError: "源错误",
     sourceErrorDescription: "此源无法完成该请求。请稍后重试。",
     sourceNetworkError: "网络错误",

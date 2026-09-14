@@ -4,14 +4,13 @@ import NemuAidoku from "../../modules/nemu-aidoku/src/NemuAidokuModule";
 import { hapticConfirm, hapticError, hapticSelection } from "@/lib/haptics";
 import { markMobilePerformance } from "@/lib/mobilePerformance";
 import {
-  extractMobileCloudflareUrl,
   isMobileCloudflareError,
   validateMobileCloudflareOperationalUrl,
 } from "@/lib/mobileSourceErrors";
 import {
-  acceptsNemuAgentSheetReport,
   initialNemuAgentSheetState,
   reduceNemuAgentSheet,
+  resolveNemuAgentAutoSolveUrl,
   resolveNemuAgentSolveCookieScope,
   type NemuAgentSheetContext,
   type NemuAgentSheetStatus,
@@ -22,7 +21,8 @@ import {
  *
  * Native verification is capability-gated on `supportsCloudflareSolver`. iOS
  * and Android implement it (an explicit, never-inline WebView solve confined to
- * the challenge host tree), so where the flag is true the sheet is progress UI:
+ * the exact validated challenge host plus Cloudflare's challenge platform), so
+ * where the flag is true the sheet is progress UI:
  * `reportError` opens it and immediately starts the solve. Where the flag is
  * false the sheet only explains the blocked source and offers no action.
  *
@@ -190,23 +190,18 @@ export function useNemuAgentSheet(
   const reportError = useCallback(
     (error: unknown, context?: NemuAgentSheetContext) => {
       if (!isMobileCloudflareError(error)) return false;
-      const accepted = acceptsNemuAgentSheetReport(stateRef.current, error);
-      dispatch({ type: "report-error", error, context });
       // Where the solver exists the sheet is progress UI, not a prompt: start
-      // immediately rather than waiting for a tap. The reducer ignores a
-      // `start` for a solve that is already in flight, so several near
-      // simultaneous reports on one source still produce one solve — and a
-      // report the reducer itself ignored never starts one at all.
-      if (
-        accepted &&
-        !solveInFlightRef.current &&
-        supportsMobileCloudflareSolver()
-      ) {
-        // The reducer's own url is not readable until the next render, so
-        // recompute the same validated value the reducer captured.
-        const url = extractMobileCloudflareUrl(error);
-        if (url) startSolve(url, context);
-      }
+      // immediately rather than waiting for a tap. Every reason not to — a
+      // report the reducer itself ignores, a solve already in flight, an error
+      // with no structured challenge url — is decided by the pure helper, so
+      // the hook and the reducer cannot drift apart on it. The reducer's own
+      // url is not readable until the next render, hence the recomputation.
+      const autoSolveUrl = resolveNemuAgentAutoSolveUrl(stateRef.current, error, {
+        solveInFlight: solveInFlightRef.current,
+        solverSupported: supportsMobileCloudflareSolver(),
+      });
+      dispatch({ type: "report-error", error, context });
+      if (autoSolveUrl) startSolve(autoSolveUrl, context);
       return true;
     },
     [startSolve],

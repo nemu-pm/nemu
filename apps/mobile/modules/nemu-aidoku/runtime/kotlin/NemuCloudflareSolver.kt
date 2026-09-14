@@ -12,6 +12,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.webkit.CookieManager
+import android.webkit.ServiceWorkerClient
+import android.webkit.ServiceWorkerController
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -64,6 +66,14 @@ private const val NEMU_CLOUDFLARE_HIDDEN_CONTENT_HEIGHT_DP = 844
 
 /** Bounds one solve's contribution to a jar that already has size caps. */
 private const val NEMU_CLOUDFLARE_MAX_ADOPTED_COOKIE_BYTES = 32 * 1024
+
+/**
+ * Bounds the pre-solve expiry sweep. Each name is written once per
+ * (domain, path) pair, so the sweep is O(names x domains x paths) writes into
+ * the shared [CookieManager] and a hostile jar must not be able to stall the
+ * main thread with it.
+ */
+private const val NEMU_CLOUDFLARE_MAX_EXPIRED_COOKIE_NAMES = 64
 
 /**
  * Stable, machine-readable `nemuAidokuCfFailed` reasons. The JS Nemu Agent
@@ -140,14 +150,33 @@ private val NEMU_CLOUDFLARE_PROBE_SCRIPT = """
  * different host queues behind it.
  *
  * **Cookie-store limitation.** Unlike iOS (`WKWebsiteDataStore.nonPersistent`),
- * an Android WebView always reads and writes the process-wide
- * [CookieManager]; there is no per-WebView cookie store. The solver therefore
- * expires the challenge host's cookies in that global store before loading and
- * reads them back afterwards, which is close to — but not the same as — a
- * private store: another WebView in the process would observe the challenge
- * host's cookies while a solve is running. Nothing crosses into a source's jar
- * except cookies whose domain covers the challenge host, and the per-source
- * jars themselves stay isolated.
+ * an Android WebView always reads and writes the process-wide [CookieManager];
+ * there is no per-WebView cookie store. The solver expires the challenge host's
+ * cookies in that global store before loading — across the parent-domain and
+ * path chains, because a cookie's identity is (name, domain, path) — and then
+ * takes the post-sweep header as this solve's baseline. Only pairs that are new
+ * or changed relative to that baseline are adopted, so whatever the sweep could
+ * not reach (a cookie scoped to a path this url does not name) stays out of the
+ * source's jar instead of being inherited from some other scope's earlier
+ * solve. It is still not a private store: another WebView in the process would
+ * observe the challenge host's cookies while a solve is running.
+ *
+ * **WebSockets are not gated.** Chromium routes a `WebSocket` handshake through
+ * neither [android.webkit.WebViewClient.shouldInterceptRequest] nor
+ * `shouldOverrideUrlLoading`, and the stable WebView API exposes no hook that
+ * sees it — so the allow-list this solver enforces covers document, subframe
+ * and subresource loads, and service-worker fetches (via
+ * [NemuCloudflareServiceWorkerGate]), but not `ws:`/`wss:`. What still applies:
+ * the challenge document is https and `MIXED_CONTENT_NEVER_ALLOW` is set, so
+ * Chromium blocks plain `ws:` from it as mixed content, which leaves only
+ * `wss:` to a host presenting a certificate the system trusts — a far cry from
+ * arbitrary LAN probing, but not nothing. A CSP `connect-src` would be the
+ * textbook fix and is not available here: `<meta http-equiv>` is only honoured
+ * inside `<head>`, a document-start script runs before `<head>` exists (and
+ * needs `androidx.webkit`'s `DOCUMENT_START_SCRIPT`, which this module does not
+ * depend on), and it would not reach the cross-origin Turnstile iframe, which
+ * carries Cloudflare's own policy. iOS has no equivalent gap: WebKit runs
+ * content rule lists for WebSocket handshakes too.
  *
  * All state below is main-thread only (WebView requires it).
  */
@@ -261,15 +290,29 @@ internal class NemuCloudflareSolver(
     emit("nemuAidokuCfFailed", mapOf("url" to urlString, "reason" to failure.reason))
   }
 
+  /**
+   * Two solves may only be merged when they would publish their cookies into
+   * the same jar. Keying the merge on the host alone let two sources that happen
+   * to share a challenge host join one solve, after which the adopted clearance
+   * landed in the *first* requester's scope while every joiner was still told
+   * `true` — and then made its next request without a clearance cookie. The
+   * scope is part of the identity, so it is part of the key.
+   */
   private fun enqueue(solve: QueuedSolve) {
     val current = active
-    if (current != null && current.challengeHost == solve.challengeHost) {
+    if (
+      current != null &&
+      current.challengeHost == solve.challengeHost &&
+      current.cookieScope == solve.cookieScope
+    ) {
       // Several screens can report the same challenge at once. They all wait on
       // the one solve rather than restarting it.
       current.addCompletions(solve.completions)
       return
     }
-    val queued = queue.firstOrNull { it.challengeHost == solve.challengeHost }
+    val queued = queue.firstOrNull {
+      it.challengeHost == solve.challengeHost && it.cookieScope == solve.cookieScope
+    }
     if (queued != null) {
       queued.completions.addAll(solve.completions)
       return
@@ -305,12 +348,20 @@ internal class NemuCloudflareSolver(
     private val solve: QueuedSolve
   ) : NemuCloudflareSolverSessionCallbacks {
     val challengeHost: String get() = solve.challengeHost
+    val cookieScope: String? get() = solve.cookieScope
 
     private var webView: WebView? = null
     private var hiddenContainer: FrameLayout? = null
     private var dialog: Dialog? = null
     private var startedAtMs = 0L
     private var baselineClearance: String? = null
+    /**
+     * The challenge host's cookies as they stood once the pre-solve sweep had
+     * run. Everything this solve adopts is a diff against it, so a cookie some
+     * other scope's earlier solve left in the process-wide jar is never adopted
+     * and never mistaken for this solve's own clearance.
+     */
+    private var baselineCookieHeader: String = ""
     private var didEmitWaiting = false
     private var probeInFlight = false
     private var finished = false
@@ -363,7 +414,10 @@ internal class NemuCloudflareSolver(
       // Closest available stand-in for a fresh per-solve store: expire whatever
       // the shared CookieManager holds for this host before the challenge runs,
       // so a stale clearance cannot be read back as this solve's result.
-      expireHostCookies(cookies, solve.url)
+      baselineCookieHeader = expireHostCookies(cookies, solve.url)
+      // Service-worker fetches never reach the WebViewClient; gate them too.
+      NemuCloudflareServiceWorkerGate.install()
+      NemuCloudflareServiceWorkerGate.open(solve.challengeHost)
 
       val view = runCatching { WebView(activity) }.getOrNull()
       if (view == null) {
@@ -439,18 +493,53 @@ internal class NemuCloudflareSolver(
       view.setBackgroundColor(Color.TRANSPARENT)
     }
 
-    private fun expireHostCookies(cookies: CookieManager, url: HttpUrl) {
+    /**
+     * Expires every cookie the shared jar would send to the challenge host, and
+     * returns whatever survived — this solve's baseline.
+     *
+     * A cookie's identity is (name, domain, path). The old sweep wrote one
+     * `name=; Max-Age=0; Path=/` per name against `https://host/`, which only
+     * reached host-only, root-path cookies and left every `Domain=.parent` and
+     * `Path=/x` sibling in place — so a later read could pick up a cookie some
+     * *other* scope's solve had set. The sweep now walks the parent-domain
+     * chain and the url's own path chain, and names are collected from both the
+     * origin and the full url so path-scoped cookies are seen at all.
+     *
+     * It still cannot be exhaustive (a cookie scoped to a path this url does
+     * not name survives), which is why the return value matters: [evaluate]
+     * adopts only what is new or changed relative to it.
+     */
+    private fun expireHostCookies(cookies: CookieManager, url: HttpUrl): String {
       val origin = "https://${url.host}/"
-      val header = runCatching { cookies.getCookie(origin).orEmpty() }.getOrDefault("")
-      if (header.isBlank()) return
-      header.split(";").forEach { pair ->
-        val separator = pair.indexOf('=')
-        if (separator <= 0) return@forEach
-        val name = pair.substring(0, separator).trim()
-        if (name.isEmpty()) return@forEach
-        runCatching { cookies.setCookie(origin, "$name=; Max-Age=0; Path=/") }
+      fun read(scope: String): String =
+        runCatching { cookies.getCookie(scope).orEmpty() }.getOrDefault("")
+
+      val names = LinkedHashSet<String>()
+      for (scope in listOf(origin, url.toString())) {
+        NemuCloudflareChallengePolicy.cookiePairs(read(scope)).forEach { (name, _) ->
+          names.add(name)
+        }
       }
-      runCatching { cookies.flush() }
+      if (names.isNotEmpty()) {
+        val domains = NemuCloudflareChallengePolicy.cookieExpiryDomains(url.host)
+        val paths = NemuCloudflareChallengePolicy.cookieExpiryPaths(url.encodedPath)
+        for (name in names.take(NEMU_CLOUDFLARE_MAX_EXPIRED_COOKIE_NAMES)) {
+          for (domain in domains) {
+            for (path in paths) {
+              val expiry = buildString {
+                append(name).append("=; Max-Age=0; Path=").append(path)
+                if (domain != null) append("; Domain=").append(domain)
+                // `__Secure-`/`__Host-` prefixed names are only accepted with
+                // `Secure`; the origin is https, so it costs nothing to set.
+                append("; Secure")
+              }
+              runCatching { cookies.setCookie(origin, expiry) }
+            }
+          }
+        }
+        runCatching { cookies.flush() }
+      }
+      return read(origin)
     }
 
     private fun emitWaitingOnce() {
@@ -498,9 +587,17 @@ internal class NemuCloudflareSolver(
     }
 
     private fun evaluate(probe: NemuCloudflareChallengeProbe, cookieHeader: String) {
-      val clearance = clearanceValue(cookieHeader)
+      // Only the pairs this solve actually produced. The process-wide jar can
+      // still be carrying another scope's earlier solve; adopting that would
+      // move one source's session into another's jar, and reading its
+      // `cf_clearance` would report "solved" for a challenge nothing answered.
+      val solved = NemuCloudflareChallengePolicy.newOrChangedCookieHeader(
+        baselineCookieHeader,
+        cookieHeader
+      )
+      val clearance = clearanceValue(solved)
       if (clearance != null && clearance != baselineClearance && !probe.isChallenge) {
-        succeed(cookieHeader)
+        succeed(solved)
         return
       }
       if (dialog != null || !probe.needsInteraction) return
@@ -627,8 +724,9 @@ internal class NemuCloudflareSolver(
       } else {
         cookieHeader
       }
-      // `getCookie(origin)` only ever returns cookies that would be sent to the
-      // challenge host, so every pair here already covers it.
+      // Every pair here came from `getCookie(origin)`, so it is a cookie the
+      // challenge host would be sent, and it survived the diff against this
+      // solve's baseline, so this solve is what wrote it.
       adoptCookies(solve.cookieScope, solve.url, bounded)
       teardown()
       emit("nemuAidokuCfSuccess", mapOf("url" to solve.url.toString()))
@@ -654,6 +752,7 @@ internal class NemuCloudflareSolver(
     private fun teardown() {
       main.removeCallbacks(probeRunnable)
       main.removeCallbacks(timeoutRunnable)
+      NemuCloudflareServiceWorkerGate.close()
 
       dialog?.let { presented ->
         presented.setOnCancelListener(null)
@@ -698,10 +797,77 @@ internal class NemuCloudflareSolver(
   }
 }
 
+/** The answer every off-allow-list request gets: a blank 403, never a socket. */
+private fun nemuCloudflareBlockedResponse(): WebResourceResponse =
+  WebResourceResponse(
+    "text/plain",
+    "utf-8",
+    403,
+    "Blocked",
+    emptyMap(),
+    ByteArrayInputStream(ByteArray(0))
+  )
+
+/**
+ * Applies the solver's allow-list to service-worker fetches.
+ *
+ * A service worker's own `fetch`es never reach [WebViewClient]: Chromium routes
+ * them through [ServiceWorkerController]'s client instead, so without this they
+ * bypassed the boundary entirely. Registrations are process-global and outlive
+ * the WebView that created them, so a challenge page could register a worker,
+ * let the solve end, and keep fetching afterwards.
+ *
+ * The client is installed once per process, on the first solve, and answers
+ * with [nemuCloudflareBlockedResponse] unless a solve is running *and* the
+ * request satisfies [NemuCloudflareChallengePolicy.allowsRequest] for that
+ * solve's host. With no solve active every worker fetch in the process is
+ * refused; nothing else in this app hosts a WebView, so that costs nothing
+ * today, but a second WebView owner would need this to become per-origin.
+ *
+ * [shouldInterceptRequest] runs on a WebView background thread, hence the
+ * volatile host. iOS needs no equivalent: WebKit runs a compiled
+ * `WKContentRuleList` inside service workers as well.
+ */
+internal object NemuCloudflareServiceWorkerGate {
+  @Volatile
+  private var challengeHost: String? = null
+  private var installed = false
+
+  /** Idempotent; a process without an Android System WebView simply no-ops. */
+  @Synchronized
+  fun install() {
+    if (installed) return
+    val controller = runCatching { ServiceWorkerController.getInstance() }.getOrNull() ?: return
+    val client = object : ServiceWorkerClient() {
+      override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
+        val host = challengeHost ?: return nemuCloudflareBlockedResponse()
+        // A worker fetch is never a main-frame load.
+        if (NemuCloudflareChallengePolicy.allowsRequest(false, request.url, host)) return null
+        return nemuCloudflareBlockedResponse()
+      }
+    }
+    installed = runCatching { controller.setServiceWorkerClient(client) }.isSuccess
+  }
+
+  fun open(host: String) {
+    challengeHost = host
+  }
+
+  fun close() {
+    challengeHost = null
+  }
+}
+
 /**
  * Enforces the solver's allow-list on the request path. Anything off it gets a
  * blank 403 rather than a network call, and a main-frame navigation that leaves
- * the challenge host tree is refused outright.
+ * the challenge host is refused outright.
+ *
+ * This covers document, subframe and subresource loads — everything Chromium
+ * reports to a [WebViewClient]. It does **not** cover WebSocket handshakes,
+ * which Chromium never surfaces here; see this file's solver KDoc for what that
+ * leaves open. Service-worker fetches are handled by
+ * [NemuCloudflareServiceWorkerGate] instead, for the same reason.
  */
 private class SolverWebViewClient(
   private val callbacks: NemuCloudflareSolverSessionCallbacks,
@@ -721,14 +887,7 @@ private class SolverWebViewClient(
     ) {
       return null
     }
-    return WebResourceResponse(
-      "text/plain",
-      "utf-8",
-      403,
-      "Blocked",
-      emptyMap(),
-      ByteArrayInputStream(ByteArray(0))
-    )
+    return nemuCloudflareBlockedResponse()
   }
 
   override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {

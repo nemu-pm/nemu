@@ -255,14 +255,24 @@ final class NemuAidokuCloudflareSolver {
 
   // MARK: - Queueing
 
+  /// Two solves may only be merged when they would publish their cookies into
+  /// the same jar. Keying the merge on the host alone let two sources that
+  /// happen to share a challenge host join one solve, after which the adopted
+  /// clearance landed in the *first* requester's scope while every joiner was
+  /// still told `true` — and then made its next request without a clearance
+  /// cookie. The scope is part of the identity, so it is part of the key.
   private func enqueue(_ solve: QueuedSolve) {
-    if let active, active.challengeHost == solve.challengeHost {
+    if let active,
+       active.challengeHost == solve.challengeHost,
+       active.cookieScope == solve.cookieScope {
       // Several screens can report the same challenge at once. They all wait
       // on the one solve rather than restarting it.
       active.addCompletions(solve.completions)
       return
     }
-    if let index = queue.firstIndex(where: { $0.challengeHost == solve.challengeHost }) {
+    if let index = queue.firstIndex(where: {
+      $0.challengeHost == solve.challengeHost && $0.cookieScope == solve.cookieScope
+    }) {
       queue[index].completions.append(contentsOf: solve.completions)
       return
     }
@@ -687,15 +697,11 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
     // A nil target frame is a new window / `target=_blank`; treat it as the
     // strictest case rather than a subresource.
     let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
-    let allowed = isMainFrame
-      ? NemuCloudflareChallengePolicy.allowsMainFrameNavigation(
-          target,
-          challengeHost: challengeHost
-        )
-      : NemuCloudflareChallengePolicy.allowsSubframeNavigation(
-          target,
-          challengeHost: challengeHost
-        )
+    let allowed = NemuCloudflareChallengePolicy.allowsRequest(
+      isForMainFrame: isMainFrame,
+      url: target,
+      challengeHost: challengeHost
+    )
     decisionHandler(allowed ? .allow : .cancel, preferences)
   }
 
@@ -708,15 +714,15 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
       decisionHandler(.cancel)
       return
     }
-    let allowed = navigationResponse.isForMainFrame
-      ? NemuCloudflareChallengePolicy.allowsMainFrameNavigation(
-          responseUrl,
-          challengeHost: challengeHost
-        )
-      : NemuCloudflareChallengePolicy.allowsSubresource(
-          responseUrl,
-          challengeHost: challengeHost
-        )
+    // The same predicate the action phase used. Judging a subframe by
+    // `allowsSubresource` here while the action phase used
+    // `allowsSubframeNavigation` meant a frame WebKit had already been told to
+    // load could be cancelled on its response by a different rule.
+    let allowed = NemuCloudflareChallengePolicy.allowsRequest(
+      isForMainFrame: navigationResponse.isForMainFrame,
+      url: responseUrl,
+      challengeHost: challengeHost
+    )
     decisionHandler(allowed ? .allow : .cancel)
   }
 

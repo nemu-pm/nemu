@@ -779,6 +779,90 @@ describe("mobile source settings executor", () => {
     expect(cookieClears).toBe(0);
   });
 
+  test("completes the logout when the native cookie clear fails", async () => {
+    // The credentials are already deleted and the sandbox already cleared by
+    // the time the jars are dropped, so the user IS logged out. Treating a
+    // transport cleanup failure as a logout failure would run the rollback and
+    // write those credentials straight back.
+    const originalSettings: Record<string, unknown> = {
+      auth: "logged_in",
+      "auth.username": "reader",
+      "auth.password": "secret",
+    };
+    const visibleSettings = { ...originalSettings };
+    const cache = readyCache({}, []);
+    cache.remove = () => undefined;
+
+    const result = await completeMobileSourceLogout({
+      cache,
+      source: runtimeSource,
+      schema: [
+        {
+          key: "auth",
+          type: "login",
+          title: "Log in",
+          clearCookiesOnLogOut: true,
+        },
+      ],
+      setting: {
+        key: "auth",
+        type: "login",
+        title: "Log in",
+        clearCookiesOnLogOut: true,
+      },
+      currentSettings: { ...visibleSettings },
+      async clearSandbox() {},
+      async persistSettings(patch, deleteKeys) {
+        for (const key of deleteKeys) delete visibleSettings[key];
+        Object.assign(visibleSettings, patch);
+      },
+      async clearNativeCookies() {
+        throw new Error("native cookie store unavailable");
+      },
+    });
+
+    expect(result).toEqual({ status: "complete" });
+    expect(visibleSettings).toEqual({});
+  });
+
+  test("keeps the logout when the cookie clear fails after the notification", async () => {
+    const cache = readyCache(
+      {
+        async handleNotification() {},
+      },
+      [],
+    );
+    cache.remove = () => undefined;
+    const visibleSettings: Record<string, unknown> = { auth: "logged_in" };
+
+    const setting = {
+      key: "auth",
+      type: "login",
+      title: "Log in",
+      notification: "login-changed",
+      clearCookiesOnLogOut: true,
+    } as const;
+
+    const result = await completeMobileSourceLogout({
+      cache,
+      source: runtimeSource,
+      schema: [{ ...setting }],
+      setting: { ...setting },
+      currentSettings: { ...visibleSettings },
+      async clearSandbox() {},
+      async persistSettings(patch, deleteKeys) {
+        for (const key of deleteKeys) delete visibleSettings[key];
+        Object.assign(visibleSettings, patch);
+      },
+      async clearNativeCookies() {
+        throw new Error("native cookie store unavailable");
+      },
+    });
+
+    expect(result.status).toBe("complete");
+    expect(visibleSettings).toEqual({});
+  });
+
   test("restores visible credentials when native logout cleanup fails", async () => {
     const originalSettings: Record<string, unknown> = {
       auth: "logged_in",

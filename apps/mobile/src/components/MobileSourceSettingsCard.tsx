@@ -861,7 +861,7 @@ function SourceSettingControl({
                   disabled={disabled || index === 0}
                   icon="chevron-up"
                   onPress={() => moveItem(index, index - 1)}
-                  size="icon-xs"
+                  size="icon-sm"
                   variant="secondary"
                 />
                 <NemuButton
@@ -872,7 +872,7 @@ function SourceSettingControl({
                   disabled={disabled || index === currentItems.length - 1}
                   icon="chevron-down"
                   onPress={() => moveItem(index, index + 1)}
-                  size="icon-xs"
+                  size="icon-sm"
                   variant="secondary"
                 />
                 <MobileChip

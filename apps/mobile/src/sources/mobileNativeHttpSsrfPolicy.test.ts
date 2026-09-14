@@ -169,10 +169,18 @@ describe("native HTTP SSRF policy", () => {
     expect(solver).toContain("configuration.userContentController.add(ruleList)");
     // Fail closed: no load at all without the compiled allow-list.
     expect(solver).toContain("self.fail(.ruleListUnavailable)");
-    expect(solver).toContain(
+    // Both WebKit policy phases (navigation action and navigation response)
+    // route through the single `allowsRequest` decision, so a subframe cannot
+    // be admitted by one phase and judged by a different rule in the other.
+    expect(
+      solver.match(/NemuCloudflareChallengePolicy\.allowsRequest\(/g)?.length,
+    ).toBe(2);
+    expect(solver).not.toContain(
       "NemuCloudflareChallengePolicy.allowsMainFrameNavigation(",
     );
-    expect(solver).toContain("NemuCloudflareChallengePolicy.allowsSubresource(");
+    expect(solver).not.toContain(
+      "NemuCloudflareChallengePolicy.allowsSubresource(",
+    );
     expect(solver).toContain("decisionHandler(allowed ? .allow : .cancel");
     expect(solver).toContain("createWebViewWith");
     expect(solver).not.toContain("allowsContentJavaScript = false");

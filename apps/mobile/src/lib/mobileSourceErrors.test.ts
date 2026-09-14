@@ -1,15 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { getMobileStrings } from "./mobileI18n";
+import { MOBILE_SOURCE_DISABLED_DETAIL } from "@/sources/mobileSourceRuntime";
 import {
+  MOBILE_SOURCE_DISABLED_MARKER,
   MOBILE_TACHIYOMI_UNSUPPORTED_MARKER,
   describeMobileErrorDetail,
   extractMobileCloudflareDisplayUrl,
-  extractMobileCloudflareUrl,
+  extractMobileCloudflareSolveUrl,
   getMobileRuntimeUnavailableDetail,
   getMobileSourceErrorRecoveryAction,
+  getMobileSourceErrorRecoveryHref,
   getMobileSourceErrorPresentation,
   getMobileSourceErrorSummary,
   isMobileCloudflareError,
+  isMobileSourceDisabledError,
   isMobileNetworkSourceError,
   isMobileRuntimeUnavailableError,
   isMobileTachiyomiUnsupportedError,
@@ -45,8 +49,8 @@ describe("mobile source error presentation", () => {
     ).toEqual({
       type: "open-settings",
       label: "Open Settings",
+      focus: "agent",
     });
-    expect(extractMobileCloudflareUrl(error)).toBe("https://example.com/read");
   });
 
   test("treats image 403 fetch failures as Cloudflare or hotlink protection", () => {
@@ -72,11 +76,14 @@ describe("mobile source error presentation", () => {
   });
 
   test("preserves challenge parameters operationally but redacts display URLs", () => {
-    const error = new Error(
-      "Cloudflare blocked https://example.test/read?ray=abc&return=%2Ftitle#challenge",
+    const error = Object.assign(
+      new Error(
+        "Cloudflare blocked https://example.test/read?ray=abc&return=%2Ftitle#challenge",
+      ),
+      { url: "https://example.test/read?ray=abc&return=%2Ftitle#challenge" },
     );
 
-    expect(extractMobileCloudflareUrl(error)).toBe(
+    expect(extractMobileCloudflareSolveUrl(error)).toBe(
       "https://example.test/read?ray=abc&return=%2Ftitle#challenge",
     );
     expect(extractMobileCloudflareDisplayUrl(error)).toBe(
@@ -88,9 +95,42 @@ describe("mobile source error presentation", () => {
     ).toBe("https://example.test/read");
   });
 
+  test("never derives a solvable challenge URL from the error message", () => {
+    // A source package controls its own exception text. If a message-derived
+    // host could start a solve, `new Error("Cloudflare blocked: <attacker>")`
+    // would open a WebView against that host, bound to this source's cookie
+    // jar, with no user interaction at all.
+    const hostile = new Error(
+      "Cloudflare blocked: https://attacker.example/steal?x=1",
+    );
+
+    expect(isMobileCloudflareError(hostile)).toBe(true);
+    expect(extractMobileCloudflareSolveUrl(hostile)).toBeUndefined();
+    // Naming the host in a banner starts nothing, so display still resolves.
+    expect(extractMobileCloudflareDisplayUrl(hostile)).toBe(
+      "https://attacker.example/steal",
+    );
+  });
+
+  test("takes the solve URL only from the structured field, not the text", () => {
+    // The envelope's consistency check is what puts `url` on a reconstructed
+    // error; when the two disagree the structured field wins outright.
+    const mismatched = Object.assign(
+      new Error("Cloudflare blocked https://attacker.example/x"),
+      { url: "https://real.test/read" },
+    );
+
+    expect(extractMobileCloudflareSolveUrl(mismatched)).toBe(
+      "https://real.test/read",
+    );
+  });
+
   test("rejects unsafe operational challenge URLs before native verification", () => {
-    const credentialed = new Error(
-      "Cloudflare blocked https://user:pass@example.test/read?ray=abc#challenge",
+    const credentialed = Object.assign(
+      new Error(
+        "Cloudflare blocked https://user:pass@example.test/read?ray=abc#challenge",
+      ),
+      { url: "https://user:pass@example.test/read?ray=abc#challenge" },
     );
     const insecure = Object.assign(new Error("Cloudflare blocked"), {
       url: "http://example.test/read?ray=abc",
@@ -99,12 +139,12 @@ describe("mobile source error presentation", () => {
       url: "javascript:alert(1)",
     });
 
-    expect(extractMobileCloudflareUrl(credentialed)).toBeUndefined();
+    expect(extractMobileCloudflareSolveUrl(credentialed)).toBeUndefined();
     expect(extractMobileCloudflareDisplayUrl(credentialed)).toBe(
       "https://example.test/read",
     );
-    expect(extractMobileCloudflareUrl(insecure)).toBeUndefined();
-    expect(extractMobileCloudflareUrl(untrusted)).toBeUndefined();
+    expect(extractMobileCloudflareSolveUrl(insecure)).toBeUndefined();
+    expect(extractMobileCloudflareSolveUrl(untrusted)).toBeUndefined();
     expect(
       redactMobileCloudflareUrlForDisplay("http://example.test/read?secret=x"),
     ).toBeUndefined();
@@ -126,6 +166,72 @@ describe("mobile source error presentation", () => {
     expect(
       getMobileSourceErrorRecoveryAction(presentation, getMobileStrings("en")),
     ).toBeNull();
+  });
+
+  test("localizes the disabled-source blocker in every catalog", () => {
+    // The executor's blocked detail is an English log sentence; what the user
+    // reads must come from their own catalog.
+    for (const language of ["ja", "zh", "en"] as const) {
+      const strings = getMobileStrings(language);
+      const presentation = getMobileSourceErrorPresentation(
+        MOBILE_SOURCE_DISABLED_DETAIL,
+        strings,
+      );
+
+      expect(isMobileSourceDisabledError(MOBILE_SOURCE_DISABLED_DETAIL)).toBe(
+        true,
+      );
+      expect(presentation.kind, language).toBe("disabled");
+      expect(presentation.title, language).toBe(strings.common.sourceDisabled);
+      expect(presentation.detail, language).toBe(
+        strings.common.sourceDisabledDescription,
+      );
+      // Neither the marker nor the untranslated sentence may survive into copy.
+      expect(presentation.detail, language).not.toContain(
+        MOBILE_SOURCE_DISABLED_MARKER,
+      );
+      if (language !== "en") {
+        expect(presentation.detail, language).not.toContain("This source is");
+      }
+      // The fix is a per-source toggle, so the CTA goes to Sources, not to the
+      // Nemu Agent card the Cloudflare recovery uses.
+      const action = getMobileSourceErrorRecoveryAction(presentation, strings);
+      expect(action, language).toEqual({
+        type: "open-settings",
+        label: strings.common.sourceDisabledAction,
+        focus: "sources",
+      });
+      expect(action && getMobileSourceErrorRecoveryHref(action)).toBe(
+        "/settings/sources",
+      );
+    }
+  });
+
+  test("keeps the disabled marker out of every user-visible string", () => {
+    expect(MOBILE_SOURCE_DISABLED_DETAIL).toContain(
+      MOBILE_SOURCE_DISABLED_MARKER,
+    );
+    // Anywhere the raw detail is joined as a diagnostic, the marker is stripped.
+    expect(sanitizeMobileErrorDiagnostic(MOBILE_SOURCE_DISABLED_DETAIL)).not.toContain(
+      MOBILE_SOURCE_DISABLED_MARKER,
+    );
+    expect(
+      getMobileSourceErrorSummary(
+        MOBILE_SOURCE_DISABLED_DETAIL,
+        getMobileStrings("ja"),
+      ),
+    ).toBe(getMobileStrings("ja").common.sourceDisabled);
+  });
+
+  test("keeps a plain source error out of the disabled branch", () => {
+    // Classification is on the marker, never on the word "disabled", so a
+    // source whose own message mentions it is still an ordinary failure.
+    const presentation = getMobileSourceErrorPresentation(
+      new Error("This source is disabled by the publisher."),
+      getMobileStrings("en"),
+    );
+
+    expect(presentation.kind).toBe("source");
   });
 
   test("classifies React Native WebAssembly runtime blockers without leaking engine text", () => {

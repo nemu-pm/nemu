@@ -174,14 +174,23 @@ export function SourceManageDialog({
       const titles: Record<string, string> = {};
       await Promise.all(
         sources.map(async (source) => {
-          const sourceObj = await getSource(source.registryId, source.sourceId);
-          if (!sourceObj) return;
-          // Try cached first, then fetch
-          const manga = hasSWR(sourceObj)
-            ? await sourceObj.getCachedManga(source.sourceMangaId)
-            : await sourceObj.getManga(source.sourceMangaId);
-          if (manga?.title) {
-            titles[source.id] = manga.title;
+          // Per source: a disabled or broken link contributes no title, but it
+          // must not take every other source's title down with it.
+          try {
+            const sourceObj = await getSource(source.registryId, source.sourceId);
+            if (!sourceObj) return;
+            // Try cached first, then fetch
+            const manga = hasSWR(sourceObj)
+              ? await sourceObj.getCachedManga(source.sourceMangaId)
+              : await sourceObj.getManga(source.sourceMangaId);
+            if (manga?.title) {
+              titles[source.id] = manga.title;
+            }
+          } catch (e) {
+            console.warn(
+              `[SourceManage] Title unavailable for ${source.sourceId}:`,
+              e
+            );
           }
         })
       );

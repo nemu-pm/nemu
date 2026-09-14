@@ -48,6 +48,10 @@ export const mobileStringsEn: MobileStrings = {
     sourceCloudflareBlocked: "Cloudflare protection detected",
     sourceCloudflareBlockedDescription:
       "This source requires Cloudflare verification. Nemu Agent can complete the check so you can try again.",
+    sourceDisabled: "Source turned off",
+    sourceDisabledAction: "Open Sources",
+    sourceDisabledDescription:
+      "This source is turned off, so Nemu is not loading new content from it. Turn it back on in Settings › Sources.",
     sourceError: "Source error",
     sourceErrorDescription:
       "This source could not complete the request. Try again in a moment.",

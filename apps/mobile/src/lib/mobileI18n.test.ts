@@ -125,7 +125,7 @@ describe("mobile i18n helpers", () => {
       "return strings.common.agentSheetFailedUnsolicitedHost;",
     );
 
-    for (const language of ["en", "zh", "ja"] as const) {
+    for (const language of ["ja", "zh", "en"] as const) {
       const common = getMobileStrings(language).common;
       for (const key of [
         "agentSheetFailed",
@@ -193,7 +193,7 @@ describe("mobile i18n helpers", () => {
     expect(getMobileStrings("en").welcome.title).toBe("Welcome to {{brand}}");
     expect(getMobileStrings("zh").welcome.title).toBe("欢迎使用 {{brand}}");
     expect(getMobileStrings("ja").welcome.title).toBe("{{brand}}へようこそ");
-    for (const language of ["en", "zh", "ja"] as const) {
+    for (const language of ["ja", "zh", "en"] as const) {
       expect(getMobileStrings(language).welcome.title).toContain("{{brand}}");
       expect(getMobileStrings(language).welcome.introLines).toHaveLength(3);
     }

@@ -36,6 +36,8 @@ import {
 import { MangaStatusBadge } from "@/components/manga-status-badge";
 import { usePageTitle } from "@/components/page-title";
 import { handleSourceError } from "@/lib/sources/error-handler";
+import { sanitizeSourceErrorDiagnostic } from "@nemu/core/sources";
+import i18n from "@/lib/i18n";
 import { ManageCollectionMembershipSheet } from "@/components/collections/manage-collection-membership-sheet";
 
 /** Convert LocalChapterProgress map to ChapterGrid-compatible format */
@@ -188,7 +190,9 @@ export function MangaPage() {
         handleSourceError(e, "Loading manga details");
         // Only show error if we have no cached data
         if (!hasContentRef.current) {
-          setError(e instanceof Error ? e.message : String(e));
+          setError(
+            sanitizeSourceErrorDiagnostic(e) ?? i18n.t("error.sourceError")
+          );
         }
         setLoading(false);
       }

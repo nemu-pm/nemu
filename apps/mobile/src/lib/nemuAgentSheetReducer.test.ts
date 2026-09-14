@@ -10,16 +10,21 @@ import {
   acceptsNemuAgentSheetReport,
   initialNemuAgentSheetState,
   reduceNemuAgentSheet,
+  resolveNemuAgentAutoSolveUrl,
   resolveNemuAgentSolveCookieScope,
   shouldOfferNemuAgentVerificationAction,
   type NemuAgentSheetState,
   type NemuAgentSheetStatus,
 } from "./nemuAgentSheetReducer";
 
+/**
+ * A real `CloudflareBlockedError` carries its challenge url as a structured
+ * property, and that property is the ONLY thing the sheet will solve from.
+ */
 function cloudflareError(url = "https://example.test/manga"): unknown {
   const error = new Error(`Cloudflare blocked: challenge for ${url}`);
   error.name = "CloudflareBlockedError";
-  return error;
+  return Object.assign(error, { url });
 }
 
 const opened = (url?: string): NemuAgentSheetState => ({
@@ -94,6 +99,32 @@ describe("reduceNemuAgentSheet", () => {
       error: new Error("network request failed"),
     });
     expect(next).toBe(state);
+  });
+
+  test("never captures a url a source only wrote into its message", () => {
+    // `state.url` is what `verify()` hands to the native solver. A source that
+    // simply names a host in its exception text must not be able to aim a
+    // WebView solve, scoped to its own cookie jar, at that host.
+    const hostile = new Error(
+      "Cloudflare blocked: https://attacker.example/steal",
+    );
+    hostile.name = "CloudflareBlockedError";
+
+    const next = reduceNemuAgentSheet(initialNemuAgentSheetState, {
+      type: "report-error",
+      error: hostile,
+    });
+
+    expect(next.visible).toBe(true);
+    expect(next.url).toBeUndefined();
+    // With no url there is no Verify affordance either.
+    expect(
+      shouldOfferNemuAgentVerificationAction(
+        next.status,
+        true,
+        Boolean(next.url),
+      ),
+    ).toBe(false);
   });
 
   test("opens without a url when the cloudflare error has no parseable url", () => {
@@ -393,22 +424,22 @@ describe("acceptsNemuAgentSheetReport", () => {
     }
   });
 
-  test("the hook gates its auto-start on the predicate", () => {
+  test("the hook delegates its auto-start gate instead of reimplementing it", () => {
+    // The gate itself is covered behaviourally by `resolveNemuAgentAutoSolveUrl`
+    // below. What cannot be observed without a React host is that the hook
+    // actually asks it — a second copy of the accept / in-flight /
+    // structured-url rules in the hook is exactly how the two drift apart.
     const hook = readFileSync(
       path.join(import.meta.dir, "useNemuAgentSheet.ts"),
       "utf8",
     );
 
     expect(hook).toContain(
-      "const accepted = acceptsNemuAgentSheetReport(stateRef.current, error);",
+      "resolveNemuAgentAutoSolveUrl(stateRef.current, error, {",
     );
-    expect(hook).toContain("accepted &&\n        !solveInFlightRef.current");
+    expect(hook).toContain("if (autoSolveUrl) startSolve(autoSolveUrl, context);");
     // The gate is only useful if the ref actually tracks the reducer state.
     expect(hook).toContain("stateRef.current = state;");
-    const gateIndex = hook.indexOf("const accepted = acceptsNemuAgentSheetReport(");
-    const solveIndex = hook.indexOf("if (url) startSolve(url, context);");
-    expect(gateIndex).toBeGreaterThan(0);
-    expect(solveIndex).toBeGreaterThan(gateIndex);
   });
 });
 
@@ -465,5 +496,97 @@ describe("resolveNemuAgentSolveCookieScope", () => {
     expect(hook).toContain(
       "startSolve(url, { sourceKey: state.sourceKey, userAgent: state.userAgent });",
     );
+  });
+});
+
+/**
+ * The hook starts the native solve from `reportError`, before its own next
+ * state is readable. Everything that decides whether that unattended solve may
+ * run lives in `resolveNemuAgentAutoSolveUrl`, so it is testable without a
+ * React host — and without mirroring the hook's source text.
+ */
+describe("resolveNemuAgentAutoSolveUrl", () => {
+  const capable = { solveInFlight: false, solverSupported: true };
+
+  test("starts a solve for a structured challenge url", () => {
+    expect(
+      resolveNemuAgentAutoSolveUrl(
+        initialNemuAgentSheetState,
+        cloudflareError("https://protected.test/list?ray=abc"),
+        capable,
+      ),
+    ).toBe("https://protected.test/list?ray=abc");
+  });
+
+  test("starts nothing for a url a hostile source only put in its message", () => {
+    // The whole attack: a source package writes an arbitrary host into its
+    // exception text and gets `solveCloudflare(attacker, { cookieScope: this
+    // source })` started for it with zero user interaction.
+    const hostile = new Error(
+      "Cloudflare blocked: https://attacker.example/steal",
+    );
+    hostile.name = "CloudflareBlockedError";
+
+    expect(
+      resolveNemuAgentAutoSolveUrl(initialNemuAgentSheetState, hostile, capable),
+    ).toBeNull();
+  });
+
+  test("prefers the structured url over a conflicting one in the message", () => {
+    const spoofed = Object.assign(
+      new Error("Cloudflare blocked https://attacker.example/steal"),
+      { url: "https://protected.test/list" },
+    );
+
+    expect(
+      resolveNemuAgentAutoSolveUrl(initialNemuAgentSheetState, spoofed, capable),
+    ).toBe("https://protected.test/list");
+  });
+
+  test("starts nothing without a native solver, mid-solve, or for a dropped report", () => {
+    const error = cloudflareError("https://protected.test/list");
+
+    expect(
+      resolveNemuAgentAutoSolveUrl(initialNemuAgentSheetState, error, {
+        solveInFlight: false,
+        solverSupported: false,
+      }),
+    ).toBeNull();
+    expect(
+      resolveNemuAgentAutoSolveUrl(initialNemuAgentSheetState, error, {
+        solveInFlight: true,
+        solverSupported: true,
+      }),
+    ).toBeNull();
+    // A report the reducer drops must not leave a solve running with no sheet.
+    expect(
+      resolveNemuAgentAutoSolveUrl(
+        { visible: true, status: "waiting" },
+        error,
+        capable,
+      ),
+    ).toBeNull();
+    expect(
+      resolveNemuAgentAutoSolveUrl(
+        initialNemuAgentSheetState,
+        new Error("network request failed"),
+        capable,
+      ),
+    ).toBeNull();
+  });
+
+  test("refuses an insecure or credentialed structured url", () => {
+    for (const url of [
+      "http://protected.test/list",
+      "https://user:pass@protected.test/list",
+    ]) {
+      expect(
+        resolveNemuAgentAutoSolveUrl(
+          initialNemuAgentSheetState,
+          cloudflareError(url),
+          capable,
+        ),
+      ).toBeNull();
+    }
   });
 });

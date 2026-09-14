@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import {
   clearMobileSourceImageLoadFailureListeners,
+  createMobileSourceImageRepairCoordinator,
   isRepairableMobileSourceImageUri,
   reportMobileSourceImageLoadFailure,
   reportMobileSourceImageRepaired,
@@ -168,72 +167,242 @@ describe("mobile source image load failure reports", () => {
   });
 });
 
+type FakeRequest = { url: string };
+
 /**
- * The pure pieces above are only useful if the two ends are actually wired:
- * the render path has to report an app-local load failure, and the request
- * hook has to drop its memoized entry and resolve again exactly once.
+ * A stand-in for one mounted cover: the same three wirings the request hook
+ * has (resolve, load-failure subscription, repair budget), none of the React.
+ *
+ * `memo` is the image-request cache and a processed cover's file name is a
+ * hash of its cache key, so re-resolving always produces the *same* URI — the
+ * reason the repair has to be announced explicitly, and the reason a dead
+ * cover would loop if the budget did not stop it.
  */
-describe("processed cover repair wiring", () => {
-  function mobileSource(relativePath: string): string {
-    return readFileSync(path.join(import.meta.dir, "..", relativePath), "utf8");
-  }
+function createCoverHolder(uri: string) {
+  const coordinator = createMobileSourceImageRepairCoordinator<FakeRequest>();
+  const cacheKey = `memo:${uri}`;
+  const memo = new Map<string, FakeRequest>();
+  const announced: string[] = [];
+  const forgotten: string[] = [];
+  let resolveCount = 0;
 
-  test("MobileCachedImage reports app-local load failures", () => {
-    const component = mobileSource(
-      "design-system/components/MobileCachedImage.tsx",
+  const resolve = () => {
+    resolveCount += 1;
+    const attempt = coordinator.beginResolve();
+    attempt.observeCacheKey(cacheKey);
+    const request = memo.get(cacheKey) ?? { url: uri };
+    memo.set(cacheKey, request);
+    const repairedUri = attempt.settle(request);
+    if (repairedUri) reportMobileSourceImageRepaired(repairedUri);
+  };
+
+  const unsubscribeFailures = subscribeMobileSourceImageLoadFailures(
+    (failedUri) => {
+      const key = coordinator.handleLoadFailure(failedUri);
+      if (!key) return;
+      forgotten.push(key);
+      memo.delete(key);
+      resolve();
+    },
+  );
+  const unsubscribeRepairs = subscribeMobileSourceImageRepairs((repairedUri) => {
+    announced.push(repairedUri);
+  });
+
+  return {
+    announced,
+    forgotten,
+    resolve,
+    /** The hook's `sourceRequestKey` change: a new identity, a new budget. */
+    changeIdentity: () => {
+      coordinator.resetRepairBudget();
+      resolve();
+    },
+    get resolveCount() {
+      return resolveCount;
+    },
+    dispose: () => {
+      unsubscribeFailures();
+      unsubscribeRepairs();
+    },
+  };
+}
+
+describe("processed cover repair handshake", () => {
+  const uri = PROCESSED_COVER_URI;
+
+  test("repairs each (identity, URI) pair exactly once", () => {
+    const holder = createCoverHolder(uri);
+    holder.resolve();
+
+    reportMobileSourceImageLoadFailure(uri);
+
+    // The memoized entry was dropped and the holder resolved a second time,
+    // and only then is the view told the URI is worth another attempt.
+    expect(holder.forgotten).toEqual([`memo:${uri}`]);
+    expect(holder.resolveCount).toBe(2);
+    expect(holder.announced).toEqual([uri]);
+    holder.dispose();
+  });
+
+  test("a genuinely dead cover settles instead of looping", () => {
+    const holder = createCoverHolder(uri);
+    holder.resolve();
+
+    // The view keeps failing on the same URI because the file is really gone.
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      reportMobileSourceImageLoadFailure(uri);
+    }
+
+    expect(holder.resolveCount).toBe(2);
+    expect(holder.forgotten).toHaveLength(1);
+    expect(holder.announced).toEqual([uri]);
+    holder.dispose();
+  });
+
+  test("a new image identity gets its own repair", () => {
+    const holder = createCoverHolder(uri);
+    holder.resolve();
+    reportMobileSourceImageLoadFailure(uri);
+    reportMobileSourceImageLoadFailure(uri);
+    expect(holder.forgotten).toHaveLength(1);
+
+    holder.changeIdentity();
+    reportMobileSourceImageLoadFailure(uri);
+
+    expect(holder.forgotten).toHaveLength(2);
+    holder.dispose();
+  });
+
+  test("ignores failures for URIs this holder is not painting", () => {
+    const holder = createCoverHolder(uri);
+    holder.resolve();
+
+    reportMobileSourceImageLoadFailure(
+      "file:///cache/nemu-processed-covers/cover-b.png",
     );
+    reportMobileSourceImageLoadFailure("https://cdn.test/cover.jpg");
 
-    // Both failure shapes must report: a load error from the native loader,
-    // and a URI the policy now refuses because pruning unregistered it.
+    expect(holder.forgotten).toEqual([]);
+    expect(holder.resolveCount).toBe(1);
+    holder.dispose();
+  });
+
+  test("announces nothing when no repair was pending", () => {
+    const holder = createCoverHolder(uri);
+    holder.resolve();
+    holder.resolve();
+
+    expect(holder.announced).toEqual([]);
+    holder.dispose();
+  });
+});
+
+describe("mobile source image repair coordinator", () => {
+  const newUri = "file:///cache/nemu-processed-covers/cover-new.png";
+  const oldUri = "file:///cache/nemu-processed-covers/cover-old.png";
+
+  test("publishes the cache key and the request as one pair", () => {
+    const coordinator = createMobileSourceImageRepairCoordinator<FakeRequest>();
+    const attempt = coordinator.beginResolve();
+
+    // The cache key always arrives before the request does.
+    attempt.observeCacheKey("memo:a");
+    expect(coordinator.resolution).toEqual({ cacheKey: null, request: null });
+
+    attempt.settle({ url: newUri });
+    expect(coordinator.resolution).toEqual({
+      cacheKey: "memo:a",
+      request: { url: newUri },
+    });
+  });
+
+  test("a superseded resolve never staples its cache key to the live request", () => {
+    const coordinator = createMobileSourceImageRepairCoordinator<FakeRequest>();
+    // The old identity's resolve reports its cache key, then is superseded
+    // mid-flight (a settings save, or the screen swapping images).
+    const stale = coordinator.beginResolve();
+    stale.observeCacheKey("memo:old");
+
+    const fresh = coordinator.beginResolve();
+    fresh.observeCacheKey("memo:new");
+    fresh.settle({ url: newUri });
+
+    expect(stale.active).toBe(false);
+    expect(stale.settle({ url: oldUri })).toBeNull();
+    expect(coordinator.resolution).toEqual({
+      cacheKey: "memo:new",
+      request: { url: newUri },
+    });
+
+    // The consequence that matters: a failure of the superseded URI must not
+    // evict the live entry, and the live URI still repairs.
+    expect(coordinator.handleLoadFailure(oldUri)).toBeNull();
+    expect(coordinator.handleLoadFailure(newUri)).toBe("memo:new");
+  });
+
+  test("a cancelled attempt publishes nothing", () => {
+    const coordinator = createMobileSourceImageRepairCoordinator<FakeRequest>();
+    const first = coordinator.beginResolve();
+    first.observeCacheKey("memo:a");
+    first.settle({ url: newUri });
+
+    const abandoned = coordinator.beginResolve();
+    abandoned.observeCacheKey("memo:b");
+    abandoned.cancel();
+    expect(abandoned.settle({ url: oldUri })).toBeNull();
+
+    expect(coordinator.resolution).toEqual({
+      cacheKey: "memo:a",
+      request: { url: newUri },
+    });
+  });
+
+  test("announces a repair only when the same URI came back", () => {
+    const coordinator = createMobileSourceImageRepairCoordinator<FakeRequest>();
+    const first = coordinator.beginResolve();
+    first.observeCacheKey("memo:a");
+    first.settle({ url: oldUri });
+    expect(coordinator.handleLoadFailure(oldUri)).toBe("memo:a");
+
+    // The re-resolve produced a different URI, so the view's latched failure
+    // is already invalidated by the new source and needs no announcement.
+    const second = coordinator.beginResolve();
+    second.observeCacheKey("memo:a");
+    expect(second.settle({ url: newUri })).toBeNull();
+
+    const third = coordinator.beginResolve();
+    third.observeCacheKey("memo:a");
+    expect(third.settle({ url: oldUri })).toBeNull();
+  });
+
+  test("a repair arms exactly one announcement", () => {
+    const coordinator = createMobileSourceImageRepairCoordinator<FakeRequest>();
+    const first = coordinator.beginResolve();
+    first.observeCacheKey("memo:a");
+    first.settle({ url: oldUri });
+    coordinator.handleLoadFailure(oldUri);
+
+    const second = coordinator.beginResolve();
+    second.observeCacheKey("memo:a");
+    expect(second.settle({ url: oldUri })).toBe(oldUri);
+
+    const third = coordinator.beginResolve();
+    third.observeCacheKey("memo:a");
+    expect(third.settle({ url: oldUri })).toBeNull();
+  });
+
+  test("honours an injected repairability predicate", () => {
+    const coordinator = createMobileSourceImageRepairCoordinator<FakeRequest>();
+    const attempt = coordinator.beginResolve();
+    attempt.observeCacheKey("memo:a");
+    attempt.settle({ url: "https://cdn.test/cover.jpg" });
+
     expect(
-      component.match(/reportMobileSourceImageLoadFailure\(sourceUri\);/g)
-        ?.length,
-    ).toBe(2);
-    expect(component).toContain("isRepairableMobileSourceImageUri(sourceUri)");
-  });
-
-  test("MobileCachedImage re-evaluates a repaired URI exactly once", () => {
-    const component = mobileSource(
-      "design-system/components/MobileCachedImage.tsx",
-    );
-
-    expect(component).toContain(
-      "subscribeMobileSourceImageRepairs((repairedUri)",
-    );
-    expect(component).toContain("if (repairedUri !== sourceUri) return;");
-    // One bump per URI, so a cover that is genuinely unpaintable cannot loop.
-    expect(component).toContain(
-      "if (localRepairedUriRef.current === sourceUri) return;",
-    );
-    expect(component).toContain(
-      "setLocalRepairGeneration((current) => current + 1);",
-    );
-    // The bump has to reach the URI verdict, the latched failure key and the
-    // element the native loader failed on.
-    expect(component).toContain("void localRepairGeneration;");
-    expect(component).toContain("}:${localRepairGeneration}`");
-    expect(component).toContain("key={localRepairGeneration}");
-  });
-
-  test("the hook announces the repair the view is waiting for", () => {
-    const hook = mobileSource("lib/useMobileSourceImageRequest.ts");
-
-    expect(hook).toContain("pendingRepairUriRef.current = failedUri;");
-    expect(hook).toContain(
-      "if (repairedUri && request?.url === repairedUri) {",
-    );
-    expect(hook).toContain("reportMobileSourceImageRepaired(repairedUri);");
-  });
-
-  test("the request hook drops the memoized entry and re-resolves once", () => {
-    const hook = mobileSource("lib/useMobileSourceImageRequest.ts");
-
-    expect(hook).toContain("subscribeMobileSourceImageLoadFailures((failedUri)");
-    expect(hook).toContain("shouldRepairMobileSourceImageRequest({");
-    expect(hook).toContain("repairedUrisRef.current.add(failedUri);");
-    expect(hook).toContain("forgetMobileSourceImageRequest(cacheKey);");
-    expect(hook).toContain("setRepairNonce((current) => current + 1);");
-    // The nonce has to be part of the resolve effect or nothing re-resolves.
-    expect(hook).toContain("    repairNonce,\n");
+      coordinator.handleLoadFailure("https://cdn.test/cover.jpg"),
+    ).toBeNull();
+    expect(
+      coordinator.handleLoadFailure("https://cdn.test/cover.jpg", () => true),
+    ).toBe("memo:a");
   });
 });

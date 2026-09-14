@@ -54,12 +54,15 @@ class NemuCloudflareChallengePolicyTest {
   }
 
   @Test
-  fun allowsOnlyTheChallengeHostTreeAndCloudflaresChallengePlatform() {
+  fun allowsOnlyTheExactChallengeHostAndCloudflaresChallengePlatform() {
     assertTrue(subresource("https", host))
-    assertTrue(subresource("https", "static.reader.example.com"))
     assertTrue(subresource("https", "challenges.cloudflare.com"))
-    assertTrue(subresource("https", "assets.challenges.cloudflare.com"))
 
+    // A subdomain of either host was never address-validated: a challenge page
+    // naming `gw.<challengeHost>` that resolves into the LAN must not load.
+    assertFalse(subresource("https", "static.reader.example.com"))
+    assertFalse(subresource("https", "gw.reader.example.com"))
+    assertFalse(subresource("https", "assets.challenges.cloudflare.com"))
     assertFalse(subresource("http", host))
     assertFalse(subresource("https", "evil-reader.example.com"))
     assertFalse(subresource("https", "tracker.example.net"))
@@ -70,9 +73,9 @@ class NemuCloudflareChallengePolicyTest {
   }
 
   @Test
-  fun keepsMainFrameNavigationInsideTheChallengeHostTree() {
+  fun keepsMainFrameNavigationOnTheExactChallengeHost() {
     assertTrue(mainFrame("https", host))
-    assertTrue(mainFrame("https", "www.reader.example.com"))
+    assertFalse(mainFrame("https", "www.reader.example.com"))
 
     // Cloudflare's platform host is a subframe/subresource, never a top-level
     // destination — a main-frame hop onto it is a redirect off the challenge.
@@ -93,6 +96,78 @@ class NemuCloudflareChallengePolicyTest {
     assertFalse(covers("static.reader.example.com"))
     assertFalse(covers("com"))
     assertFalse(covers(""))
+  }
+
+  @Test
+  fun aRegistrySuffixIsNotAParentDomain() {
+    assertTrue(NemuCloudflareChallengePolicy.isPublicSuffix("com"))
+    assertTrue(NemuCloudflareChallengePolicy.isPublicSuffix("co.uk"))
+    assertTrue(NemuCloudflareChallengePolicy.isPublicSuffix("github.io"))
+    assertFalse(NemuCloudflareChallengePolicy.isPublicSuffix("example.com"))
+    assertFalse(NemuCloudflareChallengePolicy.isPublicSuffix("reader.co.uk"))
+
+    // `co.uk` does not cover `reader.co.uk`; the registrable domain still does.
+    assertFalse(NemuCloudflareChallengePolicy.cookieDomainCoversChallengeHost(".co.uk", "reader.co.uk"))
+    assertFalse(NemuCloudflareChallengePolicy.cookieDomainCoversChallengeHost("co.uk", "reader.co.uk"))
+    assertTrue(NemuCloudflareChallengePolicy.cookieDomainCoversChallengeHost(".reader.co.uk", "reader.co.uk"))
+    assertFalse(
+      NemuCloudflareChallengePolicy.cookieDomainCoversChallengeHost(".github.io", "someone.github.io")
+    )
+  }
+
+  /**
+   * The process-wide `CookieManager` means whatever the pre-solve expiry sweep
+   * failed to remove is still readable when a solve finishes. Adoption is
+   * therefore a diff against the jar as it stood when the solve began, and the
+   * sweep enumerates every `Domain=`/`Path=` spelling a leftover could carry.
+   */
+  @Test
+  fun adoptsOnlyCookiesTheSolveItselfProduced() {
+    val pairs = NemuCloudflareChallengePolicy.cookiePairs("a=1; b=2 ; a=3; =x; novalue; c=")
+    assertEquals(listOf("a" to "1", "b" to "2", "c" to ""), pairs)
+
+    assertEquals(
+      "b=3; c=4",
+      NemuCloudflareChallengePolicy.newOrChangedCookieHeader("a=1; b=2", "a=1; b=3; c=4")
+    )
+    assertEquals(
+      "cf_clearance=fresh",
+      NemuCloudflareChallengePolicy.newOrChangedCookieHeader("", "cf_clearance=fresh")
+    )
+    // A stale clearance another scope left behind is unchanged, so it is not
+    // adopted — the cross-scope transfer this diff exists to prevent.
+    assertEquals(
+      "",
+      NemuCloudflareChallengePolicy.newOrChangedCookieHeader(
+        "cf_clearance=stale",
+        "cf_clearance=stale"
+      )
+    )
+  }
+
+  @Test
+  fun enumeratesEveryCookieScopeALeftoverCouldHideBehind() {
+    assertEquals(
+      listOf(null, ".a.b.reader.example.com", ".b.reader.example.com", ".reader.example.com", ".example.com"),
+      NemuCloudflareChallengePolicy.cookieExpiryDomains("a.b.reader.example.com")
+    )
+    // Stops short of a registry suffix: nobody can own a cookie for `co.uk`.
+    assertEquals(
+      listOf(null, ".reader.co.uk"),
+      NemuCloudflareChallengePolicy.cookieExpiryDomains("reader.co.uk")
+    )
+    assertEquals(listOf<String?>(null), NemuCloudflareChallengePolicy.cookieExpiryDomains("localhost"))
+
+    assertEquals(
+      listOf("/", "/manga", "/manga/1", "/manga/1/read"),
+      NemuCloudflareChallengePolicy.cookieExpiryPaths("/manga/1/read")
+    )
+    assertEquals(listOf("/"), NemuCloudflareChallengePolicy.cookieExpiryPaths("/"))
+    assertEquals(listOf("/"), NemuCloudflareChallengePolicy.cookieExpiryPaths(""))
+    assertEquals(
+      NemuCloudflareChallengePolicy.MAX_COOKIE_EXPIRY_PATH_SEGMENTS + 1,
+      NemuCloudflareChallengePolicy.cookieExpiryPaths("/a/b/c/d/e/f/g/h/i/j/k").size
+    )
   }
 
   @Test
@@ -117,9 +192,9 @@ class NemuCloudflareChallengePolicyTest {
    */
   @Test
   fun webViewRequestDecisionIsFrameAwareForBothOverrides() {
-    // Main frame: the challenge host tree only.
+    // Main frame: the exact challenge host only.
     assertTrue(request(isForMainFrame = true, host = host))
-    assertTrue(request(isForMainFrame = true, host = "cdn.$host"))
+    assertFalse(request(isForMainFrame = true, host = "cdn.$host"))
     // The Turnstile iframe's own host is not a main-frame destination: a
     // top-level hop onto it is a redirect away from the challenge.
     assertFalse(
@@ -130,20 +205,20 @@ class NemuCloudflareChallengePolicyTest {
     )
     assertFalse(request(isForMainFrame = true, host = "evil.test"))
 
-    // Subframes and subresources: the challenge host tree plus Cloudflare's
+    // Subframes and subresources: the exact challenge host plus Cloudflare's
     // challenge platform. This is the regression the frame-aware decision
     // fixes — the Turnstile widget is a subframe on the platform host, so
     // holding it to the main-frame rule made every interactive challenge
-    // time out.
+    // time out. Subdomains of either host stay refused in every frame.
     assertTrue(request(isForMainFrame = false, host = host))
-    assertTrue(request(isForMainFrame = false, host = "cdn.$host"))
+    assertFalse(request(isForMainFrame = false, host = "cdn.$host"))
     assertTrue(
       request(
         isForMainFrame = false,
         host = NemuCloudflareChallengePolicy.CHALLENGE_PLATFORM_HOST
       )
     )
-    assertTrue(
+    assertFalse(
       request(
         isForMainFrame = false,
         host = "static.${NemuCloudflareChallengePolicy.CHALLENGE_PLATFORM_HOST}"

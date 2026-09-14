@@ -21,12 +21,19 @@ export const MOBILE_PROCESSED_COVER_OUTPUT_MAX_BYTES = 8 * 1024 * 1024;
  *
  * This MUST stay strictly greater than
  * `MOBILE_SOURCE_IMAGE_REQUEST_CACHE_MAX_SIZE` (the in-memory image-request
- * cache in `mobileSourceImages.ts`). That cache memoizes the resolved
- * `file://` URI of a processed cover, and nothing re-resolves an entry while
- * it is still memoized — so a disk cap at or below the request cap lets a
- * single screenful of browsing prune files whose URIs are still the ones being
- * painted, leaving permanently broken covers. `mobileSourceCoverProcessing.test.ts`
- * asserts the ordering.
+ * cache in `mobileSourceImages.ts`), which memoizes the resolved `file://` URI
+ * of a processed cover and never re-resolves an entry while it is still
+ * memoized. A disk cap at or below the request cap would let a single
+ * screenful of browsing prune files whose URIs are still being painted.
+ * `mobileSourceCoverProcessing.test.ts` asserts the ordering.
+ *
+ * The count ordering is NOT on its own a guarantee that every memoized URI
+ * survives: the byte ceiling below evicts in the same pass, so a run of large
+ * covers can bind first and prune a file whose URI is still memoized. That is
+ * why the shortfall is covered by repair rather than by sizing —
+ * `lib/mobileSourceImageRepair.ts` lets the render path report the dead URI
+ * and the holder re-resolve it exactly once, so a pruned cover self-heals
+ * instead of staying broken for the life of the process.
  */
 export const MOBILE_PROCESSED_COVER_MAX_FILES = 512;
 export const MOBILE_PROCESSED_COVER_MAX_TOTAL_BYTES = 64 * 1024 * 1024;

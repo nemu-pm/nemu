@@ -7,6 +7,9 @@ import type { Chapter } from "@/lib/sources";
 import { hasSWR } from "@/lib/sources";
 import type { LocalMangaProgress, LocalChapterProgress, MangaMetadata, ExternalIds } from "@/data/schema";
 import { makeMangaProgressId } from "@/data/schema";
+import { Keys } from "@/data/keys";
+import i18n from "@/lib/i18n";
+import { sanitizeSourceErrorDiagnostic } from "@nemu/core/sources";
 import type { LibraryEntry } from "@/data/view";
 import {
   getEntryEffectiveMetadata,
@@ -113,7 +116,7 @@ export function LibraryMangaPage() {
   const navigate = useNavigate();
   const { useSettingsStore, useLibraryStore } = useStores();
   const progressIndex = useAllMangaProgress();
-  const { getSource, availableSources } = useSettingsStore();
+  const { getSource, availableSources, enabledSources } = useSettingsStore();
   const {
     entries,
     loading: libraryLoading,
@@ -176,14 +179,33 @@ export function LibraryMangaPage() {
     let cancelled = false;
     setError(null);
 
+    // A disabled source keeps its library link and its cached chapters, but it
+    // is never run: `getSource` refuses it. Pre-filtering keeps the refusal off
+    // the hot path, and the per-source try/catch below keeps one failing source
+    // (disabled, broken, offline) from taking the whole page's chapters down.
+    const enabledSourceKeys = new Set(enabledSources.map((s) => s.id));
+    const runnableSources = entry.sources.filter((source) =>
+      enabledSourceKeys.has(Keys.source(source.registryId, source.sourceId))
+    );
+    if (runnableSources.length === 0) return;
+
     (async () => {
       // Phase 1: Load cached chapters for ALL sources immediately
       const cachedResults = await Promise.all(
-        entry.sources.map(async (source) => {
-          const sourceObj = await getSource(source.registryId, source.sourceId);
-          if (!sourceObj || !hasSWR(sourceObj)) return null;
-          const cached = await sourceObj.getCachedChapters(source.sourceMangaId);
-          return { source, chapters: cached };
+        runnableSources.map(async (source) => {
+          try {
+            const sourceObj = await getSource(source.registryId, source.sourceId);
+            if (!sourceObj || !hasSWR(sourceObj)) return null;
+            const cached = await sourceObj.getCachedChapters(source.sourceMangaId);
+            return { source, chapters: cached };
+          } catch (e) {
+            // One source's failure contributes nothing; the rest still load.
+            console.warn(
+              `[LibraryManga] Cached chapters unavailable for ${source.sourceId}:`,
+              e
+            );
+            return null;
+          }
         })
       );
       if (cancelled) return;
@@ -202,17 +224,19 @@ export function LibraryMangaPage() {
 
       // Phase 2: Background refresh all sources (chapters + manga details for cache)
       const freshResults = await Promise.all(
-        entry.sources.map(async (source) => {
-          const sourceObj = await getSource(source.registryId, source.sourceId);
-          if (!sourceObj) return null;
+        runnableSources.map(async (source) => {
           try {
+            const sourceObj = await getSource(source.registryId, source.sourceId);
+            if (!sourceObj) return null;
             const [chapters] = await Promise.all([
               sourceObj.getChapters(source.sourceMangaId),
               sourceObj.getManga(source.sourceMangaId), // Cache manga details (title, etc.)
             ]);
             return { source, chapters };
           } catch (e) {
-            return { source, error: e }; // Track error but don't fail
+            // Includes a source that became unavailable between renders: track
+            // the error but never reject, or every other source is lost too.
+            return { source, error: e };
           }
         })
       );
@@ -232,7 +256,12 @@ export function LibraryMangaPage() {
       if (!hasAnySuccess && Object.keys(newChaptersMap).length === 0) {
         const firstError = freshResults.find((r) => r && "error" in r);
         if (firstError && "error" in firstError) {
-          setError(firstError.error instanceof Error ? firstError.error.message : String(firstError.error));
+          // Source-controlled text only ever reaches the UI through the shared
+          // bounded sanitizer; the localized title stays the primary copy.
+          setError(
+            sanitizeSourceErrorDiagnostic(firstError.error) ??
+              i18n.t("error.sourceError")
+          );
         }
       }
     })();
@@ -240,7 +269,7 @@ export function LibraryMangaPage() {
     return () => {
       cancelled = true;
     };
-  }, [entry, getSource]);
+  }, [entry, getSource, enabledSources]);
 
   // Load chapter progress on-demand for selected source
   const { chapters: chapterProgress } = useChapterProgress(

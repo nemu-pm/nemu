@@ -201,6 +201,8 @@
     "refresh": "更新",
     "search": "検索",
     "otherLanguages": "その他",
+    "sourceUnavailable": "ソースを利用できません",
+    "sourceUnavailableDescription": "このソースを開けませんでした。設定で確認してください。",
     "listing": {
       "popular": "人気",
       "latest": "最新"
@@ -327,6 +329,7 @@
     "disableSource": "ソースを無効化",
     "enableSource": "ソースを有効化",
     "toggleSourceLabel": "{{name}} を有効化",
+    "toggleSourceDisableLabel": "{{name}} を無効化",
     "sourceDisabledError": "「{{name}}」は無効です。設定で有効にすると新しいコンテンツを読み込めます。",
     "sourceDisabledToast": "{{name}} を無効にしました",
     "sourceEnabledToast": "{{name}} を有効にしました",

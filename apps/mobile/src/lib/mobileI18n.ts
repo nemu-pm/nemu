@@ -42,6 +42,9 @@ export type MobileStrings = {
     save: string;
     sourceCloudflareBlocked: string;
     sourceCloudflareBlockedDescription: string;
+    sourceDisabled: string;
+    sourceDisabledAction: string;
+    sourceDisabledDescription: string;
     sourceError: string;
     sourceErrorDescription: string;
     sourceNetworkError: string;

@@ -11,6 +11,7 @@ import { useStores } from "@/data/context";
 import type { MangaSource } from "@/lib/sources/types";
 import { proxyUrl } from "@/config";
 import { parseSourceKey } from "@/data/keys";
+import { handleSourceError, isCloudflareError } from "@/lib/sources/error-handler";
 
 // ============ CONTEXT ============
 
@@ -39,13 +40,24 @@ export function SourceImageProvider({ sourceKey, children }: SourceImageProvider
       try {
         const { registryId, sourceId } = parseSourceKey(sourceKey);
         sourceCache.current = await getSource(registryId, sourceId);
-      } catch {
+      } catch (e) {
+        // A refused source (disabled, uninstalled) still shows covers through
+        // the plain proxy; only an actionable failure is worth surfacing.
+        handleSourceError(e, "Source image");
         sourceCache.current = null;
       }
     }
 
     if (sourceCache.current) {
-      return sourceCache.current.fetchImage(url);
+      try {
+        return await sourceCache.current.fetchImage(url);
+      } catch (e) {
+        // A cover fetch blocked by Cloudflare is the same actionable failure
+        // as a page fetch: hand it to the shared handler (which opens the
+        // bypass dialog) instead of letting it die as a broken image.
+        if (isCloudflareError(e)) handleSourceError(e, "Source image");
+        throw e;
+      }
     }
 
     return defaultFetch(url);

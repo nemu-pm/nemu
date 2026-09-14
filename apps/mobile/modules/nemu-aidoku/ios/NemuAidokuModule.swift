@@ -1017,8 +1017,9 @@ enum NemuAidokuScopedCookieJars {
   }
 
   /// Adopts a solved challenge's cookies into the scoped jar the source's next
-  /// request will read. Any older clearance cookie for the same host tree is
-  /// removed first so a stale value cannot win the RFC 6265 path ordering.
+  /// request will read. Any older clearance cookie whose domain covers the
+  /// challenge host is removed first so a stale value cannot win the RFC 6265
+  /// path ordering.
   static func store(
     cookies: [HTTPCookie],
     cookieScope: String?,
@@ -1537,8 +1538,8 @@ public class NemuAidokuModule: Module {
     // through the native SSRF peer gate, so the solver gets its own narrower
     // boundary instead (`NemuCloudflareChallengePolicy`): the address policy
     // validates the url, then a compiled `WKContentRuleList` plus
-    // `decidePolicyFor` confine it to the challenge host tree and Cloudflare's
-    // challenge platform, over https only.
+    // `decidePolicyFor` confine it to the exact validated challenge host and
+    // Cloudflare's challenge platform, over https only.
     AsyncFunction("solveCloudflare") {
         (url: String, options: NemuAidokuCloudflareSolveOptions?, promise: Promise) in
       Self.solveCloudflareAsync(

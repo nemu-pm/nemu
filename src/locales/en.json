@@ -206,6 +206,8 @@
     "refresh": "Refresh",
     "search": "Search",
     "otherLanguages": "Other",
+    "sourceUnavailable": "Source unavailable",
+    "sourceUnavailableDescription": "This source could not be opened. Check it in Settings.",
     "listing": {
       "popular": "Popular",
       "latest": "Latest"
@@ -332,6 +334,7 @@
     "disableSource": "Disable source",
     "enableSource": "Enable source",
     "toggleSourceLabel": "Enable {{name}}",
+    "toggleSourceDisableLabel": "Disable {{name}}",
     "sourceDisabledError": "\"{{name}}\" is disabled. Enable it in Settings to load new content.",
     "sourceDisabledToast": "Disabled {{name}}",
     "sourceEnabledToast": "Enabled {{name}}",
