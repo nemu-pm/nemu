@@ -4880,11 +4880,29 @@ export function ReaderScreen() {
 
         if (readerPagesRequestRunRef.current !== requestRun) return;
         if (refreshed.status === "blocked") {
-          setPagesState({
-            status: "blocked",
-            pages: [],
-            detail: refreshed.detail,
-          });
+          // The executor's refusal detail is an English log line (for a
+          // disabled source it carries the `[source-disabled]` marker); the
+          // user reads the localized presentation, never that text. A disabled
+          // source is a known app state, not a blocked request, so it does not
+          // get the "reinstall or update settings" hint either.
+          const blockedPresentation = getMobileSourceErrorPresentation(
+            refreshed.detail,
+            effectStrings,
+          );
+          setPagesState(
+            blockedPresentation.kind === "disabled"
+              ? {
+                  status: "error",
+                  pages: [],
+                  title: blockedPresentation.title,
+                  detail: blockedPresentation.detail,
+                }
+              : {
+                  status: "blocked",
+                  pages: [],
+                  detail: refreshed.detail,
+                },
+          );
           return;
         }
 
