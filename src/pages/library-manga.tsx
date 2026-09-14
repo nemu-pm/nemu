@@ -154,6 +154,13 @@ export function LibraryMangaPage() {
   }, [sortedSources, sourceParam]);
 
   const selectedSource = sortedSources[selectedSourceIdx];
+  // A disabled source keeps its link and its cached chapters but is never run,
+  // so an empty chapter list for it is a state to explain, not "no chapters".
+  const selectedSourceDisabled = useMemo(() => {
+    if (!selectedSource) return false;
+    const key = Keys.source(selectedSource.registryId, selectedSource.sourceId);
+    return !enabledSources.some((source) => source.id === key);
+  }, [enabledSources, selectedSource]);
 
   // If this entry disappears (deleted on another device), navigate back to library.
   useEffect(() => {
@@ -187,7 +194,12 @@ export function LibraryMangaPage() {
     const runnableSources = entry.sources.filter((source) =>
       enabledSourceKeys.has(Keys.source(source.registryId, source.sourceId))
     );
-    if (runnableSources.length === 0) return;
+    if (runnableSources.length === 0) {
+      // Nothing will ever resolve, so the page must not sit on "Loading…":
+      // the disabled-source copy below takes over.
+      setLoading(false);
+      return;
+    }
 
     (async () => {
       // Phase 1: Load cached chapters for ALL sources immediately
@@ -605,6 +617,17 @@ export function LibraryMangaPage() {
                 sourceId={selectedSource.sourceId}
                 mangaId={selectedSource.sourceMangaId}
               />
+            ) : selectedSource && selectedSourceDisabled ? (
+              <div className="py-8 text-center text-muted-foreground">
+                {t("settings.sourceDisabledError", {
+                  name:
+                    availableSources.find(
+                      (s) =>
+                        s.id === selectedSource.sourceId &&
+                        s.registryId === selectedSource.registryId
+                    )?.name ?? selectedSource.sourceId,
+                })}
+              </div>
             ) : (
               <div className="py-8 text-center text-muted-foreground">
                 {t("manga.noChapters")}
