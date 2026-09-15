@@ -23,6 +23,7 @@ import {
 } from "./mobileSourceExecutorCache";
 import {
   defaultMobileSourceSettings,
+  filterEnabledMobileInstalledSources,
   makeMobileRuntimeSourceKey,
   MOBILE_TACHIYOMI_UNSUPPORTED_DETAIL,
   normalizeInstalledSource,
@@ -369,14 +370,17 @@ export function selectInstalledSourcesForSearch(
   sources: InstalledSource[],
   selection: SearchSourceSelection
 ): InstalledSource[] {
-  const sourceDisplays = sources.map(toSearchSourceDisplay);
+  // Global search is a source operation, so a disabled install drops out of
+  // both the selection maths and the searched set.
+  const enabled = filterEnabledMobileInstalledSources(sources);
+  const sourceDisplays = enabled.map(toSearchSourceDisplay);
   const selectedIds = new Set(
     selectMobileLiveSearchSources(sourceDisplays, selection).map(
       (source) => source.id,
     ),
   );
 
-  return sources.filter((source) => selectedIds.has(source.id));
+  return enabled.filter((source) => selectedIds.has(source.id));
 }
 
 function sortSearchItemsBySimilarity(

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CacheStore } from "@/data/cache";
 import type { InstalledSource } from "@/data/schema";
 import type { RegistryManager, SourceRegistryProvider } from "@/lib/sources/registry";
+import type { MangaSource } from "@/lib/sources/types";
 import { createSettingsStore } from "./settings";
 
 const cache: CacheStore = {
@@ -107,5 +108,165 @@ describe("SettingsStore generation transitions", () => {
 
     expect(generations).toEqual([4]);
     expect(store.getState().installedSources).toEqual([source]);
+  });
+});
+
+describe("SettingsStore disabled sources", () => {
+  function createDisableHarness(initial: InstalledSource[]) {
+    const saved: Array<{
+      source: InstalledSource;
+      generation?: number | null;
+    }> = [];
+    const unloaded: string[] = [];
+    const storageReads: string[] = [];
+    const loadedSource = { id: "loaded" } as unknown as MangaSource;
+    let sources = initial;
+    const registry = {
+      installSource: async () => {},
+      unloadSource: (sourceId: string) => {
+        unloaded.push(sourceId);
+      },
+      isLoaded: () => true,
+      isInstalled: async () => true,
+      getSource: async () => loadedSource,
+    } as unknown as SourceRegistryProvider;
+    const manager = {
+      initialize: async () => {},
+      disposeLoadedSources: () => {},
+      listAllSources: async () => [],
+      getRegistry: () => registry,
+    } as unknown as RegistryManager;
+    const store = createSettingsStore(
+      {
+        getInstalledSources: async () => sources,
+        getInstalledSource: async (id: string) => {
+          storageReads.push(id);
+          return sources.find((source) => source.id === id) ?? null;
+        },
+        saveInstalledSource: async (source, generation) => {
+          saved.push({ source, generation });
+          sources = [
+            ...sources.filter((item) => item.id !== source.id),
+            { ...source, updatedAt: (source.updatedAt ?? 0) + 1 },
+          ];
+        },
+        removeInstalledSource: async () => {},
+      },
+      cache,
+      manager,
+    );
+    return {
+      store,
+      saved,
+      unloaded,
+      storageReads,
+      loadedSource,
+      currentSources: () => sources,
+    };
+  }
+
+  test("persists the toggle through saveInstalledSource and unloads the source", async () => {
+    const source = installed("broken", 7);
+    const { store, saved, unloaded } = createDisableHarness([source]);
+
+    await store.getState().setSourceDisabled("registry", "broken", true);
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.source).toMatchObject({
+      id: "registry:broken",
+      disabled: true,
+    });
+    // Same write-through path as install/uninstall, so the persistence layer
+    // bumps updatedAt off the sync clock for last-writer-wins.
+    expect(saved[0]!.generation).toBe(store.getState().syncGeneration);
+    expect(unloaded).toEqual(["broken"]);
+    expect(store.getState().installedSources[0]!.updatedAt).toBeGreaterThan(7);
+  });
+
+  test("keeps disabled installs listed but drops them from enabledSources", async () => {
+    const enabledSource = installed("good", 2);
+    const brokenSource = installed("broken", 2);
+    const { store } = createDisableHarness([enabledSource, brokenSource]);
+
+    await store.getState().initialize();
+    expect(store.getState().enabledSources).toHaveLength(2);
+
+    await store.getState().setSourceDisabled("registry", "broken", true);
+
+    expect(store.getState().installedSources.map((s) => s.id).sort()).toEqual([
+      "registry:broken",
+      "registry:good",
+    ]);
+    expect(store.getState().enabledSources.map((s) => s.id)).toEqual([
+      "registry:good",
+    ]);
+  });
+
+  test("re-enabling restores the source to enabledSources without a reload", async () => {
+    const source: InstalledSource = { ...installed("broken", 3), disabled: true };
+    const { store } = createDisableHarness([source]);
+
+    await store.getState().initialize();
+    expect(store.getState().enabledSources).toEqual([]);
+
+    await store.getState().setSourceDisabled("registry", "broken", false);
+
+    expect(store.getState().enabledSources.map((s) => s.id)).toEqual([
+      "registry:broken",
+    ]);
+  });
+
+  test("is a no-op when the source is already in the requested state", async () => {
+    const source = installed("good", 5);
+    const { store, saved } = createDisableHarness([source]);
+
+    await store.getState().setSourceDisabled("registry", "good", false);
+
+    expect(saved).toEqual([]);
+  });
+
+  test("getSource refuses a disabled source instead of returning null", async () => {
+    const source: InstalledSource = {
+      ...installed("broken", 1),
+      name: "Broken Source",
+      disabled: true,
+    };
+    const { store } = createDisableHarness([source]);
+    // The guard reads warm state, so hydrate it the way initialize() would.
+    await store.getState().initialize();
+
+    await expect(
+      store.getState().getSource("registry", "broken"),
+    ).rejects.toThrow(/disabled/i);
+  });
+
+  test("getSource refuses a disabled source before hydration lands", async () => {
+    const source: InstalledSource = {
+      ...installed("broken", 1),
+      name: "Broken Source",
+      disabled: true,
+    };
+    const { store } = createDisableHarness([source]);
+    // No initialize(): a router loader can call getSource while the store is
+    // still cold, and warm state would then say "not installed" for every id.
+    expect(store.getState().installedSources).toEqual([]);
+
+    await expect(
+      store.getState().getSource("registry", "broken"),
+    ).rejects.toThrow(/disabled/i);
+  });
+
+  test("getSource answers from warm state once hydrated", async () => {
+    const source = installed("good", 2);
+    const { store, storageReads, loadedSource } = createDisableHarness([source]);
+
+    await store.getState().initialize();
+    storageReads.length = 0;
+
+    await expect(store.getState().getSource("registry", "good")).resolves.toBe(
+      loadedSource,
+    );
+    // The hot path (every reader page, every source image) stays in memory.
+    expect(storageReads).toEqual([]);
   });
 });

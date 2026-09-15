@@ -83,6 +83,17 @@ function isOwnedNativeTemporaryFileUri(fileUri: string): boolean {
   return !name.includes("/") && NATIVE_HTTP_TEMP_FILE_PATTERN.test(name);
 }
 
+/**
+ * Delete a temporary file the native download handed over.
+ *
+ * A successful download transfers ownership of `fileUri` to the caller, so
+ * whoever consumed its bytes has to release it. Only files this module owns
+ * are ever deleted.
+ */
+export function releaseMobileNativeHttpFile(fileUri: string | null): void {
+  removeNativeTemporaryFile(fileUri);
+}
+
 function removeNativeTemporaryFile(fileUri: string | null): void {
   if (!fileUri || !isOwnedNativeTemporaryFileUri(fileUri)) return;
   try {

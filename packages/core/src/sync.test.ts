@@ -565,6 +565,7 @@ describe("sync cloud serialization", () => {
       version: 1,
       updatedAt: 2,
       removed: false,
+      disabled: undefined,
     });
   });
 
@@ -997,6 +998,75 @@ describe("installed source merge", () => {
       packageCacheKey: "aix:aidoku-community:en.example",
       packageMetadata: { sourceId: "en.example", version: 1 },
     });
+  });
+
+  test("carries a newer disabled toggle across the merge in both directions", () => {
+    const [localWins] = mergeInstalledSources<InstalledSource, InstalledSource>(
+      [
+        {
+          id: "aidoku-community:en.example",
+          registryId: "aidoku-community",
+          sourceId: "en.example",
+          version: 1,
+          updatedAt: 200,
+          disabled: true,
+        },
+      ],
+      [
+        {
+          id: "aidoku-community:en.example",
+          registryId: "aidoku-community",
+          sourceId: "en.example",
+          version: 1,
+          updatedAt: 100,
+        },
+      ],
+    );
+    expect(localWins).toMatchObject({ updatedAt: 200, disabled: true });
+
+    // `disabled` is a synced field, never a local-only preserved one: a newer
+    // cloud record that re-enables the source must win even when the local
+    // copy is still disabled.
+    const [cloudWins] = mergeInstalledSources<
+      MobileInstalledSource,
+      InstalledSource
+    >(
+      [
+        {
+          id: "aidoku-community:en.example",
+          registryId: "aidoku-community",
+          sourceId: "en.example",
+          version: 1,
+          updatedAt: 100,
+          disabled: true,
+        },
+      ],
+      [
+        {
+          id: "aidoku-community:en.example",
+          registryId: "aidoku-community",
+          sourceId: "en.example",
+          version: 1,
+          updatedAt: 200,
+          disabled: false,
+        },
+      ],
+      { preserveLocalFields: MOBILE_INSTALLED_SOURCE_LOCAL_FIELDS },
+    );
+    expect(cloudWins).toMatchObject({ updatedAt: 200, disabled: false });
+  });
+
+  test("projects the disabled flag onto the cloud installed-source shape", () => {
+    expect(
+      toCloudInstalledSource({
+        id: "aidoku-community:en.example",
+        registryId: "aidoku-community",
+        sourceId: "en.example",
+        version: 1,
+        updatedAt: 5,
+        disabled: true,
+      }),
+    ).toMatchObject({ disabled: true, updatedAt: 5 });
   });
 
   test("keeps tombstones minimal when cloud uninstall wins", () => {

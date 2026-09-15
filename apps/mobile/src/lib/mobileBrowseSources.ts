@@ -311,6 +311,13 @@ export function getMobileInstalledSourceRegistryDisplayName(
   );
 }
 
+// Browse-shaped consumers already import their installed-source predicates
+// from here; the disable predicates live with the runtime that enforces them.
+export {
+  filterEnabledMobileInstalledSources,
+  isMobileInstalledSourceDisabled,
+} from "@/sources/mobileSourceRuntime";
+
 /**
  * True when an installed record points at a runtime this build cannot execute
  * (today: Tachiyomi). Cloud sync can hand us these records from the web app, so

@@ -109,6 +109,8 @@ import {
   getMobileSourceErrorPresentation,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
+import type { NemuAgentSheetContext } from "@/lib/nemuAgentSheetReducer";
+import { readMobileCloudflareUserAgent } from "@/sources/mobileAidokuUserAgent";
 import {
   toSearchSourceDisplay,
   type SearchSourceDisplay,
@@ -1355,7 +1357,10 @@ export function SourceBrowseScreen() {
   const [refreshingSource, setRefreshingSource] = useState(false);
   const refreshSourceGuardRef = useRef(false);
   const cloudflareSheetRef = useRef<{
-    reportError: (error: unknown) => boolean;
+    reportError: (
+      error: unknown,
+      context?: NemuAgentSheetContext,
+    ) => boolean;
   } | null>(null);
   const sourceSearchInputRef = useRef<SearchBarCommands | null>(null);
   const sourceSearchIdleTasksRef = useRef<MobileIdleTaskCoordinator | null>(
@@ -1951,7 +1956,12 @@ export function SourceBrowseScreen() {
       })
       .catch((error) => {
         if (cancelled) return;
-        cloudflareSheetRef.current?.reportError(error);
+        cloudflareSheetRef.current?.reportError(error, {
+          sourceKey: makeMobileRuntimeSourceKey(
+            normalizeInstalledSource(requestSource),
+          ),
+          userAgent: readMobileCloudflareUserAgent(error),
+        });
         setSourceBrowseMetadataState({
           status: "error",
           detail: describeMobileErrorDetail(
@@ -2116,7 +2126,12 @@ export function SourceBrowseScreen() {
         if (isMobileSourceOperationTimeoutError(error)) {
           sourceHomeRequestRef.current += 1;
         }
-        cloudflareSheetRef.current?.reportError(error);
+        cloudflareSheetRef.current?.reportError(error, {
+          sourceKey: makeMobileRuntimeSourceKey(
+            normalizeInstalledSource(requestSource),
+          ),
+          userAgent: readMobileCloudflareUserAgent(error),
+        });
         setSourceHomeState((current) => ({
           status: "error",
           home: current.home,
@@ -2190,7 +2205,12 @@ export function SourceBrowseScreen() {
       })
       .catch((error) => {
         if (cancelled) return;
-        cloudflareSheetRef.current?.reportError(error);
+        cloudflareSheetRef.current?.reportError(error, {
+          sourceKey: makeMobileRuntimeSourceKey(
+            normalizeInstalledSource(installedSource),
+          ),
+          userAgent: readMobileCloudflareUserAgent(error),
+        });
         setSourceFiltersState({
           status: "error",
           filters: [],
@@ -2296,7 +2316,12 @@ export function SourceBrowseScreen() {
       } catch (error) {
         if (controller.signal.aborted) return;
         if (sourceSearchRequestRef.current !== requestId) return;
-        cloudflareSheetRef.current?.reportError(error);
+        cloudflareSheetRef.current?.reportError(error, {
+          sourceKey: makeMobileRuntimeSourceKey(
+            normalizeInstalledSource(installedSource),
+          ),
+          userAgent: readMobileCloudflareUserAgent(error),
+        });
         sourceSearchPaginationRef.current =
           resolveMobileSourceBrowsePagination(
             sourceSearchPaginationRef.current,
@@ -2478,7 +2503,12 @@ export function SourceBrowseScreen() {
         }
       } catch (error) {
         if (listingRequestRef.current !== requestId) return;
-        cloudflareSheetRef.current?.reportError(error);
+        cloudflareSheetRef.current?.reportError(error, {
+          sourceKey: makeMobileRuntimeSourceKey(
+            normalizeInstalledSource(installedSource),
+          ),
+          userAgent: readMobileCloudflareUserAgent(error),
+        });
         listingPaginationRef.current = resolveMobileSourceBrowsePagination(
           listingPaginationRef.current,
           { loading: false },
@@ -3516,6 +3546,7 @@ export function SourceBrowseScreen() {
         visible={cloudflareSheet.visible}
         status={cloudflareSheet.status}
         url={cloudflareSheet.url}
+        failureReason={cloudflareSheet.failureReason}
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />

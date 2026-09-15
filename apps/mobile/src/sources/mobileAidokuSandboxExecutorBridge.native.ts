@@ -40,6 +40,7 @@ type SandboxCapabilities = {
   handlesWebLogin: boolean;
   hasImageRequestProvider: boolean;
   hasImageProcessor: boolean;
+  hasCoverImageProcessor: boolean;
 };
 
 type SandboxHomeResult = {
@@ -99,7 +100,8 @@ function validateCapabilities(value: SandboxCapabilities): SandboxCapabilities {
     typeof value.handlesBasicLogin !== "boolean" ||
     typeof value.handlesWebLogin !== "boolean" ||
     typeof value.hasImageRequestProvider !== "boolean" ||
-    typeof value.hasImageProcessor !== "boolean"
+    typeof value.hasImageProcessor !== "boolean" ||
+    typeof value.hasCoverImageProcessor !== "boolean"
   ) {
     throw new Error("The isolated Aidoku runtime returned invalid capabilities.");
   }
@@ -159,6 +161,39 @@ function wrapSandboxSource({
       });
       throw error;
     }
+  };
+
+  /**
+   * One image round through the isolate.
+   *
+   * Page and cover processing share the transport, the byte limits and the
+   * output validation; only the operation payload differs.
+   */
+  const processSandboxImage = async (
+    imageData: Uint8Array,
+    operation: Record<string, unknown>,
+  ): Promise<Uint8Array | null> => {
+    if (
+      imageData.byteLength === 0 ||
+      imageData.byteLength > SANDBOX_IMAGE_MAX_BYTES
+    ) {
+      throw new Error("Aidoku image input exceeds the isolated runtime safety limit.");
+    }
+    const output = await withMobileSourceOperationTimeout(
+      NemuAidokuModule.processAidokuSandboxImage(
+        sessionId,
+        stringifyMobileAidokuSandboxValue(operation, "Aidoku image operation"),
+        imageData,
+      ),
+    );
+    if (output == null) return null;
+    if (!(output instanceof Uint8Array)) {
+      throw new Error("The isolated Aidoku image runtime returned invalid bytes.");
+    }
+    if (output.byteLength === 0 || output.byteLength > SANDBOX_IMAGE_MAX_BYTES) {
+      throw new Error("Aidoku processed image exceeds the safety limit.");
+    }
+    return output;
   };
 
   return {
@@ -263,7 +298,7 @@ function wrapSandboxSource({
     async hasImageProcessor() {
       return capabilities.hasImageProcessor;
     },
-    async processPageImage(
+    processPageImage(
       imageData,
       context,
       requestUrl,
@@ -271,38 +306,34 @@ function wrapSandboxSource({
       responseCode,
       responseHeaders,
     ) {
-      if (!capabilities.hasImageProcessor) return null;
-      if (
-        imageData.byteLength === 0 ||
-        imageData.byteLength > SANDBOX_IMAGE_MAX_BYTES
-      ) {
-        throw new Error("Aidoku image input exceeds the isolated runtime safety limit.");
-      }
-      const output = await withMobileSourceOperationTimeout(
-        NemuAidokuModule.processAidokuSandboxImage(
-          sessionId,
-          stringifyMobileAidokuSandboxValue(
-            {
-              kind: "process-page-image",
-              context,
-              requestUrl,
-              requestHeaders,
-              responseCode,
-              responseHeaders,
-            },
-            "Aidoku image operation",
-          ),
-          imageData,
-        ),
-      );
-      if (output == null) return null;
-      if (!(output instanceof Uint8Array)) {
-        throw new Error("The isolated Aidoku image runtime returned invalid bytes.");
-      }
-      if (output.byteLength === 0 || output.byteLength > SANDBOX_IMAGE_MAX_BYTES) {
-        throw new Error("Aidoku processed image exceeds the safety limit.");
-      }
-      return output;
+      if (!capabilities.hasImageProcessor) return Promise.resolve(null);
+      return processSandboxImage(imageData, {
+        kind: "process-page-image",
+        context,
+        requestUrl,
+        requestHeaders,
+        responseCode,
+        responseHeaders,
+      });
+    },
+    async hasCoverImageProcessor() {
+      return capabilities.hasCoverImageProcessor;
+    },
+    processCoverImage(
+      imageData,
+      requestUrl,
+      requestHeaders,
+      responseCode,
+      responseHeaders,
+    ) {
+      if (!capabilities.hasCoverImageProcessor) return Promise.resolve(null);
+      return processSandboxImage(imageData, {
+        kind: "process-cover-image",
+        requestUrl,
+        requestHeaders,
+        responseCode,
+        responseHeaders,
+      });
     },
     async updateSettings(nextSettings) {
       if (disposed) return;

@@ -24,6 +24,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import { formatChapterTitle } from "@/lib/format-chapter";
 import { handleSourceError } from "@/lib/sources/error-handler";
+import { sanitizeSourceErrorDiagnostic } from "@nemu/core/sources";
+import i18n from "@/lib/i18n";
 import {
   ReaderPluginProvider,
   usePluginPageOverlays,
@@ -552,7 +554,9 @@ export function ReaderPage() {
         return pagesData;
       } catch (e) {
         if (!cancelled && loadRunIdRef.current === runId) {
-          setError(e instanceof Error ? e.message : String(e));
+          setError(
+            sanitizeSourceErrorDiagnostic(e) ?? i18n.t("error.sourceError")
+          );
         }
         return null;
       } finally {
@@ -617,7 +621,9 @@ export function ReaderPage() {
         setCurrentIndex(startIndex);
       } catch (e) {
         if (!cancelled && loadRunIdRef.current === runId) {
-          setError(e instanceof Error ? e.message : String(e));
+          setError(
+            sanitizeSourceErrorDiagnostic(e) ?? i18n.t("error.sourceError")
+          );
         }
       } finally {
         if (!cancelled && loadRunIdRef.current === runId) setLoading(false);
@@ -656,9 +662,12 @@ export function ReaderPage() {
         return pagesData;
       } catch (e) {
         if (opts?.fatal) {
-          setError(e instanceof Error ? e.message : String(e));
+          setError(
+            sanitizeSourceErrorDiagnostic(e) ?? i18n.t("error.sourceError")
+          );
         } else {
           console.error("[Reader] Failed to load chapter pages:", e);
+          handleSourceError(e, "Failed to load chapter pages");
         }
         return null;
       } finally {
@@ -1196,7 +1205,9 @@ export function ReaderPage() {
       if (!item || item.kind !== "page") return null;
       try {
         return await item.page.getImage();
-      } catch {
+      } catch (e) {
+        // Callers treat null as "no image"; keep it silent for the user but logged.
+        console.error("[Reader] Failed to read page image blob:", e);
         return null;
       }
     },

@@ -389,11 +389,19 @@ export function SourceSettings({
       }
 
       deletePrimarySettingValue(setting);
+
+      // `clear_cookies_on_log_out` sources expect the session to be gone from
+      // the runtime too. Deleting the stored values leaves the loaded instance
+      // holding its in-memory cookie jar, so dispose and reload it.
+      if (setting.clearCookiesOnLogOut) {
+        void reloadWithToast();
+      }
     },
     [
       clearPendingOAuthRequest,
       deletePrimarySettingValue,
       deleteSetting,
+      reloadWithToast,
       sourceKey,
       t,
     ],

@@ -40,6 +40,9 @@ dependencies {
   implementation "com.facebook.fresco:fresco:3.6.0"
   implementation "com.squareup.okhttp3:okhttp:4.12.0"
   testImplementation "junit:junit:4.13.2"
+  // JVM unit tests see android.jar's throwing org.json stubs; the real
+  // implementation lets envelope helpers that take a JSONObject run under JUnit.
+  testImplementation "org.json:json:20240303"
   testImplementation "com.squareup.okhttp3:mockwebserver:4.12.0"
   androidTestImplementation "androidx.test:runner:1.7.0"
   androidTestImplementation "junit:junit:4.13.2"

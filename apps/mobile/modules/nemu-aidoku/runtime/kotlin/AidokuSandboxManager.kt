@@ -176,6 +176,15 @@ internal fun aidokuSandboxSessionNeedsRegistration(
   runtimeGeneration: Long
 ): Boolean = registeredGeneration != runtimeGeneration
 
+/**
+ * The image round the isolate should dispatch, from the caller's `kind`.
+ *
+ * Only the two image kinds are forwarded, so a malformed payload cannot use
+ * the image transport to reach an unrelated operation.
+ */
+internal fun aidokuSandboxImageOperationKind(requested: String?): String =
+  if (requested == "process-cover-image") "process-cover-image" else "process-page-image"
+
 internal enum class AidokuSandboxResetScope {
   ISOLATE,
   SANDBOX_CONNECTION
@@ -542,7 +551,7 @@ internal class AidokuSandboxManager(
       var imageDataConsumed = false
       try {
         provideNamedData(activeIsolate, dataName, imageBytes)
-        operation.put("kind", "process-page-image")
+        operation.put("kind", aidokuSandboxImageOperationKind(operation.optString("kind")))
         operation.put("imageDataName", dataName)
         operation.put("imageWidth", dimensions.first)
         operation.put("imageHeight", dimensions.second)
@@ -854,9 +863,17 @@ internal class AidokuSandboxManager(
             parsed.remove("settingsPatch")
             return parsed.toString()
           }
-          "error" -> throw IllegalStateException(
-            parsed.optString("detail", "The isolated Aidoku runtime failed.")
-          )
+          "error" -> {
+            // A typed source failure keeps its identity: the bounded envelope
+            // is the operation's result and the protocol layer on the React
+            // Native side rebuilds the error, url and host included. See
+            // [aidokuSandboxPropagatedErrorEnvelope].
+            val envelope = aidokuSandboxPropagatedErrorEnvelope(parsed)
+            if (envelope != null) return envelope.toString()
+            throw IllegalStateException(
+              parsed.optString("detail", "The isolated Aidoku runtime failed.")
+            )
+          }
           "http-request" -> {
             if (round >= SANDBOX_MAX_REPLAY_ROUNDS) {
               throw IllegalStateException("Aidoku source exceeded the HTTP replay limit.")

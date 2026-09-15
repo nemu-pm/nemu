@@ -27,6 +27,12 @@ import {
   type MobileCachedSegmentedImageAsset,
   type MobileImageCacheSource,
 } from "@/lib/mobileImageCache";
+import { isMobileAppLocalImageUri } from "@/lib/mobileAppLocalImageUris";
+import {
+  isRepairableMobileSourceImageUri,
+  reportMobileSourceImageLoadFailure,
+  subscribeMobileSourceImageRepairs,
+} from "@/lib/mobileSourceImageRepair";
 import { shouldRetryCachedMobileImageError } from "@/lib/mobileImageCacheCoordinator";
 import {
   getMobileImageUriPolicy,
@@ -92,10 +98,27 @@ export function MobileCachedImage({
   const [imageFadeRef] = useState(
     () => new ReactAnimated.Value(skipFade ? 1 : 0),
   );
-  const uriPolicy = useMemo(
-    () => getMobileImageUriPolicy(sourceUri, uriOwnership),
-    [sourceUri, uriOwnership],
-  );
+  // A source-processed cover lives at a `file://` URI derived from its cache
+  // key, so a repaired cover reappears at the *same* URI: nothing about the
+  // rendered source changes. This counter is the view's half of the repair
+  // handshake — bumping it re-evaluates that URI (its app-local registration
+  // and its bytes) and clears the latched failure, once per URI.
+  const [localRepairGeneration, setLocalRepairGeneration] = useState(0);
+  const localRepairedUriRef = useRef<string | null>(null);
+  const uriPolicy = useMemo(() => {
+    // Invalidation token only: the app-local URI registry read below is
+    // mutable module state, so a repair is the only signal that the very same
+    // URI can now have a different verdict.
+    void localRepairGeneration;
+    const policy = getMobileImageUriPolicy(sourceUri, uriOwnership);
+    if (policy.allowed || uriOwnership !== "source") return policy;
+    // A cover a source's own cover processor produced is a local file the app
+    // wrote and registered, not a URI the source supplied, so it is judged by
+    // the app-local rules instead of the HTTP(S)-only source rules.
+    return isMobileAppLocalImageUri(sourceUri)
+      ? getMobileImageUriPolicy(sourceUri, "app")
+      : policy;
+  }, [localRepairGeneration, sourceUri, uriOwnership]);
   const cacheStorageKey = useMemo(
     () =>
       uriPolicy.allowed && uriPolicy.kind === "source-remote"
@@ -110,11 +133,14 @@ export function MobileCachedImage({
     if (uriPolicy.allowed && uriPolicy.kind === "source-remote") {
       return `${uriOwnership}:${allowLongStripSegments ? "segments-v1" : "file"}:${cacheStorageKey}`;
     }
-    return boundedLocalImageSourceKey(sourceUri, uriOwnership, cacheKey);
+    // The repair generation is part of the local identity so a repaired URI is
+    // no longer the key the failure was latched under.
+    return `${boundedLocalImageSourceKey(sourceUri, uriOwnership, cacheKey)}:${localRepairGeneration}`;
   }, [
     allowLongStripSegments,
     cacheKey,
     cacheStorageKey,
+    localRepairGeneration,
     sourceUri,
     uriOwnership,
     uriPolicy,
@@ -174,6 +200,16 @@ export function MobileCachedImage({
     };
   }, [sourceKey]);
 
+  useEffect(() => {
+    if (!isRepairableMobileSourceImageUri(sourceUri)) return;
+    return subscribeMobileSourceImageRepairs((repairedUri) => {
+      if (repairedUri !== sourceUri) return;
+      if (localRepairedUriRef.current === sourceUri) return;
+      localRepairedUriRef.current = sourceUri;
+      setLocalRepairGeneration((current) => current + 1);
+    });
+  }, [sourceUri]);
+
   const reportError = useCallback(
     (error: string) => {
       if (activeSourceKeyRef.current !== sourceKey) return;
@@ -187,6 +223,14 @@ export function MobileCachedImage({
 
   useEffect(() => {
     if (!uriPolicy.allowed) {
+      // A processed cover whose file was pruned also loses its app-local
+      // registration, so its URI now reads as a blocked source URI rather than
+      // reaching the loader at all. That is the same repairable failure as a
+      // load error, and the source image-request cache is the only thing that
+      // can mint a fresh URI for it.
+      if (isRepairableMobileSourceImageUri(sourceUri)) {
+        reportMobileSourceImageLoadFailure(sourceUri);
+      }
       const timer = setTimeout(() => {
         reportError(uriPolicy.error);
       }, 0);
@@ -247,6 +291,7 @@ export function MobileCachedImage({
     reportError,
     requiresLocalFile,
     sourceKey,
+    sourceUri,
     uriPolicy,
   ]);
 
@@ -279,6 +324,13 @@ export function MobileCachedImage({
       const error =
         event.nativeEvent.error || "The image could not be displayed.";
       reportError(error);
+      if (isRepairableMobileSourceImageUri(sourceUri)) {
+        // A source-processed cover is a local file whose URI is memoized by the
+        // source image-request cache. If the file is gone, that cache is the
+        // only thing that can re-resolve it, so tell it the URI failed; the
+        // holder repairs the entry once and nothing happens for any other URI.
+        reportMobileSourceImageLoadFailure(sourceUri);
+      }
       if (
         shouldRetryCachedMobileImageError({
           cachedUri,
@@ -349,6 +401,7 @@ export function MobileCachedImage({
       cachedUri,
       reportError,
       sourceKey,
+      sourceUri,
     ],
   );
 
@@ -402,6 +455,9 @@ export function MobileCachedImage({
     >
       <Image
         {...props}
+        // Only a repair changes this key: the native loader will not retry a
+        // URI it already failed on unless the view element is replaced.
+        key={localRepairGeneration}
         onError={handleImageError}
         onLoad={handleImageLoad}
         source={imageSource}

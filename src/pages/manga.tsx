@@ -1,5 +1,5 @@
 import { Link, useParams } from "@tanstack/react-router";
-import { useCallback, useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useStores, useSourceLinkProgress, useChapterProgress } from "@/data/context";
 import type { Manga, Chapter } from "@/lib/sources";
@@ -36,6 +36,8 @@ import {
 import { MangaStatusBadge } from "@/components/manga-status-badge";
 import { usePageTitle } from "@/components/page-title";
 import { handleSourceError } from "@/lib/sources/error-handler";
+import { sanitizeSourceErrorDiagnostic } from "@nemu/core/sources";
+import i18n from "@/lib/i18n";
 import { ManageCollectionMembershipSheet } from "@/components/collections/manage-collection-membership-sheet";
 
 /** Convert LocalChapterProgress map to ChapterGrid-compatible format */
@@ -99,6 +101,10 @@ export function MangaPage() {
 
   const [manga, setManga] = useState<Manga | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
+  // Tracks whether any content (cached or fresh) is on screen. A ref, because the
+  // load effect's catch would otherwise read a stale `manga` from its closure.
+  const hasContentRef = useRef(false);
+  const contentKeyRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
@@ -118,6 +124,14 @@ export function MangaPage() {
     let cancelled = false;
     setError(null);
 
+    // A different manga starts with no content of its own; re-runs for the same
+    // manga (e.g. library toggle) keep whatever is already on screen.
+    const contentKey = `${registryId}:${sourceId}:${mangaId}`;
+    if (contentKeyRef.current !== contentKey) {
+      contentKeyRef.current = contentKey;
+      hasContentRef.current = false;
+    }
+
     (async () => {
       try {
         const source = await getSource(registryId, sourceId);
@@ -136,6 +150,7 @@ export function MangaPage() {
           if (cancelled) return;
           if (cachedManga) {
             setManga(cachedManga);
+            hasContentRef.current = true;
             setLoading(false); // Stop showing loading spinner
           }
           if (cachedChapters) {
@@ -152,6 +167,7 @@ export function MangaPage() {
         if (cancelled) return;
         setManga(mangaData);
         setChapters(chaptersData);
+        hasContentRef.current = true;
         setLoading(false);
 
         // Acknowledge update (if in library) - clears "Updated" badge
@@ -173,8 +189,10 @@ export function MangaPage() {
         if (cancelled) return;
         handleSourceError(e, "Loading manga details");
         // Only show error if we have no cached data
-        if (!manga) {
-          setError(e instanceof Error ? e.message : String(e));
+        if (!hasContentRef.current) {
+          setError(
+            sanitizeSourceErrorDiagnostic(e) ?? i18n.t("error.sourceError")
+          );
         }
         setLoading(false);
       }

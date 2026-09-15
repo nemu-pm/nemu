@@ -109,6 +109,7 @@ export default defineSchema({
         version: v.number(),
         updatedAt: v.optional(v.number()), // For LWW sync conflict resolution
         removed: v.optional(v.boolean()), // Tombstone: true = uninstalled
+        disabled: v.optional(v.boolean()), // User-disabled without uninstalling
       })
     ),
     updatedAt: v.optional(v.number()),

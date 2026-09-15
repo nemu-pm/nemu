@@ -12,6 +12,7 @@ import {
 } from "@/sources/mobileSourceDetails";
 import {
   buildMobileSourcePackageLoadPlan,
+  isMobileInstalledSourceDisabled,
   normalizeInstalledSource,
 } from "@/sources/mobileSourceRuntime";
 import { mobileInstalledSourceMatchesLink } from "./mobileInstalledSourceKeys";
@@ -132,6 +133,9 @@ export function findInstalledSourceForLink(
 }
 
 export function canRefreshInstalledSource(source: InstalledSource): boolean {
+  // A disabled source is counted as blocked, not missing: the entry keeps its
+  // link and its cached chapters, the batch just never fetches through it.
+  if (isMobileInstalledSourceDisabled(source)) return false;
   return buildMobileSourcePackageLoadPlan(normalizeInstalledSource(source)).status === "ready";
 }
 

@@ -127,9 +127,12 @@ import {
   describeMobileErrorDetail,
   getMobileSourceErrorPresentation,
   getMobileSourceErrorRecoveryAction,
+  getMobileSourceErrorRecoveryHref,
   type MobileSourceErrorRecoveryAction,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
+import type { NemuAgentSheetContext } from "@/lib/nemuAgentSheetReducer";
+import { readMobileCloudflareUserAgent } from "@/sources/mobileAidokuUserAgent";
 import { useMobileStickySourceCover } from "@/lib/useMobileSourceImageRequest";
 import { withMobileSourceOperationTimeout } from "@/sources/mobileSourceOperationTimeout";
 import { normalizeReaderProcessPageImages } from "@/lib/mobileReaderSettings";
@@ -350,7 +353,10 @@ export function MangaDetailScreen() {
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const pullRefreshGuardRef = useRef(false);
   const cloudflareSheetRef = useRef<{
-    reportError: (error: unknown) => boolean;
+    reportError: (
+      error: unknown,
+      context?: NemuAgentSheetContext,
+    ) => boolean;
   } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [liveDetailState, setLiveDetailState] = useState<LiveDetailState>({
@@ -718,11 +724,21 @@ export function MangaDetailScreen() {
     });
 
     void (async () => {
+      // Hoisted so the catch below can tell the Nemu Agent sheet which source
+      // jar a solved clearance cookie belongs in. The link's own
+      // registryId:sourceId can differ from the installed record's under alias
+      // matching, so only the resolved record produces the runtime key.
+      let requestSourceKey: string | undefined;
       try {
         const installedSources = await store.getInstalledSources();
         const installedSource = installedSources.find((item) =>
           mobileInstalledSourceMatchesLink(item, selectedSource),
         );
+        if (installedSource) {
+          requestSourceKey = makeMobileRuntimeSourceKey(
+            normalizeInstalledSource(installedSource),
+          );
+        }
 
         if (!installedSource) {
           if (!cancelled) {
@@ -759,9 +775,21 @@ export function MangaDetailScreen() {
 
         if (cancelled) return;
         if (refreshed.status === "blocked") {
+          // Same contract as the error path below: `detail` is an untranslated
+          // technical sentence, and only the presentation layer turns a marked
+          // one into localized copy.
+          const blocked = getMobileSourceErrorPresentation(
+            refreshed.detail,
+            strings,
+          );
           setLiveDetailState({
             status: "blocked",
-            detail: refreshed.detail,
+            title: blocked.title,
+            detail: blocked.detail,
+            recoveryAction: getMobileSourceErrorRecoveryAction(
+              blocked,
+              strings,
+            ),
           });
           return;
         }
@@ -819,7 +847,10 @@ export function MangaDetailScreen() {
           nextError,
           strings,
         );
-        cloudflareSheetRef.current?.reportError(nextError);
+        cloudflareSheetRef.current?.reportError(nextError, {
+          sourceKey: requestSourceKey,
+          userAgent: readMobileCloudflareUserAgent(nextError),
+        });
         setLiveDetailState({
           status: "error",
           title: presentation.title,
@@ -1932,7 +1963,11 @@ export function MangaDetailScreen() {
                         error={liveDetailState.status === "error"}
                         actionLabel={liveDetailState.recoveryAction?.label}
                         onActionPress={() => {
-                          router.navigate("/settings?focus=agent");
+                          const action = liveDetailState.recoveryAction;
+                          if (!action) return;
+                          router.navigate(
+                            getMobileSourceErrorRecoveryHref(action),
+                          );
                         }}
                       />
                     ) : null
@@ -1964,6 +1999,7 @@ export function MangaDetailScreen() {
         visible={cloudflareSheet.visible}
         status={cloudflareSheet.status}
         url={cloudflareSheet.url}
+        failureReason={cloudflareSheet.failureReason}
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />

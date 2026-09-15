@@ -159,3 +159,26 @@ export function sanitizeSourceSettingValues(
   }
   return output;
 }
+
+/**
+ * Move one entry of an editable-list setting.
+ *
+ * Order is meaningful to sources, so the web and mobile editable-list controls
+ * reorder through this one bounds-checked helper. Returns `null` when the move
+ * cannot happen (either index out of range, or a no-op), so callers can skip
+ * the write instead of persisting an identical array.
+ */
+export function moveSourceSettingListItem(
+  values: readonly string[],
+  fromIndex: number,
+  toIndex: number,
+): string[] | null {
+  if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) return null;
+  if (fromIndex === toIndex) return null;
+  if (fromIndex < 0 || fromIndex >= values.length) return null;
+  if (toIndex < 0 || toIndex >= values.length) return null;
+  const next = values.slice();
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved as string);
+  return next;
+}

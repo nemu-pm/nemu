@@ -468,7 +468,7 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
       let inputName = "image-input-\(UUID().uuidString)"
       let outputName = "image-output-\(UUID().uuidString)"
       let dimensions = Self.imageDimensions(imageBytes)
-      operation["kind"] = "process-page-image"
+      operation["kind"] = Self.imageOperationKind(operation["kind"])
       operation["imageDataName"] = inputName
       operation["imageWidth"] = dimensions.width
       operation["imageHeight"] = dimensions.height
@@ -805,6 +805,16 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
           "The isolated Aidoku runtime failed."
         if NemuAidokuSandboxSessionPolicy.indicatesLostRegistration(status: parsed) {
           throw Self.lostRegistrationError(detail)
+        }
+        // A typed source failure keeps its identity: the bounded envelope is the
+        // operation's result and the protocol layer on the React Native side
+        // rebuilds the error, url and host included. See
+        // `NemuAidokuSandboxSessionPolicy.propagatedErrorEnvelope`.
+        if let envelope = NemuAidokuSandboxSessionPolicy.propagatedErrorEnvelope(parsed) {
+          return NemuAidokuIOSandboxOperationResult(
+            json: try Self.jsonString(envelope),
+            namedData: [:]
+          )
         }
         throw Self.error(detail)
       default:
@@ -1233,6 +1243,16 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
       throw error("AIX package exceeds the isolated runtime safety limit.")
     }
     return url
+  }
+
+  /// The image round the isolate should dispatch, from the caller's `kind`.
+  ///
+  /// Only the two image kinds are forwarded, so a malformed payload cannot use
+  /// the image transport to reach an unrelated operation.
+  private static func imageOperationKind(_ requested: Any?) -> String {
+    (requested as? String) == "process-cover-image"
+      ? "process-cover-image"
+      : "process-page-image"
   }
 
   private static func imageDimensions(_ data: Data) -> (width: Int, height: Int) {

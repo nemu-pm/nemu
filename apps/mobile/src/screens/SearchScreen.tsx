@@ -90,6 +90,8 @@ import {
   sanitizeMobileErrorDiagnostic,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
+import type { NemuAgentSheetContext } from "@/lib/nemuAgentSheetReducer";
+import { readMobileCloudflareUserAgent } from "@/sources/mobileAidokuUserAgent";
 import {
   loadMobileSourceSettingsByKeys,
   mergeSourceSettingValues,
@@ -126,7 +128,11 @@ import {
   type MobileLiveSearchGroup,
   type MobileLiveSearchManga,
 } from "@/sources/mobileSourceSearch";
-import { makeMobileRuntimeSourceKey, normalizeInstalledSource } from "@/sources/mobileSourceRuntime";
+import {
+  filterEnabledMobileInstalledSources,
+  makeMobileRuntimeSourceKey,
+  normalizeInstalledSource,
+} from "@/sources/mobileSourceRuntime";
 import {
   getActiveMobileSourceProfileScope,
   registerMobileSourceProfileTransitionHandler,
@@ -716,7 +722,12 @@ export function SearchScreen() {
   // Bumped by the Nemu Agent sheet's onSuccess to force the live-search effect
   // to re-run after a Cloudflare challenge is solved.
   const [searchRefreshNonce, setSearchRefreshNonce] = useState(0);
-  const cloudflareSheetRef = useRef<{ reportError: (error: unknown) => boolean } | null>(null);
+  const cloudflareSheetRef = useRef<{
+    reportError: (
+      error: unknown,
+      context?: NemuAgentSheetContext,
+    ) => boolean;
+  } | null>(null);
   const installed = useInstalledSources();
   const library = useLibraryEntries();
   const { appLanguage } = useMobileLanguageSettings();
@@ -724,7 +735,10 @@ export function SearchScreen() {
   const usesNativeHeader = usesNemuNativeHeader;
 
   const sources = useMemo(
-    () => installed.data.map(toSearchSourceDisplay),
+    () =>
+      filterEnabledMobileInstalledSources(installed.data).map(
+        toSearchSourceDisplay,
+      ),
     [installed.data]
   );
   const effectiveSelectedSourceIds = useMemo(
@@ -937,7 +951,12 @@ export function SearchScreen() {
             // Never let that stale failure open an auth/bypass sheet over the
             // current query (or after this screen has unmounted).
             if (!cancelled && !controller.signal.aborted) {
-              cloudflareSheetRef.current?.reportError(nextError);
+              cloudflareSheetRef.current?.reportError(nextError, {
+                sourceKey: makeMobileRuntimeSourceKey(
+                  normalizeInstalledSource(source),
+                ),
+                userAgent: readMobileCloudflareUserAgent(nextError),
+              });
             }
             return {
               status: "blocked",
@@ -1573,6 +1592,7 @@ export function SearchScreen() {
         visible={cloudflareSheet.visible}
         status={cloudflareSheet.status}
         url={cloudflareSheet.url}
+        failureReason={cloudflareSheet.failureReason}
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />

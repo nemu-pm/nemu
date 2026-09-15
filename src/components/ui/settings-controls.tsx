@@ -4,6 +4,7 @@
  */
 import * as React from "react"
 import { useState, useMemo } from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
@@ -16,7 +17,14 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Add01Icon, Remove01Icon, Delete02Icon } from "@hugeicons/core-free-icons"
+import {
+  Add01Icon,
+  ArrowDown01Icon,
+  ArrowUp01Icon,
+  Remove01Icon,
+  Delete02Icon,
+} from "@hugeicons/core-free-icons"
+import { moveSourceSettingListItem } from "@nemu/core"
 import { cn } from "@/lib/utils"
 
 /**
@@ -310,6 +318,7 @@ interface SettingsEditableListProps {
 }
 
 export function SettingsEditableList({ label, value, placeholder, onChange }: SettingsEditableListProps) {
+  const { t } = useTranslation()
   const [newItem, setNewItem] = useState("")
 
   const addItem = () => {
@@ -322,6 +331,12 @@ export function SettingsEditableList({ label, value, placeholder, onChange }: Se
     const newList = [...value]
     newList.splice(index, 1)
     onChange(newList)
+  }
+
+  // Order matters to sources, so entries can be reordered in place.
+  const moveItem = (fromIndex: number, toIndex: number) => {
+    const reordered = moveSourceSettingListItem(value, fromIndex, toIndex)
+    if (reordered) onChange(reordered)
   }
 
   return (
@@ -349,14 +364,36 @@ export function SettingsEditableList({ label, value, placeholder, onChange }: Se
               className="flex items-center justify-between rounded border px-2 py-1"
             >
               <span className="text-sm truncate">{item}</span>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => removeItem(index)}
-                className="shrink-0 size-6"
-              >
-                <HugeiconsIcon icon={Delete02Icon} className="size-3" />
-              </Button>
+              <div className="flex shrink-0 items-center gap-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => moveItem(index, index - 1)}
+                  disabled={index === 0}
+                  aria-label={t("sourceSettings.moveUp")}
+                  className="shrink-0 size-6"
+                >
+                  <HugeiconsIcon icon={ArrowUp01Icon} className="size-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => moveItem(index, index + 1)}
+                  disabled={index === value.length - 1}
+                  aria-label={t("sourceSettings.moveDown")}
+                  className="shrink-0 size-6"
+                >
+                  <HugeiconsIcon icon={ArrowDown01Icon} className="size-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => removeItem(index)}
+                  className="shrink-0 size-6"
+                >
+                  <HugeiconsIcon icon={Delete02Icon} className="size-3" />
+                </Button>
+              </div>
             </div>
           ))}
         </div>

@@ -4,6 +4,7 @@ import {
   isCloudflareErrorMessage,
   isNetworkSourceError,
   readErrorUrl,
+  sanitizeSourceErrorDiagnostic,
 } from "@nemu/core/sources";
 
 /**
@@ -25,6 +26,7 @@ import {
  */
 export type MobileSourceErrorKind =
   | "cloudflare"
+  | "disabled"
   | "network"
   | "runtime"
   | "unsupported"
@@ -37,6 +39,14 @@ export type MobileSourceErrorKind =
  */
 export const MOBILE_TACHIYOMI_UNSUPPORTED_MARKER = "[tachiyomi-unsupported]";
 
+/**
+ * Stamped onto the runtime detail for a source the user switched off. Same
+ * contract as the unsupported marker: it is the machine-readable classifier,
+ * so the English sentence behind it is a log line and never the copy a zh/ja
+ * user reads.
+ */
+export const MOBILE_SOURCE_DISABLED_MARKER = "[source-disabled]";
+
 export type MobileSourceErrorPresentation = {
   kind: MobileSourceErrorKind;
   title: string;
@@ -47,6 +57,8 @@ export type MobileSourceErrorPresentation = {
 export type MobileSourceErrorRecoveryAction = {
   type: "open-settings";
   label: string;
+  /** Which settings surface actually fixes this failure. */
+  focus: "agent" | "sources";
 };
 
 function errorMessage(error: unknown): string {
@@ -57,63 +69,21 @@ function errorMessage(error: unknown): string {
   }
 }
 
-const MOBILE_ERROR_DIAGNOSTIC_MAX_LENGTH = 500;
-
-function sanitizeDiagnosticUrl(match: string): string {
-  const trailing = match.match(/[),.;!?]+$/)?.[0] ?? "";
-  const rawUrl = trailing ? match.slice(0, -trailing.length) : match;
-  try {
-    const url = new URL(rawUrl);
-    url.username = "";
-    url.password = "";
-    url.search = "";
-    url.hash = "";
-    return `${url.toString()}${trailing}`;
-  } catch {
-    return `${rawUrl.replace(/[?#].*$/, "")}${trailing}`;
-  }
-}
-
-function replaceUnsafeControlCharacters(value: string): string {
-  return Array.from(value, (character) => {
-    const code = character.charCodeAt(0);
-    const unsafe =
-      (code <= 0x1f && code !== 0x09 && code !== 0x0a && code !== 0x0d) ||
-      code === 0x7f;
-    return unsafe ? " " : character;
-  }).join("");
-}
-
 /**
  * Produces a bounded secondary diagnostic suitable for a user-visible error
  * banner. Stable localized copy must still be supplied separately.
+ *
+ * The rules themselves are platform-neutral and live in
+ * `@nemu/core/sources`; mobile only contributes the marker it stamps onto
+ * unsupported-source details.
  */
 export function sanitizeMobileErrorDiagnostic(error: unknown): string | null {
-  let detail = errorMessage(error)
-    .replace(MOBILE_TACHIYOMI_UNSUPPORTED_MARKER, "")
-    .trim();
-  if (!detail || detail === "[object Object]") return null;
-
-  detail = replaceUnsafeControlCharacters(
-    detail
-      .replace(/\bhttps?:\/\/[^\s<>"']+/gi, sanitizeDiagnosticUrl)
-      .replace(
-        /\b(cookie|set-cookie|authorization|proxy-authorization)\b\s*:\s*[^\r\n]+/gi,
-        "$1: [redacted]",
-      )
-      .replace(/\b(bearer|basic)\s+[A-Za-z0-9._~+/-]+=*/gi, "$1 [redacted]")
-      .replace(
-        /\b(password|passwd|access[_-]?token|refresh[_-]?token|id[_-]?token|csrf[_-]?token|token|api[_-]?key|client[_-]?secret|secret|code[_-]?verifier|session)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-        "$1$2[redacted]",
-      ),
-  )
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-
-  if (!detail) return null;
-  return detail.length > MOBILE_ERROR_DIAGNOSTIC_MAX_LENGTH
-    ? `${detail.slice(0, MOBILE_ERROR_DIAGNOSTIC_MAX_LENGTH - 1).trimEnd()}…`
-    : detail;
+  return sanitizeSourceErrorDiagnostic(error, {
+    stripMarkers: [
+      MOBILE_TACHIYOMI_UNSUPPORTED_MARKER,
+      MOBILE_SOURCE_DISABLED_MARKER,
+    ],
+  });
 }
 
 /**
@@ -154,6 +124,10 @@ export function isMobileTachiyomiUnsupportedError(error: unknown): boolean {
   return errorMessage(error).includes(MOBILE_TACHIYOMI_UNSUPPORTED_MARKER);
 }
 
+export function isMobileSourceDisabledError(error: unknown): boolean {
+  return errorMessage(error).includes(MOBILE_SOURCE_DISABLED_MARKER);
+}
+
 export function isMobileCloudflareError(error: unknown): boolean {
   // Mobile keeps a lenient wrapper: the shared message primitive + the
   // `CloudflareBlockedError` name check (instanceof-gated), but the message is
@@ -165,6 +139,12 @@ export function isMobileCloudflareError(error: unknown): boolean {
   return isCloudflareErrorMessage(errorMessage(error));
 }
 
+/**
+ * Every URL a Cloudflare-classified error can be said to be about, operational
+ * or not: the structured field first, then whatever the message text spells
+ * out. Display-only — see `extractMobileCloudflareSolveUrl` for why the
+ * message form must never reach the solver.
+ */
 function mobileCloudflareUrlCandidate(error: unknown): string | undefined {
   return readErrorUrl(error) ?? extractCfUrlFromMessage(errorMessage(error));
 }
@@ -197,13 +177,25 @@ export function validateMobileCloudflareOperationalUrl(
 }
 
 /**
- * Returns the operational challenge URL for native verification. Query and
- * fragment data are preserved because challenge flows can require them, while
- * non-HTTPS URLs and embedded credentials are rejected before native code sees
- * them. Native networking still performs its own DNS/peer SSRF checks.
+ * The operational challenge URL for native verification, or `undefined`.
+ *
+ * Only a *structured* url is operational: `CloudflareBlockedError.url`, or a
+ * sandbox envelope's `errorUrl` that survived
+ * `consistentSandboxErrorOrigin`'s url/host agreement check. A URL scraped out
+ * of the message text is attacker-controlled prose — a source that simply
+ * throws `new Error("Cloudflare blocked: https://attacker.example/x")` would
+ * otherwise get a WebView solve started against that host, scoped to its own
+ * cookie jar, with no user interaction at all.
+ *
+ * Query and fragment data are preserved because challenge flows can require
+ * them, while non-HTTPS URLs and embedded credentials are rejected before
+ * native code sees them. Native networking still performs its own DNS/peer
+ * SSRF checks.
  */
-export function extractMobileCloudflareUrl(error: unknown): string | undefined {
-  const candidate = mobileCloudflareUrlCandidate(error);
+export function extractMobileCloudflareSolveUrl(
+  error: unknown,
+): string | undefined {
+  const candidate = readErrorUrl(error);
   return candidate
     ? validateMobileCloudflareOperationalUrl(candidate)
     : undefined;
@@ -223,6 +215,11 @@ export function redactMobileCloudflareUrlForDisplay(
   return url.href;
 }
 
+/**
+ * The challenge URL to *show*. Unlike the solve url this may come from the
+ * message text, because naming a host in a banner starts nothing; the value is
+ * redacted (credentials, query and fragment stripped) before it is rendered.
+ */
 export function extractMobileCloudflareDisplayUrl(
   error: unknown,
 ): string | undefined {
@@ -267,6 +264,17 @@ export function getMobileSourceErrorPresentation(
       title: strings.common.sourceCloudflareBlocked,
       detail: strings.common.sourceCloudflareBlockedDescription,
       displayUrl: extractMobileCloudflareDisplayUrl(error),
+    };
+  }
+
+  if (isMobileSourceDisabledError(error)) {
+    // No secondary diagnostic here: unlike a thrown exception, this is a known
+    // app state whose localized copy already says everything there is to say,
+    // so the English marker sentence would only be noise.
+    return {
+      kind: "disabled",
+      title: strings.common.sourceDisabled,
+      detail: strings.common.sourceDisabledDescription,
     };
   }
 
@@ -320,9 +328,30 @@ export function getMobileSourceErrorRecoveryAction(
   presentation: MobileSourceErrorPresentation,
   strings: Pick<MobileStrings, "common">,
 ): MobileSourceErrorRecoveryAction | null {
+  if (presentation.kind === "disabled") {
+    return {
+      type: "open-settings",
+      label: strings.common.sourceDisabledAction,
+      focus: "sources",
+    };
+  }
   if (presentation.kind !== "cloudflare") return null;
   return {
     type: "open-settings",
     label: strings.common.openSettings,
+    focus: "agent",
   };
+}
+
+/**
+ * Route for a recovery action's settings surface. Lives next to the action so
+ * every notice that renders one sends the user to the control that fixes the
+ * failure, rather than to the Nemu Agent card by default.
+ */
+export function getMobileSourceErrorRecoveryHref(
+  action: MobileSourceErrorRecoveryAction,
+): "/settings/sources" | "/settings?focus=agent" {
+  return action.focus === "sources"
+    ? "/settings/sources"
+    : "/settings?focus=agent";
 }

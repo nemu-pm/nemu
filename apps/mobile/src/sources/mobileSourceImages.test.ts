@@ -464,4 +464,122 @@ describe("mobile source images", () => {
       ),
     );
   });
+  test("routes covers through the source cover processor when it has one", async () => {
+    const processorCalls: { requestUrl: string; cacheKey: string }[] = [];
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource({
+            async modifyImageRequest(url) {
+              return { url, headers: { Referer: "https://source.test" } };
+            },
+            async hasCoverImageProcessor() {
+              return true;
+            },
+            async processCoverImage() {
+              return new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+            },
+          }),
+        };
+      },
+    };
+
+    await expect(
+      resolveMobileSourceImageRequest(
+        installedSource(),
+        "https://images.test/cover.jpg",
+        {
+          getSourceSettings: async () => ({}),
+          executor: { bridge, readBytes: async () => makeAixPackage() },
+          resolveProcessedCoverUri: async ({ request, cacheKey }) => {
+            processorCalls.push({ requestUrl: request.url, cacheKey });
+            return "file:///cache/nemu-processed-covers/cover-x.png";
+          },
+        },
+      ),
+    ).resolves.toEqual({
+      url: "file:///cache/nemu-processed-covers/cover-x.png",
+      headers: {},
+    });
+    expect(processorCalls).toHaveLength(1);
+    expect(processorCalls[0]!.requestUrl).toBe("https://images.test/cover.jpg");
+    expect(processorCalls[0]!.cacheKey).toContain("https://images.test/cover.jpg");
+  });
+
+  test("keeps the plain url and headers when cover processing is unavailable", async () => {
+    let processorCalls = 0;
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource({
+            async modifyImageRequest(url) {
+              return { url, headers: { Referer: "https://source.test" } };
+            },
+          }),
+        };
+      },
+    };
+
+    await expect(
+      resolveMobileSourceImageRequest(
+        installedSource(),
+        "https://images.test/cover.jpg",
+        {
+          getSourceSettings: async () => ({}),
+          executor: { bridge, readBytes: async () => makeAixPackage() },
+          resolveProcessedCoverUri: async () => {
+            processorCalls += 1;
+            return "file:///cache/should-not-be-used.png";
+          },
+        },
+      ),
+    ).resolves.toEqual({
+      url: "https://images.test/cover.jpg",
+      headers: { Referer: "https://source.test" },
+    });
+    expect(processorCalls).toBe(0);
+  });
+
+  test("falls back to the source rewrite when cover processing fails", async () => {
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource({
+            async modifyImageRequest(url) {
+              return { url, headers: { Referer: "https://source.test" } };
+            },
+            async hasCoverImageProcessor() {
+              return true;
+            },
+            async processCoverImage() {
+              return null;
+            },
+          }),
+        };
+      },
+    };
+
+    await expect(
+      resolveCachedMobileSourceImageRequest(
+        installedSource(),
+        "https://images.test/cover.jpg",
+        {
+          getSourceSettings: async () => ({}),
+          executor: { bridge, readBytes: async () => makeAixPackage() },
+          resolveProcessedCoverUri: async () => {
+            throw new Error("no native download seam");
+          },
+        },
+      ),
+    ).resolves.toEqual({
+      url: "https://images.test/cover.jpg",
+      headers: { Referer: "https://source.test" },
+    });
+  });
 });

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { moveSourceSettingListItem } from "@nemu/core";
 import type { SourcePackageSetting } from "@/data/schema";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import {
@@ -243,6 +244,15 @@ export function useMobileSourceSettingsTransientSheets({
                 ),
                 sheet.setting,
               );
+            }}
+            onMove={(fromIndex, toIndex) => {
+              const reordered = moveSourceSettingListItem(
+                getSourceSettingStringList(sheet.setting, values),
+                fromIndex,
+                toIndex,
+              );
+              if (!reordered) return;
+              onChange(sheet.setting.key, reordered, sheet.setting);
             }}
           />
         );

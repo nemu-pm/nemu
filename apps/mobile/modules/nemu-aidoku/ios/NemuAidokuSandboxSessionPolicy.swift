@@ -39,6 +39,45 @@ enum NemuAidokuSandboxSessionPolicy {
   /// the reply is a valid `{"status":"error"}` envelope rather than a transport
   /// failure. Without this, nothing resets the runtime and every later
   /// operation for the source keeps failing until the app process restarts.
+  /// Error names the React Native protocol layer can rebuild
+  /// (`RECONSTRUCTABLE_SANDBOX_ERROR_NAMES` in `mobileAidokuSandboxProtocol.ts`).
+  /// Closed on purpose: a hostile source must not be able to make the host
+  /// reconstruct an arbitrary error class.
+  static let propagatedErrorNames: Set<String> = [
+    "AidokuResultError",
+    "CloudflareBlockedError",
+  ]
+
+  /// The bounded subset of a `status: "error"` envelope that may cross to
+  /// React Native as the operation's *result* instead of a bare native
+  /// rejection, or nil when the failure is not a typed source error.
+  ///
+  /// Only a typed source failure qualifies. Throwing just `detail` for it used
+  /// to flatten `CloudflareBlockedError` into a plain `Error`, which left the
+  /// Cloudflare sheet with no structured `url` to solve (the message text is
+  /// never an operational url). Every other failure — runtime faults, replay
+  /// violations, lost registrations — keeps rejecting natively so the session
+  /// reset and retry paths that key on those rejections are untouched.
+  static func propagatedErrorEnvelope(_ parsed: [String: Any]) -> [String: Any]? {
+    guard parsed["status"] as? String == "error",
+      let name = parsed["errorName"] as? String,
+      propagatedErrorNames.contains(name)
+    else { return nil }
+    var envelope: [String: Any] = ["status": "error", "errorName": name]
+    if let code = parsed["code"] as? String { envelope["code"] = String(code.prefix(64)) }
+    if let detail = parsed["detail"] as? String { envelope["detail"] = String(detail.prefix(2_048)) }
+    if let errorCode = parsed["errorCode"] as? NSNumber { envelope["errorCode"] = errorCode }
+    let boundedFields: [(key: String, limit: Int)] = [
+      ("errorUrl", 2_048), ("errorHost", 253), ("errorUserAgent", 512),
+    ]
+    for field in boundedFields {
+      if let value = parsed[field.key] as? String, !value.isEmpty {
+        envelope[field.key] = String(value.prefix(field.limit))
+      }
+    }
+    return envelope
+  }
+
   static func indicatesLostRegistration(status parsed: [String: Any]) -> Bool {
     guard parsed["status"] as? String == "error" else { return false }
     let code = parsed["code"] as? String ?? ""

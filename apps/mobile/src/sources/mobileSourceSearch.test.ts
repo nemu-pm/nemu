@@ -201,6 +201,26 @@ describe("mobile source search", () => {
     ).toEqual([]);
   });
 
+  test("never searches a disabled installed source", () => {
+    const enabled = installedSource({
+      id: "aidoku-community:en.alpha",
+      sourceId: "en.alpha",
+    });
+    const off = installedSource({
+      id: "aidoku-community:en.beta",
+      sourceId: "en.beta",
+      disabled: true,
+    });
+
+    expect(selectInstalledSourcesForSearch([enabled, off], null)).toEqual([
+      enabled,
+    ]);
+    // A stale selection that still names the disabled source must not revive it.
+    expect(
+      selectInstalledSourcesForSearch([enabled, off], [off.id]),
+    ).toEqual([]);
+  });
+
   test("blocks unsupported sources at the single-source execution boundary", async () => {
     const source = installedSource({
       id: "tachiyomi:en.beta",

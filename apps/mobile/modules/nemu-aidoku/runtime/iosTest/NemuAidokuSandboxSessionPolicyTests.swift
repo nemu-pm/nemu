@@ -145,5 +145,51 @@ enum NemuAidokuSandboxSessionPolicyTests {
       ),
       "A stale observation from an older document must not force a re-register."
     )
+
+    // A typed source failure crosses to React Native as a bounded envelope so
+    // the protocol layer can rebuild it (name, code, url, host); anything else
+    // stays a native rejection.
+    let cloudflare: [String: Any] = [
+      "status": "error", "code": "runtime-failed",
+      "detail": "Cloudflare challenge detected for https://reader.example.com/x (status 403)",
+      "errorName": "CloudflareBlockedError",
+      "errorUrl": "https://reader.example.com/x", "errorHost": "reader.example.com",
+      "errorUserAgent": "UA", "ignored": "dropped",
+    ]
+    let envelope = NemuAidokuSandboxSessionPolicy.propagatedErrorEnvelope(cloudflare)
+    expect(envelope != nil, "A CloudflareBlockedError envelope must be propagated.")
+    expect(envelope?["errorUrl"] as? String == "https://reader.example.com/x", "The url survives.")
+    expect(envelope?["errorHost"] as? String == "reader.example.com", "The host survives.")
+    expect(envelope?["errorUserAgent"] as? String == "UA", "The user agent survives.")
+    expect(envelope?["ignored"] == nil, "Only the closed key set crosses.")
+    let sourceFailure: [String: Any] = [
+      "status": "error", "errorName": "AidokuResultError", "errorCode": -2,
+    ]
+    let sourceEnvelope = NemuAidokuSandboxSessionPolicy.propagatedErrorEnvelope(sourceFailure)
+    expect((sourceEnvelope?["errorCode"] as? NSNumber)?.intValue == -2, "The result code survives.")
+    expect(
+      NemuAidokuSandboxSessionPolicy.propagatedErrorEnvelope([
+        "status": "error", "detail": "boom", "errorName": "MobileSourceDisabledError",
+      ]) == nil,
+      "An error class outside the allow-list stays a native rejection."
+    )
+    expect(
+      NemuAidokuSandboxSessionPolicy.propagatedErrorEnvelope([
+        "status": "error", "code": "replay-rejected", "detail": "Aidoku operation expired.",
+      ]) == nil,
+      "A runtime failure without a typed name stays a native rejection."
+    )
+    expect(
+      NemuAidokuSandboxSessionPolicy.propagatedErrorEnvelope([
+        "status": "complete", "errorName": "CloudflareBlockedError",
+      ]) == nil,
+      "Only an error envelope is propagated."
+    )
+    let long = String(repeating: "a", count: 5_000)
+    let bounded = NemuAidokuSandboxSessionPolicy.propagatedErrorEnvelope([
+      "status": "error", "errorName": "AidokuResultError", "detail": long, "errorUrl": long,
+    ])
+    expect((bounded?["detail"] as? String)?.count == 2_048, "detail is bounded.")
+    expect((bounded?["errorUrl"] as? String)?.count == 2_048, "errorUrl is bounded.")
   }
 }

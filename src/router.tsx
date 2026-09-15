@@ -8,6 +8,8 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
+import { safeErrorCategory } from "@/lib/error-diagnostic";
+import { sanitizeSourceErrorDiagnostic } from "@nemu/core/sources";
 import { hapticPress } from "@/lib/haptics";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -269,7 +271,24 @@ export interface TachiyomiLoaderData {
   filters: FilterState[];
 }
 
-export type SourceBrowseLoaderData = AidokuLoaderData | TachiyomiLoaderData;
+/**
+ * The source could not be opened for browsing: the user disabled it, it is no
+ * longer installed, or loading it failed. The route renders this instead of
+ * throwing, so a refresh or a back-navigation onto a disabled source lands on
+ * a readable page with a way into Settings rather than the router's raw error.
+ */
+export interface UnavailableLoaderData {
+  type: "unavailable";
+  registryId: string;
+  sourceId: string;
+  /** Bounded, source-safe reason, or null when there is nothing to add. */
+  reason: string | null;
+}
+
+export type SourceBrowseLoaderData =
+  | AidokuLoaderData
+  | TachiyomiLoaderData
+  | UnavailableLoaderData;
 
 // Routes
 const libraryRoute = createRoute({
@@ -364,9 +383,21 @@ const sourceBrowseRoute = createRoute({
     const { registryId, sourceId } = params;
     const { getSource } = context;
 
-    const loadedSource = await getSource(registryId, sourceId);
+    let loadedSource: MangaSource | null;
+    try {
+      loadedSource = await getSource(registryId, sourceId);
+    } catch (error) {
+      // `getSource` refuses a user-disabled source. That is an expected state
+      // here, not a crash: hand the page a rendered reason instead.
+      return {
+        type: "unavailable",
+        registryId,
+        sourceId,
+        reason: sanitizeSourceErrorDiagnostic(error),
+      };
+    }
     if (!loadedSource) {
-      throw new Error("Source not found");
+      return { type: "unavailable", registryId, sourceId, reason: null };
     }
 
     // Detect source type and return appropriate data
@@ -397,8 +428,12 @@ const sourceBrowseRoute = createRoute({
       if (hasHomeProvider && !onlySearch) {
         try {
           initialHome = await loadedSource.getHome(false); // Use cache if available
-        } catch {
-          // Ignore errors - home will be loaded in component
+        } catch (error) {
+          // Non-fatal: home is retried in the component, but keep the reason visible.
+          console.warn(
+            "[SourceBrowse] Initial home load failed:",
+            safeErrorCategory(error)
+          );
         }
       }
 

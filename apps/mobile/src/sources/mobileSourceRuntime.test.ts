@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { InstalledSource } from "@/data/schema";
 import {
   buildMobileSourcePackageLoadPlan,
+  filterEnabledMobileInstalledSources,
   getMobileSourceKind,
+  isMobileInstalledSourceDisabled,
   normalizeInstalledSource,
   resolveMobileSourcePackageCacheKey,
 } from "./mobileSourceRuntime";
@@ -255,5 +257,39 @@ describe("mobile source runtime package planning", () => {
       status: "blocked",
       reason: "wasm-missing",
     });
+  });
+});
+
+describe("mobile disabled source predicates", () => {
+  function source(id: string, disabled?: boolean): InstalledSource {
+    return {
+      id: `aidoku-community:${id}`,
+      registryId: "aidoku-community",
+      sourceId: id,
+      version: 1,
+      ...(disabled == null ? {} : { disabled }),
+    };
+  }
+
+  test("treats only an explicit true as disabled", () => {
+    expect(isMobileInstalledSourceDisabled(source("a"))).toBe(false);
+    expect(isMobileInstalledSourceDisabled(source("a", false))).toBe(false);
+    expect(isMobileInstalledSourceDisabled(source("a", true))).toBe(true);
+    expect(isMobileInstalledSourceDisabled(null)).toBe(false);
+  });
+
+  test("drops disabled installs from a list about to run sources", () => {
+    expect(
+      filterEnabledMobileInstalledSources([
+        source("a"),
+        source("b", true),
+        source("c", false),
+      ]).map((item) => item.sourceId),
+    ).toEqual(["a", "c"]);
+  });
+
+  test("carries the disabled flag onto the runtime source, omitting it when unset", () => {
+    expect(normalizeInstalledSource(source("a", true)).disabled).toBe(true);
+    expect(normalizeInstalledSource(source("a"))).not.toHaveProperty("disabled");
   });
 });

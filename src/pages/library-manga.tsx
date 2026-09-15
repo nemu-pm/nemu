@@ -7,6 +7,9 @@ import type { Chapter } from "@/lib/sources";
 import { hasSWR } from "@/lib/sources";
 import type { LocalMangaProgress, LocalChapterProgress, MangaMetadata, ExternalIds } from "@/data/schema";
 import { makeMangaProgressId } from "@/data/schema";
+import { Keys } from "@/data/keys";
+import i18n from "@/lib/i18n";
+import { sanitizeSourceErrorDiagnostic } from "@nemu/core/sources";
 import type { LibraryEntry } from "@/data/view";
 import {
   getEntryEffectiveMetadata,
@@ -113,7 +116,7 @@ export function LibraryMangaPage() {
   const navigate = useNavigate();
   const { useSettingsStore, useLibraryStore } = useStores();
   const progressIndex = useAllMangaProgress();
-  const { getSource, availableSources } = useSettingsStore();
+  const { getSource, availableSources, enabledSources } = useSettingsStore();
   const {
     entries,
     loading: libraryLoading,
@@ -151,6 +154,13 @@ export function LibraryMangaPage() {
   }, [sortedSources, sourceParam]);
 
   const selectedSource = sortedSources[selectedSourceIdx];
+  // A disabled source keeps its link and its cached chapters but is never run,
+  // so an empty chapter list for it is a state to explain, not "no chapters".
+  const selectedSourceDisabled = useMemo(() => {
+    if (!selectedSource) return false;
+    const key = Keys.source(selectedSource.registryId, selectedSource.sourceId);
+    return !enabledSources.some((source) => source.id === key);
+  }, [enabledSources, selectedSource]);
 
   // If this entry disappears (deleted on another device), navigate back to library.
   useEffect(() => {
@@ -176,14 +186,38 @@ export function LibraryMangaPage() {
     let cancelled = false;
     setError(null);
 
+    // A disabled source keeps its library link and its cached chapters, but it
+    // is never run: `getSource` refuses it. Pre-filtering keeps the refusal off
+    // the hot path, and the per-source try/catch below keeps one failing source
+    // (disabled, broken, offline) from taking the whole page's chapters down.
+    const enabledSourceKeys = new Set(enabledSources.map((s) => s.id));
+    const runnableSources = entry.sources.filter((source) =>
+      enabledSourceKeys.has(Keys.source(source.registryId, source.sourceId))
+    );
+    if (runnableSources.length === 0) {
+      // Nothing will ever resolve, so the page must not sit on "Loading…":
+      // the disabled-source copy below takes over.
+      setLoading(false);
+      return;
+    }
+
     (async () => {
       // Phase 1: Load cached chapters for ALL sources immediately
       const cachedResults = await Promise.all(
-        entry.sources.map(async (source) => {
-          const sourceObj = await getSource(source.registryId, source.sourceId);
-          if (!sourceObj || !hasSWR(sourceObj)) return null;
-          const cached = await sourceObj.getCachedChapters(source.sourceMangaId);
-          return { source, chapters: cached };
+        runnableSources.map(async (source) => {
+          try {
+            const sourceObj = await getSource(source.registryId, source.sourceId);
+            if (!sourceObj || !hasSWR(sourceObj)) return null;
+            const cached = await sourceObj.getCachedChapters(source.sourceMangaId);
+            return { source, chapters: cached };
+          } catch (e) {
+            // One source's failure contributes nothing; the rest still load.
+            console.warn(
+              `[LibraryManga] Cached chapters unavailable for ${source.sourceId}:`,
+              e
+            );
+            return null;
+          }
         })
       );
       if (cancelled) return;
@@ -202,17 +236,19 @@ export function LibraryMangaPage() {
 
       // Phase 2: Background refresh all sources (chapters + manga details for cache)
       const freshResults = await Promise.all(
-        entry.sources.map(async (source) => {
-          const sourceObj = await getSource(source.registryId, source.sourceId);
-          if (!sourceObj) return null;
+        runnableSources.map(async (source) => {
           try {
+            const sourceObj = await getSource(source.registryId, source.sourceId);
+            if (!sourceObj) return null;
             const [chapters] = await Promise.all([
               sourceObj.getChapters(source.sourceMangaId),
               sourceObj.getManga(source.sourceMangaId), // Cache manga details (title, etc.)
             ]);
             return { source, chapters };
           } catch (e) {
-            return { source, error: e }; // Track error but don't fail
+            // Includes a source that became unavailable between renders: track
+            // the error but never reject, or every other source is lost too.
+            return { source, error: e };
           }
         })
       );
@@ -232,7 +268,12 @@ export function LibraryMangaPage() {
       if (!hasAnySuccess && Object.keys(newChaptersMap).length === 0) {
         const firstError = freshResults.find((r) => r && "error" in r);
         if (firstError && "error" in firstError) {
-          setError(firstError.error instanceof Error ? firstError.error.message : String(firstError.error));
+          // Source-controlled text only ever reaches the UI through the shared
+          // bounded sanitizer; the localized title stays the primary copy.
+          setError(
+            sanitizeSourceErrorDiagnostic(firstError.error) ??
+              i18n.t("error.sourceError")
+          );
         }
       }
     })();
@@ -240,7 +281,7 @@ export function LibraryMangaPage() {
     return () => {
       cancelled = true;
     };
-  }, [entry, getSource]);
+  }, [entry, getSource, enabledSources]);
 
   // Load chapter progress on-demand for selected source
   const { chapters: chapterProgress } = useChapterProgress(
@@ -576,6 +617,17 @@ export function LibraryMangaPage() {
                 sourceId={selectedSource.sourceId}
                 mangaId={selectedSource.sourceMangaId}
               />
+            ) : selectedSource && selectedSourceDisabled ? (
+              <div className="py-8 text-center text-muted-foreground">
+                {t("settings.sourceDisabledError", {
+                  name:
+                    availableSources.find(
+                      (s) =>
+                        s.id === selectedSource.sourceId &&
+                        s.registryId === selectedSource.registryId
+                    )?.name ?? selectedSource.sourceId,
+                })}
+              </div>
             ) : (
               <div className="py-8 text-center text-muted-foreground">
                 {t("manga.noChapters")}

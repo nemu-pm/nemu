@@ -106,4 +106,21 @@ describe("mobile source update helpers", () => {
       ),
     ).toEqual([]);
   });
+
+  test("does not auto-update a disabled source", () => {
+    expect(
+      findMobileSourceUpdates(
+        [installed("aidoku-community:en.off", 1, { disabled: true })],
+        [available("aidoku-community", "en.off", 2)],
+      ),
+    ).toEqual([]);
+
+    // Re-enabling puts it back in the update pass.
+    expect(
+      findMobileSourceUpdates(
+        [installed("aidoku-community:en.off", 1, { disabled: false })],
+        [available("aidoku-community", "en.off", 2)],
+      ).map((source) => source.id),
+    ).toEqual(["en.off"]);
+  });
 });

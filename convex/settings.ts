@@ -42,6 +42,7 @@ const installedSourceWithClockValidator = v.object({
   version: v.number(),
   updatedAt: v.optional(v.number()),
   removed: v.optional(v.boolean()),
+  disabled: v.optional(v.boolean()),
 });
 
 type InstalledSourceRecord = {
@@ -59,6 +60,7 @@ type InstalledSourceRecord = {
   version: number;
   updatedAt?: number;
   removed?: boolean;
+  disabled?: boolean;
 };
 
 function mergeInstalledSources(

@@ -128,9 +128,12 @@ import {
   describeMobileErrorDetail,
   getMobileSourceErrorPresentation,
   getMobileSourceErrorRecoveryAction,
+  getMobileSourceErrorRecoveryHref,
   type MobileSourceErrorRecoveryAction,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
+import type { NemuAgentSheetContext } from "@/lib/nemuAgentSheetReducer";
+import { readMobileCloudflareUserAgent } from "@/sources/mobileAidokuUserAgent";
 import { useMobileStickySourceCover } from "@/lib/useMobileSourceImageRequest";
 import { takeMobileSourceDetailSeed } from "@/lib/mobileSourceDetailSeed";
 import {
@@ -359,7 +362,10 @@ export function SourceMangaScreen() {
   // sheet without adding the sheet controller to the effect's deps (which
   // would re-trigger the refresh on every render).
   const cloudflareSheetRef = useRef<{
-    reportError: (error: unknown) => boolean;
+    reportError: (
+      error: unknown,
+      context?: NemuAgentSheetContext,
+    ) => boolean;
   } | null>(null);
   // NOTE: despite the legacy name, this drives the Nemu Agent sheet
   // (`useNemuAgentSheet` / `MobileNemuAgentSheet`) — kept to minimize churn in
@@ -534,6 +540,10 @@ export function SourceMangaScreen() {
       // Cached-copy resilience: with a cache hit the network failure stays
       // silent and the error banner only appears with no cached copy at all.
       let hadCachedDetails = false;
+      // Hoisted so the catch below can tell the Nemu Agent sheet which source
+      // jar a solved clearance cookie belongs in; `localState.installedSource`
+      // is still the render-time value on a first load.
+      let requestSourceKey: string | undefined;
       try {
         const cachedEntry = await getCachedMobileSourceDetail(detailCacheKey);
         if (cancelled) return;
@@ -557,6 +567,11 @@ export function SourceMangaScreen() {
         });
         const installedSource = nextLocalState.installedSource ?? null;
         const existingEntry = nextLocalState.libraryEntry;
+        if (installedSource) {
+          requestSourceKey = makeMobileRuntimeSourceKey(
+            normalizeInstalledSource(installedSource),
+          );
+        }
 
         if (cancelled) return;
         setLocalState({
@@ -588,9 +603,21 @@ export function SourceMangaScreen() {
         if (cancelled) return;
         if (refreshed.status === "blocked") {
           if (hadCachedDetails) return;
+          // `detail` is an untranslated technical sentence; the presentation
+          // layer is what turns a marked one (disabled source, unsupported
+          // runtime) into localized copy.
+          const blocked = getMobileSourceErrorPresentation(
+            refreshed.detail,
+            strings,
+          );
           setDetailState({
             status: "blocked",
-            detail: refreshed.detail,
+            title: blocked.title,
+            detail: blocked.detail,
+            recoveryAction: getMobileSourceErrorRecoveryAction(
+              blocked,
+              strings,
+            ),
           });
           if (reportRetryResult) {
             await hapticError();
@@ -660,10 +687,13 @@ export function SourceMangaScreen() {
             strings,
           ),
         });
-        // Surface Cloudflare-classified failures on the bypass sheet (the
-        // native solver already ran automatically inside the blocking HTTP
-        // call; this is the post-failure retry seam).
-        cloudflareSheetRef.current?.reportError(error);
+        // Surface Cloudflare-classified failures on the Nemu Agent sheet.
+        // The blocking HTTP call never runs the solver inline; this is where
+        // the explicit, non-blocking verification starts.
+        cloudflareSheetRef.current?.reportError(error, {
+          sourceKey: requestSourceKey,
+          userAgent: readMobileCloudflareUserAgent(error),
+        });
         if (reportRetryResult) {
           await hapticError();
         }
@@ -1202,14 +1232,22 @@ export function SourceMangaScreen() {
     try {
       const refreshed = await fetchSourceDetails(installedSource);
       if (refreshed.status === "blocked") {
+        const blocked = getMobileSourceErrorPresentation(
+          refreshed.detail,
+          strings,
+        );
         setDetailState((current) =>
           current.status === "ready"
             ? {
                 ...current,
                 staleError: {
-                  detail: refreshed.detail,
+                  title: blocked.title,
+                  detail: blocked.detail,
                   error: false,
-                  recoveryAction: null,
+                  recoveryAction: getMobileSourceErrorRecoveryAction(
+                    blocked,
+                    strings,
+                  ),
                 },
               }
             : current,
@@ -1257,7 +1295,12 @@ export function SourceMangaScreen() {
             }
           : current,
       );
-      cloudflareSheetRef.current?.reportError(error);
+      cloudflareSheetRef.current?.reportError(error, {
+        sourceKey: makeMobileRuntimeSourceKey(
+          normalizeInstalledSource(installedSource),
+        ),
+        userAgent: readMobileCloudflareUserAgent(error),
+      });
       await hapticError();
     } finally {
       pullRefreshGuardRef.current = false;
@@ -1767,7 +1810,12 @@ export function SourceMangaScreen() {
                   error={detailState.status === "error"}
                   actionLabel={detailState.recoveryAction?.label}
                   onActionPress={() => {
-                    router.navigate("/settings?focus=agent");
+                    if (!detailState.recoveryAction) return;
+                    router.navigate(
+                      getMobileSourceErrorRecoveryHref(
+                        detailState.recoveryAction,
+                      ),
+                    );
                   }}
                 />
               ) : detailState.status === "ready" && detailState.staleError ? (
@@ -1777,7 +1825,9 @@ export function SourceMangaScreen() {
                   error={detailState.staleError.error}
                   actionLabel={detailState.staleError.recoveryAction?.label}
                   onActionPress={() => {
-                    router.navigate("/settings?focus=agent");
+                    const action = detailState.staleError?.recoveryAction;
+                    if (!action) return;
+                    router.navigate(getMobileSourceErrorRecoveryHref(action));
                   }}
                 />
               ) : null}
@@ -1821,6 +1871,7 @@ export function SourceMangaScreen() {
         visible={cloudflareSheet.visible}
         status={cloudflareSheet.status}
         url={cloudflareSheet.url}
+        failureReason={cloudflareSheet.failureReason}
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />

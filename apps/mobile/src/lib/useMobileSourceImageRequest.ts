@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import {
   subscribeMobileDataChanges,
@@ -12,9 +12,16 @@ import {
   type MobileSourceSettingsReader,
 } from "@/lib/mobileSourceSettings";
 import {
+  forgetMobileSourceImageRequest,
   resolveCachedMobileSourceImageRequest,
   type MobileSourceImageRequest,
 } from "@/sources/mobileSourceImages";
+import {
+  createMobileSourceImageRepairCoordinator,
+  reportMobileSourceImageRepaired,
+  subscribeMobileSourceImageLoadFailures,
+  type MobileSourceImageRepairCoordinator,
+} from "@/lib/mobileSourceImageRepair";
 import {
   getActiveMobileSourceProfileScope,
   registerMobileSourceProfileTransitionHandler,
@@ -154,6 +161,19 @@ function useMobileSourceImageRequestState(
     identityKey: string;
     request: MobileSourceImageRequest | null;
   } | null>(null);
+  // A processed cover resolves to an app-local `file://` URI that is memoized
+  // for this identity. If the file is pruned or lost the memoized entry is
+  // still a hit, so nothing re-resolves and the cover stays broken. The render
+  // path reports the failing URI; this holder then drops its own cache entry
+  // and resolves once more, exactly once per (identity, URI) pair.
+  const [repairNonce, setRepairNonce] = useState(0);
+  const repairRef =
+    useRef<MobileSourceImageRepairCoordinator<MobileSourceImageRequest> | null>(
+      null,
+    );
+  repairRef.current ??=
+    createMobileSourceImageRepairCoordinator<MobileSourceImageRequest>();
+  const repair = repairRef.current;
   const getSourceSettings = useCallback(
     (_sourceKey: string, sourceRecord: InstalledSource) =>
       loadMobileSourceImageSettings(store, sourceRecord, sourceSettingsRevision),
@@ -163,13 +183,22 @@ function useMobileSourceImageRequestState(
   useEffect(() => {
     if (!source || !url || !sourceRequestKey) return;
 
-    let active = true;
+    // The cache key arrives before the request does, so both are held by the
+    // attempt and published as one pair when it settles: a superseded resolve
+    // must not be able to leave its cache key next to the live request.
+    const attempt = repair.beginResolve();
     void resolveCachedMobileSourceImageRequest(source, url, {
       getSourceSettings,
+      onCacheKey: attempt.observeCacheKey,
     })
       .catch(() => null)
       .then((request) => {
-        if (!active) return;
+        if (!attempt.active) return;
+        const repairedUri = attempt.settle(request);
+        // The repaired file comes back under the same deterministic name, so
+        // the URI is unchanged and the view needs to be told explicitly that
+        // it is worth another attempt.
+        if (repairedUri) reportMobileSourceImageRepaired(repairedUri);
         setState((current) =>
           // A failed refresh keeps the last good request for the same image.
           request === null &&
@@ -181,9 +210,32 @@ function useMobileSourceImageRequestState(
       });
 
     return () => {
-      active = false;
+      attempt.cancel();
     };
-  }, [getSourceSettings, imageIdentityKey, source, sourceRequestKey, url]);
+  }, [
+    getSourceSettings,
+    imageIdentityKey,
+    repair,
+    repairNonce,
+    source,
+    sourceRequestKey,
+    url,
+  ]);
+
+  // A new image identity gets a fresh repair budget.
+  useEffect(() => {
+    repair.resetRepairBudget();
+  }, [repair, sourceRequestKey]);
+
+  useEffect(() => {
+    if (!source || !url || !sourceRequestKey) return;
+    return subscribeMobileSourceImageLoadFailures((failedUri) => {
+      const cacheKey = repair.handleLoadFailure(failedUri);
+      if (!cacheKey) return;
+      forgetMobileSourceImageRequest(cacheKey);
+      setRepairNonce((current) => current + 1);
+    });
+  }, [repair, source, sourceRequestKey, url]);
 
   const settledRequest =
     state?.identityKey === imageIdentityKey ? state.request : null;
