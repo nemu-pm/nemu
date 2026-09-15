@@ -5295,6 +5295,20 @@ export function ReaderScreen() {
     return () => flushPendingIntraPageProgress(false);
   }, [currentDisplayedPageIdentity, flushPendingIntraPageProgress]);
 
+  /**
+   * Leaving the reader must commit a page turned inside the 500 ms debounce
+   * window: `router.replace` remounts this screen on every chapter change, so
+   * the timer below never fires for the page the reader left on. Effect
+   * cleanups run in hook definition order, which is why this sits *above* the
+   * debounce effect — its own cleanup clears the pending timer, and a flush
+   * declared later would find nothing to write. The call goes through a ref so
+   * the flush only runs on unmount.
+   */
+  const flushPendingReaderProgressRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    return () => flushPendingReaderProgressRef.current();
+  }, []);
+
   useEffect(() => {
     if (!silentProgressPersistenceKey) return;
     const timeout = setTimeout(() => {
@@ -5318,18 +5332,31 @@ export function ReaderScreen() {
     };
   }, [silentProgressPersistenceKey, visibleProgressPageIndex]);
 
-  /** Write everything still sitting in a debounce timer, immediately. */
-  const flushPendingReaderProgress = useCallback(() => {
-    const pending = pendingSilentProgressRef.current;
-    if (pending) {
-      clearTimeout(pending.timeout);
-      pendingSilentProgressRef.current = null;
-      void persistProgressRef.current(false, pending.displayIndex, {
-        silent: true,
-      });
-    }
-    flushPendingIntraPageProgress(false);
-  }, [flushPendingIntraPageProgress]);
+  /**
+   * Write everything still sitting in a debounce timer, immediately.
+   * `updateState: false` skips the read-back that refreshes screen state, which
+   * a reader that is going away has no use for.
+   */
+  const flushPendingReaderProgress = useCallback(
+    (options?: { updateState?: boolean }) => {
+      const pending = pendingSilentProgressRef.current;
+      if (pending) {
+        clearTimeout(pending.timeout);
+        pendingSilentProgressRef.current = null;
+        void persistProgressRef.current(false, pending.displayIndex, {
+          silent: true,
+          updateState: options?.updateState,
+        });
+      }
+      flushPendingIntraPageProgress(false);
+    },
+    [flushPendingIntraPageProgress],
+  );
+
+  useEffect(() => {
+    flushPendingReaderProgressRef.current = () =>
+      flushPendingReaderProgress({ updateState: false });
+  }, [flushPendingReaderProgress]);
 
   // The OS can suspend — or kill — a backgrounded reader long before the 500 ms
   // progress debounce fires, so leaving the app commits the page and the
@@ -5552,11 +5579,17 @@ export function ReaderScreen() {
       readerPageIdentityFor,
     ],
   );
-  const japaneseLearningOverlayDetections =
-    japaneseLearningOcrState.status === "ready" &&
-    japaneseLearningOcrState.result.source === "ocr"
-      ? sortedMobileOcrLines(japaneseLearningOcrState.result)
-      : [];
+  // The detections flow into `renderReaderImage`, which every mounted page
+  // cell is memoized against, so a fresh array identity per render would undo
+  // that memoization for the whole gallery.
+  const japaneseLearningOverlayDetections = useMemo(
+    () =>
+      japaneseLearningOcrState.status === "ready" &&
+      japaneseLearningOcrState.result.source === "ocr"
+        ? sortedMobileOcrLines(japaneseLearningOcrState.result)
+        : [],
+    [japaneseLearningOcrState],
+  );
   const activeJapaneseLearningTranscriptOrder =
     japaneseLearningTtsState.status === "playing" &&
     japaneseLearningTtsState.source === "transcript"
@@ -5566,29 +5599,39 @@ export function ReaderScreen() {
           japaneseLearningTtsState.duration ?? 0,
         )
       : null;
-  const measureReaderFirstContent = (page: MobileReaderPage) => {
-    const performanceRequest = readerFirstPageRequestRef.current;
-    const performanceKey = `${registryId}:${sourceId}:${mangaId}:${chapterId}`;
-    if (
-      page.id !== currentDisplayedPageKey ||
-      performanceRequest?.key !== performanceKey ||
-      performanceRequest.measured
-    ) {
-      return;
-    }
-    performanceRequest.measured = true;
-    measureMobilePerformance(
-      MOBILE_PERFORMANCE_MARKS.readerFirstPage,
-      performanceRequest.startedAt,
-      {
-        registryId,
-        sourceId,
-        chapterId,
-        pageIndex: clampedPageIndex,
-        processed: page.imageProcessing === "ready",
-      },
-    );
-  };
+  const measureReaderFirstContent = useCallback(
+    (page: MobileReaderPage) => {
+      const performanceRequest = readerFirstPageRequestRef.current;
+      const performanceKey = `${registryId}:${sourceId}:${mangaId}:${chapterId}`;
+      if (
+        page.id !== currentDisplayedPageKey ||
+        performanceRequest?.key !== performanceKey ||
+        performanceRequest.measured
+      ) {
+        return;
+      }
+      performanceRequest.measured = true;
+      measureMobilePerformance(
+        MOBILE_PERFORMANCE_MARKS.readerFirstPage,
+        performanceRequest.startedAt,
+        {
+          registryId,
+          sourceId,
+          chapterId,
+          pageIndex: clampedPageIndex,
+          processed: page.imageProcessing === "ready",
+        },
+      );
+    },
+    [
+      chapterId,
+      clampedPageIndex,
+      currentDisplayedPageKey,
+      mangaId,
+      registryId,
+      sourceId,
+    ],
+  );
   // Page-turn bands act on touch-up, so double-tap zoom is confined to the
   // centre band while they are listening; with an overlay owning the stage
   // (no page turns) a double tap may zoom anywhere on the page.
@@ -5615,206 +5658,253 @@ export function ReaderScreen() {
     [galleryPagedMode, readerPageWidth, readerStageTapOwned],
   );
 
-  const renderReaderImage = (page: MobileReaderPage) => {
-    const pageIdentity = readerPageIdentityFor(page);
-    const renderPolicy = getMobileReaderPageRenderPolicy({
-      currentPageIndex: clampedPageIndex,
-      displayIndex: readerDisplayIndexByPageId.get(page.id),
-      hasImageUri: Boolean(page.imageUri),
-      processingPending: page.imageProcessing === "pending",
-    });
-    if (renderPolicy === "none" || !page.imageUri) return null;
-    const imageUri = page.imageUri;
+  const renderReaderImage = useCallback(
+    (page: MobileReaderPage) => {
+      const pageIdentity = readerPageIdentityFor(page);
+      const renderPolicy = getMobileReaderPageRenderPolicy({
+        currentPageIndex: clampedPageIndex,
+        displayIndex: readerDisplayIndexByPageId.get(page.id),
+        hasImageUri: Boolean(page.imageUri),
+        processingPending: page.imageProcessing === "pending",
+      });
+      if (renderPolicy === "none" || !page.imageUri) return null;
+      const imageUri = page.imageUri;
 
-    const readerImageFrameSize = getReaderImageFrameSize(page);
-    // The gallery mounts every page in a plain ScrollView; apply the far-page
-    // placeholder before the pending spinner so long chapters do not mount an
-    // ActivityIndicator for every page awaiting lazy source processing.
-    if (renderPolicy === "far-placeholder") {
-      return (
-        <View
-          style={{
-            width: readerImageFrameSize.width,
-            height: readerImageFrameSize.height,
-          }}
-        />
-      );
-    }
-    if (renderPolicy === "processing-placeholder") {
-      return (
-        <View
-          style={[
-            styles.readerImageProcessingPlaceholder,
-            {
+      const readerImageFrameSize = getReaderImageFrameSize(page);
+      // The gallery mounts every page in a plain ScrollView; apply the far-page
+      // placeholder before the pending spinner so long chapters do not mount an
+      // ActivityIndicator for every page awaiting lazy source processing.
+      if (renderPolicy === "far-placeholder") {
+        return (
+          <View
+            style={{
               width: readerImageFrameSize.width,
               height: readerImageFrameSize.height,
-              backgroundColor: readerBackgroundColor,
-            },
-          ]}
-        >
-          <ActivityIndicator color="#f8fafc" size="small" />
-        </View>
-      );
-    }
-    const imageError = readerImageErrors.get(pageIdentity);
-    const imageLoading = isMobileReaderImageLoading({
-      error: imageError,
-      hasNaturalSize: readerImageSizes.has(pageIdentity),
-    });
-    const retryNonce = readerImageRetryNonces.get(pageIdentity) ?? 0;
-    const segmentedCacheKey = readerSegmentedCacheKeyFor(page);
-    const pageFrame = (
-      <MobileReaderPageFrame
-        allowLongStripSegments={pageCount === 1}
-        backgroundColor={readerBackgroundColor}
-        cacheKey={pageCount === 1 ? segmentedCacheKey : undefined}
-        frameSize={readerImageFrameSize}
-        headers={page.headers}
-        imageUri={imageUri}
-        imageUriOwnership={page.imageUriOwnership ?? "source"}
-        loading={imageLoading}
-        offline={readerConnectivity.offline}
-        error={imageError}
-        strings={strings}
-        onImageLoadStart={() => {
-          clearReaderImageError(pageIdentity);
-        }}
-        onImageLoad={({ width, height }) => {
-          clearReaderImageError(pageIdentity);
-          setReaderImageNaturalSize(pageIdentity, { width, height });
-          measureReaderFirstContent(page);
-        }}
-        onImageError={(error) => {
-          setReaderImageLoadError(pageIdentity, error);
-        }}
-        onSegmentedImage={(asset) => {
-          if (!asset) {
-            setReaderSegmentedImages((current) => {
-              if (!current.has(pageIdentity)) return current;
-              const next = new Map(current);
-              next.delete(pageIdentity);
-              return next;
-            });
-            return;
-          }
-          clearReaderImageError(pageIdentity);
-          setReaderSegmentedImages((current) => {
-            if (current.get(pageIdentity)?.generation === asset.generation) {
-              return current;
-            }
-            const next = new Map(current);
-            next.set(pageIdentity, asset);
-            return next;
-          });
-          // Aggregate metadata is the logical page size. Individual tile
-          // load callbacks below never write into this page-scoped map.
-          setReaderImageNaturalSize(pageIdentity, {
-            width: asset.width,
-            height: asset.height,
-          });
-        }}
-        onRetry={() => {
-          retryReaderImage(pageIdentity);
-        }}
-      >
-        {page.id === currentDisplayedPageKey ? (
-          <JapaneseLearningDetectionOverlay
-            detections={japaneseLearningOverlayDetections}
-            frameSize={readerImageFrameSize}
-            imageSize={readerImageSizes.get(pageIdentity) ?? null}
-            activeOrder={activeJapaneseLearningTranscriptOrder}
-            selectedOrder={japaneseLearningSelectedDetectionOrder}
-            strings={strings}
-            onSelectDetection={selectJapaneseLearningDetection}
+            }}
           />
-        ) : null}
-        {/* The overlay runs a dozen store selectors per mounted page before
-            it can decide it has nothing to draw, so a disabled dual reader
-            must not mount it at all. `dualReadEnabled` is the same flag the
-            overlay itself gates every render path on. */}
-        {dualReadEnabled &&
-        (pageCount !== 1 || readerImageSizes.has(pageIdentity)) ? (
-          <MobileDualReaderOverlay
-            isGlobal={page.id === currentDisplayedPageKey}
-            readingMode={mode}
-            frameSize={readerImageFrameSize}
-            primaryNaturalSize={readerImageSizes.get(pageIdentity) ?? null}
-            chapterId={chapter?.id ?? null}
-            localIndex={page.index}
-            strings={strings}
-          />
-        ) : null}
-      </MobileReaderPageFrame>
-    );
-
-    // Long-strip presentations zoom the whole list (ZoomableReaderStrip);
-    // per-page pinch/double-tap zoom only applies to paged galleries.
-    if (!galleryPagedMode) return pageFrame;
-    return (
-      <ZoomableReaderImageFrame
-        // Remounting on retry is what re-issues the image request.
-        key={`${pageIdentity}:${retryNonce}`}
-        frameSize={readerImageFrameSize}
-        onZoomActiveChange={handleReaderPageZoomActiveChange}
-        pageId={page.id}
-        zoomTapBand={readerZoomTapBand}
-      >
-        {pageFrame}
-      </ZoomableReaderImageFrame>
-    );
-  };
-  const renderReaderImageSegment = (frame: MobileReaderSegmentFrame) => {
-    const page = currentDisplayedPage;
-    const asset = currentSegmentedImage;
-    if (!page || !asset) return null;
-    const segmentKey = `${asset.generation}:${frame.index}`;
-    const pageIdentity = readerPageIdentityFor(page);
-    const errorKey = `${pageIdentity}:segment:${frame.index}`;
-    const cacheKey = readerSegmentedCacheKeyFor(page);
-    return (
-      <MobileReaderPageFrame
-        backgroundColor={readerBackgroundColor}
-        frameSize={{ width: frame.width, height: frame.height }}
-        imageUri={frame.segment.uri}
-        imageUriOwnership="app"
-        imageResizeMode="stretch"
-        loading={!loadedReaderSegments.has(segmentKey)}
-        offline={readerConnectivity.offline}
-        error={readerImageErrors.get(errorKey)}
-        strings={strings}
-        onImageLoadStart={() => clearReaderImageError(errorKey)}
-        onImageLoad={() => {
-          clearReaderImageError(errorKey);
-          setLoadedReaderSegments((current) => {
-            if (current.has(segmentKey)) return current;
-            const next = new Set(current);
-            next.add(segmentKey);
-            return next;
-          });
-          measureReaderFirstContent(page);
-          // Deliberately do not write this tile's dimensions into
-          // readerImageSizes[page.id]; that map owns aggregate page metadata.
-        }}
-        onImageError={(error) => setReaderImageLoadError(errorKey, error)}
-        onRetry={() => {
-          void invalidateCachedMobileImage(
-            { uri: page.imageUri, headers: page.headers, cacheKind: "page" },
-            cacheKey,
-          )
-            .catch(() => undefined)
-            .finally(() => {
+        );
+      }
+      if (renderPolicy === "processing-placeholder") {
+        return (
+          <View
+            style={[
+              styles.readerImageProcessingPlaceholder,
+              {
+                width: readerImageFrameSize.width,
+                height: readerImageFrameSize.height,
+                backgroundColor: readerBackgroundColor,
+              },
+            ]}
+          >
+            <ActivityIndicator color="#f8fafc" size="small" />
+          </View>
+        );
+      }
+      const imageError = readerImageErrors.get(pageIdentity);
+      const imageLoading = isMobileReaderImageLoading({
+        error: imageError,
+        hasNaturalSize: readerImageSizes.has(pageIdentity),
+      });
+      const retryNonce = readerImageRetryNonces.get(pageIdentity) ?? 0;
+      const segmentedCacheKey = readerSegmentedCacheKeyFor(page);
+      const pageFrame = (
+        <MobileReaderPageFrame
+          allowLongStripSegments={pageCount === 1}
+          backgroundColor={readerBackgroundColor}
+          cacheKey={pageCount === 1 ? segmentedCacheKey : undefined}
+          frameSize={readerImageFrameSize}
+          headers={page.headers}
+          imageUri={imageUri}
+          imageUriOwnership={page.imageUriOwnership ?? "source"}
+          loading={imageLoading}
+          offline={readerConnectivity.offline}
+          error={imageError}
+          strings={strings}
+          onImageLoadStart={() => {
+            clearReaderImageError(pageIdentity);
+          }}
+          onImageLoad={({ width, height }) => {
+            clearReaderImageError(pageIdentity);
+            setReaderImageNaturalSize(pageIdentity, { width, height });
+            measureReaderFirstContent(page);
+          }}
+          onImageError={(error) => {
+            setReaderImageLoadError(pageIdentity, error);
+          }}
+          onSegmentedImage={(asset) => {
+            if (!asset) {
               setReaderSegmentedImages((current) => {
+                if (!current.has(pageIdentity)) return current;
                 const next = new Map(current);
                 next.delete(pageIdentity);
                 return next;
               });
-              clearReaderImageError(errorKey);
-              retryReaderImage(pageIdentity);
+              return;
+            }
+            clearReaderImageError(pageIdentity);
+            setReaderSegmentedImages((current) => {
+              if (current.get(pageIdentity)?.generation === asset.generation) {
+                return current;
+              }
+              const next = new Map(current);
+              next.set(pageIdentity, asset);
+              return next;
             });
-        }}
-      />
-    );
-  };
+            // Aggregate metadata is the logical page size. Individual tile
+            // load callbacks below never write into this page-scoped map.
+            setReaderImageNaturalSize(pageIdentity, {
+              width: asset.width,
+              height: asset.height,
+            });
+          }}
+          onRetry={() => {
+            retryReaderImage(pageIdentity);
+          }}
+        >
+          {page.id === currentDisplayedPageKey ? (
+            <JapaneseLearningDetectionOverlay
+              detections={japaneseLearningOverlayDetections}
+              frameSize={readerImageFrameSize}
+              imageSize={readerImageSizes.get(pageIdentity) ?? null}
+              activeOrder={activeJapaneseLearningTranscriptOrder}
+              selectedOrder={japaneseLearningSelectedDetectionOrder}
+              strings={strings}
+              onSelectDetection={selectJapaneseLearningDetection}
+            />
+          ) : null}
+          {/* The overlay runs a dozen store selectors per mounted page before
+              it can decide it has nothing to draw, so a disabled dual reader
+              must not mount it at all. `dualReadEnabled` is the same flag the
+              overlay itself gates every render path on. */}
+          {dualReadEnabled &&
+          (pageCount !== 1 || readerImageSizes.has(pageIdentity)) ? (
+            <MobileDualReaderOverlay
+              isGlobal={page.id === currentDisplayedPageKey}
+              readingMode={mode}
+              frameSize={readerImageFrameSize}
+              primaryNaturalSize={readerImageSizes.get(pageIdentity) ?? null}
+              chapterId={chapter?.id ?? null}
+              localIndex={page.index}
+              strings={strings}
+            />
+          ) : null}
+        </MobileReaderPageFrame>
+      );
+
+      // Long-strip presentations zoom the whole list (ZoomableReaderStrip);
+      // per-page pinch/double-tap zoom only applies to paged galleries.
+      if (!galleryPagedMode) return pageFrame;
+      return (
+        <ZoomableReaderImageFrame
+          // Remounting on retry is what re-issues the image request.
+          key={`${pageIdentity}:${retryNonce}`}
+          frameSize={readerImageFrameSize}
+          onZoomActiveChange={handleReaderPageZoomActiveChange}
+          pageId={page.id}
+          zoomTapBand={readerZoomTapBand}
+        >
+          {pageFrame}
+        </ZoomableReaderImageFrame>
+      );
+    },
+    [
+      activeJapaneseLearningTranscriptOrder,
+      chapter?.id,
+      clampedPageIndex,
+      clearReaderImageError,
+      currentDisplayedPageKey,
+      dualReadEnabled,
+      galleryPagedMode,
+      getReaderImageFrameSize,
+      handleReaderPageZoomActiveChange,
+      japaneseLearningOverlayDetections,
+      japaneseLearningSelectedDetectionOrder,
+      measureReaderFirstContent,
+      mode,
+      pageCount,
+      readerConnectivity.offline,
+      readerDisplayIndexByPageId,
+      readerImageErrors,
+      readerImageRetryNonces,
+      readerImageSizes,
+      readerPageIdentityFor,
+      readerSegmentedCacheKeyFor,
+      readerZoomTapBand,
+      retryReaderImage,
+      selectJapaneseLearningDetection,
+      setReaderImageLoadError,
+      setReaderImageNaturalSize,
+      strings,
+    ],
+  );
+  const renderReaderImageSegment = useCallback(
+    (frame: MobileReaderSegmentFrame) => {
+      const page = currentDisplayedPage;
+      const asset = currentSegmentedImage;
+      if (!page || !asset) return null;
+      const segmentKey = `${asset.generation}:${frame.index}`;
+      const pageIdentity = readerPageIdentityFor(page);
+      const errorKey = `${pageIdentity}:segment:${frame.index}`;
+      const cacheKey = readerSegmentedCacheKeyFor(page);
+      return (
+        <MobileReaderPageFrame
+          backgroundColor={readerBackgroundColor}
+          frameSize={{ width: frame.width, height: frame.height }}
+          imageUri={frame.segment.uri}
+          imageUriOwnership="app"
+          imageResizeMode="stretch"
+          loading={!loadedReaderSegments.has(segmentKey)}
+          offline={readerConnectivity.offline}
+          error={readerImageErrors.get(errorKey)}
+          strings={strings}
+          onImageLoadStart={() => clearReaderImageError(errorKey)}
+          onImageLoad={() => {
+            clearReaderImageError(errorKey);
+            setLoadedReaderSegments((current) => {
+              if (current.has(segmentKey)) return current;
+              const next = new Set(current);
+              next.add(segmentKey);
+              return next;
+            });
+            measureReaderFirstContent(page);
+            // Deliberately do not write this tile's dimensions into
+            // readerImageSizes[page.id]; that map owns aggregate page metadata.
+          }}
+          onImageError={(error) => setReaderImageLoadError(errorKey, error)}
+          onRetry={() => {
+            void invalidateCachedMobileImage(
+              { uri: page.imageUri, headers: page.headers, cacheKind: "page" },
+              cacheKey,
+            )
+              .catch(() => undefined)
+              .finally(() => {
+                setReaderSegmentedImages((current) => {
+                  const next = new Map(current);
+                  next.delete(pageIdentity);
+                  return next;
+                });
+                clearReaderImageError(errorKey);
+                retryReaderImage(pageIdentity);
+              });
+          }}
+        />
+      );
+    },
+    [
+      clearReaderImageError,
+      currentDisplayedPage,
+      currentSegmentedImage,
+      loadedReaderSegments,
+      measureReaderFirstContent,
+      readerConnectivity.offline,
+      readerImageErrors,
+      readerPageIdentityFor,
+      readerSegmentedCacheKeyFor,
+      retryReaderImage,
+      setReaderImageLoadError,
+      strings,
+    ],
+  );
 
   const stageActionLabel = showControls
     ? strings.reader.hideControls

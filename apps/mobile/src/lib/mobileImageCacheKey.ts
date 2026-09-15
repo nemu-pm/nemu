@@ -17,10 +17,34 @@ function stableHeaderTuples(
     );
 }
 
+/**
+ * Hashing is pure, but the reader asks for the same handful of identities on
+ * every render — once per mounted page, plus once per chapter page whenever it
+ * prunes image state — and this SHA-256 runs in plain JS on the UI thread. A
+ * bounded memo keeps it to one digest per distinct identity. Insertion order is
+ * the eviction order, and a hit is re-inserted so a chapter's live pages
+ * outlive one-off lookups.
+ */
+const SHA256_MEMO_LIMIT = 512;
+const sha256HexMemo = new Map<string, string>();
+
 function sha256Hex(value: string): string {
-  return Array.from(sha256Bytes(new TextEncoder().encode(value)), (byte) =>
-    byte.toString(16).padStart(2, "0"),
+  const memoized = sha256HexMemo.get(value);
+  if (memoized !== undefined) {
+    sha256HexMemo.delete(value);
+    sha256HexMemo.set(value, memoized);
+    return memoized;
+  }
+  const digest = Array.from(
+    sha256Bytes(new TextEncoder().encode(value)),
+    (byte) => byte.toString(16).padStart(2, "0"),
   ).join("");
+  if (sha256HexMemo.size >= SHA256_MEMO_LIMIT) {
+    const oldest = sha256HexMemo.keys().next().value;
+    if (oldest !== undefined) sha256HexMemo.delete(oldest);
+  }
+  sha256HexMemo.set(value, digest);
+  return digest;
 }
 
 /**

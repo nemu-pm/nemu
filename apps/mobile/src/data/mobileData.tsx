@@ -6,10 +6,17 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { AppState, InteractionManager } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
 import { SQLiteProvider, useSQLiteContext } from "expo-sqlite";
 import { MobileDataContext } from "./mobileDataContext";
-import { MOBILE_DATABASE_NAME, migrateNativeDatabase } from "./nativeDatabase";
+import {
+  MOBILE_DATABASE_NAME,
+  isDeferredNativeDatabaseVacuumPending,
+  migrateNativeDatabase,
+  runDeferredNativeDatabaseVacuum,
+} from "./nativeDatabase";
+import { flushNativeBinaryCacheAccessIndexes } from "./nativeCache";
 import { NativeUserDataStore } from "./nativeStore";
 import { createMobileSyncDataStore } from "@/sync/mobileSyncDataStore";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
@@ -270,6 +277,28 @@ function MobileDataStoreProvider({
     if (databaseMarkedRef.current) return;
     databaseMarkedRef.current = true;
     markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootDatabaseReady);
+  }, []);
+
+  // The v6 migration owes a VACUUM. Running it inside `onInit` held the whole
+  // tree (and the splash screen) on a full database rewrite, so it runs here
+  // instead: after the provider has mounted and the first interactions settle.
+  useEffect(() => {
+    if (!isDeferredNativeDatabaseVacuumPending()) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      void runDeferredNativeDatabaseVacuum(db);
+    });
+    return () => task.cancel();
+  }, [db]);
+
+  // Cache read recency lives in memory and otherwise reaches disk only during
+  // an eviction pass, so an app kill loses it and daily-opened covers get
+  // evicted by age. Backgrounding is the last reliable moment to persist it.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") return;
+      void flushNativeBinaryCacheAccessIndexes();
+    });
+    return () => subscription.remove();
   }, []);
 
   return (

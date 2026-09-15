@@ -199,6 +199,7 @@ export type MobileStrings = {
     empty: string;
     progressCaughtUp: string;
     progressUnread: string;
+    refreshLibrary: string;
     removeCollection: string;
     removeCollectionConfirm: string;
     removeCollectionNamed: string;
@@ -416,6 +417,7 @@ export type MobileStrings = {
     noPackageListings: string;
     noSourceHome: string;
     homeUnavailable: string;
+    homeSectionEmpty: string;
     notFilter: string;
     sourceOperationTimedOut: string;
     openAllFilters: string;

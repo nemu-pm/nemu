@@ -562,3 +562,32 @@ export function decideSyncGeneration(
   if (incomingGeneration === storedGeneration) return "current";
   return "reset";
 }
+
+export type SyncGenerationResetScope = "adopt-local" | "discard-local";
+
+/**
+ * A `"reset"` decision covers two situations that must not be handled alike.
+ *
+ * `discard-local` is a true remote reset: the account's cloud data was wiped
+ * and re-seeded under a newer generation, so local rows belonging to the older
+ * generation are obsolete and must go.
+ *
+ * `adopt-local` is the first sync of a database that has never carried any
+ * generation — most importantly the anonymous database the first signed-in
+ * account inherits. Its rows were never part of an older generation, so
+ * deleting them destroys work the user never agreed to lose (and does so
+ * before any of it has been pushed). Keeping them lets the ordinary snapshot
+ * merge apply last-writer-wins against the cloud rows and report the local
+ * survivors as winners to push.
+ *
+ * Returns `null` when the decision is not a reset.
+ */
+export function decideSyncGenerationResetScope(
+  storedGeneration: number | null,
+  incomingGeneration: number,
+): SyncGenerationResetScope | null {
+  if (decideSyncGeneration(storedGeneration, incomingGeneration) !== "reset") {
+    return null;
+  }
+  return storedGeneration == null ? "adopt-local" : "discard-local";
+}

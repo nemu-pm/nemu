@@ -678,6 +678,9 @@ export function MobileReaderGallery({
       pagesState.status === "ready" &&
       pages.length > 0 &&
       onRequestAdvancePastEndRef.current &&
+      // Both ends are the same live offset, so the finger delta is the only
+      // evidence of direction here: without it a tap meant for the chrome
+      // toggle would advance a chapter that is already resting at its bottom.
       isReaderAdvancePastEndDrag({
         startOffset: latestScrollMetricsRef.current.contentOffset,
         endOffset: latestScrollMetricsRef.current.contentOffset,

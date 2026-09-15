@@ -9,7 +9,7 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
-import { radius } from "@/design-system";
+import { radius, useNemuTheme } from "@/design-system";
 
 const VOICE_BAR_HEIGHTS = [12, 18, 26, 16, 22, 14, 20, 28] as const;
 const VOICE_BAR_LOOP_MS = 920;
@@ -17,19 +17,19 @@ const VOICE_BAR_LOOP_MS = 920;
 function VoiceBar({
   progress,
   index,
-  playing,
+  animate,
   height,
   color,
 }: {
   progress: SharedValue<number>;
   index: number;
-  playing: boolean;
+  animate: boolean;
   height: number;
   color: string;
 }) {
   const barCount = VOICE_BAR_HEIGHTS.length;
   const animatedStyle = useAnimatedStyle(() => {
-    if (!playing) return { transform: [{ scaleY: 1 }] };
+    if (!animate) return { transform: [{ scaleY: 1 }] };
     const phase = (progress.value + index / barCount) % 1;
     const scale = 0.5 + 0.5 * Math.abs(Math.sin(phase * Math.PI * 2));
     return { transform: [{ scaleY: scale }] };
@@ -48,10 +48,14 @@ export function MobileJapaneseLearningVoiceBars({
   playing: boolean;
   color: string;
 }) {
+  const { reduceMotion } = useNemuTheme();
+  // The bars loop forever while audio plays, so Reduce Motion has to hold
+  // them at their resting heights instead of only muting them on pause.
+  const animate = playing && reduceMotion !== true;
   const progress = useSharedValue(0);
 
   useEffect(() => {
-    if (playing) {
+    if (animate) {
       progress.value = 0;
       progress.value = withRepeat(
         withTiming(1, { duration: VOICE_BAR_LOOP_MS, easing: Easing.linear }),
@@ -65,7 +69,7 @@ export function MobileJapaneseLearningVoiceBars({
     return () => {
       cancelAnimation(progress);
     };
-  }, [playing, progress]);
+  }, [animate, progress]);
 
   return (
     <View
@@ -78,7 +82,7 @@ export function MobileJapaneseLearningVoiceBars({
           key={`${height}-${index}`}
           progress={progress}
           index={index}
-          playing={playing}
+          animate={animate}
           height={height}
           color={color}
         />

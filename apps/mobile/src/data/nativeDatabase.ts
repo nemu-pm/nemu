@@ -10,6 +10,43 @@ export const MOBILE_DATABASE_NAME = "nemu-mobile.db";
 export const MOBILE_ANONYMOUS_DATABASE_NAME = "nemu-mobile-anonymous.db";
 
 const DATABASE_VERSION = 6;
+/**
+ * `PRAGMA application_id` doubles as the durable "the v6 plaintext VACUUM is
+ * still owed" flag. VACUUM rewrites the whole database file, which used to run
+ * inside the migration — behind the splash screen, with nothing rendered — so
+ * an upgrade's first launch sat on a blank screen for as long as the rewrite
+ * took. The flag lets `user_version` advance immediately and the VACUUM run as
+ * an idle task once the UI is up, while still being retried on the next launch
+ * if the process dies first.
+ */
+const PENDING_PLAINTEXT_VACUUM_APPLICATION_ID = 1;
+
+let deferredVacuumPending = false;
+
+export function isDeferredNativeDatabaseVacuumPending(): boolean {
+  return deferredVacuumPending;
+}
+
+/**
+ * Purges free-page residue left by the pre-v6 plaintext source settings. The
+ * rows themselves were already overwritten in place (`secure_delete`) and the
+ * WAL copy was checkpointed away inside the migration, so skipping or failing
+ * here costs residue in unallocated pages, never schema correctness — and the
+ * flag keeps it owed until it succeeds.
+ */
+export async function runDeferredNativeDatabaseVacuum(
+  db: SQLiteDatabase,
+): Promise<void> {
+  if (!deferredVacuumPending) return;
+  deferredVacuumPending = false;
+  try {
+    await db.execAsync("VACUUM;");
+    await db.execAsync("PRAGMA application_id = 0");
+  } catch {
+    // Retried on the next launch: the pragma flag is still set on disk.
+    deferredVacuumPending = true;
+  }
+}
 
 type SourceSettingsRow = {
   sourceKey: string;
@@ -55,11 +92,21 @@ async function migrateSourceSettingsToSecureVault(
 
 export async function migrateNativeDatabase(db: SQLiteDatabase) {
   // Ensure future updates/deletes overwrite credential-bearing SQLite cells.
-  // The v6 migration also checkpoints and vacuums historical plaintext below.
+  // The v6 migration also checkpoints historical plaintext below; its VACUUM
+  // is owed to `runDeferredNativeDatabaseVacuum` once the UI is up.
   await db.execAsync("PRAGMA secure_delete = ON;");
   const current = await db.getFirstAsync<{ user_version: number }>("PRAGMA user_version");
   const currentVersion = current?.user_version ?? 0;
-  if (currentVersion >= DATABASE_VERSION) return;
+  if (currentVersion >= DATABASE_VERSION) {
+    // A previous launch recorded v6 but was killed before its idle VACUUM.
+    const marker = await db.getFirstAsync<{ application_id: number }>(
+      "PRAGMA application_id",
+    );
+    if (marker?.application_id === PENDING_PLAINTEXT_VACUUM_APPLICATION_ID) {
+      deferredVacuumPending = true;
+    }
+    return;
+  }
 
   if (currentVersion === 0) {
     await db.execAsync(`
@@ -229,7 +276,12 @@ CREATE TABLE IF NOT EXISTS sync_health (
     // WAL. Complete physical cleanup before recording v6 so an interrupted
     // attempt is retried on the next launch.
     await db.execAsync("PRAGMA wal_checkpoint(TRUNCATE);");
-    await db.execAsync("VACUUM;");
+    // The VACUUM itself is deferred to an idle task after the first frame; see
+    // `PENDING_PLAINTEXT_VACUUM_APPLICATION_ID`.
+    await db.execAsync(
+      `PRAGMA application_id = ${PENDING_PLAINTEXT_VACUUM_APPLICATION_ID}`,
+    );
+    deferredVacuumPending = true;
   }
 
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);

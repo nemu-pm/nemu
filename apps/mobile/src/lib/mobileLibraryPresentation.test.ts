@@ -21,6 +21,7 @@ import {
   shouldRenderMobileLibrarySkeleton,
   shouldShowMobileLibraryEmptyOnboarding,
   shouldShowMobileLibraryLoadError,
+  shouldShowMobileLibraryLoadErrorBanner,
   sortMobileLibraryEntries,
   sortMobileLibraryMergeCandidates,
 } from "./mobileLibraryPresentation";
@@ -362,15 +363,29 @@ describe("mobile library presentation", () => {
 
     expect(
       getMobileLibraryEmptyState({
-        error: "Database unavailable",
+        error: "QuotaExceededError: the quota has been exceeded",
         hasInstalledSources: true,
         strings: en,
       })
     ).toMatchObject({
       title: "Library unavailable",
-      description: "Database unavailable",
+      description: en.common.sourceErrorDescription,
+      diagnostic: "QuotaExceededError: the quota has been exceeded",
       actionRoute: "/browse",
     });
+  });
+
+  test("keeps the localized body copy when a load failure is not English", () => {
+    for (const strings of [ja, zh]) {
+      const state = getMobileLibraryEmptyState({
+        error: "QuotaExceededError: the quota has been exceeded",
+        hasInstalledSources: true,
+        strings,
+      });
+      expect(state.description).toBe(strings.common.sourceErrorDescription);
+      expect(state.description).not.toContain("QuotaExceededError");
+      expect(state.diagnostic).toContain("QuotaExceededError");
+    }
   });
 
   test("matches web by showing a full library skeleton only during unresolved initial load", () => {
@@ -431,6 +446,29 @@ describe("mobile library presentation", () => {
         loading: false,
         hasLibraryData: true,
         hasError: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("surfaces the inline load-error banner exactly where the takeover bails", () => {
+    // Cached entries render, so the takeover stays away — but the failure has
+    // to stay visible and retryable above the grid.
+    expect(
+      shouldShowMobileLibraryLoadErrorBanner({
+        hasLibraryData: true,
+        hasError: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowMobileLibraryLoadErrorBanner({
+        hasLibraryData: false,
+        hasError: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowMobileLibraryLoadErrorBanner({
+        hasLibraryData: true,
+        hasError: false,
       }),
     ).toBe(false);
   });

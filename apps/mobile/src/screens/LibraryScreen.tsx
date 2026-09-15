@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   AppState,
+  FlatList,
   Platform,
   StyleSheet,
   Text,
@@ -74,7 +75,21 @@ import {
   getMobileStrings,
   type MobileStrings,
 } from "@/lib/mobileI18n";
-import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
+import {
+  describeMobileErrorDetail,
+  sanitizeMobileErrorDiagnostic,
+} from "@/lib/mobileSourceErrors";
+import {
+  getMobileMangaGridColumns,
+  getMobileMangaGridItemWidth,
+  MOBILE_MANGA_GRID_GAP,
+} from "@/lib/mobileAdaptiveGrid";
+import {
+  captureMobileGridScrollRatio,
+  resolveMobileGridScrollRestoreOffset,
+  shouldRestoreMobileGridScroll,
+  type MobileGridScrollSnapshot,
+} from "@/lib/mobileGridScrollRestore";
 import {
   getMobileInstalledSourceSettingsKeys,
   mobileInstalledSourceMatchesLink,
@@ -115,6 +130,7 @@ import {
   shouldRenderMobileLibrarySkeleton,
   shouldShowMobileLibraryEmptyOnboarding,
   shouldShowMobileLibraryLoadError,
+  shouldShowMobileLibraryLoadErrorBanner,
   sortMobileLibraryEntries,
   type MobileLibraryEntryProgressMaps,
   type MobileLibraryProgressIndex,
@@ -241,7 +257,8 @@ function collectionBookCountText(count: number, strings: MobileStrings): string 
 const LIBRARY_TITLE_MENU_ALL = "library:all";
 const LIBRARY_TITLE_MENU_MANAGE = "library:manage";
 const LIBRARY_TITLE_MENU_COLLECTION_PREFIX = "library:collection:";
-const LIBRARY_GRID_COLUMNS = 3;
+/** `spacing.pageX` on both sides, matching the browse/search grids. */
+const LIBRARY_GRID_HORIZONTAL_PADDING = 32;
 
 function libraryEntryKey(entry: LibraryEntry): string {
   return entry.item.libraryItemId;
@@ -1053,6 +1070,42 @@ export function LibraryScreen({
   // remaining work.
   const libraryRefreshAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const libraryFocusedRef = useRef(true);
+  const gridScrollRef = useRef<FlatList<LibraryEntry> | null>(null);
+  const gridScrollSnapshotRef = useRef<MobileGridScrollSnapshot>({
+    offset: 0,
+    contentHeight: 0,
+    viewportHeight: 0,
+  });
+  const pendingGridScrollRatioRef = useRef<number | null>(null);
+  const gridColumnsRef = useRef(0);
+  // The library grid adapts exactly like browse and search: a landscape phone
+  // or an iPad must not show three giant covers next to a four-column search.
+  const gridColumns = useMemo(
+    () =>
+      getMobileMangaGridColumns({
+        windowWidth: width,
+        horizontalPadding: LIBRARY_GRID_HORIZONTAL_PADDING,
+      }),
+    [width],
+  );
+  const gridItemWidth = useMemo(
+    () =>
+      getMobileMangaGridItemWidth({
+        windowWidth: width,
+        horizontalPadding: LIBRARY_GRID_HORIZONTAL_PADDING,
+      }),
+    [width],
+  );
+  // `FlatList` throws when `numColumns` changes on a mounted list, so a
+  // rotation has to remount the grid. Capture the scroll proportion in the
+  // same pass that changes the key — the remounted list reports its new
+  // content size before effects run.
+  if (gridColumnsRef.current !== 0 && gridColumnsRef.current !== gridColumns) {
+    pendingGridScrollRatioRef.current = captureMobileGridScrollRatio(
+      gridScrollSnapshotRef.current,
+    );
+  }
+  gridColumnsRef.current = gridColumns;
 
   const queueAfterSheetDismiss = useCallback(
     (source: LibrarySheetTransitionSource, run: () => void) => {
@@ -1184,6 +1237,25 @@ export function LibraryScreen({
       }),
     [hasInstalledSources, strings]
   );
+  // Both failure surfaces read from the same pure state: the localized body
+  // copy stays readable in ja/zh and the raw exception text only ever appears
+  // behind the collapsed "technical details" disclosure.
+  const loadErrorDiagnostic = error
+    ? (sanitizeMobileErrorDiagnostic(error) ?? error)
+    : null;
+  const loadErrorState = useMemo(
+    () =>
+      getMobileLibraryEmptyState({
+        error: loadErrorDiagnostic,
+        hasInstalledSources,
+        strings,
+      }),
+    [hasInstalledSources, loadErrorDiagnostic, strings],
+  );
+  const showLoadErrorBanner = shouldShowMobileLibraryLoadErrorBanner({
+    hasLibraryData: hasAnyLibraryData,
+    hasError,
+  });
   const collectionActionState: MobileCollectionActionState = {
     creating: savingCollection,
     renaming: renamingCollection,
@@ -1946,7 +2018,9 @@ export function LibraryScreen({
   }, []);
   const renderLibraryGridItem = useCallback(
     ({ item: entry }: ListRenderItemInfo<LibraryEntry>) => (
-      <View style={styles.gridItem}>
+      // The explicit width keeps a partly filled last row aligned with the
+      // rows above it instead of letting `flex: 1` stretch its cells.
+      <View style={[styles.gridItem, { maxWidth: gridItemWidth }]}>
         <LibraryGridItem
           entry={entry}
           entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
@@ -1959,6 +2033,7 @@ export function LibraryScreen({
     ),
     [
       entryProgressMaps,
+      gridItemWidth,
       handleGridItemLongPress,
       installedSources.data,
       progressIndex,
@@ -1993,8 +2068,10 @@ export function LibraryScreen({
           />
         )}
         <EmptyLibrary
-          title={strings.library.unavailable}
-          description={error ?? strings.library.emptyDescription}
+          title={loadErrorState.title}
+          description={loadErrorState.description}
+          diagnostic={loadErrorState.diagnostic}
+          diagnosticDetailsLabel={strings.errorBoundary.detailsLabel}
           actionLabel={strings.common.retry}
           actionDisabled={retryingData}
           actionLoading={retryingData}
@@ -2064,17 +2141,58 @@ export function LibraryScreen({
       </>
     ) : null}
     <PageListScaffold
+      key={`library-grid-${gridColumns}`}
+      listRef={gridScrollRef}
       data={showSkeleton ? [] : visibleEntries}
       keyExtractor={libraryEntryKey}
-      numColumns={LIBRARY_GRID_COLUMNS}
+      numColumns={gridColumns}
       columnWrapperStyle={styles.gridRow}
       renderItem={renderLibraryGridItem}
       extraData={libraryGridExtraData}
       nativeHeader={usesNativeHeader}
+      onLayout={(event) => {
+        gridScrollSnapshotRef.current = {
+          ...gridScrollSnapshotRef.current,
+          viewportHeight: event.nativeEvent.layout.height,
+        };
+      }}
+      onScroll={(event) => {
+        gridScrollSnapshotRef.current = {
+          offset: event.nativeEvent.contentOffset.y,
+          contentHeight: event.nativeEvent.contentSize.height,
+          viewportHeight: event.nativeEvent.layoutMeasurement.height,
+        };
+      }}
+      // The handler only stores a snapshot for the rotation restore, so it
+      // does not need a frame-rate feed.
+      scrollEventThrottle={100}
+      onContentSizeChange={(_width, contentHeight) => {
+        const ratio = pendingGridScrollRatioRef.current;
+        const viewportHeight = gridScrollSnapshotRef.current.viewportHeight;
+        if (
+          !shouldRestoreMobileGridScroll({
+            ratio,
+            contentHeight,
+            viewportHeight,
+          })
+        ) {
+          return;
+        }
+        pendingGridScrollRatioRef.current = null;
+        gridScrollRef.current?.scrollToOffset({
+          offset: resolveMobileGridScrollRestoreOffset({
+            ratio: ratio ?? 0,
+            contentHeight,
+            viewportHeight,
+          }),
+          animated: false,
+        });
+      }}
       onRefresh={() => {
         void refreshLatestChapters({ force: true, interactive: true });
       }}
       refreshDisabled={libraryRefreshDisabled}
+      refreshLabel={strings.library.refreshLibrary}
       refreshing={refreshingLibrary}
       initialNumToRender={18}
       maxToRenderPerBatch={18}
@@ -2125,6 +2243,23 @@ export function LibraryScreen({
             {showSkeleton ? (
               <MobileLibrarySkeleton
                 accessibilityLabel={strings.library.loading}
+              />
+            ) : null}
+
+            {showLoadErrorBanner ? (
+              <MobileInlineErrorBanner
+                title={loadErrorState.title}
+                detail={
+                  loadErrorState.diagnostic
+                    ? `${loadErrorState.description}\n${loadErrorState.diagnostic}`
+                    : loadErrorState.description
+                }
+                actionLabel={strings.common.retry}
+                actionDisabled={retryingData}
+                actionLoading={retryingData}
+                onActionPress={() => {
+                  void retryLibraryData();
+                }}
               />
             ) : null}
 
@@ -2459,12 +2594,13 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
   },
   gridRow: {
-    gap: 12,
-    marginBottom: 12,
+    gap: MOBILE_MANGA_GRID_GAP,
+    marginBottom: MOBILE_MANGA_GRID_GAP,
   },
+  // `maxWidth` is supplied per render from the adaptive column width.
   gridItem: {
     flex: 1,
-    maxWidth: "31.5%",
+    minWidth: 0,
   },
   panelShell: {
     borderRadius: radius.xl,

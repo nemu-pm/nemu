@@ -344,6 +344,75 @@ describe("native segmented cache publication", () => {
     expect(directoryListCalls).toBeLessThanOrEqual(4);
     expect(elapsedMs).toBeLessThan(1_000);
   });
+
+  test("publishes further segment groups without re-indexing the directory", async () => {
+    const cache = new FileSystemBinaryCache("images", {
+      maxBytes: 10_000_000,
+      maxEntries: 100,
+      maxAgeMs: 60_000,
+      maxEntryBytes: 100_000,
+    });
+    const publish = async (key: string) => {
+      stageResponse(key);
+      return cache.downloadFile(key, "https://example.test/p.png", "image/png", {
+        maxBytes: 100_000,
+        maxImageDimension: 16_384,
+        maxImagePixels: 8 * 1024 * 1024,
+        allowLongStripSegments: true,
+      });
+    };
+
+    await publish("strip-0");
+    directoryListCalls = 0;
+    // A webtoon page publishes segment group after segment group; each one used
+    // to re-list and re-stat the whole cache directory.
+    const second = await publish("strip-1");
+    const third = await publish("strip-2");
+
+    expect(directoryListCalls).toBe(0);
+    expect(await cache.getUri("strip-1")).toBe(second);
+    expect(await cache.getUri("strip-2")).toBe(third);
+    expect(directoryListCalls).toBe(0);
+  });
+
+  test("still evicts when an incrementally published group crosses the budget", async () => {
+    const cache = new FileSystemBinaryCache("images", {
+      maxBytes: 10_000_000,
+      maxEntries: 1,
+      maxAgeMs: 60_000,
+      maxEntryBytes: 100_000,
+    });
+    const publish = async (key: string) => {
+      stageResponse(key);
+      return cache.downloadFile(key, "https://example.test/p.png", "image/png", {
+        maxBytes: 100_000,
+        maxImageDimension: 16_384,
+        maxImagePixels: 8 * 1024 * 1024,
+        allowLongStripSegments: true,
+      });
+    };
+
+    await publish("strip-0");
+    const second = await publish("strip-1");
+
+    expect(await cache.getUri("strip-1")).toBe(second);
+    expect(await cache.getUri("strip-0")).toBeNull();
+  });
+
+  test("reports stats without running an eviction pass per call", async () => {
+    directories.add("/cache/images");
+    writePlainFile("cover.jpg", 1_000);
+    const cache = new FileSystemBinaryCache("images", plainPolicy);
+
+    expect((await cache.getStats()).entries).toBe(1);
+    directoryListCalls = 0;
+    // Settings asks four caches at once; a repeat read must not re-scan.
+    await cache.getStats();
+    await cache.getStats();
+    await cache.getStats();
+
+    expect(directoryListCalls).toBe(0);
+  });
 });
 
 const plainPolicy = {
@@ -426,8 +495,9 @@ describe("native cache read recency", () => {
       maxEntries: 2,
     });
     expect(await first.getUri("old")).toBe("file:///cache/images/old.jpg");
-    // The sidecar is flushed on the next index pass, not on the read itself.
-    await first.getStats();
+    // The sidecar is flushed on an eviction pass or an explicit flush (which
+    // the data layer performs when the app backgrounds), not on the read.
+    await first.flushAccessIndex();
     expect(files.has("/cache/images/nemu-access-index.json")).toBe(true);
 
     const second = new FileSystemBinaryCache("images", {
@@ -476,7 +546,7 @@ describe("native cache read recency", () => {
     for (const key of keys) {
       expect(await cache.getUri(key)).toBe(`file:///cache/images/${key}.jpg`);
     }
-    await cache.getStats();
+    await cache.flushAccessIndex();
 
     const sidecar = files.get("/cache/images/nemu-access-index.json");
     expect(sidecar).toBeDefined();
@@ -513,7 +583,7 @@ describe("native cache read recency", () => {
     });
     await cache.getStats();
     for (const key of keys) await cache.getUri(key);
-    await cache.getStats();
+    await cache.flushAccessIndex();
 
     const persisted = JSON.parse(
       new TextDecoder().decode(
@@ -534,6 +604,7 @@ describe("native cache read recency", () => {
     });
 
     expect(await cache.getUri("cover")).toBe("file:///cache/images/cover.jpg");
+    await cache.flushAccessIndex();
     const stats = await cache.getStats();
 
     expect(files.has("/cache/images/nemu-access-index.json")).toBe(true);

@@ -117,6 +117,25 @@ function extensionForContentType(contentType?: string) {
   return "bin";
 }
 
+/**
+ * Live caches, so a single app-background hook can persist every cache's read
+ * recency. Caches are process-lifetime singletons, so this never unregisters.
+ */
+const liveFileSystemBinaryCaches = new Set<FileSystemBinaryCache>();
+
+/**
+ * Read recency only reaches disk during an eviction pass, so a cover opened
+ * daily but downloaded a month ago used to be evicted by age and re-downloaded
+ * after every app kill. The data layer calls this when the app backgrounds.
+ */
+export async function flushNativeBinaryCacheAccessIndexes(): Promise<void> {
+  await Promise.all(
+    [...liveFileSystemBinaryCaches].map((cache) =>
+      cache.flushAccessIndex().catch(() => undefined),
+    ),
+  );
+}
+
 export class FileSystemBinaryCache implements NativeBinaryCache {
   private readonly cacheDir: Directory;
   private readonly mutationQueue = new NativeCacheMutationQueue();
@@ -155,6 +174,15 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
       throw new Error("Invalid native binary cache policy.");
     }
     this.cacheDir = new Directory(Paths.cache, directoryName);
+    liveFileSystemBinaryCaches.add(this);
+  }
+
+  /** Persist read recency without running an eviction pass. */
+  async flushAccessIndex(): Promise<void> {
+    if (!this.accessIndexDirty) return;
+    await this.mutationQueue.run(() => {
+      this.saveAccessIndex();
+    });
   }
 
   private cacheFiles(): File[] {
@@ -1052,25 +1080,57 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
               );
             }
             this.activeSegmentPublishFiles.delete(stageManifestName);
-            this.indexed = false;
-            this.indexAndEnforcePolicy(finalManifest.uri);
+            // A long-strip page publishes one segment group after another, so
+            // a full re-index here would re-list the directory and re-stat
+            // every cached file (and re-parse every manifest) per strip, on the
+            // JS thread. Fold the new group into the in-memory index the way
+            // `setBytes` does and leave the eviction sweep to the lazy
+            // `ensureIndexed` path unless this entry crossed a limit.
+            const indexWasCurrent = this.indexed;
+            if (indexWasCurrent) {
+              this.latestSegmentManifests.set(encodedKey, {
+                file: finalManifest,
+                manifest,
+              });
+              this.indexedPhysicalFiles += newMemberNames.length + 1;
+              if (this.policy) {
+                this.indexedBytes += result.byteLength + manifestBytes;
+                this.indexedEntries += 1;
+              }
+              this.touchCacheFile(finalManifest.uri);
+            }
             if (!finalManifest.exists) {
               throw new Error(
                 "Segmented image cache entry could not be retained.",
               );
             }
-            if (
-              this.policy &&
-              (this.indexedBytes > this.policy.maxBytes ||
-                this.indexedEntries > this.policy.maxEntries ||
-                this.indexedPhysicalFiles > MAX_CACHE_PHYSICAL_FILES)
-            ) {
-              throw new Error(
-                "Segmented image cache cannot publish without evicting an active reader.",
-              );
+            const overPolicyBudget = () =>
+              (this.policy !== undefined &&
+                (this.indexedBytes > this.policy.maxBytes ||
+                  this.indexedEntries > this.policy.maxEntries)) ||
+              this.indexedPhysicalFiles > MAX_CACHE_PHYSICAL_FILES;
+            if (!indexWasCurrent || overPolicyBudget()) {
+              // Over budget (or the index was already stale): the sweep has to
+              // run now, and it must not evict what was just published.
+              this.indexed = false;
+              this.indexAndEnforcePolicy(finalManifest.uri);
+              if (!finalManifest.exists) {
+                throw new Error(
+                  "Segmented image cache entry could not be retained.",
+                );
+              }
+              if (overPolicyBudget()) {
+                throw new Error(
+                  "Segmented image cache cannot publish without evicting an active reader.",
+                );
+              }
+              this.activeSegmentPublishFiles.delete(finalManifest.name);
+              // The commit record is only discoverable once it is no longer
+              // held open by this publish, so re-resolve after releasing it.
+              this.latestSegmentManifests = this.sweepSegmentArtifacts();
+            } else {
+              this.activeSegmentPublishFiles.delete(finalManifest.name);
             }
-            this.activeSegmentPublishFiles.delete(finalManifest.name);
-            this.latestSegmentManifests = this.sweepSegmentArtifacts();
             if (
               this.latestSegmentManifests.get(encodedKey)?.file.uri !==
               finalManifest.uri
@@ -1235,7 +1295,9 @@ export class FileSystemBinaryCache implements NativeBinaryCache {
   }
 
   async getStats(): Promise<{ bytes: number; entries: number }> {
-    this.indexAndEnforcePolicy();
+    // Reporting usage is a read. Settings asks four caches at once, and an
+    // eviction pass per answer made opening it four full index+evict scans.
+    this.ensureIndexed();
     return { bytes: this.indexedBytes, entries: this.indexedEntries };
   }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { recordMangaProgressBulkChange } from "./mangaProgressChangeLog";
 
 export type MobileDataChangeScope =
   | "all"
@@ -19,6 +20,9 @@ type MobileDataChangeListener = (scope: MobileDataChangeScope) => void;
 const listeners = new Set<MobileDataChangeListener>();
 
 export function emitMobileDataChanged(scope: MobileDataChangeScope): void {
+  // A wholesale invalidation names no rows, so incremental progress readers
+  // must be pushed back to a full read rather than trusting their delta.
+  if (scope === "all") recordMangaProgressBulkChange();
   for (const listener of listeners) {
     listener(scope);
   }

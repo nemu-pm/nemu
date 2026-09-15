@@ -29,6 +29,7 @@ import {
 } from "./progressMerge";
 import {
   decideSyncGeneration,
+  decideSyncGenerationResetScope,
   mergeCollectionSnapshot,
   mergeChapterProgressSnapshot,
   mergeLibrarySnapshot,
@@ -42,6 +43,10 @@ import {
   type LibrarySnapshotApplyResult,
   type PendingSyncDeletion,
 } from "./storeTypes";
+import {
+  recordMangaProgressBulkChange,
+  recordMangaProgressWrite,
+} from "./mangaProgressChangeLog";
 import {
   createMobileSourceSettingsVault,
   decodeLegacyMobileSourceSettings,
@@ -252,6 +257,10 @@ export class NativeUserDataStore {
     db: SQLiteExecutor,
     progress: LocalMangaProgress,
   ): Promise<void> {
+    // Every manga_progress write funnels through here, so this is the single
+    // place that can tell subscribers which row moved. Without it a page turn
+    // forces every listener back to a full table scan.
+    recordMangaProgressWrite(progress.id);
     await db.runAsync(
       `INSERT OR REPLACE INTO manga_progress
         (id, registryId, sourceId, sourceMangaId, libraryItemId, lastReadAt, updatedAt, json)
@@ -315,16 +324,30 @@ export class NativeUserDataStore {
         "SELECT generation FROM sync_state WHERE id = ?",
         "cloud",
       );
-      decision = decideSyncGeneration(row?.generation ?? null, generation);
+      const storedGeneration = row?.generation ?? null;
+      decision = decideSyncGeneration(storedGeneration, generation);
       if (decision === "stale" || decision === "current") return;
 
       if (decision === "reset") {
-        const settingsRow = await txn.getFirstAsync<JsonRow>(
-          "SELECT json FROM settings WHERE id = ?",
-          "user",
+        const scope = decideSyncGenerationResetScope(
+          storedGeneration,
+          generation,
         );
-        const settings = decodeJson<UserSettings>(settingsRow);
-        await txn.execAsync(`
+        // An adoption is the first sign-in on a database that never carried a
+        // generation — most importantly the anonymous database the first
+        // signed-in account inherits. Its rows are the user's only copy and
+        // nothing has been pushed yet, so wiping them here is unrecoverable
+        // data loss. Retaining them lets the snapshot merges that follow apply
+        // last-writer-wins against the cloud rows and report the local
+        // survivors as winners to push. Only a true remote reset discards.
+        if (scope === "discard-local") {
+          const settingsRow = await txn.getFirstAsync<JsonRow>(
+            "SELECT json FROM settings WHERE id = ?",
+            "user",
+          );
+          const settings = decodeJson<UserSettings>(settingsRow);
+          recordMangaProgressBulkChange();
+          await txn.execAsync(`
 DELETE FROM installed_sources;
 DELETE FROM library_items;
 DELETE FROM source_links;
@@ -335,12 +358,17 @@ DELETE FROM collection_items;
 DELETE FROM pending_sync_deletions;
 DELETE FROM sync_health;
 `);
-        if (settings) {
-          await txn.runAsync(
-            "UPDATE settings SET json = ? WHERE id = ?",
-            encodeJson({ ...settings, installedSources: [] }),
-            "user",
-          );
+          if (settings) {
+            await txn.runAsync(
+              "UPDATE settings SET json = ? WHERE id = ?",
+              encodeJson({ ...settings, installedSources: [] }),
+              "user",
+            );
+          }
+        } else {
+          // Snapshot health is generation-scoped bookkeeping, never user data,
+          // so it is dropped even when the local rows are adopted.
+          await txn.execAsync("DELETE FROM sync_health;");
         }
       }
 
@@ -502,6 +530,7 @@ DELETE FROM sync_health;
       // Clear platform-secure credentials before their SQLite references. If
       // database deletion then fails, the remaining markers fail closed.
       await this.sourceSettingsVault.clearAll();
+      recordMangaProgressBulkChange();
       await this.db.withExclusiveTransactionAsync(async (txn) => {
         await txn.execAsync(`
 DELETE FROM settings;
@@ -525,6 +554,7 @@ DELETE FROM sync_health;
   async clearAccountData(): Promise<void> {
     await this.runWrite(async () => {
       await this.sourceSettingsVault.clearAll();
+      recordMangaProgressBulkChange();
       await this.db.withExclusiveTransactionAsync(async (txn) => {
         await txn.execAsync(`
 DELETE FROM settings;

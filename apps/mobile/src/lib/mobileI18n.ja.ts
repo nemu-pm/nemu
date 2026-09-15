@@ -226,6 +226,7 @@ export const mobileStringsJa: MobileStrings = {
     emptyDescription: "漫画を検索してライブラリに追加しましょう",
     progressCaughtUp: "最新まで読了",
     progressUnread: "未読",
+    refreshLibrary: "ライブラリを更新",
     removeCollection: "コレクションを削除",
     removeCollectionConfirm:
       "このコレクションを削除しますか？ライブラリの漫画は保存されたままです。",
@@ -464,6 +465,7 @@ export const mobileStringsJa: MobileStrings = {
     noPackageListings: "このソースはパッケージリストを公開していません。",
     noSourceHome: "利用可能なソースホームセクションはありません。",
     homeUnavailable: "ソースのホームを読み込めませんでした。再試行してください。",
+    homeSectionEmpty: "このセクションに表示できる項目はありません。",
     notFilter: "{{option}} を除外",
     sourceOperationTimedOut: "ソースの応答がタイムアウトしました。",
     openAllFilters: "すべてのソースフィルターを開く",

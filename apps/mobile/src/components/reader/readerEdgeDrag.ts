@@ -15,7 +15,11 @@ export type ReaderEdgeDragMetrics = {
 
 /** Sub-pixel scroll jitter that should not count as movement. */
 const READER_EDGE_DRAG_EPSILON = 1;
-const READER_UNSCROLLABLE_VERTICAL_DRAG_THRESHOLD = 32;
+/**
+ * Finger travel that proves an upward drag when the scroll offset itself cannot
+ * (an unscrollable chapter, or a caller that samples one offset for both ends).
+ */
+const READER_UPWARD_FINGER_DRAG_THRESHOLD = 32;
 
 /**
  * Detects the "dead wall" gesture: the reader is pinned against the end of the
@@ -56,15 +60,31 @@ export function isReaderAdvancePastEndDrag({
   // one-page chapter still has an end entrance without treating taps/jitter
   // as advancement. Paged mode already has a directional page-pan gesture.
   if (maxOffset <= 0) {
-    return (
-      pagedMode ||
-      (Number.isFinite(gestureDelta) &&
-        (gestureDelta ?? 0) <=
-          -READER_UNSCROLLABLE_VERTICAL_DRAG_THRESHOLD)
-    );
+    return pagedMode || isUpwardFingerDrag(gestureDelta);
   }
+  if (
+    startOffset < maxOffset - READER_EDGE_DRAG_EPSILON ||
+    endOffset < startOffset - READER_EDGE_DRAG_EPSILON
+  ) {
+    return false;
+  }
+  // Callers that sample a single live scroll offset for both ends (the stage's
+  // touch handler) cannot tell a tap apart from a drag into the wall: a chapter
+  // already resting at the bottom never moves either way. When such a caller
+  // supplies a finger delta, require a deliberate upward drag so finishing a
+  // chapter and tapping still reaches the chrome toggle instead of advancing.
+  if (
+    gestureDelta !== undefined &&
+    Math.abs(endOffset - startOffset) <= READER_EDGE_DRAG_EPSILON
+  ) {
+    return isUpwardFingerDrag(gestureDelta);
+  }
+  return true;
+}
+
+function isUpwardFingerDrag(gestureDelta: number | undefined): boolean {
   return (
-    startOffset >= maxOffset - READER_EDGE_DRAG_EPSILON &&
-    endOffset >= startOffset - READER_EDGE_DRAG_EPSILON
+    Number.isFinite(gestureDelta) &&
+    (gestureDelta ?? 0) <= -READER_UPWARD_FINGER_DRAG_THRESHOLD
   );
 }

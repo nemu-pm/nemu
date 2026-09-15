@@ -116,6 +116,75 @@ describe("reader end-of-chapter drag detection", () => {
     ).toBe(false);
   });
 
+  test("keeps a plain tap at the bottom of a scrollable chapter off the advance path", () => {
+    // The stage's touch handler samples one live offset for both ends, so a
+    // chapter resting at the bottom reports no movement for every touch-up.
+    expect(
+      isReaderAdvancePastEndDrag({
+        ...scrolling,
+        startOffset: 4200,
+        endOffset: 4200,
+        maxOffset: 4200,
+        gestureDelta: 0,
+      }),
+    ).toBe(false);
+    expect(
+      isReaderAdvancePastEndDrag({
+        ...scrolling,
+        startOffset: 4200,
+        endOffset: 4200,
+        maxOffset: 4200,
+        gestureDelta: -6,
+      }),
+    ).toBe(false);
+  });
+
+  test("advances when a drag past the bottom moves the finger upward", () => {
+    expect(
+      isReaderAdvancePastEndDrag({
+        ...scrolling,
+        startOffset: 4200,
+        endOffset: 4200,
+        maxOffset: 4200,
+        gestureDelta: -64,
+      }),
+    ).toBe(true);
+    // A downward drag at the bottom is a pull back toward readable content.
+    expect(
+      isReaderAdvancePastEndDrag({
+        ...scrolling,
+        startOffset: 4200,
+        endOffset: 4200,
+        maxOffset: 4200,
+        gestureDelta: 64,
+      }),
+    ).toBe(false);
+  });
+
+  test("keeps offset-only callers intact when the list bounces past the bottom", () => {
+    // `handleScrollEndDrag` reports a real drag's start and end offsets and
+    // supplies no finger delta; a pinned offset there is still a wall hit.
+    expect(
+      isReaderAdvancePastEndDrag({
+        ...scrolling,
+        startOffset: 4200,
+        endOffset: 4200,
+        maxOffset: 4200,
+      }),
+    ).toBe(true);
+    // Bounce moved the offset outward during the touch, which is directional
+    // on its own, so the finger delta does not have to clear the threshold.
+    expect(
+      isReaderAdvancePastEndDrag({
+        ...scrolling,
+        startOffset: 4200,
+        endOffset: 4260,
+        maxOffset: 4200,
+        gestureDelta: -4,
+      }),
+    ).toBe(true);
+  });
+
   test("requires a deliberate upward gesture on an unscrollable vertical stage", () => {
     expect(
       isReaderAdvancePastEndDrag({
