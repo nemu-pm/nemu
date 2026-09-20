@@ -13,7 +13,7 @@ export const mobileStringsEn: MobileStrings = {
     appIconLabel: "nemu app icon",
     close: "Close about nemu",
     description:
-      "nemu is a manga reader that lets you discover and read from your favorite online sources.",
+      "nemu is a cross-platform manga reader that lets you discover and read manga from various online sources.",
     openSourceCode: "Open nemu source code on GitHub",
     sourceCode: "Source Code",
     tagline: "魔法の漫画リーダー",

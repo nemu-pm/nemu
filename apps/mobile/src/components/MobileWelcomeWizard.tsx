@@ -19,7 +19,7 @@ import {
   NemuPressable,
   NemuButton,
   radius,
-  nemuBrandTextStyle,
+  createNemuBrandWordmarkStyle,
   nemuFontWeight,
   useNemuTheme,
 } from "@/design-system";
@@ -77,6 +77,8 @@ function formatLanguages(languages?: string[]): string | undefined {
 }
 
 const BRAND_TOKEN = "{{brand}}";
+// Shared with the wordmark tracking so both follow the same rendered size.
+const WELCOME_TITLE_FONT_SIZE = 24;
 
 /**
  * `welcome.title` is a per-locale template so each language decides where the
@@ -721,7 +723,7 @@ function MobileWelcomeWizardContent({
               <Text
                 style={[
                   styles.brandWord,
-                  nemuBrandTextStyle,
+                  createNemuBrandWordmarkStyle(WELCOME_TITLE_FONT_SIZE),
                   { color: tokens.primary },
                 ]}
               >
@@ -942,7 +944,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   welcomeTitle: {
-    fontSize: 24,
+    fontSize: WELCOME_TITLE_FONT_SIZE,
     lineHeight: 30,
     textAlign: "center",
   },

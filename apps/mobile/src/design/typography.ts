@@ -1,8 +1,13 @@
 import { Platform, StyleSheet, type TextStyle } from "react-native";
 
+import { nemuBrandLetterSpacing } from "@/lib/nemuBrandWordmark";
+
 export const NEMU_BRAND_FONT_FAMILY = Platform.select({
   // iOS resolves statically embedded fonts by their PostScript name, while
-  // Android uses the configured font filename as the family.
+  // Android uses the configured font filename as the family. The bundled
+  // subset is the weight-500 instance of Noto Serif JP — matching the web
+  // wordmark — but its name table still carries the ExtraLight source naming,
+  // so the PostScript name below reads lighter than the glyphs it selects.
   ios: "NotoSerifJP-ExtraLight",
   android: "NemuBrand",
   default: "serif",
@@ -89,6 +94,13 @@ export const nemuText = StyleSheet.create({
   },
 });
 
-export const nemuBrandTextStyle = {
-  fontFamily: NEMU_BRAND_FONT_FAMILY,
-} satisfies Pick<TextStyle, "fontFamily">;
+// Every wordmark goes through this helper so the web tracking travels with the
+// font family and no call site can render the brand without it.
+export function createNemuBrandWordmarkStyle(
+  fontSize: number,
+): Pick<TextStyle, "fontFamily" | "letterSpacing"> {
+  return {
+    fontFamily: NEMU_BRAND_FONT_FAMILY,
+    letterSpacing: nemuBrandLetterSpacing(fontSize),
+  };
+}

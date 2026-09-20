@@ -9,7 +9,7 @@ export {
   type NemuTone,
 } from "@/design/tokens";
 export {
-  nemuBrandTextStyle,
+  createNemuBrandWordmarkStyle,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
   nemuText,

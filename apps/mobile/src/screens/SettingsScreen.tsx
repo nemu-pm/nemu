@@ -83,7 +83,7 @@ import {
   NemuText,
   PageScaffold,
   radius,
-  nemuBrandTextStyle,
+  createNemuBrandWordmarkStyle,
   nemuColorWithAlpha,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
@@ -192,6 +192,8 @@ import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 
 const EMPTY_SOURCE_SETTINGS: SourcePackageSetting[] = [];
+// Shared with the wordmark tracking so both follow the same rendered size.
+const ABOUT_ROW_FONT_SIZE = 14;
 
 type SettingsConfirmation =
   | { type: "uninstall-source"; source: InstalledSource; name: string }
@@ -1337,7 +1339,12 @@ function AboutSettingsRow({
           style={[styles.aboutTitle, { color: tokens.foreground }]}
         >
           {strings.settings.aboutNemuBeforeBrand}
-          <NemuText style={[nemuBrandTextStyle, { color: tokens.primary }]}>
+          <NemuText
+            style={[
+              createNemuBrandWordmarkStyle(ABOUT_ROW_FONT_SIZE),
+              { color: tokens.primary },
+            ]}
+          >
             nemu
           </NemuText>
           {strings.settings.aboutNemuAfterBrand}
@@ -3365,7 +3372,7 @@ const styles = StyleSheet.create({
   aboutTitle: {
     flex: 1,
     minWidth: 0,
-    fontSize: 14,
+    fontSize: ABOUT_ROW_FONT_SIZE,
     lineHeight: 18,
     fontWeight: nemuFontWeight.medium,
   },
