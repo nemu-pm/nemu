@@ -14,7 +14,7 @@ export const mobileStringsZh: MobileStrings = {
     close: "关闭关于 nemu",
     description:
       "nemu 是一款跨平台漫画阅读器，让你可以从各种来源发现和阅读漫画。",
-    openSourceCode: "在 GitHub 打开 Nemu 源代码",
+    openSourceCode: "在 GitHub 打开 nemu 源代码",
     sourceCode: "源代码",
     tagline: "魔法の漫画リーダー",
   },
@@ -41,7 +41,7 @@ export const mobileStringsZh: MobileStrings = {
     new: "新",
     openSettings: "打开设置",
     pageNotFound: "页面不存在",
-    pageNotFoundDescription: "此链接没有对应的 Nemu 页面。",
+    pageNotFoundDescription: "此链接没有对应的 nemu 页面。",
     remove: "移除",
     retry: "重试",
     save: "保存",
@@ -51,12 +51,12 @@ export const mobileStringsZh: MobileStrings = {
     sourceDisabled: "源已停用",
     sourceDisabledAction: "打开源设置",
     sourceDisabledDescription:
-      "此源已停用，Nemu 不会再从中加载新内容。请在“设置 › 源”中重新启用。",
+      "此源已停用，nemu 不会再从中加载新内容。请在“设置 › 源”中重新启用。",
     sourceError: "源错误",
     sourceErrorDescription: "此源无法完成该请求。请稍后重试。",
     sourceNetworkError: "网络错误",
     sourceNetworkErrorDescription:
-      "Nemu 无法连接到此源。请检查网络连接后重试。",
+      "nemu 无法连接到此源。请检查网络连接后重试。",
     sourceRuntimeUnavailable: "源运行时不可用",
     sourceRuntimeUnavailableDescription:
       "当前构建还不能运行已安装的源包。当前 React Native JavaScript 引擎未提供这些源所需的完整 WebAssembly 运行时。",
@@ -85,7 +85,7 @@ export const mobileStringsZh: MobileStrings = {
     copyFailed: "无法复制错误日志。",
     copyLog: "复制日志",
     description:
-      "Nemu 遇到了意外的移动端运行时错误。请重试此页面，或复制日志用于调试。",
+      "nemu 遇到了意外的移动端运行时错误。请重试此页面，或复制日志用于调试。",
     detailsLabel: "详情",
     messageLabel: "消息",
     retry: "重试",
@@ -132,9 +132,9 @@ export const mobileStringsZh: MobileStrings = {
     searchRegistries: "搜索源仓库",
     sourcesUnavailable: "源不可用",
     warningAuthentication:
-      "此源需要登录或身份验证。在当前版本的 Nemu 中可能无法正常使用。",
+      "此源需要登录或身份验证。在当前版本的 nemu 中可能无法正常使用。",
     warningCloudflare:
-      "此源有 Cloudflare 保护。Nemu 会使用内置原生网络能力，并在需要时显示验证窗口。",
+      "此源有 Cloudflare 保护。nemu 会使用内置原生网络能力，并在需要时显示验证窗口。",
     warningTitle: "提示",
   },
   nav: {
@@ -176,7 +176,7 @@ export const mobileStringsZh: MobileStrings = {
     title: "欢迎使用 {{brand}}",
   },
   library: {
-    addCompatibleSource: "添加兼容源后即可开始构建你的 Nemu 书架。",
+    addCompatibleSource: "添加兼容源后即可开始构建你的 nemu 书架。",
     addBooksAction: "添加书籍",
     addBooksDescription: "选择哪些书架作品属于 {{name}}。",
     addBooksEmpty: "书架还是空的。先添加漫画，再填充这个收藏。",
@@ -614,7 +614,7 @@ export const mobileStringsZh: MobileStrings = {
     pluginJapaneseLearningCopySelection: "复制",
     pluginJapaneseLearningCopyWord: "复制",
     pluginJapaneseLearningDescription:
-      "检测漫画页面中的句子，并与 Nemu 一起学习日语。",
+      "检测漫画页面中的句子，并与 nemu 一起学习日语。",
     pluginJapaneseLearningDetectText: "检测文字",
     pluginJapaneseLearningDetectingText: "正在检测文字",
     pluginJapaneseLearningDetection: "检测",
@@ -634,15 +634,15 @@ export const mobileStringsZh: MobileStrings = {
       "仅显示置信度高于此阈值的检测结果",
     pluginJapaneseLearningName: "日语学习",
     pluginJapaneseLearningChatFailed: "Nemu Chat 失败。",
-    pluginJapaneseLearningChatEmptyTitle: "嗨！我是 Nemu",
+    pluginJapaneseLearningChatEmptyTitle: "嗨！我是 nemu",
     pluginJapaneseLearningChatEmptyDescription:
       "点击漫画对话框，问我关于词汇、语法或意思的问题吧！",
-    pluginJapaneseLearningChatHint: "检测文字后，让 Nemu 解释当前页面。",
+    pluginJapaneseLearningChatHint: "检测文字后，让 nemu 解释当前页面。",
     pluginJapaneseLearningChatInputPlaceholder: "输入消息",
     pluginJapaneseLearningChatRead: "已读",
     pluginJapaneseLearningChatResponse: "Nemu Chat",
     pluginJapaneseLearningChatSend: "发送",
-    pluginJapaneseLearningChatThinking: "Nemu 正在思考",
+    pluginJapaneseLearningChatThinking: "nemu 正在思考",
     pluginJapaneseLearningChatToday: "今天",
     pluginJapaneseLearningLineAccessibility: "选择检测到的文本行：{{text}}",
     pluginJapaneseLearningNemuChat: "Nemu Chat",
@@ -655,7 +655,7 @@ export const mobileStringsZh: MobileStrings = {
     pluginJapaneseLearningOcrUnavailableTitle: "文字识别暂时不可用",
     pluginJapaneseLearningResponseLanguage: "回复语言",
     pluginJapaneseLearningResponseLanguageDescription:
-      "选择 Nemu 回复时使用的首选语言",
+      "选择 nemu 回复时使用的首选语言",
     pluginJapaneseLearningSelectedText: "已选文本",
     pluginJapaneseLearningSignInRequired: "登录后可使用 Nemu Chat。",
     pluginJapaneseLearningSourceText: "源文字",
@@ -798,7 +798,7 @@ export const mobileStringsZh: MobileStrings = {
     clearAllCaches: "清除全部缓存",
     clearCloudData: "同时删除云端数据",
     clearCloudDataDescription:
-      "从你的 Nemu 账号移除已同步的书架、收藏和阅读进度。",
+      "从你的 nemu 账号移除已同步的书架、收藏和阅读进度。",
     cloudSync: "云同步",
     cloudSyncCheckingSession: "正在检查云会话",
     cloudSyncContinueWith: "通过 {{provider}} 继续",
@@ -820,10 +820,10 @@ export const mobileStringsZh: MobileStrings = {
     cloudSyncStillTooLarge: "账号快照仍超过此版本的安全上限。",
     cloudSyncPaused: "云同步已暂停",
     cloudSyncPausedDetail:
-      "该账号已超过 Nemu 的安全快照上限。未完整的快照没有被应用；本机和云端数据均未删除。",
+      "该账号已超过 nemu 的安全快照上限。未完整的快照没有被应用；本机和云端数据均未删除。",
     cloudSyncTransportStalled: "同步服务未连接",
     cloudSyncTransportStalledDetail:
-      "账号已登录，但 Nemu 无法连接到同步服务。请检查网络后重试；你的账号数据不会丢失。",
+      "账号已登录，但 nemu 无法连接到同步服务。请检查网络后重试；你的账号数据不会丢失。",
     syncProgressTitle: "正在同步账号数据…",
     syncProgressLibraryCountOne: "{{count}} 本漫画",
     syncProgressLibraryCountOther: "{{count}} 本漫画",
@@ -833,10 +833,10 @@ export const mobileStringsZh: MobileStrings = {
     syncProgressCompletedLibraryOnly: "已同步 {{library}}。",
     cloudSyncStorageUnavailable: "云同步存储不可用",
     cloudSyncStorageUnavailableDetail:
-      "Nemu 无法读取该账号的本地存储，因此云同步已暂停。没有应用任何云端快照。",
+      "nemu 无法读取该账号的本地存储，因此云同步已暂停。没有应用任何云端快照。",
     cloudSyncAuthenticationNetworkUnavailable: "身份验证需要网络连接。",
     cloudSyncAuthenticationStorageUnavailable:
-      "Nemu 无法在此设备上安全保存登录信息。请检查设备存储后重试。",
+      "nemu 无法在此设备上安全保存登录信息。请检查设备存储后重试。",
     cloudSyncSignInFailed: "登录失败。",
     cloudSyncSignInPrompt: "登录后可在设备间同步书架和阅读进度。",
     cloudSyncSignedIn: "已登录",
@@ -849,7 +849,7 @@ export const mobileStringsZh: MobileStrings = {
     cloudSyncUnavailableDetail: "此构建不支持云同步。",
     localDataCleanupTitle: "完成移除本机数据",
     localDataCleanupDescription:
-      "你已退出登录。Nemu 完成从此设备移除账号数据前，这些数据会保持隐藏。",
+      "你已退出登录。nemu 完成从此设备移除账号数据前，这些数据会保持隐藏。",
     dataManagement: "数据管理",
     dataManagementDescription: "缓存和本机设备存储",
     editReaderPluginSettings: "编辑 {{name}} 的设置",
@@ -954,7 +954,7 @@ export const mobileStringsZh: MobileStrings = {
     settingsActionFailedDetail: "无法在此设备上保存此设置更改。",
     theme: "主题",
     themeDark: "深色",
-    themeDescription: "跟随系统或选择固定的 Nemu 主题",
+    themeDescription: "跟随系统或选择固定的 nemu 主题",
     themeLight: "浅色",
     themeSystem: "跟随系统",
     uninstallSource: "卸载源",

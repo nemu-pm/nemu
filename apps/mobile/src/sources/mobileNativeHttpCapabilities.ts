@@ -14,7 +14,7 @@ type MobileNativeHttpModuleCapabilities = {
 };
 
 const STALE_NATIVE_HTTP_DETAIL =
-  "The installed React Native source bridge is out of date. Rebuild or reinstall Nemu, then try the source again.";
+  "The installed React Native source bridge is out of date. Rebuild or reinstall nemu, then try the source again.";
 
 export function resolveMobileNativeHttpCapabilityStatus(
   reportedStatus: NemuAidokuHttpClientStatus,

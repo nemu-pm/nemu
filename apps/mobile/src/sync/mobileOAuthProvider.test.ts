@@ -44,11 +44,11 @@ describe("normalizeMobileOAuthProvider", () => {
           signInFailed: "fallback",
           networkUnavailable: "offline",
           storageUnavailable:
-            "Nemu could not securely save this sign-in. Check device storage and try again.",
+            "nemu could not securely save this sign-in. Check device storage and try again.",
         },
       ),
     ).toBe(
-      "Nemu could not securely save this sign-in. Check device storage and try again.",
+      "nemu could not securely save this sign-in. Check device storage and try again.",
     );
   });
 

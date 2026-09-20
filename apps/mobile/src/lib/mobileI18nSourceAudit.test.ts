@@ -12,7 +12,6 @@ const USER_FACING_ATTRIBUTES = new Set([
 
 const ALLOWED_LITERAL_VALUES = new Set([
   "nemu",
-  "Nemu",
   "Nemu Agent",
   "v",
   "github.com/nemu-pm/nemu",

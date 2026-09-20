@@ -16,7 +16,7 @@ export function JapaneseLearningNemuAvatar({
         borderRadius: dimension / 2,
         resizeMode: "cover",
       }}
-      accessibilityLabel="Nemu"
+      accessibilityLabel="nemu"
     />
   );
 }

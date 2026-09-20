@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Nemu",
+    "name": "nemu",
     "slug": "nemu-mobile",
     "owner": "nemu-pm",
     "scheme": "nemu",
@@ -58,7 +58,7 @@
             ]
           }
         },
-        "NSPhotoLibraryUsageDescription": "Nemu lets you choose images from your photo library when updating manga covers."
+        "NSPhotoLibraryUsageDescription": "nemu lets you choose images from your photo library when updating manga covers."
       }
     },
     "android": {
@@ -97,7 +97,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Nemu lets you choose images from your photo library when updating manga covers.",
+          "photosPermission": "nemu lets you choose images from your photo library when updating manga covers.",
           "cameraPermission": false,
           "microphonePermission": false
         }

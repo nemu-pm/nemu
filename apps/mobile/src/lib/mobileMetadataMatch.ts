@@ -983,7 +983,7 @@ async function fetchMangaUpdatesJson<T>(
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
     headers.set("Content-Type", "application/json");
-    headers.set("x-proxy-user-agent", "Mozilla/5.0 (compatible; Nemu/1.0)");
+    headers.set("x-proxy-user-agent", "Mozilla/5.0 (compatible; nemu/1.0)");
 
     try {
       const response = await options.fetcher!(candidate, {
