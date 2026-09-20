@@ -7,9 +7,9 @@
 - **Review again by:** 2026-09-28
 - **Status:** Remediated locally while no patched upstream release exists.
 
-Expo and React Native bring `image-size@1.2.1` into the Metro build toolchain. It processes developer-controlled repository assets while bundling; it is not part of Nemu's mobile runtime and does not parse end-user uploads. Every published `image-size` version is still included in the advisory ranges, so a normal dependency upgrade cannot resolve these findings.
+Expo and React Native bring `image-size@1.2.1` into the Metro build toolchain. It processes developer-controlled repository assets while bundling; it is not part of nemu's mobile runtime and does not parse end-user uploads. Every published `image-size` version is still included in the advisory ranges, so a normal dependency upgrade cannot resolve these findings.
 
-Nemu applies [`patches/image-size@1.2.1.patch`](../patches/image-size@1.2.1.patch). The patch rejects undersized ISO BMFF boxes and malformed ICNS entry lengths before a parser can repeat without advancing. `apps/mobile/src/lib/imageSizeSecurity.test.ts` covers the two non-advancing parser paths and a valid ICNS control case. CI may ignore only the two advisory IDs above after that regression test passes; all other audit findings remain blocking.
+nemu applies [`patches/image-size@1.2.1.patch`](../patches/image-size@1.2.1.patch). The patch rejects undersized ISO BMFF boxes and malformed ICNS entry lengths before a parser can repeat without advancing. `apps/mobile/src/lib/imageSizeSecurity.test.ts` covers the two non-advancing parser paths and a valid ICNS control case. CI may ignore only the two advisory IDs above after that regression test passes; all other audit findings remain blocking.
 
 Remove the patch and any matching audit exceptions as soon as Expo, React Native, Metro, or `image-size` provides a compatible published fix. Re-run the mobile tests, exports, native builds, and an unfiltered production audit before closing this entry.
 

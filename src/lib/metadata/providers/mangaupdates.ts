@@ -20,7 +20,7 @@ async function muFetch(url: string, options: RequestInit = {}): Promise<Response
     headers: {
       "Content-Type": "application/json",
       "Accept": "application/json",
-      "x-proxy-user-agent": "Mozilla/5.0 (compatible; Nemu/1.0)",
+      "x-proxy-user-agent": "Mozilla/5.0 (compatible; nemu/1.0)",
       ...(options.headers || {}),
     },
   });

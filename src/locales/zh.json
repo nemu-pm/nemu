@@ -416,7 +416,7 @@
     "alsoDeleteCloud": "同时删除云端数据",
     "alsoDeleteCloudDescription": "永久删除您同步的书架和阅读进度。此操作无法撤消。",
     "clearing": "清除中...",
-    "failed": "无法完成所有数据的清除。部分本地数据可能已被删除。请关闭其他 Nemu 标签页后重试。"
+    "failed": "无法完成所有数据的清除。部分本地数据可能已被删除。请关闭其他 nemu 标签页后重试。"
   },
   "signIn": {
     "title": "登录",
@@ -466,10 +466,10 @@
     "popupBlocked": "浏览器阻止了登录窗口。",
     "openLoginFirst": "请先打开授权页面，以开始可验证的登录尝试。",
     "callbackStateMismatch": "此回调属于另一次登录尝试，已被拒绝。请重新打开登录页面并粘贴新的回调。",
-    "callbackStateMissing": "请粘贴完整的回调 URL：Nemu 需要其中的 state 值来验证本次登录尝试。",
+    "callbackStateMissing": "请粘贴完整的回调 URL：nemu 需要其中的 state 值来验证本次登录尝试。",
     "tokenExchangeFailed": "无法将授权码换取令牌。",
     "proxyUpgradeRequired": "安全登录中继不可用或需要更新。授权码尚未发送，请稍后重试。",
-    "oauthRelayDisclosure": "此次 PKCE 登录会通过 Nemu 的安全强化中继，将授权码和一次性校验值发送给提供商。当前本地 Agent 尚无法强制执行这些 OAuth 安全措施，因此不会用于此流程。",
+    "oauthRelayDisclosure": "此次 PKCE 登录会通过 nemu 的安全强化中继，将授权码和一次性校验值发送给提供商。当前本地 Agent 尚无法强制执行这些 OAuth 安全措施，因此不会用于此流程。",
     "logoutConfirm": "要从此源登出吗？",
     "notificationFailed": "应用源设置操作失败。",
     "moveUp": "上移",
