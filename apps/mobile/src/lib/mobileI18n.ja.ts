@@ -940,7 +940,6 @@ export const mobileStringsJa: MobileStrings = {
     dataManagement: "データ管理",
     dataManagementDescription: "キャッシュとローカルデバイスストレージ",
     editReaderPluginSettings: "{{name}} の設定を編集",
-    editSourceSettings: "{{name}} の設定を編集",
     importSource: "AIX をインポート",
     importingSource: "インポート中…",
     importSourceCardTitle: "AIX パッケージを読み込む",
@@ -1063,9 +1062,8 @@ export const mobileStringsJa: MobileStrings = {
       "{{name}} をこのデバイスから削除しますか？ライブラリエントリは保持されますが、ライブブラウズには再インストールが必要です。",
     uninstallSourceNamed: "{{name}} をアンインストール",
     sourceDisabledBadge: "無効",
-    sourceDisabledSubtitle:
-      "無効です。ライブラリのリンクと設定は保持され、ブラウズと検索はこのソースをスキップします。",
     toggleSourceEnabled: "{{name}} を有効化",
+    sourceActions: "{{name}} のその他の操作",
     sourceDisabledToast: "{{name}} を無効にしました",
     sourceEnabledToast: "{{name}} を有効にしました",
   },

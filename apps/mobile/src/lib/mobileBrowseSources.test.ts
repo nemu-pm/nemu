@@ -3,6 +3,7 @@ import type { InstalledSource } from "@/data/schema";
 import type { MobileRegistrySource } from "@/sources/aidokuRegistry";
 import {
   buildMobileInstalledSourceKeySet,
+  buildMobileSourceQuickActions,
   canClearMobileBrowseSourceQuery,
   canSelectMobileBrowseAllLanguages,
   canStartMobileSourceInstall,
@@ -16,6 +17,7 @@ import {
   getMobileSourceInstallResultAction,
   getMobileSourceWarningAccessibilityLabel,
   getMobileSourceWarningMessages,
+  resolveMobileSourceHomepageUrl,
   groupMobileSourcesByLanguage,
   isMobileUnsupportedInstalledSource,
   mergeMobileInstalledSourceRegistryMetadata,
@@ -603,6 +605,84 @@ describe("mobile browse source filtering", () => {
   test("opens a source homepage without waiting for the quick actions", () => {
     // Leaving the app needs no sheet handoff, so this row stays immediate.
     expect(getMobileSourceQuickActionHandoff("openInBrowser")).toBe("open-url");
+  });
+
+  test("offers the same quick action rows, in order, on every surface", () => {
+    expect(
+      buildMobileSourceQuickActions({
+        canOpenSettings: true,
+        hasUpdate: true,
+        hasHomepage: true,
+      }).map((action) => action.id),
+    ).toEqual(["settings", "update", "openInBrowser", "uninstall"]);
+  });
+
+  test("drops the update row where there is no update to name", () => {
+    // Settings refreshes sources in the background and holds no per-source
+    // pending update, so it builds the sheet with `hasUpdate: false`.
+    expect(
+      buildMobileSourceQuickActions({
+        canOpenSettings: true,
+        hasUpdate: false,
+        hasHomepage: true,
+      }).map((action) => action.id),
+    ).toEqual(["settings", "openInBrowser", "uninstall"]);
+  });
+
+  test("drops the homepage row for a source without a usable link", () => {
+    expect(
+      buildMobileSourceQuickActions({
+        canOpenSettings: true,
+        hasUpdate: false,
+        hasHomepage: false,
+      }).map((action) => action.id),
+    ).toEqual(["settings", "uninstall"]);
+  });
+
+  test("drops the settings row for a source the user switched off", () => {
+    // A disabled source is not runnable: its settings form would look live
+    // while every apply path that reaches the source is refused, and Settings
+    // force-closes that sheet the moment a source is disabled.
+    expect(
+      buildMobileSourceQuickActions({
+        canOpenSettings: false,
+        hasUpdate: false,
+        hasHomepage: true,
+      }).map((action) => action.id),
+    ).toEqual(["openInBrowser", "uninstall"]);
+    expect(
+      buildMobileSourceQuickActions({
+        canOpenSettings: false,
+        hasUpdate: false,
+        hasHomepage: false,
+      }).map((action) => action.id),
+    ).toEqual(["uninstall"]);
+  });
+
+  test("marks only uninstall as destructive", () => {
+    expect(
+      buildMobileSourceQuickActions({
+        canOpenSettings: true,
+        hasUpdate: true,
+        hasHomepage: true,
+      })
+        .filter((action) => action.destructive)
+        .map((action) => action.id),
+    ).toEqual(["uninstall"]);
+  });
+
+  test("resolves the first package url that is safe to open", () => {
+    // Package metadata is untrusted source output: custom schemes never reach
+    // `Linking`, and a source with no web link gets no homepage row at all.
+    expect(
+      resolveMobileSourceHomepageUrl([
+        "nemu://settings",
+        "javascript:alert(1)",
+        "https://example.test/source",
+      ]),
+    ).toBe("https://example.test/source");
+    expect(resolveMobileSourceHomepageUrl(["nemu://settings"])).toBeNull();
+    expect(resolveMobileSourceHomepageUrl(undefined)).toBeNull();
   });
 
   test("routes every quick action row to exactly one handoff", () => {

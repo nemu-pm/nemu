@@ -925,7 +925,6 @@ export const mobileStringsEn: MobileStrings = {
     dataManagement: "Data Management",
     dataManagementDescription: "Cache and local device storage",
     editReaderPluginSettings: "Edit settings for {{name}}",
-    editSourceSettings: "Edit settings for {{name}}",
     importSource: "Import AIX",
     importingSource: "Importing…",
     importSourceCardTitle: "Import an AIX package",
@@ -1045,9 +1044,8 @@ export const mobileStringsEn: MobileStrings = {
       "Remove {{name}} from this device? Library entries remain, but live source browsing requires installing it again.",
     uninstallSourceNamed: "Uninstall {{name}}",
     sourceDisabledBadge: "Disabled",
-    sourceDisabledSubtitle:
-      "Disabled. Library links and settings are kept; browsing and search skip this source.",
     toggleSourceEnabled: "Enable {{name}}",
+    sourceActions: "More actions for {{name}}",
     sourceDisabledToast: "{{name}} disabled",
     sourceEnabledToast: "{{name}} enabled",
   },
