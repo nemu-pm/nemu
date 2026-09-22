@@ -161,7 +161,7 @@ describe("mobile source error presentation", () => {
     expect(presentation.kind).toBe("network");
     expect(presentation.title).toBe("Network error");
     expect(presentation.detail).toBe(
-      "Nemu could not reach this source. Check your connection and try again.",
+      "nemu could not reach this source. Check your connection and try again.",
     );
     expect(
       getMobileSourceErrorRecoveryAction(presentation, getMobileStrings("en")),
@@ -256,7 +256,7 @@ describe("mobile source error presentation", () => {
 
   test("classifies a stale installed native bridge as a runtime blocker", () => {
     const error = new Error(
-      "The installed React Native source bridge is out of date. Rebuild or reinstall Nemu.",
+      "The installed React Native source bridge is out of date. Rebuild or reinstall nemu.",
     );
     const presentation = getMobileSourceErrorPresentation(
       error,

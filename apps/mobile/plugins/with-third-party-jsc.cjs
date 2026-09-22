@@ -784,7 +784,7 @@ function patchPodfile(contents) {
   next = replaceOptional(
     next,
     new RegExp(
-      `\\ndef ${helperName}\\(installer(?:, ios_deployment_target)?\\)[\\s\\S]*?\\nend\\n+(?=target 'Nemu' do)`,
+      `\\ndef ${helperName}\\(installer(?:, ios_deployment_target)?\\)[\\s\\S]*?\\nend\\n+(?=target '[^']+' do)`,
     ),
     "\n",
     "drop a previously generated third-party JSC build-settings helper",

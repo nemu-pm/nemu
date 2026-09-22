@@ -10,6 +10,7 @@ import {
   getMobileInstalledSourceRegistryKeys,
   mobileInstalledSourceMatchesRoute,
 } from "./mobileInstalledSourceKeys";
+import { normalizeMobileSourceExternalUrl } from "./mobileSourceExternalUrl";
 import {
   compareMobileLanguageCodes,
   getLanguagePriorityOrder,
@@ -229,6 +230,70 @@ export function getMobileSourceQuickActionHandoff(
     case "openInBrowser":
       return "open-url";
   }
+}
+
+/**
+ * The first package URL that is safe to hand to `Linking`. Package metadata is
+ * untrusted source output, so anything that is not an ordinary http(s) link is
+ * skipped rather than dispatched.
+ */
+export function resolveMobileSourceHomepageUrl(
+  urls: readonly string[] | undefined,
+): string | null {
+  for (const url of urls ?? []) {
+    const normalized = normalizeMobileSourceExternalUrl(url);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+/** A quick-action row's identity, glyph and tone — everything but the copy. */
+export type MobileSourceQuickActionDescriptor = {
+  id: MobileSourceQuickActionId;
+  icon:
+    | "options-outline"
+    | "arrow-up-circle-outline"
+    | "open-outline"
+    | "trash-outline";
+  destructive?: boolean;
+};
+
+/**
+ * The installed-source quick-action rows, in the single order every surface
+ * shows them. Browse opens this sheet from a long-pressed source card and
+ * Settings from the row's overflow button, so the row set is decided here
+ * instead of being spelled out twice and drifting apart.
+ *
+ * `canOpenSettings` is false for a source the user switched off: it is not
+ * runnable, so its settings form would look live while every apply path that
+ * reaches the source is refused with `source-disabled`. Settings also closes
+ * an open settings sheet the moment a source is disabled, and this keeps the
+ * overflow menu from reopening what that just closed.
+ *
+ * Settings has no per-source update state — it auto-updates sources in the
+ * background — so it passes `hasUpdate: false` and that row drops out.
+ */
+export function buildMobileSourceQuickActions({
+  canOpenSettings,
+  hasUpdate,
+  hasHomepage,
+}: {
+  canOpenSettings: boolean;
+  hasUpdate: boolean;
+  hasHomepage: boolean;
+}): MobileSourceQuickActionDescriptor[] {
+  const actions: MobileSourceQuickActionDescriptor[] = [];
+  if (canOpenSettings) {
+    actions.push({ id: "settings", icon: "options-outline" });
+  }
+  if (hasUpdate) {
+    actions.push({ id: "update", icon: "arrow-up-circle-outline" });
+  }
+  if (hasHomepage) {
+    actions.push({ id: "openInBrowser", icon: "open-outline" });
+  }
+  actions.push({ id: "uninstall", icon: "trash-outline", destructive: true });
+  return actions;
 }
 
 export function getMobileSourceWarningMessages(

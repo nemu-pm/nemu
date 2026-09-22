@@ -1,6 +1,6 @@
 # nemu
 
-Nemu is a content reader built around pluggable source runtimes, local-first data storage, and optional Convex-backed sync.
+nemu is a content reader built around pluggable source runtimes, local-first data storage, and optional Convex-backed sync.
 
 ## Architecture
 
@@ -38,7 +38,7 @@ Source implementations live under `src/lib/sources/`.
 - `tachiyomi/`: Tachiyomi local registry support for development workflows.
 - `registry.ts`: `RegistryManager` for built-in and user-added registries.
 
-Source support is intentionally limited. Nemu does not assume every upstream Aidoku source or Tachiyomi extension can run in the browser runtime. Aidoku is generally easier to support; Tachiyomi is much more constrained because some extensions depend on polyfills or platform APIs that do not map cleanly to a browser environment.
+Source support is intentionally limited. nemu does not assume every upstream Aidoku source or Tachiyomi extension can run in the browser runtime. Aidoku is generally easier to support; Tachiyomi is much more constrained because some extensions depend on polyfills or platform APIs that do not map cleanly to a browser environment.
 
 The registry manager currently wires in:
 
@@ -50,7 +50,7 @@ See `docs/sources.md` for compatibility notes, build-report references, and the 
 
 ## Sync Model
 
-Nemu is local-first.
+nemu is local-first.
 
 - Local reads and writes go through profile-scoped services created by `createServicesContainer(...)`.
 - `DataServicesProvider` owns the active services container for the current profile.

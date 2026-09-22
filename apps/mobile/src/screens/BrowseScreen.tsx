@@ -70,6 +70,7 @@ import {
 import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
 import {
   buildMobileInstalledSourceKeySet,
+  buildMobileSourceQuickActions,
   canSelectMobileBrowseAllLanguages,
   canStartMobileSourceInstall,
   filterMobileAvailableSources,
@@ -83,13 +84,13 @@ import {
   isMobileUnsupportedInstalledSource,
   filterEnabledMobileInstalledSources,
   mergeMobileInstalledSourceRegistryMetadata,
+  resolveMobileSourceHomepageUrl,
   shouldRenderMobileBrowseSkeleton,
   shouldReopenMobileAddSourceSheetAfterInstall,
   type MobileSourceQuickActionId,
 } from "@/lib/mobileBrowseSources";
 import { getMobileInstalledSourceRegistryRef } from "@/lib/mobileInstalledSourceKeys";
 import { getMobileInstalledSourceName } from "@/lib/mobileInstalledSourcePresentation";
-import { normalizeMobileSourceExternalUrl } from "@/lib/mobileSourceExternalUrl";
 import {
   buildMobileSourceIconIndex,
   resolveMobileInstalledSourceIconUri,
@@ -874,13 +875,11 @@ export function BrowseScreen() {
         : null,
     [available.data, quickActionSource],
   );
-  const quickActionHomepage = useMemo(() => {
-    for (const url of quickActionSource?.packageMetadata?.urls ?? []) {
-      const normalized = normalizeMobileSourceExternalUrl(url);
-      if (normalized) return normalized;
-    }
-    return null;
-  }, [quickActionSource]);
+  const quickActionHomepage = useMemo(
+    () =>
+      resolveMobileSourceHomepageUrl(quickActionSource?.packageMetadata?.urls),
+    [quickActionSource],
+  );
   // Passing the raw catalog rebuilt the icon index on every render of this
   // screen; the same join Settings keeps memoized.
   const sourceIconIndex = useMemo(
@@ -1487,43 +1486,37 @@ export function BrowseScreen() {
       }
     }
   };
-  const quickActions = ((): QuickAction<MobileSourceQuickActionId>[] => {
-    if (!quickActionSource) return [];
-    const actions: QuickAction<MobileSourceQuickActionId>[] = [
-      {
-        id: "settings",
-        label: strings.settings.sourceSettingsDefaultTitle,
-        icon: "options-outline",
-        onPress: () => runQuickAction("settings"),
-      },
-    ];
-    if (quickActionUpdate) {
-      actions.push({
-        id: "update",
-        label: formatMobileString(strings.browse.updateSourceToVersion, {
-          version: quickActionUpdate.version,
-        }),
-        icon: "arrow-up-circle-outline",
-        onPress: () => runQuickAction("update"),
-      });
+  const quickActionLabel = (id: MobileSourceQuickActionId): string => {
+    switch (id) {
+      case "settings":
+        return strings.settings.sourceSettingsDefaultTitle;
+      case "update":
+        return formatMobileString(strings.browse.updateSourceToVersion, {
+          version: quickActionUpdate?.version ?? "",
+        });
+      case "openInBrowser":
+        return strings.browse.openSourceHomepage;
+      case "uninstall":
+        return strings.common.uninstall;
     }
-    if (quickActionHomepage) {
-      actions.push({
-        id: "openInBrowser",
-        label: strings.browse.openSourceHomepage,
-        icon: "open-outline",
-        onPress: () => runQuickAction("openInBrowser"),
-      });
-    }
-    actions.push({
-      id: "uninstall",
-      label: strings.common.uninstall,
-      icon: "trash-outline",
-      destructive: true,
-      onPress: () => runQuickAction("uninstall"),
-    });
-    return actions;
-  })();
+  };
+  // Which rows this sheet offers, and in what order, is shared with Settings'
+  // copy of it; only the copy and the handlers are local.
+  const quickActions: QuickAction<MobileSourceQuickActionId>[] =
+    quickActionSource
+      ? buildMobileSourceQuickActions({
+          // `installedSources` runs through `filterEnabledMobileInstalledSources`,
+          // so a disabled install never gets a card to long-press here and this
+          // sheet only ever targets a runnable source.
+          canOpenSettings: true,
+          hasUpdate: quickActionUpdate !== null,
+          hasHomepage: quickActionHomepage !== null,
+        }).map((descriptor) => ({
+          ...descriptor,
+          label: quickActionLabel(descriptor.id),
+          onPress: () => runQuickAction(descriptor.id),
+        }))
+      : [];
 
 
   const nativeHeaderActions: NemuNativeHeaderAction[] = [

@@ -353,15 +353,15 @@ jobs:
       - name: Verify generated iOS privacy manifest
         working-directory: apps/mobile
         run: |
-          privacy_manifest="ios/Nemu/PrivacyInfo.xcprivacy"
+          privacy_manifest="ios/nemu/PrivacyInfo.xcprivacy"
           test -f "$privacy_manifest"
           plutil -convert xml1 -o /tmp/nemu-privacy-manifest.xml "$privacy_manifest"
           grep -Fq '<string>NSPrivacyAccessedAPICategoryUserDefaults</string>' /tmp/nemu-privacy-manifest.xml
           grep -Fq '<string>CA92.1</string>' /tmp/nemu-privacy-manifest.xml
-          plutil -extract UIBackgroundModes xml1 -o /tmp/nemu-background-modes.xml ios/Nemu/Info.plist
+          plutil -extract UIBackgroundModes xml1 -o /tmp/nemu-background-modes.xml ios/nemu/Info.plist
           grep -Fq '<string>processing</string>' /tmp/nemu-background-modes.xml
           ! grep -Fq '<string>audio</string>' /tmp/nemu-background-modes.xml
-          ! grep -Fq '<key>NSMicrophoneUsageDescription</key>' ios/Nemu/Info.plist
+          ! grep -Fq '<key>NSMicrophoneUsageDescription</key>' ios/nemu/Info.plist
       - name: Install CocoaPods
         working-directory: apps/mobile/ios
         run: pod install
@@ -407,8 +407,8 @@ jobs:
         working-directory: apps/mobile/ios
         run: |
           xcodebuild \
-            -workspace Nemu.xcworkspace \
-            -scheme Nemu \
+            -workspace nemu.xcworkspace \
+            -scheme nemu \
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
@@ -423,8 +423,8 @@ jobs:
         working-directory: apps/mobile/ios
         run: |
           xcodebuild \
-            -workspace Nemu.xcworkspace \
-            -scheme Nemu \
+            -workspace nemu.xcworkspace \
+            -scheme nemu \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \

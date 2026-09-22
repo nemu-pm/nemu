@@ -54,7 +54,7 @@ describe("mobile native HTTP capability negotiation", () => {
     });
     expect(status.detail).toContain("out of date");
     expect(() => assertMobileNativeHttpCapability(status)).toThrow(
-      "reinstall Nemu",
+      "reinstall nemu",
     );
   });
 

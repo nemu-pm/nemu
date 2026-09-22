@@ -14,7 +14,7 @@ export const mobileStringsJa: MobileStrings = {
     close: "nemu についてを閉じる",
     description:
       "nemuはクロスプラットフォーム対応の漫画リーダーです。さまざまなソースから漫画を発見して読むことができます。",
-    openSourceCode: "GitHub で Nemu のソースコードを開く",
+    openSourceCode: "GitHub で nemu のソースコードを開く",
     sourceCode: "ソースコード",
     tagline: "魔法の漫画リーダー",
   },
@@ -41,7 +41,7 @@ export const mobileStringsJa: MobileStrings = {
     new: "新規",
     openSettings: "設定を開く",
     pageNotFound: "ページが見つかりません",
-    pageNotFoundDescription: "このリンクに対応する画面が Nemu にありません。",
+    pageNotFoundDescription: "このリンクに対応する画面が nemu にありません。",
     remove: "削除",
     retry: "再試行",
     save: "保存",
@@ -51,13 +51,13 @@ export const mobileStringsJa: MobileStrings = {
     sourceDisabled: "ソースが無効になっています",
     sourceDisabledAction: "ソース設定を開く",
     sourceDisabledDescription:
-      "このソースは無効になっているため、Nemu は新しいコンテンツを読み込みません。設定 › ソース から有効にしてください。",
+      "このソースは無効になっているため、nemu は新しいコンテンツを読み込みません。設定 › ソース から有効にしてください。",
     sourceError: "ソースエラー",
     sourceErrorDescription:
       "このソースはリクエストを完了できませんでした。しばらくしてからもう一度お試しください。",
     sourceNetworkError: "ネットワークエラー",
     sourceNetworkErrorDescription:
-      "Nemu はこのソースに接続できませんでした。接続を確認してからもう一度お試しください。",
+      "nemu はこのソースに接続できませんでした。接続を確認してからもう一度お試しください。",
     sourceRuntimeUnavailable: "ソースランタイムを利用できません",
     sourceRuntimeUnavailableDescription:
       "このビルドではインストール済みソースパッケージをまだ実行できません。現在の React Native JavaScript エンジンには、これらのソースが必要とする完全な WebAssembly ランタイムがありません。",
@@ -89,7 +89,7 @@ export const mobileStringsJa: MobileStrings = {
     copyFailed: "エラーログをコピーできませんでした。",
     copyLog: "ログをコピー",
     description:
-      "Nemu で予期しないモバイル実行時エラーが発生しました。この画面を再試行するか、ログをコピーしてデバッグしてください。",
+      "nemu で予期しないモバイル実行時エラーが発生しました。この画面を再試行するか、ログをコピーしてデバッグしてください。",
     detailsLabel: "詳細",
     messageLabel: "メッセージ",
     retry: "再試行",
@@ -138,9 +138,9 @@ export const mobileStringsJa: MobileStrings = {
     searchRegistries: "ソースレジストリを検索",
     sourcesUnavailable: "ソースを利用できません",
     warningAuthentication:
-      "このソースはログインまたは認証が必要です。現在のバージョンの Nemu では正しく動作しない可能性があります。",
+      "このソースはログインまたは認証が必要です。現在のバージョンの nemu では正しく動作しない可能性があります。",
     warningCloudflare:
-      "このソースには Cloudflare 保護があります。Nemu は内蔵ネイティブ通信を使用し、必要に応じて検証ウィンドウを表示します。",
+      "このソースには Cloudflare 保護があります。nemu は内蔵ネイティブ通信を使用し、必要に応じて検証ウィンドウを表示します。",
     warningTitle: "注意",
   },
   nav: {
@@ -186,7 +186,7 @@ export const mobileStringsJa: MobileStrings = {
   },
   library: {
     addCompatibleSource:
-      "互換ソースを追加して Nemu ライブラリを作り始めましょう。",
+      "互換ソースを追加して nemu ライブラリを作り始めましょう。",
     addBooksAction: "本を追加",
     addBooksDescription:
       "{{name}} に含めるライブラリの本を選択してください。",
@@ -675,7 +675,7 @@ export const mobileStringsJa: MobileStrings = {
     pluginJapaneseLearningCopySelection: "コピー",
     pluginJapaneseLearningCopyWord: "コピー",
     pluginJapaneseLearningDescription:
-      "漫画ページの文を検出して、Nemu と一緒に日本語を学びましょう。",
+      "漫画ページの文を検出して、nemu と一緒に日本語を学びましょう。",
     pluginJapaneseLearningDetectText: "テキストを検出",
     pluginJapaneseLearningDetectingText: "テキストを検出中",
     pluginJapaneseLearningDetection: "検出",
@@ -702,12 +702,12 @@ export const mobileStringsJa: MobileStrings = {
     pluginJapaneseLearningChatEmptyDescription:
       "吹き出しをタップして、単語や文法、意味について聞いてね！",
     pluginJapaneseLearningChatHint:
-      "テキスト検出後、現在のページの説明を Nemu に聞けます。",
+      "テキスト検出後、現在のページの説明を nemu に聞けます。",
     pluginJapaneseLearningChatInputPlaceholder: "メッセージを入力",
     pluginJapaneseLearningChatRead: "既読",
     pluginJapaneseLearningChatResponse: "Nemu Chat",
     pluginJapaneseLearningChatSend: "送信",
-    pluginJapaneseLearningChatThinking: "Nemu が考えています",
+    pluginJapaneseLearningChatThinking: "nemu が考えています",
     pluginJapaneseLearningChatToday: "今日",
     pluginJapaneseLearningLineAccessibility: "検出された行を選択: {{text}}",
     pluginJapaneseLearningNemuChat: "Nemu Chat",
@@ -720,7 +720,7 @@ export const mobileStringsJa: MobileStrings = {
     pluginJapaneseLearningOcrUnavailableTitle: "文字認識を利用できません",
     pluginJapaneseLearningResponseLanguage: "応答言語",
     pluginJapaneseLearningResponseLanguageDescription:
-      "Nemu の応答に使う優先言語を選択",
+      "nemu の応答に使う優先言語を選択",
     pluginJapaneseLearningSelectedText: "選択したテキスト",
     pluginJapaneseLearningSignInRequired:
       "Nemu Chat を使うにはサインインしてください。",
@@ -879,7 +879,7 @@ export const mobileStringsJa: MobileStrings = {
     clearAllCaches: "すべてのキャッシュを消去",
     clearCloudData: "クラウドデータも削除",
     clearCloudDataDescription:
-      "Nemu アカウントから同期済みライブラリ、コレクション、進捗を削除します。",
+      "nemu アカウントから同期済みライブラリ、コレクション、進捗を削除します。",
     cloudSync: "クラウド同期",
     cloudSyncCheckingSession: "クラウドセッションを確認中",
     cloudSyncContinueWith: "{{provider}} で続ける",
@@ -904,10 +904,10 @@ export const mobileStringsJa: MobileStrings = {
       "アカウントのスナップショットは、このバージョンの安全上限を超えたままです。",
     cloudSyncPaused: "クラウド同期は一時停止中",
     cloudSyncPausedDetail:
-      "このアカウントは Nemu の安全なスナップショット上限を超えています。不完全なスナップショットは適用されず、ローカルとクラウドのデータも削除されていません。",
+      "このアカウントは nemu の安全なスナップショット上限を超えています。不完全なスナップショットは適用されず、ローカルとクラウドのデータも削除されていません。",
     cloudSyncTransportStalled: "同期サービスに接続できません",
     cloudSyncTransportStalledDetail:
-      "サインイン済みですが、Nemu が同期サービスに接続できません。ネットワークを確認して再試行してください。アカウントのデータは失われません。",
+      "サインイン済みですが、nemu が同期サービスに接続できません。ネットワークを確認して再試行してください。アカウントのデータは失われません。",
     syncProgressTitle: "アカウントデータを同期中…",
     syncProgressLibraryCountOne: "{{count}} 冊の漫画",
     syncProgressLibraryCountOther: "{{count}} 冊の漫画",
@@ -917,11 +917,11 @@ export const mobileStringsJa: MobileStrings = {
     syncProgressCompletedLibraryOnly: "{{library}}を同期しました。",
     cloudSyncStorageUnavailable: "クラウド同期ストレージを利用できません",
     cloudSyncStorageUnavailableDetail:
-      "Nemu がこのアカウントのローカルストレージを読み取れないため、クラウド同期を一時停止しました。クラウドスナップショットは適用されていません。",
+      "nemu がこのアカウントのローカルストレージを読み取れないため、クラウド同期を一時停止しました。クラウドスナップショットは適用されていません。",
     cloudSyncAuthenticationNetworkUnavailable:
       "認証にはネットワーク接続が必要です。",
     cloudSyncAuthenticationStorageUnavailable:
-      "Nemu はこの端末にサインイン情報を安全に保存できませんでした。端末のストレージを確認して、もう一度お試しください。",
+      "nemu はこの端末にサインイン情報を安全に保存できませんでした。端末のストレージを確認して、もう一度お試しください。",
     cloudSyncSignInFailed: "サインインに失敗しました。",
     cloudSyncSignInPrompt:
       "サインインすると、ライブラリと読書進捗をデバイス間で同期できます。",
@@ -936,11 +936,10 @@ export const mobileStringsJa: MobileStrings = {
       "このビルドではクラウド同期を利用できません。",
     localDataCleanupTitle: "端末データの削除を完了",
     localDataCleanupDescription:
-      "サインアウト済みです。Nemu がこの端末からアカウントデータを削除し終えるまで、そのデータは非表示になります。",
+      "サインアウト済みです。nemu がこの端末からアカウントデータを削除し終えるまで、そのデータは非表示になります。",
     dataManagement: "データ管理",
     dataManagementDescription: "キャッシュとローカルデバイスストレージ",
     editReaderPluginSettings: "{{name}} の設定を編集",
-    editSourceSettings: "{{name}} の設定を編集",
     importSource: "AIX をインポート",
     importingSource: "インポート中…",
     importSourceCardTitle: "AIX パッケージを読み込む",
@@ -1055,7 +1054,7 @@ export const mobileStringsJa: MobileStrings = {
       "このデバイスに設定変更を保存できませんでした。",
     theme: "テーマ",
     themeDark: "ダーク",
-    themeDescription: "システムに従うか固定の Nemu テーマを選択",
+    themeDescription: "システムに従うか固定の nemu テーマを選択",
     themeLight: "ライト",
     themeSystem: "システム",
     uninstallSource: "ソースをアンインストール",
@@ -1063,9 +1062,8 @@ export const mobileStringsJa: MobileStrings = {
       "{{name}} をこのデバイスから削除しますか？ライブラリエントリは保持されますが、ライブブラウズには再インストールが必要です。",
     uninstallSourceNamed: "{{name}} をアンインストール",
     sourceDisabledBadge: "無効",
-    sourceDisabledSubtitle:
-      "無効です。ライブラリのリンクと設定は保持され、ブラウズと検索はこのソースをスキップします。",
     toggleSourceEnabled: "{{name}} を有効化",
+    sourceActions: "{{name}} のその他の操作",
     sourceDisabledToast: "{{name}} を無効にしました",
     sourceEnabledToast: "{{name}} を有効にしました",
   },

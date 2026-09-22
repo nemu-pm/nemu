@@ -46,6 +46,10 @@ import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileSettingsSkeleton } from "@/components/MobileSettingsSkeleton";
 import { MobileSourceSettingsCard } from "@/components/MobileSourceSettingsCard";
 import { MobileStorageBreakdown } from "@/components/MobileStorageBreakdown";
+import {
+  QuickActionSheet,
+  type QuickAction,
+} from "@/components/QuickActionSheet";
 import dualReadIconImage from "../../../../src/lib/plugins/builtin/dual-reader/icon.png";
 import japaneseLearningIconImage from "../../../../src/lib/plugins/builtin/japanese-learning/icon.png";
 import { useMobileDataStore } from "@/data/mobileDataContext";
@@ -83,7 +87,7 @@ import {
   NemuText,
   PageScaffold,
   radius,
-  nemuBrandTextStyle,
+  createNemuBrandWordmarkStyle,
   nemuColorWithAlpha,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
@@ -111,9 +115,13 @@ import {
 } from "@/lib/mobileInstalledSourceKeys";
 import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
 import {
+  buildMobileSourceQuickActions,
+  getMobileSourceQuickActionHandoff,
   isMobileInstalledSourceDisabled,
   isMobileUnsupportedInstalledSource,
   mergeMobileInstalledSourceRegistryMetadata,
+  resolveMobileSourceHomepageUrl,
+  type MobileSourceQuickActionId,
 } from "@/lib/mobileBrowseSources";
 import {
   canRetryMobileSourceSettingsLoadError,
@@ -192,6 +200,8 @@ import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 
 const EMPTY_SOURCE_SETTINGS: SourcePackageSetting[] = [];
+// Shared with the wordmark tracking so both follow the same rendered size.
+const ABOUT_ROW_FONT_SIZE = 14;
 
 type SettingsConfirmation =
   | { type: "uninstall-source"; source: InstalledSource; name: string }
@@ -204,6 +214,16 @@ type SourceSettingsConfirmation = Extract<
   SettingsConfirmation,
   { type: "source-logout" | "source-button" }
 >;
+
+/**
+ * Only one native `@expo/ui` bottom sheet can be presented at a time, so a
+ * quick-action row that lands on another sheet queues its destination here and
+ * the quick actions' post-dismiss callback performs it. Same contract Browse
+ * follows; see `getMobileSourceQuickActionHandoff`.
+ */
+type SourceQuickActionDismissAction =
+  | { type: "open-settings"; sourceId: string }
+  | { type: "confirm-uninstall"; source: InstalledSource };
 
 const readingModes: Array<{
   mode: ReadingMode;
@@ -294,6 +314,28 @@ function sourceSubtitle(source: InstalledSource): string {
   return getMobileInstalledSourceSubtitle(source);
 }
 
+/**
+ * Copy for an installed-source quick-action row, reusing the words Browse's
+ * long-press sheet already shows. `update` returns null: naming a version is
+ * the whole row, and Settings keeps no pending update to name — it refreshes
+ * sources in the background — so that row is dropped rather than mislabelled.
+ */
+function sourceQuickActionLabel(
+  id: MobileSourceQuickActionId,
+  strings: MobileStrings,
+): string | null {
+  switch (id) {
+    case "settings":
+      return strings.settings.sourceSettingsDefaultTitle;
+    case "openInBrowser":
+      return strings.browse.openSourceHomepage;
+    case "uninstall":
+      return strings.common.uninstall;
+    case "update":
+      return null;
+  }
+}
+
 function SourceManagementRow({
   source,
   iconUri,
@@ -302,8 +344,7 @@ function SourceManagementRow({
   toggling,
   disabled,
   onBrowse,
-  onSettings,
-  onRemove,
+  onQuickActions,
   onToggleEnabled,
 }: {
   source: InstalledSource;
@@ -313,22 +354,21 @@ function SourceManagementRow({
   toggling: boolean;
   disabled: boolean;
   onBrowse: () => void;
-  onSettings: () => void;
-  onRemove: () => void;
+  onQuickActions: () => void;
   onToggleEnabled: (enabled: boolean) => void;
 }) {
   const { tokens } = useNemuTheme();
   const name = sourceName(source);
-  const removeDisabled = disabled || removing;
   // Tachiyomi records can arrive through cloud sync; this build cannot run
   // them, so the row says so up front instead of failing on tap.
   const unsupported = isMobileUnsupportedInstalledSource(source);
   // The user switched this source off: it keeps its links and settings but is
-  // not runnable, so browse and its settings sheet are closed off here too.
+  // not runnable, so browsing it is closed off here too. The switch and the
+  // dimmed content carry that state now — no badge, no substituted subtitle.
   const sourceDisabled = isMobileInstalledSourceDisabled(source);
-  const canOpenSettings = !disabled && !sourceDisabled;
   const browseDisabled = disabled || unsupported || sourceDisabled;
   const toggleDisabled = disabled || removing || toggling;
+  const quickActionsDisabled = disabled || removing;
 
   return (
     <View style={[styles.sourceEmbeddedRow, { borderColor: tokens.border }]}>
@@ -341,16 +381,31 @@ function SourceManagementRow({
               : formatMobileString(strings.settings.browseSource, { name })
         }
         accessibilityRole="button"
-        accessibilityState={{ disabled: browseDisabled }}
-        disabled={browseDisabled}
-        hapticFeedback={browseDisabled ? "none" : "press"}
+        // Never handed React Native's `disabled`: a source that cannot be
+        // browsed still answers a long press with its quick actions, and a
+        // disabled pressable swallows that gesture. Whether the row can be
+        // browsed rides in the label, the dimmed content and the switch, and
+        // the tap simply does nothing when it cannot. Haptics are fired here
+        // rather than through `hapticFeedback` so the two gestures stay
+        // distinguishable and a dead tap stays silent.
+        hapticFeedback="none"
         onPress={() => {
           if (browseDisabled) return;
+          void hapticPress();
           onBrowse();
+        }}
+        onLongPress={() => {
+          if (quickActionsDisabled) return;
+          void hapticSelection();
+          onQuickActions();
         }}
         pressedScale={0.985}
         containerStyle={styles.sourceMainContainer}
-        style={[styles.sourceMain, browseDisabled && styles.disabledMain]}
+        style={[
+          styles.sourceMain,
+          browseDisabled && styles.disabledMain,
+          sourceDisabled && styles.disabledSourceMain,
+        ]}
       >
         <SourceIcon icon={iconUri} />
         <View style={styles.sourceText}>
@@ -379,41 +434,30 @@ function SourceManagementRow({
                 variant="static"
               />
             ) : null}
-            {sourceDisabled ? (
-              <MobileChip
-                accessibilityLabel={strings.settings.sourceDisabledBadge}
-                label={strings.settings.sourceDisabledBadge}
-                size="sm"
-                variant="static"
-              />
-            ) : null}
           </View>
           <NemuText
-            numberOfLines={2}
+            numberOfLines={1}
             style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}
           >
             {unsupported
               ? strings.common.sourceUnsupportedTachiyomiDescription
-              : sourceDisabled
-                ? strings.settings.sourceDisabledSubtitle
-                : sourceSubtitle(source)}
+              : sourceSubtitle(source)}
           </NemuText>
         </View>
       </NemuPressable>
       <View style={styles.sourceActions}>
         <NemuButton
           accessibilityLabel={formatMobileString(
-            strings.settings.editSourceSettings,
+            strings.settings.sourceActions,
             { name },
           )}
-          accessibilityState={{ disabled: !canOpenSettings }}
-          disabled={!canOpenSettings}
-          hapticFeedback={canOpenSettings ? "press" : "none"}
-          icon="settings-outline"
-          onPress={() => {
-            if (!canOpenSettings) return;
-            onSettings();
-          }}
+          disabled={quickActionsDisabled}
+          hapticFeedback={quickActionsDisabled ? "none" : "press"}
+          icon="ellipsis-horizontal"
+          // The uninstall spinner used to live on the trash button; with that
+          // button gone the overflow control carries the row's busy state.
+          loading={removing}
+          onPress={onQuickActions}
           size="icon-sm"
           variant="secondary"
         />
@@ -440,22 +484,6 @@ function SourceManagementRow({
             }}
           />
         )}
-        <NemuButton
-          accessibilityLabel={formatMobileString(
-            strings.settings.uninstallSourceNamed,
-            { name },
-          )}
-          accessibilityState={{
-            disabled: removeDisabled,
-            busy: removing || undefined,
-          }}
-          disabled={removeDisabled}
-          icon="trash-outline"
-          loading={removing}
-          onPress={onRemove}
-          size="icon-sm"
-          variant="destructive"
-        />
       </View>
     </View>
   );
@@ -1337,7 +1365,12 @@ function AboutSettingsRow({
           style={[styles.aboutTitle, { color: tokens.foreground }]}
         >
           {strings.settings.aboutNemuBeforeBrand}
-          <NemuText style={[nemuBrandTextStyle, { color: tokens.primary }]}>
+          <NemuText
+            style={[
+              createNemuBrandWordmarkStyle(ABOUT_ROW_FONT_SIZE),
+              { color: tokens.primary },
+            ]}
+          >
             nemu
           </NemuText>
           {strings.settings.aboutNemuAfterBrand}
@@ -1412,6 +1445,14 @@ export function SettingsScreen({
   const confirmationVisibleRef = useRef(false);
   const [sourceSettingsSheetVisible, setSourceSettingsSheetVisible] =
     useState(false);
+  // Overflow / long-press quick actions for an installed source row.
+  const [quickActionSourceId, setQuickActionSourceId] = useState<string | null>(
+    null,
+  );
+  const [quickActionVisible, setQuickActionVisible] = useState(false);
+  const quickActionDismissRef = useRef<SourceQuickActionDismissAction | null>(
+    null,
+  );
   const queuedSourceConfirmationRef =
     useRef<SourceSettingsConfirmation | null>(null);
   const reopenSourceSettingsAfterConfirmationRef = useRef(false);
@@ -1445,6 +1486,44 @@ export function SettingsScreen({
   const sourceIconIndex = useMemo(
     () => buildMobileSourceIconIndex(availableSources.data),
     [availableSources.data],
+  );
+
+  const quickActionSource = useMemo(
+    () =>
+      quickActionSourceId
+        ? (displayedSources.find(
+            (source) => source.id === quickActionSourceId,
+          ) ?? null)
+        : null,
+    [displayedSources, quickActionSourceId],
+  );
+  const quickActionHomepage = useMemo(
+    () =>
+      resolveMobileSourceHomepageUrl(quickActionSource?.packageMetadata?.urls),
+    [quickActionSource],
+  );
+  const quickActionIconUri = quickActionSource
+    ? resolveMobileInstalledSourceIconUri(quickActionSource, sourceIconIndex)
+    : null;
+  const openSourceQuickActions = useCallback((sourceId: string) => {
+    quickActionDismissRef.current = null;
+    setQuickActionSourceId(sourceId);
+    setQuickActionVisible(true);
+  }, []);
+  // `MobileNativeSheetScaffold` fires `onClose` and *then* `onDismiss` from the
+  // same native close, so this half must never clear the queued destination.
+  const closeSourceQuickActions = useCallback(() => {
+    setQuickActionVisible(false);
+  }, []);
+  const requestQuickActionDismissal = useCallback(
+    (next: SourceQuickActionDismissAction) => {
+      // Native dismissal is asynchronous; the first accepted row owns this
+      // visibility cycle so a second tap cannot replace its destination.
+      if (quickActionDismissRef.current) return;
+      quickActionDismissRef.current = next;
+      setQuickActionVisible(false);
+    },
+    [],
   );
 
   const selectedSource = useMemo(() => {
@@ -2345,6 +2424,74 @@ export function SettingsScreen({
     });
   };
 
+  const handleSourceQuickActionsDismissed = () => {
+    const next = quickActionDismissRef.current;
+    quickActionDismissRef.current = null;
+    // The queued destination carries everything it needs, so the sheet can
+    // drop its source before the next one is presented.
+    setQuickActionSourceId(null);
+    if (next?.type === "open-settings") {
+      openSourceSettings(next.sourceId);
+      return;
+    }
+    if (next?.type === "confirm-uninstall") {
+      confirmRemoveSource(next.source);
+    }
+  };
+
+  const runSourceQuickAction = (action: MobileSourceQuickActionId) => {
+    const source = quickActionSource;
+    if (!source) return;
+    switch (getMobileSourceQuickActionHandoff(action)) {
+      case "dismiss-then-open-settings":
+        // The row is already absent for a disabled source; re-checking here
+        // keeps a stale sheet from reopening settings the toggle just closed.
+        if (settingsActionBusy || isMobileInstalledSourceDisabled(source)) {
+          return;
+        }
+        requestQuickActionDismissal({
+          type: "open-settings",
+          sourceId: source.id,
+        });
+        return;
+      case "dismiss-then-confirm-uninstall":
+        requestQuickActionDismissal({ type: "confirm-uninstall", source });
+        return;
+      case "open-url": {
+        if (!quickActionHomepage) return;
+        // Leaving the app is the one destination that does not need the sheet
+        // gone first, so it opens and lets the sheet close behind it.
+        const homepage = quickActionHomepage;
+        closeSourceQuickActions();
+        void Linking.openURL(homepage).catch(() => undefined);
+        return;
+      }
+      case "dismiss-then-install-update":
+        // Settings updates sources in the background and keeps no per-source
+        // pending update, so it never offers this row.
+        return;
+    }
+  };
+
+  const sourceQuickActions: QuickAction<MobileSourceQuickActionId>[] =
+    quickActionSource
+      ? buildMobileSourceQuickActions({
+          canOpenSettings: !isMobileInstalledSourceDisabled(quickActionSource),
+          hasUpdate: false,
+          hasHomepage: quickActionHomepage !== null,
+        }).flatMap((descriptor) => {
+          const label = sourceQuickActionLabel(descriptor.id, strings);
+          if (!label) return [];
+          return [
+            {
+              ...descriptor,
+              label,
+              onPress: () => runSourceQuickAction(descriptor.id),
+            },
+          ];
+        })
+      : [];
+
   const clearCache = async () => {
     if (!canStartMobileSettingsAction(getGuardedSettingsActionState())) return;
     pendingClearModeRef.current = "cache";
@@ -2923,12 +3070,10 @@ export function SettingsScreen({
                               sourceDisabler.togglingSourceId === source.id
                             }
                             disabled={settingsActionBusy}
-                            onSettings={() => {
-                              if (settingsActionBusy) return;
-                              openSourceSettings(source.id);
-                            }}
+                            onQuickActions={() =>
+                              openSourceQuickActions(source.id)
+                            }
                             onBrowse={() => openSource(source)}
-                            onRemove={() => confirmRemoveSource(source)}
                             onToggleEnabled={(nextEnabled) => {
                               void toggleSourceEnabled(source, nextEnabled);
                             }}
@@ -3138,6 +3283,18 @@ export function SettingsScreen({
               />
             ) : null}
           </MobileConfirmationSheet>
+        ) : null}
+        {quickActionSource ? (
+          <QuickActionSheet
+            visible={quickActionVisible}
+            variant="icon"
+            title={sourceName(quickActionSource)}
+            image={quickActionIconUri}
+            actions={sourceQuickActions}
+            testID="SettingsSourceQuickActionSheet"
+            onClose={closeSourceQuickActions}
+            onDismiss={handleSourceQuickActionsDismissed}
+          />
         ) : null}
         {selectedSource ? (
           <MobileInstalledSourceSettingsSheet
@@ -3365,7 +3522,7 @@ const styles = StyleSheet.create({
   aboutTitle: {
     flex: 1,
     minWidth: 0,
-    fontSize: 14,
+    fontSize: ABOUT_ROW_FONT_SIZE,
     lineHeight: 18,
     fontWeight: nemuFontWeight.medium,
   },
@@ -3543,8 +3700,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    // The trailing action buttons sit half the leading inset from the row
-    // edge so the gear/trash cluster reads as part of the row, not adrift.
+    // The trailing controls sit half the leading inset from the row edge so
+    // the overflow/switch pair reads as part of the row, not adrift.
     paddingLeft: 12,
     paddingRight: 6,
     paddingVertical: 10,
@@ -3611,6 +3768,11 @@ const styles = StyleSheet.create({
   },
   disabledMain: {
     opacity: 0.62,
+  },
+  // A source the user switched off reads as off through its own content: the
+  // icon and both text lines dim, and the switch says why.
+  disabledSourceMain: {
+    opacity: 0.4,
   },
   importSourceCard: {
     gap: 12,

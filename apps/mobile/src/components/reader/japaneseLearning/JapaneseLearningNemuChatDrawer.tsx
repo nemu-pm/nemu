@@ -143,7 +143,7 @@ export function JapaneseLearningNemuChatDrawer({
       visible={visible}
       onRequestClose={onClose}
       backdropOnPress={onClose}
-      title="Nemu"
+      title="nemu"
       frameMaxHeight="70%"
       contentStyle={{ padding: 0, gap: 0 }}
     >

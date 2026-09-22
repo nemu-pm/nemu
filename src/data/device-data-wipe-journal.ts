@@ -480,10 +480,10 @@ function captureRawCookies(): RawCookieSnapshot {
     const value = separator < 0 ? "" : cookie.slice(separator + 1);
     if (!isCookieName(name)) continue;
     if (seenNames.has(name)) {
-      throw new Error("Cannot safely snapshot duplicate Nemu cookies.");
+      throw new Error("Cannot safely snapshot duplicate nemu cookies.");
     }
     if (value.length > MAX_VISIBLE_COOKIE_VALUE_LENGTH) {
-      throw new Error("Cannot safely snapshot an oversized Nemu cookie.");
+      throw new Error("Cannot safely snapshot an oversized nemu cookie.");
     }
     seenNames.add(name);
     cookies.push({ name, value });
@@ -739,7 +739,7 @@ function removeStorageEntries(
         throw new Error(`${kind} compare-and-delete verification failed.`);
       }
     } catch (error) {
-      throw new Error(`Cannot safely remove Nemu ${kind}.`, { cause: error });
+      throw new Error(`Cannot safely remove nemu ${kind}.`, { cause: error });
     }
   }
 }
@@ -768,7 +768,7 @@ export function executeDeviceDataWipeClientStorageClearPlan(
         throw new Error("Cookie compare-and-delete verification failed.");
       }
     } catch (error) {
-      throw new Error("Cannot safely remove a Nemu cookie.", { cause: error });
+      throw new Error("Cannot safely remove a nemu cookie.", { cause: error });
     }
   }
 }

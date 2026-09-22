@@ -812,7 +812,6 @@ export type MobileStrings = {
     dataManagement: string;
     dataManagementDescription: string;
     editReaderPluginSettings: string;
-    editSourceSettings: string;
     importSource: string;
     importingSource: string;
     importSourceCardTitle: string;
@@ -905,8 +904,8 @@ export type MobileStrings = {
     uninstallSourceConfirm: string;
     uninstallSourceNamed: string;
     sourceDisabledBadge: string;
-    sourceDisabledSubtitle: string;
     toggleSourceEnabled: string;
+    sourceActions: string;
     sourceDisabledToast: string;
     sourceEnabledToast: string;
   };

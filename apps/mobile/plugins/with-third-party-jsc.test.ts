@@ -51,7 +51,7 @@ const PODFILE = [
   "platform :ios, min_ios_version_supported",
   "prepare_react_native_project!",
   "",
-  "target 'Nemu' do",
+  "target 'nemu' do",
   `  pod 'hermes-engine', :podspec => "#{config[:reactNativePath]}/sdks/hermes-engine/hermes-engine.podspec"`,
   "  post_install do |installer|",
   "    react_native_post_install(",
@@ -216,7 +216,7 @@ describe("generated native project patches", () => {
       [plugin.patchSwiftAppDelegate, APP_DELEGATE],
       [
         plugin.patchAndroidSettingsGradle,
-        "rootProject.name = 'Nemu'\ninclude ':app'\n",
+        "rootProject.name = 'nemu'\ninclude ':app'\n",
       ],
       [
         plugin.patchAndroidAppBuildGradle,
@@ -284,7 +284,7 @@ describe("generated native project patches", () => {
       ),
     ).toThrow(/install the JSC runtime factory override/);
     expect(() =>
-      plugin.patchAndroidSettingsGradle("rootProject.name = 'Nemu'\n"),
+      plugin.patchAndroidSettingsGradle("rootProject.name = 'nemu'\n"),
     ).toThrow(/include the JavaScriptCore Gradle project/);
     expect(() => plugin.patchAndroidAppBuildGradle("dependencies {\n}\n")).toThrow(
       /add the JavaScriptCore project dependency/,

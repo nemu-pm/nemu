@@ -19,7 +19,7 @@ import {
   MobileNativeSheetScaffold,
   NemuPressable,
   radius,
-  nemuBrandTextStyle,
+  createNemuBrandWordmarkStyle,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
   useNemuTheme,
@@ -41,6 +41,8 @@ import {
 
 const APP_VERSION = packageJson.version;
 const SOURCE_URL = "https://github.com/nemu-pm/nemu";
+// Shared with the wordmark tracking so both follow the same rendered size.
+const BRAND_TITLE_FONT_SIZE = 26;
 const githubIconPaths = [
   "M6.51734 17.1132C6.91177 17.6905 8.10883 18.9228 9.74168 19.2333M9.86428 22C8.83582 21.8306 2 19.6057 2 12.0926C2 5.06329 8.0019 2 12.0008 2C15.9996 2 22 5.06329 22 12.0926C22 19.6057 15.1642 21.8306 14.1357 22C14.1357 22 13.9267 18.5826 14.0487 17.9969C14.1706 17.4113 13.7552 16.4688 13.7552 16.4688C14.7262 16.1055 16.2043 15.5847 16.7001 14.1874C17.0848 13.1032 17.3268 11.5288 16.2508 10.0489C16.2508 10.0489 16.5318 7.65809 15.9996 7.56548C15.4675 7.47287 13.8998 8.51192 13.8998 8.51192C13.4432 8.38248 12.4243 8.13476 12.0018 8.17939C11.5792 8.13476 10.5568 8.38248 10.1002 8.51192C10.1002 8.51192 8.53249 7.47287 8.00036 7.56548C7.46823 7.65809 7.74917 10.0489 7.74917 10.0489C6.67316 11.5288 6.91516 13.1032 7.2999 14.1874C7.79575 15.5847 9.27384 16.1055 10.2448 16.4688C10.2448 16.4688 9.82944 17.4113 9.95135 17.9969C10.0733 18.5826 9.86428 22 9.86428 22Z",
 ] as const;
@@ -164,7 +166,11 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
       <View style={styles.titleBlock}>
         <Text
           maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-          style={[styles.brandTitle, nemuBrandTextStyle, { color: tokens.primary }]}
+          style={[
+            styles.brandTitle,
+            createNemuBrandWordmarkStyle(BRAND_TITLE_FONT_SIZE),
+            { color: tokens.primary },
+          ]}
         >
           nemu
         </Text>
@@ -315,7 +321,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   brandTitle: {
-    fontSize: 26,
+    fontSize: BRAND_TITLE_FONT_SIZE,
     lineHeight: 32,
     fontWeight: nemuFontWeight.medium,
   },

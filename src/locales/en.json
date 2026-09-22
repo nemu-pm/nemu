@@ -70,8 +70,8 @@
   "storage": {
     "idbLock": {
       "title": "Storage locked",
-      "descriptionBlocked": "Nemu can't access its local storage because another tab/window is using it. Close other Nemu tabs/windows, then reload this page.",
-      "descriptionVersionChange": "Nemu needs to upgrade its local storage. Close other Nemu tabs/windows, then reload this page.",
+      "descriptionBlocked": "nemu can't access its local storage because another tab/window is using it. Close other nemu tabs/windows, then reload this page.",
+      "descriptionVersionChange": "nemu needs to upgrade its local storage. Close other nemu tabs/windows, then reload this page.",
       "reload": "Reload"
     }
   },
@@ -80,7 +80,7 @@
     "syncingDescription": "Syncing your library and settings...",
     "clockInvalid": {
       "title": "Check your device date and time",
-      "description": "Nemu still received a sync timestamp outside the allowed range. Turn on automatic date, time, and time zone settings, then reload Nemu.",
+      "description": "nemu still received a sync timestamp outside the allowed range. Turn on automatic date, time, and time zone settings, then reload nemu.",
       "reload": "Reload"
     }
   },
@@ -421,7 +421,7 @@
     "alsoDeleteCloud": "Also delete cloud data",
     "alsoDeleteCloudDescription": "Permanently delete your synced library and progress. This cannot be undone.",
     "clearing": "Clearing...",
-    "failed": "Couldn't finish clearing all data. Some local data may already be removed. Close other Nemu tabs and try again."
+    "failed": "Couldn't finish clearing all data. Some local data may already be removed. Close other nemu tabs and try again."
   },
   "signIn": {
     "title": "Sign In",
@@ -477,10 +477,10 @@
     "popupBlocked": "The browser blocked the login window.",
     "openLoginFirst": "Open the authorization page first to start a verified login attempt.",
     "callbackStateMismatch": "This callback belongs to a different login attempt and was rejected. Open the login page again and paste the new callback.",
-    "callbackStateMissing": "Paste the full callback URL — Nemu needs the state value it contains to verify this login attempt.",
+    "callbackStateMissing": "Paste the full callback URL — nemu needs the state value it contains to verify this login attempt.",
     "tokenExchangeFailed": "Failed to exchange the authorization code for a token.",
     "proxyUpgradeRequired": "The secure login relay is unavailable or needs an update. No authorization code was sent. Try again later.",
-    "oauthRelayDisclosure": "For this PKCE login, Nemu sends the authorization code and one-time verifier to the provider through Nemu's security-hardened relay. The current local Agent is not used because it cannot yet enforce these OAuth safeguards.",
+    "oauthRelayDisclosure": "For this PKCE login, nemu sends the authorization code and one-time verifier to the provider through nemu's security-hardened relay. The current local Agent is not used because it cannot yet enforce these OAuth safeguards.",
     "logoutConfirm": "Log out from this source?",
     "notificationFailed": "Failed to apply the source setting action.",
     "moveUp": "Move up",

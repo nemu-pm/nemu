@@ -136,7 +136,7 @@ export const proxy = httpAction(async (_, request) => {
   const userAgent =
     requestedUserAgent && requestedUserAgent.length <= 512
       ? requestedUserAgent
-      : "Mozilla/5.0 (compatible; Nemu/1.0)";
+      : "Mozilla/5.0 (compatible; nemu/1.0)";
   const headers: Record<string, string> = {
     Accept: accept.length <= 512 ? accept : "application/json",
     "User-Agent": userAgent,
