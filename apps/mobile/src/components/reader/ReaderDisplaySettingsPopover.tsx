@@ -24,6 +24,7 @@ import {
   useNemuTheme,
 } from "@/design-system";
 import type { MobileStrings } from "@/lib/mobileI18n";
+import { MOBILE_MODAL_SUPPORTED_ORIENTATIONS } from "@/lib/mobileModalOrientations";
 import {
   READER_CHROME_PANEL_CORNER_RADIUS,
   READER_CHROME_PANEL_HORIZONTAL_INSET,
@@ -210,6 +211,7 @@ export function ReaderDisplaySettingsPopover({
       onRequestClose={onClose}
       presentationStyle="overFullScreen"
       statusBarTranslucent
+      supportedOrientations={MOBILE_MODAL_SUPPORTED_ORIENTATIONS}
       transparent
       visible={visible}
     >
@@ -222,7 +224,12 @@ export function ReaderDisplaySettingsPopover({
         pointerEvents="box-none"
         style={[
           styles.readerSettingsPopoverFrame,
-          { bottom: bottomOffset },
+          {
+            bottom: bottomOffset,
+            // Clear the landscape Dynamic Island like the reader chrome does.
+            left: Math.max(READER_CHROME_PANEL_HORIZONTAL_INSET, insets.left),
+            right: Math.max(READER_CHROME_PANEL_HORIZONTAL_INSET, insets.right),
+          },
         ]}
       >
         <View

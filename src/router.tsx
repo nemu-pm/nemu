@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { safeErrorCategory } from "@/lib/error-diagnostic";
 import { sanitizeSourceErrorDiagnostic } from "@nemu/core/sources";
+import { extractCfUrl, isCloudflareError } from "@/lib/sources/error-handler";
 import { hapticPress } from "@/lib/haptics";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -283,6 +284,12 @@ export interface UnavailableLoaderData {
   sourceId: string;
   /** Bounded, source-safe reason, or null when there is nothing to add. */
   reason: string | null;
+  /**
+   * Set when a Cloudflare challenge stopped the source from starting (the
+   * Aidoku runtime rejects the load with `CloudflareBlockedError`). Unlike a
+   * disabled source this is actionable, so the page offers the bypass flow.
+   */
+  cloudflare: { url: string | null } | null;
 }
 
 export type SourceBrowseLoaderData =
@@ -388,16 +395,27 @@ const sourceBrowseRoute = createRoute({
       loadedSource = await getSource(registryId, sourceId);
     } catch (error) {
       // `getSource` refuses a user-disabled source. That is an expected state
-      // here, not a crash: hand the page a rendered reason instead.
+      // here, not a crash: hand the page a rendered reason instead. The loader
+      // only records a Cloudflare block; intent preloading runs it on hover, so
+      // the page, not the loader, opens the bypass dialog.
       return {
         type: "unavailable",
         registryId,
         sourceId,
         reason: sanitizeSourceErrorDiagnostic(error),
+        cloudflare: isCloudflareError(error)
+          ? { url: extractCfUrl(error) ?? null }
+          : null,
       };
     }
     if (!loadedSource) {
-      return { type: "unavailable", registryId, sourceId, reason: null };
+      return {
+        type: "unavailable",
+        registryId,
+        sourceId,
+        reason: null,
+        cloudflare: null,
+      };
     }
 
     // Detect source type and return appropriate data

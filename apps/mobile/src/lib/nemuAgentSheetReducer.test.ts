@@ -13,6 +13,7 @@ import {
   resolveNemuAgentAutoSolveUrl,
   resolveNemuAgentSolveCookieScope,
   shouldOfferNemuAgentVerificationAction,
+  shouldRetryAfterNemuAgentDismiss,
   type NemuAgentSheetState,
   type NemuAgentSheetStatus,
 } from "./nemuAgentSheetReducer";
@@ -220,7 +221,12 @@ describe("reduceNemuAgentSheet", () => {
       type: "event",
       event: "nemuAidokuCfCaptcha",
     });
-    expect(next).toEqual({ visible: true, status: "captcha", url: "https://x.test" });
+    expect(next).toEqual({
+      visible: true,
+      status: "captcha",
+      url: "https://x.test",
+      interactive: true,
+    });
   });
 
   test("success event is terminal from any in-flight state", () => {
@@ -238,7 +244,13 @@ describe("reduceNemuAgentSheet", () => {
       type: "event",
       event: "nemuAidokuCfFailed",
     });
-    expect(next).toEqual({ visible: true, status: "failed", url: "https://x.test" });
+    expect(next).toEqual({
+      visible: true,
+      status: "failed",
+      url: "https://x.test",
+      failureReason: undefined,
+      failedAt: "waiting",
+    });
   });
 
   test("failed event cannot override an already-success state", () => {
@@ -352,6 +364,92 @@ describe("reduceNemuAgentSheet", () => {
     expect(state.status).toBe("success");
     state = reduceNemuAgentSheet(state, { type: "dismiss" });
     expect(state.visible).toBe(false);
+  });
+
+  test("records that the solve needed the user once native shows the challenge", () => {
+    let state = reduceNemuAgentSheet(opened("https://x.test"), { type: "start" });
+    state = reduceNemuAgentSheet(state, { type: "event", event: "nemuAidokuCfWaiting" });
+    expect(state.interactive).toBeUndefined();
+    state = reduceNemuAgentSheet(state, { type: "event", event: "nemuAidokuCfCaptcha" });
+    expect(state.interactive).toBe(true);
+    // It survives the terminal event, which is what the success row reads.
+    state = reduceNemuAgentSheet(state, { type: "event", event: "nemuAidokuCfSuccess" });
+    expect(state).toMatchObject({ status: "success", interactive: true });
+  });
+
+  test("records which in-flight step a failure interrupted", () => {
+    const waiting = reduceNemuAgentSheet(
+      reduceNemuAgentSheet(opened("https://x.test"), { type: "start" }),
+      { type: "event", event: "nemuAidokuCfWaiting" },
+    );
+    expect(
+      reduceNemuAgentSheet(waiting, {
+        type: "event",
+        event: "nemuAidokuCfFailed",
+        reason: "timeout",
+      }),
+    ).toMatchObject({ status: "failed", failedAt: "waiting", failureReason: "timeout" });
+
+    const captcha = reduceNemuAgentSheet(waiting, {
+      type: "event",
+      event: "nemuAidokuCfCaptcha",
+    });
+    expect(
+      reduceNemuAgentSheet(captcha, {
+        type: "event",
+        event: "nemuAidokuCfFailed",
+        reason: "cancelled",
+      }),
+    ).toMatchObject({ failedAt: "captcha", interactive: true });
+
+    // A failure outside a solve (no native solver when Verify was tapped) has
+    // no step to blame.
+    expect(
+      reduceNemuAgentSheet(opened("https://x.test"), {
+        type: "event",
+        event: "nemuAidokuCfFailed",
+      }).failedAt,
+    ).toBeUndefined();
+  });
+
+  test("a retry clears the previous attempt's step markers", () => {
+    let state = reduceNemuAgentSheet(opened("https://x.test"), { type: "start" });
+    state = reduceNemuAgentSheet(state, { type: "event", event: "nemuAidokuCfCaptcha" });
+    state = reduceNemuAgentSheet(state, {
+      type: "event",
+      event: "nemuAidokuCfFailed",
+      reason: "cancelled",
+    });
+    state = reduceNemuAgentSheet(state, { type: "start" });
+    expect(state).toMatchObject({ status: "opening" });
+    expect(state.interactive).toBeUndefined();
+    expect(state.failedAt).toBeUndefined();
+    expect(state.failureReason).toBeUndefined();
+  });
+});
+
+describe("shouldRetryAfterNemuAgentDismiss", () => {
+  test("closing during the success hold still retries; any other close does not", () => {
+    expect(shouldRetryAfterNemuAgentDismiss("success")).toBe(true);
+    for (const status of [
+      "needs-verification",
+      "opening",
+      "waiting",
+      "captcha",
+      "failed",
+    ] as const) {
+      expect(shouldRetryAfterNemuAgentDismiss(status)).toBe(false);
+    }
+  });
+
+  test("the hook routes both the hold timer and a manual close through one retry", () => {
+    const hook = readFileSync(
+      path.join(import.meta.dir, "useNemuAgentSheet.ts"),
+      "utf8",
+    );
+    expect(hook).toContain("shouldRetryAfterNemuAgentDismiss(stateRef.current.status)");
+    expect(hook.match(/retryAfterSuccess\(\);/g)?.length).toBe(2);
+    expect(hook).toContain("if (successRetriedRef.current) return;");
   });
 });
 

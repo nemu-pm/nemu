@@ -129,6 +129,11 @@ export type NemuAidokuCloudflareSolveOptions = {
 export type NemuAidokuCfFailureReason =
   | "unsupported-url"
   | "blocked-destination"
+  /**
+   * The native network boundary could not be installed, so nothing loaded:
+   * iOS could not compile its content rule list, or the Android WebView lacks
+   * document-start script support for the socket guard.
+   */
   | "rule-list-unavailable"
   | "no-presenter"
   | "navigation-failed"

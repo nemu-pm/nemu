@@ -23,6 +23,8 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import java.io.ByteArrayInputStream
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -83,6 +85,12 @@ private const val NEMU_CLOUDFLARE_MAX_EXPIRED_COOKIE_NAMES = 64
 internal enum class NemuCloudflareSolveFailure(val reason: String) {
   UNSUPPORTED_URL("unsupported-url"),
   BLOCKED_DESTINATION("blocked-destination"),
+
+  /**
+   * The network boundary could not be installed, so nothing was loaded. iOS:
+   * the `WKContentRuleList` failed to compile. Android: this WebView has no
+   * `DOCUMENT_START_SCRIPT` support, or the socket guard would not register.
+   */
   RULE_LIST_UNAVAILABLE("rule-list-unavailable"),
   NO_PRESENTER("no-presenter"),
   NAVIGATION_FAILED("navigation-failed"),
@@ -115,9 +123,38 @@ private data class NemuCloudflareChallengeProbe(
  * title lookups so nothing about the page is exfiltrated back into native.
  * `evaluateJavascript` JSON-encodes the completion value, so the script yields
  * the object directly rather than a stringified copy.
+ *
+ * **Polling with `evaluateJavascript` is safe here, unlike on iOS.** WebKit's
+ * public evaluation APIs run with a forced user gesture, which gave the
+ * challenge page sticky user activation before anyone touched it and sent
+ * Turnstile into an endless loop; the iOS solver pushes its probe from a user
+ * script for that reason. Chromium's WebView path grants no activation:
+ * `WebView.evaluateJavascript` -> `AwContents.evaluateJavaScript` ->
+ * `WebContentsAndroid::EvaluateJavaScript` ->
+ * `RenderFrameHostImpl::ExecuteJavaScript` ->
+ * `LocalFrameMojoHandler::JavaScriptExecuteRequest`, which only runs the
+ * script. `NotifyUserActivation` is reached solely from
+ * `JavaScriptExecuteRequestForTests` with `has_user_gesture` (the
+ * `ExecuteJavaScriptWithUserGestureForTests` test hook), which no WebView API
+ * calls. So `navigator.userActivation` stays whatever the user made it. If
+ * that ever changes, switch to a document-start probe reporting through
+ * `WebViewCompat.addWebMessageListener`, as iOS does.
+ *
+ * The interstitial's inline bootstrap script defines `_cf_chl_opt`. Unlike the
+ * title ("Just a moment...", which the orchestrator localizes) that marker is
+ * the same in every language, so it is what keeps a zh/ja/… interstitial —
+ * including its "verification successful, waiting for <host>" phase, after
+ * Turnstile has already written a preliminary `cf_clearance` — reading as a
+ * challenge. The title check stays as a fallback.
  */
 private val NEMU_CLOUDFLARE_PROBE_SCRIPT = """
 (function () {
+  var interstitial = false;
+  try {
+    interstitial = Array.prototype.some.call(document.scripts, function (script) {
+      return (script.textContent || "").indexOf("_cf_chl_opt") !== -1;
+    });
+  } catch (error) { interstitial = false; }
   var title = "";
   try { title = document.title || ""; } catch (error) { title = ""; }
   var turnstile = !!document.querySelector('input[name="cf-turnstile-response"]');
@@ -133,7 +170,7 @@ private val NEMU_CLOUDFLARE_PROBE_SCRIPT = """
   );
   var needsInteraction = turnstile || errorPanel;
   return {
-    challenge: needsInteraction || running || title === "Just a moment...",
+    challenge: needsInteraction || running || interstitial || title === "Just a moment...",
     needsInteraction: needsInteraction
   };
 })();
@@ -161,22 +198,53 @@ private val NEMU_CLOUDFLARE_PROBE_SCRIPT = """
  * solve. It is still not a private store: another WebView in the process would
  * observe the challenge host's cookies while a solve is running.
  *
- * **WebSockets are not gated.** Chromium routes a `WebSocket` handshake through
- * neither [android.webkit.WebViewClient.shouldInterceptRequest] nor
- * `shouldOverrideUrlLoading`, and the stable WebView API exposes no hook that
- * sees it — so the allow-list this solver enforces covers document, subframe
- * and subresource loads, and service-worker fetches (via
- * [NemuCloudflareServiceWorkerGate]), but not `ws:`/`wss:`. What still applies:
- * the challenge document is https and `MIXED_CONTENT_NEVER_ALLOW` is set, so
- * Chromium blocks plain `ws:` from it as mixed content, which leaves only
- * `wss:` to a host presenting a certificate the system trusts — a far cry from
- * arbitrary LAN probing, but not nothing. A CSP `connect-src` would be the
- * textbook fix and is not available here: `<meta http-equiv>` is only honoured
- * inside `<head>`, a document-start script runs before `<head>` exists (and
- * needs `androidx.webkit`'s `DOCUMENT_START_SCRIPT`, which this module does not
- * depend on), and it would not reach the cross-origin Turnstile iframe, which
- * carries Cloudflare's own policy. iOS has no equivalent gap: WebKit runs
- * content rule lists for WebSocket handshakes too.
+ * **Connections the request callbacks never see.** Chromium routes a
+ * `WebSocket` handshake, a `WebTransport` session and WebRTC's ICE traffic
+ * through neither [android.webkit.WebViewClient.shouldInterceptRequest] nor
+ * the service-worker client, and the stable WebView API has no hook that sees
+ * them. (`fetch`, XHR, `EventSource` and `sendBeacon` are ordinary loads and
+ * do reach one of the two — WebView proxies every URLLoaderFactory, and hands
+ * the ones with no frame, service and dedicated workers', to the
+ * service-worker client — and both apply the same allow-list.) The solver
+ * therefore injects
+ * [NemuCloudflareSocketGuard] with `WebViewCompat.addDocumentStartJavaScript`
+ * into every frame, whatever its origin, before the challenge loads: in each
+ * realm it reaches, `WebSocket`/`WebSocketStream` only construct for `wss:` to
+ * the hosts [NemuCloudflareChallengePolicy.allowedHosts] names, `WebTransport`
+ * only for `https:` to them, and `RTCPeerConnection` never constructs. A
+ * WebView without `DOCUMENT_START_SCRIPT` fails the solve closed with
+ * `rule-list-unavailable` before anything loads.
+ *
+ * That guard is page script, not a network boundary, and a page that sets out
+ * to evade it still can:
+ *
+ * - **Workers.** Document-start scripts never run in a worker's global, and a
+ *   page can start a dedicated worker from a `blob:` it wrote itself (the
+ *   allow-list has to admit `blob:` — Turnstile's proof-of-work runs in one),
+ *   so `new WebSocket` inside a worker is unguarded. Rewriting worker scripts
+ *   to prepend the guard would break on revoked blob urls, the worker's
+ *   inherited CSP (`importScripts`) and hoisted module imports, which is to say
+ *   it would break Turnstile before it stopped a determined page.
+ * - **Initial empty documents reached by index.** Chromium does not run
+ *   document-start scripts in a new iframe's initial `about:blank` document.
+ *   The guard adopts that realm when page script reaches it through
+ *   `contentWindow`/`contentDocument`, but `window[0]` or a named-frame lookup
+ *   reach the same realm without passing any hook, and it keeps its native
+ *   constructors until the frame navigates.
+ * - **Preconnect.** `<link rel=preconnect|dns-prefetch>` can open a TCP/TLS
+ *   handshake or a DNS lookup to any host; no response is readable.
+ *
+ * What still bounds all of these: the challenge document is https and
+ * `MIXED_CONTENT_NEVER_ALLOW` is set, so plain `ws:` is blocked as mixed
+ * content in every realm, which leaves `wss:` to a host presenting a
+ * certificate the system trusts — not arbitrary LAN probing, but not nothing.
+ * Closing them for real needs a network-level boundary (e.g. a loopback
+ * CONNECT proxy behind `androidx.webkit.ProxyController`, which would also see
+ * workers and the WebView's own DNS). A CSP `connect-src` is not an option: a
+ * `<meta http-equiv>` is only honoured inside `<head>`, which does not exist at
+ * document start, and it would not reach the cross-origin Turnstile iframe.
+ * iOS has no equivalent gap for WebSockets: WebKit runs content rule lists for
+ * WebSocket handshakes.
  *
  * All state below is main-thread only (WebView requires it).
  */
@@ -364,6 +432,11 @@ internal class NemuCloudflareSolver(
     private var baselineCookieHeader: String = ""
     private var didEmitWaiting = false
     private var probeInFlight = false
+    /**
+     * Whether the main-frame document on screen came from a cleared response;
+     * fed by [SolverWebViewClient]. The solve's positive proof of success.
+     */
+    private val documents = NemuCloudflareMainFrameDocumentTracker(solve.challengeHost)
     private var finished = false
     private var settled = false
 
@@ -411,6 +484,18 @@ internal class NemuCloudflareSolver(
         fail(NemuCloudflareSolveFailure.NAVIGATION_FAILED)
         return
       }
+      // WebSockets, WebTransport and WebRTC never reach the WebViewClient; the
+      // only hook that sees them is a document-start script. Without one the
+      // boundary this solver promises does not hold, so nothing loads — the
+      // stance iOS takes when its content rule list will not compile.
+      val socketGuard = NemuCloudflareSocketGuard.script(solve.challengeHost)
+      val documentStartScripts = runCatching {
+        WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+      }.getOrDefault(false)
+      if (socketGuard == null || !documentStartScripts) {
+        fail(NemuCloudflareSolveFailure.RULE_LIST_UNAVAILABLE)
+        return
+      }
       // Closest available stand-in for a fresh per-solve store: expire whatever
       // the shared CookieManager holds for this host before the challenge runs,
       // so a stale clearance cannot be read back as this solve's result.
@@ -425,7 +510,21 @@ internal class NemuCloudflareSolver(
         return
       }
       configure(view, cookies)
-      view.webViewClient = SolverWebViewClient(this, solve.challengeHost)
+      // Registered before `loadUrl`: it only runs in documents that begin
+      // loading after this call, in every frame (see ALLOWED_ORIGIN_RULES).
+      val guarded = runCatching {
+        WebViewCompat.addDocumentStartJavaScript(
+          view,
+          socketGuard,
+          NemuCloudflareSocketGuard.ALLOWED_ORIGIN_RULES
+        )
+      }.isSuccess
+      if (!guarded) {
+        runCatching { view.destroy() }
+        fail(NemuCloudflareSolveFailure.RULE_LIST_UNAVAILABLE)
+        return
+      }
+      view.webViewClient = SolverWebViewClient(this, solve.challengeHost, documents)
 
       val density = activity.resources.displayMetrics
       val width = TypedValue.applyDimension(
@@ -526,14 +625,10 @@ internal class NemuCloudflareSolver(
         for (name in names.take(NEMU_CLOUDFLARE_MAX_EXPIRED_COOKIE_NAMES)) {
           for (domain in domains) {
             for (path in paths) {
-              val expiry = buildString {
-                append(name).append("=; Max-Age=0; Path=").append(path)
-                if (domain != null) append("; Domain=").append(domain)
-                // `__Secure-`/`__Host-` prefixed names are only accepted with
-                // `Secure`; the origin is https, so it costs nothing to set.
-                append("; Secure")
+              // Unpartitioned and partitioned twins; see `cookieExpiryLines`.
+              for (expiry in NemuCloudflareChallengePolicy.cookieExpiryLines(name, domain, path)) {
+                runCatching { cookies.setCookie(origin, expiry) }
               }
-              runCatching { cookies.setCookie(origin, expiry) }
             }
           }
         }
@@ -565,20 +660,40 @@ internal class NemuCloudflareSolver(
     /**
      * Reads the DOM markers and the challenge host's cookies together. A solve
      * is complete when a `cf_clearance` cookie for the challenge host exists,
-     * its value differs from the one the source already had, and the page is no
-     * longer a challenge document.
+     * its value differs from the one the source already had, the main-frame
+     * document on screen came from a non-mitigated challenge-host response,
+     * and that document is not a challenge
+     * ([NemuCloudflareChallengePolicy.isSolveComplete]).
      */
     private fun probe() {
       val view = webView ?: return
       if (finished || probeInFlight) return
       probeInFlight = true
+      val generation = documents.documentGeneration
       view.evaluateJavascript(NEMU_CLOUDFLARE_PROBE_SCRIPT) { value ->
         probeInFlight = false
         if (finished) return@evaluateJavascript
+        // The script ran against a document that has since been replaced (or
+        // is being replaced); its answer does not speak for the current one.
+        // Re-read now rather than waiting a tick: the `onPageFinished` probe
+        // for the new document was skipped while this one was in flight.
+        if (generation != documents.documentGeneration) {
+          probe()
+          return@evaluateJavascript
+        }
         evaluate(parseProbe(value), readHostCookieHeader())
       }
     }
 
+    /**
+     * Includes Cloudflare's `Partitioned` `cf_clearance`: WebView's
+     * `getCookie(url)` returns unpartitioned cookies plus those partitioned
+     * under the url's own top-level site, which is the partition this solve's
+     * top-level challenge page writes into. Adoption goes through a `Cookie:`
+     * header into an OkHttp jar with no notion of partitions, so the adopted
+     * copy is an ordinary first-party cookie the source's requests send —
+     * the same outcome iOS reaches by dropping `StoragePartition`.
+     */
     private fun readHostCookieHeader(): String {
       val origin = "https://${solve.url.host}/"
       return runCatching {
@@ -595,8 +710,14 @@ internal class NemuCloudflareSolver(
         baselineCookieHeader,
         cookieHeader
       )
-      val clearance = clearanceValue(solved)
-      if (clearance != null && clearance != baselineClearance && !probe.isChallenge) {
+      if (
+        NemuCloudflareChallengePolicy.isSolveComplete(
+          clearance = clearanceValue(solved),
+          baselineClearance = baselineClearance,
+          committedDocumentCleared = documents.committedDocumentCleared,
+          probeReportsChallenge = probe.isChallenge
+        )
+      ) {
         succeed(solved)
         return
       }
@@ -864,30 +985,33 @@ internal object NemuCloudflareServiceWorkerGate {
  * the challenge host is refused outright.
  *
  * This covers document, subframe and subresource loads — everything Chromium
- * reports to a [WebViewClient]. It does **not** cover WebSocket handshakes,
- * which Chromium never surfaces here; see this file's solver KDoc for what that
- * leaves open. Service-worker fetches are handled by
- * [NemuCloudflareServiceWorkerGate] instead, for the same reason.
+ * reports to a [WebViewClient]. WebSocket, WebTransport and WebRTC connections
+ * never surface here; [NemuCloudflareSocketGuard] handles those in page
+ * script, and this file's solver KDoc says what that still leaves open.
+ * Service-worker fetches are handled by [NemuCloudflareServiceWorkerGate]
+ * instead, for the same reason.
  */
 private class SolverWebViewClient(
   private val callbacks: NemuCloudflareSolverSessionCallbacks,
-  private val challengeHost: String
+  private val challengeHost: String,
+  /** Thread-safe; see [NemuCloudflareMainFrameDocumentTracker]. */
+  private val documents: NemuCloudflareMainFrameDocumentTracker
 ) : WebViewClient() {
 
+  /** Runs on a WebView background thread, not the main thread. */
   override fun shouldInterceptRequest(
     view: WebView,
     request: WebResourceRequest
   ): WebResourceResponse? {
-    if (
-      NemuCloudflareChallengePolicy.allowsRequest(
-        request.isForMainFrame,
-        request.url,
-        challengeHost
-      )
-    ) {
-      return null
-    }
-    return nemuCloudflareBlockedResponse()
+    val allowed = NemuCloudflareChallengePolicy.allowsRequest(
+      request.isForMainFrame,
+      request.url,
+      challengeHost
+    )
+    // Recorded synchronously, before the request is sent, so it always lands
+    // ahead of this navigation's own response callbacks.
+    if (request.isForMainFrame) documents.mainFrameRequestStarted(allowed)
+    return if (allowed) null else nemuCloudflareBlockedResponse()
   }
 
   override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -903,8 +1027,30 @@ private class SolverWebViewClient(
     )
   }
 
+  override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+    documents.mainFrameStarted()
+  }
+
   override fun onPageFinished(view: WebView, url: String?) {
+    documents.mainFrameFinished(url)
     callbacks.onPageFinished()
+  }
+
+  /**
+   * Every main-frame response >= 400 lands here with its real status and
+   * headers — the only main-frame response metadata a WebViewClient gets for
+   * loads WebView performs itself. A Cloudflare interstitial is one of these.
+   */
+  override fun onReceivedHttpError(
+    view: WebView,
+    request: WebResourceRequest,
+    errorResponse: WebResourceResponse
+  ) {
+    if (!request.isForMainFrame) return
+    documents.mainFrameHttpError(
+      errorResponse.statusCode,
+      errorResponse.responseHeaders.orEmpty()
+    )
   }
 
   override fun onReceivedError(
@@ -913,6 +1059,7 @@ private class SolverWebViewClient(
     error: android.webkit.WebResourceError
   ) {
     if (!request.isForMainFrame) return
+    documents.mainFrameLoadFailed()
     callbacks.onNavigationFailed()
   }
 

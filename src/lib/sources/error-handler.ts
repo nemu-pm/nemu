@@ -34,7 +34,7 @@ export function isCloudflareError(error: unknown): boolean {
  * Kept `instanceof Error`-gated to match prior web behavior; the shared
  * `readErrorUrl` / `extractCfUrlFromMessage` primitives do the actual work.
  */
-function extractCfUrl(error: unknown): string | undefined {
+export function extractCfUrl(error: unknown): string | undefined {
   if (!(error instanceof Error)) return undefined;
   const url = readErrorUrl(error);
   if (url) return url;

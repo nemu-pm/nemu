@@ -103,7 +103,7 @@ jobs:
             git diff --name-only "$BASE_SHA...$HEAD_SHA" > /tmp/native-changes.txt
           fi
 
-          if grep -Eq '^(apps/mobile/(app\.json|app\.config\.cjs|eas\.json|loadRootEnv\.cjs|react-native\.config\.js|assets/|modules/|plugins/|package\.json)|package\.json$|bun\.lock$|bunfig\.toml$|patches/|scripts/(build-mobile-aidoku-sandbox|generate-mobile-app-icon-glow|patch-aidoku-runtime)\.ts$|\.github/workflows/mobile\.yml$)' /tmp/native-changes.txt; then
+          if grep -Eq '^(apps/mobile/(app\.json|app\.config\.cjs|eas\.json|loadRootEnv\.cjs|react-native\.config\.js|assets/|modules/|plugins/|package\.json)|package\.json$|bun\.lock$|bunfig\.toml$|patches/|scripts/(build-mobile-aidoku-sandbox|generate-mobile-app-icon-glow)\.ts$|\.github/workflows/mobile\.yml$)' /tmp/native-changes.txt; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -377,6 +377,14 @@ jobs:
             -framework Network \
             -o "$test_dir/address-tests"
           "$test_dir/address-tests"
+          xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuCloudflareChallengePolicy.swift \
+            modules/nemu-aidoku/ios/NemuNativeHttpAddressPolicy.swift \
+            modules/nemu-aidoku/ios/NemuNativeHttpLoopbackProxy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuCloudflareChallengePolicyTests.swift \
+            -framework Network \
+            -o "$test_dir/cloudflare-tests"
+          "$test_dir/cloudflare-tests"
           xcrun swiftc \
             modules/nemu-aidoku/ios/NemuNativeHttpHeaderPolicy.swift \
             modules/nemu-aidoku/runtime/iosTest/NemuNativeHttpHeaderPolicyTests.swift \

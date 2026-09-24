@@ -34,6 +34,10 @@ export {
 export { NemuThemeContext, type NemuTheme } from "@/design/themeContext";
 export { NemuThemeProvider } from "@/design/theme";
 export { useNemuTheme } from "@/design/useNemuTheme";
+export {
+  useMobilePageBleedStyles,
+  useMobilePageGutters,
+} from "@/design/useMobilePageGutters";
 
 export { GlassSurface } from "./components/GlassSurface";
 export { MobileNativeSheetScaffold } from "./components/MobileNativeSheetScaffold";

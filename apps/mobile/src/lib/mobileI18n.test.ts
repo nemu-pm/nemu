@@ -115,7 +115,7 @@ describe("mobile i18n helpers", () => {
 
   test("localizes every Cloudflare solve failure reason the sheet maps", () => {
     const sheet = readFileSync(
-      path.join(import.meta.dir, "..", "components", "MobileNemuAgentSheet.tsx"),
+      path.join(import.meta.dir, "mobileNemuAgentSheetPresentation.ts"),
       "utf8",
     );
     // Every reason code the sheet branches on must reach a real string, and

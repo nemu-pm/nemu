@@ -171,6 +171,26 @@ class NemuCloudflareChallengePolicyTest {
   }
 
   @Test
+  fun expiresBothThePartitionedAndTheUnpartitionedIdentity() {
+    // Cloudflare's clearance is `Partitioned`; a plain expiry line is a
+    // different cookie identity and would leave it in place.
+    assertEquals(
+      listOf(
+        "cf_clearance=; Max-Age=0; Path=/; Secure",
+        "cf_clearance=; Max-Age=0; Path=/; Secure; Partitioned"
+      ),
+      NemuCloudflareChallengePolicy.cookieExpiryLines("cf_clearance", null, "/")
+    )
+    assertEquals(
+      listOf(
+        "__cf_bm=; Max-Age=0; Path=/manga; Domain=.example.com; Secure",
+        "__cf_bm=; Max-Age=0; Path=/manga; Domain=.example.com; Secure; Partitioned"
+      ),
+      NemuCloudflareChallengePolicy.cookieExpiryLines("__cf_bm", ".example.com", "/manga")
+    )
+  }
+
+  @Test
   fun recognizesTheChallengePlatformPath() {
     assertTrue(
       NemuCloudflareChallengePolicy.isChallengePlatformPath(
@@ -336,6 +356,183 @@ class NemuCloudflareChallengePolicyTest {
     assertFalse(NemuCloudflareChallengePolicy.allowsRequest(true, "blob", null, false, host))
     assertFalse(NemuCloudflareChallengePolicy.allowsRequest(false, "file", null, false, host))
     assertFalse(NemuCloudflareChallengePolicy.allowsRequest(false, "wss", "challenges.cloudflare.com", false, host))
+  }
+
+  @Test
+  fun onlyANonMitigatedChallengeHostDocumentCountsAsCleared() {
+    val page = "https://reader.example.com/newmanga/page/1/"
+    fun cleared(url: String?, status: Int, headers: Map<String, String> = emptyMap()) =
+      NemuCloudflareChallengePolicy.isClearedDocumentResponse(url, status, headers, host)
+
+    assertTrue(cleared(page, 200, mapOf("Content-Type" to "text/html")))
+    assertTrue(cleared("https://READER.example.com./manga/1", 204))
+    assertFalse(cleared(page, 403, mapOf("cf-mitigated" to "challenge", "server" to "cloudflare")))
+    assertFalse(cleared(page, 200, mapOf("CF-Mitigated" to "challenge")))
+    assertFalse(cleared(page, 503))
+    assertFalse(cleared(page, 302))
+    // An API or POST endpoint replayed as a plain GET answers 404/405 once the
+    // edge lets it through; only a mitigated 4xx is Cloudflare's.
+    assertTrue(cleared(page, 404))
+    assertTrue(cleared(page, 405, mapOf("server" to "cloudflare")))
+    assertFalse(cleared(page, 403, mapOf("cf-mitigated" to "block")))
+    assertFalse(cleared("https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b", 200))
+    assertFalse(cleared("https://gw.reader.example.com/", 200))
+    assertFalse(cleared(null, 200))
+    assertFalse(cleared("not a url", 200))
+  }
+
+  @Test
+  fun solveSettlesOnlyOnPositiveProofOfAClearedDocument() {
+    // The premature success seen on a zh device: Turnstile has written a fresh
+    // `cf_clearance` and the (localized) interstitial's probe no longer read
+    // as a challenge, but no cleared document is on screen yet.
+    assertFalse(
+      NemuCloudflareChallengePolicy.isSolveComplete(
+        clearance = "fresh",
+        baselineClearance = null,
+        committedDocumentCleared = false,
+        probeReportsChallenge = false
+      )
+    )
+    // The origin page loaded with the fresh clearance: settled.
+    assertTrue(
+      NemuCloudflareChallengePolicy.isSolveComplete(
+        clearance = "fresh",
+        baselineClearance = "stale",
+        committedDocumentCleared = true,
+        probeReportsChallenge = false
+      )
+    )
+    // A cleared response whose document still reads as a challenge, a stale
+    // cookie carried over from the failed request, or no cookie at all.
+    assertFalse(
+      NemuCloudflareChallengePolicy.isSolveComplete("fresh", null, true, true)
+    )
+    assertFalse(
+      NemuCloudflareChallengePolicy.isSolveComplete("stale", "stale", true, false)
+    )
+    assertFalse(NemuCloudflareChallengePolicy.isSolveComplete(null, null, true, false))
+    assertFalse(NemuCloudflareChallengePolicy.isSolveComplete("", null, true, false))
+  }
+
+  @Test
+  fun mainFrameTrackerKeepsTheInterstitialUnclearedUntilTheOriginAnswers() {
+    val page = "https://reader.example.com/newmanga/page/1/"
+    val documents = NemuCloudflareMainFrameDocumentTracker(host)
+    assertFalse(documents.committedDocumentCleared)
+
+    // The solve's own load: Cloudflare answers with its mitigated 403.
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameHttpError(403, mapOf("cf-mitigated" to "challenge"))
+    documents.mainFrameStarted()
+    documents.mainFrameFinished(page)
+    assertFalse(documents.committedDocumentCleared)
+
+    // Turnstile ticks and writes a preliminary `cf_clearance`; the localized
+    // interstitial strips its tokens with `history.replaceState`, which is a
+    // same-document start/finish with no main-frame request behind it.
+    documents.mainFrameStarted()
+    documents.mainFrameFinished("$page?stripped")
+    assertFalse(documents.committedDocumentCleared)
+    assertFalse(
+      NemuCloudflareChallengePolicy.isSolveComplete(
+        clearance = "preliminary",
+        baselineClearance = null,
+        committedDocumentCleared = documents.committedDocumentCleared,
+        probeReportsChallenge = false
+      )
+    )
+
+    // The orchestrator's follow-up navigation reaches the origin: no HTTP
+    // error was reported for it, so it is the 2xx document that proves it.
+    val beforeOrigin = documents.documentGeneration
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameStarted()
+    // Between the new document's start and its finish nothing is trusted.
+    assertFalse(documents.committedDocumentCleared)
+    documents.mainFrameFinished(page)
+    assertTrue(documents.committedDocumentCleared)
+    assertTrue(documents.documentGeneration > beforeOrigin)
+    assertTrue(
+      NemuCloudflareChallengePolicy.isSolveComplete(
+        clearance = "preliminary",
+        baselineClearance = null,
+        committedDocumentCleared = documents.committedDocumentCleared,
+        probeReportsChallenge = false
+      )
+    )
+
+    // A same-document navigation on the origin page keeps the verdict.
+    documents.mainFrameStarted()
+    documents.mainFrameFinished("$page#top")
+    assertTrue(documents.committedDocumentCleared)
+
+    // A later navigation that is challenged again withdraws it.
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameHttpError(503, emptyMap())
+    documents.mainFrameStarted()
+    assertFalse(documents.committedDocumentCleared)
+    documents.mainFrameFinished(page)
+    assertFalse(documents.committedDocumentCleared)
+  }
+
+  @Test
+  fun mainFrameTrackerRefusesBlockedFailedAndForeignDocuments() {
+    val documents = NemuCloudflareMainFrameDocumentTracker(host)
+
+    // Refused by the solver's own allow-list (answered with a blank 403).
+    documents.mainFrameRequestStarted(allowed = false)
+    documents.mainFrameStarted()
+    documents.mainFrameFinished("https://reader.example.com/")
+    assertFalse(documents.committedDocumentCleared)
+
+    // The load failed outright; WebView shows its own error page.
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameLoadFailed()
+    documents.mainFrameStarted()
+    documents.mainFrameFinished("https://reader.example.com/")
+    assertFalse(documents.committedDocumentCleared)
+
+    // A document that finished on some other host after a redirect.
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameStarted()
+    documents.mainFrameFinished("https://elsewhere.example.net/")
+    assertFalse(documents.committedDocumentCleared)
+
+    // An error with no request behind it (a stale callback) changes nothing,
+    // and a fresh request drops whatever the previous one recorded.
+    documents.mainFrameHttpError(403, mapOf("cf-mitigated" to "challenge"))
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameStarted()
+    documents.mainFrameFinished("https://reader.example.com/")
+    assertTrue(documents.committedDocumentCleared)
+  }
+
+  @Test
+  fun mainFrameTrackerIgnoresTheLateFinishOfThePreviousDocument() {
+    val page = "https://reader.example.com/newmanga/page/1/"
+    val documents = NemuCloudflareMainFrameDocumentTracker(host)
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameHttpError(403, mapOf("cf-mitigated" to "challenge"))
+    documents.mainFrameStarted()
+
+    // The next navigation's request begins before the interstitial's own
+    // finish arrives. That late finish must not be scored with the new
+    // request's still-clean state...
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameFinished(page)
+    assertFalse(documents.committedDocumentCleared)
+
+    // ...and the new document's own start and finish still decide it.
+    documents.mainFrameHttpError(403, mapOf("cf-mitigated" to "challenge"))
+    documents.mainFrameStarted()
+    documents.mainFrameFinished(page)
+    assertFalse(documents.committedDocumentCleared)
+
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameStarted()
+    documents.mainFrameFinished(page)
+    assertTrue(documents.committedDocumentCleared)
   }
 
   private fun request(

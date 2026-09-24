@@ -7,6 +7,10 @@ private let nemuAsyncHttpMaxTimeoutSeconds = 30.0
 private let nemuSyncHttpMaxTimeoutSeconds = 12.0
 private let nemuIOSAidokuMaxHttpResponseBytes = 16 * 1024 * 1024
 private let nemuMaxCookieScopeCharacters = 512
+/// Platform-browser UA for native requests that name none and carry no source
+/// cookie scope. Source-scoped requests fall back to
+/// `nemuAidokuDefaultUserAgent` instead; see
+/// `NemuNativeHttpRequestHeaderPolicy.fallbackUserAgent`.
 private let nemuMobileUserAgent =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1"
 
@@ -1686,7 +1690,13 @@ public class NemuAidokuModule: Module {
       // unbounded native header. Preserve the already-validated source value.
       output["Cookie"] = explicitCookie
     }
-    return output
+    // The request now carries this source's cookies, `cf_clearance` included,
+    // and a clearance is only honoured next to the User-Agent that solved it:
+    // the source's own, else the runtime default the solver also presents.
+    return NemuNativeHttpRequestHeaderPolicy.ensuringUserAgent(
+      output,
+      nemuAidokuDefaultUserAgent
+    )
   }
 
   /// Remembers a host that answered this source's request with a Cloudflare
@@ -2353,7 +2363,14 @@ public class NemuAidokuModule: Module {
       to: &urlRequest
     )
     if !hasHeader(urlRequest, "User-Agent") {
-      urlRequest.setValue(nemuMobileUserAgent, forHTTPHeaderField: "User-Agent")
+      urlRequest.setValue(
+        NemuNativeHttpRequestHeaderPolicy.fallbackUserAgent(
+          cookieScope: request.cookieScope,
+          sourceDefault: nemuAidokuDefaultUserAgent,
+          platformDefault: nemuMobileUserAgent
+        ),
+        forHTTPHeaderField: "User-Agent"
+      )
     }
     attachStoredCookies(
       to: &urlRequest,

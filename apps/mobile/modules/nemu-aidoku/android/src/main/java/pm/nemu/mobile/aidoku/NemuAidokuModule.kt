@@ -49,6 +49,12 @@ private val NEMU_NATIVE_HTTP_TEMP_FILE_PATTERN = Regex(
   "^nemu-http-(?:\\d+|stage-\\d+|output-\\d+|" +
     "stage-segment-\\d{2}-\\d+|output-segment-\\d{2}-\\d+)\\.part$"
 )
+/**
+ * Platform-browser UA for native requests that name none and carry no source
+ * cookie scope. Source-scoped requests fall back to
+ * [NEMU_AIDOKU_DEFAULT_USER_AGENT]; see
+ * [NemuNativeHttpRequestHeaderPolicy.fallbackUserAgent].
+ */
 private const val MOBILE_USER_AGENT =
   "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36"
 
@@ -703,9 +709,16 @@ class NemuAidokuModule : Module() {
   ): Map<String, String> {
     val url = urlString.toHttpUrlOrNull() ?: return existingHeaders
     val matchedCookies = sandboxCookieStore.get(sourceKey).loadForRequest(url)
-    return mergeAidokuSandboxCookieHeaders(
+    val merged = mergeAidokuSandboxCookieHeaders(
       existingHeaders,
       matchedCookies.map { it.name to it.value }
+    )
+    // The request now carries this source's cookies, `cf_clearance` included,
+    // and a clearance is only honoured next to the User-Agent that solved it:
+    // the source's own, else the runtime default the solver also presents.
+    return NemuNativeHttpRequestHeaderPolicy.ensuringUserAgent(
+      merged,
+      NEMU_AIDOKU_DEFAULT_USER_AGENT
     )
   }
 
@@ -726,6 +739,9 @@ class NemuAidokuModule : Module() {
       .callTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
       .build()
     val nativeRequest = NemuAidokuHttpRequest().apply {
+      // Not a jar selector here (the client above already carries the scoped
+      // jar); it marks the request as source traffic for the UA fallback.
+      cookieScope = request.sourceKey
       url = request.url
       method = request.method
       headers = request.headers
@@ -910,8 +926,15 @@ class NemuAidokuModule : Module() {
           NemuHttpsOnlyRequestPolicy
         )
       }
-      if (!request.headers.keys.any { it.equals("user-agent", ignoreCase = true) }) {
-        requestBuilder.header("User-Agent", MOBILE_USER_AGENT)
+      if (!NemuNativeHttpRequestHeaderPolicy.hasUserAgent(request.headers)) {
+        requestBuilder.header(
+          "User-Agent",
+          NemuNativeHttpRequestHeaderPolicy.fallbackUserAgent(
+            cookieScope = request.cookieScope,
+            sourceDefault = NEMU_AIDOKU_DEFAULT_USER_AGENT,
+            platformDefault = MOBILE_USER_AGENT
+          )
+        )
       }
       NemuNativeHttpRequestHeaderPolicy.normalize(request.headers).forEach { (key, value) ->
         requestBuilder.header(key, value)
@@ -1124,8 +1147,15 @@ class NemuAidokuModule : Module() {
           NemuHttpsOnlyRequestPolicy
         )
       }
-      if (!request.headers.keys.any { it.equals("user-agent", ignoreCase = true) }) {
-        requestBuilder.header("User-Agent", MOBILE_USER_AGENT)
+      if (!NemuNativeHttpRequestHeaderPolicy.hasUserAgent(request.headers)) {
+        requestBuilder.header(
+          "User-Agent",
+          NemuNativeHttpRequestHeaderPolicy.fallbackUserAgent(
+            cookieScope = request.cookieScope,
+            sourceDefault = NEMU_AIDOKU_DEFAULT_USER_AGENT,
+            platformDefault = MOBILE_USER_AGENT
+          )
+        )
       }
       NemuNativeHttpRequestHeaderPolicy.normalize(request.headers).forEach { (key, value) ->
         requestBuilder.header(key, value)

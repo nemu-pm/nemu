@@ -1,10 +1,56 @@
 package pm.nemu.mobile.aidoku
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NemuNativeHttpRequestHeaderPolicyTest {
+  /**
+   * A source's cookies (a `cf_clearance` among them) only work next to the
+   * User-Agent that solved the challenge, so source-owned requests never fall
+   * through to the platform browser UA.
+   */
+  @Test
+  fun keepsASourceUserAgentAndOtherwiseAddsTheSourceDefault() {
+    val custom = mapOf("user-agent" to "Custom/1", "Referer" to "https://example.test/")
+    assertTrue(NemuNativeHttpRequestHeaderPolicy.hasUserAgent(custom))
+    assertEquals(custom, NemuNativeHttpRequestHeaderPolicy.ensuringUserAgent(custom, "Source/17"))
+
+    val bare = mapOf("Cookie" to "cf_clearance=abc", "Referer" to "https://example.test/")
+    assertFalse(NemuNativeHttpRequestHeaderPolicy.hasUserAgent(bare))
+    assertEquals(
+      mapOf(
+        "Cookie" to "cf_clearance=abc",
+        "Referer" to "https://example.test/",
+        "User-Agent" to "Source/17"
+      ),
+      NemuNativeHttpRequestHeaderPolicy.ensuringUserAgent(bare, "Source/17")
+    )
+  }
+
+  @Test
+  fun fallsBackToTheSourceDefaultOnlyForScopedRequests() {
+    assertEquals(
+      "Source/17",
+      NemuNativeHttpRequestHeaderPolicy.fallbackUserAgent(
+        cookieScope = "profile::registry:source",
+        sourceDefault = "Source/17",
+        platformDefault = "Platform/152"
+      )
+    )
+    listOf(null, "", "  \n").forEach { scope ->
+      assertEquals(
+        "Platform/152",
+        NemuNativeHttpRequestHeaderPolicy.fallbackUserAgent(
+          cookieScope = scope,
+          sourceDefault = "Source/17",
+          platformDefault = "Platform/152"
+        )
+      )
+    }
+  }
+
   @Test
   fun percentEncodesUnicodeRefererUrlsForOkHttp() {
     val normalized = NemuNativeHttpRequestHeaderPolicy.normalize(

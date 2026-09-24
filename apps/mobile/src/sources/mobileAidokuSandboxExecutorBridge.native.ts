@@ -28,6 +28,7 @@ import {
 } from "@/lib/mobilePerformance";
 import { getMobileImageUriPolicy } from "@/lib/mobileImageUriPolicy";
 import { sanitizeMobileErrorDiagnostic } from "@/lib/mobileSourceErrors";
+import { withMobileAidokuUserAgent } from "./mobileAidokuUserAgent";
 
 type SandboxCapabilities = {
   id: string;
@@ -280,12 +281,16 @@ function wrapSandboxSource({
       for (const partial of response.partials ?? []) onPartial(partial);
       return response.layout;
     },
+    // Every result carries a User-Agent: the one the source's request holds,
+    // else the runtime default — the same pair the runtime's own
+    // `modifyImageRequest` returns when a source has no hook. A clearance
+    // cookie native attaches to the rewritten request is bound to it.
     modifyImageRequest(url) {
       if (
         !capabilities.hasImageRequestProvider ||
         !getMobileImageUriPolicy(url, "source").allowed
       ) {
-        return Promise.resolve({ url, headers: {} });
+        return Promise.resolve({ url, headers: withMobileAidokuUserAgent({}) });
       }
       return execute<{ url: string; headers: Record<string, string> }>(
         "modify-image-request",
@@ -293,7 +298,10 @@ function wrapSandboxSource({
           kind: "modify-image-request",
           url,
         },
-      );
+      ).then((request) => ({
+        url: request.url,
+        headers: withMobileAidokuUserAgent(request.headers),
+      }));
     },
     async hasImageProcessor() {
       return capabilities.hasImageProcessor;

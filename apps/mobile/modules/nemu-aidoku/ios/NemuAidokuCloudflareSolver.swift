@@ -68,30 +68,93 @@ private struct NemuCloudflareChallengeProbe {
   static let empty = NemuCloudflareChallengeProbe(isChallenge: true, needsInteraction: false)
 }
 
+/// Name of the message handler the probe script reports through. Registered
+/// only in `nemuCloudflareProbeWorld`, so the page's own scripts never see a
+/// `window.webkit` object and cannot post to it.
+private let nemuCloudflareProbeHandlerName = "nemuCloudflareProbe"
+
+/// The probe runs in its own isolated content world: the page cannot observe
+/// or patch the lookups below, and nothing it defines leaks in.
+private let nemuCloudflareProbeWorld = WKContentWorld.world(name: "nemu-cloudflare-probe")
+
 /// Reads the markers Cloudflare's interstitial exposes. Kept to element and
 /// title lookups so nothing about the page is exfiltrated back into native.
+///
+/// **Pushed from a user script, never pulled with `evaluateJavaScript`.** Every
+/// public `WKWebView` script-evaluation API (`evaluateJavaScript`, its
+/// content-world variant, `callAsyncJavaScript`) runs the script with a forced
+/// user gesture, which hands the document sticky user activation
+/// (`navigator.userActivation.hasBeenActive === true`) although nobody touched
+/// it. Polling the challenge page that way made every interstitial look
+/// scripted: Turnstile still completed on the checkbox tap, but Cloudflare
+/// then issued a `cf_clearance` its own edge refused, and the orchestrator
+/// reloaded (setting `cf_chl_rc_ni`) instead of submitting its form — an
+/// endless checkbox loop. A user script runs without any gesture, so the
+/// page's activation state stays exactly what the user made it.
+///
+/// Injected at document end (the interstitial's markers are in its initial
+/// HTML, so an empty just-committed document can never report "not a
+/// challenge") and re-run on DOM mutations, because the Turnstile widget and
+/// the error panel are inserted later. Only changes are posted.
 private let nemuCloudflareProbeScript = """
 (function () {
-  var title = "";
-  try { title = document.title || ""; } catch (error) { title = ""; }
-  var turnstile = !!document.querySelector('input[name="cf-turnstile-response"]');
-  var errorPanel = !!(
-    document.querySelector('#challenge-error-title') ||
-    document.querySelector('#challenge-error-text')
-  );
-  var running = !!(
-    document.querySelector('#challenge-running') ||
-    document.querySelector('#cf-challenge-running') ||
-    document.querySelector('#challenge-form') ||
-    document.querySelector('#cf-please-wait')
-  );
-  var needsInteraction = turnstile || errorPanel;
-  return JSON.stringify({
-    challenge: needsInteraction || running || title === "Just a moment...",
-    needsInteraction: needsInteraction
-  });
+  var last = "";
+  // The interstitial's inline bootstrap script defines `_cf_chl_opt`. Unlike
+  // the title ("Just a moment...", which the orchestrator localizes) this is
+  // the same in every language, and it is in the initial HTML, so it is read
+  // once rather than on every mutation.
+  var interstitial = false;
+  try {
+    interstitial = Array.prototype.some.call(document.scripts, function (script) {
+      return (script.textContent || "").indexOf("_cf_chl_opt") !== -1;
+    });
+  } catch (error) { interstitial = false; }
+  function report() {
+    var title = "";
+    try { title = document.title || ""; } catch (error) { title = ""; }
+    var turnstile = !!document.querySelector('input[name="cf-turnstile-response"]');
+    var errorPanel = !!(
+      document.querySelector('#challenge-error-title') ||
+      document.querySelector('#challenge-error-text')
+    );
+    var running = !!(
+      document.querySelector('#challenge-running') ||
+      document.querySelector('#cf-challenge-running') ||
+      document.querySelector('#challenge-form') ||
+      document.querySelector('#cf-please-wait')
+    );
+    var needsInteraction = turnstile || errorPanel;
+    var state = JSON.stringify({
+      challenge: needsInteraction || running || interstitial || title === "Just a moment...",
+      needsInteraction: needsInteraction
+    });
+    if (state === last) return;
+    last = state;
+    try { window.webkit.messageHandlers.\(nemuCloudflareProbeHandlerName).postMessage(state); } catch (error) {}
+  }
+  report();
+  try {
+    new MutationObserver(report).observe(document, { childList: true, subtree: true, characterData: true });
+  } catch (error) {}
 })();
 """
+
+/// `WKUserContentController` retains its message handlers, and the session
+/// owns the WebView that owns the controller; a weak hop breaks that cycle.
+private final class NemuCloudflareProbeMessageProxy: NSObject, WKScriptMessageHandler {
+  weak var target: NemuCloudflareSolveSession?
+
+  init(target: NemuCloudflareSolveSession) {
+    self.target = target
+  }
+
+  func userContentController(
+    _ userContentController: WKUserContentController,
+    didReceive message: WKScriptMessage
+  ) {
+    target?.didReceiveProbe(message)
+  }
+}
 
 /// Serialized, on-demand Cloudflare challenge solver.
 ///
@@ -336,6 +399,17 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
   private var baselineClearance: String?
   private var didEmitWaiting = false
   private var probeInFlight = false
+  /// What the probe script last reported for the current main-frame document.
+  /// Reset on every main-frame commit so a previous document's state never
+  /// speaks for the next one.
+  private var latestProbe = NemuCloudflareChallengeProbe.empty
+  /// Whether the main-frame response WebKit is about to commit was the origin
+  /// answering (`isClearedDocumentResponse`). Promoted to
+  /// `committedDocumentCleared` only when that navigation actually commits.
+  private var pendingMainFrameCleared = false
+  /// Whether the main-frame document on screen came from a cleared response.
+  /// Starts false: the document the solve opens on is the challenge itself.
+  private var committedDocumentCleared = false
   private var finished = false
   private var settled = false
 
@@ -432,6 +506,18 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
     configuration.websiteDataStore = WKWebsiteDataStore.nonPersistent()
     configuration.userContentController = WKUserContentController()
     configuration.userContentController.add(ruleList)
+    // Main frame only, isolated world only: see `nemuCloudflareProbeScript`.
+    configuration.userContentController.add(
+      NemuCloudflareProbeMessageProxy(target: self),
+      contentWorld: nemuCloudflareProbeWorld,
+      name: nemuCloudflareProbeHandlerName
+    )
+    configuration.userContentController.addUserScript(WKUserScript(
+      source: nemuCloudflareProbeScript,
+      injectionTime: .atDocumentEnd,
+      forMainFrameOnly: true,
+      in: nemuCloudflareProbeWorld
+    ))
     configuration.suppressesIncrementalRendering = false
     configuration.allowsInlineMediaPlayback = false
     configuration.mediaTypesRequiringUserActionForPlayback = .all
@@ -457,6 +543,10 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
     webView.isOpaque = false
     webView.backgroundColor = .clear
     webView.scrollView.isScrollEnabled = true
+    #if DEBUG
+    // Lets Safari's Web Inspector attach to a live solve (network, console).
+    webView.isInspectable = true
+    #endif
 
     let container = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     container.clipsToBounds = true
@@ -517,38 +607,58 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
 
   // MARK: - Detection
 
-  /// Reads the DOM markers and the WebView's cookie jar together. A solve is
-  /// complete when a `cf_clearance` cookie for the challenge host exists, its
-  /// value differs from the one the source already had, and the page is no
-  /// longer a challenge document.
+  /// Reads the WebView's cookie jar against the DOM markers the probe script
+  /// last pushed. A solve is complete when a `cf_clearance` cookie for the
+  /// challenge host exists, its value differs from the one the source already
+  /// had, the committed main-frame document came from a non-mitigated origin
+  /// response, and that document is not a challenge
+  /// (`NemuCloudflareChallengePolicy.isSolveComplete`).
+  ///
+  /// Never evaluates script in the page; see `nemuCloudflareProbeScript`.
   private func probe() {
     guard !finished, let webView, !probeInFlight else { return }
     probeInFlight = true
-    webView.evaluateJavaScript(nemuCloudflareProbeScript) { [weak self] value, _ in
+    webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
       guard let self else { return }
-      let probe = Self.parseProbe(value)
-      guard !self.finished, let webView = self.webView else {
-        self.probeInFlight = false
-        return
-      }
-      webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
-        guard let self else { return }
-        self.probeInFlight = false
-        guard !self.finished else { return }
-        self.evaluate(probe: probe, cookies: cookies)
-      }
+      self.probeInFlight = false
+      guard !self.finished else { return }
+      self.evaluate(probe: self.latestProbe, cookies: cookies)
     }
   }
 
+  fileprivate func didReceiveProbe(_ message: WKScriptMessage) {
+    // The script is main-frame only; anything else is not ours to trust.
+    guard !finished, message.frameInfo.isMainFrame else { return }
+    latestProbe = Self.parseProbe(message.body)
+    probe()
+  }
+
   private func evaluate(probe: NemuCloudflareChallengeProbe, cookies: [HTTPCookie]) {
-    let adoptable = cookies.filter {
-      NemuCloudflareChallengePolicy.cookieDomainCoversChallengeHost(
-        $0.domain,
-        challengeHost: challengeHost
-      )
+    // Rebuilt without their CHIPS partition so the source's plain
+    // `cookies(for:)` lookup can see them; see `adoptableCookieProperties`.
+    let adoptable = cookies.compactMap { cookie -> HTTPCookie? in
+      guard
+        NemuCloudflareChallengePolicy.cookieDomainCoversChallengeHost(
+          cookie.domain,
+          challengeHost: challengeHost
+        ),
+        let properties = cookie.properties,
+        let adopted = NemuCloudflareChallengePolicy.adoptableCookieProperties(
+          properties,
+          challengeHost: challengeHost
+        )
+      else {
+        return nil
+      }
+      return HTTPCookie(properties: adopted)
     }
     let clearance = adoptable.first { $0.name == nemuCloudflareClearanceCookieName }
-    if let clearance, clearance.value != baselineClearance, !probe.isChallenge {
+    if NemuCloudflareChallengePolicy.isSolveComplete(
+      clearance: clearance?.value,
+      baselineClearance: baselineClearance,
+      committedDocumentCleared: committedDocumentCleared,
+      probeReportsChallenge: probe.isChallenge
+    ) {
       succeed(with: adoptable)
       return
     }
@@ -595,7 +705,7 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
       self?.fail(.cancelled)
     }
     challengeController = controller
-    presenter.present(controller, animated: true)
+    presenter.present(controller.makeSheet(), animated: true)
     // `presentationController` only exists once the presentation has begun.
     controller.observeDismissGesture()
     emit("nemuAidokuCfCaptcha", ["url": url.absoluteString])
@@ -660,6 +770,8 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
       webView.navigationDelegate = nil
       webView.uiDelegate = nil
       webView.configuration.userContentController.removeAllContentRuleLists()
+      webView.configuration.userContentController.removeAllScriptMessageHandlers()
+      webView.configuration.userContentController.removeAllUserScripts()
       webView.removeFromSuperview()
     }
     webView = nil
@@ -723,7 +835,36 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
       url: responseUrl,
       challengeHost: challengeHost
     )
+    if navigationResponse.isForMainFrame {
+      // Judged here, where the status and headers are visible, and promoted
+      // to `committedDocumentCleared` only if this navigation commits.
+      pendingMainFrameCleared = allowed && isClearedDocument(navigationResponse.response)
+    }
     decisionHandler(allowed ? .allow : .cancel)
+  }
+
+  private func isClearedDocument(_ response: URLResponse) -> Bool {
+    guard let http = response as? HTTPURLResponse else { return false }
+    var headers: [String: String] = [:]
+    for (name, value) in http.allHeaderFields {
+      guard let name = name as? String else { continue }
+      headers[name] = value as? String ?? String(describing: value)
+    }
+    return NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: http.url,
+      status: http.statusCode,
+      headers: headers,
+      challengeHost: challengeHost
+    )
+  }
+
+  func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+    // A new main-frame document is on screen; until its own probe reports,
+    // assume it is still a challenge (the same default a failed read had).
+    latestProbe = .empty
+    // Only the response this commit belongs to can vouch for the document.
+    committedDocumentCleared = pendingMainFrameCleared
+    pendingMainFrameCleared = false
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -817,6 +958,14 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
 /// Hosts the solver's WebView once the challenge needs the user. Closing the
 /// sheet — by the close button or by the sheet's own dismiss gesture — cancels
 /// the solve.
+///
+/// Presented inside a `UINavigationController` (`makeSheet()`) rather than
+/// under a hand-placed `UINavigationBar`. A bare bar pinned to the safe-area
+/// top sits flush against a page sheet's top edge — a sheet has no top safe
+/// area inset — so the title and the close button were cramped against the
+/// grabber zone. A navigation controller gets the system's sheet bar metrics,
+/// the standard glass close button, and the scroll-edge treatment, which is
+/// what the app's other native sheets look like.
 private final class NemuCloudflareChallengeViewController: UIViewController,
   UIAdaptivePresentationControllerDelegate {
   private var hostedWebView: WKWebView?
@@ -828,7 +977,12 @@ private final class NemuCloudflareChallengeViewController: UIViewController,
     self.onCancel = onCancel
     super.init(nibName: nil, bundle: nil)
     self.title = title
-    modalPresentationStyle = .pageSheet
+    navigationItem.title = title
+    navigationItem.rightBarButtonItem = UIBarButtonItem(
+      barButtonSystemItem: .close,
+      target: self,
+      action: #selector(closeTapped)
+    )
   }
 
   @available(*, unavailable)
@@ -836,41 +990,48 @@ private final class NemuCloudflareChallengeViewController: UIViewController,
     fatalError("NemuCloudflareChallengeViewController is not storyboard-backed.")
   }
 
+  /// The presentable sheet: this controller as the root of a navigation
+  /// controller, full-height with the grabber the app's sheets show.
+  func makeSheet() -> UINavigationController {
+    let navigation = UINavigationController(rootViewController: self)
+    navigation.modalPresentationStyle = .pageSheet
+    if let sheet = navigation.sheetPresentationController {
+      sheet.detents = [.large()]
+      sheet.prefersGrabberVisible = true
+    }
+    return navigation
+  }
+
   override func viewDidLoad() {
     super.viewDidLoad()
     view.backgroundColor = .systemBackground
-
-    let bar = UINavigationBar()
-    bar.translatesAutoresizingMaskIntoConstraints = false
-    let item = UINavigationItem(title: title ?? "")
-    item.rightBarButtonItem = UIBarButtonItem(
-      barButtonSystemItem: .close,
-      target: self,
-      action: #selector(closeTapped)
-    )
-    bar.items = [item]
-    view.addSubview(bar)
 
     guard let webView = hostedWebView else { return }
     webView.translatesAutoresizingMaskIntoConstraints = false
     webView.isUserInteractionEnabled = true
     view.addSubview(webView)
 
+    // Below the navigation bar, not under it: the challenge page is a fixed
+    // layout with its widget near the top, and nothing of it should sit
+    // behind the bar.
     NSLayoutConstraint.activate([
-      bar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-      bar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      bar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      webView.topAnchor.constraint(equalTo: bar.bottomAnchor),
+      webView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
       webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
   }
 
+  /// The presentation controller of the sheet this controller is shown in
+  /// (the navigation controller's, once `makeSheet()` wrapped it).
+  private var sheetPresentationOwner: UIPresentationController? {
+    navigationController?.presentationController ?? presentationController
+  }
+
   /// Wired after `present` — `presentationController` does not exist before the
   /// presentation begins. Catches the sheet's own swipe-to-dismiss gesture.
   func observeDismissGesture() {
-    presentationController?.delegate = self
+    sheetPresentationOwner?.delegate = self
   }
 
   /// Called during teardown so a successful solve does not report a cancel when
@@ -879,7 +1040,7 @@ private final class NemuCloudflareChallengeViewController: UIViewController,
     didCancel = true
     hostedWebView?.removeFromSuperview()
     hostedWebView = nil
-    presentationController?.delegate = nil
+    sheetPresentationOwner?.delegate = nil
   }
 
   @objc private func closeTapped() {

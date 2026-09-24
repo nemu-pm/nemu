@@ -69,6 +69,40 @@ enum NemuNativeHttpRequestHeaderPolicy {
     return normalized
   }
 
+  /// True when `headers` already names a User-Agent, in any casing.
+  static func hasUserAgent(_ headers: [String: String]) -> Bool {
+    headers.keys.contains { $0.caseInsensitiveCompare("User-Agent") == .orderedSame }
+  }
+
+  /// `headers` with `userAgent` added when they name none; a User-Agent the
+  /// caller (a source) chose is never replaced.
+  static func ensuringUserAgent(
+    _ headers: [String: String],
+    _ userAgent: String
+  ) -> [String: String] {
+    guard !hasUserAgent(headers) else { return headers }
+    var output = headers
+    output["User-Agent"] = userAgent
+    return output
+  }
+
+  /// The User-Agent for a request that names none.
+  ///
+  /// A request with a cookie scope is a source's: it reads and writes that
+  /// source's jar, and a `cf_clearance` in the jar only works next to the
+  /// User-Agent that solved it — the Aidoku runtime default unless the source
+  /// sets its own (in which case this is never consulted). Unscoped traffic
+  /// (registry, sync, OCR, metadata) carries no source cookies and keeps the
+  /// platform browser's UA.
+  static func fallbackUserAgent(
+    cookieScope: String?,
+    sourceDefault: String,
+    platformDefault: String
+  ) -> String {
+    let scope = cookieScope?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return scope.isEmpty ? platformDefault : sourceDefault
+  }
+
   static func apply(
     _ headers: [String: String],
     to request: inout URLRequest

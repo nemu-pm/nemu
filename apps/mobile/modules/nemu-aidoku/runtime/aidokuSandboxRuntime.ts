@@ -825,11 +825,6 @@ async function executeSourceOperation(
   operation: JsonRecord,
   imageBytes: Uint8Array | null,
 ): Promise<unknown> {
-  const actionSource = source as AidokuSource & {
-    handleBasicLogin(key: string, username: string, password: string): boolean;
-    handleWebLogin(key: string, cookies: Record<string, string>): boolean;
-    handleNotification(notification: string): void;
-  };
   switch (operation.kind) {
     case "capabilities":
       return sourceCapabilities(source, session);
@@ -869,18 +864,18 @@ async function executeSourceOperation(
       return { layout, partials };
     }
     case "handle-basic-login":
-      return actionSource.handleBasicLogin(
+      return source.handleBasicLogin(
         assertString(operation.key, "Login key", 256),
         assertString(operation.username, "Username", 16_384),
         assertString(operation.password, "Password", 65_536),
       );
     case "handle-web-login":
-      return actionSource.handleWebLogin(
+      return source.handleWebLogin(
         assertString(operation.key, "Login key", 256),
         normalizeStringMap(operation.cookies, "Cookies", 128, 65_536),
       );
     case "handle-notification":
-      actionSource.handleNotification(
+      source.handleNotification(
         assertString(operation.notification, "Notification", 256),
       );
       return null;

@@ -10,6 +10,7 @@ import {
   useNemuTheme,
   GlassSurface,
 } from "@/design-system";
+import { MOBILE_MANGA_DETAIL_PRIMARY_ACTION_MAX_WIDTH } from "@/lib/mobileMangaDetailPresentation";
 
 const SKELETON_TAGS = [0, 1, 2, 3, 4] as const;
 const SKELETON_CHAPTERS = [0, 1, 2, 3, 4, 5] as const;
@@ -270,6 +271,7 @@ const styles = StyleSheet.create({
     minHeight: 36,
     flex: 1,
     minWidth: 0,
+    maxWidth: MOBILE_MANGA_DETAIL_PRIMARY_ACTION_MAX_WIDTH,
     borderRadius: radius.pill,
   },
   secondaryAction: {

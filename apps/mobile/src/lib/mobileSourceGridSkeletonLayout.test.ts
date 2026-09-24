@@ -37,4 +37,15 @@ describe("getMobileSourceGridSkeletonGeometry", () => {
       );
     },
   );
+
+  test("follows the safe-area gutters in landscape like the loaded grid", () => {
+    const landscape = { windowWidth: 874, horizontalPadding: 124 };
+    const { cardWidth, columnCount } =
+      getMobileSourceGridSkeletonGeometry(landscape);
+    expect(columnCount).toBe(getMobileMangaGridColumns(landscape));
+    expect(columnCount).toBe(6);
+    expect(
+      cardWidth * columnCount + MOBILE_MANGA_GRID_GAP * (columnCount - 1),
+    ).toBeLessThanOrEqual(874 - 124);
+  });
 });

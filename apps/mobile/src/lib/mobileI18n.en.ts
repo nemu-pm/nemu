@@ -82,6 +82,13 @@ export const mobileStringsEn: MobileStrings = {
     agentSheetFailedTimeout: "Cloudflare did not finish in time.",
     agentSheetFailedBlocked:
       "This challenge address could not be verified safely.",
+    agentSheetProtectedSite: "{{site}} is protected by Cloudflare.",
+    agentSheetProtectedSource: "This source is protected by Cloudflare.",
+    agentStepOpen: "Open the site",
+    agentStepCheck: "Automatic check",
+    agentStepConfirm: "Human check",
+    agentStepResume: "Resume loading",
+    agentStepNotNeeded: "Not needed",
     agentSheetFailedUnsolicitedHost:
       "This site was not requested by the source, so verification was refused.",
   },

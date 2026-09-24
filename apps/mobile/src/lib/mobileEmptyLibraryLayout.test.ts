@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+// eslint-disable-next-line no-restricted-imports -- test needs the runtime token value; importing from @/design-system pulls the component barrel, which loads react-native's Flow-typed index.js and breaks bun's test runner.
+import { spacing } from "@/design/tokens";
 import {
   getMobileEmptyLibraryLayout,
   NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT,
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
 } from "./mobileEmptyLibraryLayout";
+import { getMobilePageGutters } from "./mobilePageGutters";
 
 describe("getMobileEmptyLibraryLayout", () => {
   test("keeps the established vertical treatment on a short landscape phone", () => {
@@ -94,7 +97,14 @@ describe("getMobileEmptyLibraryLayout", () => {
     expect(webEmpty).toContain("text-lg font-medium tracking-tight");
     expect(webEmpty).toContain("text-sm text-muted-foreground leading-relaxed");
     expect(webEmpty).toContain('className="mt-6"');
-    expect(pageScaffold).toContain("paddingHorizontal: spacing.pageX");
+    // The scaffold pads with the safe-area-aware page gutters, which are
+    // exactly `spacing.pageX` on a portrait phone.
+    expect(pageScaffold).toContain("paddingLeft: gutters.left");
+    expect(pageScaffold).toContain("paddingRight: gutters.right");
+    expect(getMobilePageGutters({ left: 0, right: 0 })).toMatchObject({
+      left: spacing.pageX,
+      right: spacing.pageX,
+    });
     expect(NEMU_WEB_EMPTY_LIBRARY_VISUAL).toEqual({
       actionMarginTop: 24,
       copyGap: 8,

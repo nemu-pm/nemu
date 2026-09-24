@@ -68,6 +68,13 @@ export type MobileStrings = {
     agentSheetFailedTimeout: string;
     agentSheetFailedBlocked: string;
     agentSheetFailedUnsolicitedHost: string;
+    agentSheetProtectedSite: string;
+    agentSheetProtectedSource: string;
+    agentStepOpen: string;
+    agentStepCheck: string;
+    agentStepConfirm: string;
+    agentStepResume: string;
+    agentStepNotNeeded: string;
   };
   errorBoundary: {
     copied: string;

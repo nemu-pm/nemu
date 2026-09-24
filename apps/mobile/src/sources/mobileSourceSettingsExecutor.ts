@@ -13,6 +13,7 @@ import {
   type MobileSourceLoginSubmission,
 } from "@/lib/mobileSourceSettingActions";
 import { applyMobileSourceSettingsPatch } from "@/lib/mobileSourceSettings";
+import { sanitizeMobileErrorDiagnostic } from "@/lib/mobileSourceErrors";
 import {
   assertActiveMobileSourceProfileScope,
   getActiveMobileSourceProfileScope,
@@ -37,7 +38,16 @@ export type MobileSourceSettingsOperation =
 
 export type MobileSourceSettingsOperationResult =
   | { status: "complete" }
-  | { status: "rejected"; reason: "credentials-rejected" }
+  | {
+      status: "rejected";
+      reason: "credentials-rejected";
+      /**
+       * The source's own explanation, when it gave one. Untranslated source
+       * text, already bounded and sanitized: show it only as the secondary
+       * diagnostic line under the localized "credentials rejected" copy.
+       */
+      detail?: string;
+    }
   | { status: "blocked"; detail: string };
 
 export type MobileSourceLoginCapabilities = {
@@ -49,6 +59,53 @@ type ClearMobileSourceSandbox = (
   sourceKey: string,
   executionScope: string,
 ) => Promise<void>;
+
+/**
+ * `AidokuResultErrorCode.Message` in `@nemu.pm/aidoku-runtime`: the source
+ * failed with its own message (aidoku-rs `bail!`). Kept local so the React
+ * Native bundle does not pull in the runtime; a contract test pins the value.
+ */
+export const AIDOKU_RESULT_ERROR_MESSAGE_CODE = -1;
+
+/**
+ * Whether a login handler's throw is the source refusing the credentials.
+ *
+ * Since aidoku-runtime 0.10 a source that rejects a login throws an
+ * `AidokuResultError` carrying its message instead of returning `false`. The
+ * error reaches this module in two shapes: the real class from the in-process
+ * web runtime, and a plain `Error` rebuilt from the native sandbox envelope
+ * with only `name` and `code` restored (see
+ * `reconstructMobileAidokuSandboxError`). So match those fields, not
+ * `instanceof`. Every other code (a failed request, a parse or decode error)
+ * is an operation failure the caller should surface as retryable, exactly as
+ * before 0.10.
+ */
+export function isMobileSourceLoginRejection(error: unknown): boolean {
+  if (!(error instanceof Error) || error.name !== "AidokuResultError") {
+    return false;
+  }
+  return (
+    (error as { code?: unknown }).code === AIDOKU_RESULT_ERROR_MESSAGE_CODE
+  );
+}
+
+async function settleMobileSourceLogin(
+  submission: Promise<boolean>,
+): Promise<MobileSourceSettingsOperationResult> {
+  let accepted: boolean;
+  try {
+    accepted = await submission;
+  } catch (error) {
+    if (!isMobileSourceLoginRejection(error)) throw error;
+    const detail = sanitizeMobileErrorDiagnostic(error);
+    return detail
+      ? { status: "rejected", reason: "credentials-rejected", detail }
+      : { status: "rejected", reason: "credentials-rejected" };
+  }
+  return accepted
+    ? { status: "complete" }
+    : { status: "rejected", reason: "credentials-rejected" };
+}
 
 function hasOwnSetting(
   settings: Record<string, unknown>,
@@ -178,14 +235,13 @@ export async function runMobileSourceSettingsOperation({
             detail: "This source runtime does not support basic login.",
           };
         }
-        const accepted = await session.source.handleBasicLogin(
-          operation.key,
-          operation.username,
-          operation.password,
+        return settleMobileSourceLogin(
+          session.source.handleBasicLogin(
+            operation.key,
+            operation.username,
+            operation.password,
+          ),
         );
-        return accepted
-          ? { status: "complete" }
-          : { status: "rejected", reason: "credentials-rejected" };
       }
 
       if (operation.kind === "web-login") {
@@ -198,13 +254,9 @@ export async function runMobileSourceSettingsOperation({
             detail: "This source runtime does not support web login.",
           };
         }
-        const accepted = await session.source.handleWebLogin(
-          operation.key,
-          operation.cookies,
+        return settleMobileSourceLogin(
+          session.source.handleWebLogin(operation.key, operation.cookies),
         );
-        return accepted
-          ? { status: "complete" }
-          : { status: "rejected", reason: "credentials-rejected" };
       }
 
       if (!session.source.handleNotification) {

@@ -12,7 +12,9 @@ import {
   reduceNemuAgentSheet,
   resolveNemuAgentAutoSolveUrl,
   resolveNemuAgentSolveCookieScope,
+  shouldRetryAfterNemuAgentDismiss,
   type NemuAgentSheetContext,
+  type NemuAgentSheetInflightStatus,
   type NemuAgentSheetStatus,
 } from "@/lib/nemuAgentSheetReducer";
 
@@ -45,6 +47,10 @@ export type NemuAgentSheetController = {
   url?: string;
   /** Machine-readable reason from the last native failure, if any. */
   failureReason?: string;
+  /** The solve needed the user (native showed the challenge sheet). */
+  interactive: boolean;
+  /** The in-flight step the last failure interrupted, if any. */
+  failedAt?: NemuAgentSheetInflightStatus;
   /**
    * Feed a source error through; opens the sheet only if it is
    * Cloudflare-classified, and starts the native solve right away when the
@@ -154,14 +160,23 @@ export function useNemuAgentSheet(
   // Hold the success state briefly so the user sees the confirmation, then
   // auto-dismiss and let the caller retry the blocked source operation with
   // the fresh cf_clearance cookie.
+  // One retry per success, whichever path closes the sheet first: the hold
+  // timer, or the user dismissing during the hold.
+  const successRetriedRef = useRef(false);
+  const retryAfterSuccess = useCallback(() => {
+    if (successRetriedRef.current) return;
+    successRetriedRef.current = true;
+    onSuccessRef.current?.();
+  }, []);
   useEffect(() => {
     if (state.status !== "success") return;
+    successRetriedRef.current = false;
     const id = setTimeout(() => {
       dispatch({ type: "dismiss" });
-      onSuccessRef.current?.();
+      retryAfterSuccess();
     }, successHoldMs);
     return () => clearTimeout(id);
-  }, [state.status, successHoldMs]);
+  }, [retryAfterSuccess, state.status, successHoldMs]);
 
   const startSolve = useCallback(
     (url: string, context: NemuAgentSheetContext | undefined) => {
@@ -231,14 +246,22 @@ export function useNemuAgentSheet(
         .catch(() => {});
     }
     solveInFlightRef.current = false;
+    // Closing during the success hold is not a cancel: the clearance is
+    // already adopted, so the blocked operation still has to be retried.
+    const retry =
+      stateRef.current.visible &&
+      shouldRetryAfterNemuAgentDismiss(stateRef.current.status);
     dispatch({ type: "dismiss" });
-  }, []);
+    if (retry) retryAfterSuccess();
+  }, [retryAfterSuccess]);
 
   return {
     visible: state.visible,
     status: state.status,
     url: state.url,
     failureReason: state.failureReason,
+    interactive: state.interactive === true,
+    failedAt: state.failedAt,
     reportError,
     verify,
     retry: verify,

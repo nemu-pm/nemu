@@ -9,7 +9,7 @@ import {
   MOBILE_SOURCE_GRID_SKELETON_ROWS,
 } from "@/lib/mobileSourceGridSkeletonLayout";
 import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
-import { radius, useNemuTheme } from "@/design-system";
+import { radius, useMobilePageGutters, useNemuTheme } from "@/design-system";
 
 type MobileSourceGridSkeletonProps = {
   accessibilityLabel: string;
@@ -28,11 +28,13 @@ export function MobileSourceGridSkeleton({
 }: MobileSourceGridSkeletonProps) {
   const { tokens, reduceMotion } = useNemuTheme();
   const { width: windowWidth } = useWindowDimensions();
+  const pageGutters = useMobilePageGutters();
   const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
   const skeletonReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
   const { cardWidth, columnCount } = getMobileSourceGridSkeletonGeometry({
     windowWidth,
+    horizontalPadding: pageGutters.horizontal,
   });
 
   if (!skeletonReady) return null;

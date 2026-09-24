@@ -13,6 +13,57 @@ function read(relativePath: string): string {
   return readFileSync(path.join(moduleRoot, relativePath), "utf8");
 }
 
+/**
+ * Swift source with `//` and (nested) `/* *\/` comments removed, so a guard on
+ * what the code calls is not tripped by prose explaining why it does not.
+ * String literals, including `"""` blocks, are kept verbatim and never scanned
+ * for comment markers. Newlines inside block comments are kept so line
+ * structure survives.
+ */
+function stripSwiftComments(source: string): string {
+  let output = "";
+  let index = 0;
+  while (index < source.length) {
+    if (source.startsWith('"""', index)) {
+      const end = source.indexOf('"""', index + 3);
+      const stop = end === -1 ? source.length : end + 3;
+      output += source.slice(index, stop);
+      index = stop;
+    } else if (source[index] === '"') {
+      let cursor = index + 1;
+      while (cursor < source.length && source[cursor] !== '"' && source[cursor] !== "\n") {
+        cursor += source[cursor] === "\\" ? 2 : 1;
+      }
+      const stop = Math.min(cursor + 1, source.length);
+      output += source.slice(index, stop);
+      index = stop;
+    } else if (source.startsWith("//", index)) {
+      const end = source.indexOf("\n", index);
+      index = end === -1 ? source.length : end;
+    } else if (source.startsWith("/*", index)) {
+      let depth = 1;
+      let cursor = index + 2;
+      while (cursor < source.length && depth > 0) {
+        if (source.startsWith("/*", cursor)) {
+          depth += 1;
+          cursor += 2;
+        } else if (source.startsWith("*/", cursor)) {
+          depth -= 1;
+          cursor += 2;
+        } else {
+          if (source[cursor] === "\n") output += "\n";
+          cursor += 1;
+        }
+      }
+      index = cursor;
+    } else {
+      output += source[index];
+      index += 1;
+    }
+  }
+  return output;
+}
+
 function swiftEnvironment(moduleCache: string): NodeJS.ProcessEnv {
   const xcodeDeveloperDir = "/Applications/Xcode.app/Contents/Developer";
   return {
@@ -95,6 +146,25 @@ describe("native HTTP SSRF policy", () => {
     expect(solver).toContain("javaScriptEnabled = true");
     expect(solver).toContain(
       "mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW",
+    );
+    // WebSockets, WebTransport and WebRTC never reach shouldInterceptRequest;
+    // a document-start guard built from the same allow-list closes them in
+    // every frame, and a WebView that cannot run one fails the solve closed.
+    expect(solver).toContain("WebViewCompat.addDocumentStartJavaScript(");
+    expect(solver).toContain("NemuCloudflareSocketGuard.ALLOWED_ORIGIN_RULES");
+    expect(solver).toContain(
+      "WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)",
+    );
+    expect(
+      solver.match(
+        /fail\(NemuCloudflareSolveFailure\.RULE_LIST_UNAVAILABLE\)/g,
+      )?.length,
+    ).toBe(2);
+    expect(read("runtime/kotlin/NemuCloudflareSocketGuard.kt")).toContain(
+      "NemuCloudflareChallengePolicy.allowedHosts(challengeHost)",
+    );
+    expect(challengePolicy).toContain(
+      "return allowedHosts(challengeHost)?.contains(allowable) == true",
     );
 
     expect(challengePolicy).toContain(
@@ -223,6 +293,53 @@ describe("native HTTP SSRF policy", () => {
     expect(proxy).toContain('"ProxyAutoConfigEnable": false');
     expect(proxy).toContain("nemuNativeProxyHeaderLimit = 64 * 1024");
     expect(proxy).not.toContain("allowFailover = true");
+  });
+
+  test("the iOS Cloudflare solver never evaluates script in the challenge page", () => {
+    // Every public WKWebView script-evaluation API runs with a forced user
+    // gesture, which hands the page sticky user activation before anyone
+    // touched it. Cloudflare then issues a clearance its own edge refuses and
+    // reloads into a fresh challenge: an endless Turnstile loop. The probe is
+    // a gesture-free user script that pushes its state instead.
+    const solver = stripSwiftComments(read("ios/NemuAidokuCloudflareSolver.swift"));
+    expect(solver).not.toContain("evaluateJavaScript(");
+    expect(solver).not.toContain("callAsyncJavaScript(");
+    expect(solver).not.toMatch(/\.evaluateJavaScript\b/);
+    expect(solver).not.toMatch(/\.callAsyncJavaScript\b/);
+
+    // The probe stays main-frame only and in its own content world, and its
+    // handler is registered only in that world.
+    expect(solver).toContain("injectionTime: .atDocumentEnd");
+    expect(solver).toContain("forMainFrameOnly: true");
+    expect(solver).toContain("in: nemuCloudflareProbeWorld");
+    expect(solver).toContain("contentWorld: nemuCloudflareProbeWorld");
+    expect(solver).toContain("message.frameInfo.isMainFrame");
+  });
+
+  test("the comment stripper keeps code and string literals intact", () => {
+    expect(
+      stripSwiftComments(
+        [
+          "let a = 1 // webView.evaluateJavaScript(x)",
+          "/* callAsyncJavaScript( /* nested */ still comment */",
+          'let url = "https://example.test/*not-a-comment*/"',
+          'let body = """',
+          "  // inside a multi-line string",
+          '  """',
+          "webView.evaluateJavaScript(probe)",
+        ].join("\n"),
+      ),
+    ).toBe(
+      [
+        "let a = 1 ",
+        "",
+        'let url = "https://example.test/*not-a-comment*/"',
+        'let body = """',
+        "  // inside a multi-line string",
+        '  """',
+        "webView.evaluateJavaScript(probe)",
+      ].join("\n"),
+    );
   });
 
   test("credential-bearing requests opt into HTTPS-only redirect handling", () => {

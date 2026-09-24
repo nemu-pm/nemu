@@ -171,12 +171,6 @@ export interface CreateAidokuSourceResult {
   manifest: SourceManifest;
 }
 
-interface AidokuAsyncSourceWithAuth extends AsyncAidokuSource {
-  handleBasicLogin(key: string, username: string, password: string): Promise<boolean>;
-  handleWebLogin(key: string, cookies: Record<string, string>): Promise<boolean>;
-  handleNotification(notification: string): Promise<void>;
-}
-
 /**
  * Get merged settings (defaults + user values) for a source
  */
@@ -256,7 +250,7 @@ export async function createAidokuMangaSource(
       },
     },
     customFetch,
-  } as Parameters<typeof loadSource>[2]) as AidokuAsyncSourceWithAuth;
+  });
 
   const source = new AidokuMangaSourceAdapter(asyncSource, asyncSource.manifest, sourceKey, cacheStore, icon, customFetch);
   return { source, settingsJson: asyncSource.settingsJson, manifest: asyncSource.manifest };
@@ -297,7 +291,7 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
   readonly icon?: string;
   readonly sourceKey: string;
 
-  private asyncSource: AidokuAsyncSourceWithAuth;
+  private asyncSource: AsyncAidokuSource;
   private manifest: SourceManifest;
   private cacheStore: CacheStore;
   private currentSearch: { query: string; page: number; filters: FilterValue[] } | null = null;
@@ -316,7 +310,7 @@ class AidokuMangaSourceAdapter implements MangaSource, MangaSourceSWR, Browsable
     context: Record<string, string> | null,
   ) => Promise<Blob>;
 
-  constructor(asyncSource: AidokuAsyncSourceWithAuth, manifest: SourceManifest, sourceKey: string, cacheStore: CacheStore, icon?: string, proxyFetch?: ProxyFetch) {
+  constructor(asyncSource: AsyncAidokuSource, manifest: SourceManifest, sourceKey: string, cacheStore: CacheStore, icon?: string, proxyFetch?: ProxyFetch) {
     this.asyncSource = asyncSource;
     this.manifest = manifest;
     this.id = manifest.info.id;

@@ -27,6 +27,7 @@ import {
   sortChapterSummaries,
 } from "./mobileSourceDetails";
 import { mobileNativeFetch } from "./mobileNativeHttp";
+import { withMobileAidokuUserAgent } from "./mobileAidokuUserAgent";
 import {
   defaultMobileSourceSettings,
   makeMobileRuntimeSourceKey,
@@ -667,8 +668,9 @@ function createMobileReaderPageProcessor({
                 imageProcessing: "ready",
               };
             }
+            // Page headers skip the runtime, so they may lack the source's UA.
             const request = page.headers
-              ? { url: page.url!, headers: page.headers }
+              ? { url: page.url!, headers: withMobileAidokuUserAgent(page.headers) }
               : await session.source
                   .modifyImageRequest(page.url!)
                   .catch(() => undefined);

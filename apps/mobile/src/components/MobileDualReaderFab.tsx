@@ -30,6 +30,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedReaction,
@@ -61,18 +62,40 @@ const PRESS_SCALE = 0.88;
 const HOLD_SCALE = 0.82;
 const DRAG_SCALE = 1.12;
 
-function defaultPosition(width: number, height: number): DualReadFabPosition {
+/**
+ * Horizontal safe-area insets. A landscape iPhone reports ~60pt per side for
+ * the Dynamic Island; the FAB docks past it instead of under it. Portrait
+ * insets are zero, so the plain FAB_MARGIN applies there.
+ */
+type FabHorizontalInsets = { left: number; right: number };
+
+function defaultPosition(
+  width: number,
+  height: number,
+  insets: FabHorizontalInsets,
+): DualReadFabPosition {
   return {
-    x: width - FAB_SIZE - FAB_MARGIN,
+    x: width - FAB_SIZE - Math.max(FAB_MARGIN, insets.right),
     y: Math.max(FAB_MARGIN, Math.round(height * 0.4)),
     side: "right",
   };
 }
 
-function clampPosition(pos: DualReadFabPosition, width: number, height: number): DualReadFabPosition {
+function clampPosition(
+  pos: DualReadFabPosition,
+  width: number,
+  height: number,
+  insets: FabHorizontalInsets,
+): DualReadFabPosition {
+  "worklet";
   const maxY = Math.max(FAB_MARGIN, height - FAB_MARGIN - FAB_SIZE);
   const y = Math.max(FAB_MARGIN, Math.min(maxY, pos.y));
-  const x = pos.side === "left" ? FAB_MARGIN : Math.max(FAB_MARGIN, width - FAB_MARGIN - FAB_SIZE);
+  const leftMargin = Math.max(FAB_MARGIN, insets.left);
+  const rightMargin = Math.max(FAB_MARGIN, insets.right);
+  const x =
+    pos.side === "left"
+      ? leftMargin
+      : Math.max(leftMargin, width - rightMargin - FAB_SIZE);
   return { x, y, side: pos.side };
 }
 
@@ -80,15 +103,24 @@ function snapToEdge(
   pos: { x: number; y: number },
   width: number,
   height: number,
+  insets: FabHorizontalInsets,
 ): DualReadFabPosition {
+  "worklet";
   const side: DualReadFabPosition["side"] = pos.x + FAB_SIZE / 2 < width / 2 ? "left" : "right";
-  return clampPosition({ x: pos.x, y: pos.y, side }, width, height);
+  return clampPosition({ x: pos.x, y: pos.y, side }, width, height, insets);
 }
 
 export function MobileDualReaderFab() {
   const ctx = useMobileDualReaderContext();
   const { tokens } = useNemuTheme();
   const { width, height } = useWindowDimensions();
+  const safeAreaInsets = useSafeAreaInsets();
+  const insetLeft = safeAreaInsets.left;
+  const insetRight = safeAreaInsets.right;
+  const horizontalInsets = useMemo(
+    () => ({ left: insetLeft, right: insetRight }),
+    [insetLeft, insetRight],
+  );
 
   const enabled = useMobileDualReaderStore((s) => s.enabled);
   const activeSide = useMobileDualReaderStore((s) => s.activeSide);
@@ -123,7 +155,7 @@ export function MobileDualReaderFab() {
   ]);
 
   // Shared animation values.
-  const initial = fabPosition ?? defaultPosition(width, height);
+  const initial = fabPosition ?? defaultPosition(width, height, horizontalInsets);
   const x = useSharedValue(initial.x);
   const y = useSharedValue(initial.y);
   const scale = useSharedValue(1);
@@ -195,13 +227,13 @@ export function MobileDualReaderFab() {
   useEffect(() => {
     if (!enabled || fabPosition) return;
     if (width <= 0 || height <= 0) return;
-    setFabPosition(defaultPosition(width, height));
-  }, [enabled, fabPosition, height, setFabPosition, width]);
+    setFabPosition(defaultPosition(width, height, horizontalInsets));
+  }, [enabled, fabPosition, height, horizontalInsets, setFabPosition, width]);
 
   // Re-clamp on rotation / viewport resize.
   useEffect(() => {
     if (!fabPosition) return;
-    const clamped = clampPosition(fabPosition, width, height);
+    const clamped = clampPosition(fabPosition, width, height, horizontalInsets);
     if (
       clamped.x !== fabPosition.x ||
       clamped.y !== fabPosition.y ||
@@ -209,7 +241,7 @@ export function MobileDualReaderFab() {
     ) {
       setFabPosition(clamped);
     }
-  }, [width, height, fabPosition, setFabPosition]);
+  }, [width, height, fabPosition, horizontalInsets, setFabPosition]);
 
   // Cleanup the hold timer on unmount.
   useEffect(() => clearHoldTimer, [clearHoldTimer]);
@@ -250,7 +282,12 @@ export function MobileDualReaderFab() {
           scale.value = withSpring(1, SCALE_SPRING);
 
           if (isDragging.value) {
-            const snapped = snapToEdge({ x: x.value, y: y.value }, width, height);
+            const snapped = snapToEdge(
+              { x: x.value, y: y.value },
+              width,
+              height,
+              horizontalInsets,
+            );
             x.value = withSpring(snapped.x, POSITION_SPRING);
             y.value = withSpring(snapped.y, POSITION_SPRING);
             lastPosRef.current = { x: snapped.x, y: snapped.y };
@@ -279,6 +316,7 @@ export function MobileDualReaderFab() {
       activeSide,
       width,
       height,
+      horizontalInsets,
       startHoldTimer,
       clearHoldTimer,
       setFabPosition,

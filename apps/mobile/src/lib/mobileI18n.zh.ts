@@ -78,6 +78,13 @@ export const mobileStringsZh: MobileStrings = {
     agentSheetFailedCancelled: "验证已取消。",
     agentSheetFailedTimeout: "Cloudflare 未在规定时间内完成验证。",
     agentSheetFailedBlocked: "无法安全验证该挑战地址。",
+    agentSheetProtectedSite: "{{site}} 受 Cloudflare 保护。",
+    agentSheetProtectedSource: "此源受 Cloudflare 保护。",
+    agentStepOpen: "打开网站",
+    agentStepCheck: "自动验证",
+    agentStepConfirm: "人机验证",
+    agentStepResume: "继续加载",
+    agentStepNotNeeded: "无需操作",
     agentSheetFailedUnsolicitedHost: "该网站并非此源请求的站点，已拒绝验证。",
   },
   errorBoundary: {

@@ -3,8 +3,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  hasMobileUserAgentHeader,
   MOBILE_AIDOKU_DEFAULT_USER_AGENT,
   readMobileCloudflareUserAgent,
+  withMobileAidokuUserAgent,
 } from "./mobileAidokuUserAgent";
 
 const moduleRoot = fileURLToPath(
@@ -95,5 +97,76 @@ describe("mobile Aidoku default user agent", () => {
         Object.assign(new Error("x"), { userAgent: "a".repeat(513) }),
       ),
     ).toBeUndefined();
+  });
+
+  test("source-owned requests keep the source's UA or get the runtime default", () => {
+    // A clearance cookie native attaches to a source image request is bound
+    // to the UA that solved it; the image loader's platform UA must never
+    // stand in for it.
+    expect(withMobileAidokuUserAgent({})).toEqual({
+      "User-Agent": MOBILE_AIDOKU_DEFAULT_USER_AGENT,
+    });
+    expect(withMobileAidokuUserAgent(undefined)).toEqual({
+      "User-Agent": MOBILE_AIDOKU_DEFAULT_USER_AGENT,
+    });
+    expect(
+      withMobileAidokuUserAgent({
+        Referer: "https://example.test/",
+        Cookie: "cf_clearance=abc",
+      }),
+    ).toEqual({
+      Referer: "https://example.test/",
+      Cookie: "cf_clearance=abc",
+      "User-Agent": MOBILE_AIDOKU_DEFAULT_USER_AGENT,
+    });
+
+    const custom = { "user-agent": "Custom/1", Referer: "https://example.test/" };
+    const kept = withMobileAidokuUserAgent(custom);
+    expect(kept).toEqual(custom);
+    expect(kept).not.toBe(custom);
+
+    expect(hasMobileUserAgentHeader({ "USER-AGENT": "x" })).toBe(true);
+    expect(hasMobileUserAgentHeader({ Referer: "x" })).toBe(false);
+    expect(hasMobileUserAgentHeader(null)).toBe(false);
+  });
+
+  test("every source image-request path goes through the UA normalizer", () => {
+    const mobileRoot = fileURLToPath(new URL("../../", import.meta.url));
+    const bridge = readFileSync(
+      path.join(mobileRoot, "src/sources/mobileAidokuSandboxExecutorBridge.native.ts"),
+      "utf8",
+    );
+    const modify = bridge.slice(
+      bridge.indexOf("modifyImageRequest(url) {"),
+      bridge.indexOf("async hasImageProcessor()"),
+    );
+    // The no-hook short-circuit mirrors the runtime's own default headers,
+    // and a hook's result keeps the source's UA or gains the default.
+    expect(modify).toContain("headers: withMobileAidokuUserAgent({})");
+    expect(modify).toContain("headers: withMobileAidokuUserAgent(request.headers)");
+    expect(modify).not.toContain("headers: {}");
+
+    const pages = readFileSync(
+      path.join(mobileRoot, "src/sources/mobileSourcePages.ts"),
+      "utf8",
+    );
+    expect(pages).toContain("headers: withMobileAidokuUserAgent(page.headers)");
+
+    // Native adds the same default wherever it attaches a source's jar to an
+    // image request, and falls back to it for source-scoped requests.
+    const iosModule = read("ios/NemuAidokuModule.swift");
+    expect(iosModule).toMatch(
+      /ensuringUserAgent\(\s*output,\s*nemuAidokuDefaultUserAgent\s*\)/,
+    );
+    expect(iosModule).toContain("sourceDefault: nemuAidokuDefaultUserAgent");
+    const androidModule = read(
+      "android/src/main/java/pm/nemu/mobile/aidoku/NemuAidokuModule.kt",
+    );
+    expect(androidModule).toMatch(
+      /ensuringUserAgent\(\s*merged,\s*NEMU_AIDOKU_DEFAULT_USER_AGENT\s*\)/,
+    );
+    expect(
+      androidModule.match(/sourceDefault = NEMU_AIDOKU_DEFAULT_USER_AGENT/g),
+    ).toHaveLength(2);
   });
 });

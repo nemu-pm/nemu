@@ -70,7 +70,8 @@ import {
   radius,
   renderNemuNativeToolbarButtons,
   nemuFontWeight,
-  spacing,
+  useMobilePageBleedStyles,
+  useMobilePageGutters,
   useNemuTheme,
   type NemuNativeHeaderAction,
 } from "@/design-system";
@@ -235,7 +236,6 @@ const EMPTY_SOURCE_SETTINGS: SourcePackageSetting[] = [];
 const INLINE_SOURCE_FILTER_LIMIT = 8;
 const INLINE_FILTER_OPTION_LIMIT = 8;
 const INLINE_GENRE_OPTION_LIMIT = 10;
-const SOURCE_BROWSE_HORIZONTAL_PADDING = 32;
 /**
  * Wide enough that a partially-scrolled tab's label sits fully inside the
  * opaque tail of the gradient; the ramp itself only occupies the outer half.
@@ -661,12 +661,16 @@ function SourceFilterChipRow({
   onOpenGroup: (filter: Filter) => void;
   onToggleCheck: (filter: Filter) => void;
 }) {
+  const bleed = useMobilePageBleedStyles();
   return (
-    <View style={styles.sourceFilterChipRowFrame}>
+    <View style={[styles.sourceFilterChipRowFrame, bleed.frame]}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.sourceFilterChipRowContent}
+        contentContainerStyle={[
+          styles.sourceFilterChipRowContent,
+          bleed.content,
+        ]}
       >
         <MobileChip
           accessibilityLabel={strings.sourceBrowse.openAllFilters}
@@ -1238,6 +1242,10 @@ function SourceFilterPanel({
       }
       dismissLabel={strings.sourceBrowse.closeFilters}
       snapPoints={sheetLayout.snapPoints}
+      // A bounded (landscape / short / large-text) sheet gives its filter list
+      // `flex: 1`; without an explicit content height that list collapsed to
+      // zero and only Reset/Apply showed.
+      fillContent={sheetLayout.bounded}
       contentStyle={styles.filterPanel}
       testID="SourceFilterSheet"
     >
@@ -1305,6 +1313,7 @@ export function SourceBrowseScreen() {
   const routeSourceListingTab = normalizeMobileSourceBrowseRouteTab(params.tab);
   const { tokens } = useNemuTheme();
   const { width: windowWidth } = useWindowDimensions();
+  const pageGutters = useMobilePageGutters();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
   const sourceBrowseStringsRef = useRef(strings.sourceBrowse);
@@ -1501,9 +1510,9 @@ export function SourceBrowseScreen() {
     () =>
       getMobileMangaGridColumns({
         windowWidth,
-        horizontalPadding: SOURCE_BROWSE_HORIZONTAL_PADDING,
+        horizontalPadding: pageGutters.horizontal,
       }),
-    [windowWidth],
+    [pageGutters.horizontal, windowWidth],
   );
   // `FlatList` throws when `numColumns` changes on a mounted list, so a
   // rotation has to remount the grid. Capture the scroll proportion in the
@@ -3556,6 +3565,8 @@ export function SourceBrowseScreen() {
         status={cloudflareSheet.status}
         url={cloudflareSheet.url}
         failureReason={cloudflareSheet.failureReason}
+        interactive={cloudflareSheet.interactive}
+        failedAt={cloudflareSheet.failedAt}
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />
@@ -3590,19 +3601,18 @@ const styles = StyleSheet.create({
   },
   // The chip row bleeds past the page gutter so a scrolled chip runs to the
   // screen edge, then pays the gutter back as content padding — the same
-  // pattern the Search tab's source chip row uses.
+  // pattern the Search tab's source chip row uses. The bleed amounts come from
+  // `useMobilePageBleedStyles` so they track the safe-area-aware gutters.
   //
   // Vertical rhythm around the row lives in `sourceFilterHeaderSpacing` on the
   // wrapping header section; this frame only owns the horizontal bleed.
   sourceFilterChipRowFrame: {
-    marginHorizontal: -spacing.pageX,
     overflow: "visible",
   },
   sourceFilterChipRowContent: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: spacing.pageX,
     // Reserves room for the depth surface's box-shadow halo below the chips.
     paddingBottom: 6,
   },

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   getMobileMangaGridColumns,
   getMobileMangaGridItemWidth,
+  getMobileMangaGridSkeletonGeometry,
   MOBILE_MANGA_GRID_GAP,
 } from "./mobileAdaptiveGrid";
 
@@ -13,9 +14,29 @@ describe("getMobileMangaGridColumns", () => {
     // contentWidth = 390 - 32 = 358; (358 + 12) / (104 + 12) = 3.17 → 3
     expect(getMobileMangaGridColumns({ windowWidth: 390, horizontalPadding: 32 })).toBe(3);
   });
-  test("caps at 4 columns on wide widths", () => {
-    // contentWidth = 1200 - 32 = 1168; (1168 + 12) / 116 = ~10.2 → capped at 4
-    expect(getMobileMangaGridColumns({ windowWidth: 1200, horizontalPadding: 32 })).toBe(4);
+  test("portrait iPhones stay at three covers", () => {
+    for (const windowWidth of [375, 390, 393, 402, 430, 440]) {
+      expect(getMobileMangaGridColumns({ windowWidth, horizontalPadding: 32 })).toBe(3);
+    }
+  });
+  test("a landscape iPhone adds columns at the portrait cover size", () => {
+    // iPhone 17 Pro landscape: 874pt wide, 62pt safe-area gutters each side.
+    // contentWidth = 750; (750 + 12) / 116 = 6.57 → 6 columns of 115pt, the
+    // same cover width as the 402pt portrait grid.
+    const landscape = { windowWidth: 874, horizontalPadding: 124 };
+    expect(getMobileMangaGridColumns(landscape)).toBe(6);
+    expect(getMobileMangaGridItemWidth(landscape)).toBe(
+      getMobileMangaGridItemWidth({ windowWidth: 402, horizontalPadding: 32 }),
+    );
+  });
+  test("safe-area gutters shrink the column count", () => {
+    // Without the insets the same phone would pack 7 columns under the island.
+    expect(getMobileMangaGridColumns({ windowWidth: 874, horizontalPadding: 32 })).toBe(7);
+    expect(getMobileMangaGridColumns({ windowWidth: 874, horizontalPadding: 124 })).toBe(6);
+  });
+  test("caps at 10 columns on very wide widths", () => {
+    // contentWidth = 1376 - 32 = 1344; (1344 + 12) / 116 = ~11.7 → capped at 10
+    expect(getMobileMangaGridColumns({ windowWidth: 1376, horizontalPadding: 32 })).toBe(10);
   });
   test("handles zero/negative content width by returning the floor of 2", () => {
     expect(getMobileMangaGridColumns({ windowWidth: 0, horizontalPadding: 32 })).toBe(2);
@@ -45,5 +66,39 @@ describe("getMobileMangaGridItemWidth", () => {
         Math.floor((contentWidth - MOBILE_MANGA_GRID_GAP * (columns - 1)) / columns),
       );
     }
+  });
+});
+
+describe("getMobileMangaGridSkeletonGeometry", () => {
+  test("portrait phone: three columns of the loaded grid's card width", () => {
+    const portrait = { windowWidth: 402, horizontalPadding: 32 };
+    expect(getMobileMangaGridSkeletonGeometry({ ...portrait, rows: 3 })).toEqual({
+      cardCount: 9,
+      cardWidth: getMobileMangaGridItemWidth(portrait),
+      columnCount: 3,
+    });
+  });
+  test("landscape phone: six columns inside the safe-area gutters", () => {
+    const landscape = { windowWidth: 874, horizontalPadding: 124 };
+    const geometry = getMobileMangaGridSkeletonGeometry({ ...landscape, rows: 1 });
+    expect(geometry).toEqual({
+      cardCount: 6,
+      cardWidth: getMobileMangaGridItemWidth(landscape),
+      columnCount: 6,
+    });
+    // A full row of skeleton cards fits the content width without wrapping.
+    expect(
+      geometry.cardWidth * geometry.columnCount +
+        MOBILE_MANGA_GRID_GAP * (geometry.columnCount - 1),
+    ).toBeLessThanOrEqual(874 - 124);
+  });
+  test("always renders at least one row", () => {
+    expect(
+      getMobileMangaGridSkeletonGeometry({
+        windowWidth: 402,
+        horizontalPadding: 32,
+        rows: 0,
+      }).cardCount,
+    ).toBe(3);
   });
 });

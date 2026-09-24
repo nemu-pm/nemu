@@ -18,6 +18,35 @@ internal object NemuNativeHttpRequestHeaderPolicy {
   private val tokenCharacters =
     "!#$%&'*+-.^_`|~0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".toSet()
 
+  /** True when [headers] already names a User-Agent, in any casing. */
+  fun hasUserAgent(headers: Map<String, String>): Boolean =
+    headers.keys.any { it.equals("User-Agent", ignoreCase = true) }
+
+  /**
+   * [headers] with [userAgent] added when they name none; a User-Agent the
+   * caller (a source) chose is never replaced.
+   */
+  fun ensuringUserAgent(headers: Map<String, String>, userAgent: String): Map<String, String> {
+    if (hasUserAgent(headers)) return headers
+    return LinkedHashMap(headers).apply { put("User-Agent", userAgent) }
+  }
+
+  /**
+   * The User-Agent for a request that names none.
+   *
+   * A request with a cookie scope is a source's: it reads and writes that
+   * source's jar, and a `cf_clearance` in the jar only works next to the
+   * User-Agent that solved it — the Aidoku runtime default unless the source
+   * sets its own (in which case this is never consulted). Unscoped traffic
+   * (registry, sync, OCR, metadata) carries no source cookies and keeps the
+   * platform browser's UA. Mirrors the iOS policy of the same name.
+   */
+  fun fallbackUserAgent(
+    cookieScope: String?,
+    sourceDefault: String,
+    platformDefault: String
+  ): String = if (cookieScope.isNullOrBlank()) platformDefault else sourceDefault
+
   fun normalize(headers: Map<String, String>): Map<String, String> {
     if (headers.size > MAX_HEADER_COUNT) {
       throw IllegalArgumentException("Native HTTP request has too many headers.")

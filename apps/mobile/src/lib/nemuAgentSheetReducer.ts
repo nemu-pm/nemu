@@ -54,7 +54,18 @@ export type NemuAgentSheetState = {
    * maps known codes onto localized copy and ignores anything else.
    */
   failureReason?: string;
+  /**
+   * The solve needed the user: native presented the visible challenge sheet
+   * (`nemuAidokuCfCaptcha`) at some point in this attempt. Lets the sheet tell
+   * "solved after your check" apart from "solved with nothing to do".
+   */
+  interactive?: boolean;
+  /** The in-flight status a failure interrupted, i.e. the step that failed. */
+  failedAt?: NemuAgentSheetInflightStatus;
 };
+
+/** The statuses a native solve moves through before it settles. */
+export type NemuAgentSheetInflightStatus = "opening" | "waiting" | "captcha";
 
 export type NemuAgentSheetEventName =
   | "nemuAidokuCfSolveStart"
@@ -206,7 +217,13 @@ export function reduceNemuAgentSheet(
     }
     case "start": {
       if (!state.visible || INFLIGHT_STATUSES.has(state.status)) return state;
-      return { ...state, status: "opening", failureReason: undefined };
+      return {
+        ...state,
+        status: "opening",
+        failureReason: undefined,
+        interactive: undefined,
+        failedAt: undefined,
+      };
     }
     case "event": {
       if (!state.visible) return state;
@@ -228,7 +245,7 @@ export function reduceNemuAgentSheet(
           ) {
             return state;
           }
-          return { ...state, status: "captcha", url: nextUrl };
+          return { ...state, status: "captcha", url: nextUrl, interactive: true };
         case "nemuAidokuCfSuccess":
           return {
             ...state,
@@ -243,6 +260,7 @@ export function reduceNemuAgentSheet(
             status: "failed",
             url: nextUrl,
             failureReason: normalizeContextValue(action.reason),
+            failedAt: isInflightStatus(state.status) ? state.status : state.failedAt,
           };
         default:
           return state;
@@ -253,6 +271,27 @@ export function reduceNemuAgentSheet(
     default:
       return state;
   }
+}
+
+function isInflightStatus(
+  status: NemuAgentSheetStatus,
+): status is NemuAgentSheetInflightStatus {
+  return status === "opening" || status === "waiting" || status === "captcha";
+}
+
+/**
+ * Whether closing the sheet in `status` must still run the caller's retry.
+ *
+ * Success holds on screen briefly before it auto-dismisses and retries the
+ * blocked source operation. A user who swipes the sheet away during that hold
+ * has not cancelled anything — the clearance is already adopted — so the
+ * retry has to run on that path too, or the screen keeps showing the
+ * Cloudflare error it just recovered from.
+ */
+export function shouldRetryAfterNemuAgentDismiss(
+  status: NemuAgentSheetStatus,
+): boolean {
+  return status === "success";
 }
 
 /**
