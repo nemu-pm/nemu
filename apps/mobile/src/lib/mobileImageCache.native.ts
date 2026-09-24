@@ -143,12 +143,12 @@ const mobileReaderPageImageCache = new FileSystemBinaryCache(
 );
 const MAX_RESOLVED_IMAGE_URIS = 600;
 const MAX_IMAGE_LOAD_CONCURRENCY = 8;
-// Only for images that never went through a source: registry icons, metadata
-// covers, and a source cover whose rewrite failed (which carries none of the
-// source's cookies). A source-owned request always arrives with the source's
-// own User-Agent already set — the one its runtime requests send and any
-// `cf_clearance` native attaches is bound to (`withMobileAidokuUserAgent`) —
-// and `imageDownloadHeaders` never overrides one.
+// Only for requests that name no User-Agent: registry icons, metadata covers,
+// and source images that carry none of the source's stored cookies. A
+// source-owned request that native decorated with the source's cookies (its
+// one decoration path, `decorateSourceImageRequest` on both platforms) already
+// has the User-Agent a `cf_clearance` among them is bound to, and
+// `imageDownloadHeaders` never overrides one.
 //
 // Matches what the platform's real browser currently sends: Chrome mobile
 // ships the reduced UA ("Android 10; K"), and Safari 26 freezes the OS token

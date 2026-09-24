@@ -1499,6 +1499,32 @@ public class NemuAidokuModule: Module {
       }
     }
 
+    // A source with no image-request hook never runs `modify-image-request`,
+    // so its covers and pages are decorated here instead — through the same
+    // `decorateSourceImageRequest` the hooked path uses. Resolves the
+    // decorated headers, or null when the url is not a public destination
+    // (the caller keeps the source's own headers).
+    AsyncFunction("decorateAidokuSourceImageRequest") {
+        (sourceKey: String, url: String, headers: [String: String], promise: Promise) in
+      guard let scope = nemuValidatedCookieScope(sourceKey) else {
+        promise.reject(
+          "E_SOURCE_COOKIE_SCOPE",
+          "An invalid source cookie scope cannot decorate an image request."
+        )
+        return
+      }
+      // The address policy performs a blocking DNS lookup.
+      DispatchQueue.global(qos: .userInitiated).async {
+        promise.resolve(
+          Self.decorateSourceImageRequest(
+            sourceKey: scope,
+            urlString: url,
+            headers: headers
+          )
+        )
+      }
+    }
+
     AsyncFunction("processAidokuSandboxImage") {
         (sessionId: String, operationJson: String, imageBytes: Data, promise: Promise) in
       self.iosSandboxManager.processImage(
@@ -1662,7 +1688,47 @@ public class NemuAidokuModule: Module {
     )
   }
 
-  static func decorateSandboxImageHeaders(
+  /// Upper bound on the headers a source-owned image request may arrive with.
+  /// Matches the JS output-safety cap for `modify_image_request` results.
+  static let maxSourceImageRequestHeaders = 96
+
+  /// The one native path every source-owned image request is decorated
+  /// through, whether the source rewrote it (`modify-image-request` in the
+  /// sandbox, `NemuAidokuIOSandboxManager.decorateImageRequest`) or not
+  /// (`decorateAidokuSourceImageRequest`, which the JS bridge calls for a
+  /// source with no image-request hook).
+  ///
+  /// Returns nil — the caller keeps the source's headers untouched — when the
+  /// url is not a validated public destination. Page images are fetched by the
+  /// JS image loader, not the bounded native HTTP host, so this is where a
+  /// source-controlled url is checked before the source's cookies are put on
+  /// it: attaching them to a private or reserved destination would hand them
+  /// to an SSRF target. Performs a blocking DNS lookup; never call it on the
+  /// main thread.
+  ///
+  /// Cookie isolation: only `sourceKey`'s own jar is read, and only the
+  /// cookies it would send to this url (`cookies(for:)` matches domain, path
+  /// and `Secure`), so one source's clearance never reaches another source's
+  /// images or an unrelated host.
+  static func decorateSourceImageRequest(
+    sourceKey: String,
+    urlString: String,
+    headers: [String: String]
+  ) -> [String: String]? {
+    guard
+      headers.count <= maxSourceImageRequestHeaders,
+      (try? NemuNativeHttpAddressPolicy.validatedURL(urlString)) != nil
+    else {
+      return nil
+    }
+    return decorateSandboxImageHeaders(
+      sourceKey: sourceKey,
+      urlString: urlString,
+      headers: headers
+    )
+  }
+
+  private static func decorateSandboxImageHeaders(
     sourceKey: String,
     urlString: String,
     headers: [String: String]
@@ -1690,12 +1756,14 @@ public class NemuAidokuModule: Module {
       // unbounded native header. Preserve the already-validated source value.
       output["Cookie"] = explicitCookie
     }
-    // The request now carries this source's cookies, `cf_clearance` included,
-    // and a clearance is only honoured next to the User-Agent that solved it:
-    // the source's own, else the runtime default the solver also presents.
-    return NemuNativeHttpRequestHeaderPolicy.ensuringUserAgent(
+    // When the jar contributed cookies (`cf_clearance` among them) the
+    // request needs the User-Agent the clearance is bound to: the source's
+    // own, else the runtime default the solver also presents. Otherwise the
+    // source's headers stay as they were.
+    return NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
       output,
-      nemuAidokuDefaultUserAgent
+      sourceCookie: explicitCookie,
+      sourceUserAgent: nemuAidokuDefaultUserAgent
     )
   }
 

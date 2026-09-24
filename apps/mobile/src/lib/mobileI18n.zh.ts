@@ -86,6 +86,7 @@ export const mobileStringsZh: MobileStrings = {
     agentStepResume: "继续加载",
     agentStepNotNeeded: "无需操作",
     agentSheetFailedUnsolicitedHost: "该网站并非此源请求的站点，已拒绝验证。",
+    agentSheetFailedSetup: "无法在此设备上启动安全验证。请重试，或更新系统软件。",
   },
   errorBoundary: {
     copied: "错误日志已复制。",

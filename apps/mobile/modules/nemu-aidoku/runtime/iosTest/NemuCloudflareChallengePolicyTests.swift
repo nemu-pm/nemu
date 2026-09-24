@@ -559,7 +559,8 @@ enum NemuCloudflareChallengePolicyTests {
     precondition(bounded.scopeCountForTesting() == 0)
 
     // Only the origin answering the WebView proves a clearance works: the
-    // challenge host itself, a 2xx or 4xx, and no `cf-mitigated` marker at all.
+    // challenge host itself, any non-redirect status, and no `cf-mitigated`
+    // marker at all.
     let challengePage = URL(string: "https://reader.example.com/newmanga/page/1/")!
     precondition(NemuCloudflareChallengePolicy.isClearedDocumentResponse(
       url: challengePage,
@@ -579,7 +580,22 @@ enum NemuCloudflareChallengePolicyTests {
       headers: ["CF-Mitigated": "challenge"],
       challengeHost: host
     ))
-    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+    // The marker, not the status, is what identifies Cloudflare's own page:
+    // an origin that answers the replayed GET with an unmarked 5xx has let the
+    // clearance through, and holding out for a 2xx/4xx left the solve hanging.
+    precondition(NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 500,
+      headers: [:],
+      challengeHost: host
+    ))
+    precondition(NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 502,
+      headers: ["server": "cloudflare"],
+      challengeHost: host
+    ))
+    precondition(NemuCloudflareChallengePolicy.isClearedDocumentResponse(
       url: challengePage,
       status: 503,
       headers: [:],
@@ -587,7 +603,32 @@ enum NemuCloudflareChallengePolicyTests {
     ))
     precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
       url: challengePage,
+      status: 503,
+      headers: ["cf-mitigated": "challenge", "server": "cloudflare"],
+      challengeHost: host
+    ))
+    // A redirect is not a document, whatever its headers.
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
       status: 302,
+      headers: [:],
+      challengeHost: host
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 301,
+      headers: [:],
+      challengeHost: host
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 600,
+      headers: [:],
+      challengeHost: host
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 0,
       headers: [:],
       challengeHost: host
     ))
@@ -667,6 +708,31 @@ enum NemuCloudflareChallengePolicyTests {
       committedDocumentCleared: true,
       probeReportsChallenge: false
     ))
+
+    // A cleared document committing in the hidden phase re-arms the deadline
+    // once, so a slow DOMContentLoaded cannot discard a working clearance.
+    precondition(NemuCloudflareChallengePolicy.hiddenDeadlineExtension(
+      clearedDocumentCommitted: true,
+      alreadyExtended: false,
+      sheetVisible: false
+    ) == NemuCloudflareChallengePolicy.clearedDocumentGraceSeconds)
+    precondition(NemuCloudflareChallengePolicy.clearedDocumentGraceSeconds == 15)
+    // Not cleared, already extended once, or the user is driving (no deadline).
+    precondition(NemuCloudflareChallengePolicy.hiddenDeadlineExtension(
+      clearedDocumentCommitted: false,
+      alreadyExtended: false,
+      sheetVisible: false
+    ) == nil)
+    precondition(NemuCloudflareChallengePolicy.hiddenDeadlineExtension(
+      clearedDocumentCommitted: true,
+      alreadyExtended: true,
+      sheetVisible: false
+    ) == nil)
+    precondition(NemuCloudflareChallengePolicy.hiddenDeadlineExtension(
+      clearedDocumentCommitted: true,
+      alreadyExtended: false,
+      sheetVisible: true
+    ) == nil)
 
     print("NemuCloudflareChallengePolicyTests passed.")
   }

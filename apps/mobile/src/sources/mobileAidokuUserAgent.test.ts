@@ -6,7 +6,6 @@ import {
   hasMobileUserAgentHeader,
   MOBILE_AIDOKU_DEFAULT_USER_AGENT,
   readMobileCloudflareUserAgent,
-  withMobileAidokuUserAgent,
 } from "./mobileAidokuUserAgent";
 
 const moduleRoot = fileURLToPath(
@@ -99,38 +98,13 @@ describe("mobile Aidoku default user agent", () => {
     ).toBeUndefined();
   });
 
-  test("source-owned requests keep the source's UA or get the runtime default", () => {
-    // A clearance cookie native attaches to a source image request is bound
-    // to the UA that solved it; the image loader's platform UA must never
-    // stand in for it.
-    expect(withMobileAidokuUserAgent({})).toEqual({
-      "User-Agent": MOBILE_AIDOKU_DEFAULT_USER_AGENT,
-    });
-    expect(withMobileAidokuUserAgent(undefined)).toEqual({
-      "User-Agent": MOBILE_AIDOKU_DEFAULT_USER_AGENT,
-    });
-    expect(
-      withMobileAidokuUserAgent({
-        Referer: "https://example.test/",
-        Cookie: "cf_clearance=abc",
-      }),
-    ).toEqual({
-      Referer: "https://example.test/",
-      Cookie: "cf_clearance=abc",
-      "User-Agent": MOBILE_AIDOKU_DEFAULT_USER_AGENT,
-    });
-
-    const custom = { "user-agent": "Custom/1", Referer: "https://example.test/" };
-    const kept = withMobileAidokuUserAgent(custom);
-    expect(kept).toEqual(custom);
-    expect(kept).not.toBe(custom);
-
+  test("detects a User-Agent header in any casing", () => {
     expect(hasMobileUserAgentHeader({ "USER-AGENT": "x" })).toBe(true);
     expect(hasMobileUserAgentHeader({ Referer: "x" })).toBe(false);
     expect(hasMobileUserAgentHeader(null)).toBe(false);
   });
 
-  test("every source image-request path goes through the UA normalizer", () => {
+  test("every source image-request path goes through native's one decoration", () => {
     const mobileRoot = fileURLToPath(new URL("../../", import.meta.url));
     const bridge = readFileSync(
       path.join(mobileRoot, "src/sources/mobileAidokuSandboxExecutorBridge.native.ts"),
@@ -140,31 +114,43 @@ describe("mobile Aidoku default user agent", () => {
       bridge.indexOf("modifyImageRequest(url) {"),
       bridge.indexOf("async hasImageProcessor()"),
     );
-    // The no-hook short-circuit mirrors the runtime's own default headers,
-    // and a hook's result keeps the source's UA or gains the default.
-    expect(modify).toContain("headers: withMobileAidokuUserAgent({})");
-    expect(modify).toContain("headers: withMobileAidokuUserAgent(request.headers)");
-    expect(modify).not.toContain("headers: {}");
+    // A hook-less source goes to native for its cookies instead of stamping a
+    // UA in JS (which only changed cache keys); a hooked one is decorated
+    // inside the `modify-image-request` operation.
+    expect(modify).toContain("return decorateImageRequest({ url, headers: {} });");
+    expect(modify).toContain('"modify-image-request"');
+    expect(bridge).toContain("NemuAidokuModule.decorateAidokuSourceImageRequest?.(key, url, headers)");
+    expect(bridge).toContain("sourceKey: input.sourceKey,");
+    expect(bridge).not.toContain("withMobileAidokuUserAgent");
 
     const pages = readFileSync(
       path.join(mobileRoot, "src/sources/mobileSourcePages.ts"),
       "utf8",
     );
-    expect(pages).toContain("headers: withMobileAidokuUserAgent(page.headers)");
+    expect(pages).toContain("await decoratePageImageRequest(session.source, {");
+    expect(pages).not.toContain("withMobileAidokuUserAgent");
 
-    // Native adds the same default wherever it attaches a source's jar to an
-    // image request, and falls back to it for source-scoped requests.
+    // Both native twins route the hooked result and the hook-less request
+    // through one function, which validates the destination first and adds
+    // the source UA only alongside the jar's cookies.
     const iosModule = read("ios/NemuAidokuModule.swift");
+    expect(iosModule).toContain('AsyncFunction("decorateAidokuSourceImageRequest")');
+    expect(iosModule).toContain("NemuNativeHttpAddressPolicy.validatedURL(urlString)");
     expect(iosModule).toMatch(
-      /ensuringUserAgent\(\s*output,\s*nemuAidokuDefaultUserAgent\s*\)/,
+      /sourceImageHeaders\(\s*output,\s*sourceCookie: explicitCookie,\s*sourceUserAgent: nemuAidokuDefaultUserAgent\s*\)/,
     );
     expect(iosModule).toContain("sourceDefault: nemuAidokuDefaultUserAgent");
+    const iosSandbox = read("ios/NemuAidokuIOSandboxManager.swift");
+    expect(iosSandbox).toContain("NemuAidokuModule.decorateSourceImageRequest(");
     const androidModule = read(
       "android/src/main/java/pm/nemu/mobile/aidoku/NemuAidokuModule.kt",
     );
-    expect(androidModule).toMatch(
-      /ensuringUserAgent\(\s*merged,\s*NEMU_AIDOKU_DEFAULT_USER_AGENT\s*\)/,
+    expect(androidModule).toContain('AsyncFunction("decorateAidokuSourceImageRequest")');
+    expect(androidModule).toContain(
+      "decorateSourceImageRequest(sourceKey, urlString, existingHeaders) ?: existingHeaders",
     );
+    expect(androidModule).toContain("NemuNativeHttpAddressPolicy.resolvePublicAddresses(url.host)");
+    expect(androidModule).toContain("sourceUserAgent = NEMU_AIDOKU_DEFAULT_USER_AGENT");
     expect(
       androidModule.match(/sourceDefault = NEMU_AIDOKU_DEFAULT_USER_AGENT/g),
     ).toHaveLength(2);

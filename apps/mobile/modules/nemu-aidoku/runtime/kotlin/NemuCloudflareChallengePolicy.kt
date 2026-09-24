@@ -299,16 +299,28 @@ internal object NemuCloudflareChallengePolicy {
 
   /**
    * True when a main-frame response is the origin actually answering the
-   * solver's WebView: the challenge host itself, a 2xx or 4xx status, and no
-   * `cf-mitigated` marker at all. This is the solver's only *positive*
-   * evidence that the edge honoured the clearance the WebView now holds.
+   * solver's WebView: the challenge host itself, any non-redirect status
+   * (2xx, 4xx or 5xx), and no `cf-mitigated` marker at all. This is the
+   * solver's only *positive* evidence that the edge honoured the clearance the
+   * WebView now holds.
    *
-   * A Cloudflare interstitial is always served as a mitigated 403/503, so the
-   * document the challenge runs in can never pass. A 4xx without the marker
-   * still counts: the solve replays the source's failed request as a plain
-   * GET, and an API or POST endpoint answers that with 404/405 once the edge
-   * lets it through. 5xx stays out (Cloudflare's own error pages), a redirect
-   * status is not a document, and no other host qualifies.
+   * The `cf-mitigated` header is the discriminator, not the status: a
+   * Cloudflare interstitial is always a *mitigated* 403/503, so the document
+   * the challenge runs in can never pass, while anything unmarked is the edge
+   * having let the request through to the origin. That is why every unmarked
+   * status counts. The solve replays the source's failed request as a plain
+   * GET, and an API or POST endpoint answers that with 404/405; an origin that
+   * is struggling answers it with a 500/502/503 of its own (or Cloudflare's
+   * unmarked 52x origin-error pages). Holding out for a 2xx/4xx there meant a
+   * solve that already held a working clearance never settled: the hidden
+   * phase timed out and discarded the cookie, and a visible dialog sat open
+   * until the user cancelled it.
+   *
+   * A redirect status is not a document and stays out. So does every other
+   * host: a redirect that leaves the challenge host after the solve is refused
+   * by the main-frame allow-list ([allowsMainFrameNavigation]) before it ever
+   * produces a document, so a clearance on a host whose origin always
+   * redirects off-host cannot be proven here — deliberately.
    *
    * Android cannot hand this the real status and headers of every main-frame
    * response; see [NemuCloudflareMainFrameDocumentTracker] for what it feeds in.
@@ -323,7 +335,7 @@ internal object NemuCloudflareChallengePolicy {
   ): Boolean {
     val host = normalizedHost(url?.toHttpUrlOrNull()?.host) ?: return false
     if (host != challengeHost) return false
-    if (status !in 200..299 && status !in 400..499) return false
+    if (status !in 200..599 || status in 300..399) return false
     // Any `cf-mitigated` value at all ("challenge", "block", …) means
     // Cloudflare, not the origin, produced this document.
     return headers.keys.none { it.equals("cf-mitigated", ignoreCase = true) }
@@ -360,6 +372,33 @@ internal object NemuCloudflareChallengePolicy {
     if (clearance.isNullOrEmpty()) return false
     if (clearance == baselineClearance) return false
     return committedDocumentCleared && !probeReportsChallenge
+  }
+
+  /** How long the hidden phase keeps waiting once a cleared document is up. */
+  internal const val CLEARED_DOCUMENT_GRACE_MS = 15_000L
+
+  /**
+   * The fresh hidden-phase deadline (ms from now) to arm when a main-frame
+   * document from the challenge host shows up cleared, or null to leave the
+   * current one alone.
+   *
+   * A cleared document is the solve's positive proof, but the solve only
+   * settles once that document has finished loading and its probe has read
+   * it. On a slow origin the fixed hidden-phase deadline could fire in between
+   * and fail the solve with `timeout`, discarding a working `cf_clearance`. So
+   * the first cleared document in the hidden phase re-arms the deadline once;
+   * a visible dialog has no deadline to extend, and a second extension is
+   * refused so a page that keeps navigating cannot hold the hidden WebView
+   * open indefinitely. Mirrors `hiddenDeadlineExtension` in
+   * `ios/NemuCloudflareChallengePolicy.swift`.
+   */
+  internal fun hiddenDeadlineExtensionMs(
+    clearedDocumentCommitted: Boolean,
+    alreadyExtended: Boolean,
+    sheetVisible: Boolean
+  ): Long? {
+    if (!clearedDocumentCommitted || alreadyExtended || sheetVisible) return null
+    return CLEARED_DOCUMENT_GRACE_MS
   }
 
   // MARK: - Cookie-jar diffing
@@ -573,12 +612,28 @@ internal class NemuCloudflareMainFrameDocumentTracker(private val challengeHost:
     pendingLoadFailed = true
   }
 
+  /**
+   * Returns whether the document that just started *looks* cleared from what
+   * its response has reported so far — [url] on the challenge host, allowed,
+   * not failed, and no mitigated `onReceivedHttpError`. That is never a
+   * verdict (it only ever withdraws [committedDocumentCleared]; see the class
+   * KDoc for why resolution waits for the finish); the solver uses it only to
+   * extend the hidden-phase deadline while a slow origin page loads.
+   */
   @Synchronized
-  fun mainFrameStarted() {
-    if (!requestPending) return
+  fun mainFrameStarted(url: String? = null): Boolean {
+    if (!requestPending) return false
     pendingStarted = true
     documentGeneration += 1
     committedDocumentCleared = false
+    return pendingAllowed &&
+      !pendingLoadFailed &&
+      NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+        url = url,
+        status = pendingErrorStatus ?: 200,
+        headers = pendingErrorHeaders,
+        challengeHost = challengeHost
+      )
   }
 
   @Synchronized

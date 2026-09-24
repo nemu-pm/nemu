@@ -202,16 +202,28 @@ enum NemuCloudflareChallengePolicy {
   }
 
   /// True when a main-frame response is the origin actually answering the
-  /// solver's WebView: the challenge host itself, a 2xx or 4xx status, and no
-  /// `cf-mitigated` marker at all. This is the solver's only *positive*
-  /// evidence that the edge honoured the clearance the WebView now holds.
+  /// solver's WebView: the challenge host itself, any non-redirect status
+  /// (2xx, 4xx or 5xx), and no `cf-mitigated` marker at all. This is the
+  /// solver's only *positive* evidence that the edge honoured the clearance
+  /// the WebView now holds.
   ///
-  /// A Cloudflare interstitial is always served as a mitigated 403/503, so
-  /// the document the challenge runs in can never pass. A 4xx without the
-  /// marker still counts: the solve replays the source's failed request as a
-  /// plain GET, and an API or POST endpoint answers that with 404/405 once
-  /// the edge lets it through. 5xx stays out (Cloudflare's own error pages),
-  /// a redirect status is not a document, and no other host qualifies.
+  /// The `cf-mitigated` header is the discriminator, not the status: a
+  /// Cloudflare interstitial is always a *mitigated* 403/503, so the document
+  /// the challenge runs in can never pass, while anything unmarked is the
+  /// edge having let the request through to the origin. That is why every
+  /// unmarked status counts. The solve replays the source's failed request as
+  /// a plain GET, and an API or POST endpoint answers that with 404/405; an
+  /// origin that is struggling answers it with a 500/502/503 of its own (or
+  /// Cloudflare's unmarked 52x origin-error pages). Holding out for a
+  /// 2xx/4xx there meant a solve that already held a working clearance never
+  /// settled: the hidden phase timed out and discarded the cookie, and a
+  /// visible sheet sat open until the user cancelled it.
+  ///
+  /// A redirect status is not a document and stays out. So does every other
+  /// host: a redirect that leaves the challenge host after the solve is
+  /// cancelled by the main-frame allow-list (`allowsMainFrameNavigation`)
+  /// before it ever produces a response, so a clearance on a host whose
+  /// origin always redirects off-host cannot be proven here — deliberately.
   static func isClearedDocumentResponse(
     url: URL?,
     status: Int,
@@ -222,7 +234,8 @@ enum NemuCloudflareChallengePolicy {
       let url,
       let host = normalizedHost(url.host),
       host == challengeHost,
-      (200..<300).contains(status) || (400..<500).contains(status)
+      (200..<600).contains(status),
+      !(300..<400).contains(status)
     else {
       return false
     }
@@ -262,6 +275,31 @@ enum NemuCloudflareChallengePolicy {
     guard let clearance, !clearance.isEmpty else { return false }
     guard clearance != baselineClearance else { return false }
     return committedDocumentCleared && !probeReportsChallenge
+  }
+
+  /// How long the hidden phase keeps waiting once a cleared challenge-host
+  /// document has committed. See `hiddenDeadlineExtension`.
+  static let clearedDocumentGraceSeconds: TimeInterval = 15
+
+  /// The fresh hidden-phase deadline (seconds from now) to arm when a main-frame
+  /// document commits, or nil to leave the current one alone.
+  ///
+  /// A cleared document committing is the solve's positive proof, but the
+  /// solve only settles once that document's own probe reports, and the probe
+  /// runs at DOMContentLoaded. On a slow origin the fixed hidden-phase deadline
+  /// could fire in between and fail the solve with `timeout`, discarding a
+  /// working `cf_clearance`. So the first cleared commit in the hidden phase
+  /// re-arms the deadline once; a visible sheet has no deadline to extend, and
+  /// a second extension is refused so a page that keeps navigating cannot hold
+  /// the hidden WebView open indefinitely. Mirrors
+  /// `hiddenDeadlineExtensionMs` in the Kotlin twin.
+  static func hiddenDeadlineExtension(
+    clearedDocumentCommitted: Bool,
+    alreadyExtended: Bool,
+    sheetVisible: Bool
+  ) -> TimeInterval? {
+    guard clearedDocumentCommitted, !alreadyExtended, !sheetVisible else { return nil }
+    return clearedDocumentGraceSeconds
   }
 
   /// A cookie may only be adopted when its domain covers the challenge host,

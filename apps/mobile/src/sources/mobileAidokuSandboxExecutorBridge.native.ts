@@ -28,7 +28,7 @@ import {
 } from "@/lib/mobilePerformance";
 import { getMobileImageUriPolicy } from "@/lib/mobileImageUriPolicy";
 import { sanitizeMobileErrorDiagnostic } from "@/lib/mobileSourceErrors";
-import { withMobileAidokuUserAgent } from "./mobileAidokuUserAgent";
+import { decorateMobileSourceImageRequest } from "./mobileSourceImageDecoration";
 
 type SandboxCapabilities = {
   id: string;
@@ -111,10 +111,13 @@ function validateCapabilities(value: SandboxCapabilities): SandboxCapabilities {
 
 function wrapSandboxSource({
   sessionId,
+  sourceKey,
   capabilities,
   initialSettings,
 }: {
   sessionId: string;
+  /** The session's cookie scope; native decorates image requests with its jar. */
+  sourceKey: string;
   capabilities: SandboxCapabilities;
   initialSettings: Record<string, unknown>;
 }): MobileAidokuExecutorSource {
@@ -196,6 +199,21 @@ function wrapSandboxSource({
     }
     return output;
   };
+
+  const decorateImageRequest = (request: {
+    url: string;
+    headers: Record<string, string>;
+  }) =>
+    decorateMobileSourceImageRequest(request, {
+      sourceKey,
+      isAllowedUrl: (url) => !disposed && getMobileImageUriPolicy(url, "source").allowed,
+      decorate:
+        typeof NemuAidokuModule.decorateAidokuSourceImageRequest === "function"
+          ? (key, url, headers) =>
+              NemuAidokuModule.decorateAidokuSourceImageRequest?.(key, url, headers) ??
+              Promise.resolve(null)
+          : undefined,
+    });
 
   return {
     id: capabilities.id,
@@ -281,16 +299,18 @@ function wrapSandboxSource({
       for (const partial of response.partials ?? []) onPartial(partial);
       return response.layout;
     },
-    // Every result carries a User-Agent: the one the source's request holds,
-    // else the runtime default — the same pair the runtime's own
-    // `modifyImageRequest` returns when a source has no hook. A clearance
-    // cookie native attaches to the rewritten request is bound to it.
+    // Both branches end in native's one decoration path: the source's scoped
+    // cookies for this url, plus the User-Agent a `cf_clearance` among them
+    // is bound to. A hooked source gets it inside the `modify-image-request`
+    // operation; a hook-less one through `decorateImageRequest` below, so its
+    // covers and pages carry the clearance too. A url the image policy
+    // refuses gets neither, exactly as before.
     modifyImageRequest(url) {
-      if (
-        !capabilities.hasImageRequestProvider ||
-        !getMobileImageUriPolicy(url, "source").allowed
-      ) {
-        return Promise.resolve({ url, headers: withMobileAidokuUserAgent({}) });
+      if (!getMobileImageUriPolicy(url, "source").allowed) {
+        return Promise.resolve({ url, headers: {} });
+      }
+      if (!capabilities.hasImageRequestProvider) {
+        return decorateImageRequest({ url, headers: {} });
       }
       return execute<{ url: string; headers: Record<string, string> }>(
         "modify-image-request",
@@ -298,11 +318,9 @@ function wrapSandboxSource({
           kind: "modify-image-request",
           url,
         },
-      ).then((request) => ({
-        url: request.url,
-        headers: withMobileAidokuUserAgent(request.headers),
-      }));
+      );
     },
+    decorateImageRequest,
     async hasImageProcessor() {
       return capabilities.hasImageProcessor;
     },
@@ -409,6 +427,7 @@ async function loadSandboxSource(
       runtime: "native-aidoku",
       source: wrapSandboxSource({
         sessionId,
+        sourceKey: input.sourceKey,
         capabilities,
         initialSettings: input.settings,
       }),

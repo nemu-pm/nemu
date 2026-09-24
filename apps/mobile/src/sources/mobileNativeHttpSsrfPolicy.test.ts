@@ -118,7 +118,12 @@ describe("native HTTP SSRF policy", () => {
     // + connected-peer boundary above. Pin the narrower boundary it gets: the
     // address policy validates the url, then every request is checked against
     // the challenge host tree and Cloudflare's challenge platform.
-    expect(module).toContain('"supportsCloudflareSolver" to true');
+    // Advertised only when the WebView can run the document-start socket
+    // guard; otherwise every solve fails closed with `rule-list-unavailable`.
+    expect(module).toContain(
+      '"supportsCloudflareSolver" to supportsCloudflareSolver',
+    );
+    expect(module).toContain("nemuCloudflareDocumentStartScriptSupported()");
     expect(module).toContain("cloudflareSolver.solve(");
     expect(module).toContain("promise.resolve(solved)");
     expect(module).toContain("sandboxCookieStore.get(scope).adoptSolvedCookies(");

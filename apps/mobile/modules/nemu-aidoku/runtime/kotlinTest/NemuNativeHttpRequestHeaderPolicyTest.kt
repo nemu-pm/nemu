@@ -30,6 +30,46 @@ class NemuNativeHttpRequestHeaderPolicyTest {
   }
 
   @Test
+  fun sourceImageRequestsCarryTheSourceUserAgentOnlyWithTheSourcesCookies() {
+    val ua = "Source/17"
+    // The jar contributed a cookie: the UA the clearance is bound to rides along.
+    assertEquals(
+      mapOf("Cookie" to "cf_clearance=abc", "User-Agent" to ua),
+      NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
+        mapOf("Cookie" to "cf_clearance=abc"),
+        sourceCookie = null,
+        sourceUserAgent = ua
+      )
+    )
+    assertEquals(
+      ua,
+      NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
+        mapOf("cookie" to "lang=en; cf_clearance=abc", "Referer" to "https://example.test/"),
+        sourceCookie = "lang=en",
+        sourceUserAgent = ua
+      )["User-Agent"]
+    )
+    // A source's own UA is never replaced.
+    val custom = mapOf("Cookie" to "cf_clearance=abc", "User-Agent" to "Custom/1")
+    assertEquals(
+      custom,
+      NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(custom, null, ua)
+    )
+    // The jar contributed nothing: left exactly as the source produced it, so
+    // the image's cache key does not change for nothing.
+    listOf(
+      emptyMap<String, String>() to null,
+      mapOf("Referer" to "https://example.test/") to null,
+      mapOf("Cookie" to "lang=en") to "lang=en"
+    ).forEach { (headers, sourceCookie) ->
+      assertEquals(
+        headers,
+        NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(headers, sourceCookie, ua)
+      )
+    }
+  }
+
+  @Test
   fun fallsBackToTheSourceDefaultOnlyForScopedRequests() {
     assertEquals(
       "Source/17",

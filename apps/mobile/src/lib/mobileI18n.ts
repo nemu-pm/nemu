@@ -68,6 +68,7 @@ export type MobileStrings = {
     agentSheetFailedTimeout: string;
     agentSheetFailedBlocked: string;
     agentSheetFailedUnsolicitedHost: string;
+    agentSheetFailedSetup: string;
     agentSheetProtectedSite: string;
     agentSheetProtectedSource: string;
     agentStepOpen: string;

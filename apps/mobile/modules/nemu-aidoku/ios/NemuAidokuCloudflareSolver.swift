@@ -410,6 +410,9 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
   /// Whether the main-frame document on screen came from a cleared response.
   /// Starts false: the document the solve opens on is the challenge itself.
   private var committedDocumentCleared = false
+  /// Whether the hidden-phase deadline has already been extended for a cleared
+  /// document (`NemuCloudflareChallengePolicy.hiddenDeadlineExtension`).
+  private var didExtendHiddenDeadline = false
   private var finished = false
   private var settled = false
 
@@ -580,7 +583,7 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
     emit("nemuAidokuCfWaiting", ["url": url.absoluteString])
   }
 
-  private func armHiddenTimeout() {
+  private func armHiddenTimeout(after seconds: TimeInterval = nemuCloudflareHiddenTimeoutSeconds) {
     timeoutWork?.cancel()
     let work = DispatchWorkItem { [weak self] in
       guard let self, !self.finished, self.challengeController == nil else { return }
@@ -588,7 +591,7 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
     }
     timeoutWork = work
     DispatchQueue.main.asyncAfter(
-      deadline: .now() + nemuCloudflareHiddenTimeoutSeconds,
+      deadline: .now() + seconds,
       execute: work
     )
   }
@@ -865,6 +868,18 @@ private final class NemuCloudflareSolveSession: NSObject, WKNavigationDelegate, 
     // Only the response this commit belongs to can vouch for the document.
     committedDocumentCleared = pendingMainFrameCleared
     pendingMainFrameCleared = false
+    // The probe for this document only reports at DOMContentLoaded; a slow
+    // origin must not let the hidden deadline discard a clearance that has
+    // already been proven to work.
+    if !finished,
+       let grace = NemuCloudflareChallengePolicy.hiddenDeadlineExtension(
+         clearedDocumentCommitted: committedDocumentCleared,
+         alreadyExtended: didExtendHiddenDeadline,
+         sheetVisible: challengeController != nil
+       ) {
+      didExtendHiddenDeadline = true
+      armHiddenTimeout(after: grace)
+    }
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

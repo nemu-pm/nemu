@@ -13,7 +13,9 @@ class NemuCloudflareSocketGuardTest {
   fun embedsExactlyTheHostsTheRequestAllowListAdmits() {
     val script = NemuCloudflareSocketGuard.script(host)!!
     assertTrue(
-      script.endsWith("""(self, ["reader.example.com","challenges.cloudflare.com"]);""")
+      script.endsWith(
+        """(self, ["reader.example.com","challenges.cloudflare.com"], "https://challenges.cloudflare.com");"""
+      )
     )
     // One invocation, one host list: nothing else in the script names a host.
     assertEquals(1, Regex("""\(self, \[""").findAll(script).count())
@@ -32,7 +34,28 @@ class NemuCloudflareSocketGuardTest {
   @Test
   fun aChallengeOnThePlatformHostListsItOnce() {
     val script = NemuCloudflareSocketGuard.script("challenges.cloudflare.com")!!
-    assertTrue(script.endsWith("""(self, ["challenges.cloudflare.com"]);"""))
+    // And a document the solve was pointed at is never the exempt one.
+    assertTrue(script.endsWith("""(self, ["challenges.cloudflare.com"], null);"""))
+    assertNull(NemuCloudflareSocketGuard.exemptOrigin("challenges.cloudflare.com"))
+  }
+
+  @Test
+  fun standsDownOnlyInCloudflaresOwnTurnstileOrigin() {
+    assertEquals(
+      "https://challenges.cloudflare.com",
+      NemuCloudflareSocketGuard.exemptOrigin(host)
+    )
+    // The exemption is checked first, against the injected realm's own
+    // location, before any primordial is captured or anything replaced.
+    val guard = NEMU_CLOUDFLARE_SOCKET_GUARD_FUNCTION
+    assertTrue(guard.startsWith("function (root, hosts, exemptOrigin) {"))
+    val exemptCheck = guard.indexOf("rootOrigin = root.location.origin;")
+    assertTrue(exemptCheck > 0)
+    assertTrue(guard.contains("if (rootOrigin === exemptOrigin) return;"))
+    assertTrue(exemptCheck < guard.indexOf("var defineProperty"))
+    // Adopted child realms go through `install`, which never consults it: the
+    // parameter, its type check and the one comparison are its only uses.
+    assertEquals(3, Regex("exemptOrigin").findAll(guard).count())
   }
 
   @Test

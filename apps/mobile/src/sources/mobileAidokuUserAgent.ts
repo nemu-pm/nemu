@@ -25,26 +25,6 @@ export function hasMobileUserAgentHeader(
 }
 
 /**
- * The headers a source-owned request (a cover, a page image, a
- * `modify_image_request` result) is fetched with: the source's own
- * User-Agent when it set one, otherwise the runtime default.
- *
- * Those requests can carry the source's cookies — native attaches its jar to
- * every image request the source rewrites — and a `cf_clearance` among them is
- * only honoured next to the User-Agent that solved it, which is the one the
- * source's own runtime requests send. The runtime stamps that UA on every
- * request it builds, but a request that never went through it (a source with
- * no image-request hook, page headers handed over verbatim) arrives bare and
- * used to fall through to the image loader's platform-browser UA.
- */
-export function withMobileAidokuUserAgent(
-  headers: Readonly<Record<string, string>> | null | undefined,
-): Record<string, string> {
-  if (hasMobileUserAgentHeader(headers)) return { ...headers };
-  return { ...headers, "User-Agent": MOBILE_AIDOKU_DEFAULT_USER_AGENT };
-}
-
-/**
  * Reads a `userAgent` off a source error without asserting a shape.
  * `CloudflareBlockedError` does not carry one today (it has `url` and `status`
  * only); a newer runtime is expected to add it, and this returns `undefined`

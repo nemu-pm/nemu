@@ -69,6 +69,16 @@ export type MobileAidokuExecutorSource = Omit<
     manga: AidokuManga,
     chapter: AidokuChapter,
   ): Promise<MobileSourcePage[]>;
+  /**
+   * Native's decoration of a source-owned image request that skipped
+   * `modifyImageRequest` (a page that arrived with its own headers): the
+   * source's scoped cookies for the url, plus the User-Agent a clearance among
+   * them is bound to. Optional; a bridge without it keeps the headers as-is.
+   */
+  decorateImageRequest?: (request: {
+    url: string;
+    headers: Record<string, string>;
+  }) => Promise<{ url: string; headers: Record<string, string> }>;
   /** Optional deferred resolver. Reader invokes it only inside its near-page window. */
   resolvePageImage?: (page: MobileSourcePage) => Promise<string | null>;
   dispose: () => void | Promise<void>;

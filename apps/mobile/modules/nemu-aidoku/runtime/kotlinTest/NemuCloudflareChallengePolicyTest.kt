@@ -368,8 +368,18 @@ class NemuCloudflareChallengePolicyTest {
     assertTrue(cleared("https://READER.example.com./manga/1", 204))
     assertFalse(cleared(page, 403, mapOf("cf-mitigated" to "challenge", "server" to "cloudflare")))
     assertFalse(cleared(page, 200, mapOf("CF-Mitigated" to "challenge")))
-    assertFalse(cleared(page, 503))
+    // The marker, not the status, is what identifies Cloudflare's own page:
+    // an origin that answers the replayed GET with an unmarked 5xx has let the
+    // clearance through, and holding out for a 2xx/4xx left the solve hanging.
+    assertTrue(cleared(page, 500))
+    assertTrue(cleared(page, 502, mapOf("server" to "cloudflare")))
+    assertTrue(cleared(page, 503))
+    assertFalse(cleared(page, 503, mapOf("cf-mitigated" to "challenge", "server" to "cloudflare")))
+    // A redirect is not a document, whatever its headers.
     assertFalse(cleared(page, 302))
+    assertFalse(cleared(page, 301))
+    assertFalse(cleared(page, 600))
+    assertFalse(cleared(page, 0))
     // An API or POST endpoint replayed as a plain GET answers 404/405 once the
     // edge lets it through; only a mitigated 4xx is Cloudflare's.
     assertTrue(cleared(page, 404))
@@ -467,9 +477,17 @@ class NemuCloudflareChallengePolicyTest {
     documents.mainFrameFinished("$page#top")
     assertTrue(documents.committedDocumentCleared)
 
+    // An origin that answers a later navigation with its own (unmarked) 5xx
+    // still proves the edge let the clearance through.
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameHttpError(502, mapOf("server" to "cloudflare"))
+    documents.mainFrameStarted()
+    documents.mainFrameFinished(page)
+    assertTrue(documents.committedDocumentCleared)
+
     // A later navigation that is challenged again withdraws it.
     documents.mainFrameRequestStarted(allowed = true)
-    documents.mainFrameHttpError(503, emptyMap())
+    documents.mainFrameHttpError(503, mapOf("cf-mitigated" to "challenge"))
     documents.mainFrameStarted()
     assertFalse(documents.committedDocumentCleared)
     documents.mainFrameFinished(page)
@@ -533,6 +551,58 @@ class NemuCloudflareChallengePolicyTest {
     documents.mainFrameStarted()
     documents.mainFrameFinished(page)
     assertTrue(documents.committedDocumentCleared)
+  }
+
+  @Test
+  fun aClearedDocumentExtendsTheHiddenDeadlineOnce() {
+    val grace = NemuCloudflareChallengePolicy.CLEARED_DOCUMENT_GRACE_MS
+    assertEquals(
+      grace,
+      NemuCloudflareChallengePolicy.hiddenDeadlineExtensionMs(
+        clearedDocumentCommitted = true,
+        alreadyExtended = false,
+        sheetVisible = false
+      )
+    )
+    // Not cleared, already extended once, or the user is driving (no deadline).
+    assertNull(NemuCloudflareChallengePolicy.hiddenDeadlineExtensionMs(false, false, false))
+    assertNull(NemuCloudflareChallengePolicy.hiddenDeadlineExtensionMs(true, true, false))
+    assertNull(NemuCloudflareChallengePolicy.hiddenDeadlineExtensionMs(true, false, true))
+  }
+
+  @Test
+  fun mainFrameStartReportsWhetherTheLoadingDocumentLooksCleared() {
+    val page = "https://reader.example.com/newmanga/page/1/"
+    val documents = NemuCloudflareMainFrameDocumentTracker(host)
+
+    // The interstitial: a mitigated 403 before its start.
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameHttpError(403, mapOf("cf-mitigated" to "challenge"))
+    assertFalse(documents.mainFrameStarted(page))
+    documents.mainFrameFinished(page)
+
+    // The origin page (slow to finish): looks cleared at start, but the
+    // verdict itself still waits for the finish.
+    documents.mainFrameRequestStarted(allowed = true)
+    assertTrue(documents.mainFrameStarted(page))
+    assertFalse(documents.committedDocumentCleared)
+    documents.mainFrameFinished(page)
+    assertTrue(documents.committedDocumentCleared)
+
+    // A same-document start has no request behind it and reports nothing.
+    assertFalse(documents.mainFrameStarted("$page#top"))
+    assertTrue(documents.committedDocumentCleared)
+
+    // Refused, foreign, failed, or no url at all.
+    documents.mainFrameRequestStarted(allowed = false)
+    assertFalse(documents.mainFrameStarted(page))
+    documents.mainFrameRequestStarted(allowed = true)
+    assertFalse(documents.mainFrameStarted("https://elsewhere.example.net/"))
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameLoadFailed()
+    assertFalse(documents.mainFrameStarted(page))
+    documents.mainFrameRequestStarted(allowed = true)
+    assertFalse(documents.mainFrameStarted(null))
   }
 
   private fun request(

@@ -230,6 +230,45 @@ enum NemuNativeHttpRequestHeaderPolicyTests {
         ) == platform
       )
     }
+
+    // Source-owned image requests: the source UA follows the source's stored
+    // cookies. The jar contributed a cookie (none of the source's own, or more
+    // than the source's own): the UA the clearance is bound to rides along.
+    let jarOnly = NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
+      ["Cookie": "cf_clearance=abc"],
+      sourceCookie: nil,
+      sourceUserAgent: source
+    )
+    precondition(jarOnly == ["Cookie": "cf_clearance=abc", "User-Agent": source])
+    let merged = NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
+      ["cookie": "cf_clearance=abc; lang=en", "Referer": "https://example.test/"],
+      sourceCookie: "lang=en",
+      sourceUserAgent: source
+    )
+    precondition(merged["User-Agent"] == source)
+    // A source's own UA is never replaced.
+    precondition(
+      NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
+        ["Cookie": "cf_clearance=abc", "User-Agent": "Custom/1"],
+        sourceCookie: nil,
+        sourceUserAgent: source
+      ) == ["Cookie": "cf_clearance=abc", "User-Agent": "Custom/1"]
+    )
+    // The jar contributed nothing: the request stays exactly as the source
+    // produced it, so its image cache key does not change for nothing.
+    for (headers, sourceCookie) in [
+      ([:], nil),
+      (["Referer": "https://example.test/"], nil),
+      (["Cookie": "lang=en"], "lang=en"),
+    ] as [([String: String], String?)] {
+      precondition(
+        NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
+          headers,
+          sourceCookie: sourceCookie,
+          sourceUserAgent: source
+        ) == headers
+      )
+    }
   }
 
   private static func expectFailure(

@@ -130,6 +130,25 @@ describe("getNemuAgentSheetPresentation", () => {
     expect(present({ status: "failed", failureReason: "blocked-destination" }).rows[0].detail).toBe(
       strings.common.agentSheetFailedBlocked,
     );
+    // The boundary could not be installed (iOS rule list, Android guard): a
+    // setup failure, not the generic "couldn't solve it" line.
+    expect(
+      present({ status: "failed", failureReason: "rule-list-unavailable" }).rows[0].detail,
+    ).toBe(strings.common.agentSheetFailedSetup);
+  });
+
+  test("an unsupported solver shows the unavailable notice, never Retry", () => {
+    const unsupported = present({
+      status: "failed",
+      failureReason: "rule-list-unavailable",
+      solverSupported: false,
+    });
+    expect(unsupported.rows).toHaveLength(1);
+    expect(unsupported.rows[0]).toMatchObject({
+      glyph: "unavailable",
+      detail: strings.common.agentSheetUnavailable,
+    });
+    expect(unsupported.actions.map((action) => action.kind)).toEqual(["done"]);
   });
 
   test("offers Retry after a failure only when a solve can actually run", () => {

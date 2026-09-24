@@ -9,6 +9,7 @@ import {
 import {
   acceptsNemuAgentSheetReport,
   initialNemuAgentSheetState,
+  isNemuAgentSheetInflightStatus,
   reduceNemuAgentSheet,
   resolveNemuAgentAutoSolveUrl,
   resolveNemuAgentSolveCookieScope,
@@ -686,5 +687,33 @@ describe("resolveNemuAgentAutoSolveUrl", () => {
         ),
       ).toBeNull();
     }
+  });
+});
+
+describe("isNemuAgentSheetInflightStatus", () => {
+  test("is exactly the unsettled solve statuses", () => {
+    const all: NemuAgentSheetStatus[] = [
+      "needs-verification",
+      "opening",
+      "waiting",
+      "captcha",
+      "success",
+      "failed",
+    ];
+    expect(all.filter(isNemuAgentSheetInflightStatus)).toEqual([
+      "opening",
+      "waiting",
+      "captcha",
+    ]);
+  });
+
+  test("the success hold is busy (reports ignored) but not in flight", () => {
+    const holding: NemuAgentSheetState = {
+      visible: true,
+      status: "success",
+      url: "https://reader.example.com/",
+    };
+    expect(isNemuAgentSheetInflightStatus(holding.status)).toBe(false);
+    expect(reduceNemuAgentSheet(holding, { type: "start" })).toBe(holding);
   });
 });

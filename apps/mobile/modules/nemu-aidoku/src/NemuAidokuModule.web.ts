@@ -90,6 +90,10 @@ class NemuAidokuModule extends NativeModule<NemuAidokuEventsMap> {
     throw new Error("The isolated Android Aidoku runtime is not available on web.");
   }
 
+  async decorateAidokuSourceImageRequest(): Promise<Record<string, string> | null> {
+    return null;
+  }
+
   async updateAidokuSandboxSettings(): Promise<string> {
     throw new Error("The isolated Android Aidoku runtime is not available on web.");
   }

@@ -90,6 +90,8 @@ export const mobileStringsJa: MobileStrings = {
     agentStepNotNeeded: "不要でした",
     agentSheetFailedUnsolicitedHost:
       "このサイトはソースが要求したものではないため、認証を拒否しました。",
+    agentSheetFailedSetup:
+      "この端末では安全な認証を開始できませんでした。再試行するか、システムソフトウェアを更新してください。",
   },
   errorBoundary: {
     copied: "エラーログをコピーしました。",

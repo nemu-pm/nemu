@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
  * document start (`runtime/kotlin/NemuCloudflareSocketGuard.kt`). The JVM unit
  * tests cover how Kotlin builds the script; there is no JS engine there, so the
  * script's actual behaviour is exercised here, against a fake realm, using the
- * exact text Kotlin embeds and the same `(guard)(self, [hosts]);` assembly.
+ * exact text Kotlin embeds and the same `(guard)(self, [hosts], exempt);`
+ * assembly.
  */
 
 const guardSource = (() => {
@@ -27,6 +28,8 @@ const guardSource = (() => {
 })();
 
 const HOSTS = ["reader.example.com", "challenges.cloudflare.com"];
+/** `NemuCloudflareSocketGuard.exemptOrigin` for a non-platform challenge host. */
+const EXEMPT_ORIGIN = "https://challenges.cloudflare.com";
 
 type Opened = { kind: string; url: string; rest: unknown[] };
 
@@ -37,6 +40,7 @@ type FakeRealm = Record<string, unknown> & {
 
 function makeRealm(
   baseURI = "https://reader.example.com/cdn-cgi/challenge-platform/page",
+  origin: string = new URL(baseURI).origin,
 ): FakeRealm {
   const opened: Opened[] = [];
   function connection(kind: string) {
@@ -77,6 +81,7 @@ function makeRealm(
   const realm: FakeRealm = {
     opened,
     document: { baseURI },
+    location: { origin, href: baseURI },
     DOMException,
     WebSocket: connection("WebSocket"),
     WebSocketStream: connection("WebSocketStream"),
@@ -92,9 +97,13 @@ function makeRealm(
   return realm;
 }
 
-function install(realm: FakeRealm, hosts: string[] = HOSTS) {
+function install(
+  realm: FakeRealm,
+  hosts: string[] = HOSTS,
+  exemptOrigin: string | null = EXEMPT_ORIGIN,
+) {
   // Mirrors `NemuCloudflareSocketGuard.script`.
-  const script = `(${guardSource})(self, ${JSON.stringify(hosts)});`;
+  const script = `(${guardSource})(self, ${JSON.stringify(hosts)}, ${JSON.stringify(exemptOrigin)});`;
   new Function("self", script)(realm);
   return realm;
 }
@@ -345,6 +354,96 @@ describe("Android Cloudflare solver socket guard", () => {
     );
     expect(() => new Frame(hostile).contentWindow).not.toThrow();
     expect(new Frame(null).contentWindow).toBeNull();
+  });
+
+  test("stands down in Cloudflare's own Turnstile frame without touching it", () => {
+    // Turnstile fingerprints its realm: nothing there may be wrapped, sealed,
+    // repointed or hooked.
+    const turnstile = makeRealm(
+      "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/if/ov2/av0/rcv/abc",
+    );
+    const Frame = turnstile.HTMLIFrameElement as { prototype: object };
+    const before = {
+      WebSocket: Object.getOwnPropertyDescriptor(turnstile, "WebSocket"),
+      WebSocketStream: Object.getOwnPropertyDescriptor(turnstile, "WebSocketStream"),
+      WebTransport: Object.getOwnPropertyDescriptor(turnstile, "WebTransport"),
+      RTCPeerConnection: Object.getOwnPropertyDescriptor(turnstile, "RTCPeerConnection"),
+      contentWindow: Object.getOwnPropertyDescriptor(Frame.prototype, "contentWindow"),
+      constructor: (turnstile.WebSocket as { prototype: { constructor: unknown } }).prototype
+        .constructor,
+    };
+    install(turnstile);
+    expect(Object.getOwnPropertyDescriptor(turnstile, "WebSocket")).toEqual(before.WebSocket);
+    expect(Object.getOwnPropertyDescriptor(turnstile, "WebSocketStream")).toEqual(
+      before.WebSocketStream,
+    );
+    expect(Object.getOwnPropertyDescriptor(turnstile, "WebTransport")).toEqual(
+      before.WebTransport,
+    );
+    expect(Object.getOwnPropertyDescriptor(turnstile, "RTCPeerConnection")).toEqual(
+      before.RTCPeerConnection,
+    );
+    expect(Object.getOwnPropertyDescriptor(Frame.prototype, "contentWindow")).toEqual(
+      before.contentWindow,
+    );
+    expect(
+      (turnstile.WebSocket as { prototype: { constructor: unknown } }).prototype.constructor,
+    ).toBe(before.constructor);
+    new (ctor(turnstile, "RTCPeerConnection"))({ iceServers: [] });
+    expect(turnstile.opened.map((entry) => entry.kind)).toEqual(["RTCPeerConnection"]);
+  });
+
+  test("guards every other origin, opaque ones included", () => {
+    // The challenge host's own document, a subdomain of the platform host, a
+    // look-alike, and an opaque-origin (data:/sandboxed srcdoc) frame.
+    for (const [baseURI, origin] of [
+      ["https://reader.example.com/", "https://reader.example.com"],
+      ["https://assets.challenges.cloudflare.com/", "https://assets.challenges.cloudflare.com"],
+      ["https://challenges.cloudflare.com.evil.test/", "https://challenges.cloudflare.com.evil.test"],
+      ["http://challenges.cloudflare.com/", "http://challenges.cloudflare.com"],
+      ["https://reader.example.com/", "null"],
+    ] as const) {
+      const realm = install(makeRealm(baseURI, origin));
+      expect(
+        refusal(() => new (ctor(realm, "RTCPeerConnection"))()).name,
+      ).toBe("NotAllowedError");
+    }
+
+    // A realm whose location cannot be read is guarded, not exempted.
+    const unreadable = makeRealm();
+    Object.defineProperty(unreadable, "location", {
+      get() {
+        throw new DOMException("Blocked a frame", "SecurityError");
+      },
+    });
+    install(unreadable);
+    expect(refusal(() => new (ctor(unreadable, "RTCPeerConnection"))()).name).toBe(
+      "NotAllowedError",
+    );
+
+    // With no exempt origin (the challenge host *is* the platform host) even
+    // the platform origin is guarded.
+    const platformChallenge = install(
+      makeRealm("https://challenges.cloudflare.com/"),
+      ["challenges.cloudflare.com"],
+      null,
+    );
+    expect(
+      refusal(() => new (ctor(platformChallenge, "RTCPeerConnection"))()).name,
+    ).toBe("NotAllowedError");
+
+    // A child realm adopted through a guarded frame is guarded even if it
+    // claims the exempt origin: the exemption only applies where the script
+    // was injected.
+    const realm = install(makeRealm());
+    const claimant = makeRealm("https://challenges.cloudflare.com/");
+    const Frame = realm.HTMLIFrameElement as new (child: unknown) => {
+      contentWindow: FakeRealm;
+    };
+    expect(
+      refusal(() => new (ctor(new Frame(claimant).contentWindow, "RTCPeerConnection"))())
+        .name,
+    ).toBe("NotAllowedError");
   });
 
   test("an empty allow-list refuses every socket", () => {

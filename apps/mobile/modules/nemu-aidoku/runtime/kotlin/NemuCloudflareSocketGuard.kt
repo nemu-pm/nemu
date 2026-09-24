@@ -31,11 +31,36 @@ package pm.nemu.mobile.aidoku
  * through those two getters; `window[0]` reaches it unguarded. Workers are not
  * reachable from here at all. See `NemuCloudflareSolver.kt` for both.
  *
+ * **Cloudflare's own Turnstile frame is left alone.** When the realm the
+ * script is injected into has the origin `exemptOrigin`
+ * (`https://challenges.cloudflare.com`, see [NemuCloudflareSocketGuard.script])
+ * it returns before reading or replacing anything. Turnstile fingerprints its
+ * own realm, and Proxy-wrapped constructors, a hooked `contentWindow` getter
+ * and an `RTCPeerConnection` that throws are exactly the kind of tampering it
+ * scores; a widget that decides it is being scripted issues a clearance the
+ * edge then refuses — the endless-checkbox loop the iOS solver hit. That frame
+ * is Cloudflare's code, not the source's, and every request it makes still
+ * goes through the native allow-list; only its sockets go unguarded (see the
+ * residual risks in `NemuCloudflareSolver.kt`). The origin is read from
+ * `location`, an unforgeable property, before any page script has run, and
+ * only for the realm the script was injected into: a child realm adopted
+ * through a guarded frame's getters is always guarded, and an opaque-origin
+ * frame (`"null"`) never matches.
+ *
  * Must not contain a `$`: this is a Kotlin raw string.
  */
 internal val NEMU_CLOUDFLARE_SOCKET_GUARD_FUNCTION = """
-function (root, hosts) {
+function (root, hosts, exemptOrigin) {
   "use strict";
+  if (typeof exemptOrigin === "string") {
+    var rootOrigin;
+    try {
+      rootOrigin = root.location.origin;
+    } catch (error) {
+      rootOrigin = undefined;
+    }
+    if (rootOrigin === exemptOrigin) return;
+  }
   var defineProperty = Object.defineProperty;
   var getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
   var createObject = Object.create;
@@ -233,6 +258,10 @@ function (root, hosts) {
  * The host list is [NemuCloudflareChallengePolicy.allowedHosts], the same list
  * the request callbacks enforce, so the page-side guard and the native
  * allow-list cannot drift apart.
+ *
+ * Injected into every frame but a no-op in Cloudflare's own
+ * `https://challenges.cloudflare.com` frame ([exemptOrigin]); see
+ * [NEMU_CLOUDFLARE_SOCKET_GUARD_FUNCTION].
  */
 internal object NemuCloudflareSocketGuard {
   /**
@@ -242,9 +271,23 @@ internal object NemuCloudflareSocketGuard {
    * leave frames unguarded: a `data:` or sandboxed `srcdoc` subframe has an
    * opaque origin that no `https://host` rule matches, and both load under
    * [NemuCloudflareChallengePolicy.allowsRequest]. `*` is the one rule
-   * Chromium's origin matcher applies to opaque origins too.
+   * Chromium's origin matcher applies to opaque origins too. (A rule list
+   * cannot express "everything but one origin", so the Turnstile exemption is
+   * made by the script itself; see [exemptOrigin].)
    */
   val ALLOWED_ORIGIN_RULES: Set<String> = setOf("*")
+
+  /**
+   * The one origin the guard stands down in: Cloudflare's Turnstile frame.
+   * Null when the challenge host *is* the platform host, so a document the
+   * solve was pointed at is never the exempt one.
+   */
+  fun exemptOrigin(challengeHost: String): String? =
+    if (challengeHost == NemuCloudflareChallengePolicy.CHALLENGE_PLATFORM_HOST) {
+      null
+    } else {
+      "https://${NemuCloudflareChallengePolicy.CHALLENGE_PLATFORM_HOST}"
+    }
 
   /** Null when [challengeHost] could never be allow-listed; the solve must not start. */
   fun script(challengeHost: String): String? {
@@ -252,7 +295,8 @@ internal object NemuCloudflareSocketGuard {
     val literal = hosts.joinToString(separator = ",", prefix = "[", postfix = "]") {
       jsStringLiteral(it)
     }
-    return "($NEMU_CLOUDFLARE_SOCKET_GUARD_FUNCTION)(self, $literal);"
+    val exempt = exemptOrigin(challengeHost)?.let(::jsStringLiteral) ?: "null"
+    return "($NEMU_CLOUDFLARE_SOCKET_GUARD_FUNCTION)(self, $literal, $exempt);"
   }
 
   /**

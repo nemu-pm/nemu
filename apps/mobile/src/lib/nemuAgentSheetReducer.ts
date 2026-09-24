@@ -65,7 +65,9 @@ export type NemuAgentSheetState = {
 };
 
 /** The statuses a native solve moves through before it settles. */
-export type NemuAgentSheetInflightStatus = "opening" | "waiting" | "captcha";
+const INFLIGHT_STATUS_LIST = ["opening", "waiting", "captcha"] as const;
+
+export type NemuAgentSheetInflightStatus = (typeof INFLIGHT_STATUS_LIST)[number];
 
 export type NemuAgentSheetEventName =
   | "nemuAidokuCfSolveStart"
@@ -90,12 +92,23 @@ export const initialNemuAgentSheetState: NemuAgentSheetState = {
   status: "needs-verification",
 };
 
-const INFLIGHT_STATUSES: ReadonlySet<NemuAgentSheetStatus> = new Set([
-  "opening",
-  "waiting",
-  "captcha",
-  "success",
-]);
+const INFLIGHT_STATUSES: ReadonlySet<NemuAgentSheetStatus> = new Set(INFLIGHT_STATUS_LIST);
+
+/** A native solve is running (it has not settled yet). */
+export function isNemuAgentSheetInflightStatus(
+  status: NemuAgentSheetStatus,
+): status is NemuAgentSheetInflightStatus {
+  return INFLIGHT_STATUSES.has(status);
+}
+
+/**
+ * A solve is running, or has just succeeded and is holding its success on
+ * screen before the auto-dismiss + retry. A new report or a `start` is
+ * ignored in any of these.
+ */
+function isBusyStatus(status: NemuAgentSheetStatus): boolean {
+  return isNemuAgentSheetInflightStatus(status) || status === "success";
+}
 
 /**
  * Whether `report-error` would actually open (or re-open) the sheet for this
@@ -112,7 +125,7 @@ export function acceptsNemuAgentSheetReport(
   error: unknown,
 ): boolean {
   if (!isMobileCloudflareError(error)) return false;
-  return !INFLIGHT_STATUSES.has(state.status);
+  return !isBusyStatus(state.status);
 }
 
 /**
@@ -216,7 +229,7 @@ export function reduceNemuAgentSheet(
       };
     }
     case "start": {
-      if (!state.visible || INFLIGHT_STATUSES.has(state.status)) return state;
+      if (!state.visible || isBusyStatus(state.status)) return state;
       return {
         ...state,
         status: "opening",
@@ -260,7 +273,9 @@ export function reduceNemuAgentSheet(
             status: "failed",
             url: nextUrl,
             failureReason: normalizeContextValue(action.reason),
-            failedAt: isInflightStatus(state.status) ? state.status : state.failedAt,
+            failedAt: isNemuAgentSheetInflightStatus(state.status)
+              ? state.status
+              : state.failedAt,
           };
         default:
           return state;
@@ -271,12 +286,6 @@ export function reduceNemuAgentSheet(
     default:
       return state;
   }
-}
-
-function isInflightStatus(
-  status: NemuAgentSheetStatus,
-): status is NemuAgentSheetInflightStatus {
-  return status === "opening" || status === "waiting" || status === "captcha";
 }
 
 /**

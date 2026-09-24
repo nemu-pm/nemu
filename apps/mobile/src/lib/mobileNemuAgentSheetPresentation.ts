@@ -110,6 +110,13 @@ export function getNemuAgentFailureCopy(
     case "unsolicited-host":
       // Native refuses to solve a host the source never actually requested.
       return strings.common.agentSheetFailedUnsolicitedHost;
+    case "rule-list-unavailable":
+      // The solver's network boundary could not be installed, so nothing was
+      // loaded: iOS could not compile its content rule list, or Android could
+      // not register the socket guard. (An Android WebView without
+      // document-start scripts never gets here; native reports the solver as
+      // unsupported and the sheet shows its "unavailable" state instead.)
+      return strings.common.agentSheetFailedSetup;
     default:
       return strings.common.agentSheetFailed;
   }

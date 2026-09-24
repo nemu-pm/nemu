@@ -32,6 +32,30 @@ internal object NemuNativeHttpRequestHeaderPolicy {
   }
 
   /**
+   * The headers a source-owned image request (a cover, a page, a rewritten
+   * `modify_image_request` result) is fetched with once native has merged the
+   * source's stored cookies into [decorated].
+   *
+   * When the jar contributed a cookie — the `Cookie` value differs from the
+   * one the source itself supplied ([sourceCookie]) — the request now carries
+   * the source's session, `cf_clearance` included, and a clearance is only
+   * honoured next to the User-Agent that solved it: the source's own, else
+   * [sourceUserAgent]. When the jar contributed nothing, the headers are left
+   * exactly as the source produced them: a User-Agent there would change the
+   * image's cache key (headers are part of it) and buy nothing. Mirrors the
+   * iOS policy of the same name.
+   */
+  fun sourceImageHeaders(
+    decorated: Map<String, String>,
+    sourceCookie: String?,
+    sourceUserAgent: String
+  ): Map<String, String> {
+    val cookie = decorated.entries.firstOrNull { it.key.equals("Cookie", ignoreCase = true) }?.value
+    if (cookie == null || cookie == sourceCookie) return decorated
+    return ensuringUserAgent(decorated, sourceUserAgent)
+  }
+
+  /**
    * The User-Agent for a request that names none.
    *
    * A request with a cookie scope is a source's: it reads and writes that

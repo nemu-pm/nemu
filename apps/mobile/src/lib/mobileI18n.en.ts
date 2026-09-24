@@ -91,6 +91,8 @@ export const mobileStringsEn: MobileStrings = {
     agentStepNotNeeded: "Not needed",
     agentSheetFailedUnsolicitedHost:
       "This site was not requested by the source, so verification was refused.",
+    agentSheetFailedSetup:
+      "Secure verification couldn't be set up on this device. Try again, or update your system software.",
   },
   errorBoundary: {
     copied: "Error log copied.",
