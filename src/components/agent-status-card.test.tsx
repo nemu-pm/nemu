@@ -2,6 +2,10 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { Window } from "happy-dom";
+// Bun module mocks are process-wide: keep the real exports (notably
+// `initReactI18next`, which `@/lib/i18n` needs) so later test files that
+// import it still load.
+import * as actualReactI18next from "react-i18next";
 
 const windowInstance = new Window({ url: "https://nemu.pm/settings" });
 const globalDescriptors = new Map(
@@ -23,6 +27,7 @@ mock.module("@/stores/agent", () => ({
 }));
 
 mock.module("react-i18next", () => ({
+  ...actualReactI18next,
   useTranslation: () => ({
     t: (key: string, values?: { version?: string }) =>
       ({

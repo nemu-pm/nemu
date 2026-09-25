@@ -2,6 +2,10 @@ import React from "react";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { fireEvent, render } from "@testing-library/react";
 import { Window } from "happy-dom";
+// Bun module mocks are process-wide: keep the real exports (notably
+// `initReactI18next`, which `@/lib/i18n` needs) so later test files that
+// import it still load.
+import * as actualReactI18next from "react-i18next";
 
 const windowInstance = new Window();
 globalThis.window = windowInstance as unknown as typeof globalThis.window;
@@ -54,6 +58,7 @@ mock.module("@/data/context", () => ({
 }));
 
 mock.module("react-i18next", () => ({
+  ...actualReactI18next,
   useTranslation: () => ({
     t: (key: string) => {
       if (key === "collections.addBooksTitle") return "Add Books";
