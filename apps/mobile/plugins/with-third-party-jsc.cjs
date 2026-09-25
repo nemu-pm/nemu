@@ -17,8 +17,7 @@ const mobilePackageJson = require("../package.json");
  * that silently stops matching (an Expo template change, a React Native or
  * Reanimated upgrade) would produce a project that still builds but is missing
  * the third-party JSC wiring, and the failure would only surface much later as
- * a runtime crash or a mis-linked engine. Fail the prebuild instead, with the
- * same discipline as `scripts/patch-aidoku-runtime.ts`.
+ * a runtime crash or a mis-linked engine. Fail the prebuild instead.
  */
 function countMatches(source, find) {
   if (typeof find === "string") {

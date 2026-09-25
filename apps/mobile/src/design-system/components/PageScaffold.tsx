@@ -20,6 +20,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { spacing } from "@/design/tokens";
+import { useMobilePageGutters } from "@/design/useMobilePageGutters";
 import { getMobilePageContentBottomPadding } from "@/lib/mobileFloatingTabBarClearance";
 import { resolveMobilePullToRefreshEnabled } from "@/lib/mobilePullToRefresh";
 import { subscribeMobileRootTabReselect } from "@/lib/mobileRootTabReselect";
@@ -98,13 +99,19 @@ function scrollPageListScaffoldToTop<ItemT>(list: FlatList<ItemT> | null) {
 
 function usePageContentStyle(nativeHeader: boolean) {
   const insets = useSafeAreaInsets();
-  return [
-    styles.content,
-    {
+  const gutters = useMobilePageGutters();
+  return useMemo(
+    () => ({
+      // Horizontal padding clears the landscape safe area (Dynamic Island,
+      // rounded corners) as well as the page gutter; the scroll view itself
+      // stays full-bleed so backgrounds still run under the insets.
+      paddingLeft: gutters.left,
+      paddingRight: gutters.right,
       paddingTop: nativeHeader ? spacing.pageTop : insets.top + spacing.pageTop,
       paddingBottom: getMobilePageContentBottomPadding(insets.bottom),
-    },
-  ];
+    }),
+    [gutters.left, gutters.right, insets.bottom, insets.top, nativeHeader],
+  );
 }
 
 function usePageRefreshControl({
@@ -260,8 +267,5 @@ export function PageListScaffold<ItemT>({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-  },
-  content: {
-    paddingHorizontal: spacing.pageX,
   },
 });

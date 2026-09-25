@@ -62,6 +62,9 @@ import {
   nemuText,
   radius,
   nemuFontWeight,
+  spacing,
+  useMobilePageBleedStyles,
+  useMobilePageGutters,
   useNemuTheme,
   usesNemuNativeHeader,
   type MangaCardModel,
@@ -73,6 +76,7 @@ import {
   type MobileStrings,
 } from "@/lib/mobileI18n";
 import {
+  getMobileMangaGridColumns,
   getMobileMangaGridItemWidth,
   MOBILE_MANGA_GRID_GAP,
 } from "@/lib/mobileAdaptiveGrid";
@@ -167,8 +171,12 @@ type LocalSearchResultRow =
       items: MangaCardModel[];
     };
 
-const PAGE_HORIZONTAL_PADDING = 32;
 const SOURCE_FILTER_EDGE_FADE_WIDTH = 24;
+/**
+ * The source chip row bleeds 2pt past the screen edges (its portrait tuning);
+ * the overscan keeps that while the gutters follow the safe area.
+ */
+const SOURCE_FILTER_BLEED_OVERSCAN = 2;
 const LIVE_SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
 const LIVE_SEARCH_CACHE_LIMIT = 50;
 const liveSearchCache = new Map<
@@ -280,6 +288,22 @@ function SourceFilterBar({
   onChangeSelection: (selection: SearchSourceSelection) => void;
 }) {
   const { tokens: themeTokens } = useNemuTheme();
+  const pageGutters = useMobilePageGutters();
+  const bleed = useMobilePageBleedStyles(SOURCE_FILTER_BLEED_OVERSCAN);
+  // The fades cover the edge gutter too, so in landscape a scrolled chip has
+  // faded out before it slides under the Dynamic Island. Portrait keeps 24pt.
+  const leadingFadeStyle = useMemo(
+    () => ({
+      width: SOURCE_FILTER_EDGE_FADE_WIDTH + pageGutters.left - spacing.pageX,
+    }),
+    [pageGutters.left],
+  );
+  const trailingFadeStyle = useMemo(
+    () => ({
+      width: SOURCE_FILTER_EDGE_FADE_WIDTH + pageGutters.right - spacing.pageX,
+    }),
+    [pageGutters.right],
+  );
   const [viewportWidth, setViewportWidth] = useState(0);
   const [contentWidth, setContentWidth] = useState(0);
   const [scrollX, setScrollX] = useState(0);
@@ -312,7 +336,7 @@ function SourceFilterBar({
   );
 
   return (
-    <View style={styles.sourceFilterFrame}>
+    <View style={[styles.sourceFilterFrame, bleed.frame]}>
       <ScrollView
         horizontal
         onContentSizeChange={(width) => setContentWidth(width)}
@@ -320,7 +344,7 @@ function SourceFilterBar({
         onScroll={(event) => setScrollX(event.nativeEvent.contentOffset.x)}
         scrollEventThrottle={16}
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.sourceFilterContent}
+        contentContainerStyle={[styles.sourceFilterContent, bleed.content]}
       >
         <MobileSourceChip
           accessibilityRole="checkbox"
@@ -375,7 +399,11 @@ function SourceFilterBar({
           colors={[fadeColor, fadeTransparent]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
-          style={[styles.sourceFilterFade, styles.sourceFilterFadeLeading]}
+          style={[
+            styles.sourceFilterFade,
+            styles.sourceFilterFadeLeading,
+            leadingFadeStyle,
+          ]}
         />
       ) : null}
       {showTrailingFade ? (
@@ -384,7 +412,11 @@ function SourceFilterBar({
           colors={[fadeTransparent, fadeColor]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
-          style={[styles.sourceFilterFade, styles.sourceFilterFadeTrailing]}
+          style={[
+            styles.sourceFilterFade,
+            styles.sourceFilterFadeTrailing,
+            trailingFadeStyle,
+          ]}
         />
       ) : null}
     </View>
@@ -699,6 +731,7 @@ export function SearchScreen() {
   const sourceProfileScope = getActiveMobileSourceProfileScope();
   const { tokens } = useNemuTheme();
   const { width: windowWidth } = useWindowDimensions();
+  const pageGutters = useMobilePageGutters();
   const store = useMobileDataStore();
   const toast = useMobileToast();
   const params = useLocalSearchParams<{ q?: string | string[] }>();
@@ -767,9 +800,9 @@ export function SearchScreen() {
     () =>
       getMobileMangaGridItemWidth({
         windowWidth,
-        horizontalPadding: PAGE_HORIZONTAL_PADDING,
+        horizontalPadding: pageGutters.horizontal,
       }),
-    [windowWidth],
+    [pageGutters.horizontal, windowWidth],
   );
   const resultItemStyle = useMemo(
     () => ({
@@ -777,16 +810,14 @@ export function SearchScreen() {
     }),
     [resultItemWidth],
   );
-  const resultColumns = useMemo(() => {
-    const contentWidth = Math.max(0, windowWidth - PAGE_HORIZONTAL_PADDING);
-    return Math.max(
-      1,
-      Math.floor(
-        (contentWidth + MOBILE_MANGA_GRID_GAP) /
-          (resultItemWidth + MOBILE_MANGA_GRID_GAP),
-      ),
-    );
-  }, [resultItemWidth, windowWidth]);
+  const resultColumns = useMemo(
+    () =>
+      getMobileMangaGridColumns({
+        windowWidth,
+        horizontalPadding: pageGutters.horizontal,
+      }),
+    [pageGutters.horizontal, windowWidth],
+  );
   const trimmedQuery = submittedQuery.trim();
   const retainedLiveSearchRef = useRef<{
     query: string;
@@ -1593,6 +1624,8 @@ export function SearchScreen() {
         status={cloudflareSheet.status}
         url={cloudflareSheet.url}
         failureReason={cloudflareSheet.failureReason}
+        interactive={cloudflareSheet.interactive}
+        failedAt={cloudflareSheet.failedAt}
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />
@@ -1650,8 +1683,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 20,
   },
+  // Horizontal bleed comes from `useMobilePageBleedStyles` (safe-area aware).
   sourceFilterFrame: {
-    marginHorizontal: -18,
     position: "relative",
     zIndex: 1,
     overflow: "visible",
@@ -1659,7 +1692,6 @@ const styles = StyleSheet.create({
   sourceFilterContent: {
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 18,
     paddingTop: 4,
     paddingBottom: 10,
   },

@@ -58,6 +58,20 @@ declare class NemuAidokuModule extends NativeModule<NemuAidokuEventsMap> {
     operationJson: string,
     imageBytes: Uint8Array,
   ): Promise<Uint8Array | null>;
+  /**
+   * Decorates a source-owned image request that did not go through
+   * `modify-image-request` (a source with no image-request hook) the same way
+   * that operation's result is decorated: `sourceKey`'s own cookies for this
+   * url, plus the source User-Agent when the jar contributed any. Resolves
+   * null when the url is not a public destination; rejects with
+   * `E_SOURCE_COOKIE_SCOPE` for an invalid scope. Optional so an older native
+   * build simply leaves such requests undecorated.
+   */
+  decorateAidokuSourceImageRequest?(
+    sourceKey: string,
+    url: string,
+    headers: Record<string, string>,
+  ): Promise<Record<string, string> | null>;
   updateAidokuSandboxSettings(
     sessionId: string,
     settingsJson: string,

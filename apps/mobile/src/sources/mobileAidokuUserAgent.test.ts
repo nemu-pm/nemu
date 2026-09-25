@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  hasMobileUserAgentHeader,
   MOBILE_AIDOKU_DEFAULT_USER_AGENT,
   readMobileCloudflareUserAgent,
 } from "./mobileAidokuUserAgent";
@@ -95,5 +96,63 @@ describe("mobile Aidoku default user agent", () => {
         Object.assign(new Error("x"), { userAgent: "a".repeat(513) }),
       ),
     ).toBeUndefined();
+  });
+
+  test("detects a User-Agent header in any casing", () => {
+    expect(hasMobileUserAgentHeader({ "USER-AGENT": "x" })).toBe(true);
+    expect(hasMobileUserAgentHeader({ Referer: "x" })).toBe(false);
+    expect(hasMobileUserAgentHeader(null)).toBe(false);
+  });
+
+  test("every source image-request path goes through native's one decoration", () => {
+    const mobileRoot = fileURLToPath(new URL("../../", import.meta.url));
+    const bridge = readFileSync(
+      path.join(mobileRoot, "src/sources/mobileAidokuSandboxExecutorBridge.native.ts"),
+      "utf8",
+    );
+    const modify = bridge.slice(
+      bridge.indexOf("modifyImageRequest(url) {"),
+      bridge.indexOf("async hasImageProcessor()"),
+    );
+    // A hook-less source goes to native for its cookies instead of stamping a
+    // UA in JS (which only changed cache keys); a hooked one is decorated
+    // inside the `modify-image-request` operation.
+    expect(modify).toContain("return decorateImageRequest({ url, headers: {} });");
+    expect(modify).toContain('"modify-image-request"');
+    expect(bridge).toContain("NemuAidokuModule.decorateAidokuSourceImageRequest?.(key, url, headers)");
+    expect(bridge).toContain("sourceKey: input.sourceKey,");
+    expect(bridge).not.toContain("withMobileAidokuUserAgent");
+
+    const pages = readFileSync(
+      path.join(mobileRoot, "src/sources/mobileSourcePages.ts"),
+      "utf8",
+    );
+    expect(pages).toContain("await decoratePageImageRequest(session.source, {");
+    expect(pages).not.toContain("withMobileAidokuUserAgent");
+
+    // Both native twins route the hooked result and the hook-less request
+    // through one function, which validates the destination first and adds
+    // the source UA only alongside the jar's cookies.
+    const iosModule = read("ios/NemuAidokuModule.swift");
+    expect(iosModule).toContain('AsyncFunction("decorateAidokuSourceImageRequest")');
+    expect(iosModule).toContain("NemuNativeHttpAddressPolicy.validatedURL(urlString)");
+    expect(iosModule).toMatch(
+      /sourceImageHeaders\(\s*output,\s*sourceCookie: explicitCookie,\s*sourceUserAgent: nemuAidokuDefaultUserAgent\s*\)/,
+    );
+    expect(iosModule).toContain("sourceDefault: nemuAidokuDefaultUserAgent");
+    const iosSandbox = read("ios/NemuAidokuIOSandboxManager.swift");
+    expect(iosSandbox).toContain("NemuAidokuModule.decorateSourceImageRequest(");
+    const androidModule = read(
+      "android/src/main/java/pm/nemu/mobile/aidoku/NemuAidokuModule.kt",
+    );
+    expect(androidModule).toContain('AsyncFunction("decorateAidokuSourceImageRequest")');
+    expect(androidModule).toContain(
+      "decorateSourceImageRequest(sourceKey, urlString, existingHeaders) ?: existingHeaders",
+    );
+    expect(androidModule).toContain("NemuNativeHttpAddressPolicy.resolvePublicAddresses(url.host)");
+    expect(androidModule).toContain("sourceUserAgent = NEMU_AIDOKU_DEFAULT_USER_AGENT");
+    expect(
+      androidModule.match(/sourceDefault = NEMU_AIDOKU_DEFAULT_USER_AGENT/g),
+    ).toHaveLength(2);
   });
 });

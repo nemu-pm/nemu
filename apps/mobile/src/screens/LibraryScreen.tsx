@@ -61,6 +61,7 @@ import {
   radius,
   renderNemuNativeToolbarButtons,
   nemuFontWeight,
+  useMobilePageGutters,
   useNemuTheme,
   usesNemuNativeHeader,
   type MangaCardModel,
@@ -257,8 +258,6 @@ function collectionBookCountText(count: number, strings: MobileStrings): string 
 const LIBRARY_TITLE_MENU_ALL = "library:all";
 const LIBRARY_TITLE_MENU_MANAGE = "library:manage";
 const LIBRARY_TITLE_MENU_COLLECTION_PREFIX = "library:collection:";
-/** `spacing.pageX` on both sides, matching the browse/search grids. */
-const LIBRARY_GRID_HORIZONTAL_PADDING = 32;
 
 function libraryEntryKey(entry: LibraryEntry): string {
   return entry.item.libraryItemId;
@@ -1012,6 +1011,7 @@ export function LibraryScreen({
 }: LibraryScreenProps = {}) {
   const { tokens } = useNemuTheme();
   const { fontScale, height, width } = useWindowDimensions();
+  const pageGutters = useMobilePageGutters();
   const usesNativeHeader = usesNemuNativeHeader;
   const store = useMobileDataStore();
   const {
@@ -1079,22 +1079,23 @@ export function LibraryScreen({
   const pendingGridScrollRatioRef = useRef<number | null>(null);
   const gridColumnsRef = useRef(0);
   // The library grid adapts exactly like browse and search: a landscape phone
-  // or an iPad must not show three giant covers next to a four-column search.
+  // or an iPad must not show three giant covers next to a wider search grid.
+  // Columns come from the width left after the scaffold's safe-area gutters.
   const gridColumns = useMemo(
     () =>
       getMobileMangaGridColumns({
         windowWidth: width,
-        horizontalPadding: LIBRARY_GRID_HORIZONTAL_PADDING,
+        horizontalPadding: pageGutters.horizontal,
       }),
-    [width],
+    [pageGutters.horizontal, width],
   );
   const gridItemWidth = useMemo(
     () =>
       getMobileMangaGridItemWidth({
         windowWidth: width,
-        horizontalPadding: LIBRARY_GRID_HORIZONTAL_PADDING,
+        horizontalPadding: pageGutters.horizontal,
       }),
-    [width],
+    [pageGutters.horizontal, width],
   );
   // `FlatList` throws when `numColumns` changes on a mounted list, so a
   // rotation has to remount the grid. Capture the scroll proportion in the

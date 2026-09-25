@@ -15,6 +15,15 @@ export const MOBILE_AIDOKU_DEFAULT_USER_AGENT =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 " +
   "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
+/** True when `headers` already names a User-Agent, in any casing. */
+export function hasMobileUserAgentHeader(
+  headers: Readonly<Record<string, string>> | null | undefined,
+): boolean {
+  return Object.keys(headers ?? {}).some(
+    (name) => name.toLowerCase() === "user-agent",
+  );
+}
+
 /**
  * Reads a `userAgent` off a source error without asserting a shape.
  * `CloudflareBlockedError` does not carry one today (it has `url` and `status`

@@ -25,6 +25,7 @@ import { MobileExpandableDescription } from "@/components/MobileExpandableDescri
 import { MobileMangaStatusBadge } from "@/components/MobileMangaStatusBadge";
 import { MobileTagList } from "@/components/MobileTagList";
 import type { MobileStrings } from "@/lib/mobileI18n";
+import { MOBILE_MANGA_DETAIL_PRIMARY_ACTION_MAX_WIDTH } from "@/lib/mobileMangaDetailPresentation";
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
 type MobileMangaDetailSurfaceActionsPlacement = "below" | "copy";
@@ -443,6 +444,7 @@ const styles = StyleSheet.create({
   primaryActionContainer: {
     flex: 1,
     minWidth: 0,
+    maxWidth: MOBILE_MANGA_DETAIL_PRIMARY_ACTION_MAX_WIDTH,
   },
   primaryActionContainerFull: {
     flexBasis: "100%",

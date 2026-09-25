@@ -3,6 +3,7 @@ package pm.nemu.mobile.aidoku
 import android.net.Uri
 import java.util.Locale
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * Pure network boundary for the on-demand Cloudflare solver's WebView.
@@ -36,9 +37,12 @@ import okhttp3.HttpUrl
  * Address literals, private/forbidden hostnames, non-ASCII (non-punycode)
  * hosts, credentials in the url, and every non-https scheme fail closed.
  *
- * **WebSockets are not covered on Android.** See the header of
- * `NemuCloudflareSolver.kt` for what that leaves open and why there is no fix
- * available in the stable WebView API. iOS is stronger here: a compiled
+ * **WebSockets, WebTransport and WebRTC bypass all three on Android.** The
+ * solver closes them with a document-start page script instead
+ * ([NemuCloudflareSocketGuard], built from [allowedHosts]), which is
+ * best-effort against a page that sets out to evade it — workers and a new
+ * iframe's initial empty document stay reachable; see the header of
+ * `NemuCloudflareSolver.kt`. iOS is stronger here: a compiled
  * `WKContentRuleList` covers WebSocket handshakes and service-worker loads too.
  *
  * Mirrors `ios/NemuCloudflareChallengePolicy.swift`.
@@ -149,7 +153,27 @@ internal object NemuCloudflareChallengePolicy {
     challengeHost: String
   ): Boolean {
     val allowable = allowableHost(scheme, host, hasUserInfo) ?: return false
-    return allowable == challengeHost || allowable == CHALLENGE_PLATFORM_HOST
+    return allowedHosts(challengeHost)?.contains(allowable) == true
+  }
+
+  /**
+   * The exact hosts a solve pinned to [challengeHost] may reach: the challenge
+   * host itself, then [CHALLENGE_PLATFORM_HOST]. The single source of truth for
+   * both the request callbacks above and the socket guard the solver injects
+   * into every frame ([NemuCloudflareSocketGuard]), so the two can never
+   * disagree about what is reachable.
+   *
+   * Null when [challengeHost] is not already in the normalized form
+   * [challengeHost] (the url overload) produces, or names an address literal
+   * or a forbidden host — nothing is reachable then, not even the platform
+   * host.
+   */
+  internal fun allowedHosts(challengeHost: String): List<String>? {
+    if (normalizedHost(challengeHost) != challengeHost) return null
+    if (!challengeHost.contains(".")) return null
+    if (NemuNativeHttpAddressPolicy.isNumericHostname(challengeHost)) return null
+    if (NemuNativeHttpAddressPolicy.isForbiddenHostname(challengeHost)) return null
+    return listOf(challengeHost, CHALLENGE_PLATFORM_HOST).distinct()
   }
 
   internal fun allowsSubresource(uri: Uri?, challengeHost: String): Boolean {
@@ -271,6 +295,112 @@ internal object NemuCloudflareChallengePolicy {
     return isWithin(challengeHost, normalized)
   }
 
+  // MARK: - Solve completion
+
+  /**
+   * True when a main-frame response is the origin actually answering the
+   * solver's WebView: the challenge host itself, any non-redirect status
+   * (2xx, 4xx or 5xx), and no `cf-mitigated` marker at all. This is the
+   * solver's only *positive* evidence that the edge honoured the clearance the
+   * WebView now holds.
+   *
+   * The `cf-mitigated` header is the discriminator, not the status: a
+   * Cloudflare interstitial is always a *mitigated* 403/503, so the document
+   * the challenge runs in can never pass, while anything unmarked is the edge
+   * having let the request through to the origin. That is why every unmarked
+   * status counts. The solve replays the source's failed request as a plain
+   * GET, and an API or POST endpoint answers that with 404/405; an origin that
+   * is struggling answers it with a 500/502/503 of its own (or Cloudflare's
+   * unmarked 52x origin-error pages). Holding out for a 2xx/4xx there meant a
+   * solve that already held a working clearance never settled: the hidden
+   * phase timed out and discarded the cookie, and a visible dialog sat open
+   * until the user cancelled it.
+   *
+   * A redirect status is not a document and stays out. So does every other
+   * host: a redirect that leaves the challenge host after the solve is refused
+   * by the main-frame allow-list ([allowsMainFrameNavigation]) before it ever
+   * produces a document, so a clearance on a host whose origin always
+   * redirects off-host cannot be proven here — deliberately.
+   *
+   * Android cannot hand this the real status and headers of every main-frame
+   * response; see [NemuCloudflareMainFrameDocumentTracker] for what it feeds in.
+   * Mirrors `isClearedDocumentResponse` in
+   * `ios/NemuCloudflareChallengePolicy.swift`.
+   */
+  internal fun isClearedDocumentResponse(
+    url: String?,
+    status: Int,
+    headers: Map<String, String>,
+    challengeHost: String
+  ): Boolean {
+    val host = normalizedHost(url?.toHttpUrlOrNull()?.host) ?: return false
+    if (host != challengeHost) return false
+    if (status !in 200..599 || status in 300..399) return false
+    // Any `cf-mitigated` value at all ("challenge", "block", …) means
+    // Cloudflare, not the origin, produced this document.
+    return headers.keys.none { it.equals("cf-mitigated", ignoreCase = true) }
+  }
+
+  /**
+   * When a solve may settle and hand its cookies to the source.
+   *
+   * All four are required:
+   * - a `cf_clearance` for the challenge host exists,
+   * - it differs from the one the source already held (a stale cookie left
+   *   over from the failed request is not a solve),
+   * - the main-frame document on screen came from a cleared response
+   *   ([isClearedDocumentResponse]), and
+   * - that document's own probe does not report a challenge.
+   *
+   * The third condition is the one that matters. Turnstile writes a
+   * `cf_clearance` from its verification request while the interstitial is
+   * still on screen ("Verification successful. Waiting for … to respond"), and
+   * the interstitial localizes its title, so on a non-English device the DOM
+   * probe alone read that moment as "not a challenge". Settling there tore the
+   * WebView down before the orchestrator's own follow-up navigation, adopted a
+   * clearance the edge had not yet honoured for a real request, and the
+   * retried source request was challenged again — a second checkbox. Only a
+   * non-mitigated document from the challenge host proves the clearance works.
+   * Mirrors `isSolveComplete` in `ios/NemuCloudflareChallengePolicy.swift`.
+   */
+  internal fun isSolveComplete(
+    clearance: String?,
+    baselineClearance: String?,
+    committedDocumentCleared: Boolean,
+    probeReportsChallenge: Boolean
+  ): Boolean {
+    if (clearance.isNullOrEmpty()) return false
+    if (clearance == baselineClearance) return false
+    return committedDocumentCleared && !probeReportsChallenge
+  }
+
+  /** How long the hidden phase keeps waiting once a cleared document is up. */
+  internal const val CLEARED_DOCUMENT_GRACE_MS = 15_000L
+
+  /**
+   * The fresh hidden-phase deadline (ms from now) to arm when a main-frame
+   * document from the challenge host shows up cleared, or null to leave the
+   * current one alone.
+   *
+   * A cleared document is the solve's positive proof, but the solve only
+   * settles once that document has finished loading and its probe has read
+   * it. On a slow origin the fixed hidden-phase deadline could fire in between
+   * and fail the solve with `timeout`, discarding a working `cf_clearance`. So
+   * the first cleared document in the hidden phase re-arms the deadline once;
+   * a visible dialog has no deadline to extend, and a second extension is
+   * refused so a page that keeps navigating cannot hold the hidden WebView
+   * open indefinitely. Mirrors `hiddenDeadlineExtension` in
+   * `ios/NemuCloudflareChallengePolicy.swift`.
+   */
+  internal fun hiddenDeadlineExtensionMs(
+    clearedDocumentCommitted: Boolean,
+    alreadyExtended: Boolean,
+    sheetVisible: Boolean
+  ): Long? {
+    if (!clearedDocumentCommitted || alreadyExtended || sheetVisible) return null
+    return CLEARED_DOCUMENT_GRACE_MS
+  }
+
   // MARK: - Cookie-jar diffing
 
   /**
@@ -348,6 +478,178 @@ internal object NemuCloudflareChallengePolicy {
       paths.add(current.toString())
     }
     return paths
+  }
+
+  /**
+   * The `Set-Cookie` lines that expire [name] for one (domain, path) identity,
+   * written against the challenge origin.
+   *
+   * Two lines, because a partitioned (CHIPS) cookie is a different identity
+   * from its unpartitioned twin. Cloudflare sets `cf_clearance` with
+   * `Partitioned`, and WebView's `CookieManager.getCookie(url)` *does* return
+   * cookies partitioned under the url's own top-level site
+   * (`CookiePartitionKey::FromWire(SchemefulSite(url), kSameSite)` in
+   * `android_webview/browser/cookie_manager.cc`), which is exactly the
+   * partition a solve's top-level challenge page writes into. `setCookie`,
+   * though, only partitions a line that says `Partitioned`
+   * (`CanonicalCookie::Create` drops the key otherwise), so a plain expiry
+   * line never reached a partitioned clearance: an earlier solve's cookie
+   * survived the sweep, rode along on the next challenge load, and could let
+   * that load through without issuing anything new — the solve then waited
+   * out its timeout for a clearance that never changed. The second line
+   * carries `Partitioned`, and so lands in the same partition `getCookie`
+   * reads. `Secure` is set on both: the origin is https, `__Secure-`/`__Host-`
+   * names require it, and a partitioned cookie is invalid without it.
+   */
+  internal fun cookieExpiryLines(name: String, domain: String?, path: String): List<String> {
+    val base = buildString {
+      append(name).append("=; Max-Age=0; Path=").append(path)
+      if (domain != null) append("; Domain=").append(domain)
+      append("; Secure")
+    }
+    return listOf(base, "$base; Partitioned")
+  }
+}
+
+/**
+ * Whether the main-frame document the solver's WebView shows came from a
+ * cleared response — Android's stand-in for the iOS solver's
+ * `decidePolicyFor navigationResponse:` + `didCommit` pair.
+ *
+ * **What Android can observe.** A [android.webkit.WebViewClient] never sees
+ * the status or headers of a main-frame response WebView fetched itself
+ * (`shouldInterceptRequest` only sees the request, and answering it ourselves
+ * would mean re-issuing the challenge's navigations outside WebView's network
+ * stack, cookies and all). What it does get:
+ *
+ * - `shouldInterceptRequest` for every main-frame request, before it is sent
+ *   ([mainFrameRequestStarted]);
+ * - `onReceivedHttpError` for every response with status >= 400, main frame
+ *   included, with that response's status and headers
+ *   ([mainFrameHttpError]) — which is exactly how a Cloudflare interstitial
+ *   (a mitigated 403/503) arrives;
+ * - `onReceivedError` when the main-frame load fails outright
+ *   ([mainFrameLoadFailed]);
+ * - `onPageStarted` / `onPageFinished` for the document itself
+ *   ([mainFrameStarted] / [mainFrameFinished]).
+ *
+ * So a main-frame load that finished without an HTTP error is taken as the
+ * 2xx it must have been (a 3xx never becomes a document), and its host is read
+ * from the url that finished, after redirects. **The tradeoff:** a 2xx
+ * response carrying `cf-mitigated` is indistinguishable from a clean one here.
+ * Cloudflare serves its interstitials as 403/503, so that is not a shape seen
+ * in practice, and the probe's language-independent `_cf_chl_opt` marker still
+ * reports any interstitial document as a challenge regardless of status.
+ *
+ * **Why it resolves on finish, not start.** Chromium posts `onPageStarted` at
+ * commit in current WebView builds but has not always done so, and it also
+ * fires for some same-document navigations. Resolving only once the load has
+ * finished guarantees the response (and any `onReceivedHttpError`) came first
+ * whatever that ordering is; `onPageStarted` only ever *withdraws* the verdict,
+ * so between a new document's start and its finish the solver waits rather
+ * than trusting the previous document's.
+ *
+ * A start or finish with no main-frame request since the last one (a
+ * same-document `history.replaceState`, which the orchestrator uses to strip
+ * its `__cf_chl_*` params) leaves the verdict as it is: the document did not
+ * change.
+ *
+ * Thread-safe. `shouldInterceptRequest` runs on a WebView background thread
+ * and reports synchronously, before it returns and the request is sent, so a
+ * request is always recorded ahead of its own response's callbacks. Hopping it
+ * to the main thread first would let Chromium's UI-thread callbacks for that
+ * response race the hop.
+ */
+internal class NemuCloudflareMainFrameDocumentTracker(private val challengeHost: String) {
+  private var requestPending = false
+  private var pendingAllowed = false
+  private var pendingErrorStatus: Int? = null
+  private var pendingErrorHeaders: Map<String, String> = emptyMap()
+  private var pendingLoadFailed = false
+  /**
+   * Set by this request's own `onPageStarted`. A late `onPageFinished` for the
+   * previous document can arrive after the next request has already begun;
+   * without this it would be scored with the new request's (still clean)
+   * state and swallow the new document's start and finish.
+   */
+  private var pendingStarted = false
+
+  /** Starts false: the document a solve opens on is the challenge itself. */
+  @get:Synchronized
+  var committedDocumentCleared = false
+    private set
+
+  /**
+   * Bumped whenever the document the verdict speaks for changes, so a probe
+   * dispatched against the previous document is not read against the new one.
+   */
+  @get:Synchronized
+  var documentGeneration = 0
+    private set
+
+  /** [allowed] is the solver's own request decision for this navigation. */
+  @Synchronized
+  fun mainFrameRequestStarted(allowed: Boolean) {
+    requestPending = true
+    pendingAllowed = allowed
+    pendingErrorStatus = null
+    pendingErrorHeaders = emptyMap()
+    pendingLoadFailed = false
+    pendingStarted = false
+    committedDocumentCleared = false
+  }
+
+  @Synchronized
+  fun mainFrameHttpError(status: Int, headers: Map<String, String>) {
+    if (!requestPending) return
+    pendingErrorStatus = status
+    pendingErrorHeaders = headers
+  }
+
+  @Synchronized
+  fun mainFrameLoadFailed() {
+    if (!requestPending) return
+    pendingLoadFailed = true
+  }
+
+  /**
+   * Returns whether the document that just started *looks* cleared from what
+   * its response has reported so far — [url] on the challenge host, allowed,
+   * not failed, and no mitigated `onReceivedHttpError`. That is never a
+   * verdict (it only ever withdraws [committedDocumentCleared]; see the class
+   * KDoc for why resolution waits for the finish); the solver uses it only to
+   * extend the hidden-phase deadline while a slow origin page loads.
+   */
+  @Synchronized
+  fun mainFrameStarted(url: String? = null): Boolean {
+    if (!requestPending) return false
+    pendingStarted = true
+    documentGeneration += 1
+    committedDocumentCleared = false
+    return pendingAllowed &&
+      !pendingLoadFailed &&
+      NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+        url = url,
+        status = pendingErrorStatus ?: 200,
+        headers = pendingErrorHeaders,
+        challengeHost = challengeHost
+      )
+  }
+
+  @Synchronized
+  fun mainFrameFinished(url: String?) {
+    if (!requestPending || !pendingStarted) return
+    requestPending = false
+    documentGeneration += 1
+    committedDocumentCleared = pendingAllowed &&
+      !pendingLoadFailed &&
+      NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+        url = url,
+        // No `onReceivedHttpError` for this load: it was not a >= 400.
+        status = pendingErrorStatus ?: 200,
+        headers = pendingErrorHeaders,
+        challengeHost = challengeHost
+      )
   }
 }
 

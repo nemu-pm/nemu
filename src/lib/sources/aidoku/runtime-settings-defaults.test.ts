@@ -32,7 +32,7 @@ function nestedSchema(groupCount: number, key: string): unknown[] {
   return root;
 }
 
-describe("patched Aidoku runtime settings defaults", () => {
+describe("Aidoku runtime settings defaults", () => {
   test("accepts only bounded type-compatible default shapes", () => {
     const defaults = settingsDefaults([
       { type: "text", key: "text", default: "reader" },
@@ -215,32 +215,56 @@ describe("patched Aidoku runtime settings defaults", () => {
   });
 
   test("is the shared pre-initialize extractor for browser and node runtimes", async () => {
-    const [workerSource, nodeSource] = await Promise.all([
-      readFile(path.join(runtimeAsyncDirectory, "worker.js"), "utf8"),
-      readFile(path.join(runtimeAsyncDirectory, "index.node.js"), "utf8"),
-    ]);
+    const [workerSource, browserSource, nodeSource] = await Promise.all(
+      ["worker.js", "index.js", "index.node.js"].map((file) =>
+        readFile(path.join(runtimeAsyncDirectory, file), "utf8"),
+      ),
+    );
 
-    expect(workerSource).toContain(
-      'import { extractSettingsDefaults, applyManifestDefaults } from "./common";',
+    // Position of the first match, failing loudly instead of returning -1 so
+    // an ordering assertion can never pass vacuously.
+    const indexOf = (source: string, pattern: RegExp): number => {
+      const match = pattern.exec(source);
+      expect(match).not.toBeNull();
+      return match?.index ?? -1;
+    };
+    const importsSharedExtractor =
+      /import\s*\{[^}]*\bextractSettingsDefaults\b[^}]*\}\s*from\s*["']\.\/common(?:\.js)?["']/;
+
+    // Browser: the worker's load() extracts and merges the defaults, and the
+    // main thread starts the source (possibly through the Cloudflare retry)
+    // only once load() has resolved.
+    expect(workerSource).toMatch(importsSharedExtractor);
+    expect(
+      indexOf(
+        workerSource,
+        /extractSettingsDefaults\(\s*this\.source\.settingsJson\s*\)/,
+      ),
+    ).toBeLessThan(
+      indexOf(workerSource, /\bthis\.source\??\.initialize\(\s*\)/),
     );
-    expect(workerSource).toContain(
-      "this.settingsDefaults = extractSettingsDefaults(this.source.settingsJson);",
+    expect(indexOf(browserSource, /\bworkerSource\.load\(/)).toBeLessThan(
+      indexOf(browserSource, /\bworkerSource\.initialize\(\s*\)/),
+    );
+
+    // Node: defaults are extracted and seeded into the live settings before
+    // the source's start() runs.
+    expect(nodeSource).toMatch(importsSharedExtractor);
+    const nodeInitialize = indexOf(
+      nodeSource,
+      /\bsource\.initialize\(\s*\)/,
     );
     expect(
-      workerSource.indexOf(
-        "this.settingsDefaults = extractSettingsDefaults(this.source.settingsJson);",
+      indexOf(
+        nodeSource,
+        /\bsettingsDefaults\s*=\s*extractSettingsDefaults\(\s*source\.settingsJson\s*\)/,
       ),
-    ).toBeLessThan(workerSource.indexOf("this.source.initialize();"));
-    expect(nodeSource).toContain(
-      'import { extractSettingsDefaults, applyManifestDefaults, createCfRetry, createAsyncWrapper, } from "./common";',
-    );
-    expect(nodeSource).toContain(
-      "const settingsDefaults = extractSettingsDefaults(source.settingsJson);",
-    );
+    ).toBeLessThan(nodeInitialize);
     expect(
-      nodeSource.indexOf(
-        "const settingsDefaults = extractSettingsDefaults(source.settingsJson);",
+      indexOf(
+        nodeSource,
+        /\bcurrentSettings\s*=\s*\{\s*\.\.\.settingsDefaults\s*\}/,
       ),
-    ).toBeLessThan(nodeSource.indexOf("source.initialize();"));
+    ).toBeLessThan(nodeInitialize);
   });
 });

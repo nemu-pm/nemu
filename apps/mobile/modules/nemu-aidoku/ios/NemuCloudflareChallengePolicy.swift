@@ -37,8 +37,9 @@ import Foundation
 /// resource type, so the blanket `.*` block below — and the two allow rules
 /// that follow it — apply to `wss:` and to worker traffic as well as to page
 /// subresources. This is the one place iOS is genuinely stronger than the
-/// Android twin, which has to gate service workers separately and cannot see
-/// WebSockets at all; see the header of `runtime/kotlin/NemuCloudflareSolver.kt`.
+/// Android twin, which has to gate service workers separately and can only
+/// guard WebSockets from page script (a document-start script that workers
+/// never run); see the header of `runtime/kotlin/NemuCloudflareSolver.kt`.
 enum NemuCloudflareChallengePolicy {
   /// Cloudflare serves interstitial and Turnstile widget assets from here, and
   /// only from here: Cloudflare's own CSP guidance for Turnstile asks for
@@ -200,6 +201,107 @@ enum NemuCloudflareChallengePolicy {
     url.path.hasPrefix(challengePlatformPathPrefix)
   }
 
+  /// True when a main-frame response is the origin actually answering the
+  /// solver's WebView: the challenge host itself, any non-redirect status
+  /// (2xx, 4xx or 5xx), and no `cf-mitigated` marker at all. This is the
+  /// solver's only *positive* evidence that the edge honoured the clearance
+  /// the WebView now holds.
+  ///
+  /// The `cf-mitigated` header is the discriminator, not the status: a
+  /// Cloudflare interstitial is always a *mitigated* 403/503, so the document
+  /// the challenge runs in can never pass, while anything unmarked is the
+  /// edge having let the request through to the origin. That is why every
+  /// unmarked status counts. The solve replays the source's failed request as
+  /// a plain GET, and an API or POST endpoint answers that with 404/405; an
+  /// origin that is struggling answers it with a 500/502/503 of its own (or
+  /// Cloudflare's unmarked 52x origin-error pages). Holding out for a
+  /// 2xx/4xx there meant a solve that already held a working clearance never
+  /// settled: the hidden phase timed out and discarded the cookie, and a
+  /// visible sheet sat open until the user cancelled it.
+  ///
+  /// A redirect status is not a document and stays out. So does every other
+  /// host: a redirect that leaves the challenge host after the solve is
+  /// cancelled by the main-frame allow-list (`allowsMainFrameNavigation`)
+  /// before it ever produces a response, so a clearance on a host whose
+  /// origin always redirects off-host cannot be proven here — deliberately.
+  static func isClearedDocumentResponse(
+    url: URL?,
+    status: Int,
+    headers: [String: String],
+    challengeHost: String
+  ) -> Bool {
+    guard
+      let url,
+      let host = normalizedHost(url.host),
+      host == challengeHost,
+      (200..<600).contains(status),
+      !(300..<400).contains(status)
+    else {
+      return false
+    }
+    // Any `cf-mitigated` value at all ("challenge", "block", …) means
+    // Cloudflare, not the origin, produced this document.
+    return !headers.keys.contains {
+      $0.caseInsensitiveCompare("cf-mitigated") == .orderedSame
+    }
+  }
+
+  /// When a solve may settle and hand its cookies to the source.
+  ///
+  /// All four are required:
+  /// - a `cf_clearance` for the challenge host exists,
+  /// - it differs from the one the source already held (a stale cookie left
+  ///   over from the failed request is not a solve),
+  /// - the *committed* main-frame document came from a cleared response
+  ///   (`isClearedDocumentResponse`), and
+  /// - that document's own probe does not report a challenge.
+  ///
+  /// The third condition is the one that matters. Turnstile writes a
+  /// `cf_clearance` from its verification request while the interstitial is
+  /// still on screen ("Verification successful. Waiting for … to respond"),
+  /// and the interstitial localizes its title, so on a non-English device the
+  /// DOM probe alone read that moment as "not a challenge". Settling there
+  /// tore the WebView down before the orchestrator's own follow-up navigation,
+  /// adopted a clearance the edge had not yet honoured for a real request,
+  /// and the retried source request was challenged again — the second
+  /// checkbox users saw. Only a committed, non-mitigated document proves the
+  /// clearance works.
+  static func isSolveComplete(
+    clearance: String?,
+    baselineClearance: String?,
+    committedDocumentCleared: Bool,
+    probeReportsChallenge: Bool
+  ) -> Bool {
+    guard let clearance, !clearance.isEmpty else { return false }
+    guard clearance != baselineClearance else { return false }
+    return committedDocumentCleared && !probeReportsChallenge
+  }
+
+  /// How long the hidden phase keeps waiting once a cleared challenge-host
+  /// document has committed. See `hiddenDeadlineExtension`.
+  static let clearedDocumentGraceSeconds: TimeInterval = 15
+
+  /// The fresh hidden-phase deadline (seconds from now) to arm when a main-frame
+  /// document commits, or nil to leave the current one alone.
+  ///
+  /// A cleared document committing is the solve's positive proof, but the
+  /// solve only settles once that document's own probe reports, and the probe
+  /// runs at DOMContentLoaded. On a slow origin the fixed hidden-phase deadline
+  /// could fire in between and fail the solve with `timeout`, discarding a
+  /// working `cf_clearance`. So the first cleared commit in the hidden phase
+  /// re-arms the deadline once; a visible sheet has no deadline to extend, and
+  /// a second extension is refused so a page that keeps navigating cannot hold
+  /// the hidden WebView open indefinitely. Mirrors
+  /// `hiddenDeadlineExtensionMs` in the Kotlin twin.
+  static func hiddenDeadlineExtension(
+    clearedDocumentCommitted: Bool,
+    alreadyExtended: Bool,
+    sheetVisible: Bool
+  ) -> TimeInterval? {
+    guard clearedDocumentCommitted, !alreadyExtended, !sheetVisible else { return nil }
+    return clearedDocumentGraceSeconds
+  }
+
   /// A cookie may only be adopted when its domain covers the challenge host,
   /// i.e. the host itself or one of its parents. Third-party cookies (including
   /// the Cloudflare platform host's own) never reach the source's jar, and a
@@ -211,6 +313,43 @@ enum NemuCloudflareChallengePolicy {
     guard let normalized = normalizedHost(value) else { return false }
     guard !isPublicSuffix(normalized) else { return false }
     return isWithin(challengeHost, tree: normalized)
+  }
+
+  /// Foundation's key for a CHIPS (`Partitioned`) cookie's partition: the
+  /// top-level site it was set under, e.g. `https://reader.example.com`. Not
+  /// exported as a public constant, but it is what `HTTPCookie.properties`
+  /// carries.
+  static let cookieStoragePartitionKey = HTTPCookiePropertyKey("StoragePartition")
+
+  /// The properties a solved cookie is adopted into the source's jar with, or
+  /// nil when it must not be adopted.
+  ///
+  /// Cloudflare sets `cf_clearance` with `Partitioned`, so WebKit hands it
+  /// back tagged with the solve's top-level site. `HTTPCookieStorage` only
+  /// returns a partitioned cookie from a partition-aware lookup, and
+  /// `cookies(for:)` — what the source's own requests use — is not one: the
+  /// adopted clearance sat in the jar and was never sent, the retry drew a
+  /// fresh challenge, and the solve looped. The solver's only top-level site is
+  /// the challenge host, and the source's requests to that host are
+  /// first-party to it, so a partition that covers the challenge host is
+  /// dropped. A partition naming any other site is not this solve's cookie and
+  /// is refused rather than unpartitioned.
+  static func adoptableCookieProperties(
+    _ properties: [HTTPCookiePropertyKey: Any],
+    challengeHost: String
+  ) -> [HTTPCookiePropertyKey: Any]? {
+    guard let partition = properties[cookieStoragePartitionKey] else { return properties }
+    guard
+      let partitionURL = URL(string: "\(partition)"),
+      partitionURL.scheme?.lowercased() == "https",
+      let partitionHost = partitionURL.host,
+      cookieDomainCoversChallengeHost(partitionHost, challengeHost: challengeHost)
+    else {
+      return nil
+    }
+    var adopted = properties
+    adopted.removeValue(forKey: cookieStoragePartitionKey)
+    return adopted
   }
 
   // MARK: - Cookie-jar diffing

@@ -43,6 +43,8 @@ import {
   radius,
   type NemuTokens,
   nemuFontWeight,
+  useMobilePageBleedStyles,
+  useMobilePageGutters,
   useNemuTheme,
 } from "@/design-system";
 import { formatChapterTitle } from "@/lib/formatChapter";
@@ -113,7 +115,13 @@ const HOME_SKELETON_LIST_ITEMS = [0, 1, 2, 3, 4] as const;
 const HOME_SKELETON_BANNER_ITEMS = [0, 1, 2, 3] as const;
 const FEATURED_CARD_MAX_WIDTH = 520;
 const FEATURED_CARD_MIN_WIDTH = 278;
-const FEATURED_CARD_HORIZONTAL_MARGIN = 36;
+/** Breathing room inside the page content width (portrait: 402 − 32 − 4). */
+const FEATURED_CARD_HORIZONTAL_MARGIN = 4;
+/**
+ * Rails bleed 2pt past the screen edges (their portrait tuning); the resting
+ * first card still lines up with the safe-area-aware page gutter.
+ */
+const HOME_RAIL_BLEED_OVERSCAN = 2;
 const WEB_BANNER_VIGNETTE_COLORS = [
   "rgba(0,0,0,0)",
   "rgba(0,0,0,0)",
@@ -121,12 +129,13 @@ const WEB_BANNER_VIGNETTE_COLORS = [
 ] as const;
 const WEB_BANNER_VIGNETTE_LOCATIONS = [0, 0.5, 1] as const;
 
-function getMobileFeaturedCardWidth(windowWidth: number): number {
+/** `contentWidth` is the window width minus the page gutters. */
+function getMobileFeaturedCardWidth(contentWidth: number): number {
   return Math.min(
     FEATURED_CARD_MAX_WIDTH,
     Math.max(
       FEATURED_CARD_MIN_WIDTH,
-      windowWidth - FEATURED_CARD_HORIZONTAL_MARGIN,
+      contentWidth - FEATURED_CARD_HORIZONTAL_MARGIN,
     ),
   );
 }
@@ -609,6 +618,7 @@ const HorizontalLinkSection = memo(function HorizontalLinkSection({
   onListingPress: (listing: Listing) => void;
   onOpenLink: OpenLinkHandler;
 }) {
+  const bleed = useMobilePageBleedStyles(HOME_RAIL_BLEED_OVERSCAN);
   const placeholder = resolveMobileSourceHomeSectionPlaceholder({
     status,
     itemCount: links.length,
@@ -674,8 +684,8 @@ const HorizontalLinkSection = memo(function HorizontalLinkSection({
           );
         }}
         showsHorizontalScrollIndicator={false}
-        style={styles.edgeScroller}
-        contentContainerStyle={styles.horizontalContent}
+        style={bleed.frame}
+        contentContainerStyle={[styles.horizontalContent, bleed.content]}
         windowSize={5}
       />
     </View>
@@ -685,9 +695,12 @@ const HorizontalLinkSection = memo(function HorizontalLinkSection({
 function FeaturedSectionSkeleton() {
   const { tokens } = useNemuTheme();
   const { width: windowWidth } = useWindowDimensions();
+  const pageGutters = useMobilePageGutters();
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
-  const cardWidth = getMobileFeaturedCardWidth(windowWidth);
+  const cardWidth = getMobileFeaturedCardWidth(
+    windowWidth - pageGutters.horizontal,
+  );
 
   return (
     <View style={styles.featuredCarousel}>
@@ -787,6 +800,7 @@ function FeaturedSection({
 }) {
   const { tokens } = useNemuTheme();
   const { width: windowWidth } = useWindowDimensions();
+  const pageGutters = useMobilePageGutters();
   const pagerRef = useRef<ScrollView | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const featuredEntries = getMobileSourceHomeFeaturedEntries(entries);
@@ -815,7 +829,9 @@ function FeaturedSection({
     featuredEntries,
     currentIndex,
   );
-  const cardWidth = getMobileFeaturedCardWidth(windowWidth);
+  const cardWidth = getMobileFeaturedCardWidth(
+    windowWidth - pageGutters.horizontal,
+  );
   const handleMomentumEnd = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
@@ -1478,6 +1494,7 @@ const BannerSection = memo(function BannerSection({
   onOpenLink: OpenLinkHandler;
 }) {
   const { tokens } = useNemuTheme();
+  const bleed = useMobilePageBleedStyles(HOME_RAIL_BLEED_OVERSCAN);
   const value = component.value;
   const cardSize =
     value.type === "imageScroller"
@@ -1611,8 +1628,8 @@ const BannerSection = memo(function BannerSection({
           );
         }}
         showsHorizontalScrollIndicator={false}
-        style={styles.edgeScroller}
-        contentContainerStyle={styles.bannerContent}
+        style={bleed.frame}
+        contentContainerStyle={[styles.bannerContent, bleed.content]}
         windowSize={5}
       />
     </View>
@@ -1797,6 +1814,7 @@ export function SourceHomeSkeletonView({
   accessibilityLabel?: string;
 }) {
   const { tokens, reduceMotion } = useNemuTheme();
+  const bleed = useMobilePageBleedStyles(HOME_RAIL_BLEED_OVERSCAN);
   const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
   const skeletonReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
@@ -1819,8 +1837,8 @@ export function SourceHomeSkeletonView({
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={styles.edgeScroller}
-          contentContainerStyle={styles.horizontalContent}
+          style={bleed.frame}
+          contentContainerStyle={[styles.horizontalContent, bleed.content]}
         >
           {HOME_SKELETON_SCROLLER_ITEMS.map((item) => (
             <View key={item} style={styles.homeMangaCard}>
@@ -2046,12 +2064,9 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: nemuFontWeight.regular,
   },
-  edgeScroller: {
-    marginHorizontal: -18,
-  },
+  // Rails bleed to the screen edges via `useMobilePageBleedStyles`.
   horizontalContent: {
     gap: 12,
-    paddingHorizontal: 18,
     paddingVertical: 2,
   },
   featuredCarousel: {
@@ -2282,7 +2297,6 @@ const styles = StyleSheet.create({
   },
   bannerContent: {
     gap: 12,
-    paddingHorizontal: 18,
     paddingVertical: 2,
   },
   bannerCard: {

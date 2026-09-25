@@ -81,8 +81,17 @@ export const mobileStringsJa: MobileStrings = {
     agentSheetFailedCancelled: "認証をキャンセルしました。",
     agentSheetFailedTimeout: "Cloudflare の認証が時間内に完了しませんでした。",
     agentSheetFailedBlocked: "このチャレンジのアドレスを安全に検証できませんでした。",
+    agentSheetProtectedSite: "{{site}} は Cloudflare で保護されています。",
+    agentSheetProtectedSource: "このソースは Cloudflare で保護されています。",
+    agentStepOpen: "サイトを開く",
+    agentStepCheck: "自動チェック",
+    agentStepConfirm: "ユーザー確認",
+    agentStepResume: "読み込みを再開",
+    agentStepNotNeeded: "不要でした",
     agentSheetFailedUnsolicitedHost:
       "このサイトはソースが要求したものではないため、認証を拒否しました。",
+    agentSheetFailedSetup:
+      "この端末では安全な認証を開始できませんでした。再試行するか、システムソフトウェアを更新してください。",
   },
   errorBoundary: {
     copied: "エラーログをコピーしました。",

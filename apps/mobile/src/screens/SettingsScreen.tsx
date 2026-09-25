@@ -2032,6 +2032,13 @@ export function SettingsScreen({
     await Promise.all(tasks);
   };
 
+  // The source's own reason is untranslated, so it rides under the localized
+  // copy as a secondary line rather than replacing it.
+  const formatCredentialsRejected = (detail?: string): string =>
+    detail
+      ? `${strings.settings.sourceSettingsCredentialsRejected}\n${detail}`
+      : strings.settings.sourceSettingsCredentialsRejected;
+
   const executeSelectedSourceSettingOperation = async (
     operation: MobileSourceSettingsOperation,
     settings: Record<string, unknown> = selectedSourceSettings.data,
@@ -2047,7 +2054,7 @@ export function SettingsScreen({
       });
       if (result.status === "complete") return null;
       if (result.status === "rejected") {
-        return strings.settings.sourceSettingsCredentialsRejected;
+        return formatCredentialsRejected(result.detail);
       }
       return strings.settings.sourceSettingsRuntimeUnavailable;
     } catch {
@@ -2083,7 +2090,7 @@ export function SettingsScreen({
         signal: options.signal,
       });
       if (result.status === "rejected") {
-        return strings.settings.sourceSettingsCredentialsRejected;
+        return formatCredentialsRejected(result.detail);
       }
       if (result.status === "blocked") {
         return strings.settings.sourceSettingsRuntimeUnavailable;

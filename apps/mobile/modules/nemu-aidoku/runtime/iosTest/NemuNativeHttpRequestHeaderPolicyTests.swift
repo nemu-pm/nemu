@@ -3,6 +3,7 @@ import Foundation
 @main
 enum NemuNativeHttpRequestHeaderPolicyTests {
   static func main() throws {
+    testUserAgentDefaults()
     let unicodeHeaders = [
       "Referer":
         "https://mangamura.me/manga/\u{5f8c}\u{5bae}\u{771f}\u{8d0b}\u{5224}\u{5b9a}\u{4eba}/ja/chapter-6-raw/",
@@ -186,6 +187,88 @@ enum NemuNativeHttpRequestHeaderPolicyTests {
       request.value(forHTTPHeaderField: "Origin") == origin,
       "Unicode Origin was not canonicalized at the \(seam) seam."
     )
+  }
+
+  /// A source's cookies (a `cf_clearance` among them) only work next to the
+  /// User-Agent that solved the challenge, so source-owned requests never
+  /// fall through to the platform browser UA.
+  private static func testUserAgentDefaults() {
+    let source = "Source-UA/17"
+    let platform = "Platform-UA/26"
+
+    // A source's own UA always wins, whatever its casing.
+    let custom = ["user-agent": "Custom/1", "Referer": "https://example.test/"]
+    precondition(NemuNativeHttpRequestHeaderPolicy.hasUserAgent(custom))
+    precondition(
+      NemuNativeHttpRequestHeaderPolicy.ensuringUserAgent(custom, source) == custom
+    )
+
+    let bare = ["Cookie": "cf_clearance=abc", "Referer": "https://example.test/"]
+    precondition(!NemuNativeHttpRequestHeaderPolicy.hasUserAgent(bare))
+    let ensured = NemuNativeHttpRequestHeaderPolicy.ensuringUserAgent(bare, source)
+    precondition(ensured["User-Agent"] == source)
+    precondition(ensured["Cookie"] == "cf_clearance=abc")
+    precondition(ensured["Referer"] == "https://example.test/")
+    precondition(ensured.count == 3)
+
+    // Scoped (source) requests fall back to the source default; unscoped
+    // traffic keeps the platform UA. A blank scope is unscoped, matching the
+    // HTTP path's own normalization.
+    precondition(
+      NemuNativeHttpRequestHeaderPolicy.fallbackUserAgent(
+        cookieScope: "profile::registry:source",
+        sourceDefault: source,
+        platformDefault: platform
+      ) == source
+    )
+    for scope in [nil, "", "  \n"] as [String?] {
+      precondition(
+        NemuNativeHttpRequestHeaderPolicy.fallbackUserAgent(
+          cookieScope: scope,
+          sourceDefault: source,
+          platformDefault: platform
+        ) == platform
+      )
+    }
+
+    // Source-owned image requests: the source UA follows the source's stored
+    // cookies. The jar contributed a cookie (none of the source's own, or more
+    // than the source's own): the UA the clearance is bound to rides along.
+    let jarOnly = NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
+      ["Cookie": "cf_clearance=abc"],
+      sourceCookie: nil,
+      sourceUserAgent: source
+    )
+    precondition(jarOnly == ["Cookie": "cf_clearance=abc", "User-Agent": source])
+    let merged = NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
+      ["cookie": "cf_clearance=abc; lang=en", "Referer": "https://example.test/"],
+      sourceCookie: "lang=en",
+      sourceUserAgent: source
+    )
+    precondition(merged["User-Agent"] == source)
+    // A source's own UA is never replaced.
+    precondition(
+      NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
+        ["Cookie": "cf_clearance=abc", "User-Agent": "Custom/1"],
+        sourceCookie: nil,
+        sourceUserAgent: source
+      ) == ["Cookie": "cf_clearance=abc", "User-Agent": "Custom/1"]
+    )
+    // The jar contributed nothing: the request stays exactly as the source
+    // produced it, so its image cache key does not change for nothing.
+    for (headers, sourceCookie) in [
+      ([:], nil),
+      (["Referer": "https://example.test/"], nil),
+      (["Cookie": "lang=en"], "lang=en"),
+    ] as [([String: String], String?)] {
+      precondition(
+        NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
+          headers,
+          sourceCookie: sourceCookie,
+          sourceUserAgent: source
+        ) == headers
+      )
+    }
   }
 
   private static func expectFailure(

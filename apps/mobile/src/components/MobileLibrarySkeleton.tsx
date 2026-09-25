@@ -1,16 +1,22 @@
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated from "react-native-reanimated";
 import {
   createNemuShadowStyle,
   radius,
+  useMobilePageGutters,
   useNemuTheme,
 } from "@/design-system";
+import {
+  getMobileMangaGridSkeletonGeometry,
+  MOBILE_MANGA_GRID_GAP,
+} from "@/lib/mobileAdaptiveGrid";
 import {
   useSkeletonDisplayDelay,
   useSkeletonPulse,
 } from "@/lib/useSkeletonPulse";
 
-const SKELETON_ITEMS = [0, 1, 2, 3, 4, 5, 6, 7, 8] as const;
+/** Three rows of placeholder covers at the loaded grid's column count. */
+const SKELETON_ROWS = 3;
 
 /**
  * Library loading skeleton sharing its geometry with MangaCard: 2/3 cover,
@@ -24,6 +30,15 @@ export function MobileLibrarySkeleton({
   accessibilityLabel: string;
 }) {
   const { tokens, reduceMotion } = useNemuTheme();
+  const { width: windowWidth } = useWindowDimensions();
+  const pageGutters = useMobilePageGutters();
+  // Same inset-aware adaptive columns as the library grid, so the skeleton
+  // hands off without a reflow (3 on a portrait phone, 6 in landscape).
+  const { cardCount, cardWidth } = getMobileMangaGridSkeletonGeometry({
+    windowWidth,
+    horizontalPadding: pageGutters.horizontal,
+    rows: SKELETON_ROWS,
+  });
   const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
   const displayReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
@@ -38,8 +53,8 @@ export function MobileLibrarySkeleton({
       style={styles.stack}
     >
       <View style={styles.grid}>
-        {SKELETON_ITEMS.map((item) => (
-          <View key={item} style={styles.gridItem}>
+        {Array.from({ length: cardCount }, (_, item) => (
+          <View key={item} style={{ width: cardWidth }}>
             <Animated.View
               style={[
                 styles.cover,
@@ -94,10 +109,7 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
-  },
-  gridItem: {
-    width: "31.5%",
+    gap: MOBILE_MANGA_GRID_GAP,
   },
   cover: {
     aspectRatio: 2 / 3,

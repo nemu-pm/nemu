@@ -968,6 +968,79 @@ describe("mobile source reader pages", () => {
     ]);
   });
 
+  test("pages that arrive with headers go through the source's native decoration", async () => {
+    const decorated: Array<{ url: string; headers: Record<string, string> }> = [];
+    let modified = 0;
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              return [
+                {
+                  index: 0,
+                  url: "https://cdn.example.test/001.jpg",
+                  headers: { Referer: "https://example.test" },
+                },
+                {
+                  index: 1,
+                  url: "https://cdn.example.test/002.jpg",
+                  headers: { Referer: "https://example.test" },
+                },
+              ];
+            },
+            async modifyImageRequest(url) {
+              modified += 1;
+              return { url, headers: {} };
+            },
+            async decorateImageRequest(request) {
+              decorated.push(request);
+              if (request.url.endsWith("002.jpg")) throw new Error("native failed");
+              return {
+                url: request.url,
+                headers: { ...request.headers, Cookie: "cf_clearance=abc", "User-Agent": "Source/17" },
+              };
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      { executor: { bridge, readBytes: async () => makeAixPackage() } },
+    );
+    if (result.status !== "ready" || !result.pageProcessor) {
+      throw new Error("expected a lazy page processor");
+    }
+    const pages = (await result.pageProcessor.processWindow(0))?.pages;
+    // The page's own request is kept (no hook round trip), decorated natively;
+    // a failed decoration keeps the page's headers exactly as they came.
+    expect(modified).toBe(0);
+    expect(decorated.map((request) => request.url)).toEqual([
+      "https://cdn.example.test/001.jpg",
+      "https://cdn.example.test/002.jpg",
+    ]);
+    expect(pages).toMatchObject([
+      {
+        imageUri: "https://cdn.example.test/001.jpg",
+        headers: {
+          Referer: "https://example.test",
+          Cookie: "cf_clearance=abc",
+          "User-Agent": "Source/17",
+        },
+      },
+      {
+        imageUri: "https://cdn.example.test/002.jpg",
+        headers: { Referer: "https://example.test" },
+      },
+    ]);
+  });
+
   test("keeps reader pages loadable when image request metadata fails", async () => {
     const bridge: MobileAidokuExecutorBridge = {
       async loadSource() {

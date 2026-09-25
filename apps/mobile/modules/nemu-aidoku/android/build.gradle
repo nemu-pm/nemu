@@ -37,6 +37,9 @@ android {
 
 dependencies {
   implementation "androidx.javascriptengine:javascriptengine:1.1.0"
+  // `WebViewCompat.addDocumentStartJavaScript`: the Cloudflare solver's socket
+  // guard (WebSocket/WebTransport/WebRTC never reach shouldInterceptRequest).
+  implementation "androidx.webkit:webkit:1.17.1"
   implementation "com.facebook.fresco:fresco:3.6.0"
   implementation "com.squareup.okhttp3:okhttp:4.12.0"
   testImplementation "junit:junit:4.13.2"

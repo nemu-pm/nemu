@@ -1,4 +1,4 @@
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated from "react-native-reanimated";
 import {
   useSkeletonDisplayDelay,
@@ -7,13 +7,20 @@ import {
 import {
   createNemuShadowStyle,
   radius,
+  useMobilePageBleedStyles,
+  useMobilePageGutters,
   useNemuTheme,
   GlassSurface,
 } from "@/design-system";
+import {
+  getMobileMangaGridSkeletonGeometry,
+  MOBILE_MANGA_GRID_GAP,
+} from "@/lib/mobileAdaptiveGrid";
 
 const SKELETON_CHIPS = [0, 1, 2, 3] as const;
 const SKELETON_SECTIONS = [0, 1] as const;
-const SKELETON_RESULTS = [0, 1, 2] as const;
+/** One row of result covers per source section, like the loaded results. */
+const SKELETON_RESULT_ROWS = 1;
 
 type MobileSearchSkeletonProps = {
   accessibilityLabel: string;
@@ -23,6 +30,17 @@ export function MobileSearchSkeleton({
   accessibilityLabel,
 }: MobileSearchSkeletonProps) {
   const { tokens, reduceMotion } = useNemuTheme();
+  // Mirrors the Search tab's source chip row bleed (2pt overscan).
+  const bleed = useMobilePageBleedStyles(2);
+  const { width: windowWidth } = useWindowDimensions();
+  const pageGutters = useMobilePageGutters();
+  // Same inset-aware adaptive columns as the Search result grid.
+  const { cardCount: resultCount, cardWidth: resultWidth } =
+    getMobileMangaGridSkeletonGeometry({
+      windowWidth,
+      horizontalPadding: pageGutters.horizontal,
+      rows: SKELETON_RESULT_ROWS,
+    });
   const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
   const skeletonReady = useSkeletonDisplayDelay(150);
   const skeletonColor = tokens.muted;
@@ -49,7 +67,7 @@ export function MobileSearchSkeleton({
         <View
           style={[styles.filterLabel, { backgroundColor: skeletonColor }]}
         />
-        <View style={styles.chipRow}>
+        <View style={[styles.chipRow, bleed.frame, bleed.content]}>
           {SKELETON_CHIPS.map((chip) => (
             <View
               key={chip}
@@ -86,8 +104,8 @@ export function MobileSearchSkeleton({
               />
             </View>
             <View style={styles.resultsGrid}>
-              {SKELETON_RESULTS.map((item) => (
-                <View key={item} style={styles.resultItem}>
+              {Array.from({ length: resultCount }, (_, item) => (
+                <View key={item} style={{ width: resultWidth }}>
                   <View
                     style={[
                       styles.cover,
@@ -170,8 +188,6 @@ const styles = StyleSheet.create({
   chipRow: {
     flexDirection: "row",
     gap: 8,
-    marginHorizontal: -18,
-    paddingHorizontal: 18,
   },
   chip: {
     width: 94,
@@ -211,10 +227,7 @@ const styles = StyleSheet.create({
   resultsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
-  },
-  resultItem: {
-    width: "31.5%",
+    gap: MOBILE_MANGA_GRID_GAP,
   },
   cover: {
     aspectRatio: 2 / 3,

@@ -1,11 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  AidokuResultError,
+  AidokuResultErrorCode,
+  CloudflareBlockedError,
+} from "@nemu.pm/aidoku-runtime";
+import { parseMobileAidokuSandboxResponse } from "./mobileAidokuSandboxProtocol";
 import type { MobileAidokuExecutorSource } from "./mobileSourceExecutor";
 import type { MobileSourceSessionCache } from "./mobileSourceExecutorCache";
 import type { MobileRuntimeSource } from "./mobileSourceRuntime";
 import {
+  AIDOKU_RESULT_ERROR_MESSAGE_CODE,
   completeMobileSourceLogin,
   completeMobileSourceLogout,
   getMobileSourceLoginCapabilities,
+  isMobileSourceLoginRejection,
   resetMobileSourceRuntimeSettings,
   runMobileSourceSettingsOperation,
 } from "./mobileSourceSettingsExecutor";
@@ -100,6 +108,163 @@ describe("mobile source settings executor", () => {
         },
       }),
     ).toEqual({ status: "rejected", reason: "credentials-rejected" });
+  });
+
+  /**
+   * The error a sandboxed login throws, as the React Native side sees it: the
+   * isolate flattens it to a JSON envelope and the protocol rebuilds a plain
+   * Error with only `name` and `code` restored.
+   */
+  function sandboxEnvelopeError(fields: Record<string, unknown>): unknown {
+    try {
+      parseMobileAidokuSandboxResponse(
+        JSON.stringify({ status: "error", code: "runtime-failed", ...fields }),
+      );
+    } catch (error) {
+      return error;
+    }
+    throw new Error("expected the sandbox envelope to throw");
+  }
+
+  test("pins the runtime's source-message result code", () => {
+    expect(AIDOKU_RESULT_ERROR_MESSAGE_CODE).toBe(AidokuResultErrorCode.Message);
+  });
+
+  test("reports a source's login refusal as rejected with its message", async () => {
+    const cache = readyCache(
+      {
+        async handleBasicLogin() {
+          throw new AidokuResultError(
+            AidokuResultErrorCode.Message,
+            "Invalid username or password",
+          );
+        },
+      },
+      [],
+    );
+    expect(
+      await runMobileSourceSettingsOperation({
+        cache,
+        source: runtimeSource,
+        settings: {},
+        operation: {
+          kind: "basic-login",
+          key: "login",
+          username: "reader",
+          password: "wrong",
+        },
+      }),
+    ).toEqual({
+      status: "rejected",
+      reason: "credentials-rejected",
+      detail: "Invalid username or password",
+    });
+  });
+
+  test("recognizes a refusal rebuilt from the native sandbox envelope", async () => {
+    const refusal = sandboxEnvelopeError({
+      detail: "Session cookie expired",
+      errorName: "AidokuResultError",
+      errorCode: AidokuResultErrorCode.Message,
+    });
+    expect(refusal).not.toBeInstanceOf(AidokuResultError);
+    expect(isMobileSourceLoginRejection(refusal)).toBe(true);
+
+    const cache = readyCache(
+      {
+        async handleWebLogin() {
+          throw refusal;
+        },
+      },
+      [],
+    );
+    expect(
+      await runMobileSourceSettingsOperation({
+        cache,
+        source: runtimeSource,
+        settings: {},
+        operation: {
+          kind: "web-login",
+          key: "login",
+          cookies: { session: "stale" },
+        },
+      }),
+    ).toEqual({
+      status: "rejected",
+      reason: "credentials-rejected",
+      detail: "Session cookie expired",
+    });
+  });
+
+  test("keeps other login failures as retryable operation errors", async () => {
+    const failures: unknown[] = [
+      new AidokuResultError(AidokuResultErrorCode.RequestError),
+      sandboxEnvelopeError({
+        detail: "Request error",
+        errorName: "AidokuResultError",
+        errorCode: AidokuResultErrorCode.RequestError,
+      }),
+      // A code-less rebuild cannot be told apart from a decode bug.
+      sandboxEnvelopeError({
+        detail: "Source error",
+        errorName: "AidokuResultError",
+      }),
+      // A name outside the envelope allow-list is never rebuilt.
+      sandboxEnvelopeError({
+        detail: "Invalid password",
+        errorName: "SourceLoginError",
+        errorCode: AidokuResultErrorCode.Message,
+      }),
+      new CloudflareBlockedError("https://example.com/login", 403),
+      new Error("Invalid password"),
+    ];
+    for (const failure of failures) {
+      expect(isMobileSourceLoginRejection(failure)).toBe(false);
+      const cache = readyCache(
+        {
+          async handleBasicLogin() {
+            throw failure;
+          },
+        },
+        [],
+      );
+      await expect(
+        runMobileSourceSettingsOperation({
+          cache,
+          source: runtimeSource,
+          settings: {},
+          operation: {
+            kind: "basic-login",
+            key: "login",
+            username: "reader",
+            password: "secret",
+          },
+        }),
+      ).rejects.toBe(failure);
+    }
+  });
+
+  test("keeps a notification failure an operation error", async () => {
+    const failure = new AidokuResultError(
+      AidokuResultErrorCode.Message,
+      "Unknown callback",
+    );
+    const cache = readyCache(
+      {
+        async handleNotification() {
+          throw failure;
+        },
+      },
+      [],
+    );
+    await expect(
+      runMobileSourceSettingsOperation({
+        cache,
+        source: runtimeSource,
+        settings: {},
+        operation: { kind: "notification", notification: "nemu://oauth" },
+      }),
+    ).rejects.toBe(failure);
   });
 
   test("blocks a login method the source runtime does not implement", async () => {
@@ -369,6 +534,51 @@ describe("mobile source settings executor", () => {
     expect(result).toEqual({
       status: "rejected",
       reason: "credentials-rejected",
+    });
+    expect(nativeState).toEqual({});
+    expect(removedSessions).toEqual(["aidoku-community:en.example"]);
+  });
+
+  test("clears native state and skips persistence when a source throws its refusal", async () => {
+    const nativeState: Record<string, unknown> = {};
+    const removedSessions: string[] = [];
+    const cache = readyCache(
+      {
+        async handleBasicLogin() {
+          nativeState.token = "rejected-token";
+          throw new AidokuResultError(
+            AidokuResultErrorCode.Message,
+            "Wrong password",
+          );
+        },
+      },
+      [],
+    );
+    cache.remove = (sourceKey) => removedSessions.push(sourceKey);
+
+    const result = await completeMobileSourceLogin({
+      cache,
+      source: runtimeSource,
+      schema: [{ key: "auth", type: "login", title: "Log in" }],
+      setting: { key: "auth", type: "login", title: "Log in" },
+      submission: {
+        method: "basic",
+        username: "reader",
+        password: "wrong",
+      },
+      currentSettings: {},
+      async clearSandbox() {
+        for (const key of Object.keys(nativeState)) delete nativeState[key];
+      },
+      async persistSettings() {
+        throw new Error("must not persist rejected credentials");
+      },
+    });
+
+    expect(result).toEqual({
+      status: "rejected",
+      reason: "credentials-rejected",
+      detail: "Wrong password",
     });
     expect(nativeState).toEqual({});
     expect(removedSessions).toEqual(["aidoku-community:en.example"]);

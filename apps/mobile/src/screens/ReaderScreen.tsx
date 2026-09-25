@@ -2097,11 +2097,18 @@ export function ReaderScreen() {
     ],
   );
   const activeScrollWidthPct = clampReaderScrollWidthPct(scrollWidthDraft);
+  // Page images stay inside the horizontal safe area: a landscape iPhone's
+  // Dynamic Island / notch must not cover the page edge. Portrait insets are
+  // zero, so this is the full window width there.
+  const readerSafeContentWidth = Math.max(
+    280,
+    readerPageWidth - insets.left - insets.right,
+  );
   const readerImageWidth = pagedMode
     ? isTwoPageMode
-      ? Math.max(160, Math.min(420, (readerPageWidth - 42) / 2))
-      : Math.max(240, Math.min(720, readerPageWidth - 24))
-    : Math.min(readerPageWidth, 720) *
+      ? Math.max(160, Math.min(420, (readerSafeContentWidth - 42) / 2))
+      : Math.max(240, Math.min(720, readerSafeContentWidth - 24))
+    : Math.min(readerSafeContentWidth, 720) *
       readerScrollWidthScale(activeScrollWidthPct);
   const segmentedImageFrames = useMemo(
     () =>
@@ -2291,6 +2298,15 @@ export function ReaderScreen() {
     ? insets.bottom + readerCompactControlsHeight
     : Math.max(insets.bottom + 18, 24);
   const readerStateTopPadding = Math.max(insets.top + 82, 118);
+  // The floating chrome panels are centred and capped, but on a narrow
+  // landscape phone they must still clear the Dynamic Island side.
+  const readerChromeHorizontalInsets = useMemo(
+    () => ({
+      left: Math.max(READER_CHROME_PANEL_HORIZONTAL_INSET, insets.left),
+      right: Math.max(READER_CHROME_PANEL_HORIZONTAL_INSET, insets.right),
+    }),
+    [insets.left, insets.right],
+  );
   const readerChromeColors = useMemo(
     () =>
       scheme === "dark"
@@ -6310,7 +6326,11 @@ export function ReaderScreen() {
             entering={readerChromeAnimations.topEntering}
             exiting={readerChromeAnimations.topExiting}
             pointerEvents="box-none"
-            style={[styles.topBar, { paddingTop: insets.top + 16 }]}
+            style={[
+              styles.topBar,
+              readerChromeHorizontalInsets,
+              { paddingTop: insets.top + 16 },
+            ]}
           >
             <ReaderChromePanel
               panelStyle={readerChromePanelStyle}
@@ -6385,7 +6405,11 @@ export function ReaderScreen() {
               entering={readerChromeAnimations.bottomEntering}
               exiting={readerChromeAnimations.bottomExiting}
               pointerEvents="box-none"
-              style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}
+              style={[
+                styles.bottomBar,
+                readerChromeHorizontalInsets,
+                { paddingBottom: insets.bottom + 16 },
+              ]}
             >
               {/* Plain main-tree box around the toolbar panel. On iOS the panel
                   is a SwiftUI host, and anything measured inside it can be
@@ -6759,6 +6783,8 @@ export function ReaderScreen() {
         status={cloudflareSheet.status}
         url={cloudflareSheet.url}
         failureReason={cloudflareSheet.failureReason}
+        interactive={cloudflareSheet.interactive}
+        failedAt={cloudflareSheet.failedAt}
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />

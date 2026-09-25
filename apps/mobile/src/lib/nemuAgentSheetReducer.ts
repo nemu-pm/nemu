@@ -54,7 +54,20 @@ export type NemuAgentSheetState = {
    * maps known codes onto localized copy and ignores anything else.
    */
   failureReason?: string;
+  /**
+   * The solve needed the user: native presented the visible challenge sheet
+   * (`nemuAidokuCfCaptcha`) at some point in this attempt. Lets the sheet tell
+   * "solved after your check" apart from "solved with nothing to do".
+   */
+  interactive?: boolean;
+  /** The in-flight status a failure interrupted, i.e. the step that failed. */
+  failedAt?: NemuAgentSheetInflightStatus;
 };
+
+/** The statuses a native solve moves through before it settles. */
+const INFLIGHT_STATUS_LIST = ["opening", "waiting", "captcha"] as const;
+
+export type NemuAgentSheetInflightStatus = (typeof INFLIGHT_STATUS_LIST)[number];
 
 export type NemuAgentSheetEventName =
   | "nemuAidokuCfSolveStart"
@@ -79,12 +92,23 @@ export const initialNemuAgentSheetState: NemuAgentSheetState = {
   status: "needs-verification",
 };
 
-const INFLIGHT_STATUSES: ReadonlySet<NemuAgentSheetStatus> = new Set([
-  "opening",
-  "waiting",
-  "captcha",
-  "success",
-]);
+const INFLIGHT_STATUSES: ReadonlySet<NemuAgentSheetStatus> = new Set(INFLIGHT_STATUS_LIST);
+
+/** A native solve is running (it has not settled yet). */
+export function isNemuAgentSheetInflightStatus(
+  status: NemuAgentSheetStatus,
+): status is NemuAgentSheetInflightStatus {
+  return INFLIGHT_STATUSES.has(status);
+}
+
+/**
+ * A solve is running, or has just succeeded and is holding its success on
+ * screen before the auto-dismiss + retry. A new report or a `start` is
+ * ignored in any of these.
+ */
+function isBusyStatus(status: NemuAgentSheetStatus): boolean {
+  return isNemuAgentSheetInflightStatus(status) || status === "success";
+}
 
 /**
  * Whether `report-error` would actually open (or re-open) the sheet for this
@@ -101,7 +125,7 @@ export function acceptsNemuAgentSheetReport(
   error: unknown,
 ): boolean {
   if (!isMobileCloudflareError(error)) return false;
-  return !INFLIGHT_STATUSES.has(state.status);
+  return !isBusyStatus(state.status);
 }
 
 /**
@@ -205,8 +229,14 @@ export function reduceNemuAgentSheet(
       };
     }
     case "start": {
-      if (!state.visible || INFLIGHT_STATUSES.has(state.status)) return state;
-      return { ...state, status: "opening", failureReason: undefined };
+      if (!state.visible || isBusyStatus(state.status)) return state;
+      return {
+        ...state,
+        status: "opening",
+        failureReason: undefined,
+        interactive: undefined,
+        failedAt: undefined,
+      };
     }
     case "event": {
       if (!state.visible) return state;
@@ -228,7 +258,7 @@ export function reduceNemuAgentSheet(
           ) {
             return state;
           }
-          return { ...state, status: "captcha", url: nextUrl };
+          return { ...state, status: "captcha", url: nextUrl, interactive: true };
         case "nemuAidokuCfSuccess":
           return {
             ...state,
@@ -243,6 +273,9 @@ export function reduceNemuAgentSheet(
             status: "failed",
             url: nextUrl,
             failureReason: normalizeContextValue(action.reason),
+            failedAt: isNemuAgentSheetInflightStatus(state.status)
+              ? state.status
+              : state.failedAt,
           };
         default:
           return state;
@@ -253,6 +286,21 @@ export function reduceNemuAgentSheet(
     default:
       return state;
   }
+}
+
+/**
+ * Whether closing the sheet in `status` must still run the caller's retry.
+ *
+ * Success holds on screen briefly before it auto-dismisses and retries the
+ * blocked source operation. A user who swipes the sheet away during that hold
+ * has not cancelled anything — the clearance is already adopted — so the
+ * retry has to run on that path too, or the screen keeps showing the
+ * Cloudflare error it just recovered from.
+ */
+export function shouldRetryAfterNemuAgentDismiss(
+  status: NemuAgentSheetStatus,
+): boolean {
+  return status === "success";
 }
 
 /**

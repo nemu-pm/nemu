@@ -18,6 +18,59 @@ internal object NemuNativeHttpRequestHeaderPolicy {
   private val tokenCharacters =
     "!#$%&'*+-.^_`|~0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".toSet()
 
+  /** True when [headers] already names a User-Agent, in any casing. */
+  fun hasUserAgent(headers: Map<String, String>): Boolean =
+    headers.keys.any { it.equals("User-Agent", ignoreCase = true) }
+
+  /**
+   * [headers] with [userAgent] added when they name none; a User-Agent the
+   * caller (a source) chose is never replaced.
+   */
+  fun ensuringUserAgent(headers: Map<String, String>, userAgent: String): Map<String, String> {
+    if (hasUserAgent(headers)) return headers
+    return LinkedHashMap(headers).apply { put("User-Agent", userAgent) }
+  }
+
+  /**
+   * The headers a source-owned image request (a cover, a page, a rewritten
+   * `modify_image_request` result) is fetched with once native has merged the
+   * source's stored cookies into [decorated].
+   *
+   * When the jar contributed a cookie — the `Cookie` value differs from the
+   * one the source itself supplied ([sourceCookie]) — the request now carries
+   * the source's session, `cf_clearance` included, and a clearance is only
+   * honoured next to the User-Agent that solved it: the source's own, else
+   * [sourceUserAgent]. When the jar contributed nothing, the headers are left
+   * exactly as the source produced them: a User-Agent there would change the
+   * image's cache key (headers are part of it) and buy nothing. Mirrors the
+   * iOS policy of the same name.
+   */
+  fun sourceImageHeaders(
+    decorated: Map<String, String>,
+    sourceCookie: String?,
+    sourceUserAgent: String
+  ): Map<String, String> {
+    val cookie = decorated.entries.firstOrNull { it.key.equals("Cookie", ignoreCase = true) }?.value
+    if (cookie == null || cookie == sourceCookie) return decorated
+    return ensuringUserAgent(decorated, sourceUserAgent)
+  }
+
+  /**
+   * The User-Agent for a request that names none.
+   *
+   * A request with a cookie scope is a source's: it reads and writes that
+   * source's jar, and a `cf_clearance` in the jar only works next to the
+   * User-Agent that solved it — the Aidoku runtime default unless the source
+   * sets its own (in which case this is never consulted). Unscoped traffic
+   * (registry, sync, OCR, metadata) carries no source cookies and keeps the
+   * platform browser's UA. Mirrors the iOS policy of the same name.
+   */
+  fun fallbackUserAgent(
+    cookieScope: String?,
+    sourceDefault: String,
+    platformDefault: String
+  ): String = if (cookieScope.isNullOrBlank()) platformDefault else sourceDefault
+
   fun normalize(headers: Map<String, String>): Map<String, String> {
     if (headers.size > MAX_HEADER_COUNT) {
       throw IllegalArgumentException("Native HTTP request has too many headers.")

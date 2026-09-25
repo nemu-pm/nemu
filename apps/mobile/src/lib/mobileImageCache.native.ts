@@ -18,6 +18,7 @@ import {
 } from "@/sources/mobileSourceProfileScope";
 import { makeMobileImageCacheStorageKey } from "./mobileImageCacheKey";
 import { parseNativeSegmentedImageCacheManifest } from "@/data/nativeSegmentedImageCache";
+import { hasMobileUserAgentHeader } from "@/sources/mobileAidokuUserAgent";
 
 export type MobileImageCacheSource = {
   uri?: string | null;
@@ -142,6 +143,13 @@ const mobileReaderPageImageCache = new FileSystemBinaryCache(
 );
 const MAX_RESOLVED_IMAGE_URIS = 600;
 const MAX_IMAGE_LOAD_CONCURRENCY = 8;
+// Only for requests that name no User-Agent: registry icons, metadata covers,
+// and source images that carry none of the source's stored cookies. A
+// source-owned request that native decorated with the source's cookies (its
+// one decoration path, `decorateSourceImageRequest` on both platforms) already
+// has the User-Agent a `cf_clearance` among them is bound to, and
+// `imageDownloadHeaders` never overrides one.
+//
 // Matches what the platform's real browser currently sends: Chrome mobile
 // ships the reduced UA ("Android 10; K"), and Safari 26 freezes the OS token
 // at 18_7 while Version/ carries the real Safari major.
@@ -217,12 +225,7 @@ function imageContentTypeForUri(uri: string) {
 }
 
 function imageDownloadHeaders(headers?: Record<string, string>) {
-  if (
-    !MOBILE_IMAGE_DEFAULT_USER_AGENT ||
-    Object.keys(headers ?? {}).some(
-      (header) => header.toLowerCase() === "user-agent",
-    )
-  ) {
+  if (!MOBILE_IMAGE_DEFAULT_USER_AGENT || hasMobileUserAgentHeader(headers)) {
     return headers;
   }
   return {

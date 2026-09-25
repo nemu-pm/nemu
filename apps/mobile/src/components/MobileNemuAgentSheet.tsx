@@ -1,10 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import {
-  MobileSheetScaffold,
+  MobileNativeSheetScaffold,
   NemuButton,
-  nemuColorWithAlpha,
   NemuNativeProgressView,
+  NemuText,
+  nemuColorWithAlpha,
   nemuFontWeight,
   nemuToneColor,
   radius,
@@ -13,10 +14,14 @@ import {
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import { hapticPress } from "@/lib/haptics";
 import { getMobileStrings } from "@/lib/mobileI18n";
-import { redactMobileCloudflareUrlForDisplay } from "@/lib/mobileSourceErrors";
 import {
-  shouldOfferNemuAgentVerificationAction,
-  type NemuAgentSheetStatus,
+  getNemuAgentSheetPresentation,
+  type NemuAgentRowGlyph,
+  type NemuAgentSheetAction,
+} from "@/lib/mobileNemuAgentSheetPresentation";
+import type {
+  NemuAgentSheetInflightStatus,
+  NemuAgentSheetStatus,
 } from "@/lib/nemuAgentSheetReducer";
 import { supportsMobileCloudflareSolver } from "@/lib/useNemuAgentSheet";
 
@@ -26,305 +31,281 @@ type MobileNemuAgentSheetProps = {
   url?: string;
   /** Machine-readable reason from the last native failure, when there is one. */
   failureReason?: string;
+  /** The solve needed the user (native presented the challenge sheet). */
+  interactive?: boolean;
+  /** The in-flight step the last failure interrupted. */
+  failedAt?: NemuAgentSheetInflightStatus;
+  /** Overrides the native capability probe; production leaves it unset. */
+  solverSupported?: boolean;
   onVerify: () => void;
   onDismiss: () => void;
 };
 
-type StatusVisual = {
-  /** Status-line copy shown under the title. */
-  copy: string;
-  /** Inline icon for terminal/idle states; `null` means show a spinner. */
-  icon: keyof typeof Ionicons.glyphMap | null;
-  /** Tint for the icon shell + status accent. */
-  tone: "primary" | "success" | "danger";
-};
-
-const INFLIGHT_STATUSES: ReadonlySet<NemuAgentSheetStatus> = new Set([
-  "opening",
-  "waiting",
-  "captcha",
-]);
-
 /**
  * Nemu Agent sheet for Cloudflare-classified failures.
  *
- * The native capability flag still gates everything: where
- * `supportsCloudflareSolver` is false (web, or any build that fails closed) the
- * sheet only explains that embedded verification is unavailable and offers no
- * action. Where it is true, `useNemuAgentSheet` starts the solve as the sheet
- * opens, so this is progress UI and Verify/Retry is the recovery affordance for
- * the `failed` state.
+ * Built like the app's settings sheets (reader-plugin and installed-source
+ * settings): no chrome bar, a centered title row with a bare mark, one muted
+ * description, then a hairline-bordered card of grouped rows, and a single
+ * row of depth buttons. The rows are the solve's four steps — open the site,
+ * automatic check, human check, resume — so each native event moves one
+ * glyph rather than rewriting the sheet; the step and action model lives in
+ * `mobileNemuAgentSheetPresentation.ts`.
  *
- * Styling matches `MobileAgentStatusCard` (hardware-chip identity, token
- * colors, `radius.lg`) so the sheet reads as the same Nemu Agent the settings
- * page describes. All UI is imported from `@/design-system`.
+ * The native capability flag still gates everything: where
+ * `supportsCloudflareSolver` is false the card is one row explaining that
+ * verification is unavailable, and the only action closes the sheet.
  */
 export function MobileNemuAgentSheet({
   visible,
   status,
   url,
   failureReason,
+  interactive,
+  failedAt,
+  solverSupported,
   onVerify,
   onDismiss,
 }: MobileNemuAgentSheetProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
-  const secureVerificationAvailable = supportsMobileCloudflareSolver();
-  const displayUrl = url ? redactMobileCloudflareUrlForDisplay(url) : undefined;
-
-  const visual = statusVisual(
-    status,
+  const presentation = getNemuAgentSheetPresentation(
+    {
+      status,
+      url,
+      failureReason,
+      interactive,
+      failedAt,
+      solverSupported: solverSupported ?? supportsMobileCloudflareSolver(),
+    },
     strings,
-    secureVerificationAvailable,
-    failureReason,
   );
-  const accentColor = nemuToneColor(tokens, visual.tone);
-  const inFlight = INFLIGHT_STATUSES.has(status);
-  const showAction = shouldOfferNemuAgentVerificationAction(
-    status,
-    secureVerificationAvailable,
-    Boolean(url),
-  );
-  const actionLabel = status === "failed" ? strings.common.retry : strings.common.agentVerify;
 
-  const closeFromBackdrop = () => {
+  const closeFromSheet = () => {
     if (!visible) return;
     void hapticPress();
     onDismiss();
   };
 
-  const handleVerify = () => {
-    onVerify();
+  const runAction = (action: NemuAgentSheetAction) => {
+    if (action.kind === "retry" || action.kind === "verify") {
+      onVerify();
+      return;
+    }
+    onDismiss();
   };
 
   return (
-    <MobileSheetScaffold
+    <MobileNativeSheetScaffold
       visible={visible}
-      onRequestClose={closeFromBackdrop}
-      title={strings.settings.agent}
-      subtitle={visual.copy}
-      headerLeading={
-        <View
-          style={[
-            styles.iconShell,
-            { backgroundColor: nemuColorWithAlpha(accentColor, 0.09) },
-          ]}
-        >
-          <Ionicons name="hardware-chip-outline" size={22} color={accentColor} />
-        </View>
-      }
+      onClose={closeFromSheet}
+      testID="NemuAgentSheet"
     >
-      <View
-        style={[styles.statusRow, { backgroundColor: tokens.card, borderColor: tokens.border }]}
-      >
-        <View style={styles.statusBadge}>
-          {visual.icon ? (
-            <Ionicons name={visual.icon} size={18} color={accentColor} />
-          ) : (
-            <NemuNativeProgressView accessibilityLabel={visual.copy} />
-          )}
+      <View style={styles.header}>
+        <View style={styles.titleRow}>
+          <Ionicons
+            name="hardware-chip-outline"
+            size={22}
+            color={tokens.primary}
+          />
+          <NemuText
+            accessibilityRole="header"
+            color={tokens.foreground}
+            density="compact"
+            numberOfLines={1}
+            style={styles.title}
+            variant="sheetTitle"
+          >
+            {strings.settings.agent}
+          </NemuText>
         </View>
-        <Text
-          style={[styles.statusText, { color: tokens.foreground }]}
-          numberOfLines={2}
+        <NemuText
+          color={tokens.mutedForeground}
+          density="compact"
+          style={styles.description}
+          variant="rowSubtitle"
         >
-          {statusLabel(status, strings)}
-        </Text>
+          {presentation.description}
+        </NemuText>
       </View>
 
-      {secureVerificationAvailable && INFLIGHT_STATUSES.has(status) ? (
-        <Text style={[styles.hintText, { color: tokens.mutedForeground }]}>
-          {strings.common.agentSheetBrowserHint}
-        </Text>
-      ) : null}
-
-      {displayUrl ? (
-        <View style={[styles.subjectPill, { backgroundColor: tokens.muted }]}>
-          <Text numberOfLines={2} style={[styles.subjectText, { color: tokens.foreground }]}>
-            {displayUrl}
-          </Text>
-        </View>
-      ) : null}
+      <View
+        accessible
+        accessibilityLabel={presentation.accessibilitySummary}
+        style={[
+          styles.card,
+          { backgroundColor: tokens.card, borderColor: tokens.border },
+        ]}
+      >
+        {presentation.rows.map((row, index) => {
+          const muted = row.glyph === "pending";
+          return (
+            <View
+              key={row.key}
+              style={[
+                styles.row,
+                index > 0
+                  ? { borderTopWidth: StyleSheet.hairlineWidth, borderColor: tokens.border }
+                  : null,
+              ]}
+            >
+              <View style={styles.glyph}>
+                <RowGlyph glyph={row.glyph} />
+              </View>
+              <View style={styles.rowText}>
+                <NemuText
+                  color={muted ? tokens.mutedForeground : tokens.foreground}
+                  density="compact"
+                  numberOfLines={1}
+                  style={styles.rowTitle}
+                >
+                  {row.title}
+                </NemuText>
+                {row.detail ? (
+                  <NemuText
+                    color={
+                      row.glyph === "failed" || row.glyph === "unavailable"
+                        ? nemuToneColor(tokens, "danger")
+                        : tokens.mutedForeground
+                    }
+                    density="compact"
+                    style={styles.rowDetail}
+                  >
+                    {row.detail}
+                  </NemuText>
+                ) : null}
+              </View>
+            </View>
+          );
+        })}
+      </View>
 
       <View style={styles.actions}>
-        <NemuButton
-          accessibilityLabel={strings.common.cancel}
-          containerStyle={styles.actionButton}
-          hapticFeedback="none"
-          label={strings.common.cancel}
-          onPress={onDismiss}
-          variant="secondary"
-        />
-        {showAction ? (
+        {presentation.actions.map((action) => (
           <NemuButton
-            accessibilityLabel={actionLabel}
-            containerStyle={styles.actionButton}
-            hapticFeedback="confirm"
-            label={actionLabel}
-            onPress={handleVerify}
-            variant="default"
+            key={action.kind}
+            accessibilityLabel={action.label}
+            containerStyle={styles.action}
+            hapticFeedback={action.emphasis === "primary" ? "confirm" : "press"}
+            label={action.label}
+            onPress={() => runAction(action)}
+            testID={`NemuAgentSheet:${action.kind}`}
+            variant={action.emphasis === "primary" ? "default" : "secondary"}
           />
-        ) : secureVerificationAvailable && url ? (
-          <NemuButton
-            accessibilityLabel={strings.common.agentVerify}
-            containerStyle={styles.actionButton}
-            disabled
-            hapticFeedback="none"
-            label={strings.common.agentVerify}
-            loading={inFlight}
-            onPress={handleVerify}
-            variant="default"
-          />
-        ) : null}
+        ))}
       </View>
-    </MobileSheetScaffold>
+    </MobileNativeSheetScaffold>
   );
 }
 
-function statusVisual(
-  status: NemuAgentSheetStatus,
-  strings: ReturnType<typeof getMobileStrings>,
-  secureVerificationAvailable: boolean,
-  failureReason: string | undefined,
-): StatusVisual {
-  // Only claim "unavailable on this platform" when native really says so.
-  if (!secureVerificationAvailable) {
-    return {
-      copy: strings.common.agentSheetUnavailable,
-      icon: "shield-outline",
-      tone: "danger",
-    };
-  }
-  switch (status) {
-    case "needs-verification":
-      return {
-        copy: strings.common.sourceCloudflareBlockedDescription,
-        icon: "shield-outline",
-        tone: "primary",
-      };
-    case "opening":
-      return { copy: strings.common.agentSheetOpening, icon: null, tone: "primary" };
-    case "waiting":
-      return { copy: strings.common.agentSheetVerifying, icon: null, tone: "primary" };
-    case "captcha":
-      return { copy: strings.common.agentSheetCaptcha, icon: "alert-circle-outline", tone: "danger" };
-    case "success":
-      return { copy: strings.common.agentSheetSuccess, icon: "checkmark-circle-outline", tone: "success" };
+/** Bare state marks — no tinted wells behind them. */
+function RowGlyph({ glyph }: { glyph: NemuAgentRowGlyph }) {
+  const { tokens } = useNemuTheme();
+  switch (glyph) {
+    case "active":
+      return <NemuNativeProgressView />;
+    case "done":
+      return (
+        <Ionicons
+          name="checkmark-circle"
+          size={20}
+          color={nemuToneColor(tokens, "success")}
+        />
+      );
+    case "skipped":
+      return (
+        <Ionicons
+          name="checkmark-circle-outline"
+          size={20}
+          color={tokens.mutedForeground}
+        />
+      );
     case "failed":
-      return {
-        copy: failureCopy(failureReason, strings),
-        icon: "close-circle-outline",
-        tone: "danger",
-      };
+      return (
+        <Ionicons
+          name="close-circle"
+          size={20}
+          color={nemuToneColor(tokens, "danger")}
+        />
+      );
+    case "unavailable":
+      return (
+        <Ionicons
+          name="shield-outline"
+          size={20}
+          color={nemuToneColor(tokens, "danger")}
+        />
+      );
+    case "shield":
+      return <Ionicons name="shield-outline" size={20} color={tokens.primary} />;
+    case "pending":
     default:
-      return {
-        copy: strings.common.sourceCloudflareBlockedDescription,
-        icon: "shield-outline",
-        tone: "primary",
-      };
-  }
-}
-
-/**
- * Native reports a stable reason code. Known codes get their own localized
- * line; anything else (including a code a newer native build adds) falls back
- * to the generic failure copy rather than surfacing a raw identifier.
- */
-function failureCopy(
-  failureReason: string | undefined,
-  strings: ReturnType<typeof getMobileStrings>,
-): string {
-  switch (failureReason) {
-    case "cancelled":
-      return strings.common.agentSheetFailedCancelled;
-    case "timeout":
-      return strings.common.agentSheetFailedTimeout;
-    case "blocked-destination":
-    case "unsupported-url":
-      return strings.common.agentSheetFailedBlocked;
-    case "unsolicited-host":
-      // Native refuses to solve a host the source never actually requested.
-      return strings.common.agentSheetFailedUnsolicitedHost;
-    default:
-      return strings.common.agentSheetFailed;
-  }
-}
-
-function statusLabel(
-  status: NemuAgentSheetStatus,
-  strings: ReturnType<typeof getMobileStrings>,
-): string {
-  switch (status) {
-    case "needs-verification":
-      return strings.common.sourceCloudflareBlocked;
-    case "opening":
-      return strings.common.agentSheetOpening;
-    case "waiting":
-      return strings.common.agentSheetWaiting;
-    case "captcha":
-      return strings.common.agentSheetCaptcha;
-    case "success":
-      return strings.common.agentSheetSuccess;
-    case "failed":
-      return strings.common.sourceCloudflareBlocked;
-    default:
-      return strings.common.sourceCloudflareBlocked;
+      return (
+        <Ionicons
+          name="ellipse-outline"
+          size={20}
+          color={nemuColorWithAlpha(tokens.mutedForeground, 0.55)}
+        />
+      );
   }
 }
 
 const styles = StyleSheet.create({
-  iconShell: {
-    width: 42,
-    height: 42,
+  header: {
     alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
+    gap: 4,
   },
-  statusRow: {
+  titleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    justifyContent: "center",
+    gap: 8,
   },
-  statusBadge: {
-    width: 24,
-    height: 24,
+  title: {
+    flexShrink: 1,
+    textAlign: "center",
+  },
+  description: {
+    textAlign: "center",
+  },
+  card: {
+    overflow: "hidden",
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  row: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  glyph: {
+    width: 22,
     alignItems: "center",
     justifyContent: "center",
   },
-  statusText: {
+  rowText: {
     flex: 1,
     minWidth: 0,
-    fontSize: 13,
+    gap: 2,
+  },
+  rowTitle: {
+    fontSize: 14,
     lineHeight: 18,
     fontWeight: nemuFontWeight.medium,
   },
-  hintText: {
+  rowDetail: {
     fontSize: 12,
     lineHeight: 16,
-    paddingHorizontal: 2,
-  },
-  subjectPill: {
-    minHeight: 42,
-    justifyContent: "center",
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  subjectText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: nemuFontWeight.medium,
   },
   actions: {
     flexDirection: "row",
     gap: 10,
   },
-  actionButton: {
+  action: {
     flex: 1,
   },
 });

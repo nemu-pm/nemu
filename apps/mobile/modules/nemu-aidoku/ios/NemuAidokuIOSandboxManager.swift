@@ -871,26 +871,24 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
     sourceKey: String
   ) {
     // Page images are fetched by the JS image loader, not by the bounded native
-    // HTTP host, so this is the one source-controlled URL that never reaches
-    // `validatedRemoteHttpURL`. Attaching stored source cookies to a private or
-    // reserved destination would hand them to an SSRF target, so fail closed and
-    // leave the source's own headers untouched.
+    // HTTP host; `decorateSourceImageRequest` validates the destination and
+    // fails closed (nil), leaving the source's own headers untouched. It is the
+    // same path a hook-less source's requests take.
     guard
       var value = completed["value"] as? [String: Any],
-      let urlString = value["url"] as? String,
-      (try? NemuNativeHttpAddressPolicy.validatedURL(urlString)) != nil
+      let urlString = value["url"] as? String
     else { return }
     let rawHeaders = value["headers"] as? [String: Any] ?? [:]
-    var headers = (try? Self.stringDictionary(
+    let headers = (try? Self.stringDictionary(
       rawHeaders,
       label: "Aidoku image headers"
     )) ?? [:]
-    headers = NemuAidokuModule.decorateSandboxImageHeaders(
+    guard let decorated = NemuAidokuModule.decorateSourceImageRequest(
       sourceKey: sourceKey,
       urlString: urlString,
       headers: headers
-    )
-    value["headers"] = headers
+    ) else { return }
+    value["headers"] = decorated
     completed["value"] = value
   }
 

@@ -6,9 +6,10 @@ import {
 /** Three rows of placeholder cards, matching the loaded listing grid. */
 export const MOBILE_SOURCE_GRID_SKELETON_ROWS = 3;
 /**
- * The listing grid's page insets: the browse FlatList runs inside the page
- * scaffold's 2 × spacing.pageX gutters, so the skeleton must derive its
- * columns from the same content width to hand off without a layout jump.
+ * The listing grid's portrait page insets: the browse FlatList runs inside
+ * the page scaffold's 2 × spacing.pageX gutters, so the skeleton must derive
+ * its columns from the same content width to hand off without a layout jump.
+ * Landscape callers pass the scaffold's safe-area-aware gutters instead.
  */
 export const MOBILE_SOURCE_GRID_SKELETON_HORIZONTAL_PADDING = 32;
 
@@ -20,16 +21,19 @@ export const MOBILE_SOURCE_GRID_SKELETON_HORIZONTAL_PADDING = 32;
  */
 export function getMobileSourceGridSkeletonGeometry({
   windowWidth,
+  horizontalPadding = MOBILE_SOURCE_GRID_SKELETON_HORIZONTAL_PADDING,
 }: {
   windowWidth: number;
+  /** `useMobilePageGutters().horizontal`; defaults to the portrait gutters. */
+  horizontalPadding?: number;
 }): { cardWidth: number; columnCount: number } {
   const columnCount = getMobileMangaGridColumns({
     windowWidth,
-    horizontalPadding: MOBILE_SOURCE_GRID_SKELETON_HORIZONTAL_PADDING,
+    horizontalPadding,
   });
   const cardWidth = getMobileMangaGridItemWidth({
     windowWidth,
-    horizontalPadding: MOBILE_SOURCE_GRID_SKELETON_HORIZONTAL_PADDING,
+    horizontalPadding,
   });
   return { cardWidth, columnCount };
 }

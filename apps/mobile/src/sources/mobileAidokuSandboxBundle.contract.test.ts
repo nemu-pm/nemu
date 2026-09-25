@@ -281,11 +281,14 @@ describe("Android Aidoku sandbox bundle", () => {
     expect(sandboxBridge).toContain("processAidokuSandboxImage(");
     expect(sandboxBridge).toContain("sanitizeMobileAidokuOutput(");
     expect(sandboxBridge).toContain("SANDBOX_SESSION_CREATE_TIMEOUT_MS = 40_000");
-    expect(sandboxBridge).toContain(
-      "!capabilities.hasImageRequestProvider ||",
-    );
+    // A hook-less source (or a refused url) never enters the sandbox for its
+    // image request; the hook-less one is decorated by native directly.
+    expect(sandboxBridge).toContain("if (!capabilities.hasImageRequestProvider) {");
     expect(sandboxBridge).toContain(
       '!getMobileImageUriPolicy(url, "source").allowed',
+    );
+    expect(nativeModule).toContain(
+      "decorateSourceImageRequest(sourceKey, urlString, existingHeaders) ?: existingHeaders",
     );
   });
 

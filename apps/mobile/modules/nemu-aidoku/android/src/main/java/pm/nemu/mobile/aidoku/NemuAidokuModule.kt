@@ -38,6 +38,8 @@ import okhttp3.Response
 import okhttp3.ResponseBody
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 
+/** Matches the JS output-safety cap for `modify_image_request` results. */
+private const val NEMU_SOURCE_IMAGE_MAX_HEADERS = 96
 private const val NEMU_NATIVE_HTTP_VERSION = "built-in"
 private const val NEMU_ASYNC_HTTP_MAX_TIMEOUT_MS = 30_000
 private const val NEMU_SYNC_HTTP_MAX_TIMEOUT_MS = 12_000
@@ -49,6 +51,12 @@ private val NEMU_NATIVE_HTTP_TEMP_FILE_PATTERN = Regex(
   "^nemu-http-(?:\\d+|stage-\\d+|output-\\d+|" +
     "stage-segment-\\d{2}-\\d+|output-segment-\\d{2}-\\d+)\\.part$"
 )
+/**
+ * Platform-browser UA for native requests that name none and carry no source
+ * cookie scope. Source-scoped requests fall back to
+ * [NEMU_AIDOKU_DEFAULT_USER_AGENT]; see
+ * [NemuNativeHttpRequestHeaderPolicy.fallbackUserAgent].
+ */
 private const val MOBILE_USER_AGENT =
   "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36"
 
@@ -215,6 +223,17 @@ class NemuAidokuModule : Module() {
   // Explicit, never-inline Cloudflare verification. The solver owns its own
   // narrower boundary (`NemuCloudflareChallengePolicy`) because a WebView
   // cannot be routed through OkHttp's DNS + connected-peer gate.
+  /**
+   * The solver cannot run without document-start scripts (its socket guard is
+   * one), so a WebView lacking them must not advertise it: the Nemu Agent
+   * sheet would otherwise offer a Retry that fails with
+   * `rule-list-unavailable` every time. Computed on first use, off the main
+   * thread (`getHttpClientStatus` runs on the JS thread); see
+   * [nemuCloudflareDocumentStartScriptSupported].
+   */
+  private val supportsCloudflareSolver by lazy {
+    nemuCloudflareDocumentStartScriptSupported()
+  }
   private val cloudflareSolver by lazy {
     NemuCloudflareSolver(
       activityProvider = { appContext.currentActivity },
@@ -254,7 +273,7 @@ class NemuAidokuModule : Module() {
         "available" to true,
         "abiVersion" to 7,
         "supportsRequestLifecycle" to true,
-        "supportsCloudflareSolver" to true,
+        "supportsCloudflareSolver" to supportsCloudflareSolver,
         "version" to NEMU_NATIVE_HTTP_VERSION,
         "platform" to "android",
         "detail" to "Built-in native source networking is available."
@@ -396,6 +415,19 @@ class NemuAidokuModule : Module() {
         promise,
         25_000
       )
+    }
+
+    // A source with no image-request hook never runs `modify-image-request`,
+    // so its covers and pages are decorated here instead — through the same
+    // `decorateSourceImageRequest` the hooked path uses. Resolves the
+    // decorated headers, or null when the url is not a public destination
+    // (the caller keeps the source's own headers).
+    AsyncFunction("decorateAidokuSourceImageRequest") {
+        sourceKey: String,
+        url: String,
+        headers: Map<String, String>,
+        promise: Promise ->
+      decorateSourceImageRequestAsync(sourceKey, url, headers, promise)
     }
 
     AsyncFunction("processAidokuSandboxImage") {
@@ -696,16 +728,92 @@ class NemuAidokuModule : Module() {
     }
   }
 
+  private fun decorateSourceImageRequestAsync(
+    sourceKey: String,
+    url: String,
+    headers: Map<String, String>,
+    promise: Promise
+  ) {
+    val scope = nemuValidatedCookieScope(sourceKey)
+    if (scope == null) {
+      promise.reject(
+        "E_SOURCE_COOKIE_SCOPE",
+        "An invalid source cookie scope cannot decorate an image request.",
+        null
+      )
+      return
+    }
+    // The address policy performs a blocking DNS lookup.
+    appContext.backgroundCoroutineScope.launch {
+      try {
+        promise.resolve(runInterruptible { decorateSourceImageRequest(scope, url, headers) })
+      } catch (error: Throwable) {
+        promise.reject(
+          "E_SOURCE_IMAGE_REQUEST",
+          error.localizedMessage ?: "The source image request could not be decorated.",
+          error
+        )
+      }
+    }
+  }
+
+  /** Hooked-path adapter for [AidokuSandboxManager]: fail closed to the source's headers. */
   private fun decorateSandboxImageHeaders(
     sourceKey: String,
     urlString: String,
     existingHeaders: Map<String, String>
-  ): Map<String, String> {
-    val url = urlString.toHttpUrlOrNull() ?: return existingHeaders
+  ): Map<String, String> =
+    decorateSourceImageRequest(sourceKey, urlString, existingHeaders) ?: existingHeaders
+
+  /**
+   * The one native path every source-owned image request is decorated
+   * through, whether the source rewrote it (`modify-image-request` in the
+   * sandbox, via [decorateSandboxImageHeaders]) or not
+   * (`decorateAidokuSourceImageRequest`, which the JS bridge calls for a
+   * source with no image-request hook).
+   *
+   * Returns null — the caller keeps the source's headers untouched — unless
+   * the url is an http(s) url to a public destination. Page images are
+   * fetched by the JS image loader, not the address-pinned OkHttp client, so
+   * this is where a source-controlled url is checked before the source's
+   * cookies are put on it: attaching them to a private or reserved address
+   * would hand them to an SSRF target. Mirrors iOS, which validates the same
+   * way. Performs a blocking DNS lookup; never call it on the main thread.
+   *
+   * Cookie isolation: only [sourceKey]'s own jar is read, and only the cookies
+   * it would send to this url (`loadForRequest` matches domain, path and
+   * `Secure`), so one source's clearance never reaches another source's images
+   * or an unrelated host.
+   */
+  private fun decorateSourceImageRequest(
+    sourceKey: String,
+    urlString: String,
+    existingHeaders: Map<String, String>
+  ): Map<String, String>? {
+    if (existingHeaders.size > NEMU_SOURCE_IMAGE_MAX_HEADERS) return null
+    val url = urlString.toHttpUrlOrNull() ?: return null
+    val publicDestination = runCatching {
+      NemuNativeHttpAddressPolicy.requirePublicDestination(url.host)
+      NemuNativeHttpAddressPolicy.resolvePublicAddresses(url.host) {
+        java.net.InetAddress.getAllByName(it).toList()
+      }
+    }.isSuccess
+    if (!publicDestination) return null
     val matchedCookies = sandboxCookieStore.get(sourceKey).loadForRequest(url)
-    return mergeAidokuSandboxCookieHeaders(
+    val merged = mergeAidokuSandboxCookieHeaders(
       existingHeaders,
       matchedCookies.map { it.name to it.value }
+    )
+    // When the jar contributed cookies (`cf_clearance` among them) the request
+    // needs the User-Agent the clearance is bound to: the source's own, else
+    // the runtime default the solver also presents. Otherwise the source's
+    // headers stay as they were.
+    return NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
+      merged,
+      sourceCookie = existingHeaders.entries
+        .firstOrNull { it.key.equals("Cookie", ignoreCase = true) }
+        ?.value,
+      sourceUserAgent = NEMU_AIDOKU_DEFAULT_USER_AGENT
     )
   }
 
@@ -726,6 +834,9 @@ class NemuAidokuModule : Module() {
       .callTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
       .build()
     val nativeRequest = NemuAidokuHttpRequest().apply {
+      // Not a jar selector here (the client above already carries the scoped
+      // jar); it marks the request as source traffic for the UA fallback.
+      cookieScope = request.sourceKey
       url = request.url
       method = request.method
       headers = request.headers
@@ -910,8 +1021,15 @@ class NemuAidokuModule : Module() {
           NemuHttpsOnlyRequestPolicy
         )
       }
-      if (!request.headers.keys.any { it.equals("user-agent", ignoreCase = true) }) {
-        requestBuilder.header("User-Agent", MOBILE_USER_AGENT)
+      if (!NemuNativeHttpRequestHeaderPolicy.hasUserAgent(request.headers)) {
+        requestBuilder.header(
+          "User-Agent",
+          NemuNativeHttpRequestHeaderPolicy.fallbackUserAgent(
+            cookieScope = request.cookieScope,
+            sourceDefault = NEMU_AIDOKU_DEFAULT_USER_AGENT,
+            platformDefault = MOBILE_USER_AGENT
+          )
+        )
       }
       NemuNativeHttpRequestHeaderPolicy.normalize(request.headers).forEach { (key, value) ->
         requestBuilder.header(key, value)
@@ -1124,8 +1242,15 @@ class NemuAidokuModule : Module() {
           NemuHttpsOnlyRequestPolicy
         )
       }
-      if (!request.headers.keys.any { it.equals("user-agent", ignoreCase = true) }) {
-        requestBuilder.header("User-Agent", MOBILE_USER_AGENT)
+      if (!NemuNativeHttpRequestHeaderPolicy.hasUserAgent(request.headers)) {
+        requestBuilder.header(
+          "User-Agent",
+          NemuNativeHttpRequestHeaderPolicy.fallbackUserAgent(
+            cookieScope = request.cookieScope,
+            sourceDefault = NEMU_AIDOKU_DEFAULT_USER_AGENT,
+            platformDefault = MOBILE_USER_AGENT
+          )
+        )
       }
       NemuNativeHttpRequestHeaderPolicy.normalize(request.headers).forEach { (key, value) ->
         requestBuilder.header(key, value)

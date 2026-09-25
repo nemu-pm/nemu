@@ -8,6 +8,14 @@ import { formatChapterShort, formatChapterTitle } from "./formatChapter";
 import { formatMobileString, type MobileStrings } from "./mobileI18n";
 import { getMobileSourceMangaContinueTarget } from "./mobileSourceMangaContinue";
 
+/**
+ * Widest the detail card's primary "Start reading / Continue" button grows.
+ * A portrait phone's copy column is narrower than this, so it only bites on
+ * landscape phones and iPads, where a flex:1 pill would otherwise stretch
+ * across the whole card.
+ */
+export const MOBILE_MANGA_DETAIL_PRIMARY_ACTION_MAX_WIDTH = 320;
+
 export type MobileMangaDetailSourceTabBadge = {
   detail: string;
   text: string;

@@ -523,6 +523,14 @@ function indexesAroundCenter(
   return indexes;
 }
 
+function decoratePageImageRequest(
+  source: MobileAidokuExecutorSource,
+  request: { url: string; headers: Record<string, string> },
+): Promise<{ url: string; headers: Record<string, string> }> {
+  if (!source.decorateImageRequest) return Promise.resolve(request);
+  return source.decorateImageRequest(request).catch(() => request);
+}
+
 function createMobileReaderPageProcessor({
   normalizedSource,
   rawPages,
@@ -667,8 +675,13 @@ function createMobileReaderPageProcessor({
                 imageProcessing: "ready",
               };
             }
+            // Page headers skip `modifyImageRequest`, so they go through the
+            // same native decoration (scoped cookies + their UA) on their own.
             const request = page.headers
-              ? { url: page.url!, headers: page.headers }
+              ? await decoratePageImageRequest(session.source, {
+                  url: page.url!,
+                  headers: page.headers,
+                })
               : await session.source
                   .modifyImageRequest(page.url!)
                   .catch(() => undefined);

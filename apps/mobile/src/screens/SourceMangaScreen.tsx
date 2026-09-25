@@ -1872,6 +1872,8 @@ export function SourceMangaScreen() {
         status={cloudflareSheet.status}
         url={cloudflareSheet.url}
         failureReason={cloudflareSheet.failureReason}
+        interactive={cloudflareSheet.interactive}
+        failedAt={cloudflareSheet.failedAt}
         onVerify={cloudflareSheet.verify}
         onDismiss={cloudflareSheet.dismiss}
       />

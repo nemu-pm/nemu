@@ -268,6 +268,69 @@ enum NemuCloudflareChallengePolicyTests {
         challengeHost: host
       )
     )
+
+    // CHIPS: Cloudflare sets `cf_clearance` `Partitioned`, and WebKit hands it
+    // back tagged with the solve's top-level site. A partition covering the
+    // challenge host is dropped on adoption; any other partition is refused.
+    let partitionKey = NemuCloudflareChallengePolicy.cookieStoragePartitionKey
+    let clearanceProperties: [HTTPCookiePropertyKey: Any] = [
+      .name: "cf_clearance",
+      .value: "solved",
+      .domain: ".example.com",
+      .path: "/",
+      .secure: "TRUE",
+      .expires: Date().addingTimeInterval(3_600),
+    ]
+    var partitioned = clearanceProperties
+    partitioned[partitionKey] = "https://example.com"
+    let adopted = NemuCloudflareChallengePolicy.adoptableCookieProperties(
+      partitioned,
+      challengeHost: host
+    )
+    precondition(adopted != nil)
+    precondition(adopted?[partitionKey] == nil)
+    precondition(adopted?[.value] as? String == "solved")
+    var ownHostPartition = clearanceProperties
+    ownHostPartition[partitionKey] = "https://reader.example.com"
+    precondition(
+      NemuCloudflareChallengePolicy.adoptableCookieProperties(
+        ownHostPartition,
+        challengeHost: host
+      ) != nil
+    )
+    precondition(
+      NemuCloudflareChallengePolicy.adoptableCookieProperties(
+        clearanceProperties,
+        challengeHost: host
+      )?[.value] as? String == "solved"
+    )
+    for foreign in ["https://other.example.net", "http://example.com", "https://com", "not a url"] {
+      var properties = clearanceProperties
+      properties[partitionKey] = foreign
+      precondition(
+        NemuCloudflareChallengePolicy.adoptableCookieProperties(
+          properties,
+          challengeHost: host
+        ) == nil
+      )
+    }
+    // The failure this guards against: a plain `cookies(for:)` lookup — what
+    // the source's own requests use — never returns the partitioned cookie,
+    // and does return the adopted one.
+    if let jar = URLSessionConfiguration.ephemeral.httpCookieStorage,
+       let partitionedCookie = HTTPCookie(properties: partitioned),
+       let adoptedProperties = adopted,
+       let adoptedCookie = HTTPCookie(properties: adoptedProperties) {
+      let target = URL(string: "https://reader.example.com/manga/1")!
+      jar.setCookie(partitionedCookie)
+      let partitionedVisible = jar.cookies(for: target)?.contains { $0.name == "cf_clearance" } ?? false
+      jar.setCookie(adoptedCookie)
+      precondition(jar.cookies(for: target)?.contains { $0.name == "cf_clearance" } == true)
+      if partitionedVisible {
+        print("note: this Foundation returns partitioned cookies from cookies(for:)")
+      }
+    }
+
     // A registry suffix is not a parent domain: `co.uk` does not cover
     // `reader.co.uk`, while the host's own registrable domain still does.
     precondition(NemuCloudflareChallengePolicy.isPublicSuffix("com"))
@@ -494,6 +557,182 @@ enum NemuCloudflareChallengePolicyTests {
     precondition(!bounded.allows(cookieScope: "scope-c", host: host))
     bounded.clear()
     precondition(bounded.scopeCountForTesting() == 0)
+
+    // Only the origin answering the WebView proves a clearance works: the
+    // challenge host itself, any non-redirect status, and no `cf-mitigated`
+    // marker at all.
+    let challengePage = URL(string: "https://reader.example.com/newmanga/page/1/")!
+    precondition(NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 200,
+      headers: ["Content-Type": "text/html"],
+      challengeHost: host
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 403,
+      headers: ["cf-mitigated": "challenge", "server": "cloudflare"],
+      challengeHost: host
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 200,
+      headers: ["CF-Mitigated": "challenge"],
+      challengeHost: host
+    ))
+    // The marker, not the status, is what identifies Cloudflare's own page:
+    // an origin that answers the replayed GET with an unmarked 5xx has let the
+    // clearance through, and holding out for a 2xx/4xx left the solve hanging.
+    precondition(NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 500,
+      headers: [:],
+      challengeHost: host
+    ))
+    precondition(NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 502,
+      headers: ["server": "cloudflare"],
+      challengeHost: host
+    ))
+    precondition(NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 503,
+      headers: [:],
+      challengeHost: host
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 503,
+      headers: ["cf-mitigated": "challenge", "server": "cloudflare"],
+      challengeHost: host
+    ))
+    // A redirect is not a document, whatever its headers.
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 302,
+      headers: [:],
+      challengeHost: host
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 301,
+      headers: [:],
+      challengeHost: host
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 600,
+      headers: [:],
+      challengeHost: host
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 0,
+      headers: [:],
+      challengeHost: host
+    ))
+    // An API or POST endpoint replayed as a plain GET answers 404/405 once the
+    // edge lets it through; only a mitigated 4xx is Cloudflare's.
+    precondition(NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 404,
+      headers: [:],
+      challengeHost: host
+    ))
+    precondition(NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 405,
+      headers: ["server": "cloudflare"],
+      challengeHost: host
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: challengePage,
+      status: 403,
+      headers: ["cf-mitigated": "block"],
+      challengeHost: host
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: URL(string: "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b")!,
+      status: 200,
+      headers: [:],
+      challengeHost: host
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isClearedDocumentResponse(
+      url: nil,
+      status: 200,
+      headers: [:],
+      challengeHost: host
+    ))
+
+    // The premature success the owner hit on device: Turnstile has written a
+    // fresh `cf_clearance` and the (localized) interstitial's probe no longer
+    // reads as a challenge, but no cleared document has committed yet. That
+    // must not settle the solve.
+    precondition(!NemuCloudflareChallengePolicy.isSolveComplete(
+      clearance: "fresh",
+      baselineClearance: nil,
+      committedDocumentCleared: false,
+      probeReportsChallenge: false
+    ))
+    // The origin page committed with the fresh clearance: settled.
+    precondition(NemuCloudflareChallengePolicy.isSolveComplete(
+      clearance: "fresh",
+      baselineClearance: "stale",
+      committedDocumentCleared: true,
+      probeReportsChallenge: false
+    ))
+    // A cleared response whose document still reads as a challenge, a stale
+    // cookie carried over from the failed request, or no cookie at all.
+    precondition(!NemuCloudflareChallengePolicy.isSolveComplete(
+      clearance: "fresh",
+      baselineClearance: nil,
+      committedDocumentCleared: true,
+      probeReportsChallenge: true
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isSolveComplete(
+      clearance: "stale",
+      baselineClearance: "stale",
+      committedDocumentCleared: true,
+      probeReportsChallenge: false
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isSolveComplete(
+      clearance: nil,
+      baselineClearance: nil,
+      committedDocumentCleared: true,
+      probeReportsChallenge: false
+    ))
+    precondition(!NemuCloudflareChallengePolicy.isSolveComplete(
+      clearance: "",
+      baselineClearance: nil,
+      committedDocumentCleared: true,
+      probeReportsChallenge: false
+    ))
+
+    // A cleared document committing in the hidden phase re-arms the deadline
+    // once, so a slow DOMContentLoaded cannot discard a working clearance.
+    precondition(NemuCloudflareChallengePolicy.hiddenDeadlineExtension(
+      clearedDocumentCommitted: true,
+      alreadyExtended: false,
+      sheetVisible: false
+    ) == NemuCloudflareChallengePolicy.clearedDocumentGraceSeconds)
+    precondition(NemuCloudflareChallengePolicy.clearedDocumentGraceSeconds == 15)
+    // Not cleared, already extended once, or the user is driving (no deadline).
+    precondition(NemuCloudflareChallengePolicy.hiddenDeadlineExtension(
+      clearedDocumentCommitted: false,
+      alreadyExtended: false,
+      sheetVisible: false
+    ) == nil)
+    precondition(NemuCloudflareChallengePolicy.hiddenDeadlineExtension(
+      clearedDocumentCommitted: true,
+      alreadyExtended: true,
+      sheetVisible: false
+    ) == nil)
+    precondition(NemuCloudflareChallengePolicy.hiddenDeadlineExtension(
+      clearedDocumentCommitted: true,
+      alreadyExtended: false,
+      sheetVisible: true
+    ) == nil)
 
     print("NemuCloudflareChallengePolicyTests passed.")
   }
