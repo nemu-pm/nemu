@@ -135,6 +135,12 @@ describe("getNemuAgentSheetPresentation", () => {
     expect(
       present({ status: "failed", failureReason: "rule-list-unavailable" }).rows[0].detail,
     ).toBe(strings.common.agentSheetFailedSetup);
+    // Android: the WebView was never challenged, so there was nothing to
+    // solve — not the misleading "did not finish in time".
+    expect(
+      present({ status: "failed", failedAt: "waiting", failureReason: "not-challenged" })
+        .rows[1].detail,
+    ).toBe(strings.common.agentSheetFailedNotChallenged);
   });
 
   test("an unsupported solver shows the unavailable notice, never Retry", () => {

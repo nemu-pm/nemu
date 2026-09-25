@@ -9,6 +9,7 @@ import {
   getMobileSourceErrorPresentation,
 } from "./mobileSourceErrors";
 import { getMobileInstalledSourceRegistryKeys } from "./mobileInstalledSourceKeys";
+import { resolveMobileNativeSheetBodyTopPadding } from "./mobileNativeSheet";
 
 export type MobileWelcomeSourceRef = {
   registryId: string;
@@ -19,10 +20,12 @@ export type MobileWelcomeStep = "welcome" | "language" | "sources" | "done";
 
 export const MOBILE_WELCOME_ICON_SIZE = 80;
 export const MOBILE_WELCOME_STACK_BREAKPOINT = 768;
-export const MOBILE_WELCOME_ANDROID_SNAP_POINTS: (string | number)[] = [
-  "50%",
-  "100%",
-];
+/**
+ * iOS onboarding body inset under the grabber (approved; unchanged). Android
+ * uses the shared native-sheet value instead, see
+ * [resolveMobileWelcomeSheetContentTopPadding].
+ */
+export const MOBILE_WELCOME_IOS_SHEET_TOP_PADDING = 18;
 
 /**
  * A source card is 12pt padding + 34pt of content + its selection border, so a
@@ -95,29 +98,46 @@ export type MobileWelcomeNativeSheetPresentation = {
  * the rebuilt host can silently end up with none). Observed result: a step
  * rendered, still dragged, and ignored every tap. Uniform mode across steps
  * never flips, so touches survive; a long source list simply scrolls inside
- * the capped sheet. Android already pins one snap-point array across steps
- * for the same reason (Material has no content-sized detent).
+ * the capped sheet.
+ *
+ * Android uses the same content-sized model (Material's `ModalBottomSheet`
+ * wraps its content when given no detents, like the Nemu Agent sheet). It used
+ * to pin `["50%", "100%"]`, which Material turns into a half-height *partial*
+ * state; with pan-to-close (and so every sheet gesture) disabled that state
+ * could never be expanded, and the content below the 50% line was simply cut
+ * off by the screen edge — the intro step's primary button sat on the gesture
+ * bar with its bottom inset off-screen, and the sources step's primary button
+ * was half hidden. Uniform across steps, so no mode flip here either.
+ * (Landscape still gets bounded, scrollable detents from the scaffold.)
  */
 export function resolveMobileWelcomeNativeSheetPresentation({
   platform,
 }: {
   platform: "android" | "ios";
 }): MobileWelcomeNativeSheetPresentation {
-  if (platform === "android") {
-    return {
-      boundSourceList: false,
-      enablePanDownToClose: false,
-      scroll: true,
-      snapPoints: MOBILE_WELCOME_ANDROID_SNAP_POINTS,
-    };
-  }
-
+  void platform;
   return {
     boundSourceList: false,
     enablePanDownToClose: false,
     scroll: true,
     snapPoints: undefined,
   };
+}
+
+/**
+ * Body inset between the sheet's grabber and the first onboarding content.
+ * iOS keeps its approved 18pt. Android shares the native-sheet value under the
+ * Material drag handle (whose own 22dp padding already separates them), so
+ * the onboarding sheet and the Nemu Agent sheet sit the same distance below
+ * their grabbers.
+ */
+export function resolveMobileWelcomeSheetContentTopPadding(
+  platform: "android" | "ios",
+): number {
+  if (platform === "android") {
+    return resolveMobileNativeSheetBodyTopPadding({ platform, hasChrome: false });
+  }
+  return MOBILE_WELCOME_IOS_SHEET_TOP_PADDING;
 }
 
 export type MobileWelcomeActionState = {

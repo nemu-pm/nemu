@@ -271,6 +271,8 @@ function MobileAddBooksSheetContent({
     >
       {sheetLayout.bounded ? (
         <FlatList
+          // Android: inside a native sheet, hand the drag to the sheet at the top.
+          nestedScrollEnabled
           style={styles.scroll}
           data={entries}
           extraData={selectedIds}

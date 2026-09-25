@@ -305,6 +305,8 @@ export function MobileDualReaderConfigSheet() {
       frameMaxHeight={sheetLayout.frameMaxHeight}
     >
       <FlatList
+        // Android: inside a native sheet, hand the drag to the sheet at the top.
+        nestedScrollEnabled
         style={sheetLayout.listFillsFrame ? styles.scroll : undefined}
         contentContainerStyle={styles.scrollContent}
         data={loadingChapters ? [] : secondaryChapters}

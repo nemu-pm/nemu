@@ -183,6 +183,9 @@ class NemuAidokuModule : Module() {
   // mitigation. `solveCloudflare` renders a source-named url in a WebView, so
   // it may only be pointed at an origin the source actually reached.
   private val cloudflareChallengeHosts = NemuCloudflareChallengeHostRegistry()
+  // Which UA each source's solved clearance is bound to; see the class KDoc.
+  // Lives and dies with the two jars above.
+  private val cloudflareUserAgentBindings = NemuCloudflareUserAgentBindings()
   private val sandboxManagerOwner = AidokuSandboxManagerOwner<AidokuSandboxManager>()
   // `newBuilder()` shares the dispatcher's connection pool and thread pool.
   // Creating a brand-new client per WASM request prevented keep-alive reuse and
@@ -584,6 +587,7 @@ class NemuAidokuModule : Module() {
       nativeHttpCookieStore.clearScope(scope)
       sandboxCookieStore.clearScope(scope)
       cloudflareChallengeHosts.clearScope(scope)
+      cloudflareUserAgentBindings.clearScope(scope)
     } catch (error: Throwable) {
       promise.reject(
         "E_SOURCE_COOKIE_CLEAR",
@@ -606,6 +610,7 @@ class NemuAidokuModule : Module() {
     nativeHttpCookieStore.clear()
     sandboxCookieStore.clear()
     cloudflareChallengeHosts.clear()
+    cloudflareUserAgentBindings.clear()
     cancelInFlightWork()
 
     val settled = AtomicBoolean(false)
@@ -808,13 +813,20 @@ class NemuAidokuModule : Module() {
     // needs the User-Agent the clearance is bound to: the source's own, else
     // the runtime default the solver also presents. Otherwise the source's
     // headers stay as they were.
-    return NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
+    val decorated = NemuNativeHttpRequestHeaderPolicy.sourceImageHeaders(
       merged,
       sourceCookie = existingHeaders.entries
         .firstOrNull { it.key.equals("Cookie", ignoreCase = true) }
         ?.value,
       sourceUserAgent = NEMU_AIDOKU_DEFAULT_USER_AGENT
     )
+    // A clearance solved on Android is bound to the solver's Chrome UA.
+    val boundUserAgent = cloudflareUserAgentBindings.userAgentFor(
+      sourceKey,
+      url.host,
+      decorated.entries.firstOrNull { it.key.equals("Cookie", ignoreCase = true) }?.value
+    ) ?: return decorated
+    return nemuHeadersWithUserAgent(decorated, boundUserAgent)
   }
 
   private fun executeSandboxHttpRequest(
@@ -828,6 +840,10 @@ class NemuAidokuModule : Module() {
       // explicit-source-wins merge and persists each redirect hop instead.
       .cookieJar(CookieJar.NO_COOKIES)
       .addNetworkInterceptor(AidokuSandboxCookieInterceptor(scopedCookieJar))
+      // After the cookie interceptor: it needs the Cookie header of this hop.
+      .addNetworkInterceptor(
+        NemuCloudflareUserAgentInterceptor(request.sourceKey, cloudflareUserAgentBindings)
+      )
       .connectTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
       .readTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
       .writeTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
@@ -908,6 +924,9 @@ class NemuAidokuModule : Module() {
       clientBuilder.addNetworkInterceptor(
         AidokuSandboxCookieInterceptor(scopedCookieJar)
       )
+      clientBuilder.addNetworkInterceptor(
+        NemuCloudflareUserAgentInterceptor(cookieScope, cloudflareUserAgentBindings)
+      )
       val client = clientBuilder.build()
 
       // Never run the interactive Cloudflare solver inline here. Aidoku's WASM
@@ -981,6 +1000,9 @@ class NemuAidokuModule : Module() {
       val scopedCookieJar = cookieScope?.let(nativeHttpCookieStore::get)
       clientBuilder.addNetworkInterceptor(
         AidokuSandboxCookieInterceptor(scopedCookieJar)
+      )
+      clientBuilder.addNetworkInterceptor(
+        NemuCloudflareUserAgentInterceptor(cookieScope, cloudflareUserAgentBindings)
       )
       val context = appContext.reactContext?.applicationContext
         ?: return fileResponse(status = 0, error = "React Native context is unavailable.")
@@ -1447,12 +1469,20 @@ class NemuAidokuModule : Module() {
   private fun adoptSolvedCloudflareCookies(
     cookieScope: String?,
     url: HttpUrl,
-    cookieHeader: String
+    cookieHeader: String,
+    userAgent: String
   ) {
     val scope = cookieScope?.trim()?.takeIf { it.isNotEmpty() } ?: return
     if (cookieHeader.isBlank()) return
     runCatching { sandboxCookieStore.get(scope).adoptSolvedCookies(url, cookieHeader) }
     runCatching { nativeHttpCookieStore.get(scope).adoptSolvedCookies(url, cookieHeader) }
+    // The clearance only works next to the UA that earned it.
+    cloudflareUserAgentBindings.record(
+      scope,
+      nemuCloudflareBindingHost(url),
+      NemuCloudflareUserAgentBindings.clearanceIn(cookieHeader),
+      userAgent
+    )
   }
 
   /**

@@ -34,7 +34,8 @@ describe("reader plugin settings sheet policy", () => {
   test("keeps bounded scrolling, nested navigation, and both error surfaces", () => {
     const source = readerPluginSettingsSheetSource();
 
-    expect(source).toContain('snapPoints={Platform.OS === "android"');
+    // One detent for both platforms; the scaffold maps it onto Android.
+    expect(source).toContain('snapPoints={["86%"]}');
     expect(source).toContain("fillContent");
     expect(source).toContain("<ScrollView");
     expect(source).toContain("onPress={onClearSelectedPlugin}");

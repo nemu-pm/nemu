@@ -1250,6 +1250,8 @@ function SourceFilterPanel({
       testID="SourceFilterSheet"
     >
       <ScrollView
+        // Android: inside a native sheet, hand the drag to the sheet at the top.
+        nestedScrollEnabled
         contentContainerStyle={styles.filterPanelScrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}

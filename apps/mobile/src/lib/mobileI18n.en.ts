@@ -91,6 +91,8 @@ export const mobileStringsEn: MobileStrings = {
     agentStepNotNeeded: "Not needed",
     agentSheetFailedUnsolicitedHost:
       "This site was not requested by the source, so verification was refused.",
+    agentSheetFailedNotChallenged:
+      "The site let the built-in browser through without a check but still blocks this source's requests, so there is nothing to verify here.",
     agentSheetFailedSetup:
       "Secure verification couldn't be set up on this device. Try again, or update your system software.",
   },

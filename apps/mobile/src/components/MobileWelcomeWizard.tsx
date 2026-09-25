@@ -57,6 +57,7 @@ import {
   getMobileWelcomePendingSourceInstallCount,
   MOBILE_WELCOME_ICON_SIZE,
   resolveMobileWelcomeNativeSheetPresentation,
+  resolveMobileWelcomeSheetContentTopPadding,
   shouldBlockMobileWelcomeUnderlyingContent,
   shouldStackMobileWelcomeActions,
   type MobileWelcomeStep,
@@ -909,10 +910,18 @@ function MobileWelcomeWizardContent({
       scroll={welcomeSheetPresentation.scroll}
       enablePanDownToClose={welcomeSheetPresentation.enablePanDownToClose}
       backgroundColor={tokens.background}
+      // The intro step's app-icon glow bleeds upward; see the prop.
+      androidContentHandle
       testID="MobileWelcomeWizard"
       // Content-sized steps: no detent floor, so the sheet hugs its content
       // exactly like the original onboarding sheet.
-      contentStyle={styles.sheetContent}
+      contentStyle={[
+        styles.sheetContent,
+        {
+          paddingTop:
+            resolveMobileWelcomeSheetContentTopPadding(welcomeSheetPlatform),
+        },
+      ]}
     >
       {content}
     </MobileNativeSheetScaffold>
@@ -923,7 +932,6 @@ const styles = StyleSheet.create({
   sheetContent: {
     gap: 18,
     paddingHorizontal: 24,
-    paddingTop: 18,
   },
   iconWrap: {
     alignSelf: "center",

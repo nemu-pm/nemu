@@ -21,11 +21,14 @@ export type MobileSheetHeaderMetrics = {
   controlSize: number;
   horizontalPadding: number;
   minimumHeight: number;
+  /** Header padding above the title row. */
+  paddingTop: number;
+  /** Header padding below the title row, before the body's own top padding. */
+  paddingBottom: number;
   showActionLabels: boolean;
   sideWidth: number | null;
   titleAlignment: "center" | "left" | "right";
   titleNumberOfLines: 1 | 2;
-  verticalPadding: number;
 };
 
 /**
@@ -58,12 +61,17 @@ export function resolveMobileSheetHeaderMetrics(
       bodyTopPadding: 8,
       controlSize: 48,
       horizontalPadding: 24,
-      minimumHeight: 64,
+      // The 48dp control row plus its bottom padding. Nothing above it: the
+      // Material drag handle already reserves 22dp under the handle, and the
+      // former 8dp top padding plus a 64dp row centred the title ~41dp below
+      // the handle — the loose grabber-to-title gap on every titled sheet.
+      minimumHeight: 52,
+      paddingTop: 0,
+      paddingBottom: 4,
       showActionLabels: true,
       sideWidth: null,
       titleAlignment: isRTL ? "right" : "left",
       titleNumberOfLines: 2,
-      verticalPadding: 8,
     };
   }
 
@@ -77,12 +85,183 @@ export function resolveMobileSheetHeaderMetrics(
     controlSize: 44,
     horizontalPadding: 16,
     minimumHeight: 52,
+    paddingTop: 4,
+    paddingBottom: 4,
     showActionLabels: false,
     sideWidth: 76,
     titleAlignment: "center",
     titleNumberOfLines: 1,
-    verticalPadding: 4,
   };
+}
+
+/**
+ * Space above a native sheet's body. With a chrome header it separates header
+ * and body (the platform metric). Without one the body sits directly under the
+ * sheet's own grabber: iOS keeps its metric, but Android's Material 3 sheet
+ * already reserves 22dp of drag-handle padding below the handle, and adding
+ * the 8dp body inset on top of it left a visibly loose grabber-to-content gap
+ * (the Nemu Agent sheet's title row, the onboarding sheet's icon). So on
+ * Android the handle's own padding is the whole gap.
+ */
+export const MOBILE_NATIVE_ANDROID_SHEET_TOP_PADDING_UNDER_HANDLE = 0;
+
+export function resolveMobileNativeSheetBodyTopPadding({
+  platform,
+  hasChrome,
+}: {
+  platform: string;
+  hasChrome: boolean;
+}): number {
+  if (platform === "android" && !hasChrome) {
+    return MOBILE_NATIVE_ANDROID_SHEET_TOP_PADDING_UNDER_HANDLE;
+  }
+  return resolveMobileSheetHeaderMetrics(platform).bodyTopPadding;
+}
+
+/**
+ * Height of Material 3's `BottomSheetDefaults.DragHandle`: a 4dp bar with 22dp
+ * of padding above and below it.
+ */
+export const MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT = 48;
+
+/**
+ * The height a native sheet's own content (chrome + body) can occupy at its
+ * tallest detent. iOS (unchanged): the window minus the safe-area insets.
+ * Android: Material insets the sheet content for the status and navigation
+ * bars *and* stacks its drag handle above our content, so the handle's 48dp
+ * comes off as well. Without it a full-height sheet's pinned action row (the
+ * metadata editor's Reset/Save) was sized 48dp taller than the room Material
+ * gave it and ended up under the gesture bar.
+ */
+export function resolveMobileNativeSheetAvailableHeight({
+  platform,
+  windowHeight,
+  safeAreaTop,
+  safeAreaBottom,
+}: {
+  platform: string;
+  windowHeight: number;
+  safeAreaTop: number;
+  safeAreaBottom: number;
+}): number {
+  const available = windowHeight - safeAreaTop - safeAreaBottom;
+  return platform === "android"
+    ? available - MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT
+    : available;
+}
+
+/**
+ * How tall an Android native sheet is, so it matches the height the same
+ * sheet has on iOS.
+ *
+ * Material's `ModalBottomSheet` has no detents: it either wraps its content or
+ * (given a full-height child) fills the screen, and its only other state is a
+ * "partially expanded" one that is the full-height sheet pushed half off the
+ * display. Passing iOS-style detents through therefore produced full-screen
+ * sheets (one detent) or clipped ones (two). Instead, on Android the native
+ * sheet always wraps its content and opens expanded, and the scaffold sizes
+ * that content to what iOS shows:
+ *
+ * - no detent (content-sized on iOS): `content` — wraps the content, capped at
+ *   the room the sheet has, scrolling past it;
+ * - a fraction or pixel detent: `fixed` — a container of the height the iOS
+ *   sheet has at that detent, i.e. the same visible sheet height from the
+ *   bottom of the screen (the iOS fraction is of the window below the status
+ *   bar; the Android sheet adds its 48dp drag handle and sits above the
+ *   navigation bar, so both come off the content);
+ * - `100%` / `large`: `fixed` at the full available height.
+ *
+ * `maxHeight`/`height` are for the scaffold's own content (chrome + body),
+ * never more than [resolveMobileNativeSheetAvailableHeight].
+ */
+export type MobileNativeSheetAndroidFrame =
+  | { kind: "content"; maxHeight: number }
+  | { kind: "fixed"; height: number };
+
+/** The shortest fixed-detent content an Android sheet is given. */
+export const MOBILE_NATIVE_ANDROID_MIN_FIXED_HEIGHT = 188;
+
+export function resolveMobileNativeSheetAndroidFrame({
+  snapPoints,
+  windowHeight,
+  safeAreaTop,
+  safeAreaBottom,
+  keyboardHeight = 0,
+}: {
+  snapPoints: (string | number)[] | undefined;
+  windowHeight: number;
+  safeAreaTop: number;
+  safeAreaBottom: number;
+  /**
+   * Height of the open soft keyboard above the navigation bar (React Native's
+   * `keyboardDidShow` `endCoordinates.height`), 0 when it is closed. Material
+   * pads the sheet content by the IME inset, so the keyboard's height comes
+   * out of the room the content has; without it a detent-sized sheet with a
+   * focused field (the Add Sources search) outgrew the screen and pushed its
+   * drag handle and header under the status bar.
+   */
+  keyboardHeight?: number;
+}): MobileNativeSheetAndroidFrame {
+  const available = Math.max(
+    resolveMobileNativeSheetAvailableHeight({
+      platform: "android",
+      windowHeight,
+      safeAreaTop,
+      safeAreaBottom,
+    }) - Math.max(keyboardHeight, 0),
+    0,
+  );
+  const detent = snapPoints?.[0];
+  if (detent === undefined) return { kind: "content", maxHeight: available };
+  // The visible iOS sheet height at this detent.
+  let sheetHeight: number | undefined;
+  if (typeof detent === "number") {
+    sheetHeight = detent;
+  } else if (detent.endsWith("%")) {
+    const percentage = Number.parseFloat(detent);
+    if (Number.isFinite(percentage)) {
+      sheetHeight = (percentage / 100) * (windowHeight - safeAreaTop);
+    }
+  } else {
+    const pixels = Number.parseFloat(detent);
+    if (Number.isFinite(pixels)) sheetHeight = pixels;
+  }
+  if (sheetHeight === undefined) return { kind: "content", maxHeight: available };
+  const content = Math.round(
+    sheetHeight - MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT - safeAreaBottom,
+  );
+  return {
+    kind: "fixed",
+    height: Math.min(
+      Math.max(content, MOBILE_NATIVE_ANDROID_MIN_FIXED_HEIGHT),
+      available,
+    ),
+  };
+}
+
+/**
+ * Padding below a native sheet's body content.
+ *
+ * iOS (approved, unchanged): 18pt for a content-sized body; a scrolling body
+ * clears the home indicator itself, `safeAreaBottom + 28` with a 40pt floor.
+ * Android: Material 3's `ModalBottomSheet` already lays its content out above
+ * the navigation bar (its default `contentWindowInsets`), so adding the inset
+ * again only double-padded scrolling sheets; every body ends with the same
+ * 18dp gutter above the bar.
+ */
+export const MOBILE_NATIVE_SHEET_BOTTOM_GUTTER = 18;
+
+export function resolveMobileNativeSheetBottomPadding({
+  platform,
+  scroll,
+  safeAreaBottom,
+}: {
+  platform: string;
+  scroll: boolean;
+  safeAreaBottom: number;
+}): number {
+  if (platform === "android" || !scroll) return MOBILE_NATIVE_SHEET_BOTTOM_GUTTER;
+  return Math.max(safeAreaBottom + 28, 40);
 }
 
 export function resolveMobileSheetIosLayoutBudget(containerWidth: number): {

@@ -86,6 +86,8 @@ export const mobileStringsZh: MobileStrings = {
     agentStepResume: "继续加载",
     agentStepNotNeeded: "无需操作",
     agentSheetFailedUnsolicitedHost: "该网站并非此源请求的站点，已拒绝验证。",
+    agentSheetFailedNotChallenged:
+      "网站没有向内置浏览器显示验证，但仍在拦截此源的请求，因此无需也无法在此验证。",
     agentSheetFailedSetup: "无法在此设备上启动安全验证。请重试，或更新系统软件。",
   },
   errorBoundary: {

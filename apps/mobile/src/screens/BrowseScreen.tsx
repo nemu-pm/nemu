@@ -61,6 +61,7 @@ import {
   hapticError,
   hapticSelection,
 } from "@/lib/haptics";
+import { formatMobileCatalogCacheAge } from "@/lib/mobileCatalogCacheAge";
 import { prefetchCachedMobileImages } from "@/lib/mobileImageCache";
 import {
   formatMobileString,
@@ -286,17 +287,6 @@ function colorWithOpacity(color: string, opacity: number) {
     .toString(16)
     .padStart(2, "0");
   return `${color}${alpha}`;
-}
-
-function formatCatalogCacheAge(savedAt: number | null, appLanguage: string): string | null {
-  if (!savedAt || savedAt > Date.now()) return null;
-  const elapsedMinutes = Math.max(1, Math.round((Date.now() - savedAt) / 60_000));
-  const locale = appLanguage === "zh" ? "zh-CN" : appLanguage === "ja" ? "ja-JP" : "en-US";
-  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-  if (elapsedMinutes < 60) return formatter.format(-elapsedMinutes, "minute");
-  const hours = Math.round(elapsedMinutes / 60);
-  if (hours < 24) return formatter.format(-hours, "hour");
-  return formatter.format(-Math.round(hours / 24), "day");
 }
 
 /**
@@ -1030,7 +1020,7 @@ export function BrowseScreen() {
   });
   const activeInstallKey = pendingInstallKey ?? installer.installingKey;
   const refreshDisabled = refreshingSources || activeInstallKey !== null;
-  const catalogCacheAge = formatCatalogCacheAge(
+  const catalogCacheAge = formatMobileCatalogCacheAge(
     available.catalogCachedAt,
     appLanguage,
   );
@@ -1721,9 +1711,9 @@ export function BrowseScreen() {
               }}
             />
           }
-          snapPoints={
-            Platform.OS === "android" ? ["100%"] : [addSourceSheetSnapPoint]
-          }
+          // Same height on both platforms; the scaffold maps the detent onto
+          // Android's content-wrapping Material sheet.
+          snapPoints={[addSourceSheetSnapPoint]}
           fillContent
           contentBottomInset={0}
           testID="AddSourceSheet"
@@ -1810,6 +1800,8 @@ export function BrowseScreen() {
             </View>
 
             <SectionList
+              // Android: inside a native sheet, hand the drag to the sheet at the top.
+              nestedScrollEnabled
               alwaysBounceVertical={false}
               automaticallyAdjustContentInsets={false}
               contentInsetAdjustmentBehavior="never"

@@ -635,4 +635,106 @@ class NemuCloudflareChallengePolicyTest {
 
   private fun covers(domain: String): Boolean =
     NemuCloudflareChallengePolicy.cookieDomainCoversChallengeHost(domain, host)
+
+  @Test
+  fun mainFrameTrackerReportsTheChallengeDocumentFromItsStart() {
+    val page = "https://reader.example.com/newmanga/page/1/"
+    val documents = NemuCloudflareMainFrameDocumentTracker(host)
+    assertFalse(documents.documentChallenged)
+    assertFalse(documents.challengeObserved)
+
+    // WebView 133 order, observed on the emulator: the request, the main-frame
+    // `onReceivedHttpError` for the 403 interstitial, then `onPageStarted`.
+    documents.mainFrameRequestStarted(allowed = true)
+    documents.mainFrameHttpError(403, mapOf("cf-mitigated" to "challenge", "server" to "cloudflare"))
+    assertFalse(documents.documentChallenged)
+    documents.mainFrameStarted(page)
+    assertTrue(documents.documentChallenged)
+    assertTrue(documents.challengeObserved)
+    documents.mainFrameFinished(page)
+    assertTrue(documents.documentChallenged)
+    assertFalse(documents.committedDocumentCleared)
+
+    // The orchestrator's follow-up navigation withdraws it at once...
+    documents.mainFrameRequestStarted(allowed = true)
+    assertFalse(documents.documentChallenged)
+    // ...and the origin's own page is cleared, not challenged; the solve still
+    // remembers that it saw a challenge.
+    documents.mainFrameStarted(page)
+    documents.mainFrameFinished(page)
+    assertFalse(documents.documentChallenged)
+    assertTrue(documents.committedDocumentCleared)
+    assertTrue(documents.challengeObserved)
+  }
+
+  @Test
+  fun onlyAChallengeHostInterstitialIsAChallengeDocument() {
+    val page = "https://reader.example.com/"
+    val challenge = mapOf("cf-mitigated" to "challenge")
+    assertTrue(NemuCloudflareChallengePolicy.isChallengeDocumentResponse(page, 403, challenge, host))
+    assertTrue(NemuCloudflareChallengePolicy.isChallengeDocumentResponse(page, 503, mapOf("CF-Mitigated" to " Challenge "), host))
+    // A plain Cloudflare block page has nothing to solve.
+    assertFalse(NemuCloudflareChallengePolicy.isChallengeDocumentResponse(page, 403, mapOf("server" to "cloudflare"), host))
+    assertFalse(NemuCloudflareChallengePolicy.isChallengeDocumentResponse(page, 403, mapOf("cf-mitigated" to "block"), host))
+    // No error recorded for the load (a 2xx), another host, or no url at all.
+    assertFalse(NemuCloudflareChallengePolicy.isChallengeDocumentResponse(page, null, challenge, host))
+    assertFalse(NemuCloudflareChallengePolicy.isChallengeDocumentResponse(page, 200, challenge, host))
+    assertFalse(NemuCloudflareChallengePolicy.isChallengeDocumentResponse("https://elsewhere.example.net/", 403, challenge, host))
+    assertFalse(NemuCloudflareChallengePolicy.isChallengeDocumentResponse(null, 403, challenge, host))
+
+    // A request the solver refused itself (its own blank 403) never counts.
+    val documents = NemuCloudflareMainFrameDocumentTracker(host)
+    documents.mainFrameRequestStarted(allowed = false)
+    documents.mainFrameHttpError(403, challenge)
+    documents.mainFrameStarted(page)
+    assertFalse(documents.documentChallenged)
+    assertFalse(documents.challengeObserved)
+  }
+
+  @Test
+  fun anUnreadableProbeNeverCompletesButNeverEscalatesEither() {
+    assertTrue(NemuCloudflareChallengePolicy.challengeOnScreen(documentChallenged = false, probeInterstitial = null))
+    assertTrue(NemuCloudflareChallengePolicy.challengeOnScreen(documentChallenged = false, probeInterstitial = true))
+    assertTrue(NemuCloudflareChallengePolicy.challengeOnScreen(documentChallenged = true, probeInterstitial = false))
+    assertFalse(NemuCloudflareChallengePolicy.challengeOnScreen(documentChallenged = false, probeInterstitial = false))
+
+    val first = NemuCloudflareChallengePolicy.FIRST_INTERACTION_MS
+    assertFalse(NemuCloudflareChallengePolicy.shouldPresentChallenge(false, null, first, sheetVisible = false))
+    assertFalse(NemuCloudflareChallengePolicy.shouldPresentChallenge(false, false, first, sheetVisible = false))
+    assertTrue(NemuCloudflareChallengePolicy.shouldPresentChallenge(true, null, first, sheetVisible = false))
+    assertTrue(NemuCloudflareChallengePolicy.shouldPresentChallenge(false, true, first, sheetVisible = false))
+    // Not before the grace a self-clearing challenge gets, and never twice.
+    assertFalse(NemuCloudflareChallengePolicy.shouldPresentChallenge(true, true, first - 1, sheetVisible = false))
+    assertFalse(NemuCloudflareChallengePolicy.shouldPresentChallenge(true, true, first, sheetVisible = true))
+  }
+
+  @Test
+  fun aSolveThatWasNeverChallengedIsRecognised() {
+    // bakamh.com on Android: the WebView lands on the real page straight away.
+    assertTrue(
+      NemuCloudflareChallengePolicy.isUnchallengedLoad(
+        committedDocumentCleared = true,
+        challengeObserved = false,
+        challengeOnScreen = false,
+        sheetVisible = false
+      )
+    )
+    // A solve that did go through a challenge, is still loading, still shows
+    // something challenge-like, or has the user driving, is not that.
+    assertFalse(NemuCloudflareChallengePolicy.isUnchallengedLoad(true, challengeObserved = true, challengeOnScreen = false, sheetVisible = false))
+    assertFalse(NemuCloudflareChallengePolicy.isUnchallengedLoad(false, challengeObserved = false, challengeOnScreen = false, sheetVisible = false))
+    assertFalse(NemuCloudflareChallengePolicy.isUnchallengedLoad(true, challengeObserved = false, challengeOnScreen = true, sheetVisible = false))
+    assertFalse(NemuCloudflareChallengePolicy.isUnchallengedLoad(true, challengeObserved = false, challengeOnScreen = false, sheetVisible = true))
+  }
+
+  @Test
+  fun probeCompletionValuesParse() {
+    assertEquals(true, nemuCloudflareParseProbe("{\"interstitial\":true}"))
+    assertEquals(false, nemuCloudflareParseProbe("{\"interstitial\":false}"))
+    assertNull(nemuCloudflareParseProbe(null))
+    assertNull(nemuCloudflareParseProbe("null"))
+    assertNull(nemuCloudflareParseProbe("{}"))
+    assertNull(nemuCloudflareParseProbe("not json"))
+    assertFalse(NEMU_CLOUDFLARE_PROBE_SCRIPT.contains("document"))
+  }
 }

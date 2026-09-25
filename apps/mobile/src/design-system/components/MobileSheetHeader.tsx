@@ -48,7 +48,8 @@ export function MobileSheetHeader({
         {
           minHeight: metrics.minimumHeight,
           paddingHorizontal: metrics.horizontalPadding,
-          paddingVertical: metrics.verticalPadding,
+          paddingTop: metrics.paddingTop,
+          paddingBottom: metrics.paddingBottom,
         },
       ]}
     >

@@ -18,7 +18,6 @@ import {
   ActivityIndicator,
   AppState,
   BackHandler,
-  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -803,7 +802,7 @@ function ReaderPluginSettingsSheet({
       dismissLabel={strings.common.done}
       dismissDisabled={busy}
       enablePanDownToClose={!busy}
-      snapPoints={Platform.OS === "android" ? ["100%"] : ["86%"]}
+      snapPoints={["86%"]}
       fillContent
       contentStyle={styles.pluginSettingsSheet}
       testID="ReaderPluginSettingsSheet"

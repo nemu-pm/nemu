@@ -155,6 +155,8 @@ export function MobileAboutSheet({ visible, onClose }: MobileAboutSheetProps) {
       scroll={sheetLayout.scroll}
       scrollContentBottomInset={18}
       testID="AboutNemuSheet"
+      // The app-icon glow bleeds upward; see the prop.
+      androidContentHandle
       contentStyle={styles.sheet}
     >
       <NemuAppIconHalo
@@ -306,11 +308,12 @@ function colorWithOpacity(color: string, opacity: number) {
 }
 
 const styles = StyleSheet.create({
+  // Top padding comes from the scaffold (8pt on iOS as before; on Android the
+  // drag handle is drawn inside the content, above the halo).
   sheet: {
     alignItems: "center",
     gap: 13,
     paddingHorizontal: 24,
-    paddingTop: 8,
   },
   iconCluster: {
     width: 104,
