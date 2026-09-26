@@ -27,6 +27,10 @@ import { NemuAppIconHalo } from "@/components/NemuAppIconHalo";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import {
+  markMobileWelcomeDeviceCompleted,
+  readMobileWelcomeDeviceCompleted,
+} from "@/data/mobileWelcomeDeviceCompletion";
+import {
   useAvailableSources,
   useInstalledSources,
   useMobileLanguageSettings,
@@ -59,7 +63,9 @@ import {
   resolveMobileWelcomeNativeSheetPresentation,
   resolveMobileWelcomeSheetContentTopPadding,
   shouldBlockMobileWelcomeUnderlyingContent,
+  shouldShowMobileWelcomeWizard,
   shouldStackMobileWelcomeActions,
+  type MobileWelcomeDeviceCompletion,
   type MobileWelcomeStep,
 } from "@/lib/mobileWelcome";
 import {
@@ -254,6 +260,11 @@ function SourceOption({
   );
 }
 
+const mobileWelcomeDeviceCompletion: MobileWelcomeDeviceCompletion = {
+  read: readMobileWelcomeDeviceCompleted,
+  mark: markMobileWelcomeDeviceCompleted,
+};
+
 export function MobileWelcomeWizard({
   onVisibilityChange,
 }: {
@@ -274,10 +285,15 @@ export function MobileWelcomeWizard({
       else setRetryingStartup(true);
 
       try {
-        const settings = await store.getSettings();
+        // Device-wide completion: a profile switch (sign-in/out) must not
+        // replay onboarding, and an account with synced data never sees it.
+        const show = await shouldShowMobileWelcomeWizard(
+          store,
+          mobileWelcomeDeviceCompletion,
+        );
         if (settingsReadRunRef.current !== run) return;
         setStartupError(null);
-        setVisible(settings.mobileWelcomeCompleted !== true);
+        setVisible(show);
       } catch (error) {
         if (settingsReadRunRef.current !== run) return;
         // Fail closed: storage failures keep setup modal and recoverable rather
@@ -443,6 +459,9 @@ function MobileWelcomeWizardContent({
           ...settings,
           mobileWelcomeCompleted: true,
         }));
+        // Best effort: the profile flag above is authoritative for this
+        // profile and backfills the device marker on the next check.
+        await markMobileWelcomeDeviceCompleted().catch(() => undefined);
         emitMobileDataChanged("settings");
       }),
     [completionWriteCoordinator, store],

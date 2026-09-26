@@ -20,6 +20,7 @@ import {
 import { getCachedSourcePackageStats } from "@/sources/sourcePackageCache";
 import { getMobileReaderPageListCacheStats } from "@/sources/mobileReaderPageListCache";
 import { useSkeletonPulse } from "@/lib/useSkeletonPulse";
+import { formatMobileInteger } from "@/lib/mobileLocaleFormat";
 
 /** Proportion-bar segments, in the mock's order: covers → pages → packages → other. */
 const BAR_SEGMENTS = ["covers", "pages", "packages", "other"] as const;
@@ -42,7 +43,7 @@ function formatBytes(bytes: number, strings: MobileStrings): string {
 }
 
 function formatCount(template: string, count: number): string {
-  return formatMobileString(template, { count: count.toLocaleString() });
+  return formatMobileString(template, { count: formatMobileInteger(count) });
 }
 
 export function MobileStorageBreakdown({

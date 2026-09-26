@@ -61,6 +61,25 @@ describe("mobile reader pages prefetch", () => {
     expect(cache.take("a")).toBeNull();
   });
 
+  test("peek shares a fresh result without consuming it", async () => {
+    const now = { value: 0 };
+    const cache = new MobileReaderPagesPrefetchCache<string>(
+      2,
+      1_000,
+      () => now.value,
+    );
+    expect(cache.peek("a")).toBeNull();
+    cache.start("a", () => Promise.resolve("pages"));
+    await expect(cache.peek("a")).resolves.toBe("pages");
+    // The chapter turn still gets the entry.
+    await expect(cache.take("a")).resolves.toBe("pages");
+    expect(cache.peek("a")).toBeNull();
+
+    cache.start("b", () => Promise.resolve("later"));
+    now.value = 5_000;
+    expect(cache.peek("b")).toBeNull();
+  });
+
   test("a failed prefetch resolves to null instead of throwing", async () => {
     const cache = new MobileReaderPagesPrefetchCache<string>(2, 1_000, () => 0);
     cache.start("a", () => Promise.reject(new Error("offline")));

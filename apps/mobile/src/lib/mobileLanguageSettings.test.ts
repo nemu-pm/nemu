@@ -238,6 +238,32 @@ describe("mobile language display names", () => {
     expect(formatMobileLanguageDisplayName("zz", "en")).toBe("ZZ");
   });
 
+  test("names unmapped codes through the platform resolver in the app language", () => {
+    // Android's JSC has no Intl.DisplayNames; its resolver asks native ICU.
+    const calls: string[] = [];
+    const resolver = (code: string, displayLanguage: string) => {
+      calls.push(`${displayLanguage}:${code}`);
+      if (code !== "ab") return undefined;
+      return displayLanguage === "zh" ? "阿布哈西亚语" : "abkhazian";
+    };
+
+    expect(formatMobileLanguageDisplayName("AB", "en", {}, resolver)).toBe("Abkhazian");
+    expect(formatMobileLanguageDisplayName("ab", "zh", {}, resolver)).toBe("阿布哈西亚语");
+    expect(formatMobileLanguageDisplayName("zz", "en", {}, resolver)).toBe("ZZ");
+    // Mapped autonyms and the shared buckets never reach the resolver.
+    expect(formatMobileLanguageDisplayName("ja", "en", {}, resolver)).toBe("日本語");
+    expect(
+      formatMobileLanguageDisplayName("multi", "en", { multi: "Multi" }, resolver),
+    ).toBe("Multi");
+    expect(calls).toEqual(["en:ab", "zh:ab", "en:zz"]);
+  });
+
+  test("ignores a resolver that echoes the code back", () => {
+    expect(
+      formatMobileLanguageDisplayName("xx", "en", {}, (code) => code.toUpperCase()),
+    ).toBe("XX");
+  });
+
   test("collapses the registry All bucket onto multi", () => {
     expect(normalizeMobileLanguageCode("All")).toBe("multi");
     expect(normalizeMobileLanguageCode("zh_Hant")).toBe("zh-hant");

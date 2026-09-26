@@ -19,6 +19,7 @@ import {
   sortSourcesByLanguagePriority,
   type MobileLanguageSource,
 } from "./mobileLanguageSettings";
+import { compareMobileText } from "./mobileLocaleFormat";
 
 export type MobileBrowseLanguageSource = MobileLanguageSource & {
   id: string;
@@ -122,7 +123,7 @@ export function groupMobileSourcesByLanguage<T extends MobileBrowseLanguageSourc
     .map(([label, sectionSources]) => ({
       label,
       sources: options.sortSourcesByName
-        ? [...sectionSources].sort((a, b) => a.name.localeCompare(b.name))
+        ? [...sectionSources].sort((a, b) => compareMobileText(a.name, b.name))
         : [...sectionSources],
     }));
 }

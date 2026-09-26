@@ -249,24 +249,31 @@ const styles = StyleSheet.create({
   section: {
     gap: 16,
   },
+  // Wraps at large text sizes: the sort action drops under the title instead
+  // of being pushed off the trailing edge ("ascendin…").
   sectionHeaderRow: {
     minHeight: 28,
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    columnGap: 12,
+    rowGap: 4,
   },
   sectionTitle: {
+    flexShrink: 1,
     fontSize: 20,
     lineHeight: 26,
     fontWeight: nemuFontWeight.semibold,
   },
   sortAction: {
+    flexShrink: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
   },
   sortActionLabel: {
+    flexShrink: 1,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: nemuFontWeight.medium,

@@ -24,7 +24,13 @@ export type MobileSourceListingBrowseState =
       result: Extract<MobileSourceListingResult, { status: "blocked" }>;
       items: MobileLiveSearchManga[];
     }
-  | { status: "error"; items: MobileLiveSearchManga[]; detail: string };
+  | {
+      status: "error";
+      items: MobileLiveSearchManga[];
+      /** Localized headline; `detail` may carry a sanitized second line. */
+      title: string;
+      detail: string;
+    };
 
 const SOURCE_LISTING_CACHE_TTL_MS = 5 * 60 * 1000;
 const SOURCE_LISTING_CACHE_LIMIT = 80;

@@ -37,6 +37,7 @@ import {
   isApplyingMobileRemoteSnapshot,
   getMobileSyncEpoch,
   isActiveMobileSyncStore,
+  MOBILE_SYNC_STORE_IDENTITY,
   isMobileSyncEpochCurrent,
   isMobileSyncSuspended,
   mobileChapterProgressIntraPageSyncSupportedRef,
@@ -162,6 +163,11 @@ export async function retargetMobileCloudHistoryLibraryItem(
 
 class MobileSyncDataStore implements MobileDataStore {
   constructor(private readonly base: MobileDataStore) {}
+
+  /** See `MOBILE_SYNC_STORE_IDENTITY`: wrappers must resolve to this instance. */
+  get [MOBILE_SYNC_STORE_IDENTITY](): object {
+    return this;
+  }
 
   getSyncGeneration(): Promise<number | null> {
     return this.base.getSyncGeneration();

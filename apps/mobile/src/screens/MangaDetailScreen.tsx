@@ -36,7 +36,12 @@ import {
   emitMobileDataChanged,
   emitMobileLibraryDataChanged,
 } from "@/data/mobileDataEvents";
-import { useMobileLanguageSettings } from "@/data/mobileHooks";
+import {
+  isMobileSourceInstallCancellation,
+  useAvailableSources,
+  useMobileLanguageSettings,
+  useSourceInstaller,
+} from "@/data/mobileHooks";
 import {
   getEntryCover,
   sourceHasUpdate,
@@ -82,6 +87,8 @@ import {
   mobileInstalledSourceMatchesLink,
 } from "@/lib/mobileInstalledSourceKeys";
 import { applyMobileSourceDetailsRefresh } from "@/lib/mobileLibraryDetails";
+import { createMobileKeyedRefreshGate } from "@/lib/mobileKeyedRefreshGate";
+import { getMobileMissingSourceState } from "@/lib/mobileMissingSourceInstall";
 import {
   buildMobileEntryProgressMap,
   getMobileEntryMostRecentSource,
@@ -111,6 +118,7 @@ import {
   getMobileMangaDetailRouteIdCandidates,
   getMobileMangaDetailRouteSourceParam,
   normalizeMobileMangaDetailSourceParam,
+  resolveMobileMangaDetailExitAction,
   resolveMobileMangaDetailSelectedSourceId,
   shouldRedirectMissingMobileMangaDetailEntry,
 } from "@/lib/mobileMangaDetailRoute";
@@ -316,6 +324,20 @@ export function MangaDetailScreen() {
   const [removing, setRemoving] = useState(false);
   const removingRef = useRef(false);
   const removeRouteAfterDismissRef = useRef(false);
+  const exitingDetailRef = useRef(false);
+  // Leave a detail whose title is gone by popping back to what pushed it,
+  // never by replacing it with a second library index (duplicate Library
+  // screen with a Back button). Runs at most once per screen instance.
+  const exitDetailToLibrary = useCallback(() => {
+    const action = resolveMobileMangaDetailExitAction({
+      alreadyExiting: exitingDetailRef.current,
+      canDismiss: router.canDismiss(),
+    });
+    if (action === "none") return;
+    exitingDetailRef.current = true;
+    if (action === "back") router.back();
+    else router.replace("/library");
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [liveChapters, setLiveChapters] = useState<ChapterSummary[]>([]);
@@ -363,7 +385,11 @@ export function MangaDetailScreen() {
     status: "idle",
     detail: strings.mangaDetail.fullRefreshNotStarted,
   });
-  const lastDetailRefreshKey = useRef<string | null>(null);
+  const detailRefreshGate = useRef(createMobileKeyedRefreshGate());
+  useEffect(() => {
+    const gate = detailRefreshGate.current;
+    return () => gate.reset();
+  }, []);
 
   const reloadLocalDetailState = useCallback(async () => {
     if (!idCandidates.length) return null;
@@ -537,9 +563,13 @@ export function MangaDetailScreen() {
         hasEntry: Boolean(entry),
       })
     ) {
-      router.replace("/library");
+      // A removal still showing its confirmation leaves after the sheet
+      // dismisses (handleRemoveConfirmationDismissed); exiting here as well
+      // navigated twice.
+      if (removingRef.current || removeRouteAfterDismissRef.current) return;
+      exitDetailToLibrary();
     }
-  }, [entry, error, loading]);
+  }, [entry, error, exitDetailToLibrary, loading]);
 
   const effectiveMetadata = useMemo(
     () =>
@@ -609,6 +639,63 @@ export function MangaDetailScreen() {
       ? sources.find((source) => source.id === resolvedSelectedSourceId)
       : undefined;
   }, [routeSourceId, selectedSourceId, sources]);
+  // A synced item can point at a source this device has no install for (it
+  // was uninstalled on another device, or the item predates installed-source
+  // sync). Load the registry catalog only in that case so the blocked notice
+  // can offer a one-tap install instead of a dead end.
+  const selectedSourceMissing =
+    getMobileMissingSourceState(selectedSource, state.installedSources, [])
+      ?.status === "missing";
+  const missingSourceCatalog = useAvailableSources({
+    enabled: selectedSourceMissing,
+  });
+  const missingSourceInstallCandidate = useMemo(() => {
+    if (!selectedSourceMissing) return null;
+    const missing = getMobileMissingSourceState(
+      selectedSource,
+      state.installedSources,
+      missingSourceCatalog.data,
+    );
+    return missing?.status === "missing" ? missing.candidate : null;
+  }, [
+    missingSourceCatalog.data,
+    selectedSource,
+    selectedSourceMissing,
+    state.installedSources,
+  ]);
+  const missingSourceInstaller = useSourceInstaller();
+  const installingMissingSourceRef = useRef(false);
+  const installMissingSource = () => {
+    const candidate = missingSourceInstallCandidate;
+    if (!candidate || installingMissingSourceRef.current) return;
+    installingMissingSourceRef.current = true;
+    setLiveDetailState({
+      status: "loading",
+      detail: strings.mangaDetail.refreshingSource,
+    });
+    void (async () => {
+      try {
+        await missingSourceInstaller.installSource(candidate);
+        const nextState = await reloadLocalDetailState();
+        if (nextState) applyLocalDetailState(nextState);
+        setDetailRefreshNonce((value) => value + 1);
+        await hapticConfirm();
+      } catch (installError) {
+        if (!isMobileSourceInstallCancellation(installError)) {
+          setLiveDetailState({
+            status: "error",
+            detail: describeMobileErrorDetail(
+              installError,
+              strings.mangaDetail.actionFailedDetail,
+            ),
+          });
+          await hapticError();
+        }
+      } finally {
+        installingMissingSourceRef.current = false;
+      }
+    })();
+  };
   const coverSource = useMemo(() => {
     const source = selectedSource ?? sources[0];
     return source
@@ -698,25 +785,23 @@ export function MangaDetailScreen() {
   };
 
   useEffect(() => {
-    let cancelled = false;
-
     if (!entry || !selectedSource || !liveDetailRefreshKey) {
+      detailRefreshGate.current.reset();
       setLiveChapters([]);
       setLiveDetailState({
         status: "idle",
         detail: strings.mangaDetail.selectSourceRefresh,
       });
-      return () => {
-        cancelled = true;
-      };
+      return;
     }
 
-    if (lastDetailRefreshKey.current === liveDetailRefreshKey) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    lastDetailRefreshKey.current = liveDetailRefreshKey;
+    // One run per refresh key. `entry` and the other dependencies change
+    // identity while the request is in flight (sync snapshots, data events),
+    // so a same-key re-run must leave the in-flight run alone; only a new key
+    // or unmount cancels it.
+    const run = detailRefreshGate.current.begin(liveDetailRefreshKey);
+    if (!run) return;
+    const isCancelled = run.isCancelled;
     setLiveChapters([]);
     setLiveDetailState({
       status: "loading",
@@ -741,10 +826,14 @@ export function MangaDetailScreen() {
         }
 
         if (!installedSource) {
-          if (!cancelled) {
+          // No install row at all (as opposed to an install whose package
+          // bytes are missing, which the runtime repairs): say so, and let the
+          // notice offer the registry install when the catalog has it.
+          if (!isCancelled()) {
             setLiveDetailState({
               status: "blocked",
-              detail: strings.mangaDetail.sourcePackageUnavailable,
+              title: strings.sourceBrowse.sourceNotInstalled,
+              detail: strings.sourceManga.installSourceBeforeDetails,
             });
           }
           return;
@@ -773,7 +862,7 @@ export function MangaDetailScreen() {
           { message: strings.sourceBrowse.sourceOperationTimedOut },
         );
 
-        if (cancelled) return;
+        if (isCancelled()) return;
         if (refreshed.status === "blocked") {
           // Same contract as the error path below: `detail` is an untranslated
           // technical sentence, and only the presentation layer turns a marked
@@ -794,17 +883,33 @@ export function MangaDetailScreen() {
           return;
         }
 
+        // The run outlives entry reloads (see the gate above), so persist
+        // against the rows as they are now: a removal or edit that landed
+        // while the request was in flight (locally or from another device via
+        // sync) must not be overwritten by the entry captured at start.
+        const [latestItem, latestLink] = await Promise.all([
+          store.getLibraryItem(entry.item.libraryItemId),
+          store.getSourceLink(selectedSource.id),
+        ]);
+        if (isCancelled()) return;
+        const persistable =
+          latestItem !== null &&
+          latestItem.inLibrary !== false &&
+          latestLink !== null &&
+          latestLink.removed !== true;
         const applied = applyMobileSourceDetailsRefresh(
-          entry,
-          selectedSource,
+          persistable ? { ...entry, item: latestItem } : entry,
+          persistable ? latestLink : selectedSource,
           refreshed,
         );
-        await Promise.all([
-          store.saveLibraryItem(applied.item),
-          store.saveSourceLink(applied.sourceLink),
-        ]);
-        emitMobileDataChanged("library");
-        if (cancelled) return;
+        if (persistable) {
+          await Promise.all([
+            store.saveLibraryItem(applied.item),
+            store.saveSourceLink(applied.sourceLink),
+          ]);
+          emitMobileDataChanged("library");
+        }
+        if (isCancelled()) return;
 
         setLiveChapters(refreshed.chapters);
         setSourceChapterLists((current) => {
@@ -842,7 +947,7 @@ export function MangaDetailScreen() {
           detail: refreshChapterCountText(refreshed.chapters.length, strings),
         });
       } catch (nextError) {
-        if (cancelled) return;
+        if (isCancelled()) return;
         const presentation = getMobileSourceErrorPresentation(
           nextError,
           strings,
@@ -862,10 +967,6 @@ export function MangaDetailScreen() {
         });
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [
     entry,
     liveDetailRefreshKey,
@@ -1445,7 +1546,7 @@ export function MangaDetailScreen() {
   const handleRemoveConfirmationDismissed = () => {
     if (!removeRouteAfterDismissRef.current) return;
     removeRouteAfterDismissRef.current = false;
-    router.replace("/library");
+    exitDetailToLibrary();
   };
 
   const canOpenContinueChapter = canOpenMobileMangaDetailReader({
@@ -1961,13 +2062,27 @@ export function MangaDetailScreen() {
                         title={liveDetailState.title}
                         detail={liveDetailState.detail}
                         error={liveDetailState.status === "error"}
-                        actionLabel={liveDetailState.recoveryAction?.label}
+                        actionLabel={
+                          liveDetailState.recoveryAction?.label ??
+                          (liveDetailState.status === "blocked" &&
+                          missingSourceInstallCandidate
+                            ? formatMobileString(
+                                strings.browse.installSourceNamed,
+                                { name: missingSourceInstallCandidate.name },
+                              )
+                            : undefined)
+                        }
                         onActionPress={() => {
                           const action = liveDetailState.recoveryAction;
-                          if (!action) return;
-                          router.navigate(
-                            getMobileSourceErrorRecoveryHref(action),
-                          );
+                          if (action) {
+                            router.navigate(
+                              getMobileSourceErrorRecoveryHref(action),
+                            );
+                            return;
+                          }
+                          if (liveDetailState.status === "blocked") {
+                            installMissingSource();
+                          }
                         }}
                       />
                     ) : null
@@ -1989,7 +2104,7 @@ export function MangaDetailScreen() {
                 }
                 description={strings.mangaDetail.titleNotAvailable}
                 actionLabel={strings.mangaDetail.backToLibrary}
-                onActionPress={() => router.replace("/library")}
+                onActionPress={exitDetailToLibrary}
               />
             )}
           </>

@@ -378,6 +378,13 @@ jobs:
             -o "$test_dir/address-tests"
           "$test_dir/address-tests"
           xcrun swiftc \
+            modules/nemu-aidoku/ios/NemuNativeHttpAddressPolicy.swift \
+            modules/nemu-aidoku/ios/NemuNativeHttpLoopbackProxy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuNativeHttpProxyConnectionBudgetTests.swift \
+            -framework Network \
+            -o "$test_dir/connection-budget-tests"
+          "$test_dir/connection-budget-tests"
+          xcrun swiftc \
             modules/nemu-aidoku/ios/NemuCloudflareChallengePolicy.swift \
             modules/nemu-aidoku/ios/NemuNativeHttpAddressPolicy.swift \
             modules/nemu-aidoku/ios/NemuNativeHttpLoopbackProxy.swift \

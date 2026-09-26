@@ -344,8 +344,69 @@ describe("MobileSyncProvider winner pushes", () => {
         7,
         "account-a",
       ),
-    ).resolves.toBeTrue();
+    ).resolves.toEqual({ changed: true });
     expect(touched).toEqual(["chapter", "manga"]);
+  });
+
+  test("an unchanged progress delivery reports no change", async () => {
+    const chapter = progress("chapter", 5);
+    const store = {
+      getSyncGeneration: async () => 7,
+      applyChapterProgressSnapshot: async () => ({
+        progress: [chapter],
+        changed: [],
+        localWinners: [],
+      }),
+      applyMangaProgressSnapshot: async () => ({
+        progress: [],
+        changed: [],
+        localWinners: [],
+      }),
+    } as unknown as MobileDataStore;
+    const convex = {
+      mutation: async () => null,
+    } as unknown as Pick<ConvexReactClient, "mutation">;
+
+    await expect(
+      mobileSyncWinnerPushTestUtils.applyMobileProgressSnapshots(
+        store,
+        convex,
+        [chapter],
+        [],
+        () => true,
+        7,
+        "account-a",
+      ),
+    ).resolves.toEqual({ changed: false });
+  });
+
+  test("a superseded progress delivery returns null", async () => {
+    const chapter = progress("chapter", 5);
+    const store = {
+      getSyncGeneration: async () => 7,
+      applyChapterProgressSnapshot: async () => ({
+        progress: [chapter],
+        changed: [chapter],
+        localWinners: [],
+      }),
+    } as unknown as MobileDataStore;
+    const convex = {
+      mutation: async () => null,
+    } as unknown as Pick<ConvexReactClient, "mutation">;
+    let calls = 0;
+
+    await expect(
+      mobileSyncWinnerPushTestUtils.applyMobileProgressSnapshots(
+        store,
+        convex,
+        [chapter],
+        [],
+        // Still current for the generation check, cancelled after the apply.
+        () => (calls += 1) <= 1,
+        7,
+        "account-a",
+      ),
+    ).resolves.toBeNull();
   });
 
   test("chunks first-sync collection membership winners to the server limit", async () => {

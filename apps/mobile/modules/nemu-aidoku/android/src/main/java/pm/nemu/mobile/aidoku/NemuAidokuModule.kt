@@ -271,6 +271,12 @@ class NemuAidokuModule : Module() {
       "notRestricted"
     }
 
+    // Android's JavaScriptCore ships without ICU, so JS has no
+    // `Intl.DisplayNames`; the platform's CLDR names stand in for it.
+    Function("getLanguageDisplayNames") { codes: List<String>, displayLanguage: String ->
+      NemuLanguageDisplayNames.displayNames(codes, displayLanguage)
+    }
+
     Function("getHttpClientStatus") {
       mapOf(
         "available" to true,

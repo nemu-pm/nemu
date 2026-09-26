@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -14,6 +15,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   type FlatListProps,
   type ScrollViewProps,
 } from "react-native";
@@ -25,6 +27,17 @@ import { getMobilePageContentBottomPadding } from "@/lib/mobileFloatingTabBarCle
 import { resolveMobilePullToRefreshEnabled } from "@/lib/mobilePullToRefresh";
 import { subscribeMobileRootTabReselect } from "@/lib/mobileRootTabReselect";
 import { exactMobileRootTabHrefForPathname } from "@/lib/mobileRootTabs";
+import { getMobileFontScaleLayoutKey } from "@/lib/mobileDynamicTypeLayout";
+
+/**
+ * A live Dynamic Type change leaves already-mounted text with stale layout
+ * (see mobileDynamicTypeLayout.ts). Keying the page body on the font scale
+ * remounts it so every text node is measured at the new size.
+ */
+function useMobileFontScaleLayoutKey(): string {
+  const { fontScale } = useWindowDimensions();
+  return getMobileFontScaleLayoutKey(fontScale);
+}
 
 type PageScaffoldProps = {
   children: ReactNode;
@@ -175,6 +188,7 @@ export function PageScaffold({
     [scrollRef],
   );
   const contentStyle = usePageContentStyle(nativeHeader);
+  const fontScaleLayoutKey = useMobileFontScaleLayoutKey();
   const refreshControl = usePageRefreshControl({
     nativeHeader,
     onRefresh,
@@ -202,7 +216,7 @@ export function PageScaffold({
       refreshControl={refreshControl}
       showsVerticalScrollIndicator={false}
     >
-      {children}
+      <Fragment key={fontScaleLayoutKey}>{children}</Fragment>
     </ScrollView>
   );
 }
@@ -233,6 +247,7 @@ export function PageListScaffold<ItemT>({
     [listRef],
   );
   const contentStyle = usePageContentStyle(nativeHeader);
+  const fontScaleLayoutKey = useMobileFontScaleLayoutKey();
   const refreshControl = usePageRefreshControl({
     nativeHeader,
     onRefresh,
@@ -250,6 +265,7 @@ export function PageListScaffold<ItemT>({
 
   return (
     <FlatList
+      key={fontScaleLayoutKey}
       ref={setListRef}
       style={[styles.root, { backgroundColor: tokens.background }]}
       automaticallyAdjustContentInsets={contentInsetAdjustmentBehavior !== "never"}

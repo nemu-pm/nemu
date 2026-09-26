@@ -551,6 +551,8 @@ export type MobileStrings = {
     rtl: string;
     ltr: string;
     lockedChapter: string;
+    chapterLockedTitle: string;
+    chapterLockedDetail: string;
     mangaPairing: string;
     markComplete: string;
     markedComplete: string;
@@ -575,6 +577,7 @@ export type MobileStrings = {
     pageLoadingUnavailable: string;
     pageTitle: string;
     pageValue: string;
+    pageSlider: string;
     pageWidth: string;
     pageWidthValue: string;
     longStripProgress: string;

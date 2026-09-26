@@ -150,10 +150,12 @@ describe("reader plugin settings sheet policy", () => {
       'Platform.OS === "android" && !visible',
     );
     expect(display).toContain("dismissPendingRef.current = false;");
-    // The display settings popover no longer hands off to plugin settings
-    // (plugins are configured from the Settings screen), so no next-sheet
-    // handoff may remain wired from it.
-    expect(screen).not.toContain("onOpenReaderPluginSettings");
+    // The popover's "Plugins" row is the in-reader way into the plugin
+    // settings sheet; that sheet presents only after the popover's native
+    // dismissal completes (see the dedicated wiring test below).
+    expect(screen).toContain(
+      "onDismissComplete={handleReaderDisplaySettingsDismissed}",
+    );
     expect(screen).not.toContain('"plugin-settings"');
     expect(screen).toContain(
       "japaneseLearningLauncherNextSurfaceRef.current = surface;",
@@ -184,6 +186,72 @@ describe("reader plugin settings sheet policy", () => {
     );
     expect(launcher).toContain("onDismiss={onDismiss}");
     expect(transcript).toContain("onDismiss={onDismiss}");
+  });
+
+  test("the reader settings popover opens the reader plugin settings sheet", () => {
+    const screen = mobileSource("screens/ReaderScreen.tsx");
+    const display = mobileSource(
+      "components/reader/ReaderDisplaySettingsPopover.tsx",
+    );
+
+    // The sheet is rendered, and something in the reader actually opens it.
+    expect(screen).toContain("<ReaderPluginSettingsSheet");
+    expect(
+      screen.match(/setReaderPluginSettingsOpen\(true\)/g) ?? [],
+    ).toHaveLength(1);
+
+    // That one call runs from the popover's dismissal-complete callback, and
+    // only for a dismissal the Plugins row asked for.
+    const handoffStart = screen.indexOf(
+      "const handleReaderDisplaySettingsDismissed = useCallback(",
+    );
+    expect(handoffStart).toBeGreaterThan(-1);
+    const handoff = screen.slice(handoffStart, screen.indexOf("}, []);", handoffStart));
+    expect(handoff).toContain(
+      "if (!openReaderPluginSettingsAfterDisplaySettingsRef.current) return;",
+    );
+    expect(handoff).toContain("setSelectedReaderPluginSettingsId(null);");
+    expect(handoff).toContain("setReaderPluginSettingsOpen(true);");
+
+    const openStart = screen.indexOf(
+      "const openReaderPluginSettingsFromDisplaySettings = useCallback(",
+    );
+    expect(openStart).toBeGreaterThan(-1);
+    const open = screen.slice(openStart, screen.indexOf("}, [", openStart));
+    expect(open).toContain(
+      "openReaderPluginSettingsAfterDisplaySettingsRef.current = true;",
+    );
+    expect(open).toContain("setReaderDisplaySettingsOpen(false);");
+    expect(open).not.toContain("setReaderPluginSettingsOpen(true)");
+
+    // A plain close clears a pending handoff instead of opening the sheet.
+    expect(screen).toMatch(
+      /const closeReaderDisplaySettings = useCallback\(\(\) => \{\s*openReaderPluginSettingsAfterDisplaySettingsRef\.current = false;/,
+    );
+
+    // The popover is wired to both ends of the handoff on every platform.
+    const popoverStart = screen.indexOf("<ReaderDisplaySettingsPopover");
+    const popover = screen.slice(popoverStart, screen.indexOf("/>", popoverStart));
+    expect(popover).toContain(
+      "onDismissComplete={handleReaderDisplaySettingsDismissed}",
+    );
+    expect(popover).toContain(
+      "showReaderPluginSettings={showReaderPluginSettingsEntry}",
+    );
+    expect(popover).toContain(
+      "onOpenReaderPluginSettings={openReaderPluginSettingsFromDisplaySettings}",
+    );
+    expect(screen).toContain(
+      "readerPlugins.data.length > 0 || Boolean(readerPlugins.error);",
+    );
+
+    // …and renders a pressable Plugins row that calls it.
+    expect(display).toContain(
+      "{showReaderPluginSettings && onOpenReaderPluginSettings ? (",
+    );
+    expect(display).toContain("onPress={onOpenReaderPluginSettings}");
+    expect(display).toContain("title={strings.settings.plugins}");
+    expect(display).not.toContain('Platform.OS === "ios" && showReaderPluginSettings');
   });
 
   test("keeps vertical scrolling native and paging props paged-only", () => {

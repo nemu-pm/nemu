@@ -217,6 +217,10 @@
     "addToLibrary": "添加到书架",
     "chapters": "章节",
     "noChapters": "暂无章节",
+    "sourceNotInstalled": "未安装源",
+    "sourceNotInstalledDescription": "此设备未安装“{{name}}”。安装后即可加载章节。",
+    "sourceNotInstalledUnavailable": "此设备未安装“{{name}}”，且源仓库中也没有该源。",
+    "installSourceNamed": "安装 {{name}}",
     "removeFromLibrary": "从书架移除",
     "removeFromLibraryDescription": "确定要从书架移除「{{name}}」吗？",
     "remove": "移除"

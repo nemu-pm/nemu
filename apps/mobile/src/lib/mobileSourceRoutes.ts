@@ -188,6 +188,7 @@ export function getMobileSourceReaderHref({
   if (page !== null && page !== undefined && page !== "") {
     query.push(`page=${encodeURIComponent(String(page))}`);
   }
+  if (chapter.locked === true) query.push("chapterLocked=true");
   const resolvedMangaTitle = normalizeMobileReaderRouteLabel(
     mangaTitle,
     mangaId,

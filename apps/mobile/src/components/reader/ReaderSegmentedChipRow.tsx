@@ -1,4 +1,4 @@
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import {
   NemuPressable,
   NemuText,
@@ -6,6 +6,7 @@ import {
   radius,
   useNemuTheme,
 } from "@/design-system";
+import { readerSegmentedChipLabelLayout } from "./readerSegmentedChipLayout";
 
 type ReaderSegmentedChipOption<T extends string> = {
   value: T;
@@ -35,6 +36,7 @@ export function ReaderSegmentedChipRow<T extends string>({
   onChange,
 }: ReaderSegmentedChipRowProps<T>) {
   const { tokens } = useNemuTheme();
+  const chipLabelLayout = readerSegmentedChipLabelLayout(Platform.OS);
 
   return (
     <View
@@ -69,7 +71,7 @@ export function ReaderSegmentedChipRow<T extends string>({
             <NemuText
               color={selected ? tokens.primaryForeground : tokens.mutedForeground}
               numberOfLines={1}
-              style={styles.chipLabel}
+              style={[styles.chipLabel, chipLabelLayout]}
             >
               {option.label}
             </NemuText>

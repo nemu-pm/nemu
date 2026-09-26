@@ -39,6 +39,7 @@ import { handleSourceError } from "@/lib/sources/error-handler";
 import { sanitizeSourceErrorDiagnostic } from "@nemu/core/sources";
 import i18n from "@/lib/i18n";
 import { ManageCollectionMembershipSheet } from "@/components/collections/manage-collection-membership-sheet";
+import { resolveContinueChapter } from "@nemu/core/library";
 
 /** Convert LocalChapterProgress map to ChapterGrid-compatible format */
 function chapterProgressToGridFormat(
@@ -225,13 +226,14 @@ export function MangaPage() {
 
   // Get manga progress for continue reading
   const mangaProgress = useSourceLinkProgress(registryId, sourceId, mangaId);
-  const lastReadChapter = mangaProgress?.lastReadSourceChapterId
-    ? chapters.find((ch) => ch.id === mangaProgress.lastReadSourceChapterId)
+  // Continue chapter = the in-progress chapter, else the first chapter by
+  // chapter/volume number (never the raw list's last element: oldest-first and
+  // volume-grouped sources put the newest chapter there).
+  const continueTarget = resolveContinueChapter(chapters, mangaProgress);
+  const lastReadChapter = continueTarget.isContinuation
+    ? (continueTarget.chapter ?? undefined)
     : undefined;
-
-  // Continue chapter = last read, or first (sorted ascending, so last array element)
-  const firstChapter = chapters[chapters.length - 1];
-  const continueChapter = lastReadChapter ?? firstChapter;
+  const continueChapter = continueTarget.chapter ?? undefined;
 
   const sourceKeyForProvider = `${registryId}:${sourceId}`;
 

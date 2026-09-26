@@ -51,6 +51,8 @@ import { useSortedSources } from "@/hooks/use-sorted-sources";
 import { ExpandableText } from "@/components/ui/expandable-text";
 import { usePageTitle } from "@/components/page-title";
 import { ManageCollectionMembershipSheet } from "@/components/collections/manage-collection-membership-sheet";
+import { resolveContinueChapter } from "@nemu/core/library";
+import { getLibrarySourceAvailability } from "@/lib/library-source-availability";
 
 /** Find the chapter with the highest chapter number */
 function findLatestChapter(chapters: Chapter[]): { id: string; title?: string; chapterNumber?: number; volumeNumber?: number; lang?: string } | null {
@@ -116,7 +118,13 @@ export function LibraryMangaPage() {
   const navigate = useNavigate();
   const { useSettingsStore, useLibraryStore } = useStores();
   const progressIndex = useAllMangaProgress();
-  const { getSource, availableSources, enabledSources } = useSettingsStore();
+  const {
+    getSource,
+    availableSources,
+    enabledSources,
+    installedSources,
+    installSource,
+  } = useSettingsStore();
   const {
     entries,
     loading: libraryLoading,
@@ -154,13 +162,52 @@ export function LibraryMangaPage() {
   }, [sortedSources, sourceParam]);
 
   const selectedSource = sortedSources[selectedSourceIdx];
-  // A disabled source keeps its link and its cached chapters but is never run,
-  // so an empty chapter list for it is a state to explain, not "no chapters".
-  const selectedSourceDisabled = useMemo(() => {
-    if (!selectedSource) return false;
-    const key = Keys.source(selectedSource.registryId, selectedSource.sourceId);
-    return !enabledSources.some((source) => source.id === key);
-  }, [enabledSources, selectedSource]);
+  // A source that cannot run leaves an empty chapter list to explain, not "no
+  // chapters": either the user disabled it, or it is not installed on this
+  // device at all (e.g. uninstalled on another device) — the latter offers an
+  // install instead of pointing at a Settings toggle that does not exist.
+  const selectedSourceAvailability = useMemo(
+    () =>
+      selectedSource
+        ? getLibrarySourceAvailability(
+            selectedSource,
+            installedSources,
+            availableSources,
+          )
+        : null,
+    [availableSources, installedSources, selectedSource],
+  );
+  const selectedSourceName = selectedSource
+    ? (availableSources.find(
+        (s) =>
+          s.id === selectedSource.sourceId &&
+          s.registryId === selectedSource.registryId,
+      )?.name ?? selectedSource.sourceId)
+    : "";
+  const [installingMissingSource, setInstallingMissingSource] = useState(false);
+  const [installMissingSourceError, setInstallMissingSourceError] = useState<
+    string | null
+  >(null);
+  const installMissingSource = useCallback(async () => {
+    if (
+      !selectedSource ||
+      selectedSourceAvailability?.status !== "not-installed" ||
+      !selectedSourceAvailability.candidate
+    ) {
+      return;
+    }
+    setInstallingMissingSource(true);
+    setInstallMissingSourceError(null);
+    try {
+      await installSource(selectedSource.registryId, selectedSource.sourceId);
+    } catch (installError) {
+      setInstallMissingSourceError(
+        sanitizeSourceErrorDiagnostic(installError) ?? t("common.error"),
+      );
+    } finally {
+      setInstallingMissingSource(false);
+    }
+  }, [installSource, selectedSource, selectedSourceAvailability, t]);
 
   // If this entry disappears (deleted on another device), navigate back to library.
   useEffect(() => {
@@ -196,7 +243,7 @@ export function LibraryMangaPage() {
     );
     if (runnableSources.length === 0) {
       // Nothing will ever resolve, so the page must not sit on "Loading…":
-      // the disabled-source copy below takes over.
+      // the disabled / not-installed source copy below takes over.
       setLoading(false);
       return;
     }
@@ -431,7 +478,6 @@ export function LibraryMangaPage() {
   const progressMap = buildProgressMap(entry, progressIndex);
   const mostRecentSource = getEntryMostRecentSource(entry, progressMap) ?? sortedSources[0];
   const mostRecentProgress = mostRecentSource ? progressMap.get(mostRecentSource.id) : undefined;
-  const lastReadChapterId = mostRecentProgress?.lastReadSourceChapterId;
   const mostRecentSourceInfo = mostRecentSource
     ? availableSources.find((s) => s.id === mostRecentSource.sourceId && s.registryId === mostRecentSource.registryId)
     : undefined;
@@ -441,10 +487,10 @@ export function LibraryMangaPage() {
     ? makeSourceKey(mostRecentSource.registryId, mostRecentSource.sourceId, mostRecentSource.sourceMangaId)
     : "";
   const mostRecentChapters = chaptersMap[mostRecentSourceKey] ?? [];
-  const firstChapter = mostRecentChapters[mostRecentChapters.length - 1];
-  const continueChapter = lastReadChapterId
-    ? mostRecentChapters.find((ch) => ch.id === lastReadChapterId) ?? firstChapter
-    : firstChapter;
+  // Resume the in-progress chapter, else start from the first chapter by
+  // chapter/volume number (not the raw list's last element).
+  const continueTarget = resolveContinueChapter(mostRecentChapters, mostRecentProgress);
+  const continueChapter = continueTarget.chapter ?? undefined;
 
   const sourceKey = selectedSource
     ? `${selectedSource.registryId}:${selectedSource.sourceId}`
@@ -546,7 +592,7 @@ export function LibraryMangaPage() {
                     {mostRecentSourceInfo?.icon && (
                       <img src={mostRecentSourceInfo.icon} alt="" className="size-5 rounded" />
                     )}
-                    {lastReadChapterId && continueChapter
+                    {continueTarget.isContinuation && continueChapter
                       ? t("manga.continueReading", {
                           chapter: formatChapterTitle(continueChapter),
                         })
@@ -617,15 +663,42 @@ export function LibraryMangaPage() {
                 sourceId={selectedSource.sourceId}
                 mangaId={selectedSource.sourceMangaId}
               />
-            ) : selectedSource && selectedSourceDisabled ? (
+            ) : selectedSource &&
+              selectedSourceAvailability?.status === "not-installed" ? (
+              <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <p className="font-medium">{t("manga.sourceNotInstalled")}</p>
+                <p className="text-sm text-muted-foreground">
+                  {selectedSourceAvailability.candidate
+                    ? t("manga.sourceNotInstalledDescription", {
+                        name: selectedSourceName,
+                      })
+                    : t("manga.sourceNotInstalledUnavailable", {
+                        name: selectedSourceName,
+                      })}
+                </p>
+                {selectedSourceAvailability.candidate ? (
+                  <Button
+                    onClick={() => void installMissingSource()}
+                    disabled={installingMissingSource}
+                  >
+                    {installingMissingSource
+                      ? t("addSource.installing")
+                      : t("manga.installSourceNamed", {
+                          name: selectedSourceName,
+                        })}
+                  </Button>
+                ) : null}
+                {installMissingSourceError ? (
+                  <p className="text-sm text-destructive">
+                    {installMissingSourceError}
+                  </p>
+                ) : null}
+              </div>
+            ) : selectedSource &&
+              selectedSourceAvailability?.status === "disabled" ? (
               <div className="py-8 text-center text-muted-foreground">
                 {t("settings.sourceDisabledError", {
-                  name:
-                    availableSources.find(
-                      (s) =>
-                        s.id === selectedSource.sourceId &&
-                        s.registryId === selectedSource.registryId
-                    )?.name ?? selectedSource.sourceId,
+                  name: selectedSourceName,
                 })}
               </div>
             ) : (

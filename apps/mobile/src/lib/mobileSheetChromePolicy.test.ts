@@ -469,8 +469,10 @@ describe("mobile sheet and text-field chrome policy", () => {
       source.indexOf("const cancelRemoveFromLibrary"),
     );
     expect(removeAction).not.toContain('router.replace("/library")');
+    // Leaves by popping back (never stacking a second library index), once
+    // the confirmation sheet has dismissed.
     expect(source).toMatch(
-      /const handleRemoveConfirmationDismissed[\s\S]*?router\.replace\("\/library"\)/,
+      /const handleRemoveConfirmationDismissed[\s\S]*?exitDetailToLibrary\(\)/,
     );
   });
 

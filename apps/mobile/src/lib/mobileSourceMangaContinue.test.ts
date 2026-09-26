@@ -50,3 +50,38 @@ describe("mobile source manga continue target", () => {
     });
   });
 });
+
+describe("mobile source manga continue target ordering", () => {
+  test("an oldest-first source starts at chapter 1, not the newest chapter", () => {
+    const ascending: ChapterSummary[] = [
+      { id: "c1", chapterNumber: 1 },
+      { id: "c2", chapterNumber: 2 },
+      { id: "c138", chapterNumber: 138 },
+    ];
+    expect(getMobileSourceMangaContinueTarget(ascending, null)).toEqual({
+      chapter: ascending[0],
+      isContinuation: false,
+    });
+  });
+
+  test("volume-grouped lists with trailing volume-less chapters start at Vol. 1 Ch. 1", () => {
+    const grouped: ChapterSummary[] = [
+      { id: "v2c9", chapterNumber: 9, volumeNumber: 2 },
+      { id: "v1c1", chapterNumber: 1, volumeNumber: 1 },
+      { id: "c137", chapterNumber: 137 },
+      { id: "c138", chapterNumber: 138 },
+    ];
+    expect(getMobileSourceMangaContinueTarget(grouped, null).chapter?.id).toBe("v1c1");
+  });
+
+  test("resumes by chapter number when the progress chapter id was re-keyed", () => {
+    const stale: LocalMangaProgress = {
+      ...progress("gone")!,
+      lastReadChapterNumber: 2,
+    };
+    expect(getMobileSourceMangaContinueTarget(chapters, stale)).toEqual({
+      chapter: chapters[1],
+      isContinuation: true,
+    });
+  });
+});

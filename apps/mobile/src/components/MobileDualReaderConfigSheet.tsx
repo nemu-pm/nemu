@@ -40,6 +40,11 @@ import { MOBILE_CHAPTER_LIST_PERFORMANCE } from "@/lib/mobileChapterRows";
 import { mobileInstalledSourceMatchesLink } from "@/lib/mobileInstalledSourceKeys";
 import { getMobileDualReaderSheetLayout } from "@/lib/mobileDualReaderSheetLayout";
 import {
+  mobileDualReadChapterRowSubtitles,
+  mobileDualReadSelectedChapterIndex,
+  pickMobileDualReadSecondaryChapterId,
+} from "@/lib/mobileDualReaderChapterSelection";
+import {
   getMobileDualReadCandidateSources,
   getMobileDualReadSourcePresentation,
   pickDefaultMobileDualReadSecondary,
@@ -201,6 +206,79 @@ export function MobileDualReaderConfigSheet() {
     [ctx.primaryChapters, ctx.primaryChapter],
   );
 
+  // Web's matcher picks the paired chapter as soon as both lists are known
+  // (same number, else the stored pair's offset, else the closest match), so
+  // the common case is one tap on Enable instead of scrolling a long list.
+  const chapterListRef = useRef<FlatList<ChapterSummary> | null>(null);
+  const autoScrolledSelectionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!configOpen || loadingChapters) return;
+    const nextSelection = pickMobileDualReadSecondaryChapterId({
+      selectedId: selectedSecondaryChapterId,
+      primaryChapter: currentPrimaryChapter,
+      primaryChapters:
+        ctx.primaryChapters.length > 0 ? ctx.primaryChapters : primaryChapters,
+      secondaryChapters,
+      seedPair,
+    });
+    if (nextSelection && nextSelection !== selectedSecondaryChapterId) {
+      setSelectedSecondaryChapterId(nextSelection);
+    }
+  }, [
+    configOpen,
+    ctx.primaryChapters,
+    currentPrimaryChapter,
+    loadingChapters,
+    primaryChapters,
+    secondaryChapters,
+    seedPair,
+    selectedSecondaryChapterId,
+  ]);
+  useEffect(() => {
+    if (!configOpen) {
+      autoScrolledSelectionRef.current = null;
+      return;
+    }
+    if (loadingChapters || !selectedSecondaryChapterId) return;
+    if (autoScrolledSelectionRef.current === selectedSecondaryChapterId) return;
+    const index = mobileDualReadSelectedChapterIndex(
+      secondaryChapters,
+      selectedSecondaryChapterId,
+    );
+    if (index < 0) return;
+    autoScrolledSelectionRef.current = selectedSecondaryChapterId;
+    // Only the first selection per open is brought into view; a row the
+    // user tapped is already on screen.
+    const timer = setTimeout(() => {
+      chapterListRef.current?.scrollToIndex({
+        index,
+        animated: false,
+        viewPosition: 0.4,
+      });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [configOpen, loadingChapters, secondaryChapters, selectedSecondaryChapterId]);
+  const onChapterScrollToIndexFailed = useCallback(
+    (info: { index: number; averageItemLength: number }) => {
+      chapterListRef.current?.scrollToOffset({
+        offset: info.averageItemLength * info.index,
+        animated: false,
+      });
+      setTimeout(() => {
+        chapterListRef.current?.scrollToIndex({
+          index: info.index,
+          animated: false,
+          viewPosition: 0.4,
+        });
+      }, 50);
+    },
+    [],
+  );
+  const chapterRowSubtitles = useMemo(
+    () => mobileDualReadChapterRowSubtitles(secondaryChapters, ctx.strings),
+    [ctx.strings, secondaryChapters],
+  );
+
   const handleConfirm = useCallback(() => {
     if (!ctx.sourceLink || !selectedSecondary || !selectedSecondaryChapterId) {
       void hapticError();
@@ -263,6 +341,7 @@ export function MobileDualReaderConfigSheet() {
 
   const onSelectChapter = useCallback((chapter: ChapterSummary) => {
     void hapticPress();
+    autoScrolledSelectionRef.current = chapter.id;
     setSelectedSecondaryChapterId(chapter.id);
   }, []);
 
@@ -285,6 +364,7 @@ export function MobileDualReaderConfigSheet() {
       return (
         <NemuListRow
           title={formatChapterTitle(chapter, ctx.strings)}
+          subtitle={chapterRowSubtitles.get(chapter.id)}
           accessory={
             selected ? <Text style={{ color: tokens.primary }}>✓</Text> : undefined
           }
@@ -293,7 +373,13 @@ export function MobileDualReaderConfigSheet() {
         />
       );
     },
-    [ctx.strings, onSelectChapter, selectedSecondaryChapterId, tokens.primary],
+    [
+      chapterRowSubtitles,
+      ctx.strings,
+      onSelectChapter,
+      selectedSecondaryChapterId,
+      tokens.primary,
+    ],
   );
 
   return (
@@ -305,6 +391,8 @@ export function MobileDualReaderConfigSheet() {
       frameMaxHeight={sheetLayout.frameMaxHeight}
     >
       <FlatList
+        ref={chapterListRef}
+        onScrollToIndexFailed={onChapterScrollToIndexFailed}
         // Android: inside a native sheet, hand the drag to the sheet at the top.
         nestedScrollEnabled
         style={sheetLayout.listFillsFrame ? styles.scroll : undefined}

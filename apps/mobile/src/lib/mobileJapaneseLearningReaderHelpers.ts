@@ -11,6 +11,7 @@ import {
 } from "@/lib/mobileJapaneseLearningOcr";
 import { type MobileStrings } from "@/lib/mobileI18n";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
+import { formatMobileClockTime } from "./mobileLocaleFormat";
 
 /**
  * Theme tokens the grammar/OCR color helpers read. Kept as a structural type
@@ -65,22 +66,8 @@ export function formatMobileJapaneseLearningChatTime(
   timestamp: number,
   appLanguage: AppLanguage,
 ): string {
-  const localeMap: Record<AppLanguage, string> = {
-    en: "en-US",
-    zh: "zh-CN",
-    ja: "ja-JP",
-  };
-  const date = new Date(timestamp);
-  try {
-    return date.toLocaleTimeString(localeMap[appLanguage], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  } catch {
-    const hours = String(date.getHours()).padStart(2, "0");
-    const minutes = String(date.getMinutes()).padStart(2, "0");
-    return `${hours}:${minutes}`;
-  }
+  // Android's ICU-less JSC ignores the locale and options of Date#toLocale*.
+  return formatMobileClockTime(timestamp, appLanguage);
 }
 
 export function sortedMobileOcrLines(

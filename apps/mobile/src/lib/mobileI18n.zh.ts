@@ -571,6 +571,9 @@ export const mobileStringsZh: MobileStrings = {
     rtl: "右至左",
     ltr: "左至右",
     lockedChapter: "已锁定章节",
+    chapterLockedTitle: "此章节已锁定",
+    chapterLockedDetail:
+      "该来源仅向付费或已登录的读者提供此章节。请在来源处解锁，或在来源设置中登录后重试。",
     mangaPairing: "漫画式配对",
     markComplete: "标记完成",
     markedComplete: "已标记完成",
@@ -595,6 +598,7 @@ export const mobileStringsZh: MobileStrings = {
     pageLoadingUnavailable: "页面加载不可用",
     pageTitle: "第 {{page}} 页",
     pageValue: "第 {{page}} 页，共 {{total}} 页",
+    pageSlider: "页面滑块",
     pageWidth: "页面宽度",
     pageWidthValue: "{{percent}}% 页面宽度",
     longStripProgress: "本页阅读进度 {{percent}}%",

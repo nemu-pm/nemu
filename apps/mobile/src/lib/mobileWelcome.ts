@@ -173,6 +173,75 @@ export function getMobileWelcomeInstallErrorCopy(
   };
 }
 
+export type MobileWelcomeDeviceCompletion = {
+  read: () => Promise<boolean>;
+  mark: () => Promise<void>;
+};
+
+export type MobileWelcomeStartupStore = {
+  getSettings: () => Promise<{ mobileWelcomeCompleted?: boolean }>;
+  getInstalledSources: () => Promise<Array<Pick<InstalledSource, "removed">>>;
+  countLibraryEntries: () => Promise<number>;
+};
+
+/**
+ * Whether the welcome wizard should open for the active data profile.
+ *
+ * Completion is device-wide: the per-profile `mobileWelcomeCompleted` flag
+ * alone re-opened the wizard after every sign-in/sign-out, because each switch
+ * lands in a different profile database that never saw onboarding. So:
+ *
+ * - a device marker (or a profile flag from before the marker existed, which
+ *   is backfilled into the marker) closes the wizard for every profile;
+ * - a profile that already holds installed sources or library items — an
+ *   account whose data synced in, or an install that predates the flag — is
+ *   never onboarded again, and marks the device as done;
+ * - only a genuinely empty, never-onboarded install shows the wizard.
+ *
+ * A settings read failure propagates so the caller can fail closed into the
+ * wizard's recoverable startup error. Marker I/O is best effort: a failed
+ * marker read falls back to the profile evidence, a failed write retries on
+ * the next launch.
+ */
+export async function shouldShowMobileWelcomeWizard(
+  store: MobileWelcomeStartupStore,
+  device: MobileWelcomeDeviceCompletion,
+): Promise<boolean> {
+  const settings = await store.getSettings();
+  let deviceCompleted = false;
+  try {
+    deviceCompleted = await device.read();
+  } catch {
+    deviceCompleted = false;
+  }
+  const markDevice = async () => {
+    if (deviceCompleted) return;
+    try {
+      await device.mark();
+    } catch {
+      // Retried on the next profile check or launch.
+    }
+  };
+
+  if (deviceCompleted || settings.mobileWelcomeCompleted === true) {
+    await markDevice();
+    return false;
+  }
+
+  const [installedSources, libraryCount] = await Promise.all([
+    store.getInstalledSources(),
+    store.countLibraryEntries(),
+  ]);
+  const hasExistingData =
+    installedSources.some((source) => source.removed !== true) ||
+    libraryCount > 0;
+  if (hasExistingData) {
+    await markDevice();
+    return false;
+  }
+  return true;
+}
+
 export type MobileWelcomeCompletionWriteCoordinator = {
   run: (write: () => Promise<void>) => Promise<void>;
 };

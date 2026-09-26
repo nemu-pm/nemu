@@ -186,9 +186,16 @@ import {
 import {
   getCachedMobileImageUriSync,
   invalidateCachedMobileImage,
+  resolveCachedMobileImageUri,
   retainCachedMobileImageAsset,
   type MobileCachedSegmentedImageAsset,
 } from "@/lib/mobileImageCache";
+import {
+  MobileReaderImagePrefetcher,
+  planMobileReaderNextChapterPrefetch,
+  planMobileReaderPagePrefetch,
+  shouldPrefetchMobileReaderNextChapter,
+} from "@/lib/mobileReaderPagePrefetch";
 import {
   MOBILE_PERFORMANCE_MARKS,
   markMobilePerformance,
@@ -328,6 +335,10 @@ import {
   useMobileDualReaderStore,
 } from "@/lib/mobileDualReaderStore";
 import { sortMobileSourceLinks } from "@/lib/mobileSourceLinks";
+import {
+  getMobileReaderLockedChapterState,
+  isMobileReaderLockedChapterFailure,
+} from "@/lib/mobileReaderLockedChapter";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 
 type ReaderPagesState =
@@ -353,6 +364,8 @@ type ReaderPagesState =
       pages: MobileReaderPage[];
       detail: string;
       title?: string;
+      /** The source refused the chapter because it is paywalled/locked. */
+      locked?: boolean;
     };
 
 type MobileReaderPersistProgressOptions = {
@@ -1152,6 +1165,7 @@ export function ReaderScreen() {
     page?: string;
     mangaTitle?: string;
     chapterTitle?: string;
+    chapterLocked?: string;
     chapterNumber?: string;
     volumeNumber?: string;
   }>();
@@ -1172,8 +1186,9 @@ export function ReaderScreen() {
         undefined,
       chapterNumber: parseMobileReaderRouteNumber(params.chapterNumber),
       volumeNumber: parseMobileReaderRouteNumber(params.volumeNumber),
+      locked: firstParam(params.chapterLocked) === "true" ? true : undefined,
     }),
-    [chapterId, params.chapterNumber, params.chapterTitle, params.volumeNumber],
+    [chapterId, params.chapterLocked, params.chapterNumber, params.chapterTitle, params.volumeNumber],
   );
   const { reduceMotion, scheme } = useNemuTheme();
   // Reduce Motion keeps the chrome's cross-fade but drops its 8px slide.
@@ -1281,6 +1296,7 @@ export function ReaderScreen() {
     useState(false);
   const [readerDisplaySettingsOpen, setReaderDisplaySettingsOpen] =
     useState(false);
+  const openReaderPluginSettingsAfterDisplaySettingsRef = useRef(false);
   const [selectedReaderPluginSettingsId, setSelectedReaderPluginSettingsId] =
     useState<string | null>(null);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
@@ -2980,6 +2996,8 @@ export function ReaderScreen() {
   // The chapter that follows the current one in reading order, independent of
   // which physical edge of the screen it lives on.
   const nextChapterInReadingOrder = mode === "rtl" ? leftChapter : rightChapter;
+  const previousChapterInReadingOrder =
+    mode === "rtl" ? rightChapter : leftChapter;
   const nextChapterLabel = useMemo(
     () =>
       nextChapterInReadingOrder
@@ -3051,6 +3069,47 @@ export function ReaderScreen() {
     readerPluginSettingsOpen,
   ]);
 
+  // Stepping back from the first page opens the previous chapter on its last
+  // page, the mirror of advancing past the final page (web prepends the
+  // previous chapter the same way). A tap-zone turn and a pinned drag can both
+  // land for one gesture, so a repeat for the same chapter is dropped.
+  const retreatRequestRef = useRef<{ chapterId: string; at: number } | null>(
+    null,
+  );
+  const showPreviousChapterFromEnd = useCallback(() => {
+    if (
+      readerDisplaySettingsOpen ||
+      readerPluginSettingsOpen ||
+      japaneseLearningLauncherVisible ||
+      japaneseLearningOcrSheetVisible ||
+      japaneseLearningChatDrawerVisible ||
+      japaneseLearningTranscriptVisible
+    ) {
+      return;
+    }
+    const previousChapter = previousChapterInReadingOrder;
+    if (!previousChapter) return;
+    const now = Date.now();
+    const lastRequest = retreatRequestRef.current;
+    if (
+      lastRequest?.chapterId === previousChapter.id &&
+      now - lastRequest.at < 1_000
+    ) {
+      return;
+    }
+    retreatRequestRef.current = { chapterId: previousChapter.id, at: now };
+    goToChapter(previousChapter, { startAt: "end" });
+  }, [
+    goToChapter,
+    japaneseLearningChatDrawerVisible,
+    japaneseLearningLauncherVisible,
+    japaneseLearningOcrSheetVisible,
+    japaneseLearningTranscriptVisible,
+    previousChapterInReadingOrder,
+    readerDisplaySettingsOpen,
+    readerPluginSettingsOpen,
+  ]);
+
   /** One page/spread forward or backward in source reading order. */
   const stepReaderPage = useCallback(
     (direction: "previous" | "next") => {
@@ -3068,8 +3127,10 @@ export function ReaderScreen() {
             direction,
           );
       if (targetPageIndex == null) {
-        // The last page is no longer a dead wall: offer the next chapter.
+        // Neither edge is a dead wall: the last page offers the next chapter
+        // and the first page steps back into the previous one.
         if (direction === "next") showEndOfChapterPrompt();
+        else showPreviousChapterFromEnd();
         return;
       }
       goToPage(targetPageIndex, direction === "next" ? "forward" : "backward");
@@ -3082,6 +3143,7 @@ export function ReaderScreen() {
       pageCount,
       readerSpreads,
       showEndOfChapterPrompt,
+      showPreviousChapterFromEnd,
     ],
   );
 
@@ -4922,6 +4984,22 @@ export function ReaderScreen() {
         }
 
         readerPagesLoadedKeyRef.current = pagesRequestKey;
+        // A locked chapter that some sources answer with an empty page list
+        // is the same dead end as one they refuse outright.
+        if (
+          refreshed.pages.length === 0 &&
+          isMobileReaderLockedChapterFailure({
+            chapter: refreshed.chapter.locked
+              ? refreshed.chapter
+              : sourceChapterForRequest,
+          })
+        ) {
+          setPagesState({
+            ...getMobileReaderLockedChapterState(effectStrings),
+            pages: [],
+          });
+          return;
+        }
         // A failed chapter-index request comes back as `chapters: []` for that
         // reason alone. Neither the cache nor the live state may take that
         // emptiness: the cache would serve an empty chapter list for its whole
@@ -4970,6 +5048,18 @@ export function ReaderScreen() {
             : undefined,
           userAgent: readMobileCloudflareUserAgent(nextError),
         });
+        if (
+          isMobileReaderLockedChapterFailure({
+            chapter: sourceChapterForRequest,
+            error: nextError,
+          })
+        ) {
+          setPagesState({
+            ...getMobileReaderLockedChapterState(effectStrings),
+            pages: [],
+          });
+          return;
+        }
         const presentation = getMobileSourceErrorPresentation(
           nextError,
           effectStrings,
@@ -5060,6 +5150,146 @@ export function ReaderScreen() {
     saveReaderSourcePackageHydration,
     selectedInstalledSource,
     sourceId,
+  ]);
+
+  // Page-image prefetch: warm the on-disk page cache for the next pages, the
+  // previous one and, near the end, the next chapter's opening pages, through
+  // the same cache key/headers/native decoration a mounted page uses. Only
+  // pages near the current one are ever mounted, so without this every swipe
+  // after a cache clear waited on the network.
+  const [readerImagePrefetcher] = useState(
+    () =>
+      new MobileReaderImagePrefetcher((image, signal) =>
+        resolveCachedMobileImageUri(
+          { uri: image.uri, headers: image.headers, cacheKind: "page" },
+          undefined,
+          undefined,
+          { priority: "prefetch", signal },
+        ),
+      ),
+  );
+  useEffect(() => () => readerImagePrefetcher.cancelAll(), [
+    readerImagePrefetcher,
+  ]);
+  const [nextChapterPrefetchPages, setNextChapterPrefetchPages] = useState<{
+    key: string;
+    pages: MobileReaderPage[];
+  } | null>(null);
+  const nextChapterPrefetchKey = nextChapterInReadingOrder
+    ? makeMobileReaderPagesPrefetchKey({
+        registryId,
+        sourceId,
+        mangaId,
+        chapterId: nextChapterInReadingOrder.id,
+        processPageImages,
+      })
+    : null;
+  const [nextChapterPrefetchRetry, setNextChapterPrefetchRetry] = useState({
+    key: nextChapterPrefetchKey,
+    count: 0,
+  });
+  const nearChapterEnd =
+    pagesState.status === "ready" &&
+    shouldPrefetchMobileReaderNextChapter({
+      pageCount,
+      currentIndex: clampedPageIndex,
+    });
+  useEffect(() => {
+    const nextChapter = nextChapterInReadingOrder;
+    if (!nearChapterEnd || !nextChapter || nextChapter.locked || !nextChapterPrefetchKey) return;
+    if (nextChapterPrefetchPages?.key === nextChapterPrefetchKey) return;
+    // Read-only look at the background page-list prefetch: the chapter turn
+    // still takes (and owns) that result.
+    const pending = mobileReaderPagesPrefetchCache.peek(nextChapterPrefetchKey);
+    if (!pending) {
+      // The page-list warmup starts a moment after the chapter renders; look
+      // again once it has had the chance to begin.
+      const retryCount = nextChapterPrefetchRetry.key === nextChapterPrefetchKey
+        ? nextChapterPrefetchRetry.count
+        : 0;
+      if (retryCount >= 3) return;
+      const timer = setTimeout(
+        () => setNextChapterPrefetchRetry({
+          key: nextChapterPrefetchKey,
+          count: retryCount + 1,
+        }),
+        MOBILE_READER_NEXT_CHAPTER_PREFETCH_DELAY_MS,
+      );
+      return () => clearTimeout(timer);
+    }
+    let active = true;
+    void pending.then((result) => {
+      if (!active || result?.status !== "ready") return;
+      setNextChapterPrefetchPages({
+        key: nextChapterPrefetchKey,
+        pages: result.pages,
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [
+    mangaId,
+    nearChapterEnd,
+    nextChapterInReadingOrder,
+    nextChapterPrefetchKey,
+    nextChapterPrefetchPages?.key,
+    nextChapterPrefetchRetry,
+    processPageImages,
+    registryId,
+    sourceId,
+  ]);
+  useEffect(() => {
+    if (pagesState.status !== "ready") {
+      readerImagePrefetcher.cancelAll();
+      return;
+    }
+    // The page on screen gets the bandwidth first: until its image has
+    // loaded (or failed) nothing is prefetched, and prefetches from the
+    // previous position are released. A load the mounted page shares keeps
+    // running under the page's own request.
+    const currentPage = pages[clampedPageIndex];
+    const currentPageIdentity = currentPage
+      ? readerPageIdentityFor(currentPage)
+      : null;
+    if (
+      currentPage?.imageUri &&
+      currentPageIdentity &&
+      !readerImageSizes.has(currentPageIdentity) &&
+      !readerImageErrors.has(currentPageIdentity)
+    ) {
+      readerImagePrefetcher.update([]);
+      return;
+    }
+    // Settle first: a fast scrub or swipe run should not queue downloads for
+    // every page it passes.
+    const timer = setTimeout(() => {
+      const nextChapterPages =
+        nearChapterEnd &&
+        nextChapterPrefetchPages &&
+        nextChapterPrefetchPages.key === nextChapterPrefetchKey
+          ? planMobileReaderNextChapterPrefetch(nextChapterPrefetchPages.pages)
+          : [];
+      readerImagePrefetcher.update([
+        ...planMobileReaderPagePrefetch({
+          pages,
+          currentIndex: clampedPageIndex,
+        }),
+        ...nextChapterPages,
+      ]);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [
+    clampedPageIndex,
+    nearChapterEnd,
+    nextChapterPrefetchKey,
+    nextChapterPrefetchPages,
+    pages,
+    pagesState.status,
+    readerImageErrors,
+    readerImagePrefetcher,
+    readerImageSizes,
+    readerPageIdentityFor,
   ]);
 
   useEffect(() => {
@@ -5925,7 +6155,25 @@ export function ReaderScreen() {
     ? strings.reader.hideControls
     : strings.reader.showControls;
   const closeReaderDisplaySettings = useCallback(() => {
+    openReaderPluginSettingsAfterDisplaySettingsRef.current = false;
     setReaderDisplaySettingsOpen(false);
+  }, []);
+  // The reader settings popover's "Plugins" row hands off to the plugin
+  // settings sheet (web parity: plugin settings live in the reader settings
+  // popover). The sheet presents only once the popover's Modal has finished
+  // dismissing, so iOS never presents a native sheet over a live Modal.
+  const showReaderPluginSettingsEntry =
+    readerPlugins.data.length > 0 || Boolean(readerPlugins.error);
+  const openReaderPluginSettingsFromDisplaySettings = useCallback(() => {
+    if (readerSettingsActionBusy) return;
+    openReaderPluginSettingsAfterDisplaySettingsRef.current = true;
+    setReaderDisplaySettingsOpen(false);
+  }, [readerSettingsActionBusy]);
+  const handleReaderDisplaySettingsDismissed = useCallback(() => {
+    if (!openReaderPluginSettingsAfterDisplaySettingsRef.current) return;
+    openReaderPluginSettingsAfterDisplaySettingsRef.current = false;
+    setSelectedReaderPluginSettingsId(null);
+    setReaderPluginSettingsOpen(true);
   }, []);
 
   return (
@@ -5981,6 +6229,11 @@ export function ReaderScreen() {
         }}
         onPageStep={stepReaderPage}
         onRequestAdvancePastEnd={showEndOfChapterPrompt}
+        onRequestRetreatPastStart={showPreviousChapterFromEnd}
+        pagedDisplayIndex={
+          isTwoPageMode ? currentSpreadIndex : clampedPageIndex
+        }
+        pagedDisplayCount={isTwoPageMode ? readerSpreads.length : pageCount}
         onSegmentedLogicalEndReached={() => {
           if (currentLogicalEndIdentity) {
             setSegmentedLogicalEndReachedIdentity(currentLogicalEndIdentity);
@@ -5993,6 +6246,17 @@ export function ReaderScreen() {
             params: { section: "sources" },
           });
         }}
+        onOpenNextChapter={
+          nextChapterInReadingOrder
+            ? () => goToChapter(nextChapterInReadingOrder, { startAt: "start" })
+            : undefined
+        }
+        onOpenPreviousChapter={
+          previousChapterInReadingOrder
+            ? () =>
+                goToChapter(previousChapterInReadingOrder, { startAt: "end" })
+            : undefined
+        }
         onToggleControls={() => {
           setShowControls((value) => !value);
         }}
@@ -6265,6 +6529,9 @@ export function ReaderScreen() {
         completed={completed}
         strings={strings}
         onClose={closeReaderDisplaySettings}
+        onDismissComplete={handleReaderDisplaySettingsDismissed}
+        showReaderPluginSettings={showReaderPluginSettingsEntry}
+        onOpenReaderPluginSettings={openReaderPluginSettingsFromDisplaySettings}
         keepAwake={readerKeepAwake}
         onToggleKeepAwake={() => {
           void runReaderSettingsAction("keep-awake", () =>
@@ -6931,6 +7198,11 @@ const styles = StyleSheet.create({
   readerChromeScrubber: {
     flex: 1,
     minWidth: 0,
+    // Reach into the panel's vertical padding so the slider's touch box
+    // covers the whole visible pill, not just the 48pt content row.
+    alignSelf: "stretch",
+    justifyContent: "center",
+    marginVertical: -READER_CHROME_PANEL_VERTICAL_PADDING,
   },
   readerPluginActionGroup: {
     flexDirection: "row",

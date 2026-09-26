@@ -28,6 +28,7 @@ import {
 } from "@/design-system";
 import { hapticConfirm, hapticError } from "@/lib/haptics";
 import { getMobileStrings } from "@/lib/mobileI18n";
+import { mobileSystemLocale } from "@/lib/mobileSystemLocale";
 import {
   formatMobileErrorLog,
   formatMobileErrorSummary,
@@ -36,19 +37,11 @@ import {
 
 type CopyState = "copied" | "failed" | null;
 
-function systemLocale(): string | undefined {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().locale;
-  } catch {
-    return undefined;
-  }
-}
-
 export function MobileErrorBoundaryScreen({ error, retry }: ErrorBoundaryProps) {
   const colorScheme = useColorScheme();
   const scheme = colorScheme === "dark" ? "dark" : "light";
   const tokens = nemuTokens[scheme];
-  const strings = getMobileStrings(resolveMobileErrorBoundaryLanguage(systemLocale()));
+  const strings = getMobileStrings(resolveMobileErrorBoundaryLanguage(mobileSystemLocale()));
   const pathname = usePathname();
   const [retrying, setRetrying] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);

@@ -70,6 +70,20 @@ function errorMessage(error: unknown): string {
 }
 
 /**
+ * Expo native modules format a thrown Swift/Kotlin exception as
+ * `NemuAidokuSandboxException: Request timed out. (at NemuAidoku/NemuAidokuModule.swift:42)`.
+ * The class name and the native source location are implementation detail —
+ * the location is where the exception type is *declared*, not where anything
+ * failed — so the diagnostic keeps only the message itself.
+ */
+export function stripMobileNativeExceptionNoise(message: string): string {
+  return message
+    .replace(/\s*\(at [^()\n]*\.(?:swift|kt|java|mm?|cpp|h):\d+\)/g, "")
+    .replace(/^(?:[a-z][\w]*\.)*[A-Z]\w*Exception:\s*/, "")
+    .trim();
+}
+
+/**
  * Produces a bounded secondary diagnostic suitable for a user-visible error
  * banner. Stable localized copy must still be supplied separately.
  *
@@ -78,7 +92,8 @@ function errorMessage(error: unknown): string {
  * unsupported-source details.
  */
 export function sanitizeMobileErrorDiagnostic(error: unknown): string | null {
-  return sanitizeSourceErrorDiagnostic(error, {
+  const message = stripMobileNativeExceptionNoise(errorMessage(error));
+  return sanitizeSourceErrorDiagnostic(message, {
     stripMarkers: [
       MOBILE_TACHIYOMI_UNSUPPORTED_MARKER,
       MOBILE_SOURCE_DISABLED_MARKER,
@@ -312,6 +327,27 @@ export function getMobileSourceErrorPresentation(
       error,
       strings.common.sourceErrorDescription,
     ),
+  };
+}
+
+/**
+ * Localized copy for a failed source operation (search, listing, home,
+ * filters) shown in an inline error surface: a known failure class (network /
+ * timeout, Cloudflare, disabled, unsupported, runtime) gets its own localized
+ * title and description; anything else keeps the operation's own failure
+ * title and appends the sanitized diagnostic as the collapsible second line.
+ * Never the raw native exception as the headline.
+ */
+export function getMobileSourceOperationErrorCopy(
+  error: unknown,
+  operationFailedTitle: string,
+  strings: Pick<MobileStrings, "common">,
+): { title: string; detail: string } {
+  const presentation = getMobileSourceErrorPresentation(error, strings);
+  return {
+    title:
+      presentation.kind === "source" ? operationFailedTitle : presentation.title,
+    detail: presentation.detail,
   };
 }
 

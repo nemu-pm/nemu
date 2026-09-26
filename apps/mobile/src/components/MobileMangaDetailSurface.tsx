@@ -26,6 +26,13 @@ import { MobileMangaStatusBadge } from "@/components/MobileMangaStatusBadge";
 import { MobileTagList } from "@/components/MobileTagList";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { MOBILE_MANGA_DETAIL_PRIMARY_ACTION_MAX_WIDTH } from "@/lib/mobileMangaDetailPresentation";
+import { getMobileMangaDetailHeroLayout } from "@/lib/mobileDynamicTypeLayout";
+
+/**
+ * The hero title and primary action wrap at large text sizes; beyond this
+ * multiplier the extra size only pushes the chapters off-screen.
+ */
+const HERO_MAX_FONT_SIZE_MULTIPLIER = 2;
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
 type MobileMangaDetailSurfaceActionsPlacement = "below" | "copy";
@@ -124,8 +131,14 @@ export function MobileMangaDetailSurface({
   strings: MobileStrings;
 }) {
   const { tokens } = useNemuTheme();
-  const { width } = useWindowDimensions();
+  const { fontScale, width } = useWindowDimensions();
   const compact = width < 390;
+  const heroLayout = getMobileMangaDetailHeroLayout({
+    fontScale,
+    compact,
+    requestedActionsPlacement: actionsPlacement,
+  });
+  const effectiveActionsPlacement = heroLayout.actionsPlacement;
   const coverWidth = Math.max(92, Math.min(112, Math.floor((width - 72) * 0.32)));
   const coverHeight = coverWidth * (3 / 2);
   const primaryActionColor = primaryAction?.available
@@ -133,7 +146,9 @@ export function MobileMangaDetailSurface({
     : tokens.mutedForeground;
   const renderActions = (placement: MobileMangaDetailSurfaceActionsPlacement) => {
     if (!primaryAction && !secondaryActions.length) return null;
-    const primaryActionFull = placement === "below" && compact && secondaryActions.length > 1;
+    const primaryActionFull =
+      placement === "below" &&
+      ((compact && secondaryActions.length > 1) || heroLayout.stacked);
 
     return (
       <View style={[styles.actionRow, placement === "copy" ? styles.actionRowInCopy : null]}>
@@ -188,7 +203,8 @@ export function MobileMangaDetailSurface({
               <Ionicons name={primaryAction.iconName} size={15} color={primaryActionColor} />
             )}
             <Text
-              numberOfLines={1}
+              maxFontSizeMultiplier={HERO_MAX_FONT_SIZE_MULTIPLIER}
+              numberOfLines={heroLayout.primaryActionLines}
               style={[styles.primaryActionText, { color: primaryActionColor }]}
             >
               {primaryAction.label}
@@ -238,8 +254,20 @@ export function MobileMangaDetailSurface({
 
   return (
     <GlassSurface style={styles.heroShell} contentStyle={styles.hero}>
-      <View style={[styles.heroInfoRow, compact ? styles.heroInfoRowCompact : null]}>
-        <View style={[styles.coverFrame, { width: coverWidth }]}>
+      <View
+        style={[
+          styles.heroInfoRow,
+          compact ? styles.heroInfoRowCompact : null,
+          heroLayout.stacked ? styles.heroInfoRowStacked : null,
+        ]}
+      >
+        <View
+          style={[
+            styles.coverFrame,
+            { width: coverWidth },
+            heroLayout.stacked ? styles.coverFrameStacked : null,
+          ]}
+        >
           <View
             style={[
               styles.cover,
@@ -285,16 +313,17 @@ export function MobileMangaDetailSurface({
             style={styles.coverStatusBadge}
           />
         </View>
-        <View style={styles.copy}>
+        <View style={[styles.copy, heroLayout.stacked ? styles.copyStacked : null]}>
           <View
             style={[
               styles.copyBody,
-              actionsPlacement === "copy" ? { height: coverHeight } : null,
+              effectiveActionsPlacement === "copy" ? { height: coverHeight } : null,
             ]}
           >
             <View style={styles.copyMain}>
               <Text
-                numberOfLines={compact ? 4 : 3}
+                maxFontSizeMultiplier={HERO_MAX_FONT_SIZE_MULTIPLIER}
+                numberOfLines={heroLayout.titleLines}
                 style={[
                   styles.title,
                   compact ? styles.titleCompact : null,
@@ -304,12 +333,16 @@ export function MobileMangaDetailSurface({
                 {title}
               </Text>
               {authors?.length ? (
-                <Text numberOfLines={2} style={[styles.text, { color: tokens.mutedForeground }]}>
+                <Text
+                  maxFontSizeMultiplier={HERO_MAX_FONT_SIZE_MULTIPLIER}
+                  numberOfLines={heroLayout.stacked ? undefined : 2}
+                  style={[styles.text, { color: tokens.mutedForeground }]}
+                >
                   {authors.join(", ")}
                 </Text>
               ) : null}
             </View>
-            {actionsPlacement === "copy" ? (
+            {effectiveActionsPlacement === "copy" ? (
               <>
                 <View style={styles.copyBodySpacer} />
                 {renderActions("copy")}
@@ -333,7 +366,7 @@ export function MobileMangaDetailSurface({
         </View>
       </View>
 
-      {actionsPlacement === "below" ? renderActions("below") : null}
+      {effectiveActionsPlacement === "below" ? renderActions("below") : null}
 
       {tags?.length ? <MobileTagList tags={tags} strings={strings} /> : null}
 
@@ -360,10 +393,18 @@ const styles = StyleSheet.create({
   heroInfoRowCompact: {
     gap: 12,
   },
+  // Large text: cover on its own row, copy (title/authors/badges) full width.
+  heroInfoRowStacked: {
+    flexDirection: "column",
+    alignItems: "stretch",
+  },
   coverFrame: {
     flexShrink: 0,
     alignItems: "center",
     paddingBottom: 14,
+  },
+  coverFrameStacked: {
+    alignSelf: "center",
   },
   cover: {
     aspectRatio: 2 / 3,
@@ -388,6 +429,13 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     gap: 8,
+  },
+  // In the stacked (column) hero the copy sizes to its content instead of
+  // flexing against the cover.
+  copyStacked: {
+    flex: 0,
+    flexGrow: 0,
+    flexBasis: "auto",
   },
   copyBody: {
     gap: 8,
@@ -433,6 +481,7 @@ const styles = StyleSheet.create({
   },
   primaryAction: {
     minHeight: 36,
+    paddingVertical: 6,
     width: "100%",
     flexDirection: "row",
     alignItems: "center",

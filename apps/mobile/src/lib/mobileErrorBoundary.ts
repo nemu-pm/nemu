@@ -8,6 +8,24 @@ export type MobileErrorLogInput = {
   componentStack?: string | null;
 };
 
+/**
+ * The first usable locale tag from `sources`, tried in order. A source that
+ * throws or returns nothing is skipped.
+ */
+export function firstMobileSystemLocale(
+  sources: ReadonlyArray<() => string | null | undefined>,
+): string | undefined {
+  for (const source of sources) {
+    try {
+      const locale = source()?.trim();
+      if (locale) return locale;
+    } catch {
+      // e.g. `Intl` is not defined on Android's ICU-less JavaScriptCore.
+    }
+  }
+  return undefined;
+}
+
 export function resolveMobileErrorBoundaryLanguage(locale: string | null | undefined) {
   const language = locale?.split(/[-_]/)[0]?.toLowerCase();
   return normalizeAppLanguage(language);

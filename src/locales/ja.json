@@ -217,6 +217,10 @@
     "addToLibrary": "ライブラリに追加",
     "chapters": "話",
     "noChapters": "話なし",
+    "sourceNotInstalled": "ソースがインストールされていません",
+    "sourceNotInstalledDescription": "「{{name}}」はこのデバイスにインストールされていません。インストールすると話を読み込めます。",
+    "sourceNotInstalledUnavailable": "「{{name}}」はこのデバイスにインストールされておらず、ソースレジストリにもありません。",
+    "installSourceNamed": "{{name}} をインストール",
     "removeFromLibrary": "ライブラリから削除",
     "removeFromLibraryDescription": "「{{name}}」をライブラリから削除してもよろしいですか？",
     "remove": "削除"

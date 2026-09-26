@@ -441,7 +441,15 @@ export function MobileNativeSheetScaffold({
         ) : (
           // Everything else scrolls: a detent sheet within its fixed height,
           // a content-sized one only once it outgrows the room it has.
-          // `nestedScrollEnabled` hands the drag to the sheet at the top.
+          // `nestedScrollEnabled` hands the drag to the sheet at the top:
+          // the ScrollView's unconsumed pull drags Material's sheet, and its
+          // fling velocity settles it (a downward fling from the top
+          // dismisses). Verify this with real, timed touch streams: a very
+          // short `adb shell input swipe` (<= ~30ms) injects only one
+          // post-slop MOVE, which the ScrollView spends on intercepting the
+          // gesture, so the sheet never moves and Material's settle keeps it
+          // open — an injection artifact, not a handoff bug. Kernel-level
+          // 60/120/240Hz flicks dismiss reliably.
           <View
             accessibilityElementsHidden={interactionLocked}
             importantForAccessibility={

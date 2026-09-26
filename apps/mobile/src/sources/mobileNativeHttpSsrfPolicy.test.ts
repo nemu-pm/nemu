@@ -441,6 +441,26 @@ describe("native HTTP SSRF policy", () => {
         );
       }
 
+      const connectionBudgetExecutable = path.join(directory, "connection-budget-tests");
+      const compileConnectionBudget = runCommand(
+        "xcrun",
+        [
+          "swiftc",
+          path.join(moduleRoot, "ios/NemuNativeHttpAddressPolicy.swift"),
+          path.join(moduleRoot, "ios/NemuNativeHttpLoopbackProxy.swift"),
+          path.join(moduleRoot, "runtime/iosTest/NemuNativeHttpProxyConnectionBudgetTests.swift"),
+          "-framework", "Network", "-o", connectionBudgetExecutable,
+        ],
+        { env: swiftEnvironment(moduleCache) },
+      );
+      if (compileConnectionBudget.status !== 0) {
+        throw new Error(compileConnectionBudget.stderr || compileConnectionBudget.stdout);
+      }
+      const runConnectionBudget = runCommand(connectionBudgetExecutable, []);
+      if (runConnectionBudget.status !== 0) {
+        throw new Error(runConnectionBudget.stderr || runConnectionBudget.stdout);
+      }
+
       const compileImage = runCommand(
         "xcrun",
         [
