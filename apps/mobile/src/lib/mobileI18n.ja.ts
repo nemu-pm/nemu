@@ -90,6 +90,8 @@ export const mobileStringsJa: MobileStrings = {
     agentStepNotNeeded: "不要でした",
     agentSheetFailedUnsolicitedHost:
       "このサイトはソースが要求したものではないため、認証を拒否しました。",
+    agentSheetFailedNotChallenged:
+      "サイトは内蔵ブラウザーに確認を表示しませんでしたが、このソースのリクエストは引き続きブロックしているため、ここで認証できることはありません。",
     agentSheetFailedSetup:
       "この端末では安全な認証を開始できませんでした。再試行するか、システムソフトウェアを更新してください。",
   },
@@ -628,6 +630,9 @@ export const mobileStringsJa: MobileStrings = {
     rtl: "右から左",
     ltr: "左から右",
     lockedChapter: "ロックされたチャプター",
+    chapterLockedTitle: "このチャプターはロックされています",
+    chapterLockedDetail:
+      "このソースでは、購入済みまたはログイン中の読者のみがこのチャプターを読めます。ソース側で解除するか、ソース設定からログインしてから、もう一度お試しください。",
     mangaPairing: "漫画形式のペアリング",
     markComplete: "完了にする",
     markedComplete: "完了済み",
@@ -653,6 +658,7 @@ export const mobileStringsJa: MobileStrings = {
     pageLoadingUnavailable: "ページ読み込みを利用できません",
     pageTitle: "{{page}} ページ",
     pageValue: "{{total}} ページ中 {{page}} ページ",
+    pageSlider: "ページスライダー",
     pageWidth: "ページ幅",
     pageWidthValue: "ページ幅 {{percent}}%",
     longStripProgress: "このページの {{percent}}% まで読みました",

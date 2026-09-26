@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ConvexReactClient } from "convex/react";
 import { WebUserDataStore } from "@/data/webStore";
+import { createMobileDataProfileGuardedStore } from "@/data/mobileDataProfileStoreGuard";
 import type {
   LocalChapterProgress,
   LocalCollection,
@@ -8,12 +9,14 @@ import type {
   LocalSourceLink,
 } from "@/data/schema";
 import { makeChapterProgressId, makeSourceLinkId } from "@/data/schema";
+import { api } from "../../../../convex/_generated/api";
 import {
   createMobileSyncDataStore,
   retargetMobileCloudHistoryLibraryItem,
 } from "./mobileSyncDataStore";
 import {
   invalidateMobileSyncEpoch,
+  isActiveMobileSyncStore,
   mobileChapterProgressIntraPageSyncSupportedRef,
   mobileConvexRef,
   mobileIsAuthenticatedRef,
@@ -404,6 +407,61 @@ describe("mobile sync data store", () => {
       new WebUserDataStore("active-account"),
     );
     setActiveMobileSyncStore(activeStore);
+
+    await oldStore.saveLibraryItem(libraryItem());
+    await oldStore.saveSourceLink(sourceLink());
+
+    expect(calls).toEqual([]);
+  });
+
+  test("pushes foreground writes when the provider registered the profile-guarded store", async () => {
+    // Production registers `createMobileDataProfileGuardedStore(syncStore)`
+    // as the active store, while the sync store's methods run on the
+    // unwrapped instance. Identity must resolve through the guard or every
+    // write-through push is skipped.
+    const calls: MutationCall[] = [];
+    installConvexRecorder(calls);
+    const syncStore = createInitializedSyncStore();
+    const guarded = createMobileDataProfileGuardedStore(syncStore, () => false);
+    setActiveMobileSyncStore(guarded);
+
+    expect(isActiveMobileSyncStore(syncStore)).toBe(true);
+    expect(isActiveMobileSyncStore(guarded)).toBe(true);
+
+    await guarded.saveInstalledSource({
+      id: "aidoku-community:ja.shonenjumpplus",
+      registryId: "aidoku-community",
+      sourceKind: "aidoku",
+      sourceId: "ja.shonenjumpplus",
+      name: "少年ジャンプ＋",
+      downloadUrl: "https://example.test/jump.aix",
+      version: 2,
+      updatedAt: 5,
+      removed: false,
+    });
+    await guarded.saveLibraryItem(libraryItem());
+    await guarded.saveSourceLink(sourceLink());
+    await Promise.resolve();
+
+    expect(calls.map((call) => call.mutation)).toEqual([
+      api.settings.saveInstalledSource,
+      api.library.save,
+    ]);
+  });
+
+  test("a guarded store from another account still never pushes", async () => {
+    const calls: MutationCall[] = [];
+    installConvexRecorder(calls);
+    const oldStore = createMobileDataProfileGuardedStore(
+      createMobileSyncDataStore(new WebUserDataStore("old-account")),
+      () => false,
+    );
+    setActiveMobileSyncStore(
+      createMobileDataProfileGuardedStore(
+        createMobileSyncDataStore(new WebUserDataStore("active-account")),
+        () => false,
+      ),
+    );
 
     await oldStore.saveLibraryItem(libraryItem());
     await oldStore.saveSourceLink(sourceLink());

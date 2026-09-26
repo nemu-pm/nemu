@@ -10,6 +10,7 @@ import { clearMobileJapaneseLearningTtsCache } from "@/lib/mobileJapaneseLearnin
 import { clearMobileDualReaderDhashCache } from "@/lib/mobileDualReaderDhashCache";
 import { clearMobileSourceDetailCache } from "@/lib/mobileSourceDetailCache";
 import { clearMobileSourceListingCache } from "@/lib/mobileSourceListingCache";
+import { clearMobileWelcomeDeviceCompleted } from "./mobileWelcomeDeviceCompletion";
 
 /**
  * Clear every non-sandbox Nemu data backend used by the mobile app. Each step
@@ -33,6 +34,8 @@ export async function clearAllMobileDeviceData(
       clearCachedRegistryIndex,
       clearMobileSourceDetailCache,
       clearMobileSourceListingCache,
+      // A full wipe returns the device to first-run onboarding.
+      clearMobileWelcomeDeviceCompleted,
     ]);
   } catch (error) {
     cacheFailed = true;

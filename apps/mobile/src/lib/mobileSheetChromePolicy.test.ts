@@ -19,9 +19,11 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(source).toContain(
       "paddingHorizontal: headerMetrics.bodyHorizontalPadding",
     );
-    expect(source).toContain("paddingTop: headerMetrics.bodyTopPadding");
+    expect(source).toContain("paddingTop: resolveMobileNativeSheetBodyTopPadding({");
+    expect(source).toContain("hasChrome: shouldRenderChrome,");
     expect(source).toContain("bodyDescriptionNumberOfLines ?? undefined");
-    expect(source.match(/\{bodyDescription\}/g)).toHaveLength(2);
+    // iOS scrolling and plain bodies, and the two Android bodies.
+    expect(source.match(/\{bodyDescription\}/g)).toHaveLength(4);
     expect(source).toContain("disabled={dismissDisabled}");
     expect(source).toContain("accessibilityLabel={resolvedDismissLabel}");
     expect(source).toContain("index={sheetPresented ? 0 : -1}");
@@ -467,8 +469,10 @@ describe("mobile sheet and text-field chrome policy", () => {
       source.indexOf("const cancelRemoveFromLibrary"),
     );
     expect(removeAction).not.toContain('router.replace("/library")');
+    // Leaves by popping back (never stacking a second library index), once
+    // the confirmation sheet has dismissed.
     expect(source).toMatch(
-      /const handleRemoveConfirmationDismissed[\s\S]*?router\.replace\("\/library"\)/,
+      /const handleRemoveConfirmationDismissed[\s\S]*?exitDetailToLibrary\(\)/,
     );
   });
 

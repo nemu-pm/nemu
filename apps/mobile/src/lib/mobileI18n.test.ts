@@ -133,6 +133,7 @@ describe("mobile i18n helpers", () => {
         "agentSheetFailedTimeout",
         "agentSheetFailedBlocked",
         "agentSheetFailedUnsolicitedHost",
+        "agentSheetFailedNotChallenged",
       ] as const) {
         expect(common[key], `${language}.${key}`).toBeTruthy();
       }

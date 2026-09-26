@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  resolveMobileMangaDetailExitAction,
   canSelectMobileMangaDetailSourceTab,
   getMobileMangaDetailRouteSourceParam,
   normalizeMobileMangaDetailSourceParam,
@@ -128,5 +129,28 @@ describe("mobile manga detail route helpers", () => {
         disabled: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolveMobileMangaDetailExitAction", () => {
+  test("pops back to the screen that pushed the detail instead of stacking a second library", () => {
+    expect(
+      resolveMobileMangaDetailExitAction({ alreadyExiting: false, canDismiss: true }),
+    ).toBe("back");
+  });
+
+  test("a detail with nothing beneath it replaces itself with the library", () => {
+    expect(
+      resolveMobileMangaDetailExitAction({ alreadyExiting: false, canDismiss: false }),
+    ).toBe("replace-library");
+  });
+
+  test("the removal flow and the missing-entry redirect exit only once", () => {
+    expect(
+      resolveMobileMangaDetailExitAction({ alreadyExiting: true, canDismiss: true }),
+    ).toBe("none");
+    expect(
+      resolveMobileMangaDetailExitAction({ alreadyExiting: true, canDismiss: false }),
+    ).toBe("none");
   });
 });

@@ -15,6 +15,7 @@ import type { ReadingMode } from "@/data/schema";
 import {
   MobileSheetBackdrop,
   NemuButton,
+  NemuPressable,
   NemuNativeSheetHeaderAction,
   NemuNativeSwitch,
   NemuText,
@@ -64,6 +65,12 @@ type ReaderDisplaySettingsPopoverProps = {
   lockPortrait: boolean;
   onToggleLockPortrait: () => void;
   onMarkComplete: () => void;
+  /**
+   * Shows the "Plugins" row that hands off to the reader plugin settings
+   * sheet (web parity: the reader settings popover hosts plugin settings).
+   */
+  showReaderPluginSettings?: boolean;
+  onOpenReaderPluginSettings?: () => void;
 };
 
 function readerModeLabel(mode: ReadingMode, strings: MobileStrings): string {
@@ -155,6 +162,8 @@ export function ReaderDisplaySettingsPopover({
   lockPortrait,
   onToggleLockPortrait,
   onMarkComplete,
+  showReaderPluginSettings = false,
+  onOpenReaderPluginSettings,
 }: ReaderDisplaySettingsPopoverProps) {
   const { tokens, scheme } = useNemuTheme();
   const insets = useSafeAreaInsets();
@@ -398,6 +407,34 @@ export function ReaderDisplaySettingsPopover({
               />
             }
           />
+
+          {showReaderPluginSettings && onOpenReaderPluginSettings ? (
+            <NemuPressable
+              accessibilityRole="button"
+              accessibilityLabel={strings.settings.plugins}
+              accessibilityHint={strings.settings.pluginsDescription}
+              accessibilityState={{ disabled: busy }}
+              disabled={busy}
+              hapticFeedback="press"
+              onPress={onOpenReaderPluginSettings}
+              pressedScale={0.985}
+              style={{ opacity: busy ? 0.56 : 1 }}
+              testID="ReaderDisplaySettingsPluginsRow"
+            >
+              <ReaderSettingRow
+                icon="extension-puzzle-outline"
+                title={strings.settings.plugins}
+                description={strings.settings.pluginsDescription}
+                control={
+                  <Ionicons
+                    name="chevron-forward"
+                    size={iconSize.sm}
+                    color={tokens.mutedForeground}
+                  />
+                }
+              />
+            </NemuPressable>
+          ) : null}
 
           {!completed ? (
             <NemuButton

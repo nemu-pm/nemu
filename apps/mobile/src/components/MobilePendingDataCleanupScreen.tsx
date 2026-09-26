@@ -17,15 +17,8 @@ import {
   spacing,
 } from "@/design-system";
 import { getMobileStrings } from "@/lib/mobileI18n";
+import { mobileSystemLocale } from "@/lib/mobileSystemLocale";
 import { resolveMobileErrorBoundaryLanguage } from "@/lib/mobileErrorBoundary";
-
-function systemLocale(): string | undefined {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().locale;
-  } catch {
-    return undefined;
-  }
-}
 
 export function MobilePendingDataCleanupScreen({
   running,
@@ -38,7 +31,7 @@ export function MobilePendingDataCleanupScreen({
   const scheme = colorScheme === "dark" ? "dark" : "light";
   const tokens = nemuTokens[scheme];
   const strings = getMobileStrings(
-    resolveMobileErrorBoundaryLanguage(systemLocale()),
+    resolveMobileErrorBoundaryLanguage(mobileSystemLocale()),
   );
 
   return (

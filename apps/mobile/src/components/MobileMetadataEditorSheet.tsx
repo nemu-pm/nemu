@@ -944,6 +944,8 @@ export function MobileMetadataEditorSheet({
       contentStyle={styles.sheet}
     >
       <ScrollView
+        // Android: inside a native sheet, hand the drag to the sheet at the top.
+        nestedScrollEnabled
         style={styles.scroll}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}

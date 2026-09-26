@@ -37,6 +37,11 @@ async function needsPackageHydration(
   hasPackage: HasCachedSourcePackage,
 ): Promise<boolean> {
   if (source.removed) return false;
+  // A disabled source is never run, so its package is dead weight until the
+  // user turns it back on. Re-enabling writes the install record, which syncs
+  // back through the settings delivery and runs this pass again — the package
+  // is fetched then.
+  if (source.disabled === true) return false;
   const normalized = normalizeInstalledSource(source);
   // Mobile does not ship a Tachiyomi executor. Do not spend background data,
   // battery, disk, or JS memory downloading APKs that this build cannot run.

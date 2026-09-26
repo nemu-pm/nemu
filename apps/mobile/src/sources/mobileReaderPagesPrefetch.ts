@@ -114,6 +114,26 @@ export class MobileReaderPagesPrefetchCache<T> {
     return entry.promise;
   }
 
+  /**
+   * Look at a fresh prefetch without consuming it. The chapter turn still
+   * `take`s the entry; a peeker (warming the next chapter's first images)
+   * must not keep the result or dispose it.
+   */
+  peek(key: string): Promise<T | null> | null {
+    const entry = this.entries.get(key);
+    if (!entry) return null;
+    if (
+      !isMobileReaderPagesPrefetchFresh({
+        startedAt: entry.startedAt,
+        now: this.now(),
+        ttlMs: this.ttlMs,
+      })
+    ) {
+      return null;
+    }
+    return entry.promise;
+  }
+
   clear(): void {
     for (const key of Array.from(this.entries.keys())) this.evict(key);
   }

@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   BackHandler,
+  Keyboard,
   Platform,
   StyleSheet,
   Text,
@@ -23,13 +24,18 @@ import {
   type BottomSheetMethods,
 } from "@expo/ui/community/bottom-sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { nemuColorWithAlpha } from "@/design/colorAlpha";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import {
   canDismissMobileNativeSheetFromPan,
   canDismissMobileNativeSheetFromHardwareBack,
+  MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT,
   MOBILE_NATIVE_ANDROID_SNAP_POINTS,
   normalizeMobileNativeSheetSnapPointsForPlatform,
   resolveMobileSheetHeaderMetrics,
+  resolveMobileNativeSheetAndroidFrame,
+  resolveMobileNativeSheetBodyTopPadding,
+  resolveMobileNativeSheetBottomPadding,
   resolveMobileNativeSheetDismissLabel,
   shouldBoundMobileNativeSheetForPlatform,
 } from "@/lib/mobileNativeSheet";
@@ -62,6 +68,14 @@ type MobileNativeSheetScaffoldProps = {
   fillContent?: boolean;
   enablePanDownToClose?: boolean;
   backgroundColor?: string;
+  /**
+   * Android: draw the drag handle inside the sheet's own content instead of
+   * Material's, so the content starts at the sheet's top edge. For sheets with
+   * artwork that bleeds upward (the app-icon halo): Material's handle sits
+   * outside the React host, whose top edge would otherwise clip the glow in a
+   * hard line mid-sheet. Ignored on iOS.
+   */
+  androidContentHandle?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
   testID?: string;
   children: ReactNode;
@@ -104,6 +118,7 @@ export function MobileNativeSheetScaffold({
   fillContent = false,
   enablePanDownToClose = true,
   backgroundColor,
+  androidContentHandle = false,
   contentStyle,
   testID,
   children,
@@ -136,9 +151,29 @@ export function MobileNativeSheetScaffold({
       height: windowHeight,
       snapPoints,
     });
-  const normalizedSnapPoints = boundDynamicAndroidLandscapeSheet
-    ? MOBILE_NATIVE_ANDROID_SNAP_POINTS
-    : normalizeMobileNativeSheetSnapPointsForPlatform(snapPoints, Platform.OS);
+  // Android: the native sheet always wraps its content (no detents; see
+  // `resolveMobileNativeSheetAndroidFrame`) and the scaffold sizes that content
+  // to the height the same sheet has on iOS.
+  const isAndroid = Platform.OS === "android";
+  const androidKeyboardHeight = useAndroidKeyboardHeight(isAndroid && visible);
+  const androidFrameKind = isAndroid
+    ? resolveMobileNativeSheetAndroidFrame({
+        snapPoints,
+        windowHeight,
+        safeAreaTop: insets.top,
+        safeAreaBottom: insets.bottom,
+        keyboardHeight: androidKeyboardHeight,
+      })
+    : null;
+  const androidFixedHeight =
+    androidFrameKind?.kind === "fixed" ? androidFrameKind.height : undefined;
+  const androidContentMaxHeight =
+    androidFrameKind?.kind === "content" ? androidFrameKind.maxHeight : undefined;
+  const normalizedSnapPoints = isAndroid
+    ? undefined
+    : boundDynamicAndroidLandscapeSheet
+      ? MOBILE_NATIVE_ANDROID_SNAP_POINTS
+      : normalizeMobileNativeSheetSnapPointsForPlatform(snapPoints, Platform.OS);
   const effectiveSnapPointsSignature = normalizedSnapPoints
     ? JSON.stringify(normalizedSnapPoints)
     : null;
@@ -188,20 +223,41 @@ export function MobileNativeSheetScaffold({
   const boundedContentHeight = boundedSnapPointHeight
     ? Math.max(boundedSnapPointHeight - chromeHeight, 188)
     : undefined;
+  const androidScrolls = isAndroid && (scroll || androidFixedHeight === undefined);
   const paddingBottom =
     contentBottomInset ??
-    (shouldUseScrollView
-      ? (scrollContentBottomInset ?? Math.max(insets.bottom + 28, 40))
-      : 18);
+    (shouldUseScrollView || androidScrolls ? scrollContentBottomInset : undefined) ??
+    resolveMobileNativeSheetBottomPadding({
+      platform: Platform.OS,
+      scroll: shouldUseScrollView,
+      safeAreaBottom: insets.bottom,
+    });
+  const drawContentHandle = isAndroid && androidContentHandle;
   const content = [
     styles.content,
     {
       paddingHorizontal: headerMetrics.bodyHorizontalPadding,
-      paddingTop: headerMetrics.bodyTopPadding,
+      paddingTop: resolveMobileNativeSheetBodyTopPadding({
+        platform: Platform.OS,
+        hasChrome: shouldRenderChrome,
+      }),
     },
     contentStyle,
     { paddingBottom },
+    drawContentHandle
+      ? { paddingTop: MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT }
+      : null,
   ];
+  const contentHandle = drawContentHandle ? (
+    <View pointerEvents="none" style={styles.contentHandle}>
+      <View
+        style={[
+          styles.contentHandleBar,
+          { backgroundColor: nemuColorWithAlpha(tokens.foreground, 0.4) },
+        ]}
+      />
+    </View>
+  ) : null;
   const bodyDescription = subtitle ? (
     <Text
       maxFontSizeMultiplier={headerMetrics.bodyDescriptionMaxFontSizeMultiplier}
@@ -327,16 +383,8 @@ export function MobileNativeSheetScaffold({
     visible,
   ]);
 
-  return (
-    <BottomSheet
-      ref={sheetRef}
-      index={sheetPresented ? 0 : -1}
-      snapPoints={effectiveSnapPoints}
-      enableDynamicSizing={!effectiveSnapPoints?.length}
-      enablePanDownToClose={effectiveEnablePanDownToClose}
-      backgroundStyle={{ backgroundColor: backgroundColor ?? tokens.card }}
-      onClose={handleClose}
-    >
+  const sheetContent = (
+    <>
       {shouldRenderChrome ? (
         <View
           accessibilityElementsHidden={interactionLocked}
@@ -373,7 +421,75 @@ export function MobileNativeSheetScaffold({
           />
         </View>
       ) : null}
-      {shouldUseScrollView ? (
+      {isAndroid ? (
+        androidFixedHeight !== undefined && !scroll ? (
+          // A detent sheet whose caller lays out its own body (pinned rows,
+          // an internal list): the body fills the fixed height.
+          <View
+            accessibilityElementsHidden={interactionLocked}
+            importantForAccessibility={
+              interactionLocked ? "no-hide-descendants" : "auto"
+            }
+            pointerEvents={interactionLocked ? "none" : "auto"}
+            style={[styles.filledContent, content]}
+            testID={testID}
+          >
+            {contentHandle}
+            {bodyDescription}
+            {children}
+          </View>
+        ) : (
+          // Everything else scrolls: a detent sheet within its fixed height,
+          // a content-sized one only once it outgrows the room it has.
+          // `nestedScrollEnabled` hands the drag to the sheet at the top:
+          // the ScrollView's unconsumed pull drags Material's sheet, and its
+          // fling velocity settles it (a downward fling from the top
+          // dismisses). Verify this with real, timed touch streams: a very
+          // short `adb shell input swipe` (<= ~30ms) injects only one
+          // post-slop MOVE, which the ScrollView spends on intercepting the
+          // gesture, so the sheet never moves and Material's settle keeps it
+          // open — an injection artifact, not a handoff bug. Kernel-level
+          // 60/120/240Hz flicks dismiss reliably.
+          <View
+            accessibilityElementsHidden={interactionLocked}
+            importantForAccessibility={
+              interactionLocked ? "no-hide-descendants" : "auto"
+            }
+            pointerEvents={interactionLocked ? "none" : "auto"}
+            style={androidFixedHeight !== undefined ? styles.scrollFrame : null}
+          >
+            <BottomSheetScrollView
+              alwaysBounceVertical={false}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              style={
+                androidFixedHeight !== undefined
+                  ? styles.scroll
+                  : [
+                      styles.contentSizedScroll,
+                      {
+                        maxHeight: Math.max(
+                          (androidContentMaxHeight ?? 0) - chromeHeight,
+                          188,
+                        ),
+                      },
+                    ]
+              }
+              contentContainerStyle={[
+                content,
+                fillContent && androidFixedHeight !== undefined
+                  ? { flexGrow: 1 }
+                  : null,
+              ]}
+              testID={testID}
+            >
+              {contentHandle}
+              {bodyDescription}
+              {children}
+            </BottomSheetScrollView>
+          </View>
+        )
+      ) : shouldUseScrollView ? (
         <View
           accessibilityElementsHidden={interactionLocked}
           importantForAccessibility={
@@ -418,8 +534,56 @@ export function MobileNativeSheetScaffold({
           {children}
         </View>
       )}
+    </>
+  );
+
+  return (
+    <BottomSheet
+      ref={sheetRef}
+      index={sheetPresented ? 0 : -1}
+      snapPoints={effectiveSnapPoints}
+      enableDynamicSizing={!effectiveSnapPoints?.length}
+      enablePanDownToClose={effectiveEnablePanDownToClose}
+      backgroundStyle={{ backgroundColor: backgroundColor ?? tokens.card }}
+      onClose={handleClose}
+      {...(drawContentHandle ? { handleComponent: null } : null)}
+    >
+      {isAndroid ? (
+        <View style={androidFixedHeight !== undefined ? { height: androidFixedHeight } : null}>
+          {sheetContent}
+        </View>
+      ) : (
+        sheetContent
+      )}
     </BottomSheet>
   );
+}
+
+/**
+ * Android: the open soft keyboard's height (0 when closed) while `active`.
+ * Material's sheet pads its content by the IME inset, so the scaffold has to
+ * shrink its own content by the same amount (see
+ * `resolveMobileNativeSheetAndroidFrame`).
+ */
+function useAndroidKeyboardHeight(active: boolean): number {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    if (!active) {
+      setHeight(0);
+      return;
+    }
+    // A keyboard already open when the sheet presents.
+    setHeight(Math.max(Keyboard.metrics()?.height ?? 0, 0));
+    const show = Keyboard.addListener("keyboardDidShow", (event) => {
+      setHeight(Math.max(event.endCoordinates?.height ?? 0, 0));
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => setHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [active]);
+  return height;
 }
 
 const styles = StyleSheet.create({
@@ -436,6 +600,25 @@ const styles = StyleSheet.create({
   },
   filledContent: {
     flex: 1,
+  },
+  contentSizedScroll: {
+    flexGrow: 0,
+  },
+  // Material 3's `BottomSheetDefaults.DragHandle`: a 32x4dp bar in a 48dp band.
+  contentHandle: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1,
+  },
+  contentHandleBar: {
+    width: 32,
+    height: 4,
+    borderRadius: 2,
   },
   content: {
     gap: 14,

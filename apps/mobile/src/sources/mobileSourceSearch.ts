@@ -29,6 +29,7 @@ import {
   normalizeInstalledSource,
 } from "./mobileSourceRuntime";
 import { lcsLength, mergeAuthors } from "@nemu/core/sources";
+import { compareMobileText } from "@/lib/mobileLocaleFormat";
 
 export type MobileLiveSearchManga = {
   id: string;
@@ -392,7 +393,7 @@ function sortSearchItemsBySimilarity(
     const leftScore = getBestMobileTitleSimilarityScore(left.title, compareTitles);
     const rightScore = getBestMobileTitleSimilarityScore(right.title, compareTitles);
     if (leftScore !== rightScore) return rightScore - leftScore;
-    return left.title.localeCompare(right.title);
+    return compareMobileText(left.title, right.title);
   });
 }
 
@@ -427,7 +428,7 @@ export function sortMobileLiveSearchGroupsBySimilarity(
     const rightScore = liveSearchGroupBestScore(right, compareTitles);
     if (leftScore !== rightScore) return rightScore - leftScore;
 
-    return left.source.name.localeCompare(right.source.name);
+    return compareMobileText(left.source.name, right.source.name);
   });
 }
 

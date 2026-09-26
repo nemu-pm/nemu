@@ -21,6 +21,16 @@ export type {
 declare class NemuAidokuModule extends NativeModule<NemuAidokuEventsMap> {
   isAvailable(): boolean;
   getNetworkAccessState(): NemuNetworkAccessState;
+  /**
+   * Android only: `code -> localized language name` in `displayLanguage`,
+   * standing in for `Intl.DisplayNames`, which Android's ICU-less JSC lacks.
+   * Codes the platform cannot name are omitted. Optional so iOS (which keeps
+   * `Intl.DisplayNames`) and older native builds simply do not provide it.
+   */
+  getLanguageDisplayNames?(
+    codes: string[],
+    displayLanguage: string,
+  ): Record<string, string>;
   getHttpClientStatus(): NemuAidokuHttpClientStatus;
   getAidokuSandboxStatus(): NemuAidokuSandboxStatus;
   prepareHttpRequest(requestId: string): boolean;

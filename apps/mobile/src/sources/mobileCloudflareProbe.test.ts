@@ -4,10 +4,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Behaviour test for the Android Cloudflare solver's DOM probe
- * (`NEMU_CLOUDFLARE_PROBE_FUNCTION` in `runtime/kotlin/NemuCloudflareSolver.kt`),
- * run against a fake main-world realm with the exact text Kotlin embeds and
- * the same `(probe)(known);` assembly as `nemuCloudflareProbeScript`.
+ * Behaviour test for the Android Cloudflare solver's page probe
+ * (`NEMU_CLOUDFLARE_PROBE_SCRIPT` in `runtime/kotlin/NemuCloudflareSolver.kt`),
+ * run with the exact text Kotlin embeds.
+ *
+ * `evaluateJavascript` runs in the challenge page's own main world, where
+ * Cloudflare's scripts can wrap any DOM API. Polling
+ * `document.querySelector('input[name="cf-turnstile-response"]')` from there
+ * made Turnstile hand out a clearance its edge refused (an endless checkbox
+ * loop on a real Android WebView), so the probe must not touch `document` at
+ * all — only the plain `_cf_chl_opt` global.
  */
 
 const probeSource = (() => {
@@ -18,92 +24,47 @@ const probeSource = (() => {
     ),
     "utf8",
   );
-  const match = source.match(
-    /NEMU_CLOUDFLARE_PROBE_FUNCTION = """\n([\s\S]*?)\n"""\.trimIndent\(\)/,
-  );
+  const match = source.match(/NEMU_CLOUDFLARE_PROBE_SCRIPT = """\n([\s\S]*?)\n"""\.trimIndent\(\)/);
   if (!match) throw new Error("probe literal not found");
   return match[1];
 })();
 
-type ProbeResult = {
-  challenge: boolean;
-  needsInteraction: boolean;
-  interstitial: boolean;
-  scanFinal: boolean;
-};
-
-function makePage(options: {
-  global?: boolean;
-  scripts?: string[];
-  readyState?: string;
-  title?: string;
-}) {
-  let scriptReads = 0;
-  const scripts = (options.scripts ?? []).map((text) => ({
-    get textContent() {
-      scriptReads += 1;
-      return text;
+function run(window: Record<string, unknown>) {
+  const touched: string[] = [];
+  // Any read of `document` (querySelector, scripts, title, …) is recorded.
+  const document = new Proxy(
+    {},
+    {
+      get(_target, key) {
+        touched.push(String(key));
+        return () => null;
+      },
     },
-  }));
-  const window: Record<string, unknown> = {};
-  if (options.global) window._cf_chl_opt = { cType: "managed" };
-  const document = {
-    scripts,
-    readyState: options.readyState ?? "complete",
-    title: options.title ?? "",
-    querySelector: () => null,
-  };
-  return {
-    run(known: boolean | null): ProbeResult {
-      return new Function("window", "document", `return ${probeSource}(${String(known)});`)(
-        window,
-        document,
-      ) as ProbeResult;
-    },
-    scriptReads: () => scriptReads,
-  };
+  );
+  const result = new Function("window", "document", `return ${probeSource}`)(window, document);
+  return { result, touched };
 }
 
 describe("Android Cloudflare solver probe", () => {
-  test("reads the page global first and never scans when it is there", () => {
-    const page = makePage({ global: true, scripts: ["window._cf_chl_opt = {}"] });
-    expect(page.run(null)).toEqual({
-      challenge: true,
-      needsInteraction: false,
-      interstitial: true,
-      scanFinal: false,
+  test("reports the interstitial's bootstrap global", () => {
+    expect(run({ _cf_chl_opt: { cType: "managed" } }).result).toEqual({ interstitial: true });
+    expect(run({}).result).toEqual({ interstitial: false });
+  });
+
+  test("never reaches into the page's DOM", () => {
+    expect(run({ _cf_chl_opt: {} }).touched).toEqual([]);
+    expect(run({}).touched).toEqual([]);
+    expect(probeSource).not.toContain("cf-turnstile-response");
+    expect(probeSource).not.toContain("document");
+  });
+
+  test("a throwing global getter reads as no marker, not an exception", () => {
+    const window = {};
+    Object.defineProperty(window, "_cf_chl_opt", {
+      get() {
+        throw new Error("hostile getter");
+      },
     });
-    expect(page.scriptReads()).toBe(0);
-  });
-
-  test("falls back to the script text, and only while the document is unknown", () => {
-    const page = makePage({ scripts: ["var x = 1;", "(function(){ _cf_chl_opt = {}; })()"] });
-    expect(page.run(null)).toMatchObject({ challenge: true, interstitial: true });
-    expect(page.scriptReads()).toBe(2);
-
-    // Known positive: no scan, still a challenge.
-    expect(page.run(true)).toMatchObject({ challenge: true, interstitial: true });
-    expect(page.scriptReads()).toBe(2);
-  });
-
-  test("a parsed document without the marker is a final negative, then never rescanned", () => {
-    const page = makePage({ scripts: ["console.log('origin page')"] });
-    expect(page.run(null)).toEqual({
-      challenge: false,
-      needsInteraction: false,
-      interstitial: false,
-      scanFinal: true,
-    });
-    expect(page.scriptReads()).toBe(1);
-    expect(page.run(false)).toMatchObject({ challenge: false, scanFinal: false });
-    expect(page.scriptReads()).toBe(1);
-
-    // A scan that ran mid-parse is not final.
-    const loading = makePage({ scripts: [], readyState: "loading" });
-    expect(loading.run(null)).toMatchObject({ interstitial: false, scanFinal: false });
-  });
-
-  test("the English title stays a fallback signal", () => {
-    expect(makePage({ title: "Just a moment..." }).run(false).challenge).toBe(true);
+    expect(run(window).result).toEqual({ interstitial: false });
   });
 });

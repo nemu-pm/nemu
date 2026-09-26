@@ -222,6 +222,10 @@
     "addToLibrary": "Add to Library",
     "chapters": "Chapters",
     "noChapters": "No chapters",
+    "sourceNotInstalled": "Source not installed",
+    "sourceNotInstalledDescription": "\"{{name}}\" is not installed on this device. Install it to load chapters.",
+    "sourceNotInstalledUnavailable": "\"{{name}}\" is not installed on this device and is not available from your source registries.",
+    "installSourceNamed": "Install {{name}}",
     "removeFromLibrary": "Remove from Library",
     "removeFromLibraryDescription": "Are you sure you want to remove \"{{name}}\" from your library?",
     "remove": "Remove"

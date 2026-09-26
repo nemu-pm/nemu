@@ -204,7 +204,8 @@ function RowGlyph({ glyph }: { glyph: NemuAgentRowGlyph }) {
   const { tokens } = useNemuTheme();
   switch (glyph) {
     case "active":
-      return <NemuNativeProgressView />;
+      // Same 20dp box as the Ionicons marks in the other rows.
+      return <NemuNativeProgressView size={20} />;
     case "done":
       return (
         <Ionicons

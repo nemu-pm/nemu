@@ -1797,6 +1797,25 @@ export function LibraryScreen({
   const nativeHeaderOptions = (
     screenTitle: string,
   ) => createNemuNativeScreenOptions(tokens, screenTitle);
+  // Library-level collection actions (create + the collections menu). Shared
+  // with the empty-library state so collections stay manageable before the
+  // first title is added.
+  const libraryHeaderActions: NemuNativeHeaderAction[] = [
+    {
+      icon: "plus",
+      label: strings.library.createCollection,
+      hint: strings.library.createCollectionHint,
+      disabled: collectionActionBusy,
+      onPress: toggleCreateCollection,
+    },
+    {
+      icon: "ellipsis.circle",
+      label: `${strings.nav.library} menu`,
+      hint: strings.library.manageCollectionsHint,
+      disabled: collectionActionBusy,
+      onPress: () => setShowTitleMenuSheet(true),
+    },
+  ];
   const nativeHeaderActions: NemuNativeHeaderAction[] = selectedCollection
     ? [
         {
@@ -1814,22 +1833,7 @@ export function LibraryScreen({
           onPress: toggleCollectionManagement,
         },
       ]
-    : [
-        {
-          icon: "plus",
-          label: strings.library.createCollection,
-          hint: strings.library.createCollectionHint,
-          disabled: collectionActionBusy,
-          onPress: toggleCreateCollection,
-        },
-        {
-          icon: "ellipsis.circle",
-          label: `${strings.nav.library} menu`,
-          hint: strings.library.manageCollectionsHint,
-          disabled: collectionActionBusy,
-          onPress: () => setShowTitleMenuSheet(true),
-        },
-      ];
+    : libraryHeaderActions;
   const handleQuickActionMarkAllRead = useCallback(
     async (entry: LibraryEntry) => {
       const now = Date.now();
@@ -2019,9 +2023,9 @@ export function LibraryScreen({
   }, []);
   const renderLibraryGridItem = useCallback(
     ({ item: entry }: ListRenderItemInfo<LibraryEntry>) => (
-      // The explicit width keeps a partly filled last row aligned with the
-      // rows above it instead of letting `flex: 1` stretch its cells.
-      <View style={[styles.gridItem, { maxWidth: gridItemWidth }]}>
+      // The fixed width keeps a partly filled last row aligned with the rows
+      // above it instead of letting `flex: 1` stretch its cells.
+      <View style={[styles.gridItem, { width: gridItemWidth }]}>
         <LibraryGridItem
           entry={entry}
           entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
@@ -2051,6 +2055,181 @@ export function LibraryScreen({
       strings,
     }),
     [entryProgressMaps, installedSources.data, progressIndex, strings],
+  );
+
+  // Collection management sheets. Rendered by the empty-library state too, so
+  // creating/managing collections stays reachable before the first title is
+  // added (the header's + and … used to vanish with an empty library).
+  const librarySheets = (
+    <>
+      <LibraryTitleMenuSheet
+        visible={!showSkeleton && showTitleMenuSheet}
+        collections={collections.data}
+        strings={strings}
+        selectedCollectionId={effectiveCollectionId}
+        disabled={collectionActionBusy}
+        onClose={() => setShowTitleMenuSheet(false)}
+        onDismiss={() => completeSheetDismiss("title-menu")}
+        onSelect={(collectionId) => {
+          selectCollection(collectionId, "title-menu");
+        }}
+        onManage={() => {
+          if (collectionActionBusy) return;
+          if (
+            !queueAfterSheetDismiss("title-menu", () => {
+              openCollectionsManager();
+            })
+          ) {
+            return;
+          }
+          setShowTitleMenuSheet(false);
+        }}
+      />
+      <QuickActionSheet
+        visible={quickActionEntry !== null}
+        variant="cover"
+        title={quickActionEntry ? getEntryTitle(quickActionEntry) : ""}
+        subtitle={quickActionSubtitle}
+        image={
+          quickActionCoverRequest?.url ??
+          (quickActionEntry ? getEntryCover(quickActionEntry) : undefined)
+        }
+        imageHeaders={quickActionCoverRequest?.headers}
+        actions={quickActions}
+        testID="MangaQuickActionSheet"
+        onClose={() => setQuickActionEntry(null)}
+        onDismiss={() => setQuickActionEntry(null)}
+      />
+      {membershipSheetEntry ? (
+        <MobileCollectionMembershipSheet
+          visible
+          libraryItemId={membershipSheetEntry.item.libraryItemId}
+          title={getEntryTitle(membershipSheetEntry)}
+          onClose={() => setMembershipSheetEntry(null)}
+        />
+      ) : null}
+      <CollectionNameSheet
+        visible={!showSkeleton && showCreatePanel}
+        mode="create"
+        strings={strings}
+        saving={savingCollection}
+        onClose={() => {
+          setShowCreatePanel(false);
+          setNewCollectionName("");
+        }}
+        onDismiss={() => completeSheetDismiss("create-collection")}
+        onSubmit={(name) => {
+          setNewCollectionName(name);
+          void createCollection(name);
+        }}
+      />
+      <CollectionsManagerSheet
+        visible={!showSkeleton && showCollectionsManagerSheet}
+        collections={collections.data}
+        strings={strings}
+        membership={collections.membership}
+        selectedCollectionId={effectiveCollectionId}
+        actionState={collectionActionState}
+        onClose={() => setShowCollectionsManagerSheet(false)}
+        onDismiss={() => completeSheetDismiss("collections-manager")}
+        onSelect={(collectionId) =>
+          selectCollection(collectionId, "collections-manager")
+        }
+        onCreate={() => {
+          if (collectionActionBusy) return;
+          if (
+            !queueAfterSheetDismiss("collections-manager", () => {
+              setNewCollectionName("");
+              setShowCreatePanel(true);
+            })
+          ) {
+            return;
+          }
+          setShowCollectionsManagerSheet(false);
+        }}
+        onRename={openCollectionRename}
+        onRemove={openCollectionRemoveConfirmation}
+      />
+      <CollectionNameSheet
+        visible={!showSkeleton && renameTarget !== null}
+        mode="rename"
+        initialName={renameTarget?.name ?? ""}
+        strings={strings}
+        saving={renamingCollection}
+        onClose={() => setRenameTarget(null)}
+        onSubmit={(name) => {
+          if (!renameTarget) return;
+          void renameCollectionById(renameTarget, name);
+        }}
+      />
+      <MobileNativeSheetScaffold
+        visible={
+          !showSkeleton &&
+          showManagePanel &&
+          Boolean(manageCollectionPresentation)
+        }
+        onClose={() => {
+          setShowManagePanel(false);
+          setRemoveArmed(false);
+        }}
+        onDismiss={() => {
+          completeSheetDismiss("manage-collection");
+          setManageCollectionPresentation(null);
+        }}
+        snapPoints={manageCollectionSheetLayout.snapPoints}
+        scroll={manageCollectionSheetLayout.scroll}
+        testID="ManageCollectionSheet"
+      >
+        {manageCollectionPresentation ? (
+          <ManageCollectionPanel
+            collection={manageCollectionPresentation}
+            strings={strings}
+            entries={sortedLibraryEntries}
+            membership={collections.membership}
+            removeArmed={removeArmed}
+            renaming={renamingCollection}
+            savingMembership={savingCollectionMembership}
+            removing={removingCollection}
+            onRenameCollection={renameCollection}
+            onSaveMembership={saveCollectionMembership}
+            onCancelMembership={() => {
+              setShowManagePanel(false);
+              setRemoveArmed(false);
+            }}
+            onRemoveCollection={() => {
+              void removeCollection();
+            }}
+            onCancelRemove={() => setRemoveArmed(false)}
+          />
+        ) : null}
+      </MobileNativeSheetScaffold>
+      <MobileConfirmationSheet
+        visible={!showSkeleton && removeTarget !== null}
+        title={strings.library.removeCollection}
+        description={strings.library.removeCollectionConfirm}
+        subject={removeTarget?.name}
+        cancelLabel={strings.common.cancel}
+        confirmLabel={strings.common.remove}
+        confirmAccessibilityLabel={
+          removeTarget
+            ? formatMobileString(strings.library.removeCollectionNamed, {
+                name: removeTarget.name,
+              })
+            : strings.common.remove
+        }
+        destructive
+        loading={removingCollection}
+        onDismiss={() => completeSheetDismiss("remove-confirmation")}
+        onCancel={() => {
+          if (removingCollection) return;
+          setRemoveTarget(null);
+        }}
+        onConfirm={() => {
+          if (!removeTarget) return;
+          void removeCollectionById(removeTarget, "remove-confirmation");
+        }}
+      />
+    </>
   );
 
   if (showLoadError) {
@@ -2114,9 +2293,32 @@ export function LibraryScreen({
     return (
       <>
       {usesNativeHeader ? (
-        <Stack.Screen options={nativeHeaderOptions(strings.nav.library)} />
+        <>
+          <Stack.Screen options={nativeHeaderOptions(strings.nav.library)} />
+          <Stack.Toolbar placement="right" tintColor={tokens.primary}>
+            {renderNemuNativeToolbarButtons(
+              libraryHeaderActions,
+              tokens.primary,
+            )}
+          </Stack.Toolbar>
+        </>
       ) : null}
       <PageScaffold nativeHeader={usesNativeHeader}>
+        {usesNativeHeader ? null : (
+          <PageHeader
+            title={strings.nav.library}
+            actions={[
+              {
+                icon: "add-outline",
+                label: strings.library.createCollection,
+                hint: strings.library.createCollectionHint,
+                disabled: collectionActionBusy,
+                loading: savingCollection,
+                onPress: toggleCreateCollection,
+              },
+            ]}
+          />
+        )}
         <EmptyLibrary
           title={emptyState.title}
           description={emptyState.description}
@@ -2125,6 +2327,7 @@ export function LibraryScreen({
           onActionPress={() => router.navigate(emptyState.actionRoute)}
         />
       </PageScaffold>
+      {librarySheets}
       </>
     );
   }
@@ -2312,173 +2515,7 @@ export function LibraryScreen({
         ) : null
       }
     />
-    <LibraryTitleMenuSheet
-      visible={!showSkeleton && showTitleMenuSheet}
-      collections={collections.data}
-      strings={strings}
-      selectedCollectionId={effectiveCollectionId}
-      disabled={collectionActionBusy}
-      onClose={() => setShowTitleMenuSheet(false)}
-      onDismiss={() => completeSheetDismiss("title-menu")}
-      onSelect={(collectionId) => {
-        selectCollection(collectionId, "title-menu");
-      }}
-      onManage={() => {
-        if (collectionActionBusy) return;
-        if (
-          !queueAfterSheetDismiss("title-menu", () => {
-            openCollectionsManager();
-          })
-        ) {
-          return;
-        }
-        setShowTitleMenuSheet(false);
-      }}
-    />
-    <QuickActionSheet
-      visible={quickActionEntry !== null}
-      variant="cover"
-      title={quickActionEntry ? getEntryTitle(quickActionEntry) : ""}
-      subtitle={quickActionSubtitle}
-      image={
-        quickActionCoverRequest?.url ??
-        (quickActionEntry ? getEntryCover(quickActionEntry) : undefined)
-      }
-      imageHeaders={quickActionCoverRequest?.headers}
-      actions={quickActions}
-      testID="MangaQuickActionSheet"
-      onClose={() => setQuickActionEntry(null)}
-      onDismiss={() => setQuickActionEntry(null)}
-    />
-    {membershipSheetEntry ? (
-      <MobileCollectionMembershipSheet
-        visible
-        libraryItemId={membershipSheetEntry.item.libraryItemId}
-        title={getEntryTitle(membershipSheetEntry)}
-        onClose={() => setMembershipSheetEntry(null)}
-      />
-    ) : null}
-    <CollectionNameSheet
-      visible={!showSkeleton && showCreatePanel}
-      mode="create"
-      strings={strings}
-      saving={savingCollection}
-      onClose={() => {
-        setShowCreatePanel(false);
-        setNewCollectionName("");
-      }}
-      onDismiss={() => completeSheetDismiss("create-collection")}
-      onSubmit={(name) => {
-        setNewCollectionName(name);
-        void createCollection(name);
-      }}
-    />
-    <CollectionsManagerSheet
-      visible={!showSkeleton && showCollectionsManagerSheet}
-      collections={collections.data}
-      strings={strings}
-      membership={collections.membership}
-      selectedCollectionId={effectiveCollectionId}
-      actionState={collectionActionState}
-      onClose={() => setShowCollectionsManagerSheet(false)}
-      onDismiss={() => completeSheetDismiss("collections-manager")}
-      onSelect={(collectionId) =>
-        selectCollection(collectionId, "collections-manager")
-      }
-      onCreate={() => {
-        if (collectionActionBusy) return;
-        if (
-          !queueAfterSheetDismiss("collections-manager", () => {
-            setNewCollectionName("");
-            setShowCreatePanel(true);
-          })
-        ) {
-          return;
-        }
-        setShowCollectionsManagerSheet(false);
-      }}
-      onRename={openCollectionRename}
-      onRemove={openCollectionRemoveConfirmation}
-    />
-    <CollectionNameSheet
-      visible={!showSkeleton && renameTarget !== null}
-      mode="rename"
-      initialName={renameTarget?.name ?? ""}
-      strings={strings}
-      saving={renamingCollection}
-      onClose={() => setRenameTarget(null)}
-      onSubmit={(name) => {
-        if (!renameTarget) return;
-        void renameCollectionById(renameTarget, name);
-      }}
-    />
-    <MobileNativeSheetScaffold
-      visible={
-        !showSkeleton &&
-        showManagePanel &&
-        Boolean(manageCollectionPresentation)
-      }
-      onClose={() => {
-        setShowManagePanel(false);
-        setRemoveArmed(false);
-      }}
-      onDismiss={() => {
-        completeSheetDismiss("manage-collection");
-        setManageCollectionPresentation(null);
-      }}
-      snapPoints={manageCollectionSheetLayout.snapPoints}
-      scroll={manageCollectionSheetLayout.scroll}
-      testID="ManageCollectionSheet"
-    >
-      {manageCollectionPresentation ? (
-        <ManageCollectionPanel
-          collection={manageCollectionPresentation}
-          strings={strings}
-          entries={sortedLibraryEntries}
-          membership={collections.membership}
-          removeArmed={removeArmed}
-          renaming={renamingCollection}
-          savingMembership={savingCollectionMembership}
-          removing={removingCollection}
-          onRenameCollection={renameCollection}
-          onSaveMembership={saveCollectionMembership}
-          onCancelMembership={() => {
-            setShowManagePanel(false);
-            setRemoveArmed(false);
-          }}
-          onRemoveCollection={() => {
-            void removeCollection();
-          }}
-          onCancelRemove={() => setRemoveArmed(false)}
-        />
-      ) : null}
-    </MobileNativeSheetScaffold>
-    <MobileConfirmationSheet
-      visible={!showSkeleton && removeTarget !== null}
-      title={strings.library.removeCollection}
-      description={strings.library.removeCollectionConfirm}
-      subject={removeTarget?.name}
-      cancelLabel={strings.common.cancel}
-      confirmLabel={strings.common.remove}
-      confirmAccessibilityLabel={
-        removeTarget
-          ? formatMobileString(strings.library.removeCollectionNamed, {
-              name: removeTarget.name,
-            })
-          : strings.common.remove
-      }
-      destructive
-      loading={removingCollection}
-      onDismiss={() => completeSheetDismiss("remove-confirmation")}
-      onCancel={() => {
-        if (removingCollection) return;
-        setRemoveTarget(null);
-      }}
-      onConfirm={() => {
-        if (!removeTarget) return;
-        void removeCollectionById(removeTarget, "remove-confirmation");
-      }}
-    />
+    {librarySheets}
     </>
   );
 }
@@ -2598,9 +2635,8 @@ const styles = StyleSheet.create({
     gap: MOBILE_MANGA_GRID_GAP,
     marginBottom: MOBILE_MANGA_GRID_GAP,
   },
-  // `maxWidth` is supplied per render from the adaptive column width.
+  // `width` is supplied per render from the adaptive column width.
   gridItem: {
-    flex: 1,
     minWidth: 0,
   },
   panelShell: {

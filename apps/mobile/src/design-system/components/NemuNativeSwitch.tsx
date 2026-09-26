@@ -2,8 +2,9 @@ import { useEffect } from "react";
 import { Switch as ExpoSwitch } from "@expo/ui";
 import { Host as SwiftHost } from "@expo/ui/swift-ui";
 import {
-  accessibilityLabel as swiftAccessibilityLabel,
+  accessibilityHidden,
   dynamicTypeSize,
+  labelsHidden,
   tint,
 } from "@expo/ui/swift-ui/modifiers";
 import { Platform, Pressable, StyleSheet, Switch as RNSwitch, View } from "react-native";
@@ -15,6 +16,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { hapticSelection } from "@/lib/haptics";
+import { getNemuIosSwitchFrame } from "./nemuNativeSwitchMetrics";
 
 const SHADCN_SWITCH_WIDTH = 32;
 const SHADCN_SWITCH_HEIGHT = 18.4;
@@ -108,41 +110,52 @@ export function NemuNativeSwitch({
   const { scheme, tokens } = useNemuTheme();
 
   if (Platform.OS === "ios") {
+    const frame = getNemuIosSwitchFrame(Platform.Version);
     return (
       <View
+        accessible
         accessibilityLabel={accessibilityLabel}
         accessibilityRole="switch"
         accessibilityState={{ checked: value, disabled }}
-        style={styles.host}
+        onAccessibilityTap={() => {
+          if (!disabled) onValueChange(!value);
+        }}
+        style={[styles.host, { minHeight: frame.height }]}
       >
         {/*
-          Fixed 51x31 host (no `matchContents`), and `ignoreSafeArea="all"`:
-          UIHostingController applies the window's safe-area insets inside the
-          host, so a switch sitting near the home indicator was laid out in a
-          region shrunk by the bottom inset and drew above its own frame. The
-          RN layout was already centred (measured); only the SwiftUI drawing
-          moved.
+          Host sized to the platform switch (51x31 before iOS 26, 63x28 from
+          iOS 26 — see nemuNativeSwitchMetrics), no `matchContents`, and
+          `ignoreSafeArea="all"`: UIHostingController applies the window's
+          safe-area insets inside the host, so a switch sitting near the home
+          indicator was laid out in a region shrunk by the bottom inset and
+          drew above its own frame. A 51x31 frame on iOS 26+ let the wider
+          switch paint 12pt past its measured bounds, clipped by the settings
+          cards.
 
           `dynamicTypeSize("large")` pins the SwiftUI environment to the default
           text size for the same reason. SwiftUI's `Toggle` scales its control
           with Dynamic Type while UIKit's `UISwitch` never does, so at larger
-          text sizes the drawn switch outgrew this measured frame and any
-          ancestor clipping its bounds (the settings cards) sheared the
-          trailing edge off. Pinned, the control stays the platform's own
-          51x31 at every Dynamic Type setting, so what Yoga reserves is exactly
-          what SwiftUI paints. Nothing inside the host is text, so no copy is
-          held back from scaling.
+          text sizes the drawn switch outgrew this measured frame. Pinned, the
+          control stays the platform's own size at every Dynamic Type setting.
+          The label is hidden, so no visible copy is held back from scaling.
+
+          Accessibility: the RN wrapper exposes one named, actionable switch.
+          Hide the SwiftUI subtree, which otherwise exposes both its labelled
+          toggle and an unlabelled UIKit switch on iOS 27. Native touch handling
+          remains on the toggle; VoiceOver activates the wrapper's action.
         */}
         <SwiftHost
           colorScheme={scheme}
           ignoreSafeArea="all"
           modifiers={[dynamicTypeSize("large")]}
-          style={styles.swiftHost}
+          style={{ width: frame.width, height: frame.height }}
         >
           <ExpoSwitch
             disabled={disabled}
+            label={accessibilityLabel}
             modifiers={[
-              swiftAccessibilityLabel(accessibilityLabel),
+              labelsHidden(),
+              accessibilityHidden(),
               tint(tokens.primary),
             ]}
             testID={testID}
@@ -181,22 +194,16 @@ export function NemuNativeSwitch({
   );
 }
 
-// UISwitch is a fixed 51x31 control. Giving the SwiftUI host those exact
+// UISwitch is a fixed-size control. Giving the SwiftUI host its exact
 // dimensions (instead of a min-size box it can seat its content at the top of)
-// keeps the switch on the row's optical centre line in every list row.
-const IOS_SWITCH_WIDTH = 51;
-const IOS_SWITCH_HEIGHT = 31;
-
+// keeps the switch on the row's optical centre line in every list row; the
+// size comes from `getNemuIosSwitchFrame` per render.
 const styles = StyleSheet.create({
   host: {
     minWidth: 54,
-    minHeight: IOS_SWITCH_HEIGHT,
+    minHeight: 31,
     alignItems: "flex-end",
     justifyContent: "center",
-  },
-  swiftHost: {
-    width: IOS_SWITCH_WIDTH,
-    height: IOS_SWITCH_HEIGHT,
   },
   disabled: {
     opacity: 0.5,

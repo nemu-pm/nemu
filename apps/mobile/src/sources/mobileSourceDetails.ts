@@ -179,6 +179,7 @@ export function mapAidokuChapterToSummary(
   if (chapter.dateUploaded != null) summary.dateUploaded = chapter.dateUploaded;
   if (chapter.locked) summary.locked = true;
   if (chapter.lang) summary.lang = chapter.lang;
+  if (chapter.scanlator) summary.scanlator = chapter.scanlator;
   return summary;
 }
 

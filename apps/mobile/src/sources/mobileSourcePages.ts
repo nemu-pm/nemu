@@ -437,6 +437,7 @@ function chapterFromSummary(chapter: ChapterSummary): AidokuChapter {
     sourceChapter.dateUploaded = chapter.dateUploaded;
   if (chapter.locked) sourceChapter.locked = true;
   if (chapter.lang) sourceChapter.lang = chapter.lang;
+  if (chapter.scanlator) sourceChapter.scanlator = chapter.scanlator;
   return sourceChapter;
 }
 

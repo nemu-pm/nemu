@@ -4,6 +4,32 @@ import Network
 private let nemuNativeProxyHeaderLimit = 64 * 1024
 private let nemuNativeProxySetupTimeoutSeconds = 12.0
 
+/// Sizing rule for the loopback proxy listener's `newConnectionLimit`.
+///
+/// `NWListener.newConnectionLimit` is a *budget*, not a concurrency cap: the
+/// Network framework decrements it by one for every connection it delivers and
+/// never restores it on close ("When the value becomes 0, new connection
+/// handlers will no longer be invoked until nw_listener_set_new_connection_limit
+/// is invoked with a value that is greater than 0" — Network/listener.h).
+/// Setting it once to 64 therefore let the process accept 64 proxy
+/// connections in total. Every source request after that hung until the 30 s
+/// URLSession deadline ("Request timed out.") for every source, until the app
+/// was relaunched — cancelled and timed-out requests, which tear their tunnel
+/// down, and plain-HTTP requests (one connection each) spent it fastest.
+///
+/// The proxy now re-derives the limit from the live connection count after
+/// every accept and every close, so 64 stays a cap on *concurrent* tunnels.
+enum NemuNativeHttpProxyConnectionBudget {
+  static let maxLiveConnections = 64
+
+  static func newConnectionLimit(
+    liveConnections: Int,
+    maxLiveConnections: Int = maxLiveConnections
+  ) -> Int {
+    return max(0, maxLiveConnections - max(0, liveConnections))
+  }
+}
+
 enum NemuNativeHttpProxyRequestError: Error {
   case incomplete
   case invalid
@@ -288,7 +314,10 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
       port: .any
     )
     guard let created = try? NWListener(using: parameters, on: .any) else { return }
-    created.newConnectionLimit = 64
+    // A budget, not a cap: see `NemuNativeHttpProxyConnectionBudget`. It is
+    // re-derived from the live count on every accept and close below.
+    created.newConnectionLimit = NemuNativeHttpProxyConnectionBudget
+      .maxLiveConnections
     listener = created
     let latch = NemuNativeHttpProxyReadyLatch()
     created.stateUpdateHandler = { state in
@@ -401,10 +430,22 @@ final class NemuNativeHttpLoopbackProxy: @unchecked Sendable {
       resolverQueue: resolverQueue,
       expectedBasicToken: basicToken
     ) { [weak self] in
-      self?.connections.removeValue(forKey: id)
+      // Every connection callback (state, receive, send, timeout, and the
+      // resolver hop) runs on `queue`, the same queue `accept` requires.
+      guard let self else { return }
+      self.connections.removeValue(forKey: id)
+      self.refreshConnectionLimit()
     }
     connections[id] = handler
+    refreshConnectionLimit()
     handler.start()
+  }
+
+  /// Restores the listener's delivery budget, which the Network framework
+  /// spends on every accepted connection and never refunds on close.
+  private func refreshConnectionLimit() {
+    listener?.newConnectionLimit = NemuNativeHttpProxyConnectionBudget
+      .newConnectionLimit(liveConnections: connections.count)
   }
 }
 

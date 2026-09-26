@@ -193,6 +193,12 @@ function isValidCachedChapter(value: unknown): value is ChapterSummary {
   if (chapter.lang !== undefined && typeof chapter.lang !== "string") {
     return false;
   }
+  if (
+    chapter.scanlator !== undefined &&
+    typeof chapter.scanlator !== "string"
+  ) {
+    return false;
+  }
   return true;
 }
 

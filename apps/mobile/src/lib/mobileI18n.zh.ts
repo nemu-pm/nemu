@@ -86,6 +86,8 @@ export const mobileStringsZh: MobileStrings = {
     agentStepResume: "继续加载",
     agentStepNotNeeded: "无需操作",
     agentSheetFailedUnsolicitedHost: "该网站并非此源请求的站点，已拒绝验证。",
+    agentSheetFailedNotChallenged:
+      "网站没有向内置浏览器显示验证，但仍在拦截此源的请求，因此无需也无法在此验证。",
     agentSheetFailedSetup: "无法在此设备上启动安全验证。请重试，或更新系统软件。",
   },
   errorBoundary: {
@@ -569,6 +571,9 @@ export const mobileStringsZh: MobileStrings = {
     rtl: "右至左",
     ltr: "左至右",
     lockedChapter: "已锁定章节",
+    chapterLockedTitle: "此章节已锁定",
+    chapterLockedDetail:
+      "该来源仅向付费或已登录的读者提供此章节。请在来源处解锁，或在来源设置中登录后重试。",
     mangaPairing: "漫画式配对",
     markComplete: "标记完成",
     markedComplete: "已标记完成",
@@ -593,6 +598,7 @@ export const mobileStringsZh: MobileStrings = {
     pageLoadingUnavailable: "页面加载不可用",
     pageTitle: "第 {{page}} 页",
     pageValue: "第 {{page}} 页，共 {{total}} 页",
+    pageSlider: "页面滑块",
     pageWidth: "页面宽度",
     pageWidthValue: "{{percent}}% 页面宽度",
     longStripProgress: "本页阅读进度 {{percent}}%",

@@ -95,6 +95,7 @@ export function MobileMangaStatusBadge({
     >
       <View style={[styles.dot, { backgroundColor: config.accent }]} />
       <Text
+        maxFontSizeMultiplier={1.3}
         numberOfLines={1}
         style={[styles.text, { color: BADGE_ACCENT.primaryForeground }]}
       >
@@ -115,6 +116,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.tab,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 10,
+    paddingVertical: 3,
     ...createNemuShadowStyle({
       color: "#000",
       offsetY: 4,

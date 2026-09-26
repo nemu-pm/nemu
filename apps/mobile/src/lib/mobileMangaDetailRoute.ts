@@ -95,6 +95,32 @@ export function shouldRedirectMissingMobileMangaDetailEntry({
   return !loading && !error && !hasEntry;
 }
 
+export type MobileMangaDetailExitAction = "none" | "back" | "replace-library";
+
+/**
+ * How the library detail screen leaves itself after its title disappears
+ * (removed here, or on another device). It used to `router.replace("/library")`
+ * — replacing the detail with a *second* library index on top of the tab's
+ * own, so the user landed on a duplicate Library screen with a Back button.
+ * Both the missing-entry redirect and the removal flow fired it, too.
+ *
+ * - Pop back to whatever pushed the detail (the library grid or a collection)
+ *   when the stack can be dismissed.
+ * - Only a detail with nothing under it (cold deep link without the stack's
+ *   initial route) replaces itself with the library.
+ * - Exit at most once per screen instance.
+ */
+export function resolveMobileMangaDetailExitAction({
+  alreadyExiting,
+  canDismiss,
+}: {
+  alreadyExiting: boolean;
+  canDismiss: boolean;
+}): MobileMangaDetailExitAction {
+  if (alreadyExiting) return "none";
+  return canDismiss ? "back" : "replace-library";
+}
+
 export function canSelectMobileMangaDetailSourceTab({
   selected,
   disabled,

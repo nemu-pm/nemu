@@ -8,6 +8,7 @@ import {
 } from "@/data/schema";
 import { formatChapterShort } from "./formatChapter";
 import { formatMobileString, type MobileStrings } from "./mobileI18n";
+import { compareMobileText } from "./mobileLocaleFormat";
 
 export type MobileLibraryProgressIndex = Map<string, LocalMangaProgress>;
 
@@ -387,7 +388,7 @@ export function sortMobileLibraryEntries(
     .sort((a, b) => {
       if (a.updated !== b.updated) return a.updated ? -1 : 1;
       if (a.time !== b.time) return b.time - a.time;
-      return a.title.localeCompare(b.title);
+      return compareMobileText(a.title, b.title);
     })
     .map((decorated) => decorated.entry);
 }
@@ -422,7 +423,7 @@ export function sortMobileLibraryMergeCandidates(
       if (aLikely !== bLikely) return aLikely ? -1 : 1;
       if (a.hasUpdate !== b.hasUpdate) return a.hasUpdate ? -1 : 1;
       if (a.activityTime !== b.activityTime) return b.activityTime - a.activityTime;
-      return getEntryTitle(a.entry).localeCompare(getEntryTitle(b.entry));
+      return compareMobileText(getEntryTitle(a.entry), getEntryTitle(b.entry));
     })
     .map(({ entry, similarity }) => ({ entry, similarity }));
 }

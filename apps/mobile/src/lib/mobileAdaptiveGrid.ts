@@ -79,3 +79,46 @@ export function getMobileMangaGridSkeletonGeometry({
     columnCount,
   };
 }
+
+export type MobileMangaGridLayout = {
+  columns: number;
+  /** Fixed width of every cell, including a partly filled last row. */
+  itemWidth: number;
+};
+
+/**
+ * Column count plus the fixed cell width for a virtualized manga grid
+ * (`FlatList numColumns`). Every grid (source browse, search, library) sizes
+ * its cells with `itemWidth` instead of `flex: 1`: with flex, a last row
+ * holding fewer items than `columns` stretched its cells across the whole row,
+ * so a lone final cover rendered two or three times wider than the rest.
+ */
+export function getMobileMangaGridLayout({
+  windowWidth,
+  horizontalPadding,
+}: {
+  windowWidth: number;
+  horizontalPadding: number;
+}): MobileMangaGridLayout {
+  return {
+    columns: getMobileMangaGridColumns({ windowWidth, horizontalPadding }),
+    itemWidth: getMobileMangaGridItemWidth({ windowWidth, horizontalPadding }),
+  };
+}
+
+/**
+ * Widths of the cells in each row of a `count`-item grid laid out with
+ * {@link getMobileMangaGridLayout}. Pure mirror of how the cells render, used
+ * to pin the "partial last row keeps the column width" contract in tests.
+ */
+export function getMobileMangaGridRowWidths(
+  layout: MobileMangaGridLayout,
+  count: number,
+): number[][] {
+  const rows: number[][] = [];
+  for (let index = 0; index < count; index += layout.columns) {
+    const cells = Math.min(layout.columns, count - index);
+    rows.push(Array.from({ length: cells }, () => layout.itemWidth));
+  }
+  return rows;
+}

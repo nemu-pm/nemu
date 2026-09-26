@@ -1,4 +1,6 @@
 import type { AppLanguage, MetadataLanguagePreference } from "@/data/schema";
+import { resolveMobileLanguageDisplayName } from "./mobileLanguageDisplayNameResolver";
+import type { MobileLanguageDisplayNameResolver } from "./mobileLanguageDisplayNames";
 
 export const DEFAULT_APP_LANGUAGE: AppLanguage = "en";
 export const DEFAULT_METADATA_LANGUAGE_PREFERENCE: MetadataLanguagePreference = "auto";
@@ -142,6 +144,9 @@ export function formatMobileLanguageDisplayName(
   code: string,
   appLanguage: AppLanguage,
   labels: MobileLanguageDisplayLabels = {},
+  // `Intl.DisplayNames` on iOS; the platform's ICU names on Android, whose
+  // JavaScriptCore has no `Intl` (see `mobileLanguageDisplayNames`).
+  resolveDisplayName: MobileLanguageDisplayNameResolver = resolveMobileLanguageDisplayName,
 ): string {
   const normalized = normalizeMobileLanguageCode(code);
   if (normalized === "multi" && labels.multi) return labels.multi;
@@ -150,23 +155,9 @@ export function formatMobileLanguageDisplayName(
   const mapped = MOBILE_LANGUAGE_DISPLAY_NAMES[normalized];
   if (mapped) return mapped;
 
-  try {
-    const displayNamesCtor = (
-      Intl as unknown as {
-        DisplayNames?: new (
-          locales: string[],
-          options: { type: "language" },
-        ) => { of: (value: string) => string | undefined };
-      }
-    ).DisplayNames;
-    const label = displayNamesCtor
-      ? new displayNamesCtor([appLanguage], { type: "language" }).of(normalized)
-      : undefined;
-    if (label && label !== normalized) {
-      return label.charAt(0).toUpperCase() + label.slice(1);
-    }
-  } catch {
-    // Some native runtimes ship a smaller Intl surface.
+  const label = resolveDisplayName(normalized, appLanguage);
+  if (label && label.toLowerCase() !== normalized) {
+    return label.charAt(0).toUpperCase() + label.slice(1);
   }
 
   return code.toUpperCase();

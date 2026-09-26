@@ -374,6 +374,93 @@ internal object NemuCloudflareChallengePolicy {
     return committedDocumentCleared && !probeReportsChallenge
   }
 
+  /**
+   * Whether the main-frame document on screen is (still) a challenge, as far
+   * as completion is concerned.
+   *
+   * [documentChallenged] is native's own reading of the document's response
+   * ([NemuCloudflareMainFrameDocumentTracker.documentChallenged]);
+   * [probeInterstitial] is the page probe's `_cf_chl_opt` read, `null` when
+   * that read failed. An unreadable probe counts as a challenge so a
+   * mid-navigation hiccup can never let a solve settle early.
+   */
+  internal fun challengeOnScreen(documentChallenged: Boolean, probeInterstitial: Boolean?): Boolean =
+    documentChallenged || probeInterstitial != false
+
+  /**
+   * First moment a challenge that is still on screen escalates from the hidden
+   * WebView to the visible sheet. The solver keeps probing afterwards, so a
+   * challenge that clears itself (a non-interactive managed challenge) inside
+   * this window never shows anything.
+   */
+  internal const val FIRST_INTERACTION_MS = 3_000L
+
+  /**
+   * When the hidden solve hands the challenge to the user.
+   *
+   * The Android probe can no longer see the Turnstile widget itself (looking
+   * it up from the page's main world is what broke Turnstile; see
+   * `NEMU_CLOUDFLARE_PROBE_SCRIPT`), so "needs the user" is "a challenge is
+   * positively on screen — a mitigated response or the `_cf_chl_opt` marker,
+   * never merely an unreadable probe — and has not cleared itself within
+   * [FIRST_INTERACTION_MS]". Only once, and never while the sheet is up.
+   */
+  internal fun shouldPresentChallenge(
+    documentChallenged: Boolean,
+    probeInterstitial: Boolean?,
+    elapsedMs: Long,
+    sheetVisible: Boolean
+  ): Boolean {
+    if (sheetVisible || elapsedMs < FIRST_INTERACTION_MS) return false
+    return documentChallenged || probeInterstitial == true
+  }
+
+  /**
+   * True while the solve is looking at the challenge host's real page without
+   * Cloudflare ever having challenged this WebView: a cleared document is up,
+   * no document in this solve was a mitigation response or carried the
+   * `_cf_chl_opt` marker, and nothing on screen reads as a challenge.
+   *
+   * The source's own request *was* challenged (that is what started the
+   * solve), so Cloudflare is telling the two clients apart — on Android, e.g.,
+   * a rule on the `Sec-CH-UA` client hints Chromium sends and the source's
+   * HTTP client does not — and there is no challenge here for the user to
+   * solve. The solver ends such a solve after a short grace
+   * (`NOT_CHALLENGED`) instead of waiting out its deadline and reporting a
+   * misleading timeout. Never while the sheet is up: then a challenge was on
+   * screen and the user is driving.
+   */
+  internal fun isUnchallengedLoad(
+    committedDocumentCleared: Boolean,
+    challengeObserved: Boolean,
+    challengeOnScreen: Boolean,
+    sheetVisible: Boolean
+  ): Boolean =
+    committedDocumentCleared && !challengeObserved && !challengeOnScreen && !sheetVisible
+
+  /**
+   * True when the response that produced a main-frame document was
+   * Cloudflare's challenge interstitial: the challenge host's own url, a
+   * 403/503/429, and a `cf-mitigated: challenge` header. Stricter than
+   * [isNemuCloudflareMitigatedResponse] (which also admits a bare
+   * `server: cloudflare` 403) because this one decides whether to show the
+   * user a sheet, and a plain block page has nothing to solve.
+   */
+  internal fun isChallengeDocumentResponse(
+    url: String?,
+    status: Int?,
+    headers: Map<String, String>,
+    challengeHost: String
+  ): Boolean {
+    val host = normalizedHost(url?.toHttpUrlOrNull()?.host) ?: return false
+    if (host != challengeHost) return false
+    if (status != 403 && status != 503 && status != 429) return false
+    return headers.any { (name, value) ->
+      name.equals("cf-mitigated", ignoreCase = true) &&
+        value.trim().equals("challenge", ignoreCase = true)
+    }
+  }
+
   /** How long the hidden phase keeps waiting once a cleared document is up. */
   internal const val CLEARED_DOCUMENT_GRACE_MS = 15_000L
 
@@ -580,6 +667,23 @@ internal class NemuCloudflareMainFrameDocumentTracker(private val challengeHost:
     private set
 
   /**
+   * The main-frame document on screen (from its start) came from Cloudflare's
+   * challenge interstitial ([NemuCloudflareChallengePolicy.isChallengeDocumentResponse]).
+   * Unlike [committedDocumentCleared] this is set as soon as the document
+   * starts: `onReceivedHttpError` for the main frame lands before
+   * `onPageStarted` on current WebView builds (observed on 133), and a late
+   * error only ever makes it true on the finish.
+   */
+  @get:Synchronized
+  var documentChallenged = false
+    private set
+
+  /** Some main-frame document in this solve was a challenge interstitial. */
+  @get:Synchronized
+  var challengeObserved = false
+    private set
+
+  /**
    * Bumped whenever the document the verdict speaks for changes, so a probe
    * dispatched against the previous document is not read against the new one.
    */
@@ -597,7 +701,17 @@ internal class NemuCloudflareMainFrameDocumentTracker(private val challengeHost:
     pendingLoadFailed = false
     pendingStarted = false
     committedDocumentCleared = false
+    documentChallenged = false
   }
+
+  private fun pendingChallenged(url: String?): Boolean =
+    pendingAllowed &&
+      NemuCloudflareChallengePolicy.isChallengeDocumentResponse(
+        url = url,
+        status = pendingErrorStatus,
+        headers = pendingErrorHeaders,
+        challengeHost = challengeHost
+      )
 
   @Synchronized
   fun mainFrameHttpError(status: Int, headers: Map<String, String>) {
@@ -626,6 +740,8 @@ internal class NemuCloudflareMainFrameDocumentTracker(private val challengeHost:
     pendingStarted = true
     documentGeneration += 1
     committedDocumentCleared = false
+    documentChallenged = pendingChallenged(url)
+    if (documentChallenged) challengeObserved = true
     return pendingAllowed &&
       !pendingLoadFailed &&
       NemuCloudflareChallengePolicy.isClearedDocumentResponse(
@@ -641,6 +757,8 @@ internal class NemuCloudflareMainFrameDocumentTracker(private val challengeHost:
     if (!requestPending || !pendingStarted) return
     requestPending = false
     documentGeneration += 1
+    documentChallenged = pendingChallenged(url)
+    if (documentChallenged) challengeObserved = true
     committedDocumentCleared = pendingAllowed &&
       !pendingLoadFailed &&
       NemuCloudflareChallengePolicy.isClearedDocumentResponse(

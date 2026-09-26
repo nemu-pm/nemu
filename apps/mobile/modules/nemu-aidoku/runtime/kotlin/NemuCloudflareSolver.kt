@@ -32,11 +32,12 @@ import org.json.JSONObject
 
 /**
  * The User-Agent the Aidoku runtime puts on every source request unless the
- * source package overrides it. A Cloudflare clearance cookie is bound to the
- * User-Agent that solved the challenge, so the solver WebView must present
- * exactly the string the follow-up source requests will send. Mirrored in JS
- * as `MOBILE_AIDOKU_DEFAULT_USER_AGENT` and in
- * `ios/NemuAidokuCloudflareSolver.swift`.
+ * source package overrides it. Mirrored in JS as
+ * `MOBILE_AIDOKU_DEFAULT_USER_AGENT` and in `ios/NemuAidokuCloudflareSolver.swift`.
+ * A Cloudflare clearance cookie is bound to the User-Agent that solved the
+ * challenge. iOS solves with this string; Android solves with a Chrome UA
+ * ([nemuCloudflareChromeUserAgent]) and then switches that one source's
+ * requests to the solved host over to it ([NemuCloudflareUserAgentBindings]).
  */
 internal const val NEMU_AIDOKU_DEFAULT_USER_AGENT =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 " +
@@ -47,13 +48,6 @@ internal const val NEMU_CLOUDFLARE_CLEARANCE_COOKIE = "cf_clearance"
 /** Hidden phase only. Once the dialog is up the user owns the pace. */
 private const val NEMU_CLOUDFLARE_HIDDEN_TIMEOUT_MS = 12_000L
 
-/**
- * First moment a still-interactive challenge escalates to the visible dialog.
- * The probe below keeps running afterwards, so a challenge that only renders
- * its widget after an initial scripted round trip escalates on the next tick
- * (the ~6s recheck) instead of waiting for the hidden-phase deadline.
- */
-private const val NEMU_CLOUDFLARE_FIRST_INTERACTION_PROBE_MS = 3_000L
 private const val NEMU_CLOUDFLARE_PROBE_INTERVAL_MS = 700L
 private const val NEMU_CLOUDFLARE_MAX_QUEUED_SOLVES = 8
 
@@ -123,146 +117,84 @@ internal enum class NemuCloudflareSolveFailure(val reason: String) {
    * cookie scope at all. Only hosts that answered one of this source's own
    * requests with a Cloudflare mitigation can be solved.
    */
-  UNSOLICITED_HOST("unsolicited-host")
-}
+  UNSOLICITED_HOST("unsolicited-host"),
 
-/** What the DOM says about the current page. */
-private data class NemuCloudflareChallengeProbe(
-  val isChallenge: Boolean,
-  val needsInteraction: Boolean,
-  /** The `_cf_chl_opt` marker was seen; see [NemuCloudflareInterstitialScanCache]. */
-  val interstitial: Boolean = false,
-  /** The `<script>` scan ran over a fully parsed document. */
-  val scanFinal: Boolean = false
-) {
-  companion object {
-    /** Unknown reads stay "still a challenge" so nothing false-succeeds. */
-    val EMPTY = NemuCloudflareChallengeProbe(isChallenge = true, needsInteraction = false)
-  }
+  /**
+   * The challenge host served the WebView its real page without ever
+   * presenting a challenge, and no new clearance appeared. Cloudflare is
+   * treating the WebView and the source's own requests differently (e.g. a
+   * rule keyed on request headers only a browser sends), so there is nothing
+   * the user could solve here; retrying the solve cannot change that.
+   */
+  NOT_CHALLENGED("not-challenged")
 }
 
 /**
- * Reads the markers Cloudflare's interstitial exposes. Kept to element and
- * title lookups so nothing about the page is exfiltrated back into native.
+ * The first moment an unchallenged, cleared challenge-host document ends the
+ * solve with [NemuCloudflareSolveFailure.NOT_CHALLENGED]; see
+ * [NemuCloudflareChallengePolicy.isUnchallengedLoad].
+ */
+private const val NEMU_CLOUDFLARE_NOT_CHALLENGED_GRACE_MS = 4_000L
+
+/**
+ * The one thing the solver reads from the page: whether the interstitial's
+ * `_cf_chl_opt` bootstrap global is defined in the main-frame document.
  * `evaluateJavascript` JSON-encodes the completion value, so the script yields
  * the object directly rather than a stringified copy.
  *
- * **Polling with `evaluateJavascript` is safe here, unlike on iOS.** WebKit's
- * public evaluation APIs run with a forced user gesture, which gave the
- * challenge page sticky user activation before anyone touched it and sent
- * Turnstile into an endless loop; the iOS solver pushes its probe from a user
- * script for that reason. Chromium's WebView path grants no activation:
- * `WebView.evaluateJavascript` -> `AwContents.evaluateJavaScript` ->
- * `WebContentsAndroid::EvaluateJavaScript` ->
- * `RenderFrameHostImpl::ExecuteJavaScript` ->
- * `LocalFrameMojoHandler::JavaScriptExecuteRequest`, which only runs the
- * script. `NotifyUserActivation` is reached solely from
- * `JavaScriptExecuteRequestForTests` with `has_user_gesture` (the
- * `ExecuteJavaScriptWithUserGestureForTests` test hook), which no WebView API
- * calls. So `navigator.userActivation` stays whatever the user made it. If
- * that ever changes, switch to a document-start probe reporting through
- * `WebViewCompat.addWebMessageListener`, as iOS does.
+ * **Why it touches nothing else.** `WebView.evaluateJavascript` has no
+ * isolated world: the script runs in the page's own main world, so every DOM
+ * API it calls (`document.querySelector`, the `document.scripts` and
+ * `document.title` getters, `textContent`) goes through prototypes the
+ * challenge page's scripts can wrap and watch. The previous probe polled
+ * `document.querySelector('input[name="cf-turnstile-response"]')` every
+ * 0.7s — the lookup solver bots use to lift a Turnstile token — and on a real
+ * Android WebView (133) that alone made Cloudflare issue a `cf_clearance` its
+ * own edge refused: after the one checkbox tick the orchestrator reloaded the
+ * interstitial instead of submitting, an endless checkbox loop (bisected on
+ * the emulator: the same solve with that single lookup removed passes; the
+ * `#challenge-*` lookups and the `_cf_chl_opt` read alone pass too). iOS runs
+ * its probe in an isolated `WKContentWorld`, where the page cannot observe it;
+ * Android has no such world, so it reads only a plain global property.
  *
- * The interstitial's inline bootstrap script defines `_cf_chl_opt`. Unlike the
- * title ("Just a moment...", which the orchestrator localizes) that marker is
- * the same in every language, so it is what keeps a zh/ja/… interstitial —
- * including its "verification successful, waiting for <host>" phase, after
- * Turnstile has already written a preliminary `cf_clearance` — reading as a
- * challenge. The title check stays as a fallback.
+ * Everything else comes from native: whether the document on screen *is* a
+ * challenge is what its response said (`cf-mitigated`, via
+ * [NemuCloudflareMainFrameDocumentTracker.documentChallenged]), and whether it
+ * needs the user is "a challenge is still up after
+ * [NemuCloudflareChallengePolicy.FIRST_INTERACTION_MS]". The global is the
+ * language-independent backstop for an interstitial whose response metadata
+ * was not observable.
  *
- * **Reading the marker cheaply.** `evaluateJavascript` runs in the page's main
- * world, so the bootstrap's `window._cf_chl_opt` global is visible directly
- * and is checked first. Re-reading the text of every `<script>` on each 0.7s
- * tick is only the fallback (a bootstrap that has not run, or ran without
- * leaving the global), and it runs at most once per document once the DOM is
- * parsed: the argument is what native already knows for this document
- * ([NemuCloudflareInterstitialScanCache]) — `null` scans, `false` skips the
- * scan, `true` skips both. The cache lives on the native side, keyed by the
- * tracker's document generation, rather than on `window`: a property the
- * probe planted on the challenge page's own global is exactly the kind of
- * realm tampering Turnstile fingerprints.
- *
- * Besides the verdict the script reports `interstitial` and whether its scan
- * is final (`scanned` over a parsed document), which is all the cache needs.
+ * Polling with `evaluateJavascript` itself is fine: Chromium's WebView path
+ * grants no user activation (`WebView.evaluateJavascript` ->
+ * `AwContents.evaluateJavaScript` -> `WebContentsAndroid::EvaluateJavaScript`
+ * -> `RenderFrameHostImpl::ExecuteJavaScript`, which only runs the script;
+ * `NotifyUserActivation` is reached solely from the test-only
+ * `ExecuteJavaScriptWithUserGestureForTests`), and a no-op script on the same
+ * cadence left the challenge passing on the emulator.
  */
-private val NEMU_CLOUDFLARE_PROBE_FUNCTION = """
-(function (knownInterstitial) {
-  var interstitial = knownInterstitial === true;
-  var scanned = false;
-  if (!interstitial) {
-    try {
-      interstitial = typeof window._cf_chl_opt !== "undefined";
-    } catch (error) { interstitial = false; }
-  }
-  if (!interstitial && knownInterstitial !== false) {
-    scanned = true;
-    try {
-      interstitial = Array.prototype.some.call(document.scripts, function (script) {
-        return (script.textContent || "").indexOf("_cf_chl_opt") !== -1;
-      });
-    } catch (error) { interstitial = false; }
-  }
-  var parsed = false;
-  try { parsed = document.readyState !== "loading"; } catch (error) { parsed = false; }
-  var title = "";
-  try { title = document.title || ""; } catch (error) { title = ""; }
-  var turnstile = !!document.querySelector('input[name="cf-turnstile-response"]');
-  var errorPanel = !!(
-    document.querySelector('#challenge-error-title') ||
-    document.querySelector('#challenge-error-text')
-  );
-  var running = !!(
-    document.querySelector('#challenge-running') ||
-    document.querySelector('#cf-challenge-running') ||
-    document.querySelector('#challenge-form') ||
-    document.querySelector('#cf-please-wait')
-  );
-  var needsInteraction = turnstile || errorPanel;
-  return {
-    challenge: needsInteraction || running || interstitial || title === "Just a moment...",
-    needsInteraction: needsInteraction,
-    interstitial: interstitial,
-    scanFinal: scanned && parsed
-  };
-})
+internal val NEMU_CLOUDFLARE_PROBE_SCRIPT = """
+(function () {
+  var interstitial = false;
+  try {
+    interstitial = typeof window._cf_chl_opt !== "undefined";
+  } catch (error) { interstitial = false; }
+  return { interstitial: interstitial };
+})();
 """.trimIndent()
 
 /**
- * The probe for one tick, given what [NemuCloudflareInterstitialScanCache]
- * already knows about the current document (`null`: nothing yet).
+ * The probe's answer: `true`/`false` for the `_cf_chl_opt` marker, `null`
+ * when the completion value could not be read (mid-navigation, a torn-down
+ * context). Unknown reads count as "still a challenge" for completion, so
+ * nothing false-succeeds, but never escalate to the visible sheet on their own.
  */
-internal fun nemuCloudflareProbeScript(knownInterstitial: Boolean?): String =
-  NEMU_CLOUDFLARE_PROBE_FUNCTION + "(" + (knownInterstitial?.toString() ?: "null") + ");"
-
-/**
- * What the probe has already established about the current main-frame
- * document's `_cf_chl_opt` marker, so the `<script>` text scan runs at most
- * once per document instead of on every tick.
- *
- * Keyed by [NemuCloudflareMainFrameDocumentTracker.documentGeneration]; a new
- * generation forgets everything. A positive answer is kept as soon as it is
- * seen (an interstitial does not stop being one), a negative one only when the
- * scan ran over a fully parsed DOM — a scan during `loading` may simply not
- * have reached the bootstrap script yet. Main thread only, like the session.
- */
-internal class NemuCloudflareInterstitialScanCache {
-  private var generation: Int? = null
-  private var interstitial: Boolean? = null
-
-  /** The argument for [nemuCloudflareProbeScript] for [documentGeneration]. */
-  fun known(documentGeneration: Int): Boolean? =
-    if (generation == documentGeneration) interstitial else null
-
-  fun record(documentGeneration: Int, interstitial: Boolean, scanFinal: Boolean) {
-    if (generation != documentGeneration) {
-      generation = documentGeneration
-      this.interstitial = null
-    }
-    when {
-      interstitial -> this.interstitial = true
-      scanFinal && this.interstitial == null -> this.interstitial = false
-    }
-  }
+internal fun nemuCloudflareParseProbe(value: String?): Boolean? {
+  if (value.isNullOrBlank() || value == "null") return null
+  return runCatching {
+    val json = JSONObject(value)
+    if (!json.has("interstitial")) null else json.optBoolean("interstitial", false)
+  }.getOrNull()
 }
 
 /**
@@ -355,7 +287,17 @@ internal class NemuCloudflareInterstitialScanCache {
 internal class NemuCloudflareSolver(
   private val activityProvider: () -> Activity?,
   private val emit: (String, Map<String, Any?>) -> Unit,
-  private val adoptCookies: (cookieScope: String?, url: HttpUrl, cookieHeader: String) -> Unit,
+  /**
+   * Publishes a solve's cookies into the source's jars. [userAgent] is the UA
+   * the WebView presented, which the adopted `cf_clearance` is bound to; see
+   * [NemuCloudflareUserAgentBindings].
+   */
+  private val adoptCookies: (
+    cookieScope: String?,
+    url: HttpUrl,
+    cookieHeader: String,
+    userAgent: String
+  ) -> Unit,
   private val storedClearance: (cookieScope: String?, url: HttpUrl) -> String?,
   /**
    * "Did this source's own traffic hit a Cloudflare mitigation on this host,
@@ -523,6 +465,12 @@ internal class NemuCloudflareSolver(
     val cookieScope: String? get() = solve.cookieScope
 
     private var webView: WebView? = null
+    /**
+     * The UA this solve's WebView actually presents: Chrome for Android when
+     * this WebView's default can be read ([nemuCloudflareChromeUserAgent]),
+     * else the requested one. Resolved in [load].
+     */
+    private var presentedUserAgent: String = solve.userAgent
     private var hiddenContainer: FrameLayout? = null
     private var dialog: Dialog? = null
     private var startedAtMs = 0L
@@ -541,7 +489,10 @@ internal class NemuCloudflareSolver(
      * fed by [SolverWebViewClient]. The solve's positive proof of success.
      */
     private val documents = NemuCloudflareMainFrameDocumentTracker(solve.challengeHost)
-    private val interstitialScans = NemuCloudflareInterstitialScanCache()
+    /** The probe has seen the `_cf_chl_opt` marker at some point in this solve. */
+    private var interstitialSeen = false
+    /** When the current unchallenged cleared document was first seen, or null. */
+    private var unchallengedSinceMs: Long? = null
     /**
      * Whether the hidden-phase deadline has already been extended for a
      * cleared document ([NemuCloudflareChallengePolicy.hiddenDeadlineExtensionMs]).
@@ -612,6 +563,9 @@ internal class NemuCloudflareSolver(
       NemuCloudflareServiceWorkerGate.install()
       NemuCloudflareServiceWorkerGate.open(solve.challengeHost)
 
+      presentedUserAgent = nemuCloudflareChromeUserAgent(
+        runCatching { WebSettings.getDefaultUserAgent(activity) }.getOrNull()
+      ) ?: solve.userAgent
       val view = runCatching { WebView(activity) }.getOrNull()
       if (view == null) {
         fail(NemuCloudflareSolveFailure.NAVIGATION_FAILED)
@@ -662,7 +616,9 @@ internal class NemuCloudflareSolver(
 
       // The UA comes from `settings.userAgentString`, which also applies to
       // every subresource the challenge fetches — a per-request header would
-      // only cover the document.
+      // only cover the document. It is the Chrome UA, not the source's own
+      // (iOS Safari) one; the adopted clearance carries it back to the source
+      // through [adoptCookies].
       view.loadUrl(solve.url.toString())
 
       emitWaitingOnce()
@@ -682,7 +638,7 @@ internal class NemuCloudflareSolver(
         // scripting off. Everything else the page could reach is closed.
         javaScriptEnabled = true
         domStorageEnabled = true
-        userAgentString = solve.userAgent
+        userAgentString = presentedUserAgent
         allowFileAccess = false
         allowContentAccess = false
         allowFileAccessFromFileURLs = false
@@ -788,11 +744,11 @@ internal class NemuCloudflareSolver(
     }
 
     /**
-     * Reads the DOM markers and the challenge host's cookies together. A solve
-     * is complete when a `cf_clearance` cookie for the challenge host exists,
-     * its value differs from the one the source already had, the main-frame
-     * document on screen came from a non-mitigated challenge-host response,
-     * and that document is not a challenge
+     * Reads the `_cf_chl_opt` marker and the challenge host's cookies together.
+     * A solve is complete when a `cf_clearance` cookie for the challenge host
+     * exists, its value differs from the one the source already had, the
+     * main-frame document on screen came from a non-mitigated challenge-host
+     * response, and nothing says that document is a challenge
      * ([NemuCloudflareChallengePolicy.isSolveComplete]).
      */
     private fun probe() {
@@ -800,8 +756,7 @@ internal class NemuCloudflareSolver(
       if (finished || probeInFlight) return
       probeInFlight = true
       val generation = documents.documentGeneration
-      val script = nemuCloudflareProbeScript(interstitialScans.known(generation))
-      view.evaluateJavascript(script) { value ->
+      view.evaluateJavascript(NEMU_CLOUDFLARE_PROBE_SCRIPT) { value ->
         probeInFlight = false
         if (finished) return@evaluateJavascript
         // The script ran against a document that has since been replaced (or
@@ -812,9 +767,7 @@ internal class NemuCloudflareSolver(
           probe()
           return@evaluateJavascript
         }
-        val probe = parseProbe(value)
-        interstitialScans.record(generation, probe.interstitial, probe.scanFinal)
-        evaluate(probe, readHostCookieHeader())
+        evaluate(nemuCloudflareParseProbe(value), readHostCookieHeader())
       }
     }
 
@@ -834,7 +787,14 @@ internal class NemuCloudflareSolver(
       }.getOrDefault("")
     }
 
-    private fun evaluate(probe: NemuCloudflareChallengeProbe, cookieHeader: String) {
+    /** [interstitial]: the probe's `_cf_chl_opt` read; see [nemuCloudflareParseProbe]. */
+    private fun evaluate(interstitial: Boolean?, cookieHeader: String) {
+      if (interstitial == true) interstitialSeen = true
+      val documentChallenged = documents.documentChallenged
+      val challengeOnScreen = NemuCloudflareChallengePolicy.challengeOnScreen(
+        documentChallenged = documentChallenged,
+        probeInterstitial = interstitial
+      )
       // Only the pairs this solve actually produced. The process-wide jar can
       // still be carrying another scope's earlier solve; adopting that would
       // move one source's session into another's jar, and reading its
@@ -848,16 +808,38 @@ internal class NemuCloudflareSolver(
           clearance = clearanceValue(solved),
           baselineClearance = baselineClearance,
           committedDocumentCleared = documents.committedDocumentCleared,
-          probeReportsChallenge = probe.isChallenge
+          probeReportsChallenge = challengeOnScreen
         )
       ) {
         succeed(solved)
         return
       }
-      if (dialog != null || !probe.needsInteraction) return
-      val elapsed = SystemClock.elapsedRealtime() - startedAtMs
-      if (elapsed < NEMU_CLOUDFLARE_FIRST_INTERACTION_PROBE_MS) return
-      present()
+      val now = SystemClock.elapsedRealtime()
+      val unchallenged = NemuCloudflareChallengePolicy.isUnchallengedLoad(
+        committedDocumentCleared = documents.committedDocumentCleared,
+        challengeObserved = documents.challengeObserved || interstitialSeen,
+        challengeOnScreen = challengeOnScreen,
+        sheetVisible = dialog != null
+      )
+      if (!unchallenged) {
+        unchallengedSinceMs = null
+      } else {
+        val since = unchallengedSinceMs ?: now.also { unchallengedSinceMs = it }
+        if (now - since >= NEMU_CLOUDFLARE_NOT_CHALLENGED_GRACE_MS) {
+          fail(NemuCloudflareSolveFailure.NOT_CHALLENGED)
+          return
+        }
+      }
+      if (
+        NemuCloudflareChallengePolicy.shouldPresentChallenge(
+          documentChallenged = documentChallenged,
+          probeInterstitial = interstitial,
+          elapsedMs = now - startedAtMs,
+          sheetVisible = dialog != null
+        )
+      ) {
+        present()
+      }
     }
 
     private fun clearanceValue(cookieHeader: String): String? {
@@ -872,19 +854,6 @@ internal class NemuCloudflareSolver(
           pair.substring(separator + 1).trim()
         }
         .firstOrNull()
-    }
-
-    private fun parseProbe(value: String?): NemuCloudflareChallengeProbe {
-      if (value.isNullOrBlank() || value == "null") return NemuCloudflareChallengeProbe.EMPTY
-      return runCatching {
-        val json = JSONObject(value)
-        NemuCloudflareChallengeProbe(
-          isChallenge = json.optBoolean("challenge", true),
-          needsInteraction = json.optBoolean("needsInteraction", false),
-          interstitial = json.optBoolean("interstitial", false),
-          scanFinal = json.optBoolean("scanFinal", false)
-        )
-      }.getOrDefault(NemuCloudflareChallengeProbe.EMPTY)
     }
 
     // MARK: - Visible dialog
@@ -983,7 +952,7 @@ internal class NemuCloudflareSolver(
       // Every pair here came from `getCookie(origin)`, so it is a cookie the
       // challenge host would be sent, and it survived the diff against this
       // solve's baseline, so this solve is what wrote it.
-      adoptCookies(solve.cookieScope, solve.url, bounded)
+      adoptCookies(solve.cookieScope, solve.url, bounded, presentedUserAgent)
       teardown()
       emit("nemuAidokuCfSuccess", mapOf("url" to solve.url.toString()))
       settle(true)

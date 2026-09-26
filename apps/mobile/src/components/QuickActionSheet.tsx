@@ -167,10 +167,9 @@ export function QuickActionSheet<TId extends string>({
   );
 }
 
-const sheetBase = {
-  paddingHorizontal: 16,
-  paddingBottom: 12,
-} as const;
+// Horizontal and bottom insets come from the native scaffold (16pt on iOS as
+// before, the shared 24dp Material gutter on Android).
+const sheetBase = {} as const;
 
 const headerBase = {
   flexDirection: "row",

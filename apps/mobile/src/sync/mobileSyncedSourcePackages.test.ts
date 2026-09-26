@@ -330,4 +330,34 @@ describe("hydrateMobileSyncedSourcePackages", () => {
     expect(receivedSignal?.aborted).toBe(true);
     expect(hydrationErrors).toEqual([]);
   });
+
+  test("skips downloading packages for disabled sources until they are enabled", async () => {
+    let cacheCalls = 0;
+    const options = {
+      hasPackage: async () => false,
+      cachePackage: async () => {
+        cacheCalls += 1;
+        return {
+          packageUri: "file:///cache/mangadex.aix",
+          packageCacheKey: ARTIFACT_CACHE_KEY,
+          metadata: packageMetadata,
+        };
+      },
+    };
+
+    const disabled = syncedSource({ disabled: true });
+    const [skipped] = await hydrateMobileSyncedSourcePackages([disabled], options);
+    expect(cacheCalls).toBe(0);
+    expect(skipped).toBe(disabled);
+
+    const [enabled] = await hydrateMobileSyncedSourcePackages(
+      [syncedSource({ disabled: false })],
+      options,
+    );
+    expect(cacheCalls).toBe(1);
+    expect(enabled).toMatchObject({
+      disabled: false,
+      packageUri: "file:///cache/mangadex.aix",
+    });
+  });
 });

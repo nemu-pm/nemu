@@ -174,6 +174,16 @@ describe("mobile source routes", () => {
     ).toBe("/sources/registry/source/manga/chapter");
   });
 
+  test("preserves a known locked chapter when opening the reader", () => {
+    expect(getMobileSourceReaderHref({
+      registryId: "registry",
+      sourceId: "source",
+      mangaId: "manga",
+      mangaTitle: null,
+      chapter: { id: "chapter", locked: true },
+    })).toBe("/sources/registry/source/manga/chapter?chapterLocked=true");
+  });
+
   test("normalizes route params back to runtime ids", () => {
     expect(normalizeMobileSourceRouteParam("ja%2Fraw")).toBe("ja/raw");
     expect(normalizeMobileSourceRouteParam(["series%2Fone", "ignored"])).toBe(

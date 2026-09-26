@@ -392,6 +392,18 @@ async function pushLocalChapterProgressWinners(
   }
 }
 
+type MobileProgressSnapshotApplyResult = {
+  /** True only when the delivery wrote a chapter or manga progress row. */
+  changed: boolean;
+};
+
+/**
+ * Applies one cloud progress delivery. Returns null when the run was
+ * superseded (nothing to mark), otherwise whether any local row changed —
+ * every Convex re-delivery of unchanged progress used to emit a "progress"
+ * change event, waking every progress reader (library grid, detail, reader)
+ * for nothing.
+ */
 async function applyMobileProgressSnapshots(
   store: MobileDataStore,
   convex: MobileMutationClient,
@@ -400,7 +412,7 @@ async function applyMobileProgressSnapshots(
   shouldContinue: () => boolean,
   generation: number,
   expectedUserId: string,
-): Promise<boolean> {
+): Promise<MobileProgressSnapshotApplyResult | null> {
   const chapterResult = store.applyChapterProgressSnapshot
     ? await runWithMobileSyncWrite(async () => {
         if (
@@ -433,7 +445,7 @@ async function applyMobileProgressSnapshots(
         }
         return result;
       });
-  if (!chapterResult || !shouldContinue()) return false;
+  if (!chapterResult || !shouldContinue()) return null;
 
   await pushLocalChapterProgressWinners(
     chapterResult.localWinners,
@@ -442,7 +454,7 @@ async function applyMobileProgressSnapshots(
     generation,
     expectedUserId,
   );
-  if (!shouldContinue()) return false;
+  if (!shouldContinue()) return null;
 
   const mangaResult = store.applyMangaProgressSnapshot
     ? await runWithMobileSyncWrite(async () => {
@@ -476,7 +488,11 @@ async function applyMobileProgressSnapshots(
         }
         return result;
       });
-  return mangaResult !== null && shouldContinue();
+  if (mangaResult === null || !shouldContinue()) return null;
+  return {
+    changed:
+      chapterResult.changed.length > 0 || mangaResult.changed.length > 0,
+  };
 }
 
 /**
@@ -1446,7 +1462,7 @@ function ConfiguredMobileSyncBridge() {
           expectedUserId,
         );
         if (applied) {
-          emitMobileDataChanged("progress");
+          if (applied.changed) emitMobileDataChanged("progress");
           markSyncApplySucceeded("progress");
           markMobileSyncProgressDomain(expectedUserId, "progress");
         }

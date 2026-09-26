@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { getMobileStrings } from "./mobileI18n";
 import { MOBILE_SOURCE_DISABLED_DETAIL } from "@/sources/mobileSourceRuntime";
 import {
+  getMobileSourceOperationErrorCopy,
+  stripMobileNativeExceptionNoise,
   MOBILE_SOURCE_DISABLED_MARKER,
   MOBILE_TACHIYOMI_UNSUPPORTED_MARKER,
   describeMobileErrorDetail,
@@ -452,5 +454,68 @@ describe("splitMobileInlineErrorDetail", () => {
       description: "raw diagnostic",
       diagnostic: null,
     });
+  });
+});
+
+describe("native exception text never headlines a source error", () => {
+  const strings = getMobileStrings("en");
+  const nativeTimeout = new Error(
+    "NemuAidokuSandboxException: Request timed out. (at NemuAidoku/NemuAidokuModule.swift:42)",
+  );
+
+  test("strips the exception class and native source location from diagnostics", () => {
+    expect(stripMobileNativeExceptionNoise(nativeTimeout.message)).toBe(
+      "Request timed out.",
+    );
+    expect(
+      stripMobileNativeExceptionNoise(
+        "java.io.IOException: unexpected end of stream (at NemuAidokuModule.kt:118)",
+      ),
+    ).toBe("unexpected end of stream");
+    expect(sanitizeMobileErrorDiagnostic(
+      new Error("NemuAidokuSandboxException: Source returned malformed JSON. (at NemuAidoku/NemuAidokuModule.swift:42)"),
+    )).toBe("Source returned malformed JSON.");
+    // Ordinary messages are left alone.
+    expect(stripMobileNativeExceptionNoise("Chapter not found")).toBe("Chapter not found");
+  });
+
+  test("a native timeout in source search reads as a localized network error", () => {
+    const copy = getMobileSourceOperationErrorCopy(
+      nativeTimeout,
+      strings.sourceBrowse.sourceSearchFailed,
+      strings,
+    );
+    expect(copy).toEqual({
+      title: strings.common.sourceNetworkError,
+      detail: strings.common.sourceNetworkErrorDescription,
+    });
+    expect(`${copy.title}\n${copy.detail}`).not.toContain("Exception");
+    expect(`${copy.title}\n${copy.detail}`).not.toContain(".swift");
+  });
+
+  test("an unclassified failure keeps the operation title and a sanitized second line", () => {
+    const copy = getMobileSourceOperationErrorCopy(
+      new Error(
+        "NemuAidokuSandboxException: Source returned malformed JSON. (at NemuAidoku/NemuAidokuModule.swift:42)",
+      ),
+      strings.sourceBrowse.sourceSearchFailed,
+      strings,
+    );
+    expect(copy.title).toBe(strings.sourceBrowse.sourceSearchFailed);
+    expect(copy.detail).toBe(
+      `${strings.common.sourceErrorDescription}\nSource returned malformed JSON.`,
+    );
+  });
+
+  test("localized copy is used for ja/zh too", () => {
+    for (const language of ["ja", "zh"] as const) {
+      const localized = getMobileStrings(language);
+      const copy = getMobileSourceOperationErrorCopy(
+        nativeTimeout,
+        localized.sourceBrowse.sourceSearchFailed,
+        localized,
+      );
+      expect(copy.title).toBe(localized.common.sourceNetworkError);
+    }
   });
 });

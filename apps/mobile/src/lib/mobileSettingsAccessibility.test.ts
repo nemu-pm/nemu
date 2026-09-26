@@ -5,7 +5,7 @@ import path from "node:path";
 const mobileSourceRoot = path.join(import.meta.dir, "..");
 
 describe("mobile settings native accessibility contracts", () => {
-  test("labels the nested SwiftUI switch instead of only its React Native host", () => {
+  test("exposes one actionable switch and hides the duplicate SwiftUI subtree", () => {
     const source = readFileSync(
       path.join(
         mobileSourceRoot,
@@ -14,7 +14,11 @@ describe("mobile settings native accessibility contracts", () => {
       "utf8",
     );
 
-    expect(source).toContain("swiftAccessibilityLabel(accessibilityLabel)");
+    expect(source).toContain('accessibilityRole="switch"');
+    expect(source).toContain("accessibilityLabel={accessibilityLabel}");
+    expect(source).toContain("accessibilityHidden()");
+    expect(source).toContain("onAccessibilityTap={() =>");
+    expect(source).toContain("if (!disabled) onValueChange(!value)");
   });
 
   test("exposes every iOS segmented choice as an individually selectable tab", () => {

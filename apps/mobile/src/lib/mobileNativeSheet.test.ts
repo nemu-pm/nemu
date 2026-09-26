@@ -5,6 +5,11 @@ import {
   canDismissMobileNativeSheetFromHardwareBack,
   MOBILE_NATIVE_ANDROID_SNAP_POINTS,
   normalizeMobileNativeSheetSnapPointsForPlatform,
+  MOBILE_NATIVE_ANDROID_MIN_FIXED_HEIGHT,
+  resolveMobileNativeSheetAndroidFrame,
+  resolveMobileNativeSheetAvailableHeight,
+  resolveMobileNativeSheetBodyTopPadding,
+  resolveMobileNativeSheetBottomPadding,
   resolveMobileSheetIosLayoutBudget,
   resolveMobileSheetHeaderMetrics,
   resolveMobileNativeSheetDismissLabel,
@@ -22,12 +27,13 @@ describe("mobile native sheet behavior", () => {
       bodyTopPadding: 8,
       controlSize: 48,
       horizontalPadding: 24,
-      minimumHeight: 64,
+      minimumHeight: 52,
+      paddingTop: 0,
+      paddingBottom: 4,
       showActionLabels: true,
       sideWidth: null,
       titleAlignment: "left",
       titleNumberOfLines: 2,
-      verticalPadding: 8,
     });
   });
 
@@ -51,11 +57,13 @@ describe("mobile native sheet behavior", () => {
       controlSize: 44,
       horizontalPadding: 16,
       minimumHeight: 52,
+      // Formerly `verticalPadding: 4`: the same 4pt above and below.
+      paddingTop: 4,
+      paddingBottom: 4,
       showActionLabels: false,
       sideWidth: 76,
       titleAlignment: "center",
       titleNumberOfLines: 1,
-      verticalPadding: 4,
     });
   });
 
@@ -63,7 +71,7 @@ describe("mobile native sheet behavior", () => {
     for (const platform of ["ios", "android"] as const) {
       const metrics = resolveMobileSheetHeaderMetrics(platform);
       expect(metrics.minimumHeight).toBe(
-        metrics.controlSize + metrics.verticalPadding * 2,
+        metrics.controlSize + metrics.paddingTop + metrics.paddingBottom,
       );
     }
   });
@@ -278,5 +286,148 @@ describe("mobile native sheet behavior", () => {
         enablePanDownToClose: false,
       }),
     ).toBe(true);
+  });
+
+  test("does not stack body padding under Android's Material drag handle", () => {
+    expect(resolveMobileNativeSheetBodyTopPadding({ platform: "ios", hasChrome: false })).toBe(8);
+    expect(resolveMobileNativeSheetBodyTopPadding({ platform: "ios", hasChrome: true })).toBe(8);
+    expect(resolveMobileNativeSheetBodyTopPadding({ platform: "android", hasChrome: true })).toBe(
+      resolveMobileSheetHeaderMetrics("android").bodyTopPadding,
+    );
+    expect(resolveMobileNativeSheetBodyTopPadding({ platform: "android", hasChrome: false })).toBe(0);
+  });
+
+  test("ends every Android body one gutter above the navigation bar Material already clears", () => {
+    for (const scroll of [false, true]) {
+      expect(
+        resolveMobileNativeSheetBottomPadding({ platform: "android", scroll, safeAreaBottom: 24 }),
+      ).toBe(18);
+    }
+  });
+
+  describe("Android sheet heights match iOS", () => {
+    // Pixel-like phone: 952dp window, 48dp status bar, 24dp gesture bar.
+    const phone = { windowHeight: 952, safeAreaTop: 48, safeAreaBottom: 24 };
+    const available = 952 - 48 - 24 - 48;
+
+    test("a content-sized iOS sheet wraps its content, capped at the room it has", () => {
+      expect(resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: undefined })).toEqual({
+        kind: "content",
+        maxHeight: available,
+      });
+    });
+
+    test("a fraction detent gets the same visible sheet height iOS shows", () => {
+      // iOS 60% sheet: 0.6 * (952 - 48) = 542.4dp tall from the screen bottom.
+      // Android: minus its 48dp handle and the 24dp gesture bar it sits above.
+      expect(resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: ["60%"] })).toEqual({
+        kind: "fixed",
+        height: Math.round(0.6 * 904 - 48 - 24),
+      });
+      // Only the first detent is the opening height.
+      expect(
+        resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: ["48%", "100%"] }),
+      ).toEqual({ kind: "fixed", height: Math.round(0.48 * 904 - 72) });
+      // Pixel detents are sheet heights too.
+      expect(resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: [420] })).toEqual({
+        kind: "fixed",
+        height: 420 - 72,
+      });
+      // Never a sliver.
+      expect(resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: ["10%"] })).toEqual({
+        kind: "fixed",
+        height: MOBILE_NATIVE_ANDROID_MIN_FIXED_HEIGHT,
+      });
+    });
+
+    test("only a large (100%) iOS sheet is full height", () => {
+      expect(resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: ["100%"] })).toEqual({
+        kind: "fixed",
+        height: available,
+      });
+      expect(resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: [5000] })).toEqual({
+        kind: "fixed",
+        height: available,
+      });
+    });
+
+    test("unreadable detents fall back to content-sized", () => {
+      expect(resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: ["tall"] })).toEqual({
+        kind: "content",
+        maxHeight: available,
+      });
+    });
+
+    test("an open keyboard comes out of the room, so the header stays on screen", () => {
+      // Material pads the sheet content by the IME inset; RN reports the
+      // keyboard's height above the gesture bar (312dp here).
+      const keyboardHeight = 312;
+      const room = available - keyboardHeight;
+      // The Add Sources detent (~75%) no longer fits above the keyboard.
+      expect(
+        resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: ["75%"], keyboardHeight }),
+      ).toEqual({ kind: "fixed", height: room });
+      expect(
+        resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: ["100%"], keyboardHeight }),
+      ).toEqual({ kind: "fixed", height: room });
+      expect(
+        resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: undefined, keyboardHeight }),
+      ).toEqual({ kind: "content", maxHeight: room });
+      // A short detent that already fits keeps its iOS height.
+      expect(
+        resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: [420], keyboardHeight }),
+      ).toEqual({ kind: "fixed", height: 420 - 72 });
+      // Closed keyboard (0) is the default; a bogus negative height is ignored.
+      expect(
+        resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: ["75%"], keyboardHeight: -40 }),
+      ).toEqual(resolveMobileNativeSheetAndroidFrame({ ...phone, snapPoints: ["75%"] }));
+      // Never negative, even in a landscape window the keyboard nearly fills.
+      expect(
+        resolveMobileNativeSheetAndroidFrame({
+          windowHeight: 411,
+          safeAreaTop: 24,
+          safeAreaBottom: 0,
+          snapPoints: ["100%"],
+          keyboardHeight: 400,
+        }),
+      ).toEqual({ kind: "fixed", height: 0 });
+    });
+  });
+
+  test("snapshots the approved iOS sheet spacing", () => {
+    // iOS must not move: every spacing helper resolves to today's numbers.
+    const header = resolveMobileSheetHeaderMetrics("ios");
+    expect({
+      bodyTopPadding: header.bodyTopPadding,
+      bodyHorizontalPadding: header.bodyHorizontalPadding,
+      headerMinimumHeight: header.minimumHeight,
+      headerPaddingTop: header.paddingTop,
+      headerPaddingBottom: header.paddingBottom,
+      bodyTopWithoutChrome: resolveMobileNativeSheetBodyTopPadding({ platform: "ios", hasChrome: false }),
+      bodyTopWithChrome: resolveMobileNativeSheetBodyTopPadding({ platform: "ios", hasChrome: true }),
+      bottomContentSized: resolveMobileNativeSheetBottomPadding({ platform: "ios", scroll: false, safeAreaBottom: 34 }),
+      bottomScrolling: resolveMobileNativeSheetBottomPadding({ platform: "ios", scroll: true, safeAreaBottom: 34 }),
+      bottomScrollingNoInset: resolveMobileNativeSheetBottomPadding({ platform: "ios", scroll: true, safeAreaBottom: 0 }),
+      snapPoints: normalizeMobileNativeSheetSnapPointsForPlatform(["82%"], "ios"),
+      availableHeight: resolveMobileNativeSheetAvailableHeight({
+        platform: "ios",
+        windowHeight: 852,
+        safeAreaTop: 59,
+        safeAreaBottom: 34,
+      }),
+    }).toEqual({
+      bodyTopPadding: 8,
+      bodyHorizontalPadding: 16,
+      headerMinimumHeight: 52,
+      headerPaddingTop: 4,
+      headerPaddingBottom: 4,
+      bodyTopWithoutChrome: 8,
+      bodyTopWithChrome: 8,
+      bottomContentSized: 18,
+      bottomScrolling: 62,
+      bottomScrollingNoInset: 40,
+      snapPoints: ["82%"],
+      availableHeight: 759,
+    });
   });
 });

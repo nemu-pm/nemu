@@ -5,6 +5,8 @@ import {
   StyleSheet,
   View,
   type LayoutChangeEvent,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import { radius, useNemuTheme } from "@/design-system";
 import {
@@ -29,6 +31,12 @@ type MobileSliderTrackProps = {
    * track's own view tree.
    */
   onTrackWindowFrame?: (frame: MobileSliderTrackWindowFrame) => void;
+  /**
+   * Extends the touch box (it stays centred on the track). Callers whose
+   * visible control is taller than the 44/48pt minimum use this so a touch
+   * anywhere on the control reaches the slider.
+   */
+  touchTargetStyle?: StyleProp<ViewStyle>;
 };
 
 export function MobileSliderTrack({
@@ -41,6 +49,7 @@ export function MobileSliderTrack({
   onRatioCancel,
   onRatioCommit,
   onTrackWindowFrame,
+  touchTargetStyle,
 }: MobileSliderTrackProps) {
   const { tokens } = useNemuTheme();
   const trackRef = useRef<View | null>(null);
@@ -125,7 +134,7 @@ export function MobileSliderTrack({
     <View
       ref={trackRef}
       {...panResponder.panHandlers}
-      style={styles.touchTarget}
+      style={[styles.touchTarget, touchTargetStyle]}
       onLayout={onTrackLayout}
     >
       {/* pointerEvents="none" keeps every touch targeting the outer view the

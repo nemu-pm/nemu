@@ -62,12 +62,37 @@ export function invalidateMobileSyncEpoch(): number {
   return syncEpoch;
 }
 
+/**
+ * Stable identity of a sync store across wrappers. The provider registers the
+ * store the UI sees — the profile-guard Proxy around `MobileSyncDataStore` —
+ * while the sync store's own methods run with `this` bound to the unwrapped
+ * instance (the guard applies methods to its target). Comparing raw object
+ * identity therefore never matched, and every foreground write-through push
+ * (installs, library saves, removals, collections) was silently skipped until
+ * a later snapshot reconciliation happened to carry it. Stores that can be
+ * wrapped expose their canonical identity under this key; the guard's `get`
+ * trap forwards non-function reads, so the Proxy reports the same identity.
+ */
+export const MOBILE_SYNC_STORE_IDENTITY: unique symbol = Symbol.for(
+  "nemu.mobileSyncStoreIdentity",
+);
+
+function mobileSyncStoreIdentity(store: object): object {
+  const identity = (store as { [MOBILE_SYNC_STORE_IDENTITY]?: unknown })[
+    MOBILE_SYNC_STORE_IDENTITY
+  ];
+  return typeof identity === "object" && identity !== null ? identity : store;
+}
+
 export function setActiveMobileSyncStore(store: object | null): void {
-  activeSyncStore = store;
+  activeSyncStore = store === null ? null : mobileSyncStoreIdentity(store);
 }
 
 export function isActiveMobileSyncStore(store: object): boolean {
-  return activeSyncStore === null || activeSyncStore === store;
+  return (
+    activeSyncStore === null ||
+    activeSyncStore === mobileSyncStoreIdentity(store)
+  );
 }
 
 export function isApplyingMobileRemoteSnapshot(): boolean {

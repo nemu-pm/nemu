@@ -21,9 +21,11 @@ import {
   shouldBlockMobileWelcomeUnderlyingContent,
   shouldStackMobileWelcomeActions,
   resolveMobileWelcomeNativeSheetPresentation,
-  MOBILE_WELCOME_ANDROID_SNAP_POINTS,
+  resolveMobileWelcomeSheetContentTopPadding,
+  MOBILE_WELCOME_IOS_SHEET_TOP_PADDING,
   MOBILE_WELCOME_ICON_SIZE,
 } from "./mobileWelcome";
+import { resolveMobileNativeSheetBodyTopPadding } from "./mobileNativeSheet";
 
 function source(
   registryId: string,
@@ -166,7 +168,21 @@ describe("mobile welcome helpers", () => {
     const android = resolveMobileWelcomeNativeSheetPresentation({
       platform: "android",
     });
-    expect(android.snapPoints).not.toBeUndefined();
+    expect(android.snapPoints).toBeUndefined();
+  });
+
+  test("sits onboarding content as close under the grabber as the Nemu Agent sheet on Android", () => {
+    // iOS is approved as is.
+    expect(resolveMobileWelcomeSheetContentTopPadding("ios")).toBe(
+      MOBILE_WELCOME_IOS_SHEET_TOP_PADDING,
+    );
+    expect(MOBILE_WELCOME_IOS_SHEET_TOP_PADDING).toBe(18);
+    // Android: the Material drag handle's own padding is the whole gap, the
+    // same value every chrome-less native sheet (the Nemu Agent sheet) uses.
+    expect(resolveMobileWelcomeSheetContentTopPadding("android")).toBe(
+      resolveMobileNativeSheetBodyTopPadding({ platform: "android", hasChrome: false }),
+    );
+    expect(resolveMobileWelcomeSheetContentTopPadding("android")).toBe(0);
   });
 
   test("keeps one stable guarded Material sheet presentation across Android steps", () => {
@@ -177,13 +193,14 @@ describe("mobile welcome helpers", () => {
       platform: "android",
     });
 
-    expect(welcome.snapPoints).toBe(MOBILE_WELCOME_ANDROID_SNAP_POINTS);
-    expect(sources.snapPoints).toBe(MOBILE_WELCOME_ANDROID_SNAP_POINTS);
-    expect(welcome.snapPoints).toEqual(["50%", "100%"]);
+    // Content-sized on every step: a `["50%", "100%"]` pair became Material's
+    // half-height partial state, which a gesture-less onboarding sheet could
+    // never expand, so everything below the 50% line (the primary button and
+    // its bottom inset) was cut off by the screen edge.
+    expect(welcome.snapPoints).toBeUndefined();
+    expect(sources.snapPoints).toBeUndefined();
     expect(welcome.scroll).toBe(true);
     expect(sources.scroll).toBe(true);
-    // Material only exposes partial/expanded detents, so the source list can
-    // never be pinned against an exact sheet height there.
     expect(welcome.boundSourceList).toBe(false);
     expect(sources.boundSourceList).toBe(false);
     expect(welcome.enablePanDownToClose).toBe(false);

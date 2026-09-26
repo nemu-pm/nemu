@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   FlatList,
   Platform,
@@ -46,7 +47,11 @@ import {
   type ReaderScrollPageMetric,
 } from "@/lib/mobileReaderProgress";
 import { ZoomableReaderStrip } from "./ZoomableReaderStrip";
-import { isReaderAdvancePastEndDrag } from "./readerEdgeDrag";
+import {
+  isReaderAdvancePastEndDrag,
+  isReaderRetreatPastStartDrag,
+  type ReaderEdgeDragMetrics,
+} from "./readerEdgeDrag";
 import {
   isReaderStageTapEnabled,
   isReaderTapInsideChrome,
@@ -69,6 +74,8 @@ type MobileReaderGalleryState = {
   status: string;
   detail: string;
   title?: string;
+  /** The chapter is paywalled/locked at the source, not broken. */
+  locked?: boolean;
 };
 
 type MobileReaderGalleryProps = {
@@ -107,6 +114,16 @@ type MobileReaderGalleryProps = {
   onPageStep?: (direction: "previous" | "next") => void;
   /** The reader tried to move past the final page of the chapter. */
   onRequestAdvancePastEnd?: () => void;
+  /** Paged mode: the reader tried to move back past the chapter's first page. */
+  onRequestRetreatPastStart?: () => void;
+  /**
+   * Paged mode: reading-order index of the page (or spread, in two-page mode)
+   * the reader state says is on screen. Chapter edges are judged from this and
+   * a measured pager, never from a raw scroll offset.
+   */
+  pagedDisplayIndex?: number;
+  /** Paged mode: page (or spread) count that `pagedDisplayIndex` indexes. */
+  pagedDisplayCount?: number;
   onSegmentedLogicalEndReached?: () => void;
   onLongStripScrollProgressChange?: (
     contentIdentity: string,
@@ -114,6 +131,12 @@ type MobileReaderGalleryProps = {
   ) => void;
   /** Escape hatch for a source that refuses to serve pages. */
   onOpenSourceSettings?: () => void;
+  /**
+   * Locked chapters offer the neighbouring chapters directly, since the
+   * locked one has no pages to read. Omitted when there is no such chapter.
+   */
+  onOpenNextChapter?: () => void;
+  onOpenPreviousChapter?: () => void;
   onToggleControls: () => void;
   /**
    * The page under the stage is zoomed in. A zoomed page owns the whole stage,
@@ -199,9 +222,14 @@ export function MobileReaderGallery({
   onRetry,
   onPageStep,
   onRequestAdvancePastEnd,
+  onRequestRetreatPastStart,
+  pagedDisplayIndex,
+  pagedDisplayCount,
   onSegmentedLogicalEndReached,
   onLongStripScrollProgressChange,
   onOpenSourceSettings,
+  onOpenNextChapter,
+  onOpenPreviousChapter,
   onToggleControls,
   pageZoomActive = false,
   tapGesturesEnabled = true,
@@ -285,6 +313,9 @@ export function MobileReaderGallery({
   );
   const lastCentreTapEndAtRef = useRef(0);
   const dragStartOffsetRef = useRef<number | null>(null);
+  // The displayed page when the drag began: a page turn that settles during
+  // the drag must not move the edge the drag is judged against.
+  const dragStartDisplayIndexRef = useRef<number | undefined>(undefined);
   const latestScrollMetricsRef = useRef<ReaderContinuousScrollMetrics>(
     getReaderContinuousScrollMetrics({
       contentOffset: 0,
@@ -301,6 +332,11 @@ export function MobileReaderGallery({
   const onToggleControlsRef = useRef(onToggleControls);
   const onPageStepRef = useRef(onPageStep);
   const onRequestAdvancePastEndRef = useRef(onRequestAdvancePastEnd);
+  const onRequestRetreatPastStartRef = useRef(onRequestRetreatPastStart);
+  const pagedDisplayRef = useRef({
+    index: pagedDisplayIndex,
+    count: pagedDisplayCount,
+  });
   const onScrollingVisiblePageChangeRef = useRef(onScrollingVisiblePageChange);
   const displayedPageCountRef = useRef(displayedPages.length);
   const appliedScrollMountKeyRef = useRef<string | null>(null);
@@ -437,14 +473,22 @@ export function MobileReaderGallery({
     onToggleControlsRef.current = onToggleControls;
     onPageStepRef.current = onPageStep;
     onRequestAdvancePastEndRef.current = onRequestAdvancePastEnd;
+    onRequestRetreatPastStartRef.current = onRequestRetreatPastStart;
+    pagedDisplayRef.current = {
+      index: pagedDisplayIndex,
+      count: pagedDisplayCount,
+    };
     onScrollingVisiblePageChangeRef.current = onScrollingVisiblePageChange;
     displayedPageCountRef.current = displayedPages.length;
   }, [
     displayedPages.length,
     onPageStep,
     onRequestAdvancePastEnd,
+    onRequestRetreatPastStart,
     onScrollingVisiblePageChange,
     onToggleControls,
+    pagedDisplayCount,
+    pagedDisplayIndex,
   ]);
 
   useLayoutEffect(() => {
@@ -694,6 +738,47 @@ export function MobileReaderGallery({
       onRequestAdvancePastEndRef.current();
       return;
     }
+    // A one-page paged chapter cannot scroll, so the list never reports a
+    // drag: the finger's horizontal travel is the only evidence of a swipe
+    // toward the next or previous chapter.
+    if (
+      pagedMode &&
+      pagesState.status === "ready" &&
+      pages.length > 0 &&
+      pagedDisplayRef.current.count === 1
+    ) {
+      const horizontalDelta = touch.pageX - start.x;
+      if (
+        Math.abs(horizontalDelta) > Math.abs(touch.pageY - start.y) &&
+        Math.abs(horizontalDelta) > READER_TAP_MAX_DISTANCE
+      ) {
+        const metrics: ReaderEdgeDragMetrics = {
+          startOffset: 0,
+          endOffset: 0,
+          maxOffset: 0,
+          gestureDelta: horizontalDelta,
+          mode,
+          pagedMode,
+          displayIndex: pagedDisplayRef.current.index,
+          displayCount: 1,
+          viewportLength: readerPageWidth,
+        };
+        if (
+          onRequestAdvancePastEndRef.current &&
+          isReaderAdvancePastEndDrag(metrics)
+        ) {
+          onRequestAdvancePastEndRef.current();
+          return;
+        }
+        if (
+          onRequestRetreatPastStartRef.current &&
+          isReaderRetreatPastStartDrag(metrics)
+        ) {
+          onRequestRetreatPastStartRef.current();
+          return;
+        }
+      }
+    }
     const distance = Math.hypot(touch.pageX - start.x, touch.pageY - start.y);
     if (
       distance > READER_TAP_MAX_DISTANCE ||
@@ -750,6 +835,7 @@ export function MobileReaderGallery({
     onUserScrollBegin?.();
     const { contentOffset } = event.nativeEvent;
     dragStartOffsetRef.current = pagedMode ? contentOffset.x : contentOffset.y;
+    dragStartDisplayIndexRef.current = pagedDisplayRef.current.index;
   };
   const handleGalleryScroll = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
@@ -840,29 +926,48 @@ export function MobileReaderGallery({
   ) => {
     publishLogicalScrollAccessibility();
     const startOffset = dragStartOffsetRef.current;
+    const startDisplayIndex = dragStartDisplayIndexRef.current;
     dragStartOffsetRef.current = null;
+    dragStartDisplayIndexRef.current = undefined;
     if (startOffset == null) return;
-    if (!onRequestAdvancePastEndRef.current) return;
+    if (
+      !onRequestAdvancePastEndRef.current &&
+      !onRequestRetreatPastStartRef.current
+    ) {
+      return;
+    }
     if (pagesState.status !== "ready" || pages.length === 0) return;
 
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     const endOffset = pagedMode ? contentOffset.x : contentOffset.y;
-    const maxOffset = pagedMode
-      ? contentSize.width - layoutMeasurement.width
-      : contentSize.height - layoutMeasurement.height;
+    const viewportLength = pagedMode
+      ? layoutMeasurement.width
+      : layoutMeasurement.height;
+    const metrics: ReaderEdgeDragMetrics = {
+      startOffset,
+      endOffset,
+      maxOffset:
+        (pagedMode ? contentSize.width : contentSize.height) - viewportLength,
+      mode,
+      pagedMode,
+      displayIndex: startDisplayIndex,
+      displayCount: pagedDisplayRef.current.count,
+      viewportLength,
+    };
     if (
-      !isReaderAdvancePastEndDrag({
-        startOffset,
-        endOffset,
-        maxOffset,
-        mode,
-        pagedMode,
-      })
+      onRequestAdvancePastEndRef.current &&
+      isReaderAdvancePastEndDrag(metrics)
     ) {
+      if (logicalLongStripMode) onSegmentedLogicalEndReached?.();
+      onRequestAdvancePastEndRef.current();
       return;
     }
-    if (logicalLongStripMode) onSegmentedLogicalEndReached?.();
-    onRequestAdvancePastEndRef.current();
+    if (
+      onRequestRetreatPastStartRef.current &&
+      isReaderRetreatPastStartDrag(metrics)
+    ) {
+      onRequestRetreatPastStartRef.current();
+    }
   };
   // VoiceOver reads the stage as a single element; expose page turns as
   // actions on that element rather than as separate focusable hit zones.
@@ -1214,7 +1319,17 @@ export function MobileReaderGallery({
             style={styles.pageShell}
             contentStyle={styles.pageContent}
           >
+            {pagesState.locked ? (
+              <Ionicons
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+                name="lock-closed-outline"
+                size={28}
+                color={tokens.mutedForeground}
+              />
+            ) : null}
             <Text
+              accessibilityRole="header"
               numberOfLines={2}
               style={[styles.readerTitle, { color: tokens.foreground }]}
             >
@@ -1242,6 +1357,23 @@ export function MobileReaderGallery({
               </Text>
             ) : null}
             <View style={styles.readerStateActions}>
+              {pagesState.locked && onOpenNextChapter ? (
+                <NemuButton
+                  accessibilityLabel={strings.reader.nextChapter}
+                  containerStyle={styles.readerStateAction}
+                  label={strings.reader.nextChapter}
+                  onPress={onOpenNextChapter}
+                />
+              ) : null}
+              {pagesState.locked && onOpenPreviousChapter ? (
+                <NemuButton
+                  accessibilityLabel={strings.reader.previousChapter}
+                  containerStyle={styles.readerStateAction}
+                  label={strings.reader.previousChapter}
+                  variant="outline"
+                  onPress={onOpenPreviousChapter}
+                />
+              ) : null}
               {/* A chapter that resolved to zero pages is just as stuck as an
                   errored one, and a blocked source can recover once its
                   settings change — offer the retry in all three cases. */}
@@ -1275,9 +1407,11 @@ export function MobileReaderGallery({
                   { color: tokens.mutedForeground },
                 ]}
               >
-                {pagesState.status === "blocked" ||
-                pagesState.status === "error"
-                  ? strings.reader.pageLoadingUnavailable
+                {pagesState.locked
+                  ? strings.reader.lockedChapter
+                  : pagesState.status === "blocked" ||
+                      pagesState.status === "error"
+                    ? strings.reader.pageLoadingUnavailable
                   : completed
                     ? strings.reader.markedComplete
                     : strings.reader.progressNotCompleted}

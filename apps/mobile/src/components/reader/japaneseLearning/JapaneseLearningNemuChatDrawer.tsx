@@ -148,6 +148,8 @@ export function JapaneseLearningNemuChatDrawer({
       contentStyle={{ padding: 0, gap: 0 }}
     >
       <ScrollView
+        // Android: inside a native sheet, hand the drag to the sheet at the top.
+        nestedScrollEnabled
         ref={scrollRef}
         style={styles.messagesScroll}
         contentContainerStyle={styles.messagesContent}

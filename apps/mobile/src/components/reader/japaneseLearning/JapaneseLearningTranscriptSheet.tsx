@@ -160,6 +160,8 @@ export function JapaneseLearningTranscriptSheet({
     >
       {lines.length > 0 ? (
         <ScrollView
+          // Android: inside a native sheet, hand the drag to the sheet at the top.
+          nestedScrollEnabled
           style={styles.linesScroll}
           contentContainerStyle={styles.linesContent}
           showsVerticalScrollIndicator={false}

@@ -1,3 +1,4 @@
+import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LayoutAnimation,
@@ -86,7 +87,7 @@ import {
   type MobileStrings,
 } from "@/lib/mobileI18n";
 import {
-  getMobileMangaGridColumns,
+  getMobileMangaGridLayout,
   MOBILE_MANGA_GRID_GAP,
 } from "@/lib/mobileAdaptiveGrid";
 import {
@@ -106,6 +107,7 @@ import {
 } from "@/lib/mobileIdleTask";
 import {
   describeMobileErrorDetail,
+  getMobileSourceOperationErrorCopy,
   getMobileRuntimeUnavailableDetail,
   getMobileSourceErrorPresentation,
 } from "@/lib/mobileSourceErrors";
@@ -279,7 +281,7 @@ type SourceFiltersState =
       result: Extract<MobileSourceFiltersResult, { status: "blocked" }>;
       filters: Filter[];
     }
-  | { status: "error"; filters: Filter[]; detail: string };
+  | { status: "error"; filters: Filter[]; title: string; detail: string };
 
 type SourceBrowseMetadataState =
   | { status: "idle" }
@@ -308,7 +310,12 @@ type SourceSearchState =
       result: Extract<MobileLiveSearchGroup, { status: "blocked" }>;
       items: MobileLiveSearchManga[];
     }
-  | { status: "error"; items: MobileLiveSearchManga[]; detail: string };
+  | {
+      status: "error";
+      items: MobileLiveSearchManga[];
+      title: string;
+      detail: string;
+    };
 
 type SourceHomeState =
   | { status: "idle"; home: null; detail: string }
@@ -323,7 +330,7 @@ type SourceHomeState =
       result: Extract<MobileSourceHomeResult, { status: "blocked" }>;
       home: null;
     }
-  | { status: "error"; home: HomeLayout | null; detail: string };
+  | { status: "error"; home: HomeLayout | null; title: string; detail: string };
 
 function filterSourceBrowseControls(filters: Filter[]): Filter[] {
   return filters.filter(
@@ -1250,6 +1257,8 @@ function SourceFilterPanel({
       testID="SourceFilterSheet"
     >
       <ScrollView
+        // Android: inside a native sheet, hand the drag to the sheet at the top.
+        nestedScrollEnabled
         contentContainerStyle={styles.filterPanelScrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -1506,13 +1515,20 @@ export function SourceBrowseScreen() {
     settingsSignature: sourceHomeSettingsSignature,
     runtimeRefreshKey,
   });
-  const gridColumns = useMemo(
+  const gridLayout = useMemo(
     () =>
-      getMobileMangaGridColumns({
+      getMobileMangaGridLayout({
         windowWidth,
         horizontalPadding: pageGutters.horizontal,
       }),
     [pageGutters.horizontal, windowWidth],
+  );
+  const gridColumns = gridLayout.columns;
+  // Fixed cell width (not `flex: 1`) so a partly filled last row keeps the
+  // column width instead of stretching a lone cover across the row.
+  const gridItemStyle = useMemo(
+    () => [styles.gridItem, { width: gridLayout.itemWidth }],
+    [gridLayout.itemWidth],
   );
   // `FlatList` throws when `numColumns` changes on a mounted list, so a
   // rotation has to remount the grid. Capture the scroll proportion in the
@@ -2115,6 +2131,7 @@ export function SourceBrowseScreen() {
           setSourceHomeState({
             status: "error",
             home: null,
+            title: strings.sourceBrowse.loadHomeFailed,
             detail: strings.sourceBrowse.homeUnavailable,
           });
           return;
@@ -2151,9 +2168,10 @@ export function SourceBrowseScreen() {
         setSourceHomeState((current) => ({
           status: "error",
           home: current.home,
-          detail: describeMobileErrorDetail(
+          ...getMobileSourceOperationErrorCopy(
             error,
             strings.sourceBrowse.loadHomeFailed,
+            strings,
           ),
         }));
       });
@@ -2230,9 +2248,10 @@ export function SourceBrowseScreen() {
         setSourceFiltersState({
           status: "error",
           filters: [],
-          detail: describeMobileErrorDetail(
+          ...getMobileSourceOperationErrorCopy(
             error,
             strings.sourceBrowse.loadFiltersFailed,
+            strings,
           ),
         });
       });
@@ -2346,9 +2365,10 @@ export function SourceBrowseScreen() {
         setSourceSearchState({
           status: "error",
           items: previousItems,
-          detail: describeMobileErrorDetail(
+          ...getMobileSourceOperationErrorCopy(
             error,
             strings.sourceBrowse.sourceSearchFailed,
+            strings,
           ),
         });
       } finally {
@@ -2532,9 +2552,10 @@ export function SourceBrowseScreen() {
         setListingState({
           status: "error",
           items: previousItems,
-          detail: describeMobileErrorDetail(
+          ...getMobileSourceOperationErrorCopy(
             error,
             strings.sourceBrowse.listingLoadFailed,
+            strings,
           ),
         });
       } finally {
@@ -2983,10 +3004,10 @@ export function SourceBrowseScreen() {
     ({ item }: ListRenderItemInfo<MobileLiveSearchManga>) => {
       const sourceDisplay = listingGridSourceDisplay;
       if (!sourceDisplay) {
-        return <View style={styles.gridItem} />;
+        return <View style={gridItemStyle} />;
       }
       return (
-        <View style={styles.gridItem}>
+        <View style={gridItemStyle}>
           <ListingMangaCard
             item={item}
             onPress={() => handleListingMangaPress(sourceDisplay, item)}
@@ -2997,6 +3018,7 @@ export function SourceBrowseScreen() {
       );
     },
     [
+      gridItemStyle,
       listingGridSourceDisplay,
       installedSource,
       strings,
@@ -3044,10 +3066,9 @@ export function SourceBrowseScreen() {
                 strings={strings}
               />
             ) : sourceFiltersState.status === "error" ? (
-              <NemuInlineEmptyState
-                icon="alert-circle-outline"
-                title={sourceFiltersState.detail}
-                tone="danger"
+              <MobileInlineErrorBanner
+                title={sourceFiltersState.title}
+                detail={sourceFiltersState.detail}
               />
             ) : null}
 
@@ -3433,14 +3454,13 @@ export function SourceBrowseScreen() {
                   strings={strings}
                 />
               ) : sourceSearchState.status === "error" ? (
-                <NemuInlineEmptyState
+                <MobileInlineErrorBanner
                   actionLabel={strings.common.retry}
-                  icon="alert-circle-outline"
                   onActionPress={() => {
                     void loadSourceSearch(1);
                   }}
-                  title={sourceSearchState.detail}
-                  tone="danger"
+                  title={sourceSearchState.title}
+                  detail={sourceSearchState.detail}
                 />
               ) : showCenterSourceBrowseSearchProgress ? (
                 <MobileSourceGridSkeleton
@@ -3477,14 +3497,13 @@ export function SourceBrowseScreen() {
                   strings={strings}
                 />
               ) : listingState.status === "error" ? (
-                <NemuInlineEmptyState
+                <MobileInlineErrorBanner
                   actionLabel={strings.common.retry}
-                  icon="alert-circle-outline"
                   onActionPress={() => {
                     void loadListing(1);
                   }}
-                  title={listingState.detail}
-                  tone="danger"
+                  title={listingState.title}
+                  detail={listingState.detail}
                 />
               ) : listingState.status === "loading" ? (
                 <MobileSourceGridSkeleton
@@ -3516,12 +3535,11 @@ export function SourceBrowseScreen() {
                   strings={strings}
                 />
               ) : sourceHomeState.status === "error" ? (
-                <NemuInlineEmptyState
+                <MobileInlineErrorBanner
                   actionLabel={strings.common.retry}
-                  icon="alert-circle-outline"
                   onActionPress={retrySourceHome}
-                  title={sourceHomeState.detail}
-                  tone="danger"
+                  title={sourceHomeState.title}
+                  detail={sourceHomeState.detail}
                 />
               ) : sourceHomeHasComponents ? null : (
                 <NemuInlineEmptyState
@@ -3731,8 +3749,8 @@ const styles = StyleSheet.create({
     gap: MOBILE_MANGA_GRID_GAP,
     marginBottom: MOBILE_MANGA_GRID_GAP,
   },
+  // Width comes from the adaptive grid layout per render (see gridItemStyle).
   gridItem: {
-    flex: 1,
     minWidth: 0,
   },
   gridHeaderSpacing: {

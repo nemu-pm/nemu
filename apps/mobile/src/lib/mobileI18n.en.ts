@@ -91,6 +91,8 @@ export const mobileStringsEn: MobileStrings = {
     agentStepNotNeeded: "Not needed",
     agentSheetFailedUnsolicitedHost:
       "This site was not requested by the source, so verification was refused.",
+    agentSheetFailedNotChallenged:
+      "The site let the built-in browser through without a check but still blocks this source's requests, so there is nothing to verify here.",
     agentSheetFailedSetup:
       "Secure verification couldn't be set up on this device. Try again, or update your system software.",
   },
@@ -581,7 +583,7 @@ export const mobileStringsEn: MobileStrings = {
   },
   reader: {
     bookPairing: "Book-style pairing",
-    chapterAccessibility: "{{direction}} chapter: {{chapter}}",
+    chapterAccessibility: "{{direction}}: {{chapter}}",
     closeSettings: "Close reader settings",
     closePlugin: "Close reader plugin",
     currentChapter: "Current",
@@ -620,6 +622,9 @@ export const mobileStringsEn: MobileStrings = {
     rtl: "RTL",
     ltr: "LTR",
     lockedChapter: "Locked chapter",
+    chapterLockedTitle: "This chapter is locked",
+    chapterLockedDetail:
+      "The source only offers this chapter to paying or signed-in readers. Unlock it with the source, or sign in from its settings, then try again.",
     mangaPairing: "Manga-style pairing",
     markComplete: "Mark complete",
     markedComplete: "Marked complete",
@@ -645,6 +650,7 @@ export const mobileStringsEn: MobileStrings = {
     pageLoadingUnavailable: "Page loading unavailable",
     pageTitle: "Page {{page}}",
     pageValue: "Page {{page}} of {{total}}",
+    pageSlider: "Page slider",
     pageWidth: "Page width",
     pageWidthValue: "{{percent}}% page width",
     longStripProgress: "{{percent}}% through this page",

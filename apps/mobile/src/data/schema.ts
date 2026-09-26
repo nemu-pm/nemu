@@ -15,6 +15,8 @@ export type ChapterSummary = {
   dateUploaded?: number;
   locked?: boolean;
   lang?: string;
+  /** Scanlation group, when the source names one. */
+  scanlator?: string;
 };
 
 export type ExternalIds = {

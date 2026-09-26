@@ -27,6 +27,10 @@ import { NemuAppIconHalo } from "@/components/NemuAppIconHalo";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import {
+  markMobileWelcomeDeviceCompleted,
+  readMobileWelcomeDeviceCompleted,
+} from "@/data/mobileWelcomeDeviceCompletion";
+import {
   useAvailableSources,
   useInstalledSources,
   useMobileLanguageSettings,
@@ -57,8 +61,11 @@ import {
   getMobileWelcomePendingSourceInstallCount,
   MOBILE_WELCOME_ICON_SIZE,
   resolveMobileWelcomeNativeSheetPresentation,
+  resolveMobileWelcomeSheetContentTopPadding,
   shouldBlockMobileWelcomeUnderlyingContent,
+  shouldShowMobileWelcomeWizard,
   shouldStackMobileWelcomeActions,
+  type MobileWelcomeDeviceCompletion,
   type MobileWelcomeStep,
 } from "@/lib/mobileWelcome";
 import {
@@ -253,6 +260,11 @@ function SourceOption({
   );
 }
 
+const mobileWelcomeDeviceCompletion: MobileWelcomeDeviceCompletion = {
+  read: readMobileWelcomeDeviceCompleted,
+  mark: markMobileWelcomeDeviceCompleted,
+};
+
 export function MobileWelcomeWizard({
   onVisibilityChange,
 }: {
@@ -273,10 +285,15 @@ export function MobileWelcomeWizard({
       else setRetryingStartup(true);
 
       try {
-        const settings = await store.getSettings();
+        // Device-wide completion: a profile switch (sign-in/out) must not
+        // replay onboarding, and an account with synced data never sees it.
+        const show = await shouldShowMobileWelcomeWizard(
+          store,
+          mobileWelcomeDeviceCompletion,
+        );
         if (settingsReadRunRef.current !== run) return;
         setStartupError(null);
-        setVisible(settings.mobileWelcomeCompleted !== true);
+        setVisible(show);
       } catch (error) {
         if (settingsReadRunRef.current !== run) return;
         // Fail closed: storage failures keep setup modal and recoverable rather
@@ -442,6 +459,9 @@ function MobileWelcomeWizardContent({
           ...settings,
           mobileWelcomeCompleted: true,
         }));
+        // Best effort: the profile flag above is authoritative for this
+        // profile and backfills the device marker on the next check.
+        await markMobileWelcomeDeviceCompleted().catch(() => undefined);
         emitMobileDataChanged("settings");
       }),
     [completionWriteCoordinator, store],
@@ -909,10 +929,18 @@ function MobileWelcomeWizardContent({
       scroll={welcomeSheetPresentation.scroll}
       enablePanDownToClose={welcomeSheetPresentation.enablePanDownToClose}
       backgroundColor={tokens.background}
+      // The intro step's app-icon glow bleeds upward; see the prop.
+      androidContentHandle
       testID="MobileWelcomeWizard"
       // Content-sized steps: no detent floor, so the sheet hugs its content
       // exactly like the original onboarding sheet.
-      contentStyle={styles.sheetContent}
+      contentStyle={[
+        styles.sheetContent,
+        {
+          paddingTop:
+            resolveMobileWelcomeSheetContentTopPadding(welcomeSheetPlatform),
+        },
+      ]}
     >
       {content}
     </MobileNativeSheetScaffold>
@@ -923,7 +951,6 @@ const styles = StyleSheet.create({
   sheetContent: {
     gap: 18,
     paddingHorizontal: 24,
-    paddingTop: 18,
   },
   iconWrap: {
     alignSelf: "center",

@@ -508,6 +508,10 @@ export function MobileReaderScrubber({
 
   return (
     <View
+      // A View is not an accessibility element on iOS until it is marked
+      // `accessible`; without it VoiceOver never saw the slider at all.
+      accessible
+      accessibilityLabel={strings.reader.pageSlider}
       accessibilityRole="adjustable"
       accessibilityState={{ disabled }}
       accessibilityValue={accessibilityValue}
@@ -533,6 +537,7 @@ export function MobileReaderScrubber({
         onRatioEnd={onRatioEnd}
         onRatioCancel={onRatioCancel}
         onTrackWindowFrame={onTrackWindowFrame}
+        touchTargetStyle={styles.touchTarget}
       />
     </View>
   );
@@ -543,7 +548,14 @@ const styles = StyleSheet.create({
     // Matches the shared reader chrome content box so the bottom toolbar
     // panel resolves to exactly the same height as the top info panel.
     minHeight: READER_CHROME_PANEL_CONTENT_MIN_HEIGHT,
+    flexGrow: 1,
     justifyContent: "center",
     position: "relative",
+  },
+  // The toolbar pill is taller than the slider's minimum touch box; a touch
+  // in its top or bottom band used to land on the panel and do nothing. The
+  // box now fills whatever height the toolbar gives the scrubber.
+  touchTarget: {
+    flexGrow: 1,
   },
 });
