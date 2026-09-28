@@ -31,6 +31,10 @@ export type MobileStrings = {
     listLastSeparator: string;
     merge: string;
     moreTags: string;
+    /** Title of the sheet that lists every tag of a title; `{{count}}`. */
+    tagsSheetTitle: string;
+    tagsSheetHint: string;
+    closeTagsSheet: string;
     moveDown: string;
     moveUp: string;
     new: string;
@@ -305,6 +309,7 @@ export type MobileStrings = {
     chapters: string;
     completeCount: string;
     continueChapter: string;
+    continueReading: string;
     editMetadata: string;
     fullRefreshNotStarted: string;
     loadingManga: string;
@@ -354,6 +359,7 @@ export type MobileStrings = {
     chapters: string;
     completeCount: string;
     continueChapter: string;
+    continueReading: string;
     detailsNotLoaded: string;
     inLibrary: string;
     installSourceBeforeDetails: string;
@@ -511,11 +517,20 @@ export type MobileStrings = {
     webExecutorReady: string;
     nativeExecutorReady: string;
   };
+  /** Web `plugin.japaneseLearning.pos` / `.conjugation`: grammar labels → localized names. */
+  japaneseLearningGrammar: {
+    posNames: Record<string, string>;
+    conjugationNames: Record<string, string>;
+  };
   reader: {
     bookPairing: string;
     chapterAccessibility: string;
     closeSettings: string;
     closePlugin: string;
+    /** Close action of the docked Japanese Learning panel. */
+    closeLearningPanel: string;
+    /** Accessibility label of the vertical control rail / notebook reading console. */
+    readerControls: string;
     currentChapter: string;
     description: string;
     disabled: string;
@@ -579,6 +594,8 @@ export type MobileStrings = {
     pageValue: string;
     pageSlider: string;
     pageWidth: string;
+    /** Reader settings: the secondary section below the layout controls. */
+    moreSettings: string;
     pageWidthValue: string;
     longStripProgress: string;
     scrollProgress: string;
@@ -620,6 +637,11 @@ export type MobileStrings = {
     pluginJapaneseLearningNormalizingSentence: string;
     pluginJapaneseLearningMinimumConfidence: string;
     pluginJapaneseLearningMinimumConfidenceDescription: string;
+    pluginJapaneseLearningRecognitionEngine: string;
+    pluginJapaneseLearningRecognitionEngineDescription: string;
+    pluginValueEngineAutomatic: string;
+    pluginValueEngineOnDevice: string;
+    pluginValueEngineCloud: string;
     pluginJapaneseLearningName: string;
     pluginJapaneseLearningChatFailed: string;
     pluginJapaneseLearningChatEmptyTitle: string;
@@ -653,6 +675,14 @@ export type MobileStrings = {
     pluginJapaneseLearningTranscriptTooLong: string;
     pluginJapaneseLearningTtsFailed: string;
     pluginJapaneseLearningTtsLoading: string;
+    pluginJapaneseLearningAskAboutThisSentence: string;
+    pluginJapaneseLearningAskAboutTheseWords: string;
+    pluginJapaneseLearningTapAnyWordHint: string;
+    pluginJapaneseLearningDragOnWordsHint: string;
+    pluginJapaneseLearningExtractingText: string;
+    pluginJapaneseLearningAnalyzingSentenceProgress: string;
+    pluginJapaneseLearningTranscriptNoText: string;
+    pluginJapaneseLearningTryAnotherRegion: string;
     pluginResponse: string;
     pluginValueAppLanguage: string;
     pluginValueDefault: string;
@@ -723,6 +753,17 @@ export type MobileStrings = {
     sourceAccessibility: string;
     sourceSelectionHint: string;
     updated: string;
+    /** Regular-width sidebar: heading of the installed-source list. */
+    sidebarSources: string;
+    /** Sidebar row hint: a tap searches only this source. */
+    sidebarSourceHint: string;
+    sidebarAllSourcesHint: string;
+    /** Sidebar row status, e.g. "12 results". */
+    sidebarResultCount: string;
+    sidebarSearchFailed: string;
+    recentSearches: string;
+    clearRecentSearches: string;
+    recentSearchAccessibility: string;
   };
   settings: {
     aboutNemuBeforeBrand: string;
@@ -990,6 +1031,59 @@ export type MobileStrings = {
     displayKeepAwake: string;
     displayLockPortrait: string;
     viewAllInSource: string;
+  };
+  /** iPhone Duo / foldable signature features (bilingual book, spine, display handoff). */
+  duo: {
+    bilingualLayoutLabel: string;
+    bilingualSpread: string;
+    bilingualSideBySide: string;
+    bilingualSecondaryPageAccessibility: string;
+    bilingualLoadingSecondary: string;
+    bilingualNoMatchingPage: string;
+    handoffOuterDisplay: string;
+    handoffInnerDisplay: string;
+    handoffWithPage: string;
+    studyDeskTitle: string;
+    studyDeskSentence: string;
+    studyDeskViews: string;
+    notebookPane: string;
+    notebookPaneAutomatic: string;
+    notebookPaneTrackpad: string;
+    notebookPaneFilmstrip: string;
+    notebookTrackpad: string;
+    notebookShowFilmstrip: string;
+    notebookHideFilmstrip: string;
+    notebookFilmstrip: string;
+    filmstripUnreadPage: string;
+  };
+  /** On-device Japanese dictionary pack (reader analysis + settings). */
+  japaneseLearningDictionary: {
+    title: string;
+    checking: string;
+    notDownloaded: string;
+    downloaded: string;
+    downloadingProgress: string;
+    installing: string;
+    failed: string;
+    failedUsingCloud: string;
+    removing: string;
+    downloadNow: string;
+    remove: string;
+    retry: string;
+    progressAccessibility: string;
+    analysisDownloadFailed: string;
+  };
+  /** Settings → About nemu → Open-source licenses. */
+  openSourceLicenses: {
+    title: string;
+    rowSubtitle: string;
+    intro: string;
+    sectionJapaneseAnalysis: string;
+    sectionFonts: string;
+    sectionSoftware: string;
+    showLicense: string;
+    hideLicense: string;
+    openLinkAccessibility: string;
   };
 };
 

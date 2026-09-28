@@ -124,6 +124,57 @@ export function resolveMobileNativeSheetBodyTopPadding({
  */
 export const MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT = 48;
 
+// Match Material 3's 640dp cap and our SDK 58 BottomSheet patch, which bounds
+// the directly hosted Yoga root as well. Bounding only this inner scaffold
+// leaves an oversized native host and still clips landscape content.
+export function resolveMobileNativeSheetAndroidWidth(windowWidth: number): number {
+  return Math.min(windowWidth, 640);
+}
+
+/** A book-posture pane narrower than this keeps the centred (flat) sheet. */
+export const MOBILE_NATIVE_SHEET_MIN_PANE_WIDTH = 320;
+
+export type MobileNativeSheetAndroidPlacement = {
+  /** Width of the sheet (Material's 640dp cap included). */
+  width: number;
+  /** Horizontal shift of the sheet's centre from the window centre (dp). */
+  offsetX: number;
+  /** The sheet sits in one pane of a book-posture window. */
+  paneAligned: boolean;
+};
+
+/**
+ * Where an Android bottom sheet sits horizontally. Flat: centred at
+ * Material's 640dp cap. Book posture (vertical fold): inside the trailing
+ * pane in the layout direction — the pane iPhone Duo's system sheets and our
+ * reader chrome move to — so the sheet never straddles the fold (HIG: keep
+ * content and tap targets clear of the folding region). Notebook keeps the
+ * bottom sheet full-width: it rises from the bottom pane.
+ */
+export function resolveMobileNativeSheetAndroidPlacement({
+  windowWidth,
+  posture,
+  panels,
+  layoutDirection = "ltr",
+}: {
+  windowWidth: number;
+  posture: "flat" | "book" | "notebook";
+  /** Window-coordinate panes in physical order (`mobileAdaptiveLayout`). */
+  panels: readonly { x: number; width: number }[];
+  layoutDirection?: "ltr" | "rtl";
+}): MobileNativeSheetAndroidPlacement {
+  const flat = { width: resolveMobileNativeSheetAndroidWidth(windowWidth), offsetX: 0, paneAligned: false };
+  if (posture !== "book" || panels.length !== 2 || !(windowWidth > 0)) return flat;
+  const pane = layoutDirection === "rtl" ? panels[0] : panels[panels.length - 1];
+  if (!pane || !(pane.width >= MOBILE_NATIVE_SHEET_MIN_PANE_WIDTH)) return flat;
+  const width = Math.min(pane.width, 640);
+  return {
+    width,
+    offsetX: pane.x + pane.width / 2 - windowWidth / 2,
+    paneAligned: true,
+  };
+}
+
 /**
  * The height a native sheet's own content (chrome + body) can occupy at its
  * tallest detent. iOS (unchanged): the window minus the safe-area insets.

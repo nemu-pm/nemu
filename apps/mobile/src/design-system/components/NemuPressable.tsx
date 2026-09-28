@@ -120,7 +120,7 @@ export function NemuPressable({
   // Flattening and splitting the caller style only feeds the depth shadow
   // plates; without a depth variant it was pure per-render churn.
   const depthSurfaceSplit = depthRestVisual
-    ? splitNemuButtonStyle(StyleSheet.flatten(style))
+    ? splitNemuButtonStyle(StyleSheet.flatten(style) ?? undefined)
     : null;
   const surfaceShapeStyle = depthSurfaceSplit?.surfaceShapeStyle;
   const callerOverridesShadow = depthSurfaceSplit

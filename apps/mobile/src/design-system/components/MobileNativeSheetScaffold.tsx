@@ -6,9 +6,11 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type ComponentProps,
 } from "react";
 import {
   BackHandler,
+  I18nManager,
   Keyboard,
   Platform,
   StyleSheet,
@@ -24,6 +26,7 @@ import {
   type BottomSheetMethods,
 } from "@expo/ui/community/bottom-sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import { nemuColorWithAlpha } from "@/design/colorAlpha";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import {
@@ -34,6 +37,7 @@ import {
   normalizeMobileNativeSheetSnapPointsForPlatform,
   resolveMobileSheetHeaderMetrics,
   resolveMobileNativeSheetAndroidFrame,
+  resolveMobileNativeSheetAndroidPlacement,
   resolveMobileNativeSheetBodyTopPadding,
   resolveMobileNativeSheetBottomPadding,
   resolveMobileNativeSheetDismissLabel,
@@ -155,6 +159,30 @@ export function MobileNativeSheetScaffold({
   // `resolveMobileNativeSheetAndroidFrame`) and the scaffold sizes that content
   // to the height the same sheet has on iOS.
   const isAndroid = Platform.OS === "android";
+  // Android: width-capped and centred when flat; inside the trailing pane in
+  // book posture so the sheet never straddles the fold. (iOS presents system
+  // sheets, which the system already moves off the fold.)
+  const adaptive = useMobileAdaptiveLayout();
+  const androidPlacementWidth = isAndroid ? adaptive.width : 0;
+  const androidPlacementPosture = isAndroid ? adaptive.posture : "flat";
+  const androidPlacementPanels = isAndroid ? adaptive.panels : null;
+  const androidPlacement = useMemo(() => {
+    if (!isAndroid) return null;
+    const placement = resolveMobileNativeSheetAndroidPlacement({
+      windowWidth: androidPlacementWidth || windowWidth,
+      posture: androidPlacementPosture,
+      panels: androidPlacementPanels ?? [],
+      layoutDirection: I18nManager.isRTL ? "rtl" : "ltr",
+    });
+    return placement;
+  }, [androidPlacementPanels, androidPlacementPosture, androidPlacementWidth, isAndroid, windowWidth]);
+  const androidSheetPlacement = useMemo(
+    () =>
+      androidPlacement?.paneAligned
+        ? { width: androidPlacement.width, offsetX: androidPlacement.offsetX }
+        : undefined,
+    [androidPlacement],
+  );
   const androidKeyboardHeight = useAndroidKeyboardHeight(isAndroid && visible);
   const androidFrameKind = isAndroid
     ? resolveMobileNativeSheetAndroidFrame({
@@ -242,7 +270,7 @@ export function MobileNativeSheetScaffold({
         hasChrome: shouldRenderChrome,
       }),
     },
-    contentStyle,
+    StyleSheet.flatten(contentStyle),
     { paddingBottom },
     drawContentHandle
       ? { paddingTop: MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT }
@@ -480,7 +508,7 @@ export function MobileNativeSheetScaffold({
                 fillContent && androidFixedHeight !== undefined
                   ? { flexGrow: 1 }
                   : null,
-              ]}
+              ] as ComponentProps<typeof BottomSheetScrollView>["contentContainerStyle"]}
               testID={testID}
             >
               {contentHandle}
@@ -503,7 +531,11 @@ export function MobileNativeSheetScaffold({
             automaticallyAdjustContentInsets={false}
             contentInsetAdjustmentBehavior="never"
             keyboardShouldPersistTaps="handled"
-            style={styles.scroll}
+            // A chrome-less sheet's body starts under the system grabber: let
+            // its artwork (the app-icon halo) and scrolled content draw up to
+            // the sheet's own top edge instead of being cut in a hard line
+            // where the scroll frame begins. The sheet still clips its shape.
+            style={[styles.scroll, shouldRenderChrome ? null : styles.unclipped]}
             contentContainerStyle={[
               content,
               // The SwiftUI-hosted scroll view sizes its content intrinsically,
@@ -513,7 +545,7 @@ export function MobileNativeSheetScaffold({
               fillContent && boundedContentHeight
                 ? { minHeight: boundedContentHeight }
                 : null,
-            ]}
+            ] as ComponentProps<typeof BottomSheetScrollView>["contentContainerStyle"]}
             testID={testID}
           >
             {bodyDescription}
@@ -546,10 +578,14 @@ export function MobileNativeSheetScaffold({
       enablePanDownToClose={effectiveEnablePanDownToClose}
       backgroundStyle={{ backgroundColor: backgroundColor ?? tokens.card }}
       onClose={handleClose}
+      androidPlacement={androidSheetPlacement}
       {...(drawContentHandle ? { handleComponent: null } : null)}
     >
       {isAndroid ? (
-        <View style={androidFixedHeight !== undefined ? { height: androidFixedHeight } : null}>
+        <View style={{
+          width: androidPlacement?.width ?? windowWidth,
+          ...(androidFixedHeight !== undefined ? { height: androidFixedHeight } : {}),
+        }}>
           {sheetContent}
         </View>
       ) : (
@@ -597,6 +633,9 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+  },
+  unclipped: {
+    overflow: "visible",
   },
   filledContent: {
     flex: 1,

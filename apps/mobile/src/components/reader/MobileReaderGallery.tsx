@@ -1,3 +1,5 @@
+import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
+import { mobileReaderTapExcluded } from "@/lib/mobileReaderPoseLayout";
 import {
   useCallback,
   useEffect,
@@ -21,9 +23,24 @@ import {
   type ListRenderItem,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
-  type ViewToken,
+  type ListViewToken,
+  type ViewInstance,
 } from "react-native";
 import Animated, { useSharedValue } from "react-native-reanimated";
+import { DuoBookSpineShade } from "@/components/duo/DuoBookSpineShade";
+import { mobileDuoSpreadPageRects } from "@/lib/mobileDuoSpine";
+import {
+  armMobileReaderStageCrossFade,
+  mobileReaderSlotLayoutTransition,
+  mobileReaderStageCrossFadeEntering,
+  mobileReaderStageCrossFadeExiting,
+} from "@/lib/mobileReaderMotionAnimations";
+import {
+  mobileReaderGalleryRelayout,
+  mobileReaderGalleryRemountMotion,
+  mobileReaderStripRelayoutOffset,
+  type MobileReaderGalleryGeometry,
+} from "@/lib/mobileReaderStageMotion";
 import {
   GlassSurface,
   NemuButton,
@@ -34,7 +51,10 @@ import {
 import type { ChapterSummary, ReadingMode } from "@/data/schema";
 import { formatChapterTitle } from "@/lib/formatChapter";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
-import { visualPageIndexesForMobileReaderSpread } from "@/lib/mobileReaderSpreads";
+import {
+  mobileReaderSpreadPageAlignment,
+  visualPageIndexesForMobileReaderSpread,
+} from "@/lib/mobileReaderSpreads";
 import type { MobileReaderPage } from "@/sources/mobileSourcePages";
 import {
   getReaderContinuousScrollMetrics,
@@ -43,6 +63,7 @@ import {
   readerScrollToIndexRetryLimit,
   readerContinuousScrollOffsetForProgress,
   readerDisplayIndexForViewableItems,
+  readerScrollOffsetForLogicalFrame,
   type ReaderContinuousScrollMetrics,
   type ReaderScrollPageMetric,
 } from "@/lib/mobileReaderProgress";
@@ -161,6 +182,23 @@ type MobileReaderGalleryProps = {
   segmentedImageFrames?: ReadonlyArray<MobileReaderSegmentFrame>;
   sourcePageForDisplayIndex: (displayIndex: number) => number;
   spreads: number[][];
+  spreadSlots?: WindowLayoutRect[];
+  /** Stage-local rectangles owned by reader chrome (the vertical rail): never page taps. */
+  tapExclusions?: readonly WindowLayoutRect[];
+  /** Stage-local fold interval: never a tap target. */
+  foldGap?: { start: number; end: number } | null;
+  geometryKey?: string;
+  onStageOriginChange?: (origin: { x: number; y: number }) => void;
+  /**
+   * Chapter / fetch / reading-direction identity. A `scrollMountKey` change
+   * under the same content (spread ⇄ single, bilingual) cross-fades the list;
+   * a new content remounts plainly.
+   */
+  contentIdentityKey?: string;
+  /** Intrinsic size of a page, for the book-spine shading of a fold spread. */
+  pageNaturalSize?: (page: MobileReaderPage) => { width: number; height: number } | null;
+  /** Extra horizontal padding that centres the loading / locked / error card beside the rail. */
+  stateInsets?: { left: number; right: number } | null;
   stateTopPadding: number;
   strings: MobileStrings;
   title: string;
@@ -245,12 +283,65 @@ export function MobileReaderGallery({
   segmentedImageFrames,
   sourcePageForDisplayIndex,
   spreads,
+  spreadSlots,
+  tapExclusions,
+  foldGap,
+  geometryKey,
+  onStageOriginChange,
+  contentIdentityKey,
+  pageNaturalSize,
+  stateInsets,
   stateTopPadding,
   strings,
   title,
   windowHeight,
 }: MobileReaderGalleryProps) {
   const { tokens, reduceMotion } = useNemuTheme();
+  // A presentation remount of the same content (spread ⇄ single) cross-fades:
+  // decided while rendering the new key so the UI-thread exiting/entering
+  // animations of this very commit see it.
+  const resolvedContentIdentityKey = contentIdentityKey ?? scrollMountKey;
+  const [remountTrack, setRemountTrack] = useState(() => ({
+    mountKey: scrollMountKey,
+    contentKey: resolvedContentIdentityKey,
+  }));
+  if (
+    remountTrack.mountKey !== scrollMountKey ||
+    remountTrack.contentKey !== resolvedContentIdentityKey
+  ) {
+    const next = { mountKey: scrollMountKey, contentKey: resolvedContentIdentityKey };
+    const motion = mobileReaderGalleryRemountMotion({
+      previous: remountTrack,
+      next,
+      reduceMotion: reduceMotion === true,
+    });
+    armMobileReaderStageCrossFade(motion.crossfade ? motion.durationMs : 0);
+    setRemountTrack(next);
+  }
+  const stageViewRef = useRef<ViewInstance | null>(null);
+  const stageOriginRef = useRef({ x: 0, y: 0 });
+  const hasMeasuredStageOriginRef = useRef(false);
+  const measureStageOrigin = useCallback(() => {
+    stageViewRef.current?.measureInWindow((x, y) => {
+      if (hasMeasuredStageOriginRef.current && stageOriginRef.current.x === x && stageOriginRef.current.y === y) return;
+      hasMeasuredStageOriginRef.current = true;
+      stageOriginRef.current = { x, y };
+      onStageOriginChange?.({ x, y });
+    });
+  }, [onStageOriginChange]);
+  useLayoutEffect(() => {
+    // Parent-only movement (e.g. equal-width RTL/LTR fold panels) does not
+    // necessarily trigger this child's onLayout. Re-measure after the commit.
+    measureStageOrigin();
+    const frame = requestAnimationFrame(measureStageOrigin);
+    // A stage glide (FLIP transform) is still settling at the first two
+    // measurements; take the origin again once the spring has landed.
+    const settled = setTimeout(measureStageOrigin, 450);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(settled);
+    };
+  }, [geometryKey, measureStageOrigin]);
   const isReaderLoading = loading || pagesState.status === "loading";
   // The gallery lives for the whole chapter; the placeholder only for the
   // first moments of it, so the infinite pulse stops with the load.
@@ -353,7 +444,7 @@ export function MobileReaderGallery({
     ({
       viewableItems,
     }: {
-      viewableItems: ViewToken<MobileReaderGalleryItem>[];
+      viewableItems: ListViewToken[];
     }) => {
       const nextPageIndex = readerDisplayIndexForViewableItems(
         viewableItems.flatMap((token) => {
@@ -576,9 +667,60 @@ export function MobileReaderGallery({
     resolvedContinuousContentIdentity,
     scrollMountKey,
   ]);
+  // Stage size changes (fold, dock, rail) keep the list mounted — cells keep
+  // their zoom and decoded images — and only re-place the offset: the same
+  // logical page when paged, the same reading progress in a strip.
+  const listGeometryRef = useRef<MobileReaderGalleryGeometry | null>(null);
+  const pendingPagedRelayoutOffsetRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const previous = listGeometryRef.current;
+    const next: MobileReaderGalleryGeometry = {
+      mountKey: scrollMountKey,
+      paged: pagedMode,
+      extent: pagedMode ? readerPageWidth : readerImageWidth,
+      viewport: windowHeight,
+    };
+    listGeometryRef.current = next;
+    if (mobileReaderGalleryRelayout(previous, next) !== "reoffset" || !previous) return;
+    if (pagedMode) {
+      const frameCount = pagedDisplayCount ?? galleryItemCount;
+      if (frameCount <= 0) return;
+      const offset = readerScrollOffsetForLogicalFrame(
+        pagedDisplayIndex ?? 0,
+        frameCount,
+        readerPageWidth,
+        mode,
+      );
+      // Re-applied once the new content size lands (a wider page can put the
+      // offset past the old content end, where the first scroll clamps).
+      pendingPagedRelayoutOffsetRef.current = offset;
+      listRef.current?.scrollToOffset({ offset, animated: false });
+      return;
+    }
+    const metrics = latestScrollMetricsRef.current;
+    if (!(metrics.contentLength > 0)) return;
+    const relayout = mobileReaderStripRelayoutOffset({
+      contentOffset: metrics.contentOffset,
+      contentLength: metrics.contentLength,
+      viewportLength: metrics.viewportLength,
+      nextViewportLength: windowHeight,
+      widthRatio: previous.extent > 0 ? next.extent / previous.extent : 1,
+      fixedLength: segmentedMode ? 0 : chromeTopPadding + bottomPadding,
+    });
+    // The measured content size then restores the exact progress.
+    pendingContentSizeScrollProgressRef.current = {
+      contentIdentity: resolvedContinuousContentIdentity,
+      progress: relayout.progress,
+    };
+    listRef.current?.scrollToOffset({ offset: relayout.offset, animated: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- geometry is the trigger; the rest is read at that moment.
+  }, [pagedMode, readerImageWidth, readerPageWidth, scrollMountKey, windowHeight]);
   const readerStatePadding = {
     paddingTop: stateTopPadding,
     paddingBottom: bottomPadding,
+    // Reader cards centre in the free area beside the rail, never under it.
+    paddingLeft: 24 + (stateInsets?.left ?? 0),
+    paddingRight: 24 + (stateInsets?.right ?? 0),
   };
   const renderedSinglePages = useMemo(
     () => displayedPages.map((page, index) => ({ page, index })),
@@ -630,9 +772,20 @@ export function MobileReaderGallery({
       };
   const handleStageTouchStart = (event: GestureResponderEvent) => {
     const touch = event.nativeEvent;
+    const x = touch.pageX - stageOriginRef.current.x;
+    const y = touch.pageY - stageOriginRef.current.y;
+    if (spreadSlots && !spreadSlots.some((slot) =>
+      x >= slot.x && x <= slot.x + slot.width && y >= slot.y && y <= slot.y + slot.height)) {
+      touchStartRef.current = null;
+      return;
+    }
+    if (mobileReaderTapExcluded({ x, y }, tapExclusions, foldGap)) {
+      touchStartRef.current = null;
+      return;
+    }
     if (
       isReaderTapInsideChrome({
-        y: touch.pageY,
+        y,
         height: windowHeight,
         topInset: chromeTopPadding,
         bottomInset: bottomPadding,
@@ -788,7 +941,7 @@ export function MobileReaderGallery({
     }
     const zone = readerPageTurnEnabled
       ? readerTapZoneForPosition({
-          x: touch.pageX,
+          x: touch.pageX - stageOriginRef.current.x,
           width: readerPageWidth,
           mode,
           pagedMode,
@@ -859,7 +1012,14 @@ export function MobileReaderGallery({
     onScroll(event);
   };
   const handleGalleryContentSizeChange = (_width: number, height: number) => {
-    if (pagedMode) return;
+    if (pagedMode) {
+      const pendingOffset = pendingPagedRelayoutOffsetRef.current;
+      if (pendingOffset != null) {
+        pendingPagedRelayoutOffsetRef.current = null;
+        listRef.current?.scrollToOffset({ offset: pendingOffset, animated: false });
+      }
+      return;
+    }
     const measuredMetrics = getReaderContinuousScrollMetrics({
       contentOffset: latestScrollMetricsRef.current.contentOffset,
       contentLength: height,
@@ -1010,6 +1170,20 @@ export function MobileReaderGallery({
   >(
     ({ item }) => {
       if (item.kind === "spread") {
+        // Book posture: faint binding shade at both inner edges (stage-local,
+        // like the slots). Hidden while zoomed; none for a lone cover page.
+        const visualIndexes = visualPageIndexesForMobileReaderSpread(item.spread, mode);
+        const spinePages =
+          spreadSlots && spreadSlots.length === 2 && foldGap && pageNaturalSize && item.spread.length === 2
+            ? mobileDuoSpreadPageRects({
+                panes: [spreadSlots[0], spreadSlots[1]],
+                naturalSizes: [
+                  displayedPages[visualIndexes[0]] ? pageNaturalSize(displayedPages[visualIndexes[0]]) : null,
+                  displayedPages[visualIndexes[1]] ? pageNaturalSize(displayedPages[visualIndexes[1]]) : null,
+                ],
+                align: "center",
+              })
+            : null;
         return (
           <View
             style={[
@@ -1021,12 +1195,26 @@ export function MobileReaderGallery({
               },
             ]}
           >
-            {visualPageIndexesForMobileReaderSpread(item.spread, mode).map(
-              (pageIndex) => {
+            {visualIndexes.map(
+              (pageIndex, slotIndex) => {
                 const page = displayedPages[pageIndex];
                 if (!page) return null;
                 return (
-                  <View key={page.id} style={styles.spreadPageSlot}>
+                  <Animated.View
+                    key={page.id}
+                    // The halves slide apart into (or back from) the fold panes.
+                    layout={mobileReaderSlotLayoutTransition}
+                    style={[styles.spreadPageSlot, {
+                    alignItems: mobileReaderSpreadPageAlignment(
+                      slotIndex, item.spread.length, Boolean(spreadSlots),
+                    ),
+                  }, spreadSlots ? {
+                    position: "absolute", flex: 0,
+                    left: spreadSlots[item.spread.length === 1 && mode === "rtl" ? 1 : slotIndex]?.x,
+                    top: spreadSlots[item.spread.length === 1 && mode === "rtl" ? 1 : slotIndex]?.y,
+                    width: spreadSlots[item.spread.length === 1 && mode === "rtl" ? 1 : slotIndex]?.width,
+                    height: spreadSlots[item.spread.length === 1 && mode === "rtl" ? 1 : slotIndex]?.height,
+                  } : undefined]}>
                     {page.imageUri ? (
                       renderImage(page)
                     ) : (
@@ -1037,10 +1225,18 @@ export function MobileReaderGallery({
                         strings={strings}
                       />
                     )}
-                  </View>
+                  </Animated.View>
                 );
               },
             )}
+            {spinePages && foldGap ? (
+              <DuoBookSpineShade
+                leftPage={spinePages[0]}
+                rightPage={spinePages[1]}
+                spine={foldGap}
+                visible={!pageZoomActive}
+              />
+            ) : null}
           </View>
         );
       }
@@ -1096,6 +1292,10 @@ export function MobileReaderGallery({
     },
     [
       displayedPages,
+      spreadSlots,
+      foldGap,
+      pageNaturalSize,
+      pageZoomActive,
       mode,
       onScrollingPageLayout,
       pagedMode,
@@ -1152,8 +1352,14 @@ export function MobileReaderGallery({
   );
 
   const galleryList = (
-    <FlatList
+    <Animated.View
+      // One list per presentation; stage size changes never remount it.
       key={scrollMountKey}
+      entering={mobileReaderStageCrossFadeEntering}
+      exiting={mobileReaderStageCrossFadeExiting}
+      style={styles.readerScroll}
+    >
+    <FlatList
       ref={listRef}
       data={galleryItems}
       keyExtractor={galleryKeyExtractor}
@@ -1187,10 +1393,13 @@ export function MobileReaderGallery({
       contentContainerStyle={galleryContentContainerStyle}
       style={styles.readerScroll}
     />
+    </Animated.View>
   );
 
   return (
     <View
+      ref={stageViewRef}
+      onLayout={measureStageOrigin}
       accessible={!accessibilityHidden && pagesState.status === "ready"}
       accessibilityElementsHidden={accessibilityHidden}
       importantForAccessibility={
@@ -1259,7 +1468,13 @@ export function MobileReaderGallery({
       onTouchEnd={readerStageTapEnabled ? handleStageTouchEnd : undefined}
     >
       {isReaderLoading ? (
-        <View pointerEvents="none" style={styles.readerLoadingContainer}>
+        <View
+          pointerEvents="none"
+          style={[
+            styles.readerLoadingContainer,
+            stateInsets ? { paddingLeft: stateInsets.left, paddingRight: stateInsets.right } : null,
+          ]}
+        >
           {readerSkeletonVisible ? (
             <Animated.View
               accessibilityLabel={pagesState.detail}
@@ -1398,7 +1613,7 @@ export function MobileReaderGallery({
                 />
               ) : null}
             </View>
-            <View
+            {!pagesState.locked ? <View
               style={[styles.progressPill, { backgroundColor: tokens.muted }]}
             >
               <Text
@@ -1407,16 +1622,14 @@ export function MobileReaderGallery({
                   { color: tokens.mutedForeground },
                 ]}
               >
-                {pagesState.locked
-                  ? strings.reader.lockedChapter
-                  : pagesState.status === "blocked" ||
+                {pagesState.status === "blocked" ||
                       pagesState.status === "error"
                     ? strings.reader.pageLoadingUnavailable
                   : completed
                     ? strings.reader.markedComplete
                     : strings.reader.progressNotCompleted}
               </Text>
-            </View>
+            </View> : null}
           </GlassSurface>
         </ScrollView>
       )}
@@ -1515,7 +1728,10 @@ const styles = StyleSheet.create({
   },
   spreadFrame: {
     flexDirection: "row",
-    gap: 6,
+    // A fully open display has no synthetic hinge. Fitted facing pages meet
+    // at the spine; only observed reserved regions may separate their slots.
+    gap: 0,
+    paddingHorizontal: 0,
   },
   spreadPageSlot: {
     flex: 1,

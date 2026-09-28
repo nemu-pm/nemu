@@ -4,6 +4,8 @@ import {
   buildMobileReaderSpreads,
   findMobileReaderSpreadIndex,
   firstPageIndexForMobileReaderSpread,
+  getMobileReaderSpreadImageFrameSize,
+  mobileReaderSpreadPageAlignment,
   pageIndexForMobileReaderSpreadStep,
   visualPageIndexesForMobileReaderSpread,
 } from "./mobileReaderSpreads";
@@ -73,5 +75,46 @@ describe("mobile reader spreads", () => {
     expect(visualPageIndexesForMobileReaderSpread([1, 2], "rtl")).toEqual([2, 1]);
     expect(visualPageIndexesForMobileReaderSpread([1, 2], "ltr")).toEqual([1, 2]);
     expect(visualPageIndexesForMobileReaderSpread([1], "ltr")).toEqual([1]);
+  });
+
+  test("height-limited facing pages meet at the spine in either reading direction", () => {
+    const slotWidth = 560;
+    const fittedWidths = [360, 410];
+    for (const mode of ["ltr", "rtl"] as const) {
+      const frames = visualPageIndexesForMobileReaderSpread([0, 1], mode).map(
+        (pageIndex, slotIndex) => {
+          const width = fittedWidths[pageIndex]!;
+          const alignment = mobileReaderSpreadPageAlignment(slotIndex, 2, false);
+          const offset = alignment === "flex-end" ? slotWidth - width
+            : alignment === "center" ? (slotWidth - width) / 2 : 0;
+          return { x: slotIndex * slotWidth + offset, width };
+        },
+      );
+      expect(frames[0]!.x + frames[0]!.width).toBe(frames[1]!.x);
+      expect(frames[0]!.x).toBeGreaterThanOrEqual(0);
+      expect(frames[1]!.x + frames[1]!.width).toBeLessThanOrEqual(slotWidth * 2);
+    }
+  });
+
+  test("centers covers and real fold-region pages in their available viewport", () => {
+    expect(mobileReaderSpreadPageAlignment(0, 1, false)).toBe("center");
+    expect(mobileReaderSpreadPageAlignment(0, 2, true)).toBe("center");
+    expect(mobileReaderSpreadPageAlignment(1, 2, true)).toBe("center");
+  });
+
+  test("fits the frame to the page without cropping or an internal contain gutter", () => {
+    expect(getMobileReaderSpreadImageFrameSize({
+      availableWidth: 560, availableHeight: 600, naturalSize: { width: 1000, height: 1500 },
+    })).toEqual({ width: 400, height: 600 });
+    // A tall unfolded viewport uses all available half-width, exceeding the old 420 cap.
+    expect(getMobileReaderSpreadImageFrameSize({
+      availableWidth: 560, availableHeight: 1000, naturalSize: { width: 1000, height: 1500 },
+    })).toEqual({ width: 560, height: 840 });
+    // Real fold slots may be shorter than the old 260-point minimum.
+    expect(getMobileReaderSpreadImageFrameSize({
+      availableWidth: 300, availableHeight: 180, naturalSize: { width: 1000, height: 1500 },
+    })).toEqual({ width: 120, height: 180 });
+    const fallback = getMobileReaderSpreadImageFrameSize({ availableWidth: 400, availableHeight: 600 });
+    expect(fallback).toEqual({ width: 400, height: 580 });
   });
 });

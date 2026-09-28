@@ -13,6 +13,20 @@ import {
 } from "./mobileJapaneseLearningSafety";
 import { sha256Bytes } from "@nemu/core";
 import {
+  getMobileJapaneseLearningCapabilities,
+  getMobileJapaneseLearningEnginePreference,
+  mobileJapaneseLearningNowMs,
+  recordMobileJapaneseLearningEngineRun,
+  resolveMobileJapaneseLearningAnalysisEngine,
+  type MobileJapaneseLearningEngineKind,
+  type MobileJapaneseLearningEnginePreference,
+} from "./mobileJapaneseLearningEngine";
+import {
+  ensureMobileJapaneseLearningAnalysisPack,
+  runMobileOnDeviceAnalysis,
+} from "./mobileJapaneseLearningOnDeviceAnalysis";
+import type { NemuAnalysisPackProgress } from "../../modules/nemu-japanese-learning/src/NemuJapaneseLearning.types";
+import {
   getActiveMobileSourceProfileScope,
   registerMobileSourceProfileTransitionHandler,
 } from "@/sources/mobileSourceProfileScope";
@@ -38,6 +52,8 @@ export type MobileGrammarResult = {
   originalText: string;
   normalizedText: string;
   tokens: MobileGrammarToken[];
+  /** Which analyzer produced `tokens`. */
+  engine?: MobileJapaneseLearningEngineKind;
 };
 
 export type MobileJapaneseLearningGrammarOptions = {
@@ -50,6 +66,15 @@ export type MobileJapaneseLearningGrammarOptions = {
   ) => Promise<MobileNormalizeResult>;
   onStage?: (stage: "normalizing" | "tokenizing") => void;
   signal?: AbortSignal;
+  /** Overrides the plugin's recognition-engine setting for this run. */
+  engine?: MobileJapaneseLearningEnginePreference;
+  /**
+   * On-device only: run the Convex LLM normalize step first ("online
+   * enhance"). Off by default so on-device analysis sends no text anywhere.
+   */
+  onlineEnhance?: boolean;
+  /** On-device only: first-use dictionary pack download progress. */
+  onPackProgress?: (progress: NemuAnalysisPackProgress) => void;
 };
 
 export type MobileNormalizeResult = {
@@ -775,7 +800,45 @@ export async function runMobileJapaneseLearningGrammar(
     return { originalText: "", normalizedText: "", tokens: [] };
   }
 
+  const preference =
+    options.engine ?? getMobileJapaneseLearningEnginePreference();
+  const engine = resolveMobileJapaneseLearningAnalysisEngine(
+    preference,
+    getMobileJapaneseLearningCapabilities(),
+  );
+  if (engine === "on-device") {
+    if (preference === "auto") {
+      // Automatic: a dictionary that cannot be installed right now (offline,
+      // server error) is a missing capability, not a failed on-device run —
+      // this sentence is analyzed in the cloud and the pack retries later.
+      try {
+        await ensureMobileJapaneseLearningAnalysisPack({
+          signal: options.signal,
+          onProgress: options.onPackProgress,
+        });
+      } catch (error) {
+        throwIfMobileJapaneseLearningAborted(options.signal);
+        recordMobileJapaneseLearningEngineRun({
+          stage: "pack-install",
+          engine: "cloud",
+          ok: false,
+          durationMs: 0,
+          detail: `automatic fallback: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        return runMobileJapaneseLearningGrammarCloud(originalText, options);
+      }
+    }
+    return runMobileJapaneseLearningGrammarOnDevice(originalText, options);
+  }
+  return runMobileJapaneseLearningGrammarCloud(originalText, options);
+}
+
+async function runMobileJapaneseLearningGrammarCloud(
+  originalText: string,
+  options: MobileJapaneseLearningGrammarOptions,
+): Promise<MobileGrammarResult> {
   const abortScope = createMobileJapaneseLearningAbortScope(options.signal);
+  const cloudStarted = mobileJapaneseLearningNowMs();
   try {
     const normalize =
       options.normalizeText ??
@@ -842,10 +905,67 @@ export async function runMobileJapaneseLearningGrammar(
     );
     const body = JSON.parse(responseBody) as MobileIchiranSegmentResponse;
     const segments = Array.isArray(body.segments) ? body.segments : [];
+    const tokens = convertMobileIchiranSegments(segments);
+    recordMobileJapaneseLearningEngineRun({
+      stage: "analysis",
+      engine: "cloud",
+      ok: true,
+      durationMs: mobileJapaneseLearningNowMs() - cloudStarted,
+      detail: `tokens=${tokens.length}`,
+    });
     return {
       originalText,
       normalizedText: normalized,
-      tokens: convertMobileIchiranSegments(segments),
+      tokens,
+      engine: "cloud",
+    };
+  } finally {
+    abortScope.dispose();
+  }
+}
+
+async function runMobileJapaneseLearningGrammarOnDevice(
+  originalText: string,
+  options: MobileJapaneseLearningGrammarOptions,
+): Promise<MobileGrammarResult> {
+  const abortScope = createMobileJapaneseLearningAbortScope(options.signal);
+  try {
+    let normalized = originalText;
+    if (options.onlineEnhance) {
+      options.onStage?.("normalizing");
+      const normalize =
+        options.normalizeText ??
+        ((value: string, normalizeOptions?: { signal: AbortSignal }) =>
+          defaultNormalizeText(
+            value,
+            options.convexUrl ?? mobileSyncConfig.convexUrl,
+            normalizeOptions?.signal,
+          ));
+      normalized = validateMobileJapaneseLearningNormalizeResult(
+        await awaitMobileJapaneseLearningAbortable(
+          normalize(originalText, { signal: abortScope.signal }),
+          abortScope.signal,
+        ),
+      ).normalized;
+      abortScope.throwIfAborted();
+    }
+    options.onStage?.("tokenizing");
+    await ensureMobileJapaneseLearningAnalysisPack({
+      signal: abortScope.signal,
+      onProgress: options.onPackProgress,
+    });
+    abortScope.throwIfAborted();
+    const result = await runMobileOnDeviceAnalysis(normalized, {
+      signal: abortScope.signal,
+      limit: 5,
+    });
+    return {
+      originalText,
+      normalizedText: normalized,
+      tokens: convertMobileIchiranSegments(
+        result.segments as MobileIchiranSegment[],
+      ),
+      engine: "on-device",
     };
   } finally {
     abortScope.dispose();

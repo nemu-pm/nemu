@@ -177,6 +177,11 @@ export type UserSettings = {
   readerKeepAwake?: boolean;
   /** Lock the reader to portrait; `undefined` means disabled. */
   readerLockPortrait?: boolean;
+  /**
+   * What the bottom half holds in the notebook posture (Duo half-folded
+   * portrait, Android tabletop); `undefined` means automatic.
+   */
+  readerNotebookPane?: "automatic" | "trackpad" | "filmstrip" | "studyDesk";
   mobileChapterListPreferences?: Record<
     string,
     {

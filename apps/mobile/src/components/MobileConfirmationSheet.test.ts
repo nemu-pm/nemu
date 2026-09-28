@@ -13,8 +13,9 @@ describe("mobile confirmation sheet", () => {
     expect(source).not.toMatch(/backgroundColor:\s*`\$\{accentColor\}18`/);
     // Same composed header as the plugin/source settings sheets: the glyph
     // rides IN the centered title row, not in a leading slot above it.
-    expect(source).toContain(
-      '<Ionicons name={iconName} size={20} color={tokens.mutedForeground} />',
+    // 20pt on iOS, Material's 24dp on Android (shared sheet metrics).
+    expect(source).toMatch(
+      /<Ionicons\s+name=\{iconName\}\s+size=\{nemuSheetMetrics\.rowIconSize\}\s+color=\{tokens\.mutedForeground\}\s*\/>/,
     );
     expect(source).toContain("styles.titleRow");
     expect(source).toContain('accessibilityRole="header"');

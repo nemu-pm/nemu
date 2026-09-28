@@ -204,3 +204,13 @@ export function selectedMobileGrammarText(
     .join("")
     .trim();
 }
+
+/**
+ * The plugin's "Minimum confidence" setting is stored as a percentage
+ * (10–90, default 25, like web's schema) while OCR confidences are 0–1.
+ * Web divides by 100 in `setSettings`; this does the same for the reader.
+ */
+export function mobileJapaneseLearningMinConfidence(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0.25;
+  return value > 1 ? Math.min(1, value / 100) : value;
+}

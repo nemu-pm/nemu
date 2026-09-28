@@ -132,7 +132,7 @@ export function GlassSurface({
     <BlurView
       intensity={intensity}
       tint={scheme}
-      style={shellStyle}
+      style={StyleSheet.flatten(shellStyle) as React.ComponentProps<typeof BlurView>["style"]}
       testID={testID}
     >
       {content}
@@ -153,10 +153,10 @@ const styles = StyleSheet.create({
     overflow: "visible",
   },
   glassHost: {
-    width: "100%",
+    width: "100%" as const,
   },
   liquidContent: {
-    width: "100%",
+    width: "100%" as const,
     backgroundColor: "transparent",
   },
   content: {

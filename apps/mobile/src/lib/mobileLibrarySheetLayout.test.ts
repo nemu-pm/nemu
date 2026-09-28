@@ -32,6 +32,32 @@ describe("mobile library sheet layout", () => {
     });
   });
 
+  test("bounds taller Material rows sooner than the iOS rows", () => {
+    expect(
+      getMobileLibraryTitleMenuSheetLayout({ ...portrait, collectionCount: 8 }),
+    ).toEqual({ snapPoints: undefined, scroll: false });
+    expect(
+      getMobileLibraryTitleMenuSheetLayout({
+        ...portrait,
+        collectionCount: 8,
+        rowHeight: 64,
+      }),
+    ).toEqual({ snapPoints: ["48%"], scroll: true });
+    expect(
+      getMobileCollectionsManagerSheetLayout({
+        ...portrait,
+        collectionCount: 7,
+      }).scroll,
+    ).toBe(false);
+    expect(
+      getMobileCollectionsManagerSheetLayout({
+        ...portrait,
+        collectionCount: 7,
+        rowHeight: 90,
+      }).scroll,
+    ).toBe(true);
+  });
+
   test("bounds shelf selectors to the current native sheet width in landscape", () => {
     expect(
       getMobileLibraryTitleMenuSheetLayout({
@@ -41,6 +67,19 @@ describe("mobile library sheet layout", () => {
         collectionCount: 1,
       }),
     ).toEqual({ snapPoints: ["78%", "100%"], scroll: true });
+  });
+
+  test("content-sizes the shelf selector on an unfolded foldable in landscape", () => {
+    // Pixel Fold inner display, flat: wider than tall but not compact height.
+    expect(
+      getMobileLibraryTitleMenuSheetLayout({
+        fontScale: 1,
+        height: 701,
+        width: 841,
+        collectionCount: 1,
+        rowHeight: 64,
+      }),
+    ).toEqual({ snapPoints: undefined, scroll: false });
   });
 
   test("content-sizes short collection managers and bounds long ones", () => {
@@ -80,19 +119,19 @@ describe("mobile library sheet layout", () => {
     ).toEqual({ snapPoints: ["78%"], scroll: true });
   });
 
-  test("content-sizes short collection editing and bounds long lists", () => {
+  test("bounds both short and long collection editing for the fixed commit footer", () => {
     expect(
       getMobileManageCollectionSheetLayout({
         ...portrait,
         collectionCount: 1,
       }),
-    ).toEqual({ snapPoints: undefined, scroll: false });
+    ).toEqual({ snapPoints: ["78%"], scroll: false });
     expect(
       getMobileManageCollectionSheetLayout({
         ...portrait,
         collectionCount: 7,
       }),
-    ).toEqual({ snapPoints: ["78%"], scroll: true });
+    ).toEqual({ snapPoints: ["78%"], scroll: false });
   });
 
   test("opens landscape collection editing at its fully accessible height", () => {
@@ -105,7 +144,7 @@ describe("mobile library sheet layout", () => {
       }),
     ).toEqual({
       snapPoints: ["100%"],
-      scroll: true,
+      scroll: false,
     });
   });
 });

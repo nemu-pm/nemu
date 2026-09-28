@@ -8,16 +8,19 @@ import {
   Text,
   TextInput,
   View,
+  type ScrollViewInstance,
+  type TextInputInstance,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
-  MobileSheetScaffold,
+  NemuNativeSheetHeaderAction,
   nemuColorWithAlpha,
   nemuFontWeight,
   NemuPressable,
   radius,
   useNemuTheme,
 } from "@/design-system";
+import { JapaneseLearningSurfaceFrame } from "./JapaneseLearningSurfaceFrame";
 import type { AppLanguage } from "@/data/schema";
 import type { JapaneseLearningChatThreadMessage } from "@/lib/mobileJapaneseLearningReaderHelpers";
 import {
@@ -43,6 +46,8 @@ export interface JapaneseLearningChatTtsState {
 
 interface NemuChatDrawerProps {
   visible: boolean;
+  /** Docked beside the page (regular width / book / notebook) instead of a sheet. */
+  docked?: boolean;
   appLanguage: AppLanguage;
   strings: MobileStrings;
   chatMessages: JapaneseLearningChatThreadMessage[];
@@ -56,6 +61,10 @@ interface NemuChatDrawerProps {
   onSendInput: () => void;
   onSendSuggestion: (suggestion: string) => void;
   onToggleChatTts: (message: JapaneseLearningChatThreadMessage) => void;
+  /** Opened from the sentence view: a leading Back returns to that sentence. */
+  onBack?: () => void;
+  /** Called after the surface has closed (sheet dismissal finished / dock removed). */
+  onDismiss?: () => void;
 }
 
 /**
@@ -79,10 +88,13 @@ export function JapaneseLearningNemuChatDrawer({
   onSendInput,
   onSendSuggestion,
   onToggleChatTts,
+  onBack,
+  onDismiss,
+  docked = false,
 }: NemuChatDrawerProps) {
   const { tokens, scheme } = useNemuTheme();
-  const scrollRef = useRef<ScrollView>(null);
-  const inputRef = useRef<TextInput>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const inputRef = useRef<TextInputInstance>(null);
 
   const visibleMessages = useMemo(
     () => chatMessages.filter((m) => !m.hidden),
@@ -138,15 +150,8 @@ export function JapaneseLearningNemuChatDrawer({
 
   const assistantColors = getJapaneseLearningAssistantBubbleColors(scheme, false);
 
-  return (
-    <MobileSheetScaffold
-      visible={visible}
-      onRequestClose={onClose}
-      backdropOnPress={onClose}
-      title="nemu"
-      frameMaxHeight="70%"
-      contentStyle={{ padding: 0, gap: 0 }}
-    >
+  const body = (
+    <>
       <ScrollView
         // Android: inside a native sheet, hand the drag to the sheet at the top.
         nestedScrollEnabled
@@ -308,7 +313,33 @@ export function JapaneseLearningNemuChatDrawer({
           </NemuPressable>
         ) : null}
       </KeyboardAvoidingView>
-    </MobileSheetScaffold>
+    </>
+  );
+
+  return (
+    <JapaneseLearningSurfaceFrame
+      docked={docked}
+      closeLabel={strings.reader.closeLearningPanel}
+      visible={visible}
+      onRequestClose={onClose}
+      onDismiss={onDismiss}
+      backdropOnPress={onClose}
+      headerLeading={
+        onBack ? (
+          <NemuNativeSheetHeaderAction
+            accessibilityLabel={strings.common.back}
+            androidIcon="chevron-back-outline"
+            iosSystemImage="chevron.backward"
+            onPress={onBack}
+          />
+        ) : undefined
+      }
+      title="nemu"
+      frameMaxHeight="70%"
+      contentStyle={{ padding: 0, gap: 0 }}
+    >
+      {body}
+    </JapaneseLearningSurfaceFrame>
   );
 }
 

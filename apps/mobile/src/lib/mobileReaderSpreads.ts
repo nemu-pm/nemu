@@ -79,3 +79,34 @@ export function visualPageIndexesForMobileReaderSpread(
   // the right by returning it last.
   return mode === "rtl" ? [spread[1], spread[0]] : spread;
 }
+
+/** Align fitted pages at the book spine; spare width belongs at the outside. */
+export function mobileReaderSpreadPageAlignment(
+  visualSlotIndex: number,
+  pageCount: number,
+  hasReservedSlots: boolean,
+): "center" | "flex-start" | "flex-end" {
+  // A cover/unpaired page remains centered. Real fold regions keep their own
+  // independently centered viewports instead of pulling content toward a hinge.
+  if (pageCount !== 2 || hasReservedSlots) return "center";
+  return visualSlotIndex === 0 ? "flex-end" : "flex-start";
+}
+
+/** The frame itself fits the page, so Image's contain mode adds no inner gutter. */
+export function getMobileReaderSpreadImageFrameSize({
+  availableWidth,
+  availableHeight,
+  naturalSize,
+}: {
+  availableWidth: number;
+  availableHeight: number;
+  naturalSize?: { width: number; height: number } | null;
+}): { width: number; height: number } {
+  const width = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 1;
+  const height = Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : 1;
+  const ratio = naturalSize && Number.isFinite(naturalSize.width) &&
+    Number.isFinite(naturalSize.height) && naturalSize.width > 0 && naturalSize.height > 0
+    ? naturalSize.height / naturalSize.width : 1.45;
+  const fittedWidth = Math.min(width, height / ratio);
+  return { width: fittedWidth, height: fittedWidth * ratio };
+}

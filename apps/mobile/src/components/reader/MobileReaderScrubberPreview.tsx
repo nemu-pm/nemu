@@ -1,3 +1,4 @@
+import type { ViewInstance } from "react-native";
 import {
   forwardRef,
   useCallback,
@@ -40,7 +41,7 @@ export type MobileReaderScrubberPreviewProps = {
    * only measure itself inside that panel, which on iOS is a SwiftUI host with
    * its own coordinate space; this anchor puts the thumb back in window space.
    */
-  panelAnchorRef?: RefObject<View | null>;
+  panelAnchorRef?: RefObject<ViewInstance | null>;
   pageIndex: number | null;
   pageCount: number;
   mode: ReadingMode;
@@ -71,7 +72,7 @@ export const MobileReaderScrubberPreview = forwardRef<
   ref,
 ) {
   const { scheme } = useNemuTheme();
-  const layerRef = useRef<View | null>(null);
+  const layerRef = useRef<ViewInstance | null>(null);
   const [geometry, setGeometry] =
     useState<ReaderScrubberPreviewGeometry | null>(null);
   // Size comes from the layout event and the window origin from a measure:

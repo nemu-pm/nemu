@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { syncMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseLearningEngineSettings";
 import {
   addNetworkStateListener,
   getNetworkStateAsync,
@@ -1421,6 +1422,7 @@ export function useMobileReaderPlugins(): LoadState<
       setError(null);
       const settings = await store.getSettings();
       const plugins = getMobileReaderPluginStates(settings, strings);
+      syncMobileJapaneseLearningEnginePreference(plugins);
       // Plugin state is plain data derived from settings; every settings
       // write reloads it, so unchanged plugins must keep their references or
       // the reader re-derives its plugin pipeline on each write.

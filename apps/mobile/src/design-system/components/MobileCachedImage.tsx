@@ -57,6 +57,8 @@ type MobileCachedImageProps = Omit<ImageProps, "source" | "onError"> & {
   onSegmentedImage?: (asset: MobileCachedSegmentedImageAsset | null) => void;
   fallback?: ReactNode;
   onError?: (error: string) => void;
+  /** Fade the image in once it loads (default true). Off for overlays that must match what is underneath. */
+  fadeIn?: boolean;
 };
 
 function boundedLocalImageSourceKey(
@@ -88,11 +90,12 @@ export function MobileCachedImage({
   onError,
   onLoad,
   style,
+  fadeIn = true,
   ...props
 }: MobileCachedImageProps) {
   const { reduceMotion } = useNemuTheme();
   // Reduce Motion turns the 240ms cover fade into an instant reveal.
-  const skipFade = reduceMotion === true;
+  const skipFade = reduceMotion === true || !fadeIn;
   const sourceUri = source.uri;
   const sourceHeaders = source.headers;
   const [imageFadeRef] = useState(

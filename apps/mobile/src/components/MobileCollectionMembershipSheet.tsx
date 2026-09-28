@@ -15,6 +15,7 @@ import {
   NemuPressable,
   radius,
   nemuFontWeight,
+  nemuSheetMetrics,
   useNemuTheme,
   NemuButton,
 } from "@/design-system";
@@ -106,6 +107,9 @@ function CollectionRow({
     <View
       style={[
         styles.collectionRow,
+        nemuSheetMetrics.twoLineRowLayout
+          ? { minHeight: nemuSheetMetrics.twoLineRowLayout.minHeight }
+          : null,
         {
           backgroundColor: selected ? tokens.primarySoft : tokens.muted,
           borderColor: selected ? tokens.primary : tokens.border,
@@ -138,10 +142,24 @@ function CollectionRow({
           />
         </View>
         <View style={styles.collectionText}>
-          <Text numberOfLines={1} style={[styles.collectionName, { color: tokens.foreground }]}>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.collectionName,
+              nemuSheetMetrics.twoLineRowTitle,
+              { color: tokens.foreground },
+            ]}
+          >
             {collection.name}
           </Text>
-          <Text numberOfLines={1} style={[styles.collectionMeta, { color: tokens.mutedForeground }]}>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.collectionMeta,
+              nemuSheetMetrics.twoLineRowSupporting,
+              { color: tokens.mutedForeground },
+            ]}
+          >
             {countLabel}
           </Text>
         </View>
@@ -589,7 +607,13 @@ function CollectionMembershipContent({
               ]}
             >
               <Ionicons name="albums-outline" size={22} color={tokens.mutedForeground} />
-              <Text style={[styles.emptyText, { color: tokens.mutedForeground }]}>
+              <Text
+                style={[
+                  styles.emptyText,
+                  nemuSheetMetrics.description,
+                  { color: tokens.mutedForeground },
+                ]}
+              >
                 {strings.collectionMembership.noCollections}
               </Text>
             </View>
@@ -601,10 +625,22 @@ function CollectionMembershipContent({
             <View style={styles.createHeader}>
               <Ionicons name="create-outline" size={20} color={tokens.primary} />
               <View style={styles.createCopy}>
-                <Text style={[styles.createTitle, { color: tokens.foreground }]}>
+                <Text
+                  style={[
+                    styles.createTitle,
+                    nemuSheetMetrics.sectionTitle,
+                    { color: tokens.foreground },
+                  ]}
+                >
                   {strings.library.renameCollection}
                 </Text>
-                <Text style={[styles.createSubtitle, { color: tokens.mutedForeground }]}>
+                <Text
+                  style={[
+                    styles.createSubtitle,
+                    nemuSheetMetrics.sectionCaption,
+                    { color: tokens.mutedForeground },
+                  ]}
+                >
                   {strings.library.renameDescription}
                 </Text>
               </View>
@@ -624,6 +660,7 @@ function CollectionMembershipContent({
               selectionColor={tokens.primary}
               style={[
                 styles.input,
+                androidTextField,
                 {
                   backgroundColor: tokens.card,
                   color: tokens.foreground,
@@ -665,10 +702,22 @@ function CollectionMembershipContent({
             <View style={styles.createHeader}>
               <Ionicons name="trash-outline" size={20} color={tokens.danger} />
               <View style={styles.createCopy}>
-                <Text style={[styles.createTitle, { color: tokens.foreground }]}>
+                <Text
+                  style={[
+                    styles.createTitle,
+                    nemuSheetMetrics.sectionTitle,
+                    { color: tokens.foreground },
+                  ]}
+                >
                   {strings.library.removeCollection}
                 </Text>
-                <Text style={[styles.createSubtitle, { color: tokens.mutedForeground }]}>
+                <Text
+                  style={[
+                    styles.createSubtitle,
+                    nemuSheetMetrics.sectionCaption,
+                    { color: tokens.mutedForeground },
+                  ]}
+                >
                   {strings.library.removeCollectionConfirm}
                 </Text>
               </View>
@@ -706,10 +755,22 @@ function CollectionMembershipContent({
           <View style={styles.createHeader}>
             <Ionicons name="add-circle-outline" size={20} color={tokens.primary} />
             <View style={styles.createCopy}>
-              <Text style={[styles.createTitle, { color: tokens.foreground }]}>
+              <Text
+                style={[
+                  styles.createTitle,
+                  nemuSheetMetrics.sectionTitle,
+                  { color: tokens.foreground },
+                ]}
+              >
                 {strings.collectionMembership.newCollection}
               </Text>
-              <Text style={[styles.createSubtitle, { color: tokens.mutedForeground }]}>
+              <Text
+                style={[
+                  styles.createSubtitle,
+                  nemuSheetMetrics.sectionCaption,
+                  { color: tokens.mutedForeground },
+                ]}
+              >
                 {strings.collectionMembership.newCollectionDescription}
               </Text>
             </View>
@@ -729,6 +790,7 @@ function CollectionMembershipContent({
             selectionColor={tokens.primary}
             style={[
               styles.input,
+              androidTextField,
               {
                 backgroundColor: tokens.card,
                 color: tokens.foreground,
@@ -849,6 +911,15 @@ export function MobileCollectionMembershipSheet({
     />
   );
 }
+
+// Android: a 56dp Material text field with bodyLarge text; iOS keeps
+// `styles.input` as is.
+const androidTextField = nemuSheetMetrics.textFieldMinHeight
+  ? {
+      height: nemuSheetMetrics.textFieldMinHeight,
+      ...nemuSheetMetrics.textFieldText,
+    }
+  : null;
 
 const styles = StyleSheet.create({
   sheet: {

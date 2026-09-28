@@ -1,5 +1,5 @@
 export type MobileAddBooksSheetLayout = {
-  snapPoints: [string, string] | undefined;
+  snapPoints: [string] | [string, string] | undefined;
   bounded: boolean;
 };
 
@@ -18,6 +18,9 @@ export function getMobileAddBooksSheetLayout({
   height: number;
   width: number;
 }): MobileAddBooksSheetLayout {
+  // Android uses the first detent as its fixed content budget. A 62% detent
+  // in landscape leaves almost no room between the header and commit footer.
+  if (width > height) return { snapPoints: ["100%"], bounded: true };
   const effectiveFontScale = Math.max(1, Math.min(fontScale, 2));
   const estimatedHeight = Math.max(
     330,
@@ -25,7 +28,6 @@ export function getMobileAddBooksSheetLayout({
   );
   const maxContentSizedHeight = height * 0.84;
   const constrained =
-    width > height ||
     fontScale >= 1.6 ||
     estimatedHeight > maxContentSizedHeight;
 

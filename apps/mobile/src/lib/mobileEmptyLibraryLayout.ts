@@ -98,3 +98,140 @@ export function getMobileEmptyLibraryLayout({
           ),
   };
 }
+
+/** Sizes shared by the adaptive (container-measured) empty-state hero. */
+const ADAPTIVE_SPLIT_MIN_WIDTH = 600;
+/** A box this much wider than tall reads better as art beside copy (HIG split arrangement). */
+const ADAPTIVE_SPLIT_MIN_ASPECT = 1.15;
+/** Art height as a share of its pane in the side-by-side arrangements. */
+const ADAPTIVE_SPLIT_ART_HEIGHT_RATIO = 0.84;
+const ADAPTIVE_SPLIT_ART_WIDTH_RATIO = 0.92;
+const ADAPTIVE_COPY_MAX_WIDTH = 360;
+const ADAPTIVE_PANE_GAP = 24;
+
+export type MobileEmptyLibraryPaneSplit = {
+  axis: "horizontal" | "vertical";
+  /** Container-local fold interval along the split axis. */
+  gutter: { start: number; end: number };
+};
+
+export type MobileEmptyLibraryAdaptiveLayout =
+  | {
+      arrangement: "stack";
+      portraitMaxWidth: number;
+      glowBleed: number;
+    }
+  | {
+      /** Art and copy side by side (wide window or book posture). */
+      arrangement: "row";
+      portraitMaxWidth: number;
+      glowBleed: number;
+      artPane: { x: number; width: number };
+      copyPane: { x: number; width: number };
+      copyWidth: number;
+    }
+  | {
+      /** Notebook posture: art in the top pane, copy in the bottom pane. */
+      arrangement: "column";
+      portraitMaxWidth: number;
+      glowBleed: number;
+      artPane: { y: number; height: number };
+      copyPane: { y: number; height: number };
+    };
+
+function glowFor(portraitWidth: number) {
+  return Math.max(1, Math.round(portraitWidth * PORTRAIT_ASPECT * NEMU_EMPTY_LIBRARY_GLOW_BLEED_RATIO));
+}
+
+/**
+ * The nemu empty-state hero sized to the box it actually gets (the page
+ * content area after headers, side/bottom bars and safe areas), so it keeps
+ * the proportion it has on a regular phone on every window: Duo's outer
+ * display (bars on the trailing edge), unfolded foldables, tablets.
+ *
+ * - Portrait-shaped boxes stack art over copy exactly like phones.
+ * - Wide boxes (and book posture) put the art beside the copy, each in its
+ *   own half; in book posture the halves are the fold's panes.
+ * - A wide box on a flat device that still reports its (inactive) fold —
+ *   iPhone Duo fully open, an unfolded Android foldable — splits on that same
+ *   line (`restingFold`), so book ⇄ flat moves nothing (HIG "avoid extreme
+ *   layout changes"). Portrait-shaped flat boxes keep the stack: forcing the
+ *   notebook column there would shrink the art on the common flat pose.
+ * - Notebook posture puts the art in the top pane and the copy in the bottom.
+ */
+export function getMobileEmptyLibraryAdaptiveLayout({
+  width,
+  height,
+  fold,
+  restingFold,
+  bleedWidth,
+}: {
+  width: number;
+  height: number;
+  fold?: MobileEmptyLibraryPaneSplit | null;
+  /** The inactive fold crossing the box while flat (`mobileRestingFoldSplitForContainer`). */
+  restingFold?: MobileEmptyLibraryPaneSplit | null;
+  /** Stacked art may bleed past the page gutters to this width (web `w-[100vw]`). */
+  bleedWidth?: number;
+}): MobileEmptyLibraryAdaptiveLayout {
+  const boxWidth = Math.max(1, Math.round(width));
+  const boxHeight = Math.max(1, Math.round(height));
+  const pad = NEMU_WEB_EMPTY_LIBRARY_VISUAL.rootPadding;
+
+  if (fold?.axis === "vertical") {
+    const topHeight = Math.max(1, fold.gutter.start);
+    const bottomStart = fold.gutter.end;
+    const artHeight = Math.max(1, (topHeight - pad * 2) * ADAPTIVE_SPLIT_ART_HEIGHT_RATIO);
+    const portraitMaxWidth = Math.max(1, Math.round(Math.min(boxWidth - pad * 2, artHeight / PORTRAIT_ASPECT)));
+    return {
+      arrangement: "column",
+      portraitMaxWidth,
+      glowBleed: glowFor(portraitMaxWidth),
+      artPane: { y: 0, height: topHeight },
+      copyPane: { y: bottomStart, height: Math.max(1, boxHeight - bottomStart) },
+    };
+  }
+
+  const wide = boxWidth >= ADAPTIVE_SPLIT_MIN_WIDTH && boxWidth / boxHeight >= ADAPTIVE_SPLIT_MIN_ASPECT;
+  const splitLine =
+    fold?.axis === "horizontal"
+      ? fold.gutter
+      : wide && !fold && restingFold?.axis === "horizontal"
+        ? restingFold.gutter
+        : null;
+  if (splitLine || wide) {
+    const artPane = splitLine
+      ? { x: 0, width: Math.max(1, splitLine.start) }
+      : { x: 0, width: Math.round((boxWidth - ADAPTIVE_PANE_GAP) / 2) };
+    const copyStart = splitLine ? splitLine.end : artPane.width + ADAPTIVE_PANE_GAP;
+    const copyPane = { x: copyStart, width: Math.max(1, boxWidth - copyStart) };
+    const artHeight = Math.max(1, (boxHeight - pad * 2) * ADAPTIVE_SPLIT_ART_HEIGHT_RATIO);
+    const portraitMaxWidth = Math.max(
+      1,
+      Math.round(Math.min(artPane.width * ADAPTIVE_SPLIT_ART_WIDTH_RATIO, artHeight / PORTRAIT_ASPECT)),
+    );
+    return {
+      arrangement: "row",
+      portraitMaxWidth,
+      glowBleed: glowFor(portraitMaxWidth),
+      artPane,
+      copyPane,
+      copyWidth: Math.max(1, Math.min(ADAPTIVE_COPY_MAX_WIDTH, copyPane.width - pad * 2)),
+    };
+  }
+
+  // Phone treatment: the art takes the column left after the copy stack.
+  const remaining = Math.max(1, boxHeight - NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT - pad * 2);
+  const portraitHeight = remaining * NEMU_EMPTY_LIBRARY_PORTRAIT_REMAINING_RATIO;
+  const stackWidth = Math.max(boxWidth, Math.round(bleedWidth ?? 0));
+  const portraitMaxWidth = Math.max(
+    1,
+    Math.round(Math.min(stackWidth, portraitWidthCap(stackWidth), portraitHeight / PORTRAIT_ASPECT)),
+  );
+  return { arrangement: "stack", portraitMaxWidth, glowBleed: glowFor(portraitMaxWidth) };
+}
+
+/** Web never lets the portrait exceed its `sm:max-w-md md:max-w-lg` caps. */
+function portraitWidthCap(contentWidth: number) {
+  return portraitWidthForBreakpoint(contentWidth);
+}

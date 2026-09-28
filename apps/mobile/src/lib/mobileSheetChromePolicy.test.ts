@@ -163,7 +163,12 @@ describe("mobile sheet and text-field chrome policy", () => {
     expect(browse).toContain('clearActionTestID="AddSourceSearchClearAction"');
     expect(browse).not.toContain("clearButtonMode=");
     expect(addSourceSearchField).toContain("testID={clearActionTestID}");
-    expect(search).toContain('testID="InstalledSourceSearchClearAction"');
+    // Regular-width search uses the shared capsule (in content and in the
+    // sidebar), so its clear action is the shared one too.
+    expect(search).toContain('clearActionTestID="InstalledSourceSearchClearAction"');
+    expect(readMobileSource("components/search/MobileSearchSidebar.tsx")).toContain(
+      'clearActionTestID="InstalledSourceSearchClearAction"',
+    );
     expect(metadata).toContain(
       'clearActionTestID="MetadataMatchSearchClearAction"',
     );
@@ -178,7 +183,6 @@ describe("mobile sheet and text-field chrome policy", () => {
 
     for (const source of [
       addSourceSearchField,
-      search,
       sourceManager,
       sourceBrowse,
     ]) {
@@ -187,6 +191,7 @@ describe("mobile sheet and text-field chrome policy", () => {
       expect(source).not.toContain("clearButtonMode=");
     }
 
+    expect(search).not.toContain("clearButtonMode=");
     for (const nativeSearch of [search, sourceBrowse]) {
       expect(nativeSearch).toContain("<Stack.SearchBar");
       expect(nativeSearch).toContain("onCancelButtonPress=");
@@ -199,11 +204,9 @@ describe("mobile sheet and text-field chrome policy", () => {
       "components/MobileSourceManagerSheet.tsx",
     );
     const collections = readMobileSource("screens/LibraryScreen.tsx");
-    const transcript = readMobileSource(
-      "components/reader/japaneseLearning/JapaneseLearningTranscriptSheet.tsx",
-    );
-
-    for (const source of [sourceManager, collections, transcript]) {
+    // The transcript has no header action: its audio control sits in the
+    // body, as on web (transcript.tsx).
+    for (const source of [sourceManager, collections]) {
       expect(source).toContain("headerMetrics.showActionLabels");
     }
   });

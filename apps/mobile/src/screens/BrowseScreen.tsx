@@ -11,6 +11,7 @@ import {
   type LayoutChangeEvent,
   type SectionListData,
   type SectionListRenderItemInfo,
+  type ViewInstance,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -47,6 +48,7 @@ import {
   usesNemuNativeHeader,
   type NemuNativeHeaderAction,
   type SourceCardModel,
+  useMobilePageGutters,
 } from "@/design-system";
 import {
   isMobileSourceInstallCancellation,
@@ -69,6 +71,11 @@ import {
   type MobileStrings,
 } from "@/lib/mobileI18n";
 import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
+import { getMobileSourceGridLayout } from "@/lib/mobilePageLayout";
+import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
+import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
+import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
 import {
   buildMobileInstalledSourceKeySet,
   buildMobileSourceQuickActions,
@@ -781,7 +788,36 @@ export function BrowseScreen() {
   const toast = useMobileToast();
   const { appLanguage } = useMobileLanguageSettings();
   const strings = getMobileStrings(appLanguage);
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth, fontScale } = useWindowDimensions();
+  const pageGutters = useMobilePageGutters();
+  // Source cards size from the measured content box (Duo's trailing system
+  // bars narrow it), even columns on regular widths, one card group per pane
+  // in book posture with the gutter on the fold.
+  const sourceGridContainer = useMobileContainerFold<ViewInstance>();
+  const sourceGridSplit = sourceGridContainer.split;
+  const sourceGrid = useMemo(
+    () =>
+      getMobileSourceGridLayout(
+        sourceGridContainer.width ?? windowWidth - pageGutters.left - pageGutters.right,
+        fontScale,
+        {
+          preferEven: sourceGridContainer.adaptive.regularWidth,
+          fold:
+            sourceGridSplit?.axis === "horizontal"
+              ? { start: sourceGridSplit.gutter.start, end: sourceGridSplit.gutter.end }
+              : null,
+        },
+      ),
+    [
+      fontScale,
+      pageGutters.left,
+      pageGutters.right,
+      sourceGridContainer.adaptive.regularWidth,
+      sourceGridContainer.width,
+      sourceGridSplit,
+      windowWidth,
+    ],
+  );
   const insets = useSafeAreaInsets();
   const usesNativeHeader = usesNemuNativeHeader;
 
@@ -1625,7 +1661,11 @@ export function BrowseScreen() {
                 </View>
               ) : null}
               {installedSources.length ? (
-                <View style={styles.availableList}>
+                <View
+                  ref={sourceGridContainer.ref}
+                  onLayout={sourceGridContainer.onLayout}
+                  style={styles.availableList}
+                >
                   {groupedInstalledSources.map((section) => {
                     const label = formatSourceLanguageLabel(
                       section.label,
@@ -1645,43 +1685,53 @@ export function BrowseScreen() {
                         >
                           {label}
                         </Text>
-                        <View style={styles.list}>
-                          {section.sources.map((source) =>
-                            source.unsupported ? (
-                              <UnsupportedSourceRow
-                                key={source.id}
-                                source={source}
-                                strings={strings}
-                                onPress={() => {
-                                  router.push(sourceSettingsHref(source));
-                                }}
-                              />
-                            ) : (
-                              <SourceCard
-                                key={source.id}
-                                item={source}
-                                onLongPress={() => {
-                                  void hapticSelection();
-                                  quickActionDismissRef.current = null;
-                                  setQuickActionSourceId(source.id);
-                                  setQuickActionVisible(true);
-                                }}
-                              />
-                            ),
-                          )}
+                        <View style={styles.sourceGrid}>
+                          {chunkMobileGridRows(section.sources, sourceGrid.columns).map((row, rowIndex) => (
+                            <MobilePoseLayoutView key={rowIndex} style={styles.sourceGridRow}>
+                              {row.map((source, column) => (
+                                // Folding glides each card to its pane (pose settle spring).
+                                <MobilePoseLayoutView key={source.id} style={mobileFoldAwareGridCellStyle(sourceGrid, column)}>
+                                  {source.unsupported ? (
+                                    <UnsupportedSourceRow
+                                      source={source}
+                                      strings={strings}
+                                      onPress={() => {
+                                        router.push(sourceSettingsHref(source));
+                                      }}
+                                    />
+                                  ) : (
+                                    <SourceCard
+                                      item={source}
+                                      onLongPress={() => {
+                                        void hapticSelection();
+                                        quickActionDismissRef.current = null;
+                                        setQuickActionSourceId(source.id);
+                                        setQuickActionVisible(true);
+                                      }}
+                                    />
+                                  )}
+                                </MobilePoseLayoutView>
+                              ))}
+                            </MobilePoseLayoutView>
+                          ))}
                         </View>
                       </View>
                     );
                   })}
                 </View>
               ) : (
-                <MobilePageEmpty
-                  icon="globe-outline"
-                  title={strings.browse.noSources}
-                  description={strings.browse.noSourcesDescription}
-                  actionLabel={strings.browse.addSource}
-                  onActionPress={openAddSourceSheet}
-                />
+                <MobilePaneAlignedView>
+                  {({ minHeight }) => (
+                    <MobilePageEmpty
+                      minHeight={minHeight}
+                      icon="globe-outline"
+                      title={strings.browse.noSources}
+                      description={strings.browse.noSourcesDescription}
+                      actionLabel={strings.browse.addSource}
+                      onActionPress={openAddSourceSheet}
+                    />
+                  )}
+                </MobilePaneAlignedView>
               )}
             </View>
           </View>
@@ -1986,6 +2036,14 @@ const styles = StyleSheet.create({
   },
   list: {
     gap: 12,
+  },
+  // Explicit rows; column spacing is each cell's marginLeft so the middle
+  // gutter can equal the fold in book posture.
+  sourceGrid: {
+    gap: 12,
+  },
+  sourceGridRow: {
+    flexDirection: "row",
   },
   availableList: {
     gap: 18,

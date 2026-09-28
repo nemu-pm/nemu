@@ -1,3 +1,4 @@
+import type { FlatList, ScrollViewInstance } from "react-native";
 import {
   useCallback,
   useEffect,
@@ -17,12 +18,17 @@ import {
   View,
   type ImageStyle,
   type ImageSourcePropType,
-  type ScrollView,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import SegmentedControl from "@expo/ui/community/segmented-control";
+import {
+  Host as ComposeHost,
+  SegmentedButton,
+  SingleChoiceSegmentedButtonRow,
+  Text as ComposeText,
+} from "@expo/ui/jetpack-compose";
 import {
   Host as SwiftHost,
   Picker as SwiftPicker,
@@ -39,6 +45,8 @@ import { Stack, router, useLocalSearchParams, type Href } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import { nextSyncTimestamp } from "@nemu/core";
 import { MobileAboutSheet } from "@/components/MobileAboutSheet";
+import { MobileJapaneseLearningDictionaryRow } from "@/components/MobileJapaneseLearningDictionaryRow";
+import { MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY } from "@/lib/mobileJapaneseLearningEngine";
 import { MobileAgentStatusCard } from "@/components/MobileAgentStatusCard";
 import { MobileCloudSyncCard } from "@/components/MobileCloudSyncCard";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
@@ -85,14 +93,30 @@ import {
   NemuNativeSwitch,
   NemuPressable,
   NemuText,
+  PageListScaffold,
   PageScaffold,
   radius,
+  spacing,
   createNemuBrandWordmarkStyle,
   nemuColorWithAlpha,
   nemuFontWeight,
   nemuMaxFontSizeMultiplier,
+  nemuSheetMetrics,
+  useMobilePageGutters,
   useNemuTheme,
 } from "@/design-system";
+import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
+import {
+  getMobileSettingsPrimaryPane,
+  resolveMobileSettingsSplitSelection,
+} from "@/lib/mobileSettingsSplit";
+import {
+  getMobileSplitPanePadding,
+  MOBILE_SETTINGS_SPLIT_OPTIONS,
+} from "@/lib/mobileSplitPaneLayout";
+import { useMobileSplitPaneLayout } from "@/lib/useMobileSplitPaneLayout";
+import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
+import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
 import {
   hapticConfirm,
   hapticError,
@@ -697,7 +721,10 @@ function MobileReaderPluginSettingsSheet({
   const sheetLayout = getMobileSettingsSheetLayout({
     fontScale,
     height,
-    rowCount: countVisibleSourceSettings(plugin.settings, plugin.values),
+    rowCount:
+      countVisibleSourceSettings(plugin.settings, plugin.values) +
+      // The on-device dictionary line under Recognition Engine.
+      (plugin.id === "japanese-learning" ? 1 : 0),
     width,
   });
   // Multi-select and string-list settings open their dedicated sheets through
@@ -766,6 +793,18 @@ function MobileReaderPluginSettingsSheet({
           onRetry={onRetry}
           onReset={onReset}
           onChange={onChange}
+          renderSettingAccessory={
+            plugin.id === "japanese-learning"
+              ? (setting, values) =>
+                  setting.key === MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY ? (
+                    <MobileJapaneseLearningDictionaryRow
+                      disabled={disabled}
+                      engine={values[MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY]}
+                      strings={strings}
+                    />
+                  ) : null
+              : undefined
+          }
           {...transientSheets.cardProps}
         />
       </MobileNativeSheetScaffold>
@@ -803,6 +842,7 @@ function ClearCloudDataOption({
       pressedScale={0.985}
       style={[
         styles.cloudClearOption,
+        nemuSheetMetrics.twoLineRowLayout,
         {
           backgroundColor: checked
             ? nemuColorWithAlpha(tokens.danger, 0.07)
@@ -812,27 +852,20 @@ function ClearCloudDataOption({
         },
       ]}
     >
-      <View
-        style={[
-          styles.cloudClearCheck,
-          {
-            backgroundColor: checked ? tokens.danger : "transparent",
-            borderColor: checked ? tokens.danger : tokens.border,
-          },
-        ]}
-      >
-        {checked ? (
-          <Ionicons
-            name="checkmark"
-            size={13}
-            color={tokens.primaryForeground}
-          />
-        ) : null}
-      </View>
+      <MobileSheetSelectionIndicator
+        kind="checkbox"
+        checked={checked}
+        color={tokens.danger}
+        iosStyle={styles.cloudClearCheck}
+      />
       <View style={styles.cloudClearCopy}>
         <NemuText
           density="compact"
-          style={[styles.cloudClearTitle, { color: tokens.foreground }]}
+          style={[
+            styles.cloudClearTitle,
+            nemuSheetMetrics.twoLineRowTitle,
+            { color: tokens.foreground },
+          ]}
         >
           {strings.settings.clearCloudData}
         </NemuText>
@@ -840,6 +873,7 @@ function ClearCloudDataOption({
           density="compact"
           style={[
             styles.cloudClearDescription,
+            nemuSheetMetrics.twoLineRowSupporting,
             { color: tokens.mutedForeground },
           ]}
         >
@@ -919,6 +953,7 @@ function SettingsSurface({
 
 function PressableSettingsSurface({
   accessibilityLabel,
+  accessibilityState,
   children,
   contentStyle,
   disabled,
@@ -928,6 +963,7 @@ function PressableSettingsSurface({
   style,
 }: {
   accessibilityLabel: string;
+  accessibilityState?: { selected?: boolean };
   children: ReactNode;
   contentStyle?: StyleProp<ViewStyle>;
   disabled?: boolean;
@@ -948,7 +984,7 @@ function PressableSettingsSurface({
     <NemuPressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
+      accessibilityState={{ ...accessibilityState, disabled }}
       disabled={disabled}
       hapticFeedback={hapticFeedback}
       onPress={onPress}
@@ -1072,6 +1108,37 @@ function SettingsSegmentedPicker<Value extends string>({
     );
   }
 
+  if (Platform.OS === "android") {
+    return (
+      <ComposeHost
+        colorScheme={scheme}
+        matchContents={{ vertical: true }}
+        style={styles.nativeSegmented}
+      >
+        <SingleChoiceSegmentedButtonRow>
+          {options.map((option) => (
+            <SegmentedButton
+              key={option.value}
+              selected={option.value === displayedValue}
+              enabled={!interactionBlocked}
+              onClick={() => selectValue(option.value)}
+              colors={{
+                activeContainerColor: tokens.primary,
+                activeContentColor: tokens.primaryForeground,
+                inactiveContainerColor: tokens.card,
+                inactiveContentColor: tokens.foreground,
+              }}
+            >
+              <SegmentedButton.Label>
+                <ComposeText>{option.label}</ComposeText>
+              </SegmentedButton.Label>
+            </SegmentedButton>
+          ))}
+        </SingleChoiceSegmentedButtonRow>
+      </ComposeHost>
+    );
+  }
+
   return (
     <SegmentedControl
       appearance={scheme}
@@ -1095,48 +1162,72 @@ function SettingsMenuRow({
   title,
   subtitle,
   disabled,
+  selected = false,
+  navigates = true,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle: string;
   disabled?: boolean;
+  /** Split view: this section is the one shown in the trailing pane. */
+  selected?: boolean;
+  /** Pushes a page (chevron); false in the split view's section list. */
+  navigates?: boolean;
   onPress: () => void;
 }) {
   const { tokens } = useNemuTheme();
+  // Selected rows sit on the primary colour with primary-foreground content.
+  const titleColor = selected ? tokens.primaryForeground : tokens.foreground;
+  const detailColor = selected
+    ? nemuColorWithAlpha(tokens.primaryForeground, 0.82)
+    : tokens.mutedForeground;
 
   return (
     <PressableSettingsSurface
       accessibilityLabel={title}
+      accessibilityState={navigates ? undefined : { selected }}
       disabled={disabled}
+      hapticFeedback={navigates ? "press" : "selection"}
       onPress={onPress}
-      style={styles.menuRowShell}
+      style={[
+        styles.menuRowShell,
+        selected
+          ? { backgroundColor: tokens.primary, borderColor: tokens.primary }
+          : null,
+      ]}
       contentStyle={styles.menuRowContent}
     >
       <View style={styles.menuRow}>
         <View style={styles.menuIcon}>
-          <Ionicons name={icon} size={19} color={tokens.primary} />
+          <Ionicons
+            name={icon}
+            size={19}
+            color={selected ? tokens.primaryForeground : tokens.primary}
+          />
         </View>
         <View style={styles.menuText}>
           <NemuText
             maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-            style={[styles.menuTitle, { color: tokens.foreground }]}
+            style={[styles.menuTitle, { color: titleColor }]}
           >
             {title}
           </NemuText>
           <NemuText
             maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
             numberOfLines={2}
-            style={[styles.menuSubtitle, { color: tokens.mutedForeground }]}
+            style={[styles.menuSubtitle, { color: detailColor }]}
           >
             {subtitle}
           </NemuText>
         </View>
-        <Ionicons
-          name="chevron-forward-outline"
-          size={18}
-          color={tokens.mutedForeground}
-        />
+        {navigates ? (
+          <Ionicons
+            name="chevron-forward-outline"
+            size={18}
+            color={tokens.mutedForeground}
+          />
+        ) : null}
       </View>
     </PressableSettingsSurface>
   );
@@ -1385,10 +1476,28 @@ function AboutSettingsRow({
   );
 }
 
-export function SettingsScreen({
+type SettingsPresentation = "page" | "list-pane" | "detail-pane";
+
+const NO_SETTINGS_ROWS: never[] = [];
+const renderNoSettingsRow = () => null;
+
+function SettingsScreenContent({
   section = null,
+  presentation = "page",
+  selectedSection = null,
+  onSelectSection,
+  paneContentStyle,
 }: {
   section?: SettingsSectionId | null;
+  /**
+   * `page`: the compact push-navigation screen. `list-pane` / `detail-pane`:
+   * the leading section list and trailing section content of the regular-width
+   * split view (each scrolls on its own and pads its own edges).
+   */
+  presentation?: SettingsPresentation;
+  selectedSection?: SettingsSectionId | null;
+  onSelectSection?: (section: SettingsSectionId) => void;
+  paneContentStyle?: StyleProp<ViewStyle>;
 }) {
   const params = useLocalSearchParams<{
     focus?: string | string[];
@@ -1460,7 +1569,8 @@ export function SettingsScreen({
   const [operationError, setOperationError] = useState<string | null>(null);
   const [clearCloudData, setClearCloudData] = useState(false);
   const [agentCardY, setAgentCardY] = useState<number | null>(null);
-  const settingsScrollRef = useRef<ScrollView | null>(null);
+  const settingsScrollRef = useRef<ScrollViewInstance | null>(null);
+  const settingsPaneListRef = useRef<FlatList<never> | null>(null);
   const agentFocusAppliedRef = useRef(false);
   const focusParam = Array.isArray(params.focus)
     ? params.focus[0]
@@ -1861,6 +1971,23 @@ export function SettingsScreen({
   const sourcesSectionLoading =
     activeSection === "sources" &&
     shouldRenderMobileSourcesSectionLoading(settingsSkeletonState);
+  // The split view's content pane is one scroll view for every section: a new
+  // selection starts at the top, like pushing a fresh page would.
+  const previousPaneSectionRef = useRef(activeSection);
+  useEffect(() => {
+    if (presentation !== "detail-pane") return;
+    if (previousPaneSectionRef.current === activeSection) return;
+    previousPaneSectionRef.current = activeSection;
+    settingsPaneListRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [activeSection, presentation]);
+  const inSplit = presentation === "list-pane";
+  const openSection = (next: SettingsSectionId) => {
+    if (inSplit && onSelectSection) {
+      onSelectSection(next);
+      return;
+    }
+    router.push(settingsSectionHref(next));
+  };
   const settingsTitle =
     activeSection === "reader"
       ? strings.reader.title
@@ -1875,11 +2002,17 @@ export function SettingsScreen({
     activeSection === null || activeSection === "sources";
 
   useEffect(() => {
+    // The split view's section list never owns a focus deep link; the split
+    // container already routed it to the Data pane.
+    if (presentation === "list-pane") return;
     if (focusParam !== "agent") {
       agentFocusAppliedRef.current = false;
       return;
     }
     if (activeSection !== "data") {
+      // In the split view the container opened this link on the Data pane;
+      // once the reader picks another section the link must not pull it back.
+      if (presentation === "detail-pane") return;
       router.replace(settingsSectionHref("data", { focus: "agent" }));
       return;
     }
@@ -1892,12 +2025,20 @@ export function SettingsScreen({
 
     agentFocusAppliedRef.current = true;
     requestAnimationFrame(() => {
-      settingsScrollRef.current?.scrollTo({
-        y: Math.max(agentCardY - 12, 0),
-        animated: true,
-      });
+      const offset = Math.max(agentCardY - 12, 0);
+      if (presentation === "page") {
+        settingsScrollRef.current?.scrollTo({ y: offset, animated: true });
+      } else {
+        settingsPaneListRef.current?.scrollToOffset({ offset, animated: true });
+      }
     });
-  }, [activeSection, agentCardY, focusParam, showSettingsSkeleton]);
+  }, [
+    activeSection,
+    agentCardY,
+    focusParam,
+    presentation,
+    showSettingsSkeleton,
+  ]);
 
   const getGuardedSettingsActionState = (): MobileSettingsActionState => ({
     refreshingSources: refreshGuardRef.current || refreshingSources,
@@ -2604,23 +2745,16 @@ export function SettingsScreen({
     void clearAllData();
   };
 
-  return (
-    <>
-      <Stack.Screen options={{ title: settingsTitle }} />
-      <PageScaffold
-        nativeHeader
-        onRefresh={
-          showRefreshAction
-            ? () => {
-                void refreshSources();
-              }
-            : undefined
-        }
-        refreshDisabled={settingsActionBusy}
-        refreshLabel={strings.settings.refreshSources}
-        refreshing={refreshingSources}
-        scrollRef={settingsScrollRef}
-      >
+  const onRefreshSettings = showRefreshAction
+    ? () => {
+        void refreshSources();
+      }
+    : undefined;
+  const settingsBody = (
+      <>
+        {/* Every section opens with its own titled card, so the split view's
+            content pane needs no extra heading (no duplicated labels); the
+            navigation bar belongs to the whole split view. */}
         <View style={styles.list}>
           {showSettingsSkeleton ? (
             <MobileSettingsSkeleton
@@ -2678,32 +2812,36 @@ export function SettingsScreen({
                         strings.settings.readerDescriptionWithFeedback
                       }
                       disabled={settingsActionBusy}
-                      onPress={() => router.push(settingsSectionHref("reader"))}
+                      navigates={!inSplit}
+                      selected={inSplit && selectedSection === "reader"}
+                      onPress={() => openSection("reader")}
                     />
                     <SettingsMenuRow
                       icon="server-outline"
                       title={strings.settings.installedSources}
                       subtitle={strings.settings.installedSourcesDescription}
                       disabled={settingsActionBusy}
-                      onPress={() =>
-                        router.push(settingsSectionHref("sources"))
-                      }
+                      navigates={!inSplit}
+                      selected={inSplit && selectedSection === "sources"}
+                      onPress={() => openSection("sources")}
                     />
                     <SettingsMenuRow
                       icon="color-palette-outline"
                       title={strings.settings.appearance}
                       subtitle={strings.settings.appearanceDescription}
                       disabled={settingsActionBusy}
-                      onPress={() =>
-                        router.push(settingsSectionHref("appearance"))
-                      }
+                      navigates={!inSplit}
+                      selected={inSplit && selectedSection === "appearance"}
+                      onPress={() => openSection("appearance")}
                     />
                     <SettingsMenuRow
                       icon="folder-open-outline"
                       title={strings.settings.dataManagement}
                       subtitle={strings.settings.dataManagementDescription}
                       disabled={settingsActionBusy}
-                      onPress={() => router.push(settingsSectionHref("data"))}
+                      navigates={!inSplit}
+                      selected={inSplit && selectedSection === "data"}
+                      onPress={() => openSection("data")}
                     />
                   </View>
                   <AboutSettingsRow
@@ -3438,12 +3576,166 @@ export function SettingsScreen({
           visible={aboutOpen}
           onClose={() => setAboutOpen(false)}
         />
-      </PageScaffold>
+      </>
+  );
+
+  return (
+    <>
+      {presentation === "detail-pane" ? null : (
+        <Stack.Screen
+          options={{
+            title: presentation === "list-pane" ? strings.nav.settings : settingsTitle,
+          }}
+        />
+      )}
+      {presentation === "page" ? (
+        <PageScaffold
+          nativeHeader
+          onRefresh={onRefreshSettings}
+          refreshDisabled={settingsActionBusy}
+          refreshLabel={strings.settings.refreshSources}
+          refreshing={refreshingSources}
+          scrollRef={settingsScrollRef}
+        >
+          {settingsBody}
+        </PageScaffold>
+      ) : (
+        <PageListScaffold
+          nativeHeader
+          data={NO_SETTINGS_ROWS}
+          renderItem={renderNoSettingsRow}
+          listRef={settingsPaneListRef}
+          onRefresh={onRefreshSettings}
+          refreshDisabled={settingsActionBusy}
+          refreshLabel={strings.settings.refreshSources}
+          refreshing={refreshingSources}
+          contentContainerStyle={paneContentStyle}
+          ListHeaderComponent={settingsBody}
+        />
+      )}
     </>
   );
 }
 
+/**
+ * Settings on any width. Compact (phones, Duo outer display): push navigation
+ * from the section list to `settings/[section]`. Regular width (Duo inner
+ * display, tablets, foldables): the iOS Settings / Mail split — section list
+ * in the leading pane, the selected section in the trailing pane, the first
+ * section selected by default. Book posture aligns the panes to the fold
+ * halves; notebook keeps the compact navigation.
+ *
+ * The route's own content instance keeps its key and parent across a resize,
+ * so its state (sheets, pending work) survives compact ⇄ split.
+ *
+ * Motion (pose changes): pane frames glide with the shared settle spring as
+ * folding moves them to the fold halves; a pane that appears/disappears with
+ * the split fades. Nothing animates on mount/unmount.
+ */
+export function SettingsScreen({
+  section = null,
+}: {
+  section?: SettingsSectionId | null;
+}) {
+  const { tokens } = useNemuTheme();
+  const params = useLocalSearchParams<{ focus?: string | string[] }>();
+  const focus = Array.isArray(params.focus) ? params.focus[0] : params.focus;
+  const gutters = useMobilePageGutters();
+  const [selected, setSelected] = useState<SettingsSectionId | null>(null);
+  const { containerRef, onContainerLayout, layout } = useMobileSplitPaneLayout(
+    MOBILE_SETTINGS_SPLIT_OPTIONS,
+  );
+  const split = layout.mode === "split" ? layout : null;
+  const detailSection = resolveMobileSettingsSplitSelection({
+    selected,
+    routeSection: section,
+    focus,
+  });
+  const primaryPane = getMobileSettingsPrimaryPane(section);
+  const padding = getMobileSplitPanePadding({
+    pageGutters: gutters,
+    innerGutter: spacing.pageX,
+  });
+
+  const pose = useMobilePoseTransition();
+  const listPane = split || primaryPane === "list" ? (
+    <Animated.View
+      key="list"
+      layout={pose.layout}
+      entering={pose.entering}
+      exiting={pose.exiting}
+      style={
+        split
+          ? [
+              styles.pane,
+              { width: split.leading.width },
+              split.alignment === "flat"
+                ? {
+                    borderEndWidth: StyleSheet.hairlineWidth,
+                    borderEndColor: tokens.border,
+                  }
+                : null,
+            ]
+          : styles.fill
+      }
+    >
+      <SettingsScreenContent
+        presentation={split ? "list-pane" : "page"}
+        selectedSection={split ? detailSection : null}
+        onSelectSection={setSelected}
+        paneContentStyle={padding.leading}
+      />
+    </Animated.View>
+  ) : null;
+  const detailPane = split || primaryPane === "detail" ? (
+    <Animated.View
+      key="detail"
+      layout={pose.layout}
+      entering={pose.entering}
+      exiting={pose.exiting}
+      style={split ? [styles.pane, { width: split.trailing.width }] : styles.fill}
+    >
+      <SettingsScreenContent
+        section={split ? detailSection : (selected ?? section)}
+        presentation={split ? "detail-pane" : "page"}
+        onSelectSection={setSelected}
+        paneContentStyle={padding.trailing}
+      />
+    </Animated.View>
+  ) : null;
+
+  return (
+    <LayoutAnimationConfig skipEntering skipExiting>
+      <View
+        ref={containerRef}
+        onLayout={onContainerLayout}
+        style={[
+          styles.fill,
+          { backgroundColor: tokens.background },
+          split ? styles.splitRow : null,
+        ]}
+      >
+        {listPane}
+        {split && split.gutter > 0 ? (
+          // The fold band: nothing is drawn or tappable on it.
+          <View key="fold" style={{ width: split.gutter }} />
+        ) : null}
+        {detailPane}
+      </View>
+    </LayoutAnimationConfig>
+  );
+}
+
 const styles = StyleSheet.create({
+  fill: {
+    flex: 1,
+  },
+  splitRow: {
+    flexDirection: "row",
+  },
+  pane: {
+    height: "100%",
+  },
   settingsSurface: {
     overflow: "hidden",
     borderRadius: radius.lg,
@@ -3613,11 +3905,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   nativeSegmentedHost: {
-    width: "100%",
+    width: "100%" as const,
     minHeight: 34,
   },
   nativeSegmented: {
-    width: "100%",
+    width: "100%" as const,
     minHeight: 34,
   },
   section: {
@@ -3718,7 +4010,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   sourceMain: {
-    width: "100%",
+    width: "100%" as const,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -3745,8 +4037,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   pluginArtworkImage: {
-    width: "100%",
-    height: "100%",
+    width: "100%" as const,
+    height: "100%" as const,
   },
   pluginTitleArtwork: {
     width: 26,

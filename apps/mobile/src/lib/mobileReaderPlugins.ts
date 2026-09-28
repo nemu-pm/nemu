@@ -75,6 +75,20 @@ function makeMobileReaderPlugins(strings: MobileStrings): MobileReaderPlugin[] {
               default: 25,
               formatValue: (value) => `${value}%`,
             },
+            {
+              key: "recognitionEngine",
+              title: strings.reader.pluginJapaneseLearningRecognitionEngine,
+              subtitle:
+                strings.reader.pluginJapaneseLearningRecognitionEngineDescription,
+              type: "select",
+              values: ["auto", "onDevice", "cloud"],
+              titles: [
+                strings.reader.pluginValueEngineAutomatic,
+                strings.reader.pluginValueEngineOnDevice,
+                strings.reader.pluginValueEngineCloud,
+              ],
+              default: "auto",
+            },
           ],
         },
         {

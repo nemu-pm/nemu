@@ -211,6 +211,8 @@ describe("mobile i18n helpers", () => {
       getMobileStringsForAudit().zh,
     )) {
       if (intentionalKanaPaths.has(path)) continue;
+      // Japanese grammar terms (い形容词, な形容词…) name kana forms on purpose (web zh.json).
+      if (path.startsWith("japaneseLearningGrammar.")) continue;
       if (kana.test(value)) offenders.push(`${path}: ${value}`);
     }
     expect(offenders).toEqual([]);
@@ -634,7 +636,7 @@ describe("mobile i18n helpers", () => {
           option: `Popular, ${getMobileStrings("en").sourceBrowse.sortDescending}`,
         },
       ),
-    ).toBe("Sort: Popular, descending");
+    ).toBe("Sort: Popular, Descending");
     expect(
       formatMobileString(
         getMobileStrings("zh").sourceBrowse.sourceFilterTextInput,

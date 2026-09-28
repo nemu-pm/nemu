@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { mobileAdaptiveLayout } from "./mobileAdaptiveLayout";
 import { getMobileStrings } from "./mobileI18n";
 import {
   canDismissMobileNativeSheetFromPan,
@@ -7,6 +8,8 @@ import {
   normalizeMobileNativeSheetSnapPointsForPlatform,
   MOBILE_NATIVE_ANDROID_MIN_FIXED_HEIGHT,
   resolveMobileNativeSheetAndroidFrame,
+  resolveMobileNativeSheetAndroidPlacement,
+  resolveMobileNativeSheetAndroidWidth,
   resolveMobileNativeSheetAvailableHeight,
   resolveMobileNativeSheetBodyTopPadding,
   resolveMobileNativeSheetBottomPadding,
@@ -17,6 +20,11 @@ import {
 } from "./mobileNativeSheet";
 
 describe("mobile native sheet behavior", () => {
+  test("keeps Yoga content inside Material's landscape sheet width", () => {
+    expect(resolveMobileNativeSheetAndroidWidth(426)).toBe(426);
+    expect(resolveMobileNativeSheetAndroidWidth(952)).toBe(640);
+    expect(resolveMobileNativeSheetAndroidWidth(600)).toBe(600);
+  });
   test("aligns Android Material sheet chrome and body to one 24dp grid", () => {
     expect(resolveMobileSheetHeaderMetrics("android")).toEqual({
       bodyDescriptionFontSize: 14,
@@ -429,5 +437,43 @@ describe("mobile native sheet behavior", () => {
       snapPoints: ["82%"],
       availableHeight: 759,
     });
+  });
+});
+
+describe("android sheet placement on foldables", () => {
+  const pixelFoldBook = mobileAdaptiveLayout({
+    width: 841, height: 701, supported: true,
+    divisions: [{ id: "fold-0", x: 420.5, y: 0, width: 0, height: 701, active: true }], occlusions: [],
+  });
+  test("flat windows keep the centred 640dp sheet", () => {
+    expect(resolveMobileNativeSheetAndroidPlacement({ windowWidth: 841, posture: "flat", panels: [{ x: 0, width: 841 }] }))
+      .toEqual({ width: 640, offsetX: 0, paneAligned: false });
+    expect(resolveMobileNativeSheetAndroidPlacement({ windowWidth: 412, posture: "flat", panels: [{ x: 0, width: 412 }] }))
+      .toEqual({ width: 412, offsetX: 0, paneAligned: false });
+  });
+  test("book posture moves the sheet into the trailing pane (a zero-width hinge included)", () => {
+    const ltr = resolveMobileNativeSheetAndroidPlacement({ windowWidth: 841, posture: pixelFoldBook.posture, panels: pixelFoldBook.panels });
+    expect(ltr).toEqual({ width: 410.5, offsetX: 430.5 + 410.5 / 2 - 841 / 2, paneAligned: true });
+    // The sheet's frame is exactly the trailing pane: clear of the fold gutter.
+    expect(841 / 2 + ltr.offsetX - ltr.width / 2).toBe(430.5);
+    const rtl = resolveMobileNativeSheetAndroidPlacement({
+      windowWidth: 841, posture: pixelFoldBook.posture, panels: pixelFoldBook.panels, layoutDirection: "rtl",
+    });
+    expect(841 / 2 + rtl.offsetX + rtl.width / 2).toBe(410.5);
+  });
+  test("Duo book pane and too-narrow panes", () => {
+    const duo = mobileAdaptiveLayout({
+      width: 951, height: 669, supported: true,
+      divisions: [{ id: "d", x: 455.5, y: 0, width: 40, height: 669, active: true }], occlusions: [],
+    });
+    expect(resolveMobileNativeSheetAndroidPlacement({ windowWidth: 951, posture: duo.posture, panels: duo.panels }))
+      .toMatchObject({ width: 455.5, paneAligned: true });
+    expect(resolveMobileNativeSheetAndroidPlacement({
+      windowWidth: 500, posture: "book", panels: [{ x: 0, width: 240 }, { x: 260, width: 240 }],
+    })).toEqual({ width: 500, offsetX: 0, paneAligned: false });
+  });
+  test("notebook keeps the full-width bottom sheet", () => {
+    expect(resolveMobileNativeSheetAndroidPlacement({ windowWidth: 701, posture: "notebook", panels: [{ x: 0, width: 701 }, { x: 0, width: 701 }] }))
+      .toEqual({ width: 640, offsetX: 0, paneAligned: false });
   });
 });

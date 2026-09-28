@@ -15,6 +15,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FloatingTabBar } from "@/components/FloatingTabBar";
 import { MobileErrorBoundaryScreen } from "@/components/MobileErrorBoundaryScreen";
 import { MobileFeedbackSettingsBridge } from "@/components/MobileFeedbackSettingsBridge";
+import { MobileScrollEdgeEffectHost } from "@/components/MobileScrollEdgeEffectHost";
 import { MobileSyncProgressToast } from "@/components/MobileSyncProgressToast";
 import { MobileToastProvider } from "@/components/MobileToast";
 import { MobileWelcomeWizard } from "@/components/MobileWelcomeWizard";
@@ -29,6 +30,8 @@ import {
   MobileSyncProvider,
 } from "@/sync/MobileSyncProvider";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
+import { MobileWindowLayoutProvider } from "@/lib/MobileWindowLayoutContext";
+import { MobilePoseTransitionProvider } from "@/lib/MobilePoseTransitionContext";
 import { useMobileBackgroundSync } from "@/sync/useMobileBackgroundSync";
 import { shouldHideMobileSplashScreen } from "@/lib/mobileSplashScreen";
 import {
@@ -127,18 +130,20 @@ function RootStack({
         pointerEvents={underlyingContentState.pointerEvents}
         style={[styles.root, { backgroundColor: tokens.background }]}
       >
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: tokens.background },
-            statusBarStyle: scheme === "dark" ? "light" : "dark",
-            // iOS 26 full-screen back swipe stays on app-wide. The reader
-            // alone opts out: it locks this stack's gesture options while it
-            // is mounted (see acquireMobileReaderHostGestureLock), because
-            // the whole sources flow is one screen here.
-            ...MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS,
-          }}
-        />
+        <MobileScrollEdgeEffectHost>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: tokens.background },
+              statusBarStyle: scheme === "dark" ? "light" : "dark",
+              // iOS 26 full-screen back swipe stays on app-wide. The reader
+              // alone opts out: it locks this stack's gesture options while it
+              // is mounted (see acquireMobileReaderHostGestureLock), because
+              // the whole sources flow is one screen here.
+              ...MOBILE_STACK_FULL_SCREEN_GESTURE_OPTIONS,
+            }}
+          />
+        </MobileScrollEdgeEffectHost>
         {Platform.OS !== "ios" && shouldShowMobileFloatingTabBar(pathname) ? (
           <FloatingTabBar />
         ) : null}
@@ -161,15 +166,20 @@ export default function RootLayout() {
               <MobileFeedbackSettingsBridge />
               <MobileBackgroundSyncRegistrar />
               <NemuThemeProvider>
-                <MobileToastProvider>
-                  <RootStack
-                    welcomeBlocksAccessibility={welcomeBlocksAccessibility}
-                  />
-                  <MobileSyncProgressToast />
-                  <MobileWelcomeWizard
-                    onVisibilityChange={setWelcomeBlocksAccessibility}
-                  />
-                </MobileToastProvider>
+                <MobileWindowLayoutProvider>
+                  {/* Pose-change motion + the root pose veil (drawn above everything below). */}
+                  <MobilePoseTransitionProvider>
+                    <MobileToastProvider>
+                      <RootStack
+                        welcomeBlocksAccessibility={welcomeBlocksAccessibility}
+                      />
+                      <MobileSyncProgressToast />
+                      <MobileWelcomeWizard
+                        onVisibilityChange={setWelcomeBlocksAccessibility}
+                      />
+                    </MobileToastProvider>
+                  </MobilePoseTransitionProvider>
+                </MobileWindowLayoutProvider>
               </NemuThemeProvider>
             </MobileLanguageProvider>
           </MobileDataProvider>

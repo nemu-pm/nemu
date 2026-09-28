@@ -14,6 +14,12 @@ export {
   nemuMaxFontSizeMultiplier,
   nemuText,
 } from "@/design/typography";
+export {
+  nemuMaterialTypeScale,
+  resolveNemuSheetMetrics,
+  type NemuSheetMetrics,
+} from "@/design/sheetMetrics";
+export { nemuSheetMetrics } from "@/design/nemuSheetMetrics";
 export { createNemuShadowStyle } from "@/design/shadows";
 export { nemuColorWithAlpha } from "@/design/colorAlpha";
 export {
@@ -62,7 +68,10 @@ export {
 } from "./components/NemuButton";
 export { NemuInlineEmptyState } from "./components/NemuInlineEmptyState";
 export { NemuListRow } from "./components/NemuListRow";
-export { NemuNativeProgressView } from "./components/NemuNativeProgressView";
+export {
+  NemuNativeProgressBar,
+  NemuNativeProgressView,
+} from "./components/NemuNativeProgressView";
 export { NemuNativeSearchField } from "./components/NemuNativeSearchField";
 export type { NemuNativeSearchFieldProps } from "./components/NemuNativeSearchField.types";
 export { NemuNativeSheetHeaderAction } from "./components/NemuNativeSheetHeaderAction";

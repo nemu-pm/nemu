@@ -9,6 +9,7 @@ import {
   radius,
   useNemuTheme,
   nemuFontWeight,
+  nemuSheetMetrics,
 } from "@/design-system";
 import { normalizeMobileSourceIconUri } from "@/lib/mobileSourceIconResolution";
 
@@ -49,14 +50,14 @@ function QuickActionRow({ action }: { action: QuickAction }) {
         accessibilityElementsHidden
         importantForAccessibility="no"
         name={action.icon}
-        size={20}
+        size={nemuSheetMetrics.rowIconSize}
         color={action.destructive ? tokens.danger : tokens.primary}
       />
       <NemuText
         color={color}
         density="compact"
         numberOfLines={1}
-        style={styles.optionLabel}
+        style={[styles.optionLabel, nemuSheetMetrics.rowLabel]}
         variant="rowTitle"
       >
         {action.label}
@@ -102,7 +103,8 @@ export function QuickActionSheet<TId extends string>({
   const isIcon = variant === "icon";
   const uri = isIcon ? normalizeMobileSourceIconUri(image) : (image ?? undefined);
   const effectiveFontScale = Math.max(1, Math.min(fontScale, 2));
-  const estimatedHeight = 84 + actions.length * 44 * effectiveFontScale;
+  const estimatedHeight =
+    84 + actions.length * nemuSheetMetrics.actionRowMinHeight * effectiveFontScale;
   const scroll = estimatedHeight > Math.max(280, height * 0.72);
   const placeholder = isIcon ? (
     <Ionicons name="globe-outline" size={22} color={tokens.mutedForeground} />
@@ -143,7 +145,7 @@ export function QuickActionSheet<TId extends string>({
             color={tokens.foreground}
             density="compact"
             numberOfLines={1}
-            style={styles.headerTitle}
+            style={[styles.headerTitle, nemuSheetMetrics.anchorTitle]}
             variant="rowTitle"
           >
             {title}
@@ -153,6 +155,7 @@ export function QuickActionSheet<TId extends string>({
               color={tokens.mutedForeground}
               density="compact"
               numberOfLines={1}
+              style={nemuSheetMetrics.anchorSubtitle}
               variant="caption"
             >
               {subtitle}
@@ -224,11 +227,13 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontWeight: nemuFontWeight.semibold,
   },
+  // 44pt on iOS; Material 3's 56dp list item with a 24dp glyph 16dp from
+  // its label on Android (`nemuSheetMetrics`).
   option: {
-    minHeight: 44,
+    minHeight: nemuSheetMetrics.actionRowMinHeight,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: nemuSheetMetrics.rowIconGap,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 6,

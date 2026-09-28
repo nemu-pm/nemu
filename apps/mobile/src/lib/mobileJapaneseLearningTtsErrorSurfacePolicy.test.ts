@@ -60,8 +60,8 @@ describe("mobile Japanese-learning TTS error surfaces", () => {
     );
 
     expect(screen).toContain("<JapaneseLearningOcrResultSheet");
-    expect(screen).toContain(
-      'japaneseLearningTtsState.status !== "idle"\n                  ? japaneseLearningTtsState.source',
+    expect(screen).toMatch(
+      /japaneseLearningTtsState\.status !== "idle"\s*\? japaneseLearningTtsState\.source/,
     );
     expect(ocr).toMatch(
       /ttsState\.status === "error" &&\s*ttsState\.source === "sentence" &&\s*ocrState\.status !== "error"/,
@@ -100,14 +100,14 @@ describe("mobile Japanese-learning TTS error surfaces", () => {
       "components/reader/japaneseLearning/JapaneseLearningOcrResultSheet.tsx",
     );
     const footerStart = ocr.indexOf("<View\n          style={[\n            styles.footerActions");
-    const footerEnd = ocr.indexOf("</MobileSheetScaffold>", footerStart);
+    const footerEnd = ocr.indexOf("</JapaneseLearningSurfaceFrame>", footerStart);
     const footer = ocr.slice(footerStart, footerEnd);
 
-    expect(ocr).toContain("const { fontScale, width } = useWindowDimensions();");
+    expect(ocr).toContain("const { fontScale } = useWindowDimensions();");
     expect(ocr).toContain("const largeTextLayout = fontScale > 1.3;");
-    expect(ocr).toContain(
-      "const stackFooterActions = width < 520 || largeTextLayout;",
-    );
+    // Web keeps one action row at every width; only Dynamic Type or a very
+    // narrow footer stacks it (mobileJapaneseLearningTranscriptFlow.ts).
+    expect(ocr).toContain("mobileJapaneseLearningSentenceActionsLayout({");
     expect(ocr).toContain(
       'frameMaxHeight={largeTextLayout ? "100%" : "70%"}',
     );
@@ -131,8 +131,8 @@ describe("mobile Japanese-learning TTS error surfaces", () => {
       "components/reader/japaneseLearning/JapaneseLearningMessageBubble.tsx",
     );
 
-    expect(screen).toContain(
-      'japaneseLearningTtsState.status !== "idle"\n                  ? japaneseLearningTtsState.messageId',
+    expect(screen).toMatch(
+      /japaneseLearningTtsState\.status !== "idle"\s*\? japaneseLearningTtsState\.messageId/,
     );
     expect(drawer).toMatch(
       /ttsState\.status === "error" &&\s*ttsState\.source === "chat" &&\s*ttsState\.messageId === msg\.id/,

@@ -19,7 +19,7 @@ import {
   type ListRenderItemInfo,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { BottomSheetTextInput } from "@expo/ui/community/bottom-sheet";
+import { BottomSheetScrollView, BottomSheetTextInput } from "@expo/ui/community/bottom-sheet";
 import { Stack, router, useFocusEffect } from "expo-router";
 import { EmptyLibrary } from "@/components/EmptyLibrary";
 import { QuickActionSheet, type QuickAction } from "@/components/QuickActionSheet";
@@ -61,7 +61,7 @@ import {
   radius,
   renderNemuNativeToolbarButtons,
   nemuFontWeight,
-  useMobilePageGutters,
+  nemuSheetMetrics,
   useNemuTheme,
   usesNemuNativeHeader,
   type MangaCardModel,
@@ -80,17 +80,13 @@ import {
   describeMobileErrorDetail,
   sanitizeMobileErrorDiagnostic,
 } from "@/lib/mobileSourceErrors";
-import {
-  getMobileMangaGridColumns,
-  getMobileMangaGridItemWidth,
-  MOBILE_MANGA_GRID_GAP,
-} from "@/lib/mobileAdaptiveGrid";
-import {
-  captureMobileGridScrollRatio,
-  resolveMobileGridScrollRestoreOffset,
-  shouldRestoreMobileGridScroll,
-  type MobileGridScrollSnapshot,
-} from "@/lib/mobileGridScrollRestore";
+import { MOBILE_MANGA_GRID_GAP } from "@/lib/mobileAdaptiveGrid";
+import { mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
+import { MobilePaneAlignedView } from "@/lib/MobilePaneAlignedView";
+import { useMobileFoldAwareGrid } from "@/lib/useMobileFoldAwareGrid";
+import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
+import { useMobilePoseRemountVeil, useMobilePoseRenderProbe } from "@/lib/MobilePoseTransitionContext";
+import { useMobileGridScrollAnchor } from "@/lib/useMobileGridScrollAnchor";
 import {
   getMobileInstalledSourceSettingsKeys,
   mobileInstalledSourceMatchesLink,
@@ -309,6 +305,9 @@ function LibraryTitleMenuSheet({
     fontScale,
     height,
     width,
+    rowHeight: nemuSheetMetrics.listRowLayout
+      ? nemuSheetMetrics.listRowLayout.minHeight + 8
+      : undefined,
   });
 
   const renderRow = ({
@@ -335,6 +334,7 @@ function LibraryTitleMenuSheet({
       pressedScale={0.985}
       style={[
         styles.titleMenuSheetRow,
+        nemuSheetMetrics.listRowLayout,
         {
           backgroundColor: selected
             ? nemuColorWithAlpha(tokens.primary, 0.07)
@@ -347,12 +347,16 @@ function LibraryTitleMenuSheet({
     >
       <Ionicons
         name={icon}
-        size={20}
+        size={nemuSheetMetrics.rowIconSize}
         color={selected ? tokens.primary : tokens.mutedForeground}
       />
       <Text
         numberOfLines={1}
-        style={[styles.titleMenuSheetRowText, { color: tokens.foreground }]}
+        style={[
+          styles.titleMenuSheetRowText,
+          nemuSheetMetrics.rowLabel,
+          { color: tokens.foreground },
+        ]}
       >
         {label}
       </Text>
@@ -479,6 +483,9 @@ function CollectionNameSheet({
       <View
         style={[
           styles.nameInputShell,
+          nemuSheetMetrics.textFieldMinHeight
+            ? { minHeight: nemuSheetMetrics.textFieldMinHeight }
+            : null,
           { backgroundColor: tokens.muted, borderColor: tokens.border },
         ]}
       >
@@ -497,7 +504,11 @@ function CollectionNameSheet({
             if (disabled) return;
             onSubmit(trimmedName);
           }}
-          style={[styles.nameInput, { color: tokens.foreground }]}
+          style={[
+            styles.nameInput,
+            nemuSheetMetrics.textFieldText,
+            { color: tokens.foreground },
+          ]}
         />
       </View>
 
@@ -563,6 +574,9 @@ function CollectionsManagerSheet({
     fontScale,
     height,
     width,
+    rowHeight: nemuSheetMetrics.twoLineRowLayout
+      ? nemuSheetMetrics.twoLineRowLayout.minHeight + 9
+      : undefined,
   });
   const headerMetrics = resolveMobileSheetHeaderMetrics(Platform.OS);
 
@@ -595,7 +609,13 @@ function CollectionsManagerSheet({
             { backgroundColor: tokens.muted, borderColor: tokens.border },
           ]}
         >
-          <Text style={[styles.managerEmptyText, { color: tokens.mutedForeground }]}>
+          <Text
+            style={[
+              styles.managerEmptyText,
+              nemuSheetMetrics.description,
+              { color: tokens.mutedForeground },
+            ]}
+          >
             {strings.collectionMembership.noCollections}
           </Text>
         </View>
@@ -610,6 +630,9 @@ function CollectionsManagerSheet({
                 key={collection.collectionId}
                 style={[
                   styles.managerRow,
+                  nemuSheetMetrics.twoLineRowLayout
+                    ? { minHeight: nemuSheetMetrics.twoLineRowLayout.minHeight }
+                    : null,
                   {
                     backgroundColor: selected
                       ? nemuColorWithAlpha(tokens.primary, 0.07)
@@ -636,23 +659,31 @@ function CollectionsManagerSheet({
                   onPress={() => onSelect(collection.collectionId)}
                   pressedScale={0.985}
                   containerStyle={styles.managerRowMainContainer}
-                  style={styles.managerRowMain}
+                  style={[styles.managerRowMain, nemuSheetMetrics.twoLineRowLayout]}
                 >
                   <Ionicons
                     name={selected ? "albums" : "albums-outline"}
-                    size={20}
+                    size={nemuSheetMetrics.rowIconSize}
                     color={selected ? tokens.primary : tokens.mutedForeground}
                   />
                   <View style={styles.managerRowCopy}>
                     <Text
                       numberOfLines={1}
-                      style={[styles.managerRowTitle, { color: tokens.foreground }]}
+                      style={[
+                        styles.managerRowTitle,
+                        nemuSheetMetrics.twoLineRowTitle,
+                        { color: tokens.foreground },
+                      ]}
                     >
                       {collection.name}
                     </Text>
                     <Text
                       numberOfLines={1}
-                      style={[styles.managerRowMeta, { color: tokens.mutedForeground }]}
+                      style={[
+                        styles.managerRowMeta,
+                        nemuSheetMetrics.twoLineRowSupporting,
+                        { color: tokens.mutedForeground },
+                      ]}
                     >
                       {countLabel}
                     </Text>
@@ -781,147 +812,247 @@ function ManageCollectionPanel({
   };
 
   return (
-    <GlassSurface style={styles.panelShell} contentStyle={styles.panel}>
-      <View style={styles.panelHeader}>
-        <Ionicons name="albums-outline" size={20} color={tokens.primary} />
-        <View style={styles.panelTitleWrap}>
-          <Text numberOfLines={1} style={[styles.panelTitle, { color: tokens.foreground }]}>
-            {editingName ? strings.library.renameCollection : collection.name}
-          </Text>
-          <Text style={[styles.panelSubtitle, { color: tokens.mutedForeground }]}>
-            {editingName
-              ? strings.library.renameDescription
-              : strings.library.updateMembershipDescription}
-          </Text>
-        </View>
-        {!editingName ? (
-          <NemuButton
-            accessibilityLabel={formatMobileString(
-              strings.library.renameCollectionAccessibility,
-              { name: collection.name }
-            )}
-            accessibilityState={{ disabled: collectionActionBusy }}
-            disabled={collectionActionBusy}
-            icon="create-outline"
-            onPress={() => {
-              setDraftName(collection.name);
-              setEditingName(true);
-            }}
-            size="icon-sm"
-            variant="secondary"
-          />
-        ) : null}
-      </View>
-
-      {editingName ? (
-        <View style={styles.renameEditor}>
-          <TextInput
-            accessibilityLabel={strings.library.collectionName}
-            accessibilityState={{ disabled: collectionActionBusy }}
-            autoCapitalize="words"
-            autoFocus
-            editable={!collectionActionBusy}
-            placeholder={strings.library.collectionName}
-            placeholderTextColor={tokens.mutedForeground}
-            returnKeyType="done"
-            selectionColor={tokens.primary}
-            value={draftName}
-            onChangeText={setDraftName}
-            onSubmitEditing={() => {
-              void saveRename();
-            }}
-            style={[
-              styles.panelInput,
-              {
-                backgroundColor: tokens.muted,
-                color: tokens.foreground,
-                opacity: collectionActionBusy ? 0.72 : 1,
-              },
-            ]}
-          />
-          <View style={styles.panelActions}>
+    <GlassSurface
+      style={[styles.panelShell, styles.managePanelFrame]}
+      contentStyle={styles.managePanelContent}
+    >
+      <BottomSheetScrollView
+        style={styles.managePanelScroll}
+        contentContainerStyle={styles.panel}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        testID="ManageCollectionScrollContent"
+      >
+        <View style={styles.panelHeader}>
+          <Ionicons name="albums-outline" size={20} color={tokens.primary} />
+          <View style={styles.panelTitleWrap}>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.panelTitle,
+                nemuSheetMetrics.sectionTitle,
+                { color: tokens.foreground },
+              ]}
+            >
+              {editingName ? strings.library.renameCollection : collection.name}
+            </Text>
+            <Text
+              style={[
+                styles.panelSubtitle,
+                nemuSheetMetrics.sectionCaption,
+                { color: tokens.mutedForeground },
+              ]}
+            >
+              {editingName
+                ? strings.library.renameDescription
+                : strings.library.updateMembershipDescription}
+            </Text>
+          </View>
+          {!editingName ? (
             <NemuButton
-              accessibilityLabel={strings.common.cancel}
-              containerStyle={styles.actionButton}
+              accessibilityLabel={formatMobileString(
+                strings.library.renameCollectionAccessibility,
+                { name: collection.name }
+              )}
+              accessibilityState={{ disabled: collectionActionBusy }}
               disabled={collectionActionBusy}
-              hapticFeedback="none"
-              label={strings.common.cancel}
-              onPress={cancelRename}
+              icon="create-outline"
+              onPress={() => {
+                setDraftName(collection.name);
+                setEditingName(true);
+              }}
+              size="icon-sm"
               variant="secondary"
             />
-            <NemuButton
-              accessibilityLabel={strings.common.save}
-              containerStyle={styles.actionButton}
-              disabled={renameDisabled}
-              label={strings.common.save}
-              loading={renaming}
-              onPress={() => {
+          ) : null}
+        </View>
+
+        {editingName ? (
+          <View style={styles.renameEditor}>
+            <TextInput
+              accessibilityLabel={strings.library.collectionName}
+              accessibilityState={{ disabled: collectionActionBusy }}
+              autoCapitalize="words"
+              autoFocus
+              editable={!collectionActionBusy}
+              placeholder={strings.library.collectionName}
+              placeholderTextColor={tokens.mutedForeground}
+              returnKeyType="done"
+              selectionColor={tokens.primary}
+              value={draftName}
+              onChangeText={setDraftName}
+              onSubmitEditing={() => {
                 void saveRename();
               }}
-              variant={renaming || !renameDisabled ? "default" : "secondary"}
-            />
-          </View>
-        </View>
-      ) : null}
-
-      <View style={styles.bookList}>
-        {entries.map((entry) => {
-          const member = selectedIds.has(entry.item.libraryItemId);
-          const subtitle = getMobileCollectionBookSubtitle(entry, strings);
-          return (
-            <NemuPressable
-              key={entry.item.libraryItemId}
-              accessibilityLabel={formatMobileString(
-                strings.library.collectionMangaAccessibility,
-                {
-                  title: getEntryTitle(entry),
-                  sourceCountLabel: subtitle,
-                }
-              )}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: member, disabled: collectionActionBusy }}
-              disabled={collectionActionBusy}
-              hapticFeedback="selection"
-              onPress={() => {
-                setSelectedIds((current) => {
-                  const next = new Set(current);
-                  if (next.has(entry.item.libraryItemId)) {
-                    next.delete(entry.item.libraryItemId);
-                  } else {
-                    next.add(entry.item.libraryItemId);
-                  }
-                  return next;
-                });
-              }}
               style={[
-                styles.bookRow,
+                styles.panelInput,
+                nemuSheetMetrics.textFieldMinHeight
+                  ? {
+                      height: nemuSheetMetrics.textFieldMinHeight,
+                      ...nemuSheetMetrics.textFieldText,
+                    }
+                  : null,
                 {
-                  backgroundColor: member ? tokens.primarySoft : tokens.muted,
-                  borderColor: member ? tokens.primary : tokens.border,
-                  opacity: collectionActionBusy ? 0.68 : 1,
+                  backgroundColor: tokens.muted,
+                  color: tokens.foreground,
+                  opacity: collectionActionBusy ? 0.72 : 1,
                 },
               ]}
-              pressedScale={0.985}
-            >
-              <View style={styles.bookRowText}>
-                <Text numberOfLines={1} style={[styles.bookTitle, { color: tokens.foreground }]}>
-                  {getEntryTitle(entry)}
-                </Text>
-                <Text numberOfLines={1} style={[styles.bookSubtitle, { color: tokens.mutedForeground }]}>
-                  {subtitle}
-                </Text>
-              </View>
-              <Ionicons
-                name={member ? "checkmark-circle" : "add-circle-outline"}
-                size={21}
-                color={member ? tokens.primary : tokens.mutedForeground}
+            />
+            <View style={styles.panelActions}>
+              <NemuButton
+                accessibilityLabel={strings.common.cancel}
+                containerStyle={styles.actionButton}
+                disabled={collectionActionBusy}
+                hapticFeedback="none"
+                label={strings.common.cancel}
+                onPress={cancelRename}
+                variant="secondary"
               />
-            </NemuPressable>
-          );
-        })}
-      </View>
+              <NemuButton
+                accessibilityLabel={strings.common.save}
+                containerStyle={styles.actionButton}
+                disabled={renameDisabled}
+                label={strings.common.save}
+                loading={renaming}
+                onPress={() => {
+                  void saveRename();
+                }}
+                variant={renaming || !renameDisabled ? "default" : "secondary"}
+              />
+            </View>
+          </View>
+        ) : null}
 
-      <View style={styles.panelActions}>
+        <View style={styles.bookList}>
+          {entries.map((entry) => {
+            const member = selectedIds.has(entry.item.libraryItemId);
+            const subtitle = getMobileCollectionBookSubtitle(entry, strings);
+            return (
+              <NemuPressable
+                key={entry.item.libraryItemId}
+                accessibilityLabel={formatMobileString(
+                  strings.library.collectionMangaAccessibility,
+                  {
+                    title: getEntryTitle(entry),
+                    sourceCountLabel: subtitle,
+                  }
+                )}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: member, disabled: collectionActionBusy }}
+                disabled={collectionActionBusy}
+                hapticFeedback="selection"
+                onPress={() => {
+                  setSelectedIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(entry.item.libraryItemId)) {
+                      next.delete(entry.item.libraryItemId);
+                    } else {
+                      next.add(entry.item.libraryItemId);
+                    }
+                    return next;
+                  });
+                }}
+                style={[
+                  styles.bookRow,
+                  nemuSheetMetrics.twoLineRowLayout,
+                  {
+                    backgroundColor: member ? tokens.primarySoft : tokens.muted,
+                    borderColor: member ? tokens.primary : tokens.border,
+                    opacity: collectionActionBusy ? 0.68 : 1,
+                  },
+                ]}
+                pressedScale={0.985}
+              >
+                <View style={styles.bookRowText}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.bookTitle,
+                      nemuSheetMetrics.twoLineRowTitle,
+                      { color: tokens.foreground },
+                    ]}
+                  >
+                    {getEntryTitle(entry)}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.bookSubtitle,
+                      nemuSheetMetrics.twoLineRowSupporting,
+                      { color: tokens.mutedForeground },
+                    ]}
+                  >
+                    {subtitle}
+                  </Text>
+                </View>
+                <Ionicons
+                  name={member ? "checkmark-circle" : "add-circle-outline"}
+                  size={21}
+                  color={member ? tokens.primary : tokens.mutedForeground}
+                />
+              </NemuPressable>
+            );
+          })}
+        </View>
+
+
+        <View style={styles.removeBlock}>
+          {removeArmed ? (
+            <>
+              <Text
+                style={[
+                  styles.removeText,
+                  nemuSheetMetrics.description,
+                  { color: tokens.mutedForeground },
+                ]}
+              >
+                {strings.library.removeCollectionConfirm}
+              </Text>
+              <View style={styles.panelActions}>
+                <NemuButton
+                  accessibilityLabel={strings.common.cancel}
+                  containerStyle={styles.actionButton}
+                  disabled={removing}
+                  hapticFeedback="none"
+                  label={strings.common.cancel}
+                  onPress={onCancelRemove}
+                  variant="secondary"
+                />
+                <NemuButton
+                  accessibilityLabel={formatMobileString(
+                    strings.library.removeCollectionNamed,
+                    { name: collection.name }
+                  )}
+                  containerStyle={styles.actionButton}
+                  disabled={collectionActionBusy}
+                  hapticFeedback="warning"
+                  label={strings.common.remove}
+                  loading={removing}
+                  onPress={onRemoveCollection}
+                  variant="destructive"
+                />
+              </View>
+            </>
+          ) : (
+            <NemuButton
+              accessibilityLabel={formatMobileString(
+                strings.library.removeCollectionNamed,
+                { name: collection.name }
+              )}
+              disabled={collectionActionBusy}
+              icon="trash-outline"
+              label={strings.library.removeCollection}
+              onPress={onRemoveCollection}
+              style={styles.stretchedButton}
+              variant="destructive"
+            />
+          )}
+        </View>
+      </BottomSheetScrollView>
+      <View style={[styles.panelActions, styles.membershipFooter]}>
         <NemuButton
           accessibilityLabel={strings.common.cancel}
           containerStyle={styles.actionButton}
@@ -954,53 +1085,6 @@ function ManageCollectionPanel({
           variant={savingMembership || !membershipSaveDisabled ? "default" : "secondary"}
         />
       </View>
-
-      <View style={styles.removeBlock}>
-        {removeArmed ? (
-          <>
-            <Text style={[styles.removeText, { color: tokens.mutedForeground }]}>
-              {strings.library.removeCollectionConfirm}
-            </Text>
-            <View style={styles.panelActions}>
-              <NemuButton
-                accessibilityLabel={strings.common.cancel}
-                containerStyle={styles.actionButton}
-                disabled={removing}
-                hapticFeedback="none"
-                label={strings.common.cancel}
-                onPress={onCancelRemove}
-                variant="secondary"
-              />
-              <NemuButton
-                accessibilityLabel={formatMobileString(
-                  strings.library.removeCollectionNamed,
-                  { name: collection.name }
-                )}
-                containerStyle={styles.actionButton}
-                disabled={collectionActionBusy}
-                hapticFeedback="warning"
-                label={strings.common.remove}
-                loading={removing}
-                onPress={onRemoveCollection}
-                variant="destructive"
-              />
-            </View>
-          </>
-        ) : (
-          <NemuButton
-            accessibilityLabel={formatMobileString(
-              strings.library.removeCollectionNamed,
-              { name: collection.name }
-            )}
-            disabled={collectionActionBusy}
-            icon="trash-outline"
-            label={strings.library.removeCollection}
-            onPress={onRemoveCollection}
-            style={styles.stretchedButton}
-            variant="destructive"
-          />
-        )}
-      </View>
     </GlassSurface>
   );
 }
@@ -1011,7 +1095,6 @@ export function LibraryScreen({
 }: LibraryScreenProps = {}) {
   const { tokens } = useNemuTheme();
   const { fontScale, height, width } = useWindowDimensions();
-  const pageGutters = useMobilePageGutters();
   const usesNativeHeader = usesNemuNativeHeader;
   const store = useMobileDataStore();
   const {
@@ -1060,7 +1143,7 @@ export function LibraryScreen({
   const pendingSheetTransitionRef = useRef<PendingLibrarySheetTransition | null>(null);
   const refreshInFlightRef = useRef(false);
   const retryDataGuardRef = useRef(false);
-  const appStateRef = useRef(AppState.currentState);
+  const appStateRef = useRef((AppState.currentState ?? "unknown"));
   const foregroundCatchupPendingRef = useRef(false);
   // Abort flag for the background latest-chapter refresh. The refresh
   // serializes through the same `aidokuRuntimeQueue` as interactive source
@@ -1071,42 +1154,27 @@ export function LibraryScreen({
   const libraryRefreshAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const libraryFocusedRef = useRef(true);
   const gridScrollRef = useRef<FlatList<LibraryEntry> | null>(null);
-  const gridScrollSnapshotRef = useRef<MobileGridScrollSnapshot>({
-    offset: 0,
-    contentHeight: 0,
-    viewportHeight: 0,
+  // The library grid adapts exactly like browse and search: columns come from
+  // the list's measured width minus the scaffold's safe-area gutters (an even
+  // count on regular widths), and in book posture the middle gutter sits on
+  // the fold so no cover straddles it.
+  const grid = useMobileFoldAwareGrid({
+    getNode: () =>
+      gridScrollRef.current?.getNativeScrollRef?.() as
+        | { measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void }
+        | null
+        | undefined,
   });
-  const pendingGridScrollRatioRef = useRef<number | null>(null);
-  const gridColumnsRef = useRef(0);
-  // The library grid adapts exactly like browse and search: a landscape phone
-  // or an iPad must not show three giant covers next to a wider search grid.
-  // Columns come from the width left after the scaffold's safe-area gutters.
-  const gridColumns = useMemo(
-    () =>
-      getMobileMangaGridColumns({
-        windowWidth: width,
-        horizontalPadding: pageGutters.horizontal,
-      }),
-    [pageGutters.horizontal, width],
-  );
-  const gridItemWidth = useMemo(
-    () =>
-      getMobileMangaGridItemWidth({
-        windowWidth: width,
-        horizontalPadding: pageGutters.horizontal,
-      }),
-    [pageGutters.horizontal, width],
-  );
+  const gridColumns = grid.columns;
+  const gridItemWidth = grid.itemWidth;
+  const gridColumnMargins = grid.columnMargins;
   // `FlatList` throws when `numColumns` changes on a mounted list, so a
-  // rotation has to remount the grid. Capture the scroll proportion in the
-  // same pass that changes the key — the remounted list reports its new
-  // content size before effects run.
-  if (gridColumnsRef.current !== 0 && gridColumnsRef.current !== gridColumns) {
-    pendingGridScrollRatioRef.current = captureMobileGridScrollRatio(
-      gridScrollSnapshotRef.current,
-    );
-  }
-  gridColumnsRef.current = gridColumns;
+  // column change remounts the grid (see its `key`). A remount after a
+  // fold/unfold at the same window size is covered by the pose veil (a
+  // resize is veiled already); the scroll anchor below keeps the first
+  // visible cover in view either way.
+  useMobilePoseRemountVeil(gridColumns);
+  useMobilePoseRenderProbe("LibraryScreen");
 
   const queueAfterSheetDismiss = useCallback(
     (source: LibrarySheetTransitionSource, run: () => void) => {
@@ -1197,6 +1265,12 @@ export function LibraryScreen({
       ),
     [collections.membership, effectiveCollectionId, sortedLibraryEntries]
   );
+  const gridScrollAnchor = useMobileGridScrollAnchor({
+    listRef: gridScrollRef,
+    columns: gridColumns,
+    itemWidth: gridItemWidth,
+    itemCount: visibleEntries.length,
+  });
   const title = selectedCollection?.name ?? strings.nav.library;
   const loading =
     libraryLoading ||
@@ -1421,7 +1495,7 @@ export function LibraryScreen({
   ) => {
     const force = options.force ?? false;
     if (
-      !isMobileLibraryRefreshAppActive(AppState.currentState) ||
+      !isMobileLibraryRefreshAppActive((AppState.currentState ?? "unknown")) ||
       refreshInFlightRef.current ||
       libraryLoading ||
       installedSources.loading ||
@@ -1442,7 +1516,7 @@ export function LibraryScreen({
     // foreground could revive a native request that was already cancelled
     // while the app was backgrounding.
     const refreshSignal = {
-      aborted: !isMobileLibraryRefreshAppActive(AppState.currentState),
+      aborted: !isMobileLibraryRefreshAppActive((AppState.currentState ?? "unknown")),
     };
     if (refreshSignal.aborted) return;
     libraryRefreshAbortRef.current = refreshSignal;
@@ -1555,7 +1629,7 @@ export function LibraryScreen({
     const startRefreshSchedule = (scheduleInitial: boolean) => {
       if (
         interval ||
-        !isMobileLibraryRefreshAppActive(AppState.currentState)
+        !isMobileLibraryRefreshAppActive((AppState.currentState ?? "unknown"))
       ) {
         return;
       }
@@ -2022,10 +2096,20 @@ export function LibraryScreen({
     setQuickActionEntry(entry);
   }, []);
   const renderLibraryGridItem = useCallback(
-    ({ item: entry }: ListRenderItemInfo<LibraryEntry>) => (
+    ({ item: entry, index }: ListRenderItemInfo<LibraryEntry>) => (
       // The fixed width keeps a partly filled last row aligned with the rows
-      // above it instead of letting `flex: 1` stretch its cells.
-      <View style={[styles.gridItem, { width: gridItemWidth }]}>
+      // above it instead of letting `flex: 1` stretch its cells; the per-column
+      // margin carries the fold gutter in book posture. Folding at the same
+      // column count glides each cell to its new column (pose settle spring).
+      <MobilePoseLayoutView
+        style={[
+          styles.gridItem,
+          mobileFoldAwareGridCellStyle(
+            { columns: gridColumns, itemWidth: gridItemWidth, columnMargins: gridColumnMargins },
+            index,
+          ),
+        ]}
+      >
         <LibraryGridItem
           entry={entry}
           entryProgress={entryProgressMaps.get(entry.item.libraryItemId)}
@@ -2034,10 +2118,12 @@ export function LibraryScreen({
           installedSources={installedSources.data}
           onLongPress={handleGridItemLongPress}
         />
-      </View>
+      </MobilePoseLayoutView>
     ),
     [
       entryProgressMaps,
+      gridColumnMargins,
+      gridColumns,
       gridItemWidth,
       handleGridItemLongPress,
       installedSources.data,
@@ -2178,6 +2264,8 @@ export function LibraryScreen({
         }}
         snapPoints={manageCollectionSheetLayout.snapPoints}
         scroll={manageCollectionSheetLayout.scroll}
+        fillContent
+        contentStyle={styles.manageSheetContent}
         testID="ManageCollectionSheet"
       >
         {manageCollectionPresentation ? (
@@ -2247,6 +2335,7 @@ export function LibraryScreen({
             onLeadingPress={isCollectionRoute ? () => router.back() : undefined}
           />
         )}
+        {/* The nemu hero lays itself out per pane (EmptyLibrary). */}
         <EmptyLibrary
           title={loadErrorState.title}
           description={loadErrorState.description}
@@ -2278,6 +2367,7 @@ export function LibraryScreen({
             onLeadingPress={() => router.back()}
           />
         )}
+        {/* The nemu hero lays itself out per pane (EmptyLibrary). */}
         <EmptyLibrary
           title={strings.library.collectionNotFoundTitle}
           description={strings.library.collectionNotFoundDescription}
@@ -2319,6 +2409,7 @@ export function LibraryScreen({
             ]}
           />
         )}
+        {/* The nemu hero lays itself out per pane (EmptyLibrary). */}
         <EmptyLibrary
           title={emptyState.title}
           description={emptyState.description}
@@ -2354,44 +2445,17 @@ export function LibraryScreen({
       renderItem={renderLibraryGridItem}
       extraData={libraryGridExtraData}
       nativeHeader={usesNativeHeader}
-      onLayout={(event) => {
-        gridScrollSnapshotRef.current = {
-          ...gridScrollSnapshotRef.current,
-          viewportHeight: event.nativeEvent.layout.height,
-        };
-      }}
-      onScroll={(event) => {
-        gridScrollSnapshotRef.current = {
-          offset: event.nativeEvent.contentOffset.y,
-          contentHeight: event.nativeEvent.contentSize.height,
-          viewportHeight: event.nativeEvent.layoutMeasurement.height,
-        };
-      }}
-      // The handler only stores a snapshot for the rotation restore, so it
-      // does not need a frame-rate feed.
+      onLayout={grid.onLayout}
+      // Keeps the first visible cover at the top across a column/cell-size
+      // change (display switch, rotation, folding).
+      onViewableItemsChanged={gridScrollAnchor.onViewableItemsChanged}
+      viewabilityConfig={gridScrollAnchor.viewabilityConfig}
+      onScrollToIndexFailed={gridScrollAnchor.onScrollToIndexFailed}
+      onScroll={gridScrollAnchor.onScroll}
+      // The handler only tracks the adjusted top inset for the anchor
+      // restore, so it does not need a frame-rate feed.
       scrollEventThrottle={100}
-      onContentSizeChange={(_width, contentHeight) => {
-        const ratio = pendingGridScrollRatioRef.current;
-        const viewportHeight = gridScrollSnapshotRef.current.viewportHeight;
-        if (
-          !shouldRestoreMobileGridScroll({
-            ratio,
-            contentHeight,
-            viewportHeight,
-          })
-        ) {
-          return;
-        }
-        pendingGridScrollRatioRef.current = null;
-        gridScrollRef.current?.scrollToOffset({
-          offset: resolveMobileGridScrollRestoreOffset({
-            ratio: ratio ?? 0,
-            contentHeight,
-            viewportHeight,
-          }),
-          animated: false,
-        });
-      }}
+      onContentSizeChange={gridScrollAnchor.onContentSizeChange}
       onRefresh={() => {
         void refreshLatestChapters({ force: true, interactive: true });
       }}
@@ -2498,6 +2562,7 @@ export function LibraryScreen({
       }
       ListEmptyComponent={
         !showSkeleton && selectedCollection ? (
+          <MobilePaneAlignedView>
           <GlassSurface contentStyle={styles.inlineEmpty}>
             <Ionicons name="albums-outline" size={22} color={tokens.mutedForeground} />
             <Text style={[styles.inlineEmptyText, { color: tokens.mutedForeground }]}>
@@ -2512,6 +2577,7 @@ export function LibraryScreen({
               variant={collectionActionBusy ? "secondary" : "default"}
             />
           </GlassSurface>
+          </MobilePaneAlignedView>
         ) : null
       }
     />
@@ -2631,13 +2697,33 @@ const styles = StyleSheet.create({
     gap: 7,
     paddingLeft: 8,
   },
+  // Column spacing is each cell's `marginLeft` (mobileFoldAwareGridCellStyle).
   gridRow: {
-    gap: MOBILE_MANGA_GRID_GAP,
     marginBottom: MOBILE_MANGA_GRID_GAP,
   },
   // `width` is supplied per render from the adaptive column width.
   gridItem: {
     minWidth: 0,
+  },
+  manageSheetContent: {
+    flex: 1,
+    minHeight: 0,
+  },
+  managePanelFrame: {
+    flex: 1,
+    minHeight: 0,
+  },
+  managePanelContent: {
+    flex: 1,
+    minHeight: 0,
+  },
+  managePanelScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  membershipFooter: {
+    flexShrink: 0,
+    padding: 14,
   },
   panelShell: {
     borderRadius: radius.xl,

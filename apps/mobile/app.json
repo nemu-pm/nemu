@@ -47,18 +47,18 @@
         ],
         "ITSAppUsesNonExemptEncryption": false,
         "UIViewControllerBasedStatusBarAppearance": true,
+        "NSPhotoLibraryUsageDescription": "nemu lets you choose images from your photo library when updating manga covers.",
         "UIApplicationSceneManifest": {
           "UIApplicationSupportsMultipleScenes": false,
           "UISceneConfigurations": {
             "UIWindowSceneSessionRoleApplication": [
               {
                 "UISceneConfigurationName": "Default Configuration",
-                "UISceneDelegateClassName": "$(PRODUCT_MODULE_NAME).SceneDelegate"
+                "UISceneDelegateClassName": "SceneDelegate"
               }
             ]
           }
-        },
-        "NSPhotoLibraryUsageDescription": "nemu lets you choose images from your photo library when updating manga covers."
+        }
       }
     },
     "android": {
@@ -93,6 +93,8 @@
     },
     "plugins": [
       "expo-router",
+      "expo-localization",
+      "expo-status-bar",
       "./plugins/with-mobile-deep-link-schemes",
       [
         "expo-image-picker",

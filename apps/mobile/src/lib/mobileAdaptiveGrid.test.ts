@@ -32,9 +32,19 @@ describe("getMobileMangaGridColumns", () => {
     );
   });
   test("safe-area gutters shrink the column count", () => {
-    // Without the insets the same phone would pack 7 columns under the island.
-    expect(getMobileMangaGridColumns({ windowWidth: 874, horizontalPadding: 32 })).toBe(7);
-    expect(getMobileMangaGridColumns({ windowWidth: 874, horizontalPadding: 124 })).toBe(6);
+    // Without the insets a 1024pt window would pack 8 columns under the insets.
+    expect(getMobileMangaGridColumns({ windowWidth: 1024, horizontalPadding: 32 })).toBe(8);
+    expect(getMobileMangaGridColumns({ windowWidth: 1024, horizontalPadding: 124 })).toBe(6);
+  });
+  test("regular widths round odd counts down to even (Duo HIG); compact widths do not", () => {
+    // 874pt landscape phone without insets fits 7 → 6.
+    expect(getMobileMangaGridColumns({ windowWidth: 874, horizontalPadding: 32 })).toBe(6);
+    // Duo inner portrait (669pt) fits 5 → 4; inner landscape with trailing bars fits 7 → 6.
+    expect(getMobileMangaGridColumns({ windowWidth: 669, horizontalPadding: 32 })).toBe(4);
+    expect(getMobileMangaGridColumns({ windowWidth: 951, horizontalPadding: 101 })).toBe(6);
+    // Compact windows keep an odd count (portrait phones, Duo outer display).
+    expect(getMobileMangaGridColumns({ windowWidth: 466, horizontalPadding: 32 })).toBe(3);
+    expect(getMobileMangaGridColumns({ windowWidth: 590, horizontalPadding: 32 })).toBe(4);
   });
   test("caps at 10 columns on very wide widths", () => {
     // contentWidth = 1376 - 32 = 1344; (1344 + 12) / 116 = ~11.7 → capped at 10

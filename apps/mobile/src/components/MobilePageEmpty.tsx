@@ -33,6 +33,8 @@ type MobilePageEmptyProps = {
   diagnostic?: string;
   /** Optional override; the localized "Technical details" label is default. */
   diagnosticDetailsLabel?: string;
+  /** Height to center in instead of the default (a folded pane). */
+  minHeight?: number;
 };
 
 export function MobilePageEmpty({
@@ -47,6 +49,7 @@ export function MobilePageEmpty({
   actionLoading,
   diagnostic,
   diagnosticDetailsLabel,
+  minHeight,
 }: MobilePageEmptyProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -64,6 +67,7 @@ export function MobilePageEmpty({
         styles.root,
         variant === "inline" ? styles.inlineRoot : null,
         compactHeight ? styles.compactRoot : null,
+        minHeight !== undefined ? { minHeight } : null,
       ]}
     >
       <View style={[styles.header, compactHeight ? styles.compactHeader : null]}>

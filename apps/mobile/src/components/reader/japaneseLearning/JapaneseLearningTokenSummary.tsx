@@ -1,6 +1,4 @@
-import { useCallback } from "react";
-import { Clipboard } from "react-native";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   nemuFontWeight,
@@ -10,76 +8,110 @@ import {
 } from "@/design-system";
 import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import {
-  mobileJapaneseLearningPosCategory,
-  mobileJapaneseLearningPosLabel,
-  mobileJapaneseLearningPosStyle,
+  mobileJapaneseLearningPosTagStyle,
+  mobileJapaneseLearningTokenCanAct,
 } from "@/lib/mobileJapaneseLearningPosStyles";
+import { JAPANESE_LEARNING_SERIF_FONT_FAMILY } from "@/lib/mobileJapaneseLearningSurfaceTheme";
 import type { MobileStrings } from "@/lib/mobileI18n";
 
-type ThemeTokens = ReturnType<typeof useNemuTheme>["tokens"];
+/** Web `POSTag` label: conjugation name, else POS name, else the raw label. */
+export function japaneseLearningPosTagLabel(pos: string, strings: MobileStrings): string {
+  return (
+    strings.japaneseLearningGrammar.conjugationNames[pos] ??
+    strings.japaneseLearningGrammar.posNames[pos] ??
+    pos
+  );
+}
 
-/** Mirrors web `TokenSummary` (token-details.tsx). Word + reading header,
- *  POS tag pills (conjugation types / suffix), and Copy / Ask actions. */
+/** Web `POSTag` (token-details.tsx): category-coloured pill, or muted when `subtle`. */
+export function JapaneseLearningPosTag({
+  pos,
+  subtle = false,
+  strings,
+}: {
+  pos: string;
+  subtle?: boolean;
+  strings: MobileStrings;
+}) {
+  const { tokens, scheme } = useNemuTheme();
+  if (!pos.trim()) return null;
+  const tag = mobileJapaneseLearningPosTagStyle(pos, scheme === "dark" ? "dark" : "light");
+  return (
+    <View
+      style={[
+        styles.posTag,
+        subtle
+          ? { backgroundColor: tokens.muted, borderColor: "transparent" }
+          : { backgroundColor: tag.background, borderColor: tag.border },
+      ]}
+    >
+      <Text style={[styles.posTagText, { color: subtle ? tokens.mutedForeground : tag.text }]}>
+        {japaneseLearningPosTagLabel(pos, strings)}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Web `TokenSummary` (token-details.tsx): the word in the textbook serif with
+ * its reading, the Copy / Ask actions, then the POS tags row (the POS itself
+ * only when there is nothing else to show, plus conjugation types).
+ */
 export function JapaneseLearningTokenSummary({
   token,
   strings,
-  tokens,
   onAskNemu,
+  onCopy,
+  nested = false,
 }: {
   token: MobileGrammarToken;
   strings: MobileStrings;
-  tokens: ThemeTokens;
   onAskNemu?: () => void;
+  onCopy?: (text: string) => void;
+  nested?: boolean;
 }) {
-  const posStyle = mobileJapaneseLearningPosStyle(token);
-  const posLabel = mobileJapaneseLearningPosLabel(token);
-  const canAct =
-    token.word.trim().length > 0 &&
-    mobileJapaneseLearningPosCategory(token) !== "punctuation";
-
-  const handleCopyWord = useCallback(async () => {
-    if (!token.word) return;
-    try {
-      await Clipboard.setString(token.word);
-    } catch {
-      // ignore
-    }
-  }, [token.word]);
+  const { tokens } = useNemuTheme();
+  const showActions = mobileJapaneseLearningTokenCanAct(token);
+  const shouldShowPosOnly =
+    token.components.length === 0 &&
+    token.meanings.length === 0 &&
+    token.alternatives.length === 0 &&
+    token.conjugations.length === 0 &&
+    token.partOfSpeech.length > 0;
+  const conjugationTypes = token.conjugationTypes ?? [];
+  const cleanReading = token.reading.replace(/\u200c/g, "");
+  const reading = cleanReading === token.word ? "" : cleanReading;
 
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <View style={styles.wordBlock}>
           <Text
-            style={[styles.word, { color: tokens.foreground }]}
-            numberOfLines={2}
+            selectable
+            style={[styles.word, nested ? styles.wordNested : null, { color: tokens.foreground }]}
           >
             {token.word}
           </Text>
-          {token.reading ? (
-            <Text
-              style={[styles.reading, { color: tokens.mutedForeground }]}
-              numberOfLines={1}
-            >
-              {token.reading}
+          {reading ? (
+            <Text selectable style={[styles.reading, { color: tokens.mutedForeground }]}>
+              {reading}
             </Text>
           ) : null}
         </View>
-        {canAct ? (
+        {showActions ? (
           <View style={styles.actions}>
-            <NemuPressable
-              accessibilityRole="button"
-              accessibilityLabel={strings.reader.pluginJapaneseLearningCopyWord}
-              minimumTouchTarget
-              onPress={handleCopyWord}
-              pressedScale={0.94}
-              style={[
-                styles.iconAction,
-                { backgroundColor: tokens.muted, borderColor: tokens.border },
-              ]}
-            >
-              <Ionicons name="copy-outline" size={14} color={tokens.mutedForeground} />
-            </NemuPressable>
+            {onCopy ? (
+              <NemuPressable
+                accessibilityRole="button"
+                accessibilityLabel={strings.reader.pluginJapaneseLearningCopyWord}
+                minimumTouchTarget
+                onPress={() => onCopy(token.word)}
+                pressedScale={0.94}
+                style={styles.iconAction}
+              >
+                <Ionicons name="copy-outline" size={14} color={tokens.mutedForeground} />
+              </NemuPressable>
+            ) : null}
             {onAskNemu ? (
               <NemuPressable
                 accessibilityRole="button"
@@ -87,25 +119,14 @@ export function JapaneseLearningTokenSummary({
                 minimumTouchTarget
                 onPress={onAskNemu}
                 pressedScale={0.94}
-                style={[
-                  styles.askAction,
-                  {
-                    backgroundColor: tokens.primary,
-                    borderColor: tokens.primary,
-                  },
-                ]}
+                style={[styles.askAction, { backgroundColor: tokens.primary }]}
               >
                 <Ionicons
-                  name="chatbubble-ellipses-outline"
+                  name="chatbubbles-outline"
                   size={13}
                   color={tokens.primaryForeground}
                 />
-                <Text
-                  style={[
-                    styles.askActionText,
-                    { color: tokens.primaryForeground },
-                  ]}
-                >
+                <Text style={[styles.askActionText, { color: tokens.primaryForeground }]}>
                   {strings.reader.pluginJapaneseLearningAskWord}
                 </Text>
               </NemuPressable>
@@ -114,39 +135,16 @@ export function JapaneseLearningTokenSummary({
         ) : null}
       </View>
 
-      {/* POS tags row */}
-      {posLabel ? (
+      {shouldShowPosOnly || conjugationTypes.length > 0 ? (
         <View style={styles.posTagRow}>
-          <View
-            style={[
-              styles.posTag,
-              {
-                backgroundColor: posStyle.bg,
-                borderColor: posStyle.border,
-              },
-            ]}
-          >
-            <Text style={[styles.posTagText, { color: posStyle.text }]}>
-              {posLabel}
-            </Text>
-          </View>
-          {token.conjugationTypes?.map((conj, index) => (
-            <View
-              key={`conj-${index}-${conj}`}
-              style={[
-                styles.posTag,
-                {
-                  backgroundColor: tokens.muted,
-                  borderColor: "transparent",
-                },
-              ]}
-            >
-              <Text
-                style={[styles.posTagText, { color: tokens.mutedForeground }]}
-              >
-                {conj}
-              </Text>
-            </View>
+          {shouldShowPosOnly ? <JapaneseLearningPosTag pos={token.partOfSpeech} strings={strings} /> : null}
+          {conjugationTypes.map((conjugation, index) => (
+            <JapaneseLearningPosTag
+              key={`conj-${index}-${conjugation}`}
+              pos={conjugation}
+              subtle
+              strings={strings}
+            />
           ))}
         </View>
       ) : null}
@@ -164,44 +162,54 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
   },
+  // Web: `flex items-baseline gap-3 flex-wrap`.
   wordBlock: {
     flex: 1,
-    flexShrink: 1,
-    gap: 2,
+    minWidth: 0,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "baseline",
+    columnGap: 12,
   },
+  // Web: `.ja-textbook text-2xl font-semibold tracking-tight`.
   word: {
+    fontFamily: Platform.select(JAPANESE_LEARNING_SERIF_FONT_FAMILY),
     fontSize: 24,
-    lineHeight: 30,
+    lineHeight: 32,
     fontWeight: nemuFontWeight.semibold,
+    letterSpacing: -0.4,
   },
+  wordNested: {
+    fontSize: 22,
+    lineHeight: 30,
+  },
+  // Web: `text-base text-muted-foreground`.
   reading: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: nemuFontWeight.regular,
+    fontSize: 16,
+    lineHeight: 22,
   },
   actions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginTop: 2,
+    gap: 4,
+    marginTop: 4,
   },
+  // Web: ghost `icon-xs` button.
   iconAction: {
     width: 30,
-    height: 30,
+    minHeight: 30,
     borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },
+  // Web: primary `xs` button with icon.
   askAction: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     minHeight: 30,
     borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
+    paddingHorizontal: 10,
   },
   askActionText: {
     fontSize: 12,
@@ -213,15 +221,17 @@ const styles = StyleSheet.create({
     gap: 6,
     alignItems: "center",
   },
+  // Web `POSTag`: `px-2 py-0.5 rounded-md text-[0.65rem] font-medium tracking-wide border`.
   posTag: {
-    borderRadius: radius.pill,
+    borderRadius: 6,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
   posTagText: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: nemuFontWeight.semibold,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: nemuFontWeight.medium,
+    letterSpacing: 0.25,
   },
 });

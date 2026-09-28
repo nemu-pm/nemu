@@ -1,3 +1,7 @@
+import {
+  getMobileJapaneseLearningQaScenario,
+  runMobileJapaneseLearningQaOcr,
+} from "./mobileJapaneseLearningQa";
 import type { MobileReaderPage } from "@/sources/mobileSourcePages";
 import { mobileNativeFetch } from "@/sources/mobileNativeHttp";
 import { decodeBase64 } from "./mobileBase64";
@@ -14,6 +18,18 @@ import {
 } from "./mobileJapaneseLearningSafety";
 import { sanitizeMobileErrorDiagnostic } from "./mobileSourceErrors";
 import type { MobileStrings } from "./mobileI18n";
+import {
+  getMobileJapaneseLearningCapabilities,
+  getMobileJapaneseLearningEnginePreference,
+  mobileJapaneseLearningNowMs,
+  recordMobileJapaneseLearningEngineRun,
+  resolveMobileJapaneseLearningOcrEngine,
+  type MobileJapaneseLearningEnginePreference,
+} from "./mobileJapaneseLearningEngine";
+import {
+  runMobileOnDeviceOcr,
+  type MobileOnDeviceOcrEngineInfo,
+} from "./mobileJapaneseLearningOnDeviceOcr";
 
 export type MobileOcrDetection = {
   x1: number;
@@ -31,6 +47,8 @@ export type MobileJapaneseLearningOcrResult = {
   source: "source-text" | "ocr";
   detections: MobileOcrDetection[];
   text: string;
+  /** Which engine produced `detections` (absent for source text). */
+  engine?: MobileOnDeviceOcrEngineInfo | { kind: "cloud"; elapsedMs: number };
 };
 
 export type MobileJapaneseLearningOcrOptions = {
@@ -38,6 +56,8 @@ export type MobileJapaneseLearningOcrOptions = {
   ocrApiBase?: string;
   readFileBytes?: (uri: string) => Promise<Uint8Array>;
   signal?: AbortSignal;
+  /** Overrides the plugin's recognition-engine setting for this run. */
+  engine?: MobileJapaneseLearningEnginePreference;
 };
 
 const DEFAULT_OCR_API_BASE = "https://ocr.nemu.pm";
@@ -402,6 +422,15 @@ export async function runMobileJapaneseLearningOcr(
   page: Pick<MobileReaderPage, "imageUri" | "headers" | "text">,
   options: MobileJapaneseLearningOcrOptions = {},
 ): Promise<MobileJapaneseLearningOcrResult> {
+  const qaScenario = getMobileJapaneseLearningQaScenario("ocr");
+  if (qaScenario) {
+    const scope = createMobileJapaneseLearningAbortScope(options.signal);
+    try {
+      return await runMobileJapaneseLearningQaOcr(qaScenario, scope.signal);
+    } finally {
+      scope.dispose();
+    }
+  }
   const sourceText = page.text?.trim();
   if (sourceText) {
     assertMobileJapaneseLearningStringLength(
@@ -416,8 +445,28 @@ export async function runMobileJapaneseLearningOcr(
     };
   }
 
+  const engine = resolveMobileJapaneseLearningOcrEngine(
+    options.engine ?? getMobileJapaneseLearningEnginePreference(),
+    getMobileJapaneseLearningCapabilities(),
+  );
+  if (engine === "on-device") {
+    const scope = createMobileJapaneseLearningAbortScope(options.signal);
+    try {
+      const result = await runMobileOnDeviceOcr(page, { signal: scope.signal });
+      return {
+        source: "ocr",
+        detections: result.detections,
+        text: textFromMobileOcrDetections(result.detections),
+        engine: result.engine,
+      };
+    } finally {
+      scope.dispose();
+    }
+  }
+
   const abortScope = createMobileJapaneseLearningAbortScope(options.signal);
   const fetchImpl = options.fetchImpl ?? fetch;
+  const cloudStarted = mobileJapaneseLearningNowMs();
   try {
     const imageBase64 = await imageUriToBase64(page, {
       fetchImpl,
@@ -448,10 +497,19 @@ export async function runMobileJapaneseLearningOcr(
         signal: abortScope.signal,
       }),
     );
+    const elapsedMs = mobileJapaneseLearningNowMs() - cloudStarted;
+    recordMobileJapaneseLearningEngineRun({
+      stage: "ocr",
+      engine: "cloud",
+      ok: true,
+      durationMs: elapsedMs,
+      detail: `blocks=${detections.length}`,
+    });
     return {
       source: "ocr",
       detections,
       text: textFromMobileOcrDetections(detections),
+      engine: { kind: "cloud", elapsedMs: Math.round(elapsedMs) },
     };
   } finally {
     abortScope.dispose();

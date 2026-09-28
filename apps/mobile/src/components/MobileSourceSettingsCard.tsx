@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -121,6 +129,11 @@ type MobileSourceSettingsCardProps = {
   onLogout?: (setting: SourcePackageSetting) => void;
   onRetry?: () => void;
   onReset?: () => void;
+  /** Extra content rendered directly under one setting's row (e.g. a status line). */
+  renderSettingAccessory?: (
+    setting: SourcePackageSetting,
+    values: Record<string, unknown>,
+  ) => ReactNode;
   retryDisabled?: boolean;
   retrying?: boolean;
   onEmbeddedBackHandlerChange?: (handler: (() => void) | null) => void;
@@ -1429,6 +1442,7 @@ function SourceSettingsList({
   loginCapabilities,
   onRequestMultiSelectSheet,
   onRequestStringListSheet,
+  renderSettingAccessory,
 }: {
   settings: SourcePackageSetting[];
   values: Record<string, unknown>;
@@ -1452,6 +1466,7 @@ function SourceSettingsList({
   loginCapabilities: MobileSourceLoginCapabilities | null;
   onRequestMultiSelectSheet?: (setting: SourcePackageSetting) => void;
   onRequestStringListSheet?: (setting: SourcePackageSetting) => void;
+  renderSettingAccessory?: MobileSourceSettingsCardProps["renderSettingAccessory"];
 }) {
   const { tokens } = useNemuTheme();
 
@@ -1499,6 +1514,7 @@ function SourceSettingsList({
                   loginCapabilities={loginCapabilities}
                   onRequestMultiSelectSheet={onRequestMultiSelectSheet}
                   onRequestStringListSheet={onRequestStringListSheet}
+                  renderSettingAccessory={renderSettingAccessory}
                 />
               </View>
               {setting.footer ? (
@@ -1607,7 +1623,8 @@ function SourceSettingsList({
           );
         }
 
-        return (
+        const accessory = renderSettingAccessory?.(setting, values);
+        const row = (
           <SourceSettingRow
             key={key}
             setting={setting}
@@ -1616,6 +1633,14 @@ function SourceSettingsList({
             disabled={disabled}
             onChange={onChange}
           />
+        );
+        return accessory ? (
+          <Fragment key={key}>
+            {row}
+            {accessory}
+          </Fragment>
+        ) : (
+          row
         );
       })}
     </>
@@ -1656,6 +1681,7 @@ function MobileSourceSettingsCardContent({
   onRequestLoginSheet,
   onRequestMultiSelectSheet,
   onRequestStringListSheet,
+  renderSettingAccessory,
 }: MobileSourceSettingsCardProps) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -1873,6 +1899,7 @@ function MobileSourceSettingsCardContent({
                 loginCapabilities={loginCapabilities}
                 onRequestMultiSelectSheet={onRequestMultiSelectSheet}
                 onRequestStringListSheet={onRequestStringListSheet}
+                renderSettingAccessory={renderSettingAccessory}
               />
             </View>
           ) : (

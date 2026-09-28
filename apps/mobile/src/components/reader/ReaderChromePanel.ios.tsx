@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Group,
   Host as SwiftHost,
@@ -36,6 +37,7 @@ export function ReaderChromePanel({
   style,
 }: ReaderChromePanelProps) {
   const { scheme } = useNemuTheme();
+  const [contentWidth, setContentWidth] = useState<number | null>(null);
   const { width, height } = useWindowDimensions();
   const useLiquidGlass = shouldUseIosReaderLiquidGlass({
     platformOS: Platform.OS,
@@ -57,6 +59,10 @@ export function ReaderChromePanel({
 
   return (
     <View
+      onLayout={(event) => {
+        const next = Math.max(1, event.nativeEvent.layout.width - StyleSheet.hairlineWidth * 2);
+        setContentWidth((previous) => previous === next ? previous : next);
+      }}
       style={[
         styles.shell,
         style,
@@ -66,7 +72,7 @@ export function ReaderChromePanel({
         },
       ]}
     >
-      <SwiftHost colorScheme={scheme} matchContents style={styles.glassHost}>
+      <SwiftHost colorScheme={scheme} matchContents={{ vertical: true }} style={styles.glassHost}>
         <Group
           modifiers={[
             glassEffect({
@@ -86,7 +92,9 @@ export function ReaderChromePanel({
           ]}
         >
           <RNHostView matchContents>
-            <View style={styles.content}>{children}</View>
+            {/* Flexible sliders and truncated titles need a finite proposal.
+                An intrinsic horizontal match collapses one and expands the other. */}
+            <View style={[styles.content, contentWidth != null ? { width: contentWidth } : undefined]}>{children}</View>
           </RNHostView>
         </Group>
       </SwiftHost>
@@ -99,10 +107,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   glassHost: {
-    width: "100%",
+    width: "100%" as const,
   },
   content: {
-    width: "100%",
+    width: "100%" as const,
     backgroundColor: "transparent",
   },
 });

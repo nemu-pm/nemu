@@ -256,7 +256,7 @@ export function NemuButton({
   const iconSize = buttonIconSizes[size];
   const iconOnly = size.startsWith("icon");
   const surfaceRadius = buttonRadii[size];
-  const flattenedContainerStyle = StyleSheet.flatten(containerStyle);
+  const flattenedContainerStyle = StyleSheet.flatten(containerStyle) ?? undefined;
   const touchTargetStyle = resolveNemuButtonTouchTargetStyle({
     callerStyle: flattenedContainerStyle,
     platform: Platform.OS,
@@ -265,7 +265,7 @@ export function NemuButton({
     layoutStyle: callerLayoutStyle,
     surfaceShapeStyle: callerSurfaceShapeStyle,
     surfaceStyle: callerSurfaceStyle,
-  } = splitNemuButtonStyle(StyleSheet.flatten(style));
+  } = splitNemuButtonStyle(StyleSheet.flatten(style) ?? undefined);
   const callerOverridesShadow = hasNemuButtonShadowOverride(callerSurfaceStyle);
   const pressMotion = getNemuButtonPressMotion(depthVariant);
   const animatePressMotion = shouldAnimateNemuButtonPress(reduceMotion);

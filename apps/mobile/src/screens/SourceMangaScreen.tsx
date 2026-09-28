@@ -25,6 +25,7 @@ import {
   MobileMangaChapterSortAction,
   MobileMangaChapterToolbar,
 } from "@/components/MobileMangaChapterSection";
+import { MobileMangaDetailSplitLayout } from "@/components/MobileMangaDetailSplitLayout";
 import { MobileMangaDetailSurface } from "@/components/MobileMangaDetailSurface";
 import { MobileMangaPageSkeleton } from "@/components/MobileMangaPageSkeleton";
 import { MobileSourceErrorNotice } from "@/components/MobileSourceErrorNotice";
@@ -50,7 +51,6 @@ import {
   MobileNativeSheetScaffold,
   nemuColorWithAlpha,
   NemuPressable,
-  PageListScaffold,
   PageScaffold,
   createNemuNativeScreenOptions,
   renderNemuNativeToolbarButtons,
@@ -1370,12 +1370,11 @@ export function SourceMangaScreen() {
       <>
         <Stack.Screen options={nativeHeaderOptions} />
         {nativeBackToolbar}
-        <PageScaffold nativeHeader>
-          <MobileMangaPageSkeleton
-            accessibilityLabel={strings.sourceManga.loadingDetails}
-            actionsPlacement="copy"
-          />
-        </PageScaffold>
+        {/* Laid out by the loaded page's split layout, so its panes hand off in place. */}
+        <MobileMangaPageSkeleton
+          accessibilityLabel={strings.sourceManga.loadingDetails}
+          actionsPlacement="copy"
+        />
       </>
     );
   }
@@ -1384,7 +1383,341 @@ export function SourceMangaScreen() {
     <>
       <Stack.Screen options={nativeHeaderOptions} />
       {nativeBackToolbar}
-      <PageListScaffold
+      {collectionSheetPresentation ? (
+        <MobileCollectionMembershipSheet
+          visible={collectionSheetOpen}
+          libraryItemId={collectionSheetPresentation.libraryItemId}
+          title={collectionSheetPresentation.title}
+          onClose={() => setCollectionSheetOpen(false)}
+          onDismiss={() => setCollectionSheetPresentation(null)}
+        />
+      ) : null}
+      <MobileConfirmationSheet
+        visible={removeConfirmOpen}
+        title={strings.sourceManga.removeTitle}
+        description={formatMobileString(
+          strings.sourceManga.removeDescription,
+          {
+            name: title,
+          },
+        )}
+        subject={title}
+        iconName="trash-outline"
+        cancelLabel={strings.common.cancel}
+        confirmLabel={strings.common.remove}
+        confirmAccessibilityLabel={strings.sourceManga.removeFromLibrary}
+        loading={removing}
+        destructive
+        onCancel={() => setRemoveConfirmOpen(false)}
+        onConfirm={() => {
+          void removeFromLibrary();
+        }}
+      >
+        {actionError ? (
+          <MobileInlineErrorBanner
+            title={strings.sourceManga.actionFailed}
+            detail={actionError}
+            dismissLabel={strings.common.clear}
+            onDismiss={() => setActionError(null)}
+          />
+        ) : null}
+      </MobileConfirmationSheet>
+      <MobileNativeSheetScaffold
+        visible={libraryOptionsOpen}
+        onClose={() => setLibraryOptionsOpen(false)}
+        onDismiss={handleLibraryOptionsClosed}
+        title={
+          libraryOptionsPresentationMode === "in-library"
+            ? strings.sourceManga.libraryOptionsTitle
+            : strings.sourceManga.addOptionsTitle
+        }
+        subtitle={
+          libraryOptionsPresentationMode === "in-library"
+            ? strings.sourceManga.libraryOptionsDescription
+            : strings.sourceManga.addOptionsDescription
+        }
+        dismissLabel={strings.common.done}
+        dismissDisabled={libraryActionBusy}
+        enablePanDownToClose={!libraryActionBusy}
+        contentStyle={styles.libraryOptionsSheet}
+        testID="SourceMangaLibraryOptionsSheet"
+      >
+        <View style={styles.libraryOptionsList}>
+          {libraryOptionsPresentationMode === "in-library" ? (
+            <>
+              <NemuPressable
+                accessibilityRole="button"
+                accessibilityLabel={strings.sourceManga.manageCollections}
+                accessibilityHint={
+                  strings.sourceManga.manageCollectionsHint
+                }
+                accessibilityState={{ disabled: libraryActionBusy }}
+                disabled={libraryActionBusy}
+                onPress={() => {
+                  closeLibraryOptionsTo("collections");
+                }}
+                pressedScale={0.985}
+                style={[
+                  styles.libraryOptionRow,
+                  {
+                    backgroundColor: tokens.muted,
+                    borderColor: tokens.border,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.libraryOptionIcon,
+                    { backgroundColor: tokens.card },
+                  ]}
+                >
+                  <Ionicons
+                    name="albums-outline"
+                    size={20}
+                    color={tokens.primary}
+                  />
+                </View>
+                <View style={styles.libraryOptionCopy}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.libraryOptionTitle,
+                      { color: tokens.foreground },
+                    ]}
+                  >
+                    {strings.sourceManga.manageCollections}
+                  </Text>
+                  <Text
+                    numberOfLines={2}
+                    style={[
+                      styles.libraryOptionDescription,
+                      { color: tokens.mutedForeground },
+                    ]}
+                  >
+                    {strings.sourceManga.manageCollectionsHint}
+                  </Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward-outline"
+                  size={18}
+                  color={tokens.mutedForeground}
+                />
+              </NemuPressable>
+              <NemuPressable
+                accessibilityRole="button"
+                accessibilityLabel={strings.sourceManga.removeFromLibrary}
+                accessibilityHint={
+                  strings.sourceManga.removeFromLibraryHint
+                }
+                accessibilityState={{ disabled: libraryActionBusy }}
+                disabled={libraryActionBusy}
+                hapticFeedback="warning"
+                onPress={() => {
+                  closeLibraryOptionsTo("remove-confirm");
+                }}
+                pressedScale={0.985}
+                style={[
+                  styles.libraryOptionRow,
+                  {
+                    backgroundColor: tokens.muted,
+                    borderColor: tokens.border,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.libraryOptionIcon,
+                    { backgroundColor: tokens.card },
+                  ]}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={20}
+                    color={tokens.danger}
+                  />
+                </View>
+                <View style={styles.libraryOptionCopy}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.libraryOptionTitle,
+                      { color: tokens.danger },
+                    ]}
+                  >
+                    {strings.sourceManga.removeFromLibrary}
+                  </Text>
+                  <Text
+                    numberOfLines={2}
+                    style={[
+                      styles.libraryOptionDescription,
+                      { color: tokens.mutedForeground },
+                    ]}
+                  >
+                    {strings.sourceManga.removeFromLibraryHint}
+                  </Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward-outline"
+                  size={18}
+                  color={tokens.mutedForeground}
+                />
+              </NemuPressable>
+            </>
+          ) : (
+            <>
+              <NemuPressable
+                accessibilityRole="button"
+                accessibilityLabel={strings.sourceManga.addToLibrary}
+                accessibilityHint={strings.sourceManga.addToLibraryHint}
+                accessibilityState={{
+                  busy: adding || undefined,
+                  disabled: libraryActionBusy,
+                }}
+                disabled={libraryActionBusy}
+                onPress={() => {
+                  void addToLibrary();
+                }}
+                pressedScale={0.985}
+                style={[
+                  styles.libraryOptionRow,
+                  {
+                    backgroundColor: tokens.muted,
+                    borderColor: tokens.border,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.libraryOptionIcon,
+                    { backgroundColor: tokens.card },
+                  ]}
+                >
+                  {adding ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={tokens.primary}
+                    />
+                  ) : (
+                    <Ionicons
+                      name="bookmark-outline"
+                      size={20}
+                      color={tokens.primary}
+                    />
+                  )}
+                </View>
+                <View style={styles.libraryOptionCopy}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.libraryOptionTitle,
+                      { color: tokens.foreground },
+                    ]}
+                  >
+                    {strings.sourceManga.addToLibrary}
+                  </Text>
+                  <Text
+                    numberOfLines={2}
+                    style={[
+                      styles.libraryOptionDescription,
+                      { color: tokens.mutedForeground },
+                    ]}
+                  >
+                    {strings.sourceManga.addToLibraryHint}
+                  </Text>
+                </View>
+              </NemuPressable>
+              {continueChapter ? (
+                <NemuPressable
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    strings.sourceManga.addAndStartReading
+                  }
+                  accessibilityHint={
+                    strings.sourceManga.addAndStartReadingHint
+                  }
+                  accessibilityState={{
+                    busy: adding || undefined,
+                    disabled: libraryActionBusy,
+                  }}
+                  disabled={libraryActionBusy}
+                  onPress={() => {
+                    void addToLibraryAndRead();
+                  }}
+                  pressedScale={0.985}
+                  style={[
+                    styles.libraryOptionRow,
+                    {
+                      backgroundColor: tokens.primary,
+                      borderColor: tokens.primary,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.libraryOptionIcon,
+                      {
+                        backgroundColor: nemuColorWithAlpha(
+                          tokens.primaryForeground,
+                          0.13,
+                        ),
+                      },
+                    ]}
+                  >
+                    {adding ? (
+                      <ActivityIndicator
+                        size="small"
+                        color={tokens.primaryForeground}
+                      />
+                    ) : (
+                      <Ionicons
+                        name="play-outline"
+                        size={20}
+                        color={tokens.primaryForeground}
+                      />
+                    )}
+                  </View>
+                  <View style={styles.libraryOptionCopy}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.libraryOptionTitle,
+                        { color: tokens.primaryForeground },
+                      ]}
+                    >
+                      {strings.sourceManga.addAndStartReading}
+                    </Text>
+                    <Text
+                      numberOfLines={2}
+                      style={[
+                        styles.libraryOptionDescription,
+                        {
+                          color: nemuColorWithAlpha(
+                            tokens.primaryForeground,
+                            0.8,
+                          ),
+                        },
+                      ]}
+                    >
+                      {strings.sourceManga.addAndStartReadingHint}
+                    </Text>
+                  </View>
+                </NemuPressable>
+              ) : null}
+            </>
+          )}
+        </View>
+        {actionError ? (
+          <MobileInlineErrorBanner
+            title={strings.sourceManga.actionFailed}
+            detail={actionError}
+            dismissLabel={strings.common.clear}
+            onDismiss={() => setActionError(null)}
+            variant="embedded"
+          />
+        ) : null}
+      </MobileNativeSheetScaffold>
+
+      <MobileMangaDetailSplitLayout
         nativeHeader
         data={chapterRows}
         keyExtractor={mobileChapterRowKeyExtractor}
@@ -1401,470 +1734,137 @@ export function SourceMangaScreen() {
         windowSize={MOBILE_CHAPTER_LIST_PERFORMANCE.windowSize}
         removeClippedSubviews={Platform.OS === "android"}
         renderItem={renderChapterRow}
-        ListHeaderComponent={
+        leading={
           <>
-            {collectionSheetPresentation ? (
-              <MobileCollectionMembershipSheet
-                visible={collectionSheetOpen}
-                libraryItemId={collectionSheetPresentation.libraryItemId}
-                title={collectionSheetPresentation.title}
-                onClose={() => setCollectionSheetOpen(false)}
-                onDismiss={() => setCollectionSheetPresentation(null)}
+            <MobileMangaDetailSurface
+              title={title}
+              authors={metadata?.authors}
+              coverSource={coverImage.source}
+              onCoverError={coverImage.onCoverError}
+              onCoverLoad={coverImage.onCoverLoad}
+              status={metadata?.status}
+              strings={strings}
+              badges={[
+                ...(librarySource && sourceHasUpdate(librarySource)
+                  ? [
+                      {
+                        key: "updated",
+                        label: strings.sourceManga.updated,
+                        tone: "primary" as const,
+                      },
+                    ]
+                  : []),
+              ]}
+              primaryAction={
+                showReaderAction
+                  ? {
+                      label: continueActionLabel,
+                      compactLabel: isContinuation ? strings.sourceManga.continueReading : undefined,
+                      accessibilityLabel: continueActionLabel,
+                      accessibilityHint: strings.sourceManga.readActionHint,
+                      available: continueActionAvailable,
+                      disabled: !canOpenContinueChapter,
+                      iconName: isContinuation
+                        ? "play-forward-outline"
+                        : "play-outline",
+                      onPress: () => openReader(continueChapter),
+                    }
+                  : null
+              }
+              secondaryActions={[
+                {
+                  key: "library",
+                  accessibilityLabel: inLibrary
+                    ? strings.sourceManga.libraryOptionsTitle
+                    : strings.sourceManga.addToLibrary,
+                  accessibilityHint: inLibrary
+                    ? strings.sourceManga.libraryOptionsDescription
+                    : strings.sourceManga.addToLibraryHint,
+                  busy: libraryActionBusy,
+                  disabled: libraryActionDisabled,
+                  iconName: inLibrary ? "bookmark-outline" : "add-outline",
+                  color: inLibrary ? tokens.mutedForeground : tokens.primary,
+                  onPress: openLibraryOptions,
+                },
+              ]}
+              actionsPlacement="copy"
+              tags={metadata?.tags}
+              description={metadata?.description}
+            />
+
+            {actionError ? (
+              <MobileInlineErrorBanner
+                title={strings.sourceManga.actionFailed}
+                detail={actionError}
+                dismissLabel={strings.common.clear}
+                onDismiss={() => setActionError(null)}
               />
             ) : null}
-            <MobileConfirmationSheet
-              visible={removeConfirmOpen}
-              title={strings.sourceManga.removeTitle}
-              description={formatMobileString(
-                strings.sourceManga.removeDescription,
-                {
-                  name: title,
-                },
-              )}
-              subject={title}
-              iconName="trash-outline"
-              cancelLabel={strings.common.cancel}
-              confirmLabel={strings.common.remove}
-              confirmAccessibilityLabel={strings.sourceManga.removeFromLibrary}
-              loading={removing}
-              destructive
-              onCancel={() => setRemoveConfirmOpen(false)}
-              onConfirm={() => {
-                void removeFromLibrary();
-              }}
-            >
-              {actionError ? (
-                <MobileInlineErrorBanner
-                  title={strings.sourceManga.actionFailed}
-                  detail={actionError}
-                  dismissLabel={strings.common.clear}
-                  onDismiss={() => setActionError(null)}
-                />
-              ) : null}
-            </MobileConfirmationSheet>
-            <MobileNativeSheetScaffold
-              visible={libraryOptionsOpen}
-              onClose={() => setLibraryOptionsOpen(false)}
-              onDismiss={handleLibraryOptionsClosed}
-              title={
-                libraryOptionsPresentationMode === "in-library"
-                  ? strings.sourceManga.libraryOptionsTitle
-                  : strings.sourceManga.addOptionsTitle
-              }
-              subtitle={
-                libraryOptionsPresentationMode === "in-library"
-                  ? strings.sourceManga.libraryOptionsDescription
-                  : strings.sourceManga.addOptionsDescription
-              }
-              dismissLabel={strings.common.done}
-              dismissDisabled={libraryActionBusy}
-              enablePanDownToClose={!libraryActionBusy}
-              contentStyle={styles.libraryOptionsSheet}
-              testID="SourceMangaLibraryOptionsSheet"
-            >
-              <View style={styles.libraryOptionsList}>
-                {libraryOptionsPresentationMode === "in-library" ? (
-                  <>
-                    <NemuPressable
-                      accessibilityRole="button"
-                      accessibilityLabel={strings.sourceManga.manageCollections}
-                      accessibilityHint={
-                        strings.sourceManga.manageCollectionsHint
-                      }
-                      accessibilityState={{ disabled: libraryActionBusy }}
-                      disabled={libraryActionBusy}
-                      onPress={() => {
-                        closeLibraryOptionsTo("collections");
-                      }}
-                      pressedScale={0.985}
-                      style={[
-                        styles.libraryOptionRow,
-                        {
-                          backgroundColor: tokens.muted,
-                          borderColor: tokens.border,
-                        },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.libraryOptionIcon,
-                          { backgroundColor: tokens.card },
-                        ]}
-                      >
-                        <Ionicons
-                          name="albums-outline"
-                          size={20}
-                          color={tokens.primary}
-                        />
-                      </View>
-                      <View style={styles.libraryOptionCopy}>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.libraryOptionTitle,
-                            { color: tokens.foreground },
-                          ]}
-                        >
-                          {strings.sourceManga.manageCollections}
-                        </Text>
-                        <Text
-                          numberOfLines={2}
-                          style={[
-                            styles.libraryOptionDescription,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {strings.sourceManga.manageCollectionsHint}
-                        </Text>
-                      </View>
-                      <Ionicons
-                        name="chevron-forward-outline"
-                        size={18}
-                        color={tokens.mutedForeground}
-                      />
-                    </NemuPressable>
-                    <NemuPressable
-                      accessibilityRole="button"
-                      accessibilityLabel={strings.sourceManga.removeFromLibrary}
-                      accessibilityHint={
-                        strings.sourceManga.removeFromLibraryHint
-                      }
-                      accessibilityState={{ disabled: libraryActionBusy }}
-                      disabled={libraryActionBusy}
-                      hapticFeedback="warning"
-                      onPress={() => {
-                        closeLibraryOptionsTo("remove-confirm");
-                      }}
-                      pressedScale={0.985}
-                      style={[
-                        styles.libraryOptionRow,
-                        {
-                          backgroundColor: tokens.muted,
-                          borderColor: tokens.border,
-                        },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.libraryOptionIcon,
-                          { backgroundColor: tokens.card },
-                        ]}
-                      >
-                        <Ionicons
-                          name="trash-outline"
-                          size={20}
-                          color={tokens.danger}
-                        />
-                      </View>
-                      <View style={styles.libraryOptionCopy}>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.libraryOptionTitle,
-                            { color: tokens.danger },
-                          ]}
-                        >
-                          {strings.sourceManga.removeFromLibrary}
-                        </Text>
-                        <Text
-                          numberOfLines={2}
-                          style={[
-                            styles.libraryOptionDescription,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {strings.sourceManga.removeFromLibraryHint}
-                        </Text>
-                      </View>
-                      <Ionicons
-                        name="chevron-forward-outline"
-                        size={18}
-                        color={tokens.mutedForeground}
-                      />
-                    </NemuPressable>
-                  </>
-                ) : (
-                  <>
-                    <NemuPressable
-                      accessibilityRole="button"
-                      accessibilityLabel={strings.sourceManga.addToLibrary}
-                      accessibilityHint={strings.sourceManga.addToLibraryHint}
-                      accessibilityState={{
-                        busy: adding || undefined,
-                        disabled: libraryActionBusy,
-                      }}
-                      disabled={libraryActionBusy}
-                      onPress={() => {
-                        void addToLibrary();
-                      }}
-                      pressedScale={0.985}
-                      style={[
-                        styles.libraryOptionRow,
-                        {
-                          backgroundColor: tokens.muted,
-                          borderColor: tokens.border,
-                        },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.libraryOptionIcon,
-                          { backgroundColor: tokens.card },
-                        ]}
-                      >
-                        {adding ? (
-                          <ActivityIndicator
-                            size="small"
-                            color={tokens.primary}
-                          />
-                        ) : (
-                          <Ionicons
-                            name="bookmark-outline"
-                            size={20}
-                            color={tokens.primary}
-                          />
-                        )}
-                      </View>
-                      <View style={styles.libraryOptionCopy}>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.libraryOptionTitle,
-                            { color: tokens.foreground },
-                          ]}
-                        >
-                          {strings.sourceManga.addToLibrary}
-                        </Text>
-                        <Text
-                          numberOfLines={2}
-                          style={[
-                            styles.libraryOptionDescription,
-                            { color: tokens.mutedForeground },
-                          ]}
-                        >
-                          {strings.sourceManga.addToLibraryHint}
-                        </Text>
-                      </View>
-                    </NemuPressable>
-                    {continueChapter ? (
-                      <NemuPressable
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          strings.sourceManga.addAndStartReading
-                        }
-                        accessibilityHint={
-                          strings.sourceManga.addAndStartReadingHint
-                        }
-                        accessibilityState={{
-                          busy: adding || undefined,
-                          disabled: libraryActionBusy,
-                        }}
-                        disabled={libraryActionBusy}
-                        onPress={() => {
-                          void addToLibraryAndRead();
-                        }}
-                        pressedScale={0.985}
-                        style={[
-                          styles.libraryOptionRow,
-                          {
-                            backgroundColor: tokens.primary,
-                            borderColor: tokens.primary,
-                          },
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.libraryOptionIcon,
-                            {
-                              backgroundColor: nemuColorWithAlpha(
-                                tokens.primaryForeground,
-                                0.13,
-                              ),
-                            },
-                          ]}
-                        >
-                          {adding ? (
-                            <ActivityIndicator
-                              size="small"
-                              color={tokens.primaryForeground}
-                            />
-                          ) : (
-                            <Ionicons
-                              name="play-outline"
-                              size={20}
-                              color={tokens.primaryForeground}
-                            />
-                          )}
-                        </View>
-                        <View style={styles.libraryOptionCopy}>
-                          <Text
-                            numberOfLines={1}
-                            style={[
-                              styles.libraryOptionTitle,
-                              { color: tokens.primaryForeground },
-                            ]}
-                          >
-                            {strings.sourceManga.addAndStartReading}
-                          </Text>
-                          <Text
-                            numberOfLines={2}
-                            style={[
-                              styles.libraryOptionDescription,
-                              {
-                                color: nemuColorWithAlpha(
-                                  tokens.primaryForeground,
-                                  0.8,
-                                ),
-                              },
-                            ]}
-                          >
-                            {strings.sourceManga.addAndStartReadingHint}
-                          </Text>
-                        </View>
-                      </NemuPressable>
-                    ) : null}
-                  </>
-                )}
-              </View>
-              {actionError ? (
-                <MobileInlineErrorBanner
-                  title={strings.sourceManga.actionFailed}
-                  detail={actionError}
-                  dismissLabel={strings.common.clear}
-                  onDismiss={() => setActionError(null)}
-                  variant="embedded"
-                />
-              ) : null}
-            </MobileNativeSheetScaffold>
 
-            <View style={styles.stack}>
-              <MobileMangaDetailSurface
-                title={title}
-                authors={metadata?.authors}
-                coverSource={coverImage.source}
-                onCoverError={coverImage.onCoverError}
-                onCoverLoad={coverImage.onCoverLoad}
-                status={metadata?.status}
-                strings={strings}
-                badges={[
-                  ...(librarySource && sourceHasUpdate(librarySource)
-                    ? [
-                        {
-                          key: "updated",
-                          label: strings.sourceManga.updated,
-                          tone: "primary" as const,
-                        },
-                      ]
-                    : []),
-                ]}
-                primaryAction={
-                  showReaderAction
-                    ? {
-                        label: continueActionLabel,
-                        accessibilityLabel: continueActionLabel,
-                        accessibilityHint: strings.sourceManga.readActionHint,
-                        available: continueActionAvailable,
-                        disabled: !canOpenContinueChapter,
-                        iconName: isContinuation
-                          ? "play-forward-outline"
-                          : "play-outline",
-                        onPress: () => openReader(continueChapter),
-                      }
-                    : null
-                }
-                secondaryActions={[
-                  {
-                    key: "library",
-                    accessibilityLabel: inLibrary
-                      ? strings.sourceManga.libraryOptionsTitle
-                      : strings.sourceManga.addToLibrary,
-                    accessibilityHint: inLibrary
-                      ? strings.sourceManga.libraryOptionsDescription
-                      : strings.sourceManga.addToLibraryHint,
-                    busy: libraryActionBusy,
-                    disabled: libraryActionDisabled,
-                    iconName: inLibrary ? "bookmark-outline" : "add-outline",
-                    color: inLibrary ? tokens.mutedForeground : tokens.primary,
-                    onPress: openLibraryOptions,
-                  },
-                ]}
-                actionsPlacement="copy"
-                tags={metadata?.tags}
-                description={metadata?.description}
+            {detailState.status === "blocked" ||
+            detailState.status === "error" ? (
+              <MobileSourceErrorNotice
+                title={detailState.title}
+                detail={detailState.detail}
+                error={detailState.status === "error"}
+                actionLabel={detailState.recoveryAction?.label}
+                onActionPress={() => {
+                  if (!detailState.recoveryAction) return;
+                  router.navigate(
+                    getMobileSourceErrorRecoveryHref(
+                      detailState.recoveryAction,
+                    ),
+                  );
+                }}
               />
-
-              {actionError ? (
-                <MobileInlineErrorBanner
-                  title={strings.sourceManga.actionFailed}
-                  detail={actionError}
-                  dismissLabel={strings.common.clear}
-                  onDismiss={() => setActionError(null)}
-                />
-              ) : null}
-
-              {detailState.status === "blocked" ||
-              detailState.status === "error" ? (
-                <MobileSourceErrorNotice
-                  title={detailState.title}
-                  detail={detailState.detail}
-                  error={detailState.status === "error"}
-                  actionLabel={detailState.recoveryAction?.label}
-                  onActionPress={() => {
-                    if (!detailState.recoveryAction) return;
-                    router.navigate(
-                      getMobileSourceErrorRecoveryHref(
-                        detailState.recoveryAction,
-                      ),
-                    );
-                  }}
-                />
-              ) : detailState.status === "ready" && detailState.staleError ? (
-                <MobileSourceErrorNotice
-                  title={detailState.staleError.title}
-                  detail={detailState.staleError.detail}
-                  error={detailState.staleError.error}
-                  actionLabel={detailState.staleError.recoveryAction?.label}
-                  onActionPress={() => {
-                    const action = detailState.staleError?.recoveryAction;
-                    if (!action) return;
-                    router.navigate(getMobileSourceErrorRecoveryHref(action));
-                  }}
-                />
-              ) : null}
-
-              <MobileMangaChapterSectionHeader
-                title={strings.sourceManga.chapters}
-                loading={detailState.status === "loading"}
-                hasChapters={visibleChapters.length > 0}
-                sortAction={
-                  chapters.length > 0 ? (
-                    <MobileMangaChapterSortAction
-                      preference={effectiveChapterListPreference}
-                      strings={strings}
-                      onChange={changeChapterListPreference}
-                    />
-                  ) : null
-                }
-                toolbar={
-                  chapters.length > 0 ? (
-                    <MobileMangaChapterToolbar
-                      appLanguage={appLanguage}
-                      languages={chapterLanguages}
-                      preference={effectiveChapterListPreference}
-                      strings={strings}
-                      unreadCount={unreadChapterCount}
-                      onChange={changeChapterListPreference}
-                    />
-                  ) : null
-                }
-                emptyTitle={
-                  detailState.status === "loading"
-                    ? detailState.detail
-                    : strings.sourceManga.noChapters
-                }
+            ) : detailState.status === "ready" && detailState.staleError ? (
+              <MobileSourceErrorNotice
+                title={detailState.staleError.title}
+                detail={detailState.staleError.detail}
+                error={detailState.staleError.error}
+                actionLabel={detailState.staleError.recoveryAction?.label}
+                onActionPress={() => {
+                  const action = detailState.staleError?.recoveryAction;
+                  if (!action) return;
+                  router.navigate(getMobileSourceErrorRecoveryHref(action));
+                }}
               />
-            </View>
+            ) : null}
+
           </>
+        }
+        chapterHeader={
+          <MobileMangaChapterSectionHeader
+            title={strings.sourceManga.chapters}
+            loading={detailState.status === "loading"}
+            hasChapters={visibleChapters.length > 0}
+            sortAction={
+              chapters.length > 0 ? (
+                <MobileMangaChapterSortAction
+                  preference={effectiveChapterListPreference}
+                  strings={strings}
+                  onChange={changeChapterListPreference}
+                />
+              ) : null
+            }
+            toolbar={
+              chapters.length > 0 ? (
+                <MobileMangaChapterToolbar
+                  appLanguage={appLanguage}
+                  languages={chapterLanguages}
+                  preference={effectiveChapterListPreference}
+                  strings={strings}
+                  unreadCount={unreadChapterCount}
+                  onChange={changeChapterListPreference}
+                />
+              ) : null
+            }
+            emptyTitle={
+              detailState.status === "loading"
+                ? detailState.detail
+                : strings.sourceManga.noChapters
+            }
+          />
         }
       />
       <MobileNemuAgentSheet

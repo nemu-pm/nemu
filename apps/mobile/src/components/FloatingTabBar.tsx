@@ -1,5 +1,6 @@
 import { router, usePathname } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useState } from "react";
 import { Animated, Platform, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -24,6 +25,8 @@ import {
   MOBILE_FLOATING_TAB_BAR_ITEM_MIN_HEIGHT,
   MOBILE_FLOATING_TAB_BAR_VERTICAL_PADDING,
 } from "@/lib/mobileFloatingTabBarClearance";
+import { resolveMobileBottomScrollEdgeEffect } from "@/lib/mobileScrollEdgeEffect";
+import { scrollEdgeEffectSupportsProgressiveBlur } from "../../modules/nemu-scroll-edge-effect";
 
 type TabItem = {
   href: MobileRootTabHref;
@@ -140,28 +143,67 @@ export function FloatingTabBar() {
     </View>
   );
 
+  // The fade half of the soft bottom edge; the blur half is the native
+  // `MobileScrollEdgeEffectHost` around the stack. Static, token-coloured and
+  // touch-transparent, so scrolling never re-renders it.
+  const edgeEffect = resolveMobileBottomScrollEdgeEffect({
+    bottomInset: insets.bottom,
+    tabBottom: spacing.tabBottom,
+    blurAvailable: scrollEdgeEffectSupportsProgressiveBlur,
+  });
+  const edgeScrim = (
+    <LinearGradient
+      accessible={false}
+      colors={
+        edgeEffect.scrimStops.map((stop) =>
+          nemuColorWithAlpha(tokens.background, stop.alpha),
+        ) as unknown as readonly [string, string, ...string[]]
+      }
+      importantForAccessibility="no-hide-descendants"
+      locations={
+        edgeEffect.scrimStops.map((stop) => stop.offset) as unknown as readonly [
+          number,
+          number,
+          ...number[],
+        ]
+      }
+      pointerEvents="none"
+      style={[styles.edgeScrim, { height: edgeEffect.height }]}
+    />
+  );
+
   return (
-    <View
-      style={[styles.wrapper, { bottom: insets.bottom + spacing.tabBottom }]}
-    >
-      <GlassSurface
-        intensity={32}
-        style={[
-          styles.bar,
-          {
-            backgroundColor:
-              Platform.OS === "android" ? tokens.card : tokens.tabGlass,
-            borderColor: tokens.tabBorder,
-          },
-        ]}
+    <>
+      {edgeScrim}
+      <View
+        style={[styles.wrapper, { bottom: insets.bottom + spacing.tabBottom }]}
       >
-        {barContent}
-      </GlassSurface>
-    </View>
+        <GlassSurface
+          intensity={32}
+          style={[
+            styles.bar,
+            {
+              backgroundColor:
+                Platform.OS === "android" ? tokens.card : tokens.tabGlass,
+              borderColor: tokens.tabBorder,
+            },
+          ]}
+        >
+          {barContent}
+        </GlassSurface>
+      </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  edgeScrim: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 29,
+  },
   wrapper: {
     position: "absolute",
     left: 0,

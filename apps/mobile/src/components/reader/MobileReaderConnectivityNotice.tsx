@@ -31,11 +31,14 @@ const READER_NOTICE_DARK_DETAIL = "rgba(235,238,245,0.72)";
  */
 export function MobileReaderConnectivityNotice({
   topOffset,
+  horizontalFrame = null,
   pageRequestPending,
   strings,
   connectivity,
 }: {
   topOffset: number;
+  /** Left/right distances from the reader edges (e.g. to keep the notice in a fold pane or clear of the rail). */
+  horizontalFrame?: { left: number; right: number } | null;
   pageRequestPending: boolean;
   strings: MobileStrings;
   connectivity: MobileConnectivityState;
@@ -82,7 +85,11 @@ export function MobileReaderConnectivityNotice({
       pointerEvents="box-none"
       entering={reducedMotion ? undefined : FadeInDown.damping(18)}
       exiting={reducedMotion ? undefined : FadeOutUp.duration(160)}
-      style={[styles.host, { top: topOffset }]}
+      style={[
+        styles.host,
+        { top: topOffset },
+        horizontalFrame ? { left: horizontalFrame.left + 12, right: horizontalFrame.right + 12 } : null,
+      ]}
     >
       <MobileToastSurface
         backgroundColor={READER_CHROME_GLASS_TINT[scheme]}

@@ -94,6 +94,10 @@ function MobileAddBooksSheetContent({
 }) {
   const { tokens } = useNemuTheme();
   const { fontScale, height, width } = useWindowDimensions();
+  const compactLandscape = width > height;
+  const description = formatMobileString(strings.library.addBooksDescription, {
+    name: collectionName,
+  });
   const validLibraryItemIds = useMemo(
     () => new Set(entries.map((entry) => entry.item.libraryItemId)),
     [entries]
@@ -259,15 +263,17 @@ function MobileAddBooksSheetContent({
       onClose={handleNativeClose}
       onDismiss={onDismiss}
       title={strings.library.addBooksTitle}
-      subtitle={formatMobileString(strings.library.addBooksDescription, {
-        name: collectionName,
-      })}
+      subtitle={compactLandscape ? undefined : description}
       dismissLabel={strings.library.closeAddBooks}
       dismissDisabled={closeDisabled}
       snapPoints={sheetLayout.snapPoints}
       fillContent={sheetLayout.bounded}
       enablePanDownToClose={!closeDisabled}
-      contentStyle={styles.sheet}
+      contentStyle={[
+        styles.sheet,
+        sheetLayout.bounded && styles.boundedSheet,
+        compactLandscape && styles.compactSheet,
+      ]}
     >
       {sheetLayout.bounded ? (
         <FlatList
@@ -285,8 +291,16 @@ function MobileAddBooksSheetContent({
           contentContainerStyle={styles.scrollContent}
           ItemSeparatorComponent={() => <View style={styles.itemSeparator} />}
           renderItem={({ item }) => renderBookRow(item)}
+          ListHeaderComponent={compactLandscape ? (
+            <Text
+              maxFontSizeMultiplier={1.6}
+              style={[styles.scrollDescription, { color: tokens.mutedForeground }]}
+            >
+              {description}
+            </Text>
+          ) : undefined}
           ListEmptyComponent={emptyState}
-          ListFooterComponent={errorFooter}
+          ListFooterComponent={errorFooter ?? undefined}
         />
       ) : (
         <View style={styles.dynamicList}>
@@ -331,12 +345,25 @@ function MobileAddBooksSheetContent({
 
 const styles = StyleSheet.create({
   sheet: {
-    flex: 1,
-    maxHeight: "100%",
     gap: 14,
+  },
+  boundedSheet: {
+    flex: 1,
+    minHeight: 0,
+    maxHeight: "100%",
+  },
+  compactSheet: {
+    gap: 8,
+    paddingTop: 0,
+  },
+  scrollDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 8,
   },
   scroll: {
     flex: 1,
+    minHeight: 0,
   },
   scrollContent: {
     paddingBottom: 2,
@@ -391,6 +418,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   footer: {
+    flexShrink: 0,
     flexDirection: "row",
     gap: 8,
   },

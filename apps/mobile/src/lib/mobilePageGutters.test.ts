@@ -75,3 +75,12 @@ describe("getMobilePageBleedStyles", () => {
     expect(styles.frame.marginLeft + styles.content.paddingLeft).toBe(0);
   });
 });
+
+describe("bleed never enters the vertical bar column", () => {
+  test("the bar side stops at the safe edge; the other side still bleeds", () => {
+    expect(getMobilePageBleedStyles({ left: 16, right: 84 }, 2, "right")).toEqual({
+      frame: { marginLeft: -18, marginRight: -0 },
+      content: { paddingLeft: 18, paddingRight: 8 },
+    });
+  });
+});

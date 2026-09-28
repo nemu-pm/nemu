@@ -182,7 +182,7 @@ export async function resolveMobileProcessedCoverUri(
     if (!directory.exists) directory.create({ intermediates: true });
     const staging = new File(directory, stagingName);
     if (staging.exists) staging.delete();
-    staging.write(processed);
+    staging.writeSync(processed);
     if ((staging.info().size ?? 0) !== processed.byteLength) {
       staging.delete();
       return null;

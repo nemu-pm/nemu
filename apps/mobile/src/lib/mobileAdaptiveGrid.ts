@@ -1,3 +1,5 @@
+import { MOBILE_MEDIUM_WIDTH } from "@/lib/mobileAdaptiveLayout";
+
 export const MOBILE_MANGA_GRID_GAP = 12;
 
 /**
@@ -6,15 +8,17 @@ export const MOBILE_MANGA_GRID_GAP = 12;
  * the same cover size instead of blowing three or four covers up to 200pt+,
  * so a landscape phone shows more titles per row, not bigger ones.
  */
-const MOBILE_MANGA_GRID_MIN_ITEM_WIDTH = 104;
+export const MOBILE_MANGA_GRID_MIN_ITEM_WIDTH = 104;
 /** Keeps a 13" iPad in landscape at ~120pt covers rather than 11+ columns. */
-const MOBILE_MANGA_GRID_MAX_COLUMNS = 10;
+export const MOBILE_MANGA_GRID_MAX_COLUMNS = 10;
+export const MOBILE_MANGA_GRID_MIN_COLUMNS = 2;
 
 /**
  * Adaptive column count for a manga grid, derived from the available content
  * width. `horizontalPadding` is everything the content loses to its page
  * gutters — pass `useMobilePageGutters().horizontal` so a landscape iPhone's
- * safe-area insets are excluded. Clamped to [2, MOBILE_MANGA_GRID_MAX_COLUMNS].
+ * safe-area insets are excluded. Clamped to [2, MOBILE_MANGA_GRID_MAX_COLUMNS];
+ * windows at least MOBILE_MEDIUM_WIDTH wide round an odd count down to even.
  * Kept in sync with
  * {@link getMobileMangaGridItemWidth} — both use the same floor rule — so a
  * `FlatList numColumns={getMobileMangaGridColumns(...)}` layout matches the
@@ -28,8 +32,8 @@ export function getMobileMangaGridColumns({
   horizontalPadding: number;
 }): number {
   const contentWidth = Math.max(0, windowWidth - horizontalPadding);
-  return Math.max(
-    2,
+  const fit = Math.max(
+    MOBILE_MANGA_GRID_MIN_COLUMNS,
     Math.min(
       MOBILE_MANGA_GRID_MAX_COLUMNS,
       Math.floor(
@@ -38,6 +42,10 @@ export function getMobileMangaGridColumns({
       ),
     ),
   );
+  // HIG (iPhone Duo): regular-width grids use an even column count so the
+  // content divides cleanly at the fold. Compact windows (portrait phones,
+  // Duo's outer display) keep their three covers.
+  return windowWidth >= MOBILE_MEDIUM_WIDTH && fit > 2 && fit % 2 === 1 ? fit - 1 : fit;
 }
 
 export function getMobileMangaGridItemWidth({

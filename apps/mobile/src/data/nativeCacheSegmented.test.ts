@@ -38,7 +38,7 @@ class FakeFile {
       modificationTime: value?.modifiedAt ?? 0,
     };
   }
-  write(value: string | Uint8Array) {
+  writeSync(value: string | Uint8Array) {
     const bytes =
       typeof value === "string"
         ? new TextEncoder().encode(value)
@@ -143,8 +143,8 @@ const { FileSystemBinaryCache } = await import("./nativeCache.native");
 function stageResponse(suffix: string) {
   const first = new FakeFile(`/cache/native-${suffix}-0.part`);
   const second = new FakeFile(`/cache/native-${suffix}-1.part`);
-  first.write(new Uint8Array([1, 2, 3]));
-  second.write(new Uint8Array([4, 5, 6, 7]));
+  first.writeSync(new Uint8Array([1, 2, 3]));
+  second.writeSync(new Uint8Array([4, 5, 6, 7]));
   nextNativeResponse = {
     kind: "segmented-image",
     status: 200,
@@ -303,7 +303,7 @@ describe("native segmented cache publication", () => {
     const orphan = new FakeFile(
       "/cache/images/orphan.segment-v1-00000000m1-000000-0000000001-00.png",
     );
-    orphan.write(new Uint8Array([1]));
+    orphan.writeSync(new Uint8Array([1]));
     const restarted = new FileSystemBinaryCache("images", {
       maxBytes: 1_000_000,
       maxEntries: 10,
@@ -319,7 +319,7 @@ describe("native segmented cache publication", () => {
     const generation = "00000000m1-000000-0000000001";
     for (let group = 0; group < 512; group += 1) {
       const key = `corrupt-${group.toString().padStart(3, "0")}`;
-      new FakeFile(`/cache/images/${key}.segments-v1-${generation}.json`).write(
+      new FakeFile(`/cache/images/${key}.segments-v1-${generation}.json`).writeSync(
         "{}",
       );
       for (let member = 0; member < 7; member += 1) {
@@ -327,7 +327,7 @@ describe("native segmented cache publication", () => {
           `/cache/images/${key}.segment-v1-${generation}-${member
             .toString()
             .padStart(2, "0")}.png`,
-        ).write(new Uint8Array([member]));
+        ).writeSync(new Uint8Array([member]));
       }
     }
     expect(files.size).toBe(4_096);
@@ -425,7 +425,7 @@ const plainPolicy = {
 
 function writePlainFile(name: string, modifiedAt: number, size = 4) {
   const file = new FakeFile(`/cache/images/${name}`);
-  file.write(new Uint8Array(size).fill(1));
+  file.writeSync(new Uint8Array(size).fill(1));
   files.get(file.path)!.modifiedAt = modifiedAt;
   return file;
 }

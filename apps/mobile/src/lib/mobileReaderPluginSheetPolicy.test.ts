@@ -86,8 +86,11 @@ describe("reader plugin settings sheet policy", () => {
     expect(source).toContain(
       "continuousContentIdentity={readerContinuousContentIdentity}",
     );
-    expect(source).toContain(
-      'scrolling:${Math.round(readerImageWidth)}:${Math.round(window.height)}',
+    // The user's column width re-keys the strip; stage geometry (fold, dock,
+    // rail) never does — the mounted gallery keeps its reading progress.
+    expect(source).toContain("`scrolling:${activeScrollWidthPct}`");
+    expect(source).not.toContain(
+      'scrolling:${Math.round(readerImageWidth)}:${Math.round(readerStageHeight)}',
     );
     expect(source).toContain("readerScrollMetricsResetKey({");
     expect(source).toContain("}, [readerScrollMetricsScopeKey]);");
@@ -282,7 +285,10 @@ describe("reader plugin settings sheet policy", () => {
     expect(screen).toContain("japaneseLearningPresentationPluginRef");
     expect(screen).toContain("{japaneseLearningPresentationPlugin ? (");
     expect(screen).toContain("<MobileDualReaderRoot");
-    expect(screen).toContain("showFloatingControls={dualReaderControlsAvailable}");
+    // Bilingual side by side shows both pages, so the toggle/peek FAB hides.
+    expect(screen).toContain(
+      "showFloatingControls={dualReaderControlsAvailable && !bilingualSideBySide}",
+    );
     expect(screen).toContain("disabled={!dualReaderControlsAvailable}");
     expect(root).toContain("<MobileDualReaderConfigSheet />");
     expect(root).toContain("{showFloatingControls ? (");

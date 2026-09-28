@@ -50,11 +50,20 @@ export type MobilePageBleedStyles = {
 export function getMobilePageBleedStyles(
   gutters: Pick<MobilePageGutters, "left" | "right">,
   overscan = 0,
+  /**
+   * The side where the system draws its vertical bar column (iPhone Duo outer
+   * display / inner landscape). Rows never bleed into that column — it holds
+   * the status bar, Dynamic Island and toolbar — they stop at the safe edge.
+   */
+  verticalBarSide: "left" | "right" | null = null,
 ): MobilePageBleedStyles {
-  const left = gutters.left + overscan;
-  const right = gutters.right + overscan;
+  const left = verticalBarSide === "left" ? 0 : gutters.left + overscan;
+  const right = verticalBarSide === "right" ? 0 : gutters.right + overscan;
   return {
     frame: { marginLeft: -left, marginRight: -right },
-    content: { paddingLeft: left, paddingRight: right },
+    content: {
+      paddingLeft: verticalBarSide === "left" ? spacing.pageX / 2 : left,
+      paddingRight: verticalBarSide === "right" ? spacing.pageX / 2 : right,
+    },
   };
 }

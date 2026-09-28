@@ -3,6 +3,7 @@ import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import type { MobileOcrDetection, MobileJapaneseLearningOcrResult } from "@/lib/mobileJapaneseLearningOcr";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import {
+  mobileJapaneseLearningMinConfidence,
   formatMobileJapaneseLearningChatTime,
   mobileGrammarTokenAtPoint,
   mobileGrammarTokenCanAct,
@@ -260,5 +261,15 @@ describe("selectedMobileGrammarText", () => {
   test("works with a reversed range", () => {
     const toks = [token("noun", "A"), token("noun", "B"), token("noun", "C")];
     expect(selectedMobileGrammarText(toks, 2, 0)).toBe("ABC");
+  });
+});
+
+describe("minimum confidence setting", () => {
+  test("percentages from the plugin schema become OCR confidences", () => {
+    expect(mobileJapaneseLearningMinConfidence(25)).toBe(0.25);
+    expect(mobileJapaneseLearningMinConfidence(90)).toBe(0.9);
+    expect(mobileJapaneseLearningMinConfidence(0.5)).toBe(0.5);
+    expect(mobileJapaneseLearningMinConfidence(undefined)).toBe(0.25);
+    expect(mobileJapaneseLearningMinConfidence(Number.NaN)).toBe(0.25);
   });
 });

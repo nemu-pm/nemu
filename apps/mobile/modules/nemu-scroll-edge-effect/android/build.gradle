@@ -1,0 +1,15 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'pm.nemu.mobile.edgeeffect'
+version = '1.0.0'
+
+android {
+  namespace "pm.nemu.mobile.edgeeffect"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}

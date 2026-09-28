@@ -169,8 +169,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   coverImage: {
-    width: "100%",
-    height: "100%",
+    width: "100%" as const,
+    height: "100%" as const,
   },
   placeholder: {
     flex: 1,
@@ -180,7 +180,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: "42%",
+    height: "42%" as const,
     pointerEvents: "none",
   },
   badge: {

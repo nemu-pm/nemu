@@ -49,6 +49,8 @@ import {
   type MobileStrings,
 } from "@/lib/mobileI18n";
 import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
+import { MOBILE_IOS_SHEET_HOST_TOP } from "@/lib/mobileAboutLayout";
+import { MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT } from "@/lib/mobileNativeSheet";
 import {
   canSelectMobileWelcomeLanguageOption,
   canRunMobileWelcomePrimaryAction,
@@ -72,6 +74,9 @@ import {
   makeSourceKey,
   type MobileRegistrySource,
 } from "@/sources/aidokuRegistry";
+
+/** The intro icon's box; the icon is centred in it. */
+const WELCOME_ICON_BOX = 128;
 
 const languageOptions: Array<{ value: AppLanguage; label: string }> = [
   { value: "en", label: "English" },
@@ -653,6 +658,14 @@ function MobileWelcomeWizardContent({
   };
 
   const welcomeSheetPlatform = Platform.OS === "android" ? "android" : "ios";
+  // The intro icon's glow is clipped by the sheet's top edge (the content
+  // draws under the grabber): bound it to the room between them.
+  const welcomeIconGlowRoomTop =
+    (welcomeSheetPlatform === "android"
+      ? MOBILE_NATIVE_ANDROID_DRAG_HANDLE_HEIGHT
+      : MOBILE_IOS_SHEET_HOST_TOP +
+        resolveMobileWelcomeSheetContentTopPadding(welcomeSheetPlatform)) +
+    (WELCOME_ICON_BOX - MOBILE_WELCOME_ICON_SIZE) / 2;
   const welcomeSheetPresentation = useMemo(
     () =>
       resolveMobileWelcomeNativeSheetPresentation({
@@ -660,7 +673,14 @@ function MobileWelcomeWizardContent({
       }),
     [welcomeSheetPlatform],
   );
-  const welcomeIntroWidth = Math.min(400, windowWidth - 40);
+  // The sheet's own body width, not the window's: iOS floating/form sheets
+  // and the iPhone Duo's in-sheet bar-column safe area make it narrower. The
+  // intro may reach 4pt into the 24pt body padding on each side (as before).
+  const [sheetBodyWidth, setSheetBodyWidth] = useState<number | null>(null);
+  const welcomeIntroWidth = Math.min(
+    400,
+    (sheetBodyWidth ?? windowWidth - 48) + 8,
+  );
   const stackActions = shouldStackMobileWelcomeActions(windowWidth);
   const welcomeIntroLines = strings.welcome.introLines;
   const [welcomeTitleBeforeBrand, welcomeTitleAfterBrand] =
@@ -724,6 +744,7 @@ function MobileWelcomeWizardContent({
         <NemuAppIconHalo
           accessibilityLabel={strings.about.appIconLabel}
           iconSize={MOBILE_WELCOME_ICON_SIZE}
+          glowRoomTop={welcomeIconGlowRoomTop}
           source={appIcon}
           style={styles.iconWrap}
         />
@@ -851,7 +872,15 @@ function MobileWelcomeWizardContent({
         </View>
       ) : null}
 
-      <View style={[styles.actions, stackActions && styles.stackedActions]}>
+      <View
+        onLayout={(event) => {
+          const nextWidth = Math.round(event.nativeEvent.layout.width);
+          setSheetBodyWidth((current) =>
+            current === nextWidth ? current : nextWidth,
+          );
+        }}
+        style={[styles.actions, stackActions && styles.stackedActions]}
+      >
         {step !== "done" ? (
           <NemuButton
             label={
@@ -954,8 +983,8 @@ const styles = StyleSheet.create({
   },
   iconWrap: {
     alignSelf: "center",
-    height: 128,
-    width: 128,
+    height: WELCOME_ICON_BOX,
+    width: WELCOME_ICON_BOX,
   },
   header: {
     alignItems: "stretch",

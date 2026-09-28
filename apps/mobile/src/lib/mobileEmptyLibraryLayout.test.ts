@@ -4,11 +4,13 @@ import path from "node:path";
 // eslint-disable-next-line no-restricted-imports -- test needs the runtime token value; importing from @/design-system pulls the component barrel, which loads react-native's Flow-typed index.js and breaks bun's test runner.
 import { spacing } from "@/design/tokens";
 import {
+  getMobileEmptyLibraryAdaptiveLayout,
   getMobileEmptyLibraryLayout,
   NEMU_EMPTY_LIBRARY_COPY_STACK_HEIGHT,
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
 } from "./mobileEmptyLibraryLayout";
 import { getMobilePageGutters } from "./mobilePageGutters";
+import { mobileAdaptiveLayout, mobileFoldSplitForContainer } from "./mobileAdaptiveLayout";
 
 describe("getMobileEmptyLibraryLayout", () => {
   test("keeps the established vertical treatment on a short landscape phone", () => {
@@ -115,5 +117,67 @@ describe("getMobileEmptyLibraryLayout", () => {
       titleLetterSpacing: -0.45,
       titleLineHeight: 28,
     });
+  });
+});
+
+describe("getMobileEmptyLibraryAdaptiveLayout", () => {
+  const ratioOfHeight = (layout: { portraitMaxWidth: number }, height: number) =>
+    (layout.portraitMaxWidth * (456 / 390)) / height;
+
+  test("a regular phone keeps its stacked proportion", () => {
+    const phone = getMobileEmptyLibraryAdaptiveLayout({ width: 402, height: 668 });
+    expect(phone.arrangement).toBe("stack");
+    expect(phone.portraitMaxWidth).toBeGreaterThan(360);
+  });
+
+  test("Duo outer display (bars on the trailing edge) gets the phone proportion", () => {
+    // 466×678 minus the 84pt trailing bar column and the top header only.
+    const outer = getMobileEmptyLibraryAdaptiveLayout({ width: 382, height: 600 });
+    expect(outer.arrangement).toBe("stack");
+    expect(ratioOfHeight(outer, 678)).toBeGreaterThan(0.5);
+  });
+
+  test("an unfolded landscape foldable places art beside the copy at phone scale", () => {
+    const fold = getMobileEmptyLibraryAdaptiveLayout({ width: 841, height: 509 });
+    expect(fold.arrangement).toBe("row");
+    expect(fold.portraitMaxWidth).toBeGreaterThan(340);
+    expect(ratioOfHeight(fold, 701)).toBeGreaterThan(0.55);
+  });
+
+  test("book posture splits art and copy exactly at the fold", () => {
+    const book = getMobileEmptyLibraryAdaptiveLayout({
+      width: 867,
+      height: 589,
+      fold: { axis: "horizontal", gutter: { start: 405, end: 426 } },
+    });
+    expect(book).toMatchObject({ arrangement: "row", artPane: { x: 0, width: 405 }, copyPane: { x: 426, width: 441 } });
+  });
+
+  test("a zero-width Pixel Fold hinge splits art and copy with a real gutter", () => {
+    const adaptive = mobileAdaptiveLayout({
+      width: 841, height: 701, supported: true,
+      divisions: [{ id: "fold-0", x: 420.5, y: 0, width: 0, height: 701, active: true }], occlusions: [],
+    });
+    const split = mobileFoldSplitForContainer(adaptive, { x: 0, y: 100, width: 841, height: 520 });
+    const book = getMobileEmptyLibraryAdaptiveLayout({ width: 841, height: 520, fold: split });
+    expect(book).toMatchObject({ arrangement: "row", artPane: { x: 0, width: 410.5 }, copyPane: { x: 430.5 } });
+  });
+
+  test("notebook posture puts art in the top pane and copy in the bottom pane", () => {
+    const notebook = getMobileEmptyLibraryAdaptiveLayout({
+      width: 669,
+      height: 860,
+      fold: { axis: "vertical", gutter: { start: 400, end: 421 } },
+    });
+    expect(notebook).toMatchObject({ arrangement: "column", artPane: { y: 0, height: 400 }, copyPane: { y: 421, height: 439 } });
+    if (notebook.arrangement === "column") {
+      expect(notebook.portraitMaxWidth * (456 / 390)).toBeLessThan(400);
+    }
+  });
+
+  test("a tall inner display stays stacked and never exceeds the web md cap", () => {
+    const portrait = getMobileEmptyLibraryAdaptiveLayout({ width: 669, height: 790 });
+    expect(portrait.arrangement).toBe("stack");
+    expect(portrait.portraitMaxWidth).toBeLessThanOrEqual(512);
   });
 });

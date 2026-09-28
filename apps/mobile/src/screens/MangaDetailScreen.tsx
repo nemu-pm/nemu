@@ -25,6 +25,7 @@ import {
   MobileSourceSelector,
   type MobileSourceSelectorItem,
 } from "@/components/MobileSourceSelector";
+import { MobileMangaDetailSplitLayout } from "@/components/MobileMangaDetailSplitLayout";
 import { MobileMangaDetailSurface } from "@/components/MobileMangaDetailSurface";
 import { MobileMangaPageSkeleton } from "@/components/MobileMangaPageSkeleton";
 import { MobileMetadataEditorSheet } from "@/components/MobileMetadataEditorSheet";
@@ -54,7 +55,6 @@ import {
 } from "@/data/schema";
 import {
   PageHeader,
-  PageListScaffold,
   PageScaffold,
   createNemuNativeScreenOptions,
   renderNemuNativeToolbarButtons,
@@ -1696,20 +1696,22 @@ export function MangaDetailScreen() {
         {usesNativeHeader ? (
           <Stack.Screen options={nativeHeaderOptions(strings.nav.library)} />
         ) : null}
-        <PageScaffold nativeHeader={usesNativeHeader}>
-          {usesNativeHeader ? null : (
-            <PageHeader
-              title={strings.nav.library}
-              loading
-              leadingIcon="chevron-back-outline"
-              onLeadingPress={() => router.back()}
-            />
-          )}
-          <MobileMangaPageSkeleton
-            accessibilityLabel={strings.mangaDetail.loadingManga}
-            actionsPlacement="copy"
-          />
-        </PageScaffold>
+        {/* Laid out by the loaded page's split layout, so its panes hand off in place. */}
+        <MobileMangaPageSkeleton
+          nativeHeader={usesNativeHeader}
+          header={
+            usesNativeHeader ? null : (
+              <PageHeader
+                title={strings.nav.library}
+                loading
+                leadingIcon="chevron-back-outline"
+                onLeadingPress={() => router.back()}
+              />
+            )
+          }
+          accessibilityLabel={strings.mangaDetail.loadingManga}
+          actionsPlacement="copy"
+        />
       </>
     );
   }
@@ -1878,7 +1880,7 @@ export function MangaDetailScreen() {
           </MobileConfirmationSheet>
         </>
       ) : null}
-      <PageListScaffold
+      <MobileMangaDetailSplitLayout
         nativeHeader={usesNativeHeader}
         data={chapterRows}
         keyExtractor={mobileChapterRowKeyExtractor}
@@ -1893,7 +1895,8 @@ export function MangaDetailScreen() {
         windowSize={MOBILE_CHAPTER_LIST_PERFORMANCE.windowSize}
         removeClippedSubviews={Platform.OS === "android"}
         renderItem={renderChapterRow}
-        ListHeaderComponent={
+        splitEnabled={Boolean(entry)}
+        leading={
           <>
             {usesNativeHeader ? null : (
               <PageHeader
@@ -1932,7 +1935,7 @@ export function MangaDetailScreen() {
               />
             )}
             {entry ? (
-              <View style={styles.stack}>
+              <>
                 <MobileMangaDetailSurface
                   title={title}
                   authors={effectiveMetadata?.authors}
@@ -1955,6 +1958,7 @@ export function MangaDetailScreen() {
                   }
                   primaryAction={{
                     label: continueActionLabel,
+                    compactLabel: isContinuation ? strings.mangaDetail.continueReading : undefined,
                     accessibilityLabel: continueActionLabel,
                     accessibilityHint: continueChapter
                       ? strings.mangaDetail.readActionHint
@@ -2020,81 +2024,7 @@ export function MangaDetailScreen() {
                   />
                 ) : null}
 
-                <MobileMangaChapterSectionHeader
-                  title={strings.mangaDetail.chapters}
-                  loading={liveDetailState.status === "loading"}
-                  loadingLabel={strings.mangaDetail.refreshingSource}
-                  sourceSelector={
-                    sources.length > 0 ? (
-                      <MobileSourceSelector
-                        items={sourceSelectorItems}
-                        selectedId={selectedSource?.id ?? null}
-                        disabled={detailActionBusy}
-                        onSelect={selectSource}
-                      />
-                    ) : null
-                  }
-                  sortAction={
-                    chapters.length > 0 ? (
-                      <MobileMangaChapterSortAction
-                        preference={effectiveChapterListPreference}
-                        strings={strings}
-                        onChange={changeChapterListPreference}
-                      />
-                    ) : null
-                  }
-                  toolbar={
-                    chapters.length > 0 ? (
-                      <MobileMangaChapterToolbar
-                        appLanguage={appLanguage}
-                        languages={chapterLanguages}
-                        preference={effectiveChapterListPreference}
-                        strings={strings}
-                        unreadCount={unreadChapterCount}
-                        onChange={changeChapterListPreference}
-                      />
-                    ) : null
-                  }
-                  notice={
-                    liveDetailState.status === "blocked" ||
-                    liveDetailState.status === "error" ? (
-                      <MobileSourceErrorNotice
-                        title={liveDetailState.title}
-                        detail={liveDetailState.detail}
-                        error={liveDetailState.status === "error"}
-                        actionLabel={
-                          liveDetailState.recoveryAction?.label ??
-                          (liveDetailState.status === "blocked" &&
-                          missingSourceInstallCandidate
-                            ? formatMobileString(
-                                strings.browse.installSourceNamed,
-                                { name: missingSourceInstallCandidate.name },
-                              )
-                            : undefined)
-                        }
-                        onActionPress={() => {
-                          const action = liveDetailState.recoveryAction;
-                          if (action) {
-                            router.navigate(
-                              getMobileSourceErrorRecoveryHref(action),
-                            );
-                            return;
-                          }
-                          if (liveDetailState.status === "blocked") {
-                            installMissingSource();
-                          }
-                        }}
-                      />
-                    ) : null
-                  }
-                  hasChapters={visibleChapters.length > 0}
-                  emptyTitle={getMobileMangaDetailEmptyChapterMessage({
-                    liveStatus: liveDetailState.status,
-                    liveDetail: liveDetailState.detail,
-                    strings,
-                  })}
-                />
-              </View>
+              </>
             ) : (
               <EmptyLibrary
                 title={
@@ -2108,6 +2038,84 @@ export function MangaDetailScreen() {
               />
             )}
           </>
+        }
+        chapterHeader={
+          entry ? (
+            <MobileMangaChapterSectionHeader
+              title={strings.mangaDetail.chapters}
+              loading={liveDetailState.status === "loading"}
+              loadingLabel={strings.mangaDetail.refreshingSource}
+              sourceSelector={
+                sources.length > 0 ? (
+                  <MobileSourceSelector
+                    items={sourceSelectorItems}
+                    selectedId={selectedSource?.id ?? null}
+                    disabled={detailActionBusy}
+                    onSelect={selectSource}
+                  />
+                ) : null
+              }
+              sortAction={
+                chapters.length > 0 ? (
+                  <MobileMangaChapterSortAction
+                    preference={effectiveChapterListPreference}
+                    strings={strings}
+                    onChange={changeChapterListPreference}
+                  />
+                ) : null
+              }
+              toolbar={
+                chapters.length > 0 ? (
+                  <MobileMangaChapterToolbar
+                    appLanguage={appLanguage}
+                    languages={chapterLanguages}
+                    preference={effectiveChapterListPreference}
+                    strings={strings}
+                    unreadCount={unreadChapterCount}
+                    onChange={changeChapterListPreference}
+                  />
+                ) : null
+              }
+              notice={
+                liveDetailState.status === "blocked" ||
+                liveDetailState.status === "error" ? (
+                  <MobileSourceErrorNotice
+                    title={liveDetailState.title}
+                    detail={liveDetailState.detail}
+                    error={liveDetailState.status === "error"}
+                    actionLabel={
+                      liveDetailState.recoveryAction?.label ??
+                      (liveDetailState.status === "blocked" &&
+                      missingSourceInstallCandidate
+                        ? formatMobileString(
+                            strings.browse.installSourceNamed,
+                            { name: missingSourceInstallCandidate.name },
+                          )
+                        : undefined)
+                    }
+                    onActionPress={() => {
+                      const action = liveDetailState.recoveryAction;
+                      if (action) {
+                        router.navigate(
+                          getMobileSourceErrorRecoveryHref(action),
+                        );
+                        return;
+                      }
+                      if (liveDetailState.status === "blocked") {
+                        installMissingSource();
+                      }
+                    }}
+                  />
+                ) : null
+              }
+              hasChapters={visibleChapters.length > 0}
+              emptyTitle={getMobileMangaDetailEmptyChapterMessage({
+                liveStatus: liveDetailState.status,
+                liveDetail: liveDetailState.detail,
+                strings,
+              })}
+            />
+          ) : null
         }
       />
       <MobileNemuAgentSheet

@@ -1,3 +1,7 @@
+import {
+  getMobileJapaneseLearningQaScenario,
+  runMobileJapaneseLearningQaChat,
+} from "./mobileJapaneseLearningQa";
 import type { AppLanguage, ChapterSummary } from "@/data/schema";
 import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
 import { getExplainPrompt, getGreetingPrompt } from "@nemu/core";
@@ -872,6 +876,14 @@ export async function runMobileJapaneseLearningChat(
   const abortScope = createMobileJapaneseLearningAbortScope(options.signal);
   const fetchImpl = options.fetchImpl ?? fetch;
   try {
+    const qaScenario = getMobileJapaneseLearningQaScenario("chat");
+    if (qaScenario) {
+      return await runMobileJapaneseLearningQaChat(
+        qaScenario,
+        abortScope.signal,
+        options.callbacks,
+      );
+    }
     const hiddenContext = buildMobileJapaneseLearningHiddenContext(options);
     const prompt =
       options.prompt?.trim() ||

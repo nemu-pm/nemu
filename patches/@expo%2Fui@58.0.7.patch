@@ -1,0 +1,398 @@
+diff --git a/build/community/bottom-sheet/BottomSheet.android.js b/build/community/bottom-sheet/BottomSheet.android.js
+index d39d9de..7aa2b6e 100644
+--- a/build/community/bottom-sheet/BottomSheet.android.js
++++ b/build/community/bottom-sheet/BottomSheet.android.js
+@@ -3,6 +3,7 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState
+ import { StyleSheet, useWindowDimensions, View } from 'react-native';
+ import { Host } from '../../jetpack-compose/Host';
+ import { ModalBottomSheet } from '../../jetpack-compose/ModalBottomSheet';
++import { offset, width as widthModifier } from '../../jetpack-compose/modifiers';
+ import { RNHostView } from '../../jetpack-compose/RNHostView';
+ import { BottomSheetContext, BottomSheetInternalContext } from './context';
+ import { SheetScrollContextReset } from './scrollContextReset';
+@@ -37,8 +38,21 @@ function findNearestSnapPointIndex(snapPoints, position) {
+  * @remarks Supports two snap states: partially expanded (~50%) and fully expanded.
+  * `snapToIndex(0)` maps to partial, `snapToIndex(lastIndex)` maps to expanded.
+  */ export function BottomSheet(props) {
+-    const { ref, snapPoints: snapPointsProp, index: indexProp = 0, onChange, onClose, onDismiss, enablePanDownToClose = false, enableDynamicSizing = true, handleComponent, backgroundStyle, children } = props;
++    const { ref, snapPoints: snapPointsProp, index: indexProp = 0, onChange, onClose, onDismiss, enablePanDownToClose = false, enableDynamicSizing = true, handleComponent, backgroundStyle, androidPlacement, children } = props;
+     const { width } = useWindowDimensions();
++    // Match Material3's native sheet cap in the directly hosted Yoga root.
++    const placementWidth = androidPlacement && Number.isFinite(androidPlacement.width) && androidPlacement.width > 0 ? androidPlacement.width : width;
++    const sheetWidth = Math.min(width, placementWidth, 640);
++    const placementOffsetX = androidPlacement && Number.isFinite(androidPlacement.offsetX) ? androidPlacement.offsetX : 0;
++    // Foldables (book posture): narrow the sheet to one pane and move it there.
++    const sheetModifiers = useMemo(()=>androidPlacement ? [
++            offset(placementOffsetX, 0),
++            widthModifier(sheetWidth)
++        ] : undefined, [
++        androidPlacement,
++        placementOffsetX,
++        sheetWidth
++    ]);
+     const hasMultipleSnapPoints = snapPointsProp != null && snapPointsProp.length > 1;
+     const fitToContents = enableDynamicSizing && (!snapPointsProp || snapPointsProp.length === 0);
+     const skipPartially = fitToContents || !hasMultipleSnapPoints;
+@@ -174,6 +188,7 @@ function findNearestSnapPointIndex(snapPoints, position) {
+                 children: /*#__PURE__*/ _jsx(ModalBottomSheet, {
+                     ref: sheetRef,
+                     onDismissRequest: handleDismiss,
++                    modifiers: sheetModifiers,
+                     skipPartiallyExpanded: skipPartially,
+                     initialFullyExpanded: hasMultipleSnapPoints && pendingIndexRef.current === maxIndex,
+                     showDragHandle: handleComponent !== null,
+@@ -187,7 +202,7 @@ function findNearestSnapPointIndex(snapPoints, position) {
+                         matchContents: fitToContents,
+                         children: /*#__PURE__*/ _jsx(View, {
+                             style: fitToContents ? {
+-                                width
++                                width: sheetWidth
+                             } : {
+                                 flexGrow: 1,
+                                 height: 0
+diff --git a/src/community/bottom-sheet/BottomSheet.android.tsx b/src/community/bottom-sheet/BottomSheet.android.tsx
+index 419edef..12c6d1e 100644
+--- a/src/community/bottom-sheet/BottomSheet.android.tsx
++++ b/src/community/bottom-sheet/BottomSheet.android.tsx
+@@ -3,6 +3,7 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native';
+ 
+ import { Host } from '../../jetpack-compose/Host';
+ import { ModalBottomSheet, type ModalBottomSheetRef } from '../../jetpack-compose/ModalBottomSheet';
++import { offset, width as widthModifier } from '../../jetpack-compose/modifiers';
+ import { RNHostView } from '../../jetpack-compose/RNHostView';
+ import { BottomSheetContext, BottomSheetInternalContext } from './context';
+ import { SheetScrollContextReset } from './scrollContextReset';
+@@ -64,9 +65,29 @@ export function BottomSheet(props: BottomSheetProps) {
+     enableDynamicSizing = true,
+     handleComponent,
+     backgroundStyle,
++    androidPlacement,
+     children,
+   } = props;
+   const { width } = useWindowDimensions();
++  // Material3 caps ModalBottomSheet at BottomSheetDefaults.SheetMaxWidth (640dp).
++  // Its content-sized RN host must use that same width: a window-wide Yoga root
++  // is otherwise centered outside the sheet bounds and clips its leading edge.
++  const placementWidth =
++    androidPlacement && Number.isFinite(androidPlacement.width) && androidPlacement.width > 0
++      ? androidPlacement.width
++      : width;
++  const sheetWidth = Math.min(width, placementWidth, 640);
++  const placementOffsetX =
++    androidPlacement && Number.isFinite(androidPlacement.offsetX) ? androidPlacement.offsetX : 0;
++  // Foldables (book posture): narrow the sheet to one pane and move it there,
++  // so the Material sheet never straddles the fold.
++  const sheetModifiers = useMemo(
++    () =>
++      androidPlacement
++        ? [offset(placementOffsetX, 0), widthModifier(sheetWidth)]
++        : undefined,
++    [androidPlacement, placementOffsetX, sheetWidth]
++  );
+ 
+   const hasMultipleSnapPoints = snapPointsProp != null && snapPointsProp.length > 1;
+   const fitToContents = enableDynamicSizing && (!snapPointsProp || snapPointsProp.length === 0);
+@@ -190,6 +211,7 @@ export function BottomSheet(props: BottomSheetProps) {
+           <ModalBottomSheet
+             ref={sheetRef}
+             onDismissRequest={handleDismiss}
++            modifiers={sheetModifiers}
+             skipPartiallyExpanded={skipPartially}
+             initialFullyExpanded={hasMultipleSnapPoints && pendingIndexRef.current === maxIndex}
+             showDragHandle={handleComponent !== null}
+@@ -204,7 +226,7 @@ export function BottomSheet(props: BottomSheetProps) {
+                   the sheet width while its height stays content-sized. Otherwise flexGrow:1 + height:0
+                   (flex-basis 0) fills RNHostView's measured height without inheriting the scrollable
+                   child's content height, which would block scrolling to the end. */}
+-              <View style={fitToContents ? { width } : { flexGrow: 1, height: 0 }}>
++              <View style={fitToContents ? { width: sheetWidth } : { flexGrow: 1, height: 0 }}>
+                 <SheetScrollContextReset>{children}</SheetScrollContextReset>
+               </View>
+             </RNHostView>
+diff --git a/build/community/bottom-sheet/BottomSheet.ios.js b/build/community/bottom-sheet/BottomSheet.ios.js
+index e776a03..1135edc 100644
+--- a/build/community/bottom-sheet/BottomSheet.ios.js
++++ b/build/community/bottom-sheet/BottomSheet.ios.js
+@@ -1,10 +1,13 @@
+-import { jsx as _jsx } from "react/jsx-runtime";
++import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+ import { useWindowDimensions, View, StyleSheet } from 'react-native';
+ import { BottomSheet as NativeBottomSheet } from '../../swift-ui/BottomSheet';
+ import { Group } from '../../swift-ui/Group';
+ import { Host } from '../../swift-ui/Host';
+ import { RNHostView } from '../../swift-ui/RNHostView';
++import { Rectangle } from '../../swift-ui/Shapes';
++import { VStack } from '../../swift-ui/VStack';
++import { accessibilityHidden, containerRelativeFrame, frame, hidden, onGeometryChange } from '../../swift-ui/modifiers';
+ import { interactiveDismissDisabled, presentationBackground, presentationDetents, presentationDragIndicator, presentationSizing } from '../../swift-ui/modifiers/presentationModifiers';
+ import { BottomSheetContext, BottomSheetInternalContext } from './context';
+ import { SheetScrollContextReset } from './scrollContextReset';
+@@ -72,7 +75,34 @@ function findNearestDetentIndex(detents, position) {
+  * @remarks Uses SwiftUI's `.sheet()` presentation (modal overlay).
+  */ export function BottomSheet(props) {
+     const { ref, snapPoints: snapPointsProp, index: indexProp = 0, onChange, onClose, onDismiss, enablePanDownToClose = false, enableDynamicSizing = true, handleComponent, backgroundStyle, children } = props;
+-    const { width } = useWindowDimensions();
++    const { width: windowWidth } = useWindowDimensions();
++    // Content-sized sheets lay their RN root out at the width SwiftUI proposes inside the sheet
++    // (floating/form sheets and in-sheet horizontal safe areas make it narrower than the window).
++    const [measuredSheetWidth, setMeasuredSheetWidth] = useState(null);
++    const width = measuredSheetWidth && measuredSheetWidth.windowWidth === windowWidth ? measuredSheetWidth.width : windowWidth;
++    const handleSheetWidthProbe = useCallback((probeFrame)=>{
++        const nextWidth = probeFrame.width;
++        if (!Number.isFinite(nextWidth) || nextWidth <= 0) return;
++        setMeasuredSheetWidth((current)=>current && current.windowWidth === windowWidth && Math.abs(current.width - nextWidth) < 0.5 ? current : {
++                windowWidth,
++                width: nextWidth
++            });
++    }, [
++        windowWidth
++    ]);
++    const sheetWidthProbeModifiers = useMemo(()=>[
++            containerRelativeFrame({
++                axes: 'horizontal'
++            }),
++            frame({
++                height: 0
++            }),
++            hidden(),
++            accessibilityHidden(true),
++            onGeometryChange(handleSheetWidthProbe)
++        ], [
++        handleSheetWidthProbe
++    ]);
+     const [isPresented, setIsPresented] = useState(indexProp >= 0);
+     const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
+     // Ref mirrors currentIndex for use in handleDetentChange without adding it as a useCallback dep
+@@ -200,6 +230,22 @@ function findNearestDetentIndex(detents, position) {
+         enablePanDownToClose,
+         backgroundStyle
+     ]);
++    const hostedContent = /*#__PURE__*/ _jsx(RNHostView, {
++        matchContents: fitToContents,
++        children: /*#__PURE__*/ _jsx(View, {
++            style: fitToContents ? {
++                width,
++                paddingTop: handleComponent !== null ? 16 : 0
++            } : {
++                flexGrow: 1,
++                height: 0,
++                paddingTop: handleComponent !== null ? 16 : 0
++            },
++            children: /*#__PURE__*/ _jsx(SheetScrollContextReset, {
++                children: children
++            })
++        })
++    });
+     return /*#__PURE__*/ _jsx(BottomSheetInternalContext.Provider, {
+         value: internalContextValue,
+         children: /*#__PURE__*/ _jsx(BottomSheetContext.Provider, {
+@@ -207,7 +253,7 @@ function findNearestDetentIndex(detents, position) {
+             children: /*#__PURE__*/ _jsx(Host, {
+                 style: {
+                     position: 'absolute',
+-                    width
++                    width: windowWidth
+                 },
+                 pointerEvents: "none",
+                 children: /*#__PURE__*/ _jsx(NativeBottomSheet, {
+@@ -217,22 +263,15 @@ function findNearestDetentIndex(detents, position) {
+                     fitToContents: fitToContents,
+                     children: /*#__PURE__*/ _jsx(Group, {
+                         modifiers: modifiers,
+-                        children: /*#__PURE__*/ _jsx(RNHostView, {
+-                            matchContents: fitToContents,
+-                            children: /*#__PURE__*/ _jsx(View, {
+-                                style: fitToContents ? {
+-                                    width,
+-                                    paddingTop: handleComponent !== null ? 16 : 0
+-                                } : {
+-                                    flexGrow: 1,
+-                                    height: 0,
+-                                    paddingTop: handleComponent !== null ? 16 : 0
+-                                },
+-                                children: /*#__PURE__*/ _jsx(SheetScrollContextReset, {
+-                                    children: children
+-                                })
+-                            })
+-                        })
++                        children: fitToContents ? /*#__PURE__*/ _jsxs(VStack, {
++                            spacing: 0,
++                            children: [
++                                /*#__PURE__*/ _jsx(Rectangle, {
++                                    modifiers: sheetWidthProbeModifiers
++                                }),
++                                hostedContent
++                            ]
++                        }) : hostedContent
+                     })
+                 })
+             })
+diff --git a/src/community/bottom-sheet/BottomSheet.ios.tsx b/src/community/bottom-sheet/BottomSheet.ios.tsx
+index b6c0300..59449e4 100644
+--- a/src/community/bottom-sheet/BottomSheet.ios.tsx
++++ b/src/community/bottom-sheet/BottomSheet.ios.tsx
+@@ -6,6 +6,15 @@ import { BottomSheet as NativeBottomSheet } from '../../swift-ui/BottomSheet';
+ import { Group } from '../../swift-ui/Group';
+ import { Host } from '../../swift-ui/Host';
+ import { RNHostView } from '../../swift-ui/RNHostView';
++import { Rectangle } from '../../swift-ui/Shapes';
++import { VStack } from '../../swift-ui/VStack';
++import {
++  accessibilityHidden,
++  containerRelativeFrame,
++  frame,
++  hidden,
++  onGeometryChange,
++} from '../../swift-ui/modifiers';
+ import {
+   type PresentationDetent,
+   interactiveDismissDisabled,
+@@ -94,7 +103,47 @@ export function BottomSheet(props: BottomSheetProps) {
+     backgroundStyle,
+     children,
+   } = props;
+-  const { width } = useWindowDimensions();
++  const { width: windowWidth } = useWindowDimensions();
++  // A content-sized sheet hosts its RN content at an explicit Yoga width, and the window width is
++  // wrong whenever the sheet is narrower than the window or insets its content: iOS 26 floating
++  // sheets, form sheets on regular widths, and the horizontal safe area inside the sheet (the
++  // iPhone Duo outer display reserves an 84pt trailing bar column). A window-wide root is then
++  // centered on the narrower frame, clipping its leading edge and leaving a gap at the trailing
++  // one. A zero-height probe sized by `containerRelativeFrame` (the sheet, not the content: a
++  // `.fitted` sheet proposes the content's own ideal width) reports the real width, and the
++  // content is laid out at it, keyed by the window width so a resize never reuses a stale value.
++  const [measuredSheetWidth, setMeasuredSheetWidth] = useState<{
++    windowWidth: number;
++    width: number;
++  } | null>(null);
++  const width =
++    measuredSheetWidth && measuredSheetWidth.windowWidth === windowWidth
++      ? measuredSheetWidth.width
++      : windowWidth;
++  const handleSheetWidthProbe = useCallback(
++    (probeFrame: { width: number }) => {
++      const nextWidth = probeFrame.width;
++      if (!Number.isFinite(nextWidth) || nextWidth <= 0) return;
++      setMeasuredSheetWidth((current) =>
++        current &&
++        current.windowWidth === windowWidth &&
++        Math.abs(current.width - nextWidth) < 0.5
++          ? current
++          : { windowWidth, width: nextWidth }
++      );
++    },
++    [windowWidth]
++  );
++  const sheetWidthProbeModifiers = useMemo(
++    () => [
++      containerRelativeFrame({ axes: 'horizontal' }),
++      frame({ height: 0 }),
++      hidden(),
++      accessibilityHidden(true),
++      onGeometryChange(handleSheetWidthProbe),
++    ],
++    [handleSheetWidthProbe]
++  );
+ 
+   const [isPresented, setIsPresented] = useState(indexProp >= 0);
+   const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
+@@ -221,31 +270,44 @@ export function BottomSheet(props: BottomSheetProps) {
+     backgroundStyle,
+   ]);
+ 
++  const hostedContent = (
++    <RNHostView matchContents={fitToContents}>
++      {/* paddingTop compensates for tighter spacing between native drag indicator and content
++          compared to gorhom's handle. flexGrow:1 + height:0 (flex-basis 0) fills the snap-point
++          height without inheriting the scrollable child's intrinsic content height. With matchContents,
++          RNHostView lays the hosted view out at its own size, so `width` (the measured sheet width)
++          gives it the sheet width while its height stays content-sized. */}
++      <View
++        style={
++          fitToContents
++            ? { width, paddingTop: handleComponent !== null ? 16 : 0 }
++            : { flexGrow: 1, height: 0, paddingTop: handleComponent !== null ? 16 : 0 }
++        }>
++        <SheetScrollContextReset>{children}</SheetScrollContextReset>
++      </View>
++    </RNHostView>
++  );
++
+   return (
+     <BottomSheetInternalContext.Provider value={internalContextValue}>
+       <BottomSheetContext.Provider value={methods}>
+-        <Host style={{ position: 'absolute', width }} pointerEvents="none">
++        <Host style={{ position: 'absolute', width: windowWidth }} pointerEvents="none">
+           <NativeBottomSheet
+             isPresented={isPresented}
+             onIsPresentedChange={handlePresentedChange}
+             onDismiss={fireCloseCallbacks}
+             fitToContents={fitToContents}>
+             <Group modifiers={modifiers}>
+-              <RNHostView matchContents={fitToContents}>
+-                {/* paddingTop compensates for tighter spacing between native drag indicator and content
+-                    compared to gorhom's handle. flexGrow:1 + height:0 (flex-basis 0) fills the snap-point
+-                    height without inheriting the scrollable child's intrinsic content height. With matchContents,
+-                    RNHostView lays the hosted view out at its own size, so `width` gives it the sheet width
+-                    while its height stays content-sized. */}
+-                <View
+-                  style={
+-                    fitToContents
+-                      ? { width, paddingTop: handleComponent !== null ? 16 : 0 }
+-                      : { flexGrow: 1, height: 0, paddingTop: handleComponent !== null ? 16 : 0 }
+-                  }>
+-                  <SheetScrollContextReset>{children}</SheetScrollContextReset>
+-                </View>
+-              </RNHostView>
++              {fitToContents ? (
++                // A zero-height probe sized to the sheet by `containerRelativeFrame` reports its
++                // real width whatever width the hosted content currently has.
++                <VStack spacing={0}>
++                  <Rectangle modifiers={sheetWidthProbeModifiers} />
++                  {hostedContent}
++                </VStack>
++              ) : (
++                hostedContent
++              )}
+             </Group>
+           </NativeBottomSheet>
+         </Host>
+diff --git a/build/community/bottom-sheet/types.d.ts b/build/community/bottom-sheet/types.d.ts
+index cf72b27..51a054f 100644
+--- a/build/community/bottom-sheet/types.d.ts
++++ b/build/community/bottom-sheet/types.d.ts
+@@ -278,6 +278,15 @@ export interface BottomSheetProps {
+      * On web, the full style is applied.
+      */
+     backgroundStyle?: StyleProp<ViewStyle>;
++    /**
++     * Android only: the sheet's width (still capped at Material3's 640dp) and its horizontal offset
++     * from the window centre, in dp. Foldables use it to keep the sheet inside one pane in book
++     * posture instead of centred across the fold.
++     */
++    androidPlacement?: {
++        width: number;
++        offsetX: number;
++    };
+     /**
+      * Style for the handle area.
+      *
+diff --git a/src/community/bottom-sheet/types.ts b/src/community/bottom-sheet/types.ts
+index 51326fb..7b0f209 100644
+--- a/src/community/bottom-sheet/types.ts
++++ b/src/community/bottom-sheet/types.ts
+@@ -320,6 +320,13 @@ export interface BottomSheetProps {
+    */
+   backgroundStyle?: StyleProp<ViewStyle>;
+ 
++  /**
++   * Android only: the sheet's width (still capped at Material3's 640dp) and its horizontal offset
++   * from the window centre, in dp. Foldables use it to keep the sheet inside one pane in book
++   * posture instead of centred across the fold.
++   */
++  androidPlacement?: { width: number; offsetX: number };
++
+   /**
+    * Style for the handle area.
+    *
