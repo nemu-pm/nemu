@@ -10,24 +10,33 @@ export const JAPANESE_LEARNING_SHEET_BACKDROP = {
   reducedTransparencyDimOpacity: 0.35,
   /** expo-blur intensity closest to CSS `blur(4px)` at phone scale. */
   blurIntensity: 14,
-  /** Web `fade-in-0` / `fade-out-0` (tw-animate default 150ms). */
-  fadeMs: 150,
 } as const;
 
 /**
- * The backdrop (and the bubble popout above it) belongs to the sheet
- * presentation of the sentence view and Nemu chat — web's drawers. The
- * transcript is a popover on web (no overlay).
+ * The selected bubble popout floats over the sentence sheet, and over Nemu
+ * chat only when that chat was opened from the sentence (Ask), web's
+ * `openChatAndSend` drawer stacked on the sentence drawer. A chat opened from
+ * the capsule has nothing to do with the last bubble, so no popout there.
+ * The backdrop itself follows either sheet.
  */
-export function shouldShowJapaneseLearningSheetBackdrop({
+export function japaneseLearningBubblePopoutProgress(
+  ocrProgress: number,
+  chatProgress: number,
+  chatOpenedFromSentence: boolean,
+): number {
+  "worklet";
+  return Math.max(ocrProgress, chatOpenedFromSentence ? chatProgress : 0);
+}
+
+/** The JS-side twin of the progress rule: whether screen readers may reach the popout. */
+export function isJapaneseLearningBubblePopoutPresented({
   ocrSheetVisible,
   chatVisible,
-  chatHandoffPending,
+  chatOpenedFromSentence,
 }: {
   ocrSheetVisible: boolean;
   chatVisible: boolean;
-  /** Sentence → chat hand-off: the sentence sheet is dismissing before the chat presents. */
-  chatHandoffPending: boolean;
+  chatOpenedFromSentence: boolean;
 }): boolean {
-  return ocrSheetVisible || chatVisible || chatHandoffPending;
+  return ocrSheetVisible || (chatVisible && chatOpenedFromSentence);
 }

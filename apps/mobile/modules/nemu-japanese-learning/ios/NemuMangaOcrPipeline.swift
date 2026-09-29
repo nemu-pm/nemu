@@ -259,6 +259,14 @@ actor NemuMangaOcrModelStore {
 
   static var modelsBundled: Bool { modelsDirectory != nil }
 
+  /// The bundled models are ML programs converted for iOS 17 (see the
+  /// manifest's deployment target); iOS 16 cannot load them.
+  static var modelsSupported: Bool {
+    guard modelsBundled else { return false }
+    if #available(iOS 17.0, *) { return true }
+    return false
+  }
+
   /// Short fingerprint of the bundled models (manifest written by
   /// `scripts/fetch-ocr-models.ts`), part of the OCR cache key.
   static var modelRevision: String {

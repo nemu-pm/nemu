@@ -12,32 +12,43 @@ final class NemuMangaTextDetector: NemuTextDetector, @unchecked Sendable {
 
   init(url: URL) { self.url = url }
 
+  /// Drops the cached model; a detection in flight keeps its own reference,
+  /// so this never waits for it (it runs on the model store's actor).
   func unload() {
     lock.lock()
     defer { lock.unlock() }
     model = nil
   }
 
-  func detect(_ page: NemuOcrPage) throws -> [NemuOcrRegion] {
+  /// The lock guards only the cached reference: detections are already
+  /// serialised by the module's recognition queue, and holding it through
+  /// load + prediction made a memory-warning `unload` block a cooperative
+  /// thread for the rest of the detection.
+  private func loadedModel() throws -> MLModel {
     lock.lock()
     defer { lock.unlock() }
-    try Task.checkCancellation()
-    if model == nil {
-      let configuration = MLModelConfiguration()
-      #if targetEnvironment(simulator)
-        configuration.computeUnits = .cpuOnly
-      #else
-        configuration.computeUnits = .all
-      #endif
-      do {
-        model = try MLModel(contentsOf: url, configuration: configuration)
-      } catch {
-        throw NemuMangaOcrRecognizer.Failure(
-          code: "E_OCR_MODEL_LOAD", message: "The text detector could not be loaded: \(error)")
-      }
+    if let model { return model }
+    let configuration = MLModelConfiguration()
+    #if targetEnvironment(simulator)
+      configuration.computeUnits = .cpuOnly
+    #else
+      configuration.computeUnits = .all
+    #endif
+    do {
+      let loaded = try MLModel(contentsOf: url, configuration: configuration)
+      model = loaded
+      return loaded
+    } catch {
+      throw NemuMangaOcrRecognizer.Failure(
+        code: "E_OCR_MODEL_LOAD", message: "The text detector could not be loaded: \(error)")
     }
+  }
+
+  func detect(_ page: NemuOcrPage) throws -> [NemuOcrRegion] {
+    try Task.checkCancellation()
+    let model = try loadedModel()
     let input = try Self.input(page)
-    let output = try model!.prediction(from: MLDictionaryFeatureProvider(dictionary: ["images": input]))
+    let output = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["images": input]))
     guard let logits = output.featureValue(for: "logits")?.multiArrayValue,
       let boxes = output.featureValue(for: "boxes")?.multiArrayValue,
       logits.shape.map(\.intValue) == [1, 300, 3], boxes.shape.map(\.intValue) == [1, 300, 4]

@@ -5,6 +5,7 @@ import {
   mobileReaderPoseLayout,
   mobileReaderSafePadding,
   mobileReaderTapExcluded,
+  mobileReaderCapsuleActionSlots,
   mobileReaderCapsuleActionsWidth,
   mobileReaderCapsuleRowTop,
   mobileReaderAnticipatedWindowLayout,
@@ -1054,4 +1055,25 @@ describe("persistent side bar capsule alignment", () => {
       expect(chrome.scrubber.x + chrome.scrubber.width).toBeLessThanOrEqual(result.stage.x + result.stage.width - READER_CAPSULE_EDGE);
     });
   }
+});
+
+describe("capsule action slots", () => {
+  test("Japanese Learning takes two slots, other plugins one, plus settings and the bilingual toggle", () => {
+    expect(mobileReaderCapsuleActionSlots({ enabledPluginIds: [], bilingualToggle: false })).toBe(1);
+    expect(
+      mobileReaderCapsuleActionSlots({ enabledPluginIds: ["japanese-learning"], bilingualToggle: false }),
+    ).toBe(3);
+    expect(
+      mobileReaderCapsuleActionSlots({ enabledPluginIds: ["japanese-learning", "other"], bilingualToggle: true }),
+    ).toBe(5);
+  });
+
+  test("the reader derives the count in the same render as the pose (no one-frame lag)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const path = await import("node:path");
+    const screen = readFileSync(path.join(import.meta.dir, "..", "screens", "ReaderScreen.tsx"), "utf8");
+    expect(screen).not.toContain("setReaderActionCount");
+    expect(screen).toContain("buildReaderPose(readerActionSlots, twoPageMode)");
+    expect(screen).toContain("buildReaderPose(readerBaseActionSlots, twoPageMode)");
+  });
 });

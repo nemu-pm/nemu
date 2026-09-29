@@ -41,15 +41,15 @@ const renderNothing = () => null;
  * Regular (Duo inner display, tablets, foldables): HIG "show an additional
  * level of hierarchy" — the leading pane holds cover/info/tags/actions/
  * description and scrolls on its own; the trailing pane is the chapter list
- * with its section header on top. In book posture the pane boundary is the
- * fold and each pane pads its own edges. Flat on a foldable that reports its
- * resting (inactive) fold — the inner display fully open in landscape, an
- * unfolded Android foldable — the panes are the very same fold halves, so
- * folding and unfolding change nothing on screen (same cover size, title
- * lines, button label). Flat without a fold region (tablets) it splits only
- * on expanded widths (≥ 840pt) with a narrower leading pane (~40%, min
- * 320pt) like the Notes sidebar — portrait inner display and tablets in
- * portrait keep one list, like web. Notebook keeps one column.
+ * with its section header on top. In book posture (folded) the pane boundary
+ * is the fold and each pane pads its own edges. Fully open (flat) — the inner
+ * display unfolded, an unfolded Android foldable, a tablet — uses the
+ * ordinary layout whether or not the device reports an inactive fold: it
+ * splits only on expanded widths (≥ 840pt) with a narrower leading pane
+ * (~40%, min 320pt / max 460pt) like the Notes sidebar, so folding ⇄
+ * unfolding re-flows the panes (owner rule; the settle cross-fade below
+ * covers it). Portrait inner display and tablets in portrait keep one list,
+ * like web. Notebook keeps one column.
  *
  * Each pane tells its content where it renders (`useMobileMangaDetailPane`):
  * the info pane drops the compact card and shows every tag and the whole

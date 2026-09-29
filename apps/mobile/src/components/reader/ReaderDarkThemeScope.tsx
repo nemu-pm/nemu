@@ -5,7 +5,10 @@ import { NemuThemeContext, nemuTokens, useNemuTheme } from "@/design-system";
  * Renders its subtree with the dark nemu tokens. Reader surfaces that float
  * over the black immersive page (the capsule chrome, the notebook pane) are
  * dark in either app theme, so a light theme never paints a white slab over
- * the manga. Sheets presented by the system keep the app theme.
+ * the manga. The reader's sheets and popovers are wrapped too (Japanese
+ * Learning sheets, the plugin settings sheet, the native settings popover,
+ * the bubble popout): the scope's scheme is what they hand the system
+ * presentation, so they are dark like the reader in either app theme.
  */
 export function ReaderDarkThemeScope({
   children,

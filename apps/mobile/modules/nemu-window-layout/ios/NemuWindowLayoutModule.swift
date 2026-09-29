@@ -46,6 +46,9 @@ public final class NemuWindowLayoutModule: Module {
     }
     View(NemuSheetProgressView.self) {
       Events("onProgress")
+      Prop("visible") { (view: NemuSheetProgressView, visible: Bool) in
+        view.visible = visible
+      }
     }
     View(NemuVerticalBarBehaviorView.self) {
       Prop("disabled") { (view: NemuVerticalBarBehaviorView, disabled: Bool) in
@@ -192,9 +195,11 @@ final class NemuWindowLayoutView: ExpoView {
       var traits: [UITrait] = [
         UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self, UITraitLayoutDirection.self,
       ]
+      #if NEMU_SDK_27_1
       if #available(iOS 27.1, *) {
         traits += UITraitCollection.systemTraitsAffectingVerticalBarEdge
       }
+      #endif
       // UIKit keeps the registration for the view's lifetime.
       _ = registerForTraitChanges(traits) { (view: NemuWindowLayoutView, _: UITraitCollection) in
         view.setNeedsPublish("trait")
@@ -242,12 +247,15 @@ final class NemuWindowLayoutView: ExpoView {
         }
       })
     }
+    #if NEMU_SDK_27_1
     if #available(iOS 27.1, *) {
       installRegionTriggers()
     }
+    #endif
     publishSnapshot()
   }
 
+  #if NEMU_SDK_27_1
   @available(iOS 27.1, *)
   private func installRegionTriggers() {
     if hingeInteraction == nil {
@@ -271,15 +279,19 @@ final class NemuWindowLayoutView: ExpoView {
       probeController = probe
     }
   }
+  #endif
 
   private func teardownRegionTriggers() {
+    #if NEMU_SDK_27_1
     if #available(iOS 27.1, *) {
       (hingeInteraction as? UIHingeInteraction)?.isEnabled = false
     }
+    #endif
     probeController?.view.removeFromSuperview()
     probeController = nil
   }
 
+  #if NEMU_SDK_27_1
   @available(iOS 27.1, *)
   private func hingeDidUpdate(_ hinge: UIHinge?) {
     let status: String? = switch hinge?.status {
@@ -302,6 +314,7 @@ final class NemuWindowLayoutView: ExpoView {
       }
     }
   }
+  #endif
 
   /// Coalesces bursts of triggers into one query on the next main-queue turn.
   fileprivate func setNeedsPublish(_ reason: String) {
@@ -325,6 +338,7 @@ final class NemuWindowLayoutView: ExpoView {
     var occlusions: [[String: Any]] = []
     var supported = false
     var payload: [String: Any] = [:]
+    #if NEMU_SDK_27_1
     if #available(iOS 27.1, *) {
       supported = true
       divisions = reservedRegions(kind: .division, options: [.includeInactive]).enumerated()
@@ -338,6 +352,7 @@ final class NemuWindowLayoutView: ExpoView {
       }
       if let hingeStatus { payload["hinge"] = hingeStatus }
     }
+    #endif
     // Whether this window covers its whole screen (false in Split View, a
     // resizable window or iPhone Mirroring). The scene's own screen, never a
     // global one; compared in either orientation.
@@ -376,6 +391,7 @@ final class NemuWindowLayoutView: ExpoView {
     onRegionsChange(payload)
   }
 
+  #if NEMU_SDK_27_1
   @available(iOS 27.1, *)
   private func serialize(_ region: UIView.ReservedRegion, id: String) -> [String: Any] {
     // `ReservedRegion.ID` is opaque (its description is "ID()" for every
@@ -385,12 +401,14 @@ final class NemuWindowLayoutView: ExpoView {
      "x": region.frame.minX - bounds.minX, "y": region.frame.minY - bounds.minY,
      "width": region.frame.width, "height": region.frame.height]
   }
+  #endif
 }
 
 /// Invisible SwiftUI geometry probe. SwiftUI re-evaluates `onGeometryChange`
 /// when the proxy's reserved regions change, which is the invalidation path
 /// UIKit lacks. Values are compared only; the payload comes from UIKit so both
 /// share the observer's coordinate space.
+#if NEMU_SDK_27_1
 @available(iOS 27.1, *)
 private struct NemuReservedRegionProbe: View {
   let onChange: @MainActor () -> Void
@@ -413,6 +431,7 @@ private struct NemuReservedRegionProbe: View {
       }
   }
 }
+#endif
 
 // MARK: - Vertical bar behavior
 
@@ -501,7 +520,11 @@ final class NemuVerticalBarBehaviorView: ExpoView {
   deinit {
     let path = appliedPath
     MainActor.assumeIsolated {
+      #if NEMU_SDK_27_1
       if #available(iOS 27.1, *) { NemuVerticalBarOverride.release(path: path.compactMap(\.value)) }
+      #else
+      _ = path
+      #endif
     }
   }
 
@@ -553,6 +576,8 @@ final class NemuVerticalBarBehaviorView: ExpoView {
 
   private func reconcile(reason: String) {
     reconcileAppearance()
+    // Built with an SDK before iOS 27.1 (no vertical bar API): appearance only.
+    #if NEMU_SDK_27_1
     guard #available(iOS 27.1, *) else { return }
     let desired: [UIViewController] = (behaviorDisabled && window != nil) ? currentPath() : []
     let current = appliedPath.compactMap(\.value)
@@ -561,6 +586,7 @@ final class NemuVerticalBarBehaviorView: ExpoView {
     if !desired.isEmpty { NemuVerticalBarOverride.acquire(path: desired) }
     appliedPath = desired.map(WeakViewController.init)
     verticalBarLog.debug("\(reason, privacy: .public): path \(desired.map { String(describing: type(of: $0)) }.joined(separator: " → "), privacy: .public)")
+    #endif
   }
 
   /// Owning view controller, then each parent up to the root of its presentation.
@@ -587,6 +613,7 @@ final class WeakViewController {
   init(_ value: UIViewController) { self.value = value }
 }
 
+#if NEMU_SDK_27_1
 @available(iOS 27.1, *)
 @MainActor
 enum NemuVerticalBarOverride {
@@ -673,6 +700,7 @@ enum NemuVerticalBarOverride {
     }
   }
 }
+#endif
 
 // MARK: - App appearance
 
@@ -1028,38 +1056,144 @@ private final class NemuGlassDisplayLinkProxy: NSObject {
 }
 
 /// Sample the UIKit sheet's presentation layer, not a second independently timed animation.
+///
+/// Full-rate sampling only while the sheet moves. A display link at the
+/// display's maximum rate keeps ProMotion at 120 Hz, so the link runs at the
+/// full rate only after a wake — the view joining a window (presentation),
+/// the `visible` prop changing (a programmatic dismiss), the sheet's own pan
+/// gesture (an interactive drag), or an idle sample seeing the sheet move — and
+/// drops to a ~10 Hz watch once no animation is in flight on the presented
+/// view's layers, the sheet is not mid-transition and the progress has held
+/// for a few frames. The watch is what catches movement nothing announces
+/// (a detent change from the keyboard or from scrolling content, a
+/// programmatic detent change): UIKit exposes no callback for those, and
+/// layer KVO does not fire for its sheet animations.
 final class NemuSheetProgressView: ExpoView {
   let onProgress = EventDispatcher()
+  var visible = true {
+    didSet { if visible != oldValue { wake("visible") } }
+  }
   private var displayLink: CADisplayLink?
+  private var fullRate = false
   private var lastProgress: CGFloat = -1
   private var observedPresentationMovement = false
+  private weak var observedSheet: UIViewController?
+  private var observedLayers: [CALayer] = []
+  private var observedGestures: [UIGestureRecognizer] = []
+  private lazy var proxy = NemuSheetProgressDisplayLinkProxy(self)
+  /// Keep sampling at the full rate at least until then after a wake (an
+  /// animation is added just after whatever woke us).
+  private var awakeUntil: CFTimeInterval = 0
+  private var lastSample: CGFloat = -1
+  private var stableFrames = 0
+  /// A completion is registered on the current dismissal transition.
+  private var dismissalHooked = false
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
     displayLink?.invalidate()
     displayLink = nil
+    fullRate = false
+    dismissalHooked = false
+    stopObservingSheet()
     observedPresentationMovement = false
     publish(0)
-    guard window != nil else {
-      publish(0)
-      return
-    }
-    let link = CADisplayLink(target: self, selector: #selector(sample))
-    link.add(to: .main, forMode: .common)
-    displayLink = link
+    guard window != nil else { return }
+    wake("window")
     sample()
   }
 
-  deinit { displayLink?.invalidate() }
+  deinit {
+    displayLink?.invalidate()
+    let gestures = observedGestures
+    let proxy = proxy
+    MainActor.assumeIsolated {
+      gestures.forEach { $0.removeTarget(proxy, action: #selector(NemuSheetProgressDisplayLinkProxy.gesture(_:))) }
+    }
+  }
 
-  private func publish(_ progress: CGFloat) {
+  fileprivate func wake(_ reason: String) {
+    awakeUntil = max(awakeUntil, CACurrentMediaTime() + 0.3)
+    stableFrames = 0
+    guard window != nil else { return }
+    if displayLink == nil {
+      let link = CADisplayLink(target: proxy, selector: #selector(NemuSheetProgressDisplayLinkProxy.tick))
+      link.add(to: .main, forMode: .common)
+      displayLink = link
+    }
+    if !fullRate {
+      sheetProgressLog.debug("full rate: \(reason, privacy: .public)")
+      fullRate = true
+      displayLink?.preferredFrameRateRange = .default
+    }
+  }
+
+  private func idle(at progress: CGFloat?) {
+    guard fullRate else { return }
+    fullRate = false
+    // Always leave JS on the exact settled value (the detent), not the last
+    // sample the change threshold let through.
+    if let progress { publish(progress, force: true) }
+    displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 8, maximum: 12, preferred: 10)
+    sheetProgressLog.debug("idle at \(Double(progress ?? -1), privacy: .public)")
+  }
+
+  private func publish(_ progress: CGFloat, force: Bool = false) {
     let value = min(1, max(0, progress))
-    guard abs(value - lastProgress) > 0.001 else { return }
+    guard force || abs(value - lastProgress) > 0.001 else { return }
+    if value == 0 || force { sheetProgressLog.debug("publish \(Double(value), privacy: .public)") }
     lastProgress = value
     onProgress(["progress": value])
   }
 
-  @objc private func sample() {
+  private func stopObservingSheet() {
+    observedGestures.forEach {
+      $0.removeTarget(proxy, action: #selector(NemuSheetProgressDisplayLinkProxy.gesture(_:)))
+    }
+    observedGestures = []
+    observedLayers = []
+    observedSheet = nil
+  }
+
+  /// The presented view and each ancestor up to (and including) the
+  /// container: their layers' animations move the sheet, and the sheet's
+  /// drag recognizer lives on one of them.
+  private func observeSheet(_ sheet: UIViewController, presented: UIView, container: UIView) {
+    guard observedSheet !== sheet else { return }
+    stopObservingSheet()
+    observedSheet = sheet
+    var view: UIView? = presented
+    while let current = view {
+      observedLayers.append(current.layer)
+      for recognizer in current.gestureRecognizers ?? [] where recognizer is UIPanGestureRecognizer {
+        recognizer.addTarget(proxy, action: #selector(NemuSheetProgressDisplayLinkProxy.gesture(_:)))
+        observedGestures.append(recognizer)
+      }
+      if current === container { break }
+      view = current.superview
+    }
+  }
+
+  fileprivate func sample() {
+    let progress = measure()
+    let animating = (observedSheet?.isBeingPresented ?? false) || (observedSheet?.isBeingDismissed ?? false)
+      || observedLayers.contains { !($0.animationKeys()?.isEmpty ?? true) }
+    if let progress, abs(progress - lastSample) < 0.0005 {
+      stableFrames += 1
+    } else {
+      stableFrames = 0
+    }
+    lastSample = progress ?? -1
+    if !fullRate {
+      // The idle watch saw the sheet move: follow it at the full rate.
+      if animating || (progress != nil && stableFrames == 0) { wake("moved") }
+      return
+    }
+    let settled = !animating && (progress == nil || stableFrames >= 3)
+    if settled && CACurrentMediaTime() >= awakeUntil { idle(at: progress) }
+  }
+
+  private func measure() -> CGFloat? {
     var responder: UIResponder? = self
     var sheet: UIViewController?
     while let next = responder?.next {
@@ -1079,21 +1213,64 @@ final class NemuSheetProgressView: ExpoView {
     }
     guard let sheet, let presentation = sheet.presentationController,
           let container = presentation.containerView,
-          let presented = presentation.presentedView else { return }
+          let presented = presentation.presentedView else { return nil }
+    observeSheet(sheet, presented: presented, container: container)
+    if sheet.isBeingDismissed { hookDismissal(of: sheet) }
     let target = presentation.frameOfPresentedViewInContainerView
     let layer = presented.layer.presentation() ?? presented.layer
     let containerLayer = container.layer.presentation() ?? container.layer
     let current = layer.convert(layer.bounds, to: containerLayer)
     let travel = container.bounds.maxY - target.minY
-    guard travel > 0 else { return }
+    guard travel > 0 else { return nil }
     let progress = (container.bounds.maxY - current.minY) / travel
     // UIKit installs the final model frame before its entrance animation.
     // Do not mistake that first stationary frame for a completed presentation.
     if sheet.isBeingPresented && !observedPresentationMovement && progress >= 0.999 {
       publish(0)
-      return
+      return progress
     }
     if progress > 0 && progress < 0.999 { observedPresentationMovement = true }
-    publish(progress)
+    // The last frames of a dismissal land a hair above 0 and the view may
+    // leave the window (or JS unmount it) before another sample: snap to 0.
+    publish(sheet.isBeingDismissed && progress < 0.02 ? 0 : progress)
+    return progress
+  }
+
+  /// A dismissal (swipe, tap outside, programmatic) always ends on 0: the
+  /// transition's completion publishes it before the sheet's own dismissal
+  /// callbacks reach JS; a cancelled interactive dismissal resumes sampling.
+  private func hookDismissal(of sheet: UIViewController) {
+    guard !dismissalHooked, let coordinator = sheet.transitionCoordinator else { return }
+    dismissalHooked = true
+    coordinator.animate(alongsideTransition: nil) { [weak self] context in
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        self.dismissalHooked = false
+        if context.isCancelled {
+          self.wake("dismiss-cancelled")
+        } else {
+          self.publish(0, force: true)
+        }
+      }
+    }
+  }
+}
+
+private let sheetProgressLog = Logger(subsystem: "pm.nemu.window-layout", category: "sheet-progress")
+
+/// Weak display-link / gesture target: `CADisplayLink` retains its target.
+private final class NemuSheetProgressDisplayLinkProxy: NSObject {
+  private weak var view: NemuSheetProgressView?
+  init(_ view: NemuSheetProgressView) { self.view = view }
+  @objc func tick() {
+    MainActor.assumeIsolated { view?.sample() }
+  }
+  @objc func gesture(_ recognizer: UIGestureRecognizer) {
+    MainActor.assumeIsolated {
+      switch recognizer.state {
+      case .began, .changed, .ended, .cancelled: view?.wake("drag")
+      default: break
+      }
+    }
   }
 }

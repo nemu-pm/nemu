@@ -77,6 +77,10 @@ export function ReaderPluginSettingsSheet({
         ) : undefined
       }
       dismissLabel={strings.common.done}
+      // A toggle or reset in flight keeps the sheet up, so its outcome (and
+      // any error) lands here, not behind the reader.
+      dismissDisabled={busy}
+      enablePanDownToClose={!busy}
       snapPoints={["86%"]}
       fillContent
       contentStyle={styles.sheet}

@@ -26,6 +26,7 @@ private func codedException(_ error: Error) -> Exception {
 
 public final class NemuJapaneseLearningModule: Module {
   private let recognitionQueue = NemuSerialWorkQueue()
+  /// Every analyzer operation (analyze, romanize, pack removal) runs here.
   private let analysisQueue = NemuSerialWorkQueue()
   private var memoryWarningObserver: NSObjectProtocol?
 
@@ -57,8 +58,9 @@ public final class NemuJapaneseLearningModule: Module {
           "engineRevision": NemuTextRecognizer.engineRevision,
           "textDirection": NemuTextRecognizer.supportsTextDirection,
           "pipeline": [
-            // Bundled Core ML recognition and text detection.
-            "mangaOcr": NemuMangaOcrModelStore.modelsBundled,
+            // Bundled Core ML recognition and text detection (ML programs
+            // converted for iOS 17; JS picks the Vision pipeline otherwise).
+            "mangaOcr": NemuMangaOcrModelStore.modelsSupported,
             "detector": NemuMangaOcrEngine.detectorIdentifier,
             "engine": NemuMangaOcrEngine.engine,
             "engineRevision": NemuMangaOcrEngine.revision,
@@ -157,6 +159,13 @@ public final class NemuJapaneseLearningModule: Module {
 
     AsyncFunction("recognizePage") {
       (fileUri: String, options: [String: Any]?) async throws -> [String: Any] in
+      guard NemuMangaOcrModelStore.modelsSupported else {
+        throw Exception(
+          name: "NemuJapaneseLearning",
+          description: NemuMangaOcrModelStore.modelsBundled
+            ? "Manga OCR needs iOS 17 or later." : "This build does not include the manga OCR models.",
+          code: "E_OCR_UNSUPPORTED")
+      }
       guard let url = URL(string: fileUri), url.isFileURL else {
         throw Exception(
           name: "NemuJapaneseLearning", description: "OCR needs a local file URI.",
@@ -233,7 +242,10 @@ public final class NemuJapaneseLearningModule: Module {
     AsyncFunction("removeAnalysisPack") { () async throws in
       #if NEMU_ICHIRAN_KERNEL
         do {
-          try await NemuIchiranService.shared.remove()
+          // Behind any queued analysis; the service also waits for the one in flight.
+          try await analysisQueue.run(requestId: "remove-\(UUID().uuidString)") {
+            try await NemuIchiranService.shared.remove()
+          }
         } catch {
           throw codedException(error)
         }
@@ -279,7 +291,10 @@ public final class NemuJapaneseLearningModule: Module {
     AsyncFunction("romanizeText") { (text: String) async throws -> String in
       #if NEMU_ICHIRAN_KERNEL
         do {
-          return try await NemuIchiranService.shared.romanize(text: text)
+          // The same serial queue as analyzeText: one analyzer user at a time.
+          return try await analysisQueue.run(requestId: "romanize-\(UUID().uuidString)") {
+            try await NemuIchiranService.shared.romanize(text: text)
+          }
         } catch {
           throw codedException(error)
         }

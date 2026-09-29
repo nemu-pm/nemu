@@ -12,8 +12,6 @@ import {
   type MobileJapaneseLearningOcrResult,
   type MobileOcrDetection,
 } from "@/lib/mobileJapaneseLearningOcr";
-import { type MobileStrings } from "@/lib/mobileI18n";
-import { describeMobileErrorDetail } from "@/lib/mobileSourceErrors";
 import { formatMobileClockTime } from "./mobileLocaleFormat";
 
 /**
@@ -97,22 +95,6 @@ export function mobileJapaneseLearningSentenceText(
           .find((detection) => detection.order === selectedOrder)
           ?.text.trim() ?? "";
   return (selectedText || result.text).trim();
-}
-
-export function mobileJapaneseLearningChatErrorDetail(
-  error: unknown,
-  strings: MobileStrings,
-): string {
-  if (error instanceof Error && error.message === "auth_required") {
-    return strings.reader.pluginJapaneseLearningSignInRequired;
-  }
-  if (error instanceof Error && error.message === "context_too_long") {
-    return strings.reader.pluginJapaneseLearningChatFailed;
-  }
-  return describeMobileErrorDetail(
-    error,
-    strings.reader.pluginJapaneseLearningChatFailed,
-  );
 }
 
 export function mobileOcrLabelColor(

@@ -142,10 +142,17 @@ export function JapaneseLearningBubblePopout({
   source,
   accessibilityLabel,
   progress,
+  presented,
 }: {
   source: JapaneseLearningBubbleSource;
   accessibilityLabel: string;
   progress: SharedValue<number>;
+  /**
+   * Whether a sheet is showing the popout. It stays mounted (at opacity 0)
+   * while the bubble remains selected, so screen readers (TalkBack focuses
+   * transparent views) must skip it until it is presented.
+   */
+  presented: boolean;
 }) {
   const { tokens } = useNemuTheme();
   const reduceMotion = useReducedMotion();
@@ -181,9 +188,14 @@ export function JapaneseLearningBubblePopout({
   });
   if (!frame) return null;
   return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+    <View
+      pointerEvents="none"
+      style={StyleSheet.absoluteFill}
+      accessibilityElementsHidden={!presented}
+      importantForAccessibility={presented ? "auto" : "no-hide-descendants"}
+    >
       <Animated.View
-        accessible
+        accessible={presented}
         accessibilityRole="image"
         accessibilityLabel={accessibilityLabel}
         style={[

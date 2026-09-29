@@ -32,6 +32,7 @@ import {
   font,
   foregroundStyle,
   frame,
+  interactiveDismissDisabled,
   labelsHidden,
   lineLimit,
   monospacedDigit,
@@ -134,6 +135,9 @@ export function ReaderPluginSettingsSheet({
             modifiers={[
               presentationDetents(["medium", "large"]),
               presentationDragIndicator("visible"),
+              // A toggle or reset in flight keeps the sheet up, so its
+              // outcome (and any error) lands here, not behind the reader.
+              interactiveDismissDisabled(busy),
               presentationColorScheme(scheme),
               presentationBackground({ type: "material", material: "regular" }),
             ]}
@@ -205,7 +209,7 @@ export function ReaderPluginSettingsSheet({
                     <SwiftButton
                       role="close"
                       onPress={onClose}
-                      modifiers={[swiftAccessibilityLabel(strings.common.done)]}
+                      modifiers={[swiftAccessibilityLabel(strings.common.done), ...busyModifiers]}
                     />
                   </SwiftToolbarItem>
                 </SwiftToolbar.Content>

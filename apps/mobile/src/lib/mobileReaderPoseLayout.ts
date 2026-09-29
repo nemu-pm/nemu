@@ -307,6 +307,22 @@ function statusIsland(bounds: Rect, insets: Insets, occlusions: Rect[]): Rect | 
     && Math.abs(rect.y + rect.height - (bounds.y + insets.top)) <= 2) ?? null;
 }
 
+/**
+ * Icon buttons in the actions capsule: Japanese Learning contributes two
+ * (detect text, nemu chat), every other enabled plugin one, plus the bilingual
+ * toggle when shown and settings.
+ */
+export function mobileReaderCapsuleActionSlots(input: {
+  enabledPluginIds: readonly string[];
+  bilingualToggle: boolean;
+}): number {
+  const pluginSlots = input.enabledPluginIds.reduce(
+    (count, id) => count + (id === "japanese-learning" ? 2 : 1),
+    0,
+  );
+  return pluginSlots + (input.bilingualToggle ? 1 : 0) + 1;
+}
+
 /** Width of the actions capsule for `count` icon buttons. */
 export function mobileReaderCapsuleActionsWidth(count: number): number {
   const slots = Math.max(1, Math.round(finite(count, 3)));

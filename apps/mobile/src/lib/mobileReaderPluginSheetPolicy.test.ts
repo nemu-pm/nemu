@@ -26,6 +26,20 @@ describe("reader plugin settings sheet policy", () => {
     }
   });
 
+  test("one guarded dismissal policy: no dismissing while a save is in flight", () => {
+    const ios = mobileSource(iosSheetPath);
+    expect(ios).toContain("interactiveDismissDisabled(busy)");
+    // The Done button is disabled with the rest of the controls.
+    expect(ios).toMatch(
+      /onPress=\{onClose\}\s*modifiers=\{\[swiftAccessibilityLabel\(strings\.common\.done\), \.\.\.busyModifiers\]\}/,
+    );
+    expect(ios).toContain("const busyModifiers = busy ? [swiftDisabled(true)] : [];");
+
+    const android = mobileSource(sheetPath);
+    expect(android).toContain("dismissDisabled={busy}");
+    expect(android).toContain("enablePanDownToClose={!busy}");
+  });
+
   test("iOS is a system sheet with a navigation stack and one appearance source", () => {
     const source = mobileSource(iosSheetPath);
 

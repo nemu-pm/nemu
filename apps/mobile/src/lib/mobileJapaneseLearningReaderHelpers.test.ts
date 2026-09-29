@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import type { MobileOcrDetection, MobileJapaneseLearningOcrResult } from "@/lib/mobileJapaneseLearningOcr";
-import type { MobileStrings } from "@/lib/mobileI18n";
 import {
   mobileJapaneseLearningMinConfidence,
   formatMobileJapaneseLearningChatTime,
@@ -11,7 +10,6 @@ import {
   mobileGrammarTokenColor,
   mobileGrammarTokenInSelection,
   mobileGrammarTokenPosLabel,
-  mobileJapaneseLearningChatErrorDetail,
   mobileJapaneseLearningChatRequestMessages,
   mobileJapaneseLearningSentenceText,
   mobileOcrLabelColor,
@@ -28,13 +26,6 @@ const tokens = {
   foreground: "#foreground",
   mutedForeground: "#muted",
 } satisfies MobileReaderThemeTokens;
-
-const strings = {
-  reader: {
-    pluginJapaneseLearningSignInRequired: "Sign in required",
-    pluginJapaneseLearningChatFailed: "Chat failed",
-  },
-} as unknown as MobileStrings;
 
 function token(partOfSpeech: string, word = "word"): MobileGrammarToken {
   return {
@@ -139,35 +130,6 @@ describe("mobileJapaneseLearningSentenceText", () => {
   });
   test("falls back to result.text when order not found", () => {
     expect(mobileJapaneseLearningSentenceText(result, 99)).toBe("fallback");
-  });
-});
-
-describe("mobileJapaneseLearningChatErrorDetail", () => {
-  test("auth_required → sign-in copy", () => {
-    expect(mobileJapaneseLearningChatErrorDetail(new Error("auth_required"), strings)).toBe(
-      "Sign in required",
-    );
-  });
-  test("context_too_long → chat failed copy", () => {
-    expect(
-      mobileJapaneseLearningChatErrorDetail(new Error("context_too_long"), strings),
-    ).toBe("Chat failed");
-  });
-  test("other Error → localized copy followed by sanitized diagnostics", () => {
-    expect(mobileJapaneseLearningChatErrorDetail(new Error("boom"), strings)).toBe(
-      "Chat failed\nboom",
-    );
-    expect(
-      mobileJapaneseLearningChatErrorDetail(
-        new Error("password=secret"),
-        strings,
-      ),
-    ).toBe("Chat failed\npassword=[redacted]");
-  });
-  test("non-Error → localized copy followed by diagnostics", () => {
-    expect(mobileJapaneseLearningChatErrorDetail("nope", strings)).toBe(
-      "Chat failed\nnope",
-    );
   });
 });
 

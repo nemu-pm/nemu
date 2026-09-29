@@ -18,6 +18,7 @@
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
     "ocr:models": "bun modules/nemu-japanese-learning/scripts/fetch-ocr-models.ts",
+    "eas-build-pre-install": "if [ \"$EAS_BUILD_PLATFORM\" = ios ]; then bun run ocr:models; fi",
     "lint": "expo lint",
     "test": "bun test --test-name-pattern '^(?!.*(?:checked-in bundle reproducible|Swift native policy executables)).*$' && bun test ./src/sources/mobileAidokuSandboxBundle.contract.test.ts ./src/sources/mobileNativeHttpSsrfPolicy.test.ts --test-name-pattern '(checked-in bundle reproducible|Swift native policy executables)'",
     "build:ios:production": "eas build --platform ios --profile production",

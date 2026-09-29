@@ -7,6 +7,7 @@ import {
   mobileReaderAbsoluteRect,
   mobileReaderFrameInsets,
   mobileReaderAnticipatedWindowLayout,
+  mobileReaderCapsuleActionSlots,
   mobileReaderHingeHintKey,
   mobileReaderNextSideInsetLatch,
   mobileReaderPoseLayout,
@@ -25,6 +26,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
@@ -61,6 +63,7 @@ import Animated, {
 import {
   DuoBilingualLayoutToggle,
   DuoBilingualSpread,
+  DuoDisplayHandoffToast,
   DuoPageFlipOverlay,
   useDuoPageFlip,
 } from "@/components/duo";
@@ -158,6 +161,10 @@ import { JapaneseLearningPluginLauncherSheet } from "@/components/reader/japanes
 import { JapaneseLearningOcrResultSheet } from "@/components/reader/japaneseLearning/JapaneseLearningOcrResultSheet";
 import { JapaneseLearningBubblePopout } from "@/components/reader/japaneseLearning/JapaneseLearningBubblePreview";
 import { JapaneseLearningSheetBackdrop } from "@/components/reader/japaneseLearning/JapaneseLearningSheetBackdrop";
+import {
+  isJapaneseLearningBubblePopoutPresented,
+  japaneseLearningBubblePopoutProgress,
+} from "@/lib/mobileJapaneseLearningSheetBackdrop";
 import {
   MOBILE_JAPANESE_LEARNING_QA_ANALYZING_HOLD_MS,
   MOBILE_JAPANESE_LEARNING_QA_TIMELINE_MODE,
@@ -354,22 +361,18 @@ import {
   type MobileJapaneseLearningChatToolResult,
 } from "@/lib/mobileJapaneseLearningChat";
 import {
-  attachMobileJapaneseLearningChatToolResults,
   createMobileJapaneseLearningChatStreamController,
-  markMobileJapaneseLearningChatLastUserMessageRead,
   mobileJapaneseLearningChatContextRetryMessages,
   MOBILE_JAPANESE_LEARNING_CHAT_SIGN_IN_ERROR,
   truncateMobileJapaneseLearningChatOldestHalf,
-  upsertMobileJapaneseLearningChatContextSnapshot,
-  type MobileJapaneseLearningChatStreamController,
 } from "@/lib/mobileJapaneseLearningChatStream";
 import {
+  createMobileJapaneseLearningChatSessionStreamStore,
+  mobileJapaneseLearningChatSessionFor,
   mobileJapaneseLearningChatSessionKey,
   nextMobileJapaneseLearningChatMessageId,
-  readMobileJapaneseLearningChatSession,
   retainMobileJapaneseLearningChatSession,
   shouldResetMobileJapaneseLearningChatForPluginToggle,
-  writeMobileJapaneseLearningChatSession,
 } from "@/lib/mobileJapaneseLearningChatSession";
 import { getExplainDisplayPrompt, getGreetingPrompt, nextSyncTimestamp } from "@nemu/core";
 import { getMobileInstalledSourceRouteRef } from "@/lib/mobileSourceRouteRef";
@@ -1016,17 +1019,6 @@ export function ReaderScreen() {
   const readerChromeAutoHideKeyRef = useRef<string | null>(null);
   const japaneseLearningOcrRunRef = useRef(0);
   const japaneseLearningAutoOcrPageRef = useRef("");
-  /** The newest chat request still in flight (web `currentAbortController`). */
-  const japaneseLearningChatInFlightRef = useRef<{
-    controller: MobileJapaneseLearningChatStreamController;
-  } | null>(null);
-  /** Every stream controller whose speak queue may still be draining. */
-  const japaneseLearningChatControllersRef = useRef(
-    new Set<MobileJapaneseLearningChatStreamController>(),
-  );
-  const japaneseLearningChatMessagesRef = useRef<
-    JapaneseLearningChatThreadMessage[]
-  >([]);
   const japaneseLearningChatTtsAutoPlayRef = useRef<{
     enabled: boolean;
     currentId: string | null;
@@ -1117,33 +1109,29 @@ export function ReaderScreen() {
   });
   const [japaneseLearningOcrState, setJapaneseLearningOcrState] =
     useState<JapaneseLearningOcrState>({ status: "idle" });
-  // Web `useNemuChatStore`: thread + follow-ups live per reader session
-  // (manga), surviving page turns, chapter remounts and drawer close.
+  // Web `useNemuChatStore` + `chat/actions.ts`: the thread, its flags and the
+  // reply in flight live per reader session (manga) in the session module,
+  // surviving page turns, chapter remounts and drawer close. Every screen for
+  // the manga reads and writes that one session, so the next chapter's screen
+  // re-attaches to a reply that is still streaming.
   const japaneseLearningChatSessionKey = mobileJapaneseLearningChatSessionKey({
     registryId,
     sourceId,
     mangaId,
   });
-  const [japaneseLearningChatStreaming, setJapaneseLearningChatStreaming] =
-    useState(false);
-  const [
-    japaneseLearningChatShowTypingIndicator,
-    setJapaneseLearningChatShowTypingIndicator,
-  ] = useState(false);
-  const [japaneseLearningChatFollowUps, setJapaneseLearningChatFollowUps] =
-    useState<string[]>(
-      () =>
-        readMobileJapaneseLearningChatSession<JapaneseLearningChatThreadMessage>(
-          japaneseLearningChatSessionKey,
-        )?.followUps ?? [],
-    );
-  const [japaneseLearningChatMessages, setJapaneseLearningChatMessages] =
-    useState<JapaneseLearningChatThreadMessage[]>(
-      () =>
-        readMobileJapaneseLearningChatSession<JapaneseLearningChatThreadMessage>(
-          japaneseLearningChatSessionKey,
-        )?.messages ?? [],
-    );
+  const japaneseLearningChatSession = useMemo(
+    () => mobileJapaneseLearningChatSessionFor(japaneseLearningChatSessionKey),
+    [japaneseLearningChatSessionKey],
+  );
+  const japaneseLearningChatState = useSyncExternalStore(
+    japaneseLearningChatSession.subscribe,
+    japaneseLearningChatSession.getState,
+  );
+  const japaneseLearningChatStreaming = japaneseLearningChatState.streaming;
+  const japaneseLearningChatShowTypingIndicator =
+    japaneseLearningChatState.showTypingIndicator;
+  const japaneseLearningChatFollowUps = japaneseLearningChatState.followUps;
+  const japaneseLearningChatMessages = japaneseLearningChatState.messages;
   const [japaneseLearningChatInput, setJapaneseLearningChatInput] =
     useState("");
   const [japaneseLearningGrammarState, setJapaneseLearningGrammarState] =
@@ -1169,14 +1157,26 @@ export function ReaderScreen() {
   const japaneseLearningLauncherNextSurfaceRef = useRef<
     "transcript" | "chat" | null
   >(null);
-  const [japaneseLearningOcrSheetVisible, setJapaneseLearningOcrSheetVisible] =
+  const [japaneseLearningOcrSheetVisible, setJapaneseLearningOcrSheetVisibleState] =
     useState(false);
+  // Mirrors the latest request synchronously: an interactive dismissal
+  // reports close and dismissed in the same tick, before React commits.
+  const japaneseLearningOcrSheetWantedRef = useRef(false);
+  const setJapaneseLearningOcrSheetVisible = useCallback((visible: boolean) => {
+    japaneseLearningOcrSheetWantedRef.current = visible;
+    setJapaneseLearningOcrSheetVisibleState(visible);
+  }, []);
   const japaneseLearningOcrProgress = useSharedValue(0);
   const japaneseLearningChatProgress = useSharedValue(0);
   const [
     japaneseLearningChatDrawerVisible,
-    setJapaneseLearningChatDrawerVisible,
+    setJapaneseLearningChatDrawerVisibleState,
   ] = useState(false);
+  const japaneseLearningChatDrawerWantedRef = useRef(false);
+  const setJapaneseLearningChatDrawerVisible = useCallback((visible: boolean) => {
+    japaneseLearningChatDrawerWantedRef.current = visible;
+    setJapaneseLearningChatDrawerVisibleState(visible);
+  }, []);
   const [
     japaneseLearningTranscriptVisible,
     setJapaneseLearningTranscriptVisible,
@@ -1992,10 +1992,14 @@ export function ReaderScreen() {
     japaneseLearningChatDrawerVisible ||
     japaneseLearningTranscriptVisible ||
     japaneseLearningTranscriptNextSurfaceRef.current === "ocr";
-  // Icon slots in the capsule chrome's actions capsule (plugins + settings);
-  // measured from the enabled plugins below so the title capsule is clamped
-  // against the real capsule width.
-  const [readerActionCount, setReaderActionCount] = useState(3);
+  // Icon slots in the capsule chrome's actions capsule, without the bilingual
+  // toggle (added below once the pose says whether it shows). Derived in the
+  // same render as the pose, so the title capsule is never clamped against a
+  // stale action count.
+  const readerBaseActionSlots = mobileReaderCapsuleActionSlots({
+    enabledPluginIds: enabledReaderPlugins.map((plugin) => plugin.id),
+    bilingualToggle: false,
+  });
   // Notebook posture: what the bottom pane holds — trackpad, filmstrip, or
   // the continuous strip in scroll mode. The preference is saved; expanding
   // and collapsing are session choices.
@@ -2006,17 +2010,17 @@ export function ReaderScreen() {
     paged: galleryPagedMode,
     override: readerNotebookPaneOverride,
   });
-  const readerPose = useMemo(
-    () =>
+  const buildReaderPose = useCallback(
+    (actionCount: number, twoPage: boolean) =>
       mobileReaderPoseLayout({
         layout: readerWindowLayout,
         fallbackInsets: insets,
         paged: galleryPagedMode,
         pageCount,
-        twoPage: twoPageMode,
+        twoPage,
         rtl: mode === "rtl",
         notebookPane: readerNotebookPane,
-        actionCount: readerActionCount,
+        actionCount,
         sideBar: readerSideBar,
       }),
     [
@@ -2025,15 +2029,16 @@ export function ReaderScreen() {
       insets,
       mode,
       pageCount,
-      readerActionCount,
       readerNotebookPane,
       readerWindowLayout,
-      twoPageMode,
     ],
   );
-  // The notebook setting only means something on a device that folds.
-  const readerNotebookPaneSettingAvailable =
-    readerWindowLayout.divisions.length > 0 || readerPose.posture === "notebook";
+  // The action count only moves the capsule chrome, never the stage, so the
+  // pose without the bilingual toggle decides whether the toggle shows.
+  const readerBasePose = useMemo(
+    () => buildReaderPose(readerBaseActionSlots, twoPageMode),
+    [buildReaderPose, readerBaseActionSlots, twoPageMode],
+  );
   const setReaderNotebookPaneFromSettings = useCallback(
     (value: typeof readerNotebookPanePreference) => {
       if (value === readerNotebookPanePreference || readerSettingsActionBusy) return;
@@ -2049,48 +2054,57 @@ export function ReaderScreen() {
   // never rewritten; the toggle is a session choice.
   const dualReaderConfigured = useMobileDualReaderStore(isMobileDuoDualReaderConfigured);
   const bilingualChoice = useMobileDuoBilingualChoice();
-  const bilingualSpreadPose = useMemo(
+  const bilingualBaseSpreadPose = useMemo(
     () =>
-      readerPose.spread || !dualReaderConfigured
-        ? readerPose
-        : mobileReaderPoseLayout({
-            layout: readerWindowLayout,
-            fallbackInsets: insets,
-            paged: galleryPagedMode,
-            pageCount,
-            twoPage: true,
-            rtl: mode === "rtl",
-            notebookPane: readerNotebookPane,
-            actionCount: readerActionCount,
-            sideBar: readerSideBar,
-          }),
-    [
-      readerSideBar,
-      dualReaderConfigured,
-      galleryPagedMode,
-      insets,
-      mode,
-      pageCount,
-      readerActionCount,
-      readerNotebookPane,
-      readerPose,
-      readerWindowLayout,
-    ],
+      readerBasePose.spread || !dualReaderConfigured
+        ? readerBasePose
+        : buildReaderPose(readerBaseActionSlots, true),
+    [buildReaderPose, dualReaderConfigured, readerBaseActionSlots, readerBasePose],
   );
   const bilingualEligibility = useMemo(
     () =>
       mobileDuoBilingualFromReaderPose({
-        pose: bilingualSpreadPose,
+        pose: bilingualBaseSpreadPose,
         rtl: mode === "rtl",
         paged: galleryPagedMode,
         dualReaderConfigured,
       }),
-    [bilingualSpreadPose, dualReaderConfigured, galleryPagedMode, mode],
+    [bilingualBaseSpreadPose, dualReaderConfigured, galleryPagedMode, mode],
   );
   const bilingualMode = resolveMobileDuoBilingualMode({
     eligible: bilingualEligibility.eligible && pageCount > 0,
     choice: bilingualChoice,
   });
+  const readerActionSlots = mobileReaderCapsuleActionSlots({
+    enabledPluginIds: enabledReaderPlugins.map((plugin) => plugin.id),
+    bilingualToggle: bilingualMode.showToggle,
+  });
+  const readerPose = useMemo(
+    () =>
+      readerActionSlots === readerBaseActionSlots
+        ? readerBasePose
+        : buildReaderPose(readerActionSlots, twoPageMode),
+    [buildReaderPose, readerActionSlots, readerBaseActionSlots, readerBasePose, twoPageMode],
+  );
+  const bilingualSpreadPose = useMemo(
+    () =>
+      readerPose.spread || !dualReaderConfigured
+        ? readerPose
+        : readerActionSlots === readerBaseActionSlots
+          ? bilingualBaseSpreadPose
+          : buildReaderPose(readerActionSlots, true),
+    [
+      bilingualBaseSpreadPose,
+      buildReaderPose,
+      dualReaderConfigured,
+      readerActionSlots,
+      readerBaseActionSlots,
+      readerPose,
+    ],
+  );
+  // The notebook setting only means something on a device that folds.
+  const readerNotebookPaneSettingAvailable =
+    readerWindowLayout.divisions.length > 0 || readerPose.posture === "notebook";
   const bilingualLayout =
     bilingualMode.sideBySide && bilingualEligibility.eligible
       ? bilingualEligibility.layout
@@ -2141,6 +2155,13 @@ export function ReaderScreen() {
   );
   const japaneseLearningVisiblePageKey = JSON.stringify(
     japaneseLearningVisiblePages.map((page) => readerPageIdentityFor(page)),
+  );
+  // Page ids only: a page's image URL or headers can be rewritten while it
+  // stays on screen (the page processor resolving it, a background page-list
+  // refresh with freshly signed URLs), and that must not reset OCR, the
+  // sentence or audio under an open sheet.
+  const japaneseLearningVisiblePageIdsKey = JSON.stringify(
+    japaneseLearningVisiblePages.map((page) => page.id),
   );
   const visibleProgressPageIndex = useMemo(
     () =>
@@ -2623,18 +2644,6 @@ export function ReaderScreen() {
     };
   }, [cleanupDualReadRuntime]);
 
-  // Capsule chrome: Japanese Learning contributes two buttons (detect text,
-  // nemu chat), every other plugin one, plus the bilingual toggle and settings.
-  const readerActionSlots =
-    enabledReaderPlugins.reduce(
-      (count, plugin) => count + (plugin.id === "japanese-learning" ? 2 : 1),
-      0,
-    ) +
-    (bilingualMode.showToggle ? 1 : 0) +
-    1;
-  useEffect(() => {
-    setReaderActionCount((current) => (current === readerActionSlots ? current : readerActionSlots));
-  }, [readerActionSlots]);
   const activeReaderPlugin = useMemo(
     () =>
       enabledReaderPlugins.find(
@@ -2726,34 +2735,6 @@ export function ReaderScreen() {
   ]);
 
   useEffect(() => {
-    japaneseLearningChatMessagesRef.current = japaneseLearningChatMessages;
-  }, [japaneseLearningChatMessages]);
-
-  /** Web store `set((s) => ...)`: the ref is current before React re-renders. */
-  const updateJapaneseLearningChatMessages = useCallback(
-    (
-      updater: (
-        current: JapaneseLearningChatThreadMessage[],
-      ) => JapaneseLearningChatThreadMessage[],
-    ) => {
-      const next = updater(japaneseLearningChatMessagesRef.current);
-      if (next === japaneseLearningChatMessagesRef.current) return;
-      japaneseLearningChatMessagesRef.current = next;
-      setJapaneseLearningChatMessages(next);
-    },
-    [],
-  );
-
-  /** Stop every stream controller's timers (reader exit / new manga session). */
-  const cancelJapaneseLearningChatStreams = useCallback(() => {
-    japaneseLearningChatInFlightRef.current = null;
-    for (const controller of japaneseLearningChatControllersRef.current) {
-      controller.onCancelled();
-    }
-    japaneseLearningChatControllersRef.current.clear();
-  }, []);
-
-  useEffect(() => {
     if (activeReaderPluginId === "japanese-learning") return;
     japaneseLearningChatTtsAutoPlayRef.current = {
       enabled: false,
@@ -2769,7 +2750,7 @@ export function ReaderScreen() {
     registryId,
     sourceId,
     chapterId,
-    pageKey: japaneseLearningVisiblePageKey,
+    pageKey: japaneseLearningVisiblePageIdsKey,
   });
   useEffect(() => {
     void japaneseLearningPageResetKey;
@@ -2797,36 +2778,26 @@ export function ReaderScreen() {
     setJapaneseLearningSelectedDetectionOrder(null);
   }, [japaneseLearningPageResetKey]);
   // Web resets the chat store only in the plugin's `onUnmount` (reader closed
-  // or a different manga). Chapter changes remount this screen, so the thread
-  // is parked in the session module across the remount.
-  useEffect(() => retainMobileJapaneseLearningChatSession(), []);
+  // or a different manga). Chapter changes remount this screen; the session
+  // module keeps the thread and the reply in flight across the remount, and
+  // ends them only once no reader for this manga has held it for the grace
+  // period. A different manga gets its own session; the previous manga's
+  // ends once its reader lets go.
+  useEffect(
+    () => retainMobileJapaneseLearningChatSession(japaneseLearningChatSession),
+    [japaneseLearningChatSession],
+  );
+  const japaneseLearningChatSessionRef = useRef(japaneseLearningChatSession);
   useEffect(() => {
-    writeMobileJapaneseLearningChatSession(japaneseLearningChatSessionKey, {
-      messages: japaneseLearningChatMessages,
-      followUps: japaneseLearningChatFollowUps,
-    });
-  }, [
-    japaneseLearningChatFollowUps,
-    japaneseLearningChatMessages,
-    japaneseLearningChatSessionKey,
-  ]);
+    if (japaneseLearningChatSessionRef.current === japaneseLearningChatSession) return;
+    japaneseLearningChatSessionRef.current = japaneseLearningChatSession;
+    setJapaneseLearningChatInput("");
+  }, [japaneseLearningChatSession]);
   /** Web `useNemuChatStore.reset()`, run from the plugin's `onUnmount`. */
   const resetJapaneseLearningChat = useCallback(() => {
-    cancelJapaneseLearningChatStreams();
-    japaneseLearningLifecycleRef.current?.abort("chat");
-    japaneseLearningChatMessagesRef.current = [];
-    setJapaneseLearningChatMessages([]);
-    setJapaneseLearningChatFollowUps([]);
-    setJapaneseLearningChatStreaming(false);
-    setJapaneseLearningChatShowTypingIndicator(false);
+    japaneseLearningChatSession.reset();
     setJapaneseLearningChatInput("");
-  }, [cancelJapaneseLearningChatStreams]);
-  const japaneseLearningChatSessionKeyRef = useRef(japaneseLearningChatSessionKey);
-  useEffect(() => {
-    if (japaneseLearningChatSessionKeyRef.current === japaneseLearningChatSessionKey) return;
-    japaneseLearningChatSessionKeyRef.current = japaneseLearningChatSessionKey;
-    resetJapaneseLearningChat();
-  }, [japaneseLearningChatSessionKey, resetJapaneseLearningChat]);
+  }, [japaneseLearningChatSession]);
   // Web's plugin host unmounts a plugin disabled mid-session, and the
   // Japanese-learning `onUnmount` resets the chat store: the thread, the
   // follow-ups and any reply in flight all go.
@@ -2859,18 +2830,14 @@ export function ReaderScreen() {
   }, [currentDisplayedPageIdentity, currentSegmentedImage, strings]);
 
   useEffect(() => {
-    const chatControllers = japaneseLearningChatControllersRef.current;
     return () => {
       japaneseLearningLauncherNextSurfaceRef.current = null;
       japaneseLearningTranscriptNextSurfaceRef.current = null;
       void clearMobileReaderImageMemoryCache();
+      // Page-scoped work only: the Nemu chat request and its speak queue
+      // belong to the session module, which lets the next chapter's screen
+      // re-attach and ends them when the reader itself closes.
       japaneseLearningLifecycleRef.current?.abortAll();
-      // Speak-queue timers must not outlive the screen (the session module
-      // keeps the delivered thread for the next chapter's screen).
-      japaneseLearningChatInFlightRef.current = null;
-      for (const controller of chatControllers) {
-        controller.onCancelled();
-      }
       japaneseLearningOcrRunRef.current += 1;
       japaneseLearningGrammarRunRef.current += 1;
       japaneseLearningTtsRunRef.current += 1;
@@ -3796,59 +3763,19 @@ export function ReaderScreen() {
     }).catch(() => undefined);
   }, []);
 
-  /** Web `createChatStreamCallbacks()` bound to this screen's chat store. */
+  /** Web `createChatStreamCallbacks()` bound to the manga's chat session. */
   const createJapaneseLearningChatStreamController = useCallback(
     () =>
-      createMobileJapaneseLearningChatStreamController({
-        addAssistantMessage: (content, toolCalls, options) => {
-          const id = nextJapaneseLearningChatMessageId();
-          const message: JapaneseLearningChatThreadMessage = {
-            id,
-            role: "assistant",
-            kind: options?.kind ?? "text",
-            text: content,
-            createdAt: Date.now(),
-            toolCalls,
-            hidden: options?.hidden,
-            ttsText: options?.ttsText,
-          };
-          updateJapaneseLearningChatMessages((current) => [...current, message]);
-          return id;
-        },
-        setStreaming: setJapaneseLearningChatStreaming,
-        setShowTypingIndicator: setJapaneseLearningChatShowTypingIndicator,
-        setFollowUps: setJapaneseLearningChatFollowUps,
-        addToolResults: (results) =>
-          updateJapaneseLearningChatMessages((current) =>
-            attachMobileJapaneseLearningChatToolResults(current, results),
-          ),
-        markLastUserMessageRead: () =>
-          updateJapaneseLearningChatMessages(
-            markMobileJapaneseLearningChatLastUserMessageRead,
-          ),
-        upsertContextSnapshot: (key, content) => {
-          const trimmedContent = (content ?? "").trim();
-          if (!trimmedContent) return;
-          updateJapaneseLearningChatMessages((current) =>
-            upsertMobileJapaneseLearningChatContextSnapshot(current, key, {
-              id: nextJapaneseLearningChatMessageId(),
-              role: "user",
-              kind: "text",
-              text: trimmedContent,
-              createdAt: Date.now(),
-              hidden: true,
-              isRead: true,
-            }),
-          );
-        },
-        prefetchVoice: (_messageId, ttsText) =>
-          prefetchJapaneseLearningChatVoice(ttsText),
-      }),
-    [
-      nextJapaneseLearningChatMessageId,
-      prefetchJapaneseLearningChatVoice,
-      updateJapaneseLearningChatMessages,
-    ],
+      createMobileJapaneseLearningChatStreamController(
+        createMobileJapaneseLearningChatSessionStreamStore(
+          japaneseLearningChatSession,
+          {
+            prefetchVoice: (_messageId, ttsText) =>
+              prefetchJapaneseLearningChatVoice(ttsText),
+          },
+        ),
+      ),
+    [japaneseLearningChatSession, prefetchJapaneseLearningChatVoice],
   );
 
   const executeJapaneseLearningChatTool = useCallback(
@@ -3964,8 +3891,9 @@ export function ReaderScreen() {
       const prompt = request.text.trim();
       if (!prompt || !chapter) return false;
 
+      const session = japaneseLearningChatSession;
       const existingMessages = mobileJapaneseLearningChatRequestMessages(
-        japaneseLearningChatMessagesRef.current,
+        session.getState().messages,
       );
       if (request.storeUserMessage) {
         const userMessage: JapaneseLearningChatThreadMessage = {
@@ -3975,25 +3903,20 @@ export function ReaderScreen() {
           displayText: request.displayText,
           createdAt: Date.now(),
         };
-        updateJapaneseLearningChatMessages((current) => [...current, userMessage]);
+        session.updateMessages((current) => [...current, userMessage]);
       }
-      setJapaneseLearningChatFollowUps([]);
-      setJapaneseLearningChatStreaming(true);
+      session.setFollowUps([]);
+      session.setStreaming(true);
       // No dots during the initial wait; `onStreamStart` decides.
-      setJapaneseLearningChatShowTypingIndicator(false);
+      session.setShowTypingIndicator(false);
       setJapaneseLearningChatRequestSeq((seq) => seq + 1);
 
-      const previous = japaneseLearningChatInFlightRef.current;
-      if (previous) previous.controller.onCancelled();
+      // The session owns the request, so a chapter change (which remounts
+      // this screen) neither aborts it nor loses its answer or error bubble.
       const controller = createJapaneseLearningChatStreamController();
-      const controllers = japaneseLearningChatControllersRef.current;
-      controllers.add(controller);
-      // Earlier controllers have long drained their speak queues.
-      for (const stale of [...controllers].slice(0, -4)) controllers.delete(stale);
-      const inFlight = { controller };
-      japaneseLearningChatInFlightRef.current = inFlight;
+      const inFlight = session.beginRequest(controller);
       controller.onStreamStart();
-      const signal = japaneseLearningLifecycleRef.current!.begin("chat");
+      const signal = inFlight.signal;
 
       void runMobileJapaneseLearningChat({
         appLanguage,
@@ -4023,11 +3946,9 @@ export function ReaderScreen() {
         // Web `truncateOldestHalf`: the visible thread loses its oldest half
         // too, so the next turn does not hit the limit again.
         onContextTooLong: () => {
-          updateJapaneseLearningChatMessages(
-            truncateMobileJapaneseLearningChatOldestHalf,
-          );
+          session.updateMessages(truncateMobileJapaneseLearningChatOldestHalf);
           return mobileJapaneseLearningChatContextRetryMessages(
-            japaneseLearningChatMessagesRef.current,
+            session.getState().messages,
             prompt,
             request.storeUserMessage,
           );
@@ -4040,14 +3961,12 @@ export function ReaderScreen() {
         transcript: request.transcript ?? japaneseLearningPageTranscript,
       }).then(
         () => {
-          if (japaneseLearningChatInFlightRef.current !== inFlight) return;
-          japaneseLearningChatInFlightRef.current = null;
+          if (!inFlight.finish()) return;
           // Web: a stream that ends without an explicit `done` still finishes.
           if (!controller.isCompleted()) controller.onDone();
         },
         (error: unknown) => {
-          if (japaneseLearningChatInFlightRef.current !== inFlight) return;
-          japaneseLearningChatInFlightRef.current = null;
+          if (!inFlight.finish()) return;
           // A stream `error` event already produced its bubble via `onError`.
           if (controller.isCompleted()) return;
           controller.onError(
@@ -4072,7 +3991,7 @@ export function ReaderScreen() {
       sourcePageNumber,
       state.entry?.item.metadata.tags,
       mangaTitle,
-      updateJapaneseLearningChatMessages,
+      japaneseLearningChatSession,
     ],
   );
 
@@ -4153,7 +4072,7 @@ export function ReaderScreen() {
         setJapaneseLearningChatDrawerVisible(true);
       }
     },
-    [japaneseLearningLauncherVisible],
+    [japaneseLearningLauncherVisible, setJapaneseLearningChatDrawerVisible],
   );
 
   const handleJapaneseLearningLauncherClosed = useCallback(() => {
@@ -4165,7 +4084,7 @@ export function ReaderScreen() {
     } else if (nextSurface === "chat") {
       setJapaneseLearningChatDrawerVisible(true);
     }
-  }, []);
+  }, [setJapaneseLearningChatDrawerVisible]);
 
   const openJapaneseLearningDetectionTool = useCallback(() => {
     openJapaneseLearningSurfaceAfterLauncher("transcript");
@@ -4187,7 +4106,7 @@ export function ReaderScreen() {
   const openJapaneseLearningChatTool = useCallback(() => {
     if (
       !japaneseLearningChatStreaming &&
-      japaneseLearningChatMessagesRef.current.length === 0
+      japaneseLearningChatSession.getState().messages.length === 0
     ) {
       runJapaneseLearningChat();
     } else {
@@ -4195,6 +4114,7 @@ export function ReaderScreen() {
     }
     openJapaneseLearningSurfaceAfterLauncher("chat");
   }, [
+    japaneseLearningChatSession,
     japaneseLearningChatStreaming,
     openJapaneseLearningSurfaceAfterLauncher,
     runJapaneseLearningChat,
@@ -4303,7 +4223,7 @@ export function ReaderScreen() {
       }
       runJapaneseLearningGrammar(detection.text);
     },
-    [japaneseLearningTranscriptVisible, japaneseLearningOcrSheetVisible,
+    [japaneseLearningTranscriptVisible, japaneseLearningOcrSheetVisible, setJapaneseLearningOcrSheetVisible,
       japaneseLearningChatDrawerVisible, japaneseLearningOcrProgress,
       japaneseLearningChatProgress, runJapaneseLearningGrammar],
   );
@@ -4313,7 +4233,7 @@ export function ReaderScreen() {
     const nextSurface = japaneseLearningTranscriptNextSurfaceRef.current;
     japaneseLearningTranscriptNextSurfaceRef.current = null;
     if (nextSurface === "ocr") setJapaneseLearningOcrSheetVisible(true);
-  }, []);
+  }, [setJapaneseLearningOcrSheetVisible]);
 
   const japaneseLearningTtsSource =
     japaneseLearningTtsState.status === "loading" ||
@@ -4345,7 +4265,7 @@ export function ReaderScreen() {
       stopJapaneseLearningTts();
     }
     setJapaneseLearningOcrSheetVisible(false);
-  }, [japaneseLearningTtsState, stopJapaneseLearningTts]);
+  }, [japaneseLearningTtsState, setJapaneseLearningOcrSheetVisible, stopJapaneseLearningTts]);
 
   // Web parity (`openChatAndSend` opens the chat drawer over the sentence
   // sheet): when a chat request starts while the sentence view is open, the
@@ -4366,6 +4286,7 @@ export function ReaderScreen() {
     japaneseLearningOcrNextSurfaceRef.current = "chat";
     setJapaneseLearningOcrSheetVisible(false);
   }, [
+    setJapaneseLearningOcrSheetVisible,
     japaneseLearningChatDrawerVisible,
     japaneseLearningChatRequestSeq,
     japaneseLearningOcrSheetVisible,
@@ -4403,6 +4324,31 @@ export function ReaderScreen() {
   const japaneseLearningPresentationProgress = useDerivedValue(() =>
     Math.max(japaneseLearningOcrProgress.value, japaneseLearningChatProgress.value),
   );
+  // The popout rides the chat only when that chat was opened from this
+  // bubble's sentence (Ask). Decided when the chat presents, and kept through
+  // its dismissal so the popout fades out with the sheet.
+  const [japaneseLearningChatFromSentence, setJapaneseLearningChatFromSentence] =
+    useState(false);
+  useEffect(() => {
+    if (!japaneseLearningChatDrawerVisible) return;
+    setJapaneseLearningChatFromSentence(japaneseLearningChatReturnsToSentence);
+  }, [japaneseLearningChatDrawerVisible, japaneseLearningChatReturnsToSentence]);
+  const japaneseLearningBubblePopoutPresentationProgress = useDerivedValue(
+    () =>
+      japaneseLearningBubblePopoutProgress(
+        japaneseLearningOcrProgress.value,
+        japaneseLearningChatProgress.value,
+        japaneseLearningChatFromSentence,
+      ),
+    [japaneseLearningChatFromSentence],
+  );
+  const japaneseLearningBubblePopoutPresented =
+    isJapaneseLearningBubblePopoutPresented({
+      ocrSheetVisible: japaneseLearningOcrSheetVisible,
+      chatVisible: japaneseLearningChatDrawerVisible,
+      chatOpenedFromSentence: japaneseLearningChatFromSentence,
+    });
+
   const handleJapaneseLearningOcrProgress = useCallback((progress: number) => {
     japaneseLearningOcrProgress.value = Platform.OS === "ios"
       ? progress
@@ -4414,15 +4360,31 @@ export function ReaderScreen() {
       : withSpring(progress, { stiffness: 500, damping: 30 });
   }, [japaneseLearningChatProgress]);
   const handleJapaneseLearningOcrSheetDismissed = useCallback(() => {
-    if (japaneseLearningOcrNextSurfaceRef.current !== "chat") return;
+    // The sheet is gone: its presentation progress is 0 even when the last
+    // sampled frame of an interactive dismissal was not (the backdrop and the
+    // popout would otherwise stay up over the reader).
+    if (!japaneseLearningOcrSheetWantedRef.current) japaneseLearningOcrProgress.value = 0;
+    if (japaneseLearningOcrNextSurfaceRef.current !== "chat") {
+      // Closed for good (no Ask hand-off): the bubble is no longer selected,
+      // so it cannot resurface over an unrelated chat later on this page.
+      // A bubble tapped while this sheet was still dismissing keeps its sheet.
+      if (
+        !japaneseLearningOcrSheetWantedRef.current &&
+        japaneseLearningTranscriptNextSurfaceRef.current !== "ocr"
+      ) {
+        setJapaneseLearningSelectedDetectionOrder(null);
+      }
+      return;
+    }
     japaneseLearningOcrNextSurfaceRef.current = null;
     setJapaneseLearningChatDrawerVisible(true);
-  }, []);
+  }, [japaneseLearningOcrProgress, setJapaneseLearningChatDrawerVisible]);
   const handleJapaneseLearningChatDismissed = useCallback(() => {
+    if (!japaneseLearningChatDrawerWantedRef.current) japaneseLearningChatProgress.value = 0;
     if (japaneseLearningChatNextSurfaceRef.current !== "ocr") return;
     japaneseLearningChatNextSurfaceRef.current = null;
     setJapaneseLearningOcrSheetVisible(true);
-  }, []);
+  }, [japaneseLearningChatProgress, setJapaneseLearningOcrSheetVisible]);
   // Web drawer has no Back: closing it uncovers whatever was underneath —
   // the sentence sheet when the chat was opened from it, else the reader.
   const closeJapaneseLearningChatDrawer = useCallback(() => {
@@ -4431,7 +4393,7 @@ export function ReaderScreen() {
       : null;
     setJapaneseLearningChatReturnsToSentence(false);
     setJapaneseLearningChatDrawerVisible(false);
-  }, [japaneseLearningChatReturnsToSentence]);
+  }, [japaneseLearningChatReturnsToSentence, setJapaneseLearningChatDrawerVisible]);
   const toggleJapaneseLearningTts = useCallback(() => {
     const isSentenceTtsBusy =
       (japaneseLearningTtsState.status === "loading" ||
@@ -4790,12 +4752,12 @@ export function ReaderScreen() {
                 Date.now() > autoPlayState.armedAt
               ) {
                 const currentIndex =
-                  japaneseLearningChatMessagesRef.current.findIndex(
+                  japaneseLearningChatSession.getState().messages.findIndex(
                     (item) => item.id === message.id,
                   );
                 const nextMessage =
                   currentIndex >= 0
-                    ? japaneseLearningChatMessagesRef.current
+                    ? japaneseLearningChatSession.getState().messages
                         .slice(currentIndex + 1)
                         .find(
                           (item) =>
@@ -4854,7 +4816,7 @@ export function ReaderScreen() {
         void hapticError();
       });
     },
-    [strings],
+    [japaneseLearningChatSession, strings],
   );
 
   useEffect(() => {
@@ -8161,24 +8123,23 @@ export function ReaderScreen() {
       {readerChromeMounted ? renderReaderChrome() : null}
       {/* Web drawer overlay + text popout: over a compact sentence / chat
           sheet the reader and its chrome are dimmed and blurred, and the
-          selected bubble floats above everything (kept while its chat is
-          open). Above the chrome layer (zIndex 20); the native sheet itself
+          selected bubble floats above everything (kept over a chat opened
+          from its sentence, never over one opened from the capsule). Above the chrome layer (zIndex 20); the native sheet itself
           presents above this whole screen. */}
-      {(
-        <View pointerEvents="none" style={styles.japaneseLearningSheetOverlay}>
-          <JapaneseLearningSheetBackdrop progress={japaneseLearningPresentationProgress} />
-          {japaneseLearningBubbleSource ? (
-            <ReaderDarkThemeScope>
-              <JapaneseLearningBubblePopout
-                key={`${japaneseLearningBubbleSource.box.pageId}:${japaneseLearningBubbleSource.box.order}`}
-                source={japaneseLearningBubbleSource}
-                progress={japaneseLearningPresentationProgress}
-                accessibilityLabel={strings.reader.pluginJapaneseLearningSelectedText}
-              />
-            </ReaderDarkThemeScope>
-          ) : null}
-        </View>
-      )}
+      <View pointerEvents="none" style={styles.japaneseLearningSheetOverlay}>
+        <JapaneseLearningSheetBackdrop progress={japaneseLearningPresentationProgress} />
+        {japaneseLearningBubbleSource ? (
+          <ReaderDarkThemeScope>
+            <JapaneseLearningBubblePopout
+              key={`${japaneseLearningBubbleSource.box.pageId}:${japaneseLearningBubbleSource.box.order}`}
+              source={japaneseLearningBubbleSource}
+              progress={japaneseLearningBubblePopoutPresentationProgress}
+              presented={japaneseLearningBubblePopoutPresented}
+              accessibilityLabel={strings.reader.pluginJapaneseLearningSelectedText}
+            />
+          </ReaderDarkThemeScope>
+        ) : null}
+      </View>
       <MobileNemuAgentSheet
         visible={cloudflareSheet.visible && !endOfChapterPromptVisible}
         status={cloudflareSheet.status}
@@ -8195,6 +8156,29 @@ export function ReaderScreen() {
         pageRequestPending={pagesState.status === "loading"}
         strings={strings}
         connectivity={readerConnectivity}
+      />
+      {/* Duo signature feature 5 (duo-signature-integration.md): folding shut
+          or unfolding moves the reader between displays; a short toast
+          confirms it continued at the same page. Never for rotation, book ⇄
+          flat, resizes or non-foldables (`mobileDuoDisplayTransition`). */}
+      <DuoDisplayHandoffToast
+        width={readerWindowLayout.width}
+        height={readerWindowLayout.height}
+        hinge={readerWindowLayout.hinge}
+        hasFold={readerWindowLayout.divisions.length > 0}
+        pageNumber={
+          pageCount > 0
+            ? (isTwoPageMode ? visibleProgressPageIndex : clampedPageIndex) + 1
+            : null
+        }
+        enabled={readerIsFocused && pagesState.status === "ready"}
+        topOffset={insets.top + 76}
+        insets={
+          readerNoticeFrame
+            ? { left: readerNoticeFrame.left + 12, right: readerNoticeFrame.right + 12 }
+            : undefined
+        }
+        strings={strings}
       />
       <MobileReaderEndOfChapterOverlay
         visible={endOfChapterPromptVisible}

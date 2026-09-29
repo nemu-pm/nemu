@@ -226,11 +226,15 @@ jobs:
           # their retained heaps cannot exhaust a hosted runner together.
           # Two workers plus a bounded 3 GiB heap leave room for native and JS
           # subprocesses while avoiding the previous 2 GiB packageRelease OOM.
+          # AGP 9 creates JVM unit-test tasks only for the tested build type
+          # (android.onlyEnableUnitTestForTheTestedBuildType now defaults to
+          # true, and AGP 10 removes the opt-out), so there is no
+          # testReleaseUnitTest; the module's tests have no build-type-specific
+          # code, and :app:assembleRelease below still compiles it for release.
           ./gradlew --no-daemon --console=plain --stacktrace --max-workers=2 \
             -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g" \
             clean \
             :nemu-aidoku:testDebugUnitTest \
-            :nemu-aidoku:testReleaseUnitTest \
             :nemu-aidoku:assembleDebugAndroidTest \
             :app:assembleDebug \
             -PreactNativeArchitectures=arm64-v8a
@@ -358,10 +362,40 @@ jobs:
           plutil -convert xml1 -o /tmp/nemu-privacy-manifest.xml "$privacy_manifest"
           grep -Fq '<string>NSPrivacyAccessedAPICategoryUserDefaults</string>' /tmp/nemu-privacy-manifest.xml
           grep -Fq '<string>CA92.1</string>' /tmp/nemu-privacy-manifest.xml
+          grep -Fq '<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>' /tmp/nemu-privacy-manifest.xml
+          grep -Fq '<string>C617.1</string>' /tmp/nemu-privacy-manifest.xml
+          grep -Fq '<string>NSPrivacyAccessedAPICategorySystemBootTime</string>' /tmp/nemu-privacy-manifest.xml
+          grep -Fq '<string>35F9.1</string>' /tmp/nemu-privacy-manifest.xml
           plutil -extract UIBackgroundModes xml1 -o /tmp/nemu-background-modes.xml ios/nemu/Info.plist
           grep -Fq '<string>processing</string>' /tmp/nemu-background-modes.xml
           ! grep -Fq '<string>audio</string>' /tmp/nemu-background-modes.xml
-          ! grep -Fq '<key>NSMicrophoneUsageDescription</key>' ios/nemu/Info.plist
+          # Nemu chat dictation (expo-speech-recognition) needs both prompts;
+          # neither may be empty.
+          for key in NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription; do
+            description="$(plutil -extract "$key" raw -o - ios/nemu/Info.plist)"
+            test -n "$description" || (echo "$key is empty" && exit 1)
+          done
+      - name: Resolve manga OCR model revision
+        id: ocr-models
+        working-directory: apps/mobile
+        run: |
+          script=modules/nemu-japanese-learning/scripts/fetch-ocr-models.ts
+          source_id="$(sed -n 's/^const SOURCE_ID = "\([^"]*\)";$/\1/p' "$script")"
+          revision="$(sed -n 's/^const HF_REVISION = "\([0-9a-f]*\)";$/\1/p' "$script")"
+          test -n "$source_id" && test -n "$revision"
+          echo "key=nemu-ocr-models-${source_id}-${revision}" >> "$GITHUB_OUTPUT"
+      - name: Restore manga OCR model sources
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # fetch-ocr-models.ts re-verifies every cached file against its
+          # pinned sha256 and re-downloads on any mismatch.
+          path: ~/Library/Caches/nemu/ocr-models
+          key: ${{ runner.os }}-${{ steps.ocr-models.outputs.key }}
+      - name: Materialise manga OCR models
+        # Release builds refuse to build without them (NemuJapaneseLearning
+        # podspec), and `pod install` must see them to bundle them.
+        working-directory: apps/mobile
+        run: bun run ocr:models
       - name: Install CocoaPods
         working-directory: apps/mobile/ios
         run: pod install
@@ -418,6 +452,11 @@ jobs:
             -framework ImageIO \
             -o "$test_dir/image-tests"
           "$test_dir/image-tests"
+          xcrun swiftc -parse-as-library \
+            modules/nemu-japanese-learning/ios/NemuSharedResource.swift \
+            modules/nemu-japanese-learning/iosTest/NemuSharedResourceTests.swift \
+            -o "$test_dir/shared-resource-tests"
+          "$test_dir/shared-resource-tests"
       - name: Build iOS Debug simulator app
         working-directory: apps/mobile/ios
         run: |

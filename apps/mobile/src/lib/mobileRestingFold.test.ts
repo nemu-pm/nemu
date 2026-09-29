@@ -1,16 +1,9 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import fixture from "../../../../tests/fixtures/iphone-duo/safearea-measurements.json";
 import { mobileAdaptiveLayout, mobileFoldSplitForContainer } from "./mobileAdaptiveLayout";
 import { getMobileEmptyLibraryAdaptiveLayout } from "./mobileEmptyLibraryLayout";
 import { mobileFoldAwareGridLayout, mobileFoldPagerLayout, mobilePaneContentRegion } from "./mobileFoldAwareGrid";
-import {
-  MOBILE_IOS_FOLD_GUTTER,
-  mobileRestingFoldAdaptive,
-  mobileRestingFoldMinGutter,
-  mobileRestingFoldSplitForContainer,
-  noteMobileActiveFold,
-  resetMobileRestingFoldMemory,
-} from "./mobileRestingFold";
+import { MOBILE_IOS_FOLD_GUTTER, mobileRestingFoldMinGutter } from "./mobileRestingFold";
 import type { MobileWindowLayout } from "./mobileWindowLayout";
 
 type Measurement = (typeof fixture.measurements)[number];
@@ -37,85 +30,20 @@ function measured(pose: string, orientation: string) {
 const LANDSCAPE_CONTAINER = { x: 0, y: 94, width: 867, height: 541 };
 const PORTRAIT_CONTAINER = { x: 16, y: 138, width: 637, height: 700 };
 
-beforeEach(() => resetMobileRestingFoldMemory());
-
-describe("mobileRestingFoldSplitForContainer (measured iPhone Duo)", () => {
-  for (const orientation of ["landscape-left", "landscape-right"]) {
-    test(`fully open ${orientation}: the inactive division yields the book split`, () => {
-      const book = mobileFoldSplitForContainer(mobileAdaptiveLayout(measured("partially-folded", orientation)), LANDSCAPE_CONTAINER);
-      const flat = measured("open", orientation);
-      expect(mobileAdaptiveLayout(flat).posture).toBe("flat");
-      const resting = mobileRestingFoldSplitForContainer(flat, LANDSCAPE_CONTAINER);
-      expect(resting).toEqual(book);
-      expect(resting?.gutter).toEqual({ start: 455.5, end: 495.5 });
-    });
-  }
-
-  test("an active fold is not a resting fold", () => {
-    expect(mobileRestingFoldSplitForContainer(measured("partially-folded", "landscape-left"), LANDSCAPE_CONTAINER)).toBeNull();
-  });
-
-  test("the outer display reports no division at all", () => {
-    const outer = fixture.measurements.find((x) => x.screen === "iphone-duo-outer")!;
-    expect(mobileRestingFoldSplitForContainer(toLayout(outer), { x: 0, y: 0, width: 382, height: 600 })).toBeNull();
-  });
-
-  test("a flat Android hinge (zero-width, inactive) gets the same widened gutter as when folded", () => {
-    const hinge = { id: "fold-0", x: 420.5, y: 0, width: 0, height: 701 };
-    const flat: MobileWindowLayout = { width: 841, height: 701, supported: true, divisions: [{ ...hinge, active: false }], occlusions: [] };
-    const folded: MobileWindowLayout = { ...flat, divisions: [{ ...hinge, active: true }] };
-    const container = { x: 0, y: 100, width: 841, height: 520 };
-    expect(mobileRestingFoldSplitForContainer(flat, container)).toEqual(
-      mobileFoldSplitForContainer(mobileAdaptiveLayout(folded), container),
-    );
-  });
-});
-
-describe("resting gutter never depends on the inactive region's width", () => {
-  const container = { x: 0, y: 94, width: 867, height: 541 };
-  const flatWith = (width: number): MobileWindowLayout => ({
-    width: 951,
-    height: 669,
-    supported: true,
-    divisions: [{ id: "division-0", active: false, x: 475.5 - width / 2, y: 0, width, height: 669 }],
-    occlusions: [],
-  });
-
-  test("an iOS zero-width inactive division (Apple: zero when flat) still gets the 40pt Duo gutter", () => {
-    const book = mobileFoldSplitForContainer(mobileAdaptiveLayout(measured("partially-folded", "landscape-left")), container);
-    for (const width of [0, 12, 40]) {
-      expect(mobileRestingFoldSplitForContainer(flatWith(width), container, 120, mobileRestingFoldMinGutter("ios"))).toEqual(book);
+describe("fold rule: book splits at the fold, fully open uses the ordinary layout", () => {
+  test("a flat (inactive) fold is not a split line", () => {
+    for (const orientation of ["landscape-left", "landscape-right"]) {
+      const flat = mobileAdaptiveLayout(measured("open", orientation));
+      expect(mobileFoldSplitForContainer(flat, LANDSCAPE_CONTAINER)).toBeNull();
+      const book = mobileAdaptiveLayout(measured("partially-folded", orientation));
+      expect(book.posture).toBe("book");
+      expect(mobileFoldSplitForContainer(book, LANDSCAPE_CONTAINER)).not.toBeNull();
     }
+  });
+
+  test("inactive horizontal fold band height per platform", () => {
     expect(mobileRestingFoldMinGutter("ios")).toBe(MOBILE_IOS_FOLD_GUTTER);
     expect(mobileRestingFoldMinGutter("android")).toBe(20);
-  });
-
-  test("the active fold seen at this window size wins over the platform default", () => {
-    const folded: MobileWindowLayout = {
-      ...flatWith(0),
-      divisions: [{ id: "division-0", active: true, x: 453.5, y: 0, width: 44, height: 669 }],
-    };
-    noteMobileActiveFold(folded);
-    expect(mobileRestingFoldSplitForContainer(flatWith(0), container, 120, 40)?.gutter).toEqual({ start: 453.5, end: 497.5 });
-    expect(mobileRestingFoldSplitForContainer(flatWith(0), container, 120, 40)).toEqual(
-      mobileFoldSplitForContainer(mobileAdaptiveLayout(folded), container),
-    );
-    // Another window size (rotated, Split View) does not reuse it.
-    const other = { ...flatWith(0), width: 900 };
-    const otherGutter = mobileRestingFoldSplitForContainer(other, { ...container, width: 800 }, 120, 40)!.gutter;
-    expect(otherGutter.end - otherGutter.start).toBe(40);
-  });
-
-  test("a notebook-axis (horizontal) resting division is not a book split", () => {
-    expect(mobileRestingFoldAdaptive(measured("open", "portrait"))).toBeNull();
-  });
-
-  test("the resting adaptive layout is the book posture's", () => {
-    const resting = mobileRestingFoldAdaptive(measured("open", "landscape-left"), 40)!;
-    const book = mobileAdaptiveLayout(measured("partially-folded", "landscape-left"));
-    expect(resting.posture).toBe("book");
-    expect(resting.fold).toEqual(book.fold);
-    expect(resting.panels).toEqual(book.panels);
   });
 });
 

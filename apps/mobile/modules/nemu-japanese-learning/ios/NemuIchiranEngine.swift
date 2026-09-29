@@ -69,17 +69,26 @@ enum NemuIchiranEngine {
 }
 
 #if NEMU_ICHIRAN_KERNEL
-  /// Single owner of the pack store and the opened analyzer.
+  extension IchiranAnalyzer: NemuDisposableResource {}
+
+  /// Single owner of the pack store and the opened analyzer. The analyzer's
+  /// lifecycle (one open at a time, disposal only once no analysis is using
+  /// it) is `NemuSharedResource`'s; install and remove retire it.
   actor NemuIchiranService {
     static let shared = NemuIchiranService()
 
-    private var analyzer: IchiranAnalyzer?
-    private var analyzerManifest: String?
-    private var installing = false
-
-    private func store() throws -> IchiranPackStore {
-      IchiranPackStore(baseDirectory: try NemuIchiranEngine.packDirectory())
+    private let analyzer = NemuSharedResource<IchiranAnalyzer, String> {
+      let pack: IchiranInstalledPack
+      do {
+        pack = try await IchiranPackStore(baseDirectory: try NemuIchiranEngine.packDirectory())
+          .installedPack()
+      } catch {
+        throw NemuIchiranEngine.Failure(
+          code: "E_PACK_NOT_INSTALLED", message: "The Japanese dictionary is not installed.")
+      }
+      return (try await IchiranAnalyzer.open(pack), pack.packVersion)
     }
+    private var installing = false
 
     func status() async -> [String: Any] {
       var result: [String: Any] = [
@@ -160,9 +169,9 @@ enum NemuIchiranEngine {
         throw NemuIchiranEngine.Failure(
           code: "E_PACK_PIN", message: "The installed dictionary does not match the pinned version.")
       }
-      await analyzer?.dispose()
-      analyzer = nil
-      analyzerManifest = nil
+      // Later analyses open the new generation; the old analyzer is disposed
+      // once the analyses using it finish.
+      await analyzer.retire()
       // Re-apply after install created new generation directories.
       _ = try NemuIchiranEngine.packDirectory()
       installing = false
@@ -170,27 +179,22 @@ enum NemuIchiranEngine {
     }
 
     func remove() async throws {
-      await analyzer?.dispose()
-      analyzer = nil
-      analyzerManifest = nil
+      // Waits for in-flight analyses of the current pack before its files go.
+      await analyzer.retire()
       let directory = try NemuIchiranEngine.packDirectory()
       try FileManager.default.removeItem(at: directory)
     }
 
-    private func openAnalyzer() async throws -> (IchiranAnalyzer, String) {
-      if let analyzer, let analyzerManifest { return (analyzer, analyzerManifest) }
-      let store = try store()
-      let pack: IchiranInstalledPack
+    /// The shared analyzer's errors in the module's terms.
+    private func withAnalyzer<T: Sendable>(
+      _ body: @Sendable (IchiranAnalyzer, String) async throws -> T
+    ) async throws -> T {
       do {
-        pack = try await store.installedPack()
-      } catch {
+        return try await analyzer.use(body)
+      } catch is NemuResourceRetiredError {
         throw NemuIchiranEngine.Failure(
-          code: "E_PACK_NOT_INSTALLED", message: "The Japanese dictionary is not installed.")
+          code: "E_PACK_CHANGED", message: "The Japanese dictionary changed; try again.")
       }
-      let opened = try await IchiranAnalyzer.open(pack)
-      analyzer = opened
-      analyzerManifest = pack.packVersion
-      return (opened, pack.packVersion)
     }
 
     struct WireOptions: Encodable {
@@ -206,8 +210,6 @@ enum NemuIchiranEngine {
       entities: [IchiranEntityHint]
     ) async throws -> [String: Any] {
       let started = DispatchTime.now()
-      let (analyzer, packVersion) = try await openAnalyzer()
-      let openedMs = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e6
       let units = Array(text.utf16)
       guard units.count <= 4_096 else {
         throw NemuIchiranEngine.Failure(
@@ -218,8 +220,11 @@ enum NemuIchiranEngine {
       let options = try JSONEncoder().encode(
         WireOptions(
           limit: max(1, min(10, limit)), entities: entities, normalizePunctuation: false))
-      let data = try await analyzer.qualificationLegacyJSON(
-        utf16Units: units, optionsJSON: options)
+      let (data, packVersion, openedMs) = try await withAnalyzer { analyzer, packVersion in
+        let openedMs = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e6
+        let data = try await analyzer.qualificationLegacyJSON(utf16Units: units, optionsJSON: options)
+        return (data, packVersion, openedMs)
+      }
       try Task.checkCancellation()
       guard let json = String(data: data, encoding: .utf8) else {
         throw NemuIchiranEngine.Failure(
@@ -237,8 +242,7 @@ enum NemuIchiranEngine {
     }
 
     func romanize(text: String) async throws -> String {
-      let (analyzer, _) = try await openAnalyzer()
-      return try await analyzer.romanize(text)
+      try await withAnalyzer { analyzer, _ in try await analyzer.romanize(text) }
     }
   }
 
