@@ -163,8 +163,8 @@
     "shell-quote": "1.9.0",
     "undici": "7.29.1",
     "uuid": "14.0.1",
-    "expo": "58.0.0-preview.7",
-    "react-native": "0.88.0-rc.1"
+    "expo": "58.0.0",
+    "react-native": "0.88.0-rc.3"
   },
   "patchedDependencies": {
     "@better-auth/expo@1.6.23": "patches/@better-auth%2Fexpo@1.6.23.patch",
@@ -172,12 +172,12 @@
     "swiper@12.2.0": "patches/swiper@12.2.0.patch",
     "vaul@1.1.2": "patches/vaul@1.1.2.patch",
     "image-size@1.2.1": "patches/image-size@1.2.1.patch",
-    "expo-modules-jsi@58.0.4": "patches/expo-modules-jsi@58.0.4.patch",
-    "expo-sqlite@58.0.6": "patches/expo-sqlite@58.0.6.patch",
-    "expo-background-task@58.0.7": "patches/expo-background-task@58.0.7.patch",
-    "@expo/cli@58.0.7": "patches/@expo%2Fcli@58.0.7.patch",
+    "expo-modules-jsi@58.0.5": "patches/expo-modules-jsi@58.0.5.patch",
+    "expo-sqlite@58.0.7": "patches/expo-sqlite@58.0.7.patch",
+    "expo-background-task@58.0.9": "patches/expo-background-task@58.0.9.patch",
+    "@expo/cli@58.0.9": "patches/@expo%2Fcli@58.0.9.patch",
     "metro@0.87.1": "patches/metro@0.87.1.patch",
-    "@expo/ui@58.0.7": "patches/@expo%2Fui@58.0.7.patch",
+    "@expo/ui@58.0.9": "patches/@expo%2Fui@58.0.9.patch",
     "react-native-screens@4.28.0": "patches/react-native-screens@4.28.0.patch"
   }
 }
