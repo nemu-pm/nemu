@@ -1,195 +1,40 @@
-import {
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  type ComponentProps,
-} from "react";
-import { Platform, StyleSheet, View } from "react-native";
-import Animated, { FadeIn, FadeOut, useReducedMotion } from "react-native-reanimated";
-import {
-  MobileSheetHeader,
-  MobileSheetScaffold,
-  NemuNativeSheetHeaderAction,
-} from "@/design-system";
-import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
-import { ReaderCapsule } from "../ReaderCapsule";
-import { ReaderDarkThemeScope } from "../ReaderDarkThemeScope";
-import {
-  DOCKED_PANEL_BASE,
-  DOCKED_PANEL_BORDER,
-  DOCKED_PANEL_GLASS_TINT,
-  DOCKED_PANEL_TOKEN_OVERRIDES,
-  DOCKED_PANEL_RADIUS,
-  JapaneseLearningEmbeddedHostContext,
-  type JapaneseLearningEmbeddedHost,
-} from "./japaneseLearningEmbeddedHost";
+import type { ComponentProps } from "react";
+import { Platform } from "react-native";
+import { useNemuTheme, MobileSheetScaffold } from "@/design-system";
 
+import { SheetProgressObserver } from "../../../../modules/nemu-window-layout";
 
 type SheetProps = ComponentProps<typeof MobileSheetScaffold>;
 
 export type JapaneseLearningSurfaceFrameProps = SheetProps & {
-  /**
-   * Docked presentation (regular-width, book and notebook poses): the surface
-   * fills the reader-provided panel beside the page instead of presenting a
-   * modal sheet over it. The page stays interactive, like the web transcript
-   * popover. Compact widths keep the native sheet.
-   */
-  docked?: boolean;
-  /** Localized label for the docked panel's close action. */
-  closeLabel: string;
+  onPresentationProgress?: (progress: number) => void;
 };
 
 /**
- * One frame for every Japanese Learning surface: the native sheet on compact
- * windows, a docked panel otherwise. The docked panel reports `onDismiss`
- * after it closes, so the sheet-to-sheet hand-offs (launcher → transcript,
- * transcript → OCR result) keep working unchanged.
+ * Content style for surfaces that lay out their own web padding (sentence
+ * view, chat): no frame padding (`paddingHorizontal` must be zeroed
+ * explicitly — it wins over `padding`), and on an iOS sheet the content
+ * starts where web's drawer content does, ~12pt below the grabber (the
+ * native sheet already reserves ~10pt under its grabber). `bleed` widens
+ * the content past the hosted edges (see `useJapaneseLearningDrawerFrame`).
  */
-export function JapaneseLearningSurfaceFrame({
-  docked = false,
-  closeLabel,
-  ...sheet
-}: JapaneseLearningSurfaceFrameProps) {
-  const host = useContext(JapaneseLearningEmbeddedHostContext);
-  if (!docked) return <MobileSheetScaffold {...sheet} />;
-  if (host) return <JapaneseLearningEmbeddedSurface host={host} {...sheet} />;
-  return (
-    <ReaderDarkThemeScope overrides={DOCKED_PANEL_TOKEN_OVERRIDES}>
-      <JapaneseLearningDockedSurface closeLabel={closeLabel} {...sheet} />
-    </ReaderDarkThemeScope>
-  );
+export function japaneseLearningEdgeToEdgeContentStyle(bleed = 0) {
+  const style =
+    Platform.OS !== "ios" ? EDGE_TO_EDGE_CONTENT : EDGE_TO_EDGE_IOS_SHEET_CONTENT;
+  return bleed > 0 ? { ...style, marginHorizontal: -bleed } : style;
 }
 
-/** Reports `onDismiss` once a docked / embedded surface has left the tree (no native dismissal to wait for). */
-function useDockedDismiss(visible: boolean, onDismiss: (() => void) | undefined) {
-  const wasVisibleRef = useRef(visible);
-  const onDismissRef = useRef(onDismiss);
-  useLayoutEffect(() => {
-    onDismissRef.current = onDismiss;
-  }, [onDismiss]);
-  useEffect(() => {
-    const wasVisible = wasVisibleRef.current;
-    wasVisibleRef.current = visible;
-    if (wasVisible && !visible) onDismissRef.current?.();
-  }, [visible]);
+const EDGE_TO_EDGE_CONTENT = { padding: 0, paddingHorizontal: 0, gap: 0 } as const;
+const EDGE_TO_EDGE_IOS_SHEET_CONTENT = { ...EDGE_TO_EDGE_CONTENT, paddingTop: 2 } as const;
+
+/**
+ * One frame for every Japanese Learning surface: the native sheet, in every
+ * pose and on every display (the system places sheets clear of the fold).
+ */
+export function JapaneseLearningSurfaceFrame({ onPresentationProgress, children, ...sheet }: JapaneseLearningSurfaceFrameProps) {
+  const { tokens } = useNemuTheme();
+  return <MobileSheetScaffold backgroundColor={tokens.background} {...sheet}>
+    {onPresentationProgress ? <SheetProgressObserver visible={sheet.visible} onProgress={onPresentationProgress} /> : null}
+    {children}
+  </MobileSheetScaffold>;
 }
-
-function JapaneseLearningEmbeddedSurface({
-  host,
-  visible,
-  onDismiss,
-  headerLeading,
-  headerTrailing,
-  contentStyle,
-  children,
-}: SheetProps & { host: JapaneseLearningEmbeddedHost }) {
-  const metrics = resolveMobileSheetHeaderMetrics(Platform.OS);
-  useDockedDismiss(visible, onDismiss);
-  if (!visible) return null;
-  return (
-    <View style={styles.embedded}>
-      {host.renderHeader({ action: headerLeading ?? headerTrailing })}
-      <View
-        style={[
-          styles.body,
-          { paddingHorizontal: metrics.bodyHorizontalPadding },
-          StyleSheet.flatten(contentStyle),
-        ]}
-      >
-        {children}
-      </View>
-    </View>
-  );
-}
-
-function JapaneseLearningDockedSurface({
-  visible,
-  onRequestClose,
-  onDismiss,
-  backdropOnPress,
-  title,
-  headerLeading,
-  headerTrailing,
-  contentStyle,
-  closeLabel,
-  children,
-}: SheetProps & { closeLabel: string }) {
-  const reduceMotion = useReducedMotion();
-  const metrics = resolveMobileSheetHeaderMetrics(Platform.OS);
-  // No native dismissal animation to wait for: the close is complete as
-  // soon as the panel leaves the tree.
-  useDockedDismiss(visible, onDismiss);
-
-  if (!visible) return null;
-  const close = backdropOnPress ?? onRequestClose;
-
-  return (
-    <Animated.View
-      // Reduce Motion: appear in place, no fade.
-      entering={reduceMotion ? undefined : FadeIn.duration(160)}
-      exiting={reduceMotion ? undefined : FadeOut.duration(120)}
-      style={styles.panel}
-    >
-      {/* Dark Liquid Glass over the black reader: the same material as the
-          reader capsules instead of an opaque themed card. */}
-      <ReaderCapsule
-        cornerRadius={DOCKED_PANEL_RADIUS}
-        interactive={false}
-        tintColor={DOCKED_PANEL_GLASS_TINT}
-        pointerEvents="box-none"
-        style={styles.glass}
-      >
-        <MobileSheetHeader
-          // The header's side slots hold one control each; a surface's own
-          // header action (e.g. Listen) moves to the free leading slot so the
-          // close action keeps the trailing one.
-          leading={headerLeading ?? headerTrailing}
-          title={title ?? ""}
-          trailing={
-            <NemuNativeSheetHeaderAction
-              accessibilityLabel={closeLabel}
-              androidIcon="close-outline"
-              iosSystemImage="xmark"
-              onPress={close}
-            />
-          }
-        />
-        <View
-          style={[
-            styles.body,
-            { paddingHorizontal: metrics.bodyHorizontalPadding },
-            StyleSheet.flatten(contentStyle),
-          ]}
-        >
-          {children}
-        </View>
-      </ReaderCapsule>
-    </Animated.View>
-  );
-}
-
-const styles = StyleSheet.create({
-  embedded: {
-    flex: 1,
-    minHeight: 0,
-  },
-  panel: {
-    ...StyleSheet.absoluteFill,
-  },
-  glass: {
-    flex: 1,
-    paddingTop: 6,
-    borderRadius: DOCKED_PANEL_RADIUS,
-    backgroundColor: DOCKED_PANEL_BASE,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: DOCKED_PANEL_BORDER,
-  },
-  body: {
-    flex: 1,
-    minHeight: 0,
-    gap: 14,
-    paddingTop: 8,
-    paddingBottom: 12,
-  },
-});

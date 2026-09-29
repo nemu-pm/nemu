@@ -87,10 +87,24 @@ export function mobileJapaneseLearningSurfaceColors(
   return SURFACES[scheme];
 }
 
-/** Web `.ja-textbook` / `.transcript-line`: Noto Serif JP, with the platform Mincho as the native equivalent. */
+/**
+ * Web `.ja-textbook` / `.transcript-line`: `Noto Serif JP Variable`. The app
+ * bundles static Noto Serif JP instances (`assets/fonts/NemuSerifJP-*.otf`,
+ * embedded by the expo-font config plugin) at the two weights web renders in
+ * this family: 400 (tokens, sentence, transcript, selection) and 600 (the
+ * details headword). Regular covers ASCII/Latin-1, kana, CJK/fullwidth
+ * punctuation and all JIS X 0208 kanji; SemiBold covers the same minus JIS
+ * level 2 kanji. Glyphs outside a subset fall back to the system font.
+ */
 export const JAPANESE_LEARNING_SERIF_FONT_FAMILY = {
-  ios: "Hiragino Mincho ProN",
-  android: "serif",
+  ios: "NemuSerifJP-Regular",
+  android: "NemuSerifJP-Regular",
+} as const;
+
+/** Web `.ja-textbook font-semibold` (the token details headword). */
+export const JAPANESE_LEARNING_SERIF_SEMIBOLD_FONT_FAMILY = {
+  ios: "NemuSerifJP-SemiBold",
+  android: "NemuSerifJP-SemiBold",
 } as const;
 
 /** Web LINE-style audio control (`audio-waveform.tsx`). */
@@ -99,3 +113,6 @@ export const JAPANESE_LEARNING_AUDIO_COLORS = {
   progress: "#5ac463",
   wave: { light: "#c8c8c8", dark: "#6b6b6b" },
 } as const;
+
+/** Web `h-[0.9rem]`: the furigana row above every word chip. */
+export const JAPANESE_LEARNING_FURIGANA_ROW_HEIGHT = 14.4;

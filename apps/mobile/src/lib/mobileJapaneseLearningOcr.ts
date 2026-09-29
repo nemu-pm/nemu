@@ -32,6 +32,9 @@ import {
 } from "./mobileJapaneseLearningOnDeviceOcr";
 
 export type MobileOcrDetection = {
+  /** Source page and coordinate space when recognizing a visible spread. */
+  pageId?: string;
+  imageSize?: { width: number; height: number };
   x1: number;
   y1: number;
   x2: number;
@@ -47,6 +50,12 @@ export type MobileJapaneseLearningOcrResult = {
   source: "source-text" | "ocr";
   detections: MobileOcrDetection[];
   text: string;
+  /**
+   * Pixel size of the image the detection boxes are measured in, when the
+   * engine reports it (on-device recognition may read a rescaled copy of the
+   * page). Absent: boxes are in the page image's natural pixels.
+   */
+  imageSize?: { width: number; height: number };
   /** Which engine produced `detections` (absent for source text). */
   engine?: MobileOnDeviceOcrEngineInfo | { kind: "cloud"; elapsedMs: number };
 };
@@ -58,6 +67,11 @@ export type MobileJapaneseLearningOcrOptions = {
   signal?: AbortSignal;
   /** Overrides the plugin's recognition-engine setting for this run. */
   engine?: MobileJapaneseLearningEnginePreference;
+  /**
+   * On-device manga-ocr only: the result so far, each time another bubble
+   * is read (reading order), before the promise settles.
+   */
+  onPartialResult?: (result: MobileJapaneseLearningOcrResult) => void;
 };
 
 const DEFAULT_OCR_API_BASE = "https://ocr.nemu.pm";
@@ -418,6 +432,26 @@ export function describeJapaneseLearningOcrError(
   };
 }
 
+/**
+ * QA fixtures only: the page's real text boxes (on-device recognition, when
+ * available), so fixture sentences sit on actual bubbles. Empty on failure.
+ */
+async function detectMobileJapaneseLearningQaAnchors(
+  page: Pick<MobileReaderPage, "imageUri" | "headers">,
+  signal: AbortSignal,
+): Promise<{ detections: MobileOcrDetection[]; imageSize?: { width: number; height: number } }> {
+  if (!page.imageUri || !getMobileJapaneseLearningCapabilities()?.ocr.available) return { detections: [] };
+  try {
+    const result = await runMobileOnDeviceOcr(page, { signal });
+    return {
+      detections: [...result.detections].sort((a, b) => a.order - b.order),
+      imageSize: result.imageSize,
+    };
+  } catch {
+    return { detections: [] };
+  }
+}
+
 export async function runMobileJapaneseLearningOcr(
   page: Pick<MobileReaderPage, "imageUri" | "headers" | "text">,
   options: MobileJapaneseLearningOcrOptions = {},
@@ -426,7 +460,14 @@ export async function runMobileJapaneseLearningOcr(
   if (qaScenario) {
     const scope = createMobileJapaneseLearningAbortScope(options.signal);
     try {
-      return await runMobileJapaneseLearningQaOcr(qaScenario, scope.signal);
+      const anchors =
+        qaScenario === "success"
+          ? await detectMobileJapaneseLearningQaAnchors(page, scope.signal)
+          : { detections: [] };
+      const fixture = await runMobileJapaneseLearningQaOcr(qaScenario, scope.signal, anchors.detections);
+      return anchors.imageSize && anchors.detections.length > 0
+        ? { ...fixture, imageSize: anchors.imageSize }
+        : fixture;
     } finally {
       scope.dispose();
     }
@@ -452,11 +493,27 @@ export async function runMobileJapaneseLearningOcr(
   if (engine === "on-device") {
     const scope = createMobileJapaneseLearningAbortScope(options.signal);
     try {
-      const result = await runMobileOnDeviceOcr(page, { signal: scope.signal });
+      const onPartialResult = options.onPartialResult;
+      const result = await runMobileOnDeviceOcr(page, {
+        signal: scope.signal,
+        ...(onPartialResult
+          ? {
+              onDetections: (detections: MobileOcrDetection[]) => {
+                if (scope.signal.aborted) return;
+                onPartialResult({
+                  source: "ocr",
+                  detections,
+                  text: textFromMobileOcrDetections(detections),
+                });
+              },
+            }
+          : {}),
+      });
       return {
         source: "ocr",
         detections: result.detections,
         text: textFromMobileOcrDetections(result.detections),
+        ...(result.imageSize ? { imageSize: result.imageSize } : {}),
         engine: result.engine,
       };
     } finally {

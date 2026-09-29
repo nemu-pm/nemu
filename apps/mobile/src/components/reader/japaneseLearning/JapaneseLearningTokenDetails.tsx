@@ -1,13 +1,11 @@
 import { Fragment, type ReactNode } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { nemuColorWithAlpha, nemuFontWeight, useNemuTheme } from "@/design-system";
+import { JapaneseLearningText as Text } from "./JapaneseLearningText";
 import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { mobileJapaneseLearningPosCategory } from "@/lib/mobileJapaneseLearningPosStyles";
-import {
-  JAPANESE_LEARNING_SERIF_FONT_FAMILY,
-  mobileJapaneseLearningSurfaceColors,
-} from "@/lib/mobileJapaneseLearningSurfaceTheme";
+import { mobileJapaneseLearningSurfaceColors } from "@/lib/mobileJapaneseLearningSurfaceTheme";
 import { JapaneseLearningPosTag, JapaneseLearningTokenSummary } from "./JapaneseLearningTokenSummary";
 
 /** Web `SectionHeader`: tiny uppercase label followed by a hairline rule. */
@@ -71,12 +69,14 @@ export function JapaneseLearningTokenDetails({
   token,
   strings,
   isNested = false,
+  regularWidth = false,
   onAskNemu,
   onCopy,
 }: {
   token: MobileGrammarToken;
   strings: MobileStrings;
   isNested?: boolean;
+  regularWidth?: boolean;
   onAskNemu?: () => void;
   onCopy?: (text: string) => void;
 }) {
@@ -98,16 +98,19 @@ export function JapaneseLearningTokenDetails({
               borderColor: nemuColorWithAlpha(tokens.mutedForeground, 0.14),
             }
           : {
-              padding: 16,
+              padding: regularWidth ? 20 : 16,
               backgroundColor: colors.detailsCard,
               borderColor: colors.detailsCardBorder,
+              boxShadow: scheme === "dark"
+                ? "0 2px 12px rgba(0,0,0,0.25), 0 8px 32px rgba(0,0,0,0.2), inset 0 0.5px 0 rgba(255,255,255,0.06), inset 0 -0.5px 0 rgba(0,0,0,0.15)"
+                : "0 2px 8px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06), inset 0 0.5px 0 rgba(255,255,255,0.8), inset 0 -0.5px 0 rgba(0,0,0,0.02)",
             },
       ]}
     >
       <JapaneseLearningTokenSummary
         token={token}
         strings={strings}
-        nested={isNested}
+        regularWidth={regularWidth}
         onAskNemu={isNested ? undefined : onAskNemu}
         onCopy={onCopy}
       />
@@ -142,6 +145,7 @@ export function JapaneseLearningTokenDetails({
                 token={component}
                 strings={strings}
                 isNested
+                regularWidth={regularWidth}
                 onCopy={onCopy}
               />
             ))}
@@ -151,7 +155,11 @@ export function JapaneseLearningTokenDetails({
 
       {token.conjugations.length > 0 ? (
         <View style={styles.section}>
-          <SectionHeader>{strings.reader.pluginJapaneseLearningBaseForm}</SectionHeader>
+          <SectionHeader>
+            {token.hasConjugationVia
+              ? strings.reader.pluginJapaneseLearningConjugationPath
+              : strings.reader.pluginJapaneseLearningBaseForm}
+          </SectionHeader>
           <View style={styles.nestedList}>
             {token.conjugations.map((conjugation, index) => (
               <JapaneseLearningTokenDetails
@@ -159,6 +167,7 @@ export function JapaneseLearningTokenDetails({
                 token={conjugation}
                 strings={strings}
                 isNested
+                regularWidth={regularWidth}
                 onCopy={onCopy}
               />
             ))}
@@ -176,6 +185,7 @@ export function JapaneseLearningTokenDetails({
                 token={alternative}
                 strings={strings}
                 isNested
+                regularWidth={regularWidth}
                 onCopy={onCopy}
               />
             ))}
@@ -190,7 +200,7 @@ const styles = StyleSheet.create({
   // Web: `rounded-xl` (radius + 4px), `space-y-4`.
   card: {
     borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 0.5,
     overflow: "hidden",
     gap: 16,
   },
@@ -215,8 +225,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   meaningNumberText: {
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 10.4,
+    lineHeight: 14.86,
     fontWeight: nemuFontWeight.medium,
   },
   meaningBody: {
@@ -232,7 +242,7 @@ const styles = StyleSheet.create({
   // Web: `text-sm leading-relaxed`.
   meaningText: {
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 22.75,
   },
   // Web: `text-xs text-muted-foreground mt-1 italic`.
   meaningInfo: {
@@ -252,8 +262,8 @@ const styles = StyleSheet.create({
   },
   // Web: `text-[0.65rem] font-semibold uppercase tracking-widest`.
   sectionTitle: {
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 10.4,
+    lineHeight: 14.86,
     fontWeight: nemuFontWeight.semibold,
     textTransform: "uppercase",
     letterSpacing: 1,
@@ -275,8 +285,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
+  // Web: plain `text-sm font-medium` (not `.ja-textbook`).
   componentText: {
-    fontFamily: Platform.select(JAPANESE_LEARNING_SERIF_FONT_FAMILY),
     fontSize: 14,
     lineHeight: 20,
     fontWeight: nemuFontWeight.medium,

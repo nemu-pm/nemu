@@ -177,6 +177,7 @@
     "expo-background-task@58.0.7": "patches/expo-background-task@58.0.7.patch",
     "@expo/cli@58.0.7": "patches/@expo%2Fcli@58.0.7.patch",
     "metro@0.87.1": "patches/metro@0.87.1.patch",
-    "@expo/ui@58.0.7": "patches/@expo%2Fui@58.0.7.patch"
+    "@expo/ui@58.0.7": "patches/@expo%2Fui@58.0.7.patch",
+    "react-native-screens@4.28.0": "patches/react-native-screens@4.28.0.patch"
   }
 }

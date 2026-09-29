@@ -35,9 +35,18 @@ export type MobileWindowLayout = {
   verticalBarEdge?: "leading" | "trailing" | null;
   /** Safe-area insets of the observer view itself (include a vertical bar's inset). */
   safeAreaInsets?: WindowLayoutEdgeInsets;
+  /** UIKit system minimum content margins, resolved to physical edges. */
+  minimumLayoutMargins?: { left: number; right: number };
   /** Effective layout direction of the observer view. */
   layoutDirection?: "ltr" | "rtl";
   hinge?: WindowHingeStatus | null;
+  /**
+   * The observer's window covers its whole screen (iOS: the window's size
+   * equals its scene's screen bounds). False in Split View, Slide Over, a
+   * resizable window or iPhone Mirroring; absent when unknown (Android, web,
+   * older natives) — treat absent as "fills".
+   */
+  fillsScreen?: boolean;
 };
 export type WindowLayoutObserverProps = {
   style?: ViewProps["style"];
@@ -49,10 +58,22 @@ export type VerticalBarBehaviorProps = {
   /** Prefer `UIVerticalBarBehavior.disabled` for the owning screen while mounted. */
   disabled: boolean;
   /**
-   * Force the owning screen's appearance (`overrideUserInterfaceStyle`) so
-   * the system surfaces it presents (popovers, sheets, menus) match it.
+   * Appearance forced on the screen's containers (its navigation controller
+   * up to the root of its presentation, `overrideUserInterfaceStyle`) while
+   * `appearanceCoversBars` is true, so the system bars and the surfaces the
+   * screen presents (popovers, sheets, menus) match it; the screen inherits
+   * it. Never applied to the screen alone: iOS 27.1 keeps a screen's bar
+   * items in a horizontal bar when its appearance differs from its
+   * navigation controller's, and the vertical bar (the navigation
+   * controller's) would keep the old appearance.
    */
   appearance?: "dark" | "light";
+  /**
+   * Whether `appearance` is applied now. Pass true only while the screen is
+   * the focused (top) one: the containers are shared with every other screen
+   * of the stack.
+   */
+  appearanceCoversBars?: boolean;
 };
 
 export type GlassViewProps = {
@@ -75,6 +96,17 @@ export type GlassViewProps = {
   interactive?: boolean;
   /** Force the glass appearance (dark glass over a dark reader). */
   colorScheme?: "light" | "dark";
+  /**
+   * Materialized (default) or dematerialized. Changing it animates the glass
+   * effect itself (UIKit: `effect` set inside `UIView.animate`) together with
+   * the content's alpha, so glass and its icons/text appear and disappear as
+   * one — never alpha-fade a glass view (UIKit drops glass drawn mid-fade).
+   */
+  materialized?: boolean;
+  /** Materialize from nothing when the view first appears (same animation). */
+  animateAppearance?: boolean;
+  /** Duration of the (de)materialize animation, ms (0 = instant). */
+  materializeDurationMs?: number;
 };
 
 export type GlassContainerProps = {

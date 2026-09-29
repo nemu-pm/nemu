@@ -3,7 +3,7 @@ import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 /**
  * Notebook posture (iPhone Duo half-folded portrait, Android tabletop): the
  * page sits in the top pane and the bottom pane — the half resting on the
- * table, where the hands are — is one surface with four states.
+ * table, where the hands are — is one surface with three states.
  *
  * - `trackpad` (B): a calm dark pad for turning pages, large previous / next
  *   halves in reading order, a quiet page indicator and a hairline progress
@@ -11,25 +11,25 @@ import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
  * - `filmstrip` (A): the expanded console — title, spoiler-safe thumbnails
  *   (only pages already read and the current page render images), the
  *   scrubber with chapter skips and the capsule actions.
- * - `studyDesk` (C): the Japanese Learning surfaces (transcript, sentence
- *   analysis, nemu chat) docked under the page, one at a time.
- * - `continuous` (D): scroll / long-strip reading — the strip flows through
+ * - `continuous` (C): scroll / long-strip reading — the strip flows through
  *   both panes and the fold is a thin dark band the content passes under.
+ *
+ * Japanese Learning tools are not part of the pane: they open in the same
+ * system sheets as everywhere else, which the system moves off the fold.
  *
  * Pure decisions only; `ReaderScreen` owns the state and
  * `ReaderNotebookPane.tsx` draws it.
  */
 
-export type MobileReaderNotebookPanePreference = "automatic" | "trackpad" | "filmstrip" | "studyDesk";
-export type MobileReaderNotebookPaneState = "trackpad" | "filmstrip" | "studyDesk" | "continuous";
-/** A choice made in this reading session (expand, collapse, close the desk). Never persisted. */
+export type MobileReaderNotebookPanePreference = "automatic" | "trackpad" | "filmstrip";
+export type MobileReaderNotebookPaneState = "trackpad" | "filmstrip" | "continuous";
+/** A choice made in this reading session (expand, collapse). Never persisted. */
 export type MobileReaderNotebookPaneOverride = Exclude<MobileReaderNotebookPaneState, "continuous"> | null;
 
 export const MOBILE_READER_NOTEBOOK_PANE_PREFERENCES: readonly MobileReaderNotebookPanePreference[] = [
   "automatic",
   "trackpad",
   "filmstrip",
-  "studyDesk",
 ];
 export const DEFAULT_MOBILE_READER_NOTEBOOK_PANE: MobileReaderNotebookPanePreference = "automatic";
 
@@ -41,66 +41,24 @@ export function normalizeMobileReaderNotebookPanePreference(value: unknown): Mob
   return isMobileReaderNotebookPanePreference(value) ? value : DEFAULT_MOBILE_READER_NOTEBOOK_PANE;
 }
 
-/** The paged state a preference asks for: Automatic is the trackpad, or the study desk when learning is on. */
+/**
+ * The paged state a preference asks for: Automatic is the trackpad. A value
+ * saved by an older build ("studyDesk") normalizes to Automatic.
+ */
 export function mobileReaderNotebookPaneBase(
   preference: MobileReaderNotebookPanePreference,
-  learningAvailable: boolean,
 ): Exclude<MobileReaderNotebookPaneState, "continuous"> {
-  if (preference === "automatic") return learningAvailable ? "studyDesk" : "trackpad";
-  if (preference === "studyDesk" && !learningAvailable) return "trackpad";
-  return preference;
+  return preference === "automatic" ? "trackpad" : preference;
 }
 
 export function resolveMobileReaderNotebookPane(input: {
   preference: MobileReaderNotebookPanePreference;
   /** Paged gallery; false = scroll / long strip. */
   paged: boolean;
-  /** The Japanese Learning plugin is enabled for this chapter. */
-  learningAvailable: boolean;
-  /** A learning surface (transcript / sentence / chat) was opened. */
-  learningOpen: boolean;
   override: MobileReaderNotebookPaneOverride;
 }): MobileReaderNotebookPaneState {
-  // Opening a learning tool always lands on the desk, in either presentation.
-  if (input.learningOpen && input.learningAvailable) return "studyDesk";
   if (!input.paged) return "continuous";
-  const choice = input.override ?? mobileReaderNotebookPaneBase(input.preference, input.learningAvailable);
-  return choice === "studyDesk" && !input.learningAvailable ? "trackpad" : choice;
-}
-
-// --- Study desk tabs -------------------------------------------------------
-
-export type MobileReaderStudyDeskTab = "transcript" | "sentence" | "chat";
-export type MobileReaderStudyDeskSurfaces = { transcript: boolean; ocr: boolean; chat: boolean };
-
-const TAB_SURFACE: Record<MobileReaderStudyDeskTab, keyof MobileReaderStudyDeskSurfaces> = {
-  transcript: "transcript",
-  sentence: "ocr",
-  chat: "chat",
-};
-/** When the shown surface closes and several stay open: the detail, then the conversation, then the list. */
-const TAB_PRIORITY: readonly MobileReaderStudyDeskTab[] = ["sentence", "chat", "transcript"];
-
-/**
- * The desk shows one surface. The one opened last wins (a sentence handed to
- * nemu shows the answer even though the analysis is still open); when the
- * shown one closes the next open surface takes over; with nothing open the
- * transcript is the desk's resting view.
- */
-export function mobileReaderStudyDeskTab(
-  previous: MobileReaderStudyDeskSurfaces,
-  next: MobileReaderStudyDeskSurfaces,
-  current: MobileReaderStudyDeskTab,
-): MobileReaderStudyDeskTab {
-  const opened = TAB_PRIORITY.find((tab) => next[TAB_SURFACE[tab]] && !previous[TAB_SURFACE[tab]]);
-  if (opened) return opened;
-  if (next[TAB_SURFACE[current]]) return current;
-  return TAB_PRIORITY.find((tab) => next[TAB_SURFACE[tab]]) ?? "transcript";
-}
-
-/** The surface flags a tab press asks for: exactly that surface. */
-export function mobileReaderStudyDeskSurfacesForTab(tab: MobileReaderStudyDeskTab): MobileReaderStudyDeskSurfaces {
-  return { transcript: tab === "transcript", ocr: tab === "sentence", chat: tab === "chat" };
+  return input.override ?? mobileReaderNotebookPaneBase(input.preference);
 }
 
 // --- Trackpad (B) ----------------------------------------------------------
@@ -132,7 +90,7 @@ export function mobileReaderTrackpadSwipe(input: { dx: number; dy: number; rtl: 
   return dy <= -READER_NOTEBOOK_SWIPE_MIN ? "expand" : null;
 }
 
-/** Inset of the pad inside the pane, and its radius (the docked panel's 28pt, concentric with the 44pt capsules). */
+/** Inset of the pad inside the pane, and its corner radius. */
 export const READER_NOTEBOOK_PAD_INSET = 12;
 export const READER_NOTEBOOK_PAD_RADIUS = 28;
 export const READER_NOTEBOOK_HANDLE_WIDTH = 64;
@@ -307,10 +265,9 @@ const STATE_DEPTH: Record<MobileReaderNotebookPaneState, number> = {
   trackpad: 0,
   continuous: 0,
   filmstrip: 1,
-  studyDesk: 1,
 };
 
-/** B → A / C rises from the hinge side (the expanded states sit "higher"); collapsing settles back down. */
+/** B → A rises from the hinge side (the expanded states sit "higher"); collapsing settles back down. */
 export function mobileReaderNotebookPaneMotion(input: {
   from: MobileReaderNotebookPaneState | null;
   to: MobileReaderNotebookPaneState;

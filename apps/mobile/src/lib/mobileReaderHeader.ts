@@ -1,22 +1,54 @@
 import { getEntryTitle, type LibraryEntry } from "@/data/schema";
+import { usableMobileReaderMangaTitle } from "./mobileReaderMangaTitle";
 
+/**
+ * The manga title the reader shows, or `null` while it is unknown.
+ *
+ * Order: the library entry (with overrides), the source's own title (live
+ * details or the persisted detail cache), then the title the navigation
+ * carried in the route. Blank titles, the opaque manga id and URL/path-like
+ * strings never count — the chrome shows the chapter line instead of a fake
+ * title such as the id or the generic word "Manga".
+ */
 export function getMobileReaderTitle(
   entry: LibraryEntry | null | undefined,
   mangaId: string,
   sourceTitle?: string | null,
-  fallbackTitle?: string | null,
-): string {
-  const libraryTitle = entry ? getEntryTitle(entry).trim() : "";
-  if (libraryTitle && libraryTitle !== mangaId) return libraryTitle;
-  const resolvedSourceTitle = sourceTitle?.trim() ?? "";
-  if (resolvedSourceTitle && resolvedSourceTitle !== mangaId) {
-    return resolvedSourceTitle;
+  routeTitle?: string | null,
+): string | null {
+  return (
+    usableMobileReaderMangaTitle(entry ? getEntryTitle(entry) : null, mangaId) ??
+    usableMobileReaderMangaTitle(sourceTitle, mangaId) ??
+    usableMobileReaderMangaTitle(routeTitle, mangaId)
+  );
+}
+
+/**
+ * The capsule's two lines. With a known manga title: title over
+ * "chapter · position". While the title is unknown the chapter line moves up
+ * and the second line keeps only the position (or the fetching state).
+ */
+export function readerCapsuleTitleLabels({
+  mangaTitle,
+  chapterTitle,
+  pageCountLabel,
+  pagesPending,
+  fetchingPagesLabel,
+}: {
+  mangaTitle: string | null;
+  chapterTitle: string;
+  pageCountLabel: string | null;
+  pagesPending: boolean;
+  fetchingPagesLabel: string;
+}): { title: string; subtitle: string } {
+  const detail = pagesPending ? fetchingPagesLabel : pageCountLabel;
+  if (!mangaTitle) {
+    return { title: chapterTitle, subtitle: detail ?? "" };
   }
-  const resolvedFallbackTitle = fallbackTitle?.trim() ?? "";
-  if (resolvedFallbackTitle && resolvedFallbackTitle !== mangaId) {
-    return resolvedFallbackTitle;
-  }
-  return mangaId;
+  return {
+    title: mangaTitle,
+    subtitle: [chapterTitle, detail].filter(Boolean).join(" · "),
+  };
 }
 
 /**

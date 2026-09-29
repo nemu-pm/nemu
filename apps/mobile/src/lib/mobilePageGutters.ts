@@ -17,8 +17,9 @@ function finiteInset(value: number | undefined): number {
 }
 
 /**
- * Horizontal content insets for a page. Portrait phones have no horizontal
- * safe area, so this is the plain `spacing.pageX` gutter there; a landscape
+ * Horizontal content insets for a page, at least the native navigation
+ * title's system minimum margin when available. Without native margins or
+ * horizontal safe areas, use `spacing.pageX`; a landscape
  * iPhone reports ~60pt on both sides for the Dynamic Island / sensor housing
  * and rounded corners, and page content must start past it rather than 16pt
  * from the glass edge. The gutter is not added on top of the inset: the
@@ -27,10 +28,11 @@ function finiteInset(value: number | undefined): number {
 export function getMobilePageGutters(
   insets: { left?: number; right?: number },
   gutter: number = spacing.pageX,
+  minimumLayoutMargins?: { left: number; right: number },
 ): MobilePageGutters {
   const safeGutter = finiteInset(gutter);
-  const left = Math.max(safeGutter, finiteInset(insets.left));
-  const right = Math.max(safeGutter, finiteInset(insets.right));
+  const left = Math.max(safeGutter, finiteInset(insets.left), finiteInset(minimumLayoutMargins?.left));
+  const right = Math.max(safeGutter, finiteInset(insets.right), finiteInset(minimumLayoutMargins?.right));
   return { left, right, horizontal: left + right };
 }
 

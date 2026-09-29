@@ -34,8 +34,8 @@ describe("empty library keeps collection management reachable", () => {
       librarySource.indexOf("if (showLoadError) {", sheetsStart),
     );
     for (const sheet of [
-      "<LibraryTitleMenuSheet",
-      "<CollectionsManagerSheet",
+      "<TitleMenuSheet",
+      "<ManagerSheet",
       'mode="create"',
       'mode="rename"',
     ]) {

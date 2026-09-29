@@ -63,7 +63,7 @@ export const MOBILE_SOURCE_GRID_MIN_ITEM_WIDTH = 290;
 
 /**
  * Browse source cards: the web grid's card width, reserving room for enlarged
- * labels. Even column counts on regular widths; in book posture one column
+ * labels. Even column counts when a fold region is present; in book posture one column
  * group per pane with the gutter on the fold.
  */
 export function getMobileSourceGridLayout(

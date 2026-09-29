@@ -17,6 +17,7 @@ type MobileSheetScaffoldProps = {
   backdropOnPress?: () => void;
   backdropDisabled?: boolean;
   /** Optional chrome title, independent of the caller-provided dismiss action. */
+  backgroundColor?: string;
   title?: string;
   subtitle?: string;
   headerLeading?: ReactNode;
@@ -27,6 +28,12 @@ type MobileSheetScaffoldProps = {
   frameMaxHeight?: DimensionValue;
   sheetMinHeight?: DimensionValue;
   contentStyle?: StyleProp<ViewStyle>;
+  /**
+   * Overrides the platform bottom gutter under the content, e.g. 0 for a
+   * body whose own bottom bar (a composer, an action footer) should run to
+   * the sheet's bottom edge.
+   */
+  contentBottomInset?: number;
   children: ReactNode;
 };
 
@@ -47,6 +54,7 @@ export function MobileSheetScaffold({
   onHardwareBackPress,
   backdropOnPress,
   backdropDisabled = false,
+  backgroundColor,
   title,
   subtitle,
   headerLeading,
@@ -57,6 +65,7 @@ export function MobileSheetScaffold({
   frameMaxHeight,
   sheetMinHeight,
   contentStyle,
+  contentBottomInset,
   children,
 }: MobileSheetScaffoldProps) {
   const snapPoints = useMemo(
@@ -70,6 +79,7 @@ export function MobileSheetScaffold({
       onClose={backdropOnPress ?? onRequestClose}
       onDismiss={onDismiss}
       onHardwareBackPress={onHardwareBackPress}
+      backgroundColor={backgroundColor}
       title={title}
       subtitle={subtitle}
       headerLeading={headerLeading}
@@ -82,6 +92,7 @@ export function MobileSheetScaffold({
       // A disabled backdrop also disables pan-down-to-close. Callers that
       // still want a chrome escape provide its localized label above.
       enablePanDownToClose={!backdropDisabled}
+      contentBottomInset={contentBottomInset}
       contentStyle={[
         contentStyle ?? styles.sheet,
         sheetMinHeight != null ? { minHeight: sheetMinHeight } : null,

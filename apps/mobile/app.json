@@ -48,6 +48,8 @@
         "ITSAppUsesNonExemptEncryption": false,
         "UIViewControllerBasedStatusBarAppearance": true,
         "NSPhotoLibraryUsageDescription": "nemu lets you choose images from your photo library when updating manga covers.",
+        "NSMicrophoneUsageDescription": "nemu uses the microphone when you dictate a message to Nemu chat.",
+        "NSSpeechRecognitionUsageDescription": "nemu uses speech recognition to turn what you say into text for Nemu chat.",
         "UIApplicationSceneManifest": {
           "UIApplicationSupportsMultipleScenes": false,
           "UISceneConfigurations": {
@@ -75,7 +77,6 @@
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.RECORD_AUDIO",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
@@ -101,7 +102,7 @@
         {
           "photosPermission": "nemu lets you choose images from your photo library when updating manga covers.",
           "cameraPermission": false,
-          "microphonePermission": false
+          "microphonePermission": "nemu uses the microphone when you dictate a message to Nemu chat."
         }
       ],
       [
@@ -114,9 +115,20 @@
       [
         "expo-audio",
         {
-          "microphonePermission": false,
+          "microphonePermission": "nemu uses the microphone when you dictate a message to Nemu chat.",
           "recordAudioAndroid": false,
           "enableBackgroundPlayback": false
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "nemu uses the microphone when you dictate a message to Nemu chat.",
+          "speechRecognitionPermission": "nemu uses speech recognition to turn what you say into text for Nemu chat.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.as"
+          ]
         }
       ],
       "expo-background-task",
@@ -126,7 +138,12 @@
         "expo-font",
         {
           "fonts": [
-            "./assets/fonts/NemuBrand.ttf"
+            "./assets/fonts/NemuBrand.ttf",
+            "./assets/fonts/NemuInter-Regular.ttf",
+            "./assets/fonts/NemuInter-Medium.ttf",
+            "./assets/fonts/NemuInter-SemiBold.ttf",
+            "./assets/fonts/NemuSerifJP-Regular.otf",
+            "./assets/fonts/NemuSerifJP-SemiBold.otf"
           ]
         }
       ],

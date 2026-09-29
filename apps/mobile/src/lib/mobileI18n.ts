@@ -246,6 +246,14 @@ export type MobileStrings = {
     subtitle: string;
     subtitleForTitle: string;
     title: string;
+    /** First row of the native sheet; opens the name alert. */
+    newCollectionAction: string;
+    /** Footer under the collection rows: how to rename / delete one. */
+    manageRowsFooter: string;
+    /** Empty list when the create action sits above it. */
+    noCollectionsYet: string;
+    /** Short swipe / context-menu action on a collection row. */
+    renameAction: string;
   };
   metadataEditor: {
     applyMatch: string;
@@ -527,8 +535,6 @@ export type MobileStrings = {
     chapterAccessibility: string;
     closeSettings: string;
     closePlugin: string;
-    /** Close action of the docked Japanese Learning panel. */
-    closeLearningPanel: string;
     /** Accessibility label of the vertical control rail / notebook reading console. */
     readerControls: string;
     currentChapter: string;
@@ -616,6 +622,7 @@ export type MobileStrings = {
     pluginJapaneseLearningAutoDetectTextDescription: string;
     pluginJapaneseLearningAskWord: string;
     pluginJapaneseLearningBaseForm: string;
+    pluginJapaneseLearningConjugationPath: string;
     pluginJapaneseLearningCopied: string;
     pluginJapaneseLearningCopyFailed: string;
     pluginJapaneseLearningCopySentence: string;
@@ -651,6 +658,10 @@ export type MobileStrings = {
     pluginJapaneseLearningChatRead: string;
     pluginJapaneseLearningChatResponse: string;
     pluginJapaneseLearningChatSend: string;
+    /** Composer mic (shown while the draft is empty); starts dictation. */
+    pluginJapaneseLearningChatVoiceInput: string;
+    /** Same mic while listening; stops dictation. */
+    pluginJapaneseLearningChatStopVoiceInput: string;
     pluginJapaneseLearningChatThinking: string;
     pluginJapaneseLearningChatToday: string;
     pluginJapaneseLearningLineAccessibility: string;
@@ -764,6 +775,16 @@ export type MobileStrings = {
     recentSearches: string;
     clearRecentSearches: string;
     recentSearchAccessibility: string;
+    /** Trailing action on a source's result section that has more results. */
+    seeAll: string;
+    /** One quiet line for every source that found nothing; `{{sources}}`. */
+    noResultsInSources: string;
+    /** Inline spinner line while sources are still searching; `{{sources}}`. */
+    searchingSources: string;
+    /** Last item of a collapsed source list ("A, B and 3 more"); `{{count}}`. */
+    moreSourcesCount: string;
+    /** Retry action on a source that could not be searched; `{{source}}`. */
+    retrySourceAccessibility: string;
   };
   settings: {
     aboutNemuBeforeBrand: string;
@@ -890,6 +911,8 @@ export type MobileStrings = {
     pluginsDescription: string;
     pluginSettings: string;
     readerPluginSwitch: string;
+    readerPluginOffFooter: string;
+    readerPluginSettingEditElsewhere: string;
     refreshSources: string;
     refreshSourcesHint: string;
     selectSettingOption: string;
@@ -1043,9 +1066,6 @@ export type MobileStrings = {
     handoffOuterDisplay: string;
     handoffInnerDisplay: string;
     handoffWithPage: string;
-    studyDeskTitle: string;
-    studyDeskSentence: string;
-    studyDeskViews: string;
     notebookPane: string;
     notebookPaneAutomatic: string;
     notebookPaneTrackpad: string;

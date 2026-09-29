@@ -311,7 +311,14 @@ describe("mobile i18n source audit", () => {
       "zh",
     ]);
 
-    const prompts = new Map<string, string>();
+    const permissionKeys = [
+      "NSPhotoLibraryUsageDescription",
+      "NSMicrophoneUsageDescription",
+      "NSSpeechRecognitionUsageDescription",
+    ] as const;
+    const prompts = new Map<string, Map<string, string>>(
+      permissionKeys.map((key) => [key, new Map<string, string>()]),
+    );
     for (const language of ["en", "zh", "ja"] as const) {
       const localePath = appConfig.expo.locales?.[language];
       expect(localePath).toBeTruthy();
@@ -320,11 +327,15 @@ describe("mobile i18n source audit", () => {
           path.join(import.meta.dir, "../..", localePath!),
           "utf8",
         ),
-      ) as { ios?: { NSPhotoLibraryUsageDescription?: string } };
-      const prompt = locale.ios?.NSPhotoLibraryUsageDescription?.trim() ?? "";
-      expect(prompt.length).toBeGreaterThan(0);
-      prompts.set(language, prompt);
+      ) as { ios?: Partial<Record<(typeof permissionKeys)[number], string>> };
+      for (const key of permissionKeys) {
+        const prompt = locale.ios?.[key]?.trim() ?? "";
+        expect(prompt.length).toBeGreaterThan(0);
+        prompts.get(key)!.set(language, prompt);
+      }
     }
-    expect(new Set(prompts.values()).size).toBe(3);
+    for (const key of permissionKeys) {
+      expect(new Set(prompts.get(key)!.values()).size).toBe(3);
+    }
   });
 });

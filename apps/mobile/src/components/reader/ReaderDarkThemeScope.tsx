@@ -3,7 +3,7 @@ import { NemuThemeContext, nemuTokens, useNemuTheme } from "@/design-system";
 
 /**
  * Renders its subtree with the dark nemu tokens. Reader surfaces that float
- * over the black immersive page (capsule chrome, docked learning panels) are
+ * over the black immersive page (the capsule chrome, the notebook pane) are
  * dark in either app theme, so a light theme never paints a white slab over
  * the manga. Sheets presented by the system keep the app theme.
  */

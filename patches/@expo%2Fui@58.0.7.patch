@@ -1,5 +1,5 @@
 diff --git a/build/community/bottom-sheet/BottomSheet.android.js b/build/community/bottom-sheet/BottomSheet.android.js
-index d39d9de..7aa2b6e 100644
+index d39d9de8..7aa2b6e8 100644
 --- a/build/community/bottom-sheet/BottomSheet.android.js
 +++ b/build/community/bottom-sheet/BottomSheet.android.js
 @@ -3,6 +3,7 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState
@@ -50,8 +50,442 @@ index d39d9de..7aa2b6e 100644
                              } : {
                                  flexGrow: 1,
                                  height: 0
+diff --git a/build/community/bottom-sheet/BottomSheet.ios.js b/build/community/bottom-sheet/BottomSheet.ios.js
+index e776a031..0c0c1032 100644
+--- a/build/community/bottom-sheet/BottomSheet.ios.js
++++ b/build/community/bottom-sheet/BottomSheet.ios.js
+@@ -1,10 +1,13 @@
+-import { jsx as _jsx } from "react/jsx-runtime";
++import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+ import { useWindowDimensions, View, StyleSheet } from 'react-native';
+ import { BottomSheet as NativeBottomSheet } from '../../swift-ui/BottomSheet';
+ import { Group } from '../../swift-ui/Group';
+ import { Host } from '../../swift-ui/Host';
+ import { RNHostView } from '../../swift-ui/RNHostView';
++import { Rectangle } from '../../swift-ui/Shapes';
++import { VStack } from '../../swift-ui/VStack';
++import { accessibilityHidden, containerRelativeFrame, frame, hidden, onGeometryChange } from '../../swift-ui/modifiers';
+ import { interactiveDismissDisabled, presentationBackground, presentationDetents, presentationDragIndicator, presentationSizing } from '../../swift-ui/modifiers/presentationModifiers';
+ import { BottomSheetContext, BottomSheetInternalContext } from './context';
+ import { SheetScrollContextReset } from './scrollContextReset';
+@@ -72,7 +75,42 @@ function findNearestDetentIndex(detents, position) {
+  * @remarks Uses SwiftUI's `.sheet()` presentation (modal overlay).
+  */ export function BottomSheet(props) {
+     const { ref, snapPoints: snapPointsProp, index: indexProp = 0, onChange, onClose, onDismiss, enablePanDownToClose = false, enableDynamicSizing = true, handleComponent, backgroundStyle, children } = props;
+-    const { width } = useWindowDimensions();
++    const { width: windowWidth } = useWindowDimensions();
++    // Content-sized sheets lay their RN root out at the width SwiftUI proposes inside the sheet
++    // (floating/form sheets and in-sheet horizontal safe areas make it narrower than the window).
++    const [measuredSheetWidth, setMeasuredSheetWidth] = useState(null);
++    // iOS 26+ draws a sheet resting at a partial detent scaled down so it floats clear of the
++    // screen edges. The host undoes that scale on the content (`compensatesPresentationScale`), so
++    // the content is laid out at the width it is shown at: the sheet width times that scale.
++    const [presentationScale, setPresentationScale] = useState(1);
++    const handlePresentationScaleChange = useCallback((event)=>{
++        const nextScale = event.nativeEvent.scale;
++        if (Number.isFinite(nextScale) && nextScale > 0) setPresentationScale(nextScale);
++    }, []);
++    const width = (measuredSheetWidth && measuredSheetWidth.windowWidth === windowWidth ? measuredSheetWidth.width : windowWidth) * presentationScale;
++    const handleSheetWidthProbe = useCallback((probeFrame)=>{
++        const nextWidth = probeFrame.width;
++        if (!Number.isFinite(nextWidth) || nextWidth <= 0) return;
++        setMeasuredSheetWidth((current)=>current && current.windowWidth === windowWidth && Math.abs(current.width - nextWidth) < 0.5 ? current : {
++                windowWidth,
++                width: nextWidth
++            });
++    }, [
++        windowWidth
++    ]);
++    const sheetWidthProbeModifiers = useMemo(()=>[
++            containerRelativeFrame({
++                axes: 'horizontal'
++            }),
++            frame({
++                height: 0
++            }),
++            hidden(),
++            accessibilityHidden(true),
++            onGeometryChange(handleSheetWidthProbe)
++        ], [
++        handleSheetWidthProbe
++    ]);
+     const [isPresented, setIsPresented] = useState(indexProp >= 0);
+     const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
+     // Ref mirrors currentIndex for use in handleDetentChange without adding it as a useCallback dep
+@@ -200,6 +238,24 @@ function findNearestDetentIndex(detents, position) {
+         enablePanDownToClose,
+         backgroundStyle
+     ]);
++    const hostedContent = /*#__PURE__*/ _jsx(RNHostView, {
++        matchContents: fitToContents,
++        compensatesPresentationScale: true,
++        onPresentationScaleChange: handlePresentationScaleChange,
++        children: /*#__PURE__*/ _jsx(View, {
++            style: fitToContents ? {
++                width,
++                paddingTop: handleComponent !== null ? 16 : 0
++            } : {
++                flexGrow: 1,
++                height: 0,
++                paddingTop: handleComponent !== null ? 16 : 0
++            },
++            children: /*#__PURE__*/ _jsx(SheetScrollContextReset, {
++                children: children
++            })
++        })
++    });
+     return /*#__PURE__*/ _jsx(BottomSheetInternalContext.Provider, {
+         value: internalContextValue,
+         children: /*#__PURE__*/ _jsx(BottomSheetContext.Provider, {
+@@ -207,7 +263,7 @@ function findNearestDetentIndex(detents, position) {
+             children: /*#__PURE__*/ _jsx(Host, {
+                 style: {
+                     position: 'absolute',
+-                    width
++                    width: windowWidth
+                 },
+                 pointerEvents: "none",
+                 children: /*#__PURE__*/ _jsx(NativeBottomSheet, {
+@@ -217,22 +273,15 @@ function findNearestDetentIndex(detents, position) {
+                     fitToContents: fitToContents,
+                     children: /*#__PURE__*/ _jsx(Group, {
+                         modifiers: modifiers,
+-                        children: /*#__PURE__*/ _jsx(RNHostView, {
+-                            matchContents: fitToContents,
+-                            children: /*#__PURE__*/ _jsx(View, {
+-                                style: fitToContents ? {
+-                                    width,
+-                                    paddingTop: handleComponent !== null ? 16 : 0
+-                                } : {
+-                                    flexGrow: 1,
+-                                    height: 0,
+-                                    paddingTop: handleComponent !== null ? 16 : 0
+-                                },
+-                                children: /*#__PURE__*/ _jsx(SheetScrollContextReset, {
+-                                    children: children
+-                                })
+-                            })
+-                        })
++                        children: fitToContents ? /*#__PURE__*/ _jsxs(VStack, {
++                            spacing: 0,
++                            children: [
++                                /*#__PURE__*/ _jsx(Rectangle, {
++                                    modifiers: sheetWidthProbeModifiers
++                                }),
++                                hostedContent
++                            ]
++                        }) : hostedContent
+                     })
+                 })
+             })
+diff --git a/build/community/bottom-sheet/types.d.ts b/build/community/bottom-sheet/types.d.ts
+index cf72b27f..51a054f3 100644
+--- a/build/community/bottom-sheet/types.d.ts
++++ b/build/community/bottom-sheet/types.d.ts
+@@ -278,6 +278,15 @@ export interface BottomSheetProps {
+      * On web, the full style is applied.
+      */
+     backgroundStyle?: StyleProp<ViewStyle>;
++    /**
++     * Android only: the sheet's width (still capped at Material3's 640dp) and its horizontal offset
++     * from the window centre, in dp. Foldables use it to keep the sheet inside one pane in book
++     * posture instead of centred across the fold.
++     */
++    androidPlacement?: {
++        width: number;
++        offsetX: number;
++    };
+     /**
+      * Style for the handle area.
+      *
+diff --git a/build/swift-ui/RNHostView.d.ts b/build/swift-ui/RNHostView.d.ts
+index 3e19e53a..f84fad6a 100644
+--- a/build/swift-ui/RNHostView.d.ts
++++ b/build/swift-ui/RNHostView.d.ts
+@@ -8,6 +8,23 @@ export interface RNHostViewProps {
+      * @default false
+      */
+     matchContents?: boolean;
++    /**
++     * iOS only. Lays the content out at the size it is shown at when its presentation scales its
++     * container (iOS 26+ sheets resting at a partial detent), and undoes that scale so the content
++     * renders 1:1. With `matchContents` the content's width is the caller's: multiply it by the
++     * scale reported in `onPresentationScaleChange`.
++     * @default false
++     */
++    compensatesPresentationScale?: boolean;
++    /**
++     * iOS only, with `compensatesPresentationScale`. Reports the scale the presentation draws the
++     * host at (1 when it is not scaled).
++     */
++    onPresentationScaleChange?: (event: {
++        nativeEvent: {
++            scale: number;
++        };
++    }) => void;
+     onLayout?: (event: LayoutChangeEvent) => void;
+     /**
+      * The RN View to be hosted.
+diff --git a/ios/RNHostView.swift b/ios/RNHostView.swift
+index 0b1a7098..0a093754 100644
+--- a/ios/RNHostView.swift
++++ b/ios/RNHostView.swift
+@@ -1,5 +1,6 @@
+ // Copyright 2015-present 650 Industries. All rights reserved.
+ 
++import Combine
+ import SwiftUI
+ import ExpoModulesCore
+ 
+@@ -18,6 +19,14 @@ internal final class RNHostViewProps: ExpoSwiftUI.ViewProps {
+    `measure()` stops its ancestor walk here.
+    */
+   @Field var layoutRoot: Bool = false
++  /**
++   Lays the hosted content out at the size it is actually shown at when a presentation scales its
++   container, and undoes that scale on the content — see `PresentationScaleReader`. Set by the
++   community `BottomSheet`. With `matchContents` the Yoga width comes from JavaScript, which reads
++   the scale from `onPresentationScaleChange`.
++   */
++  @Field var compensatesPresentationScale: Bool = false
++  var onPresentationScaleChange = EventDispatcher()
+ }
+ 
+ // Touches and `measure()` must agree on a coordinate space. Which space depends on where the
+@@ -50,7 +59,21 @@ struct RNHostView: ExpoSwiftUI.View {
+ 
+   @ViewBuilder
+   private var hostedContent: some View {
+-    if props.matchContents, let childUIView = firstChildUIView {
++    if props.matchContents, let childUIView = firstChildUIView, props.compensatesPresentationScale {
++      PresentationScaleReader(onScaleChange: reportPresentationScale) { scale in
++        ApplySizeFromYogaNode(childUIView: childUIView, presentationScale: scale) {
++          Children()
++        }
++      }
++      .onAppear {
++        if props.layoutRoot {
++          touchHandler.attach(to: childUIView)
++        }
++      }
++      .onDisappear {
++        touchHandler.detach()
++      }
++    } else if props.matchContents, let childUIView = firstChildUIView {
+       ApplySizeFromYogaNode(childUIView: childUIView) {
+         Children()
+       }
+@@ -72,6 +95,23 @@ struct RNHostView: ExpoSwiftUI.View {
+       // Render nothing instead of an empty fill frame, which would take up space in the
+       // surrounding SwiftUI container - e.g. a spurious empty row in a `Form`'s `Section`.
+       EmptyView()
++    } else if props.compensatesPresentationScale {
++      PresentationScaleReader(onScaleChange: reportPresentationScale) { scale in
++        GeometryReader { geometry in
++          Children()
++            .frame(width: geometry.size.width * scale, height: geometry.size.height * scale)
++            .modifier(ReportSizeToYogaNodeModifier(shadowNodeProxy: props.shadowNodeProxy))
++            .scaleEffect(1 / scale, anchor: .topLeading)
++        }
++      }
++      .onAppear {
++        if props.layoutRoot, let view = firstChildUIView {
++          touchHandler.attach(to: view)
++        }
++      }
++      .onDisappear {
++        touchHandler.detach()
++      }
+     } else {
+       Children()
+         .frame(maxWidth: .infinity, maxHeight: .infinity)
+@@ -90,6 +130,10 @@ struct RNHostView: ExpoSwiftUI.View {
+   private var firstChildUIView: UIView? {
+     props.children?.first?.uiView
+   }
++
++  private func reportPresentationScale(_ scale: CGFloat) {
++    props.onPresentationScaleChange(["scale": scale])
++  }
+ }
+ 
+ // Publishes where SwiftUI placed this view inside its `Host`, so `measure()` reports the position
+@@ -148,15 +192,30 @@ private final class RNHostTouchHandler: ObservableObject {
+ private struct ApplySizeFromYogaNode<Content: SwiftUI.View>: SwiftUI.View {
+   @StateObject private var observer: Observer
+   let content: Content
++  let presentationScale: CGFloat?
+ 
+-  init(childUIView: UIView, @ViewBuilder content: () -> Content) {
++  init(childUIView: UIView, presentationScale: CGFloat? = nil, @ViewBuilder content: () -> Content) {
+     _observer = StateObject(wrappedValue: Observer(view: childUIView))
+     self.content = content()
++    self.presentationScale = presentationScale
+   }
+ 
+   var body: some SwiftUI.View {
+-    content
+-      .frame(width: observer.size.width, height: observer.size.height)
++    if let scale = presentationScale {
++      // Yoga laid the content out at the size it is shown at; take up the unscaled size the
++      // presentation then scales back down to it.
++      content
++        .frame(width: observer.size.width, height: observer.size.height)
++        .scaleEffect(1 / scale, anchor: .topLeading)
++        .frame(
++          width: observer.size.width / scale,
++          height: observer.size.height / scale,
++          alignment: .topLeading
++        )
++    } else {
++      content
++        .frame(width: observer.size.width, height: observer.size.height)
++    }
+   }
+ 
+   @MainActor
+@@ -207,3 +266,138 @@ private struct ReportSizeToYogaNodeModifier: ViewModifier {
+     }
+   }
+ }
++
++// iOS 26+ floats a sheet resting at a partial detent by scaling its full-width container (a
++// 402pt-wide sheet on a 402pt window is drawn at 386/402 ≈ 0.96 so it clears the screen edges),
++// and returns it to 1 once it is edge-attached. Content filling the sheet is laid out at the
++// unscaled width and drawn ~4% small and resampled. This lays the hosted content out at the size
++// the sheet is actually shown at and applies the inverse scale, so it renders at exactly 1:1.
++// Stacked sheets and dismissals keep the last scale (see `PresentationScaleProbeView.sample`).
++// The scale is read from a probe's window-space frame, which includes every ancestor transform.
++private struct PresentationScaleReader<Content: SwiftUI.View>: SwiftUI.View {
++  let onScaleChange: (CGFloat) -> Void
++  let content: (CGFloat) -> Content
++  @StateObject private var tracker = PresentationScaleTracker()
++
++  init(onScaleChange: @escaping (CGFloat) -> Void, @ViewBuilder content: @escaping (CGFloat) -> Content) {
++    self.onScaleChange = onScaleChange
++    self.content = content
++  }
++
++  var body: some SwiftUI.View {
++    content(tracker.scale)
++      .background(PresentationScaleProbe(tracker: tracker))
++      .onReceive(tracker.$scale.removeDuplicates()) { onScaleChange($0) }
++  }
++}
++
++@MainActor
++private final class PresentationScaleTracker: ObservableObject {
++  @Published private(set) var scale: CGFloat = 1
++
++  func update(_ nextScale: CGFloat) {
++    if abs(nextScale - scale) > 0.0005 {
++      scale = nextScale
++    }
++  }
++}
++
++private struct PresentationScaleProbe: UIViewRepresentable {
++  let tracker: PresentationScaleTracker
++
++  func makeUIView(context: Context) -> PresentationScaleProbeView {
++    let view = PresentationScaleProbeView()
++    view.isUserInteractionEnabled = false
++    view.onScaleChange = { [weak tracker] scale in tracker?.update(scale) }
++    return view
++  }
++
++  func updateUIView(_ uiView: PresentationScaleProbeView, context: Context) {
++    uiView.onScaleChange = { [weak tracker] scale in tracker?.update(scale) }
++  }
++}
++
++private final class PresentationScaleProbeView: UIView {
++  var onScaleChange: ((CGFloat) -> Void)?
++  private var displayLink: CADisplayLink?
++  private var sampleUntil: CFTimeInterval = 0
++
++  override func didMoveToWindow() {
++    super.didMoveToWindow()
++    if window == nil {
++      displayLink?.invalidate()
++      displayLink = nil
++    } else {
++      sampleForAWhile()
++    }
++  }
++
++  override func layoutSubviews() {
++    super.layoutSubviews()
++    sampleForAWhile()
++  }
++
++  deinit {
++    displayLink?.invalidate()
++  }
++
++  // The sheet's size changes whenever its scale does (presentation, detent drags, rotation, window
++  // resizes), but UIKit may apply the new transform after that layout pass or animate towards it.
++  // Samples every frame for a short while after each change instead of keeping a display link
++  // running for as long as the sheet is open.
++  private func sampleForAWhile() {
++    sample()
++    sampleUntil = CACurrentMediaTime() + 0.75
++    if let displayLink {
++      displayLink.isPaused = false
++    } else if window != nil {
++      let link = CADisplayLink(target: WeakDisplayLinkTarget(self), selector: #selector(WeakDisplayLinkTarget.tick))
++      link.add(to: .main, forMode: .common)
++      displayLink = link
++    }
++  }
++
++  fileprivate func tick() {
++    sample()
++    if CACurrentMediaTime() > sampleUntil {
++      displayLink?.isPaused = true
++    }
++  }
++
++  fileprivate func sample() {
++    guard let window, bounds.width > 0, bounds.height > 0 else { return }
++    // Hold the scale while this sheet is covered or leaving: a sheet stacked above scales it back
++    // as a whole, and reflowing its content for that (or for the dismissal) would be a visible jump.
++    if let controller = owningViewController,
++       controller.presentedViewController != nil || controller.isBeingDismissed {
++      return
++    }
++    let scale = convert(bounds, to: window).width / bounds.width
++    guard scale.isFinite, scale > 0.5 else { return }
++    onScaleChange?(min(scale, 1))
++  }
++
++  private var owningViewController: UIViewController? {
++    var responder: UIResponder? = self
++    while let current = responder {
++      if let controller = current as? UIViewController {
++        return controller
++      }
++      responder = current.next
++    }
++    return nil
++  }
++}
++
++@MainActor
++private final class WeakDisplayLinkTarget: NSObject {
++  weak var probe: PresentationScaleProbeView?
++
++  init(_ probe: PresentationScaleProbeView) {
++    self.probe = probe
++  }
++
++  @objc func tick() {
++    probe?.tick()
++  }
++}
 diff --git a/src/community/bottom-sheet/BottomSheet.android.tsx b/src/community/bottom-sheet/BottomSheet.android.tsx
-index 419edef..12c6d1e 100644
+index 419edefa..12c6d1e3 100644
 --- a/src/community/bottom-sheet/BottomSheet.android.tsx
 +++ b/src/community/bottom-sheet/BottomSheet.android.tsx
 @@ -3,6 +3,7 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native';
@@ -109,127 +543,8 @@ index 419edef..12c6d1e 100644
                  <SheetScrollContextReset>{children}</SheetScrollContextReset>
                </View>
              </RNHostView>
-diff --git a/build/community/bottom-sheet/BottomSheet.ios.js b/build/community/bottom-sheet/BottomSheet.ios.js
-index e776a03..1135edc 100644
---- a/build/community/bottom-sheet/BottomSheet.ios.js
-+++ b/build/community/bottom-sheet/BottomSheet.ios.js
-@@ -1,10 +1,13 @@
--import { jsx as _jsx } from "react/jsx-runtime";
-+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
- import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
- import { useWindowDimensions, View, StyleSheet } from 'react-native';
- import { BottomSheet as NativeBottomSheet } from '../../swift-ui/BottomSheet';
- import { Group } from '../../swift-ui/Group';
- import { Host } from '../../swift-ui/Host';
- import { RNHostView } from '../../swift-ui/RNHostView';
-+import { Rectangle } from '../../swift-ui/Shapes';
-+import { VStack } from '../../swift-ui/VStack';
-+import { accessibilityHidden, containerRelativeFrame, frame, hidden, onGeometryChange } from '../../swift-ui/modifiers';
- import { interactiveDismissDisabled, presentationBackground, presentationDetents, presentationDragIndicator, presentationSizing } from '../../swift-ui/modifiers/presentationModifiers';
- import { BottomSheetContext, BottomSheetInternalContext } from './context';
- import { SheetScrollContextReset } from './scrollContextReset';
-@@ -72,7 +75,34 @@ function findNearestDetentIndex(detents, position) {
-  * @remarks Uses SwiftUI's `.sheet()` presentation (modal overlay).
-  */ export function BottomSheet(props) {
-     const { ref, snapPoints: snapPointsProp, index: indexProp = 0, onChange, onClose, onDismiss, enablePanDownToClose = false, enableDynamicSizing = true, handleComponent, backgroundStyle, children } = props;
--    const { width } = useWindowDimensions();
-+    const { width: windowWidth } = useWindowDimensions();
-+    // Content-sized sheets lay their RN root out at the width SwiftUI proposes inside the sheet
-+    // (floating/form sheets and in-sheet horizontal safe areas make it narrower than the window).
-+    const [measuredSheetWidth, setMeasuredSheetWidth] = useState(null);
-+    const width = measuredSheetWidth && measuredSheetWidth.windowWidth === windowWidth ? measuredSheetWidth.width : windowWidth;
-+    const handleSheetWidthProbe = useCallback((probeFrame)=>{
-+        const nextWidth = probeFrame.width;
-+        if (!Number.isFinite(nextWidth) || nextWidth <= 0) return;
-+        setMeasuredSheetWidth((current)=>current && current.windowWidth === windowWidth && Math.abs(current.width - nextWidth) < 0.5 ? current : {
-+                windowWidth,
-+                width: nextWidth
-+            });
-+    }, [
-+        windowWidth
-+    ]);
-+    const sheetWidthProbeModifiers = useMemo(()=>[
-+            containerRelativeFrame({
-+                axes: 'horizontal'
-+            }),
-+            frame({
-+                height: 0
-+            }),
-+            hidden(),
-+            accessibilityHidden(true),
-+            onGeometryChange(handleSheetWidthProbe)
-+        ], [
-+        handleSheetWidthProbe
-+    ]);
-     const [isPresented, setIsPresented] = useState(indexProp >= 0);
-     const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
-     // Ref mirrors currentIndex for use in handleDetentChange without adding it as a useCallback dep
-@@ -200,6 +230,22 @@ function findNearestDetentIndex(detents, position) {
-         enablePanDownToClose,
-         backgroundStyle
-     ]);
-+    const hostedContent = /*#__PURE__*/ _jsx(RNHostView, {
-+        matchContents: fitToContents,
-+        children: /*#__PURE__*/ _jsx(View, {
-+            style: fitToContents ? {
-+                width,
-+                paddingTop: handleComponent !== null ? 16 : 0
-+            } : {
-+                flexGrow: 1,
-+                height: 0,
-+                paddingTop: handleComponent !== null ? 16 : 0
-+            },
-+            children: /*#__PURE__*/ _jsx(SheetScrollContextReset, {
-+                children: children
-+            })
-+        })
-+    });
-     return /*#__PURE__*/ _jsx(BottomSheetInternalContext.Provider, {
-         value: internalContextValue,
-         children: /*#__PURE__*/ _jsx(BottomSheetContext.Provider, {
-@@ -207,7 +253,7 @@ function findNearestDetentIndex(detents, position) {
-             children: /*#__PURE__*/ _jsx(Host, {
-                 style: {
-                     position: 'absolute',
--                    width
-+                    width: windowWidth
-                 },
-                 pointerEvents: "none",
-                 children: /*#__PURE__*/ _jsx(NativeBottomSheet, {
-@@ -217,22 +263,15 @@ function findNearestDetentIndex(detents, position) {
-                     fitToContents: fitToContents,
-                     children: /*#__PURE__*/ _jsx(Group, {
-                         modifiers: modifiers,
--                        children: /*#__PURE__*/ _jsx(RNHostView, {
--                            matchContents: fitToContents,
--                            children: /*#__PURE__*/ _jsx(View, {
--                                style: fitToContents ? {
--                                    width,
--                                    paddingTop: handleComponent !== null ? 16 : 0
--                                } : {
--                                    flexGrow: 1,
--                                    height: 0,
--                                    paddingTop: handleComponent !== null ? 16 : 0
--                                },
--                                children: /*#__PURE__*/ _jsx(SheetScrollContextReset, {
--                                    children: children
--                                })
--                            })
--                        })
-+                        children: fitToContents ? /*#__PURE__*/ _jsxs(VStack, {
-+                            spacing: 0,
-+                            children: [
-+                                /*#__PURE__*/ _jsx(Rectangle, {
-+                                    modifiers: sheetWidthProbeModifiers
-+                                }),
-+                                hostedContent
-+                            ]
-+                        }) : hostedContent
-                     })
-                 })
-             })
 diff --git a/src/community/bottom-sheet/BottomSheet.ios.tsx b/src/community/bottom-sheet/BottomSheet.ios.tsx
-index b6c0300..59449e4 100644
+index b6c03007..24197738 100644
 --- a/src/community/bottom-sheet/BottomSheet.ios.tsx
 +++ b/src/community/bottom-sheet/BottomSheet.ios.tsx
 @@ -6,6 +6,15 @@ import { BottomSheet as NativeBottomSheet } from '../../swift-ui/BottomSheet';
@@ -248,7 +563,7 @@ index b6c0300..59449e4 100644
  import {
    type PresentationDetent,
    interactiveDismissDisabled,
-@@ -94,7 +103,47 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -94,7 +103,58 @@ export function BottomSheet(props: BottomSheetProps) {
      backgroundStyle,
      children,
    } = props;
@@ -266,10 +581,21 @@ index b6c0300..59449e4 100644
 +    windowWidth: number;
 +    width: number;
 +  } | null>(null);
++  // iOS 26+ draws a sheet resting at a partial detent scaled down so it floats clear of the
++  // screen edges. The host undoes that scale on the content (`compensatesPresentationScale`), so
++  // the content is laid out at the width it is shown at: the sheet width times that scale.
++  const [presentationScale, setPresentationScale] = useState(1);
++  const handlePresentationScaleChange = useCallback(
++    (event: { nativeEvent: { scale: number } }) => {
++      const nextScale = event.nativeEvent.scale;
++      if (Number.isFinite(nextScale) && nextScale > 0) setPresentationScale(nextScale);
++    },
++    []
++  );
 +  const width =
-+    measuredSheetWidth && measuredSheetWidth.windowWidth === windowWidth
++    (measuredSheetWidth && measuredSheetWidth.windowWidth === windowWidth
 +      ? measuredSheetWidth.width
-+      : windowWidth;
++      : windowWidth) * presentationScale;
 +  const handleSheetWidthProbe = useCallback(
 +    (probeFrame: { width: number }) => {
 +      const nextWidth = probeFrame.width;
@@ -297,12 +623,15 @@ index b6c0300..59449e4 100644
  
    const [isPresented, setIsPresented] = useState(indexProp >= 0);
    const [currentIndex, setCurrentIndex] = useState(Math.max(indexProp, 0));
-@@ -221,31 +270,44 @@ export function BottomSheet(props: BottomSheetProps) {
+@@ -221,31 +281,47 @@ export function BottomSheet(props: BottomSheetProps) {
      backgroundStyle,
    ]);
  
 +  const hostedContent = (
-+    <RNHostView matchContents={fitToContents}>
++    <RNHostView
++      matchContents={fitToContents}
++      compensatesPresentationScale
++      onPresentationScaleChange={handlePresentationScaleChange}>
 +      {/* paddingTop compensates for tighter spacing between native drag indicator and content
 +          compared to gorhom's handle. flexGrow:1 + height:0 (flex-basis 0) fills the snap-point
 +          height without inheriting the scrollable child's intrinsic content height. With matchContents,
@@ -358,28 +687,8 @@ index b6c0300..59449e4 100644
              </Group>
            </NativeBottomSheet>
          </Host>
-diff --git a/build/community/bottom-sheet/types.d.ts b/build/community/bottom-sheet/types.d.ts
-index cf72b27..51a054f 100644
---- a/build/community/bottom-sheet/types.d.ts
-+++ b/build/community/bottom-sheet/types.d.ts
-@@ -278,6 +278,15 @@ export interface BottomSheetProps {
-      * On web, the full style is applied.
-      */
-     backgroundStyle?: StyleProp<ViewStyle>;
-+    /**
-+     * Android only: the sheet's width (still capped at Material3's 640dp) and its horizontal offset
-+     * from the window centre, in dp. Foldables use it to keep the sheet inside one pane in book
-+     * posture instead of centred across the fold.
-+     */
-+    androidPlacement?: {
-+        width: number;
-+        offsetX: number;
-+    };
-     /**
-      * Style for the handle area.
-      *
 diff --git a/src/community/bottom-sheet/types.ts b/src/community/bottom-sheet/types.ts
-index 51326fb..7b0f209 100644
+index 51326fbf..7b0f2090 100644
 --- a/src/community/bottom-sheet/types.ts
 +++ b/src/community/bottom-sheet/types.ts
 @@ -320,6 +320,13 @@ export interface BottomSheetProps {
@@ -396,3 +705,31 @@ index 51326fb..7b0f209 100644
    /**
     * Style for the handle area.
     *
+diff --git a/src/swift-ui/RNHostView.tsx b/src/swift-ui/RNHostView.tsx
+index ac281cc2..e40bcfc0 100644
+--- a/src/swift-ui/RNHostView.tsx
++++ b/src/swift-ui/RNHostView.tsx
+@@ -14,6 +14,23 @@ export interface RNHostViewProps {
+    * @default false
+    */
+   matchContents?: boolean;
++  /**
++   * iOS only. Lays the content out at the size it is shown at when its presentation scales its
++   * container (iOS 26+ sheets resting at a partial detent), and undoes that scale so the content
++   * renders 1:1. With `matchContents` the content's width is the caller's: multiply it by the
++   * scale reported in `onPresentationScaleChange`.
++   * @default false
++   */
++  compensatesPresentationScale?: boolean;
++  /**
++   * iOS only, with `compensatesPresentationScale`. Reports the scale the presentation draws the
++   * host at (1 when it is not scaled).
++   */
++  onPresentationScaleChange?: (event: {
++    nativeEvent: {
++      scale: number;
++    };
++  }) => void;
+   onLayout?: (event: LayoutChangeEvent) => void;
+   /**
+    * The RN View to be hosted.

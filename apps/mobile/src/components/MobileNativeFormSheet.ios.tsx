@@ -1,0 +1,170 @@
+import type { SFSymbol } from "sf-symbols-typescript";
+import {
+  BottomSheet as SwiftBottomSheet,
+  Button as SwiftButton,
+  Form as SwiftForm,
+  Group as SwiftGroup,
+  Host as SwiftHost,
+  NavigationStack as SwiftNavigationStack,
+  ProgressView as SwiftProgressView,
+  Text as SwiftText,
+  Toolbar as SwiftToolbar,
+  ToolbarItem as SwiftToolbarItem,
+  VStack as SwiftVStack,
+} from "@expo/ui/swift-ui";
+import {
+  accessibilityLabel as swiftAccessibilityLabel,
+  disabled as swiftDisabled,
+  font,
+  foregroundStyle,
+  interactiveDismissDisabled,
+  labelStyle,
+  lineLimit,
+  presentationDetents,
+  presentationDragIndicator,
+  tint,
+} from "@expo/ui/swift-ui/modifiers";
+import { StyleSheet, View } from "react-native";
+import { useNemuTheme } from "@/design-system";
+import type { MobileNativeFormSheetAction, MobileNativeFormSheetProps } from "./MobileNativeFormSheet.types";
+
+export const mobileNativeFormSheetAvailable = true;
+
+function ToolbarActionButton({
+  action,
+  role,
+}: {
+  action: MobileNativeFormSheetAction;
+  role?: "cancel";
+}) {
+  if (action.busy) return <SwiftProgressView />;
+  return (
+    <SwiftButton
+      label={action.label}
+      role={role}
+      onPress={action.onPress}
+      modifiers={action.disabled ? [swiftDisabled(true)] : []}
+    />
+  );
+}
+
+/**
+ * A system sheet with a grouped `Form` in a navigation bar — the shape of
+ * Apple's own pickers and editors (Photos "Add to Album", Reminders' list
+ * info, Settings detail sheets): the title (and a secondary line) centred in
+ * the bar, Cancel / close at the leading edge, the confirming action at the
+ * trailing edge, rows as native inset-grouped cells, the system grabber and
+ * detents. Positioning off the Duo fold and Dynamic Type come from the
+ * system. iOS only: other platforms keep their React Native sheets.
+ */
+export function MobileNativeFormSheet({
+  visible,
+  onClose,
+  onDismiss,
+  title,
+  subtitle,
+  detents,
+  interactiveDismissDisabled: dismissDisabled = false,
+  cancel,
+  closeAccessibilityLabel,
+  confirm,
+  primaryAction,
+  children,
+  wrapForm,
+  formKey,
+  testID,
+}: MobileNativeFormSheetProps) {
+  const { scheme, tokens } = useNemuTheme();
+  const form = <SwiftForm key={formKey}>{children}</SwiftForm>;
+
+  return (
+    <View pointerEvents="none" style={styles.host} testID={testID}>
+      <SwiftHost colorScheme={scheme} seedColor={tokens.primary} style={StyleSheet.absoluteFill}>
+        <SwiftBottomSheet
+          isPresented={visible}
+          onIsPresentedChange={(presented) => {
+            if (!presented && visible) onClose();
+          }}
+          onDismiss={onDismiss}
+        >
+          <SwiftGroup
+            modifiers={[
+              presentationDetents(detents),
+              presentationDragIndicator("visible"),
+              interactiveDismissDisabled(dismissDisabled),
+            ]}
+          >
+            <SwiftNavigationStack modifiers={[tint(tokens.primary)]}>
+              <SwiftToolbar>
+                {wrapForm ? wrapForm(form) : form}
+                <SwiftToolbar.Content>
+                  <SwiftToolbarItem placement="cancellationAction">
+                    {cancel ? (
+                      <ToolbarActionButton action={cancel} role="cancel" />
+                    ) : (
+                      <SwiftButton
+                        role="close"
+                        onPress={onClose}
+                        modifiers={
+                          closeAccessibilityLabel ? [swiftAccessibilityLabel(closeAccessibilityLabel)] : []
+                        }
+                      />
+                    )}
+                  </SwiftToolbarItem>
+                  <SwiftToolbarItem placement="principal">
+                    <SwiftVStack spacing={1}>
+                      <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>{title}</SwiftText>
+                      {subtitle ? (
+                        <SwiftText
+                          modifiers={[
+                            font({ textStyle: "caption" }),
+                            foregroundStyle({ type: "hierarchical", style: "secondary" }),
+                            lineLimit(1),
+                          ]}
+                        >
+                          {subtitle}
+                        </SwiftText>
+                      ) : null}
+                    </SwiftVStack>
+                  </SwiftToolbarItem>
+                  {primaryAction ? (
+                    <SwiftToolbarItem placement="primaryAction">
+                      {primaryAction.busy ? (
+                        <SwiftProgressView />
+                      ) : (
+                        <SwiftButton
+                          label={primaryAction.label}
+                          systemImage={primaryAction.systemImage as SFSymbol}
+                          onPress={primaryAction.onPress}
+                          modifiers={[
+                            labelStyle("iconOnly"),
+                            ...(primaryAction.disabled ? [swiftDisabled(true)] : []),
+                          ]}
+                        />
+                      )}
+                    </SwiftToolbarItem>
+                  ) : null}
+                  {confirm ? (
+                    <SwiftToolbarItem placement="confirmationAction">
+                      <ToolbarActionButton action={confirm} />
+                    </SwiftToolbarItem>
+                  ) : null}
+                </SwiftToolbar.Content>
+              </SwiftToolbar>
+            </SwiftNavigationStack>
+          </SwiftGroup>
+        </SwiftBottomSheet>
+      </SwiftHost>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  host: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    width: 1,
+    height: 1,
+  },
+});

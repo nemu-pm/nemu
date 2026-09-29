@@ -20,8 +20,8 @@ import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
  * undefined to keep its own sizing. Content that keeps its own size is
  * nudged just past the fold instead when its frame would rest on it.
  *
- * Folding / unfolding moves the placeholder to (or from) its pane with the
- * shared pose settle spring rather than a jump.
+ * Fully open windows center the placeholder across the available width.
+ * Posture changes glide with the shared pose settle spring.
  */
 export function MobilePaneAlignedView({
   children,
@@ -46,7 +46,7 @@ export function MobilePaneAlignedView({
             bottomInset: insets.bottom,
           })
         : null,
-    [adaptive.fold, adaptive.height, adaptive.posture, insets.bottom, rect],
+    [adaptive.height, adaptive.fold, adaptive.posture, insets.bottom, rect],
   );
   const fillsPane = typeof children === "function" && !!region && region.height > 0;
   const minHeight = fillsPane && region ? region.height : undefined;

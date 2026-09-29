@@ -502,9 +502,14 @@ describe("mobile sheet and text-field chrome policy", () => {
       'setLibraryOptionsPresentationMode(inLibrary ? "in-library" : "add")',
     );
     expect(source).toContain("setLibraryOptionsPresentationMode(null);");
-    expect(source).toContain(
-      'libraryOptionsPresentationMode === "in-library"',
-    );
+    // The frozen mode (not live `inLibrary`) drives the sheet's rows.
+    expect(source).toContain("mode={libraryOptionsPresentationMode}");
+    for (const file of [
+      "components/MobileLibraryOptionsSheet.tsx",
+      "components/MobileLibraryOptionsSheet.ios.tsx",
+    ]) {
+      expect(readMobileSource(file)).toContain('mode === "in-library"');
+    }
   });
 
   test("keeps direct depth shadows unclipped with native-size targets", () => {

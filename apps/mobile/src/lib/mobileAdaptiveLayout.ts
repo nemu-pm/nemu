@@ -35,6 +35,16 @@ export type MobileAdaptiveLayout = {
   /** Width is at least 600 — room for a second level of hierarchy (split view). */
   regularWidth: boolean;
   posture: MobileWindowPosture;
+  /**
+   * The window has a division (fold) region at all, active OR inactive — the
+   * Duo inner display whether flat or folded, an Android foldable's inner
+   * display (Pixel Fold reports a zero-width FLAT fold). Apple: "use inactive
+   * regions to make high-level decisions… prefer even numbers of columns when
+   * a division region is present regardless of its active state." Never use
+   * it to split or size anything: an inactive region's width is unreliable
+   * (Apple says zero when flat; the Duo simulator reports 40pt).
+   */
+  hasFoldRegion: boolean;
   /** Active folding region in window coordinates (already includes interaction margins). */
   fold: WindowLayoutRect | null;
   /** Usable panes in physical order (left→right or top→bottom); one pane when flat. */
@@ -86,6 +96,7 @@ export function mobileAdaptiveLayout(layout: MobileWindowLayout): MobileAdaptive
     widthClass: mobileWidthClass(layout.width),
     regularWidth: layout.width >= MOBILE_MEDIUM_WIDTH,
     posture: !split ? "flat" : axis === "horizontal" ? "book" : "notebook",
+    hasFoldRegion: split || mobileWindowHasFoldRegion(layout),
     fold,
     panels,
     occlusions,
@@ -95,6 +106,34 @@ export function mobileAdaptiveLayout(layout: MobileWindowLayout): MobileAdaptive
     safeAreaInsets: layout.safeAreaInsets ?? null,
     hinge: layout.hinge ?? null,
   };
+}
+
+/**
+ * Any division region crossing the window, active or not. Only presence
+ * counts: a zero-width line (Android FLAT fold) is a region, a degenerate
+ * point or a region wholly outside the window is not.
+ */
+export function mobileWindowHasFoldRegion(
+  layout: Pick<MobileWindowLayout, "width" | "height" | "divisions">,
+): boolean {
+  return layout.divisions.some((region) => {
+    if (![region.x, region.y, region.width, region.height].every(Number.isFinite)) return false;
+    if (region.width <= 0 && region.height <= 0) return false;
+    return region.x <= layout.width && region.x + region.width >= 0
+      && region.y <= layout.height && region.y + region.height >= 0;
+  });
+}
+
+/**
+ * Grid parity rule (HIG iPhone Duo, "prefer an even number of columns so
+ * content divides cleanly"): even column counts whenever the window has a fold
+ * region, folded or flat, so the grid does not reflow when the device folds.
+ * Tablets and phones without a fold keep whatever count fits.
+ */
+export function mobileGridPrefersEvenColumns(
+  adaptive: Pick<MobileAdaptiveLayout, "hasFoldRegion">,
+): boolean {
+  return adaptive.hasFoldRegion;
 }
 
 /**
@@ -159,8 +198,9 @@ export function mobileFoldSplitForContainer(
 }
 
 /**
- * Grid columns for a content width. On regular widths the HIG asks for an even
- * number of columns so content divides cleanly when the device folds.
+ * Grid columns for a content width. Pass `preferEven` from
+ * `mobileGridPrefersEvenColumns` (a fold region is present) so content
+ * divides cleanly when the device folds.
  */
 export function mobileAdaptiveGridColumns({
   contentWidth,

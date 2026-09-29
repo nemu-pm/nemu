@@ -15,6 +15,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FloatingTabBar } from "@/components/FloatingTabBar";
 import { MobileErrorBoundaryScreen } from "@/components/MobileErrorBoundaryScreen";
 import { MobileFeedbackSettingsBridge } from "@/components/MobileFeedbackSettingsBridge";
+import { MobileJapaneseLearningQaDemoLauncher } from "@/components/MobileJapaneseLearningQaDemoLauncher";
 import { MobileScrollEdgeEffectHost } from "@/components/MobileScrollEdgeEffectHost";
 import { MobileSyncProgressToast } from "@/components/MobileSyncProgressToast";
 import { MobileToastProvider } from "@/components/MobileToast";
@@ -144,6 +145,7 @@ function RootStack({
             }}
           />
         </MobileScrollEdgeEffectHost>
+        <MobileJapaneseLearningQaDemoLauncher />
         {Platform.OS !== "ios" && shouldShowMobileFloatingTabBar(pathname) ? (
           <FloatingTabBar />
         ) : null}

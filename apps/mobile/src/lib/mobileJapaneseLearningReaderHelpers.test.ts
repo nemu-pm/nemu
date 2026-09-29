@@ -63,13 +63,31 @@ function detection(over: Partial<MobileOcrDetection> & { order: number }): Mobil
 }
 
 describe("mobileJapaneseLearningChatRequestMessages", () => {
-  test("drops error and empty messages and trims content", () => {
+  test("keeps the full model instruction when the bubble has a compact display question", () => {
+    expect(mobileJapaneseLearningChatRequestMessages([{
+      id: "ask-word", role: "user", createdAt: 0,
+      text: "Explain 猫 using the requested response language and level.",
+      displayText: "Explain this word: 猫",
+    }])).toEqual([{
+      role: "user", content: "Explain 猫 using the requested response language and level.",
+    }]);
+  });
+  test("sends the whole thread like web getMessagesForRequest: hidden turns, tool calls and results", () => {
+    const toolCalls = [{ toolCallId: "t1", toolName: "request_transcript", args: { pageNumber: 2 } }];
+    const toolResults = [{ toolCallId: "t1", toolName: "request_transcript", result: "こんにちは" }];
     const out = mobileJapaneseLearningChatRequestMessages([
-      { id: "1", role: "user", text: "  hello  ", createdAt: 0 },
-      { id: "2", role: "assistant", text: "", createdAt: 0 },
-      { id: "3", role: "user", text: "boom", createdAt: 0, isError: true },
+      { id: "0", role: "user", text: "NEMU_CTX_SNAPSHOT_V1 key=a", createdAt: 0, hidden: true },
+      { id: "1", role: "user", text: "hello", createdAt: 0 },
+      { id: "2", role: "assistant", text: "", createdAt: 0, hidden: true, toolCalls, toolResults },
+      { id: "3", role: "assistant", text: "Network error. Please try again.", createdAt: 0 },
     ]);
-    expect(out).toEqual([{ role: "user", content: "hello" }]);
+    expect(out).toEqual([
+      { role: "user", content: "NEMU_CTX_SNAPSHOT_V1 key=a" },
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "", toolCalls },
+      { role: "tool", toolResults },
+      { role: "assistant", content: "Network error. Please try again." },
+    ]);
   });
 });
 

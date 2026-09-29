@@ -1,4 +1,5 @@
 import {
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -6,24 +7,30 @@ import {
   useState,
 } from "react";
 import {
-  ActivityIndicator,
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   View,
   type GestureResponderEvent,
   type ViewInstance,
+  type ScrollViewInstance,
 } from "react-native";
+import Animated, {
+  Easing,
+  useReducedMotion,
+  withTiming,
+} from "react-native-reanimated";
 import {
   nemuColorWithAlpha,
   nemuFontWeight,
-  radius,
+  spacing,
   useNemuTheme,
   NemuNativeProgressBar,
   NemuPressable,
 } from "@/design-system";
+import { JapaneseLearningText as Text } from "./JapaneseLearningText";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { JapaneseLearningWebIcon, JapaneseLearningWebSpinner } from "./JapaneseLearningWebIcon";
 import { hapticPress } from "@/lib/haptics";
 import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import {
@@ -41,12 +48,19 @@ import {
   mobileJapaneseLearningQaTimeline,
 } from "@/lib/mobileJapaneseLearningQa";
 import {
+  JAPANESE_LEARNING_FURIGANA_ROW_HEIGHT,
   JAPANESE_LEARNING_SERIF_FONT_FAMILY,
   mobileJapaneseLearningSurfaceColors,
 } from "@/lib/mobileJapaneseLearningSurfaceTheme";
 import { getMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseLearningEngine";
 import { describeMobileJapaneseLearningPackLoading } from "@/lib/mobileJapaneseLearningAnalysisPackState";
 import { useMobileJapaneseLearningAnalysisPackState } from "@/lib/mobileJapaneseLearningAnalysisPackStore";
+import {
+  JAPANESE_LEARNING_SENTENCE_COLUMN_FRACTION,
+  JAPANESE_LEARNING_SENTENCE_PANE_MAX_HEIGHT,
+  JAPANESE_LEARNING_SENTENCE_PANE_MAX_HEIGHT_REGULAR,
+  resolveJapaneseLearningSentenceLayout,
+} from "@/lib/mobileJapaneseLearningSheetLayout";
 import { JapaneseLearningTokenDisplay } from "./JapaneseLearningTokenDisplay";
 import { JapaneseLearningTokenDetails } from "./JapaneseLearningTokenDetails";
 
@@ -67,13 +81,17 @@ interface SentenceDisplayProps {
   onCopySelection: (text: string) => void;
   /** Runs the analysis again after an error (e.g. the dictionary download failed). */
   onRetry?: () => void;
+  /** Shown above the sentence, scrolling with it (the bubble when the sheet covers the page). */
+  sentenceHeader?: ReactNode;
 }
 
 /**
- * Mobile mirror of web `SentenceDisplay` (sentence-display.tsx).
- * Two panes: a capped sentence/token pane (scrollable, ~3 rows) and a details
- * pane that fills remaining space (scrollable), showing either multi-selection
- * actions, a single token's summary + details, or an empty-state hint.
+ * Mobile mirror of web `SentenceDisplay` (sentence-display.tsx): the sentence
+ * (raw text, then furigana tokens) and the details (multi-selection actions,
+ * a single token's summary + details, or an empty-state hint), each in its
+ * own scroll pane. Stacked as on web — a content-sized sentence pane over the
+ * details — unless the body is wide and short, where the two sit side by side
+ * (`resolveJapaneseLearningSentenceLayout`). No fades over the text.
  *
  * Token selection uses the RN responder system with onLayout-measured rects and
  * `mobileGrammarTokenAtPoint` hit-testing — the same approach the previous
@@ -89,8 +107,17 @@ export function JapaneseLearningSentenceDisplay({
   onAskSelection,
   onCopySelection,
   onRetry,
+  sentenceHeader,
 }: SentenceDisplayProps) {
   const { tokens, scheme } = useNemuTheme();
+  const reduceMotion = useReducedMotion();
+
+  const detailsScrollRef = useRef<ScrollViewInstance>(null);
+  const [bodySize, setBodySize] = useState({ width: 0, height: 0 });
+  // Wide and short bodies put the sentence and the details side by side.
+  const columns = resolveJapaneseLearningSentenceLayout(bodySize) === "columns";
+  // Web `sm:` sizes (≥640pt) for the stacked drawer; a column is phone-sized.
+  const regularWidth = !columns && bodySize.width >= 640;
   const colors = mobileJapaneseLearningSurfaceColors(scheme === "dark" ? "dark" : "light");
   // First on-device analysis: the dictionary pack downloads before the
   // sentence can be analyzed — show its progress instead of a silent spinner.
@@ -111,9 +138,23 @@ export function JapaneseLearningSentenceDisplay({
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
   const [selectionKey, setSelectionKey] = useState("");
-  const [, setIsDraggingSelection] = useState(false);
-  const [multiCardWidth, setMultiCardWidth] = useState(0);
   const [lastSeenTokensKey, setLastSeenTokensKey] = useState("");
+  const [multiCardInnerWidth, setMultiCardInnerWidth] = useState(0);
+  const [multiActionsWidth, setMultiActionsWidth] = useState(0);
+  // The multi-selection actions drop Copy's label only when both labelled
+  // actions cannot share one line inside the card (narrow windows).
+  const multiCopyIconOnly =
+    multiCardInnerWidth > 0 && multiActionsWidth > multiCardInnerWidth;
+  // Natural single-line width of the "Selected text" label and the selection.
+  const [multiTextWidth, setMultiTextWidth] = useState(0);
+  // Web's row (text beside the actions) only when the whole selection fits
+  // there on one line; otherwise the selection gets its own full-width line
+  // and the actions sit under it on the trailing edge.
+  const multiSelectionRow =
+    multiCardInnerWidth > 0 &&
+    multiActionsWidth > 0 &&
+    multiTextWidth > 0 &&
+    multiTextWidth + 8 + multiActionsWidth <= multiCardInnerWidth;
 
   const grammarTokens = useMemo<MobileGrammarToken[]>(
     () =>
@@ -161,13 +202,26 @@ export function JapaneseLearningSentenceDisplay({
       )
     : "";
 
+  // Select a sole token automatically.
+  const autoSelectedTokensRef = useRef<MobileGrammarToken[] | null>(null);
+  useEffect(() => {
+    if (autoSelectedTokensRef.current === grammarTokens) return;
+    autoSelectedTokensRef.current = grammarTokens;
+    if (grammarTokens.length === 1) onSelectToken(0);
+  }, [grammarTokens, onSelectToken]);
+  // Web: a new selection shows its details from the top.
+  const detailsSignature = multiSelectionActive
+    ? `range:${activeSelectionStart}-${activeSelectionEnd}`
+    : `token:${selectedTokenIndex}`;
+  useEffect(() => {
+    detailsScrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [detailsSignature, tokensKey]);
   const clearRangeSelection = useCallback(() => {
     draggingSelectionRef.current = false;
     dragStartIndexRef.current = null;
     setSelectionStart(null);
     setSelectionEnd(null);
     setSelectionKey("");
-    setIsDraggingSelection(false);
   }, []);
 
   const selectSingleToken = useCallback(
@@ -188,7 +242,6 @@ export function JapaneseLearningSentenceDisplay({
       const start = dragStartIndexRef.current;
       if (start == null || start === index) return;
       draggingSelectionRef.current = true;
-      setIsDraggingSelection(true);
       setSelectionStart(Math.min(start, index));
       setSelectionEnd(Math.max(start, index));
       setSelectionKey(tokensKey);
@@ -207,7 +260,6 @@ export function JapaneseLearningSentenceDisplay({
       }
       draggingSelectionRef.current = false;
       dragStartIndexRef.current = null;
-      setIsDraggingSelection(false);
       setSelectionStart(Math.min(anchor, index));
       setSelectionEnd(Math.max(anchor, index));
       setSelectionKey(tokensKey);
@@ -233,7 +285,6 @@ export function JapaneseLearningSentenceDisplay({
       );
       dragStartIndexRef.current = index;
       draggingSelectionRef.current = false;
-      setIsDraggingSelection(false);
     },
     [grammarTokens.length],
   );
@@ -271,7 +322,6 @@ export function JapaneseLearningSentenceDisplay({
 
       dragStartIndexRef.current = null;
       draggingSelectionRef.current = false;
-      setIsDraggingSelection(false);
     },
     [grammarTokens.length, selectSingleToken, updateRangeSelection],
   );
@@ -279,7 +329,6 @@ export function JapaneseLearningSentenceDisplay({
   const cancelTokenGesture = useCallback(() => {
     dragStartIndexRef.current = null;
     draggingSelectionRef.current = false;
-    setIsDraggingSelection(false);
   }, []);
 
   // QA builds only (EXPO_PUBLIC_JL_QA_TIMELINE): walk the selection states.
@@ -289,7 +338,12 @@ export function JapaneseLearningSentenceDisplay({
   });
   useEffect(() => {
     if (!MOBILE_JAPANESE_LEARNING_QA_TIMELINE || grammarTokens.length === 0) return;
-    const timers = mobileJapaneseLearningQaTimeline(grammarTokens.length).map((step) =>
+    const conjugatedIndex = grammarTokens.findIndex((token) => token.conjugations.length > 0);
+    const longestIndex = grammarTokens.reduce(
+      (best, token, index) => (token.meanings.length > (grammarTokens[best]?.meanings.length ?? 0) ? index : best),
+      0,
+    );
+    const timers = mobileJapaneseLearningQaTimeline(grammarTokens.length, conjugatedIndex, longestIndex).map((step) =>
       setTimeout(() => {
         const actions = qaActionsRef.current;
         if (step.kind === "token") {
@@ -300,15 +354,13 @@ export function JapaneseLearningSentenceDisplay({
           setSelectionEnd(step.end);
           setSelectionKey(actions.tokensKey);
         } else {
-          actions.onAskSelection(
-            selectedMobileGrammarText(grammarTokens, 1, 3),
-            "words",
-          );
+          // Web refs 08/09 ask about the whole sentence.
+          if (grammarState.status === "ready") actions.onAskSelection(grammarState.text.trim(), "sentence");
         }
       }, step.atMs),
     );
     return () => timers.forEach(clearTimeout);
-  }, [grammarTokens]);
+  }, [grammarState, grammarTokens]);
 
   /** Runs a gesture step with the touch in token-row coordinates (queued until the row is measured). */
   const withTokenPoint = useCallback(
@@ -331,245 +383,389 @@ export function JapaneseLearningSentenceDisplay({
   const rawText = grammarState.status === "idle" ? "" : grammarState.text.trim();
   const hasTokens = grammarTokens.length > 0;
 
-  return (
-    <View style={styles.container}>
-      {/* Sentence pane — content-sized, capped to ~3 token rows, scrollable (web max-h-[14rem]) */}
-      <View style={styles.sentencePane}>
-        <ScrollView
-          nestedScrollEnabled
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.sentenceScrollContent}
+  // The analysis status (error / dictionary download / analyzing): under the
+  // raw text when stacked (web), centred in the details column beside it.
+  const statusBlock = grammarState.status === "error" ? (
+    <View style={styles.errorBlock}>
+      <Text
+        accessibilityRole="alert"
+        accessibilityLiveRegion="assertive"
+        style={[styles.errorText, { color: nemuColorWithAlpha(colors.destructive, 0.9) }]}
+      >
+        {packState.kind === "failed" &&
+        // Automatic falls back to the cloud, so its errors are not the pack's.
+        getMobileJapaneseLearningEnginePreference() === "onDevice"
+          ? strings.japaneseLearningDictionary.analysisDownloadFailed
+          : strings.reader.pluginJapaneseLearningGrammarFailed}
+      </Text>
+      {onRetry ? (
+        <NemuPressable
+          accessibilityRole="button"
+          accessibilityLabel={strings.japaneseLearningDictionary.retry}
+          hitSlop={6}
+          onPress={onRetry}
+          pressedScale={0.96}
+          style={styles.ghostAction}
         >
-          {hasTokens ? (
-            <View
-              onStartShouldSetResponderCapture={() =>
-                grammarTokens.length > 0
-              }
-              onMoveShouldSetResponder={() => grammarTokens.length > 0}
-              ref={tokenWrapRef}
-              onResponderGrant={(e) => {
-                tokenWrapOriginRef.current = null;
-                pendingTokenEventsRef.current = [];
-                withTokenPoint(e, beginTokenGesture);
-                tokenWrapRef.current?.measure((_x, _y, _width, _height, pageX, pageY) => {
-                  const origin = { x: pageX, y: pageY };
-                  tokenWrapOriginRef.current = origin;
-                  const pending = pendingTokenEventsRef.current;
-                  pendingTokenEventsRef.current = [];
-                  for (const run of pending) run(origin);
-                });
-              }}
-              onResponderMove={(e) => withTokenPoint(e, moveTokenGesture)}
-              onResponderRelease={(e) => withTokenPoint(e, endTokenGesture)}
-              onResponderTerminate={() => {
-                pendingTokenEventsRef.current = [];
-                cancelTokenGesture();
-              }}
-              style={styles.tokenWrap}
-            >
-              {grammarTokens.map((token, index) => (
-                <JapaneseLearningTokenDisplay
-                  key={`${index}-${token.word}-${token.partOfSpeech}`}
-                  token={token}
-                  index={index}
-                  isSelected={selectedTokenIndex === index}
-                  isMultiSelected={mobileGrammarTokenInSelection(
-                    index,
-                    activeSelectionStart,
-                    activeSelectionEnd,
-                  )}
-                  accessibilityLabel={[
-                    formatMobileString(
-                      strings.reader.pluginJapaneseLearningTokenAccessibility,
-                      { word: token.word.replace(/\n/g, "") },
-                    ),
-                    token.reading && token.reading.replace(/\u200c/g, "") !== token.word
-                      ? token.reading.replace(/\n/g, "").replace(/\u200c/g, "")
-                      : null,
-                    token.partOfSpeech || null,
-                  ]
-                    .filter(Boolean)
-                    .join(", ")}
-                  accessibilityExtendLabel={formatMobileString(
-                    strings.reader
-                      .pluginJapaneseLearningTokenExtendAccessibility,
-                    { word: token.word.replace(/\n/g, "") },
-                  )}
-                  onActivate={() => selectSingleToken(index)}
-                  onExtendSelection={() =>
-                    extendAccessibleSelection(index)
-                  }
-                  onLayout={(i, x, y, width, height) => {
-                    tokenLayoutsRef.current[i] = { x, y, width, height };
-                  }}
-                />
-              ))}
-            </View>
-          ) : (
-            // Web: the raw OCR text shows immediately; analysis runs below it.
-            <View style={styles.rawLayer}>
-              {rawText ? (
-                <Text selectable accessibilityLanguage="ja" style={[styles.rawText, { color: tokens.foreground }]}>
-                  {rawText}
-                </Text>
-              ) : null}
-              {grammarState.status === "error" ? (
-                <View style={styles.errorBlock}>
-                  <Text
-                    accessibilityRole="alert"
-                    accessibilityLiveRegion="assertive"
-                    style={[styles.errorText, { color: nemuColorWithAlpha(colors.destructive, 0.9) }]}
-                  >
-                    {packState.kind === "failed" &&
-                    // Automatic falls back to the cloud, so its errors are not the pack's.
-                    getMobileJapaneseLearningEnginePreference() === "onDevice"
-                      ? strings.japaneseLearningDictionary.analysisDownloadFailed
-                      : strings.reader.pluginJapaneseLearningGrammarFailed}
-                  </Text>
-                  {onRetry ? (
-                    <NemuPressable
-                      accessibilityRole="button"
-                      accessibilityLabel={strings.japaneseLearningDictionary.retry}
-                      minimumTouchTarget
-                      onPress={onRetry}
-                      pressedScale={0.96}
-                      style={styles.ghostAction}
-                    >
-                      <Ionicons name="refresh" size={14} color={tokens.primary} />
-                      <Text style={[styles.actionText, { color: tokens.primary }]}>
-                        {strings.japaneseLearningDictionary.retry}
-                      </Text>
-                    </NemuPressable>
-                  ) : null}
-                </View>
-              ) : grammarState.status === "loading" && packLoading ? (
-                <View accessibilityLiveRegion="polite" style={styles.packLoading}>
-                  <Text style={[styles.analyzingText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.8) }]}>
-                    {packLoading.label}
-                  </Text>
-                  <NemuNativeProgressBar
-                    accessibilityLabel={strings.japaneseLearningDictionary.progressAccessibility}
-                    value={packLoading.progress}
-                  />
-                </View>
-              ) : grammarState.status === "loading" ? (
-                <View accessibilityLiveRegion="polite" style={styles.analyzing}>
-                  <Text style={[styles.analyzingText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.8) }]}>
-                    {strings.reader.pluginJapaneseLearningAnalyzingSentenceProgress}
-                  </Text>
-                  <ActivityIndicator size="small" color={tokens.primary} />
-                </View>
-              ) : grammarState.status === "idle" ? (
-                // Study desk "Sentence" view before a line is chosen.
-                <Text style={[styles.emptyHintText, styles.idleHint, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.7) }]}>
-                  {strings.reader.pluginJapaneseLearningGrammarHint}
-                </Text>
-              ) : null}
-            </View>
-          )}
-        </ScrollView>
-      </View>
+          <Ionicons name="refresh" size={14} color={tokens.primary} />
+          <Text style={[styles.actionText, { color: tokens.primary }]}>
+            {strings.japaneseLearningDictionary.retry}
+          </Text>
+        </NemuPressable>
+      ) : null}
+    </View>
+  ) : grammarState.status === "loading" && packLoading ? (
+    <View accessibilityLiveRegion="polite" style={styles.packLoading}>
+      <Text style={[styles.analyzingText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.8) }]}>
+        {packLoading.label}
+      </Text>
+      <NemuNativeProgressBar
+        accessibilityLabel={strings.japaneseLearningDictionary.progressAccessibility}
+        value={packLoading.progress}
+      />
+    </View>
+  ) : grammarState.status === "loading" ? (
+    <View accessibilityLiveRegion="polite" style={styles.analyzing}>
+      <Text style={[styles.analyzingText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.8) }]}>
+        {strings.reader.pluginJapaneseLearningAnalyzingSentenceProgress}
+      </Text>
+      <JapaneseLearningWebSpinner size={24} color={tokens.primary} />
+    </View>
+  ) : null;
 
-      {/* Details pane — fills remaining space, scrollable */}
-      <View style={styles.detailsPane}>
-        <ScrollView
-          nestedScrollEnabled
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.detailsScrollContent}
-        >
-          {hasTokens ? (
-            multiSelectionActive ? (
-              <View
-                onLayout={(event) => setMultiCardWidth(event.nativeEvent.layout.width)}
-                style={[
-                  styles.multiSelectionCard,
-                  // Web's header row; narrow panes put the actions under the text.
-                  multiCardWidth > 0 && multiCardWidth < 460 ? styles.multiSelectionCardStacked : null,
-                  { backgroundColor: colors.detailsCard, borderColor: colors.detailsCardBorder },
-                ]}
-              >
-                <View style={[styles.multiSelectionTextBlock, multiCardWidth >= 460 ? styles.multiSelectionTextBlockRow : null]}>
-                  <Text style={[styles.multiSelectionLabel, { color: tokens.foreground }]}>
-                    {strings.reader.pluginJapaneseLearningSelectedText}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    selectable
-                    style={[styles.multiSelectionValue, { color: tokens.foreground }]}
-                  >
-                    {selectedRangeText}
-                  </Text>
-                </View>
-                <View style={styles.multiSelectionActions}>
-                  <NemuPressable
-                    accessibilityRole="button"
-                    accessibilityLabel={strings.reader.pluginJapaneseLearningCopySelection}
-                    minimumTouchTarget
-                    onPress={() => onCopySelection(selectedRangeText)}
-                    pressedScale={0.96}
-                    style={styles.ghostAction}
-                  >
-                    <Ionicons name="copy-outline" size={14} color={tokens.mutedForeground} />
-                    <Text style={[styles.actionText, { color: tokens.mutedForeground }]}>
-                      {strings.reader.pluginJapaneseLearningCopySelection}
-                    </Text>
-                  </NemuPressable>
-                  <NemuPressable
-                    accessibilityRole="button"
-                    accessibilityLabel={strings.reader.pluginJapaneseLearningAskAboutTheseWords}
-                    accessibilityState={{ disabled: askDisabled }}
-                    minimumTouchTarget
-                    disabled={askDisabled}
-                    onPress={() => onAskSelection(selectedRangeText, "words")}
-                    pressedScale={0.96}
-                    containerStyle={styles.primaryActionContainer}
-                    style={[
-                      styles.primaryAction,
-                      { backgroundColor: tokens.primary, opacity: askDisabled ? 0.5 : 1 },
-                    ]}
-                  >
-                    <Ionicons name="chatbubbles-outline" size={14} color={tokens.primaryForeground} />
-                    <Text style={[styles.actionText, { color: tokens.primaryForeground }]}>
-                      {strings.reader.pluginJapaneseLearningAskAboutTheseWords}
-                    </Text>
-                  </NemuPressable>
-                </View>
-              </View>
-            ) : selectedToken ? (
-              <JapaneseLearningTokenDetails
-                key={`details-${selectedTokenIndex}`}
-                token={selectedToken}
-                strings={strings}
-                onAskNemu={
-                  mobileJapaneseLearningTokenCanAct(selectedToken) && !askDisabled
-                    ? handleAskSingleWord
-                    : undefined
-                }
-                onCopy={onCopySelection}
-              />
-            ) : (
-              <View style={styles.emptyHint}>
-                <Text style={[styles.emptyHintText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.7) }]}>
-                  {strings.reader.pluginJapaneseLearningTapAnyWordHint}
-                </Text>
-                <Text style={[styles.emptyHintText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.6) }]}>
-                  {strings.reader.pluginJapaneseLearningDragOnWordsHint}
-                </Text>
-              </View>
-            )
-          ) : null}
-          {actionNotice ? (
-            <Text
-              accessibilityLiveRegion="polite"
-              style={[styles.actionNotice, { color: tokens.mutedForeground }]}
-            >
-              {actionNotice}
-            </Text>
-          ) : null}
-        </ScrollView>
-      </View>
+  const sentenceContent = hasTokens ? (
+    <View
+      onStartShouldSetResponderCapture={() =>
+        grammarTokens.length > 0
+      }
+      onMoveShouldSetResponder={() => grammarTokens.length > 0}
+      ref={tokenWrapRef}
+      onResponderGrant={(e) => {
+        tokenWrapOriginRef.current = null;
+        pendingTokenEventsRef.current = [];
+        withTokenPoint(e, beginTokenGesture);
+        tokenWrapRef.current?.measure((_x, _y, _width, _height, pageX, pageY) => {
+          const origin = { x: pageX, y: pageY };
+          tokenWrapOriginRef.current = origin;
+          const pending = pendingTokenEventsRef.current;
+          pendingTokenEventsRef.current = [];
+          for (const run of pending) run(origin);
+        });
+      }}
+      onResponderMove={(e) => withTokenPoint(e, moveTokenGesture)}
+      onResponderRelease={(e) => withTokenPoint(e, endTokenGesture)}
+      onResponderTerminate={() => {
+        pendingTokenEventsRef.current = [];
+        cancelTokenGesture();
+      }}
+      style={styles.tokenWrap}
+    >
+      {grammarTokens.map((token, index) => (
+        <JapaneseLearningTokenDisplay
+          key={`${index}-${token.word}-${token.partOfSpeech}`}
+          token={token}
+          regularWidth={regularWidth}
+          index={index}
+          isSelected={selectedTokenIndex === index}
+          isMultiSelected={mobileGrammarTokenInSelection(
+            index,
+            activeSelectionStart,
+            activeSelectionEnd,
+          )}
+          accessibilityLabel={[
+            formatMobileString(
+              strings.reader.pluginJapaneseLearningTokenAccessibility,
+              { word: token.word.replace(/\n/g, "") },
+            ),
+            token.reading && token.reading.replace(/\u200c/g, "") !== token.word
+              ? token.reading.replace(/\n/g, "").replace(/\u200c/g, "")
+              : null,
+            token.partOfSpeech || null,
+          ]
+            .filter(Boolean)
+            .join(", ")}
+          accessibilityExtendLabel={formatMobileString(
+            strings.reader
+              .pluginJapaneseLearningTokenExtendAccessibility,
+            { word: token.word.replace(/\n/g, "") },
+          )}
+          onActivate={() => selectSingleToken(index)}
+          onExtendSelection={() =>
+            extendAccessibleSelection(index)
+          }
+          onLayout={(i, x, y, width, height) => {
+            tokenLayoutsRef.current[i] = { x, y, width, height };
+          }}
+        />
+      ))}
+    </View>
+  ) : (
+    // Web: the raw OCR text shows immediately; analysis runs below it.
+    <View style={styles.rawLayer}>
+      {rawText ? (
+        <Text selectable accessibilityLanguage="ja" style={[styles.rawText, regularWidth ? styles.rawTextRegular : null, { color: tokens.foreground }]}>
+          {rawText}
+        </Text>
+      ) : null}
+      {columns ? null : statusBlock}
+      {grammarState.status === "idle" ? (
+        // The sentence view before a line is chosen.
+        <Text style={[styles.emptyHintText, styles.idleHint, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.7) }]}>
+          {strings.reader.pluginJapaneseLearningGrammarHint}
+        </Text>
+      ) : null}
     </View>
   );
+
+  // Web animates each details swap in (framer-motion): the word card rises
+  // 12pt from 98%, the selection card 8pt, the hint fades. Reduce Motion: none.
+  const detailsEntering = reduceMotion
+    ? undefined
+    : multiSelectionActive
+      ? riseIn(8, 1, 200)
+      : selectedToken
+        ? riseIn(12, 0.98, 250)
+        : riseIn(0, 1, 200);
+
+  const detailsContent = (
+    <>
+      {hasTokens ? (
+        <Animated.View
+          key={detailsSignature}
+          entering={detailsEntering}
+          style={columns && !multiSelectionActive && !selectedToken ? styles.emptyHintColumn : null}
+        >
+        {multiSelectionActive ? (
+          <View
+            onLayout={(event) => {
+              const next = Math.round(event.nativeEvent.layout.width) - MULTI_CARD_PADDING * 2;
+              setMultiCardInnerWidth((current) => (current === next ? current : next));
+            }}
+            style={[
+              styles.multiSelectionCard,
+              multiSelectionRow ? styles.multiSelectionCardRow : null,
+              { backgroundColor: colors.detailsCard, borderColor: colors.detailsCardBorder },
+            ]}
+          >
+            <View
+              pointerEvents="none"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              onLayout={(event) => {
+                const next = Math.ceil(event.nativeEvent.layout.width);
+                setMultiTextWidth((current) => (current === next ? current : next));
+              }}
+              style={styles.multiSelectionMeasure}
+            >
+              <Text numberOfLines={1} style={styles.multiSelectionLabel}>
+                {strings.reader.pluginJapaneseLearningSelectedText}
+              </Text>
+              <Text numberOfLines={1} style={styles.multiSelectionValue}>
+                {selectedRangeText}
+              </Text>
+            </View>
+            {/* Web truncates the selection beside the actions; here the
+                whole selection wraps on its own line and the actions wrap
+                below it, right-aligned, when they do not fit beside it. */}
+            <View style={multiSelectionRow ? styles.multiSelectionTextBlockRow : styles.multiSelectionTextBlock}>
+              <Text numberOfLines={1} style={[styles.multiSelectionLabel, { color: tokens.foreground }]}>
+                {strings.reader.pluginJapaneseLearningSelectedText}
+              </Text>
+              <Text
+                selectable
+                accessibilityLanguage="ja"
+                style={[styles.multiSelectionValue, { color: tokens.foreground }]}
+              >
+                {selectedRangeText}
+              </Text>
+            </View>
+            <View
+              onLayout={(event) => {
+                if (multiCopyIconOnly) return;
+                const next = Math.ceil(event.nativeEvent.layout.width);
+                setMultiActionsWidth((current) => (current === next ? current : next));
+              }}
+              style={[
+                styles.multiSelectionActions,
+                multiSelectionRow ? styles.multiSelectionActionsRow : null,
+                multiCopyIconOnly ? styles.multiSelectionActionsShrink : null,
+              ]}
+            >
+              <NemuPressable
+                accessibilityRole="button"
+                accessibilityLabel={strings.reader.pluginJapaneseLearningCopySelection}
+                hitSlop={6}
+                onPress={() => onCopySelection(selectedRangeText)}
+                pressedScale={0.97}
+                style={[styles.ghostAction, multiCopyIconOnly ? styles.ghostActionIconOnly : null]}
+              >
+                <JapaneseLearningWebIcon name="copy" color={tokens.mutedForeground} />
+                {multiCopyIconOnly ? null : (
+                  <Text numberOfLines={1} style={[styles.actionText, { color: tokens.mutedForeground }]}>
+                    {strings.reader.pluginJapaneseLearningCopySelection}
+                  </Text>
+                )}
+              </NemuPressable>
+              <NemuPressable
+                accessibilityRole="button"
+                accessibilityLabel={strings.reader.pluginJapaneseLearningAskAboutTheseWords}
+                accessibilityState={{ disabled: askDisabled }}
+                hitSlop={6}
+                disabled={askDisabled}
+                onPress={() => onAskSelection(selectedRangeText, "words")}
+                pressedScale={0.97}
+                containerStyle={multiCopyIconOnly ? styles.primaryActionContainerShrink : null}
+                style={[
+                  styles.primaryAction,
+                  { backgroundColor: tokens.primary, opacity: askDisabled ? 0.5 : 1 },
+                ]}
+              >
+                <JapaneseLearningWebIcon name="ask" color={tokens.primaryForeground} />
+                <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit={multiCopyIconOnly}
+                  minimumFontScale={0.8}
+                  style={[
+                    styles.actionText,
+                    multiCopyIconOnly ? styles.actionTextShrink : null,
+                    { color: tokens.primaryForeground },
+                  ]}
+                >
+                  {strings.reader.pluginJapaneseLearningAskAboutTheseWords}
+                </Text>
+              </NemuPressable>
+            </View>
+          </View>
+        ) : selectedToken ? (
+          <JapaneseLearningTokenDetails
+            key={`details-${selectedTokenIndex}`}
+            token={selectedToken}
+            strings={strings}
+            regularWidth={regularWidth}
+            onAskNemu={
+              mobileJapaneseLearningTokenCanAct(selectedToken) && !askDisabled
+                ? handleAskSingleWord
+                : undefined
+            }
+            onCopy={onCopySelection}
+          />
+        ) : (
+          <View style={[styles.emptyHint, columns ? styles.emptyHintColumn : null]}>
+            <Text style={[styles.emptyHintText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.7) }]}>
+              {strings.reader.pluginJapaneseLearningTapAnyWordHint}
+            </Text>
+            <Text style={[styles.emptyHintText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.6) }]}>
+              {strings.reader.pluginJapaneseLearningDragOnWordsHint}
+            </Text>
+          </View>
+        )}
+        </Animated.View>
+      ) : columns && statusBlock ? (
+        <View style={styles.columnStatus}>{statusBlock}</View>
+      ) : null}
+      {actionNotice ? (
+        <Text
+          accessibilityLiveRegion="polite"
+          style={[styles.actionNotice, { color: tokens.mutedForeground }]}
+        >
+          {actionNotice}
+        </Text>
+      ) : null}
+    </>
+  );
+
+  return (
+    <View
+      onLayout={(event) => {
+        const { width, height } = event.nativeEvent.layout;
+        setBodySize((current) =>
+          current.width === width && current.height === height ? current : { width, height },
+        );
+      }}
+      style={[styles.container, columns ? styles.containerColumns : null]}
+    >
+      {columns ? (
+        <>
+          <ScrollView
+            style={[
+              styles.sentenceColumn,
+              { width: Math.round(bodySize.width * JAPANESE_LEARNING_SENTENCE_COLUMN_FRACTION) },
+            ]}
+            contentContainerStyle={styles.sentenceColumnContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+          >
+            {sentenceHeader}
+            {sentenceContent}
+          </ScrollView>
+          <ScrollView
+            ref={detailsScrollRef}
+            style={styles.detailsColumn}
+            contentContainerStyle={[
+              styles.detailsColumnContent,
+              // The card's top edge meets the first token chip's (below its
+              // furigana row), or the bubble's when it heads the sentence.
+              hasTokens && !sentenceHeader
+                ? { paddingTop: spacing.md + JAPANESE_LEARNING_FURIGANA_ROW_HEIGHT }
+                : null,
+            ]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+          >
+            {detailsContent}
+          </ScrollView>
+        </>
+      ) : (
+        <>
+          {/* Web sentence pane: content-sized, scrolls past ~3 token rows. */}
+          <ScrollView
+            style={[
+              styles.sentencePane,
+              {
+                maxHeight: regularWidth
+                  ? JAPANESE_LEARNING_SENTENCE_PANE_MAX_HEIGHT_REGULAR
+                  : JAPANESE_LEARNING_SENTENCE_PANE_MAX_HEIGHT,
+              },
+            ]}
+            contentContainerStyle={styles.sentencePaneContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+          >
+            {sentenceHeader}
+            {sentenceContent}
+          </ScrollView>
+          {/* Web details pane: fills the rest and scrolls on its own. */}
+          <ScrollView
+            ref={detailsScrollRef}
+            style={styles.detailsPane}
+            contentContainerStyle={styles.detailsPaneContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+          >
+            {detailsContent}
+          </ScrollView>
+        </>
+      )}
+    </View>
+  );
+}
+
+/** Web details card `p-4`. */
+const MULTI_CARD_PADDING = 16;
+
+/** Web's details entrance (`initial={{ opacity: 0, y, scale }}`, ease-out-quint). */
+function riseIn(fromY: number, fromScale: number, durationMs: number) {
+  return () => {
+    "worklet";
+    const config = { duration: durationMs, easing: Easing.bezier(0.22, 1, 0.36, 1) };
+    return {
+      initialValues: { opacity: 0, transform: [{ translateY: fromY }, { scale: fromScale }] },
+      animations: {
+        opacity: withTiming(1, config),
+        transform: [{ translateY: withTiming(0, config) }, { scale: withTiming(1, config) }],
+      },
+    };
+  };
 }
 
 const styles = StyleSheet.create({
@@ -577,22 +773,68 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
   },
-  // Web: `max-h-[14rem]` sentence pane.
+  containerColumns: {
+    flexDirection: "row",
+  },
+  // Web sentence pane `shrink-0 max-h-[14rem]` (the cap is set inline).
   sentencePane: {
+    flexGrow: 0,
     flexShrink: 0,
-    maxHeight: 224,
-    overflow: "hidden",
   },
   // Web: `px-4 pt-3 pb-3`.
-  sentenceScrollContent: {
+  sentencePaneContent: {
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  // Web details pane `flex-1 min-h-0`.
+  detailsPane: {
+    flex: 1,
+    minHeight: 0,
+  },
+  // Web: `px-4 pt-1 pb-4`.
+  detailsPaneContent: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 16,
+  },
+  // The sentence column's width is set from the measured body
+  // (`JAPANESE_LEARNING_SENTENCE_COLUMN_FRACTION`); the details take the rest.
+  sentenceColumn: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  detailsColumn: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+  },
+  // One grid: the sheet's 16pt page gutter at both outer edges and between
+  // the columns (half on each side, so selection shadows are not clipped at
+  // the column edge), web's 12pt sentence inset at the top, 16pt at the end.
+  sentenceColumnContent: {
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.lg / 2,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
+  },
+  detailsColumnContent: {
+    flexGrow: 1,
+    paddingLeft: spacing.lg / 2,
+    paddingRight: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
+  },
+  // Analysis status beside the raw text: centred in the details column.
+  columnStatus: {
+    flexGrow: 1,
+    justifyContent: "center",
   },
   tokenWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "flex-end",
-    rowGap: 6,
+    rowGap: 0,
   },
   rawLayer: {
     gap: 8,
@@ -600,9 +842,10 @@ const styles = StyleSheet.create({
   // Web: `.ja-textbook text-[1.4rem] leading-relaxed whitespace-pre-wrap`.
   rawText: {
     fontFamily: Platform.select(JAPANESE_LEARNING_SERIF_FONT_FAMILY),
-    fontSize: 22,
-    lineHeight: 36,
+    fontSize: 22.4,
+    lineHeight: 36.4,
   },
+  rawTextRegular: { fontSize: 25.6, lineHeight: 41.6 },
   analyzing: {
     alignItems: "center",
     justifyContent: "center",
@@ -628,88 +871,105 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingHorizontal: 8,
   },
-  detailsPane: {
-    flex: 1,
-    minHeight: 0,
-  },
-  // Web: `px-4 pt-1 pb-4`.
-  detailsScrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 16,
-  },
-  // Web: `rounded-xl p-4 token-details-card`, header row with the actions.
+  // Web: `rounded-xl p-4 token-details-card`.
   multiSelectionCard: {
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 16,
+    borderRadius: 14.4,
+    borderWidth: 0.5,
+    padding: MULTI_CARD_PADDING,
+    gap: 12,
+  },
+  // Web: `flex items-center justify-between gap-2`.
+  multiSelectionCardRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
   },
-  multiSelectionCardStacked: {
-    flexDirection: "column",
-    alignItems: "stretch",
-    gap: 12,
+  multiSelectionMeasure: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    opacity: 0,
+    alignItems: "flex-start",
   },
+  // Web: `space-y-1`, the selection wrapping over the full card width.
+  multiSelectionTextBlock: {
+    alignSelf: "stretch",
+    gap: 4,
+  },
+  // Web: `space-y-1 min-w-0 flex-1`.
   multiSelectionTextBlockRow: {
     flex: 1,
-  },
-  multiSelectionTextBlock: {
-    flexShrink: 1,
     minWidth: 0,
     gap: 4,
   },
+  // Web: `text-sm font-medium`.
   multiSelectionLabel: {
     fontSize: 14,
     lineHeight: 20,
     fontWeight: nemuFontWeight.medium,
   },
+  // Web: `text-lg ja-textbook`.
   multiSelectionValue: {
     fontFamily: Platform.select(JAPANESE_LEARNING_SERIF_FONT_FAMILY),
     fontSize: 18,
-    lineHeight: 26,
+    lineHeight: 28,
   },
+  // Web: `flex gap-1.5 flex-shrink-0`, pushed to the trailing edge when wrapped.
   multiSelectionActions: {
     flexDirection: "row",
+    alignItems: "center",
     gap: 6,
-    flexShrink: 1,
+    flexShrink: 0,
+    alignSelf: "flex-end",
   },
-  // Web: ghost `sm` button.
+  multiSelectionActionsRow: { alignSelf: "center" },
+  multiSelectionActionsShrink: { flexShrink: 1, minWidth: 0 },
+  // Web: ghost `sm` button (`h-8 px-3 gap-1.5 rounded-lg`).
   ghostAction: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
-    minHeight: 32,
-    borderRadius: radius.sm,
-    paddingHorizontal: 10,
+    height: 32,
+    borderRadius: 10.4,
+    paddingHorizontal: 12,
   },
-  primaryActionContainer: {
+  ghostActionIconOnly: { width: 32, paddingHorizontal: 0 },
+  primaryActionContainerShrink: {
     flexShrink: 1,
     minWidth: 0,
   },
-  // Web: default `sm` button.
+  // Web: default `sm` button with the `.btn-nemu-primary` edge and shadow.
   primaryAction: {
-    flexShrink: 1,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
-    minHeight: 32,
-    borderRadius: radius.sm,
+    height: 32,
+    borderRadius: 10.4,
+    borderWidth: 0.5,
+    borderColor: "rgba(143,181,255,0.25)",
+    boxShadow: "0px 2px 8px 0px rgba(0,0,0,0.35), 0px 0px 1px 0px rgba(0,0,0,0.3)",
     paddingHorizontal: 12,
   },
   actionText: {
-    flexShrink: 1,
-    fontSize: 13,
+    flexShrink: 0,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: nemuFontWeight.medium,
   },
-  // Web: `py-6 text-center`, `text-xs text-muted-foreground/70` + `/60 mt-1`.
+  actionTextShrink: { flexShrink: 1 },
+  // A small inline hint, not a reserved pane below the sentence.
   emptyHint: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 24,
+    paddingVertical: 8,
     gap: 4,
+  },
+  // Nothing selected yet: the hint centred in the empty details column.
+  emptyHintColumn: {
+    flexGrow: 1,
   },
   idleHint: {
     paddingVertical: 24,

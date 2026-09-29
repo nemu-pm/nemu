@@ -223,12 +223,15 @@ function isRubyLine(candidate: PreparedLine, lines: PreparedLine[]): boolean {
       base.orientation === "vertical" ||
       (base.orientation === null && height(b) >= width(b));
     // Ruby only spans the kanji it annotates, so it is clearly shorter than
-    // its base run; a full-length small kana column is dialogue.
+    // its base run; a full-length small kana column is dialogue. Ruby at
+    // half the glyph size may run longer (「だいじょうぶ」 over 大丈夫 is
+    // two-thirds of 「大丈夫？」), so the length bound relaxes for it.
+    const lengthShare = candidate.glyph <= base.glyph * 0.55 ? 0.85 : 0.65;
     if (baseVertical) {
       const verticalShare = overlap(a.y1, a.y2, b.y1, b.y2) / Math.max(1, height(a));
       const sideGap = a.x1 - b.x2;
       return (
-        height(a) <= height(b) * 0.65 &&
+        height(a) <= height(b) * lengthShare &&
         verticalShare >= 0.6 &&
         centerX(a) > centerX(b) &&
         sideGap >= -base.glyph * 0.5 &&
@@ -239,7 +242,7 @@ function isRubyLine(candidate: PreparedLine, lines: PreparedLine[]): boolean {
       overlap(a.x1, a.x2, b.x1, b.x2) / Math.max(1, width(a));
     const topGap = b.y1 - a.y2;
     return (
-      width(a) <= width(b) * 0.65 &&
+      width(a) <= width(b) * lengthShare &&
       horizontalShare >= 0.6 &&
       centerY(a) < centerY(b) &&
       topGap >= -base.glyph * 0.5 &&
@@ -522,6 +525,35 @@ export function orderMobileOcrBlocksForManga<T extends { box: MobileOcrRect }>(
 }
 
 /**
+ * Scan-site watermarks (「Gomuraw.com」, 「aW.com」) are Latin-only domain
+ * fragments stamped on raw pages; they are not dialogue.
+ */
+const WATERMARK_PATTERN = /^[\W_]*[a-z0-9-]*\s*[.,]\s*(com|net|org|top|info|to|me|io|cc)[\W_]*$/i;
+
+function isMobileOcrWatermark(block: Pick<MobileOcrLayoutBlock, "label" | "text">): boolean {
+  return block.label === "eng" && WATERMARK_PATTERN.test(block.text.replace(/\s+/g, ""));
+}
+
+/**
+ * Watermark test for recognizer output that may be full-width (manga-ocr
+ * writes 「Ｇｏｍｕｒａｗ．ｃｏｍ」): NFKC first, then the Latin-domain rule.
+ */
+export function isMobileOcrWatermarkText(text: string): boolean {
+  const normalized = text.normalize("NFKC");
+  return isMobileOcrWatermark({ label: classifyMobileOcrScript(normalized), text: normalized });
+}
+
+/**
+ * Interim text detector for the manga-ocr pipeline: the bubble blocks of
+ * the Vision line layout (ruby dropped, watermarks removed), unordered —
+ * the native pipeline orders them with its text_order port.
+ */
+export function detectMobileOcrLayoutRegions(page: MobileOnDeviceOcrPage): MobileOcrLayoutBlock[] {
+  if (!(page.width > 0) || !(page.height > 0)) return [];
+  return groupMobileOcrLinesIntoBlocks(page).filter((block) => !isMobileOcrWatermark(block));
+}
+
+/**
  * Full on-device layout: lines → blocks → reading order → the cloud
  * `MobileOcrDetection[]` contract (integer pixel boxes, sequential order).
  */
@@ -533,7 +565,7 @@ export function layoutMobileOnDeviceOcrPage(
     groupMobileOcrLinesIntoBlocks(page),
     page.width,
   );
-  return ordered.map((block, order) => ({
+  return ordered.filter((block) => !isMobileOcrWatermark(block)).map((block, order) => ({
     x1: Math.floor(block.box.x1),
     y1: Math.floor(block.box.y1),
     x2: Math.ceil(block.box.x2),
@@ -544,4 +576,36 @@ export function layoutMobileOnDeviceOcrPage(
     order,
     text: block.text,
   }));
+}
+
+/**
+ * Second-pass text for one detection: the lines Vision read on the
+ * detection's own upscaled crop (already in page pixels). Ruby is dropped
+ * and the lines are ordered exactly as on the page; only Japanese blocks
+ * are kept, so a gutter glyph or a watermark caught by the padded crop does
+ * not leak in. An empty or non-Japanese second read keeps the first-pass
+ * text, and the detection's box and order never change (the overlay and
+ * the transcript stay put).
+ */
+export function refineMobileOcrDetectionText(
+  detection: MobileOcrDetection,
+  page: { width: number; height: number },
+  lines: ReadonlyArray<MobileOnDeviceOcrLine>,
+): MobileOcrDetection {
+  if (detection.label !== "ja" || lines.length === 0) return detection;
+  const blocks = orderMobileOcrBlocksForManga(
+    groupMobileOcrLinesIntoBlocks({ width: page.width, height: page.height, lines }),
+    page.width,
+  ).filter((block) => block.label === "ja");
+  const text = blocks.map((block) => block.text).join("");
+  if (!text) return detection;
+  const weights = blocks.map((block) => Math.max(1, characterCount(block.text)));
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  const confidence =
+    blocks.reduce((sum, block, index) => sum + block.confidence * weights[index]!, 0) / total;
+  return {
+    ...detection,
+    text,
+    conf: Math.round(Math.max(0, Math.min(1, confidence)) * 1000) / 1000,
+  };
 }

@@ -125,7 +125,7 @@ describe("mobileDuoBilingualEligibility", () => {
     expect(result.layout.panes[1].x + result.layout.panes[1].width).toBe(891);
   });
 
-  test("flat halves respect a narrowed available area (docked side panel)", () => {
+  test("flat halves respect a narrowed available area", () => {
     const narrow = mobileDuoBilingualEligibility({
       ...base,
       layout: duoFlatLandscape,
@@ -159,7 +159,7 @@ describe("mobileDuoBilingualEligibility", () => {
     expect(mobileDuoBilingualEligibility({ ...base, layout: duoInnerPortrait })).toEqual({ eligible: false, reason: "portrait" });
   });
 
-  test("notebook posture belongs to the study desk", () => {
+  test("notebook posture is not a side-by-side window", () => {
     expect(mobileDuoBilingualEligibility({ ...base, layout: duoNotebook })).toEqual({ eligible: false, reason: "notebook" });
   });
 
@@ -170,7 +170,7 @@ describe("mobileDuoBilingualEligibility", () => {
       .toEqual({ eligible: false, reason: "notPaged" });
   });
 
-  test("a docked learning panel in the other pane blocks it", () => {
+  test("an occupied second pane blocks it", () => {
     expect(mobileDuoBilingualEligibility({ ...base, layout: duoBook, secondPaneOccupied: true }))
       .toEqual({ eligible: false, reason: "blocked" });
   });
@@ -289,7 +289,6 @@ describe("mobileDuoBilingualFromReaderPose", () => {
       { x: 0, y: 0, width: 455.5, height: 669 },
       { x: 495.5, y: 0, width: 371.5, height: 669 },
     ],
-    learning: { presentation: "sheet" },
   };
   const opts = { rtl: true, paged: true, dualReaderConfigured: true };
 
@@ -318,7 +317,6 @@ describe("mobileDuoBilingualFromReaderPose", () => {
         bounds: { x: 0, y: 0, width: 951, height: 669 },
         stage: { x: 0, y: 0, width: 867, height: 669 },
         spread: true,
-        learning: { presentation: "sheet" },
       },
     });
     expect(result.eligible && result.layout.panes).toEqual([
@@ -327,9 +325,7 @@ describe("mobileDuoBilingualFromReaderPose", () => {
     ]);
   });
 
-  test("no spread: blocked by a dock, or too small; flat compact / notebook / portrait", () => {
-    expect(mobileDuoBilingualFromReaderPose({ ...opts, pose: { ...bookPose, spread: false, learning: { presentation: "docked" } } }))
-      .toEqual({ eligible: false, reason: "blocked" });
+  test("no spread: too small; flat compact / notebook / portrait", () => {
     expect(mobileDuoBilingualFromReaderPose({ ...opts, pose: { ...bookPose, spread: false } }))
       .toEqual({ eligible: false, reason: "panesTooSmall" });
     const flat = { ...bookPose, posture: "flat" as const, spreadSlots: undefined };

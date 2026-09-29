@@ -1,0 +1,24 @@
+diff --git a/ios/RNSBarButtonItem.mm b/ios/RNSBarButtonItem.mm
+--- a/ios/RNSBarButtonItem.mm
++++ b/ios/RNSBarButtonItem.mm
+@@ -28,7 +28,19 @@
+                        }];
+ 
+   NSString *title = dict[@"title"];
+-  if (title != nil) {
++  // iOS 27.1 infers a bar item's axes from its content when the item is added
++  // (`axisBehavior` automatic). An image icon loads asynchronously, so the
++  // item is added without its image (and with a "" title), is taken for a
++  // text item, and keeps the whole bar out of the iPhone Duo vertical bar even
++  // after the image arrives. An item configured with an icon is an icon item:
++  // say so up front, and treat an empty title as no title.
++  BOOL hasIcon = dict[@"sfSymbolName"] != nil || dict[@"xcassetName"] != nil || dict[@"imageSource"] != nil ||
++      dict[@"templateSource"] != nil;
++  if (hasIcon && [self respondsToSelector:NSSelectorFromString(@"setAxisBehavior:")]) {
++    // UIBarButtonItemAxisBehaviorVerticalPreferred (iOS 27.1+).
++    [self setValue:@2 forKey:@"axisBehavior"];
++  }
++  if (title.length > 0) {
+     self.title = title;
+ 
+     NSDictionary *titleStyle = dict[@"titleStyle"];

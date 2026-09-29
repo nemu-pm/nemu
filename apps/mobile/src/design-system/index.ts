@@ -32,6 +32,7 @@ export {
 export { createNemuButtonDepthStyle } from "@/design/nemuButtonDepthStyle";
 export {
   createNemuNativeScreenOptions,
+  createNemuSoftEdgeScreenOptions,
   createNemuNativeStackScreenOptions,
   renderNemuNativeToolbarButtons,
   usesNemuNativeHeader,
@@ -77,6 +78,7 @@ export type { NemuNativeSearchFieldProps } from "./components/NemuNativeSearchFi
 export { NemuNativeSheetHeaderAction } from "./components/NemuNativeSheetHeaderAction";
 export { NemuNativeSwitch } from "./components/NemuNativeSwitch";
 export { NemuPressable } from "./components/NemuPressable";
+export { useNemuRowHighlight, type NemuRowHighlight } from "./components/useNemuRowHighlight";
 export {
   NemuRingSpinner,
   type NemuRingSpinnerProps,

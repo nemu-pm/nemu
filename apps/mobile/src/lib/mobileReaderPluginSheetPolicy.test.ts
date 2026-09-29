@@ -2,46 +2,87 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-function readerPluginSettingsSheetSource(): string {
-  const source = readFileSync(
-    path.join(import.meta.dir, "..", "screens", "ReaderScreen.tsx"),
-    "utf8",
-  );
-  const start = source.indexOf("function ReaderPluginSettingsSheet(");
-  const end = source.indexOf("\nexport function ReaderScreen()", start);
-  return source.slice(start, end);
-}
-
 function mobileSource(relativePath: string): string {
   return readFileSync(path.join(import.meta.dir, "..", relativePath), "utf8");
 }
 
+const iosSheetPath = "components/reader/ReaderPluginSettingsSheet.ios.tsx";
+const sheetPath = "components/reader/ReaderPluginSettingsSheet.tsx";
+
 describe("reader plugin settings sheet policy", () => {
-  test("uses shared native chrome and one guarded dismissal policy", () => {
-    const source = readerPluginSettingsSheetSource();
+  test("lives in its own platform files and the reader only renders it", () => {
+    const screen = mobileSource("screens/ReaderScreen.tsx");
+
+    expect(screen).toContain(
+      'import { ReaderPluginSettingsSheet } from "@/components/reader/ReaderPluginSettingsSheet";',
+    );
+    expect(screen).not.toContain("function ReaderPluginSettingsSheet(");
+    for (const source of [mobileSource(iosSheetPath), mobileSource(sheetPath)]) {
+      expect(source).toContain("}: ReaderPluginSettingsSheetProps) {");
+      // One row per plugin: no separate gear button, no uppercase meta line.
+      expect(source).not.toContain("settings-outline");
+      expect(source).not.toContain('textTransform: "uppercase"');
+      expect(source).toContain("mobileReaderPluginRowSubtitle(plugin, strings)");
+    }
+  });
+
+  test("iOS is a system sheet with a navigation stack and one appearance source", () => {
+    const source = mobileSource(iosSheetPath);
+
+    expect(source).toContain("<SwiftBottomSheet");
+    expect(source).toContain("presentationDetents(");
+    expect(source).toContain('presentationDragIndicator("visible")');
+    expect(source).toContain('placement="cancellationAction"');
+    expect(source).toContain('role="close"');
+    // Inline titles (no empty large-title row above the first section).
+    expect(source).toContain(
+      "navigationTitle(strings.settings.plugins), inlineToolbarTitle()",
+    );
+    expect(source).toContain("navigationTitle(plugin.name), inlineToolbarTitle()");
+    // Plugin rows push the plugin's settings on the sheet's own stack.
+    expect(source).toContain("<SwiftNavigationStack");
+    expect(source).toContain("path={path}");
+    expect(source).toContain("<SwiftNavigationLink value={plugin.id}>");
+    expect(source).toContain("<SwiftNavigationDestination key={plugin.id} value={plugin.id}>");
+    expect(source).toContain("onClearSelectedPlugin()");
+    expect(source).toContain("labelsHidden()");
+    // The presentation and the Host share the theme scope's scheme; no
+    // separate colorScheme environment that could disagree with it.
+    expect(source).toContain("presentationColorScheme(scheme)");
+    expect(source).toContain("<SwiftHost colorScheme={scheme}");
+    expect(source).not.toContain('environment("colorScheme"');
+    // Both error surfaces, loading, and a destructive reset stay native.
+    expect(source).toContain("{loadError");
+    expect(source).toContain("onPress={onRetryLoad}");
+    expect(source).toContain("{error");
+    expect(source).toContain("strings.settings.loadingReaderPlugins");
+    expect(source).toContain('role="destructive"');
+    expect(source).toContain("onResetPlugin(plugin)");
+    expect(source).toContain("onChangePluginValue(plugin, key, value)");
+  });
+
+  test("Android keeps the shared scaffold, bounded scrolling, and nested navigation", () => {
+    const source = mobileSource(sheetPath);
 
     expect(source).toContain("<MobileNativeSheetScaffold");
-    expect(source).toContain("title={strings.settings.plugins}");
-    expect(source).toContain("subtitle={strings.settings.pluginsDescription}");
+    expect(source).toContain(
+      "title={selectedPlugin ? selectedPlugin.name : strings.settings.plugins}",
+    );
     expect(source).toContain("dismissLabel={strings.common.done}");
-    expect(source).toContain("dismissDisabled={busy}");
-    expect(source).toContain("enablePanDownToClose={!busy}");
     expect(source).not.toContain("<Modal");
     expect(source).not.toContain("<MobileSheetBackdrop");
     expect(source).not.toContain("<GlassSurface");
-  });
-
-  test("keeps bounded scrolling, nested navigation, and both error surfaces", () => {
-    const source = readerPluginSettingsSheetSource();
-
     // One detent for both platforms; the scaffold maps it onto Android.
     expect(source).toContain('snapPoints={["86%"]}');
     expect(source).toContain("fillContent");
     expect(source).toContain("<ScrollView");
     expect(source).toContain("onPress={onClearSelectedPlugin}");
-    expect(source).toContain("navigationResetKey={selectedPlugin.id}");
+    expect(source).toContain("onHardwareBackPress={() => {");
+    expect(source).toContain("navigationResetKey={plugin.id}");
     expect(source).toContain("{error ? (");
     expect(source).toContain("{loadError ? (");
+    // The switch sits centred on the row, beside (not inside) its press target.
+    expect(source).toMatch(/row: \{\s*flexDirection: "row",\s*alignItems: "center",/);
   });
 
   test("keeps continuous and spread-aware scrub behavior wired at the screen", () => {
@@ -199,9 +240,15 @@ describe("reader plugin settings sheet policy", () => {
 
     // The sheet is rendered, and something in the reader actually opens it.
     expect(screen).toContain("<ReaderPluginSettingsSheet");
+    // Two openers: the popover handoff, and the QA-only panel switch.
     expect(
       screen.match(/setReaderPluginSettingsOpen\(true\)/g) ?? [],
-    ).toHaveLength(1);
+    ).toHaveLength(2);
+    const qaStart = screen.indexOf('else if (MOBILE_READER_QA_PANEL === "plugins") {');
+    expect(qaStart).toBeGreaterThan(-1);
+    expect(
+      screen.slice(qaStart, screen.indexOf("} else if", qaStart)),
+    ).toContain("setReaderPluginSettingsOpen(true);");
 
     // That one call runs from the popover's dismissal-complete callback, and
     // only for a dismissal the Plugins row asked for.

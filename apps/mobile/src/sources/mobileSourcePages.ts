@@ -808,7 +808,21 @@ export async function refreshMobileReaderPages(
         // list down with it, and must never surface as an unhandled rejection
         // while the page list is still being turned into a first paint.
         .catch(() => null);
-      const rawPages = await pagesRequest;
+      let rawPages: Awaited<typeof pagesRequest>;
+      let pageListChapter = requestedChapter;
+      try {
+        rawPages = await pagesRequest;
+      } catch (error) {
+        // A route-carried summary has no source url, and some sources (e.g.
+        // ja.soraraw) read the page list's key off the chapter's own url.
+        // Retry once with the chapter exactly as the source listed it.
+        const listed = (await chaptersRequest)?.find(
+          (item) => item.key === chapter.id,
+        );
+        if (!listed?.url || requestedChapter.url) throw error;
+        pageListChapter = listed;
+        rawPages = await session.source.getPageList({ key: mangaId }, listed);
+      }
       const shouldProcessPageImages = options.processPageImages === true;
       const hasProcessorContext =
         shouldProcessPageImages &&
@@ -846,7 +860,7 @@ export async function refreshMobileReaderPages(
         runtime: session.runtime,
         pages,
         pageProcessor,
-        chapter: mapAidokuChapterToSummary(requestedChapter),
+        chapter: mapAidokuChapterToSummary(pageListChapter),
         fetchedAt,
       });
 

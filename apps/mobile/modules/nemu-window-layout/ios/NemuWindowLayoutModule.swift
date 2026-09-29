@@ -1,4 +1,5 @@
 import ExpoModulesCore
+import ExpoUI
 import ObjectiveC.runtime
 import OSLog
 import SwiftUI
@@ -7,10 +8,35 @@ import UIKit
 public final class NemuWindowLayoutModule: Module {
   public func definition() -> ModuleDefinition {
     Name("NemuWindowLayout")
+    OnCreate {
+      // `@expo/ui` modifier: the appearance of the presentation (popover,
+      // sheet) that encloses the view, see `NemuPresentationColorSchemeModifier`.
+      ViewModifierRegistry.register(NemuPresentationColorSchemeModifier.type) { params, _, _ in
+        NemuPresentationColorSchemeModifier(params: params)
+      }
+      ViewModifierRegistry.register(NemuInlineToolbarTitleModifier.type) { _, _, _ in
+        NemuInlineToolbarTitleModifier()
+      }
+      ViewModifierRegistry.register(NemuZeroTopScrollContentMarginModifier.type) { _, _, _ in
+        NemuZeroTopScrollContentMarginModifier()
+      }
+      // The in-app theme from the last run, before any JS (see `NemuAppAppearance`).
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated { NemuAppAppearance.restore() }
+      }
+    }
+    OnDestroy {
+      ViewModifierRegistry.unregister(NemuPresentationColorSchemeModifier.type)
+      ViewModifierRegistry.unregister(NemuInlineToolbarTitleModifier.type)
+      ViewModifierRegistry.unregister(NemuZeroTopScrollContentMarginModifier.type)
+    }
     // Lets JS tell a binary with these views from one built before them.
     Constant("verticalBarBehaviorViewAvailable") { true }
     Constant("glassViewAvailable") { true }
     Constant("glassViewHostsChildren") { true }
+    AsyncFunction("setAppAppearance") { (appearance: String) in
+      MainActor.assumeIsolated { NemuAppAppearance.set(appearance) }
+    }.runOnQueue(.main)
     // The observer stays the first (default) view: `requireNativeViewManager("NemuWindowLayout")`.
     View(NemuWindowLayoutView.self) {
       Events("onRegionsChange")
@@ -18,12 +44,18 @@ public final class NemuWindowLayoutModule: Module {
         view.observationEnabled = enabled
       }
     }
+    View(NemuSheetProgressView.self) {
+      Events("onProgress")
+    }
     View(NemuVerticalBarBehaviorView.self) {
       Prop("disabled") { (view: NemuVerticalBarBehaviorView, disabled: Bool) in
         view.behaviorDisabled = disabled
       }
       Prop("appearance") { (view: NemuVerticalBarBehaviorView, appearance: String?) in
         view.forcedStyle = appearance == "dark" ? .dark : appearance == "light" ? .light : .unspecified
+      }
+      Prop("appearanceCoversBars") { (view: NemuVerticalBarBehaviorView, covers: Bool) in
+        view.coversBars = covers
       }
     }
     View(NemuGlassView.self) {
@@ -45,11 +77,72 @@ public final class NemuWindowLayoutModule: Module {
       Prop("colorScheme") { (view: NemuGlassView, scheme: String?) in
         view.appearance = scheme == "dark" ? .dark : scheme == "light" ? .light : .unspecified
       }
+      Prop("materialized") { (view: NemuGlassView, materialized: Bool) in
+        view.materialized = materialized
+      }
+      Prop("animateAppearance") { (view: NemuGlassView, animate: Bool) in
+        view.animateAppearance = animate
+      }
+      Prop("materializeDurationMs") { (view: NemuGlassView, ms: Double) in
+        view.materializeDuration = max(0, ms) / 1000
+      }
     }
     View(NemuGlassContainerView.self) {
       Prop("spacing") { (view: NemuGlassContainerView, spacing: Double) in
         view.spacing = CGFloat(spacing)
       }
+    }
+  }
+}
+
+/// SwiftUI `preferredColorScheme` for `@expo/ui` content: "the color scheme
+/// applies to the nearest enclosing presentation, such as a popover, sheet,
+/// or window". Unlike `environment(\.colorScheme)` (which only restyles the
+/// content), it sets the presented controller's interface style, so the
+/// system container — popover / sheet material, Liquid Glass, grabber,
+/// dimming — and the rows' text resolve from the same appearance. A
+/// presentation's container takes its traits from the controller UIKit
+/// presents it from (the window's root), never from the screen that asked,
+/// so a screen-level `overrideUserInterfaceStyle` cannot reach it.
+struct NemuPresentationColorSchemeModifier: ViewModifier {
+  static let type = "nemuPresentationColorScheme"
+  let colorScheme: ColorScheme?
+
+  init(params: [String: Any]) {
+    switch params["colorScheme"] as? String {
+    case "dark": colorScheme = .dark
+    case "light": colorScheme = .light
+    default: colorScheme = nil
+    }
+  }
+
+  func body(content: Content) -> some View {
+    content.preferredColorScheme(colorScheme)
+  }
+}
+
+/// `toolbarTitleDisplayMode(.inline)`: a sheet's root in a NavigationStack
+/// otherwise reserves an (empty) large-title row between its bar and the Form.
+struct NemuInlineToolbarTitleModifier: ViewModifier {
+  static let type = "nemuInlineToolbarTitle"
+
+  func body(content: Content) -> some View {
+    if #available(iOS 17.0, *) {
+      content.toolbarTitleDisplayMode(.inline)
+    } else {
+      content.navigationBarTitleDisplayMode(.inline)
+    }
+  }
+}
+
+struct NemuZeroTopScrollContentMarginModifier: ViewModifier {
+  static let type = "nemuZeroTopScrollContentMargin"
+
+  func body(content: Content) -> some View {
+    if #available(iOS 17.0, *) {
+      content.contentMargins(.top, 0, for: .scrollContent)
+    } else {
+      content
     }
   }
 }
@@ -119,6 +212,11 @@ final class NemuWindowLayoutView: ExpoView {
   override func layoutSubviews() {
     super.layoutSubviews()
     probeController?.view.frame = bounds
+    publishSnapshot()
+  }
+
+  override func layoutMarginsDidChange() {
+    super.layoutMarginsDidChange()
     publishSnapshot()
   }
 
@@ -240,12 +338,35 @@ final class NemuWindowLayoutView: ExpoView {
       }
       if let hingeStatus { payload["hinge"] = hingeStatus }
     }
+    // Whether this window covers its whole screen (false in Split View, a
+    // resizable window or iPhone Mirroring). The scene's own screen, never a
+    // global one; compared in either orientation.
+    let windowSize = window?.bounds.size ?? scene.coordinateSpace.bounds.size
+    let screenSize = scene.screen.bounds.size
+    let near = { (a: CGFloat, b: CGFloat) in abs(a - b) < 1 }
+    payload["fillsScreen"] = (near(windowSize.width, screenSize.width) && near(windowSize.height, screenSize.height))
+      || (near(windowSize.width, screenSize.height) && near(windowSize.height, screenSize.width))
     let insets = safeAreaInsets
     payload["width"] = bounds.width
     payload["height"] = bounds.height
     payload["supported"] = supported
     payload["divisions"] = divisions
     payload["occlusions"] = occlusions
+    // Match the native navigation title's system content margins. Query the
+    // owning controller rather than guessing from device names or size classes.
+    var owner: UIResponder? = self
+    while let next = owner?.next {
+      if let controller = next as? UIViewController {
+        let margins = controller.systemMinimumLayoutMargins
+        let rtl = effectiveUserInterfaceLayoutDirection == .rightToLeft
+        payload["minimumLayoutMargins"] = [
+          "left": rtl ? margins.trailing : margins.leading,
+          "right": rtl ? margins.leading : margins.trailing,
+        ]
+        break
+      }
+      owner = next
+    }
     payload["safeAreaInsets"] = ["top": insets.top, "left": insets.left, "bottom": insets.bottom, "right": insets.right]
     payload["layoutDirection"] = effectiveUserInterfaceLayoutDirection == .rightToLeft ? "rtl" : "ltr"
     let snapshot = payload as NSDictionary
@@ -329,15 +450,25 @@ final class NemuVerticalBarBehaviorView: ExpoView {
       reconcile(reason: "prop")
     }
   }
-  /// Screen appearance override (`overrideUserInterfaceStyle` on the owning
-  /// view controller): the reader is always a dark immersive surface, so the
-  /// system surfaces it presents — popovers, sheets, menus, their Liquid Glass
-  /// and grabbers — resolve dark too. Restored when the view leaves.
+  /// Appearance forced on the screen's containers while `coversBars` (see
+  /// `reconcileAppearance`): the reader is always a dark immersive surface,
+  /// so its system bars and the system surfaces it presents — popovers,
+  /// sheets, menus, their Liquid Glass and grabbers — resolve dark too.
+  /// Restored when the view leaves or `coversBars` turns off.
   var forcedStyle: UIUserInterfaceStyle = .unspecified {
     didSet { if forcedStyle != oldValue { reconcileAppearance() } }
   }
-  private weak var styledController: UIViewController?
-  private var previousStyle: UIUserInterfaceStyle = .unspecified
+  /// Apply `forcedStyle` while true. UIKit hosts the system vertical bar —
+  /// its `_UIFloatingBarContainerView`, beside the navigation transition view
+  /// — and the navigation bar in the navigation controller's view, which
+  /// inherits its traits from the navigation controller, not from the screen
+  /// inside it; so the style goes on the containers. JS sets this only while
+  /// the screen is focused, since the containers are shared by the stack.
+  var coversBars = false {
+    didSet { if coversBars != oldValue { reconcileAppearance() } }
+  }
+  /// Controllers this view styled, with the style each had before.
+  private var styled: [(controller: WeakViewController, previous: UIUserInterfaceStyle)] = []
   /// The path currently marked: leaf (owning view controller) first, root last.
   private var appliedPath: [WeakViewController] = []
   private var retryScheduled = false
@@ -387,18 +518,38 @@ final class NemuVerticalBarBehaviorView: ExpoView {
   }
 
   private func reconcileAppearance() {
-    let target: UIViewController? = (forcedStyle != .unspecified && window != nil) ? currentPath().first : nil
-    if let styled = styledController, styled !== target {
-      styled.overrideUserInterfaceStyle = previousStyle
-      styledController = nil
+    // Only while `coversBars`, and on the containers (navigation controller
+    // → root of the presentation), never on the screen alone: the screen
+    // inherits the style from them. iOS 27.1 keeps a screen's bar items in
+    // the horizontal navigation bar whenever the screen's appearance differs
+    // from its navigation controller's (the vertical bar is the navigation
+    // controller's, so it cannot take a child's style) — a screen-only
+    // override put the reader's items in a horizontal bar, or left the
+    // vertical bar light.
+    let path = (forcedStyle != .unspecified && window != nil && coversBars) ? currentPath() : []
+    let targets = path.count > 1 ? Array(path.dropFirst()) : path
+    // Restore what is no longer a target (popped, covered, prop cleared) —
+    // unless someone else changed it since.
+    styled.removeAll { entry in
+      guard let controller = entry.controller.value else { return true }
+      if targets.contains(where: { $0 === controller }) { return false }
+      if controller.overrideUserInterfaceStyle == appliedStyle {
+        controller.overrideUserInterfaceStyle = entry.previous
+      }
+      return true
     }
-    guard let target, forcedStyle != .unspecified else { return }
-    if styledController == nil {
-      previousStyle = target.overrideUserInterfaceStyle
-      styledController = target
+    for target in targets {
+      if !styled.contains(where: { $0.controller.value === target }) {
+        styled.append((WeakViewController(target), target.overrideUserInterfaceStyle))
+      }
+      if target.overrideUserInterfaceStyle != forcedStyle {
+        target.overrideUserInterfaceStyle = forcedStyle
+      }
     }
-    target.overrideUserInterfaceStyle = forcedStyle
+    appliedStyle = forcedStyle
   }
+  /// The style last applied to `styled` (a prop change restores the old one).
+  private var appliedStyle: UIUserInterfaceStyle = .unspecified
 
   private func reconcile(reason: String) {
     reconcileAppearance()
@@ -523,6 +674,71 @@ enum NemuVerticalBarOverride {
   }
 }
 
+// MARK: - App appearance
+
+/// The app's in-app theme for UIKit: `overrideUserInterfaceStyle` on every
+/// window of every connected scene. The theme otherwise only reaches React
+/// Native colours; every native surface — navigation / tab / vertical bars,
+/// toolbar items, sheets, popovers, menus and all Liquid Glass (UIKit glass,
+/// and SwiftUI glass, which resolves from the hosting view's traits rather
+/// than an `environment(\.colorScheme)`) — resolves from the window's traits,
+/// i.e. the system appearance. So whenever the in-app theme differed from
+/// the system one, those surfaces kept the system appearance.
+///
+/// Windows created later (a new scene, the Duo moving the app between
+/// displays, alert / keyboard windows) are styled as they become visible, and
+/// the choice is persisted so the next launch applies it before JS runs.
+@MainActor
+enum NemuAppAppearance {
+  private static let defaultsKey = "pm.nemu.window-layout.appAppearance"
+  private static var style: UIUserInterfaceStyle = .unspecified
+  private static var observers: [NSObjectProtocol] = []
+
+  static func set(_ value: String) {
+    UserDefaults.standard.set(value, forKey: defaultsKey)
+    apply(parse(value))
+  }
+
+  static func restore() {
+    guard let value = UserDefaults.standard.string(forKey: defaultsKey) else { return }
+    apply(parse(value))
+  }
+
+  private static func parse(_ value: String) -> UIUserInterfaceStyle {
+    value == "dark" ? .dark : value == "light" ? .light : .unspecified
+  }
+
+  private static func apply(_ next: UIUserInterfaceStyle) {
+    style = next
+    observe()
+    for scene in UIApplication.shared.connectedScenes {
+      guard let windowScene = scene as? UIWindowScene else { continue }
+      for window in windowScene.windows { style(window) }
+    }
+  }
+
+  private static func style(_ window: UIWindow) {
+    if window.overrideUserInterfaceStyle != style {
+      window.overrideUserInterfaceStyle = style
+    }
+  }
+
+  private static func observe() {
+    guard observers.isEmpty else { return }
+    let center = NotificationCenter.default
+    for name in [UIWindow.didBecomeVisibleNotification, UIWindow.didBecomeKeyNotification] {
+      observers.append(center.addObserver(forName: name, object: nil, queue: .main) { note in
+        guard let window = note.object as? UIWindow else { return }
+        MainActor.assumeIsolated { style(window) }
+      })
+    }
+    observers.append(center.addObserver(forName: UIScene.willEnterForegroundNotification, object: nil, queue: .main) { note in
+      guard let scene = note.object as? UIWindowScene else { return }
+      MainActor.assumeIsolated { for window in scene.windows { style(window) } }
+    })
+  }
+}
+
 // MARK: - Liquid Glass
 
 /// A real UIKit Liquid Glass surface (`UIGlassEffect`, iOS 26+) that hosts its
@@ -541,14 +757,18 @@ private let glassLog = Logger(subsystem: "pm.nemu.window-layout", category: "gla
 
 final class NemuGlassView: ExpoView {
   private let effectView = UIVisualEffectView()
-  var glassTint: UIColor? { didSet { if effectInstalled { applyEffect() } } }
+  var glassTint: UIColor? { didSet { if effectInstalled && materialized { applyEffect() } } }
   var cornerRadius: CGFloat = 0 { didSet { applyShape() } }
-  var clearStyle = false { didSet { if effectInstalled { applyEffect() } } }
-  var interactive = false { didSet { if effectInstalled { applyEffect() } } }
+  var clearStyle = false { didSet { if effectInstalled && materialized { applyEffect() } } }
+  var interactive = false { didSet { if effectInstalled && materialized { applyEffect() } } }
   /// Glass appearance: `.dark` renders the system's dark Liquid Glass (no
   /// painted tint), `.unspecified` follows the environment.
   var appearance: UIUserInterfaceStyle = .unspecified {
-    didSet { effectView.overrideUserInterfaceStyle = appearance }
+    didSet {
+      guard appearance != oldValue else { return }
+      effectView.overrideUserInterfaceStyle = appearance
+      refreshEffectForAppearance()
+    }
   }
   /// > 0: corners concentric with the container (the display's rounded
   /// corners where the view meets them), never below this radius.
@@ -565,6 +785,18 @@ final class NemuGlassView: ExpoView {
   /// Seen invisible again within the window → reinstall once visible.
   private var watchUntil: CFTimeInterval = 0
   private var sawHiddenSinceInstall = false
+  /// Apple's pattern for showing/hiding glass: never alpha-fade the glass
+  /// view; animate its `effect` (nil ⇄ glass) inside `UIView.animate`, and
+  /// the content's alpha in the same block, so both appear/disappear together.
+  var materialized = true {
+    didSet {
+      guard materialized != oldValue, effectInstalled else { return }
+      animateMaterial(to: materialized, duration: materializeDuration)
+    }
+  }
+  /// First install animates from no effect (materializes) instead of popping in.
+  var animateAppearance = false
+  var materializeDuration: TimeInterval = 0
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -573,11 +805,30 @@ final class NemuGlassView: ExpoView {
     effectView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     addSubview(effectView)
     applyShape()
+    if #available(iOS 17.0, *) {
+      appearanceRegistration = registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: NemuGlassView, previous: UITraitCollection) in
+        if view.traitCollection.userInterfaceStyle != previous.userInterfaceStyle {
+          view.refreshEffectForAppearance()
+        }
+      }
+    }
   }
 
   deinit {
     visibilityLink?.invalidate()
   }
+
+  /// An installed `UIGlassEffect` does not reliably re-resolve when the
+  /// appearance it renders in changes (in-app theme switch, `colorScheme`
+  /// prop): it can keep the old light / dark glass. Reassign the effect so
+  /// UIKit rebuilds it for the new appearance.
+  private func refreshEffectForAppearance() {
+    guard effectInstalled, materialized else { return }
+    effectView.effect = UIVisualEffect()
+    applyEffect()
+  }
+
+  private var appearanceRegistration: Any?
 
   override func mountChildComponentView(_ childComponentView: UIView, index: Int) {
     effectView.contentView.insertSubview(childComponentView, at: index)
@@ -634,7 +885,33 @@ final class NemuGlassView: ExpoView {
     waitForVisibility()
     // Clear any stale effect so UIKit fully rebuilds the glass.
     effectView.effect = UIVisualEffect()
-    applyEffect()
+    if !materialized {
+      effectView.effect = nil
+      effectView.contentView.alpha = 0
+    } else if animateAppearance && materializeDuration > 0 {
+      effectView.effect = nil
+      effectView.contentView.alpha = 0
+      animateMaterial(to: true, duration: materializeDuration)
+    } else {
+      effectView.contentView.alpha = 1
+      applyEffect()
+    }
+  }
+
+  private func animateMaterial(to visible: Bool, duration: TimeInterval) {
+    let changes = { [self] in
+      if visible {
+        applyEffect()
+      } else {
+        effectView.effect = nil
+      }
+      effectView.contentView.alpha = visible ? 1 : 0
+    }
+    if duration <= 0 {
+      changes()
+      return
+    }
+    UIView.animate(withDuration: duration, delay: 0, options: [.beginFromCurrentState, .curveEaseOut, .allowUserInteraction], animations: changes)
   }
 
   private func waitForVisibility() {
@@ -747,5 +1024,76 @@ private final class NemuGlassDisplayLinkProxy: NSObject {
   init(_ view: NemuGlassView) { self.view = view }
   @objc func tick() {
     MainActor.assumeIsolated { view?.visibilityTick() }
+  }
+}
+
+/// Sample the UIKit sheet's presentation layer, not a second independently timed animation.
+final class NemuSheetProgressView: ExpoView {
+  let onProgress = EventDispatcher()
+  private var displayLink: CADisplayLink?
+  private var lastProgress: CGFloat = -1
+  private var observedPresentationMovement = false
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    displayLink?.invalidate()
+    displayLink = nil
+    observedPresentationMovement = false
+    publish(0)
+    guard window != nil else {
+      publish(0)
+      return
+    }
+    let link = CADisplayLink(target: self, selector: #selector(sample))
+    link.add(to: .main, forMode: .common)
+    displayLink = link
+    sample()
+  }
+
+  deinit { displayLink?.invalidate() }
+
+  private func publish(_ progress: CGFloat) {
+    let value = min(1, max(0, progress))
+    guard abs(value - lastProgress) > 0.001 else { return }
+    lastProgress = value
+    onProgress(["progress": value])
+  }
+
+  @objc private func sample() {
+    var responder: UIResponder? = self
+    var sheet: UIViewController?
+    while let next = responder?.next {
+      if let controller = next as? UIViewController {
+        var candidate: UIViewController? = controller
+        while let current = candidate {
+          if current.presentingViewController != nil,
+             current.presentationController is UISheetPresentationController {
+            sheet = current
+            break
+          }
+          candidate = current.parent
+        }
+        if sheet != nil { break }
+      }
+      responder = next
+    }
+    guard let sheet, let presentation = sheet.presentationController,
+          let container = presentation.containerView,
+          let presented = presentation.presentedView else { return }
+    let target = presentation.frameOfPresentedViewInContainerView
+    let layer = presented.layer.presentation() ?? presented.layer
+    let containerLayer = container.layer.presentation() ?? container.layer
+    let current = layer.convert(layer.bounds, to: containerLayer)
+    let travel = container.bounds.maxY - target.minY
+    guard travel > 0 else { return }
+    let progress = (container.bounds.maxY - current.minY) / travel
+    // UIKit installs the final model frame before its entrance animation.
+    // Do not mistake that first stationary frame for a completed presentation.
+    if sheet.isBeingPresented && !observedPresentationMovement && progress >= 0.999 {
+      publish(0)
+      return
+    }
+    if progress > 0 && progress < 0.999 { observedPresentationMovement = true }
+    publish(progress)
   }
 }

@@ -26,6 +26,12 @@ import { QuickActionSheet, type QuickAction } from "@/components/QuickActionShee
 import { MobileAddBooksSheet } from "@/components/MobileAddBooksSheet";
 import { MobileCollectionMembershipSheet } from "@/components/MobileCollectionMembershipSheet";
 import { MobileConfirmationSheet } from "@/components/MobileConfirmationSheet";
+import {
+  MobileCollectionNameNativeSheet,
+  MobileCollectionsManagerNativeSheet,
+  MobileLibraryTitleMenuNativeSheet,
+  mobileLibraryCollectionNativeSheetsAvailable,
+} from "@/components/MobileLibraryCollectionNativeSheets";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
 import { MobileLibrarySkeleton } from "@/components/MobileLibrarySkeleton";
 import { useMobileToast } from "@/components/MobileToastContext";
@@ -727,6 +733,19 @@ function CollectionsManagerSheet({
     </MobileNativeSheetScaffold>
   );
 }
+
+// iOS presents these as SwiftUI Form sheets (native rows, checkmarks, swipe
+// actions, Cancel / Save in the navigation bar); Android keeps the Material
+// React Native sheets above.
+const TitleMenuSheet = mobileLibraryCollectionNativeSheetsAvailable
+  ? MobileLibraryTitleMenuNativeSheet
+  : LibraryTitleMenuSheet;
+const NameSheet = mobileLibraryCollectionNativeSheetsAvailable
+  ? MobileCollectionNameNativeSheet
+  : CollectionNameSheet;
+const ManagerSheet = mobileLibraryCollectionNativeSheetsAvailable
+  ? MobileCollectionsManagerNativeSheet
+  : CollectionsManagerSheet;
 
 function ManageCollectionPanel({
   collection,
@@ -1883,8 +1902,10 @@ export function LibraryScreen({
       onPress: toggleCreateCollection,
     },
     {
-      icon: "ellipsis.circle",
-      label: `${strings.nav.library} menu`,
+      // Opens the collection switcher sheet. Not an ellipsis: HIG reserves
+      // it for the system overflow menu (which the vertical bar adds).
+      icon: "rectangle.stack",
+      label: strings.collectionMembership.title,
       hint: strings.library.manageCollectionsHint,
       disabled: collectionActionBusy,
       onPress: () => setShowTitleMenuSheet(true),
@@ -1900,7 +1921,7 @@ export function LibraryScreen({
           onPress: openAddBooksSheet,
         },
         {
-          icon: "ellipsis.circle",
+          icon: "folder.badge.gearshape",
           label: strings.library.manageCollection,
           hint: strings.library.manageCollectionHint,
           disabled: collectionActionBusy,
@@ -2148,7 +2169,7 @@ export function LibraryScreen({
   // added (the header's + and … used to vanish with an empty library).
   const librarySheets = (
     <>
-      <LibraryTitleMenuSheet
+      <TitleMenuSheet
         visible={!showSkeleton && showTitleMenuSheet}
         collections={collections.data}
         strings={strings}
@@ -2194,7 +2215,7 @@ export function LibraryScreen({
           onClose={() => setMembershipSheetEntry(null)}
         />
       ) : null}
-      <CollectionNameSheet
+      <NameSheet
         visible={!showSkeleton && showCreatePanel}
         mode="create"
         strings={strings}
@@ -2209,7 +2230,7 @@ export function LibraryScreen({
           void createCollection(name);
         }}
       />
-      <CollectionsManagerSheet
+      <ManagerSheet
         visible={!showSkeleton && showCollectionsManagerSheet}
         collections={collections.data}
         strings={strings}
@@ -2236,7 +2257,7 @@ export function LibraryScreen({
         onRename={openCollectionRename}
         onRemove={openCollectionRemoveConfirmation}
       />
-      <CollectionNameSheet
+      <NameSheet
         visible={!showSkeleton && renameTarget !== null}
         mode="rename"
         initialName={renameTarget?.name ?? ""}

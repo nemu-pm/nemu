@@ -4,7 +4,6 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -14,10 +13,11 @@ import {
   NemuButton,
   NemuPressable,
   NEMU_PROMINENT_CTA_SIZE,
-  radius,
   useNemuTheme,
 } from "@/design-system";
+import { JapaneseLearningText as Text } from "./JapaneseLearningText";
 import { JapaneseLearningSurfaceFrame } from "./JapaneseLearningSurfaceFrame";
+import { useJapaneseLearningDrawerFrame } from "./useJapaneseLearningDrawerFrame";
 import { JapaneseLearningAudioWaveform } from "./JapaneseLearningAudioWaveform";
 import {
   mobileOcrLineKey,
@@ -44,8 +44,6 @@ export interface JapaneseLearningTranscriptTtsStateLike {
 
 interface TranscriptSheetProps {
   visible: boolean;
-  /** Docked beside the page (regular width / book / notebook) instead of a sheet. */
-  docked?: boolean;
   strings: MobileStrings;
   ocrStatus: "idle" | "loading" | "ready" | "error";
   ocrErrorDetail?: string;
@@ -73,9 +71,8 @@ const NO_IMAGE_RETRY_GRACE_MS = 2500;
  * "Detect text" step. Same content: the LINE-green page audio control, then
  * the detected lines in the textbook serif; the line open in the sentence view
  * is highlighted and the line being read aloud glows. Native adaptations: the
- * popover becomes a sheet on compact widths and a docked panel beside the page
- * on regular widths, and failures stay in place with a Retry action (web only
- * alerts).
+ * popover becomes a sheet (in every pose; the system keeps it off the fold),
+ * and failures stay in place with a Retry action (web only alerts).
  */
 export function JapaneseLearningTranscriptSheet({
   visible,
@@ -91,7 +88,6 @@ export function JapaneseLearningTranscriptSheet({
   onRetryOcr,
   onSelectDetection,
   onToggleTts,
-  docked = false,
 }: TranscriptSheetProps) {
   const { tokens, scheme } = useNemuTheme();
   const colors = mobileJapaneseLearningSurfaceColors(scheme === "dark" ? "dark" : "light");
@@ -166,26 +162,19 @@ export function JapaneseLearningTranscriptSheet({
       )
     : null;
 
-  const title =
-    ocrResult?.source === "source-text"
-      ? strings.reader.pluginJapaneseLearningSourceText
-      : strings.reader.pluginJapaneseLearningTranscript;
-
+  const drawerFrame = useJapaneseLearningDrawerFrame();
   const waiting =
     ocrStatus === "idle" || ocrStatus === "loading" || (noImageError && !noImageErrorVisible);
 
   return (
     <JapaneseLearningSurfaceFrame
-      docked={docked}
-      closeLabel={strings.reader.closeLearningPanel}
       visible={visible}
       onRequestClose={onClose}
       backdropOnPress={onClose}
       onDismiss={onDismiss}
-      // The web popover has no title; a docked panel keeps one so it reads as
-      // the transcript while it stays open beside the page.
-      title={docked ? title : undefined}
-      frameMaxHeight="50%"
+      showDismissButton={false}
+      // Web's half-height transcript; on a horizontal fold, exactly the half below it.
+      frameMaxHeight={drawerFrame.horizontalFold ? drawerFrame.frameMaxHeight : "50%"}
       contentStyle={styles.frameContent}
     >
       {lines.length > 0 ? (
@@ -234,7 +223,7 @@ export function JapaneseLearningTranscriptSheet({
                   accessibilityLanguage="ja"
                   accessibilityState={{ selected }}
                   hapticFeedback="selection"
-                  minimumTouchTarget
+                  hitSlop={{ top: 3, bottom: 3 }}
                   onPress={() => onSelectDetection(line)}
                   pressedScale={0.985}
                   // The touch-target wrapper centres its child; lines span the column.
@@ -350,8 +339,8 @@ export function JapaneseLearningTranscriptSheet({
           />
         </View>
       ) : (
-        // Web `.transcript-empty`: "No text detected".
-        <View style={styles.stateContent}>
+        // Web `.transcript-empty`: "No text detected", 2rem below the top.
+        <View style={[styles.stateContent, styles.emptyStateContent]}>
           <Text style={[styles.emptyText, styles.emptyTextItalic, { color: colors.transcriptEmptyText }]}>
             {strings.reader.pluginJapaneseLearningTranscriptNoText}
           </Text>
@@ -376,8 +365,8 @@ const styles = StyleSheet.create({
   frameContent: {
     gap: 0,
     paddingHorizontal: 8,
-    paddingTop: 4,
-    paddingBottom: 8,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
   column: {
     flex: 1,
@@ -401,10 +390,10 @@ const styles = StyleSheet.create({
   },
   // Web `.transcript-line`: transparent pill, serif 0.8125rem / 1.7.
   line: {
-    minHeight: 44,
+    minHeight: 39,
     justifyContent: "center",
     alignItems: "stretch",
-    borderRadius: radius.sm,
+    borderRadius: 9,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "transparent",
     paddingHorizontal: 6,
@@ -473,6 +462,9 @@ const styles = StyleSheet.create({
     minHeight: 164,
     paddingHorizontal: 16,
     paddingVertical: 32,
+  },
+  emptyStateContent: {
+    justifyContent: "flex-start",
   },
   retryCtaContainer: {
     alignSelf: "stretch",

@@ -41,11 +41,16 @@ import {
   type NemuButtonDepthVariant,
 } from "@/design-system";
 import { MobileExpandableDescription } from "@/components/MobileExpandableDescription";
+import { useMobileMangaDetailPane } from "@/components/MobileMangaDetailPaneContext";
 import { MobileMangaDetailTagSheet } from "@/components/MobileMangaDetailTagSheet";
 import { MobileMangaStatusBadge } from "@/components/MobileMangaStatusBadge";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { MOBILE_MANGA_DETAIL_PRIMARY_ACTION_MAX_WIDTH } from "@/lib/mobileMangaDetailPresentation";
 import { getMobileMangaDetailHeroLayout } from "@/lib/mobileDynamicTypeLayout";
+import {
+  getMobileDetailPaneCoverWidth,
+  MOBILE_DETAIL_PANE_METRICS,
+} from "@/lib/mobileMangaDetailPaneLayout";
 
 /**
  * The hero title and primary action wrap at large text sizes; beyond this
@@ -158,6 +163,10 @@ export function MobileMangaDetailSurface({
   const { tokens } = useNemuTheme();
   const { fontScale, width: windowWidth } = useWindowDimensions();
   const minimumTouchTarget = getNemuButtonMinimumTargetSize(Platform.OS);
+  // Regular-width info pane: no card inside the pane, a larger cover, every
+  // tag below the hero row and the description in full (see
+  // `mobileMangaDetailPaneLayout`). Everywhere else: design A, unchanged.
+  const paneMode = useMobileMangaDetailPane().role === "leading";
   // Lay out from the hero's own width, not the window: in a split view the
   // hero lives in the leading pane. Until measured, assume a full-width page.
   const [rowWidth, setRowWidth] = useState(0);
@@ -174,16 +183,27 @@ export function MobileMangaDetailSurface({
   const requestedActionsInCopy = !stacked && effectiveActionsPlacement === "copy" && hasActions;
   const tagList = tags ?? [];
   const hasTagRow = tagList.length > 0 || badges.length > 0;
+  // In the pane the tags get their own wrapping block under the hero row.
+  const tagsInCopy = hasTagRow && !paneMode;
+  const heroRowGap = paneMode
+    ? MOBILE_DETAIL_PANE_METRICS.heroRowGap
+    : compact
+      ? HERO_ROW_GAP_COMPACT
+      : HERO_ROW_GAP;
   const copyLayoutFor = (withActions: boolean) =>
     getMobileDetailHeroCopyLayout({
       surfaceWidth,
       fontScale,
       compact,
       hasAuthors: Boolean(authors?.length),
-      hasTagRow,
+      hasTagRow: tagsInCopy,
       hasActions: withActions,
-      maxTitleLines: heroLayout.titleLines ?? 3,
+      // The pane's taller cover leaves room for a fourth title line.
+      maxTitleLines: paneMode
+        ? Math.max(MOBILE_DETAIL_PANE_METRICS.maxTitleLines, heroLayout.titleLines ?? 0)
+        : heroLayout.titleLines ?? 3,
       minimumTouchTarget,
+      baseCoverWidth: paneMode ? getMobileDetailPaneCoverWidth(surfaceWidth) : undefined,
     });
   const requestedCopyLayout = copyLayoutFor(requestedActionsInCopy);
 
@@ -199,7 +219,6 @@ export function MobileMangaDetailSurface({
     ? [primaryAction.label, ...(primaryAction.compactLabel ? [primaryAction.compactLabel] : [])]
     : [];
   const needsLabelMeasurement = primaryLabelTexts.some((text) => labelWidths[text] === undefined);
-  const heroRowGap = compact ? HERO_ROW_GAP_COMPACT : HERO_ROW_GAP;
   const secondaryCount = secondaryActions.length;
   const primaryPresentation = primaryAction
     ? getMobileMangaDetailActionPresentation({
@@ -227,7 +246,11 @@ export function MobileMangaDetailSurface({
     : null;
   const actionsInCopy = requestedActionsInCopy && (primaryPresentation?.placement ?? "copy") === "copy";
   const copyLayout = actionsInCopy === requestedActionsInCopy ? requestedCopyLayout : copyLayoutFor(actionsInCopy);
-  const coverWidth = stacked ? getMobileDetailBaseCoverWidth(surfaceWidth) : copyLayout.coverWidth;
+  const coverWidth = stacked
+    ? paneMode
+      ? getMobileDetailPaneCoverWidth(surfaceWidth)
+      : getMobileDetailBaseCoverWidth(surfaceWidth)
+    : copyLayout.coverWidth;
   const coverHeight = stacked ? coverWidth * 1.5 : copyLayout.coverHeight;
   const [tagSheetOpen, setTagSheetOpen] = useState(false);
 
@@ -249,7 +272,8 @@ export function MobileMangaDetailSurface({
     overflowChipWidth: chipWidths[overflowKey],
     gap: TAG_GAP,
     // Stacked (large text): the row spans the card, so a second line is fine.
-    maxLines: stacked ? 2 : 1,
+    // The pane's tag block wraps like web's (which folds after ten tags).
+    maxLines: paneMode ? MOBILE_DETAIL_PANE_METRICS.tagMaxLines : stacked ? 2 : 1,
   });
   const needsChipMeasurement =
     hasTagRow &&
@@ -288,7 +312,10 @@ export function MobileMangaDetailSurface({
   const tagRow = hasTagRow ? (
     <View
       onLayout={(event) => setTagRowWidth(event.nativeEvent.layout.width)}
-      style={[styles.tagRow, stacked ? styles.tagRowWrapping : styles.tagRowSingleLine]}
+      style={[
+        styles.tagRow,
+        stacked || paneMode ? styles.tagRowWrapping : styles.tagRowSingleLine,
+      ]}
     >
       {tagFit.ready ? (
         <>
@@ -482,13 +509,13 @@ export function MobileMangaDetailSurface({
     );
   };
 
-  return (
-    <GlassSurface style={styles.heroShell} contentStyle={styles.hero}>
+  const content = (
+    <>
       <View
         onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
         style={[
           styles.heroInfoRow,
-          compact ? styles.heroInfoRowCompact : null,
+          { gap: heroRowGap },
           stacked ? styles.heroInfoRowStacked : null,
         ]}
       >
@@ -549,6 +576,7 @@ export function MobileMangaDetailSurface({
             styles.copy,
             { gap: copyLayout.gap },
             stacked ? styles.copyStacked : { minHeight: coverHeight },
+            paneMode && !stacked ? styles.copyPane : null,
           ]}
         >
           <View style={[styles.copyTop, { gap: copyLayout.gap }]}>
@@ -573,7 +601,7 @@ export function MobileMangaDetailSurface({
               </Text>
             ) : null}
           </View>
-          {stacked ? tagRow : (
+          {paneMode ? null : stacked ? tagRow : (
             // Whatever room the title leaves is the tag row's; the actions
             // below it stay pinned to the cover's bottom edge.
             <View style={styles.copyMiddle}>{tagRow}</View>
@@ -584,8 +612,15 @@ export function MobileMangaDetailSurface({
 
       {!actionsInCopy ? renderActions("below") : null}
 
+      {paneMode ? tagRow : null}
+
       {description ? (
-        <MobileExpandableDescription key={description} value={description} strings={strings} />
+        <MobileExpandableDescription
+          key={description}
+          value={description}
+          strings={strings}
+          pane={paneMode}
+        />
       ) : null}
 
       {tagList.length ? (
@@ -596,6 +631,16 @@ export function MobileMangaDetailSurface({
           onClose={() => setTagSheetOpen(false)}
         />
       ) : null}
+    </>
+  );
+
+  // The pane is already its own column (hairline divider, or the fold): its
+  // content sits on the page background instead of a card inside the pane.
+  return paneMode ? (
+    <View style={styles.paneHero}>{content}</View>
+  ) : (
+    <GlassSurface style={styles.heroShell} contentStyle={styles.hero}>
+      {content}
     </GlassSurface>
   );
 }
@@ -608,13 +653,12 @@ const styles = StyleSheet.create({
     gap: 14,
     padding: 14,
   },
+  paneHero: {
+    gap: MOBILE_DETAIL_PANE_METRICS.blockGap,
+  },
   heroInfoRow: {
     flexDirection: "row",
-    gap: HERO_ROW_GAP,
     alignItems: "flex-start",
-  },
-  heroInfoRowCompact: {
-    gap: HERO_ROW_GAP_COMPACT,
   },
   // Large text: cover on its own row, copy (title/authors/tags) full width.
   heroInfoRowStacked: {
@@ -661,6 +705,10 @@ const styles = StyleSheet.create({
   },
   copyTop: {
     flexShrink: 1,
+  },
+  // Title/authors on top, actions on the cover's bottom edge.
+  copyPane: {
+    justifyContent: "space-between",
   },
   copyMiddle: {
     flexGrow: 1,

@@ -14,7 +14,7 @@ describe("split pane layout", () => {
     expect(split({ containerWidth: 466, regularWidth: false, posture: "flat", foldSplit: null, options: detail })).toEqual({ mode: "single" });
   });
 
-  test("flat inner display: narrower leading pane, like the Notes sidebar", () => {
+  test("flat without a fold region (tablets): narrower leading pane, like the Notes sidebar", () => {
     expect(split({ containerWidth: 951, regularWidth: true, posture: "flat", foldSplit: null, options: detail })).toEqual({
       mode: "split",
       alignment: "flat",
@@ -22,8 +22,8 @@ describe("split pane layout", () => {
       trailing: { x: 380, width: 571 },
       gutter: 0,
     });
-    // Settings on the inner portrait display: 36% would be 241, so the
-    // sidebar keeps its minimum.
+    // Settings on a 669pt-wide window: 36% would be 241, so the sidebar
+    // keeps its minimum.
     expect(split({ containerWidth: 669, regularWidth: true, posture: "flat", foldSplit: null, options: settings })).toMatchObject({
       leading: { width: 300 },
       trailing: { x: 300, width: 369 },
@@ -89,6 +89,26 @@ describe("split pane layout", () => {
       alignment: "flat",
       leading: { width: 342 },
     });
+  });
+
+  test("unfolding restores proportional panes and removes the active fold gutter", () => {
+    const flatDuo = { width: 951, height: 669, supported: true, divisions: [{ ...hinge, x: 455.5, width: 40, active: false }], occlusions: [] };
+    const bookDuo = { ...flatDuo, divisions: [{ ...flatDuo.divisions[0], active: true }] };
+    const container = { x: 0, y: 0, width: 867, height: 669 };
+    const panes = (layout: typeof flatDuo, options: typeof detail) => {
+      const adaptive = mobileAdaptiveLayout(layout);
+      return split({
+        containerWidth: 867,
+        regularWidth: true,
+        posture: adaptive.posture,
+        foldSplit: mobileFoldSplitForContainer(adaptive, container),
+        options,
+      });
+    };
+    for (const options of [detail, settings]) {
+      expect(panes(flatDuo, options)).toMatchObject({ alignment: "flat", gutter: 0 });
+      expect(panes(bookDuo, options)).toMatchObject({ alignment: "fold", leading: { width: 455.5 }, trailing: { x: 495.5, width: 371.5 }, gutter: 40 });
+    }
   });
 
   test("notebook posture keeps a single column", () => {

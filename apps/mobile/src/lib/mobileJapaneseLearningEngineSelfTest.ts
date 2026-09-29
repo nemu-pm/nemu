@@ -38,17 +38,20 @@ export async function runMobileJapaneseLearningEngineSelfTest(): Promise<void> {
   const signal = new AbortController().signal;
   try {
     const files: string[] = [];
+    for (const entry of outDir.list()) {
+      if (entry instanceof File && IMAGE_PATTERN.test(entry.name)) files.push(entry.uri);
+    }
+    // Pages placed in the output folder are the test set; the reader cache
+    // is only sampled when there are none.
     const cacheDir = new Directory(Paths.cache, "nemu-reader-page-image-cache");
-    if (cacheDir.exists) {
+    if (files.length === 0 && cacheDir.exists) {
       for (const entry of cacheDir.list()) {
         if (entry instanceof File && IMAGE_PATTERN.test(entry.name) && files.length < 8) {
           files.push(entry.uri);
         }
       }
     }
-    for (const entry of outDir.list()) {
-      if (entry instanceof File && IMAGE_PATTERN.test(entry.name)) files.push(entry.uri);
-    }
+    files.sort();
     const pages: unknown[] = [];
     const transcripts: string[] = [];
     for (const uri of files) {
@@ -100,7 +103,7 @@ export async function runMobileJapaneseLearningEngineSelfTest(): Promise<void> {
     await write();
 
     const analyses: unknown[] = [];
-    const inputs = ["庭には二羽鶏がいる", ...transcripts].slice(0, 16);
+    const inputs = ["庭には二羽鶏がいる", ...transcripts].slice(0, 48);
     for (const text of inputs) {
       const started = mobileJapaneseLearningNowMs();
       try {
@@ -116,6 +119,8 @@ export async function runMobileJapaneseLearningEngineSelfTest(): Promise<void> {
             conjugationTypes: token.conjugationTypes,
             meaning: token.meanings[0]?.text ?? token.conjugations[0]?.meanings[0]?.text ?? "",
           })),
+          // Raw kernel output, for field-by-field comparison with cloud Ichiran.
+          segments: result.segments,
         });
       } catch (error) {
         analyses.push({ text, error: String(error) });

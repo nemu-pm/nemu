@@ -3,8 +3,9 @@ import ArrowBackIcon from "@expo/material-symbols/arrow_back.xml";
 import CloseIcon from "@expo/material-symbols/close.xml";
 import DeleteIcon from "@expo/material-symbols/delete.xml";
 import EditIcon from "@expo/material-symbols/edit.xml";
+import CollectionsIcon from "@expo/material-symbols/collections_bookmark.xml";
+import FolderManagedIcon from "@expo/material-symbols/folder_managed.xml";
 import LayersIcon from "@expo/material-symbols/layers.xml";
-import MoreIcon from "@expo/material-symbols/more_horiz.xml";
 import SearchIcon from "@expo/material-symbols/search.xml";
 import TuneIcon from "@expo/material-symbols/tune.xml";
 import type { ImageSourcePropType } from "react-native";
@@ -12,11 +13,12 @@ import type { NemuNativeToolbarSymbol } from "./nativeToolbarIcons";
 
 const androidToolbarIcons: Record<NemuNativeToolbarSymbol, ImageSourcePropType> = {
   "chevron.left": ArrowBackIcon,
-  "ellipsis.circle": MoreIcon,
+  "folder.badge.gearshape": FolderManagedIcon,
   "line.3.horizontal.decrease": TuneIcon,
   magnifyingglass: SearchIcon,
   pencil: EditIcon,
   plus: AddIcon,
+  "rectangle.stack": CollectionsIcon,
   "square.stack.3d.up": LayersIcon,
   trash: DeleteIcon,
   "xmark.circle": CloseIcon,

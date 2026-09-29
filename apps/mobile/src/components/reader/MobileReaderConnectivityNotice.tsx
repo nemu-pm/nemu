@@ -43,7 +43,7 @@ export function MobileReaderConnectivityNotice({
   strings: MobileStrings;
   connectivity: MobileConnectivityState;
 }) {
-  const { scheme, tokens } = useNemuTheme();
+  const { tokens } = useNemuTheme();
   const reducedMotion = useReducedMotion();
   const [slowLoading, setSlowLoading] = useState(false);
   const pendingSinceRef = useRef<number | null>(null);
@@ -78,7 +78,8 @@ export function MobileReaderConnectivityNotice({
   if (!connectivity.offline && !slowLoading) return null;
 
   const offline = connectivity.offline;
-  const dark = scheme === "dark";
+  // Always the chrome's dark glass: the reader is a black immersive surface.
+  const dark = true;
 
   return (
     <Animated.View
@@ -92,12 +93,12 @@ export function MobileReaderConnectivityNotice({
       ]}
     >
       <MobileToastSurface
-        backgroundColor={READER_CHROME_GLASS_TINT[scheme]}
-        borderColor={READER_CHROME_GLASS_BORDER[scheme]}
+        backgroundColor={READER_CHROME_GLASS_TINT.dark}
+        borderColor={READER_CHROME_GLASS_BORDER.dark}
         detail={offline ? strings.feedback.readerOfflineDetail : undefined}
         detailColor={dark ? READER_NOTICE_DARK_DETAIL : tokens.mutedForeground}
         icon={offline ? "cloud-offline-outline" : "hourglass-outline"}
-        iconColor={offline ? tokens.warning : tokens.mutedForeground}
+        iconColor={offline ? tokens.warning : READER_NOTICE_DARK_DETAIL}
         plain
         title={
           offline

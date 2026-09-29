@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mobileAdaptiveGridColumns, mobileAdaptiveLayout, mobileFoldSplitForContainer, mobileVerticalBarSide } from "./mobileAdaptiveLayout";
+import {
+  mobileAdaptiveGridColumns,
+  mobileAdaptiveLayout,
+  mobileFoldSplitForContainer,
+  mobileGridPrefersEvenColumns,
+  mobileVerticalBarSide,
+  mobileWindowHasFoldRegion,
+} from "./mobileAdaptiveLayout";
 import { MOBILE_FOLD_MIN_GUTTER, type MobileWindowLayout, type WindowReservedRegion } from "./mobileWindowLayout";
 
 const hinge = (x: number, y: number, width: number, height: number, active = true): WindowReservedRegion => ({ id: "hinge", x, y, width, height, active });
@@ -29,7 +36,20 @@ describe("mobile adaptive layout", () => {
     });
     expect(mobileFoldSplitForContainer(book, { x: 500, y: 0, width: 451, height: 669 })).toBeNull();
   });
-  test("regular-width grids prefer an even column count", () => {
+  test("a fold region counts whether active or not, and whatever its width", () => {
+    // Pixel Fold inner display, FLAT: a zero-width inactive line still counts.
+    const pixelFoldFlat = { width: 841, height: 701, supported: true, divisions: [hinge(420.5, 0, 0, 701, false)], occlusions: [] };
+    expect(mobileAdaptiveLayout(pixelFoldFlat)).toMatchObject({ posture: "flat", hasFoldRegion: true, fold: null });
+    expect(mobileAdaptiveLayout(duoInnerLandscape([hinge(465, 0, 21, 669)])).hasFoldRegion).toBe(true);
+    // Tablets / phones: no division → no parity rule, even at regular width.
+    const tablet = mobileAdaptiveLayout({ width: 1024, height: 768, supported: true, divisions: [], occlusions: [] });
+    expect(tablet).toMatchObject({ regularWidth: true, hasFoldRegion: false });
+    expect(mobileGridPrefersEvenColumns(tablet)).toBe(false);
+    // Degenerate or off-window regions do not count.
+    expect(mobileWindowHasFoldRegion({ width: 951, height: 669, divisions: [hinge(400, 0, 0, 0, false)] })).toBe(false);
+    expect(mobileWindowHasFoldRegion({ width: 951, height: 669, divisions: [hinge(2000, 0, 40, 669, false)] })).toBe(false);
+  });
+  test("grids with a fold region prefer an even column count", () => {
     expect(mobileAdaptiveGridColumns({ contentWidth: 900, minItemWidth: 150, gap: 12, preferEven: true }).columns).toBe(4);
     expect(mobileAdaptiveGridColumns({ contentWidth: 900, minItemWidth: 150, gap: 12, preferEven: false }).columns).toBe(5);
     expect(mobileAdaptiveGridColumns({ contentWidth: 340, minItemWidth: 150, gap: 12, preferEven: true }).columns).toBe(2);

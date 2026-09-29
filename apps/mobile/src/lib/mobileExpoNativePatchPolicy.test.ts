@@ -41,6 +41,27 @@ describe("mobile Expo native patch policy", () => {
       /matchContents: fitToContents,[\s\S]*?style: fitToContents \? \{\s*width: sheetWidth/,
     );
   });
+  test("renders iOS sheet content 1:1 inside the floating sheet's scale", () => {
+    // iOS 26+ floats a partial-detent sheet by drawing it scaled (~0.96 on a
+    // 402pt iPhone); the host lays the content out at the shown size and
+    // undoes that scale, for detent and content-sized sheets alike.
+    const hostView = readFileSync(path.join(repositoryRoot,
+      "node_modules/@expo/ui/ios/RNHostView.swift"), "utf8");
+    expect(hostView).toContain("@Field var compensatesPresentationScale: Bool = false");
+    expect(hostView).toContain("var onPresentationScaleChange = EventDispatcher()");
+    expect(hostView).toContain(".scaleEffect(1 / scale, anchor: .topLeading)");
+    expect(hostView).toContain("convert(bounds, to: window).width / bounds.width");
+    for (const [file, pattern] of [
+      ["src/community/bottom-sheet/BottomSheet.ios.tsx", /compensatesPresentationScale\s*\n\s*onPresentationScaleChange=\{handlePresentationScaleChange\}/],
+      ["build/community/bottom-sheet/BottomSheet.ios.js", /compensatesPresentationScale: true,\s*\n\s*onPresentationScaleChange: handlePresentationScaleChange,/],
+    ] as const) {
+      const bottomSheet = readFileSync(
+        path.join(repositoryRoot, "node_modules/@expo/ui", file), "utf8");
+      expect(bottomSheet).toMatch(pattern);
+      // A content-sized sheet's Yoga width is the shown width too.
+      expect(bottomSheet).toMatch(/: windowWidth\)\s*\*\s*presentationScale;/);
+    }
+  });
   test("keeps every version-exact repository patch attached", () => {
     for (const [dependency, patchPath] of Object.entries(
       rootPackage.patchedDependencies ?? {},

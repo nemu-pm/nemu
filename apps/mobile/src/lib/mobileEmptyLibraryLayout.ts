@@ -152,25 +152,18 @@ function glowFor(portraitWidth: number) {
  * - Portrait-shaped boxes stack art over copy exactly like phones.
  * - Wide boxes (and book posture) put the art beside the copy, each in its
  *   own half; in book posture the halves are the fold's panes.
- * - A wide box on a flat device that still reports its (inactive) fold —
- *   iPhone Duo fully open, an unfolded Android foldable — splits on that same
- *   line (`restingFold`), so book ⇄ flat moves nothing (HIG "avoid extreme
- *   layout changes"). Portrait-shaped flat boxes keep the stack: forcing the
- *   notebook column there would shrink the art on the common flat pose.
+ * - Fully open wide boxes use an even split with the ordinary pane gap.
  * - Notebook posture puts the art in the top pane and the copy in the bottom.
  */
 export function getMobileEmptyLibraryAdaptiveLayout({
   width,
   height,
   fold,
-  restingFold,
   bleedWidth,
 }: {
   width: number;
   height: number;
   fold?: MobileEmptyLibraryPaneSplit | null;
-  /** The inactive fold crossing the box while flat (`mobileRestingFoldSplitForContainer`). */
-  restingFold?: MobileEmptyLibraryPaneSplit | null;
   /** Stacked art may bleed past the page gutters to this width (web `w-[100vw]`). */
   bleedWidth?: number;
 }): MobileEmptyLibraryAdaptiveLayout {
@@ -196,9 +189,7 @@ export function getMobileEmptyLibraryAdaptiveLayout({
   const splitLine =
     fold?.axis === "horizontal"
       ? fold.gutter
-      : wide && !fold && restingFold?.axis === "horizontal"
-        ? restingFold.gutter
-        : null;
+      : null;
   if (splitLine || wide) {
     const artPane = splitLine
       ? { x: 0, width: Math.max(1, splitLine.start) }

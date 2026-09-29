@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { JapaneseLearningWebIcon } from "./JapaneseLearningWebIcon";
 import { NemuPressable, useNemuTheme } from "@/design-system";
+import { JapaneseLearningText as Text } from "./JapaneseLearningText";
 import { JAPANESE_LEARNING_AUDIO_COLORS } from "@/lib/mobileJapaneseLearningSurfaceTheme";
 
 const BAR_WIDTH = 3;
@@ -90,7 +91,7 @@ export function JapaneseLearningAudioWaveform({
         accessibilityState={{ disabled, busy: loading }}
         disabled={disabled}
         hapticFeedback="press"
-        minimumTouchTarget
+        hitSlop={6}
         onPress={onToggle}
         pressedScale={0.95}
         style={[
@@ -104,11 +105,10 @@ export function JapaneseLearningAudioWaveform({
         {loading ? (
           <ActivityIndicator size="small" color="#ffffff" />
         ) : (
-          <Ionicons
+          <JapaneseLearningWebIcon
             name={active ? "pause" : "play"}
             size={14}
             color="#ffffff"
-            style={active ? null : styles.playGlyph}
           />
         )}
       </NemuPressable>

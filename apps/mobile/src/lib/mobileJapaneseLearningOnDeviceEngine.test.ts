@@ -313,6 +313,56 @@ describe("on-device OCR", () => {
     expect(result.text).toBe("本当\nわかり");
   });
 
+  test("re-reads Japanese blocks on upscaled crops and keeps boxes and order", async () => {
+    const { module } = fakeModule({
+      recognize: () =>
+        nativePage(1000, 1400, [
+          { ...nativeColumn("雄かに俺は男だよ", 800, 150), confidence: 0.42 },
+          { ...nativeColumn("本当", 140, 110), confidence: 0.5 },
+          // Already read with full confidence: not re-read.
+          nativeColumn("はい", 400, 900),
+        ]),
+    });
+    const regionCalls: Array<Array<[number, number, number, number]>> = [];
+    module.recognizeRegions = async (_uri, regions) => {
+      regionCalls.push(regions);
+      return {
+        ...nativePage(1000, 1400, []),
+        regions: regions.map((region, index) => ({
+          scale: 3,
+          lines: index === 0 ? [nativeColumn("確かに俺は男だよ", region[0], region[1])] : [],
+        })),
+      };
+    };
+    setMobileJapaneseLearningNativeModuleForTesting(module);
+    const result = await runMobileJapaneseLearningOcr(
+      { imageUri: "file:///cache/page-2.jpg", headers: undefined, text: undefined },
+    );
+    expect(regionCalls).toHaveLength(1);
+    expect(regionCalls[0]).toHaveLength(2);
+    expect(result.detections.map((detection) => [detection.order, detection.text])).toEqual([
+      [0, "確かに俺は男だよ"],
+      // An empty second read keeps the first pass.
+      [1, "本当"],
+      [2, "はい"],
+    ]);
+    expect(result.detections[0]).toMatchObject({ x1: 800, y1: 150 });
+  });
+
+  test("keeps the first pass when the region pass fails", async () => {
+    const { module } = fakeModule({
+      recognize: () => nativePage(1000, 1400, [nativeColumn("本当", 140, 110)]),
+    });
+    module.recognizeRegions = async () => {
+      throw new Error("vision busy");
+    };
+    setMobileJapaneseLearningNativeModuleForTesting(module);
+    const result = await runMobileJapaneseLearningOcr(
+      { imageUri: "file:///cache/page-3.jpg", headers: undefined, text: undefined },
+    );
+    expect(result.detections.map((detection) => detection.text)).toEqual(["本当"]);
+  });
+
   test("stitches long-strip tiles into page coordinates", async () => {
     const { module } = fakeModule({
       recognize: (uri) =>

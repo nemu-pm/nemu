@@ -12,9 +12,15 @@ import {
   useNemuTheme,
   GlassSurface,
 } from "@/design-system";
+import { useMobileMangaDetailPane } from "@/components/MobileMangaDetailPaneContext";
 import { MobileMangaDetailSplitLayout } from "@/components/MobileMangaDetailSplitLayout";
 import { getMobileMangaDetailHeroLayout } from "@/lib/mobileDynamicTypeLayout";
 import { MOBILE_MANGA_DETAIL_PRIMARY_ACTION_MAX_WIDTH } from "@/lib/mobileMangaDetailPresentation";
+import {
+  getMobileChapterSectionRhythm,
+  getMobileDetailPaneCoverWidth,
+  MOBILE_DETAIL_PANE_METRICS,
+} from "@/lib/mobileMangaDetailPaneLayout";
 import {
   getMobileDetailBaseCoverWidth,
   getMobileDetailHeroCopyLayout,
@@ -23,7 +29,10 @@ import {
 
 /** Pill widths of the single, height-capped tag row (design A). */
 const SKELETON_TAG_WIDTHS = [64, 52, 76, 58] as const;
-const SKELETON_CHAPTERS = [0, 1, 2, 3, 4, 5] as const;
+const SKELETON_CHAPTER_ROWS = [0, 1, 2] as const;
+const SKELETON_CHAPTER_COLUMNS = [0, 1] as const;
+/** The info pane's full description, sketched. */
+const SKELETON_PANE_DESCRIPTION_LINES = 5;
 const NO_ROWS: never[] = [];
 const renderNothing = () => null;
 
@@ -52,10 +61,9 @@ export function MobileMangaPageSkeleton({
   nativeHeader = true,
   header,
 }: MobileMangaPageSkeletonProps) {
-  const { tokens, reduceMotion } = useNemuTheme();
+  const { reduceMotion } = useNemuTheme();
   const skeletonOpacity = useSkeletonPulse(reduceMotion === true);
   const skeletonReady = useSkeletonDisplayDelay(150);
-  const skeletonColor = tokens.muted;
 
   return (
     <MobileMangaDetailSplitLayout
@@ -78,42 +86,64 @@ export function MobileMangaPageSkeleton({
       }
       chapterHeader={
         skeletonReady ? (
-          // One progress element for the page; the chapter placeholders are decorative.
-          <Animated.View
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={[styles.section, { opacity: skeletonOpacity }]}
-          >
-            <View style={styles.sectionHeaderRow}>
-              <View
-                style={[
-                  styles.sectionTitle,
-                  { backgroundColor: skeletonColor },
-                ]}
-              />
-              <View
-                style={[styles.statPill, { backgroundColor: skeletonColor }]}
-              />
-            </View>
-            <View style={styles.chapterList}>
-              {SKELETON_CHAPTERS.map((item) => (
-                <View key={item} style={styles.chapterSlot}>
-                  <View
-                    style={[
-                      styles.chapterCell,
-                      {
-                        backgroundColor: skeletonColor,
-                        borderColor: tokens.border,
-                      },
-                    ]}
-                  />
-                </View>
-              ))}
-            </View>
-          </Animated.View>
+          <ChapterSectionSkeleton opacity={skeletonOpacity} />
         ) : null
       }
     />
+  );
+}
+
+/** MobileMangaChapterSection's header + 2-up grid, with the same rhythm. */
+function ChapterSectionSkeleton({
+  opacity,
+}: {
+  opacity: ReturnType<typeof useSkeletonPulse>;
+}) {
+  const { tokens } = useNemuTheme();
+  const skeletonColor = tokens.muted;
+  const { regularWidth } = useMobileMangaDetailPane();
+  const rhythm = getMobileChapterSectionRhythm({
+    regularWidth,
+    minimumTouchTarget: getNemuButtonMinimumTargetSize(Platform.OS),
+  });
+  return (
+    // One progress element for the page; the chapter placeholders are decorative.
+    <Animated.View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{ gap: rhythm.firstRowGap, opacity }}
+    >
+      <View style={[styles.sectionHeaderRow, { minHeight: rhythm.headerRowHeight }]}>
+        <View
+          style={[
+            styles.sectionTitle,
+            { backgroundColor: skeletonColor },
+          ]}
+        />
+        <View
+          style={[styles.statPill, { backgroundColor: skeletonColor }]}
+        />
+      </View>
+      <View style={{ gap: rhythm.rowGap }}>
+        {SKELETON_CHAPTER_ROWS.map((row) => (
+          <View key={row} style={styles.chapterRow}>
+            {SKELETON_CHAPTER_COLUMNS.map((column) => (
+              <View key={column} style={styles.chapterSlot}>
+                <View
+                  style={[
+                    styles.chapterCell,
+                    {
+                      backgroundColor: skeletonColor,
+                      borderColor: tokens.border,
+                    },
+                  ]}
+                />
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+    </Animated.View>
   );
 }
 
@@ -126,6 +156,9 @@ function MangaHeroSkeleton({
   const { tokens } = useNemuTheme();
   const { fontScale, width: windowWidth } = useWindowDimensions();
   const minimumTouchTarget = getNemuButtonMinimumTargetSize(Platform.OS);
+  // The regular-width info pane's hero (no card, larger cover, tags and the
+  // description below the hero row), like the loaded surface.
+  const paneMode = useMobileMangaDetailPane().role === "leading";
   // Lay out from the hero's own width (a split pane is narrower than the window).
   const [rowWidth, setRowWidth] = useState(0);
   const surfaceWidth = rowWidth > 0 ? rowWidth : Math.max(0, windowWidth - 60);
@@ -142,12 +175,20 @@ function MangaHeroSkeleton({
     fontScale,
     compact,
     hasAuthors: true,
-    hasTagRow: true,
+    hasTagRow: !paneMode,
     hasActions: actionsInCopy,
-    maxTitleLines: heroLayout.titleLines ?? 3,
+    // The pane's taller cover leaves room for a fourth title line.
+    maxTitleLines: paneMode
+      ? Math.max(MOBILE_DETAIL_PANE_METRICS.maxTitleLines, heroLayout.titleLines ?? 0)
+      : heroLayout.titleLines ?? 3,
     minimumTouchTarget,
+    baseCoverWidth: paneMode ? getMobileDetailPaneCoverWidth(surfaceWidth) : undefined,
   });
-  const coverWidth = stacked ? getMobileDetailBaseCoverWidth(surfaceWidth) : copyLayout.coverWidth;
+  const coverWidth = stacked
+    ? paneMode
+      ? getMobileDetailPaneCoverWidth(surfaceWidth)
+      : getMobileDetailBaseCoverWidth(surfaceWidth)
+    : copyLayout.coverWidth;
   const coverHeight = stacked ? coverWidth * 1.5 : copyLayout.coverHeight;
   const skeletonColor = tokens.muted;
   const subtleSkeletonColor = tokens.sourceIconGlass;
@@ -170,7 +211,12 @@ function MangaHeroSkeleton({
     </View>
   );
   const tagRow = (
-    <View style={[styles.tagRow, stacked ? styles.tagRowWrapping : styles.tagRowSingleLine]}>
+    <View
+      style={[
+        styles.tagRow,
+        stacked || paneMode ? styles.tagRowWrapping : styles.tagRowSingleLine,
+      ]}
+    >
       {SKELETON_TAG_WIDTHS.map((width, index) => (
         <View
           key={index}
@@ -180,13 +226,14 @@ function MangaHeroSkeleton({
     </View>
   );
 
-  return (
-    <GlassSurface style={styles.heroShell} contentStyle={styles.hero}>
+  const content = (
+    <>
       <View
         onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
         style={[
           styles.heroInfoRow,
           compact ? styles.heroInfoRowCompact : null,
+          paneMode ? styles.heroInfoRowPane : null,
           stacked ? styles.heroInfoRowStacked : null,
         ]}
       >
@@ -219,6 +266,7 @@ function MangaHeroSkeleton({
             styles.copy,
             { gap: copyLayout.gap },
             stacked ? styles.copyStacked : { minHeight: coverHeight },
+            paneMode && !stacked ? styles.copyPane : null,
           ]}
         >
           <View style={[styles.copyTop, { gap: copyLayout.gap }]}>
@@ -233,20 +281,25 @@ function MangaHeroSkeleton({
               style={[styles.authorLine, { backgroundColor: subtleSkeletonColor }]}
             />
           </View>
-          {stacked ? tagRow : <View style={styles.copyMiddle}>{tagRow}</View>}
+          {paneMode ? null : stacked ? tagRow : <View style={styles.copyMiddle}>{tagRow}</View>}
           {actionsInCopy ? actionSkeleton : null}
         </View>
       </View>
 
       {actionsInCopy ? null : actionSkeleton}
 
+      {paneMode ? tagRow : null}
+
       <View style={styles.description}>
-        <View
-          style={[styles.descriptionLine, { backgroundColor: skeletonColor }]}
-        />
-        <View
-          style={[styles.descriptionLine, { backgroundColor: skeletonColor }]}
-        />
+        {Array.from(
+          { length: paneMode ? SKELETON_PANE_DESCRIPTION_LINES - 1 : 2 },
+          (_, index) => (
+            <View
+              key={index}
+              style={[styles.descriptionLine, { backgroundColor: skeletonColor }]}
+            />
+          ),
+        )}
         <View
           style={[
             styles.descriptionLineShort,
@@ -254,6 +307,14 @@ function MangaHeroSkeleton({
           ]}
         />
       </View>
+    </>
+  );
+
+  return paneMode ? (
+    <View style={styles.paneHero}>{content}</View>
+  ) : (
+    <GlassSurface style={styles.heroShell} contentStyle={styles.hero}>
+      {content}
     </GlassSurface>
   );
 }
@@ -274,6 +335,15 @@ const styles = StyleSheet.create({
   },
   heroInfoRowCompact: {
     gap: 12,
+  },
+  heroInfoRowPane: {
+    gap: MOBILE_DETAIL_PANE_METRICS.heroRowGap,
+  },
+  paneHero: {
+    gap: MOBILE_DETAIL_PANE_METRICS.blockGap,
+  },
+  copyPane: {
+    justifyContent: "space-between",
   },
   heroInfoRowStacked: {
     flexDirection: "column",
@@ -385,12 +455,7 @@ const styles = StyleSheet.create({
     height: MOBILE_DETAIL_HERO_METRICS.actionHeight,
     borderRadius: radius.pill,
   },
-  section: {
-    // Matches MobileMangaChapterSection's 16pt section rhythm.
-    gap: 16,
-  },
   sectionHeaderRow: {
-    minHeight: 28,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -406,16 +471,14 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: radius.md,
   },
-  chapterList: {
-    // MobileChapterGrid lays chapters out 2-up with an 8pt gap.
+  // MobileChapterGrid: two equal columns with an 8pt gap, filling the row.
+  chapterRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 8,
   },
   chapterSlot: {
-    flexGrow: 1,
-    flexBasis: "48%",
-    maxWidth: "48%",
+    flex: 1,
+    minWidth: 0,
   },
   chapterCell: {
     // MobileChapterCell geometry.

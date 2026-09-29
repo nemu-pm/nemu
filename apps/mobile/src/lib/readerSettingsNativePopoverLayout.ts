@@ -7,7 +7,8 @@
  * ~20pt top/bottom margin). When that height does not fit the space the
  * system can give the popover next to its anchor (one notebook pane on the
  * iPhone Duo), the same Form is presented as a sheet with detents instead —
- * never a clipped popover whose rows cannot be reached.
+ * never a clipped popover whose rows cannot be reached. Compact-width windows
+ * always use the sheet.
  */
 export const READER_SETTINGS_POPOVER_WIDTH = 360;
 export const READER_SETTINGS_POPOVER_ROW = 52;
@@ -54,15 +55,24 @@ export type ReaderSettingsNativePresentation =
   | { kind: "sheet" };
 
 /**
- * Popover when the whole Form fits `availableHeight` (the space the system
- * can give the popover beside its anchor); otherwise a sheet with detents.
+ * Where the reader settings are presented.
+ *
+ * - Compact width (phones, iPhone Duo outer display): always a sheet with
+ *   detents — HIG: a compact-width presentation is a sheet, and a popover
+ *   squeezed beside a button on a phone-sized window leaves rows out of
+ *   reach. Mirrors the web reader (`responsive-dialog`: drawer on narrow).
+ * - Regular width (Duo inner display, tablets): a popover anchored to the
+ *   settings button when the whole Form fits `availableHeight` (the space the
+ *   system can give it beside its anchor); otherwise the same sheet (one
+ *   notebook pane on the Duo is too short for the Form).
  */
 export function readerSettingsNativePresentation(
   rows: ReaderSettingsNativeRows,
-  availableHeight: number,
+  input: { availableHeight: number; regularWidth: boolean },
 ): ReaderSettingsNativePresentation {
+  if (!input.regularWidth) return { kind: "sheet" };
   const height = readerSettingsNativeContentHeight(rows);
-  const available = Number.isFinite(availableHeight) ? availableHeight : 0;
+  const available = Number.isFinite(input.availableHeight) ? input.availableHeight : 0;
   return height <= available
     ? { kind: "popover", width: READER_SETTINGS_POPOVER_WIDTH, height }
     : { kind: "sheet" };

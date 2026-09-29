@@ -145,13 +145,14 @@ const WEB_BANNER_VIGNETTE_LOCATIONS = [0, 0.5, 1] as const;
 /**
  * Measure the available width: Duo's trailing system bars can make it
  * narrower than the window. Flat: one full-width card per page (web
- * `MangaCardFeatured` parity; no 520pt cap). Book posture: one card per pane,
- * snapping by pane, so a card never rests on the fold.
+ * `MangaCardFeatured` parity; no 520pt cap). Book posture: one card per
+ * pane, snapping by pane, so a card never rests on the active fold.
  */
 function useFeaturedCarouselLayout() {
   const { width: windowWidth } = useWindowDimensions();
   const pageGutters = useMobilePageGutters();
   const container = useMobileContainerFold<ViewInstance>();
+  // Fully opening the screen restores full-width pages.
   const split = container.split;
   const foldStart = split?.axis === "horizontal" ? split.gutter.start : null;
   const foldEnd = split?.axis === "horizontal" ? split.gutter.end : null;
@@ -894,7 +895,11 @@ function FeaturedSection({
         onListingPress={() => {}}
       />
       <View ref={ref} onLayout={onLayout} style={styles.featuredCarousel}>
-        <Animated.View style={resnapStyle}>
+        {/* The re-snap fade wrapper must not unbound the pager: a horizontal
+            ScrollView defaults to flexGrow 1, and inside an unsized wrapper it
+            grew to its content's stacked height (~11k pt), pushing every
+            section below the carousel off screen. */}
+        <Animated.View style={[{ width: viewportWidth }, resnapStyle]}>
           <ScrollView
             ref={pagerRef}
             horizontal
@@ -2178,6 +2183,8 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   featuredPager: {
+    flexGrow: 0,
+    flexShrink: 0,
     overflow: "hidden",
   },
   featuredPage: {

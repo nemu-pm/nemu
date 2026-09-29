@@ -1,6 +1,7 @@
 import ExpoModulesCore
 import Foundation
 import OSLog
+import UIKit
 
 /// Off by default; `log stream --level debug --predicate 'subsystem == "pm.nemu.japanese-learning"'`.
 private let engineLog = Logger(subsystem: "pm.nemu.japanese-learning", category: "engine")
@@ -13,6 +14,9 @@ private func codedException(_ error: Error) -> Exception {
   if let failure = error as? NemuTextRecognizer.Failure {
     return Exception(name: "NemuJapaneseLearning", description: failure.message, code: failure.code)
   }
+  if let failure = error as? NemuMangaOcrRecognizer.Failure {
+    return Exception(name: "NemuJapaneseLearning", description: failure.message, code: failure.code)
+  }
   if let failure = error as? NemuIchiranEngine.Failure {
     return Exception(name: "NemuJapaneseLearning", description: failure.message, code: failure.code)
   }
@@ -23,10 +27,25 @@ private func codedException(_ error: Error) -> Exception {
 public final class NemuJapaneseLearningModule: Module {
   private let recognitionQueue = NemuSerialWorkQueue()
   private let analysisQueue = NemuSerialWorkQueue()
+  private var memoryWarningObserver: NSObjectProtocol?
 
   public func definition() -> ModuleDefinition {
     Name("NemuJapaneseLearning")
-    Events("onAnalysisPackProgress")
+    Events("onAnalysisPackProgress", "onOcrBlock")
+
+    OnCreate {
+      self.memoryWarningObserver = NotificationCenter.default.addObserver(
+        forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil
+      ) { _ in
+        Task { await NemuMangaOcrModelStore.shared.unload() }
+      }
+    }
+
+    OnDestroy {
+      if let observer = self.memoryWarningObserver {
+        NotificationCenter.default.removeObserver(observer)
+      }
+    }
 
     Function("getCapabilities") { () -> [String: Any] in
       [
@@ -37,6 +56,14 @@ public final class NemuJapaneseLearningModule: Module {
           "engine": NemuTextRecognizer.engine,
           "engineRevision": NemuTextRecognizer.engineRevision,
           "textDirection": NemuTextRecognizer.supportsTextDirection,
+          "pipeline": [
+            // Bundled Core ML recognition and text detection.
+            "mangaOcr": NemuMangaOcrModelStore.modelsBundled,
+            "detector": NemuMangaOcrEngine.detectorIdentifier,
+            "engine": NemuMangaOcrEngine.engine,
+            "engineRevision": NemuMangaOcrEngine.revision,
+            "computeUnits": NemuMangaOcrRecognizer.ComputePlan.platformDefault.label,
+          ],
         ],
         "analysis": [
           "kernelLinked": NemuIchiranEngine.kernelLinked,
@@ -79,6 +106,84 @@ public final class NemuJapaneseLearningModule: Module {
         }
         engineLog.debug(
           "ocr \(requestId, privacy: .public) \(String(describing: result["elapsedMs"] ?? ""), privacy: .public)ms lines=\((result["lines"] as? [Any])?.count ?? 0, privacy: .public)"
+        )
+        return result
+      } catch {
+        throw codedException(error)
+      }
+    }
+
+    AsyncFunction("recognizeRegions") {
+      (fileUri: String, regions: [[Double]], options: [String: Any]?) async throws -> [String: Any] in
+      guard #available(iOS 18.0, *) else {
+        throw Exception(
+          name: "NemuJapaneseLearning", description: "On-device OCR needs iOS 18 or later.",
+          code: "E_OCR_UNSUPPORTED")
+      }
+      guard let url = URL(string: fileUri), url.isFileURL else {
+        throw Exception(
+          name: "NemuJapaneseLearning", description: "OCR needs a local file URI.",
+          code: "E_OCR_IMAGE")
+      }
+      let rects = regions.prefix(NemuTextRecognizer.maxRegions).map { value -> CGRect in
+        guard value.count == 4, value.allSatisfy(\.isFinite) else { return .null }
+        return CGRect(x: value[0], y: value[1], width: value[2] - value[0], height: value[3] - value[1])
+      }
+      var recognizerOptions = NemuTextRecognizer.Options()
+      if let languages = options?["languages"] as? [String], !languages.isEmpty {
+        recognizerOptions.languages = Array(languages.prefix(8))
+      }
+      if let correction = options?["usesLanguageCorrection"] as? Bool {
+        recognizerOptions.usesLanguageCorrection = correction
+      }
+      if let boxes = options?["includeCharacterBoxes"] as? Bool {
+        recognizerOptions.includeCharacterBoxes = boxes
+      }
+      let requestId = (options?["requestId"] as? String) ?? UUID().uuidString
+      let configured = recognizerOptions
+      do {
+        let result = try await recognitionQueue.run(requestId: requestId) {
+          try await NemuTextRecognizer.recognizeRegions(
+            fileURL: url, regions: Array(rects), options: configured)
+        }
+        engineLog.debug(
+          "ocr-regions \(requestId, privacy: .public) \(String(describing: result["elapsedMs"] ?? ""), privacy: .public)ms regions=\(rects.count, privacy: .public)"
+        )
+        return result
+      } catch {
+        throw codedException(error)
+      }
+    }
+
+    AsyncFunction("recognizePage") {
+      (fileUri: String, options: [String: Any]?) async throws -> [String: Any] in
+      guard let url = URL(string: fileUri), url.isFileURL else {
+        throw Exception(
+          name: "NemuJapaneseLearning", description: "OCR needs a local file URI.",
+          code: "E_OCR_IMAGE")
+      }
+      let requestId = (options?["requestId"] as? String) ?? UUID().uuidString
+      let emitBlocks = (options?["emitBlocks"] as? Bool) ?? false
+      var pipelineOptions = NemuMangaOcrPipeline.Options()
+      if let padding = options?["cropPadding"] as? Double, padding.isFinite, padding >= 0 {
+        pipelineOptions.cropPadding = min(padding, 64)
+      }
+      let regions = (options?["regions"] as? [[String: Any]])?.compactMap(
+        NemuMangaOcrEngine.region(from:))
+      let configured = pipelineOptions
+      do {
+        let result = try await recognitionQueue.run(requestId: requestId) {
+          try await NemuMangaOcrEngine.recognizePage(
+            fileURL: url, providedRegions: regions, options: configured
+          ) { [weak self] block, total in
+            guard emitBlocks else { return }
+            self?.sendEvent(
+              "onOcrBlock",
+              ["requestId": requestId, "index": block.order, "total": total, "block": block.dictionary])
+          }
+        }
+        engineLog.debug(
+          "ocr-page \(requestId, privacy: .public) \(String(describing: result["elapsedMs"] ?? ""), privacy: .public)ms blocks=\((result["blocks"] as? [Any])?.count ?? 0, privacy: .public)"
         )
         return result
       } catch {

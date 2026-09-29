@@ -6,7 +6,8 @@ import { MOBILE_FOLD_MIN_GUTTER } from "@/lib/mobileWindowLayout";
  * source results, source home rows, browse source cards).
  *
  * HIG (iPhone Duo): derive the layout from the container, never the device;
- * prefer an even column count on regular widths; when partially folded keep
+ * prefer an even column count whenever a fold region is present, active or
+ * not (`mobileGridPrefersEvenColumns`); when partially folded keep
  * content out of the folding region — in a grid, the gutter between the two
  * middle columns lies on the fold so no card straddles it. Everything here is
  * container-local (points from the container's leading/top edge) so it can be

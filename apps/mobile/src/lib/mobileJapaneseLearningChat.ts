@@ -1,3 +1,4 @@
+import { truncateMobileJapaneseLearningChatOldestHalf } from "./mobileJapaneseLearningChatStream";
 import {
   getMobileJapaneseLearningQaScenario,
   runMobileJapaneseLearningQaChat,
@@ -96,6 +97,13 @@ export type MobileJapaneseLearningChatOptions = {
   mangaGenres?: string[];
   mangaTitle: string;
   messages?: MobileJapaneseLearningChatMessage[];
+  /**
+   * Web `sendChatMessage` / `sendChatGreeting` context-too-long recovery: the
+   * caller drops the oldest half of its visible thread (`truncateOldestHalf`)
+   * and returns the request messages to retry with. Without it, the request
+   * history itself is halved.
+   */
+  onContextTooLong?: () => MobileJapaneseLearningChatMessage[];
   pageCount: number;
   pageNumber: number;
   plugin?: MobileReaderPluginState | null;
@@ -327,20 +335,6 @@ export function getMobileJapaneseLearningExplainPrompt(
   return getExplainPrompt(appLanguage, responseMode, kind, text);
 }
 
-export function canRunMobileJapaneseLearningChatAction(
-  chatLoading: boolean,
-  ocrLoading: boolean,
-): boolean {
-  return !chatLoading && !ocrLoading;
-}
-
-export function canSendMobileJapaneseLearningChatInput(
-  input: string,
-  canRunChat: boolean,
-): boolean {
-  return canRunChat && input.trim().length > 0;
-}
-
 export function buildMobileJapaneseLearningHiddenContext(
   options: Pick<
     MobileJapaneseLearningChatOptions,
@@ -551,8 +545,11 @@ function applyMobileJapaneseLearningChatStreamEvent(
     return;
   }
   if (event.type === "speak") {
-    const content = event.content ?? "";
-    accumulator.text += content;
+    // Each speak event is its own chat bubble (web parity); keep them apart
+    // in the combined text too so history and TTS do not run lines together.
+    const content = (event.content ?? "").trim();
+    if (!content) return;
+    accumulator.text += accumulator.text.trim() ? `\n${content}` : content;
     assertMobileJapaneseLearningChatOutputLength(
       accumulator.text,
       "Nemu Chat text",
@@ -863,13 +860,6 @@ async function assertMobileJapaneseLearningChatResponseOk(
   throw new Error(`Nemu Chat failed: ${response.status} ${response.statusText}`);
 }
 
-function truncateMobileJapaneseLearningChatMessagesForRetry(
-  messages: MobileJapaneseLearningChatMessage[],
-): MobileJapaneseLearningChatMessage[] {
-  if (messages.length <= 2) return messages;
-  return messages.slice(Math.ceil(messages.length / 2));
-}
-
 export async function runMobileJapaneseLearningChat(
   options: MobileJapaneseLearningChatOptions,
 ): Promise<MobileJapaneseLearningChatResult> {
@@ -906,6 +896,13 @@ export async function runMobileJapaneseLearningChat(
     let lastSuggestions: string[] = [];
     let lastTtsText: string | undefined;
     let retriedContextTooLong = false;
+    const resetAttempt = () => {
+      textParts.length = 0;
+      textCharacters = 0;
+      lastKind = undefined;
+      lastSuggestions = [];
+      lastTtsText = undefined;
+    };
 
     options.callbacks?.onStreamStart?.();
 
@@ -947,16 +944,20 @@ export async function runMobileJapaneseLearningChat(
           abortScope.signal,
         );
       } catch (error) {
+        // Web retries exactly once, from the start of the turn (tool rounds
+        // included), with the oldest half of the thread dropped; a second
+        // context_too_long propagates.
         if (
           error instanceof MobileJapaneseLearningChatContextTooLongError &&
-          !retriedContextTooLong &&
-          requestMessages.length > 2
+          !retriedContextTooLong
         ) {
-          requestMessages = limitMobileJapaneseLearningChatHistory(
-            truncateMobileJapaneseLearningChatMessagesForRetry(requestMessages),
-          );
           retriedContextTooLong = true;
-          round -= 1;
+          requestMessages = limitMobileJapaneseLearningChatHistory(
+            options.onContextTooLong?.() ??
+              truncateMobileJapaneseLearningChatOldestHalf(messages),
+          );
+          resetAttempt();
+          round = -1;
           continue;
         }
         throw error;
@@ -1013,8 +1014,10 @@ export async function runMobileJapaneseLearningChat(
           parsed.contextSnapshots,
         ),
         {
+          // Web `streamChat` continues with `event.partialContent ?? ''`; the
+          // round's speak lines are separate thread messages, not this turn.
           role: "assistant",
-          content: parsed.partialContent || parsed.text,
+          content: parsed.partialContent,
           toolCalls: parsed.toolCalls,
         },
         {

@@ -14,7 +14,6 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   FlatList,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -26,11 +25,14 @@ import {
   type ListViewToken,
   type ViewInstance,
 } from "react-native";
-import Animated, { useSharedValue } from "react-native-reanimated";
+import Animated, { LayoutAnimationConfig, useSharedValue } from "react-native-reanimated";
 import { DuoBookSpineShade } from "@/components/duo/DuoBookSpineShade";
 import { mobileDuoSpreadPageRects } from "@/lib/mobileDuoSpine";
+import { READER_CAPSULE_COLORS } from "@/components/reader/ReaderCapsule";
+import { ReaderCapsuleButton } from "@/components/reader/ReaderCapsuleButton";
 import {
   armMobileReaderStageCrossFade,
+  mobileReaderPageFrameLayoutTransition,
   mobileReaderSlotLayoutTransition,
   mobileReaderStageCrossFadeEntering,
   mobileReaderStageCrossFadeExiting,
@@ -43,7 +45,6 @@ import {
 } from "@/lib/mobileReaderStageMotion";
 import {
   GlassSurface,
-  NemuButton,
   radius,
   nemuFontWeight,
   useNemuTheme,
@@ -182,6 +183,13 @@ type MobileReaderGalleryProps = {
   segmentedImageFrames?: ReadonlyArray<MobileReaderSegmentFrame>;
   sourcePageForDisplayIndex: (displayIndex: number) => number;
   spreads: number[][];
+  /**
+   * A pose change moved the pages inside an unchanged (or translating) stage:
+   * spread slots and page frames glide from their old boxes this commit.
+   */
+  pageGlide?: boolean;
+  /** The reader window's size (`WxH`): a remount after a resize never cross-fades. */
+  windowKey?: string;
   spreadSlots?: WindowLayoutRect[];
   /** Stage-local rectangles owned by reader chrome (the vertical rail): never page taps. */
   tapExclusions?: readonly WindowLayoutRect[];
@@ -201,7 +209,8 @@ type MobileReaderGalleryProps = {
   stateInsets?: { left: number; right: number } | null;
   stateTopPadding: number;
   strings: MobileStrings;
-  title: string;
+  /** Manga title; `null` while unknown (the card then shows only the chapter). */
+  title: string | null;
   windowHeight: number;
 };
 
@@ -284,6 +293,8 @@ export function MobileReaderGallery({
   sourcePageForDisplayIndex,
   spreads,
   spreadSlots,
+  pageGlide = false,
+  windowKey = "",
   tapExclusions,
   foldGap,
   geometryKey,
@@ -296,7 +307,7 @@ export function MobileReaderGallery({
   title,
   windowHeight,
 }: MobileReaderGalleryProps) {
-  const { tokens, reduceMotion } = useNemuTheme();
+  const { reduceMotion } = useNemuTheme();
   // A presentation remount of the same content (spread ⇄ single) cross-fades:
   // decided while rendering the new key so the UI-thread exiting/entering
   // animations of this very commit see it.
@@ -304,12 +315,14 @@ export function MobileReaderGallery({
   const [remountTrack, setRemountTrack] = useState(() => ({
     mountKey: scrollMountKey,
     contentKey: resolvedContentIdentityKey,
+    windowKey,
   }));
   if (
     remountTrack.mountKey !== scrollMountKey ||
-    remountTrack.contentKey !== resolvedContentIdentityKey
+    remountTrack.contentKey !== resolvedContentIdentityKey ||
+    remountTrack.windowKey !== windowKey
   ) {
-    const next = { mountKey: scrollMountKey, contentKey: resolvedContentIdentityKey };
+    const next = { mountKey: scrollMountKey, contentKey: resolvedContentIdentityKey, windowKey };
     const motion = mobileReaderGalleryRemountMotion({
       previous: remountTrack,
       next,
@@ -1203,12 +1216,16 @@ export function MobileReaderGallery({
                   <Animated.View
                     key={page.id}
                     // The halves slide apart into (or back from) the fold panes.
-                    layout={mobileReaderSlotLayoutTransition}
+                    layout={pageGlide ? mobileReaderSlotLayoutTransition : undefined}
                     style={[styles.spreadPageSlot, {
                     alignItems: mobileReaderSpreadPageAlignment(
                       slotIndex, item.spread.length, Boolean(spreadSlots),
                     ),
-                  }, spreadSlots ? {
+                  },
+                  // While a page glides from its old (larger) box the slot
+                  // must not clip it; the zoom clip returns once it settles.
+                  pageGlide ? styles.spreadPageSlotGliding : null,
+                  spreadSlots ? {
                     position: "absolute", flex: 0,
                     left: spreadSlots[item.spread.length === 1 && mode === "rtl" ? 1 : slotIndex]?.x,
                     top: spreadSlots[item.spread.length === 1 && mode === "rtl" ? 1 : slotIndex]?.y,
@@ -1216,7 +1233,9 @@ export function MobileReaderGallery({
                     height: spreadSlots[item.spread.length === 1 && mode === "rtl" ? 1 : slotIndex]?.height,
                   } : undefined]}>
                     {page.imageUri ? (
-                      renderImage(page)
+                      <Animated.View layout={pageGlide ? mobileReaderPageFrameLayoutTransition : undefined}>
+                        {renderImage(page)}
+                      </Animated.View>
                     ) : (
                       <TextPage
                         width={readerImageWidth}
@@ -1279,7 +1298,15 @@ export function MobileReaderGallery({
           ]}
         >
           {page.imageUri ? (
-            renderImage(page)
+            pagedMode ? (
+              // The fitted page box glides to its new size and place when the
+              // pose moves it (dock, rail, fold) at a constant window size.
+              <Animated.View layout={pageGlide ? mobileReaderPageFrameLayoutTransition : undefined}>
+                {renderImage(page)}
+              </Animated.View>
+            ) : (
+              renderImage(page)
+            )
           ) : (
             <TextPage
               text={page.text}
@@ -1293,6 +1320,7 @@ export function MobileReaderGallery({
     [
       displayedPages,
       spreadSlots,
+      pageGlide,
       foldGap,
       pageNaturalSize,
       pageZoomActive,
@@ -1351,7 +1379,14 @@ export function MobileReaderGallery({
     [bottomPadding, chromeTopPadding, pagedMode, segmentedMode],
   );
 
+  const galleryInitialScrollIndex =
+    pagedMode && !segmentedMode && galleryItemCount > 0 && readerPageWidth > 0
+      ? Math.max(0, Math.min(galleryItemCount - 1, Math.round(initialContentOffset.x / readerPageWidth)))
+      : undefined;
   const galleryList = (
+    // A key change inside keeps the old list drawn while it fades (exiting);
+    // leaving the reader skips it.
+    <LayoutAnimationConfig skipExiting>
     <Animated.View
       // One list per presentation; stage size changes never remount it.
       key={scrollMountKey}
@@ -1375,8 +1410,16 @@ export function MobileReaderGallery({
       maxToRenderPerBatch={segmentedMode ? 2 : 5}
       windowSize={segmentedMode ? 3 : 7}
       viewabilityConfig={READER_VIEWABILITY_CONFIG}
-      removeClippedSubviews={pagedMode && Platform.OS === "android"}
+      // Not on the paged list: Android's clipped-subview pass drops cells
+      // when a remounted list (spread ⇄ single after a fold) gets its offset
+      // before its first layout, and never restores them — a black reader
+      // that stays black while paging. `windowSize` already bounds the cells.
+      removeClippedSubviews={false}
       getItemLayout={galleryGetItemLayout}
+      // A remount (spread ⇄ single, rotation) renders its first window
+      // around the page being read, not around page 0: otherwise the new
+      // list shows empty black cells until the offset scroll lands.
+      initialScrollIndex={galleryInitialScrollIndex}
       onMomentumScrollEnd={handleGalleryMomentumScrollEnd}
       onContentSizeChange={handleGalleryContentSizeChange}
       onLayout={handleGalleryLayout}
@@ -1394,6 +1437,7 @@ export function MobileReaderGallery({
       style={styles.readerScroll}
     />
     </Animated.View>
+    </LayoutAnimationConfig>
   );
 
   return (
@@ -1530,62 +1574,60 @@ export function MobileReaderGallery({
           showsVerticalScrollIndicator={false}
           style={styles.readerStateScroll}
         >
-          <GlassSurface
-            style={styles.pageShell}
-            contentStyle={styles.pageContent}
-          >
-            {pagesState.locked ? (
-              <Ionicons
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-                name="lock-closed-outline"
-                size={28}
-                color={tokens.mutedForeground}
-              />
-            ) : null}
+          {/* The chrome's language over the black stage: a centred message
+              (no light card slab) and dark glass capsule actions. */}
+          <View style={styles.readerStateStack}>
+            <Ionicons
+              accessibilityElementsHidden
+              importantForAccessibility="no"
+              name={
+                pagesState.locked
+                  ? "lock-closed-outline"
+                  : pagesState.status === "blocked"
+                    ? "shield-outline"
+                    : pagesState.status === "error"
+                      ? "alert-circle-outline"
+                      : "document-outline"
+              }
+              size={30}
+              color={READER_CAPSULE_COLORS.secondaryText}
+            />
             <Text
               accessibilityRole="header"
               numberOfLines={2}
-              style={[styles.readerTitle, { color: tokens.foreground }]}
+              style={[styles.readerTitle, { color: READER_CAPSULE_COLORS.primaryText }]}
             >
               {pagesState.title ?? formatChapterTitle(chapter, strings)}
             </Text>
-            <Text
-              numberOfLines={2}
-              style={[styles.readerSubtitle, { color: tokens.mutedForeground }]}
-            >
-              {title}
-            </Text>
-            <View
-              style={[styles.readerDivider, { backgroundColor: tokens.border }]}
-            />
-            <Text
-              style={[styles.readerText, { color: tokens.mutedForeground }]}
-            >
+            {title ? (
+              <Text
+                numberOfLines={2}
+                style={[styles.readerSubtitle, { color: READER_CAPSULE_COLORS.secondaryText }]}
+              >
+                {title}
+              </Text>
+            ) : null}
+            <Text style={[styles.readerText, { color: READER_CAPSULE_COLORS.secondaryText }]}>
               {pagesState.detail}
             </Text>
             {pagesState.status === "blocked" ? (
-              <Text
-                style={[styles.readerText, { color: tokens.mutedForeground }]}
-              >
+              <Text style={[styles.readerText, { color: READER_CAPSULE_COLORS.secondaryText }]}>
                 {strings.reader.sourceBlockedHint}
               </Text>
             ) : null}
             <View style={styles.readerStateActions}>
               {pagesState.locked && onOpenNextChapter ? (
-                <NemuButton
-                  accessibilityLabel={strings.reader.nextChapter}
-                  containerStyle={styles.readerStateAction}
+                <ReaderCapsuleButton
+                  prominent
+                  icon="play-skip-forward"
                   label={strings.reader.nextChapter}
                   onPress={onOpenNextChapter}
                 />
               ) : null}
               {pagesState.locked && onOpenPreviousChapter ? (
-                <NemuButton
-                  accessibilityLabel={strings.reader.previousChapter}
-                  containerStyle={styles.readerStateAction}
+                <ReaderCapsuleButton
+                  icon="play-skip-back"
                   label={strings.reader.previousChapter}
-                  variant="outline"
                   onPress={onOpenPreviousChapter}
                 />
               ) : null}
@@ -1593,44 +1635,34 @@ export function MobileReaderGallery({
                   errored one, and a blocked source can recover once its
                   settings change — offer the retry in all three cases. */}
               {onRetry && pagesState.status !== "loading" ? (
-                <NemuButton
-                  accessibilityLabel={strings.common.retry}
-                  containerStyle={styles.readerStateAction}
+                <ReaderCapsuleButton
+                  prominent={!pagesState.locked}
+                  icon="refresh"
                   label={strings.common.retry}
-                  variant="outline"
                   onPress={onRetry}
                 />
               ) : null}
               {onOpenSourceSettings &&
               (pagesState.status === "blocked" ||
                 pagesState.status === "error") ? (
-                <NemuButton
-                  accessibilityLabel={strings.reader.openSourceSettings}
-                  containerStyle={styles.readerStateAction}
+                <ReaderCapsuleButton
+                  icon="settings-outline"
                   label={strings.reader.openSourceSettings}
-                  variant="secondary"
                   onPress={onOpenSourceSettings}
                 />
               ) : null}
             </View>
-            {!pagesState.locked ? <View
-              style={[styles.progressPill, { backgroundColor: tokens.muted }]}
-            >
-              <Text
-                style={[
-                  styles.progressPillText,
-                  { color: tokens.mutedForeground },
-                ]}
-              >
+            {!pagesState.locked ? (
+              <Text style={[styles.progressPillText, { color: READER_CAPSULE_COLORS.secondaryText }]}>
                 {pagesState.status === "blocked" ||
-                      pagesState.status === "error"
-                    ? strings.reader.pageLoadingUnavailable
+                pagesState.status === "error"
+                  ? strings.reader.pageLoadingUnavailable
                   : completed
                     ? strings.reader.markedComplete
                     : strings.reader.progressNotCompleted}
               </Text>
-            </View> : null}
-          </GlassSurface>
+            ) : null}
+          </View>
         </ScrollView>
       )}
     </View>
@@ -1733,6 +1765,9 @@ const styles = StyleSheet.create({
     gap: 0,
     paddingHorizontal: 0,
   },
+  spreadPageSlotGliding: {
+    overflow: "visible",
+  },
   spreadPageSlot: {
     flex: 1,
     alignItems: "center",
@@ -1750,17 +1785,13 @@ const styles = StyleSheet.create({
     // unclipped so a zoom can still use the dark stage margins.
     overflow: "hidden",
   },
-  pageShell: {
-    width: "88%",
-    maxWidth: 420,
-    minHeight: 440,
-    borderRadius: radius.xl,
-  },
-  pageContent: {
+  readerStateStack: {
+    width: "100%",
+    maxWidth: 380,
     alignItems: "center",
     justifyContent: "center",
-    gap: 12,
-    padding: 24,
+    gap: 10,
+    paddingVertical: 24,
   },
   textPageShell: {
     width: "100%",
@@ -1777,8 +1808,8 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   readerTitle: {
-    fontSize: 24,
-    lineHeight: 30,
+    fontSize: 20,
+    lineHeight: 26,
     fontWeight: nemuFontWeight.semibold,
     textAlign: "center",
   },
@@ -1787,11 +1818,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     textAlign: "center",
   },
-  readerDivider: {
-    width: 54,
-    height: StyleSheet.hairlineWidth,
-    marginVertical: 6,
-  },
   readerText: {
     maxWidth: 290,
     fontSize: 13,
@@ -1799,18 +1825,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   readerStateActions: {
-    alignSelf: "stretch",
-    gap: 8,
-  },
-  readerStateAction: {
-    alignSelf: "stretch",
-  },
-  progressPill: {
-    minHeight: 30,
-    justifyContent: "center",
-    borderRadius: radius.md,
-    marginTop: 4,
-    paddingHorizontal: 10,
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
   },
   progressPillText: {
     fontSize: 11,

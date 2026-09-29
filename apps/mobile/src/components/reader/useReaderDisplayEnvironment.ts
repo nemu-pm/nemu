@@ -49,6 +49,12 @@ export function useReaderDisplayEnvironment({
     };
   }, [keepAwakeEnabled, keepAwakeReady]);
 
+  // Only a request: on iOS 27 resizable windows (iPhone Duo inner display,
+  // Split View, iPhone Mirroring) the system may refuse or ignore the lock
+  // (expo-screen-orientation v58; "The inner display doesn't honor your
+  // supported interface orientations"). No layout may depend on it — the
+  // reader lays out from its window geometry — so a refused lock only means
+  // the reader keeps rotating like the rest of the system.
   useEffect(() => {
     if (lockPortraitEnabled) {
       void ScreenOrientation.lockAsync(

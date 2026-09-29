@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
   MOBILE_READER_CHROME_ARRANGEMENT_SLIDE,
-  MOBILE_READER_DOCK_SLIDE,
   mobileReaderApplyFlip,
+  mobileReaderChromeArrangementKey,
   mobileReaderChromeArrangementMotion,
+  mobileReaderChromeGeometryKey,
+  mobileReaderChromeGlide,
   mobileReaderContainBox,
-  mobileReaderDockMotion,
   mobileReaderGalleryRelayout,
   mobileReaderGalleryRemountMotion,
+  mobileReaderPageFrameFlip,
+  mobileReaderPoseVeilCaps,
+  mobilePoseVeilPlanWithCaps,
   mobileReaderStageFlipTransform,
   mobileReaderStageHorizontalInsets,
   mobileReaderStageMotion,
@@ -147,30 +151,18 @@ describe("gallery continuity", () => {
 
 describe("chrome arrangement motion", () => {
   const capsules = { kind: "capsules" as const };
-  const horizontal = { kind: "horizontal" as const };
-  test("capsules settle the last 8pt down onto their row; bars fade in place", () => {
-    expect(mobileReaderChromeArrangementMotion({ from: horizontal, to: capsules, reduceMotion: false }))
+  test("capsules settle the last 8pt down onto their row when they replace the console", () => {
+    expect(mobileReaderChromeArrangementMotion({ from: { kind: "console" }, to: capsules, reduceMotion: false }))
       .toEqual({ dx: 0, dy: -MOBILE_READER_CHROME_ARRANGEMENT_SLIDE, unfold: false, durationMs: 220 });
-    expect(mobileReaderChromeArrangementMotion({ from: capsules, to: horizontal, reduceMotion: false })?.dy).toBe(0);
   });
   test("the console unfolds", () => {
     expect(mobileReaderChromeArrangementMotion({ from: capsules, to: { kind: "console" }, reduceMotion: false })?.unfold).toBe(true);
   });
   test("no motion for the first show or an unchanged arrangement; Reduce Motion fades only", () => {
-    expect(mobileReaderChromeArrangementMotion({ from: null, to: horizontal, reduceMotion: false })).toBeNull();
+    expect(mobileReaderChromeArrangementMotion({ from: null, to: capsules, reduceMotion: false })).toBeNull();
     expect(mobileReaderChromeArrangementMotion({ from: capsules, to: capsules, reduceMotion: false })).toBeNull();
-    expect(mobileReaderChromeArrangementMotion({ from: horizontal, to: { kind: "console" }, reduceMotion: true }))
+    expect(mobileReaderChromeArrangementMotion({ from: capsules, to: { kind: "console" }, reduceMotion: true }))
       .toEqual({ dx: 0, dy: 0, unfold: false, durationMs: 150 });
-  });
-});
-
-describe("dock motion", () => {
-  const bounds = { x: 0, y: 0, width: 951, height: 669 };
-  test("side / pane docks slide in from their window edge, the console dock rises", () => {
-    expect(mobileReaderDockMotion({ region: "side", frame: { x: 500, y: 0, width: 360, height: 600 }, bounds, reduceMotion: false }).dx).toBe(MOBILE_READER_DOCK_SLIDE);
-    expect(mobileReaderDockMotion({ region: "pane", frame: { x: 8, y: 8, width: 440, height: 600 }, bounds, reduceMotion: false }).dx).toBe(-MOBILE_READER_DOCK_SLIDE);
-    expect(mobileReaderDockMotion({ region: "console", frame: { x: 8, y: 560, width: 650, height: 300 }, bounds, reduceMotion: false })).toEqual({ dx: 0, dy: 24 });
-    expect(mobileReaderDockMotion({ region: "side", frame: { x: 500, y: 0, width: 360, height: 600 }, bounds, reduceMotion: true })).toEqual({ dx: 0, dy: 0 });
   });
 });
 
@@ -186,7 +178,7 @@ describe("reader cards on the measured Duo book pose", () => {
     layoutDirection: "ltr",
     safeAreaInsets: book.insets,
   };
-  const pose = mobileReaderPoseLayout({ layout, fallbackInsets: book.insets, paged: true, pageCount: 20, twoPage: true, rtl: false, learningOpen: false });
+  const pose = mobileReaderPoseLayout({ layout, fallbackInsets: book.insets, paged: true, pageCount: 20, twoPage: true, rtl: false });
 
   test("the locked / error card centres in the reading-start pane, not across the fold", () => {
     const insets = mobileReaderStageHorizontalInsets(pose.modalFrame, pose.stage);
@@ -199,5 +191,82 @@ describe("reader cards on the measured Duo book pose", () => {
     const stage = { x: 0, y: 0, width: 402, height: 874 };
     expect(mobileReaderStageHorizontalInsets(stage, stage)).toBeNull();
     expect(mobileReaderStageHorizontalInsets({ x: 0, y: 500, width: 669, height: 400 }, { x: 0, y: 82, width: 669, height: 373 })).toBeNull();
+  });
+});
+
+describe("pose-change continuity (flat ⇄ book spreads, chrome, rotation)", () => {
+  const spread = (pages: string) => snapshot({
+    stage: { x: 0, y: 0, width: 951, height: 669 },
+    presentation: "spread:manga",
+    spread: true,
+    pages,
+  });
+
+  test("flat ⇄ book with a spread keeps the stage (the window) but moves the halves: slots and page frames glide", () => {
+    const flat = spread(JSON.stringify([null, 475.5, 669]));
+    const book = spread(JSON.stringify([[{ x: 0, y: 0, width: 455.5, height: 669 }, { x: 495.5, y: 0, width: 455.5, height: 669 }], 455.5, 669]));
+    expect(mobileReaderStageMotion(flat, book, { reduceMotion: false })).toEqual({ kind: "glide", flip: "translate" });
+    expect(mobileReaderStageMotion(book, flat, { reduceMotion: false })).toEqual({ kind: "glide", flip: "translate" });
+    // Reduce Motion: no movement.
+    expect(mobileReaderStageMotion(flat, book, { reduceMotion: true }).kind).toBe("fade");
+  });
+
+  test("the same page geometry at the same stage does nothing (chrome toggles never move the page)", () => {
+    const flat = spread(JSON.stringify([null, 475.5, 669]));
+    expect(mobileReaderStageMotion(flat, spread(JSON.stringify([null, 475.5, 669])), { reduceMotion: false }).kind).toBe("none");
+  });
+
+  test("page frame FLIP draws the new box where the old one was, centre on centre", () => {
+    const from = { x: 20, y: 0, width: 471, height: 669 };
+    const to = { x: 0, y: 11, width: 455.5, height: 647 };
+    const flip = mobileReaderPageFrameFlip(from, to);
+    expect(flip.scale).toBeCloseTo(471 / 455.5, 5);
+    const centre = mobileReaderApplyFlip({ x: to.x + to.width / 2, y: to.y + to.height / 2 }, to, flip);
+    expect(centre.x).toBeCloseTo(from.x + from.width / 2, 5);
+    expect(centre.y).toBeCloseTo(from.y + from.height / 2, 5);
+    const corner = mobileReaderApplyFlip({ x: to.x, y: to.y }, to, flip);
+    expect(corner.x).toBeCloseTo(from.x, 3);
+    expect(mobileReaderPageFrameFlip(to, to)).toEqual({ translateX: 0, translateY: 0, scale: 1 });
+    expect(mobileReaderPageFrameFlip({ x: 0, y: 0, width: 0, height: 0 }, to)).toEqual({ translateX: 0, translateY: 0, scale: 1 });
+  });
+
+  test("a remount after a window resize never cross-fades (the old list is laid out for the old window)", () => {
+    const base = { mountKey: "ch:spread", contentKey: "ch", windowKey: "951x669" };
+    expect(mobileReaderGalleryRemountMotion({ previous: base, next: { ...base, mountKey: "ch:single" }, reduceMotion: false }).crossfade).toBe(true);
+    expect(mobileReaderGalleryRemountMotion({
+      previous: base,
+      next: { mountKey: "ch:single", contentKey: "ch", windowKey: "669x951" },
+      reduceMotion: false,
+    })).toEqual({ crossfade: false, durationMs: 0 });
+  });
+
+  test("capsules that move per pane glide as the same elements: no remount, no fade", () => {
+    const flatRow = { kind: "capsules" as const, geometry: mobileReaderChromeGeometryKey([{ x: 16, y: 26, width: 44, height: 44 }, null]) };
+    const bookRow = { kind: "capsules" as const, geometry: mobileReaderChromeGeometryKey([{ x: 16, y: 26, width: 44, height: 44 }, { x: 70, y: 26, width: 300, height: 44 }]) };
+    expect(mobileReaderChromeGlide({ from: flatRow, to: bookRow, reduceMotion: false })).toBe(true);
+    expect(mobileReaderChromeGlide({ from: bookRow, to: flatRow, reduceMotion: false })).toBe(true);
+    // The layer keeps its identity (no fade out in one pane and in at the other).
+    expect(mobileReaderChromeArrangementKey(flatRow)).toBe(mobileReaderChromeArrangementKey(bookRow));
+    expect(mobileReaderChromeArrangementMotion({ from: flatRow, to: bookRow, reduceMotion: false })).toBeNull();
+    // Unchanged, first show, another arrangement kind, or Reduce Motion: no glide.
+    expect(mobileReaderChromeGlide({ from: flatRow, to: flatRow, reduceMotion: false })).toBe(false);
+    expect(mobileReaderChromeGlide({ from: null, to: bookRow, reduceMotion: false })).toBe(false);
+    expect(mobileReaderChromeGlide({ from: { kind: "console" }, to: bookRow, reduceMotion: false })).toBe(false);
+    expect(mobileReaderChromeGlide({ from: flatRow, to: bookRow, reduceMotion: true })).toBe(false);
+    expect(mobileReaderChromeGeometryKey([{ x: 16.2, y: 25.8, width: 44, height: 44 }])).toBe("16,26,44,44");
+  });
+
+  test("the reader's pose veil is a light frost on iOS and nothing on Android (never a near-opaque black wash)", () => {
+    const plan = { blurIntensity: 36, tintOpacity: 0.86, fadeInMs: 0, holdMs: 120, fadeOutMs: 260 };
+    const ios = mobilePoseVeilPlanWithCaps(plan, mobileReaderPoseVeilCaps("ios"));
+    expect(ios.tintOpacity).toBeLessThanOrEqual(0.3);
+    expect(ios.blurIntensity).toBeLessThanOrEqual(24);
+    expect(ios.fadeOutMs).toBe(260);
+    const android = mobilePoseVeilPlanWithCaps(plan, mobileReaderPoseVeilCaps("android"));
+    expect(android.tintOpacity).toBe(0);
+    expect(android.blurIntensity).toBe(0);
+    // Other surfaces keep the app-wide plan.
+    expect(mobilePoseVeilPlanWithCaps(plan, null)).toBe(plan);
+    expect(mobilePoseVeilPlanWithCaps(plan, { maxTintOpacity: 0.9 }).tintOpacity).toBe(0.86);
   });
 });

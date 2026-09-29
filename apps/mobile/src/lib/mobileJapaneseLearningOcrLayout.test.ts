@@ -5,6 +5,7 @@ import {
   layoutMobileOnDeviceOcrPage,
   mobileOcrLineOrientation,
   orderMobileOcrBlocksForManga,
+  refineMobileOcrDetectionText,
   type MobileOnDeviceOcrLine,
 } from "./mobileJapaneseLearningOcrLayout";
 
@@ -142,6 +143,18 @@ describe("on-device OCR layout", () => {
     expect(blocks.map((block) => block.text)).toEqual(["先生が来た"]);
   });
 
+  test("drops half-size ruby that runs two-thirds of its base column", () => {
+    // Vision on a Hanako-kun crop: 「だいじょうぶ」 over 「大丈夫？」.
+    const blocks = groupMobileOcrLinesIntoBlocks({
+      ...PAGE,
+      lines: [
+        { text: "大丈夫？", confidence: 1, box: { x1: 111, y1: 1016.5, x2: 131.5, y2: 1102 }, direction: null },
+        { text: "だいじょうぶ", confidence: 0.5, box: { x1: 131.5, y1: 1016, x2: 141.5, y2: 1072 }, direction: null },
+      ],
+    });
+    expect(blocks.map((block) => block.text)).toEqual(["大丈夫？"]);
+  });
+
   test("keeps a full-length small kana column that is dialogue, not ruby", () => {
     const blocks = groupMobileOcrLinesIntoBlocks({
       ...PAGE,
@@ -234,5 +247,61 @@ describe("on-device OCR layout — misread ruby", () => {
       lines: [column("俺の大谷投法", 363, 1030, 30), column("乾", 391, 1030, 16)],
     });
     expect(blocks.map((block) => block.text)).toEqual(["俺の大谷投法"]);
+  });
+});
+
+describe("on-device OCR — watermarks", () => {
+  test("drops scan-site domain watermarks but keeps English dialogue", () => {
+    const detections = layoutMobileOnDeviceOcrPage({
+      ...PAGE,
+      lines: [
+        row("Gomuraw.com", 700, 60),
+        row("aW.com", 178, 461),
+        row("W.COm）", 178, 900),
+        row("READ ONLY ON MANGADEX", 100, 1200),
+        column("花子さん", 500, 300),
+      ],
+    });
+    expect(detections.map((detection) => detection.text)).toEqual([
+      "花子さん",
+      "READ ONLY ON MANGADEX",
+    ]);
+    expect(detections.map((detection) => detection.order)).toEqual([0, 1]);
+  });
+});
+
+describe("on-device OCR — region second pass", () => {
+  const first = {
+    x1: 90, y1: 380, x2: 800, y2: 520, conf: 0.42, cls: 1, label: "ja" as const, order: 3,
+    text: "雄かに俺は男だよ",
+  };
+
+  test("replaces the text with the crop's reading, ruby dropped, box and order kept", () => {
+    const refined = refineMobileOcrDetectionText(first, PAGE, [
+      column("確かに俺は男だよ", 750, 392, 40, 0.69),
+      column("たし", 791, 392, 18, 0.3),
+    ]);
+    expect(refined).toMatchObject({
+      text: "確かに俺は男だよ",
+      conf: 0.69,
+      order: 3,
+      x1: 90,
+      y2: 520,
+    });
+  });
+
+  test("reads multi-column crops right to left", () => {
+    const refined = refineMobileOcrDetectionText(first, PAGE, [
+      column("男の子だし", 500, 100, 30),
+      column("赤いスカートは？", 540, 100, 30),
+    ]);
+    expect(refined.text).toBe("赤いスカートは？男の子だし");
+  });
+
+  test("keeps the first pass when the crop reads nothing Japanese", () => {
+    expect(refineMobileOcrDetectionText(first, PAGE, [])).toBe(first);
+    expect(refineMobileOcrDetectionText(first, PAGE, [row("Gomuraw.com", 0, 0)])).toBe(first);
+    const english = { ...first, label: "eng" as const, text: "HELLO" };
+    expect(refineMobileOcrDetectionText(english, PAGE, [column("花子", 0, 0)])).toBe(english);
   });
 });

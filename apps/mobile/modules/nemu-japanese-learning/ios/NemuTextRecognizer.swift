@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreImage
 import Foundation
 import ImageIO
 import Vision
@@ -87,16 +88,11 @@ enum NemuTextRecognizer {
     }
   }
 
+  /// The accurate Japanese request every pass shares.
   @available(iOS 18.0, *)
-  static func recognize(fileURL: URL, options: Options) async throws -> [String: Any] {
-    let started = DispatchTime.now()
-    let (image, orientation) = try loadImage(at: fileURL)
-    try Task.checkCancellation()
-    let size = orientedSize(image, orientation)
-    guard size.width > 0, size.height > 0 else {
-      throw Failure(code: "E_OCR_IMAGE", message: "The page image is empty.")
-    }
-
+  private static func makeRequest(_ options: Options) throws -> (
+    RecognizeTextRequest, [Locale.Language]
+  ) {
     var request = RecognizeTextRequest()
     request.recognitionLevel = .accurate
     request.usesLanguageCorrection = options.usesLanguageCorrection
@@ -115,12 +111,17 @@ enum NemuTextRecognizer {
     if let fraction = options.minimumTextHeightFraction, fraction > 0, fraction < 1 {
       request.minimumTextHeightFraction = fraction
     }
+    return (request, languages)
+  }
 
-    let recognizeStarted = DispatchTime.now()
-    let observations = try await request.perform(on: image, orientation: orientation)
-    try Task.checkCancellation()
-    let recognizeMs = milliseconds(since: recognizeStarted)
-
+  /// Bridge dictionaries for Vision observations; `map` takes a normalized
+  /// Vision point to top-left page pixels.
+  @available(iOS 18.0, *)
+  private static func lineDictionaries(
+    _ observations: [RecognizedTextObservation],
+    options: Options,
+    map: (NormalizedPoint) -> CGPoint
+  ) -> [[String: Any]] {
     var lines: [[String: Any]] = []
     lines.reserveCapacity(min(observations.count, options.maxLines))
     for observation in observations.prefix(options.maxLines) {
@@ -129,7 +130,7 @@ enum NemuTextRecognizer {
       if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
       let corners = [
         observation.topLeft, observation.topRight, observation.bottomRight, observation.bottomLeft,
-      ].map { pixelPoint($0, size) }
+      ].map(map)
       var line: [String: Any] = [
         "text": text,
         "confidence": Double(candidate.confidence),
@@ -146,8 +147,7 @@ enum NemuTextRecognizer {
         while index < text.endIndex, count < options.maxCharacterBoxesPerLine {
           let next = text.index(after: index)
           if let rect = candidate.boundingBox(for: index..<next) {
-            let points = [rect.topLeft, rect.topRight, rect.bottomRight, rect.bottomLeft]
-              .map { pixelPoint($0, size) }
+            let points = [rect.topLeft, rect.topRight, rect.bottomRight, rect.bottomLeft].map(map)
             let value = box(of: points)
             boxes.append([value["x1"]!, value["y1"]!, value["x2"]!, value["y2"]!])
           } else {
@@ -160,6 +160,25 @@ enum NemuTextRecognizer {
       }
       lines.append(line)
     }
+    return lines
+  }
+
+  @available(iOS 18.0, *)
+  static func recognize(fileURL: URL, options: Options) async throws -> [String: Any] {
+    let started = DispatchTime.now()
+    let (image, orientation) = try loadImage(at: fileURL)
+    try Task.checkCancellation()
+    let size = orientedSize(image, orientation)
+    guard size.width > 0, size.height > 0 else {
+      throw Failure(code: "E_OCR_IMAGE", message: "The page image is empty.")
+    }
+    let (request, languages) = try makeRequest(options)
+
+    let recognizeStarted = DispatchTime.now()
+    let observations = try await request.perform(on: image, orientation: orientation)
+    try Task.checkCancellation()
+    let recognizeMs = milliseconds(since: recognizeStarted)
+    let lines = lineDictionaries(observations, options: options) { pixelPoint($0, size) }
 
     return [
       "engine": engine,
@@ -174,6 +193,133 @@ enum NemuTextRecognizer {
       "elapsedMs": milliseconds(since: started),
       "lines": lines,
     ]
+  }
+
+  /// Longest side a region crop is scaled up to before recognition. Manga
+  /// dialogue on a ~900 px scan is ~20 px per glyph, below what the accurate
+  /// model reads reliably; a crop scaled 2–4× reads it far better.
+  static let regionTargetLongSide: CGFloat = 1_024
+  static let regionMaxScale: CGFloat = 4
+  static let maxRegions = 64
+  static let regionConcurrency = 3
+
+  /// Second pass: re-recognizes each text region (top-left page pixels) on
+  /// its own padded crop, scaled up, with a white surround. Lines come back
+  /// in page pixels, one list per region, in the order given.
+  @available(iOS 18.0, *)
+  static func recognizeRegions(
+    fileURL: URL, regions: [CGRect], options: Options
+  ) async throws -> [String: Any] {
+    let started = DispatchTime.now()
+    let (source, orientation) = try loadImage(at: fileURL)
+    try Task.checkCancellation()
+    let image = try upright(source, orientation)
+    let size = CGSize(width: image.width, height: image.height)
+    guard size.width > 0, size.height > 0 else {
+      throw Failure(code: "E_OCR_IMAGE", message: "The page image is empty.")
+    }
+    let (request, _) = try makeRequest(options)
+    // Crops are independent: read a few at once (Vision's accurate model is
+    // heavy, so the fan-out stays small).
+    let crops = regions.prefix(maxRegions).map { regionCrop(image, region: $0) }
+    var slots = [[RecognizedTextObservation]](repeating: [], count: crops.count)
+    var recognizeMs = 0.0
+    try await withThrowingTaskGroup(of: (Int, [RecognizedTextObservation], Double).self) {
+      group in
+      var next = 0
+      func enqueue() {
+        while next < crops.count {
+          let index = next
+          next += 1
+          guard let crop = crops[index] else { continue }
+          group.addTask {
+            try Task.checkCancellation()
+            let started = DispatchTime.now()
+            let observations = try await request.perform(on: crop.image)
+            return (index, observations, milliseconds(since: started))
+          }
+          return
+        }
+      }
+      for _ in 0..<min(regionConcurrency, crops.count) { enqueue() }
+      while let (index, observations, elapsed) = try await group.next() {
+        slots[index] = observations
+        recognizeMs += elapsed
+        enqueue()
+      }
+    }
+    let results: [[String: Any]] = zip(crops, slots).map { crop, observations in
+      guard let crop else { return ["lines": [[String: Any]](), "scale": 1.0] }
+      let cropSize = CGSize(width: crop.image.width, height: crop.image.height)
+      let lines = lineDictionaries(observations, options: options) { point in
+        let local = pixelPoint(point, cropSize)
+        return CGPoint(
+          x: crop.origin.x + local.x / crop.scale, y: crop.origin.y + local.y / crop.scale)
+      }
+      return ["lines": lines, "scale": Double(crop.scale)]
+    }
+    return [
+      "engine": engine,
+      "engineRevision": engineRevision,
+      "osVersion": osVersion,
+      "width": Double(size.width),
+      "height": Double(size.height),
+      "recognizeMs": (recognizeMs * 10).rounded() / 10,
+      "elapsedMs": milliseconds(since: started),
+      "regions": results,
+    ]
+  }
+
+  /// The image with its EXIF orientation applied, so region pixels match
+  /// the oriented page space every box uses.
+  static func upright(_ image: CGImage, _ orientation: CGImagePropertyOrientation) throws -> CGImage {
+    if orientation == .up { return image }
+    let oriented = CIImage(cgImage: image).oriented(orientation)
+    guard let result = CIContext().createCGImage(oriented, from: oriented.extent) else {
+      throw Failure(code: "E_OCR_IMAGE", message: "The page image could not be oriented.")
+    }
+    return result
+  }
+
+  struct RegionCrop: @unchecked Sendable {
+    let image: CGImage
+    /// Top-left page pixel of the crop.
+    let origin: CGPoint
+    let scale: CGFloat
+  }
+
+  /// Pads the region (bubble text sits close to its outline), clamps it to
+  /// the page, and scales it up on a white canvas with a margin so glyphs
+  /// never touch the edge.
+  static func regionCrop(_ image: CGImage, region: CGRect) -> RegionCrop? {
+    let page = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+    let pad = max(6, 0.12 * min(region.width, region.height))
+    let padded = region.insetBy(dx: -pad, dy: -pad).intersection(page).integral
+    guard padded.width >= 4, padded.height >= 4, let cropped = image.cropping(to: padded) else {
+      return nil
+    }
+    let scale = min(
+      regionMaxScale, max(1, regionTargetLongSide / max(padded.width, padded.height)))
+    let margin: CGFloat = 16
+    let width = Int((padded.width * scale + 2 * margin).rounded())
+    let height = Int((padded.height * scale + 2 * margin).rounded())
+    guard
+      let context = CGContext(
+        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+    else { return nil }
+    context.setFillColor(gray: 1, alpha: 1)
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    context.interpolationQuality = .high
+    context.draw(
+      cropped,
+      in: CGRect(x: margin, y: margin, width: padded.width * scale, height: padded.height * scale))
+    guard let scaled = context.makeImage() else { return nil }
+    // Page point = origin + canvas point / scale; fold the margin into origin.
+    return RegionCrop(
+      image: scaled,
+      origin: CGPoint(x: padded.minX - margin / scale, y: padded.minY - margin / scale),
+      scale: scale)
   }
 
   @available(iOS 18.0, *)

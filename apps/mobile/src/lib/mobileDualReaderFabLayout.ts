@@ -9,7 +9,7 @@ import type { WindowLayoutEdgeInsets, WindowLayoutRect } from "@/lib/mobileWindo
  *   capsule row and the scrubber capsule;
  * - notebook: the page (top) pane;
  * - otherwise the reader-card frame (the chrome pane in book posture, the
- *   stage beside a docked panel, the window elsewhere), inside the safe area.
+ *   window elsewhere), inside the safe area.
  */
 export function mobileDualReaderFabArea(input: {
   chrome: { kind: "horizontal" | "capsules" | "console"; content?: WindowLayoutRect };

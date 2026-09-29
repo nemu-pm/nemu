@@ -1,6 +1,38 @@
-import type { ReactNode } from "react";
-import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import { GlassView, glassViewAvailable } from "../../../modules/nemu-window-layout";
+import { useEffect, type ComponentType, type ReactNode } from "react";
+import { StyleSheet, type StyleProp, type ViewStyle } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type LayoutAnimationFunction,
+} from "react-native-reanimated";
+import { GlassView, glassViewAvailable, NativeGlassViewHost } from "../../../modules/nemu-window-layout";
+
+type NativeGlassHostProps = {
+  children?: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  pointerEvents?: "box-none" | "auto";
+  tintColor?: string;
+  cornerRadius: number;
+  clear: boolean;
+  concentricMinimum: number;
+  interactive: boolean;
+  colorScheme?: "light" | "dark";
+  materialized: boolean;
+  animateAppearance: boolean;
+  materializeDurationMs: number;
+  layout?: LayoutAnimationFunction;
+};
+
+/**
+ * The glass piece itself as a Reanimated component: a layout transition must
+ * run on the glass view (not a wrapper) so the material resizes with it.
+ */
+const AnimatedNativeGlass = NativeGlassViewHost
+  ? (Animated.createAnimatedComponent(
+      NativeGlassViewHost as unknown as ComponentType<Omit<NativeGlassHostProps, "layout">>,
+    ) as unknown as ComponentType<NativeGlassHostProps>)
+  : null;
 
 /**
  * Reader capsule chrome palette. The reader is an immersive black surface, so
@@ -24,19 +56,6 @@ export const READER_CAPSULE_COLORS = {
   disabled: "rgba(235,235,245,0.3)",
 } as const;
 
-/**
- * Docked learning panels over the black reader: a lighter tint so the glass
- * reads as a surface over the empty pane, and translucent content tokens so
- * the panel's own cards and footer never paint opaque slabs inside the glass.
- */
-export const READER_PANEL_GLASS_TINT = "rgba(46,46,50,0.55)";
-export const READER_PANEL_TOKEN_OVERRIDES = {
-  background: "rgba(255,255,255,0)",
-  card: "rgba(255,255,255,0.07)",
-  secondary: "rgba(255,255,255,0.09)",
-  muted: "rgba(255,255,255,0.12)",
-} as const;
-
 /** Dark-token tweaks inside the capsule chrome: a translucent slider track on glass. */
 export const READER_CAPSULE_TOKEN_OVERRIDES = {
   muted: "rgba(255,255,255,0.24)",
@@ -46,7 +65,7 @@ export type ReaderCapsuleProps = {
   children?: ReactNode;
   /** Capsule (radius = height / 2) or a fixed radius. */
   cornerRadius?: number;
-  /** Corners concentric with the display where the piece meets it, never below this radius (docked panels). */
+  /** Corners concentric with the display where the piece meets it, never below this radius. */
   concentricMinimum?: number;
   /** Interactive glass press response (buttons). Panels pass false. */
   interactive?: boolean;
@@ -54,6 +73,21 @@ export type ReaderCapsuleProps = {
   tintColor?: string;
   style?: StyleProp<ViewStyle>;
   pointerEvents?: "box-none" | "auto";
+  /**
+   * Reanimated layout transition for this piece (a capsule gliding to its new
+   * frame on a pose change). Omitted: frames change at once.
+   */
+  layout?: LayoutAnimationFunction;
+  /**
+   * Shown (default) or dismissed. The glass materializes / dematerializes
+   * with its content in one animation (the effect itself animates; the glass
+   * view is never alpha-faded, which UIKit renders as content without glass).
+   */
+  materialized?: boolean;
+  /** Materialize from nothing when the piece first appears. */
+  animateAppearance?: boolean;
+  /** (De)materialize duration in ms; 0 = instant. */
+  materializeDurationMs?: number;
 };
 
 /**
@@ -72,22 +106,57 @@ export function ReaderCapsule({
   tintColor = READER_CAPSULE_COLORS.glassTint,
   style,
   pointerEvents = "box-none",
+  layout,
+  materialized = true,
+  animateAppearance = false,
+  materializeDurationMs = 0,
 }: ReaderCapsuleProps) {
+  // Painted fallback (Android, older iOS): no glass to drop, so the piece
+  // simply fades with the same timing.
+  const paintedOpacity = useSharedValue(animateAppearance && materializeDurationMs > 0 ? 0 : materialized ? 1 : 0);
+  useEffect(() => {
+    paintedOpacity.value = withTiming(materialized ? 1 : 0, { duration: materializeDurationMs });
+  }, [materialized, materializeDurationMs, paintedOpacity]);
+  const paintedStyle = useAnimatedStyle(() => ({ opacity: paintedOpacity.value }));
   const flat = StyleSheet.flatten(style) ?? {};
   const height = typeof flat.height === "number" ? flat.height : null;
   const radius = concentricMinimum ?? cornerRadius ?? (height != null ? height / 2 : 22);
   if (!glassViewAvailable) {
     return (
-      <View
+      <Animated.View
+        layout={layout}
         pointerEvents={pointerEvents}
         style={[
           styles.painted,
           { borderRadius: radius, backgroundColor: READER_CAPSULE_COLORS.panel, borderColor: READER_CAPSULE_COLORS.border },
           style,
+          paintedStyle,
         ]}
       >
         {children}
-      </View>
+      </Animated.View>
+    );
+  }
+  // Always the animated host when it exists: switching component types when a
+  // glide arms would remount the glass (a flash).
+  if (AnimatedNativeGlass) {
+    return (
+      <AnimatedNativeGlass
+        layout={layout}
+        colorScheme="dark"
+        tintColor={tintColor}
+        interactive={interactive}
+        cornerRadius={cornerRadius ?? 0}
+        concentricMinimum={concentricMinimum ?? 0}
+        clear={false}
+        materialized={materialized}
+        animateAppearance={animateAppearance}
+        materializeDurationMs={materializeDurationMs}
+        pointerEvents={pointerEvents}
+        style={style}
+      >
+        {children}
+      </AnimatedNativeGlass>
     );
   }
   return (
@@ -97,6 +166,9 @@ export function ReaderCapsule({
       interactive={interactive}
       cornerRadius={cornerRadius ?? 0}
       concentricMinimum={concentricMinimum ?? 0}
+      materialized={materialized}
+      animateAppearance={animateAppearance}
+      materializeDurationMs={materializeDurationMs}
       pointerEvents={pointerEvents}
       style={style}
     >

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import type { ComponentProps } from "react";
 import {
   type LayoutChangeEvent,
@@ -28,8 +28,6 @@ import {
   NEMU_WEB_EMPTY_LIBRARY_VISUAL,
 } from "@/lib/mobileEmptyLibraryLayout";
 import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
-import { useMobileWindowLayout } from "@/lib/MobileWindowLayoutContext";
-import { mobileRestingFoldSplitForContainer } from "@/lib/mobileRestingFold";
 import { useMobilePoseTransition } from "@/lib/MobilePoseTransitionContext";
 import { useMobilePoseSizeSpring } from "@/lib/useMobilePoseSizeSpring";
 import { MobilePoseLayoutView } from "./MobilePoseLayoutView";
@@ -78,20 +76,9 @@ export function EmptyLibrary({
     ref: containerRef,
     onLayout: onContainerLayout,
     width: containerWidth,
-    rect: containerRect,
     split: containerSplit,
     adaptive,
   } = useMobileContainerFold<ViewInstance>();
-  const windowLayout = useMobileWindowLayout();
-  // Fully open, the fold is still reported (inactive): the flat row splits on
-  // it too, so folding into book pose and back moves nothing.
-  const restingSplit = useMemo(
-    () =>
-      containerRect && !containerSplit
-        ? mobileRestingFoldSplitForContainer(windowLayout, containerRect)
-        : null,
-    [containerRect, containerSplit, windowLayout],
-  );
   const barsOnSide = adaptive.verticalBarEdge !== null;
   // The box the hero really gets: header and bottom tab bar only when the
   // system draws them horizontally (Duo's outer display and inner landscape
@@ -106,7 +93,6 @@ export function EmptyLibrary({
     bleedWidth,
     height: boxHeight,
     fold: containerSplit ? { axis: containerSplit.axis, gutter: containerSplit.gutter } : null,
-    restingFold: restingSplit ? { axis: restingSplit.axis, gutter: restingSplit.gutter } : null,
   });
   const disabled = Boolean(actionDisabled || actionLoading);
   const pose = useMobilePoseTransition();

@@ -3,11 +3,14 @@ import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modu
 import { Platform, View } from "react-native";
 import type { GlassContainerProps, GlassViewProps } from "./types";
 
-type NativeGlassProps = Omit<GlassViewProps, "cornerRadius" | "clear" | "concentricMinimum" | "interactive"> & {
+type NativeGlassProps = Omit<GlassViewProps, "cornerRadius" | "clear" | "concentricMinimum" | "interactive" | "materialized" | "animateAppearance" | "materializeDurationMs"> & {
   cornerRadius: number;
   clear: boolean;
   concentricMinimum: number;
   interactive: boolean;
+  materialized: boolean;
+  animateAppearance: boolean;
+  materializeDurationMs: number;
 };
 type NativeContainerProps = Omit<GlassContainerProps, "spacing"> & { spacing: number };
 
@@ -23,6 +26,14 @@ const NativeGlassView: ComponentType<NativeGlassProps> | null = available
 const NativeGlassContainer: ComponentType<NativeContainerProps> | null = available
   ? requireNativeViewManager<NativeContainerProps>("NemuWindowLayout", "NemuGlassContainerView")
   : null;
+
+/**
+ * The raw native glass host (null where unavailable), for callers that wrap
+ * it themselves — e.g. `Animated.createAnimatedComponent` so the glass piece
+ * itself can take a Reanimated layout transition. Props as `GlassView`, all
+ * required.
+ */
+export const NativeGlassViewHost = NativeGlassView;
 
 /** True when `GlassView` renders native UIKit Liquid Glass (iOS binaries with the view). */
 export const glassViewAvailable = NativeGlassView !== null;
@@ -42,6 +53,9 @@ export function GlassView({
   concentricMinimum = 0,
   interactive = false,
   colorScheme,
+  materialized = true,
+  animateAppearance = false,
+  materializeDurationMs = 0,
 }: GlassViewProps) {
   if (!NativeGlassView) return <View style={style} pointerEvents={pointerEvents}>{children}</View>;
   return (
@@ -54,6 +68,9 @@ export function GlassView({
       concentricMinimum={concentricMinimum}
       interactive={interactive}
       colorScheme={colorScheme}
+      materialized={materialized}
+      animateAppearance={animateAppearance}
+      materializeDurationMs={materializeDurationMs}
     >
       {children}
     </NativeGlassView>

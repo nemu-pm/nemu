@@ -424,6 +424,74 @@ describe("mobile source reader pages", () => {
     expect(result.chapter.id).toBe("c2");
   });
 
+  test("retries the page list with the listed chapter when the source needs its url", async () => {
+    const pageListUrls: (string | undefined)[] = [];
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getChapterList() {
+              return [
+                {
+                  key: "57356/424746",
+                  chapterNumber: 1,
+                  url: "https://soraraw.test/manga/hanako/ch-1",
+                },
+              ];
+            },
+            async getPageList(_manga, chapter) {
+              pageListUrls.push(chapter.url);
+              if (!chapter.url) throw new Error("no url to read the image key");
+              return [{ index: 0, url: "https://img.test/001.jpg" }];
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "hanako",
+      { id: "57356/424746" },
+      { executor: { bridge, readBytes: async () => makeAixPackage() } },
+    );
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") throw new Error("expected ready");
+    expect(pageListUrls).toEqual([undefined, "https://soraraw.test/manga/hanako/ch-1"]);
+    expect(result.pages).toHaveLength(1);
+  });
+
+  test("does not retry a page list failure the listed chapter cannot fix", async () => {
+    let calls = 0;
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              calls += 1;
+              throw new Error("source down");
+            },
+          }),
+        };
+      },
+    };
+
+    await expect(
+      refreshMobileReaderPages(
+        installedSource(),
+        "blue-lock",
+        { id: "c2", chapterNumber: 2 },
+        { executor: { bridge, readBytes: async () => makeAixPackage() } },
+      ),
+    ).rejects.toThrow("source down");
+    expect(calls).toBe(1);
+  });
+
   test("trusts only validated resolvePageImage data as app-owned", async () => {
     const bridge: MobileAidokuExecutorBridge = {
       async loadSource() {

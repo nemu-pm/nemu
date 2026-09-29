@@ -181,7 +181,7 @@ export type UserSettings = {
    * What the bottom half holds in the notebook posture (Duo half-folded
    * portrait, Android tabletop); `undefined` means automatic.
    */
-  readerNotebookPane?: "automatic" | "trackpad" | "filmstrip" | "studyDesk";
+  readerNotebookPane?: "automatic" | "trackpad" | "filmstrip";
   mobileChapterListPreferences?: Record<
     string,
     {

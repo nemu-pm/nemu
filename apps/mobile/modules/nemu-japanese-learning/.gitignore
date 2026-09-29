@@ -2,3 +2,6 @@
 # upstream sources). Rebuild with scripts/vendor-ichiran.sh instead of committing.
 ios/Vendor/
 android/build/
+# manga-ocr Core ML models (~132 MB), materialised by scripts/fetch-ocr-models.ts
+# (`bun run ocr:models`); hosting for CI/release builds is not decided yet.
+ios/Models/

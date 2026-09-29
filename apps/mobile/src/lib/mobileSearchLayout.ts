@@ -1,6 +1,6 @@
 import { MOBILE_EXPANDED_WIDTH } from "@/lib/mobileAdaptiveLayout";
 import type { MobileSplitPaneOptions } from "@/lib/mobileSplitPaneLayout";
-import type { SearchSourceSelection } from "@/lib/mobileSearch";
+import { toggleSearchSourceSelection, type SearchSourceSelection } from "@/lib/mobileSearch";
 
 /**
  * Search on regular widths (Duo inner display, tablets, unfolded foldables):
@@ -9,9 +9,10 @@ import type { SearchSourceSelection } from "@/lib/mobileSearch";
  * for iPhone Duo: "show an additional level of hierarchy on the inner
  * display").
  *
- * - Flat, the sidebar is a narrow column (Notes) with a hairline divider.
  * - Partially folded as a book, it is exactly the leading half and nothing
  *   sits on the fold (`getMobileSplitPaneLayout` aligns the panes).
+ * - Fully open windows use a narrow sidebar column
+ *   (Notes) with a hairline divider.
  * - Side by side only when the container is wider than tall enough to keep a
  *   useful results grid (HIG arrangement views; Material list-detail shows one
  *   pane below 840dp) — the Duo's inner portrait display and portrait tablets
@@ -125,18 +126,17 @@ export function resolveMobileSearchSidebarPress({
   selection: SearchSourceSelection;
   /** A source id, or null for the "All sources" row. */
   target: string | null;
-  gesture: "press" | "longPress";
+  /**
+   * Same semantics as the phone source chips: a tap toggles the source in the
+   * scope (multi-select), a double tap or long press searches only it.
+   */
+  gesture: "press" | "only";
 }): SearchSourceSelection {
   if (target === null) return null;
   if (!sourceIds.includes(target)) return selection;
-  if (gesture === "press") {
-    return sourceIds.length === 1 ? null : [target];
-  }
-  const current = new Set(selection ?? sourceIds);
-  if (current.has(target)) current.delete(target);
-  else current.add(target);
-  if (current.size === sourceIds.length) return null;
-  return sourceIds.filter((id) => current.has(id));
+  if (sourceIds.length === 1) return null;
+  if (gesture === "only") return [target];
+  return toggleSearchSourceSelection(sourceIds, selection, target);
 }
 
 /**
@@ -149,4 +149,71 @@ export function isMobileSearchSidebarRowSelected(
 ): boolean {
   if (target === null) return selection === null;
   return selection !== null && selection.includes(target);
+}
+
+export type MobileSearchSidebarCheckState = "on" | "off" | "mixed";
+
+/**
+ * The inclusion mark each sidebar row draws, so multi-select reads at a
+ * glance: every in-scope source is checked (all of them while "All" is
+ * active), an excluded source is an empty circle, and "All" is mixed while
+ * only some sources are in scope.
+ */
+export function resolveMobileSearchSidebarCheckState({
+  selection,
+  target,
+  sourceIds,
+}: {
+  selection: SearchSourceSelection;
+  /** A source id, or null for the "All sources" row. */
+  target: string | null;
+  sourceIds: readonly string[];
+}): MobileSearchSidebarCheckState {
+  if (selection === null) return "on";
+  if (target !== null) return selection.includes(target) ? "on" : "off";
+  const included = sourceIds.filter((id) => selection.includes(id)).length;
+  if (included === 0) return "off";
+  return included >= sourceIds.length ? "on" : "mixed";
+}
+
+/**
+ * The "Library" / "Live Source Results" group labels only disambiguate when
+ * both groups are on screen; with one kind alone the source headers already
+ * say where results come from, so the results start with them.
+ */
+export function mobileSearchShowsKindHeaders({
+  libraryRows,
+  liveActive,
+}: {
+  /** Library matches rendered for the query. */
+  libraryRows: number;
+  /** A live source search runs or has results for the query. */
+  liveActive: boolean;
+}): boolean {
+  return libraryRows > 0 && liveActive;
+}
+
+/** Sidebar search field height: the iOS 36pt capsule, Android's 48dp field. */
+export function mobileSearchFieldHeight(platform: string): number {
+  return platform === "android" ? 48 : 36;
+}
+
+/** `MobileSearchSourceSectionHeader` / `MobileSearchKindHeader` row heights. */
+export const MOBILE_SEARCH_SOURCE_HEADER_HEIGHT = 32;
+export const MOBILE_SEARCH_KIND_HEADER_HEIGHT = 20;
+
+/**
+ * Sidebar split: one vertical grid for both panes. Both lists start at the
+ * same content top under the title; the results pane's first header (the
+ * first source header, or the "Library" label when both groups show) is
+ * centred on the sidebar's search field, so the two columns start level.
+ */
+export function mobileSearchResultsTopInset({
+  fieldHeight,
+  firstHeaderHeight,
+}: {
+  fieldHeight: number;
+  firstHeaderHeight: number;
+}): number {
+  return Math.max(0, Math.round((fieldHeight - firstHeaderHeight) / 2));
 }

@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import {
   NemuButton,
@@ -7,18 +6,8 @@ import {
   nemuFontWeight,
   useNemuTheme,
 } from "@/design-system";
-import { hapticConfirm, hapticError } from "@/lib/haptics";
 import type { MobileStrings } from "@/lib/mobileI18n";
-import {
-  describeMobileJapaneseLearningPackRow,
-  shouldStartMobileJapaneseLearningPackInstall,
-} from "@/lib/mobileJapaneseLearningAnalysisPackState";
-import {
-  installMobileJapaneseLearningAnalysisPackNow,
-  removeMobileJapaneseLearningAnalysisPackNow,
-  useMobileJapaneseLearningAnalysisPackState,
-} from "@/lib/mobileJapaneseLearningAnalysisPackStore";
-import { normalizeMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseLearningEngine";
+import { useMobileJapaneseLearningDictionaryRowModel } from "./useMobileJapaneseLearningDictionaryRowModel";
 
 type MobileJapaneseLearningDictionaryRowProps = {
   /** The Recognition Engine setting's current value. */
@@ -39,54 +28,9 @@ export function MobileJapaneseLearningDictionaryRow({
   disabled = false,
 }: MobileJapaneseLearningDictionaryRowProps) {
   const { tokens } = useNemuTheme();
-  const packState = useMobileJapaneseLearningAnalysisPackState();
-  const preference = normalizeMobileJapaneseLearningEnginePreference(engine);
-  const previousPreferenceRef = useRef<typeof preference | null>(null);
-  const [actionPending, setActionPending] = useState(false);
-
-  // Choosing On Device / Automatic here starts the download right away.
-  useEffect(() => {
-    const previous = previousPreferenceRef.current;
-    previousPreferenceRef.current = preference;
-    if (
-      shouldStartMobileJapaneseLearningPackInstall({
-        previous,
-        next: preference,
-        state: packState,
-      })
-    ) {
-      void installMobileJapaneseLearningAnalysisPackNow();
-    }
-    // Only a preference change may start an install, never a state change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preference]);
-
-  const row = describeMobileJapaneseLearningPackRow(packState, strings, preference);
+  const { row, copy, failed, actionLabel, actionPending, runAction } =
+    useMobileJapaneseLearningDictionaryRowModel({ engine, strings });
   if (!row) return null;
-  const copy = strings.japaneseLearningDictionary;
-
-  const runAction = async () => {
-    if (!row.action || actionPending) return;
-    setActionPending(true);
-    try {
-      const ok =
-        row.action === "remove"
-          ? await removeMobileJapaneseLearningAnalysisPackNow()
-          : await installMobileJapaneseLearningAnalysisPackNow();
-      await (ok ? hapticConfirm() : hapticError());
-    } finally {
-      setActionPending(false);
-    }
-  };
-
-  const actionLabel =
-    row.action === "remove"
-      ? copy.remove
-      : row.action === "retry"
-        ? copy.retry
-        : row.action === "download"
-          ? copy.downloadNow
-          : null;
 
   return (
     <View
@@ -109,8 +53,7 @@ export function MobileJapaneseLearningDictionaryRow({
             style={[
               styles.subtitle,
               {
-                color:
-                  packState.kind === "failed" ? tokens.danger : tokens.mutedForeground,
+                color: failed ? tokens.danger : tokens.mutedForeground,
               },
             ]}
           >

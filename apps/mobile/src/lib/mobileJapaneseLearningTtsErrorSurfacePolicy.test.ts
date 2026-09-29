@@ -103,22 +103,29 @@ describe("mobile Japanese-learning TTS error surfaces", () => {
     const footerEnd = ocr.indexOf("</JapaneseLearningSurfaceFrame>", footerStart);
     const footer = ocr.slice(footerStart, footerEnd);
 
+    expect(footerStart).toBeGreaterThan(0);
     expect(ocr).toContain("const { fontScale } = useWindowDimensions();");
     expect(ocr).toContain("const largeTextLayout = fontScale > 1.3;");
-    // Web keeps one action row at every width; only Dynamic Type or a very
-    // narrow footer stacks it (mobileJapaneseLearningTranscriptFlow.ts).
-    expect(ocr).toContain("mobileJapaneseLearningSentenceActionsLayout({");
+    // Web keeps one action row; only large Dynamic Type stacks it.
+    expect(ocr).toContain("const stackFooterActions = largeTextLayout;");
+    // Web's 70vh drawer top (see resolveJapaneseLearningDrawerDetent).
+    expect(ocr).toContain("const drawerFrame = useJapaneseLearningDrawerFrame();");
     expect(ocr).toContain(
-      'frameMaxHeight={largeTextLayout ? "100%" : "70%"}',
+      'frameMaxHeight={largeTextLayout ? "100%" : drawerFrame.frameMaxHeight}',
     );
     expect(footer).toContain("styles.footerActionsStacked");
     expect(footer.match(/styles\.footerActionContainerStacked/g)).toHaveLength(
       3,
     );
-    expect(footer).not.toContain("numberOfLines={1}");
-    expect(ocr).toContain("minHeight: 48");
-    expect(ocr).not.toContain("height: 38");
-    expect(ocr).toContain("flexShrink: 1");
+    // Every label stays on one line (web `whitespace-nowrap`): the measured
+    // layout gives up ghost padding, then ghost labels, before the primary
+    // label may scale down; nothing truncates. Stacked rows wrap freely.
+    expect(ocr).toContain("resolveJapaneseLearningFooterLayout(");
+    expect(footer).toContain("numberOfLines={stackFooterActions ? undefined : 1}");
+    expect(footer).toContain("adjustsFontSizeToFit={!stackFooterActions && footerLayout.primaryScalesDown}");
+    expect(footer).not.toContain("ellipsizeMode");
+    expect(ocr).toContain("minHeight: 36");
+    expect(ocr).toContain("footerActionTextShrink: { flexShrink: 1 }");
     expect(ocr).toContain('textAlign: "center"');
   });
 

@@ -1,6 +1,7 @@
 import { Fragment } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { nemuFontWeight, useNemuTheme } from "@/design-system";
+import { JapaneseLearningText as Text } from "./JapaneseLearningText";
 import type { MobileGrammarToken } from "@/lib/mobileJapaneseLearningGrammar";
 import {
   mobileJapaneseLearningMultiSelectPalette,
@@ -13,6 +14,7 @@ interface TokenDisplayProps {
   token: MobileGrammarToken;
   index: number;
   isSelected: boolean;
+  regularWidth?: boolean;
   isMultiSelected: boolean;
   accessibilityLabel: string;
   accessibilityExtendLabel: string;
@@ -36,6 +38,7 @@ export function JapaneseLearningTokenDisplay({
   token,
   index,
   isSelected,
+  regularWidth = false,
   isMultiSelected,
   accessibilityLabel,
   accessibilityExtendLabel,
@@ -99,6 +102,7 @@ export function JapaneseLearningTokenDisplay({
             <Text
               style={[
                 styles.furigana,
+                regularWidth ? styles.furiganaRegular : null,
                 {
                   color: tokens.mutedForeground,
                   opacity: isHighlighted ? 1 : 0.7,
@@ -118,11 +122,16 @@ export function JapaneseLearningTokenDisplay({
             {
               backgroundColor: chipBackground,
               borderBottomColor: chipRule,
+              boxShadow: `inset 0 0.5px 0 rgba(255,255,255,${scheme === "dark" ? 0.08 : 0.65})`,
             },
-            isSelected && !isMultiSelected ? styles.wordChipSelected : null,
+            isSelected && !isMultiSelected
+              ? { boxShadow: scheme === "dark"
+                ? "inset 0 0.5px 0 rgba(255,255,255,0.08), 0 10px 26px rgba(0,0,0,0.35)"
+                : "inset 0 0.5px 0 rgba(255,255,255,0.7), 0 8px 18px rgba(0,0,0,0.08)" }
+              : null,
           ]}
         >
-          <Text style={[styles.word, { color: palette.text }]}>{displayWord}</Text>
+          <Text style={[styles.word, regularWidth ? styles.wordRegular : null, { color: palette.text }]}>{displayWord}</Text>
         </View>
 
         {/* POS label row — fixed height */}
@@ -131,6 +140,7 @@ export function JapaneseLearningTokenDisplay({
             <Text
               style={[
                 styles.posLabel,
+                regularWidth ? styles.posLabelRegular : null,
                 { color: palette.text, opacity: isHighlighted ? 1 : 0.4 },
               ]}
             >
@@ -150,15 +160,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginHorizontal: 1,
   },
-  // Web: `h-[0.9rem]` furigana row, `text-[0.6rem] tracking-wide`.
+  // Web: `h-[0.9rem]` furigana row, `text-[0.6rem] tracking-wide`
+  // (= JAPANESE_LEARNING_FURIGANA_ROW_HEIGHT; a minimum, so Dynamic Type grows it).
   furiganaRow: {
-    minHeight: 14,
+    minHeight: 14.4,
     justifyContent: "flex-end",
   },
   furigana: {
-    fontSize: 10,
+    fontSize: 9.6,
     fontWeight: nemuFontWeight.regular,
-    lineHeight: 14,
+    lineHeight: 9.6,
     letterSpacing: 0.25,
   },
   // Web: `rounded-[3px] px-1 py-0.5` + 2px bottom rule.
@@ -168,15 +179,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 2,
   },
-  // Web: selected tokens lift with a soft shadow.
-  wordChipSelected: {
-    boxShadow: "0 8px 18px rgba(0,0,0,0.12)",
-  },
   // Web: `.ja-textbook text-[1.4rem]`.
   word: {
     fontFamily: Platform.select(JAPANESE_LEARNING_SERIF_FONT_FAMILY),
-    fontSize: 22,
-    lineHeight: 30,
+    fontSize: 22.4,
+    lineHeight: 33.6,
   },
   // Web: `h-[1rem] mt-0.5`, label `text-[0.5rem] font-medium`.
   posLabelRow: {
@@ -187,8 +194,11 @@ const styles = StyleSheet.create({
   posLabel: {
     fontSize: 8,
     fontWeight: nemuFontWeight.medium,
-    lineHeight: 11,
+    lineHeight: 8,
   },
+  wordRegular: { fontSize: 25.6, lineHeight: 38.4 },
+  furiganaRegular: { fontSize: 10.4, lineHeight: 10.4 },
+  posLabelRegular: { fontSize: 8.8, lineHeight: 8.8 },
   lineBreak: {
     width: "100%",
     height: 0,

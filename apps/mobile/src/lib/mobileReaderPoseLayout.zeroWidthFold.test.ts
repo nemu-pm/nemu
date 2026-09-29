@@ -23,7 +23,6 @@ const base = {
   paged: true,
   pageCount: 20,
   rtl: false,
-  learningOpen: false,
 };
 
 describe("reader pose: zero-width Android fold", () => {

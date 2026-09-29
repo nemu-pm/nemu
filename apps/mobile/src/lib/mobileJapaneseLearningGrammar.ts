@@ -1,4 +1,5 @@
 import { ConvexHttpClient } from "convex/browser";
+import { PartOfSpeechLabels } from "../../../../src/lib/plugins/builtin/japanese-learning/grammar-analysis";
 import { api } from "../../../../convex/_generated/api";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 import { createMobileJapaneseLearningAbortScope } from "./mobileJapaneseLearningLifecycle";
@@ -43,6 +44,9 @@ export type MobileGrammarToken = {
   partOfSpeech: string;
   meanings: MobileGrammarMeaning[];
   conjugationTypes?: string[];
+  hasConjugationVia?: boolean;
+  isSuffix?: boolean;
+  suffix?: string;
   conjugations: MobileGrammarToken[];
   alternatives: MobileGrammarToken[];
   components: MobileGrammarToken[];
@@ -97,6 +101,7 @@ type MobileIchiranConjugation = {
 
 type MobileIchiranWordInfo = {
   type?: "KANJI" | "KANA" | "GAP";
+  score?: number;
   text?: string;
   kana?: string | string[];
   gloss?: MobileIchiranGloss[];
@@ -131,40 +136,7 @@ const MOBILE_JAPANESE_LEARNING_GRAMMAR_MAX_ERROR_RESPONSE_BYTES = 64 * 1024;
 const MOBILE_JAPANESE_LEARNING_GRAMMAR_NORMALIZE_CACHE_ENTRIES = 64;
 const MOBILE_JAPANESE_LEARNING_GRAMMAR_MAX_CACHE_KEY_CHARACTERS = 4_096;
 
-const POS_LABELS: Record<string, string> = {
-  "adj-i": "I-Adjective",
-  "adj-na": "Na-Adjective",
-  adv: "Adverb",
-  "aux-v": "Auxiliary Verb",
-  "aux-adj": "Auxiliary Adjective",
-  conj: "Conjunction",
-  cop: "Copula",
-  ctr: "Counter",
-  exp: "Expression",
-  int: "Interjection",
-  n: "Noun",
-  "n-adv": "Adverbial Noun",
-  "n-suf": "Noun Suffix",
-  num: "Number",
-  pn: "Pronoun",
-  prt: "Particle",
-  suf: "Suffix",
-  v1: "Ichidan Verb (-ru)",
-  v5b: "Godan Verb (-bu)",
-  v5g: "Godan Verb (-gu)",
-  v5k: "Godan Verb (-ku)",
-  v5m: "Godan Verb (-mu)",
-  v5n: "Godan Verb (-nu)",
-  v5r: "Godan Verb (-ru)",
-  v5s: "Godan Verb (-su)",
-  v5t: "Godan Verb (-tsu)",
-  v5u: "Godan Verb (-u)",
-  vk: "Kuru Verb",
-  vs: "Suru Verb",
-  "vs-i": "Suru Verb (Included)",
-  vt: "Transitive Verb",
-  vi: "Intransitive Verb",
-};
+const POS_LABELS: Record<string, string> = PartOfSpeechLabels;
 
 let convexHttpClient: ConvexHttpClient | null = null;
 let convexHttpClientUrl = "";
@@ -439,6 +411,17 @@ function extractReading(wordInfo: MobileIchiranWordInfo, word: string): string {
   assertMobileJapaneseLearningGrammarField(word, "Ichiran word");
   const kana = getKana(wordInfo.kana);
   if (kana && kana !== word) return kana;
+  const alternatives = wordInfo.alternative ?? [];
+  assertMobileJapaneseLearningCount(
+    alternatives.length,
+    MOBILE_JAPANESE_LEARNING_GRAMMAR_MAX_CHILDREN,
+    "Ichiran alternatives",
+  );
+  for (const alternative of alternatives) {
+    if (alternative.text !== word) continue;
+    const alternativeKana = getKana(alternative.kana);
+    if (alternativeKana && alternativeKana !== word) return alternativeKana;
+  }
   if (wordInfo.type === "KANA" || isKanaOnly(word)) return "";
   const conjugationReading = wordInfo.conj?.[0]?.reading;
   if (conjugationReading && conjugationReading !== word) return conjugationReading;
@@ -477,10 +460,12 @@ function extractPartOfSpeech(
   const glosses = wordInfo.gloss ?? [];
   const conjugations = wordInfo.conj ?? [];
   const alternatives = wordInfo.alternative ?? [];
+  const components = wordInfo.components ?? [];
   for (const [items, label] of [
     [glosses, "Ichiran glosses"],
     [conjugations, "Ichiran conjugations"],
     [alternatives, "Ichiran alternatives"],
+    [components, "Ichiran components"],
   ] as const) {
     assertMobileJapaneseLearningCount(
       items.length,
@@ -516,6 +501,10 @@ function extractPartOfSpeech(
   }
   for (const alternative of alternatives) {
     const pos = extractPartOfSpeech(alternative, depth + 1);
+    if (pos && pos !== "Unknown") return pos;
+  }
+  for (const component of components) {
+    const pos = extractPartOfSpeech(component, depth + 1);
     if (pos && pos !== "Unknown") return pos;
   }
   return wordInfo.type === "GAP" ? "Punctuation" : "Unknown";
@@ -589,6 +578,7 @@ function convertConjugation(
       properties
         ?.map((prop) => prop.type)
         .filter((item): item is string => typeof item === "string" && item.length > 0),
+    hasConjugationVia: via.length > 0,
     conjugations: via.map((item) =>
       convertConjugation(item, budget, depth + 1),
     ),
@@ -611,8 +601,10 @@ function convertWordInfo(
     "Ichiran alternatives",
   );
   const preferred =
-    !wordInfo.text && sourceAlternatives[0]
-      ? sourceAlternatives[0]
+    sourceAlternatives[0] &&
+    (!wordInfo.text || (!wordInfo.score && !wordInfo.gloss?.length &&
+      !wordInfo.conj?.length && !wordInfo.components?.length))
+      ? { ...sourceAlternatives[0], alternative: sourceAlternatives.slice(1) }
       : wordInfo;
   const word = preferred.text ?? "";
   assertMobileJapaneseLearningGrammarField(word, "Ichiran word");
@@ -628,6 +620,7 @@ function convertWordInfo(
     };
   }
 
+  assertMobileJapaneseLearningGrammarField(preferred.suffix, "Ichiran suffix");
   const reading = extractReading(preferred, word).split("\f").join("");
   const conjugations = preferred.conj ?? [];
   const alternatives = preferred.alternative ?? [];
@@ -669,10 +662,11 @@ function convertWordInfo(
     word,
     reading: reading === word ? "" : reading,
     partOfSpeech: extractPartOfSpeech(preferred),
+    isSuffix: preferred.suffix !== undefined,
+    suffix: preferred.suffix,
     meanings: extractMeanings(preferred),
-    conjugationTypes: conjugations
-      ?.flatMap((conj) => conj.prop?.map((prop) => prop.type) ?? [])
-      .filter((item): item is string => typeof item === "string" && item.length > 0),
+    // Web parity (grammar-analysis.ts): the conjugation types belong to each
+    // conjugation entry ("Base form" card), not to the surface word.
     conjugations: conjugations.map((item) =>
       convertConjugation(item, budget, depth + 1),
     ),

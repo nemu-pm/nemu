@@ -8,8 +8,6 @@ export function notebookPaneLabel(option: MobileReaderNotebookPanePreference, st
       return strings.duo.notebookPaneTrackpad;
     case "filmstrip":
       return strings.duo.notebookPaneFilmstrip;
-    case "studyDesk":
-      return strings.duo.studyDeskTitle;
     default:
       return strings.duo.notebookPaneAutomatic;
   }

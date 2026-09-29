@@ -43,7 +43,7 @@ export type MobileDuoBilingualIneligibleReason =
   | "notConfigured"
   /** Long-strip / scrolling presentation: a strip has no page to pair. */
   | "notPaged"
-  /** Horizontal fold (notebook / tabletop): that pose belongs to the study desk. */
+  /** Horizontal fold (notebook / tabletop): the page sits above the trackpad / filmstrip pane. */
   | "notebook"
   /** Flat window narrower than a regular width or compact in height (outer display, phones). */
   | "compact"
@@ -51,7 +51,7 @@ export type MobileDuoBilingualIneligibleReason =
   | "portrait"
   /** A pane is smaller than a readable page after occlusions. */
   | "panesTooSmall"
-  /** Something else (e.g. a docked learning panel) owns the second pane. */
+  /** Something else owns the second pane (`secondPaneOccupied`). */
   | "blocked";
 
 export type MobileDuoBilingualLayout = {
@@ -145,8 +145,7 @@ function finiteRect(rect: WindowLayoutRect | undefined): rect is WindowLayoutRec
  * - Flat: only a regular-width landscape window (≥ 600pt wide, ≥ 480pt
  *   tall, wider than tall) whose halves each hold a readable page; the halves meet at the
  *   centre with no synthetic gutter, like the existing flat two-page spread.
- *   `available` narrows the flat area (e.g. to the stage left beside a docked
- *   side panel); it defaults to the full bounds inside the horizontal safe
+ *   `available` narrows the flat area (e.g. to a narrower stage); it defaults to the full bounds inside the horizontal safe
  *   area, matching `readerSafeContentWidth`.
  */
 export function mobileDuoBilingualEligibility(input: {
@@ -237,12 +236,12 @@ export function mobileDuoBilingualEligibility(input: {
 /**
  * The same decision taken from the reader's pose layout
  * (`mobileReaderPoseLayout`), so the bilingual panes are exactly the pages'
- * slots of a spread in that pose — including rails, safe areas and a docked
- * learning panel. Pass the pose computed with `twoPage: true` (the user's own
+ * slots of a spread in that pose — including rails and safe areas. Pass the
+ * pose computed with `twoPage: true` (the user's own
  * setting stays untouched; this is only "where would a spread go").
  *
  * Structural input (no import of the pose module): `posture`, `bounds`,
- * `stage`, `spread`, stage-local `spreadSlots`, `learning.presentation`.
+ * `stage`, `spread`, stage-local `spreadSlots`.
  */
 export function mobileDuoBilingualFromReaderPose(input: {
   pose: {
@@ -251,7 +250,6 @@ export function mobileDuoBilingualFromReaderPose(input: {
     stage: WindowLayoutRect;
     spread: boolean;
     spreadSlots?: WindowLayoutRect[];
-    learning: { presentation: string };
   };
   rtl: boolean;
   paged: boolean;
@@ -276,9 +274,7 @@ export function mobileDuoBilingualFromReaderPose(input: {
     }
     if (pose.bounds.width <= pose.bounds.height) return { eligible: false, reason: "portrait" };
   }
-  if (!pose.spread) {
-    return { eligible: false, reason: pose.learning.presentation === "docked" ? "blocked" : "panesTooSmall" };
-  }
+  if (!pose.spread) return { eligible: false, reason: "panesTooSmall" };
   const { stage } = pose;
   let panes: [WindowLayoutRect, WindowLayoutRect];
   let spine: { start: number; end: number };

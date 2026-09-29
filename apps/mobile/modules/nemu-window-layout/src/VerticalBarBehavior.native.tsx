@@ -3,7 +3,13 @@ import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modu
 import { Platform, StyleSheet } from "react-native";
 import type { VerticalBarBehaviorProps } from "./types";
 
-type NativeProps = { disabled: boolean; appearance?: "dark" | "light"; style?: unknown; pointerEvents?: "none" };
+type NativeProps = {
+  disabled: boolean;
+  appearance?: "dark" | "light";
+  appearanceCoversBars: boolean;
+  style?: unknown;
+  pointerEvents?: "none";
+};
 
 const nativeModule = Platform.OS === "ios"
   ? requireOptionalNativeModule<{ verticalBarBehaviorViewAvailable?: boolean }>("NemuWindowLayout")
@@ -21,9 +27,17 @@ const NativeVerticalBarBehavior: ComponentType<NativeProps> | null =
  * once per screen for the screen's lifetime (Apple: a stable choice, never
  * toggled with view state). No-op on Android, web and older iOS.
  */
-export default function VerticalBarBehavior({ disabled, appearance }: VerticalBarBehaviorProps) {
+export default function VerticalBarBehavior({ disabled, appearance, appearanceCoversBars = false }: VerticalBarBehaviorProps) {
   if (!NativeVerticalBarBehavior) return null;
-  return <NativeVerticalBarBehavior disabled={disabled} appearance={appearance} pointerEvents="none" style={styles.hidden} />;
+  return (
+    <NativeVerticalBarBehavior
+      disabled={disabled}
+      appearance={appearance}
+      appearanceCoversBars={appearanceCoversBars}
+      pointerEvents="none"
+      style={styles.hidden}
+    />
+  );
 }
 
 const styles = StyleSheet.create({

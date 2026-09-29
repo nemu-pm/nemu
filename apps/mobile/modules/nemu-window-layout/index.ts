@@ -1,6 +1,7 @@
 export { default as WindowLayoutObserver } from "./src/WindowLayoutObserver";
 export { default as VerticalBarBehavior } from "./src/VerticalBarBehavior";
-export { GlassContainer, GlassView, glassViewAvailable } from "./src/GlassView";
+export { setAppAppearance, type AppAppearance } from "./src/AppAppearance";
+export { GlassContainer, GlassView, glassViewAvailable, NativeGlassViewHost } from "./src/GlassView";
 export type {
   GlassContainerProps,
   GlassViewProps,
@@ -12,3 +13,5 @@ export type {
   WindowLayoutRect,
   WindowLayoutObserverProps,
 } from "./src/types";
+
+export { default as SheetProgressObserver } from "./src/SheetProgressObserver";

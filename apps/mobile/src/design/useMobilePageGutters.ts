@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { useMobileAdaptiveLayout, useMobileWindowLayout } from "@/lib/MobileWindowLayoutContext";
 import {
   getMobilePageBleedStyles,
   getMobilePageGutters,
@@ -16,9 +16,10 @@ import {
  */
 export function useMobilePageGutters(): MobilePageGutters {
   const insets = useSafeAreaInsets();
+  const { minimumLayoutMargins } = useMobileWindowLayout();
   return useMemo(
-    () => getMobilePageGutters({ left: insets.left, right: insets.right }),
-    [insets.left, insets.right],
+    () => getMobilePageGutters({ left: insets.left, right: insets.right }, undefined, minimumLayoutMargins),
+    [insets.left, insets.right, minimumLayoutMargins],
   );
 }
 

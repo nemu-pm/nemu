@@ -134,6 +134,7 @@ export function getMobileDetailHeroCopyLayout({
   maxTitleLines,
   hasActions = true,
   minimumTouchTarget = 44,
+  baseCoverWidth: requestedBaseCoverWidth,
 }: {
   /** Inner width of the hero row (surface minus its padding). */
   surfaceWidth: number;
@@ -146,6 +147,12 @@ export function getMobileDetailHeroCopyLayout({
   hasActions?: boolean;
   /** `getNemuButtonMinimumTargetSize(Platform.OS)`. */
   minimumTouchTarget?: number;
+  /**
+   * Resting cover width before enlarged text grows it; defaults to the compact
+   * card's rule (`getMobileDetailBaseCoverWidth`). The regular-width info pane
+   * passes its larger cover.
+   */
+  baseCoverWidth?: number;
 }): MobileDetailHeroCopyLayout {
   const m = MOBILE_DETAIL_HERO_METRICS;
   const scale = Number.isFinite(fontScale) ? Math.max(1, Math.min(fontScale, m.maxFontSizeMultiplier)) : 1;
@@ -159,7 +166,10 @@ export function getMobileDetailHeroCopyLayout({
     : 0;
   const fixedBlocks = authorBlock + tagBlock + actionBlock;
 
-  const baseCoverWidth = getMobileDetailBaseCoverWidth(width);
+  const baseCoverWidth =
+    typeof requestedBaseCoverWidth === "number" && Number.isFinite(requestedBaseCoverWidth) && requestedBaseCoverWidth > 0
+      ? Math.round(requestedBaseCoverWidth)
+      : getMobileDetailBaseCoverWidth(width);
   const minimumColumn = Math.ceil(2 * titleLineHeight + fixedBlocks);
   const maxCoverWidth = Math.max(baseCoverWidth, Math.floor(width * 0.4));
   const coverWidth = Math.min(maxCoverWidth, Math.max(baseCoverWidth, Math.ceil((minimumColumn * 2) / 3)));

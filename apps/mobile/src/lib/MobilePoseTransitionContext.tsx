@@ -31,6 +31,7 @@ import {
   setMobilePoseReduceMotion,
 } from "@/lib/mobilePoseLayoutAnimations";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
+import { mobilePoseVeilPlanWithCaps } from "@/lib/mobileReaderStageMotion";
 
 export type MobilePoseTransition = {
   /** Increments on every visible pose change; stable otherwise. */
@@ -64,6 +65,14 @@ export type MobilePoseVeilAppearance = {
   tintColor: string;
   /** Blur material (default: the app appearance). */
   blurTint?: "light" | "dark";
+  /**
+   * Cap on the wash's peak opacity. A dark immersive surface (the reader)
+   * keeps its content visible under a light frost instead of washing to
+   * near-black — a black wash over black pages reads as a blank frame.
+   */
+  maxTintOpacity?: number;
+  /** Cap on the blur's peak intensity. */
+  maxBlurIntensity?: number;
 };
 
 const noop = () => undefined;
@@ -203,7 +212,7 @@ export function MobilePoseTransitionProvider({ children }: { children: ReactNode
           key={current.veil.session}
           session={current.veil.session}
           token={current.veil.token}
-          plan={current.veil.plan}
+          plan={mobilePoseVeilPlanWithCaps(current.veil.plan, veilAppearance)}
           tintColor={veilAppearance?.tintColor}
           blurTint={veilAppearance?.blurTint}
           onDone={handleVeilDone}

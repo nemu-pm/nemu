@@ -27,6 +27,9 @@ import {
   withMobileSourceOperationTimeout,
 } from "./mobileSourceOperationTimeout";
 import { mergeAuthors } from "@nemu/core/sources";
+import { isMobileSourceMangaTitlePathLike } from "@/lib/mobileReaderMangaTitle";
+
+export { isMobileSourceMangaTitlePathLike };
 
 export type MobileSourceDetailsRefresh =
   | {
@@ -120,17 +123,6 @@ function withDetailsTimeout<T>(
     timeoutMs: options.timeoutMs ?? DEFAULT_MOBILE_SOURCE_OPERATION_TIMEOUT_MS,
     message: options.timeoutMessage,
   });
-}
-
-export function isMobileSourceMangaTitlePathLike(value: string): boolean {
-  const title = value.trim();
-  return (
-    /^(?:[a-z][a-z\d+.-]*:)?\/\//i.test(title) ||
-    /^\.{1,2}[\\/]/.test(title) ||
-    /^[\\/][^\\/]+[\\/]/.test(title) ||
-    /^[a-z]:[\\/]/i.test(title) ||
-    /^www\.[^\s/]+(?:\/|$)/i.test(title)
-  );
 }
 
 export function resolveMobileSourceMangaMetadataTitle(

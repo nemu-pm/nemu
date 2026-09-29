@@ -9,6 +9,8 @@ export type ReaderSettingsNativePopoverProps = {
   anchor: WindowLayoutRect | null;
   /** Height the system can give a popover beside the anchor; below the Form's height it becomes a sheet. */
   availableHeight: number;
+  /** Regular-width window (Duo inner display, tablets): only there may it be a popover; compact is a sheet. */
+  regularWidth: boolean;
   mode: ReadingMode;
   activeScrollWidthPct: number;
   isTwoPageMode: boolean;

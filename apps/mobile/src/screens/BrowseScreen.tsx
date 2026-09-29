@@ -71,6 +71,7 @@ import {
   type MobileStrings,
 } from "@/lib/mobileI18n";
 import { resolveMobileSheetHeaderMetrics } from "@/lib/mobileNativeSheet";
+import { mobileGridPrefersEvenColumns } from "@/lib/mobileAdaptiveLayout";
 import { getMobileSourceGridLayout } from "@/lib/mobilePageLayout";
 import { chunkMobileGridRows, mobileFoldAwareGridCellStyle } from "@/lib/mobileFoldAwareGrid";
 import { MobilePoseLayoutView } from "@/components/MobilePoseLayoutView";
@@ -791,17 +792,18 @@ export function BrowseScreen() {
   const { height: windowHeight, width: windowWidth, fontScale } = useWindowDimensions();
   const pageGutters = useMobilePageGutters();
   // Source cards size from the measured content box (Duo's trailing system
-  // bars narrow it), even columns on regular widths, one card group per pane
-  // in book posture with the gutter on the fold.
+  // bars narrow it), even columns whenever the window has a fold region
+  // (folded or flat). Only an active fold reserves the middle gutter.
   const sourceGridContainer = useMobileContainerFold<ViewInstance>();
   const sourceGridSplit = sourceGridContainer.split;
+  const sourceGridPrefersEven = mobileGridPrefersEvenColumns(sourceGridContainer.adaptive);
   const sourceGrid = useMemo(
     () =>
       getMobileSourceGridLayout(
         sourceGridContainer.width ?? windowWidth - pageGutters.left - pageGutters.right,
         fontScale,
         {
-          preferEven: sourceGridContainer.adaptive.regularWidth,
+          preferEven: sourceGridPrefersEven,
           fold:
             sourceGridSplit?.axis === "horizontal"
               ? { start: sourceGridSplit.gutter.start, end: sourceGridSplit.gutter.end }
@@ -812,7 +814,7 @@ export function BrowseScreen() {
       fontScale,
       pageGutters.left,
       pageGutters.right,
-      sourceGridContainer.adaptive.regularWidth,
+      sourceGridPrefersEven,
       sourceGridContainer.width,
       sourceGridSplit,
       windowWidth,

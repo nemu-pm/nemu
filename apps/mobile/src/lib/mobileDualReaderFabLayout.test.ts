@@ -26,7 +26,7 @@ function duo(screen: string, posture: string, orientation: string): MobileWindow
 }
 
 function areaFor(layout: MobileWindowLayout, twoPage = false) {
-  const pose = mobileReaderPoseLayout({ layout, fallbackInsets: { top: 0, left: 0, bottom: 0, right: 0 }, paged: true, pageCount: 10, twoPage, rtl: false, learningOpen: false });
+  const pose = mobileReaderPoseLayout({ layout, fallbackInsets: { top: 0, left: 0, bottom: 0, right: 0 }, paged: true, pageCount: 10, twoPage, rtl: false });
   return {
     pose,
     area: mobileDualReaderFabArea({

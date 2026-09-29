@@ -36,11 +36,14 @@ describe("Japanese learning accessibility policy", () => {
   });
 
   test("keeps compact Japanese-learning controls on native touch targets", () => {
+    // Web-sized visuals (24pt icon buttons, 32pt `sm` buttons, pills) reach
+    // the 44pt native target through `hitSlop` (no layout change) or
+    // NemuPressable's `minimumTouchTarget`.
     const sources = [
       "components/reader/japaneseLearning/JapaneseLearningSentenceDisplay.tsx",
       "components/reader/japaneseLearning/JapaneseLearningTokenSummary.tsx",
       "components/reader/japaneseLearning/JapaneseLearningNemuChatDrawer.tsx",
-      "components/reader/japaneseLearning/JapaneseLearningMessageBubble.tsx",
+      "components/reader/japaneseLearning/JapaneseLearningAudioWaveform.tsx",
       "components/reader/japaneseLearning/JapaneseLearningFollowUpSuggestions.tsx",
       "components/reader/japaneseLearning/JapaneseLearningTranscriptSheet.tsx",
     ].map(mobileSource);
@@ -49,11 +52,14 @@ describe("Japanese learning accessibility policy", () => {
     );
 
     for (const source of sources) {
-      expect(source).toContain("minimumTouchTarget");
+      expect(source.includes("minimumTouchTarget") || source.includes("hitSlop=")).toBe(true);
     }
     expect(pressable).toContain("buttonDepth || minimumTouchTarget");
-    expect(sources[0]).not.toContain("height: 32");
-    expect(sources[1]).toContain("minHeight: 30");
+    // 32pt `sm` actions + 6pt slop, 24pt `xs` actions + 10pt slop.
+    expect(sources[0]).toContain("height: 32");
+    expect(sources[0]).toContain("hitSlop={6}");
+    expect(sources[1]).toContain("height: 24");
+    expect(sources[1]).toContain("hitSlop={10}");
     expect(sources[5]).toContain("minHeight: 48");
   });
 });

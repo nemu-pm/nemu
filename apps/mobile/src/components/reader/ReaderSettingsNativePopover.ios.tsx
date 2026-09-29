@@ -5,6 +5,7 @@ import {
   Form as SwiftForm,
   Group as SwiftGroup,
   Host as SwiftHost,
+  NavigationStack as SwiftNavigationStack,
   Picker as SwiftPicker,
   Popover as SwiftPopover,
   Rectangle as SwiftRectangle,
@@ -12,13 +13,16 @@ import {
   Slider as SwiftSlider,
   Text as SwiftText,
   Toggle as SwiftToggle,
+  Toolbar as SwiftToolbar,
+  ToolbarItem as SwiftToolbarItem,
 } from "@expo/ui/swift-ui";
 import {
   accessibilityLabel as swiftAccessibilityLabel,
   disabled as swiftDisabled,
-  environment,
+  font,
   frame,
   labelsHidden,
+  lineLimit,
   listSectionSpacing,
   opacity,
   pickerStyle,
@@ -28,6 +32,11 @@ import {
   tag,
 } from "@expo/ui/swift-ui/modifiers";
 import { StyleSheet, View } from "react-native";
+import {
+  inlineToolbarTitle,
+  zeroTopScrollContentMargin,
+  presentationColorScheme,
+} from "../../../modules/nemu-window-layout/src/presentationColorScheme";
 import { useNemuTheme } from "@/design-system";
 import { hapticSelection } from "@/lib/haptics";
 import {
@@ -51,13 +60,19 @@ const POPOVER_DISMISS_SETTLE_MS = 380;
 
 /**
  * Reader settings as system presentations with a native grouped Form
- * (Picker / Toggle / Slider rows): a real popover (SwiftUI `.popover`,
+ * (Picker / Toggle / Slider rows). Regular width (iPhone Duo inner display,
+ * tablets): a real popover (SwiftUI `.popover`,
  * `presentationCompactAdaptation(.popover)`) anchored to the settings button
- * when the whole Form fits beside it, otherwise the same Form in a sheet with
- * medium / large detents — never a clipped popover whose rows cannot be
- * reached (an iPhone Duo notebook pane is ~455pt). Always dark: the reader
- * forces its screen's appearance dark (`VerticalBarBehavior appearance`), so
- * the popover / sheet material, grabber and Liquid Glass resolve dark too.
+ * when the whole Form fits beside it. Compact width (phones, the Duo outer
+ * display) — or a regular window too short for it (a ~455pt Duo notebook
+ * pane) — the same Form in a sheet with a title bar, a large detent
+ * and the grabber, so every row is reachable.
+ *
+ * Appearance has one source, the theme scheme (dark inside the reader's
+ * `ReaderDarkThemeScope`): it drives the Host and `presentationColorScheme`
+ * (SwiftUI `preferredColorScheme` on the enclosing presentation), so the
+ * system container — popover / sheet material, Liquid Glass, grabber — and
+ * the rows' text always resolve together.
  */
 export function ReaderSettingsNativePopover({
   visible,
@@ -92,8 +107,9 @@ export function ReaderSettingsNativePopover({
   onMarkComplete,
   showReaderPluginSettings = false,
   onOpenReaderPluginSettings,
+  regularWidth,
 }: ReaderSettingsNativePopoverProps) {
-  const { tokens } = useNemuTheme();
+  const { scheme, tokens } = useNemuTheme();
   const onDismissCompleteRef = useRef(onDismissComplete);
   useLayoutEffect(() => {
     onDismissCompleteRef.current = onDismissComplete;
@@ -129,18 +145,22 @@ export function ReaderSettingsNativePopover({
       showMarkComplete: !completed,
       showNotebookPane: showNotebookRow,
     },
-    availableHeight,
+    // No measured button to point at (system toolbar items): the sheet.
+    { availableHeight, regularWidth: regularWidth && anchor !== null },
   );
   const busyModifiers = busy ? [swiftDisabled(true)] : [];
 
   const formModifiers = [
-    ...(presentation.kind === "popover" ? [frame({ width: presentation.width, height: presentation.height })] : []),
+    ...(presentation.kind === "popover"
+      ? [frame({ width: presentation.width, height: presentation.height })]
+      : [inlineToolbarTitle()]),
     listSectionSpacing("compact"),
-    environment("colorScheme", "dark"),
-    // The presentation container resolves its appearance from the presenting
-    // host, not from this content, so it would stay light; a material
-    // background resolved in this dark environment keeps the popover / sheet
-    // dark (and translucent over the page) in either app theme.
+    zeroTopScrollContentMargin(),
+    // The presentation's own appearance (not just this content's): the
+    // container resolves its traits from the controller UIKit presents it
+    // from, never from the reader screen.
+    presentationColorScheme(scheme),
+    // Translucent over the page, resolved in that same appearance.
     presentationBackground({ type: "material", material: "regular" }),
   ];
   const settingsForm = (
@@ -276,19 +296,44 @@ export function ReaderSettingsNativePopover({
       </SwiftForm>
   );
 
-  if (!anchor) return null;
-  if (presentation.kind === "sheet") {
+  if (presentation.kind === "sheet" || !anchor) {
     return (
       <View pointerEvents="none" style={styles.sheetHost}>
-        <SwiftHost colorScheme="dark" seedColor={tokens.primary} style={StyleSheet.absoluteFill}>
+        <SwiftHost colorScheme={scheme} seedColor={tokens.primary} style={StyleSheet.absoluteFill}>
           <SwiftBottomSheet
             isPresented={visible}
             onIsPresentedChange={(presented) => {
               if (!presented && visible) onClose();
             }}
           >
-            <SwiftGroup modifiers={[presentationDetents(["medium", "large"]), presentationDragIndicator("visible")]}>
-              {settingsForm}
+            <SwiftGroup
+              modifiers={[
+                presentationDetents(["large"]),
+                presentationDragIndicator("visible"),
+                presentationColorScheme(scheme),
+              ]}
+            >
+              {/* A sheet's title bar (Apple's own settings sheets): the title
+                  centred, the close button at the trailing edge. */}
+              <SwiftNavigationStack>
+                <SwiftToolbar>
+                  {settingsForm}
+                  <SwiftToolbar.Content>
+                    <SwiftToolbarItem placement="topBarTrailing">
+                      <SwiftButton
+                        role="close"
+                        onPress={onClose}
+                        modifiers={[swiftAccessibilityLabel(strings.reader.closeSettings)]}
+                      />
+                    </SwiftToolbarItem>
+                    <SwiftToolbarItem placement="principal">
+                      <SwiftText modifiers={[font({ textStyle: "headline" }), lineLimit(1)]}>
+                        {strings.reader.title}
+                      </SwiftText>
+                    </SwiftToolbarItem>
+                  </SwiftToolbar.Content>
+                </SwiftToolbar>
+              </SwiftNavigationStack>
             </SwiftGroup>
           </SwiftBottomSheet>
         </SwiftHost>
@@ -300,7 +345,7 @@ export function ReaderSettingsNativePopover({
       pointerEvents="none"
       style={[styles.anchor, { left: anchor.x, top: anchor.y, width: anchor.width, height: anchor.height }]}
     >
-      <SwiftHost colorScheme="dark" seedColor={tokens.primary} style={StyleSheet.absoluteFill}>
+      <SwiftHost colorScheme={scheme} seedColor={tokens.primary} style={StyleSheet.absoluteFill}>
         <SwiftPopover
           isPresented={visible}
           onIsPresentedChange={(presented) => {

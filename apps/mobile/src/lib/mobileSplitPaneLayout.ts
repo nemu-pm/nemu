@@ -13,12 +13,8 @@ import {
  * - compact width keeps the single column; regular width shows the extra level;
  * - partially folded as a book, the panes line up with the halves and nothing
  *   sits on the fold (each pane pads its own edges);
- * - flat, the leading pane is narrower, like the Notes sidebar. This is
- *   deliberate even when the device still reports its inactive fold
- *   (`mobileRestingFoldSplitForContainer`): the empty-state hero splits on
- *   that line so folding moves nothing, but a list + detail split follows
- *   Notes, and the fold ⇄ flat change glides (pose layout transition /
- *   settle fade in the consumers) instead of jumping;
+ * - fully open windows use a narrower leading pane, like the Notes sidebar;
+ *   an inactive fold does not reserve a gutter or force equal-width panes;
  * - notebook (horizontal fold) keeps a single column: side-by-side panes would
  *   each straddle the fold.
  *

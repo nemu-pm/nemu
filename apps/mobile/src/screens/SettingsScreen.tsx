@@ -92,6 +92,7 @@ import {
   NemuButton,
   NemuNativeSwitch,
   NemuPressable,
+  useNemuRowHighlight,
   NemuText,
   PageListScaffold,
   PageScaffold,
@@ -393,9 +394,13 @@ function SourceManagementRow({
   const browseDisabled = disabled || unsupported || sourceDisabled;
   const toggleDisabled = disabled || removing || toggling;
   const quickActionsDisabled = disabled || removing;
+  // The browse button is only the leading part of the row; the whole row
+  // (to the card's edges, clipped by it) takes the selection highlight.
+  const rowHighlight = useNemuRowHighlight();
 
   return (
     <View style={[styles.sourceEmbeddedRow, { borderColor: tokens.border }]}>
+      {rowHighlight.overlay()}
       <NemuPressable
         accessibilityLabel={
           unsupported
@@ -413,8 +418,11 @@ function SourceManagementRow({
         // rather than through `hapticFeedback` so the two gestures stay
         // distinguishable and a dead tap stays silent.
         hapticFeedback="none"
+        onPressIn={rowHighlight.onPressIn}
+        onPressOut={rowHighlight.onPressOut}
         onPress={() => {
           if (browseDisabled) return;
+          rowHighlight.onPress();
           void hapticPress();
           onBrowse();
         }}
@@ -423,7 +431,7 @@ function SourceManagementRow({
           void hapticSelection();
           onQuickActions();
         }}
-        pressedScale={0.985}
+        pressedScale={1}
         containerStyle={styles.sourceMainContainer}
         style={[
           styles.sourceMain,
@@ -959,7 +967,7 @@ function PressableSettingsSurface({
   disabled,
   hapticFeedback = "press",
   onPress,
-  pressedScale = 0.985,
+  pressedScale,
   style,
 }: {
   accessibilityLabel: string;
@@ -988,6 +996,9 @@ function PressableSettingsSurface({
       disabled={disabled}
       hapticFeedback={hapticFeedback}
       onPress={onPress}
+      // Native row selection: a fill in the card's own rounded shape on
+      // touch-down, faded out on release — not a shrinking card.
+      pressHighlight
       pressedScale={pressedScale}
       style={[
         styles.settingsSurface,
@@ -3623,7 +3634,8 @@ function SettingsScreenContent({
  * display, tablets, foldables): the iOS Settings / Mail split — section list
  * in the leading pane, the selected section in the trailing pane, the first
  * section selected by default. Book posture aligns the panes to the fold
- * halves; notebook keeps the compact navigation.
+ * halves; fully open uses a narrower sidebar and gives the detail more room.
+ * Notebook keeps the compact navigation.
  *
  * The route's own content instance keeps its key and parent across a resize,
  * so its state (sheets, pending work) survives compact ⇄ split.

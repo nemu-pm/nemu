@@ -7,6 +7,7 @@ import {
   MOBILE_MANGA_GRID_MIN_COLUMNS,
   MOBILE_MANGA_GRID_MIN_ITEM_WIDTH,
 } from "@/lib/mobileAdaptiveGrid";
+import { mobileGridPrefersEvenColumns } from "@/lib/mobileAdaptiveLayout";
 import {
   mobileFoldAwareGridContentWidth,
   mobileFoldAwareGridLayout,
@@ -43,8 +44,10 @@ export type MobileFoldAwareGrid = MobileFoldAwareGridLayout & {
 
 /**
  * Grid for a browsing surface: columns from the container width (not the
- * device), an even count on regular widths, and in book posture the middle
- * gutter on the fold. Defaults are the manga cover grid's tuning.
+ * device), an even count whenever the window has a fold region (folded or
+ * flat), and the middle gutter on the active fold in book posture. Fully
+ * opening the display restores uniform gaps across the available width.
+ * Defaults are the manga cover grid's tuning.
  */
 export function useMobileFoldAwareGrid({
   minItemWidth = MOBILE_MANGA_GRID_MIN_ITEM_WIDTH,
@@ -65,10 +68,11 @@ export function useMobileFoldAwareGrid({
     insets: { left, right },
     pageGutters: gutters,
   });
+  // An inactive fold is only a column-parity hint, not reserved space.
   const split = container.split;
   const foldStart = split?.axis === "horizontal" ? split.gutter.start - left : null;
   const foldEnd = split?.axis === "horizontal" ? split.gutter.end - left : null;
-  const regularWidth = container.adaptive.regularWidth;
+  const preferEven = mobileGridPrefersEvenColumns(container.adaptive);
   const layout = useMemo(() => {
     const fold = foldStart !== null && foldEnd !== null ? { start: foldStart, end: foldEnd } : null;
     return {
@@ -79,10 +83,10 @@ export function useMobileFoldAwareGrid({
         gap,
         minColumns,
         maxColumns,
-        preferEven: regularWidth,
+        preferEven,
         fold,
       }),
     };
-  }, [contentWidth, foldEnd, foldStart, gap, maxColumns, minColumns, minItemWidth, regularWidth]);
+  }, [contentWidth, foldEnd, foldStart, gap, maxColumns, minColumns, minItemWidth, preferEven]);
   return { ...layout, onLayout: container.onLayout, ref: container.ref };
 }

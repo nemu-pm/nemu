@@ -1,5 +1,5 @@
-import { memo, useCallback } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { memo, useCallback, useRef } from "react";
+import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   NemuNativeSearchField,
@@ -12,13 +12,20 @@ import {
   useNemuTheme,
 } from "@/design-system";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
-import type { SearchSourceDisplay, SearchSourceSelection } from "@/lib/mobileSearch";
+import {
+  resolveSearchSourcePressSelection,
+  type SearchSourceDisplay,
+  type SearchSourcePressState,
+  type SearchSourceSelection,
+} from "@/lib/mobileSearch";
 import {
   formatMobileSearchSidebarCount,
-  isMobileSearchSidebarRowSelected,
+  resolveMobileSearchSidebarCheckState,
   resolveMobileSearchSidebarPress,
+  type MobileSearchSidebarCheckState,
   type MobileSearchSidebarStatus,
 } from "@/lib/mobileSearchLayout";
+import { MobileSheetSelectionIndicator } from "@/components/MobileSheetSelectionIndicator";
 import { MobileSearchSourceIcon } from "./MobileSearchSourceIcon";
 
 const ROW_ICON_SIZE = 26;
@@ -29,7 +36,9 @@ type SidebarRowProps = {
   title: string;
   icon: SearchSourceDisplay | null;
   status: MobileSearchSidebarStatus;
-  selected: boolean;
+  check: MobileSearchSidebarCheckState;
+  /** False with a single source: it is the whole scope and cannot be toggled. */
+  showCheck: boolean;
   disabled?: boolean;
   badge?: string;
   accessibilityHint: string;
@@ -40,20 +49,17 @@ type SidebarRowProps = {
 
 function SidebarRowStatus({
   status,
-  selected,
   strings,
 }: {
   status: MobileSearchSidebarStatus;
-  selected: boolean;
   strings: MobileStrings;
 }) {
   const { tokens } = useNemuTheme();
-  const detail = selected ? nemuColorWithAlpha(tokens.primaryForeground, 0.82) : tokens.mutedForeground;
   if (status.kind === "loading") {
     return (
       <ActivityIndicator
         accessibilityLabel={strings.search.searching}
-        color={selected ? tokens.primaryForeground : tokens.mutedForeground}
+        color={tokens.mutedForeground}
         size="small"
       />
     );
@@ -64,7 +70,7 @@ function SidebarRowStatus({
         accessibilityLabel={strings.search.sidebarSearchFailed}
         name="alert-circle-outline"
         size={17}
-        color={selected ? tokens.primaryForeground : tokens.danger}
+        color={tokens.danger}
       />
     );
   }
@@ -72,7 +78,7 @@ function SidebarRowStatus({
     return (
       <NemuText
         maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
-        style={[styles.count, { color: detail }]}
+        style={[styles.count, { color: tokens.mutedForeground }]}
       >
         {formatMobileSearchSidebarCount(status)}
       </NemuText>
@@ -81,12 +87,39 @@ function SidebarRowStatus({
   return null;
 }
 
+/**
+ * The row's inclusion mark: iOS draws the multi-select circle of a list in
+ * edit mode (filled checkmark when in scope, a dash for a partial "All"),
+ * Android its Material checkbox.
+ */
+function SidebarCheckMark({ check }: { check: MobileSearchSidebarCheckState }) {
+  const { tokens } = useNemuTheme();
+  if (Platform.OS === "android") {
+    return (
+      <MobileSheetSelectionIndicator
+        kind="checkbox"
+        checked={check !== "off"}
+        color={tokens.primary}
+        iosStyle={null}
+      />
+    );
+  }
+  return (
+    <Ionicons
+      name={check === "on" ? "checkmark-circle" : check === "mixed" ? "remove-circle" : "ellipse-outline"}
+      size={23}
+      color={check === "off" ? nemuColorWithAlpha(tokens.mutedForeground, 0.55) : tokens.primary}
+    />
+  );
+}
+
 const SidebarRow = memo(function SidebarRow({
   target,
   title,
   icon,
   status,
-  selected,
+  check,
+  showCheck,
   disabled,
   badge,
   accessibilityHint,
@@ -105,52 +138,45 @@ const SidebarRow = memo(function SidebarRow({
         : status.kind === "loading"
           ? strings.search.searching
           : null;
+  // An excluded source recedes (muted title, faded icon); the checkmark
+  // column carries the state, so the rows never flip to a filled highlight.
+  const excluded = check === "off";
 
   return (
     <NemuPressable
-      accessibilityRole="button"
+      accessibilityRole="checkbox"
       accessibilityLabel={[title, badge, statusLabel].filter(Boolean).join(", ")}
       accessibilityHint={accessibilityHint}
-      accessibilityState={{ selected, disabled }}
+      accessibilityState={{ checked: check === "mixed" ? "mixed" : check === "on", disabled }}
       disabled={disabled}
       hapticFeedback="selection"
       onPress={() => onPress(target)}
       onLongPress={target !== null && onLongPress ? () => onLongPress(target) : undefined}
       pressProfile="row"
-      style={[
-        styles.row,
-        selected ? { backgroundColor: tokens.primary } : null,
-        disabled ? styles.rowDisabled : null,
-      ]}
+      pressHighlight
+      style={[styles.row, disabled ? styles.rowDisabled : null]}
     >
-      {icon ? (
-        <MobileSearchSourceIcon source={icon} size={ROW_ICON_SIZE} />
-      ) : (
-        <View
-          style={[
-            styles.allIcon,
-            {
-              backgroundColor: selected
-                ? nemuColorWithAlpha(tokens.primaryForeground, 0.18)
-                : tokens.sourceIconGlass,
-              borderColor: selected ? "transparent" : tokens.border,
-            },
-          ]}
-        >
-          <Ionicons
-            name="apps-outline"
-            size={15}
-            color={selected ? tokens.primaryForeground : tokens.primary}
-          />
-        </View>
-      )}
+      <View style={excluded ? styles.iconExcluded : null}>
+        {icon ? (
+          <MobileSearchSourceIcon source={icon} size={ROW_ICON_SIZE} />
+        ) : (
+          <View
+            style={[
+              styles.allIcon,
+              { backgroundColor: tokens.sourceIconGlass, borderColor: tokens.border },
+            ]}
+          >
+            <Ionicons name="apps-outline" size={15} color={tokens.primary} />
+          </View>
+        )}
+      </View>
       <NemuText
         maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
         numberOfLines={1}
         style={[
           nemuText.rowTitle,
           styles.rowTitle,
-          { color: selected ? tokens.primaryForeground : tokens.foreground },
+          { color: excluded ? tokens.mutedForeground : tokens.foreground },
         ]}
       >
         {title}
@@ -164,8 +190,9 @@ const SidebarRow = memo(function SidebarRow({
           {badge}
         </NemuText>
       ) : (
-        <SidebarRowStatus status={status} selected={selected} strings={strings} />
+        <SidebarRowStatus status={status} strings={strings} />
       )}
+      {disabled || !showCheck ? null : <SidebarCheckMark check={check} />}
     </NemuPressable>
   );
 });
@@ -184,7 +211,7 @@ function SidebarSectionHeader({
         accessibilityRole="header"
         maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
         numberOfLines={1}
-        style={[styles.sectionTitle, { color: tokens.mutedForeground }]}
+        style={[styles.sectionTitle, { color: tokens.foreground }]}
       >
         {title}
       </NemuText>
@@ -249,21 +276,33 @@ export function MobileSearchSidebar({
   const { tokens } = useNemuTheme();
   const sourceIds = sources.map((source) => source.id);
   const sourceIdsKey = sourceIds.join("|");
+  const lastPressRef = useRef<SearchSourcePressState>(null);
+  // Same gestures as the phone chips: tap toggles (multi-select), a double tap
+  // or long press searches only that source, "All sources" restores every one.
   const handlePress = useCallback(
     (target: string | null) => {
       const ids = sourceIdsKey ? sourceIdsKey.split("|") : [];
-      onChangeSelection(resolveMobileSearchSidebarPress({ sourceIds: ids, selection, target, gesture: "press" }));
+      if (target === null || ids.length <= 1) {
+        lastPressRef.current = null;
+        onChangeSelection(resolveMobileSearchSidebarPress({ sourceIds: ids, selection, target, gesture: "press" }));
+        return;
+      }
+      const result = resolveSearchSourcePressSelection(ids, selection, target, lastPressRef.current, Date.now());
+      lastPressRef.current = result.lastPress;
+      onChangeSelection(result.selection);
     },
     [onChangeSelection, selection, sourceIdsKey],
   );
   const handleLongPress = useCallback(
     (target: string) => {
       const ids = sourceIdsKey ? sourceIdsKey.split("|") : [];
-      onChangeSelection(resolveMobileSearchSidebarPress({ sourceIds: ids, selection, target, gesture: "longPress" }));
+      lastPressRef.current = null;
+      onChangeSelection(resolveMobileSearchSidebarPress({ sourceIds: ids, selection, target, gesture: "only" }));
     },
     [onChangeSelection, selection, sourceIdsKey],
   );
   const showAllRow = sources.length > 1;
+  const selectableIds = sources.filter((source) => !source.unsupported).map((source) => source.id);
 
   return (
     <View style={styles.root}>
@@ -287,7 +326,8 @@ export function MobileSearchSidebar({
               title={strings.search.allSources}
               icon={null}
               status={allStatus}
-              selected={isMobileSearchSidebarRowSelected(selection, null)}
+              check={resolveMobileSearchSidebarCheckState({ selection, target: null, sourceIds: selectableIds })}
+              showCheck
               accessibilityHint={strings.search.sidebarAllSourcesHint}
               strings={strings}
               onPress={handlePress}
@@ -300,14 +340,14 @@ export function MobileSearchSidebar({
               title={source.name}
               icon={source}
               status={statuses[source.id] ?? NO_STATUS}
-              // With a single source there is no "All" row: that source is the scope.
-              selected={isMobileSearchSidebarRowSelected(selection, showAllRow ? source.id : null)}
+              check={resolveMobileSearchSidebarCheckState({ selection, target: source.id, sourceIds: selectableIds })}
+              showCheck={showAllRow}
               disabled={source.unsupported}
               badge={source.unsupported ? strings.common.sourceUnsupportedBadge : undefined}
               accessibilityHint={
                 source.unsupported
                   ? strings.common.sourceUnsupportedTachiyomiDescription
-                  : strings.search.sidebarSourceHint
+                  : strings.search.sourceSelectionHint
               }
               strings={strings}
               onPress={handlePress}
@@ -334,6 +374,7 @@ export function MobileSearchSidebar({
                 hapticFeedback="selection"
                 onPress={() => onPressRecent(recent)}
                 pressProfile="row"
+                pressHighlight
                 style={styles.recentRow}
               >
                 <Ionicons name="time-outline" size={17} color={tokens.mutedForeground} />
@@ -368,14 +409,15 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 10,
   },
+  // Sentence-case headline, like the section headers of Files' and Mail's
+  // sidebars (no uppercase tracking).
   sectionTitle: {
-    ...nemuText.label,
+    ...nemuText.sectionTitle,
     flexShrink: 1,
-    letterSpacing: 0.48,
-    textTransform: "uppercase",
   },
   sectionAction: {
-    ...nemuText.label,
+    ...nemuText.body,
+    fontSize: 15,
   },
   rows: {
     gap: 2,
@@ -391,6 +433,9 @@ const styles = StyleSheet.create({
   },
   rowDisabled: {
     opacity: 0.56,
+  },
+  iconExcluded: {
+    opacity: 0.5,
   },
   allIcon: {
     width: ROW_ICON_SIZE,

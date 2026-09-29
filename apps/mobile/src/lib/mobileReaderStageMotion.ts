@@ -1,3 +1,4 @@
+import type { MobilePoseVeilPlan } from "@/lib/mobileMotion";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 
 /**
@@ -5,7 +6,7 @@ import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
  * they are unit tested. `mobileReaderMotionAnimations.ts` turns them into
  * Reanimated work on the UI thread.
  *
- * - The gallery is never remounted for a stage *size* change: a fold, a dock
+ * - The gallery is never remounted for a stage *size* change: a fold, a bar
  *   opening or the capsule row appearing glides the stage frame (FLIP: the new layout is
  *   drawn at once, transformed to where the old page was, then springs home).
  * - A presentation change the list cannot morph (spread ⇄ single, bilingual
@@ -18,6 +19,10 @@ import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
 type Rect = WindowLayoutRect;
 
 export const MOBILE_READER_STAGE_CROSSFADE_MS = 200;
+/** The old list stays at full strength this long before it fades (the new one decodes meanwhile). */
+export const MOBILE_READER_STAGE_EXIT_HOLD_MS = 120;
+/** A remounted list starts this visible (never from black) and rises to 1. */
+export const MOBILE_READER_STAGE_CROSSFADE_FLOOR = 0.6;
 export const MOBILE_READER_REDUCE_MOTION_FADE_MS = 150;
 /** Horizontal chrome ⇄ capsules: fade + this slide down from the top edge (motion spec). */
 export const MOBILE_READER_CHROME_ARRANGEMENT_SLIDE = 8;
@@ -25,9 +30,40 @@ export const MOBILE_READER_CHROME_ARRANGEMENT_MS = 220;
 /** Notebook console unfolding from the hinge. */
 export const MOBILE_READER_CONSOLE_UNFOLD_MS = 280;
 export const MOBILE_READER_CONSOLE_UNFOLD_DEG = -80;
-/** Docked learning panel: slides in from its edge while it fades in. */
-export const MOBILE_READER_DOCK_SLIDE = 48;
-export const MOBILE_READER_DOCK_CONSOLE_SLIDE = 24;
+/**
+ * Root pose veil caps while the reader is on screen (rotation, display
+ * switch): a light dark frost over the pages (iOS, where the system rotates
+ * a snapshot and then shows the new layout at once), never a near-opaque
+ * black wash. Android has no blur and already cross-fades the rotated window
+ * itself, so any wash there only deepens the system's dip to black: none.
+ */
+export function mobileReaderPoseVeilCaps(platform: "ios" | "android" | string): {
+  maxTintOpacity: number;
+  maxBlurIntensity: number;
+} {
+  return platform === "ios"
+    ? { maxTintOpacity: 0.28, maxBlurIntensity: 24 }
+    : { maxTintOpacity: 0, maxBlurIntensity: 0 };
+}
+
+/**
+ * Apply a surface's veil caps (`MobilePoseVeilAppearance.maxTintOpacity` /
+ * `maxBlurIntensity`) to the root veil plan. No caps: the plan unchanged.
+ */
+export function mobilePoseVeilPlanWithCaps(
+  plan: MobilePoseVeilPlan,
+  caps: { maxTintOpacity?: number; maxBlurIntensity?: number } | null | undefined,
+): MobilePoseVeilPlan {
+  const tintCap = caps?.maxTintOpacity;
+  const blurCap = caps?.maxBlurIntensity;
+  if (tintCap === undefined && blurCap === undefined) return plan;
+  return {
+    ...plan,
+    tintOpacity: tintCap === undefined ? plan.tintOpacity : Math.min(plan.tintOpacity, Math.max(0, tintCap)),
+    blurIntensity: blurCap === undefined ? plan.blurIntensity : Math.min(plan.blurIntensity, Math.max(0, blurCap)),
+  };
+}
+
 /** A glide whose page would scale by more than this is cross-faded instead. */
 export const MOBILE_READER_STAGE_FLIP_MAX_SCALE = 2.5;
 
@@ -47,6 +83,13 @@ export type MobileReaderStageSnapshot = {
   presentation: string;
   /** A two-page spread: its page slots glide on their own (apart into the fold panes, or back). */
   spread: boolean;
+  /**
+   * Page geometry inside the stage (spread slots, page frame limits). A
+   * change here at a constant stage frame — flat ⇄ book with a spread: the
+   * stage stays the window, the halves move apart into the panes — glides
+   * the slots and page frames themselves.
+   */
+  pages?: string;
   /** Chapter / fetch / reading direction identity; motion never spans two contents. */
   contentKey: string;
 };
@@ -57,7 +100,12 @@ export type MobileReaderStageMotion =
   | { kind: "jump" }
   /** The list must remount: fade the old stage out over the new one. */
   | { kind: "crossfade"; durationMs: number }
-  /** Same presentation, new frame: FLIP the page (`page`) or only the stage origin (`translate`, spread slots glide themselves). */
+  /**
+   * Same presentation, new frame. `page`: FLIP the whole stage so the page
+   * maps onto its new box (single page, stage moved). `translate`: the stage
+   * only glides its origin (if it moved) while every spread slot and page
+   * frame glides from its old box to its new one.
+   */
   | { kind: "glide"; flip: "page" | "translate" }
   /** Reduce Motion stand-in for a glide. */
   | { kind: "fade"; durationMs: number };
@@ -81,8 +129,14 @@ export function mobileReaderStageMotion(
       durationMs: reduceMotion ? MOBILE_READER_REDUCE_MOTION_FADE_MS : MOBILE_READER_STAGE_CROSSFADE_MS,
     };
   }
-  if (sameRect(previous.stage, next.stage)) return { kind: "none" };
+  const stageMoved = !sameRect(previous.stage, next.stage);
+  const pagesMoved = (previous.pages ?? "") !== (next.pages ?? "");
+  if (!stageMoved && !pagesMoved) return { kind: "none" };
+  // Reduce Motion: the stage fades; slots and page frames settle at once.
   if (reduceMotion) return { kind: "fade", durationMs: MOBILE_READER_REDUCE_MOTION_FADE_MS };
+  // Only the pages moved (the stage frame is unchanged, so its own transition
+  // never runs): slots and page frames glide.
+  if (!stageMoved) return { kind: "glide", flip: "translate" };
   return { kind: "glide", flip: previous.spread && next.spread ? "translate" : "page" };
 }
 
@@ -143,6 +197,24 @@ export function mobileReaderStageFlipTransform(input: {
   };
 }
 
+/**
+ * FLIP start transform for one page frame (transform origin = its centre):
+ * drawn at `to`, it covers `from` — centre on centre, uniformly scaled by the
+ * width ratio (the page keeps its aspect). Both rects in the same parent's
+ * coordinates.
+ */
+export function mobileReaderPageFrameFlip(from: Rect, to: Rect): MobileReaderFlipTransform {
+  "worklet";
+  if (!(to.width > 0) || !(to.height > 0) || !(from.width > 0) || !(from.height > 0)) return IDENTITY;
+  let scale = from.width / to.width;
+  if (!Number.isFinite(scale) || scale <= 0) return IDENTITY;
+  scale = Math.max(1 / MOBILE_READER_STAGE_FLIP_MAX_SCALE, Math.min(MOBILE_READER_STAGE_FLIP_MAX_SCALE, scale));
+  const translateX = from.x + from.width / 2 - (to.x + to.width / 2);
+  const translateY = from.y + from.height / 2 - (to.y + to.height / 2);
+  const still = Math.abs(translateX) < SAME && Math.abs(translateY) < SAME && Math.abs(scale - 1) < 0.002;
+  return still ? IDENTITY : { translateX, translateY, scale };
+}
+
 /** Applies a FLIP transform (origin at `to`'s centre) to a point — the inverse check used by tests. */
 export function mobileReaderApplyFlip(point: { x: number; y: number }, to: Rect, flip: MobileReaderFlipTransform) {
   const cx = to.x + to.width / 2;
@@ -200,15 +272,24 @@ export function mobileReaderStripRelayoutOffset(input: {
   return { progress, offset: Math.round(progress * nextRange) };
 }
 
+/**
+ * Whether a gallery remount cross-fades. Only a presentation change inside
+ * the same window does (spread ⇄ single on a fold): after a window resize
+ * (rotation, display switch) the old list is laid out for the old window, so
+ * fading it out over the new one — and the new one in from black — only
+ * showed a dark, ghosted frame. The new list then appears at once, already
+ * scrolled to the page being read.
+ */
 export function mobileReaderGalleryRemountMotion(input: {
-  previous: { mountKey: string; contentKey: string } | null;
-  next: { mountKey: string; contentKey: string };
+  previous: { mountKey: string; contentKey: string; windowKey?: string } | null;
+  next: { mountKey: string; contentKey: string; windowKey?: string };
   reduceMotion: boolean;
 }): { crossfade: boolean; durationMs: number } {
   const { previous, next } = input;
   const crossfade = Boolean(previous)
     && previous!.mountKey !== next.mountKey
     && previous!.contentKey === next.contentKey
+    && (previous!.windowKey ?? "") === (next.windowKey ?? "")
     && previous!.mountKey !== "loading"
     && next.mountKey !== "loading";
   return {
@@ -222,7 +303,13 @@ export function mobileReaderGalleryRemountMotion(input: {
 // --- Chrome arrangement ----------------------------------------------------
 
 export type MobileReaderChromeArrangement = {
-  kind: "horizontal" | "capsules" | "console";
+  kind: "capsules" | "console";
+  /**
+   * Where the pieces sit (capsule rects). A pose change that only moves them
+   * (flat ⇄ book: the row snaps per pane) glides the same capsules to their
+   * new frames — nothing fades out and back in.
+   */
+  geometry?: string;
 };
 
 export type MobileReaderChromeArrangementMotion = {
@@ -234,16 +321,24 @@ export type MobileReaderChromeArrangementMotion = {
   durationMs: number;
 };
 
+/** Identity of the chrome layer: one per arrangement kind (a geometry change never remounts it). */
 export function mobileReaderChromeArrangementKey(arrangement: MobileReaderChromeArrangement): string {
   return arrangement.kind;
 }
 
+/** Capsule piece rects rounded to whole points: the chrome's geometry key. */
+export function mobileReaderChromeGeometryKey(rects: ReadonlyArray<Rect | null>): string {
+  return rects
+    .map((rect) => (rect ? `${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.width)},${Math.round(rect.height)}` : "-"))
+    .join("|");
+}
+
 /**
- * Visible chrome moved to another arrangement (pose change). Capsules settle
- * the last 8pt down onto their row as they fade in (they hang from the
- * status-bar row); horizontal bars fade in place; the console unfolds from
- * the hinge. Only an arrangement change animates this way — showing/hiding
- * the chrome keeps its own fade.
+ * Visible chrome moved to another arrangement kind (pose change): capsules
+ * settle the last 8pt down onto their row as they fade in; the console
+ * unfolds from the hinge. Only a kind change remounts the layer this way —
+ * showing/hiding keeps its own fade, and moved pieces glide
+ * (`mobileReaderChromeGlide`).
  */
 export function mobileReaderChromeArrangementMotion(input: {
   from: MobileReaderChromeArrangement | null;
@@ -252,32 +347,31 @@ export function mobileReaderChromeArrangementMotion(input: {
 }): MobileReaderChromeArrangementMotion | null {
   const { from, to } = input;
   if (!from) return null;
-  if (mobileReaderChromeArrangementKey(from) === mobileReaderChromeArrangementKey(to)) return null;
+  if (from.kind === to.kind) return null;
   if (input.reduceMotion) {
     return { dx: 0, dy: 0, unfold: false, durationMs: MOBILE_READER_REDUCE_MOTION_FADE_MS };
   }
   if (to.kind === "console") {
     return { dx: 0, dy: 0, unfold: true, durationMs: MOBILE_READER_CONSOLE_UNFOLD_MS };
   }
-  if (to.kind === "capsules") {
-    return { dx: 0, dy: -MOBILE_READER_CHROME_ARRANGEMENT_SLIDE, unfold: false, durationMs: MOBILE_READER_CHROME_ARRANGEMENT_MS };
-  }
-  return { dx: 0, dy: 0, unfold: false, durationMs: MOBILE_READER_CHROME_ARRANGEMENT_MS };
+  return { dx: 0, dy: -MOBILE_READER_CHROME_ARRANGEMENT_SLIDE, unfold: false, durationMs: MOBILE_READER_CHROME_ARRANGEMENT_MS };
 }
 
-// --- Docked learning panel -------------------------------------------------
-
-/** Where a docked panel slides in from: its outer window edge, or up into the notebook console. */
-export function mobileReaderDockMotion(input: {
-  region: "side" | "pane" | "console";
-  frame: Rect;
-  bounds: Rect;
+/**
+ * The same visible capsules moved (flat ⇄ book, dock, rotation within a
+ * window): each piece is one persistent element that glides and resizes to
+ * its new frame with the settle spring, content visible throughout — never a
+ * fade out in one pane and in at the other (read as a flash). Reduce Motion:
+ * they move at once.
+ */
+export function mobileReaderChromeGlide(input: {
+  from: MobileReaderChromeArrangement | null;
+  to: MobileReaderChromeArrangement;
   reduceMotion: boolean;
-}): { dx: number; dy: number } {
-  if (input.reduceMotion) return { dx: 0, dy: 0 };
-  if (input.region === "console") return { dx: 0, dy: MOBILE_READER_DOCK_CONSOLE_SLIDE };
-  const center = input.frame.x + input.frame.width / 2;
-  return { dx: center >= input.bounds.x + input.bounds.width / 2 ? MOBILE_READER_DOCK_SLIDE : -MOBILE_READER_DOCK_SLIDE, dy: 0 };
+}): boolean {
+  const { from, to } = input;
+  if (!from || input.reduceMotion || from.kind !== to.kind) return false;
+  return (from.geometry ?? "") !== (to.geometry ?? "");
 }
 
 // --- Taps and reader cards ---------------------------------------------------

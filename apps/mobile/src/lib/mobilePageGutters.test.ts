@@ -4,6 +4,14 @@ import { spacing } from "@/design/tokens";
 import { getMobilePageBleedStyles, getMobilePageGutters } from "./mobilePageGutters";
 
 describe("getMobilePageGutters", () => {
+  test("matches native title margins while respecting vertical bars on either side", () => {
+    for (const minimum of [16, 20]) {
+      const margins = { left: minimum, right: minimum };
+      expect(getMobilePageGutters({}, undefined, margins).left).toBe(minimum);
+      expect(getMobilePageGutters({ right: 84 }, undefined, margins)).toEqual({ left: minimum, right: 84, horizontal: minimum + 84 });
+      expect(getMobilePageGutters({ left: 84 }, undefined, margins)).toEqual({ left: 84, right: minimum, horizontal: minimum + 84 });
+    }
+  });
   test("portrait phones keep the plain page gutter", () => {
     expect(getMobilePageGutters({ left: 0, right: 0 })).toEqual({
       left: spacing.pageX,

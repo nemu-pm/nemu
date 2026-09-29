@@ -79,6 +79,25 @@ function boundedLocalImageSourceKey(
   return `${uriOwnership}:${cacheKey ?? ""}:${uri.length}:${first >>> 0}:${second >>> 0}`;
 }
 
+/**
+ * Sources this session has already shown. A view that mounts again for one of
+ * them (a reader list remounted by a rotation or spread ⇄ single, a recycled
+ * cover cell scrolling back) reveals it at once instead of fading from blank:
+ * the bitmap is in the native memory cache and was on screen a moment ago, so
+ * a fade would only read as a flash of empty background. Bounded LRU.
+ */
+const SHOWN_SOURCE_LIMIT = 512;
+const shownSourceKeys = new Set<string>();
+
+function markSourceShown(sourceKey: string) {
+  if (shownSourceKeys.has(sourceKey)) shownSourceKeys.delete(sourceKey);
+  shownSourceKeys.add(sourceKey);
+  if (shownSourceKeys.size > SHOWN_SOURCE_LIMIT) {
+    const oldest = shownSourceKeys.values().next().value;
+    if (oldest !== undefined) shownSourceKeys.delete(oldest);
+  }
+}
+
 export function MobileCachedImage({
   source,
   uriOwnership,
@@ -98,6 +117,8 @@ export function MobileCachedImage({
   const skipFade = reduceMotion === true || !fadeIn;
   const sourceUri = source.uri;
   const sourceHeaders = source.headers;
+  // Starts hidden unless the fade is skipped; a source already shown this
+  // session is revealed as soon as its key is known (below, same render).
   const [imageFadeRef] = useState(
     () => new ReactAnimated.Value(skipFade ? 1 : 0),
   );
@@ -148,6 +169,11 @@ export function MobileCachedImage({
     uriOwnership,
     uriPolicy,
   ]);
+  // A source already on screen this session (a remounted reader list, a
+  // cover cell scrolling back) is shown at once: its bitmap is in the native
+  // cache, and a fade from blank would read as a flash of empty background.
+  // Read once per source key; the set only grows while it is on screen.
+  const shownAtMount = useMemo(() => shownSourceKeys.has(sourceKey), [sourceKey]);
   const cacheSource = useMemo(
     () => ({
       uri: source.uri,
@@ -410,13 +436,14 @@ export function MobileCachedImage({
 
   const handleImageLoad = useCallback<NonNullable<ImageProps["onLoad"]>>(
     (event) => {
+      markSourceShown(sourceKey);
       if (activeSourceKeyRef.current === sourceKey) {
         setFailedSourceKey((current) =>
           current === sourceKey ? null : current,
         );
         reportedErrorSourceKeyRef.current = null;
       }
-      if (skipFade) {
+      if (skipFade || shownAtMount) {
         imageFadeRef.setValue(1);
       } else {
         ReactAnimated.timing(imageFadeRef, {
@@ -427,7 +454,7 @@ export function MobileCachedImage({
       }
       onLoad?.(event);
     },
-    [imageFadeRef, onLoad, skipFade, sourceKey],
+    [imageFadeRef, onLoad, shownAtMount, skipFade, sourceKey],
   );
 
   // Restart the fade whenever the source changes so a recycled cover cell
@@ -453,10 +480,14 @@ export function MobileCachedImage({
       style={[
         styles.fadeShell,
         style,
-        { opacity: imageFadeRef },
+        { opacity: shownAtMount && !skipFade ? 1 : imageFadeRef },
       ]}
     >
       <Image
+        // Android's image view adds its own 300ms fade from transparent on
+        // every load — including a re-decode after a resize or a remounted
+        // cell — on top of ours; the shell above owns the one fade.
+        fadeDuration={0}
         {...props}
         // Only a repair changes this key: the native loader will not retry a
         // URI it already failed on unless the view element is replaced.

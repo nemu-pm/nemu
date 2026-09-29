@@ -13,6 +13,9 @@ import { useMobileContainerFold } from "@/lib/useMobileContainerFold";
  * the app-wide adaptive layout. Lays out from the container's bounds, never the
  * screen (HIG "build to resize").
  *
+ * Book panes follow the active fold. Unfolding restores the proportional
+ * sidebar layout without reserving space for an inactive fold.
+ *
  * Measurement goes through `useMobileContainerFold`, which re-measures when the
  * fold changes (folding into book pose changes the reserved regions without
  * resizing the container) and ignores the off-window frame a push transition
@@ -25,7 +28,8 @@ export function useMobileSplitPaneLayout(options: MobileSplitPaneOptions): {
   layout: MobileSplitPaneLayout;
 } {
   const container = useMobileContainerFold<ViewInstance>();
-  const { adaptive, rect } = container;
+  const { rect } = container;
+  const adaptive = container.adaptive;
   const containerWidth = container.width ?? adaptive.width;
   // Until a trusted window measurement lands (it is asynchronous, and skipped
   // mid-transition), assume the container starts at the window's leading edge

@@ -1,7 +1,5 @@
 import type { ColorSchemeName } from "react-native";
 import type { NemuTokens } from "@/design-system";
-// eslint-disable-next-line no-restricted-imports -- pure color helper; importing from @/design-system pulls the component barrel, which loads react-native's Flow-typed index.js and breaks bun's test runner.
-import { nemuColorWithAlpha } from "@/design/colorAlpha";
 
 /** Web drawer follow-up row indent: `ml-11` (44px) + inner `ml-4` (16px). */
 export const JAPANESE_LEARNING_FOLLOW_UP_SUGGESTION_INDENT = 60;
@@ -48,9 +46,9 @@ export function getJapaneseLearningAssistantBubbleColors(
   }
 
   return {
-    backgroundColor: "#e8ebf2",
+    backgroundColor: "#e7ebf6",
     textColor: "#0e111b",
-    tailColor: "#e8ebf2",
+    tailColor: "#e7ebf6",
   };
 }
 
@@ -59,26 +57,37 @@ export type JapaneseLearningFollowUpSuggestionColors = {
   borderColor: string;
   pressedBackgroundColor: string;
   textColor: string;
+  /** Web `box-shadow` of the pill, as a React Native `boxShadow` string. */
+  boxShadow: string;
 };
 
-/** Mirrors web `Suggestion` pills: `text-xs bg-secondary/80 border-border`. */
+/**
+ * Web `Suggestion` pills (`Button variant="outline"`): the `.btn-nemu-outline`
+ * glass surface wins over the `bg-secondary/80 border-border` utilities (the
+ * unlayered class beats Tailwind's utility layer), so the measured pill is
+ * `oklch(0.20 0.008 269 / 0.6)` on a 0.5px `oklch(0.5 0.02 269 / 0.18)` edge
+ * in dark mode — converted to sRGB here.
+ */
 export function getJapaneseLearningFollowUpSuggestionColors(
   scheme: ColorSchemeName,
   tokens: NemuTokens,
 ): JapaneseLearningFollowUpSuggestionColors {
   if (scheme === "dark") {
     return {
-      backgroundColor: "rgba(255,255,255,0.08)",
-      borderColor: tokens.border,
-      pressedBackgroundColor: "rgba(255,255,255,0.12)",
+      backgroundColor: "rgba(20,22,26,0.6)",
+      borderColor: "rgba(94,99,111,0.18)",
+      pressedBackgroundColor: "rgba(28,31,37,0.7)",
       textColor: tokens.foreground,
+      boxShadow:
+        "0px 2px 8px 0px rgba(0,0,0,0.3), 0px 0px 1px 0px rgba(0,0,0,0.25), inset 0px 0.5px 0px 0px rgba(255,255,255,0.05)",
     };
   }
-
   return {
-    backgroundColor: nemuColorWithAlpha(tokens.muted, 0.8),
-    borderColor: tokens.border,
-    pressedBackgroundColor: tokens.muted,
+    backgroundColor: "rgba(244,248,255,0.65)",
+    borderColor: "rgba(76,96,156,0.14)",
+    pressedBackgroundColor: "rgba(244,248,255,0.8)",
     textColor: tokens.foreground,
+    boxShadow:
+      "0px 1px 4px 0px rgba(46,65,135,0.06), 0px 0px 1px 0px rgba(46,65,135,0.08), inset 0px 0.5px 0px 0px rgba(255,255,255,0.5)",
   };
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { LayoutChangeEvent } from "react-native";
+import { type LayoutChangeEvent } from "react-native";
 import { mobileFoldSplitForContainer } from "@/lib/mobileAdaptiveLayout";
 import { useMobileAdaptiveLayout } from "@/lib/MobileWindowLayoutContext";
 import type { WindowLayoutRect } from "@/lib/mobileWindowLayout";
@@ -29,6 +29,8 @@ function sameRect(a: WindowLayoutRect | null, b: WindowLayoutRect) {
  * `rect` is only trusted while it lies inside the window: a push transition
  * measures the incoming screen off-screen, so it is measured again once the
  * transition settles.
+ *
+ * `split` is the ACTIVE fold only (reserved: nothing may rest on it).
  */
 export function useMobileContainerFold<T extends MeasurableNode = MeasurableNode>(
   getNode?: () => MeasurableNode | null | undefined,
@@ -81,7 +83,7 @@ export function useMobileContainerFold<T extends MeasurableNode = MeasurableNode
     ? `${adaptive.posture}:${adaptive.fold.x}:${adaptive.fold.y}:${adaptive.fold.width}:${adaptive.fold.height}`
     : "flat";
   useEffect(() => {
-    if (foldKey !== "flat") scheduleMeasure();
+    scheduleMeasure();
   }, [foldKey, scheduleMeasure]);
 
   useEffect(() => () => {
@@ -92,6 +94,13 @@ export function useMobileContainerFold<T extends MeasurableNode = MeasurableNode
     () => (rect ? mobileFoldSplitForContainer(adaptive, rect) : null),
     [adaptive, rect],
   );
-
-  return { ref, onLayout, measure, rect, width: width ?? rect?.width ?? null, split, adaptive };
+  return {
+    ref,
+    onLayout,
+    measure,
+    rect,
+    width: width ?? rect?.width ?? null,
+    split,
+    adaptive,
+  };
 }

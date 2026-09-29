@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import fixture from "../../../../tests/fixtures/iphone-duo/safearea-measurements.json";
-import { mobileAdaptiveLayout, mobileFoldSplitForContainer } from "./mobileAdaptiveLayout";
+import {
+  mobileAdaptiveGridColumns,
+  mobileAdaptiveLayout,
+  mobileFoldSplitForContainer,
+  mobileGridPrefersEvenColumns,
+} from "./mobileAdaptiveLayout";
 import type { MobileWindowLayout } from "./mobileWindowLayout";
 
 type Measurement = (typeof fixture.measurements)[number];
@@ -46,5 +51,34 @@ describe("vertical bar side follows the measured bar column", () => {
   test("closed portrait keeps it on the right", () => {
     const m = fixture.measurements.find((x) => x.pose === "closed" && x.orientation === "portrait")!;
     expect(mobileAdaptiveLayout({ ...toLayout(m), verticalBarEdge: "trailing", safeAreaInsets: m.insets }).verticalBarSide).toBe("right");
+  });
+});
+
+describe("even grid columns follow the fold region, not the width (111463 [7:36])", () => {
+  for (const m of fixture.measurements) {
+    const hasDivision = m.regions.some((r) => r.kind === "division");
+    test(`${m.screen} ${m.pose} ${m.orientation} → prefers even: ${hasDivision}`, () => {
+      const adaptive = mobileAdaptiveLayout(toLayout(m));
+      expect(adaptive.hasFoldRegion).toBe(hasDivision);
+      expect(mobileGridPrefersEvenColumns(adaptive)).toBe(hasDivision);
+    });
+  }
+
+  test("the inner display keeps the same even count flat and folded", () => {
+    const flat = fixture.measurements.find((x) => x.screen.endsWith("inner") && x.pose !== "partially-folded" && x.bounds.width > x.bounds.height)!;
+    const book = fixture.measurements.find((x) => x.pose === "partially-folded" && x.bounds.width > x.bounds.height)!;
+    const columns = (m: Measurement) => mobileAdaptiveGridColumns({
+      contentWidth: m.bounds.width - 84 - 32,
+      minItemWidth: 150,
+      gap: 12,
+      preferEven: mobileGridPrefersEvenColumns(mobileAdaptiveLayout(toLayout(m))),
+    }).columns;
+    expect(columns(flat) % 2).toBe(0);
+    expect(columns(flat)).toBe(columns(book));
+  });
+
+  test("the outer display (no division) is not forced even", () => {
+    const closed = fixture.measurements.find((x) => x.pose === "closed" && x.orientation === "portrait")!;
+    expect(mobileAdaptiveLayout(toLayout(closed)).hasFoldRegion).toBe(false);
   });
 });

@@ -114,8 +114,7 @@ function stateEntering(from: PaneState | null, to: PaneState, reduceMotion: bool
 
 /**
  * The notebook posture's bottom pane: the trackpad (B) or the filmstrip
- * console (A). The study desk (C) is the docked learning panel drawn by the
- * reader over this pane, so here it leaves the pane empty and dark.
+ * console (A).
  * State changes cross-fade with the settle spring; Reduce Motion fades.
  */
 export function ReaderNotebookPane(props: ReaderNotebookPaneProps) {

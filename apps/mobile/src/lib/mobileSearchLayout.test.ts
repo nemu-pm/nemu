@@ -1,10 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { mobileAdaptiveLayout, mobileFoldSplitForContainer } from "@/lib/mobileAdaptiveLayout";
 import { getMobileSplitPaneLayout } from "@/lib/mobileSplitPaneLayout";
 import {
   MOBILE_SEARCH_SPLIT_OPTIONS,
+  mobileSearchShowsKindHeaders,
+  mobileSearchFieldHeight,
+  mobileSearchResultsTopInset,
+  MOBILE_SEARCH_KIND_HEADER_HEIGHT,
+  MOBILE_SEARCH_SOURCE_HEADER_HEIGHT,
   formatMobileSearchSidebarCount,
   isMobileSearchSidebarRowSelected,
+  resolveMobileSearchSidebarCheckState,
   resolveMobileSearchSidebarPress,
   resolveMobileSearchSidebarStatuses,
   summarizeMobileSearchSidebarStatuses,
@@ -22,9 +29,19 @@ function duoInnerLandscape(active: boolean) {
   } as never);
 }
 
+function duoLayout(active: boolean) {
+  return {
+    width: 951,
+    height: 669,
+    supported: true,
+    divisions: [{ id: "fold", x: 455.5, y: 0, width: 40, height: 669, active }],
+    occlusions: [],
+  };
+}
+
 describe("search split layout", () => {
-  test("Duo inner landscape, flat: a narrow sidebar beside the results", () => {
-    const adaptive = duoInnerLandscape(false);
+  test("wide flat window without a fold region (tablet): a narrow sidebar beside the results", () => {
+    const adaptive = mobileAdaptiveLayout({ width: 951, height: 669, supported: true, divisions: [], occlusions: [] });
     const layout = getMobileSplitPaneLayout({
       // The container stops at the trailing system bar column.
       containerWidth: 867,
@@ -55,6 +72,23 @@ describe("search split layout", () => {
     if (layout.mode !== "split") throw new Error("expected split");
     expect(layout.leading.width).toBeCloseTo(455.5, 1);
     expect(layout.trailing.x).toBeCloseTo(495.5, 1);
+  });
+
+  test("Duo inner landscape: unfolding restores the narrower search sidebar", () => {
+    const container = { x: 0, y: 0, width: 867, height: 669 };
+    const sidebarFor = (layout: ReturnType<typeof duoLayout>) => {
+      const adaptive = mobileAdaptiveLayout(layout);
+      return getMobileSplitPaneLayout({
+        containerWidth: 867,
+        regularWidth: adaptive.regularWidth,
+        posture: adaptive.posture,
+        foldSplit: mobileFoldSplitForContainer(adaptive, container),
+        options: MOBILE_SEARCH_SPLIT_OPTIONS,
+      });
+    };
+    const flat = sidebarFor(duoLayout(false));
+    expect(flat).not.toEqual(sidebarFor(duoLayout(true)));
+    expect(flat).toMatchObject({ mode: "split", alignment: "flat", gutter: 0 });
   });
 
   test("taller-than-wide regular widths keep one column (Duo inner portrait)", () => {
@@ -177,31 +211,24 @@ describe("sidebar statuses", () => {
 });
 
 describe("sidebar selection", () => {
-  test("a tap searches only that source; All restores every source", () => {
+  test("a tap toggles the source (multi-select, like the phone chips); All restores every source", () => {
     expect(resolveMobileSearchSidebarPress({ sourceIds: IDS, selection: null, target: "jump", gesture: "press" })).toEqual([
-      "jump",
+      "mangadex",
+      "plus",
     ]);
     expect(
       resolveMobileSearchSidebarPress({ sourceIds: IDS, selection: ["jump"], target: "plus", gesture: "press" }),
-    ).toEqual(["plus"]);
+    ).toEqual(["plus", "jump"].sort((x, y) => IDS.indexOf(x) - IDS.indexOf(y)));
+    expect(
+      resolveMobileSearchSidebarPress({ sourceIds: IDS, selection: ["mangadex", "plus"], target: "jump", gesture: "press" }),
+    ).toBeNull();
     expect(resolveMobileSearchSidebarPress({ sourceIds: IDS, selection: [], target: null, gesture: "press" })).toBeNull();
   });
 
-  test("a long press adds or removes a source, in source order", () => {
+  test("double tap / long press searches only that source", () => {
     expect(
-      resolveMobileSearchSidebarPress({ sourceIds: IDS, selection: ["plus"], target: "mangadex", gesture: "longPress" }),
-    ).toEqual(["mangadex", "plus"]);
-    expect(
-      resolveMobileSearchSidebarPress({ sourceIds: IDS, selection: null, target: "jump", gesture: "longPress" }),
-    ).toEqual(["mangadex", "plus"]);
-    expect(
-      resolveMobileSearchSidebarPress({
-        sourceIds: IDS,
-        selection: ["mangadex", "plus"],
-        target: "jump",
-        gesture: "longPress",
-      }),
-    ).toBeNull();
+      resolveMobileSearchSidebarPress({ sourceIds: IDS, selection: null, target: "jump", gesture: "only" }),
+    ).toEqual(["jump"]);
   });
 
   test("a single installed source always searches everything", () => {
@@ -221,5 +248,46 @@ describe("sidebar selection", () => {
     expect(isMobileSearchSidebarRowSelected(null, "jump")).toBe(false);
     expect(isMobileSearchSidebarRowSelected(["jump"], "jump")).toBe(true);
     expect(isMobileSearchSidebarRowSelected(["jump"], null)).toBe(false);
+  });
+});
+
+describe("resolveMobileSearchSidebarCheckState", () => {
+  const sourceIds = ["a", "b", "c"];
+
+  test("every row is checked while all sources are in scope", () => {
+    expect(resolveMobileSearchSidebarCheckState({ selection: null, target: null, sourceIds })).toBe("on");
+    expect(resolveMobileSearchSidebarCheckState({ selection: null, target: "b", sourceIds })).toBe("on");
+  });
+
+  test("a partial scope checks its sources and marks All as mixed", () => {
+    const selection = ["a", "c"];
+    expect(resolveMobileSearchSidebarCheckState({ selection, target: "a", sourceIds })).toBe("on");
+    expect(resolveMobileSearchSidebarCheckState({ selection, target: "b", sourceIds })).toBe("off");
+    expect(resolveMobileSearchSidebarCheckState({ selection, target: null, sourceIds })).toBe("mixed");
+  });
+
+  test("an empty scope leaves All unchecked", () => {
+    expect(resolveMobileSearchSidebarCheckState({ selection: [], target: null, sourceIds })).toBe("off");
+  });
+});
+
+describe("result group labels", () => {
+  test("only when library matches and live results are both on screen", () => {
+    expect(mobileSearchShowsKindHeaders({ libraryRows: 3, liveActive: true })).toBe(true);
+    expect(mobileSearchShowsKindHeaders({ libraryRows: 0, liveActive: true })).toBe(false);
+    expect(mobileSearchShowsKindHeaders({ libraryRows: 3, liveActive: false })).toBe(false);
+  });
+});
+
+describe("sidebar split vertical grid", () => {
+  test("adds alignment within the header without replacing the shared page padding", () => {
+    const screen = readFileSync(new URL("../screens/SearchScreen.tsx", import.meta.url), "utf8");
+    expect(screen).toContain("contentContainerStyle={split ? splitPadding.trailing : undefined}");
+    expect(screen).toContain("ListHeaderComponentStyle={splitResultsHeaderStyle}");
+  });
+  test("the first results header is centred on the sidebar search field", () => {
+    expect(mobileSearchResultsTopInset({ fieldHeight: mobileSearchFieldHeight("ios"), firstHeaderHeight: MOBILE_SEARCH_SOURCE_HEADER_HEIGHT })).toBe(2);
+    expect(mobileSearchResultsTopInset({ fieldHeight: mobileSearchFieldHeight("android"), firstHeaderHeight: MOBILE_SEARCH_SOURCE_HEADER_HEIGHT })).toBe(8);
+    expect(mobileSearchResultsTopInset({ fieldHeight: 36, firstHeaderHeight: MOBILE_SEARCH_KIND_HEADER_HEIGHT })).toBe(8);
   });
 });

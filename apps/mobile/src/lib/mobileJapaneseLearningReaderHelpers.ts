@@ -1,7 +1,10 @@
 import { type AppLanguage } from "@/data/schema";
 import {
   type MobileJapaneseLearningChatMessage,
+  type MobileJapaneseLearningChatToolCall,
+  type MobileJapaneseLearningChatToolResult,
 } from "@/lib/mobileJapaneseLearningChat";
+import { mobileJapaneseLearningChatMessagesForRequest } from "@/lib/mobileJapaneseLearningChatStream";
 import {
   type MobileGrammarToken,
 } from "@/lib/mobileJapaneseLearningGrammar";
@@ -35,12 +38,16 @@ export type JapaneseLearningChatThreadMessage = {
   role: "user" | "assistant";
   kind?: "text" | "voice";
   text: string;
+  /** Localized user-facing question; text retains the full model prompt. */
+  displayText?: string;
   ttsText?: string;
   createdAt: number;
   hidden?: boolean;
   isRead?: boolean;
-  suggestions?: string[];
   isError?: boolean;
+  /** Web store: the hidden assistant turn that asked for client tools. */
+  toolCalls?: MobileJapaneseLearningChatToolCall[];
+  toolResults?: MobileJapaneseLearningChatToolResult[];
 };
 
 /** Measured layout of a grammar token in the overlay, used for hit-testing. */
@@ -51,15 +58,11 @@ export type JapaneseLearningTokenLayout = {
   height: number;
 };
 
+/** Web `getMessagesForRequest`: the whole thread, hidden turns and tool results included. */
 export function mobileJapaneseLearningChatRequestMessages(
   messages: JapaneseLearningChatThreadMessage[],
 ): MobileJapaneseLearningChatMessage[] {
-  return messages
-    .filter((message) => !message.isError && message.text.trim().length > 0)
-    .map((message) => ({
-      role: message.role,
-      content: message.text.trim(),
-    }));
+  return mobileJapaneseLearningChatMessagesForRequest(messages);
 }
 
 export function formatMobileJapaneseLearningChatTime(

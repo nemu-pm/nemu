@@ -56,7 +56,7 @@ import {
 import {
   PageHeader,
   PageScaffold,
-  createNemuNativeScreenOptions,
+  createNemuSoftEdgeScreenOptions,
   renderNemuNativeToolbarButtons,
   useNemuTheme,
   usesNemuNativeHeader,
@@ -1344,7 +1344,8 @@ export function MangaDetailScreen() {
             sourceId: source.sourceId,
             mangaId: source.sourceMangaId,
             chapter,
-            mangaTitle: title,
+            // Never the generic placeholder: the reader would show "Manga".
+            mangaTitle: effectiveMetadata?.title ?? null,
           }),
         );
       } catch {
@@ -1354,12 +1355,12 @@ export function MangaDetailScreen() {
       }
     },
     [
+      effectiveMetadata?.title,
       getGuardedDetailActionState,
       saveSourcePackageHydration,
       selectedSource,
       state.installedSources,
       store,
-      title,
     ],
   );
   // The row is memoized, so its props have to keep their identity across a
@@ -1622,7 +1623,7 @@ export function MangaDetailScreen() {
   });
   cloudflareSheetRef.current = cloudflareSheet;
   const nativeHeaderOptions = (screenTitle: string) =>
-    createNemuNativeScreenOptions(tokens, screenTitle);
+    createNemuSoftEdgeScreenOptions(tokens, screenTitle);
   const missingSourceNativeHeaderActions: NemuNativeHeaderAction[] = [
     {
       icon: "trash",
