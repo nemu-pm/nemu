@@ -1740,7 +1740,7 @@ export function SearchScreen() {
               ) : null}
 
               {trimmedQuery && showKindHeaders ? (
-                <View style={styles.resultKindHeader}>
+                <View style={[styles.resultKindHeader, styles.resultKindHeaderLibrary]}>
                   <MobileSearchKindHeader title={strings.nav.library} />
                 </View>
               ) : null}
@@ -2023,6 +2023,12 @@ const styles = StyleSheet.create({
   // section of a grouped list.
   resultKindHeaderSpaced: {
     marginTop: 10,
+  },
+  // The "Library" label heads the list rows rather than the footer, so it
+  // takes the footer's label → first source header gap (`resultFooter.gap`)
+  // itself; both groups then space their label and first source alike.
+  resultKindHeaderLibrary: {
+    marginBottom: 18,
   },
   virtualResultSeparator: {
     height: 10,

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { BlurView } from "expo-blur";
 import { Group, Host as SwiftHost, RNHostView } from "@expo/ui/swift-ui";
 import { glassEffect, shadow } from "@expo/ui/swift-ui/modifiers";
@@ -45,6 +46,11 @@ export function GlassSurface({
   testID,
 }: GlassSurfaceProps) {
   const { scheme, tokens } = useNemuTheme();
+  // The SwiftUI host sizes to its hosted React content (`matchContents`), so a
+  // stretched shell (e.g. the toast pill between 16pt gutters) would otherwise
+  // shrink the glass to its text. The shell's laid-out width is handed to the
+  // hosted content so the material fills the shell.
+  const [shellWidth, setShellWidth] = useState<number | null>(null);
   const shellStyle = [
     styles.shell,
     {
@@ -83,6 +89,10 @@ export function GlassSurface({
           styles.liquidShell,
         ]}
         testID={testID}
+        onLayout={(event) => {
+          const width = Math.round(event.nativeEvent.layout.width);
+          if (width > 0 && width !== shellWidth) setShellWidth(width);
+        }}
       >
         <SwiftHost colorScheme={scheme} matchContents style={styles.glassHost}>
           <Group
@@ -107,7 +117,13 @@ export function GlassSurface({
             ]}
           >
             <RNHostView matchContents>
-              <View style={[styles.liquidContent, contentStyle]}>
+              <View
+                style={[
+                  styles.liquidContent,
+                  contentStyle,
+                  shellWidth === null ? null : { width: shellWidth },
+                ]}
+              >
                 {children}
               </View>
             </RNHostView>
