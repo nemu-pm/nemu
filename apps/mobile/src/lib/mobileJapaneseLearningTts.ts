@@ -253,12 +253,24 @@ function parseMobileTtsEventBlock(
   state: MobileTtsEventStreamState,
 ): void {
   if (!block.trim()) return;
-  const payload = block
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice("data:".length).trim())
-    .join("\n");
-  if (!payload) return;
+  // SSE `data:` lines form one event; ElevenLabs' dialogue stream sends
+  // newline-delimited JSON instead, one event per line (web `parseEventStream`).
+  const dataLines: string[] = [];
+  for (const line of block.split(/\r?\n/)) {
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trim());
+    } else if (line.startsWith("{")) {
+      parseMobileTtsEventPayload(line, state);
+    }
+  }
+  if (dataLines.length > 0) parseMobileTtsEventPayload(dataLines.join("\n"), state);
+}
+
+function parseMobileTtsEventPayload(
+  payload: string,
+  state: MobileTtsEventStreamState,
+): void {
+  if (!payload || payload === "[DONE]") return;
   const event = JSON.parse(payload) as {
     audio_base64?: string;
     error?: string;
@@ -281,7 +293,14 @@ function consumeMobileTtsEventBlocks(
   let remainder = buffer;
   while (true) {
     const separator = /\r?\n\r?\n/.exec(remainder);
-    if (!separator || separator.index == null) return remainder;
+    if (!separator || separator.index == null) {
+      // NDJSON has no blank lines: parse each complete JSON line as it arrives
+      // instead of buffering the whole stream.
+      const lineEnd = remainder.lastIndexOf("\n");
+      if (!remainder.startsWith("{") || lineEnd < 0) return remainder;
+      parseMobileTtsEventBlock(remainder.slice(0, lineEnd), state);
+      return remainder.slice(lineEnd + 1);
+    }
     parseMobileTtsEventBlock(remainder.slice(0, separator.index), state);
     remainder = remainder.slice(separator.index + separator[0].length);
   }
