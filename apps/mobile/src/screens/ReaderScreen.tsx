@@ -2156,6 +2156,17 @@ export function ReaderScreen() {
       .filter((page): page is MobileReaderPage => Boolean(page)),
     [isTwoPageMode, readerSpreads, currentSpreadIndex, clampedPageIndex, displayedPages],
   );
+  // Any page on screen still without an image: tap zones must not turn past it.
+  const readerVisiblePageLoading = japaneseLearningVisiblePages.some((page) => {
+    if (page.imageProcessing === "pending") return true;
+    // A page without an image (text-only) has nothing to wait for.
+    if (!page.imageUri) return false;
+    const pageIdentity = readerPageIdentityFor(page);
+    return isMobileReaderImageLoading({
+      error: readerImageErrors.get(pageIdentity),
+      hasNaturalSize: readerImageSizes.has(pageIdentity),
+    });
+  });
   const japaneseLearningVisiblePageKey = JSON.stringify(
     japaneseLearningVisiblePages.map((page) => readerPageIdentityFor(page)),
   );
@@ -5175,6 +5186,8 @@ export function ReaderScreen() {
               getSourceSettings: getReaderSourceSettings,
               onSourcePackageHydrated: saveReaderSourcePackageHydration,
               processPageImages,
+              // A warm-up: the current chapter's own page work goes first.
+              priority: "normal",
             }),
           disposeMobileReaderPagesPrefetchResult,
         );
@@ -7878,6 +7891,7 @@ export function ReaderScreen() {
           zoomedReaderPageId === currentDisplayedPageKey
         }
         tapGesturesEnabled={!readerStageTapOwned}
+        visiblePageLoading={readerVisiblePageLoading}
         pagedMode={galleryPagedMode}
         pageTurnAccessibilityEnabled={
           pagedMode ||

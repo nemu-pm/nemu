@@ -214,6 +214,21 @@ describe("reader tap dispatch", () => {
     ).toEqual({ kind: "cancelPendingToggle" });
   });
 
+  test("the second tap of a zoom reset never turns the page", () => {
+    // The double tap has already reset the zoom when this tap lifts, so the
+    // page reads unzoomed; the tap before it landed on the zoomed page.
+    for (const zoneName of ["next", "previous"] as const) {
+      expect(
+        readerTapDispatchForZone({
+          zone: zoneName,
+          isSecondCentreTap: true,
+          pageZoomed: false,
+          followsZoomedTap: true,
+        }),
+      ).toEqual({ kind: "cancelPendingToggle" });
+    }
+  });
+
   test("an unzoomed page still turns on its edge bands", () => {
     for (const zoneName of ["next", "previous"] as const) {
       expect(

@@ -168,6 +168,8 @@ type MobileReaderGalleryProps = {
   pageZoomActive?: boolean;
   /** Prevents modal/sheet taps from reaching the reader's page-turn zones. */
   tapGesturesEnabled?: boolean;
+  /** A page on screen is still loading: tap zones don't turn the page yet. */
+  visiblePageLoading?: boolean;
   pagedMode: boolean;
   /**
    * Keeps page-turn screen-reader actions when a paged chapter uses a
@@ -281,6 +283,7 @@ export function MobileReaderGallery({
   onToggleControls,
   pageZoomActive = false,
   tapGesturesEnabled = true,
+  visiblePageLoading = false,
   pagedMode,
   pageTurnAccessibilityEnabled,
   pages,
@@ -417,6 +420,8 @@ export function MobileReaderGallery({
     null,
   );
   const lastCentreTapEndAtRef = useRef(0);
+  // Lift time of the last tap on a zoomed page (the first tap of a reset).
+  const lastZoomedTapEndAtRef = useRef(0);
   const dragStartOffsetRef = useRef<number | null>(null);
   // The displayed page when the drag began: a page turn that settles during
   // the drag must not move the edge the drag is judged against.
@@ -615,6 +620,7 @@ export function MobileReaderGallery({
     if (tapGesturesEnabled) return;
     touchStartRef.current = null;
     lastCentreTapEndAtRef.current = 0;
+    lastZoomedTapEndAtRef.current = 0;
     if (pendingToggleTimerRef.current) {
       clearTimeout(pendingToggleTimerRef.current);
       pendingToggleTimerRef.current = null;
@@ -625,6 +631,7 @@ export function MobileReaderGallery({
     if (appliedScrollMountKeyRef.current === scrollMountKey) return;
     touchStartRef.current = null;
     lastCentreTapEndAtRef.current = 0;
+    lastZoomedTapEndAtRef.current = 0;
     if (pendingToggleTimerRef.current) {
       clearTimeout(pendingToggleTimerRef.current);
       pendingToggleTimerRef.current = null;
@@ -832,8 +839,11 @@ export function MobileReaderGallery({
     tapGesturesEnabled,
     loading: isReaderLoading,
   });
+  // Owner rule: a tap never skips a page that hasn't appeared yet (swipes
+  // still can).
   const readerPageTurnEnabled =
     !isReaderLoading &&
+    !visiblePageLoading &&
     pagesState.status === "ready" &&
     pages.length > 0 &&
     pagedMode &&
@@ -981,7 +991,11 @@ export function MobileReaderGallery({
         start.time - lastCentreTapEndAtRef.current <=
         MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS,
       pageZoomed: pageZoomActive,
+      followsZoomedTap:
+        start.time - lastZoomedTapEndAtRef.current <=
+        MOBILE_READER_DOUBLE_TAP_MAX_DELAY_MS,
     });
+    lastZoomedTapEndAtRef.current = pageZoomActive ? now : 0;
     if (pendingToggleTimerRef.current) {
       clearTimeout(pendingToggleTimerRef.current);
       pendingToggleTimerRef.current = null;

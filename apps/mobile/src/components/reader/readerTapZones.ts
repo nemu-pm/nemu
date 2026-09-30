@@ -109,13 +109,23 @@ export function readerTapDispatchForZone({
   zone,
   isSecondCentreTap,
   pageZoomed = false,
+  followsZoomedTap = false,
 }: {
   zone: ReaderTapZone;
   isSecondCentreTap: boolean;
   /** The page under the tap is zoomed in past its fit scale. */
   pageZoomed?: boolean;
+  /**
+   * The previous tap landed on a zoomed page within the double-tap delay:
+   * this is the second tap of a zoom reset. The reset may already have
+   * reported the page unzoomed by the time this tap lifts, so without this
+   * the tap would read as an edge tap and turn the page.
+   */
+  followsZoomedTap?: boolean;
 }): ReaderTapDispatch {
-  if (zone !== "toggle" && !pageZoomed) return { kind: "turn", zone };
+  if (zone !== "toggle" && !pageZoomed && !followsZoomedTap) {
+    return { kind: "turn", zone };
+  }
   return isSecondCentreTap
     ? { kind: "cancelPendingToggle" }
     : { kind: "deferToggle" };
