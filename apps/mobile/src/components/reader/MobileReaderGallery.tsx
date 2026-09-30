@@ -833,12 +833,9 @@ export function MobileReaderGallery({
     };
   };
   // The chrome toggle is the only way out of a black screen, so it must keep
-  // working while the chapter is in an error/blocked state. Only page turns
-  // need a ready gallery.
-  const readerStageTapEnabled = isReaderStageTapEnabled({
-    tapGesturesEnabled,
-    loading: isReaderLoading,
-  });
+  // working while the chapter is loading or in an error/blocked state; there
+  // every band acts like the centre. Only page turns need a ready gallery.
+  const readerStageTapEnabled = isReaderStageTapEnabled({ tapGesturesEnabled });
   // Owner rule: a tap never skips a page that hasn't appeared yet (swipes
   // still can).
   const readerPageTurnEnabled =
@@ -1535,7 +1532,8 @@ export function MobileReaderGallery({
             }
           : undefined
       }
-      pointerEvents={isReaderLoading ? "box-none" : "auto"}
+      // Loading keeps the stage tappable: every band toggles the chrome.
+      pointerEvents="auto"
       style={[styles.stageContainer, styles.stage, { backgroundColor }]}
       onTouchStart={readerStageTapEnabled ? handleStageTouchStart : undefined}
       onTouchEnd={readerStageTapEnabled ? handleStageTouchEnd : undefined}

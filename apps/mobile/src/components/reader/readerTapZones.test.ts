@@ -15,16 +15,9 @@ function zone(x: number, mode: "ltr" | "rtl" | "scrolling", pagedMode = true) {
 }
 
 describe("reader tap zones", () => {
-  test("blocks page-turn taps while an overlay owns the gesture", () => {
-    expect(
-      isReaderStageTapEnabled({ tapGesturesEnabled: false, loading: false }),
-    ).toBe(false);
-    expect(
-      isReaderStageTapEnabled({ tapGesturesEnabled: true, loading: true }),
-    ).toBe(false);
-    expect(
-      isReaderStageTapEnabled({ tapGesturesEnabled: true, loading: false }),
-    ).toBe(true);
+  test("blocks stage taps only while an overlay owns the gesture", () => {
+    expect(isReaderStageTapEnabled({ tapGesturesEnabled: false })).toBe(false);
+    expect(isReaderStageTapEnabled({ tapGesturesEnabled: true })).toBe(true);
   });
 
   test("keeps reader chrome taps out of the gallery page-turn zones", () => {

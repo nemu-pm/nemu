@@ -15,14 +15,17 @@ export type ReaderTapZone = "previous" | "toggle" | "next";
  */
 export const READER_TAP_EDGE_ZONE_RATIO = 0.35;
 
+/**
+ * Whether the stage takes taps at all. Loading does not switch it off (owner
+ * rule): while the chapter or a visible page is loading every band acts like
+ * the centre and toggles the chrome — page turns are gated separately.
+ */
 export function isReaderStageTapEnabled({
   tapGesturesEnabled,
-  loading,
 }: {
   tapGesturesEnabled: boolean;
-  loading: boolean;
 }): boolean {
-  return tapGesturesEnabled && !loading;
+  return tapGesturesEnabled;
 }
 
 /**
