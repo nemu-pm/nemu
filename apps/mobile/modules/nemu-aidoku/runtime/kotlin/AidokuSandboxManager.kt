@@ -746,6 +746,12 @@ internal class AidokuSandboxManager(
       nextIsolate.evaluateJavaScriptAsync(bundle)
         .get(SANDBOX_BOOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
       recyclePolicy.recordEvaluation()
+      val lockdown = nextIsolate.evaluateJavaScriptAsync(NEMU_AIDOKU_SANDBOX_CODEGEN_LOCKDOWN)
+        .get(SANDBOX_BOOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+      check(lockdown == "locked") {
+        "The isolated Aidoku runtime could not disable code generation."
+      }
+      recyclePolicy.recordEvaluation()
       val probe = nextIsolate.evaluateJavaScriptAsync("NemuAidokuSandbox.probeRuntime()")
         .get(SANDBOX_BOOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
       requireStatus(probe, "ready")
@@ -818,7 +824,9 @@ internal class AidokuSandboxManager(
           "${quote(session.expectedSourceId)},${session.expectedVersion},${quote(dataName)}," +
           "JSON.parse(${quote(session.settingsJson)})," +
           "JSON.parse(${quote(persistedSettingsJson)})," +
-          "$imageProcessorTransportAvailable)",
+          "$imageProcessorTransportAvailable," +
+          // hostJsEvaluatorAvailable: answer `js-eval` suspensions natively.
+          "true)",
         SANDBOX_BOOT_TIMEOUT_MS
       )
       requireStatus(output, "registered")
@@ -846,9 +854,18 @@ internal class AidokuSandboxManager(
     )
     requireStatus(begin, "started")
 
+    // Source scripts run in their own isolates, never in the sandbox isolate.
+    // The engine and its isolates live for this operation only.
+    val jsEngine = NemuAidokuIsolatedJsEngine(
+      NemuAidokuSandboxJsIsolateFactory {
+        sandbox ?: throw IllegalStateException("Aidoku sandbox is unavailable.")
+      }
+    )
     try {
       var replayedBytes = 0
-      repeat(SANDBOX_MAX_REPLAY_ROUNDS + 1) { round ->
+      var httpRounds = 0
+      var jsEvaluations = 0
+      repeat(SANDBOX_MAX_REPLAY_ROUNDS + NEMU_AIDOKU_JS_MAX_EVALUATIONS + 1) {
         val output = evaluate(
           "NemuAidokuSandbox.executeOperation(${quote(operationId)})",
           remainingMillis(deadline)
@@ -875,9 +892,10 @@ internal class AidokuSandboxManager(
             )
           }
           "http-request" -> {
-            if (round >= SANDBOX_MAX_REPLAY_ROUNDS) {
+            if (httpRounds >= SANDBOX_MAX_REPLAY_ROUNDS) {
               throw IllegalStateException("Aidoku source exceeded the HTTP replay limit.")
             }
+            httpRounds += 1
             val cursor = parsed.getInt("cursor")
             val requestJson = parsed.getJSONObject("request")
             val remainingMs = remainingMillis(deadline)
@@ -923,11 +941,57 @@ internal class AidokuSandboxManager(
               if (!consumed) releaseNamedData(dataName)
             }
           }
+          "js-eval" -> {
+            if (jsEvaluations >= NEMU_AIDOKU_JS_MAX_EVALUATIONS) {
+              throw IllegalStateException(
+                "Aidoku source exceeded the JavaScript evaluation limit."
+              )
+            }
+            jsEvaluations += 1
+            val cursor = parsed.optInt("cursor", -1)
+            val requestJson = parsed.optJSONObject("request")
+            val contextId = requestJson?.optInt("contextId", 0) ?: 0
+            val kind = NemuAidokuIsolatedJsEngine.Kind.fromWire(requestJson?.optString("kind"))
+            val script = requestJson?.opt("script") as? String
+            if (cursor < 0 || requestJson == null || kind == null || script == null) {
+              throw IllegalStateException(
+                "The isolated Aidoku runtime returned an invalid JavaScript request."
+              )
+            }
+            val value = try {
+              jsEngine.evaluate(contextId, kind, script, remainingMillis(deadline))
+            } catch (failure: NemuAidokuIsolatedJsEngine.FailureException) {
+              if (failure.failure.sandboxLost) {
+                // AndroidX killed the sandbox process on the heap overrun; drop
+                // the dead connection now so the next operation reconnects
+                // instead of failing on it.
+                recycleIsolate()
+                closeSandboxConnection()
+              }
+              throw IllegalStateException(failure.failure.detail, failure)
+            } catch (error: Throwable) {
+              // The source isolates share the sandbox process; a dead
+              // connection takes the WebAssembly isolate down with them.
+              if (aidokuSandboxResetScope(error) == AidokuSandboxResetScope.SANDBOX_CONNECTION) {
+                resetAfterRuntimeFailure(error)
+              }
+              throw error
+            }
+            val append = evaluate(
+              "NemuAidokuSandbox.appendJsEvalResult(" +
+                "${quote(operationId)},$cursor," +
+                "JSON.parse(${quote(requestJson.toString())})," +
+                "${if (value == null) "null" else quote(value)})",
+              remainingMillis(deadline)
+            )
+            requireStatus(append, "appended")
+          }
           else -> throw IllegalStateException("Invalid isolated Aidoku runtime response.")
         }
       }
-      throw IllegalStateException("Aidoku source exceeded the HTTP replay limit.")
+      throw IllegalStateException("Aidoku source exceeded the replay limit.")
     } finally {
+      jsEngine.close()
       runCatching {
         evaluate(
           "NemuAidokuSandbox.finishOperation(${quote(operationId)})",

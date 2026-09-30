@@ -19,7 +19,7 @@
         "@fontsource-variable/noto-serif-jp": "^5.2.8",
         "@hugeicons/core-free-icons": "^3.0.0",
         "@hugeicons/react": "^1.1.3",
-        "@nemu.pm/aidoku-runtime": "^0.11.0",
+        "@nemu.pm/aidoku-runtime": "^0.12.0",
         "@nemu.pm/tachiyomi-runtime": "0.3.0",
         "@nemu/core": "workspace:*",
         "@openrouter/ai-sdk-provider": "^1.5.4",
@@ -118,7 +118,7 @@
         "@expo/material-symbols": "^0.1.1",
         "@expo/ui": "~58.0.9",
         "@expo/vector-icons": "^15.0.2",
-        "@nemu.pm/aidoku-runtime": "^0.11.0",
+        "@nemu.pm/aidoku-runtime": "^0.12.0",
         "@nemu/core": "workspace:*",
         "@react-native-community/javascriptcore": "^0.2.0",
         "@shopify/react-native-skia": "2.11.2",
@@ -196,18 +196,18 @@
   ],
   "patchedDependencies": {
     "react-native-screens@4.28.0": "patches/react-native-screens@4.28.0.patch",
-    "@expo/cli@58.0.9": "patches/@expo%2Fcli@58.0.9.patch",
-    "metro@0.87.1": "patches/metro@0.87.1.patch",
     "vaul@1.1.2": "patches/vaul@1.1.2.patch",
     "expo-modules-jsi@58.0.5": "patches/expo-modules-jsi@58.0.5.patch",
-    "@better-auth/expo@1.6.23": "patches/@better-auth%2Fexpo@1.6.23.patch",
-    "expo-background-task@58.0.9": "patches/expo-background-task@58.0.9.patch",
     "expo-sqlite@58.0.7": "patches/expo-sqlite@58.0.7.patch",
     "swiper@12.2.0": "patches/swiper@12.2.0.patch",
     "image-size@1.2.1": "patches/image-size@1.2.1.patch",
     "@react-native-community/javascriptcore@0.2.0": "patches/react-native-community-javascriptcore@0.2.0.patch",
-    "@expo/ui@58.0.9": "patches/@expo%2Fui@58.0.9.patch",
+    "@expo/cli@58.0.9": "patches/@expo%2Fcli@58.0.9.patch",
+    "metro@0.87.1": "patches/metro@0.87.1.patch",
+    "@better-auth/expo@1.6.23": "patches/@better-auth%2Fexpo@1.6.23.patch",
+    "expo-background-task@58.0.9": "patches/expo-background-task@58.0.9.patch",
     "@shopify/react-native-skia@2.11.2": "patches/@shopify%2Freact-native-skia@2.11.2.patch",
+    "@expo/ui@58.0.9": "patches/@expo%2Fui@58.0.9.patch",
   },
   "overrides": {
     "@babel/core": "7.29.7",
@@ -749,7 +749,7 @@
 
     "@mswjs/interceptors": ["@mswjs/interceptors@0.40.0", "", { "dependencies": { "@open-draft/deferred-promise": "^2.2.0", "@open-draft/logger": "^0.3.0", "@open-draft/until": "^2.0.0", "is-node-process": "^1.2.0", "outvariant": "^1.4.3", "strict-event-emitter": "^0.5.1" } }, "sha512-EFd6cVbHsgLa6wa4RljGj6Wk75qoHxUSyc5asLyyPSyuhIcdS2Q3Phw6ImS1q+CkALthJRShiYfKANcQMuMqsQ=="],
 
-    "@nemu.pm/aidoku-runtime": ["@nemu.pm/aidoku-runtime@0.11.0", "", { "dependencies": { "@variegated-coffee/serde-postcard-ts": "^0.1.4", "cheerio": "^1.0.0", "comlink": "^4.4.2", "fflate": "^0.8.2" }, "optionalDependencies": { "canvas": "^3.0.0-rc3" } }, "sha512-MEAV9SYVrMHy2ILjAhPyTItd0tz6p+6rSTWzBnbn37LxpbjTm59LNwSsE3686TE8Z+7oYIbtUWi+T5k88u2aUA=="],
+    "@nemu.pm/aidoku-runtime": ["@nemu.pm/aidoku-runtime@0.12.0", "", { "dependencies": { "@variegated-coffee/serde-postcard-ts": "^0.1.4", "cheerio": "^1.0.0", "comlink": "^4.4.2", "fflate": "^0.8.2" }, "optionalDependencies": { "canvas": "^3.0.0-rc3" } }, "sha512-mcG7GhiMC8Jxp5M7bWTh6QhXikU1tVv4P7uSAVDxEnQc9LmfFSdLhZcRfWQKEv1ZN9gbgYVAAOGHaAfHG06seA=="],
 
     "@nemu.pm/tachiyomi-runtime": ["@nemu.pm/tachiyomi-runtime@0.3.0", "", { "dependencies": { "comlink": "^4.4.2" }, "optionalDependencies": { "canvas": "^3.0.0-rc3" } }, "sha512-2zdtmMnrmp0Hqu2ZnwP7YPyMFNK6wwbVcgOO37N1E0zCV3Q/cWdxqMypnwq/rtWObTHi5wxKBEiZKOVQJbLE0g=="],
 
@@ -1293,7 +1293,7 @@
 
     "bplist-parser": ["bplist-parser@0.3.2", "", { "dependencies": { "big-integer": "1.6.x" } }, "sha512-apC2+fspHGI3mMKj+dGevkGo/tCqVB8jMb6i+OX+E29p0Iposz07fABkRIfVUPNd5A5VbuOz1bZbnmkKLYF+wQ=="],
 
-    "brace-expansion": ["brace-expansion@1.1.21 sha512-9zeA+KLZNNzglF2TPKRQEDyx6Yby7daAkuy8MiPzpXPsYDWi/DRM8jmwUDxokQjYqBpv5DgPiwD4h4ZZSy1Ujw==", "", { "dependencies": { "balanced-match": "^1.0.0", "concat-map": "0.0.1" } }, ""],
+    "brace-expansion": ["brace-expansion@1.1.21", "", { "dependencies": { "balanced-match": "^1.0.0", "concat-map": "0.0.1" } }, ""],
 
     "braces": ["braces@3.0.3", "", { "dependencies": { "fill-range": "^7.1.1" } }, "sha512-yQbXgO/OSZVD2IsiLlro+7Hf6Q18EJrKSEsdoMzKePKXct3gvD8oLcOQdIzGupr5Fj+EDe8gO/lxc1BzfMpxvA=="],
 

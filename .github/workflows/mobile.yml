@@ -261,7 +261,13 @@ jobs:
           sudo chmod 0666 /dev/kvm
           test -r /dev/kvm
           test -w /dev/kvm
-      - name: Run Android long-strip instrumented tests
+      # Every class under modules/nemu-aidoku/runtime/androidTest runs here:
+      # the long-strip transcoder and the isolated source-JavaScript engine
+      # (hostile scripts against the real JavaScriptSandbox: bridge
+      # reachability, deadline termination, heap ceiling, context isolation).
+      # Its JVM half (NemuAidokuIsolatedJsEngineTest) runs in
+      # :nemu-aidoku:testDebugUnitTest above.
+      - name: Run Android instrumented tests
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         timeout-minutes: 35
         with:
@@ -446,6 +452,12 @@ jobs:
             modules/nemu-aidoku/runtime/iosTest/NemuAidokuSandboxSessionPolicyTests.swift \
             -o "$test_dir/session-tests"
           "$test_dir/session-tests"
+          xcrun swiftc -parse-as-library \
+            modules/nemu-aidoku/ios/NemuAidokuIsolatedJSEngine.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuAidokuIsolatedJSEngineTests.swift \
+            -framework JavaScriptCore \
+            -o "$test_dir/isolated-js-tests"
+          "$test_dir/isolated-js-tests"
           xcrun swiftc \
             modules/nemu-aidoku/ios/NemuImageMetadataPolicy.swift \
             modules/nemu-aidoku/runtime/iosTest/NemuImageMetadataPolicyTests.swift \

@@ -30,7 +30,7 @@
     "@expo/material-symbols": "^0.1.1",
     "@expo/ui": "~58.0.9",
     "@expo/vector-icons": "^15.0.2",
-    "@nemu.pm/aidoku-runtime": "^0.11.0",
+    "@nemu.pm/aidoku-runtime": "^0.12.0",
     "@nemu/core": "workspace:*",
     "@react-native-community/javascriptcore": "^0.2.0",
     "@shopify/react-native-skia": "2.11.2",
