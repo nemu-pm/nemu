@@ -19,6 +19,11 @@ final class NemuMangaOcrRecognizer: @unchecked Sendable {
   static let sepTokenId: Int32 = 3
   /// [PAD] [UNK] [CLS] [SEP] [MASK] are skipped when decoding.
   static let lastSpecialTokenId: Int32 = 4
+  /// Greedy decoding stops once one token has been emitted this many times
+  /// in a row, keeping the run (see `repetitionCut`). The longest run in the
+  /// benchmark's 572 ground-truth blocks is 6 (`……` = six dots); runaway
+  /// loops (`ー` × 300, `．` × 298) went on until `maxTokens`.
+  static let maxRepeatRun = 12
 
   struct Failure: Error, LocalizedError {
     let code: String
@@ -32,8 +37,24 @@ final class NemuMangaOcrRecognizer: @unchecked Sendable {
     /// Geometric mean of the greedy tokens' softmax probabilities (incl.
     /// [SEP]): a recognition confidence in 0...1.
     let confidence: Double
+    /// Sum of the kept tokens' log-probabilities and their count (the
+    /// confidence is `exp(logProbability / steps)`), so pieces of one crop
+    /// can be combined.
+    let logProbability: Double
+    let steps: Int
+    /// Decoding stopped on a runaway repetition (`maxRepeatRun`).
+    let repetitionStopped: Bool
     let encodeMs: Double
     let decodeMs: Double
+  }
+
+  /// When the last `maxRun + 1` tokens are the same token, the length to
+  /// truncate `ids` to (dropping the newest copy); otherwise nil. `ids`
+  /// starts with [CLS], which never repeats.
+  static func repetitionCut(_ ids: [Int32], maxRun: Int = maxRepeatRun) -> Int? {
+    guard maxRun > 0, ids.count > maxRun + 1, let last = ids.last else { return nil }
+    for id in ids[(ids.count - maxRun - 1)...] where id != last { return nil }
+    return ids.count - 1
   }
 
   private let encoder: MLModel
@@ -135,9 +156,10 @@ final class NemuMangaOcrRecognizer: @unchecked Sendable {
     return array
   }
 
-  func recognize(_ crop: NemuGrayImage, maxTokens: Int = NemuMangaOcrRecognizer.maxTokens) throws
-    -> Output
-  {
+  func recognize(
+    _ crop: NemuGrayImage, maxTokens: Int = NemuMangaOcrRecognizer.maxTokens,
+    maxRepeatRun: Int = NemuMangaOcrRecognizer.maxRepeatRun
+  ) throws -> Output {
     let pixels = try Self.pixelValues(crop)
     let encodeStarted = DispatchTime.now()
     guard
@@ -151,6 +173,7 @@ final class NemuMangaOcrRecognizer: @unchecked Sendable {
     let decodeStarted = DispatchTime.now()
     var ids: [Int32] = [Self.clsTokenId]
     var logProbability = 0.0
+    var repetitionStopped = false
     let limit = max(2, min(maxTokens, Self.maxTokens))
     while ids.count < limit {
       try Task.checkCancellation()
@@ -167,15 +190,24 @@ final class NemuMangaOcrRecognizer: @unchecked Sendable {
         throw Failure(code: "E_OCR_MODEL_OUTPUT", message: "The OCR decoder returned no logits.")
       }
       let (best, bestLogProbability) = Self.argmaxWithLogProbability(logits)
-      logProbability += bestLogProbability
       let next = Int32(best)
       ids.append(next)
-      if next == Self.sepTokenId { break }
+      if next == Self.sepTokenId {
+        logProbability += bestLogProbability
+        break
+      }
+      if let cut = Self.repetitionCut(ids, maxRun: maxRepeatRun) {
+        ids.removeSubrange(cut...)
+        repetitionStopped = true
+        break
+      }
+      logProbability += bestLogProbability
     }
     let text = Self.postProcess(decodeTokens(ids))
     let steps = max(1, ids.count - 1)
     return Output(
       text: text, tokens: ids.count, confidence: exp(logProbability / Double(steps)),
+      logProbability: logProbability, steps: steps, repetitionStopped: repetitionStopped,
       encodeMs: encodeMs,
       decodeMs: Self.milliseconds(since: decodeStarted))
   }

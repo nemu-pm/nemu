@@ -89,6 +89,14 @@ function makeMobileReaderPlugins(strings: MobileStrings): MobileReaderPlugin[] {
               ],
               default: "auto",
             },
+            {
+              key: "onlineOcrAssist",
+              title: strings.reader.pluginJapaneseLearningOnlineOcrAssist,
+              subtitle:
+                strings.reader.pluginJapaneseLearningOnlineOcrAssistDescription,
+              type: "switch",
+              default: false,
+            },
           ],
         },
         {

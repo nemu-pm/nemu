@@ -458,6 +458,16 @@ export const mobileStringsJa: MobileStrings = {
       "実行環境を確認する前にソースをインストールしてください。",
     installBeforeOpening:
       "開く前に、探す画面からこのソースをインストールしてください。",
+    installingSource: "ソースをインストール中…",
+    installingSourceDescription:
+      "このデバイスで使えるように、ソースをダウンロードしています。",
+    loadSourceFailed: "このソースを読み込めませんでした。",
+    sourceInstallFailed: "ソースをインストールできませんでした",
+    sourceInstallFailedDescription:
+      "ソースのパッケージをダウンロードできませんでした。接続を確認してもう一度お試しください。",
+    sourceNotInRegistry: "このソースは利用できなくなりました",
+    sourceNotInRegistryDescription:
+      "このソースはソースレジストリに掲載されていません。探す画面から別のソースを選んでください。",
     libraryFromSource: "このソースのライブラリ",
     listingCountOne: "1 件のリスト",
     listingCountOther: "{{count}} 件のリスト",
@@ -810,6 +820,9 @@ export const mobileStringsJa: MobileStrings = {
     pluginJapaneseLearningRecognitionEngine: "認識エンジン",
     pluginJapaneseLearningRecognitionEngineDescription:
       "端末内処理ではページ画像とテキストを端末の外に送信しません。初回の解析時に 24 MB の日本語辞書をダウンロードします。",
+    pluginJapaneseLearningOnlineOcrAssist: "読みにくい文字をオンラインで補正",
+    pluginJapaneseLearningOnlineOcrAssistDescription:
+      "エンジンが「自動」のとき、端末内の認識の信頼度が低い吹き出しがあるページをオンライン OCR サービスにも送信し、その吹き出しをオンラインの認識結果で置き換えます。",
     pluginValueEngineAutomatic: "自動",
     pluginValueEngineOnDevice: "端末内",
     pluginValueEngineCloud: "クラウド",

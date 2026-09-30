@@ -41,7 +41,7 @@ describe("reader plugin sheet rows", () => {
 
   test("the secondary line is a sentence-case settings count", () => {
     expect(mobileReaderPluginRowSubtitle(plugin("japanese-learning"), en)).toBe(
-      "5 settings",
+      "6 settings",
     );
     expect(mobileReaderPluginRowSubtitle(plugin("dual-reader"), en)).toBe(
       "1 setting",
@@ -74,6 +74,7 @@ describe("reader plugin native settings", () => {
       ["enableForAllLanguages", "toggle"],
       ["minConfidence", "slider"],
       ["recognitionEngine", "picker"],
+      ["onlineOcrAssist", "toggle"],
       ["nemuResponseMode", "picker"],
     ]);
 

@@ -424,6 +424,13 @@ export const mobileStringsZh: MobileStrings = {
     includeFilter: "包含",
     installBeforeExecutor: "请先安装源，再检查执行器。",
     installBeforeOpening: "请先从浏览页安装此源，再打开它。",
+    installingSource: "正在安装源…",
+    installingSourceDescription: "正在下载此源，以便在这台设备上运行。",
+    loadSourceFailed: "无法加载此源。",
+    sourceInstallFailed: "无法安装此源",
+    sourceInstallFailedDescription: "无法下载源的安装包。请检查网络连接后重试。",
+    sourceNotInRegistry: "此源已不可用",
+    sourceNotInRegistryDescription: "此源已不在源仓库中。请在浏览页选择其他源。",
     libraryFromSource: "来自此源的书架",
     listingCountOne: "1 个列表",
     listingCountOther: "{{count}} 个列表",
@@ -745,6 +752,9 @@ export const mobileStringsZh: MobileStrings = {
     pluginJapaneseLearningRecognitionEngine: "识别引擎",
     pluginJapaneseLearningRecognitionEngineDescription:
       "设备端处理不会将页面图片和文字发送到设备之外。首次分析时会下载 24 MB 的日语词典。",
+    pluginJapaneseLearningOnlineOcrAssist: "在线补正难认文字",
+    pluginJapaneseLearningOnlineOcrAssistDescription:
+      "引擎为“自动”时，若页面中有设备端识别置信度较低的气泡，会把该页面也发送到在线 OCR 服务，并用在线识别结果替换这些气泡。",
     pluginValueEngineAutomatic: "自动",
     pluginValueEngineOnDevice: "设备端",
     pluginValueEngineCloud: "云端",

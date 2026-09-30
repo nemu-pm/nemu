@@ -727,13 +727,19 @@ function safeManifestUrl(value: unknown): string | null {
   if (typeof value !== "string" || value.length > MAX_CORE_SETTING_URL_LENGTH) {
     return null;
   }
+  const trimmed = value.trim();
   try {
-    const parsed = new URL(value.trim());
+    const parsed = new URL(trimmed);
+    // Validate through URL, but hand the source its manifest string verbatim
+    // (as Aidoku iOS and @nemu.pm/aidoku-runtime do). `URL#toString()` appends
+    // a "/" to a bare origin, and sources build requests as
+    // `format!("{base_url}/path")`, so the normalised form produced
+    // `https://host//path` — a 404 on zh.copymanga and friends.
     return (parsed.protocol === "http:" || parsed.protocol === "https:") &&
       parsed.hostname &&
       !parsed.username &&
       !parsed.password
-      ? parsed.toString()
+      ? trimmed
       : null;
   } catch {
     return null;
@@ -758,7 +764,7 @@ function safeManifestStrings(
   return output;
 }
 
-function applyManifestDefaults(
+export function applyMobileAidokuManifestDefaults(
   settings: JsonRecord,
   manifest: SourceManifest,
 ): void {
@@ -792,7 +798,7 @@ function resolveDefaultSettings(session: SandboxSession): JsonRecord {
   const resolved = extractMobileAidokuSettingsDefaults(
     session.components.settingsJson,
   );
-  applyManifestDefaults(resolved, session.components.manifest);
+  applyMobileAidokuManifestDefaults(resolved, session.components.manifest);
   return resolved;
 }
 

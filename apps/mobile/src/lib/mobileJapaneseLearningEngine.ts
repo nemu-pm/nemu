@@ -41,6 +41,27 @@ export function getMobileJapaneseLearningEnginePreference(): MobileJapaneseLearn
   return enginePreference;
 }
 
+/**
+ * Opt-in "online OCR assist" (see mobileJapaneseLearningOcrAssist.ts): with
+ * the automatic engine, bubbles on-device OCR read with low confidence are
+ * re-read by the cloud service. Off by default; never used with the
+ * on-device-only preference.
+ */
+export const MOBILE_JAPANESE_LEARNING_OCR_ASSIST_SETTING_KEY = "onlineOcrAssist";
+
+let ocrAssistEnabled = false;
+
+export function setMobileJapaneseLearningOcrAssist(value: unknown): void {
+  ocrAssistEnabled = value === true;
+}
+
+/** Whether a run with this preference may send low-confidence pages to the cloud. */
+export function isMobileJapaneseLearningOcrAssistActive(
+  preference: MobileJapaneseLearningEnginePreference = enginePreference,
+): boolean {
+  return ocrAssistEnabled && preference === "auto";
+}
+
 let nativeModuleOverride: NemuJapaneseLearningNativeModule | null | undefined;
 
 /** Tests inject a fake native module; `undefined` restores the real one. */

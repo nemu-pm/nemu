@@ -27,9 +27,17 @@ import {
   emitMobileDataChanged,
   emitMobileLibraryDataChanged,
 } from "@/data/mobileDataEvents";
-import { useMobileLanguageSettings } from "@/data/mobileHooks";
 import {
-  getEntryCover,
+  useInstalledSources,
+  useMobileLanguageSettings,
+} from "@/data/mobileHooks";
+import {
+  rememberMobileSourceCoverOwner,
+  resolveMobileEntryCoverSources,
+  resolveMobileEntryDisplayCover,
+} from "@/lib/mobileEntryCover";
+import { mobileSourceDetailRequests } from "@/lib/mobileSourceDetailRevalidation";
+import {
   makeSourceLinkId,
   sourceHasUpdate,
   type ChapterSummary,
@@ -442,9 +450,13 @@ export function SourceMangaScreen() {
     sourceId,
     mangaId,
   );
+  // Shared with the library detail screen: opening a source page while that
+  // screen (or its background sweep) is fetching the same manga joins the
+  // in-flight request instead of running the source twice.
   const fetchSourceDetails = useCallback(
     async (installedSource: InstalledSource) =>
-      withMobileSourceOperationTimeout(
+      mobileSourceDetailRequests.run(detailCacheKey, () =>
+        withMobileSourceOperationTimeout(
         refreshMobileSourceDetails(installedSource, mangaId, {
           getSourceSettings: async (_sourceKey, sourceRecord) => {
             const normalized = normalizeInstalledSource(sourceRecord);
@@ -461,8 +473,10 @@ export function SourceMangaScreen() {
           onSourcePackageHydrated: saveSourcePackageHydration,
         }),
         { message: strings.sourceBrowse.sourceOperationTimedOut },
+        ),
       ),
     [
+      detailCacheKey,
       mangaId,
       saveSourcePackageHydration,
       store,
@@ -488,7 +502,11 @@ export function SourceMangaScreen() {
           refreshed,
         );
         await Promise.all([
-          store.saveLibraryItem(applied.item),
+          // Unchanged library metadata (a non-primary source, or nothing
+          // new) keeps the row as is: no write, no sync round-trip.
+          applied.item === existingEntry.item
+            ? Promise.resolve()
+            : store.saveLibraryItem(applied.item),
           store.saveSourceLink(applied.sourceLink),
         ]);
         emitMobileDataChanged("library");
@@ -505,13 +523,17 @@ export function SourceMangaScreen() {
   );
   const persistFetchedDetails = useCallback(
     (refreshed: Extract<MobileSourceDetailsRefresh, { status: "ready" }>) => {
+      rememberMobileSourceCoverOwner(refreshed.metadata.cover, {
+        registryId,
+        sourceId,
+      });
       void setCachedMobileSourceDetail(detailCacheKey, {
         metadata: refreshed.metadata,
         chapters: refreshed.chapters,
         fetchedAt: refreshed.fetchedAt,
       }).catch(() => undefined);
     },
-    [detailCacheKey],
+    [detailCacheKey, registryId, sourceId],
   );
 
   useEffect(() => {
@@ -761,9 +783,41 @@ export function SourceMangaScreen() {
     mangaId,
     navigationTitle,
   );
-  const cover = localState.libraryEntry
-    ? getEntryCover(localState.libraryEntry)
+  // A library title keeps its own cover here too (never this source's), and
+  // it is requested through the source that owns it: this page's source may
+  // well be the wrong one (see `mobileEntryCover`).
+  const libraryEntry = localState.libraryEntry;
+  const thisSourceLinkId = libraryEntry?.sources.find(
+    (source) =>
+      source.sourceMangaId === mangaId &&
+      (localState.installedSource
+        ? mobileInstalledSourceMatchesLink(localState.installedSource, source)
+        : source.registryId === registryId && source.sourceId === sourceId),
+  )?.id;
+  const thisSourceCover =
+    detailState.status === "ready" ? detailState.metadata.cover : undefined;
+  const knownSourceCovers = useMemo(
+    () =>
+      thisSourceLinkId && thisSourceCover
+        ? { [thisSourceLinkId]: thisSourceCover }
+        : {},
+    [thisSourceCover, thisSourceLinkId],
+  );
+  const cover = libraryEntry
+    ? resolveMobileEntryDisplayCover(libraryEntry, knownSourceCovers)
     : metadata?.cover;
+  const allInstalledSources = useInstalledSources();
+  const libraryCoverSources = useMemo(
+    () =>
+      libraryEntry
+        ? resolveMobileEntryCoverSources(
+            libraryEntry,
+            allInstalledSources.data,
+            { cover, knownSourceCovers },
+          )
+        : null,
+    [allInstalledSources.data, cover, knownSourceCovers, libraryEntry],
+  );
   // The tapped card's cover was already rewritten by the source runtime, so
   // reuse its headers while the cover URL is still that one. Details return a
   // raw cover, which re-triggers the rewrite; the sticky hook keeps the cover
@@ -776,7 +830,11 @@ export function SourceMangaScreen() {
   });
   const coverImage = useMobileStickySourceCover({
     source: localState.installedSource,
-    cover,
+    sources: libraryCoverSources,
+    // Hold a library cover until its owner is known rather than paint it
+    // through this page's (possibly wrong) source first.
+    cover:
+      libraryEntry && allInstalledSources.loading ? undefined : cover,
     coverHeaders: seedCoverHeaders,
   });
   const chapters = useMemo(

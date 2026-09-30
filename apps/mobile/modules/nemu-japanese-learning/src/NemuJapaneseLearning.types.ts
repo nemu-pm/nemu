@@ -70,6 +70,12 @@ export type NemuOcrPageBlock = {
   source: "manga-ocr" | "detector";
   tokens: number;
   ms: number;
+  /**
+   * manga-ocr's recognition confidence alone (geometric mean token
+   * probability); `conf` is min(detection, recognition) with the bundled
+   * detector. Absent on older binaries and for detector text.
+   */
+  recConf?: number;
 };
 
 export type NemuRecognizePageResult = {

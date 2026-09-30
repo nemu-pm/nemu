@@ -54,7 +54,6 @@ import {
 } from "@/data/mobileHooks";
 import {
   entryHasAnyUpdate,
-  getEntryCover,
   getEntryTitle,
   type InstalledSource,
   type LibraryEntry,
@@ -145,6 +144,10 @@ import {
   getMobileSourceMangaHref,
 } from "@/lib/mobileSourceRoutes";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
+import {
+  resolveMobileEntryCoverSources,
+  resolveMobileEntryDisplayCover,
+} from "@/lib/mobileEntryCover";
 import { useStableList } from "@/lib/useStableList";
 import {
   groupLocalSearchResults,
@@ -268,7 +271,7 @@ function toMangaCard(
     title: getEntryTitle(entry),
     subtitle: entry.item.metadata.authors?.join(", "),
     badge: entryHasAnyUpdate(entry) ? strings.search.updated : undefined,
-    cover: getEntryCover(entry),
+    cover: resolveMobileEntryDisplayCover(entry),
   };
 }
 
@@ -1496,9 +1499,22 @@ export function SearchScreen() {
         : null,
     [installed.data, quickActionLink],
   );
+  const quickActionCover = quickActionEntry
+    ? resolveMobileEntryDisplayCover(quickActionEntry)
+    : null;
+  // Same owner resolution as the library grid and the detail header.
+  const quickActionCoverSource = useMemo(
+    () =>
+      quickActionEntry
+        ? (resolveMobileEntryCoverSources(quickActionEntry, installed.data, {
+            cover: quickActionCover,
+          })[0] ?? null)
+        : null,
+    [installed.data, quickActionCover, quickActionEntry],
+  );
   const quickActionCoverRequest = useMobileSourceImageRequest(
-    quickActionSource,
-    quickActionEntry ? getEntryCover(quickActionEntry) : null,
+    quickActionCoverSource,
+    quickActionCover,
   );
   const quickActions = useMemo<QuickAction[]>(() => {
     const entry = quickActionEntry;
@@ -1920,8 +1936,7 @@ export function SearchScreen() {
         title={quickActionEntry ? getEntryTitle(quickActionEntry) : ""}
         subtitle={quickActionSource?.name ?? quickActionLink?.sourceId}
         image={
-          quickActionCoverRequest?.url ??
-          (quickActionEntry ? getEntryCover(quickActionEntry) : undefined)
+          quickActionCoverRequest?.url ?? quickActionCover ?? undefined
         }
         imageHeaders={quickActionCoverRequest?.headers}
         actions={quickActions}

@@ -63,6 +63,10 @@ struct NemuProvidedRegionsDetector: NemuTextDetector {
 
 /// Runs detector → dedupe → reading order → manga-ocr, bubble by bubble.
 enum NemuMangaOcrPipeline {
+  /// Recognition post-processing fingerprint (tiling, repetition guard,
+  /// duplicate drop), part of the engine revision and so of the OCR cache key.
+  static let revision = "p2-tile8x6-run12-dup"
+
   struct Options: Sendable {
     /// Extra pixels around each detector box before cropping. The cloud
     /// crops CTD boxes as-is; on the Vision-layout boxes 0 also scored best
@@ -72,6 +76,28 @@ enum NemuMangaOcrPipeline {
     var dedupeIoU = 0.6
     var maxRegions = 64
     var maxTokens = NemuMangaOcrRecognizer.maxTokens
+    /// See `NemuMangaOcrRecognizer.maxRepeatRun`; 0 disables the guard.
+    var maxRepeatRun = NemuMangaOcrRecognizer.maxRepeatRun
+    /// Crops at least this long for their width are read in pieces
+    /// (`NemuMangaOcrTiling`); 0 reads every crop whole.
+    var tileMinAspect = NemuMangaOcrTiling.defaultMinAspect
+    var tileTargetAspect = NemuMangaOcrTiling.defaultTargetAspect
+    /// A block whose box lies at least this much inside a larger block's box
+    /// and whose text occurs in that block's text (see
+    /// `dropContainedDuplicates`) is dropped; 0 keeps every block.
+    var duplicateCover = 0.9
+    var duplicateMaxDistance = 0.25
+  }
+
+  /// One crop's recognition, possibly read in several pieces.
+  struct CropOutput: Sendable {
+    var text: String
+    var confidence: Double
+    var tokens: Int
+    var pieces: Int
+    var repetitionStopped: Bool
+    var encodeMs: Double
+    var decodeMs: Double
   }
 
   struct Block: Sendable {
@@ -86,9 +112,12 @@ enum NemuMangaOcrPipeline {
     var source: String
     var tokens: Int
     var milliseconds: Double
+    /// manga-ocr's own confidence (`confidence` is min(detection,
+    /// recognition) with the bundled detector); nil for detector text.
+    var recognitionConfidence: Double? = nil
 
     var dictionary: [String: Any] {
-      [
+      var out: [String: Any] = [
         "order": order,
         "x1": box.x1, "y1": box.y1, "x2": box.x2, "y2": box.y2,
         "label": label,
@@ -99,6 +128,8 @@ enum NemuMangaOcrPipeline {
         "tokens": tokens,
         "ms": milliseconds,
       ]
+      if let recognitionConfidence { out["recConf"] = recognitionConfidence }
+      return out
     }
   }
 
@@ -131,6 +162,96 @@ enum NemuMangaOcrPipeline {
       if kept.contains(where: { iou($0.box, region.box) > options.dedupeIoU }) { continue }
       kept.append(region)
       if kept.count >= options.maxRegions { break }
+    }
+    return kept
+  }
+
+  /// Reads `crop` whole, or piece by piece when it is long enough to tile
+  /// (texts joined in reading order; confidence over all pieces' tokens).
+  static func recognize(
+    _ crop: NemuGrayImage, recognizer: NemuMangaOcrRecognizer, options: Options = Options()
+  ) throws -> CropOutput {
+    let pieces = NemuMangaOcrTiling.pieces(
+      crop, minAspect: options.tileMinAspect, targetAspect: options.tileTargetAspect)
+    var out = CropOutput(
+      text: "", confidence: 0, tokens: 0, pieces: pieces.count, repetitionStopped: false,
+      encodeMs: 0, decodeMs: 0)
+    var logProbability = 0.0
+    var steps = 0
+    for piece in pieces {
+      try Task.checkCancellation()
+      let image =
+        pieces.count == 1
+        ? crop : crop.cropped(x1: piece.x1, y1: piece.y1, x2: piece.x2, y2: piece.y2)
+      guard let image else { continue }
+      let output = try recognizer.recognize(
+        image, maxTokens: options.maxTokens, maxRepeatRun: options.maxRepeatRun)
+      out.text += output.text
+      out.tokens += output.tokens
+      out.repetitionStopped = out.repetitionStopped || output.repetitionStopped
+      out.encodeMs += output.encodeMs
+      out.decodeMs += output.decodeMs
+      logProbability += output.logProbability
+      steps += output.steps
+    }
+    out.confidence = steps > 0 ? exp(logProbability / Double(steps)) : 0
+    return out
+  }
+
+  /// Smallest edit distance between `pattern` and any substring of `text`.
+  static func substringDistance(_ pattern: [Unicode.Scalar], _ text: [Unicode.Scalar]) -> Int {
+    var previous = [Int](repeating: 0, count: text.count + 1)
+    var current = previous
+    for (row, a) in pattern.enumerated() {
+      current[0] = row + 1
+      for (column, b) in text.enumerated() {
+        current[column + 1] = min(
+          previous[column + 1] + 1, current[column] + 1, previous[column] + (a == b ? 0 : 1))
+      }
+      swap(&previous, &current)
+    }
+    return previous.min() ?? 0
+  }
+
+  /// The detector sometimes proposes a sub-box inside a bubble it also
+  /// boxed whole (`この先の人生のほうが長いんだ。` inside the full speech),
+  /// so the text is read twice. A block is dropped when at least `cover` of
+  /// its box lies inside a larger block's box and its text occurs in that
+  /// block's text within `maxDistance` × its length edits. Order is kept
+  /// and renumbered. Boxes that merely touch, and nested boxes with
+  /// different text, are kept.
+  static func dropContainedDuplicates(_ blocks: [Block], cover: Double, maxDistance: Double)
+    -> [Block]
+  {
+    guard cover > 0, blocks.count > 1 else { return blocks }
+    func area(_ box: NemuTextOrder.Box) -> Double {
+      max(0, box.x2 - box.x1) * max(0, box.y2 - box.y1)
+    }
+    func intersection(_ a: NemuTextOrder.Box, _ b: NemuTextOrder.Box) -> Double {
+      max(0, min(a.x2, b.x2) - max(a.x1, b.x1)) * max(0, min(a.y2, b.y2) - max(a.y1, b.y1))
+    }
+    let texts = blocks.map { Array($0.text.unicodeScalars) }
+    var dropped = Set<Int>()
+    for (index, small) in blocks.enumerated() {
+      for (other, large) in blocks.enumerated() where other != index && !dropped.contains(other) {
+        let smallArea = area(small.box)
+        let largeArea = area(large.box)
+        if smallArea > largeArea || (smallArea == largeArea && index < other) { continue }
+        guard intersection(small.box, large.box) >= cover * smallArea else { continue }
+        let pattern = texts[index]
+        guard !pattern.isEmpty, pattern.count <= texts[other].count,
+          Double(substringDistance(pattern, texts[other])) <= maxDistance * Double(pattern.count)
+        else { continue }
+        dropped.insert(index)
+        break
+      }
+    }
+    guard !dropped.isEmpty else { return blocks }
+    var kept: [Block] = []
+    for (index, block) in blocks.enumerated() where !dropped.contains(index) {
+      var block = block
+      block.order = kept.count
+      kept.append(block)
     }
     return kept
   }
@@ -217,7 +338,7 @@ enum NemuMangaOcrPipeline {
             x2: Int((cropBox.x2 + pad).rounded(.up)),
             y2: Int((cropBox.y2 + pad).rounded(.up)))
         else { continue }
-        let output = try recognizer.recognize(crop, maxTokens: options.maxTokens)
+        let output = try recognize(crop, recognizer: recognizer, options: options)
         timings.recognizeMs += output.encodeMs + output.decodeMs
         guard !output.text.isEmpty, !isLatinNoise(output.text) else { continue }
         block.rawText = output.text
@@ -225,6 +346,7 @@ enum NemuMangaOcrPipeline {
         block.source = "manga-ocr"
         block.tokens = output.tokens
         let recognition = (output.confidence * 1000).rounded() / 1000
+        block.recognitionConfidence = recognition
         block.confidence =
           detector.reportsDetectionConfidence ? min(region.confidence, recognition) : recognition
       }
@@ -232,6 +354,8 @@ enum NemuMangaOcrPipeline {
       blocks.append(block)
       onBlock?(block, order.count)
     }
+    blocks = dropContainedDuplicates(
+      blocks, cover: options.duplicateCover, maxDistance: options.duplicateMaxDistance)
     return (blocks, timings)
   }
 }

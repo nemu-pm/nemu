@@ -459,6 +459,16 @@ export const mobileStringsEn: MobileStrings = {
     installBeforeExecutor: "Install the source before checking the executor.",
     installBeforeOpening:
       "Install this source from Browse before opening it.",
+    installingSource: "Installing source…",
+    installingSourceDescription:
+      "Downloading this source so it can run on this device.",
+    loadSourceFailed: "Could not load this source.",
+    sourceInstallFailed: "Couldn't install this source",
+    sourceInstallFailedDescription:
+      "The source package couldn't be downloaded. Check your connection and try again.",
+    sourceNotInRegistry: "Source no longer available",
+    sourceNotInRegistryDescription:
+      "This source isn't listed in its registry anymore. Pick another source in Browse.",
     libraryFromSource: "Library From Source",
     listingCountOne: "1 listing",
     listingCountOther: "{{count}} listings",
@@ -799,6 +809,9 @@ export const mobileStringsEn: MobileStrings = {
     pluginJapaneseLearningRecognitionEngine: "Recognition Engine",
     pluginJapaneseLearningRecognitionEngineDescription:
       "On device keeps page images and text on this device. The first analysis downloads a 24 MB Japanese dictionary.",
+    pluginJapaneseLearningOnlineOcrAssist: "Online Help for Hard Text",
+    pluginJapaneseLearningOnlineOcrAssistDescription:
+      "With the Automatic engine, pages with text the device read with low confidence are also sent to the online OCR service, and its reading replaces those bubbles.",
     pluginValueEngineAutomatic: "Automatic",
     pluginValueEngineOnDevice: "On Device",
     pluginValueEngineCloud: "Cloud",

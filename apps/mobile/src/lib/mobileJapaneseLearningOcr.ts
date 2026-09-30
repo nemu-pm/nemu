@@ -21,6 +21,7 @@ import type { MobileStrings } from "./mobileI18n";
 import {
   getMobileJapaneseLearningCapabilities,
   getMobileJapaneseLearningEnginePreference,
+  isMobileJapaneseLearningOcrAssistActive,
   mobileJapaneseLearningNowMs,
   recordMobileJapaneseLearningEngineRun,
   resolveMobileJapaneseLearningOcrEngine,
@@ -29,7 +30,13 @@ import {
 import {
   runMobileOnDeviceOcr,
   type MobileOnDeviceOcrEngineInfo,
+  type MobileOnDeviceOcrResult,
 } from "./mobileJapaneseLearningOnDeviceOcr";
+import {
+  applyMobileOcrAssist,
+  mobileOcrAssistSpacesAgree,
+  selectMobileOcrAssistTargets,
+} from "./mobileJapaneseLearningOcrAssist";
 
 export type MobileOcrDetection = {
   /** Source page and coordinate space when recognizing a visible spread. */
@@ -58,6 +65,8 @@ export type MobileJapaneseLearningOcrResult = {
   imageSize?: { width: number; height: number };
   /** Which engine produced `detections` (absent for source text). */
   engine?: MobileOnDeviceOcrEngineInfo | { kind: "cloud"; elapsedMs: number };
+  /** On-device runs with the online OCR assist: bubbles re-read by the cloud. */
+  assistedBlocks?: number;
 };
 
 export type MobileJapaneseLearningOcrOptions = {
@@ -509,12 +518,19 @@ export async function runMobileJapaneseLearningOcr(
             }
           : {}),
       });
+      const assisted = isMobileJapaneseLearningOcrAssistActive(
+        options.engine ?? getMobileJapaneseLearningEnginePreference(),
+      )
+        ? await assistMobileOnDeviceOcr(page, result, options, scope.signal)
+        : null;
+      const detections = assisted?.detections ?? result.detections;
       return {
         source: "ocr",
-        detections: result.detections,
-        text: textFromMobileOcrDetections(result.detections),
+        detections,
+        text: textFromMobileOcrDetections(detections),
         ...(result.imageSize ? { imageSize: result.imageSize } : {}),
         engine: result.engine,
+        ...(assisted ? { assistedBlocks: assisted.replaced } : {}),
       };
     } finally {
       scope.dispose();
@@ -522,38 +538,9 @@ export async function runMobileJapaneseLearningOcr(
   }
 
   const abortScope = createMobileJapaneseLearningAbortScope(options.signal);
-  const fetchImpl = options.fetchImpl ?? fetch;
   const cloudStarted = mobileJapaneseLearningNowMs();
   try {
-    const imageBase64 = await imageUriToBase64(page, {
-      fetchImpl,
-      readFileBytes: options.readFileBytes ?? defaultReadFileBytes,
-      signal: abortScope.signal,
-    });
-    abortScope.throwIfAborted();
-    const requestId = `mobile-ocr-${Date.now()}`;
-    const response = await awaitMobileJapaneseLearningAbortable(
-      fetchImpl(`${getMobileOcrApiBase(options.ocrApiBase)}/ocr`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ imageBase64, requestId }),
-        signal: abortScope.signal,
-      }),
-      abortScope.signal,
-    );
-    if (!response.ok) {
-      throw new Error(
-        `OCR /ocr failed: ${response.status} ${response.statusText}`,
-      );
-    }
-
-    const detections = parseMobileOcrResponse(
-      await readMobileJapaneseLearningBoundedResponseText(response, {
-        maxBytes: MOBILE_JAPANESE_LEARNING_OCR_MAX_RESPONSE_BYTES,
-        label: "OCR response",
-        signal: abortScope.signal,
-      }),
-    );
+    const detections = await fetchMobileCloudOcrDetections(page, options, abortScope.signal);
     const elapsedMs = mobileJapaneseLearningNowMs() - cloudStarted;
     recordMobileJapaneseLearningEngineRun({
       stage: "ocr",
@@ -570,5 +557,107 @@ export async function runMobileJapaneseLearningOcr(
     };
   } finally {
     abortScope.dispose();
+  }
+}
+
+/** Uploads the page to the cloud OCR service (`/ocr`) and returns its detections. */
+async function fetchMobileCloudOcrDetections(
+  page: Pick<MobileReaderPage, "imageUri" | "headers">,
+  options: MobileJapaneseLearningOcrOptions,
+  signal: AbortSignal,
+): Promise<MobileOcrDetection[]> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const imageBase64 = await imageUriToBase64(page, {
+    fetchImpl,
+    readFileBytes: options.readFileBytes ?? defaultReadFileBytes,
+    signal,
+  });
+  throwIfMobileJapaneseLearningAborted(signal);
+  const requestId = `mobile-ocr-${Date.now()}`;
+  const response = await awaitMobileJapaneseLearningAbortable(
+    fetchImpl(`${getMobileOcrApiBase(options.ocrApiBase)}/ocr`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ imageBase64, requestId }),
+      signal,
+    }),
+    signal,
+  );
+  if (!response.ok) {
+    throw new Error(`OCR /ocr failed: ${response.status} ${response.statusText}`);
+  }
+  return parseMobileOcrResponse(
+    await readMobileJapaneseLearningBoundedResponseText(response, {
+      maxBytes: MOBILE_JAPANESE_LEARNING_OCR_MAX_RESPONSE_BYTES,
+      label: "OCR response",
+      signal,
+    }),
+  );
+}
+
+const ASSIST_CACHE_LIMIT = 16;
+/** The on-device text is already on screen; a slow service must not hold the run. */
+const ASSIST_TIMEOUT_MS = 15_000;
+const assistCache = new Map<string, { detections: MobileOcrDetection[]; replaced: number }>();
+
+export function clearMobileOcrAssistCache(): void {
+  assistCache.clear();
+}
+
+/**
+ * Online OCR assist: low-confidence manga-ocr bubbles take the cloud's
+ * reading. Returns null when nothing was sent; a failed request keeps the
+ * on-device result (recorded in the engine log, never thrown) unless the
+ * run was aborted.
+ */
+async function assistMobileOnDeviceOcr(
+  page: Pick<MobileReaderPage, "imageUri" | "headers">,
+  result: MobileOnDeviceOcrResult,
+  options: MobileJapaneseLearningOcrOptions,
+  signal: AbortSignal,
+): Promise<{ detections: MobileOcrDetection[]; replaced: number } | null> {
+  if (result.engine.pipeline !== "manga-ocr") return null;
+  const targets = selectMobileOcrAssistTargets(result.detections, result.recognitionConfidences);
+  if (targets.length === 0) return null;
+  const cacheKey = `${result.engine.engineRevision}|${page.imageUri ?? ""}|${targets.join(",")}`;
+  const hit = assistCache.get(cacheKey);
+  if (hit) return hit;
+  const started = mobileJapaneseLearningNowMs();
+  const request = new AbortController();
+  const onAbort = () => request.abort();
+  signal.addEventListener("abort", onAbort, { once: true });
+  const timer = setTimeout(() => request.abort(), ASSIST_TIMEOUT_MS);
+  try {
+    const cloud = await fetchMobileCloudOcrDetections(page, options, request.signal);
+    const assisted = mobileOcrAssistSpacesAgree(result.detections, cloud, result.imageSize)
+      ? applyMobileOcrAssist(result.detections, targets, cloud)
+      : { detections: result.detections, replaced: 0 };
+    assistCache.set(cacheKey, assisted);
+    while (assistCache.size > ASSIST_CACHE_LIMIT) {
+      const oldest = assistCache.keys().next().value;
+      if (typeof oldest !== "string") break;
+      assistCache.delete(oldest);
+    }
+    recordMobileJapaneseLearningEngineRun({
+      stage: "ocr",
+      engine: "cloud",
+      ok: true,
+      durationMs: mobileJapaneseLearningNowMs() - started,
+      detail: `assist targets=${targets.length} replaced=${assisted.replaced} cloudBlocks=${cloud.length}`,
+    });
+    return assisted;
+  } catch (error) {
+    throwIfMobileJapaneseLearningAborted(signal);
+    recordMobileJapaneseLearningEngineRun({
+      stage: "ocr",
+      engine: "cloud",
+      ok: false,
+      durationMs: mobileJapaneseLearningNowMs() - started,
+      detail: `assist skipped: ${request.signal.aborted ? "timed out" : error instanceof Error ? error.message : String(error)}`,
+    });
+    return null;
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", onAbort);
   }
 }

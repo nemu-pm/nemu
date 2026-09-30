@@ -1,10 +1,12 @@
 import {
   MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY,
+  MOBILE_JAPANESE_LEARNING_OCR_ASSIST_SETTING_KEY,
   setMobileJapaneseLearningEnginePreference,
+  setMobileJapaneseLearningOcrAssist,
 } from "./mobileJapaneseLearningEngine";
 import type { MobileReaderPluginState } from "./mobileReaderPlugins";
 
-/** Pushes the Japanese Learning plugin's engine setting into the engine layer. */
+/** Pushes the Japanese Learning plugin's engine settings into the engine layer. */
 export function syncMobileJapaneseLearningEnginePreference(
   plugins: ReadonlyArray<Pick<MobileReaderPluginState, "id" | "values">>,
 ): void {
@@ -12,6 +14,7 @@ export function syncMobileJapaneseLearningEnginePreference(
   setMobileJapaneseLearningEnginePreference(
     plugin?.values[MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY],
   );
+  setMobileJapaneseLearningOcrAssist(plugin?.values[MOBILE_JAPANESE_LEARNING_OCR_ASSIST_SETTING_KEY]);
 }
 
 // QA builds only (flag inlined at bundle time): exercise the real engines once

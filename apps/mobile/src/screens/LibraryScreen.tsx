@@ -45,7 +45,6 @@ import {
   useMangaProgress,
 } from "@/data/mobileHooks";
 import {
-  getEntryCover,
   getEntryTitle,
   type InstalledSource,
   type LibraryEntry,
@@ -148,6 +147,10 @@ import {
   type MobileIdleTaskHandle,
 } from "@/lib/mobileIdleTask";
 import { useMobileSourceImageRequest } from "@/lib/useMobileSourceImageRequest";
+import {
+  resolveMobileEntryCoverSources,
+  resolveMobileEntryDisplayCover,
+} from "@/lib/mobileEntryCover";
 import type { MobileSourceImageRequest } from "@/sources/mobileSourceImages";
 import { makeMobileRuntimeSourceKey, normalizeInstalledSource } from "@/sources/mobileSourceRuntime";
 
@@ -169,7 +172,7 @@ function toMangaCard(
     strings,
     entryProgress,
   );
-  const cover = getEntryCover(entry);
+  const cover = resolveMobileEntryDisplayCover(entry);
   return {
     id: entry.item.libraryItemId,
     title: getEntryTitle(entry),
@@ -220,14 +223,14 @@ const LibraryGridItem = memo(function LibraryGridItem({
   installedSources: InstalledSource[];
   onLongPress?: (entry: LibraryEntry) => void;
 }) {
-  const cover = getEntryCover(entry);
-  const sourceLink = useMemo(
-    () => selectLibraryCoverSource(entry, progressIndex, entryProgress),
-    [entry, entryProgress, progressIndex],
-  );
+  const cover = resolveMobileEntryDisplayCover(entry);
+  // Requested through the source that owns the cover URL (same resolution as
+  // the detail header), so both share one request and one cached image.
   const installedSource = useMemo(
-    () => findInstalledSourceForLink(installedSources, sourceLink),
-    [installedSources, sourceLink],
+    () =>
+      resolveMobileEntryCoverSources(entry, installedSources, { cover })[0] ??
+      null,
+    [cover, entry, installedSources],
   );
   const coverRequest = useMobileSourceImageRequest(installedSource, cover);
   const item = useMemo(
@@ -2031,9 +2034,23 @@ export function LibraryScreen({
     () => findInstalledSourceForLink(installedSources.data, quickActionLink),
     [installedSources.data, quickActionLink],
   );
+  const quickActionCover = quickActionEntry
+    ? resolveMobileEntryDisplayCover(quickActionEntry)
+    : null;
+  const quickActionCoverSource = useMemo(
+    () =>
+      quickActionEntry
+        ? (resolveMobileEntryCoverSources(
+            quickActionEntry,
+            installedSources.data,
+            { cover: quickActionCover },
+          )[0] ?? null)
+        : null,
+    [installedSources.data, quickActionCover, quickActionEntry],
+  );
   const quickActionCoverRequest = useMobileSourceImageRequest(
-    quickActionSource,
-    quickActionEntry ? getEntryCover(quickActionEntry) : null,
+    quickActionCoverSource,
+    quickActionCover,
   );
   const quickActionSubtitle = useMemo(() => {
     if (!quickActionEntry) return undefined;
@@ -2198,8 +2215,7 @@ export function LibraryScreen({
         title={quickActionEntry ? getEntryTitle(quickActionEntry) : ""}
         subtitle={quickActionSubtitle}
         image={
-          quickActionCoverRequest?.url ??
-          (quickActionEntry ? getEntryCover(quickActionEntry) : undefined)
+          quickActionCoverRequest?.url ?? quickActionCover ?? undefined
         }
         imageHeaders={quickActionCoverRequest?.headers}
         actions={quickActions}

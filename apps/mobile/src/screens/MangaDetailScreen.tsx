@@ -44,7 +44,6 @@ import {
   useSourceInstaller,
 } from "@/data/mobileHooks";
 import {
-  getEntryCover,
   sourceHasUpdate,
   type ChapterSummary,
   type InstalledSource,
@@ -139,6 +138,7 @@ import {
   type MobileSourceErrorRecoveryAction,
 } from "@/lib/mobileSourceErrors";
 import { useNemuAgentSheet } from "@/lib/useNemuAgentSheet";
+import { markMobilePerformance } from "@/lib/mobilePerformance";
 import type { NemuAgentSheetContext } from "@/lib/nemuAgentSheetReducer";
 import { readMobileCloudflareUserAgent } from "@/sources/mobileAidokuUserAgent";
 import { useMobileStickySourceCover } from "@/lib/useMobileSourceImageRequest";
@@ -151,10 +151,30 @@ import {
   mobileReaderPagesPrefetchCache,
 } from "@/sources/mobileReaderPagesPrefetch";
 import {
-  refreshMobileSourceChapters,
   refreshMobileSourceDetails,
   refreshMobileSourceMetadata,
+  type MobileSourceDetailsRefresh,
 } from "@/sources/mobileSourceDetails";
+import {
+  getCachedMobileSourceDetail,
+  makeMobileSourceDetailCacheKey,
+  setCachedMobileSourceDetail,
+  type MobileSourceDetailCachePayload,
+} from "@/lib/mobileSourceDetailCache";
+import {
+  MOBILE_MANGA_DETAIL_BACKGROUND_REVALIDATE_MS,
+  MOBILE_MANGA_DETAIL_SELECTED_REVALIDATE_MS,
+  mobileSourceDetailRequests,
+  shouldRevalidateMobileSourceDetail,
+  withMobileSourceDetailSnapshot,
+  type MobileSourceChapterListState,
+} from "@/lib/mobileSourceDetailRevalidation";
+import {
+  rememberMobileSourceCoverOwner,
+  resolveMobileEntryCoverSources,
+  resolveMobileEntryDisplayCover,
+  type MobileKnownSourceCovers,
+} from "@/lib/mobileEntryCover";
 import {
   makeMobileRuntimeSourceKey,
   normalizeInstalledSource,
@@ -168,8 +188,18 @@ type DetailState = {
   entry: LibraryEntry | null;
   installedSources: InstalledSource[];
   progress: LocalMangaProgress[];
-  selectedChapterProgress: Record<string, LocalChapterProgress>;
+  /**
+   * Chapter progress per linked source, kept across tab switches so a switch
+   * paints the new tab with its own read marks (and never the previous tab's
+   * progress rows as extra chapters) before the local reload lands.
+   */
+  chapterProgressBySourceId: Record<
+    string,
+    Record<string, LocalChapterProgress>
+  >;
 };
+
+const EMPTY_CHAPTER_PROGRESS: Record<string, LocalChapterProgress> = {};
 
 type LiveDetailState =
   | { status: "idle"; detail: string }
@@ -188,10 +218,17 @@ type LiveDetailState =
       recoveryAction?: MobileSourceErrorRecoveryAction | null;
     };
 
-type SourceChapterListState = {
-  status: "cached" | "loading" | "ready" | "blocked" | "error";
-  chapters: ChapterSummary[];
-};
+type SourceChapterListState = MobileSourceChapterListState;
+
+const EMPTY_CHAPTERS: ChapterSummary[] = [];
+
+function sourceDetailCacheKeyForLink(link: LocalSourceLink): string {
+  return makeMobileSourceDetailCacheKey(
+    link.registryId,
+    link.sourceId,
+    link.sourceMangaId,
+  );
+}
 
 function sourceDisplayName(source: LocalSourceLink): string {
   return source.sourceId.split(".").slice(1).join(".") || source.sourceId;
@@ -317,7 +354,7 @@ export function MangaDetailScreen() {
     entry: null,
     installedSources: [],
     progress: [],
-    selectedChapterProgress: {},
+    chapterProgressBySourceId: {},
   });
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
@@ -340,7 +377,6 @@ export function MangaDetailScreen() {
   }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [liveChapters, setLiveChapters] = useState<ChapterSummary[]>([]);
   const [chapterListPreference, setChapterListPreference] =
     useState<MobileChapterListPreference>(
       DEFAULT_MOBILE_CHAPTER_LIST_PREFERENCE,
@@ -415,17 +451,24 @@ export function MangaDetailScreen() {
     const selected = resolvedSelectedSourceId
       ? sources.find((source) => source.id === resolvedSelectedSourceId)
       : undefined;
-    const selectedChapterProgress = selected
-      ? await loadMobileChapterProgressForSource(
-          store,
-          selected,
-          installedSources,
-        )
-      : {};
+    // The selected tab's persisted details are read alongside its progress
+    // so the first painted frame already has the complete chapter list (no
+    // partial list of progress-known chapters flashing first).
+    const [selectedChapterProgress, selectedCachedDetail] = await Promise.all([
+      selected
+        ? loadMobileChapterProgressForSource(store, selected, installedSources)
+        : Promise.resolve({}),
+      selected
+        ? getCachedMobileSourceDetail(sourceDetailCacheKeyForLink(selected))
+            .then((hit) => hit?.payload ?? null)
+            .catch(() => null)
+        : Promise.resolve(null),
+    ]);
 
     return {
       entry: item ? { item, sources } : null,
       installedSources,
+      selectedCachedDetail,
       progress,
       selected,
       selectedChapterProgress,
@@ -439,12 +482,17 @@ export function MangaDetailScreen() {
         Awaited<ReturnType<typeof reloadLocalDetailState>>
       >,
     ) => {
-      setState({
+      setState((current) => ({
         entry: nextState.entry,
         installedSources: nextState.installedSources,
         progress: nextState.progress,
-        selectedChapterProgress: nextState.selectedChapterProgress,
-      });
+        chapterProgressBySourceId: nextState.selected
+          ? {
+              ...current.chapterProgressBySourceId,
+              [nextState.selected.id]: nextState.selectedChapterProgress,
+            }
+          : current.chapterProgressBySourceId,
+      }));
       if (
         routeSourceId &&
         !nextState.sources.some((source) => source.id === routeSourceId)
@@ -457,12 +505,35 @@ export function MangaDetailScreen() {
       ) {
         setSelectedSourceId(nextState.selected.id);
       }
+      if (nextState.selected && nextState.selectedCachedDetail) {
+        rememberMobileSourceCoverOwner(
+          nextState.selectedCachedDetail.metadata.cover,
+          nextState.selected,
+        );
+      }
       setSourceChapterLists((current) => {
         const next: Record<string, SourceChapterListState> = { ...current };
         let changed = false;
+        const selected = nextState.selected;
+        const cachedDetail = nextState.selectedCachedDetail;
+        if (selected && cachedDetail) {
+          const merged = withMobileSourceDetailSnapshot(
+            next[selected.id],
+            cachedDetail,
+            "cache",
+          );
+          if (merged !== next[selected.id]) {
+            next[selected.id] = merged;
+            changed = true;
+          }
+        }
         for (const source of nextState.sources) {
           const existing = next[source.id];
-          if (existing?.status === "ready" || existing?.status === "loading") {
+          if (
+            existing?.full ||
+            existing?.status === "ready" ||
+            existing?.status === "loading"
+          ) {
             continue;
           }
           const cached = cachedChaptersForSource(source);
@@ -499,12 +570,14 @@ export function MangaDetailScreen() {
     let mounted = true;
     async function load() {
       if (!idCandidates.length) return;
+      markMobilePerformance("mangaDetail.open");
       setLoading(true);
       setError(null);
       try {
         const nextState = await reloadLocalDetailState();
         if (!nextState) return;
         if (!mounted) return;
+        markMobilePerformance("mangaDetail.local-ready");
         applyLocalDetailState(nextState);
       } catch (nextError) {
         if (!mounted) return;
@@ -579,12 +652,35 @@ export function MangaDetailScreen() {
     [entry],
   );
   const title = effectiveMetadata?.title ?? strings.mangaDetail.manga;
-  const cover = entry ? getEntryCover(entry) : undefined;
   const sources = useMemo(
     () =>
       entry ? sortMobileSourceLinks(entry.sources, entry.item.sourceOrder) : [],
     [entry],
   );
+  // Covers each linked source reported with its full details. Keyed by a
+  // string signature so the cover resolution below only re-runs when a cover
+  // actually changes, not on every chapter-list update.
+  const knownSourceCoversSignature = sources
+    .map((source) => {
+      const known = sourceChapterLists[source.id]?.metadata?.cover ?? "";
+      return `${source.id}\u0000${known}`;
+    })
+    .join("\u0001");
+  const knownSourceCovers = useMemo((): MobileKnownSourceCovers => {
+    const covers: Record<string, string> = {};
+    for (const part of knownSourceCoversSignature.split("\u0001")) {
+      const separator = part.indexOf("\u0000");
+      if (separator <= 0) continue;
+      const cover = part.slice(separator + 1);
+      if (cover) covers[part.slice(0, separator)] = cover;
+    }
+    return covers;
+  }, [knownSourceCoversSignature]);
+  // The library title's own cover (override > stored > best known source
+  // cover). The selected tab never changes it.
+  const cover = entry
+    ? resolveMobileEntryDisplayCover(entry, knownSourceCovers)
+    : undefined;
   const metadataSourceChoices = useMemo(
     () =>
       sources.map((source) => {
@@ -696,18 +792,28 @@ export function MangaDetailScreen() {
       }
     })();
   };
-  const coverSource = useMemo(() => {
-    const source = selectedSource ?? sources[0];
-    return source
-      ? (sourceInfoForLink(source, state.installedSources) ?? null)
-      : null;
-  }, [selectedSource, sources, state.installedSources]);
-  // Same protection as the source manga screen: switching the selected source
-  // (or a metadata refresh) changes the cover identity, and painting the bare
-  // URL while the source rewrite is in flight is what drops referer-gated
-  // covers into `MobileCachedImage`'s failed state.
+  // The cover is requested through the source that owns its URL, never the
+  // selected tab's source: another source's Referer on a MangaDex cover gets
+  // MangaDex's "read this at mangadex.org" placeholder, and a Referer-less
+  // request for a Manhuagui cover gets a 403 (no cover at all). Later
+  // candidates are fallbacks the sticky hook tries when a request fails.
+  const coverSources = useMemo(
+    () =>
+      entry
+        ? resolveMobileEntryCoverSources(entry, state.installedSources, {
+            cover,
+            knownSourceCovers,
+          })
+        : [],
+    [cover, entry, knownSourceCovers, state.installedSources],
+  );
+  const coverSource = coverSources[0] ?? null;
+  // Same protection as the source manga screen: a metadata refresh can change
+  // the cover identity, and painting the bare URL while the source rewrite is
+  // in flight is what drops referer-gated covers into `MobileCachedImage`'s
+  // failed state.
   const coverImage = useMobileStickySourceCover({
-    source: coverSource,
+    sources: coverSources,
     cover,
   });
   const progressBySource = useMemo(() => {
@@ -720,6 +826,10 @@ export function MangaDetailScreen() {
       progressBySource,
     );
   }, [entry, progressBySource, sources]);
+  const selectedChapterProgress =
+    (selectedSource
+      ? state.chapterProgressBySourceId[selectedSource.id]
+      : undefined) ?? EMPTY_CHAPTER_PROGRESS;
   const selectedProgress = selectedSource
     ? findMobileMangaProgressForSource(
         selectedSource,
@@ -784,10 +894,136 @@ export function MangaDetailScreen() {
     setRemoveConfirmOpen(true);
   };
 
+  const getDetailSourceSettings = useCallback(
+    async (_sourceKey: string, sourceRecord: InstalledSource) => {
+      const normalized = normalizeInstalledSource(sourceRecord);
+      const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
+      const saved = await loadMobileSourceSettingsByKeys(store, [
+        runtimeSourceKey,
+        ...getMobileInstalledSourceSettingsKeys(sourceRecord),
+      ]);
+      return mergeSourceSettingValues(
+        sourceRecord.packageMetadata?.settings ?? [],
+        saved?.values,
+      );
+    },
+    [store],
+  );
+
+  /**
+   * One network fetch of a linked source's details, shared by every caller
+   * that asks for the same source manga while it is in flight, and written to
+   * the persisted detail cache so the next open (or tab switch) paints it
+   * without touching the source runtime.
+   */
+  const fetchSourceDetailsForLink = useCallback(
+    (installedSource: InstalledSource, link: LocalSourceLink) => {
+      const cacheKey = sourceDetailCacheKeyForLink(link);
+      return mobileSourceDetailRequests.run(cacheKey, async () => {
+        const refreshed = await withMobileSourceOperationTimeout(
+          refreshMobileSourceDetails(installedSource, link.sourceMangaId, {
+            getSourceSettings: getDetailSourceSettings,
+            onSourcePackageHydrated: saveSourcePackageHydration,
+          }),
+          { message: strings.sourceBrowse.sourceOperationTimedOut },
+        );
+        if (refreshed.status === "ready") {
+          rememberMobileSourceCoverOwner(refreshed.metadata.cover, link);
+          void setCachedMobileSourceDetail(cacheKey, {
+            metadata: refreshed.metadata,
+            chapters: refreshed.chapters,
+            fetchedAt: refreshed.fetchedAt,
+          }).catch(() => undefined);
+        }
+        return refreshed;
+      });
+    },
+    [
+      getDetailSourceSettings,
+      saveSourcePackageHydration,
+      strings.sourceBrowse.sourceOperationTimedOut,
+    ],
+  );
+
+  const updateSourceChapterList = useCallback(
+    (
+      linkId: string,
+      update: (
+        existing: SourceChapterListState | undefined,
+      ) => SourceChapterListState | undefined,
+    ) => {
+      setSourceChapterLists((current) => {
+        const existing = current[linkId];
+        const nextState = update(existing);
+        if (!nextState || nextState === existing) return current;
+        const next = { ...current, [linkId]: nextState };
+        sourceChapterListsRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+
+  /**
+   * Paints a complete chapter list for one linked source. A cached copy never
+   * replaces a newer list already on screen, and a fresher list is merged by
+   * chapter id so unchanged rows keep their identity (no flicker, no jump).
+   */
+  const applySourceDetailSnapshot = useCallback(
+    (
+      link: LocalSourceLink,
+      payload: MobileSourceDetailCachePayload,
+      origin: "cache" | "network",
+    ) => {
+      rememberMobileSourceCoverOwner(payload.metadata.cover, link);
+      updateSourceChapterList(link.id, (existing) =>
+        withMobileSourceDetailSnapshot(existing, payload, origin),
+      );
+    },
+    [updateSourceChapterList],
+  );
+
+  // Every linked source's cached details paint as soon as the links are
+  // known: the selected tab shows its full list immediately, the other tabs
+  // show their counts, and switching tabs never waits on a source runtime.
+  const sourceLinksSignature = sources
+    .map((source) => `${source.id}\u0000${sourceDetailCacheKeyForLink(source)}`)
+    .join("\u0001");
+  useEffect(() => {
+    let cancelled = false;
+    const pending = sources.filter(
+      (source) => !sourceChapterListsRef.current[source.id]?.full,
+    );
+    if (!pending.length) return;
+    void Promise.all(
+      pending.map(async (source) => {
+        const cached = await getCachedMobileSourceDetail(
+          sourceDetailCacheKeyForLink(source),
+        ).catch(() => null);
+        if (cancelled || !cached) return;
+        applySourceDetailSnapshot(source, cached.payload, "cache");
+      }),
+    );
+    return () => {
+      cancelled = true;
+    };
+    // `sources` is captured through its signature: entry reloads re-create
+    // the array without changing which source manga are linked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applySourceDetailSnapshot, sourceLinksSignature]);
+
+  // The background sweep of the other linked sources waits until the selected
+  // tab's own refresh has settled: the source sandbox runs one operation at a
+  // time, so starting them together only delays the list the user is
+  // looking at.
+  const [selectedRefreshSettledKey, setSelectedRefreshSettledKey] = useState<
+    string | null
+  >(null);
+  const lastHandledRefreshNonceRef = useRef(detailRefreshNonce);
+
   useEffect(() => {
     if (!entry || !selectedSource || !liveDetailRefreshKey) {
       detailRefreshGate.current.reset();
-      setLiveChapters([]);
       setLiveDetailState({
         status: "idle",
         detail: strings.mangaDetail.selectSourceRefresh,
@@ -802,10 +1038,45 @@ export function MangaDetailScreen() {
     const run = detailRefreshGate.current.begin(liveDetailRefreshKey);
     if (!run) return;
     const isCancelled = run.isCancelled;
-    setLiveChapters([]);
+    const runKey = liveDetailRefreshKey;
+    // Pull-to-refresh, a solved challenge and a source install bump the
+    // nonce; those always go to the network. A tab switch does not.
+    const force = lastHandledRefreshNonceRef.current !== detailRefreshNonce;
+    lastHandledRefreshNonceRef.current = detailRefreshNonce;
+    const link = selectedSource;
+    const cacheKey = sourceDetailCacheKeyForLink(link);
+    const settle = () => {
+      if (!isCancelled()) setSelectedRefreshSettledKey(runKey);
+    };
+
+    // Already painted and fresh (e.g. switching back to a tab loaded a moment
+    // ago): no loading state, no source call.
+    const painted = sourceChapterListsRef.current[link.id];
+    if (
+      !force &&
+      painted?.full &&
+      painted.fetchedAt !== undefined &&
+      !shouldRevalidateMobileSourceDetail({
+        cachedAgeMs: Date.now() - painted.fetchedAt,
+        force: false,
+        maxAgeMs: MOBILE_MANGA_DETAIL_SELECTED_REVALIDATE_MS,
+      })
+    ) {
+      setLiveDetailState({
+        status: "ready",
+        detail: refreshChapterCountText(painted.chapters.length, strings),
+      });
+      settle();
+      return;
+    }
+
     setLiveDetailState({
       status: "loading",
       detail: strings.mangaDetail.refreshingSource,
+    });
+    markMobilePerformance("mangaDetail.refresh.start", {
+      source: link.sourceId,
+      force,
     });
 
     void (async () => {
@@ -815,9 +1086,40 @@ export function MangaDetailScreen() {
       // matching, so only the resolved record produces the runtime key.
       let requestSourceKey: string | undefined;
       try {
+        // Stale-while-revalidate: paint the persisted copy first, then decide
+        // whether the source needs to run at all.
+        const cached = await getCachedMobileSourceDetail(cacheKey).catch(
+          () => null,
+        );
+        if (isCancelled()) return;
+        if (cached) {
+          markMobilePerformance("mangaDetail.cache-paint", {
+            source: link.sourceId,
+            count: cached.payload.chapters.length,
+            ageMs: Math.round(cached.ageMs),
+          });
+          applySourceDetailSnapshot(link, cached.payload, "cache");
+          if (
+            !shouldRevalidateMobileSourceDetail({
+              cachedAgeMs: cached.ageMs,
+              force,
+              maxAgeMs: MOBILE_MANGA_DETAIL_SELECTED_REVALIDATE_MS,
+            })
+          ) {
+            setLiveDetailState({
+              status: "ready",
+              detail: refreshChapterCountText(
+                cached.payload.chapters.length,
+                strings,
+              ),
+            });
+            return;
+          }
+        }
+
         const installedSources = await store.getInstalledSources();
         const installedSource = installedSources.find((item) =>
-          mobileInstalledSourceMatchesLink(item, selectedSource),
+          mobileInstalledSourceMatchesLink(item, link),
         );
         if (installedSource) {
           requestSourceKey = makeMobileRuntimeSourceKey(
@@ -839,34 +1141,17 @@ export function MangaDetailScreen() {
           return;
         }
 
-        const refreshed = await withMobileSourceOperationTimeout(
-          refreshMobileSourceDetails(
-            installedSource,
-            selectedSource.sourceMangaId,
-            {
-            getSourceSettings: async (_sourceKey, sourceRecord) => {
-              const normalized = normalizeInstalledSource(sourceRecord);
-              const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
-              const saved = await loadMobileSourceSettingsByKeys(store, [
-                runtimeSourceKey,
-                ...getMobileInstalledSourceSettingsKeys(sourceRecord),
-              ]);
-              return mergeSourceSettingValues(
-                sourceRecord.packageMetadata?.settings ?? [],
-                saved?.values,
-              );
-            },
-              onSourcePackageHydrated: saveSourcePackageHydration,
-            },
-          ),
-          { message: strings.sourceBrowse.sourceOperationTimedOut },
+        const refreshed = await fetchSourceDetailsForLink(
+          installedSource,
+          link,
         );
 
         if (isCancelled()) return;
         if (refreshed.status === "blocked") {
           // Same contract as the error path below: `detail` is an untranslated
           // technical sentence, and only the presentation layer turns a marked
-          // one into localized copy.
+          // one into localized copy. A cached list stays on screen under the
+          // notice.
           const blocked = getMobileSourceErrorPresentation(
             refreshed.detail,
             strings,
@@ -883,13 +1168,25 @@ export function MangaDetailScreen() {
           return;
         }
 
+        // Paint first: persisting the library rows is bookkeeping the list
+        // does not need to wait for.
+        markMobilePerformance("mangaDetail.refresh.done", {
+          source: link.sourceId,
+          count: refreshed.chapters.length,
+        });
+        applySourceDetailSnapshot(link, refreshed, "network");
+        setLiveDetailState({
+          status: "ready",
+          detail: refreshChapterCountText(refreshed.chapters.length, strings),
+        });
+
         // The run outlives entry reloads (see the gate above), so persist
         // against the rows as they are now: a removal or edit that landed
         // while the request was in flight (locally or from another device via
         // sync) must not be overwritten by the entry captured at start.
         const [latestItem, latestLink] = await Promise.all([
           store.getLibraryItem(entry.item.libraryItemId),
-          store.getSourceLink(selectedSource.id),
+          store.getSourceLink(link.id),
         ]);
         if (isCancelled()) return;
         const persistable =
@@ -897,32 +1194,26 @@ export function MangaDetailScreen() {
           latestItem.inLibrary !== false &&
           latestLink !== null &&
           latestLink.removed !== true;
+        const baseEntry = persistable ? { ...entry, item: latestItem } : entry;
         const applied = applyMobileSourceDetailsRefresh(
-          persistable ? { ...entry, item: latestItem } : entry,
-          persistable ? latestLink : selectedSource,
+          baseEntry,
+          persistable ? latestLink : link,
           refreshed,
         );
         if (persistable) {
           await Promise.all([
-            store.saveLibraryItem(applied.item),
+            // A refresh that does not change the library title's own
+            // metadata (any non-primary source, or an unchanged primary)
+            // leaves the row alone: no write, no sync round-trip.
+            applied.item === baseEntry.item
+              ? Promise.resolve()
+              : store.saveLibraryItem(applied.item),
             store.saveSourceLink(applied.sourceLink),
           ]);
           emitMobileDataChanged("library");
         }
         if (isCancelled()) return;
 
-        setLiveChapters(refreshed.chapters);
-        setSourceChapterLists((current) => {
-          const next: Record<string, SourceChapterListState> = {
-            ...current,
-            [selectedSource.id]: {
-              status: "ready",
-              chapters: refreshed.chapters,
-            },
-          };
-          sourceChapterListsRef.current = next;
-          return next;
-        });
         setState((current) => {
           if (
             !current.entry ||
@@ -941,10 +1232,6 @@ export function MangaDetailScreen() {
               ),
             },
           };
-        });
-        setLiveDetailState({
-          status: "ready",
-          detail: refreshChapterCountText(refreshed.chapters.length, strings),
         });
       } catch (nextError) {
         if (isCancelled()) return;
@@ -965,12 +1252,16 @@ export function MangaDetailScreen() {
             strings,
           ),
         });
+      } finally {
+        settle();
       }
     })();
   }, [
+    applySourceDetailSnapshot,
+    detailRefreshNonce,
     entry,
+    fetchSourceDetailsForLink,
     liveDetailRefreshKey,
-    saveSourcePackageHydration,
     selectedSource,
     store,
     strings,
@@ -990,119 +1281,91 @@ export function MangaDetailScreen() {
   }, [liveDetailState.status]);
 
   useEffect(() => {
+    // Wait for the selected tab's refresh (see `selectedRefreshSettledKey`).
+    if (!liveDetailRefreshKey || selectedRefreshSettledKey !== liveDetailRefreshKey) {
+      return;
+    }
     let cancelled = false;
     const pendingSources = sources.filter((source) => {
       if (source.id === selectedSource?.id) return false;
       const state = sourceChapterListsRef.current[source.id];
-      return state?.status !== "ready" && state?.status !== "loading";
+      return state?.status !== "ready" && state?.status !== "blocked";
     });
-
     if (!pendingSources.length) {
       return () => {
         cancelled = true;
       };
     }
 
-    setSourceChapterLists((current) => {
-      const next: Record<string, SourceChapterListState> = { ...current };
-      for (const source of pendingSources) {
-        const state = next[source.id];
-        if (state?.status === "ready" || state?.status === "loading") continue;
-        next[source.id] = {
-          status: "loading",
-          chapters: state?.chapters ?? [],
-        };
-      }
-      sourceChapterListsRef.current = next;
-      return next;
-    });
-
     void (async () => {
+      let installedSources: InstalledSource[];
       try {
-        const installedSources = await store.getInstalledSources();
-        await Promise.all(
-          pendingSources.map(async (source) => {
-            const installedSource = installedSources.find((item) =>
-              mobileInstalledSourceMatchesLink(item, source),
-            );
-
-            if (!installedSource) {
-              if (!cancelled) {
-                setSourceChapterLists((current) => {
-                  const next: Record<string, SourceChapterListState> = {
-                    ...current,
-                    [source.id]: { status: "blocked", chapters: [] },
-                  };
-                  sourceChapterListsRef.current = next;
-                  return next;
-                });
-              }
-              return;
-            }
-
-            try {
-              const refreshed = await withMobileSourceOperationTimeout(
-                refreshMobileSourceChapters(
-                  installedSource,
-                  source.sourceMangaId,
-                  {
-                  getSourceSettings: async (_sourceKey, sourceRecord) => {
-                    const normalized = normalizeInstalledSource(sourceRecord);
-                    const runtimeSourceKey =
-                      makeMobileRuntimeSourceKey(normalized);
-                    const saved = await loadMobileSourceSettingsByKeys(store, [
-                      runtimeSourceKey,
-                      ...getMobileInstalledSourceSettingsKeys(sourceRecord),
-                    ]);
-                    return mergeSourceSettingValues(
-                      sourceRecord.packageMetadata?.settings ?? [],
-                      saved?.values,
-                    );
-                  },
-                    onSourcePackageHydrated: saveSourcePackageHydration,
-                  },
-                ),
-                { message: strings.sourceBrowse.sourceOperationTimedOut },
-              );
-
-              if (cancelled) return;
-              setSourceChapterLists((current) => {
-                const next: Record<string, SourceChapterListState> = {
-                  ...current,
-                  [source.id]:
-                    refreshed.status === "blocked"
-                      ? { status: "blocked", chapters: [] }
-                      : { status: "ready", chapters: refreshed.chapters },
-                };
-                sourceChapterListsRef.current = next;
-                return next;
-              });
-            } catch {
-              if (cancelled) return;
-              setSourceChapterLists((current) => {
-                const next: Record<string, SourceChapterListState> = {
-                  ...current,
-                  [source.id]: { status: "error", chapters: [] },
-                };
-                sourceChapterListsRef.current = next;
-                return next;
-              });
-            }
-          }),
-        );
+        installedSources = await store.getInstalledSources();
       } catch {
-        if (!cancelled) {
-          setSourceChapterLists((current) => {
-            const next: Record<string, SourceChapterListState> = { ...current };
-            for (const source of pendingSources) {
-              if (next[source.id]?.status === "loading") {
-                next[source.id] = { status: "error", chapters: [] };
-              }
-            }
-            sourceChapterListsRef.current = next;
-            return next;
-          });
+        return;
+      }
+      // Sequential on purpose: the source sandbox serializes operations, so
+      // a parallel fan-out would only queue behind itself and starve a tab
+      // switch that needs the runtime now.
+      for (const source of pendingSources) {
+        if (cancelled) return;
+        const cached = await getCachedMobileSourceDetail(
+          sourceDetailCacheKeyForLink(source),
+        ).catch(() => null);
+        if (cancelled) return;
+        if (cached) applySourceDetailSnapshot(source, cached.payload, "cache");
+        if (
+          !shouldRevalidateMobileSourceDetail({
+            cachedAgeMs: cached?.ageMs ?? null,
+            force: false,
+            maxAgeMs: MOBILE_MANGA_DETAIL_BACKGROUND_REVALIDATE_MS,
+          })
+        ) {
+          // Fresh enough (possibly written by a sweep this effect restarted
+          // mid-flight): settle any leftover loading state on the cache.
+          updateSourceChapterList(source.id, (existing) =>
+            existing?.status === "loading" && existing.full
+              ? { ...existing, status: "cached" }
+              : existing,
+          );
+          continue;
         }
+
+        const installedSource = installedSources.find((item) =>
+          mobileInstalledSourceMatchesLink(item, source),
+        );
+        if (!installedSource) {
+          updateSourceChapterList(source.id, (existing) =>
+            existing?.full
+              ? existing
+              : { status: "blocked", chapters: EMPTY_CHAPTERS },
+          );
+          continue;
+        }
+
+        updateSourceChapterList(source.id, (existing) =>
+          existing?.status === "loading"
+            ? existing
+            : { ...existing, status: "loading", chapters: existing?.chapters ?? [] },
+        );
+        let refreshed: MobileSourceDetailsRefresh | null = null;
+        try {
+          refreshed = await fetchSourceDetailsForLink(installedSource, source);
+        } catch {
+          refreshed = null;
+        }
+        if (cancelled) return;
+        if (refreshed?.status === "ready") {
+          applySourceDetailSnapshot(source, refreshed, "network");
+          continue;
+        }
+        const failedStatus = refreshed?.status === "blocked" ? "blocked" : "error";
+        // A failed refresh keeps whatever complete list is already painted.
+        updateSourceChapterList(source.id, (existing) =>
+          existing?.full
+            ? { ...existing, status: failedStatus }
+            : { status: failedStatus, chapters: EMPTY_CHAPTERS },
+        );
       }
     })();
 
@@ -1110,32 +1373,50 @@ export function MangaDetailScreen() {
       cancelled = true;
     };
   }, [
-    saveSourcePackageHydration,
+    applySourceDetailSnapshot,
+    fetchSourceDetailsForLink,
+    liveDetailRefreshKey,
+    selectedRefreshSettledKey,
     selectedSource?.id,
     sources,
     store,
-    strings.sourceBrowse.sourceOperationTimedOut,
+    updateSourceChapterList,
   ]);
 
+  // The selected tab's complete list (persisted cache or network), merged
+  // with the chapters known locally from progress rows.
+  const selectedChapterListState = selectedSource
+    ? sourceChapterLists[selectedSource.id]
+    : undefined;
+  const selectedFullChapters = selectedChapterListState?.full
+    ? selectedChapterListState.chapters
+    : EMPTY_CHAPTERS;
+  const selectedChaptersComplete = Boolean(selectedChapterListState?.full);
   const chapters = useMemo(
     () =>
       uniqueChapters(
         selectedSource,
         selectedProgress,
-        state.selectedChapterProgress,
-        liveChapters,
+        selectedChapterProgress,
+        selectedFullChapters,
       ),
     [
-      liveChapters,
+      selectedFullChapters,
       selectedProgress,
       selectedSource,
-      state.selectedChapterProgress,
+      selectedChapterProgress,
     ],
   );
   const chapterLanguages = useMemo(
     () => getMobileChapterLanguages(chapters),
     [chapters],
   );
+  useEffect(() => {
+    markMobilePerformance("mangaDetail.chapters-rendered", {
+      count: chapters.length,
+      source: selectedSource?.sourceId,
+    });
+  }, [chapters.length, selectedSource?.sourceId]);
   const effectiveChapterListPreference = useMemo(
     () => ({
       ...chapterListPreference,
@@ -1154,19 +1435,19 @@ export function MangaDetailScreen() {
     () =>
       filterAndSortMobileChapters(
         chapters,
-        state.selectedChapterProgress,
+        selectedChapterProgress,
         effectiveChapterListPreference,
       ),
-    [chapters, effectiveChapterListPreference, state.selectedChapterProgress],
+    [chapters, effectiveChapterListPreference, selectedChapterProgress],
   );
   const unreadChapterCount = useMemo(
     () =>
       chapters.reduce(
         (count, chapter) =>
-          count + (state.selectedChapterProgress[chapter.id]?.completed ? 0 : 1),
+          count + (selectedChapterProgress[chapter.id]?.completed ? 0 : 1),
         0,
       ),
-    [chapters, state.selectedChapterProgress],
+    [chapters, selectedChapterProgress],
   );
   const chapterRows = useMemo(
     () => buildMobileChapterRows(visibleChapters),
@@ -1208,8 +1489,8 @@ export function MangaDetailScreen() {
           ? true
           : chapterListState?.status === "ready";
       const sourceChapterCount =
-        selected && liveDetailState.status === "ready"
-          ? liveChapters.length
+        selected && liveDetailState.status === "ready" && chapterListState?.full
+          ? chapterListState.chapters.length
           : chapterListHasCachedCount
             ? chapterListState.chapters.length
             : 0;
@@ -1242,7 +1523,6 @@ export function MangaDetailScreen() {
       };
     });
   }, [
-    liveChapters.length,
     liveDetailState.status,
     selectedSource?.id,
     sourceChapterLists,
@@ -1251,9 +1531,8 @@ export function MangaDetailScreen() {
     strings,
   ]);
   const continueActionChapters =
-    continueSource?.id === selectedSource?.id &&
-    liveDetailState.status === "ready"
-      ? liveChapters
+    continueSource?.id === selectedSource?.id && selectedChaptersComplete
+      ? selectedFullChapters
       : chapters;
   const continueSourceChapterState = continueSource
     ? (sourceChapterLists[continueSource.id] ?? null)
@@ -1263,15 +1542,15 @@ export function MangaDetailScreen() {
     selectedSource,
     selectedChapters: continueActionChapters,
     selectedChaptersLoaded:
-      continueSource?.id === selectedSource?.id &&
-      liveDetailState.status === "ready",
+      continueSource?.id === selectedSource?.id && selectedChaptersComplete,
     continueChapters:
       continueSource?.id !== selectedSource?.id
         ? continueSourceChapterState?.chapters
         : undefined,
     continueChaptersLoaded:
       continueSource?.id !== selectedSource?.id &&
-      continueSourceChapterState?.status === "ready",
+      (continueSourceChapterState?.status === "ready" ||
+        Boolean(continueSourceChapterState?.full)),
     progress: continueProgress,
   });
   const continueChapter = continueAction.chapter;
@@ -1373,7 +1652,7 @@ export function MangaDetailScreen() {
         chapters={item.chapters}
         first={index === 0}
         openChapterTemplate={strings.mangaDetail.openChapter}
-        progressByChapterId={state.selectedChapterProgress}
+        progressByChapterId={selectedChapterProgress}
         strings={strings}
         onPressChapter={openReader}
         appLanguage={appLanguage}
@@ -1385,7 +1664,7 @@ export function MangaDetailScreen() {
       detailActionBusy,
       openReader,
       showChapterLanguage,
-      state.selectedChapterProgress,
+      selectedChapterProgress,
       strings,
     ],
   );

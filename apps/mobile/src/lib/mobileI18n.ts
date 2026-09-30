@@ -415,6 +415,13 @@ export type MobileStrings = {
     includeFilter: string;
     installBeforeExecutor: string;
     installBeforeOpening: string;
+    installingSource: string;
+    installingSourceDescription: string;
+    loadSourceFailed: string;
+    sourceInstallFailed: string;
+    sourceInstallFailedDescription: string;
+    sourceNotInRegistry: string;
+    sourceNotInRegistryDescription: string;
     libraryFromSource: string;
     listingCountOne: string;
     listingCountOther: string;
@@ -651,6 +658,8 @@ export type MobileStrings = {
     pluginJapaneseLearningMinimumConfidenceDescription: string;
     pluginJapaneseLearningRecognitionEngine: string;
     pluginJapaneseLearningRecognitionEngineDescription: string;
+    pluginJapaneseLearningOnlineOcrAssist: string;
+    pluginJapaneseLearningOnlineOcrAssistDescription: string;
     pluginValueEngineAutomatic: string;
     pluginValueEngineOnDevice: string;
     pluginValueEngineCloud: string;

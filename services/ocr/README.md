@@ -45,7 +45,28 @@ stand-in for vLLM), 2026-09-29. Normalised CER went from 3.8–3.9% to 1.6–1.9
 detections went from 10 to 4. Page-level CER went from 14.1% to 6.5%. Recall stayed
 at 98.6%, and order was 14/16 pages perfect both before and after.
 
-`/health` reports `dedupe_iou` and `crop_pad_px`, so you can check what a host runs.
+## Region OCR results
+
+Applied to each region's OCR text in `/ocr` (`ocr_text.py`). Evidence: the
+2026-09-30 benchmark, `artifacts/mobile-review-20260926/ocr-benchmark/v3-opt/`
+(70 pages, 451 text blocks).
+
+1. **Typeset punctuation is restored.** PaddleOCR-VL writes `…` as `...`, `・・・` or
+   `･･･`, `〜` as `～`/`~`, and `──` as `――`/`——`. Runs of two or more dots become
+   `…` (one per three dots), `～`/`~` become `〜`, and dash runs become `─` of the same
+   length. Single marks, `ー` and character width are left alone. End-to-end strict
+   CER went from 7.4% to 6.2% (dialogue 3.9% → 2.3%), and no block got worse.
+2. **A failed region is retried once, then reported.** Before, an exception from vLLM
+   (for example a crashed batch) dropped the region from the result with only a log
+   line. Now each region gets `OCR_REGION_ATTEMPTS` tries (default 2, 0.5 s apart). A
+   region that still fails is streamed as an `ocr_error` event
+   (`{order, message, attempts}`) and listed in the `result` event's `failedRegions`
+   (the region's box, its `order` from the `detections` event, `error` and
+   `attempts`). Both are additions that existing clients ignore; `detections` in the
+   result is unchanged.
+
+`/health` reports `dedupe_iou`, `crop_pad_px` and `region_attempts`, so you can check
+what a host runs.
 
 ## Dependencies
 
@@ -63,7 +84,7 @@ at 98.6%, and order was 14/16 pages perfect both before and after.
 ## Tests
 
 The tests need no GPU and no model. They cover dedupe, the `eng` filter, padding,
-and both `HoughLinesP` output shapes:
+both `HoughLinesP` output shapes, symbol restoration and region retries:
 
 ```bash
 cd services/ocr

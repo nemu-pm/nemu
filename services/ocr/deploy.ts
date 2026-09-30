@@ -425,6 +425,7 @@ try {
   serverFilesChanged = (await syncFile(join(SCRIPT_DIR, "text_order.py"), "/app/text_order.py", "text_order.py")) || serverFilesChanged;
   serverFilesChanged = (await syncFile(join(SCRIPT_DIR, "text_order_defaults.py"), "/app/text_order_defaults.py", "text_order_defaults.py")) || serverFilesChanged;
   serverFilesChanged = (await syncFile(join(SCRIPT_DIR, "detection_filters.py"), "/app/detection_filters.py", "detection_filters.py")) || serverFilesChanged;
+  serverFilesChanged = (await syncFile(join(SCRIPT_DIR, "ocr_text.py"), "/app/ocr_text.py", "ocr_text.py")) || serverFilesChanged;
   const requirementsChanged = await syncFile(join(SCRIPT_DIR, "requirements.txt"), "/app/requirements.txt", "requirements.txt");
 
   console.log("[3/8] Syncing detector package...");

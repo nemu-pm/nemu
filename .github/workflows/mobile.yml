@@ -457,6 +457,13 @@ jobs:
             modules/nemu-japanese-learning/iosTest/NemuSharedResourceTests.swift \
             -o "$test_dir/shared-resource-tests"
           "$test_dir/shared-resource-tests"
+          xcrun swiftc -parse-as-library \
+            modules/nemu-japanese-learning/ios/NemuManga*.swift \
+            modules/nemu-japanese-learning/ios/NemuTextOrder.swift \
+            modules/nemu-japanese-learning/ios/NemuTextRecognizer.swift \
+            modules/nemu-japanese-learning/iosTest/NemuMangaOcrPostprocessTests.swift \
+            -o "$test_dir/ocr-postprocess-tests"
+          "$test_dir/ocr-postprocess-tests"
       - name: Build iOS Debug simulator app
         working-directory: apps/mobile/ios
         run: |

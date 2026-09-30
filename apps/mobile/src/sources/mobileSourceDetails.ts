@@ -27,6 +27,7 @@ import {
   withMobileSourceOperationTimeout,
 } from "./mobileSourceOperationTimeout";
 import { mergeAuthors } from "@nemu/core/sources";
+import { markMobilePerformance } from "@/lib/mobilePerformance";
 import { isMobileSourceMangaTitlePathLike } from "@/lib/mobileReaderMangaTitle";
 
 export { isMobileSourceMangaTitlePathLike };
@@ -210,6 +211,7 @@ export async function refreshMobileSourceDetails(
         normalized,
         { ...options.executor, settings },
         async (session): Promise<MobileSourceDetailsRefresh> => {
+          markMobilePerformance("source.details.session-ready", { sourceKey });
           await notifyMobileSourcePackageHydrated(
             source,
             session.sourcePackageHydration,
@@ -223,11 +225,16 @@ export async function refreshMobileSourceDetails(
             };
           }
           const manga = await session.source.getMangaDetails({ key: mangaId });
+          markMobilePerformance("source.details.manga-done", { sourceKey });
           const chapters = sortChapterSummaries(
             (await session.source.getChapterList({ key: mangaId })).map(
               mapAidokuChapterToSummary,
             ),
           );
+          markMobilePerformance("source.details.chapters-done", {
+            sourceKey,
+            count: chapters.length,
+          });
           return {
             status: "ready",
             runtime: session.runtime,

@@ -3,6 +3,7 @@ import {
   canSelectMobileSourceBrowseTab,
   canClearMobileSourceBrowseTextInput,
   getDefaultMobileSourceBrowseListingId,
+  getMobileSourceBrowseFallbackErrorDetail,
   getMobileSourceBrowseListingIdForRouteTab,
   getMobileSourceBrowseListingTabCount,
   getMobileSourceBrowseRouteTabForListingId,
@@ -657,4 +658,59 @@ test("only a completed search may report no matches", () => {
   expect(shouldShowMobileSourceBrowseNoMatches("loading")).toBe(false);
   expect(shouldShowMobileSourceBrowseNoMatches("blocked")).toBe(false);
   expect(shouldShowMobileSourceBrowseNoMatches("error")).toBe(false);
+});
+
+describe("getMobileSourceBrowseFallbackErrorDetail", () => {
+  const localized = "Source unavailable";
+
+  test("surfaces a blocked metadata load behind the localized description", () => {
+    // ja.comicaction synced without a package: metadata and home are both
+    // blocked, no listing is known, and the body used to render nothing.
+    expect(
+      getMobileSourceBrowseFallbackErrorDetail(
+        {
+          metadata: {
+            status: "blocked",
+            detail: "The AIX package bytes are not cached on this device.",
+          },
+          home: { status: "blocked", detail: "ignored" },
+        },
+        localized,
+      ),
+    ).toBe(
+      "Source unavailable\nThe AIX package bytes are not cached on this device.",
+    );
+  });
+
+  test("passes an error's banner detail through and falls back to home", () => {
+    expect(
+      getMobileSourceBrowseFallbackErrorDetail(
+        {
+          metadata: { status: "error", detail: "Could not load.\nboom" },
+          home: { status: "idle" },
+        },
+        localized,
+      ),
+    ).toBe("Could not load.\nboom");
+    expect(
+      getMobileSourceBrowseFallbackErrorDetail(
+        {
+          metadata: { status: "ready" },
+          home: { status: "blocked", detail: null },
+        },
+        localized,
+      ),
+    ).toBe(localized);
+  });
+
+  test("returns null while loading or once ready", () => {
+    for (const status of ["idle", "loading", "ready"]) {
+      expect(
+        getMobileSourceBrowseFallbackErrorDetail(
+          { metadata: { status }, home: { status } },
+          localized,
+        ),
+      ).toBeNull();
+    }
+  });
 });

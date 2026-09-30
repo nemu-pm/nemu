@@ -83,6 +83,11 @@ export type MobileOnDeviceOcrPipeline = "manga-ocr" | "vision";
 
 export type MobileOnDeviceOcrResult = {
   detections: MobileOcrDetection[];
+  /**
+   * manga-ocr only: each detection's recognition confidence (same index as
+   * `detections`), null where the binary does not report it.
+   */
+  recognitionConfidences?: (number | null)[];
   /** Pixel size of the recognized image: the space `detections` are in. */
   imageSize?: { width: number; height: number };
   engine: MobileOnDeviceOcrEngineInfo;
@@ -333,15 +338,27 @@ export function mobileOcrDetectionFromPageBlock(
   };
 }
 
+function keepMangaOcrDetection(detection: MobileOcrDetection): boolean {
+  return Boolean(detection.text.trim()) && !isMobileOcrWatermarkText(detection.text);
+}
+
 /** Drops empty and watermark blocks and renumbers the reading order. */
 function finalizeMangaOcrDetections(detections: MobileOcrDetection[]): MobileOcrDetection[] {
   return detections
-    .filter((detection) => detection.text.trim() && !isMobileOcrWatermarkText(detection.text))
+    .filter(keepMangaOcrDetection)
     .map((detection, order) => ({ ...detection, order }));
+}
+
+/** A native block's recognition confidence, when the binary reports one. */
+function mangaOcrRecognitionConfidence(block: NemuOcrPageBlock): number | null {
+  return typeof block.recConf === "number" && Number.isFinite(block.recConf)
+    ? Math.max(0, Math.min(1, block.recConf))
+    : null;
 }
 
 type MangaOcrPageRun = {
   detections: MobileOcrDetection[];
+  recognitionConfidences: (number | null)[];
   width: number;
   height: number;
   recognizeMs: number;
@@ -363,6 +380,7 @@ async function runMangaOcrPipeline(
   const recognizePage = module.recognizePage!.bind(module);
   const pipeline = capabilities.ocr.pipeline!;
   const detections: MobileOcrDetection[] = [];
+  const confidences: (number | null)[] = [];
   let width = 0;
   let height = 0;
   let recognizeMs = 0;
@@ -440,6 +458,7 @@ async function runMangaOcrPipeline(
       osVersion = result.osVersion;
       for (const block of result.blocks) {
         detections.push(mobileOcrDetectionFromPageBlock(block, tile, base + block.order));
+        confidences.push(mangaOcrRecognitionConfidence(block));
       }
       timings.push(
         `order=${Math.round(result.orderMs)}ms ocr=${Math.round(result.recognizeMs)}ms load=${Math.round(result.modelLoadMs)}ms units=${result.computeUnits}`,
@@ -451,6 +470,7 @@ async function runMangaOcrPipeline(
   }
   return {
     detections: finalizeMangaOcrDetections(detections),
+    recognitionConfidences: confidences.filter((_, index) => keepMangaOcrDetection(detections[index]!)),
     width,
     height,
     recognizeMs,
@@ -527,6 +547,7 @@ export async function runMobileOnDeviceOcr(
         const elapsedMs = mobileJapaneseLearningNowMs() - started;
         const result: MobileOnDeviceOcrResult = {
           detections: run.detections,
+          recognitionConfidences: run.recognitionConfidences,
           ...(run.width > 0 && run.height > 0
             ? { imageSize: { width: run.width, height: run.height } }
             : {}),

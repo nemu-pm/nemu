@@ -51,6 +51,7 @@ import { useMobileDataStore } from "@/data/mobileDataContext";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import {
   useInstalledSources,
+  useMobileInstalledSourceCatalogRepair,
   useMobileLanguageSettings,
   useSourceSettings,
 } from "@/data/mobileHooks";
@@ -157,6 +158,7 @@ import {
   getDefaultMobileSourceBrowseListingId,
   getMobileSourceBrowseListingIdForRouteTab,
   getMobileSourceBrowseListingTabCount,
+  getMobileSourceBrowseFallbackErrorDetail,
   getMobileSourceBrowseRouteTabForListingId,
   makeMobileSourceHomeGenerationKey,
   hasMobileSourceBrowseRouteQuery,
@@ -1456,6 +1458,10 @@ export function SourceBrowseScreen() {
   }, [installed.data, registryId, sourceId]);
   const installedSourceRef = useRef(installedSource);
   installedSourceRef.current = installedSource;
+  // A synced record without a package URL (an older client's bare record) is
+  // installed from the registry catalog here, with progress, instead of
+  // leaving the screen blank under the source's raw id.
+  const catalogRepair = useMobileInstalledSourceCatalogRepair(installedSource);
 
   const source = useMemo(
     () => (installedSource ? normalizeInstalledSource(installedSource) : null),
@@ -2907,7 +2913,32 @@ export function SourceBrowseScreen() {
     hasSource: Boolean(source),
     hasError: Boolean(error),
   });
-  const screenTitle = source?.name ?? sourceId ?? strings.sourceBrowse.source;
+  const screenTitle =
+    installedSource?.name ??
+    (catalogRepair.status === "installing" || catalogRepair.status === "failed"
+      ? catalogRepair.entry?.name
+      : undefined) ??
+    packageMetadata?.name ??
+    sourceId ??
+    strings.sourceBrowse.source;
+  const sourceBrowseFallbackErrorDetail =
+    getMobileSourceBrowseFallbackErrorDetail(
+      {
+        metadata:
+          sourceBrowseMetadataState.status === "blocked"
+            ? { status: "blocked", detail: sourceBrowseMetadataState.result.detail }
+            : sourceBrowseMetadataState.status === "error"
+              ? { status: "error", detail: sourceBrowseMetadataState.detail }
+              : { status: sourceBrowseMetadataState.status },
+        home:
+          sourceHomeState.status === "blocked"
+            ? { status: "blocked", detail: sourceHomeState.result.detail }
+            : sourceHomeState.status === "error"
+              ? { status: "error", detail: sourceHomeState.detail }
+              : { status: sourceHomeState.status },
+      },
+      strings.sourceBrowse.sourceUnavailable,
+    );
   const nativeHeaderOptions = createNemuNativeScreenOptions(
     tokens,
     screenTitle,
@@ -3237,6 +3268,55 @@ export function SourceBrowseScreen() {
     ],
   );
 
+  if (catalogRepair.status !== "idle") {
+    const repairFailed = catalogRepair.status === "failed";
+    const repairUnavailable = catalogRepair.status === "unavailable";
+    return (
+      <>
+        <Stack.Screen options={{ ...nativeHeaderOptions, title: screenTitle }} />
+        <PageScaffold nativeHeader>
+          <MobilePaneAlignedView>
+            {({ minHeight }) =>
+              repairUnavailable ? (
+                <EmptyLibrary
+                  minHeight={minHeight}
+                  title={strings.sourceBrowse.sourceNotInRegistry}
+                  description={strings.sourceBrowse.sourceNotInRegistryDescription}
+                  actionLabel={strings.sourceBrowse.browseSources}
+                  onActionPress={() => {
+                    router.replace("/browse");
+                  }}
+                />
+              ) : (
+                <EmptyLibrary
+                  minHeight={minHeight}
+                  title={
+                    repairFailed
+                      ? strings.sourceBrowse.sourceInstallFailed
+                      : strings.sourceBrowse.installingSource
+                  }
+                  description={
+                    repairFailed
+                      ? strings.sourceBrowse.sourceInstallFailedDescription
+                      : strings.sourceBrowse.installingSourceDescription
+                  }
+                  diagnostic={repairFailed ? catalogRepair.detail : undefined}
+                  actionLabel={
+                    repairFailed
+                      ? strings.common.retry
+                      : strings.sourceBrowse.installingSource
+                  }
+                  actionLoading={!repairFailed}
+                  onActionPress={catalogRepair.retry}
+                />
+              )
+            }
+          </MobilePaneAlignedView>
+        </PageScaffold>
+      </>
+    );
+  }
+
   if (showSourceNotInstalled) {
     return (
       <>
@@ -3565,6 +3645,19 @@ export function SourceBrowseScreen() {
               <SourceHomeSkeletonView
                 accessibilityLabel={strings.sourceBrowse.loadingHome}
               />
+            ) : !sourceSearchActive && sourceBrowseFallbackErrorDetail ? (
+              <MobilePaneAlignedView>
+                <MobileInlineErrorBanner
+                  actionLabel={strings.common.retry}
+                  actionDisabled={refreshingSource}
+                  actionLoading={refreshingSource}
+                  onActionPress={() => {
+                    void refreshSourceData();
+                  }}
+                  title={strings.sourceBrowse.loadSourceFailed}
+                  detail={sourceBrowseFallbackErrorDetail}
+                />
+              </MobilePaneAlignedView>
             ) : null
           }
         />

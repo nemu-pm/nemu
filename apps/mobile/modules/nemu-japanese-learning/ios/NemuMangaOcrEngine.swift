@@ -15,7 +15,7 @@ enum NemuMangaOcrEngine {
 
   /// Model + detector fingerprint; JS folds it into the OCR cache key.
   static var revision: String {
-    "\(NemuMangaOcrModelStore.modelRevision)+\(detectorIdentifier)"
+    "\(NemuMangaOcrModelStore.modelRevision)+\(detectorIdentifier)+\(NemuMangaOcrPipeline.revision)"
   }
 
   static func region(from value: [String: Any]) -> NemuOcrRegion? {
@@ -60,7 +60,8 @@ enum NemuMangaOcrEngine {
       page: page, detector: detector, recognizer: recognizer, options: options, onBlock: onBlock)
     return [
       "engine": engine,
-      "engineRevision": "\(NemuMangaOcrModelStore.modelRevision)+\(detector.identifier)",
+      "engineRevision":
+        "\(NemuMangaOcrModelStore.modelRevision)+\(detector.identifier)+\(NemuMangaOcrPipeline.revision)",
       "detector": detector.identifier,
       "osVersion": NemuTextRecognizer.osVersion,
       "computeUnits": recognizer.computeUnitsLabel,
