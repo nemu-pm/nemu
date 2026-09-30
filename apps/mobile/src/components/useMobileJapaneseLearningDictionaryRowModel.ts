@@ -11,6 +11,7 @@ import {
   useMobileJapaneseLearningAnalysisPackState,
 } from "@/lib/mobileJapaneseLearningAnalysisPackStore";
 import { normalizeMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseLearningEngine";
+import { useMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
 
 /**
  * State and actions behind the on-device dictionary line: the row copy for
@@ -48,7 +49,8 @@ export function useMobileJapaneseLearningDictionaryRowModel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preference]);
 
-  const row = describeMobileJapaneseLearningPackRow(packState, strings, preference);
+  const signedIn = useMobileJapaneseLearningSignedIn();
+  const row = describeMobileJapaneseLearningPackRow(packState, strings, preference, signedIn);
   const copy = strings.japaneseLearningDictionary;
 
   const runAction = async () => {

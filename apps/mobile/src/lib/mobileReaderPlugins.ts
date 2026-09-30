@@ -96,6 +96,7 @@ function makeMobileReaderPlugins(strings: MobileStrings): MobileReaderPlugin[] {
                 strings.reader.pluginJapaneseLearningOnlineOcrAssistDescription,
               type: "switch",
               default: false,
+              requiresSignIn: true,
             },
           ],
         },
@@ -221,6 +222,49 @@ export function getMobileReaderPluginStates(
       values: getMobileReaderPluginValues(plugin, state),
     };
   });
+}
+
+function lockSignInSettings(
+  settings: SourcePackageSetting[],
+  hint: string,
+  locked: SourcePackageSetting[],
+): SourcePackageSetting[] {
+  return settings.map((setting) => {
+    if (Array.isArray(setting.items)) {
+      return { ...setting, items: lockSignInSettings(setting.items, hint, locked) };
+    }
+    if (setting.requiresSignIn !== true) return setting;
+    locked.push(setting);
+    return {
+      ...setting,
+      disabled: true,
+      subtitle: setting.subtitle ? `${hint}\n${setting.subtitle}` : hint,
+    };
+  });
+}
+
+/**
+ * Signed out, settings of server features (`requiresSignIn`) stay visible but
+ * disabled, lead with the "Sign in to use" hint, and a switch reads off — the
+ * feature is inactive (the engine checks sign-in too). The stored value is
+ * untouched, so signing in brings it back.
+ */
+export function applyMobileReaderPluginSignInState<
+  T extends Pick<MobileReaderPluginState, "settings" | "values">,
+>(plugin: T, signedIn: boolean, strings: MobileStrings): T {
+  if (signedIn) return plugin;
+  const locked: SourcePackageSetting[] = [];
+  const settings = lockSignInSettings(
+    plugin.settings,
+    strings.reader.pluginJapaneseLearningSignInToUse,
+    locked,
+  );
+  if (locked.length === 0) return plugin;
+  const values = { ...plugin.values };
+  for (const setting of locked) {
+    if (setting.type === "switch" && setting.key) values[setting.key] = false;
+  }
+  return { ...plugin, settings, values };
 }
 
 export function getMobileReaderSettingsSelectedPlugin(

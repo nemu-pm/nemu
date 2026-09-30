@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import type {
   NemuJapaneseLearningCapabilities,
   NemuJapaneseLearningNativeModule,
@@ -23,6 +23,11 @@ import {
   selectMobileOcrAssistTargets,
 } from "./mobileJapaneseLearningOcrAssist";
 import { clearMobileOnDeviceOcrCache } from "./mobileJapaneseLearningOnDeviceOcr";
+import { setMobileJapaneseLearningAuthCookieReaderForTesting } from "./mobileJapaneseLearningAuth";
+
+// Cloud paths are server features: these tests run signed in.
+beforeAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test"));
+afterAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(undefined));
 
 function detection(
   order: number,
@@ -276,6 +281,26 @@ describe("online OCR assist in runMobileJapaneseLearningOcr", () => {
       throw new TypeError("Network request failed");
     }) as unknown as typeof fetch);
     expect(offline.detections[1]!.text).toBe("先生は私の弟子オフィオー");
+  });
+
+  test("signed out: the assist is inactive and the page never leaves the device", async () => {
+    setMobileJapaneseLearningOcrAssist(true);
+    setMobileJapaneseLearningNativeModuleForTesting(fakeModule(BLOCKS));
+    setMobileJapaneseLearningAuthCookieReaderForTesting(() => "");
+    try {
+      expect(isMobileJapaneseLearningOcrAssistActive("auto")).toBe(false);
+      let calls = 0;
+      const result = await run((async () => {
+        calls += 1;
+        return new Response(CLOUD_BODY);
+      }) as unknown as typeof fetch);
+      expect(calls).toBe(0);
+      expect(result.engine?.kind).toBe("on-device");
+      expect(result.detections[1]!.text).toBe("先生は私の弟子オフィオー");
+      expect(result.assistedBlocks).toBeUndefined();
+    } finally {
+      setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test");
+    }
   });
 
   test("binaries without recognition confidence are never routed", async () => {

@@ -138,7 +138,11 @@ import {
   getMobileInstalledSourceRegistryRef,
   getMobileInstalledSourceSettingsKeys,
 } from "@/lib/mobileInstalledSourceKeys";
-import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
+import {
+  applyMobileReaderPluginSignInState,
+  type MobileReaderPluginState,
+} from "@/lib/mobileReaderPlugins";
+import { useMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
 import {
   buildMobileSourceQuickActions,
   getMobileSourceQuickActionHandoff,
@@ -694,7 +698,7 @@ function ReaderPluginManagementRow({
 }
 
 function MobileReaderPluginSettingsSheet({
-  plugin,
+  plugin: storedPlugin,
   strings,
   visible,
   disabled,
@@ -725,6 +729,11 @@ function MobileReaderPluginSettingsSheet({
   ) => void;
 }) {
   const { tokens } = useNemuTheme();
+  const signedIn = useMobileJapaneseLearningSignedIn();
+  const plugin = useMemo(
+    () => applyMobileReaderPluginSignInState(storedPlugin, signedIn, strings),
+    [signedIn, storedPlugin, strings],
+  );
   const { fontScale, height, width } = useWindowDimensions();
   const sheetLayout = getMobileSettingsSheetLayout({
     fontScale,

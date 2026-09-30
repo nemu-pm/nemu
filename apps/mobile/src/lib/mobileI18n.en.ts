@@ -844,7 +844,11 @@ export const mobileStringsEn: MobileStrings = {
     pluginJapaneseLearningResponseLanguageDescription:
       "Choose preferred language for nemu's responses",
     pluginJapaneseLearningSelectedText: "Selected text",
-    pluginJapaneseLearningSignInRequired: "Sign in to use Nemu Chat.",
+    pluginJapaneseLearningSignInRequired: "Please sign in to use this feature.",
+    pluginJapaneseLearningSignInRequiredTitle: "Sign in required",
+    pluginJapaneseLearningSignInRequiredDescription:
+      "This uses nemu's online service. Sign in from Settings to use it, or choose Automatic or On Device as the recognition engine.",
+    pluginJapaneseLearningSignInToUse: "Sign in to use",
     pluginJapaneseLearningSourceText: "Source text",
     pluginJapaneseLearningStopListening: "Stop",
     pluginJapaneseLearningStructure: "Structure",

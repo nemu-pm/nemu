@@ -1088,7 +1088,7 @@ function SourceSettingRow({
         setting={setting}
         values={values}
         strings={strings}
-        disabled={disabled}
+        disabled={disabled || setting.disabled === true}
         onChange={onChange}
       />
     </View>

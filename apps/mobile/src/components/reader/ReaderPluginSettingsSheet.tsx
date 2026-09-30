@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { MobileInlineErrorBanner } from "@/components/MobileInlineErrorBanner";
@@ -19,7 +20,11 @@ import { hapticSelection } from "@/lib/haptics";
 import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { MOBILE_JAPANESE_LEARNING_ENGINE_SETTING_KEY } from "@/lib/mobileJapaneseLearningEngine";
 import { mobileReaderPluginRowSubtitle } from "@/lib/mobileReaderPluginSheet";
-import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
+import {
+  applyMobileReaderPluginSignInState,
+  type MobileReaderPluginState,
+} from "@/lib/mobileReaderPlugins";
+import { useMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
 import type { ReaderPluginSettingsSheetProps } from "./ReaderPluginSettingsSheet.types";
 
 /**
@@ -280,7 +285,7 @@ function PluginSwitch({
 }
 
 function ReaderPluginDetail({
-  plugin,
+  plugin: storedPlugin,
   loading,
   error,
   busy,
@@ -299,6 +304,11 @@ function ReaderPluginDetail({
   onChangePluginValue: ReaderPluginSettingsSheetProps["onChangePluginValue"];
 }) {
   const { tokens } = useNemuTheme();
+  const signedIn = useMobileJapaneseLearningSignedIn();
+  const plugin = useMemo(
+    () => applyMobileReaderPluginSignInState(storedPlugin, signedIn, strings),
+    [signedIn, storedPlugin, strings],
+  );
   return (
     <>
       <View

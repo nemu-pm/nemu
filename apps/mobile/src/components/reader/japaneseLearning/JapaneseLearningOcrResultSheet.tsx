@@ -189,7 +189,9 @@ export function JapaneseLearningOcrResultSheet({
               name={
                 ocrErrorCopy.kind === "unavailable"
                   ? "cloud-offline-outline"
-                  : "alert-circle-outline"
+                  : ocrErrorCopy.kind === "signIn"
+                    ? "person-circle-outline"
+                    : "alert-circle-outline"
               }
               size={24}
               color={tokens.mutedForeground}

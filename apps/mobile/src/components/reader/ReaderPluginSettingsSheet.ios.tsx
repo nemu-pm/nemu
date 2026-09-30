@@ -59,7 +59,11 @@ import {
   type MobileReaderPluginNativeNumberRow,
   type MobileReaderPluginNativeRow,
 } from "@/lib/mobileReaderPluginSheet";
-import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
+import {
+  applyMobileReaderPluginSignInState,
+  type MobileReaderPluginState,
+} from "@/lib/mobileReaderPlugins";
+import { useMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
 import { splitMobileInlineErrorDetail } from "@/lib/mobileSourceErrors";
 import {
   inlineToolbarTitle,
@@ -309,7 +313,7 @@ function ReaderPluginErrorSections({
 }
 
 function ReaderPluginDetail({
-  plugin,
+  plugin: storedPlugin,
   busy,
   strings,
   errorSections,
@@ -325,6 +329,11 @@ function ReaderPluginDetail({
   onResetPlugin: ReaderPluginSettingsSheetProps["onResetPlugin"];
   onChangePluginValue: ReaderPluginSettingsSheetProps["onChangePluginValue"];
 }) {
+  const signedIn = useMobileJapaneseLearningSignedIn();
+  const plugin = useMemo(
+    () => applyMobileReaderPluginSignInState(storedPlugin, signedIn, strings),
+    [signedIn, storedPlugin, strings],
+  );
   const sections = useMemo(
     () => buildMobileReaderPluginNativeSections(plugin.settings, plugin.values, strings),
     [plugin.settings, plugin.values, strings],
@@ -429,7 +438,7 @@ function ReaderPluginSettingRow({
   strings: MobileStrings;
   onChange: (key: string, value: unknown) => void;
 }) {
-  const lockedModifiers = locked ? [swiftDisabled(true)] : [];
+  const lockedModifiers = locked || row.disabled ? [swiftDisabled(true)] : [];
   switch (row.kind) {
     case "toggle":
       return (

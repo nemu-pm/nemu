@@ -785,7 +785,11 @@ export const mobileStringsZh: MobileStrings = {
     pluginJapaneseLearningResponseLanguageDescription:
       "选择 nemu 回复时使用的首选语言",
     pluginJapaneseLearningSelectedText: "已选文本",
-    pluginJapaneseLearningSignInRequired: "登录后可使用 Nemu Chat。",
+    pluginJapaneseLearningSignInRequired: "请登录后使用此功能。",
+    pluginJapaneseLearningSignInRequiredTitle: "需要登录",
+    pluginJapaneseLearningSignInRequiredDescription:
+      "此功能使用 nemu 的在线服务。请在设置中登录后使用，或将识别引擎设为“自动”或“设备端”。",
+    pluginJapaneseLearningSignInToUse: "登录后可用",
     pluginJapaneseLearningSourceText: "源文字",
     pluginJapaneseLearningStopListening: "停止",
     pluginJapaneseLearningStructure: "结构",

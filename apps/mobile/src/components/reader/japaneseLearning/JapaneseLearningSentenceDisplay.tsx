@@ -37,6 +37,7 @@ import {
   classifyMobileJapaneseLearningTokenPan,
   mobileGrammarTokenAtPoint,
   mobileGrammarTokenInSelection,
+  mobileJapaneseLearningAnalysisErrorText,
   selectedMobileGrammarText,
   type JapaneseLearningTokenLayout,
 } from "@/lib/mobileJapaneseLearningReaderHelpers";
@@ -54,6 +55,7 @@ import {
   mobileJapaneseLearningSurfaceColors,
 } from "@/lib/mobileJapaneseLearningSurfaceTheme";
 import { getMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseLearningEngine";
+import { isMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
 import { describeMobileJapaneseLearningPackLoading } from "@/lib/mobileJapaneseLearningAnalysisPackState";
 import { useMobileJapaneseLearningAnalysisPackState } from "@/lib/mobileJapaneseLearningAnalysisPackStore";
 import {
@@ -435,11 +437,13 @@ export function JapaneseLearningSentenceDisplay({
         accessibilityLiveRegion="assertive"
         style={[styles.errorText, { color: nemuColorWithAlpha(colors.destructive, 0.9) }]}
       >
-        {packState.kind === "failed" &&
-        // Automatic falls back to the cloud, so its errors are not the pack's.
-        getMobileJapaneseLearningEnginePreference() === "onDevice"
-          ? strings.japaneseLearningDictionary.analysisDownloadFailed
-          : strings.reader.pluginJapaneseLearningGrammarFailed}
+        {mobileJapaneseLearningAnalysisErrorText({
+          detail: grammarState.detail,
+          packFailed: packState.kind === "failed",
+          preference: getMobileJapaneseLearningEnginePreference(),
+          signedIn: isMobileJapaneseLearningSignedIn(),
+          strings,
+        })}
       </Text>
       {onRetry ? (
         <NemuPressable

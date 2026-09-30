@@ -100,6 +100,14 @@ export type SourcePackageSetting = {
   requires?: string;
   requiresFalse?: string;
   requiresFeature?: string;
+  /**
+   * App-defined (reader plugin) settings only — never read from a source
+   * package: the feature uses nemu's servers, so signed out the row stays
+   * visible but disabled (see `applyMobileReaderPluginSignInState`).
+   */
+  requiresSignIn?: boolean;
+  /** Shown but not editable (set by the app, never by a source package). */
+  disabled?: boolean;
   notification?: string;
   refreshes?: Array<"content" | "listings" | "settings" | "filters">;
   action?: string;

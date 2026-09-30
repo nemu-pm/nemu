@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   MOBILE_JAPANESE_LEARNING_CHAT_MAX_HISTORY_MESSAGES,
   MOBILE_JAPANESE_LEARNING_CHAT_MAX_MESSAGE_CHARACTERS,
@@ -13,6 +13,11 @@ import {
   parseMobileJapaneseLearningChatResponse,
   runMobileJapaneseLearningChat,
 } from "./mobileJapaneseLearningChat";
+import { setMobileJapaneseLearningAuthCookieReaderForTesting } from "./mobileJapaneseLearningAuth";
+
+// Cloud paths are server features: these tests run signed in.
+beforeAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test"));
+afterAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(undefined));
 
 const chapter = {
   id: "chapter-1",

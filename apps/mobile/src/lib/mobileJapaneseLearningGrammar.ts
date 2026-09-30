@@ -3,6 +3,7 @@ import { PartOfSpeechLabels } from "../../../../src/lib/plugins/builtin/japanese
 import { api } from "../../../../convex/_generated/api";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 import { createMobileJapaneseLearningAbortScope } from "./mobileJapaneseLearningLifecycle";
+import { isMobileJapaneseLearningSignedIn } from "./mobileJapaneseLearningAuth";
 import {
   assertMobileJapaneseLearningByteLength,
   assertMobileJapaneseLearningCount,
@@ -812,13 +813,17 @@ export async function runMobileJapaneseLearningGrammar(
         });
       } catch (error) {
         throwIfMobileJapaneseLearningAborted(options.signal);
+        // Signed out the cloud is not an option (a server feature): the
+        // dictionary error stands, and the reader offers Retry.
+        const signedIn = isMobileJapaneseLearningSignedIn();
         recordMobileJapaneseLearningEngineRun({
           stage: "pack-install",
-          engine: "cloud",
+          engine: signedIn ? "cloud" : "on-device",
           ok: false,
           durationMs: 0,
-          detail: `automatic fallback: ${error instanceof Error ? error.message : String(error)}`,
+          detail: `${signedIn ? "automatic fallback" : "signed out, no cloud fallback"}: ${error instanceof Error ? error.message : String(error)}`,
         });
+        if (!signedIn) throw error;
         return runMobileJapaneseLearningGrammarCloud(originalText, options);
       }
     }

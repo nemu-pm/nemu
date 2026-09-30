@@ -455,7 +455,10 @@ import {
   getMobileReaderLockedChapterState,
   isMobileReaderLockedChapterFailure,
 } from "@/lib/mobileReaderLockedChapter";
-import { mobileAuthClient } from "@/sync/mobileAuthClient";
+import {
+  getMobileJapaneseLearningAuthCookie,
+  isMobileJapaneseLearningSignInRequiredError,
+} from "@/lib/mobileJapaneseLearningAuth";
 import {
   MOBILE_READER_CHROME_GLYPHS,
   mobileReaderPluginGlyph,
@@ -602,6 +605,10 @@ function readerErrorDetail(
   localizedMessage: string,
   strings: MobileStrings,
 ): string {
+  // A server feature used signed out: the sign-in line, not a failure.
+  if (isMobileJapaneseLearningSignInRequiredError(error)) {
+    return strings.reader.pluginJapaneseLearningSignInRequired;
+  }
   const reason = sanitizeMobileErrorDiagnostic(error) ?? "";
   if (!reason || reason === localizedMessage) return localizedMessage;
   return formatMobileString(strings.reader.errorDetailWithReason, {
@@ -3755,10 +3762,7 @@ export function ReaderScreen() {
       japaneseLearningChatVoicePrefetchRef.current = new AbortController();
     }
     void generateMobileJapaneseLearningTts(text, {
-      getAuthCookie: () =>
-        (
-          mobileAuthClient as unknown as { getCookie?: () => string }
-        ).getCookie?.() ?? "",
+      getAuthCookie: getMobileJapaneseLearningAuthCookie,
       source: "voice",
       signal: japaneseLearningChatVoicePrefetchRef.current.signal,
     }).catch(() => undefined);
@@ -3937,10 +3941,7 @@ export function ReaderScreen() {
         chapter,
         ephemeralContext: request.ephemeralContext,
         executeTool: executeJapaneseLearningChatTool,
-        getAuthCookie: () =>
-          (
-            mobileAuthClient as unknown as { getCookie?: () => string }
-          ).getCookie?.() ?? "",
+        getAuthCookie: getMobileJapaneseLearningAuthCookie,
         mangaGenres: state.entry?.item.metadata.tags,
         mangaTitle: mangaTitle ?? "",
         messages: [...existingMessages, { role: "user", content: prompt }],
@@ -3971,7 +3972,7 @@ export function ReaderScreen() {
           // A stream `error` event already produced its bubble via `onError`.
           if (controller.isCompleted()) return;
           controller.onError(
-            error instanceof Error && error.message === "auth_required"
+            isMobileJapaneseLearningSignInRequiredError(error)
               ? MOBILE_JAPANESE_LEARNING_CHAT_SIGN_IN_ERROR
               : "",
           );
@@ -4501,10 +4502,7 @@ export function ReaderScreen() {
       });
 
       const audio = await generateMobileJapaneseLearningTts(transcript, {
-        getAuthCookie: () =>
-          (
-            mobileAuthClient as unknown as { getCookie?: () => string }
-          ).getCookie?.() ?? "",
+        getAuthCookie: getMobileJapaneseLearningAuthCookie,
         source: "sentence",
         signal,
       });
@@ -4541,7 +4539,7 @@ export function ReaderScreen() {
       void hapticConfirm();
     })().catch((error) => {
       const detail =
-        error instanceof Error && error.message === "auth_required"
+        isMobileJapaneseLearningSignInRequiredError(error)
           ? strings.reader.pluginJapaneseLearningSignInRequired
           : readerErrorDetail(
               error,
@@ -4632,10 +4630,7 @@ export function ReaderScreen() {
 
       void (async () => {
         const audio = await generateMobileJapaneseLearningTts(transcript, {
-          getAuthCookie: () =>
-            (
-              mobileAuthClient as unknown as { getCookie?: () => string }
-            ).getCookie?.() ?? "",
+          getAuthCookie: getMobileJapaneseLearningAuthCookie,
           source: "transcript",
           signal,
         });
@@ -4702,7 +4697,7 @@ export function ReaderScreen() {
           status: "error",
           source: "transcript",
           detail:
-            error instanceof Error && error.message === "auth_required"
+            isMobileJapaneseLearningSignInRequiredError(error)
               ? strings.reader.pluginJapaneseLearningSignInRequired
               : readerErrorDetail(
                   error,
@@ -4742,10 +4737,7 @@ export function ReaderScreen() {
 
       void (async () => {
         const audio = await generateMobileJapaneseLearningTts(text, {
-          getAuthCookie: () =>
-            (
-              mobileAuthClient as unknown as { getCookie?: () => string }
-            ).getCookie?.() ?? "",
+          getAuthCookie: getMobileJapaneseLearningAuthCookie,
           source: "voice",
           signal,
         });
@@ -4829,7 +4821,7 @@ export function ReaderScreen() {
           source: "chat",
           messageId: message.id,
           detail:
-            error instanceof Error && error.message === "auth_required"
+            isMobileJapaneseLearningSignInRequiredError(error)
               ? strings.reader.pluginJapaneseLearningSignInRequired
               : readerErrorDetail(
                   error,

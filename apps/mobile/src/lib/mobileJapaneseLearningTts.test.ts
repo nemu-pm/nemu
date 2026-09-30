@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   MOBILE_TTS_DISK_CACHE_POLICY,
   MOBILE_TTS_MAX_EVENT_STREAM_BYTES,
@@ -8,6 +8,11 @@ import {
   parseMobileTtsEventStream,
   wavBytesFromPcmChunks,
 } from "./mobileJapaneseLearningTts";
+import { setMobileJapaneseLearningAuthCookieReaderForTesting } from "./mobileJapaneseLearningAuth";
+
+// Cloud paths are server features: these tests run signed in.
+beforeAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test"));
+afterAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(undefined));
 
 describe("mobile Japanese Learning TTS", () => {
   test("keeps the native WAV cache within a deterministic mobile budget", () => {

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import type {
   NemuAnalysisStatus,
   NemuJapaneseLearningNativeModule,
@@ -29,6 +29,11 @@ import {
 } from "./mobileJapaneseLearningEngine";
 import { runMobileJapaneseLearningGrammar } from "./mobileJapaneseLearningGrammar";
 import { MOBILE_ICHIRAN_PACK_RELEASE } from "./mobileJapaneseLearningOnDeviceAnalysis";
+import { setMobileJapaneseLearningAuthCookieReaderForTesting } from "./mobileJapaneseLearningAuth";
+
+// Cloud paths are server features: these tests run signed in.
+beforeAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test"));
+afterAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(undefined));
 
 const en = getMobileStrings("en");
 
@@ -321,6 +326,13 @@ describe("pack store", () => {
     const state = getMobileJapaneseLearningAnalysisPackState();
     expect(state).toEqual({ kind: "failed", message: "Could not download hot.bin.gz: offline" });
     expect(describeMobileJapaneseLearningPackRow(state, en, "onDevice")?.action).toBe("retry");
+    // Automatic falls back to the cloud only when signed in.
+    expect(describeMobileJapaneseLearningPackRow(state, en, "auto")?.status).toBe(
+      en.japaneseLearningDictionary.failedUsingCloud,
+    );
+    expect(describeMobileJapaneseLearningPackRow(state, en, "auto", false)?.status).toBe(
+      en.japaneseLearningDictionary.failed,
+    );
   });
 });
 
@@ -360,5 +372,56 @@ describe("automatic engine fallback", () => {
       }),
     ).rejects.toThrow("offline");
     expect(fetched).toBe(0);
+  });
+
+  test("Automatic signed out never falls back to the cloud: the download failure is the error", async () => {
+    const { module, calls } = fakePackModule({ failInstall: true });
+    setMobileJapaneseLearningNativeModuleForTesting(module);
+    setMobileJapaneseLearningEnginePreference("auto");
+    setMobileJapaneseLearningAuthCookieReaderForTesting(() => "");
+    let fetched = 0;
+    let normalized = 0;
+    try {
+      await expect(
+        runMobileJapaneseLearningGrammar("ねこ", {
+          fetchImpl: (async () => {
+            fetched += 1;
+            return new Response("{}");
+          }) as unknown as typeof fetch,
+          normalizeText: async (text) => {
+            normalized += 1;
+            return { normalized: text, properNouns: [] };
+          },
+        }),
+      ).rejects.toThrow("offline");
+    } finally {
+      setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test");
+    }
+    expect(calls.install).toBe(1);
+    expect(fetched).toBe(0);
+    expect(normalized).toBe(0);
+  });
+
+  test("Cloud signed out asks for sign-in before any request", async () => {
+    setMobileJapaneseLearningEnginePreference("cloud");
+    setMobileJapaneseLearningAuthCookieReaderForTesting(() => "");
+    let requests = 0;
+    try {
+      await expect(
+        runMobileJapaneseLearningGrammar("ねこ", {
+          fetchImpl: (async () => {
+            requests += 1;
+            return new Response("{}");
+          }) as unknown as typeof fetch,
+          normalizeText: async (text) => {
+            requests += 1;
+            return { normalized: text, properNouns: [] };
+          },
+        }),
+      ).rejects.toThrow("auth_required");
+    } finally {
+      setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test");
+    }
+    expect(requests).toBe(0);
   });
 });

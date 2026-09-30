@@ -10,12 +10,20 @@
  *
  * The choice is made per capability, never per failure: once a run has
  * started on-device it does not silently retry in the cloud.
+ *
+ * The cloud is a server feature and needs sign-in (owner rule): signed out,
+ * "auto" never picks it, and a run that can only be served by the cloud
+ * fails with `MobileJapaneseLearningSignInRequiredError` before any upload.
  */
 import NemuJapaneseLearningModule from "../../modules/nemu-japanese-learning/src/NemuJapaneseLearningModule";
 import type {
   NemuJapaneseLearningCapabilities,
   NemuJapaneseLearningNativeModule,
 } from "../../modules/nemu-japanese-learning/src/NemuJapaneseLearning.types";
+import {
+  assertMobileJapaneseLearningSignedIn,
+  isMobileJapaneseLearningSignedIn,
+} from "./mobileJapaneseLearningAuth";
 
 export type MobileJapaneseLearningEnginePreference = "auto" | "onDevice" | "cloud";
 export type MobileJapaneseLearningEngineKind = "on-device" | "cloud";
@@ -55,11 +63,15 @@ export function setMobileJapaneseLearningOcrAssist(value: unknown): void {
   ocrAssistEnabled = value === true;
 }
 
-/** Whether a run with this preference may send low-confidence pages to the cloud. */
+/**
+ * Whether a run with this preference may send low-confidence pages to the
+ * cloud: opted in, the automatic engine, and signed in (a server feature).
+ */
 export function isMobileJapaneseLearningOcrAssistActive(
   preference: MobileJapaneseLearningEnginePreference = enginePreference,
+  signedIn: boolean = isMobileJapaneseLearningSignedIn(),
 ): boolean {
-  return ocrAssistEnabled && preference === "auto";
+  return ocrAssistEnabled && preference === "auto" && signedIn;
 }
 
 let nativeModuleOverride: NemuJapaneseLearningNativeModule | null | undefined;
@@ -102,14 +114,15 @@ export class MobileJapaneseLearningEngineUnavailableError extends Error {
 export function resolveMobileJapaneseLearningOcrEngine(
   preference: MobileJapaneseLearningEnginePreference,
   capabilities: NemuJapaneseLearningCapabilities | null,
+  signedIn: boolean = isMobileJapaneseLearningSignedIn(),
 ): MobileJapaneseLearningEngineKind {
-  if (preference === "cloud") return "cloud";
-  if (capabilities?.ocr.available) return "on-device";
+  if (preference !== "cloud" && capabilities?.ocr.available) return "on-device";
   if (preference === "onDevice") {
     throw new MobileJapaneseLearningEngineUnavailableError(
       "On-device text recognition is not available on this device.",
     );
   }
+  assertMobileJapaneseLearningSignedIn(signedIn);
   return "cloud";
 }
 
@@ -120,14 +133,15 @@ export function resolveMobileJapaneseLearningOcrEngine(
 export function resolveMobileJapaneseLearningAnalysisEngine(
   preference: MobileJapaneseLearningEnginePreference,
   capabilities: NemuJapaneseLearningCapabilities | null,
+  signedIn: boolean = isMobileJapaneseLearningSignedIn(),
 ): MobileJapaneseLearningEngineKind {
-  if (preference === "cloud") return "cloud";
-  if (capabilities?.analysis.kernelLinked) return "on-device";
+  if (preference !== "cloud" && capabilities?.analysis.kernelLinked) return "on-device";
   if (preference === "onDevice") {
     throw new MobileJapaneseLearningEngineUnavailableError(
       "On-device Japanese analysis is not available in this build.",
     );
   }
+  assertMobileJapaneseLearningSignedIn(signedIn);
   return "cloud";
 }
 

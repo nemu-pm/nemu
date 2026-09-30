@@ -7,6 +7,11 @@ import type { AppLanguage, ChapterSummary } from "@/data/schema";
 import type { MobileReaderPluginState } from "@/lib/mobileReaderPlugins";
 import { getExplainPrompt, getGreetingPrompt } from "@nemu/core";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
+import {
+  getMobileJapaneseLearningAuthCookie,
+  hasMobileAuthSessionCookie,
+  MobileJapaneseLearningSignInRequiredError,
+} from "./mobileJapaneseLearningAuth";
 import { createMobileJapaneseLearningAbortScope } from "./mobileJapaneseLearningLifecycle";
 import {
   assertMobileJapaneseLearningByteLength,
@@ -848,7 +853,7 @@ async function assertMobileJapaneseLearningChatResponseOk(
 ) {
   if (response.ok) return;
   if (response.status === 401) {
-    throw new Error("auth_required");
+    throw new MobileJapaneseLearningSignInRequiredError();
   }
   const body = await readMobileJapaneseLearningBoundedResponseText(response, {
     maxBytes: MOBILE_JAPANESE_LEARNING_CHAT_MAX_ERROR_RESPONSE_BYTES,
@@ -879,8 +884,9 @@ export async function runMobileJapaneseLearningChat(
     // request could only fail: answer with the same sign-in reply the
     // server's 401 gives, instead of a greeting that fails on its way out
     // as a generic network error.
-    if (options.getAuthCookie && !options.getAuthCookie().trim()) {
-      throw new Error("auth_required");
+    const getAuthCookie = options.getAuthCookie ?? getMobileJapaneseLearningAuthCookie;
+    if (!hasMobileAuthSessionCookie(getAuthCookie())) {
+      throw new MobileJapaneseLearningSignInRequiredError();
     }
     const hiddenContext = buildMobileJapaneseLearningHiddenContext(options);
     const prompt =
@@ -934,7 +940,7 @@ export async function runMobileJapaneseLearningChat(
             credentials: "omit",
             headers: {
               "content-type": "application/json",
-              ...getMobileAuthHeaders(options.getAuthCookie),
+              ...getMobileAuthHeaders(getAuthCookie),
             },
             body: requestBody,
             signal: abortScope.signal,

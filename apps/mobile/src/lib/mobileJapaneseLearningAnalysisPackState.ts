@@ -188,6 +188,8 @@ export function describeMobileJapaneseLearningPackRow(
   state: MobileJapaneseLearningPackState,
   strings: MobileStrings,
   preference: MobileJapaneseLearningEnginePreference,
+  /** Signed out, Automatic has no cloud to fall back on (a server feature). */
+  signedIn = true,
 ): MobileJapaneseLearningPackRow | null {
   const copy = strings.japaneseLearningDictionary;
   const downloadSize = formatMobileJapaneseLearningPackMegabytes(
@@ -228,7 +230,7 @@ export function describeMobileJapaneseLearningPackRow(
     case "failed":
       return {
         status:
-          preference === "auto" ? copy.failedUsingCloud : copy.failed,
+          preference === "auto" && signedIn ? copy.failedUsingCloud : copy.failed,
         progress: undefined,
         action: "retry",
         busy: false,

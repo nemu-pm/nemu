@@ -689,6 +689,9 @@ export type MobileStrings = {
     pluginJapaneseLearningResponseLanguageDescription: string;
     pluginJapaneseLearningSelectedText: string;
     pluginJapaneseLearningSignInRequired: string;
+    pluginJapaneseLearningSignInRequiredTitle: string;
+    pluginJapaneseLearningSignInRequiredDescription: string;
+    pluginJapaneseLearningSignInToUse: string;
     pluginJapaneseLearningSourceText: string;
     pluginJapaneseLearningStopListening: string;
     pluginJapaneseLearningStructure: string;

@@ -1,4 +1,9 @@
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
+import {
+  getMobileJapaneseLearningAuthCookie,
+  hasMobileAuthSessionCookie,
+  MobileJapaneseLearningSignInRequiredError,
+} from "./mobileJapaneseLearningAuth";
 import { FileSystemBinaryCache } from "@/data/nativeCache";
 import type { NativeBinaryCachePolicy } from "@/data/nativeCachePolicy";
 import { mobileNativeFetch } from "@/sources/mobileNativeHttp";
@@ -435,6 +440,12 @@ export async function generateMobileJapaneseLearningTts(
   if (inFlight) {
     return consumeMobileTtsGeneration(id, inFlight, options.signal);
   }
+  // Listen is a server feature: signed out, a clip already on disk still
+  // plays (above), but nothing new is requested (web `requireAuthOrPrompt`).
+  const getAuthCookie = options.getAuthCookie ?? getMobileJapaneseLearningAuthCookie;
+  if (!hasMobileAuthSessionCookie(getAuthCookie())) {
+    throw new MobileJapaneseLearningSignInRequiredError();
+  }
 
   const abortController = new AbortController();
   mobileTtsAbortControllers.add(abortController);
@@ -446,7 +457,7 @@ export async function generateMobileJapaneseLearningTts(
       headers: {
         "content-type": "application/json",
         accept: "text/event-stream",
-        ...getMobileAuthHeaders(options.getAuthCookie),
+        ...getMobileAuthHeaders(getAuthCookie),
       },
       body: JSON.stringify({
         text: clean,
@@ -460,7 +471,7 @@ export async function generateMobileJapaneseLearningTts(
       const response = await fetchImpl(url, requestInit);
       assertMobileTtsCacheEpoch(generationEpoch);
       if (!response.ok) {
-        if (response.status === 401) throw new Error("auth_required");
+        if (response.status === 401) throw new MobileJapaneseLearningSignInRequiredError();
         throw new Error(
           `TTS failed: ${response.status} ${response.statusText}`,
         );
@@ -478,7 +489,7 @@ export async function generateMobileJapaneseLearningTts(
       });
       assertMobileTtsCacheEpoch(generationEpoch);
       if (!response.ok) {
-        if (response.status === 401) throw new Error("auth_required");
+        if (response.status === 401) throw new MobileJapaneseLearningSignInRequiredError();
         throw new Error(`TTS failed: ${response.status}`);
       }
       chunks = parseMobileTtsEventStream(response.body);

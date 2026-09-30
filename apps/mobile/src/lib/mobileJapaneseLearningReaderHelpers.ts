@@ -13,6 +13,7 @@ import {
   type MobileOcrDetection,
 } from "@/lib/mobileJapaneseLearningOcr";
 import { formatMobileClockTime } from "./mobileLocaleFormat";
+import type { MobileStrings } from "./mobileI18n";
 
 /**
  * Theme tokens the grammar/OCR color helpers read. Kept as a structural type
@@ -218,4 +219,36 @@ export function classifyMobileJapaneseLearningTokenPan(
   const ay = Math.abs(dy);
   if (Math.max(ax, ay) < MOBILE_JAPANESE_LEARNING_TOKEN_PAN_SLOP) return "pending";
   return ay > ax * 1.2 ? "scroll" : "select";
+}
+
+/**
+ * The sentence view's analysis error line. A server feature used signed out
+ * shows the sign-in line; a failed dictionary download is the pack's error
+ * whenever the cloud is not a fallback (On Device, or Automatic signed out).
+ */
+export function mobileJapaneseLearningAnalysisErrorText(input: {
+  detail: string;
+  packFailed: boolean;
+  preference: "auto" | "onDevice" | "cloud";
+  signedIn: boolean;
+  strings: {
+    reader: Pick<
+      MobileStrings["reader"],
+      "pluginJapaneseLearningSignInRequired" | "pluginJapaneseLearningGrammarFailed"
+    >;
+    japaneseLearningDictionary: Pick<
+      MobileStrings["japaneseLearningDictionary"],
+      "analysisDownloadFailed"
+    >;
+  };
+}): string {
+  const { strings } = input;
+  if (input.detail === strings.reader.pluginJapaneseLearningSignInRequired) {
+    return strings.reader.pluginJapaneseLearningSignInRequired;
+  }
+  const cloudFallback = input.preference === "auto" && input.signedIn;
+  if (input.packFailed && input.preference !== "cloud" && !cloudFallback) {
+    return strings.japaneseLearningDictionary.analysisDownloadFailed;
+  }
+  return strings.reader.pluginJapaneseLearningGrammarFailed;
 }

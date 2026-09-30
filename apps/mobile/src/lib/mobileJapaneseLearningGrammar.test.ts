@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   MOBILE_JAPANESE_LEARNING_GRAMMAR_MAX_INPUT_CHARACTERS,
   MOBILE_JAPANESE_LEARNING_GRAMMAR_MAX_RESPONSE_BYTES,
@@ -11,6 +11,11 @@ import {
   runMobileJapaneseLearningGrammar,
   serializeMobileGrammarTokens,
 } from "./mobileJapaneseLearningGrammar";
+import { setMobileJapaneseLearningAuthCookieReaderForTesting } from "./mobileJapaneseLearningAuth";
+
+// Cloud paths are server features: these tests run signed in.
+beforeAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test"));
+afterAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(undefined));
 
 describe("mobile Japanese Learning grammar", () => {
   test("keeps normalized reading text private to one profile cache", () => {

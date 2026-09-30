@@ -37,6 +37,7 @@ import {
   mobileOcrAssistSpacesAgree,
   selectMobileOcrAssistTargets,
 } from "./mobileJapaneseLearningOcrAssist";
+import { MOBILE_JAPANESE_LEARNING_AUTH_REQUIRED } from "./mobileJapaneseLearningAuth";
 
 export type MobileOcrDetection = {
   /** Source page and coordinate space when recognizing a visible spread. */
@@ -382,7 +383,7 @@ export function textFromMobileOcrDetections(
   return text;
 }
 
-export type MobileJapaneseLearningOcrErrorKind = "unavailable" | "failed";
+export type MobileJapaneseLearningOcrErrorKind = "unavailable" | "failed" | "signIn";
 
 export type MobileJapaneseLearningOcrErrorCopy = {
   kind: MobileJapaneseLearningOcrErrorKind;
@@ -420,6 +421,19 @@ export function describeJapaneseLearningOcrError(
     } catch {
       message = "";
     }
+  }
+  // Cloud recognition signed out: a sign-in prompt, not a failure. The
+  // reader stores the localized sign-in line as the detail.
+  if (
+    message === MOBILE_JAPANESE_LEARNING_AUTH_REQUIRED ||
+    message === strings.reader.pluginJapaneseLearningSignInRequired
+  ) {
+    return {
+      kind: "signIn",
+      title: strings.reader.pluginJapaneseLearningSignInRequiredTitle,
+      description: strings.reader.pluginJapaneseLearningSignInRequiredDescription,
+      diagnostic: null,
+    };
   }
   const kind: MobileJapaneseLearningOcrErrorKind =
     message && MOBILE_JAPANESE_LEARNING_OCR_UNAVAILABLE_PATTERN.test(message)

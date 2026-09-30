@@ -54,6 +54,8 @@ type MobileReaderPluginNativeRowBase = {
   setting: SourcePackageSetting;
   title: string;
   subtitle?: string;
+  /** Visible but not editable (e.g. a server feature while signed out). */
+  disabled?: boolean;
 };
 
 export type MobileReaderPluginNativePickerOption = {
@@ -161,6 +163,7 @@ function buildRow(
     setting,
     title: setting.title,
     ...(setting.subtitle ? { subtitle: setting.subtitle } : null),
+    ...(setting.disabled === true ? { disabled: true } : null),
   };
   switch (kind) {
     case "toggle":

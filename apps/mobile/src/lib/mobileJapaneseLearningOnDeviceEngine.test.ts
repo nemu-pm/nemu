@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import fixture from "../../../../tests/fixtures/japanese-learning-ichiran/segment-contract.json";
 import type {
   NemuAnalysisStatus,
@@ -30,6 +30,11 @@ import {
   makeMobileOnDeviceOcrCacheKey,
   runMobileOnDeviceOcr,
 } from "./mobileJapaneseLearningOnDeviceOcr";
+import { setMobileJapaneseLearningAuthCookieReaderForTesting } from "./mobileJapaneseLearningAuth";
+
+// Cloud paths are server features: these tests run signed in.
+beforeAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(() => "nemu.session_token=test"));
+afterAll(() => setMobileJapaneseLearningAuthCookieReaderForTesting(undefined));
 
 type Sample = {
   text: string;

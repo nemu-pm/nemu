@@ -285,7 +285,9 @@ export function JapaneseLearningTranscriptSheet({
             name={
               ocrErrorCopy.kind === "unavailable"
                 ? "cloud-offline-outline"
-                : "alert-circle-outline"
+                : ocrErrorCopy.kind === "signIn"
+                  ? "person-circle-outline"
+                  : "alert-circle-outline"
             }
             size={22}
             color={tokens.mutedForeground}
