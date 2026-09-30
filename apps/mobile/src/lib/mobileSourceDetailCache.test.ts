@@ -78,8 +78,19 @@ describe("mobile source detail cache codec", () => {
     ).toBeNull();
   });
 
+  test("drops version 1 entries, whose chapter lists were id-sorted", () => {
+    const raw = encodeMobileSourceDetailCache(
+      makeMobileSourceDetailCacheKey("a", "b", "c"),
+      payload(),
+    );
+    expect(decodeMobileSourceDetailCache(raw)).not.toBeNull();
+    expect(
+      decodeMobileSourceDetailCache(JSON.stringify({ ...JSON.parse(raw), v: 1 })),
+    ).toBeNull();
+  });
+
   test("rejects malformed metadata and chapters", () => {
-    const base = { v: 1, key: "a:b:c" };
+    const base = { v: 2, key: "a:b:c" };
     expect(
       decodeMobileSourceDetailCache(
         JSON.stringify({ ...base, ...payload(), metadata: { title: "" } }),
@@ -199,7 +210,7 @@ describe("mobile source detail cache behavior", () => {
     await seed.setCached(key, payload(), 1_000);
     const storeWithJunk: MobileSourceDetailCacheStore = {
       async readAll() {
-        return [...(await store.readAll()), "{not json", JSON.stringify({ v: 1 })];
+        return [...(await store.readAll()), "{not json", JSON.stringify({ v: 2 })];
       },
       write: store.write,
       remove: store.remove,

@@ -75,9 +75,10 @@ function makeExecutorSource(
     },
     async getChapterList() {
       return [
+        // Oldest first: the reader's list comes back newest first.
         { key: "c1", chapterNumber: 1, title: "Start" },
-        { key: "c3", chapterNumber: 3, title: "Latest" },
         { key: "c2", chapterNumber: 2, title: "Selected", lang: "ja" },
+        { key: "c3", chapterNumber: 3, title: "Latest" },
       ];
     },
     async getPageList(_manga, chapter) {

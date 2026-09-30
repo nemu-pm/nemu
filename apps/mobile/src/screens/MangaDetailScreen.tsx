@@ -76,6 +76,7 @@ import {
   normalizeMobileChapterListPreference,
   type MobileChapterListPreference,
 } from "@/lib/mobileChapterFilters";
+import { mergeMobileChapterRecord, orderMobileKnownChapters } from "@/lib/mobileChapterOrder";
 import {
   formatMobileString,
   getMobileStrings,
@@ -274,9 +275,16 @@ function uniqueChapters(
   refreshedChapters: ChapterSummary[] = [],
 ): ChapterSummary[] {
   const byId = new Map<string, ChapterSummary>();
+  // The first record for an id wins (the source list comes first); later
+  // progress/link records only fill fields it lacks, so a read chapter keeps
+  // its language, scanlator and lock state.
   const add = (chapter: ChapterSummary | null | undefined) => {
     if (!chapter?.id) return;
-    byId.set(chapter.id, chapter);
+    const existing = byId.get(chapter.id);
+    byId.set(
+      chapter.id,
+      existing ? mergeMobileChapterRecord(existing, chapter) : chapter,
+    );
   };
 
   for (const chapter of refreshedChapters) {
@@ -304,12 +312,10 @@ function uniqueChapters(
     });
   }
 
-  return [...byId.values()].sort((a, b) => {
-    const aNum = a.chapterNumber ?? Number.NEGATIVE_INFINITY;
-    const bNum = b.chapterNumber ?? Number.NEGATIVE_INFINITY;
-    if (aNum !== bNum) return bNum - aNum;
-    return a.id.localeCompare(b.id);
-  });
+  return orderMobileKnownChapters(
+    [...byId.values()],
+    new Set(refreshedChapters.map((chapter) => chapter.id)),
+  );
 }
 
 function cachedChaptersForSource(source: LocalSourceLink): ChapterSummary[] {

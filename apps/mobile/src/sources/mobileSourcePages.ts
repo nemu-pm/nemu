@@ -23,8 +23,8 @@ import {
   type MobileSourcePackageHydrationHandler,
 } from "./mobileSourcePackageLoader";
 import {
+  mapAidokuChapterList,
   mapAidokuChapterToSummary,
-  sortChapterSummaries,
 } from "./mobileSourceDetails";
 import { mobileNativeFetch } from "./mobileNativeHttp";
 import {
@@ -867,9 +867,7 @@ export async function refreshMobileReaderPages(
       // Still inside the pinned session: awaiting here (rather than letting the
       // promise escape) is what keeps the runtime alive for this request.
       const chapters = await chaptersRequest;
-      const chapterSummaries = chapters
-        ? sortChapterSummaries(chapters.map(mapAidokuChapterToSummary))
-        : [];
+      const chapterSummaries = chapters ? mapAidokuChapterList(chapters) : [];
       const sourceChapter =
         chapters?.find((item) => item.key === chapter.id) ?? requestedChapter;
 

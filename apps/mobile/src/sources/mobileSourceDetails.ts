@@ -27,6 +27,7 @@ import {
   withMobileSourceOperationTimeout,
 } from "./mobileSourceOperationTimeout";
 import { mergeAuthors } from "@nemu/core/sources";
+import { orderMobileChaptersNewestFirst } from "@/lib/mobileChapterOrder";
 import { markMobilePerformance } from "@/lib/mobilePerformance";
 import { isMobileSourceMangaTitlePathLike } from "@/lib/mobileReaderMangaTitle";
 
@@ -176,21 +177,14 @@ export function mapAidokuChapterToSummary(
   return summary;
 }
 
-export function chapterSortValue(chapter: ChapterSummary): number {
-  const volume = chapter.volumeNumber ?? 0;
-  const chapterNumber = chapter.chapterNumber ?? Number.NEGATIVE_INFINITY;
-  return volume * 1_000_000 + chapterNumber;
-}
-
-export function sortChapterSummaries(
-  chapters: ChapterSummary[],
+/**
+ * The source's chapter list mapped to summaries, newest first in the source's
+ * own order (see `orderMobileChaptersNewestFirst`).
+ */
+export function mapAidokuChapterList(
+  chapters: readonly AidokuChapter[],
 ): ChapterSummary[] {
-  return [...chapters].sort((a, b) => {
-    const aValue = chapterSortValue(a);
-    const bValue = chapterSortValue(b);
-    if (aValue !== bValue) return bValue - aValue;
-    return b.id.localeCompare(a.id);
-  });
+  return orderMobileChaptersNewestFirst(chapters.map(mapAidokuChapterToSummary));
 }
 
 export async function refreshMobileSourceDetails(
@@ -226,10 +220,8 @@ export async function refreshMobileSourceDetails(
           }
           const manga = await session.source.getMangaDetails({ key: mangaId });
           markMobilePerformance("source.details.manga-done", { sourceKey });
-          const chapters = sortChapterSummaries(
-            (await session.source.getChapterList({ key: mangaId })).map(
-              mapAidokuChapterToSummary,
-            ),
+          const chapters = mapAidokuChapterList(
+            await session.source.getChapterList({ key: mangaId }),
           );
           markMobilePerformance("source.details.chapters-done", {
             sourceKey,
@@ -337,10 +329,8 @@ export async function refreshMobileSourceChapters(
               detail: session.detail,
             };
           }
-          const chapters = sortChapterSummaries(
-            (await session.source.getChapterList({ key: mangaId })).map(
-              mapAidokuChapterToSummary,
-            ),
+          const chapters = mapAidokuChapterList(
+            await session.source.getChapterList({ key: mangaId }),
           );
           return {
             status: "ready",

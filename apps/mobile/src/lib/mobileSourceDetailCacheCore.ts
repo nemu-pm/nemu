@@ -19,7 +19,10 @@ export const MOBILE_SOURCE_DETAIL_CACHE_MAX_ENTRIES = 64;
 export const MOBILE_SOURCE_DETAIL_CACHE_MAX_BYTES = 1024 * 1024;
 export const MOBILE_SOURCE_DETAIL_CACHE_MAX_CHAPTERS = 2_000;
 
-const MOBILE_SOURCE_DETAIL_CACHE_FORMAT_VERSION = 1;
+// 2: chapter lists keep the source's order. Version 1 lists were sorted by
+// number with an id tie-break, which scrambled sources without numbers
+// (漫画人, 拷贝漫画 volumes); dropping them forces one refetch.
+const MOBILE_SOURCE_DETAIL_CACHE_FORMAT_VERSION = 2;
 
 export type MobileSourceDetailCachePayload = {
   metadata: MangaMetadata;
