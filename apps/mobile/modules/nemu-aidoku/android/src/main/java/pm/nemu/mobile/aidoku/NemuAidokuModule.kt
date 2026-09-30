@@ -415,6 +415,13 @@ class NemuAidokuModule : Module() {
       )
     }
 
+    // Cancels the sandbox operation that carries `cancelToken`, now if it is
+    // running, or when it starts. Synchronous on purpose: the sandbox's serial
+    // executor is exactly what is busy.
+    Function("cancelAidokuSandboxOperation") { cancelToken: String ->
+      getAidokuSandboxManager().cancelOperation(cancelToken)
+    }
+
     AsyncFunction("executeAidokuSandboxOperation") {
         sessionId: String,
         operationJson: String,
@@ -665,7 +672,7 @@ class NemuAidokuModule : Module() {
         context,
         ::executeSandboxHttpRequest,
         ::decorateSandboxImageHeaders
-      )
+      ) { requestId -> cancelHttpRequest(requestId) }
     }
   }
 
@@ -866,8 +873,16 @@ class NemuAidokuModule : Module() {
       timeoutMs = timeout
       responseMode = "bytes"
       maxResponseBytes = NEMU_AIDOKU_SANDBOX_MAX_HTTP_BYTES
+      requestId = request.requestId
     }
-    val response = executeRequest(client, nativeRequest, allowBackground = true)
+    // A cancellable operation's request is prepared first, so a cancellation
+    // that lands before OkHttp registers the call still stops it.
+    request.requestId?.let(::prepareHttpRequest)
+    val response = try {
+      executeRequest(client, nativeRequest, allowBackground = true)
+    } finally {
+      request.requestId?.let(::releaseHttpRequest)
+    }
     recordCloudflareChallengeHost(request.sourceKey, request.url, response)
     return AidokuSandboxHttpResponse(
       status = response.status,

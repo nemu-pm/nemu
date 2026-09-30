@@ -26,6 +26,13 @@ type MobileMangaChapterSectionHeaderProps = {
   loading?: boolean;
   /** Announced by the loading ring while chapters refresh. */
   loadingLabel?: string;
+  /**
+   * Stands in for the rows while `loading` with none to show (a chapter
+   * grid skeleton). When given, the header's loading ring is not drawn: the
+   * placeholder already says the list is on its way, and the sort action
+   * keeps its place.
+   */
+  loadingPlaceholder?: ReactNode;
   notice?: ReactNode;
   sortAction?: ReactNode;
   sourceSelector?: ReactNode;
@@ -200,6 +207,7 @@ export function MobileMangaChapterSectionHeader({
   hasChapters,
   loading = false,
   loadingLabel,
+  loadingPlaceholder,
   notice,
   sortAction,
   sourceSelector,
@@ -220,7 +228,7 @@ export function MobileMangaChapterSectionHeader({
         <Text style={[styles.sectionTitle, { color: tokens.foreground }]}>
           {title}
         </Text>
-        {loading ? (
+        {loading && !loadingPlaceholder ? (
           <NemuRingSpinner
             size={16}
             color={tokens.primary}
@@ -251,7 +259,10 @@ export function MobileMangaChapterSectionHeader({
         <View style={{ marginVertical: rhythm.toolbarMarginVertical }}>{toolbar}</View>
       ) : null}
       {notice}
-      {!hasChapters && !loading ? (
+      {!hasChapters && loading && loadingPlaceholder ? loadingPlaceholder : null}
+      {/* A notice (source error, blocked source) already explains an empty
+          list; a second empty-state line under it only contradicts it. */}
+      {!hasChapters && !loading && !notice ? (
         <NemuInlineEmptyState icon={emptyIcon} title={emptyTitle} />
       ) : null}
     </View>

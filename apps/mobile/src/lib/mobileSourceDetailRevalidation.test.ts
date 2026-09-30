@@ -236,3 +236,128 @@ describe("tab snapshots (source switching)", () => {
     ).toBe("loading");
   });
 });
+
+describe("priority-aware request sharing", () => {
+  test("joining an in-flight request raises its priority in place", async () => {
+    const requests = createMobileInflightRequests<string>();
+    let release!: (value: string) => void;
+    const seen: { ticket: { priority: string } | null } = { ticket: null };
+    const sweep = requests.run(
+      "source:manga",
+      (ticket) => {
+        seen.ticket = ticket;
+        return new Promise<string>((resolve) => {
+          release = resolve;
+        });
+      },
+      "background",
+    );
+    await Promise.resolve();
+    expect(requests.priorityOf("source:manga")).toBe("background");
+
+    const opened = requests.run(
+      "source:manga",
+      async () => "never started",
+      "user",
+    );
+    expect(opened).toBe(sweep);
+    expect(requests.priorityOf("source:manga")).toBe("user");
+    expect(seen.ticket).toEqual({ priority: "user" });
+
+    // A lower-priority join never demotes it.
+    void requests.run("source:manga", async () => "x", "background");
+    expect(requests.priorityOf("source:manga")).toBe("user");
+    release("chapters");
+    expect(await opened).toBe("chapters");
+    expect(requests.priorityOf("source:manga")).toBeNull();
+  });
+});
+
+describe("placeholder metadata", () => {
+  test("a title-only placeholder never replaces real source metadata", () => {
+    const chapters = [{ id: "c2" }, { id: "c1" }];
+    const real = { title: "Real", cover: "https://example.com/cover.jpg" };
+    const shown = withMobileSourceDetailSnapshot(
+      undefined,
+      { metadata: real, chapters, fetchedAt: 100 },
+      "cache",
+    );
+    const next = withMobileSourceDetailSnapshot(
+      shown,
+      {
+        metadata: { title: "Placeholder" },
+        chapters: [{ id: "c3" }, ...chapters],
+        fetchedAt: 200,
+        partialMetadata: true,
+      },
+      "network",
+    );
+    expect(next.metadata).toBe(real);
+    expect(next.chapters.map((chapter) => chapter.id)).toEqual(["c3", "c2", "c1"]);
+    // Unchanged rows keep their identity (no re-render, no jump).
+    expect(next.chapters[1]).toBe(shown.chapters[0]);
+
+    const fromPlaceholderOnly = withMobileSourceDetailSnapshot(
+      undefined,
+      {
+        metadata: { title: "Placeholder" },
+        chapters,
+        fetchedAt: 200,
+        partialMetadata: true,
+      },
+      "cache",
+    );
+    expect(fromPlaceholderOnly.metadata).toBeUndefined();
+    expect(fromPlaceholderOnly.full).toBe(true);
+  });
+});
+
+describe("withdrawn interest", () => {
+  test("a request nobody waits for any more drops to background", async () => {
+    let dropped = 0;
+    const requests = createMobileInflightRequests<string>(() => {
+      dropped += 1;
+    });
+    let release!: (value: string) => void;
+    const screen = new AbortController();
+    const opened = requests.run(
+      "source:manga",
+      () =>
+        new Promise<string>((resolve) => {
+          release = resolve;
+        }),
+      "user",
+      screen.signal,
+    );
+    const sweep = new AbortController();
+    void requests.run("source:manga", async () => "x", "background", sweep.signal);
+    expect(requests.priorityOf("source:manga")).toBe("user");
+
+    // The user leaves: only the sweep still wants it.
+    screen.abort();
+    expect(requests.priorityOf("source:manga")).toBe("background");
+    expect(dropped).toBe(1);
+    // Nobody at all: still background, still running (it fills the cache).
+    sweep.abort();
+    expect(requests.priorityOf("source:manga")).toBe("background");
+    expect(dropped).toBe(1);
+
+    // Opening it again raises it back.
+    const again = requests.run("source:manga", async () => "x", "user");
+    expect(requests.priorityOf("source:manga")).toBe("user");
+    await Promise.resolve();
+    release("chapters");
+    expect(await opened).toBe("chapters");
+    expect(await again).toBe("chapters");
+  });
+
+  test("a second screen keeps the request at user priority", () => {
+    const requests = createMobileInflightRequests<string>(() => undefined);
+    const first = new AbortController();
+    const second = new AbortController();
+    void requests.run("k", () => new Promise<string>(() => undefined), "user", first.signal);
+    void requests.run("k", async () => "x", "user", second.signal);
+    first.abort();
+    expect(requests.priorityOf("k")).toBe("user");
+  });
+});

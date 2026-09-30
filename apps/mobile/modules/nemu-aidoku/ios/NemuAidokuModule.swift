@@ -1352,7 +1352,10 @@ public class NemuAidokuModule: Module {
   }
 
   private lazy var iosSandboxManager = NemuAidokuIOSandboxManager(
-    httpRequest: Self.sendAidokuSandboxHttpRequest
+    httpRequest: Self.sendAidokuSandboxHttpRequest,
+    cancelHttpRequest: { requestId in
+      _ = NemuSyncHttpCoordinator.shared.cancel(id: requestId)
+    }
   )
 
   public func definition() -> ModuleDefinition {
@@ -1493,6 +1496,13 @@ public class NemuAidokuModule: Module {
       ) { result in
         Self.settleSandboxPromise(result, promise: promise)
       }
+    }
+
+    // Cancels the sandbox operation that carries `cancelToken`, now if it is
+    // running, or when it starts. Synchronous on purpose: the sandbox's serial
+    // executor is exactly what is busy.
+    Function("cancelAidokuSandboxOperation") { (cancelToken: String) -> Bool in
+      return self.iosSandboxManager.cancelOperation(token: cancelToken)
     }
 
     AsyncFunction("executeAidokuSandboxOperation") {
@@ -1676,6 +1686,7 @@ public class NemuAidokuModule: Module {
       urlRequest,
       timeoutSeconds: timeoutSeconds,
       maxResponseBytes: nemuIOSAidokuMaxHttpResponseBytes,
+      requestId: request.requestId,
       allowBackground: true,
       sessionContext: sessionContext,
       explicitCookieHeader: explicitCookieHeader

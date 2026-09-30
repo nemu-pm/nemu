@@ -14,6 +14,7 @@ import { nemuFontWeight, nemuMaxFontSizeMultiplier } from "@/design/typography";
 import { useNemuTheme } from "@/design/useNemuTheme";
 import { getMobileStrings } from "@/lib/mobileI18n";
 import { formatMobileMangaCardAccessibilityLabel } from "@/lib/mobileMangaCard";
+import { markMobilePerformance } from "@/lib/mobilePerformance";
 import { NemuPressable } from "./NemuPressable";
 import { MobileCachedImage } from "./MobileCachedImage";
 
@@ -64,6 +65,7 @@ export const MangaCard = memo(function MangaCard({
       hapticFeedback="press"
       pressProfile="card"
       onPress={() => {
+        markMobilePerformance("library.open-title", { id: item.id });
         router.push({
           pathname: "/library/[id]",
           params: { id: item.id },

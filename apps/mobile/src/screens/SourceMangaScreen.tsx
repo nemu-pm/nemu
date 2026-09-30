@@ -136,7 +136,6 @@ import {
   mergeDefinedMangaMetadata,
   resolveMobileSeedCoverHeaders,
 } from "@/lib/mobileLibraryDetails";
-import { withMobileSourceOperationTimeout } from "@/sources/mobileSourceOperationTimeout";
 import { normalizeReaderProcessPageImages } from "@/lib/mobileReaderSettings";
 import { refreshMobileReaderPages } from "@/sources/mobileSourcePages";
 import {
@@ -171,6 +170,9 @@ type SourceMangaDetailState =
       detail: string;
       // Set when the persisted copy was painted (fetchedAt of that snapshot).
       cachedFetchedAt?: number;
+      // The painted copy came from a chapter-only refresh: `metadata` is a
+      // title placeholder, so the header keeps what else it knows.
+      partialMetadata?: boolean;
       // A background/forced refresh failed while cached content is on
       // screen: keep the content and surface a standard inline notice.
       staleError?: {
@@ -453,27 +455,32 @@ export function SourceMangaScreen() {
   // Shared with the library detail screen: opening a source page while that
   // screen (or its background sweep) is fetching the same manga joins the
   // in-flight request instead of running the source twice.
+  // The user is looking at this page: its request goes first on the source
+  // runtime (and promotes a matching background request it joins).
   const fetchSourceDetails = useCallback(
-    async (installedSource: InstalledSource) =>
-      mobileSourceDetailRequests.run(detailCacheKey, () =>
-        withMobileSourceOperationTimeout(
-        refreshMobileSourceDetails(installedSource, mangaId, {
-          getSourceSettings: async (_sourceKey, sourceRecord) => {
-            const normalized = normalizeInstalledSource(sourceRecord);
-            const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
-            const saved = await loadMobileSourceSettingsByKeys(store, [
-              runtimeSourceKey,
-              ...getMobileInstalledSourceSettingsKeys(sourceRecord),
-            ]);
-            return mergeSourceSettingValues(
-              sourceRecord.packageMetadata?.settings ?? [],
-              saved?.values,
-            );
-          },
-          onSourcePackageHydrated: saveSourcePackageHydration,
-        }),
-        { message: strings.sourceBrowse.sourceOperationTimedOut },
-        ),
+    async (installedSource: InstalledSource, signal?: AbortSignal) =>
+      mobileSourceDetailRequests.run(
+        detailCacheKey,
+        (ticket) =>
+          refreshMobileSourceDetails(installedSource, mangaId, {
+            priority: ticket,
+            timeoutMessage: strings.sourceBrowse.sourceOperationTimedOut,
+            getSourceSettings: async (_sourceKey, sourceRecord) => {
+              const normalized = normalizeInstalledSource(sourceRecord);
+              const runtimeSourceKey = makeMobileRuntimeSourceKey(normalized);
+              const saved = await loadMobileSourceSettingsByKeys(store, [
+                runtimeSourceKey,
+                ...getMobileInstalledSourceSettingsKeys(sourceRecord),
+              ]);
+              return mergeSourceSettingValues(
+                sourceRecord.packageMetadata?.settings ?? [],
+                saved?.values,
+              );
+            },
+            onSourcePackageHydrated: saveSourcePackageHydration,
+          }),
+        "user",
+        signal,
       ),
     [
       detailCacheKey,
@@ -538,6 +545,8 @@ export function SourceMangaScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    // Withdrawn on leave: a request nobody waits for drops to `background`.
+    const interest = new AbortController();
     const reportRetryResult = retryDataGuardRef.current;
 
     setActionError(null);
@@ -563,6 +572,9 @@ export function SourceMangaScreen() {
             status: "ready",
             refresh: null,
             metadata: cachedEntry.payload.metadata,
+            ...(cachedEntry.payload.partialMetadata
+              ? { partialMetadata: true }
+              : {}),
             chapters: cachedEntry.payload.chapters,
             detail: loadedChapterCountText(
               cachedEntry.payload.chapters.length,
@@ -604,11 +616,21 @@ export function SourceMangaScreen() {
 
         // A fresh cached copy answers the screen by itself; a stale one is
         // painted immediately and revalidated below in the background.
-        if (cachedEntry && !cachedEntry.isStale && !reportRetryResult) {
+        // A chapter-only entry (library update check) has no real metadata
+        // yet: its chapters paint, but the details still load.
+        if (
+          cachedEntry &&
+          !cachedEntry.isStale &&
+          !cachedEntry.payload.partialMetadata &&
+          !reportRetryResult
+        ) {
           return;
         }
 
-        const refreshed = await fetchSourceDetails(installedSource);
+        const refreshed = await fetchSourceDetails(
+          installedSource,
+          interest.signal,
+        );
 
         if (cancelled) return;
         if (refreshed.status === "blocked") {
@@ -717,6 +739,7 @@ export function SourceMangaScreen() {
 
     return () => {
       cancelled = true;
+      interest.abort();
     };
   }, [
     applyDetailsRefreshToLibrary,
@@ -772,10 +795,14 @@ export function SourceMangaScreen() {
         url: seedMetadata.url,
       }
     : null;
+  const metadataBase =
+    detailState.status === "ready" && detailState.partialMetadata
+      ? (listingMetadata ?? localState.libraryEntry?.item.metadata ?? null)
+      : listingMetadata;
   const metadata =
     detailState.status === "ready"
-      ? listingMetadata
-        ? mergeDefinedMangaMetadata(listingMetadata, detailState.metadata)
+      ? metadataBase
+        ? mergeDefinedMangaMetadata(metadataBase, detailState.metadata)
         : detailState.metadata
       : (localState.libraryEntry?.item.metadata ?? listingMetadata);
   const title = resolveMobileSourceMangaMetadataTitle(

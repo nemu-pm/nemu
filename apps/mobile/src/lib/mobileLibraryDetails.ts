@@ -1,4 +1,5 @@
 import type {
+  ChapterSummary,
   LibraryEntry,
   LocalLibraryItem,
   LocalSourceLink,
@@ -146,15 +147,40 @@ function sameMangaMetadata(left: MangaMetadata, right: MangaMetadata): boolean {
   return stableMetadataSignature(left) === stableMetadataSignature(right);
 }
 
+/**
+ * A source link after its chapter list was fetched while the user looked at
+ * it: the newest chapter becomes the link's latest and is acknowledged (the
+ * update badge clears), and the fetch time is recorded.
+ */
+export function applyMobileSourceChaptersRefresh(
+  sourceLink: LocalSourceLink,
+  refresh: { latestChapter?: ChapterSummary; fetchedAt: number },
+): LocalSourceLink {
+  const latestChapter = refresh.latestChapter;
+  const latestChapterSortKey = latestChapter
+    ? makeChapterSortKey(latestChapter)
+    : undefined;
+  return {
+    ...sourceLink,
+    ...(latestChapter
+      ? {
+          latestChapter,
+          latestChapterSortKey,
+          updateAckChapter: latestChapter,
+          updateAckChapterSortKey: latestChapterSortKey,
+          updateAckAt: refresh.fetchedAt,
+        }
+      : {}),
+    latestFetchedAt: refresh.fetchedAt,
+    updatedAt: refresh.fetchedAt,
+  };
+}
+
 export function applyMobileSourceDetailsRefresh(
   entry: LibraryEntry,
   sourceLink: LocalSourceLink,
   refresh: Extract<MobileSourceDetailsRefresh, { status: "ready" }>,
 ): AppliedMobileSourceDetails {
-  const latestChapter = refresh.latestChapter;
-  const latestChapterSortKey = latestChapter
-    ? makeChapterSortKey(latestChapter)
-    : undefined;
   const refreshedMetadata = {
     ...refresh.metadata,
     title: resolveMobileSourceMangaMetadataTitle(
@@ -186,20 +212,8 @@ export function applyMobileSourceDetailsRefresh(
         metadata: mergedMetadata,
         updatedAt: refresh.fetchedAt,
       };
-  const updatedSourceLink: LocalSourceLink = {
-    ...sourceLink,
-    ...(latestChapter
-      ? {
-          latestChapter,
-          latestChapterSortKey,
-          updateAckChapter: latestChapter,
-          updateAckChapterSortKey: latestChapterSortKey,
-          updateAckAt: refresh.fetchedAt,
-        }
-      : {}),
-    latestFetchedAt: refresh.fetchedAt,
-    updatedAt: refresh.fetchedAt,
+  return {
+    item,
+    sourceLink: applyMobileSourceChaptersRefresh(sourceLink, refresh),
   };
-
-  return { item, sourceLink: updatedSourceLink };
 }

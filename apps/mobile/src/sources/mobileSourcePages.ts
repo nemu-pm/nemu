@@ -1,3 +1,4 @@
+import type { MobileSourcePriorityInput } from "./mobileSourceRuntimeScheduler";
 import type {
   ChapterSummary,
   InstalledSource,
@@ -72,6 +73,15 @@ export type MobileReaderPageProcessor = {
       onUpdate?: (result: MobileReaderPageWindowResult) => void;
     },
   ): Promise<MobileReaderPageWindowResult | null>;
+  /**
+   * One page, resolved exactly as the window would (decorated request,
+   * processed bytes), without moving the window or caching the result.
+   * `null` when the processor is disposed or the signal aborts.
+   */
+  resolvePage?(
+    index: number,
+    options?: { signal?: AbortSignal; priority?: MobileSourcePriorityInput },
+  ): Promise<MobileReaderPage | null>;
   cancel(): void;
   dispose(): void;
   cacheSize(): number;
@@ -134,6 +144,12 @@ export type MobileReaderPagesOptions = {
    * waiting on a request it needs solely for adjacent-chapter navigation.
    */
   onPagesReady?: (firstPaint: MobileReaderPagesFirstPaint) => void;
+  /**
+   * Scheduling priority on the shared source runtime (see
+   * `mobileSourceRuntimeScheduler`). Defaults to `user`: someone is looking
+   * at this chapter. Warm-ups for a chapter nobody opened yet pass `normal`.
+   */
+  priority?: MobileSourcePriorityInput;
 };
 
 export const MOBILE_READER_PAGE_PROCESSING_WINDOW_RADIUS = 2;
@@ -618,6 +634,94 @@ function createMobileReaderPageProcessor({
     processedIndexes: [...processedIndexes],
   });
 
+  /**
+   * Resolves one pending page (request decoration, then optional byte
+   * processing) on the shared source session. `isStale` is re-checked after
+   * every await; a stale run hands back the unprocessed base page.
+   */
+  const resolvePendingPage = (
+    page: MobileSourcePage,
+    basePage: MobileReaderPage,
+    index: number,
+    isStale: () => boolean,
+    signal: AbortSignal | undefined,
+    priority: MobileSourcePriorityInput,
+  ): Promise<MobileReaderPage> =>
+    cache.withSession(
+      normalizedSource,
+      { ...options.executor, settings, priority },
+      async (session): Promise<MobileReaderPage> => {
+        // `withSession` is a per-source queue. A newer viewport can cancel
+        // this run while it is waiting for its turn, so re-check inside
+        // the queue before starting any source/network/image work.
+        if (isStale()) return basePage;
+        if (session.status === "blocked") {
+          return { ...basePage, imageProcessing: "fallback" };
+        }
+        const resolvedBase64 = session.source.resolvePageImage
+          ? await session.source.resolvePageImage(page).catch(() => null)
+          : null;
+        if (isStale()) return basePage;
+        const resolvedImageUri = resolvedBase64
+          ? trustedBase64ImageUri(resolvedBase64)
+          : null;
+        if (resolvedImageUri) {
+          return {
+            ...basePage,
+            imageUri: resolvedImageUri,
+            imageUriOwnership: "app",
+            headers: undefined,
+            imageProcessing: "ready",
+          };
+        }
+        // Page headers skip `modifyImageRequest`, so they go through the
+        // same native decoration (scoped cookies + their UA) on their own.
+        const request = page.headers
+          ? await decoratePageImageRequest(session.source, {
+              url: page.url!,
+              headers: page.headers,
+            })
+          : await session.source
+              .modifyImageRequest(page.url!)
+              .catch(() => undefined);
+        if (isStale()) return basePage;
+        if (!request) return { ...basePage, imageProcessing: "fallback" };
+        if (
+          !options.processPageImages ||
+          !hasImageProcessor ||
+          !page.context
+        ) {
+          return {
+            ...mapAidokuPageToReaderPage(page, index, request),
+            id: basePage.id,
+            imageProcessing: "fallback",
+          };
+        }
+        const processedImageUri = await processMobileReaderPageImage({
+          page,
+          request,
+          source: session.source,
+          fetchImpl,
+          signal,
+        });
+        if (isStale()) return basePage;
+        if (!processedImageUri) {
+          return {
+            ...mapAidokuPageToReaderPage(page, index, request),
+            id: basePage.id,
+            imageProcessing: "fallback",
+          };
+        }
+        return {
+          ...basePage,
+          imageUri: processedImageUri,
+          imageUriOwnership: "app",
+          headers: undefined,
+          imageProcessing: "ready",
+        };
+      },
+    );
+
   return {
     async processWindow(centerIndex, processOptions = {}) {
       if (disposed) return null;
@@ -649,79 +753,13 @@ function createMobileReaderPageProcessor({
           continue;
         }
 
-        const resolvedPage = await cache.withSession(
-          normalizedSource,
-          { ...options.executor, settings },
-          async (session): Promise<MobileReaderPage> => {
-            // `withSession` is a per-source queue. A newer viewport can cancel
-            // this run while it is waiting for its turn, so re-check inside
-            // the queue before starting any source/network/image work.
-            if (isCancelled(run, processOptions.signal)) return basePage;
-            if (session.status === "blocked") {
-              return { ...basePage, imageProcessing: "fallback" };
-            }
-            const resolvedBase64 = session.source.resolvePageImage
-              ? await session.source.resolvePageImage(page).catch(() => null)
-              : null;
-            if (isCancelled(run, processOptions.signal)) return basePage;
-            const resolvedImageUri = resolvedBase64
-              ? trustedBase64ImageUri(resolvedBase64)
-              : null;
-            if (resolvedImageUri) {
-              return {
-                ...basePage,
-                imageUri: resolvedImageUri,
-                imageUriOwnership: "app",
-                headers: undefined,
-                imageProcessing: "ready",
-              };
-            }
-            // Page headers skip `modifyImageRequest`, so they go through the
-            // same native decoration (scoped cookies + their UA) on their own.
-            const request = page.headers
-              ? await decoratePageImageRequest(session.source, {
-                  url: page.url!,
-                  headers: page.headers,
-                })
-              : await session.source
-                  .modifyImageRequest(page.url!)
-                  .catch(() => undefined);
-            if (isCancelled(run, processOptions.signal)) return basePage;
-            if (!request) return { ...basePage, imageProcessing: "fallback" };
-            if (
-              !options.processPageImages ||
-              !hasImageProcessor ||
-              !page.context
-            ) {
-              return {
-                ...mapAidokuPageToReaderPage(page, index, request),
-                id: basePage.id,
-                imageProcessing: "fallback",
-              };
-            }
-            const processedImageUri = await processMobileReaderPageImage({
-              page,
-              request,
-              source: session.source,
-              fetchImpl,
-              signal: processOptions.signal,
-            });
-            if (isCancelled(run, processOptions.signal)) return basePage;
-            if (!processedImageUri) {
-              return {
-                ...mapAidokuPageToReaderPage(page, index, request),
-                id: basePage.id,
-                imageProcessing: "fallback",
-              };
-            }
-            return {
-              ...basePage,
-              imageUri: processedImageUri,
-              imageUriOwnership: "app",
-              headers: undefined,
-              imageProcessing: "ready",
-            };
-          },
+        const resolvedPage = await resolvePendingPage(
+          page,
+          basePage,
+          index,
+          () => isCancelled(run, processOptions.signal),
+          processOptions.signal,
+          options.priority ?? "user",
         );
         if (isCancelled(run, processOptions.signal)) return null;
         touch(index, resolvedPage);
@@ -740,6 +778,29 @@ function createMobileReaderPageProcessor({
 
       if (isCancelled(run, processOptions.signal)) return null;
       return makeResult(run, processedIndexes);
+    },
+    async resolvePage(index, resolveOptions = {}) {
+      const signal = resolveOptions.signal;
+      const isStale = () => disposed || signal?.aborted === true;
+      if (isStale()) return null;
+      const cached = processedPages.get(index);
+      if (cached) return cached.page;
+      const page = rawPages[index];
+      const basePage = basePages[index];
+      if (!page || !basePage) return null;
+      if (basePage.imageProcessing !== "pending" || !page.url) return basePage;
+      // Off-window: neither bumps the window generation nor enters the
+      // window's LRU, so a caller reading a far page cannot cancel or evict
+      // the pages around the reader's viewport.
+      const resolved = await resolvePendingPage(
+        page,
+        basePage,
+        index,
+        isStale,
+        signal,
+        resolveOptions.priority ?? "normal",
+      );
+      return isStale() ? null : resolved;
     },
     cancel() {
       generation += 1;
@@ -775,7 +836,7 @@ export async function refreshMobileReaderPages(
 
   return cache.withSession(
     normalized,
-    { ...options.executor, settings },
+    { ...options.executor, settings, priority: options.priority ?? "user" },
     async (session): Promise<MobileReaderPagesRefresh> => {
       await notifyMobileSourcePackageHydrated(
         source,

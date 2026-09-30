@@ -11,7 +11,10 @@ import { throwIfMobileJapaneseLearningAborted } from "./mobileJapaneseLearningSa
 export async function runMobileJapaneseLearningSpreadOcr(
   pages: MobileReaderPage[],
   options: MobileJapaneseLearningOcrOptions = {},
-  recognize = runMobileJapaneseLearningOcr,
+  recognize: (
+    page: MobileReaderPage,
+    options: MobileJapaneseLearningOcrOptions,
+  ) => Promise<MobileJapaneseLearningOcrResult> = runMobileJapaneseLearningOcr,
 ): Promise<MobileJapaneseLearningOcrResult> {
   const results = new Map<string, MobileJapaneseLearningOcrResult>();
   const merge = (): MobileJapaneseLearningOcrResult => ({

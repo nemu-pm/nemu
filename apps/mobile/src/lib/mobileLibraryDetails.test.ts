@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { LibraryEntry, LocalSourceLink } from "@/data/schema";
 import {
+  applyMobileSourceChaptersRefresh,
   applyMobileSourceDetailsRefresh,
   isMobilePrimarySourceLink,
   mergeDefinedMangaMetadata,
@@ -382,5 +383,41 @@ describe("multi-source library titles", () => {
         primary: true,
       }),
     ).toBe(MANHUAGUI_COVER);
+  });
+});
+
+describe("chapter-only refresh of a link", () => {
+  const link: LocalSourceLink = {
+    id: "aidoku-zh:zh.manhuaren:85245",
+    libraryItemId: "item",
+    registryId: "aidoku-zh",
+    sourceId: "zh.manhuaren",
+    sourceMangaId: "85245",
+    latestChapter: { id: "old", title: "第29话" },
+    updateAckChapter: { id: "older", title: "第28话" },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  test("records the newest chapter, acknowledges it and stamps the fetch", () => {
+    const next = applyMobileSourceChaptersRefresh(link, {
+      latestChapter: { id: "new", title: "第30话", chapterNumber: 30 },
+      fetchedAt: 5_000,
+    });
+    expect(next).toMatchObject({
+      latestChapter: { id: "new", title: "第30话", chapterNumber: 30 },
+      updateAckChapter: { id: "new", title: "第30话", chapterNumber: 30 },
+      updateAckAt: 5_000,
+      latestFetchedAt: 5_000,
+      updatedAt: 5_000,
+    });
+    expect(next.latestChapterSortKey).toBe(next.updateAckChapterSortKey);
+  });
+
+  test("an empty list keeps the known latest chapter", () => {
+    const next = applyMobileSourceChaptersRefresh(link, { fetchedAt: 5_000 });
+    expect(next.latestChapter).toEqual(link.latestChapter);
+    expect(next.updateAckChapter).toEqual(link.updateAckChapter);
+    expect(next.latestFetchedAt).toBe(5_000);
   });
 });

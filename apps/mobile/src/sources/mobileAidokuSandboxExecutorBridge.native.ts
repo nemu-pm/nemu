@@ -15,7 +15,13 @@ import {
   sanitizeMobileAidokuOutput,
   type MobileAidokuOutputKind,
 } from "./mobileAidokuOutputSafety";
-import { withMobileSourceOperationTimeout } from "./mobileSourceOperationTimeout";
+import { DEFAULT_MOBILE_SOURCE_OPERATION_TIMEOUT_MS } from "./mobileSourceOperationTimeout";
+import {
+  createMobileSourcePriorityTicket,
+  dispatchMobileSourceRuntimeCall,
+  toMobileSourcePriorityTicket,
+  type MobileSourcePriorityTicket,
+} from "./mobileSourceRuntimeScheduler";
 import type {
   MobileAidokuExecutorBridge,
   MobileAidokuExecutorLoadInput,
@@ -52,6 +58,50 @@ type SandboxHomeResult = {
 let nextSandboxSessionId = 0;
 const SANDBOX_SESSION_CREATE_TIMEOUT_MS = 40_000;
 const SANDBOX_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+
+function dispatchSandboxCall<T>(
+  call: (cancelToken: string | undefined) => Promise<T>,
+  ticket: MobileSourcePriorityTicket,
+  timeoutMs = DEFAULT_MOBILE_SOURCE_OPERATION_TIMEOUT_MS,
+  onDispatch?: (waitMs: number, attempt: number) => void,
+  preemptible = false,
+): Promise<T> {
+  const cancelNative = NemuAidokuModule.cancelAidokuSandboxOperation;
+  return dispatchMobileSourceRuntimeCall(call, {
+    priority: ticket,
+    timeoutMs,
+    onDispatch,
+    cancel:
+      preemptible && typeof cancelNative === "function"
+        ? (cancelToken) => {
+            markMobilePerformance("mobile.aidoku.operation.preempt", {
+              priority: ticket.priority,
+            });
+            try {
+              cancelNative.call(NemuAidokuModule, cancelToken);
+            } catch {
+              // Preemption is best-effort: the operation just runs on.
+            }
+          }
+        : undefined,
+  });
+}
+
+/**
+ * Read-only content fetches: stopping one midway and running it again later
+ * has no effect beyond the time spent. Logins, notifications, settings and
+ * image processing always run to completion.
+ */
+const PREEMPTIBLE_OPERATION_KINDS = new Set([
+  "search",
+  "details",
+  "chapters",
+  "pages",
+  "filters",
+  "listings",
+  "listing-page",
+  "home",
+]);
 
 function makeSandboxSessionId(): string {
   nextSandboxSessionId = (nextSandboxSessionId + 1) % Number.MAX_SAFE_INTEGER;
@@ -121,84 +171,9 @@ function wrapSandboxSource({
   capabilities: SandboxCapabilities;
   initialSettings: Record<string, unknown>;
 }): MobileAidokuExecutorSource {
+  // Shared by every priority view of this session (see `withPriority`).
   let disposed = false;
   let settings = { ...initialSettings };
-
-  const execute = async <T>(
-    outputKind: MobileAidokuOutputKind,
-    operation: Record<string, unknown>,
-  ): Promise<T> => {
-    if (disposed) throw new Error("The source session has already been disposed.");
-    const operationKind =
-      typeof operation.kind === "string" ? operation.kind : "unknown";
-    const operationJson = stringifyMobileAidokuSandboxValue(
-      operation,
-      "Aidoku operation",
-    );
-    const startedAt = markMobilePerformance("mobile.aidoku.operation.start", {
-      operation: operationKind,
-    });
-    try {
-      const response = await withMobileSourceOperationTimeout(
-        NemuAidokuModule.executeAidokuSandboxOperation(sessionId, operationJson),
-      );
-      const output = sanitizeMobileAidokuOutput(
-        outputKind,
-        parseMobileAidokuSandboxResponse<T>(response),
-      );
-      measureMobilePerformance("mobile.aidoku.operation.complete", startedAt, {
-        operation: operationKind,
-      });
-      return output;
-    } catch (error) {
-      measureMobilePerformance("mobile.aidoku.operation.failed", startedAt, {
-        operation: operationKind,
-        category:
-          error instanceof Error && error.name
-            ? error.name
-            : "unknown-error",
-        // The bare `name` made every native sandbox failure log as a plain
-        // "Error" with no way to tell a source HTTP timeout from a parse
-        // failure. The message is sanitized (URLs/credentials redacted) the
-        // same way user-facing diagnostics are.
-        detail: sanitizeMobileErrorDiagnostic(error) ?? "",
-      });
-      throw error;
-    }
-  };
-
-  /**
-   * One image round through the isolate.
-   *
-   * Page and cover processing share the transport, the byte limits and the
-   * output validation; only the operation payload differs.
-   */
-  const processSandboxImage = async (
-    imageData: Uint8Array,
-    operation: Record<string, unknown>,
-  ): Promise<Uint8Array | null> => {
-    if (
-      imageData.byteLength === 0 ||
-      imageData.byteLength > SANDBOX_IMAGE_MAX_BYTES
-    ) {
-      throw new Error("Aidoku image input exceeds the isolated runtime safety limit.");
-    }
-    const output = await withMobileSourceOperationTimeout(
-      NemuAidokuModule.processAidokuSandboxImage(
-        sessionId,
-        stringifyMobileAidokuSandboxValue(operation, "Aidoku image operation"),
-        imageData,
-      ),
-    );
-    if (output == null) return null;
-    if (!(output instanceof Uint8Array)) {
-      throw new Error("The isolated Aidoku image runtime returned invalid bytes.");
-    }
-    if (output.byteLength === 0 || output.byteLength > SANDBOX_IMAGE_MAX_BYTES) {
-      throw new Error("Aidoku processed image exceeds the safety limit.");
-    }
-    return output;
-  };
 
   const decorateImageRequest = (request: {
     url: string;
@@ -215,175 +190,283 @@ function wrapSandboxSource({
           : undefined,
     });
 
-  return {
-    id: capabilities.id,
-    getSearchMangaList(query, page, filters) {
-      return execute<MangaPageResult>("search", {
-        kind: "search",
-        query,
-        page,
-        filters,
-      });
-    },
-    getMangaDetails(manga) {
-      return execute<Manga>("details", { kind: "details", manga });
-    },
-    getChapterList(manga) {
-      return execute<Chapter[]>("chapters", { kind: "chapters", manga });
-    },
-    getPageList(manga, chapter) {
-      return execute("pages", { kind: "pages", manga, chapter });
-    },
-    getFilters() {
-      return execute<Filter[]>("filters", { kind: "filters" });
-    },
-    getListings() {
-      return execute<Listing[]>("listings", { kind: "listings" });
-    },
-    getMangaListForListing(listing, page) {
-      return execute<MangaPageResult>("listing-page", {
-        kind: "listing-page",
-        listing,
-        page,
-      });
-    },
-    async hasListingProvider() {
-      return capabilities.hasListingProvider;
-    },
-    async hasHomeProvider() {
-      return capabilities.hasHomeProvider;
-    },
-    async hasListings() {
-      return capabilities.hasListings;
-    },
-    async isOnlySearch() {
-      return capabilities.isOnlySearch;
-    },
-    async handlesBasicLogin() {
-      return capabilities.handlesBasicLogin;
-    },
-    async handlesWebLogin() {
-      return capabilities.handlesWebLogin;
-    },
-    handleBasicLogin(key, username, password) {
-      return execute<boolean>("boolean", {
-        kind: "handle-basic-login",
-        key,
-        username,
-        password,
-      });
-    },
-    handleWebLogin(key, cookies) {
-      return execute<boolean>("boolean", {
-        kind: "handle-web-login",
-        key,
-        cookies,
-      });
-    },
-    async handleNotification(notification) {
-      await execute<null>("void", {
-        kind: "handle-notification",
-        notification,
-      });
-    },
-    async getHome() {
-      const response = await execute<SandboxHomeResult>("home", {
-        kind: "home",
-      });
-      return response.layout;
-    },
-    async getHomeWithPartials(onPartial) {
-      const response = await execute<SandboxHomeResult>("home", {
-        kind: "home",
-      });
-      for (const partial of response.partials ?? []) onPartial(partial);
-      return response.layout;
-    },
-    // Both branches end in native's one decoration path: the source's scoped
-    // cookies for this url, plus the User-Agent a `cf_clearance` among them
-    // is bound to. A hooked source gets it inside the `modify-image-request`
-    // operation; a hook-less one through `decorateImageRequest` below, so its
-    // covers and pages carry the clearance too. A url the image policy
-    // refuses gets neither, exactly as before.
-    modifyImageRequest(url) {
-      if (!getMobileImageUriPolicy(url, "source").allowed) {
-        return Promise.resolve({ url, headers: {} });
+  const dispose = async () => {
+    if (disposed) return;
+    disposed = true;
+    settings = {};
+    await NemuAidokuModule.disposeAidokuSandboxSession(sessionId).catch(
+      () => undefined,
+    );
+  };
+
+  /** This session with every runtime operation scheduled at `ticket`. */
+  const buildSource = (
+    ticket: MobileSourcePriorityTicket,
+  ): MobileAidokuExecutorSource => {
+    const execute = async <T>(
+      outputKind: MobileAidokuOutputKind,
+      operation: Record<string, unknown>,
+    ): Promise<T> => {
+      if (disposed) throw new Error("The source session has already been disposed.");
+      const operationKind =
+        typeof operation.kind === "string" ? operation.kind : "unknown";
+      const preemptible = PREEMPTIBLE_OPERATION_KINDS.has(operationKind);
+      let startedAt = 0;
+      try {
+        const response = await dispatchSandboxCall(
+          (cancelToken) =>
+            NemuAidokuModule.executeAidokuSandboxOperation(
+              sessionId,
+              stringifyMobileAidokuSandboxValue(
+                cancelToken ? { ...operation, cancelToken } : operation,
+                "Aidoku operation",
+              ),
+            ),
+          ticket,
+          DEFAULT_MOBILE_SOURCE_OPERATION_TIMEOUT_MS,
+          (waitMs, attempt) => {
+            startedAt = markMobilePerformance("mobile.aidoku.operation.start", {
+              operation: operationKind,
+              source: sourceKey,
+              priority: ticket.priority,
+              waitMs,
+              ...(attempt > 0 ? { attempt } : {}),
+            });
+          },
+          preemptible,
+        );
+        const output = sanitizeMobileAidokuOutput(
+          outputKind,
+          parseMobileAidokuSandboxResponse<T>(response),
+        );
+        measureMobilePerformance("mobile.aidoku.operation.complete", startedAt, {
+          operation: operationKind,
+          source: sourceKey,
+        });
+        return output;
+      } catch (error) {
+        measureMobilePerformance("mobile.aidoku.operation.failed", startedAt, {
+          operation: operationKind,
+          source: sourceKey,
+          category:
+            error instanceof Error && error.name
+              ? error.name
+              : "unknown-error",
+          // The bare `name` made every native sandbox failure log as a plain
+          // "Error" with no way to tell a source HTTP timeout from a parse
+          // failure. The message is sanitized (URLs/credentials redacted) the
+          // same way user-facing diagnostics are.
+          detail: sanitizeMobileErrorDiagnostic(error) ?? "",
+        });
+        throw error;
       }
-      if (!capabilities.hasImageRequestProvider) {
-        return decorateImageRequest({ url, headers: {} });
+    };
+
+    /**
+     * One image round through the isolate.
+     *
+     * Page and cover processing share the transport, the byte limits and the
+     * output validation; only the operation payload differs.
+     */
+    const processSandboxImage = async (
+      imageData: Uint8Array,
+      operation: Record<string, unknown>,
+    ): Promise<Uint8Array | null> => {
+      if (
+        imageData.byteLength === 0 ||
+        imageData.byteLength > SANDBOX_IMAGE_MAX_BYTES
+      ) {
+        throw new Error("Aidoku image input exceeds the isolated runtime safety limit.");
       }
-      return execute<{ url: string; headers: Record<string, string> }>(
-        "modify-image-request",
-        {
-          kind: "modify-image-request",
-          url,
-        },
+      const output = await dispatchSandboxCall(
+        () =>
+          NemuAidokuModule.processAidokuSandboxImage(
+            sessionId,
+            stringifyMobileAidokuSandboxValue(operation, "Aidoku image operation"),
+            imageData,
+          ),
+        ticket,
       );
-    },
-    decorateImageRequest,
-    async hasImageProcessor() {
-      return capabilities.hasImageProcessor;
-    },
-    processPageImage(
-      imageData,
-      context,
-      requestUrl,
-      requestHeaders,
-      responseCode,
-      responseHeaders,
-    ) {
-      if (!capabilities.hasImageProcessor) return Promise.resolve(null);
-      return processSandboxImage(imageData, {
-        kind: "process-page-image",
+      if (output == null) return null;
+      if (!(output instanceof Uint8Array)) {
+        throw new Error("The isolated Aidoku image runtime returned invalid bytes.");
+      }
+      if (output.byteLength === 0 || output.byteLength > SANDBOX_IMAGE_MAX_BYTES) {
+        throw new Error("Aidoku processed image exceeds the safety limit.");
+      }
+      return output;
+    };
+
+    return {
+      id: capabilities.id,
+      getSearchMangaList(query, page, filters) {
+        return execute<MangaPageResult>("search", {
+          kind: "search",
+          query,
+          page,
+          filters,
+        });
+      },
+      getMangaDetails(manga) {
+        return execute<Manga>("details", { kind: "details", manga });
+      },
+      getChapterList(manga) {
+        return execute<Chapter[]>("chapters", { kind: "chapters", manga });
+      },
+      getPageList(manga, chapter) {
+        return execute("pages", { kind: "pages", manga, chapter });
+      },
+      getFilters() {
+        return execute<Filter[]>("filters", { kind: "filters" });
+      },
+      getListings() {
+        return execute<Listing[]>("listings", { kind: "listings" });
+      },
+      getMangaListForListing(listing, page) {
+        return execute<MangaPageResult>("listing-page", {
+          kind: "listing-page",
+          listing,
+          page,
+        });
+      },
+      async hasListingProvider() {
+        return capabilities.hasListingProvider;
+      },
+      async hasHomeProvider() {
+        return capabilities.hasHomeProvider;
+      },
+      async hasListings() {
+        return capabilities.hasListings;
+      },
+      async isOnlySearch() {
+        return capabilities.isOnlySearch;
+      },
+      async handlesBasicLogin() {
+        return capabilities.handlesBasicLogin;
+      },
+      async handlesWebLogin() {
+        return capabilities.handlesWebLogin;
+      },
+      handleBasicLogin(key, username, password) {
+        return execute<boolean>("boolean", {
+          kind: "handle-basic-login",
+          key,
+          username,
+          password,
+        });
+      },
+      handleWebLogin(key, cookies) {
+        return execute<boolean>("boolean", {
+          kind: "handle-web-login",
+          key,
+          cookies,
+        });
+      },
+      async handleNotification(notification) {
+        await execute<null>("void", {
+          kind: "handle-notification",
+          notification,
+        });
+      },
+      async getHome() {
+        const response = await execute<SandboxHomeResult>("home", {
+          kind: "home",
+        });
+        return response.layout;
+      },
+      async getHomeWithPartials(onPartial) {
+        const response = await execute<SandboxHomeResult>("home", {
+          kind: "home",
+        });
+        for (const partial of response.partials ?? []) onPartial(partial);
+        return response.layout;
+      },
+      // Both branches end in native's one decoration path: the source's scoped
+      // cookies for this url, plus the User-Agent a `cf_clearance` among them
+      // is bound to. A hooked source gets it inside the `modify-image-request`
+      // operation; a hook-less one through `decorateImageRequest` below, so its
+      // covers and pages carry the clearance too. A url the image policy
+      // refuses gets neither, exactly as before.
+      modifyImageRequest(url) {
+        if (!getMobileImageUriPolicy(url, "source").allowed) {
+          return Promise.resolve({ url, headers: {} });
+        }
+        if (!capabilities.hasImageRequestProvider) {
+          return decorateImageRequest({ url, headers: {} });
+        }
+        return execute<{ url: string; headers: Record<string, string> }>(
+          "modify-image-request",
+          {
+            kind: "modify-image-request",
+            url,
+          },
+        );
+      },
+      decorateImageRequest,
+      async hasImageProcessor() {
+        return capabilities.hasImageProcessor;
+      },
+      processPageImage(
+        imageData,
         context,
         requestUrl,
         requestHeaders,
         responseCode,
         responseHeaders,
-      });
-    },
-    async hasCoverImageProcessor() {
-      return capabilities.hasCoverImageProcessor;
-    },
-    processCoverImage(
-      imageData,
-      requestUrl,
-      requestHeaders,
-      responseCode,
-      responseHeaders,
-    ) {
-      if (!capabilities.hasCoverImageProcessor) return Promise.resolve(null);
-      return processSandboxImage(imageData, {
-        kind: "process-cover-image",
+      ) {
+        if (!capabilities.hasImageProcessor) return Promise.resolve(null);
+        return processSandboxImage(imageData, {
+          kind: "process-page-image",
+          context,
+          requestUrl,
+          requestHeaders,
+          responseCode,
+          responseHeaders,
+        });
+      },
+      async hasCoverImageProcessor() {
+        return capabilities.hasCoverImageProcessor;
+      },
+      processCoverImage(
+        imageData,
         requestUrl,
         requestHeaders,
         responseCode,
         responseHeaders,
-      });
-    },
-    async updateSettings(nextSettings) {
-      if (disposed) return;
-      settings = { ...nextSettings };
-      const response = await withMobileSourceOperationTimeout(
-        NemuAidokuModule.updateAidokuSandboxSettings(
-          sessionId,
-          stringifyMobileAidokuSandboxValue(settings, "Aidoku settings"),
-        ),
-      );
-      const parsed = JSON.parse(response) as { status?: string; detail?: string };
-      if (parsed.status !== "updated") {
-        throw new Error(parsed.detail || "Failed to update isolated Aidoku settings.");
-      }
-    },
-    async dispose() {
-      if (disposed) return;
-      disposed = true;
-      settings = {};
-      await NemuAidokuModule.disposeAidokuSandboxSession(sessionId).catch(
-        () => undefined,
-      );
-    },
+      ) {
+        if (!capabilities.hasCoverImageProcessor) return Promise.resolve(null);
+        return processSandboxImage(imageData, {
+          kind: "process-cover-image",
+          requestUrl,
+          requestHeaders,
+          responseCode,
+          responseHeaders,
+        });
+      },
+      async updateSettings(nextSettings) {
+        if (disposed) return;
+        settings = { ...nextSettings };
+        const response = await dispatchSandboxCall(
+          () =>
+            NemuAidokuModule.updateAidokuSandboxSettings(
+              sessionId,
+              stringifyMobileAidokuSandboxValue(settings, "Aidoku settings"),
+            ),
+          ticket,
+        );
+        const parsed = JSON.parse(response) as { status?: string; detail?: string };
+        if (parsed.status !== "updated") {
+          throw new Error(parsed.detail || "Failed to update isolated Aidoku settings.");
+        }
+      },
+      dispose,
+      withPriority(priority) {
+        return buildSource(toMobileSourcePriorityTicket(priority));
+      },
+    };
   };
+
+  return buildSource(createMobileSourcePriorityTicket("normal"));
 }
 
 async function loadSandboxSource(
@@ -400,16 +483,18 @@ async function loadSandboxSource(
 
   const sessionId = makeSandboxSessionId();
   try {
-    const response = await withMobileSourceOperationTimeout(
-      NemuAidokuModule.createAidokuSandboxSession(
-        sessionId,
-        input.packageUri,
-        input.sourceKey,
-        input.metadata.sourceId,
-        input.metadata.version,
-        stringifyMobileAidokuSandboxValue(input.settings, "Aidoku settings"),
-      ),
-      { timeoutMs: SANDBOX_SESSION_CREATE_TIMEOUT_MS },
+    const response = await dispatchSandboxCall(
+      () =>
+        NemuAidokuModule.createAidokuSandboxSession(
+          sessionId,
+          input.packageUri,
+          input.sourceKey,
+          input.metadata.sourceId,
+          input.metadata.version,
+          stringifyMobileAidokuSandboxValue(input.settings, "Aidoku settings"),
+        ),
+      toMobileSourcePriorityTicket(input.priority),
+      SANDBOX_SESSION_CREATE_TIMEOUT_MS,
     );
     const capabilities = validateCapabilities(
       sanitizeMobileAidokuOutput(

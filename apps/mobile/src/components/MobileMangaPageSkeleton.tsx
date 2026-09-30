@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Platform, StyleSheet, useWindowDimensions, View } from "react-native";
-import Animated from "react-native-reanimated";
+import Animated, { FadeIn } from "react-native-reanimated";
 import {
   useSkeletonDisplayDelay,
   useSkeletonPulse,
@@ -11,6 +11,7 @@ import {
   radius,
   useNemuTheme,
   GlassSurface,
+  nemuMaxFontSizeMultiplier,
 } from "@/design-system";
 import { useMobileMangaDetailPane } from "@/components/MobileMangaDetailPaneContext";
 import { MobileMangaDetailSplitLayout } from "@/components/MobileMangaDetailSplitLayout";
@@ -124,26 +125,84 @@ function ChapterSectionSkeleton({
           style={[styles.statPill, { backgroundColor: skeletonColor }]}
         />
       </View>
-      <View style={{ gap: rhythm.rowGap }}>
-        {SKELETON_CHAPTER_ROWS.map((row) => (
-          <View key={row} style={styles.chapterRow}>
-            {SKELETON_CHAPTER_COLUMNS.map((column) => (
-              <View key={column} style={styles.chapterSlot}>
-                <View
-                  style={[
-                    styles.chapterCell,
-                    {
-                      backgroundColor: skeletonColor,
-                      borderColor: tokens.border,
-                    },
-                  ]}
-                />
-              </View>
-            ))}
-          </View>
-        ))}
-      </View>
+      <ChapterCellsSkeleton rows={SKELETON_CHAPTER_ROWS.length} />
     </Animated.View>
+  );
+}
+
+/** The 2-up chapter grid's cells (MobileChapterCell geometry), unanimated. */
+function ChapterCellsSkeleton({ rows }: { rows: number }) {
+  const { tokens } = useNemuTheme();
+  const { regularWidth } = useMobileMangaDetailPane();
+  const rhythm = getMobileChapterSectionRhythm({
+    regularWidth,
+    minimumTouchTarget: getNemuButtonMinimumTargetSize(Platform.OS),
+  });
+  return (
+    <View style={{ gap: rhythm.rowGap }}>
+      {Array.from({ length: rows }, (_, row) => (
+        <View key={row} style={styles.chapterRow}>
+          {SKELETON_CHAPTER_COLUMNS.map((column) => (
+            <View key={column} style={styles.chapterSlot}>
+              <View
+                style={[
+                  styles.chapterCell,
+                  {
+                    backgroundColor: tokens.muted,
+                    borderColor: tokens.border,
+                  },
+                ]}
+              />
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/**
+ * Chapter rows still on their way (a first-ever open, nothing cached): the
+ * loaded grid's cells in place, so the real rows replace them without the
+ * list moving. Shown inside the chapter section header, whose section gap
+ * equals the gap before the first real row.
+ */
+export function MobileChapterGridSkeleton({
+  accessibilityLabel,
+  caption,
+  rows = 6,
+}: {
+  accessibilityLabel: string;
+  /** Optional line over the cells (e.g. the source is slow). */
+  caption?: string | null;
+  rows?: number;
+}) {
+  const { reduceMotion, tokens } = useNemuTheme();
+  const opacity = useSkeletonPulse(reduceMotion === true);
+  // Most loads finish before a skeleton would even register; showing it for
+  // a few frames only flickers.
+  const ready = useSkeletonDisplayDelay(150);
+  return (
+    <View
+      accessible
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="progressbar"
+      style={styles.gridSkeleton}
+    >
+      {caption ? (
+        // Above the cells, so it is on screen however tall the grid is.
+        <Animated.Text
+          entering={reduceMotion ? undefined : FadeIn.duration(220)}
+          maxFontSizeMultiplier={nemuMaxFontSizeMultiplier}
+          style={[styles.gridSkeletonCaption, { color: tokens.mutedForeground }]}
+        >
+          {caption}
+        </Animated.Text>
+      ) : null}
+      <Animated.View style={{ opacity: ready ? opacity : 0 }}>
+        <ChapterCellsSkeleton rows={rows} />
+      </Animated.View>
+    </View>
   );
 }
 
@@ -485,5 +544,13 @@ const styles = StyleSheet.create({
     minHeight: 52,
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  gridSkeleton: {
+    gap: 12,
+  },
+  gridSkeletonCaption: {
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
   },
 });

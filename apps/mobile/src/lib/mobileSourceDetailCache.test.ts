@@ -4,7 +4,10 @@ import {
   decodeMobileSourceDetailCache,
   encodeMobileSourceDetailCache,
   makeMobileSourceDetailCacheKey,
+  getMobileSourceDetailMetadataAgeMs,
+  MOBILE_SOURCE_DETAIL_CACHE_MAX_CHAPTERS,
   MOBILE_SOURCE_DETAIL_CACHE_MAX_ENTRIES,
+  MOBILE_SOURCE_DETAIL_CACHE_MEMORY_ENTRIES,
   MOBILE_SOURCE_DETAIL_CACHE_TTL_MS,
   type MobileSourceDetailCachePayload,
   type MobileSourceDetailCacheStore,
@@ -25,7 +28,7 @@ function payload(
 }
 
 function memoryStore(files = new Map<string, string>()) {
-  const counts = { readAll: 0, read: 0, write: 0, remove: 0 };
+  const counts = { readAll: 0, read: 0, write: 0, remove: 0, prune: 0 };
   const store: MobileSourceDetailCacheStore = {
     async readAll() {
       counts.readAll += 1;
@@ -37,20 +40,26 @@ function memoryStore(files = new Map<string, string>()) {
     },
     async write(key, raw) {
       counts.write += 1;
+      // Insertion order = write order, like file modification times.
+      files.delete(key);
       files.set(key, raw);
     },
     async remove(key) {
       counts.remove += 1;
       files.delete(key);
     },
+    async prune(maxEntries, keep) {
+      counts.prune += 1;
+      let overflow = files.size - maxEntries;
+      for (const key of [...files.keys()]) {
+        if (overflow <= 0) break;
+        if (keep.has(key)) continue;
+        files.delete(key);
+        overflow -= 1;
+      }
+    },
   };
   return { files, store, counts };
-}
-
-/** Let the deferred (post-paint) hydration timer run to completion. */
-async function flushDeferredHydration(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe("mobile source detail cache key", () => {
@@ -166,8 +175,8 @@ describe("mobile source detail cache behavior", () => {
     expect(files.has(removed)).toBe(false);
   });
 
-  test("evicts the least recently read entry beyond the LRU cap", async () => {
-    const { files, store } = memoryStore();
+  test("prunes disk to the entry cap, least recently written first", async () => {
+    const { files, store, counts } = memoryStore();
     const cache = createMobileSourceDetailCache(store);
     const keys = Array.from(
       { length: MOBILE_SOURCE_DETAIL_CACHE_MAX_ENTRIES + 1 },
@@ -177,14 +186,15 @@ describe("mobile source detail cache behavior", () => {
     for (const [index, key] of keys.entries()) {
       await cache.setCached(key, payload(), 1_000 + index);
     }
-    expect(await cache.getCached(keys[0])).toBeNull();
-    expect(await cache.getCached(keys[keys.length - 1])).not.toBeNull();
-    expect(files.has(keys[0])).toBe(false);
+    await cache.compact();
+    expect(counts.prune).toBeGreaterThan(0);
     expect(files.size).toBe(MOBILE_SOURCE_DETAIL_CACHE_MAX_ENTRIES);
+    expect(files.has(keys[0]!)).toBe(false);
+    expect(files.has(keys[keys.length - 1]!)).toBe(true);
   });
 
-  test("reading an entry keeps it alive over newer inserts", async () => {
-    const { store } = memoryStore();
+  test("an entry painted this session survives pruning", async () => {
+    const { files, store } = memoryStore();
     const cache = createMobileSourceDetailCache(store);
     const keys = Array.from(
       { length: MOBILE_SOURCE_DETAIL_CACHE_MAX_ENTRIES },
@@ -193,40 +203,81 @@ describe("mobile source detail cache behavior", () => {
     for (const [index, key] of keys.entries()) {
       await cache.setCached(key, payload(), 1_000 + index);
     }
-    await cache.getCached(keys[0], 5_000);
+    // keys[0] is the oldest write; the user opening it protects it.
+    await cache.getCached(keys[0]!, 5_000);
     await cache.setCached(
       makeMobileSourceDetailCacheKey("a", "b", "manga-new"),
       payload(),
       6_000,
     );
-    expect(await cache.getCached(keys[0])).not.toBeNull();
-    expect(await cache.getCached(keys[1])).toBeNull();
+    await cache.compact();
+    expect(files.has(keys[0]!)).toBe(true);
+    expect(files.has(keys[1]!)).toBe(false);
   });
 
-  test("hydrates valid entries from storage, skipping corrupt ones", async () => {
-    const { store } = memoryStore();
+  test("background chapter writes do not pin entries against pruning", async () => {
+    const { files, store } = memoryStore();
+    const cache = createMobileSourceDetailCache(store);
+    const keys = Array.from(
+      { length: MOBILE_SOURCE_DETAIL_CACHE_MAX_ENTRIES + 1 },
+      (_, index) => makeMobileSourceDetailCacheKey("a", "b", `manga-${index}`),
+    );
+    for (const [index, key] of keys.entries()) {
+      await cache.setCachedChapters(
+        key,
+        { chapters: payload().chapters, fetchedAt: 1_000 + index, fallbackTitle: "T" },
+        5_000,
+      );
+    }
+    await cache.compact();
+    expect(files.size).toBe(MOBILE_SOURCE_DETAIL_CACHE_MAX_ENTRIES);
+    expect(files.has(keys[0]!)).toBe(false);
+  });
+
+  test("keeps only a small working set decoded in memory", async () => {
+    const { store, counts } = memoryStore();
+    const cache = createMobileSourceDetailCache(store);
+    const keys = Array.from(
+      { length: MOBILE_SOURCE_DETAIL_CACHE_MEMORY_ENTRIES + 1 },
+      (_, index) => makeMobileSourceDetailCacheKey("a", "b", `manga-${index}`),
+    );
+    for (const [index, key] of keys.entries()) {
+      await cache.setCached(key, payload(), 1_000 + index);
+    }
+    const before = counts.read;
+    // The newest is resident; the oldest fell out of memory and is re-read.
+    expect(await cache.getCached(keys[keys.length - 1]!, 5_000)).not.toBeNull();
+    expect(counts.read).toBe(before);
+    expect(await cache.getCached(keys[0]!, 5_000)).not.toBeNull();
+    expect(counts.read).toBe(before + 1);
+  });
+
+  test("a new cache instance reads persisted entries; corrupt ones are misses", async () => {
+    const { files, store } = memoryStore();
     const seed = createMobileSourceDetailCache(store);
     const key = makeMobileSourceDetailCacheKey("a", "b", "c");
+    const corrupt = makeMobileSourceDetailCacheKey("a", "b", "corrupt");
     await seed.setCached(key, payload(), 1_000);
-    const storeWithJunk: MobileSourceDetailCacheStore = {
-      async readAll() {
-        return [...(await store.readAll()), "{not json", JSON.stringify({ v: 2 })];
-      },
-      write: store.write,
-      remove: store.remove,
-    };
-    const rehydrated = createMobileSourceDetailCache(storeWithJunk);
-    expect(await rehydrated.getCached(key, 2_000)).toEqual({
+    files.set(corrupt, "{not json");
+    const reopened = createMobileSourceDetailCache(memoryStore(files).store);
+    expect(await reopened.getCached(key, 2_000)).toEqual({
       payload: payload(),
       ageMs: 1_000,
       isStale: false,
     });
+    expect(await reopened.getCached(corrupt, 2_000)).toBeNull();
   });
 
   test("storage failures never throw and degrade to memory-only", async () => {
     const failingStore: MobileSourceDetailCacheStore = {
       async readAll() {
         throw new Error("storage unavailable");
+      },
+      async read() {
+        throw new Error("storage unavailable");
+      },
+      async prune() {
+        throw new Error("prune failed");
       },
       async write() {
         throw new Error("write failed");
@@ -301,57 +352,129 @@ describe("mobile source detail cache cold-read cost", () => {
     expect(counts.readAll).toBe(0);
   });
 
-  test("hydration for LRU bookkeeping runs once, after the paint path", async () => {
-    const { files, keys } = await seedFiles(8);
+  test("reads never scan the store, however many entries exist", async () => {
+    const { files, keys } = await seedFiles(32);
     const { store, counts } = memoryStore(files);
     const cache = createMobileSourceDetailCache(store);
 
-    await cache.getCached(keys[3], 2_000);
+    for (const key of keys.slice(0, 8)) {
+      expect(await cache.getCached(key, 5_000)).not.toBeNull();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(counts.readAll).toBe(0);
+    expect(counts.read).toBe(8);
+  });
+});
 
-    await flushDeferredHydration();
-    expect(counts.readAll).toBe(1);
+describe("mobile source detail cache chapter-only updates", () => {
+  const key = makeMobileSourceDetailCacheKey("a", "b", "c");
+  const fresh = [
+    { id: "ch-3", chapterNumber: 3 },
+    { id: "ch-2", chapterNumber: 2 },
+    { id: "ch-1", chapterNumber: 1 },
+  ];
 
-    // Everything else is now resident: further reads cost no store access.
-    const before = counts.read;
-    expect(await cache.getCached(keys[0], 2_000)).not.toBeNull();
-    expect(counts.read).toBe(before);
-    expect(counts.readAll).toBe(1);
+  test("keeps the cached metadata and records its own age", async () => {
+    const cache = createMobileSourceDetailCache(memoryStore().store);
+    await cache.setCached(key, payload({ fetchedAt: 1_000 }), 1_000);
+    const stored = await cache.setCachedChapters(
+      key,
+      { chapters: fresh, fetchedAt: 9_000, fallbackTitle: "Placeholder" },
+      9_000,
+    );
+    expect(stored).toEqual({
+      metadata: payload().metadata,
+      chapters: fresh,
+      fetchedAt: 9_000,
+      metadataFetchedAt: 1_000,
+    });
+    const hit = await cache.getCached(key, 10_000);
+    expect(hit?.payload.chapters).toEqual(fresh);
+    expect(hit?.ageMs).toBe(1_000);
+    expect(getMobileSourceDetailMetadataAgeMs(hit!.payload, 10_000)).toBe(9_000);
   });
 
-  test("the entry read on the paint path stays youngest after hydration", async () => {
-    const { files, keys } = await seedFiles(
-      MOBILE_SOURCE_DETAIL_CACHE_MAX_ENTRIES,
+  test("without cached details, stores a title-only placeholder", async () => {
+    const cache = createMobileSourceDetailCache(memoryStore().store);
+    const stored = await cache.setCachedChapters(
+      key,
+      { chapters: fresh, fetchedAt: 9_000, fallbackTitle: " 放课后少年花子君 " },
+      9_000,
     );
-    const { store } = memoryStore(files);
-    const cache = createMobileSourceDetailCache(store);
-
-    // keys[0] is the oldest on disk; reading it first must protect it.
-    expect(await cache.getCached(keys[0], 5_000)).not.toBeNull();
-    await flushDeferredHydration();
-    await cache.setCached(
-      makeMobileSourceDetailCacheKey("a", "b", "manga-new"),
-      payload(),
-      6_000,
+    expect(stored).toEqual({
+      metadata: { title: "放课后少年花子君" },
+      chapters: fresh,
+      fetchedAt: 9_000,
+      partialMetadata: true,
+    });
+    expect(getMobileSourceDetailMetadataAgeMs(stored!, 10_000)).toBe(
+      Number.POSITIVE_INFINITY,
     );
-
-    expect(await cache.getCached(keys[0])).not.toBeNull();
-    expect(await cache.getCached(keys[1])).toBeNull();
+    // A later chapter refresh keeps the placeholder marked as such.
+    const again = await cache.setCachedChapters(
+      key,
+      { chapters: fresh.slice(1), fetchedAt: 9_500, fallbackTitle: "Other" },
+      9_500,
+    );
+    expect(again?.partialMetadata).toBe(true);
+    expect(again?.metadata.title).toBe("放课后少年花子君");
   });
 
-  test("adapters without a single-entry read still hydrate from readAll", async () => {
-    const { files, keys } = await seedFiles(4);
-    const backing = memoryStore(files);
-    const counts = backing.counts;
-    const scanOnlyStore: MobileSourceDetailCacheStore = {
-      readAll: backing.store.readAll,
-      write: backing.store.write,
-      remove: backing.store.remove,
-    };
-    const cache = createMobileSourceDetailCache(scanOnlyStore);
+  test("never invents an entry without any title", async () => {
+    const cache = createMobileSourceDetailCache(memoryStore().store);
+    expect(
+      await cache.setCachedChapters(
+        key,
+        { chapters: fresh, fetchedAt: 9_000, fallbackTitle: "  " },
+        9_000,
+      ),
+    ).toBeNull();
+    expect(await cache.getCached(key)).toBeNull();
+  });
 
-    expect(await cache.getCached(keys[1], 2_000)).not.toBeNull();
-    expect(counts.readAll).toBe(1);
-    expect(counts.read).toBe(0);
+  test("round-trips metadata age and placeholder flags through storage", () => {
+    const raw = encodeMobileSourceDetailCache(key, {
+      ...payload({ fetchedAt: 5_000 }),
+      metadataFetchedAt: 4_000,
+      partialMetadata: true,
+    });
+    expect(decodeMobileSourceDetailCache(raw, 6_000)).toEqual({
+      key,
+      ...payload({ fetchedAt: 5_000 }),
+      metadataFetchedAt: 4_000,
+      partialMetadata: true,
+    });
+    expect(
+      decodeMobileSourceDetailCache(
+        encodeMobileSourceDetailCache(key, {
+          ...payload(),
+          metadataFetchedAt: 99_999,
+        }),
+        6_000,
+      ),
+    ).toBeNull();
+  });
+
+  test("caches long-running series up to the chapter cap", () => {
+    const many = Array.from(
+      { length: MOBILE_SOURCE_DETAIL_CACHE_MAX_CHAPTERS },
+      (_, index) => ({ id: `c${index}`, chapterNumber: index }),
+    );
+    expect(MOBILE_SOURCE_DETAIL_CACHE_MAX_CHAPTERS).toBeGreaterThanOrEqual(10_000);
+    expect(
+      decodeMobileSourceDetailCache(
+        encodeMobileSourceDetailCache(key, payload({ chapters: many })),
+        2_000,
+      )?.chapters.length,
+    ).toBe(MOBILE_SOURCE_DETAIL_CACHE_MAX_CHAPTERS);
+    expect(
+      decodeMobileSourceDetailCache(
+        encodeMobileSourceDetailCache(
+          key,
+          payload({ chapters: [...many, { id: "extra" }] }),
+        ),
+        2_000,
+      ),
+    ).toBeNull();
   });
 });

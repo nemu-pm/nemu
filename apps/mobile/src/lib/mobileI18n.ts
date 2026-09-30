@@ -321,6 +321,10 @@ export type MobileStrings = {
     continueReading: string;
     editMetadata: string;
     fullRefreshNotStarted: string;
+    loadingChapters: string;
+    refreshFailedTitle: string;
+    showingSavedChapters: string;
+    sourceSlowToRespond: string;
     loadingManga: string;
     manga: string;
     mangaNotFound: string;

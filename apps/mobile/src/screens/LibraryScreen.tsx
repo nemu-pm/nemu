@@ -1167,12 +1167,10 @@ export function LibraryScreen({
   const retryDataGuardRef = useRef(false);
   const appStateRef = useRef((AppState.currentState ?? "unknown"));
   const foregroundCatchupPendingRef = useRef(false);
-  // Abort flag for the background latest-chapter refresh. The refresh
-  // serializes through the same `aidokuRuntimeQueue` as interactive source
-  // taps, so a long library sweep would otherwise freeze every source tap
-  // until the whole library is checked. Flipping `aborted` between chunks
-  // lets a tap (which navigates away and blurs this screen) preempt the
-  // remaining work.
+  // Abort flag for the background latest-chapter refresh. Its operations run
+  // at `background` priority, so a tap's requests already go first on the
+  // shared source runtime; flipping `aborted` (on blur) also stops the sweep
+  // from queueing more work while the user is elsewhere.
   const libraryRefreshAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const libraryFocusedRef = useRef(true);
   const gridScrollRef = useRef<FlatList<LibraryEntry> | null>(null);
@@ -1516,11 +1514,16 @@ export function LibraryScreen({
     options: { force?: boolean; interactive?: boolean } = {}
   ) => {
     const force = options.force ?? false;
+    if (libraryLoading || installedSources.loading) {
+      // The launch sweep fires on the first idle frame, usually before the
+      // library rows have loaded; run it once they have (see below) instead
+      // of skipping the launch check entirely.
+      if (!options.interactive) launchRefreshPendingRef.current = true;
+      return;
+    }
     if (
       !isMobileLibraryRefreshAppActive((AppState.currentState ?? "unknown")) ||
       refreshInFlightRef.current ||
-      libraryLoading ||
-      installedSources.loading ||
       libraryEntries.length === 0 ||
       !libraryFocusedRef.current ||
       (!force &&
@@ -1629,6 +1632,25 @@ export function LibraryScreen({
   // re-creates on every library/source write (including the reload its own
   // sweep triggers), and re-arming the schedule on each one restarted the
   // interval and queued redundant initial sweeps.
+  // Set when the launch update check found the library still loading.
+  const launchRefreshPendingRef = useRef(false);
+  useEffect(() => {
+    if (
+      !launchRefreshPendingRef.current ||
+      libraryLoading ||
+      installedSources.loading
+    ) {
+      return;
+    }
+    // Update checks run at `background` priority on the source runtime and
+    // keep every title's chapter list cached, so opening a title from the
+    // library paints at once instead of waiting on its source.
+    const task = scheduleMobileIdleTask(() => {
+      launchRefreshPendingRef.current = false;
+      void refreshLatestChapters();
+    });
+    return () => task.cancel();
+  }, [installedSources.loading, libraryLoading, refreshLatestChapters]);
   const refreshLatestChaptersRef = useRef(refreshLatestChapters);
   useEffect(() => {
     refreshLatestChaptersRef.current = refreshLatestChapters;

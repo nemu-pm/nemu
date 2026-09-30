@@ -27,7 +27,10 @@ import {
 } from "@/components/MobileSourceSelector";
 import { MobileMangaDetailSplitLayout } from "@/components/MobileMangaDetailSplitLayout";
 import { MobileMangaDetailSurface } from "@/components/MobileMangaDetailSurface";
-import { MobileMangaPageSkeleton } from "@/components/MobileMangaPageSkeleton";
+import {
+  MobileChapterGridSkeleton,
+  MobileMangaPageSkeleton,
+} from "@/components/MobileMangaPageSkeleton";
 import { MobileMetadataEditorSheet } from "@/components/MobileMetadataEditorSheet";
 import { MobileNemuAgentSheet } from "@/components/MobileNemuAgentSheet";
 import { MobileSourceManagerSheet } from "@/components/MobileSourceManagerSheet";
@@ -86,7 +89,10 @@ import {
   getMobileInstalledSourceSettingsKeys,
   mobileInstalledSourceMatchesLink,
 } from "@/lib/mobileInstalledSourceKeys";
-import { applyMobileSourceDetailsRefresh } from "@/lib/mobileLibraryDetails";
+import {
+  applyMobileSourceChaptersRefresh,
+  applyMobileSourceDetailsRefresh,
+} from "@/lib/mobileLibraryDetails";
 import { createMobileKeyedRefreshGate } from "@/lib/mobileKeyedRefreshGate";
 import { getMobileMissingSourceState } from "@/lib/mobileMissingSourceInstall";
 import {
@@ -152,22 +158,28 @@ import {
   mobileReaderPagesPrefetchCache,
 } from "@/sources/mobileReaderPagesPrefetch";
 import {
-  refreshMobileSourceDetails,
+  refreshMobileSourceChapters,
   refreshMobileSourceMetadata,
-  type MobileSourceDetailsRefresh,
 } from "@/sources/mobileSourceDetails";
+import type { MobileSourceTaskPriority } from "@/sources/mobileSourceRuntimeScheduler";
 import {
   getCachedMobileSourceDetail,
+  getMobileSourceDetailMetadataAgeMs,
   makeMobileSourceDetailCacheKey,
   setCachedMobileSourceDetail,
+  setCachedMobileSourceDetailChapters,
   type MobileSourceDetailCachePayload,
 } from "@/lib/mobileSourceDetailCache";
 import {
   MOBILE_MANGA_DETAIL_BACKGROUND_REVALIDATE_MS,
+  MOBILE_MANGA_DETAIL_METADATA_REVALIDATE_MS,
   MOBILE_MANGA_DETAIL_SELECTED_REVALIDATE_MS,
-  mobileSourceDetailRequests,
+  MOBILE_MANGA_DETAIL_SLOW_LOAD_MS,
+  mobileSourceChapterRequests,
+  mobileSourceMetadataRequests,
   shouldRevalidateMobileSourceDetail,
   withMobileSourceDetailSnapshot,
+  type MobileSourceChapterListRefresh,
   type MobileSourceChapterListState,
 } from "@/lib/mobileSourceDetailRevalidation";
 import {
@@ -218,6 +230,17 @@ type LiveDetailState =
       title?: string;
       recoveryAction?: MobileSourceErrorRecoveryAction | null;
     };
+
+/**
+ * The selected tab's refresh failed while a complete list is on screen: the
+ * list stays, and only a compact "couldn't refresh" line with Retry shows.
+ */
+function isStaleRefreshFailure(
+  state: LiveDetailState,
+  hasFullList: boolean,
+): boolean {
+  return hasFullList && (state.status === "error" || state.status === "blocked");
+}
 
 type SourceChapterListState = MobileSourceChapterListState;
 
@@ -428,9 +451,17 @@ export function MangaDetailScreen() {
     detail: strings.mangaDetail.fullRefreshNotStarted,
   });
   const detailRefreshGate = useRef(createMobileKeyedRefreshGate());
+  // The selected tab's interest in its in-flight request. Aborted when the
+  // run is superseded or the screen goes away, so a request nobody waits for
+  // any more drops to `background` and never holds up the next title opened.
+  const selectedRunAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
     const gate = detailRefreshGate.current;
-    return () => gate.reset();
+    return () => {
+      gate.reset();
+      selectedRunAbortRef.current?.abort();
+      selectedRunAbortRef.current = null;
+    };
   }, []);
 
   const reloadLocalDetailState = useCallback(async () => {
@@ -916,39 +947,121 @@ export function MangaDetailScreen() {
     [store],
   );
 
+  // The fallback title for a chapter-only cache entry (see
+  // `setCachedChapters`); read through a ref so the fetchers keep their
+  // identity while the entry reloads.
+  const entryTitleRef = useRef("");
+  entryTitleRef.current = effectiveMetadata?.title ?? "";
+
   /**
-   * One network fetch of a linked source's details, shared by every caller
-   * that asks for the same source manga while it is in flight, and written to
-   * the persisted detail cache so the next open (or tab switch) paints it
-   * without touching the source runtime.
+   * One network fetch of a linked source's chapter list, shared by every
+   * caller that asks for the same source manga while it is in flight (the
+   * selected tab, the other-tab sweep), and folded into the persisted detail
+   * cache so the next open (or tab switch) paints it without touching the
+   * source runtime. A later caller with a higher priority promotes the
+   * request in place.
+   *
+   * Chapters only: the library row already knows the header (title, cover,
+   * description), so the list never waits for `getMangaDetails`; metadata is
+   * refreshed separately in the background (`refreshSourceMetadataForLink`).
    */
-  const fetchSourceDetailsForLink = useCallback(
-    (installedSource: InstalledSource, link: LocalSourceLink) => {
+  const fetchSourceChaptersForLink = useCallback(
+    (
+      installedSource: InstalledSource,
+      link: LocalSourceLink,
+      priority: MobileSourceTaskPriority,
+      signal?: AbortSignal,
+    ) => {
       const cacheKey = sourceDetailCacheKeyForLink(link);
-      return mobileSourceDetailRequests.run(cacheKey, async () => {
-        const refreshed = await withMobileSourceOperationTimeout(
-          refreshMobileSourceDetails(installedSource, link.sourceMangaId, {
-            getSourceSettings: getDetailSourceSettings,
-            onSourcePackageHydrated: saveSourcePackageHydration,
-          }),
-          { message: strings.sourceBrowse.sourceOperationTimedOut },
-        );
-        if (refreshed.status === "ready") {
-          rememberMobileSourceCoverOwner(refreshed.metadata.cover, link);
-          void setCachedMobileSourceDetail(cacheKey, {
-            metadata: refreshed.metadata,
+      return mobileSourceChapterRequests.run(
+        cacheKey,
+        async (ticket): Promise<MobileSourceChapterListRefresh> => {
+          const refreshed = await refreshMobileSourceChapters(
+            installedSource,
+            link.sourceMangaId,
+            {
+              getSourceSettings: getDetailSourceSettings,
+              onSourcePackageHydrated: saveSourcePackageHydration,
+              priority: ticket,
+              timeoutMessage: strings.sourceBrowse.sourceOperationTimedOut,
+            },
+          );
+          if (refreshed.status !== "ready") return refreshed;
+          const title = entryTitleRef.current || link.sourceMangaId;
+          const stored = await setCachedMobileSourceDetailChapters(cacheKey, {
             chapters: refreshed.chapters,
             fetchedAt: refreshed.fetchedAt,
-          }).catch(() => undefined);
-        }
-        return refreshed;
-      });
+            fallbackTitle: title,
+          }).catch(() => null);
+          return {
+            ...refreshed,
+            payload: stored ?? {
+              metadata: { title },
+              chapters: refreshed.chapters,
+              fetchedAt: refreshed.fetchedAt,
+              partialMetadata: true,
+            },
+          };
+        },
+        priority,
+        signal,
+      );
     },
     [
       getDetailSourceSettings,
       saveSourcePackageHydration,
       strings.sourceBrowse.sourceOperationTimedOut,
     ],
+  );
+
+  /**
+   * The selected source's metadata, refreshed in the background when the
+   * cached copy is older than `MOBILE_MANGA_DETAIL_METADATA_REVALIDATE_MS`
+   * (or was never fetched). Nobody waits on it: it runs at `background`
+   * priority after the chapters, updates the cache, the source's cover
+   * ownership and the library row, and never touches the list.
+   */
+  const refreshSourceMetadataForLink = useCallback(
+    async (
+      installedSource: InstalledSource,
+      link: LocalSourceLink,
+      payload: MobileSourceDetailCachePayload,
+    ): Promise<MobileSourceDetailCachePayload | null> => {
+      if (
+        getMobileSourceDetailMetadataAgeMs(payload) <
+        MOBILE_MANGA_DETAIL_METADATA_REVALIDATE_MS
+      ) {
+        return null;
+      }
+      const cacheKey = sourceDetailCacheKeyForLink(link);
+      const refreshed = await mobileSourceMetadataRequests.run(
+        cacheKey,
+        (ticket) =>
+          refreshMobileSourceMetadata(installedSource, link.sourceMangaId, {
+            getSourceSettings: getDetailSourceSettings,
+            onSourcePackageHydrated: saveSourcePackageHydration,
+            priority: ticket,
+          }),
+        "background",
+      );
+      if (refreshed.status !== "ready") return null;
+      rememberMobileSourceCoverOwner(refreshed.metadata.cover, link);
+      // Fold into whatever list is cached now (a chapter refresh may have
+      // landed meanwhile); the chapter fetch time stays the list's own.
+      const current = await getCachedMobileSourceDetail(cacheKey).catch(
+        () => null,
+      );
+      const base = current?.payload ?? payload;
+      const next: MobileSourceDetailCachePayload = {
+        metadata: refreshed.metadata,
+        chapters: base.chapters,
+        fetchedAt: base.fetchedAt,
+        metadataFetchedAt: refreshed.fetchedAt,
+      };
+      await setCachedMobileSourceDetail(cacheKey, next).catch(() => undefined);
+      return next;
+    },
+    [getDetailSourceSettings, saveSourcePackageHydration],
   );
 
   const updateSourceChapterList = useCallback(
@@ -1019,17 +1132,148 @@ export function MangaDetailScreen() {
   }, [applySourceDetailSnapshot, sourceLinksSignature]);
 
   // The background sweep of the other linked sources waits until the selected
-  // tab's own refresh has settled: the source sandbox runs one operation at a
-  // time, so starting them together only delays the list the user is
-  // looking at.
+  // tab's own refresh has settled. It runs at `background` priority anyway (a
+  // tap always goes first on the source runtime), but starting it later keeps
+  // the runtime idle for the chapter the user is most likely to open next.
   const [selectedRefreshSettledKey, setSelectedRefreshSettledKey] = useState<
     string | null
   >(null);
   const lastHandledRefreshNonceRef = useRef(detailRefreshNonce);
+  // The refresh key whose first load (nothing painted yet) has run past
+  // `MOBILE_MANGA_DETAIL_SLOW_LOAD_MS`; the skeleton then says so.
+  const [slowRefreshKey, setSlowRefreshKey] = useState<string | null>(null);
+
+  /**
+   * Persists what a refresh of `link` learned (latest chapter, update ack,
+   * library metadata) against the rows as they are now: the run outlives
+   * entry reloads (see the gate below), and a removal or edit that landed
+   * while the request was in flight (locally or from another device via
+   * sync) must not be overwritten by the entry captured at start.
+   */
+  const persistSelectedSourceRefresh = useCallback(
+    async (
+      capturedEntry: LibraryEntry,
+      link: LocalSourceLink,
+      apply: (
+        baseEntry: LibraryEntry,
+        sourceLink: LocalSourceLink,
+      ) => { item: LibraryEntry["item"]; sourceLink: LocalSourceLink },
+      isCancelled: () => boolean,
+    ) => {
+      const [latestItem, latestLink] = await Promise.all([
+        store.getLibraryItem(capturedEntry.item.libraryItemId),
+        store.getSourceLink(link.id),
+      ]);
+      const persistable =
+        latestItem !== null &&
+        latestItem.inLibrary !== false &&
+        latestLink !== null &&
+        latestLink.removed !== true;
+      const baseEntry = persistable
+        ? { ...capturedEntry, item: latestItem }
+        : capturedEntry;
+      const applied = apply(baseEntry, persistable ? latestLink : link);
+      if (persistable) {
+        await Promise.all([
+          // A refresh that does not change the library title's own metadata
+          // (any non-primary source, or an unchanged primary) leaves the row
+          // alone: no write, no sync round-trip.
+          applied.item === baseEntry.item
+            ? Promise.resolve()
+            : store.saveLibraryItem(applied.item),
+          applied.sourceLink === (persistable ? latestLink : link)
+            ? Promise.resolve()
+            : store.saveSourceLink(applied.sourceLink),
+        ]);
+        emitMobileDataChanged("library");
+      }
+      if (isCancelled()) return;
+      setState((current) => {
+        if (
+          !current.entry ||
+          current.entry.item.libraryItemId !== capturedEntry.item.libraryItemId
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          entry: {
+            item: applied.item,
+            sources: current.entry.sources.map((source) =>
+              source.id === applied.sourceLink.id ? applied.sourceLink : source,
+            ),
+          },
+        };
+      });
+    },
+    [store],
+  );
+
+  /**
+   * Refreshes the selected source's metadata when it is stale, off the
+   * critical path: the list is already painted, nothing here blocks it, and
+   * the result only feeds cover ownership and the library row.
+   */
+  const refreshSelectedMetadataInBackground = useCallback(
+    async (
+      capturedEntry: LibraryEntry,
+      link: LocalSourceLink,
+      installedSource: InstalledSource | null,
+      payload: MobileSourceDetailCachePayload,
+      isCancelled: () => boolean,
+    ) => {
+      try {
+        let source = installedSource;
+        if (!source) {
+          const installedSources = await store.getInstalledSources();
+          source =
+            installedSources.find((item) =>
+              mobileInstalledSourceMatchesLink(item, link),
+            ) ?? null;
+        }
+        if (!source) return;
+        const next = await refreshSourceMetadataForLink(source, link, payload);
+        if (!next) return;
+        if (!isCancelled()) {
+          updateSourceChapterList(link.id, (existing) =>
+            existing?.full && existing.metadata !== next.metadata
+              ? { ...existing, metadata: next.metadata }
+              : existing,
+          );
+        }
+        await persistSelectedSourceRefresh(
+          capturedEntry,
+          link,
+          (baseEntry, sourceLink) => ({
+            item: applyMobileSourceDetailsRefresh(baseEntry, sourceLink, {
+              status: "ready",
+              runtime: "native-aidoku",
+              metadata: next.metadata,
+              chapters: next.chapters,
+              latestChapter: next.chapters[0],
+              fetchedAt: next.metadataFetchedAt ?? next.fetchedAt,
+            }).item,
+            sourceLink,
+          }),
+          isCancelled,
+        );
+      } catch {
+        // Background metadata is best-effort; the next open retries.
+      }
+    },
+    [
+      persistSelectedSourceRefresh,
+      refreshSourceMetadataForLink,
+      store,
+      updateSourceChapterList,
+    ],
+  );
 
   useEffect(() => {
     if (!entry || !selectedSource || !liveDetailRefreshKey) {
       detailRefreshGate.current.reset();
+      selectedRunAbortRef.current?.abort();
+      selectedRunAbortRef.current = null;
       setLiveDetailState({
         status: "idle",
         detail: strings.mangaDetail.selectSourceRefresh,
@@ -1043,16 +1287,27 @@ export function MangaDetailScreen() {
     // or unmount cancels it.
     const run = detailRefreshGate.current.begin(liveDetailRefreshKey);
     if (!run) return;
+    selectedRunAbortRef.current?.abort();
+    const runAbort = new AbortController();
+    selectedRunAbortRef.current = runAbort;
     const isCancelled = run.isCancelled;
     const runKey = liveDetailRefreshKey;
-    // Pull-to-refresh, a solved challenge and a source install bump the
-    // nonce; those always go to the network. A tab switch does not.
+    // Pull-to-refresh, a solved challenge, Retry and a source install bump
+    // the nonce; those always go to the network. A tab switch does not.
     const force = lastHandledRefreshNonceRef.current !== detailRefreshNonce;
     lastHandledRefreshNonceRef.current = detailRefreshNonce;
     const link = selectedSource;
+    const capturedEntry = entry;
     const cacheKey = sourceDetailCacheKeyForLink(link);
+    let slowTimer: ReturnType<typeof setTimeout> | null = null;
     const settle = () => {
-      if (!isCancelled()) setSelectedRefreshSettledKey(runKey);
+      if (slowTimer) {
+        clearTimeout(slowTimer);
+        slowTimer = null;
+      }
+      if (isCancelled()) return;
+      setSelectedRefreshSettledKey(runKey);
+      setSlowRefreshKey((current) => (current === runKey ? null : current));
     };
 
     // Already painted and fresh (e.g. switching back to a tab loaded a moment
@@ -1119,8 +1374,24 @@ export function MangaDetailScreen() {
                 strings,
               ),
             });
+            void refreshSelectedMetadataInBackground(
+              capturedEntry,
+              link,
+              null,
+              cached.payload,
+              isCancelled,
+            );
             return;
           }
+        }
+
+        // Nothing complete on screen: after a few seconds the skeleton says
+        // the source is slow (the request keeps running either way).
+        if (!sourceChapterListsRef.current[link.id]?.full) {
+          slowTimer = setTimeout(() => {
+            slowTimer = null;
+            if (!isCancelled()) setSlowRefreshKey(runKey);
+          }, MOBILE_MANGA_DETAIL_SLOW_LOAD_MS);
         }
 
         const installedSources = await store.getInstalledSources();
@@ -1147,9 +1418,11 @@ export function MangaDetailScreen() {
           return;
         }
 
-        const refreshed = await fetchSourceDetailsForLink(
+        const refreshed = await fetchSourceChaptersForLink(
           installedSource,
           link,
+          "user",
+          runAbort.signal,
         );
 
         if (isCancelled()) return;
@@ -1180,65 +1453,29 @@ export function MangaDetailScreen() {
           source: link.sourceId,
           count: refreshed.chapters.length,
         });
-        applySourceDetailSnapshot(link, refreshed, "network");
+        applySourceDetailSnapshot(link, refreshed.payload, "network");
         setLiveDetailState({
           status: "ready",
           detail: refreshChapterCountText(refreshed.chapters.length, strings),
         });
+        settle();
 
-        // The run outlives entry reloads (see the gate above), so persist
-        // against the rows as they are now: a removal or edit that landed
-        // while the request was in flight (locally or from another device via
-        // sync) must not be overwritten by the entry captured at start.
-        const [latestItem, latestLink] = await Promise.all([
-          store.getLibraryItem(entry.item.libraryItemId),
-          store.getSourceLink(link.id),
-        ]);
-        if (isCancelled()) return;
-        const persistable =
-          latestItem !== null &&
-          latestItem.inLibrary !== false &&
-          latestLink !== null &&
-          latestLink.removed !== true;
-        const baseEntry = persistable ? { ...entry, item: latestItem } : entry;
-        const applied = applyMobileSourceDetailsRefresh(
-          baseEntry,
-          persistable ? latestLink : link,
-          refreshed,
+        await persistSelectedSourceRefresh(
+          capturedEntry,
+          link,
+          (baseEntry, sourceLink) => ({
+            item: baseEntry.item,
+            sourceLink: applyMobileSourceChaptersRefresh(sourceLink, refreshed),
+          }),
+          isCancelled,
         );
-        if (persistable) {
-          await Promise.all([
-            // A refresh that does not change the library title's own
-            // metadata (any non-primary source, or an unchanged primary)
-            // leaves the row alone: no write, no sync round-trip.
-            applied.item === baseEntry.item
-              ? Promise.resolve()
-              : store.saveLibraryItem(applied.item),
-            store.saveSourceLink(applied.sourceLink),
-          ]);
-          emitMobileDataChanged("library");
-        }
-        if (isCancelled()) return;
-
-        setState((current) => {
-          if (
-            !current.entry ||
-            current.entry.item.libraryItemId !== entry.item.libraryItemId
-          ) {
-            return current;
-          }
-          return {
-            ...current,
-            entry: {
-              item: applied.item,
-              sources: current.entry.sources.map((source) =>
-                source.id === applied.sourceLink.id
-                  ? applied.sourceLink
-                  : source,
-              ),
-            },
-          };
-        });
+        void refreshSelectedMetadataInBackground(
+          capturedEntry,
+          link,
+          installedSource,
+          refreshed.payload,
+          isCancelled,
+        );
       } catch (nextError) {
         if (isCancelled()) return;
         const presentation = getMobileSourceErrorPresentation(
@@ -1266,8 +1503,10 @@ export function MangaDetailScreen() {
     applySourceDetailSnapshot,
     detailRefreshNonce,
     entry,
-    fetchSourceDetailsForLink,
+    fetchSourceChaptersForLink,
     liveDetailRefreshKey,
+    persistSelectedSourceRefresh,
+    refreshSelectedMetadataInBackground,
     selectedSource,
     store,
     strings,
@@ -1310,9 +1549,10 @@ export function MangaDetailScreen() {
       } catch {
         return;
       }
-      // Sequential on purpose: the source sandbox serializes operations, so
-      // a parallel fan-out would only queue behind itself and starve a tab
-      // switch that needs the runtime now.
+      // Sequential on purpose: the source runtime runs one operation at a
+      // time, so a parallel fan-out would only queue behind itself. Each
+      // request runs at `background` priority; the user opening one of these
+      // tabs promotes it (see `fetchSourceChaptersForLink`).
       for (const source of pendingSources) {
         if (cancelled) return;
         const cached = await getCachedMobileSourceDetail(
@@ -1354,15 +1594,19 @@ export function MangaDetailScreen() {
             ? existing
             : { ...existing, status: "loading", chapters: existing?.chapters ?? [] },
         );
-        let refreshed: MobileSourceDetailsRefresh | null = null;
+        let refreshed: MobileSourceChapterListRefresh | null = null;
         try {
-          refreshed = await fetchSourceDetailsForLink(installedSource, source);
+          refreshed = await fetchSourceChaptersForLink(
+            installedSource,
+            source,
+            "background",
+          );
         } catch {
           refreshed = null;
         }
         if (cancelled) return;
         if (refreshed?.status === "ready") {
-          applySourceDetailSnapshot(source, refreshed, "network");
+          applySourceDetailSnapshot(source, refreshed.payload, "network");
           continue;
         }
         const failedStatus = refreshed?.status === "blocked" ? "blocked" : "error";
@@ -1380,7 +1624,7 @@ export function MangaDetailScreen() {
     };
   }, [
     applySourceDetailSnapshot,
-    fetchSourceDetailsForLink,
+    fetchSourceChaptersForLink,
     liveDetailRefreshKey,
     selectedRefreshSettledKey,
     selectedSource?.id,
@@ -1413,16 +1657,31 @@ export function MangaDetailScreen() {
       selectedChapterProgress,
     ],
   );
+  // First load with nothing complete to show: the grid shows skeleton cells
+  // instead of the one or two chapters known from progress rows, so the real
+  // list replaces placeholders rather than reshuffling a partial list. The
+  // Continue button keeps using those known chapters meanwhile.
+  // (`idle` is the first frame, before the refresh effect has run.)
+  const awaitingFirstList =
+    Boolean(selectedSource) &&
+    !selectedChaptersComplete &&
+    (liveDetailState.status === "loading" || liveDetailState.status === "idle");
+  const listChapters = awaitingFirstList ? EMPTY_CHAPTERS : chapters;
   const chapterLanguages = useMemo(
-    () => getMobileChapterLanguages(chapters),
-    [chapters],
+    () => getMobileChapterLanguages(listChapters),
+    [listChapters],
   );
+  const headerRendered = Boolean(entry);
+  useEffect(() => {
+    if (headerRendered) markMobilePerformance("mangaDetail.header-rendered");
+  }, [headerRendered]);
   useEffect(() => {
     markMobilePerformance("mangaDetail.chapters-rendered", {
-      count: chapters.length,
+      count: listChapters.length,
+      full: selectedChaptersComplete,
       source: selectedSource?.sourceId,
     });
-  }, [chapters.length, selectedSource?.sourceId]);
+  }, [listChapters.length, selectedChaptersComplete, selectedSource?.sourceId]);
   const effectiveChapterListPreference = useMemo(
     () => ({
       ...chapterListPreference,
@@ -1440,20 +1699,20 @@ export function MangaDetailScreen() {
   const visibleChapters = useMemo(
     () =>
       filterAndSortMobileChapters(
-        chapters,
+        listChapters,
         selectedChapterProgress,
         effectiveChapterListPreference,
       ),
-    [chapters, effectiveChapterListPreference, selectedChapterProgress],
+    [listChapters, effectiveChapterListPreference, selectedChapterProgress],
   );
   const unreadChapterCount = useMemo(
     () =>
-      chapters.reduce(
+      listChapters.reduce(
         (count, chapter) =>
           count + (selectedChapterProgress[chapter.id]?.completed ? 0 : 1),
         0,
       ),
-    [chapters, selectedChapterProgress],
+    [listChapters, selectedChapterProgress],
   );
   const chapterRows = useMemo(
     () => buildMobileChapterRows(visibleChapters),
@@ -1861,6 +2120,13 @@ export function MangaDetailScreen() {
     loading,
     hasError: Boolean(error),
   });
+
+  // Retry after a failed refresh: the same path as pull-to-refresh, minus
+  // the local reload (the rows are already current).
+  const retrySelectedRefresh = () => {
+    if (!selectedSource) return;
+    setDetailRefreshNonce((value) => value + 1);
+  };
 
   const pullRefreshDetail = () => {
     if (pullRefreshGuardRef.current || !selectedSource) return;
@@ -2329,8 +2595,30 @@ export function MangaDetailScreen() {
           entry ? (
             <MobileMangaChapterSectionHeader
               title={strings.mangaDetail.chapters}
-              loading={liveDetailState.status === "loading"}
+              // A refresh behind a painted list is silent: the list is
+              // already right, and the sort action keeps its place.
+              loading={awaitingFirstList}
               loadingLabel={strings.mangaDetail.refreshingSource}
+              loadingPlaceholder={
+                <MobileChapterGridSkeleton
+                  accessibilityLabel={strings.mangaDetail.loadingChapters}
+                  caption={
+                    slowRefreshKey !== null &&
+                    slowRefreshKey === liveDetailRefreshKey &&
+                    selectedSource
+                      ? formatMobileString(
+                          strings.mangaDetail.sourceSlowToRespond,
+                          {
+                            source: sourcePresentationForLink(
+                              selectedSource,
+                              state.installedSources,
+                            ).name,
+                          },
+                        )
+                      : null
+                  }
+                />
+              }
               sourceSelector={
                 sources.length > 0 ? (
                   <MobileSourceSelector
@@ -2342,7 +2630,7 @@ export function MangaDetailScreen() {
                 ) : null
               }
               sortAction={
-                chapters.length > 0 ? (
+                listChapters.length > 0 ? (
                   <MobileMangaChapterSortAction
                     preference={effectiveChapterListPreference}
                     strings={strings}
@@ -2351,7 +2639,7 @@ export function MangaDetailScreen() {
                 ) : null
               }
               toolbar={
-                chapters.length > 0 ? (
+                listChapters.length > 0 ? (
                   <MobileMangaChapterToolbar
                     appLanguage={appLanguage}
                     languages={chapterLanguages}
@@ -2363,8 +2651,31 @@ export function MangaDetailScreen() {
                 ) : null
               }
               notice={
-                liveDetailState.status === "blocked" ||
-                liveDetailState.status === "error" ? (
+                isStaleRefreshFailure(liveDetailState, selectedChaptersComplete) &&
+                (liveDetailState.status === "error" ||
+                  liveDetailState.status === "blocked") ? (
+                  // The saved list stays; one quiet line says it could not
+                  // be refreshed, with the way forward.
+                  <MobileSourceErrorNotice
+                    title={strings.mangaDetail.refreshFailedTitle}
+                    detail={strings.mangaDetail.showingSavedChapters}
+                    actionLabel={
+                      liveDetailState.recoveryAction?.label ??
+                      strings.common.retry
+                    }
+                    onActionPress={() => {
+                      const action = liveDetailState.recoveryAction;
+                      if (action) {
+                        router.navigate(
+                          getMobileSourceErrorRecoveryHref(action),
+                        );
+                        return;
+                      }
+                      retrySelectedRefresh();
+                    }}
+                  />
+                ) : liveDetailState.status === "blocked" ||
+                  liveDetailState.status === "error" ? (
                   <MobileSourceErrorNotice
                     title={liveDetailState.title}
                     detail={liveDetailState.detail}
@@ -2377,7 +2688,9 @@ export function MangaDetailScreen() {
                             strings.browse.installSourceNamed,
                             { name: missingSourceInstallCandidate.name },
                           )
-                        : undefined)
+                        : liveDetailState.status === "error"
+                          ? strings.common.retry
+                          : undefined)
                     }
                     onActionPress={() => {
                       const action = liveDetailState.recoveryAction;
@@ -2389,7 +2702,9 @@ export function MangaDetailScreen() {
                       }
                       if (liveDetailState.status === "blocked") {
                         installMissingSource();
+                        return;
                       }
+                      retrySelectedRefresh();
                     }}
                   />
                 ) : null

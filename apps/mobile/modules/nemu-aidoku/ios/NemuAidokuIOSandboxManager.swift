@@ -31,6 +31,9 @@ struct NemuAidokuIOSandboxHTTPRequest {
   let headers: [String: String]
   let body: String?
   let timeoutMs: Int
+  /// Set for a cancellable operation's requests (see
+  /// `NemuAidokuSandboxCancellation`), so a cancellation can reach them.
+  var requestId: String? = nil
 }
 
 struct NemuAidokuIOSandboxHTTPResponse {
@@ -333,6 +336,7 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
   private let closeLock = NSLock()
   private let settingsStore = NemuAidokuIOSandboxSettingsStore()
   private let httpRequest: HttpRequestHandler
+  private let cancellation: NemuAidokuSandboxCancellation
   private var sessions: [String: NemuAidokuIOSandboxSession] = [:]
   private var closed = false
   // Identity of the Worker that produced the most recent reply. Only touched
@@ -345,9 +349,24 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
   private var webViewGeneration = 0
   private var bootWaiters: [(Result<Int, Error>) -> Void] = []
 
-  init(httpRequest: @escaping HttpRequestHandler) {
+  init(
+    httpRequest: @escaping HttpRequestHandler,
+    cancelHttpRequest: @escaping (String) -> Void = { _ in }
+  ) {
     self.httpRequest = httpRequest
+    self.cancellation = NemuAidokuSandboxCancellation(cancelHttpRequest: cancelHttpRequest)
     super.init()
+  }
+
+  /// Cancels the operation that carries `token` (see
+  /// `NemuAidokuSandboxCancellation`). Safe from any thread; never waits for
+  /// the serial executor, which is exactly what is busy.
+  @discardableResult
+  func cancelOperation(token: String) -> Bool {
+    guard !token.isEmpty, token.count <= NemuAidokuSandboxCancellation.maxTokenLength else {
+      return false
+    }
+    return cancellation.cancel(token)
   }
 
   static func status() -> [String: Any] {
@@ -434,6 +453,13 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
         label: "Aidoku operation",
         maxCharacters: nemuIOSAidokuMaxOperationCharacters
       )
+      var operation = try Self.jsonObject(operationJson)
+      let cancelToken = NemuAidokuSandboxCancellation.takeToken(from: &operation)
+      defer { self.cancellation.finish(token: cancelToken) }
+      let workerOperationJson = cancelToken == nil
+        ? operationJson
+        : try Self.jsonString(operation)
+      try self.cancellation.throwIfCancelled(cancelToken)
       guard self.sessions[sessionId] != nil else {
         throw Self.error("Aidoku session expired.")
       }
@@ -441,7 +467,8 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
       return try self.withLostRegistrationRetry(sessionId: sessionId) {
         try self.executeOperationLocked(
           sessionId: sessionId,
-          operationJson: operationJson
+          operationJson: workerOperationJson,
+          cancelToken: cancelToken
         ).json
       }
     }
@@ -700,7 +727,8 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
   private func executeOperationLocked(
     sessionId: String,
     operationJson: String,
-    initialNamedData: [String: String] = [:]
+    initialNamedData: [String: String] = [:],
+    cancelToken: String? = nil
   ) throws -> NemuAidokuIOSandboxOperationResult {
     guard let session = sessions[sessionId] else {
       throw Self.error("Aidoku session expired.")
@@ -749,6 +777,9 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
     var httpRounds = 0
     var replayedBytes = 0
     for round in 0...(nemuIOSAidokuMaxReplayRounds + nemuIOSAidokuMaxJsEvaluations) {
+      // A cancelled operation stops between rounds (the worker state is
+      // discarded by `finishOperation` above).
+      try cancellation.throwIfCancelled(cancelToken)
       let reply = try invoke(
         method: "executeOperation",
         args: [operationId],
@@ -786,14 +817,20 @@ final class NemuAidokuIOSandboxManager: NSObject, WKNavigationDelegate {
           nemuIOSAidokuHttpTimeoutMs,
           max(1, Int(try remainingSeconds(deadline) * 1_000))
         )
+        let requestId = try cancellation.beginHttp(token: cancelToken, round: httpRounds)
         let response = httpRequest(NemuAidokuIOSandboxHTTPRequest(
           sourceKey: session.sourceKey,
           url: url,
           method: method,
           headers: headers,
           body: request["body"] is NSNull ? nil : request["body"] as? String,
-          timeoutMs: timeoutMs
+          timeoutMs: timeoutMs,
+          requestId: requestId
         ))
+        cancellation.endHttp(token: cancelToken)
+        // A cancelled request fails with a transport error; report the
+        // cancellation instead so React Native re-queues the operation.
+        try cancellation.throwIfCancelled(cancelToken)
         if response.status == 0 || response.error != nil {
           throw Self.error(response.error ?? "Aidoku HTTP request failed.")
         }

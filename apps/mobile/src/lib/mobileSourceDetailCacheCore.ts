@@ -15,9 +15,24 @@ import { makeMobileSourceKey } from "./mobileSourceSettings";
  */
 
 export const MOBILE_SOURCE_DETAIL_CACHE_TTL_MS = 30 * 60 * 1000;
-export const MOBILE_SOURCE_DETAIL_CACHE_MAX_ENTRIES = 64;
-export const MOBILE_SOURCE_DETAIL_CACHE_MAX_BYTES = 1024 * 1024;
-export const MOBILE_SOURCE_DETAIL_CACHE_MAX_CHAPTERS = 2_000;
+/**
+ * Persisted entries kept on disk. Sized for a whole library (every linked
+ * source of every title, which the background library refresh keeps warm)
+ * plus recent browsing; entries are a few KB to ~1 MB each.
+ */
+export const MOBILE_SOURCE_DETAIL_CACHE_MAX_ENTRIES = 400;
+/** Decoded entries kept in memory (the titles open in this session). */
+export const MOBILE_SOURCE_DETAIL_CACHE_MEMORY_ENTRIES = 24;
+/** Per-entry size bound; a 10,000-chapter list with scanlators fits. */
+export const MOBILE_SOURCE_DETAIL_CACHE_MAX_BYTES = 4 * 1024 * 1024;
+/**
+ * Long-running series (One Piece, Conan, multi-language MangaDex feeds) run
+ * well past 2,000 chapters; a list over the cap is never cached at all, which
+ * made exactly the slowest titles the ones that always opened cold.
+ */
+export const MOBILE_SOURCE_DETAIL_CACHE_MAX_CHAPTERS = 10_000;
+/** Disk pruning runs on the first write of a session, then every N writes. */
+const MOBILE_SOURCE_DETAIL_CACHE_PRUNE_EVERY_WRITES = 16;
 
 // 2: chapter lists keep the source's order. Version 1 lists were sorted by
 // number with an id tie-break, which scrambled sources without numbers
@@ -27,7 +42,18 @@ const MOBILE_SOURCE_DETAIL_CACHE_FORMAT_VERSION = 2;
 export type MobileSourceDetailCachePayload = {
   metadata: MangaMetadata;
   chapters: ChapterSummary[];
+  /** When `chapters` was fetched. Drives revalidation. */
   fetchedAt: number;
+  /**
+   * When `metadata` was fetched, if that differs from `fetchedAt` (a
+   * chapter-only refresh keeps the older metadata). Absent = `fetchedAt`.
+   */
+  metadataFetchedAt?: number;
+  /**
+   * `metadata` is a placeholder (title only), written by a chapter-only
+   * refresh for a title whose details were never fetched.
+   */
+  partialMetadata?: boolean;
 };
 
 export type MobileSourceDetailCacheHit = {
@@ -37,19 +63,25 @@ export type MobileSourceDetailCacheHit = {
 };
 
 export type MobileSourceDetailCacheStore = {
-  /** Every persisted raw payload. Missing/corrupt entries are skipped. The
-   * cache key is recovered from inside each payload, so adapters never need
-   * to reverse a lossy file-name encoding. */
-  readAll(): Promise<string[]>;
-  /**
-   * Single-entry read for the paint path. Optional: adapters that can address
-   * one entry directly (a file per key) implement it so a cold `getCached`
-   * costs one read instead of a full-directory hydration. Adapters without it
-   * fall back to `readAll`.
-   */
-  read?(key: string): Promise<string | null>;
+  /** One entry's raw payload, or null when absent/unreadable. */
+  read(key: string): Promise<string | null>;
   write(key: string, raw: string): Promise<void>;
   remove(key: string): Promise<void>;
+  /**
+   * Every persisted raw payload. Only whole-cache maintenance (clear,
+   * per-source clear) uses it — never the paint path.
+   */
+  readAll(): Promise<string[]>;
+  /**
+   * Raw payloads whose key may start with `prefix` (a superset is fine: keys
+   * are verified after decoding). Optional; falls back to `readAll`.
+   */
+  readPrefixed?(prefix: string): Promise<string[]>;
+  /**
+   * Keeps at most `maxEntries` persisted entries, dropping the least recently
+   * written first and never one in `keep` (entries used this session).
+   */
+  prune?(maxEntries: number, keep: ReadonlySet<string>): Promise<void>;
 };
 
 export type MobileSourceDetailCache = {
@@ -62,8 +94,26 @@ export type MobileSourceDetailCache = {
     payload: MobileSourceDetailCachePayload,
     now?: number,
   ): Promise<void>;
+  /**
+   * Folds a freshly fetched chapter list into the entry for `key`, keeping
+   * whatever metadata is already cached (a chapter-only refresh — library
+   * update checks, the detail screen's chapters-first load — does not know
+   * the metadata). Without a cached entry the metadata is a title-only
+   * placeholder marked `partialMetadata`.
+   */
+  setCachedChapters(
+    key: string,
+    update: {
+      chapters: ChapterSummary[];
+      fetchedAt: number;
+      fallbackTitle: string;
+    },
+    now?: number,
+  ): Promise<MobileSourceDetailCachePayload | null>;
   clear(key?: string): Promise<void>;
   clearForSource(sourceKey: string): Promise<void>;
+  /** Runs disk pruning now (tests, maintenance). */
+  compact(): Promise<void>;
 };
 
 export function makeMobileSourceDetailCacheKey(
@@ -103,12 +153,22 @@ export function decodeMobileSourceDetailCache(
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return null;
   }
-  const { v, key, fetchedAt, metadata, chapters } = parsed as {
+  const {
+    v,
+    key,
+    fetchedAt,
+    metadata,
+    chapters,
+    metadataFetchedAt,
+    partialMetadata,
+  } = parsed as {
     v?: unknown;
     key?: unknown;
     fetchedAt?: unknown;
     metadata?: unknown;
     chapters?: unknown;
+    metadataFetchedAt?: unknown;
+    partialMetadata?: unknown;
   };
   if (
     v !== MOBILE_SOURCE_DETAIL_CACHE_FORMAT_VERSION ||
@@ -121,11 +181,24 @@ export function decodeMobileSourceDetailCache(
     !isValidCachedMetadata(metadata) ||
     !Array.isArray(chapters) ||
     chapters.length > MOBILE_SOURCE_DETAIL_CACHE_MAX_CHAPTERS ||
-    !chapters.every(isValidCachedChapter)
+    !chapters.every(isValidCachedChapter) ||
+    (metadataFetchedAt !== undefined &&
+      (typeof metadataFetchedAt !== "number" ||
+        !Number.isFinite(metadataFetchedAt) ||
+        metadataFetchedAt <= 0 ||
+        metadataFetchedAt > now)) ||
+    (partialMetadata !== undefined && typeof partialMetadata !== "boolean")
   ) {
     return null;
   }
-  return { key, metadata, chapters, fetchedAt };
+  return {
+    key,
+    metadata,
+    chapters,
+    fetchedAt,
+    ...(metadataFetchedAt !== undefined ? { metadataFetchedAt } : {}),
+    ...(partialMetadata ? { partialMetadata: true } : {}),
+  };
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -205,150 +278,173 @@ function isValidCachedChapter(value: unknown): value is ChapterSummary {
   return true;
 }
 
+function withoutKey(
+  decoded: MobileSourceDetailCachePayload & { key: string },
+): MobileSourceDetailCachePayload {
+  const payload: MobileSourceDetailCachePayload & { key?: string } = {
+    ...decoded,
+  };
+  delete payload.key;
+  return payload;
+}
+
 /**
- * In-memory LRU over an injectable async store. The store is read once on
- * first use; afterwards the in-memory map is authoritative and recency is
- * tracked by insertion order (a cold restart falls back to fetchedAt order).
- * Storage failures never propagate: the cache degrades to memory-only.
+ * Age of a payload's metadata (a chapter-only refresh keeps older metadata).
+ * `Infinity` for a placeholder that was never fetched.
+ */
+export function getMobileSourceDetailMetadataAgeMs(
+  payload: MobileSourceDetailCachePayload,
+  now = Date.now(),
+): number {
+  if (payload.partialMetadata) return Number.POSITIVE_INFINITY;
+  return Math.max(0, now - (payload.metadataFetchedAt ?? payload.fetchedAt));
+}
+
+/**
+ * Persisted detail cache over an injectable async store.
+ *
+ * The paint path costs exactly one addressed read (then memory). Nothing ever
+ * loads the whole store into memory: disk size is bounded by pruning the
+ * store (least recently written first), and memory by a small LRU of decoded
+ * entries. Storage failures never propagate: the cache degrades to
+ * memory-only.
  */
 export function createMobileSourceDetailCache(
   store: MobileSourceDetailCacheStore,
 ): MobileSourceDetailCache {
-  const entries = new Map<string, MobileSourceDetailCachePayload>();
-  let hydration: Promise<void> | null = null;
+  /** Decoded entries, least recently used first. */
+  const memory = new Map<string, MobileSourceDetailCachePayload>();
+  /** Keys read (painted) this session: pruning never drops them. */
+  const touched = new Set<string>();
+  let writes = 0;
+  let pruning: Promise<void> | null = null;
 
-  const ensureHydrated = (): Promise<void> => {
-    if (!hydration) {
-      hydration = (async () => {
-        try {
-          const rawEntries = await store.readAll();
-          const loaded = rawEntries
-            .map((raw) => decodeMobileSourceDetailCache(raw))
-            .filter(
-              (payload): payload is MobileSourceDetailCachePayload & {
-                key: string;
-              } => payload !== null,
-            );
-          loaded.sort((left, right) => {
-            const difference = left.fetchedAt - right.fetchedAt;
-            return difference !== 0
-              ? difference
-              : left.key.localeCompare(right.key);
-          });
-          // Entries already touched this session (single-entry reads, writes)
-          // are more recent than anything recovered from disk, so replay them
-          // after the disk order to keep them at the young end of the LRU.
-          const touchedThisSession = [...entries.entries()];
-          entries.clear();
-          for (const { key, ...payload } of loaded) {
-            entries.set(key, payload);
-          }
-          for (const [key, payload] of touchedThisSession) {
-            entries.delete(key);
-            entries.set(key, payload);
-          }
-        } catch {
-          // Storage unavailable: operate memory-only for this session.
-        }
-      })();
+  const remember = (key: string, payload: MobileSourceDetailCachePayload) => {
+    memory.delete(key);
+    memory.set(key, payload);
+    while (memory.size > MOBILE_SOURCE_DETAIL_CACHE_MEMORY_ENTRIES) {
+      const oldest = memory.keys().next().value;
+      if (oldest === undefined) break;
+      memory.delete(oldest);
     }
-    return hydration;
   };
 
-  /**
-   * Kick off full hydration without blocking the caller. LRU/eviction
-   * bookkeeping needs the whole directory, but the read path that paints a
-   * screen does not, so the scan is deferred past the current frame.
-   */
-  const scheduleHydration = (): void => {
-    if (hydration) return;
-    setTimeout(() => {
-      void ensureHydrated();
-    }, 0);
-  };
-
-  /**
-   * Cold read of a single entry, used only when the in-memory map has not
-   * seen the key yet and the adapter can address one entry directly.
-   */
   const readOne = async (
     key: string,
   ): Promise<MobileSourceDetailCachePayload | null> => {
-    const readEntry = store.read;
-    if (!readEntry) return null;
     try {
-      const raw = await readEntry.call(store, key);
+      const raw = await store.read(key);
       if (!raw) return null;
       const decoded = decodeMobileSourceDetailCache(raw);
       if (!decoded || decoded.key !== key) return null;
-      return {
-        metadata: decoded.metadata,
-        chapters: decoded.chapters,
-        fetchedAt: decoded.fetchedAt,
-      };
+      return withoutKey(decoded);
     } catch {
       return null;
     }
   };
 
-  const evictOverflow = (): void => {
-    while (entries.size > MOBILE_SOURCE_DETAIL_CACHE_MAX_ENTRIES) {
-      const oldestKey = entries.keys().next().value;
-      if (!oldestKey) break;
-      entries.delete(oldestKey);
-      void store.remove(oldestKey).catch(() => undefined);
+  const compact = (): Promise<void> => {
+    if (!store.prune) return Promise.resolve();
+    if (!pruning) {
+      pruning = store
+        .prune(MOBILE_SOURCE_DETAIL_CACHE_MAX_ENTRIES, new Set(touched))
+        .catch(() => undefined)
+        .finally(() => {
+          pruning = null;
+        });
     }
+    return pruning;
+  };
+
+  const persist = async (
+    key: string,
+    payload: MobileSourceDetailCachePayload,
+    now: number,
+  ): Promise<MobileSourceDetailCachePayload | null> => {
+    const raw = encodeMobileSourceDetailCache(key, payload);
+    // Serialize guards mirror decode guards: an entry that cannot survive a
+    // restart round-trip is never cached at all.
+    const validated = decodeMobileSourceDetailCache(raw, now);
+    if (!validated || validated.key !== key) return null;
+    const stored = withoutKey(validated);
+    remember(key, stored);
+    if (raw.length > MOBILE_SOURCE_DETAIL_CACHE_MAX_BYTES) return stored;
+    try {
+      await store.write(key, raw);
+    } catch {
+      // Persistence is best-effort; the session keeps the memory entry.
+      return stored;
+    }
+    writes += 1;
+    if (
+      writes === 1 ||
+      writes % MOBILE_SOURCE_DETAIL_CACHE_PRUNE_EVERY_WRITES === 0
+    ) {
+      await compact();
+    }
+    return stored;
+  };
+
+  const getPayload = async (
+    key: string,
+    touch: boolean,
+  ): Promise<MobileSourceDetailCachePayload | null> => {
+    if (touch) touched.add(key);
+    const resident = memory.get(key);
+    if (resident) {
+      remember(key, resident);
+      return resident;
+    }
+    const loaded = await readOne(key);
+    // A write that landed while the read was in flight is newer.
+    const raced = memory.get(key);
+    if (raced) return raced;
+    if (loaded) remember(key, loaded);
+    return loaded;
   };
 
   return {
     async getCached(key, now = Date.now()) {
-      let payload = entries.get(key);
-      if (!payload) {
-        if (store.read && !hydration) {
-          // Cold paint path: one addressed read instead of scanning (and
-          // validating) every persisted entry.
-          payload = (await readOne(key)) ?? undefined;
-          scheduleHydration();
-        } else {
-          await ensureHydrated();
-          payload = entries.get(key);
-        }
-      }
+      const payload = await getPayload(key, true);
       if (!payload) return null;
-      // Refresh recency: most-recently-read entries survive the LRU cap.
-      entries.delete(key);
-      entries.set(key, payload);
       const ageMs = Math.max(0, now - payload.fetchedAt);
       return { payload, ageMs, isStale: ageMs > MOBILE_SOURCE_DETAIL_CACHE_TTL_MS };
     },
 
     async setCached(key, payload, now = Date.now()) {
-      await ensureHydrated();
-      const raw = encodeMobileSourceDetailCache(key, payload);
-      // Serialize guards mirror decode guards: an entry that cannot survive a
-      // restart round-trip is never cached at all.
-      const validated = decodeMobileSourceDetailCache(raw, now);
-      if (!validated || validated.key !== key) return;
-      const payloadWithoutKey: MobileSourceDetailCachePayload = {
-        metadata: validated.metadata,
-        chapters: validated.chapters,
-        fetchedAt: validated.fetchedAt,
-      };
-      entries.delete(key);
-      entries.set(key, payloadWithoutKey);
-      evictOverflow();
-      if (raw.length > MOBILE_SOURCE_DETAIL_CACHE_MAX_BYTES) return;
-      try {
-        await store.write(key, raw);
-      } catch {
-        // Persistence is best-effort; the session keeps the memory entry.
-      }
+      await persist(key, payload, now);
+    },
+
+    async setCachedChapters(key, update, now = Date.now()) {
+      // Not a paint: a background writer must not pin the entry.
+      const existing = await getPayload(key, false);
+      const title = update.fallbackTitle.trim();
+      if (!existing && !title) return null;
+      const next: MobileSourceDetailCachePayload = existing
+        ? {
+            metadata: existing.metadata,
+            chapters: update.chapters,
+            fetchedAt: update.fetchedAt,
+            ...(existing.partialMetadata
+              ? { partialMetadata: true }
+              : {
+                  metadataFetchedAt:
+                    existing.metadataFetchedAt ?? existing.fetchedAt,
+                }),
+          }
+        : {
+            metadata: { title },
+            chapters: update.chapters,
+            fetchedAt: update.fetchedAt,
+            partialMetadata: true,
+          };
+      return persist(key, next, now);
     },
 
     async clear(key) {
-      await ensureHydrated();
       if (key !== undefined) {
-        entries.delete(key);
+        memory.delete(key);
+        touched.delete(key);
         try {
           await store.remove(key);
         } catch {
@@ -356,7 +452,8 @@ export function createMobileSourceDetailCache(
         }
         return;
       }
-      entries.clear();
+      memory.clear();
+      touched.clear();
       try {
         const rawEntries = await store.readAll();
         await Promise.all(
@@ -373,16 +470,29 @@ export function createMobileSourceDetailCache(
     },
 
     async clearForSource(sourceKey) {
-      await ensureHydrated();
       const prefix = `${sourceKey}:`;
-      const keys = [...entries.keys()].filter((key) =>
-        key.startsWith(prefix),
-      );
-      for (const key of keys) entries.delete(key);
-      await Promise.all(
-        keys.map((key) => store.remove(key).catch(() => undefined)),
-      );
+      for (const key of [...memory.keys()]) {
+        if (key.startsWith(prefix)) memory.delete(key);
+      }
+      for (const key of [...touched]) {
+        if (key.startsWith(prefix)) touched.delete(key);
+      }
+      try {
+        const rawEntries = store.readPrefixed
+          ? await store.readPrefixed(prefix)
+          : await store.readAll();
+        const keys = rawEntries
+          .map((raw) => decodeMobileSourceDetailCache(raw)?.key)
+          .filter((key): key is string => Boolean(key?.startsWith(prefix)));
+        await Promise.all(
+          keys.map((key) => store.remove(key).catch(() => undefined)),
+        );
+      } catch {
+        // Best-effort.
+      }
     },
+
+    compact,
   };
 }
 
@@ -397,10 +507,22 @@ const memoryStore: MobileSourceDetailCacheStore = {
     return memoryFiles.get(key) ?? null;
   },
   async write(key, raw) {
+    memoryFiles.delete(key);
     memoryFiles.set(key, raw);
   },
   async remove(key) {
     memoryFiles.delete(key);
+  },
+  async prune(maxEntries, keep) {
+    const overflow = memoryFiles.size - maxEntries;
+    if (overflow <= 0) return;
+    let removed = 0;
+    for (const key of [...memoryFiles.keys()]) {
+      if (removed >= overflow) break;
+      if (keep.has(key)) continue;
+      memoryFiles.delete(key);
+      removed += 1;
+    }
   },
 };
 
@@ -408,5 +530,6 @@ const defaultCache = createMobileSourceDetailCache(memoryStore);
 
 export const getCachedMobileSourceDetail = defaultCache.getCached;
 export const setCachedMobileSourceDetail = defaultCache.setCached;
+export const setCachedMobileSourceDetailChapters = defaultCache.setCachedChapters;
 export const clearMobileSourceDetailCache = defaultCache.clear;
 export const clearMobileSourceDetailCacheForSource = defaultCache.clearForSource;

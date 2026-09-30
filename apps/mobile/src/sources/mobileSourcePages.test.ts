@@ -979,6 +979,79 @@ describe("mobile source reader pages", () => {
     expect((await current)?.pages[3]?.imageProcessing).toBe("ready");
   });
 
+  test("resolves a far page for Nemu Chat without moving, cancelling or evicting the window", async () => {
+    const windowFetch = Promise.withResolvers<void>();
+    const fetched: string[] = [];
+    const bridge: MobileAidokuExecutorBridge = {
+      async loadSource() {
+        return {
+          status: "ready",
+          runtime: "native-aidoku",
+          source: makeExecutorSource(undefined, {
+            async getPageList() {
+              return Array.from({ length: 8 }, (_, index) => ({
+                index,
+                url: `https://example.test/${index}.jpg`,
+                context: { mode: "descramble" },
+              }));
+            },
+            async hasImageProcessor() {
+              return true;
+            },
+            async processPageImage() {
+              return VALID_PNG_BYTES.slice();
+            },
+          }),
+        };
+      },
+    };
+    const fetchImpl = Object.assign(
+      async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        fetched.push(url);
+        if (url.endsWith("/0.jpg")) await windowFetch.promise;
+        return new Response(new Uint8Array([1]), { status: 200 });
+      },
+      { preconnect: () => undefined },
+    ) as typeof fetch;
+    const result = await refreshMobileReaderPages(
+      installedSource(),
+      "blue-lock",
+      { id: "c2", chapterNumber: 2 },
+      {
+        executor: { bridge, readBytes: async () => makeAixPackage() },
+        processPageImages: true,
+        pageProcessingWindowRadius: 0,
+        pageProcessingCacheSize: 1,
+        fetchImpl,
+      },
+    );
+    const processor = result.status === "ready" ? result.pageProcessor : undefined;
+    if (!processor?.resolvePage) throw new Error("expected resolvePage");
+
+    const window = processor.processWindow(0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const far = processor.resolvePage(6);
+    windowFetch.resolve();
+    // The window finishes (not cancelled as a stale generation).
+    expect((await window)?.pages[0]?.imageProcessing).toBe("ready");
+    const page = await far;
+    expect(page).toMatchObject({
+      id: result.status === "ready" ? result.pages[6]!.id : "",
+      imageUri: VALID_PNG_DATA_URI,
+      imageUriOwnership: "app",
+      imageProcessing: "ready",
+    });
+    // Page 6 never entered the window cache, so page 0 was not evicted.
+    expect(processor.cacheSize()).toBe(1);
+    expect((await processor.processWindow(0))?.processedIndexes).toEqual([0]);
+    expect(fetched.filter((url) => url.endsWith("/0.jpg"))).toHaveLength(1);
+    // A processed window page is reused; a disposed processor resolves nothing.
+    expect((await processor.resolvePage(0))?.imageUri).toBe(VALID_PNG_DATA_URI);
+    processor.dispose();
+    expect(await processor.resolvePage(6)).toBeNull();
+  });
+
   test("falls back to the source image request when page processing fails", async () => {
     const bridge: MobileAidokuExecutorBridge = {
       async loadSource() {

@@ -93,7 +93,12 @@ internal data class AidokuSandboxHttpRequest(
   val method: String,
   val headers: Map<String, String>,
   val body: String?,
-  val timeoutMs: Int
+  val timeoutMs: Int,
+  /**
+   * Set for a cancellable operation's requests (see
+   * [AidokuSandboxCancellation]), so a cancellation can reach them.
+   */
+  val requestId: String? = null
 )
 
 internal data class AidokuSandboxHttpResponse(
@@ -424,8 +429,21 @@ internal class AidokuSandboxManager(
   context: Context,
   private val httpRequest: (AidokuSandboxHttpRequest) -> AidokuSandboxHttpResponse,
   private val decorateImageHeaders:
-    (String, String, Map<String, String>) -> Map<String, String>
+    (String, String, Map<String, String>) -> Map<String, String>,
+  cancelHttpRequest: (String) -> Unit = {}
 ) {
+  private val cancellation = AidokuSandboxCancellation(cancelHttpRequest)
+
+  /**
+   * Cancels the operation that carries [token] (see
+   * [AidokuSandboxCancellation]). Safe from any thread; never waits for the
+   * serial executor, which is exactly what is busy.
+   */
+  fun cancelOperation(token: String): Boolean {
+    if (!AidokuSandboxCancellation.isValidToken(token)) return false
+    return cancellation.cancel(token)
+  }
+
   private val applicationContext = context.applicationContext
   private val settingsStore = AidokuSandboxSettingsStore(applicationContext)
   private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
@@ -513,11 +531,22 @@ internal class AidokuSandboxManager(
       require(operationJson.length <= 2 * 1024 * 1024) {
         "Aidoku operation exceeds the safety limit."
       }
-      JSONObject(operationJson)
-      check(!disposeRequestedSessionIds.contains(sessionId)) { "Aidoku session expired." }
-      val session = sessions[sessionId] ?: throw IllegalStateException("Aidoku session expired.")
-      ensureSessionRegistered(session)
-      executeOperationLocked(session, operationJson)
+      val operation = JSONObject(operationJson)
+      val cancelToken = AidokuSandboxCancellation.takeToken(operation)
+      try {
+        cancellation.throwIfCancelled(cancelToken)
+        check(!disposeRequestedSessionIds.contains(sessionId)) { "Aidoku session expired." }
+        val session =
+          sessions[sessionId] ?: throw IllegalStateException("Aidoku session expired.")
+        ensureSessionRegistered(session)
+        executeOperationLocked(
+          session,
+          if (cancelToken == null) operationJson else operation.toString(),
+          cancelToken = cancelToken
+        )
+      } finally {
+        cancellation.finish(cancelToken)
+      }
     }
   }
 
@@ -841,7 +870,8 @@ internal class AidokuSandboxManager(
     session: NativeSandboxSession,
     operationJson: String,
     deadline: Long = System.nanoTime() +
-      TimeUnit.MILLISECONDS.toNanos(SANDBOX_OPERATION_TIMEOUT_MS)
+      TimeUnit.MILLISECONDS.toNanos(SANDBOX_OPERATION_TIMEOUT_MS),
+    cancelToken: String? = null
   ): String {
     val operationId = UUID.randomUUID().toString()
     val operationKind = JSONObject(operationJson).optString("kind")
@@ -866,6 +896,8 @@ internal class AidokuSandboxManager(
       var httpRounds = 0
       var jsEvaluations = 0
       repeat(SANDBOX_MAX_REPLAY_ROUNDS + NEMU_AIDOKU_JS_MAX_EVALUATIONS + 1) {
+        // A cancelled operation stops between rounds.
+        cancellation.throwIfCancelled(cancelToken)
         val output = evaluate(
           "NemuAidokuSandbox.executeOperation(${quote(operationId)})",
           remainingMillis(deadline)
@@ -905,9 +937,17 @@ internal class AidokuSandboxManager(
               method = requestJson.optString("method", "GET"),
               headers = jsonStringMap(requestJson.optJSONObject("headers")),
               body = if (requestJson.isNull("body")) null else requestJson.optString("body"),
-              timeoutMs = minOf(SANDBOX_HTTP_TIMEOUT_MS, remainingMs.toInt())
+              timeoutMs = minOf(SANDBOX_HTTP_TIMEOUT_MS, remainingMs.toInt()),
+              requestId = cancellation.beginHttp(cancelToken, httpRounds)
             )
-            val response = httpRequest(request)
+            val response = try {
+              httpRequest(request)
+            } finally {
+              cancellation.endHttp(cancelToken)
+            }
+            // A cancelled request fails with a transport error; report the
+            // cancellation instead so React Native re-queues the operation.
+            cancellation.throwIfCancelled(cancelToken)
             if (response.status == 0 || response.error != null) {
               throw IllegalStateException(response.error ?: "Aidoku HTTP request failed.")
             }

@@ -171,6 +171,7 @@ import {
 import {
   MOBILE_JAPANESE_LEARNING_QA_ANALYZING_HOLD_MS,
   MOBILE_JAPANESE_LEARNING_QA_TIMELINE_MODE,
+  getMobileJapaneseLearningQaScenario,
   pickMobileJapaneseLearningQaDetection,
 } from "@/lib/mobileJapaneseLearningQa";
 import { JapaneseLearningNemuChatDrawer } from "@/components/reader/japaneseLearning/JapaneseLearningNemuChatDrawer";
@@ -356,8 +357,17 @@ import {
 import {
   runMobileJapaneseLearningOcr,
   type MobileOcrDetection,
+  type MobileJapaneseLearningOcrOptions,
   type MobileJapaneseLearningOcrResult,
 } from "@/lib/mobileJapaneseLearningOcr";
+import {
+  createMobileJapaneseLearningChatPageTools,
+  type MobileJapaneseLearningChatPageSnapshot,
+} from "@/lib/mobileJapaneseLearningChatPageTools";
+import {
+  mobileJapaneseLearningPageOcrKey,
+  mobileJapaneseLearningPageOcrStore,
+} from "@/lib/mobileJapaneseLearningPageOcrStore";
 import {
   getMobileJapaneseLearningExplainPrompt,
   parseMobileJapaneseLearningResponseMode,
@@ -2177,6 +2187,57 @@ export function ReaderScreen() {
   const japaneseLearningVisiblePageIdsKey = JSON.stringify(
     japaneseLearningVisiblePages.map((page) => page.id),
   );
+  // One transcript per page for the reader and Nemu Chat alike (web's
+  // text-detector `transcripts` map): keyed by page id, so a page Nemu read
+  // before it was ever processed for display is the same page on screen.
+  const japaneseLearningPageOcrKeyFor = useCallback(
+    (page: MobileReaderPage) =>
+      mobileJapaneseLearningPageOcrKey({
+        registryId: routeRef.registryId,
+        sourceId: routeRef.sourceId,
+        mangaId,
+        chapterId,
+        pageId: page.id,
+      }),
+    [chapterId, mangaId, routeRef.registryId, routeRef.sourceId],
+  );
+  const recognizeJapaneseLearningReaderPage = useCallback(
+    (page: MobileReaderPage, options: MobileJapaneseLearningOcrOptions = {}) =>
+      page.text?.trim() || getMobileJapaneseLearningQaScenario("ocr")
+        ? runMobileJapaneseLearningOcr(page, options)
+        : mobileJapaneseLearningPageOcrStore.recognize({
+            key: japaneseLearningPageOcrKeyFor(page),
+            page,
+            priority: "reader",
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.onPartialResult
+              ? { onPartialResult: options.onPartialResult }
+              : {}),
+          }),
+    [japaneseLearningPageOcrKeyFor],
+  );
+  const japaneseLearningPageOcrVersion = useSyncExternalStore(
+    mobileJapaneseLearningPageOcrStore.subscribe,
+    mobileJapaneseLearningPageOcrStore.version,
+  );
+  // Every visible page already read (by Nemu, or earlier on this page):
+  // like web, its boxes and transcript show without another tap.
+  const japaneseLearningVisiblePagesOcrCached = useMemo(() => {
+    void japaneseLearningPageOcrVersion;
+    if (japaneseLearningVisiblePages.length === 0) return false;
+    if (getMobileJapaneseLearningQaScenario("ocr")) return false;
+    return japaneseLearningVisiblePages.every(
+      (page) =>
+        !page.text?.trim() &&
+        mobileJapaneseLearningPageOcrStore.peek(
+          japaneseLearningPageOcrKeyFor(page),
+        ) !== undefined,
+    );
+  }, [
+    japaneseLearningPageOcrKeyFor,
+    japaneseLearningPageOcrVersion,
+    japaneseLearningVisiblePages,
+  ]);
   const visibleProgressPageIndex = useMemo(
     () =>
       readerProgressDisplayIndexForVisiblePages(
@@ -3493,13 +3554,17 @@ export function ReaderScreen() {
       const run = japaneseLearningOcrRunRef.current + 1;
       japaneseLearningOcrRunRef.current = run;
       const signal = japaneseLearningLifecycleRef.current!.begin("ocr");
-      void runMobileJapaneseLearningSpreadOcr(japaneseLearningVisiblePages, {
-        signal,
-        onPartialResult: (partial) => {
-          if (japaneseLearningOcrRunRef.current !== run) return;
-          setJapaneseLearningOcrState({ status: "loading", partial });
+      void runMobileJapaneseLearningSpreadOcr(
+        japaneseLearningVisiblePages,
+        {
+          signal,
+          onPartialResult: (partial) => {
+            if (japaneseLearningOcrRunRef.current !== run) return;
+            setJapaneseLearningOcrState({ status: "loading", partial });
+          },
         },
-      })
+        recognizeJapaneseLearningReaderPage,
+      )
         .then((result) => {
           if (japaneseLearningOcrRunRef.current !== run) return;
           setJapaneseLearningOcrState({ status: "ready", result });
@@ -3522,6 +3587,7 @@ export function ReaderScreen() {
       currentDisplayedPage,
       japaneseLearningOcrPageReadiness,
       japaneseLearningVisiblePages,
+      recognizeJapaneseLearningReaderPage,
       strings,
     ],
   );
@@ -3544,7 +3610,13 @@ export function ReaderScreen() {
   }, [startJapaneseLearningOcr]);
 
   useEffect(() => {
-    if (japaneseLearningReaderPlugin?.values.autoDetect !== true) return;
+    if (!japaneseLearningReaderPlugin) return;
+    if (
+      japaneseLearningReaderPlugin.values.autoDetect !== true &&
+      !japaneseLearningVisiblePagesOcrCached
+    ) {
+      return;
+    }
     if (japaneseLearningOcrState.status !== "idle") return;
     if (!currentDisplayedPage) return;
     if (!currentDisplayedPage.text?.trim() && !currentDisplayedPage.imageUri)
@@ -3566,7 +3638,8 @@ export function ReaderScreen() {
     japaneseLearningVisiblePageKey,
     currentImageMetadataReady,
     japaneseLearningOcrState.status,
-    japaneseLearningReaderPlugin?.values.autoDetect,
+    japaneseLearningReaderPlugin,
+    japaneseLearningVisiblePagesOcrCached,
     readyFetchedAt,
     startJapaneseLearningOcr,
   ]);
@@ -3794,88 +3867,74 @@ export function ReaderScreen() {
     [japaneseLearningChatSession, prefetchJapaneseLearningChatVoice],
   );
 
+  /**
+   * Web `executeTool` (chat/service.ts): Nemu reads any page of this chapter
+   * off screen and the reader never moves. The tools read the page list at
+   * call time — a reply outlives the render that sent it — and the reader
+   * leaving cancels whatever page work Nemu still has queued.
+   */
+  const japaneseLearningChatPagesRef =
+    useRef<MobileJapaneseLearningChatPageSnapshot | null>(null);
+  useEffect(() => {
+    const status = pagesState.status;
+    japaneseLearningChatPagesRef.current = {
+      status:
+        status === "ready"
+          ? "ready"
+          : status === "loading" || status === "idle"
+            ? "loading"
+            : "unavailable",
+      pages: displayedPages,
+      indexForPageNumber: (pageNumber) =>
+        Number.isInteger(pageNumber) && pageNumber <= displayedPages.length
+          ? readerDisplayIndexForRoutePage(
+              pageNumber,
+              displayedPages.length,
+              mode,
+            )
+          : null,
+      pageKey: japaneseLearningPageOcrKeyFor,
+      resolvePage: pageProcessor?.resolvePage
+        ? (index, signal) =>
+            pageProcessor.resolvePage!(index, { signal, priority: "normal" })
+        : undefined,
+    };
+  }, [
+    displayedPages,
+    japaneseLearningPageOcrKeyFor,
+    mode,
+    pageProcessor,
+    pagesState.status,
+  ]);
+  const japaneseLearningChatToolsRef = useRef<ReturnType<
+    typeof createMobileJapaneseLearningChatPageTools
+  > | null>(null);
+  useEffect(() => {
+    const lifetime = new AbortController();
+    japaneseLearningChatToolsRef.current =
+      createMobileJapaneseLearningChatPageTools({
+        getSnapshot: () => japaneseLearningChatPagesRef.current,
+        lifetimeSignal: lifetime.signal,
+      });
+    return () => lifetime.abort();
+  }, []);
   const executeJapaneseLearningChatTool = useCallback(
     async (
       toolCall: MobileJapaneseLearningChatToolCall,
       options?: { signal: AbortSignal },
     ): Promise<MobileJapaneseLearningChatToolResult> => {
-      const fail = (result: string): MobileJapaneseLearningChatToolResult => ({
-        toolCallId: toolCall.toolCallId,
-        toolName: toolCall.toolName,
-        result,
-        isError: true,
-      });
-      const ok = (result: string): MobileJapaneseLearningChatToolResult => ({
-        toolCallId: toolCall.toolCallId,
-        toolName: toolCall.toolName,
-        result,
-      });
-
-      if (
-        toolCall.toolName !== "request_transcript" &&
-        toolCall.toolName !== "trigger_ocr"
-      ) {
-        return fail(`Unknown tool: ${toolCall.toolName}`);
+      const execute = japaneseLearningChatToolsRef.current;
+      if (!execute) {
+        return {
+          toolCallId: toolCall.toolCallId,
+          toolName: toolCall.toolName,
+          result: "Page not available in the current chapter.",
+          isError: true,
+        };
       }
-
-      const pageNumber = Number(toolCall.args.pageNumber);
-      if (!Number.isFinite(pageNumber) || pageNumber < 1) {
-        return fail("Invalid page number provided.");
-      }
-      if (pageNumber > pageCount) {
-        return fail("Page not found in the current chapter.");
-      }
-
-      const displayIndex = readerDisplayIndexForRoutePage(
-        pageNumber,
-        pageCount,
-        mode,
-      );
-      if (displayIndex == null) {
-        return fail("Page not found in the current chapter.");
-      }
-
-      const page = displayedPages[displayIndex];
-      if (!page) {
-        return fail("Page not available in the current chapter.");
-      }
-
-      const sourceText = page.text?.trim();
-      if (sourceText) {
-        return ok(
-          toolCall.toolName === "trigger_ocr"
-            ? `OCR already available for page ${pageNumber}.`
-            : sourceText,
-        );
-      }
-      if (!page.imageUri) {
-        return fail(`Page ${pageNumber} image not available yet.`);
-      }
-
-      try {
-        const ocrResult = await runMobileJapaneseLearningOcr(page, {
-          signal: options?.signal,
-        });
-        const transcript = ocrResult.text.trim();
-        if (!transcript) return fail("No text found on this page.");
-        return ok(
-          toolCall.toolName === "trigger_ocr"
-            ? `OCR complete for page ${pageNumber}.`
-            : transcript,
-        );
-      } catch (error) {
-        // Tool results are read by the model, not the reader, so this stays
-        // untranslated — but the stable summary still leads, with a sanitized
-        // reason appended rather than replacing it.
-        const reason = sanitizeMobileErrorDiagnostic(error);
-        return fail(
-          reason
-            ? `OCR processing failed or timed out. (${reason})`
-            : "OCR processing failed or timed out.",
-        );
-      }
+      return execute(toolCall, options);
     },
-    [displayedPages, mode, pageCount],
+    [],
   );
 
   /** Web `buildHiddenContextFromReader`: the OCR transcript when this page has one. */
@@ -4165,7 +4224,11 @@ export function ReaderScreen() {
     japaneseLearningOcrRunRef.current = ocrRun;
     setJapaneseLearningOcrState({ status: "loading" });
     const signal = japaneseLearningLifecycleRef.current!.begin("ocr");
-    void runMobileJapaneseLearningSpreadOcr(japaneseLearningVisiblePages, { signal })
+    void runMobileJapaneseLearningSpreadOcr(
+      japaneseLearningVisiblePages,
+      { signal },
+      recognizeJapaneseLearningReaderPage,
+    )
       .then((ocrResult) => {
         if (japaneseLearningOcrRunRef.current !== ocrRun) return;
         setJapaneseLearningOcrState({ status: "ready", result: ocrResult });
@@ -4212,6 +4275,7 @@ export function ReaderScreen() {
     currentDisplayedPage,
     japaneseLearningVisiblePages,
     getJapaneseLearningSentenceText,
+    recognizeJapaneseLearningReaderPage,
     japaneseLearningGrammarContext,
     japaneseLearningSelectedDetectionOrder,
     startJapaneseLearningChatRequest,
@@ -4487,9 +4551,11 @@ export function ReaderScreen() {
         japaneseLearningOcrRunRef.current = ocrRun;
         ttsOcrRun = ocrRun;
         setJapaneseLearningOcrState({ status: "loading" });
-        ocrResult = await runMobileJapaneseLearningSpreadOcr(japaneseLearningVisiblePages, {
-          signal,
-        });
+        ocrResult = await runMobileJapaneseLearningSpreadOcr(
+          japaneseLearningVisiblePages,
+          { signal },
+          recognizeJapaneseLearningReaderPage,
+        );
         if (japaneseLearningOcrRunRef.current !== ocrRun) return;
         // Commit the OCR result even if the user stopped TTS mid-fetch — the
         // detection state is independent of playback and must not stay
@@ -4584,6 +4650,7 @@ export function ReaderScreen() {
     japaneseLearningVisiblePages,
     japaneseLearningOcrState,
     japaneseLearningSelectedDetectionOrder,
+    recognizeJapaneseLearningReaderPage,
     japaneseLearningTtsSource,
     japaneseLearningTtsState.status,
     stopJapaneseLearningTts,

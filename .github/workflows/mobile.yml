@@ -453,6 +453,11 @@ jobs:
             -o "$test_dir/session-tests"
           "$test_dir/session-tests"
           xcrun swiftc -parse-as-library \
+            modules/nemu-aidoku/ios/NemuAidokuSandboxSessionPolicy.swift \
+            modules/nemu-aidoku/runtime/iosTest/NemuAidokuSandboxCancellationTests.swift \
+            -o "$test_dir/cancellation-tests"
+          "$test_dir/cancellation-tests"
+          xcrun swiftc -parse-as-library \
             modules/nemu-aidoku/ios/NemuAidokuIsolatedJSEngine.swift \
             modules/nemu-aidoku/runtime/iosTest/NemuAidokuIsolatedJSEngineTests.swift \
             -framework JavaScriptCore \
